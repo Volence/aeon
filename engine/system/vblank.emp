@@ -8,7 +8,9 @@ use engine.sound_constants.*
 
 // 68k-side view of the Z80 sound driver's DMA-window flag (SND_Z80_BASE +
 // SND_CTRL_DMA_ACTIVE). Comptime-folded sum; the bare operand spelling
-// width-selects abs.l ($A01F04 sits outside the abs.w window).
+// width-selects abs.l ($A01F04 sits outside the abs.w window). This equ names a
+// global linker symbol — Section_RedrawPlanes references it for its own poke-storm
+// flag bracket.
 equ SND_DMA_ACTIVE_SLOT = SND_Z80_BASE + SND_CTRL_DMA_ACTIVE
 
 // The Z80-state snapshot Sound_DebugMirror is now engine.debug.sound_debug-owned

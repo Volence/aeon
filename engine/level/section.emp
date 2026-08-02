@@ -10,6 +10,9 @@ use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
+use engine.z80_bus.{stop_z80, start_z80}
+// SND_DMA_ACTIVE_SLOT (the 68k-side DMA-window flag slot) is a global linker
+// symbol defined by engine.vblank; referenced bare below for the poke-storm bracket.
 
 // ---- Sec / Act field access comes from the shared engine.structs module
 // (`Sec.field(aN)` / `Act.field(aN)`, the grid-dim low-byte views via
@@ -193,6 +196,19 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         move.w  sr, -(sp)
         move.w  #$2700, sr
 
+        // Sound (flag bracket): this redraw masks IRQs for a ~3-frame VDP poke
+        // storm, so VInt_Level cannot manage the DMA-window flag across it. Raise
+        // SND_CTRL_DMA_ACTIVE=1 (the same bracket VInt_Level uses) so the Z80
+        // producer takes its DRAIN path and never issues a banked ROM read that
+        // would contend with the storm and underrun the DAC. The raise's own
+        // bus-held write sits inside the SR mask, so a mid-bracket IRQ6 can't
+        // release the bus under it. Lowered before the SR restore below.
+        if SOUND_DRIVER_ENABLED == 1 {
+            stop_z80()
+            move.b  #1, SND_DMA_ACTIVE_SLOT     // raise: poke storm open (Z80 -> DRAIN)
+            start_z80()
+        }
+
         // -- Plane A: column-major write --
         move.w  #$8F80, (a5)
 
@@ -365,6 +381,16 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
     .plb_done:
         // Restore default autoincrement (matches VInt_DrawLevel cleanup)
         move.w  #$8F02, (a5)
+
+        // Sound (flag bracket close): the poke storm is finished — ROM is safe to
+        // read again. Clear SND_CTRL_DMA_ACTIVE=0 so the Z80 producer leaves DRAIN
+        // and resumes FILL read-ahead. Still inside the SR mask (the bus-held write
+        // stays IRQ-protected); the mask is released immediately below.
+        if SOUND_DRIVER_ENABLED == 1 {
+            stop_z80()
+            move.b  #0, SND_DMA_ACTIVE_SLOT     // lower: poke storm closed (Z80 -> FILL)
+            start_z80()
+        }
 
         // Restore interrupt mask (allow VBlank again)
         move.w  (sp)+, sr
