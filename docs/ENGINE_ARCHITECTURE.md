@@ -1476,7 +1476,9 @@ Camera scrolls toward a section boundary
   → Object art is already resident (whole-act VRAM pool, paged at init);
     objects spawn at the camera edge (4.9) with their static art_tile
   → Camera crosses (Camera >> SECTION_SIZE_SHIFT) changes:
-      → parallax config snap/lerp, palette cross-fade, music swap
+      → parallax config snap/lerp (shipped); palette cross-fade + music
+        swap are descriptor-driven design-stage (sec_pal/sec_music have no
+        transition consumer yet — §4.2, §7.1)
   → No art swap, no preload window, no Section_Enter event — the camera
     just keeps moving; the section is "entered" purely by world position
 ```
@@ -2016,7 +2018,7 @@ Example: Oracle Jungle Zone Act 1
 Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
-; Section definition — 66 bytes per (X, Y) cell (Sec struct in structs.asm):
+; Section definition — 66 bytes per (X, Y) cell (Sec struct in structs.emp):
     dc.l    sec_block_index      ; +$00: 256-entry block index (ROM pointer, see §4.3/§4.7)
     dc.l    sec_objects          ; +$04: object layout (6-byte objentry entries, X-sorted, see 4.9)
     dc.l    sec_rings            ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
@@ -2046,7 +2048,7 @@ Each section in the 2D grid is fully self-describing — almost its own level:
 
 Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. No Genesis game has this level of per-area control within a single level.
 
-**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes). No delta format, no compression — raw CRAM data, instant load on section transition. Palette cross-fading (7.1) interpolates between the outgoing and incoming 128-byte copies over ~16 frames.
+**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression. **Descriptor field only — no shipped consumer.** No section-transition code reads `sec_pal` today (engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`/`sec_camera_lookahead`, not `sec_pal`); the descriptor-driven palette *load* on section transition — instant or cross-faded — is **design-stage** (§7.1, whose §7 banner marks the whole palette-transition/cross-fade/cycling cluster as PLANNED, not implemented). What ships today is the game-poked path: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
 
 ### 4.3 Pre-Computed Nametable Data (Block-Based) (confirmed by Batman & Robin)
 
@@ -3092,7 +3094,9 @@ Palette management, raster effects, hardware-driven lighting, and a lightweight 
 
 ### 7.1 Palette System
 
-**Palette cross-fading:** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Armed as the camera nears a section boundary and completed across the crossing, so there is no jarring palette snap at the boundary. ~3840 cycles during the transition window, run in idle time.
+**Shipped vs planned.** Only the **dirty-line DMA upload** is implemented (see "Palette DMA via queue" below and §1.1's `Palette_Dirty` 4-bit mask + `Enqueue_Dirty_Buffers` in `engine/system/buffers.emp`): game code writes `Palette_Buffer` and flags dirty lines, which DMA to CRAM as Critical priority. Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design** (per the §7 banner); no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet.
+
+**Palette cross-fading (planned):** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Armed as the camera nears a section boundary and completed across the crossing, so there is no jarring palette snap at the boundary. ~3840 cycles during the transition window, run in idle time.
 
 **Computed water palette (NOVEL):** Instead of maintaining separate water palette data per zone, compute at runtime: `water_color = (base_color >> 1) + blue_bias`. Automatically adapts to palette cycling AND cross-fading — water palette is always derived from current palette, never stale. No Genesis game computes water palettes at runtime.
 
