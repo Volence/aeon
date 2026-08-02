@@ -60,21 +60,33 @@ pub proc Read_Controllers () clobbers(d0-d4/a0) {
         rts
 
     // -----------------------------------------------
-    // .read_pad_6 — one full 6-button burst on one port. Sequence mirrors
-    // Vectorman disasm.asm:7911 (7 alternating TH writes starting $40, read
-    // after the first six, 2-nop settle each — the S1/SGDK settle discipline):
-    //   w$40 r1: TH=1  1CBRLDU      (main high)
-    //   w$00 r2: TH=0  0SA00DU      (main low: Start/A)
-    //   w$40 r3: TH=1  1CBRLDU      (repeat, discarded)
-    //   w$00 r4: TH=0  0SA0000      <- SIGNATURE #1: D-pad nibble all-zero
-    //   w$40 r5: TH=1  1CB MXYZ     <- extra buttons
-    //   w$00 r6: TH=0  0SA11xx      <- SIGNATURE #2: bits 3-2 forced %11
-    //   w$40      restore idle high (TH high for the next frame)
-    // Detect = BOTH signatures (r4 nibble==0 AND r6 bits3-2==%11) -> PAD_6BTN,
-    // ext = ~r5 & $0F. Either signature absent -> PAD_3BTN, ext = 0 (r1/r2
-    // already carry the full 3-button state; a 3-button pad repeats them every
-    // cycle, so the burst is harmless). SGDK's two-signature rule: the all-zero
-    // nibble alone is faked by broken/autofire pads.
+    // .read_pad_6 — one full 6-button burst on one port. LOW-FIRST cadence
+    // (SGDK/plutiedev standard), VERIFIED against oracle's MDControl6 device
+    // model (Devices/MD1600IO/MDControl6.cpp GetDesiredLineState: the internal
+    // counter advances on TH RISING edges, so the extended phases appear on the
+    // TH-LOW reads that FOLLOW each rise — a HIGH-first burst samples them a half
+    // cycle early and always degrades to PAD_3BTN). 8 alternating TH writes
+    // starting $00, read after the first seven, 2-nop settle each (the S1/SGDK
+    // settle discipline):
+    //   w$00 r1: TH=0  0SA00DU      (counter0 low — Start/A)
+    //   w$40 r2: TH=1  1CBRLDU      (rising->counter1, high — main buttons)
+    //   w$00 r3: TH=0               (counter1 low — discarded)
+    //   w$40 r4: TH=1               (rising->counter2, high — discarded)
+    //   w$00 r5: TH=0  0SA0000      <- SIGNATURE #1: D-pad nibble all-zero (counter2 low)
+    //   w$40 r6: TH=1  1CB ZYXM     <- extra buttons (rising->counter3, high)
+    //   w$00 r7: TH=0  0SA11xx      <- SIGNATURE #2: bits 3-2 read %11 (counter3 low)
+    //   w$40      restore idle high (rising -> counter wraps; TH high next frame)
+    // Detect = BOTH signatures (r5 nibble==0 AND r7 bits3-2==%11) -> PAD_6BTN,
+    // ext = ~r6 & $0F. Either signature absent -> PAD_3BTN, ext = 0 (r1/r2
+    // already carry the full 3-button state; a 3-button pad just repeats them, so
+    // the burst is harmless). SGDK's two-signature rule kills the false positive:
+    // on a 3-button pad r5 is SA00DU with D2/D3 grounded, so its nibble reads 0000
+    // ONLY when U+D are both held — and SIGNATURE #2 then rejects that (a 3-button
+    // pad grounds bits 3-2 at r7 = %00, not the 6-button %11).
+    //
+    // ext nibble mapping (oracle MDControl6: D0=Z, D1=Y, D2=X, D3=Mode): the raw
+    // low nibble is MXYZ with Mode at bit3, so ext = ~r6 & $0F yields Z=bit0,
+    // Y=bit1, X=bit2, MODE=bit3 — exactly the BUTTON_EXT_* constants.
     //
     // In:  a0 = port data register address
     // Out: d0.b = SACBRLDU (1=pressed, SOCD-guarded) · d1.b = 0000MXYZ (1=pressed)
@@ -82,35 +94,39 @@ pub proc Read_Controllers () clobbers(d0-d4/a0) {
     // Clobbers: d0-d4
     // -----------------------------------------------
     .read_pad_6:
-        move.b  #$40, (a0)                  // r1: TH = 1
+        move.b  #$00, (a0)                  // r1: TH = 0 (counter 0 low)
         nop
         nop                                 // TH settle: 2 nops (real-HW settle, invisible to emulators)
-        move.b  (a0), d0                    // main high (1CBRLDU)
-        move.b  #$00, (a0)                  // r2: TH = 0
-        nop
-        nop
         move.b  (a0), d1                    // main low (0SA00DU)
-        move.b  #$40, (a0)                  // r3: TH = 1
+        move.b  #$40, (a0)                  // r2: TH = 1 (rising -> counter 1)
         nop
         nop
-        move.b  (a0), d4                    // repeat main high (discarded)
-        move.b  #$00, (a0)                  // r4: TH = 0
+        move.b  (a0), d0                    // main high (1CBRLDU)
+        move.b  #$00, (a0)                  // r3: TH = 0 (counter 1 low, discarded)
         nop
         nop
-        move.b  (a0), d2                    // SIGNATURE #1 candidate (D-pad nibble)
-        move.b  #$40, (a0)                  // r5: TH = 1
+        move.b  (a0), d4                    // discarded
+        move.b  #$40, (a0)                  // r4: TH = 1 (rising -> counter 2, discarded)
         nop
         nop
-        move.b  (a0), d3                    // extra buttons (1CB MXYZ)
-        move.b  #$00, (a0)                  // r6: TH = 0
+        move.b  (a0), d4                    // discarded
+        move.b  #$00, (a0)                  // r5: TH = 0 (counter 2 low)
         nop
         nop
-        move.b  (a0), d4                    // SIGNATURE #2 candidate (bits 3-2)
+        move.b  (a0), d2                    // SIGNATURE #1 candidate (D-pad nibble all-zero on 6-btn)
+        move.b  #$40, (a0)                  // r6: TH = 1 (rising -> counter 3)
+        nop
+        nop
+        move.b  (a0), d3                    // extra buttons (1CB ZYXM)
+        move.b  #$00, (a0)                  // r7: TH = 0 (counter 3 low)
+        nop
+        nop
+        move.b  (a0), d4                    // SIGNATURE #2 candidate (bits 3-2 read %11 on 6-btn)
         move.b  #$40, (a0)                  // restore idle high
 
-        // --- fuse main SACBRLDU (1 = pressed) from r1 (d0) + r2 (d1) ---
-        andi.b  #%00111111, d0              // r1 -> CBRLDU
-        andi.b  #%00110000, d1              // r2 -> SA
+        // --- fuse main SACBRLDU (1 = pressed) from r2 (d0=CBRLDU) + r1 (d1=SA) ---
+        andi.b  #%00111111, d0              // r2 -> CBRLDU
+        andi.b  #%00110000, d1              // r1 -> SA
         lsl.b   #2, d1                       // SA -> bits 7-6
         or.b    d1, d0                       // SACBRLDU (0 = pressed)
         not.b   d0                           // invert: 1 = pressed
@@ -132,12 +148,12 @@ pub proc Read_Controllers () clobbers(d0-d4/a0) {
 
         // --- detect: BOTH signatures required -> PAD_6BTN, else PAD_3BTN ---
         moveq   #0, d1                       // ext = 0 (3-button default; d1 free after the fuse)
-        andi.b  #%00001111, d2               // r4 D-pad nibble
+        andi.b  #%00001111, d2               // r5 D-pad nibble
         bne     .three_button                // SIGNATURE #1 absent
-        andi.b  #%00001100, d4               // r6 bits 3-2
+        andi.b  #%00001100, d4               // r7 bits 3-2
         cmpi.b  #%00001100, d4
         bne     .three_button                // SIGNATURE #2 absent
-        // both present -> 6-button; ext = ~r5 & $0F (0000MXYZ, 1 = pressed)
+        // both present -> 6-button; ext = ~r6 & $0F (0000MXYZ, 1 = pressed)
         not.b   d3
         andi.b  #%00001111, d3
         move.b  d3, d1                       // d1 = ext
