@@ -1,0 +1,52 @@
+// engine.objects.mapping_dsl — the sprite-mapping authoring DSL.
+//
+// The VDP mapping format a game's `offsets` frame index is built from: the
+// single-piece frame record and the comptime helpers that pack it. A frame
+// record is the 4-byte signed bounding box (far edges), a piece count word, then
+// that many 8-byte VDP pieces (Y offset, size|link, tile attrs, X offset).
+//
+// This is a types + comptime-fn module: it emits no bytes. Games `use` it so the
+// mapping shape is authored once (the demo template and the sonic4 test mappings
+// share this home).
+module engine.objects.mapping_dsl
+
+// One VDP sprite piece: Y offset, size byte (spr_size), link placeholder, tile
+// attribute word (relative to art_tile), X offset.
+pub struct MapPiece {
+    y_off: i16,
+    size:  u8,
+    link:  u8,
+    tile:  u16,
+    x_off: i16,
+}
+
+// A single-piece frame: signed bbox (far edges), a piece count of 1, the piece.
+pub struct MapFrame1 {
+    x_min: i8,
+    x_max: i8,
+    y_min: i8,
+    y_max: i8,
+    piece_count: u16,
+    piece: MapPiece,
+}
+
+// A centered single-piece frame: bbox = (-half, +half) each axis, the piece
+// offset to center (y_off/x_off = -half). w/h are cell counts (8px); tile is the
+// base tile index. The size byte is the AS sprSize packing: (h-1) in bits 3:2,
+// (w-1) in bits 1:0 — the `sprSize(w,h) >> 8` high byte the VDP piece carries.
+pub comptime fn centered(half: int, w: int where 1..4, h: int where 1..4, tile: int) -> MapFrame1 {
+    return MapFrame1{
+        x_min: -half,
+        x_max: half,
+        y_min: -half,
+        y_max: half,
+        piece_count: 1,
+        piece: MapPiece{
+            y_off: -half,
+            size:  ((h - 1) << 2) | (w - 1),
+            link:  0,
+            tile:  tile,
+            x_off: -half,
+        },
+    }
+}

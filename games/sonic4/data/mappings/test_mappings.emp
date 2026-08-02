@@ -13,50 +13,7 @@
 // the construct emits the same table and range-checks every entry at link.
 module games.sonic4.test_mappings in test_mappings
 
-// sprSize (engine/macros.asm) packs the VDP piece dimensions: (h-1) in bits 3:2,
-// (w-1) in bits 1:0 — the AS `sprSize(w,h) >> 8` high byte the record carries.
-comptime fn spr_size(w: int where 1..4, h: int where 1..4) -> int {
-    return ((h - 1) << 2) | (w - 1)
-}
-
-// One VDP sprite piece: Y offset, size byte (spr_size), link placeholder, tile
-// attribute word (relative to art_tile), X offset.
-struct MapPiece {
-    y_off: i16,
-    size:  u8,
-    link:  u8,
-    tile:  u16,
-    x_off: i16,
-}
-
-// A single-piece frame: signed bbox (far edges), a piece count of 1, the piece.
-struct MapFrame1 {
-    x_min: i8,
-    x_max: i8,
-    y_min: i8,
-    y_max: i8,
-    piece_count: u16,
-    piece: MapPiece,
-}
-
-// A centered single-piece frame: bbox = (-half_w, +half_w, -half_h, +half_h),
-// the piece offset to center (y_off/x_off = -half). w/h are cell counts (8px).
-comptime fn centered(half: int, w: int, h: int, tile: int) -> MapFrame1 {
-    return MapFrame1{
-        x_min: -half,
-        x_max: half,
-        y_min: -half,
-        y_max: half,
-        piece_count: 1,
-        piece: MapPiece{
-            y_off: -half,
-            size:  spr_size(w, h),
-            link:  0,
-            tile:  tile,
-            x_off: -half,
-        },
-    }
-}
+use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered}
 
 pub offsets Map_TestObj {
     F0: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: 0),   // 16x16, color index 1

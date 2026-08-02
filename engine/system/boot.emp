@@ -9,7 +9,7 @@
 module engine.boot in boot
 
 use engine.constants.{VDP_DATA, VDP_CTRL, PSG_PORT}
-use engine.vdp.{VDP_MODE2_OFF}
+use engine.vdp.{VDP_MODE2_OFF, vdp_reg, bytes_to_lcnt}
 use engine.z80_bus.{stop_z80, start_z80}
 
 // The hardware ports below (HW_*, TMSS_REGISTER, YM2612_A0) are bare
@@ -21,22 +21,6 @@ use engine.z80_bus.{stop_z80, start_z80}
 // PSG_DATA_OFF is the directional derive the PSG displacement slot consumes off
 // the VDP_DATA base in a3 (the engine.vdp consumer-side derive pattern).
 const PSG_DATA_OFF = PSG_PORT - VDP_DATA
-
-// vdpReg (engine/macros.asm): VDP register-set command word — $8000 base,
-// register number in the high byte, value in the low byte. The refinements
-// close the macro's silent bit-collisions (vram_art precedent): reg > $17
-// would name a register the VDP doesn't have, val > $FF would bleed into the
-// register-number byte.
-comptime fn vdp_reg(reg: int where 0..$17, val: int where 0..$FF) -> int {
-    return $8000 | (reg << 8) | val
-}
-
-// bytesToLcnt (engine/macros.asm): byte count -> dbf longword-loop count.
-// Bounded to the real clear-loop domain; a non-multiple-of-4 count would
-// silently floor (the AS function shares that edge — documentary).
-comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
-    return n / 4 - 1
-}
 
 // -----------------------------------------------
 // EntryPoint — first instruction after reset

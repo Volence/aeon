@@ -657,20 +657,52 @@ ensure(SeqChannel_len == 60, "SeqChannel struct is {SeqChannel_len} bytes, expec
 ensure(offsetof(SeqChannel, sc_detune) <= 127, "sc_detune offset ({offsetof(SeqChannel, sc_detune)}) exceeds the (ix+d) +127 range")
 // The shared interpreter prefix MUST mirror SeqChannel field offsets so ModUpdate/
 // Sequencer_Channel walk an SfxChannel correctly. The shared block runs +0..+56;
-// the structs diverge at +57 (sc_noise_mode vs sx_priority). Per-field invariant.
+// the structs diverge at +57 (sc_noise_mode vs sx_priority). Every shared field is
+// asserted so any width edit to one struct's prefix that is not mirrored in the
+// other fails the build at the exact field that moved (the drift hazard closes in
+// full — the language rejects nesting one prefix struct into both because offsetof
+// takes a single field name, not a nested path, so per-field asserts are the seam).
+ensure(offsetof(SfxChannel, sc_stream_ptr) == offsetof(SeqChannel, sc_stream_ptr), "SfxChannel.sc_stream_ptr diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_ptr) == offsetof(SeqChannel, sc_mod_ptr), "SfxChannel.sc_mod_ptr diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_dur_count) == offsetof(SeqChannel, sc_dur_count), "SfxChannel.sc_dur_count diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_dur_default) == offsetof(SeqChannel, sc_dur_default), "SfxChannel.sc_dur_default diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_patch) == offsetof(SeqChannel, sc_patch), "SfxChannel.sc_patch diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_last_patch) == offsetof(SeqChannel, sc_last_patch), "SfxChannel.sc_last_patch diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_volume) == offsetof(SeqChannel, sc_volume), "SfxChannel.sc_volume diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_note) == offsetof(SeqChannel, sc_note), "SfxChannel.sc_note diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_flags) == offsetof(SeqChannel, sc_flags), "SfxChannel.sc_flags diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_route) == offsetof(SeqChannel, sc_route), "SfxChannel.sc_route diverges from SeqChannel")
-ensure(offsetof(SfxChannel, sc_note) == offsetof(SeqChannel, sc_note), "SfxChannel.sc_note diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_loop_ptr) == offsetof(SeqChannel, sc_loop_ptr), "SfxChannel.sc_loop_ptr diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_repeat_ptr) == offsetof(SeqChannel, sc_repeat_ptr), "SfxChannel.sc_repeat_ptr diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_repeat_count) == offsetof(SeqChannel, sc_repeat_count), "SfxChannel.sc_repeat_count diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_tempo_mod) == offsetof(SeqChannel, sc_tempo_mod), "SfxChannel.sc_tempo_mod diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_tempo_accum) == offsetof(SeqChannel, sc_tempo_accum), "SfxChannel.sc_tempo_accum diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_pt_count) == offsetof(SeqChannel, sc_pt_count), "SfxChannel.sc_pt_count diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_pt_cursor) == offsetof(SeqChannel, sc_pt_cursor), "SfxChannel.sc_pt_cursor diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_points) == offsetof(SeqChannel, sc_points), "SfxChannel.sc_points diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_transpose) == offsetof(SeqChannel, sc_transpose), "SfxChannel.sc_transpose diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_pan) == offsetof(SeqChannel, sc_pan), "SfxChannel.sc_pan diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_opbias) == offsetof(SeqChannel, sc_opbias), "SfxChannel.sc_opbias diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_porta_accum) == offsetof(SeqChannel, sc_porta_accum), "SfxChannel.sc_porta_accum diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_porta_incr) == offsetof(SeqChannel, sc_porta_incr), "SfxChannel.sc_porta_incr diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_last_pan) == offsetof(SeqChannel, sc_last_pan), "SfxChannel.sc_last_pan diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_master), "SfxChannel.sc_fill_master diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_fill_count) == offsetof(SeqChannel, sc_fill_count), "SfxChannel.sc_fill_count diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_psgenv) == offsetof(SeqChannel, sc_psgenv), "SfxChannel.sc_psgenv diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_psgenv_cur) == offsetof(SeqChannel, sc_psgenv_cur), "SfxChannel.sc_psgenv_cur diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_psgenv_out) == offsetof(SeqChannel, sc_psgenv_out), "SfxChannel.sc_psgenv_out diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_mod_ctrl) == offsetof(SeqChannel, sc_mod_ctrl), "SfxChannel.sc_mod_ctrl diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_wait) == offsetof(SeqChannel, sc_mod_wait), "SfxChannel.sc_mod_wait diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_speed) == offsetof(SeqChannel, sc_mod_speed), "SfxChannel.sc_mod_speed diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_delta) == offsetof(SeqChannel, sc_mod_delta), "SfxChannel.sc_mod_delta diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_steps) == offsetof(SeqChannel, sc_mod_steps), "SfxChannel.sc_mod_steps diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_speed_raw) == offsetof(SeqChannel, sc_mod_speed_raw), "SfxChannel.sc_mod_speed_raw diverges from SeqChannel")
+ensure(offsetof(SfxChannel, sc_mod_step_raw) == offsetof(SeqChannel, sc_mod_step_raw), "SfxChannel.sc_mod_step_raw diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_mod_wait_raw) == offsetof(SeqChannel, sc_mod_wait_raw), "SfxChannel.sc_mod_wait_raw diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_mod_delta_raw) == offsetof(SeqChannel, sc_mod_delta_raw), "SfxChannel.sc_mod_delta_raw diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_mod_accum) == offsetof(SeqChannel, sc_mod_accum), "SfxChannel.sc_mod_accum diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_base_freq) == offsetof(SeqChannel, sc_base_freq), "SfxChannel.sc_base_freq diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_last_freq) == offsetof(SeqChannel, sc_last_freq), "SfxChannel.sc_last_freq diverges from SeqChannel")
-ensure(offsetof(SfxChannel, sc_porta_accum) == offsetof(SeqChannel, sc_porta_accum), "SfxChannel.sc_porta_accum diverges from SeqChannel")
-ensure(offsetof(SfxChannel, sc_porta_incr) == offsetof(SeqChannel, sc_porta_incr), "SfxChannel.sc_porta_incr diverges from SeqChannel")
 
 // Short field-offset accessors — the sc_* aliases keep the Z80 (ix+d) code terse.
 pub const sc_stream_ptr   = offsetof(SeqChannel, sc_stream_ptr)
