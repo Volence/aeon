@@ -11,11 +11,10 @@
 // PCM; the reserved codec-selector slot).
 //
 // All bank/ptr/len cells are the build-time SND_* constants from
-// data/sound/dac_samples.asm — COMPTIME values (the AS twin folds them at
-// assemble time), read here as comptime ints. They are byte/word data cells, not
-// link addresses: a width-1 `db` cannot carry a link symbol in a Z80 section
-// (the un-windowed-pointer guard), and these ARE constants, so they fold to
-// literals exactly as the AS twin does. The size invariant is drift-guarded
+// data/sound/dac_samples.emp — COMPTIME values, read here as comptime ints. They
+// are byte/word data cells, not link addresses: a width-1 `db` cannot carry a
+// link symbol in a Z80 section (the un-windowed-pointer guard), and these ARE
+// constants, so they fold to literals. The size invariant is drift-guarded
 // against the engine's DacSample_len / DAC_SAMPLE_COUNT via `extern(...)` below.
 //
 // BANKED at the engine-table head of the song/SFX bank (main.asm's
@@ -50,15 +49,13 @@ module engine.dac_sample_tab (cpu: z80)
 use engine.sound_constants.{DAC_SAMPLE_COUNT, DacSample_len}
 
 // The table emits 10 descriptors of 9 bytes (db,db,db,dw,dw,dw) = 90 bytes.
-// Partial mirror of the AS twin's `(End-Start) <> DAC_SAMPLE_COUNT*DacSample_len
-// / fatal` span guard: this checks only the RHS — that the engine's DECLARED
-// count × stride still equals this table's declared 90 (a drift guard against
+// The `ensure` below checks only the RHS — that the engine's DECLARED count ×
+// stride still equals this table's declared 90 (a drift guard against
 // DAC_SAMPLE_COUNT / DacSample_len changing). It does NOT read the EMITTED span,
-// so unlike the AS `End-Start` half it cannot catch this `.emp` body emitting the
-// wrong NUMBER of descriptors — the LHS `10*9` is a hand literal, not a measured
-// length. That half awaits a comptime section-length primitive (gap-ledgered);
-// until then the AS twin's canonical `End-Start` guard + the oracle's length pin
-// cover table-body drift.
+// so it cannot catch this body emitting the wrong NUMBER of descriptors — the LHS
+// `10*9` is a hand literal, not a measured length. Emitted-span checking awaits a
+// comptime section-length primitive (gap-ledgered); until then the co-link byte
+// gate + the oracle's length pin cover table-body drift.
 ensure(10 * 9 == DAC_SAMPLE_COUNT * DacSample_len,
        "DacSampleTable size (10 descriptors × 9 bytes) disagrees with DAC_SAMPLE_COUNT × DacSample_len")
 

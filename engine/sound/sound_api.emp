@@ -72,9 +72,7 @@ equ PARAM_PATCHPTR_HI = PARAM_PATCHPTR_LO + 1
 equ SONG_TABLE       = extern("SongTable")
 equ SONG_PATCH_TABLE = extern("SongPatchTable")
 
-// stop_z80/start_z80 come from the shared engine.z80_bus module (hoisted
-// there when bg became the 2nd consumer; the macro↔template lockstep story
-// lives with the module).
+// stop_z80/start_z80 come from the shared engine.z80_bus module.
 
 // z80_bank / z80_window — split a 68k ROM address into the two parts the Z80
 // uses to read that ROM through its banked $8000 window: `bank` selects the

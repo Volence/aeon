@@ -13,9 +13,8 @@
 // `use` a specific game's module — it cross-checks its local copy / injected -D
 // against this file via the link seam).
 //
-// Split from the shared engine constants at E4; flipped from AS to `.emp` at
-// conversion-tail Parcel F (rows 21/54/62/65). The engine-varying values
-// (MAX_RING_BUFFER, VRAM_RING_PLACEHOLDER, COLLECTED_WINDOW_SLOTS) are ALSO
+// The engine-varying values (MAX_RING_BUFFER, VRAM_RING_PLACEHOLDER,
+// COLLECTED_WINDOW_SLOTS) are ALSO
 // injected as per-profile `emp_defines` (native.rs) so the shared engine reads
 // the sonic4 value; those `-D`s are cross-checked against this authority by the
 // engine modules' surviving `ensure(extern(..))` guards.

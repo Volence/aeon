@@ -5,17 +5,14 @@
 // stay `= empty` for games that bind none. Debug_MusicToggle is the per-frame
 // debug_tick impl; SoundTest_BootPing is the boot_hook impl.
 //
-// SHAPE: the AS twin (game_debug.asm) is whole-file `ifdef SOUND_DEBUG_HOTKEYS`
-// / `ifdef SOUND_DRIVER_ENABLED` — it emits ZERO bytes in every normal build
-// (SOUND_DEBUG_HOTKEYS is a dev opt-in, OFF in both canonical shapes). This .emp
-// mirrors that: it is compiled/placed ONLY at the hotkeys shape (the
-// compression_selftest external-gate model — a module-level comptime `if`
-// wrapping items is not expressible, and the whole file is the gated unit). Its
-// canonical emptiness is the TWIN's whole-file ifdef; proven both shapes in
-// game_debug_port.rs. The byte gate is the OFF-CANONICAL twin-parity oracle:
-// there is no canonical reference ROM at the hotkeys shape, so game_debug.emp is
-// byte-checked against game_debug.asm assembled through sigil's AS front-end at
-// that shape.
+// SHAPE: this file is whole-file gated on `SOUND_DEBUG_HOTKEYS` /
+// `SOUND_DRIVER_ENABLED` — it emits ZERO bytes in both canonical shapes
+// (SOUND_DEBUG_HOTKEYS is a dev opt-in, OFF in every shipped build) and is
+// compiled/placed ONLY at the Config-A hotkeys shape (the compression_selftest
+// external-gate model — a module-level comptime `if` wrapping items is not
+// expressible, and the whole file is the gated unit). At that shape the config_a
+// whole-ROM native golden is the byte oracle for its emission; game_debug_port.rs
+// keeps the `.emp`-side proofs (compile, drift guards fire, module-to-module link).
 
 module games.sonic4.game_debug in game_debug
 
@@ -42,8 +39,7 @@ use games.sonic4.sound_ids.{
 
 // The four Sound_* callees are .emp-owned (sound_api.emp) — they resolve
 // module-to-module, so NO `extern proc` decl here (a decl of a .emp-owned proc
-// is a §11-Q4 extern/proc collision, the same reason game_loop.emp's
-// Debug_MusicToggle extern dies this tranche).
+// is a §11-Q4 extern/proc collision).
 //
 // -----------------------------------------------
 // Debug_MusicToggle — DEBUG sound test-harness hotkeys (edge-detected on
@@ -63,13 +59,10 @@ use games.sonic4.sound_ids.{
 //
 // CLOBBERS = the honest transitive closure d0-d4/a0-a1: the body writes
 // d0-d2/a1 directly, and Sound_PlayMusic (sound_api.emp) clobbers d0-d4/a0-a1 —
-// so d3/d4/a0 leak in through that call. The .asm twin's hand comment says
-// "d0-d2/a0/a1", which UNDER-DECLARES d3/d4: the old game_loop.emp extern decl
-// TRUSTED that narrow leaf contract and hid the gap; porting the body makes the
-// contract closure verify it against the real callee, surfacing the leak. The
-// harness relies on nothing across the call (each Sound_* is immediately
-// followed by an rts or a Dbg_Music_On store), so the under-declaration was
-// latent — but the contract must be honest. Twin comment corrected in lockstep.
+// so d3/d4/a0 leak in through that call. The contract closure verifies against
+// the real callee. The harness relies on nothing across the call (each Sound_*
+// is immediately followed by an rts or a Dbg_Music_On store), so the wider
+// closure is latent — but the contract must be honest.
 // -----------------------------------------------
 pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
         // STRUCTURAL WIDTH PIN (step-2 exception class — the trailing-`align`

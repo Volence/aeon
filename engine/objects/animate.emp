@@ -54,15 +54,12 @@ type AnimCallback = proc (a0: *Sst) preserves(a0) clobbers(d0-d2, a1-a2)
 // the caller's d3 when the byte is the DUR_DYNAMIC sentinel. src points at
 // the script's byte 0. Clobbers d2.
 //
-// LOCKSTEP: animate.asm's `reloadAnimTimer` macro is this fn's AS twin
-// (kill-list row 5 class — dies with the twin at Spec 5). The macro's
-// `tag` uniquifier param has no counterpart here: template labels are
-// hygienic, so each expansion gets its own .rt_static.
+// Template labels are hygienic, so each expansion gets its own .rt_static.
 comptime fn reload_anim_timer(src: Reg) -> Code {
     return asm {
         move.b  ({src}), d2
         cmpi.b  #DUR_DYNAMIC, d2
-        bne.s   .rt_static              // PINNED .s (bare-Bcc exception): template byte-locked to the macro twin's explicit width
+        bne.s   .rt_static              // PINNED .s (bare-Bcc exception): macro-transliteration template; .rt_static is a near hygienic label
         move.b  d3, d2                  // dynamic: substitute caller's d3 hold
     .rt_static:
         move.b  d2, Sst.anim_timer(a0)

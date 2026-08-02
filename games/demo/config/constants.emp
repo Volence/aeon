@@ -3,10 +3,10 @@
 //
 // The demo is the "start here" template game: the smallest set of constants an
 // engine-agnostic game must declare. Game `.emp` consumers read them via
-// `use games.demo.constants`; the residual AS (config/game.asm's GAME_ENTRY_ID)
-// and the game-AGNOSTIC engine `.emp` (rings.emp / ram.emp) read them through the
+// `use games.demo.constants`; the game manifest (game.emp's ENTRY_ID) and the
+// game-AGNOSTIC engine `.emp` (rings.emp / ram.emp) read them through the
 // ownership-flip export — the build harvests every `pub const` here and injects it
-// as a guarded AS `-D` define plus a link EquSym (harvest_game_constants,
+// as a guarded `-D` define plus a link EquSym (harvest_game_constants,
 // native.rs), so the engine's `ensure(extern("X") == X)` drift guards cross-check
 // their local copy against this authority.
 //
@@ -21,7 +21,7 @@ use engine.types.{VramTile}
 use engine.constants.{COLLECTED_MASK_BYTES}
 
 // Game state id — the demo's single entry state (0/1 are the engine's
-// GS_BOOT / GS_IDLE). config/game.asm's GAME_ENTRY_ID reads this cross-seam.
+// GS_BOOT / GS_IDLE). game.emp's ENTRY_ID binds boot entry to this.
 pub const GS_DEMO                 = 2
 
 // -----------------------------------------------

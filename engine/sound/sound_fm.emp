@@ -1,19 +1,19 @@
 // ===========================================================================
 // engine/sound/sound_fm.emp — YM2612 FM voice writer + patch load (Sound 1C, Task 3)
 // ===========================================================================
-// The .emp port of sound_fm.asm (this directory) — the INVARIANT-HEAVY half of
-// the rung-2 CONTRACT-model corpus (design note 2026-07-29-z80-rung2-contracts.md;
-// the sound_psg.emp sibling is the CONTRACT-model acceptance corpus). Assembled
-// INLINE inside the z80_sound_driver.asm `phase 0` blob (3rd of 5 includes:
-// sequencer -> sfx -> fm -> psg -> tables), so its labels resolve into Z80 RAM
+// The INVARIANT-HEAVY half of the rung-2 CONTRACT-model corpus (design note
+// 2026-07-29-z80-rung2-contracts.md; the sound_psg.emp sibling is the CONTRACT-
+// model acceptance corpus). Assembled INLINE inside the z80_sound_driver.emp
+// `phase 0` blob (3rd of 5: sequencer -> sfx -> fm -> psg -> tables), so its
+// labels resolve into Z80 RAM
 // and it reaches FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ with direct
 // Z80 addressing (no $8000-window banking). Turns the sequencer's FM-route hooks
 // into real YM2612 register writes: the six FM voices become audible.
 //
-// The `.asm` twin stays CANONICAL in the build (blob-precedes-engine: one Z80
-// byte slides the whole corpus). This `.emp` is proven by the SCALE-1 WINDOWED
-// oracle (`sound_fm_port`), NOT wired into build.sh — the seam sub-tranche owns
-// whole-ROM placement. The phase-0 window is SHAPE-VARIANT: base $12C3 (plain)
+// The CANONICAL, only source (no .asm twin). Native-linked via seam-1
+// (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
+// the whole-ROM byte gate proves both shapes. The phase-0 window is SHAPE-VARIANT:
+// base $12C3 (plain)
 // vs $1341 (debug), because the upstream driver/sequencer/sfx includes grow
 // under __DEBUG__ before fm. fm's OWN layout is shape-invariant (no __DEBUG__
 // here), so the two shapes differ only in the absolute base embedded in the
@@ -84,16 +84,15 @@ use engine.sound_sequencer.{Mod_ReArm}
 
 // FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
 // Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at
-// SND_FM_SCRATCH; each cell folds to its absolute address exactly as the AS twin's
-// equ chain does.
+// SND_FM_SCRATCH; each cell folds to its absolute address.
 const Fm_ScratchPart = SND_FM_SCRATCH + 0    // current part (0/1)
 const Fm_ScratchCh   = SND_FM_SCRATCH + 1    // current ch-in-part (0..2)
 const Fm_ScratchLog  = SND_FM_SCRATCH + 2    // log-volume delta
 const Fm_ScratchMask = SND_FM_SCRATCH + 3    // carrier mask
 const Fm_ScratchOp   = SND_FM_SCRATCH + 4    // op index 0..3 (Fm_PatchTlGroup)
 
-// The scratch defs must all fit inside SND_FM_SCRATCH_LEN (the AS twin's
-// `if (Fm_ScratchOp - SND_FM_SCRATCH) >= SND_FM_SCRATCH_LEN / fatal` wall).
+// The scratch defs must all fit inside SND_FM_SCRATCH_LEN (the ensure below
+// enforces it).
 ensure(Fm_ScratchOp - SND_FM_SCRATCH < SND_FM_SCRATCH_LEN,
        "Fm_Scratch* exceed SND_FM_SCRATCH_LEN")
 
@@ -679,9 +678,8 @@ section sound_fm (cpu: z80, vma: $12C3) {
         dc.b    SND_REG_OP_D1L_RR        // group 5 = $80
     }
 
-    // The table must hold exactly REGDELTA_GROUP_COUNT bases (mirrors the AS twin's
-    // `(RegDeltaGroupBase_End - RegDeltaGroupBase) <> REGDELTA_GROUP_COUNT / fatal`;
-    // the RHS-only drift guard, like dac_sample_tab).
+    // The table must hold exactly REGDELTA_GROUP_COUNT bases (RHS-only drift
+    // guard, like dac_sample_tab).
     ensure(6 == REGDELTA_GROUP_COUNT,
            "RegDeltaGroupBase length must be REGDELTA_GROUP_COUNT")
 

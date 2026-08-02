@@ -1,20 +1,19 @@
 // ===========================================================================
 // engine/sound/sound_sequencer.emp — Z80 music-event-list interpreter (Sound 1C)
 // ===========================================================================
-// The .emp port of sound_sequencer.asm (this directory) — the INTERPRETER: the
-// biggest resident Z80 file and the tranche where the extern trust surface goes
-// to ZERO (Mod_ReArm/Mod_Advance, the last two declaration-trusted externs, are
-// DEFINED + CHECKED here). Assembled INLINE inside the z80_sound_driver.asm
-// `phase 0` blob (included after SndDrv_SetBank, before sound_sfx.asm). Its labels
+// The INTERPRETER: the biggest resident Z80 file and the module where the extern
+// trust surface goes to ZERO (Mod_ReArm/Mod_Advance, the last two declaration-
+// trusted externs, are DEFINED + CHECKED here). Assembled INLINE inside the
+// z80_sound_driver.emp `phase 0` blob (linked after SndDrv_SetBank, before
+// sound_sfx.emp). Its labels
 // resolve into Z80 RAM at base $0565 (shape-INVARIANT). Hardware-AGNOSTIC: it
 // walks the per-channel byte streams, counts durations, handles loops, and
 // DISPATCHES musical events to the FM/PSG/DAC writer hooks. Under DEBUG the trace
 // ring fires independently.
 //
-// The `.asm` twin stays CANONICAL in the build (Z80-blob-precedes-engine: one
-// byte slides the whole corpus). This `.emp` is proven by the SCALE-1 WINDOWED
-// oracle (`sound_sequencer_port`, BOTH shapes), NOT wired into build.sh — the seam
-// sub-tranche owns whole-ROM placement.
+// The CANONICAL, only source (no .asm twin). Native-linked via seam-1
+// (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
+// the whole-ROM byte gate proves both shapes.
 //
 // --- SHAPE VARIANCE: the FIRST resident Z80 CODE file with INTERNAL __DEBUG__ ---
 // Base is $0565 in BOTH shapes (invariant). Unlike psg/fm (shape-invariant
@@ -22,10 +21,9 @@
 // debug shape carries 16 `if DEBUG == 1` blocks (the Seq_Trace body + 15 scattered
 // `call Seq_Trace` sites in the handlers), for +$7E = 126 bytes (plain window
 // $0565..$0CD7 = 1906 B; debug $0565..$0D55 = 2032 B). This +$7E internal growth
-// is the very upstream growth that shifted psg's base $1660->$16DE in t32. The
-// `.emp` carries the `if DEBUG == 1 { … }` bodies; the AS twin keeps its
-// `ifdef __DEBUG__` gate (the shape-divergent-relaxation class — one .emp source,
-// twin per-shape spelling).
+// is the upstream growth that shifts psg's base $1660->$16DE in the debug shape.
+// This file carries the `if DEBUG == 1 { … }` bodies directly — one source, both
+// shapes.
 //
 // --- HARDWARE / BANK CONTRACTS (C3 audit surface) --------------------------
 //   * RESIDENT-ONLY code: every in-frame routine here is RAM-resident. Banked

@@ -52,7 +52,7 @@ const SEQ_MIRROR_CHANNELS = 3
 const SEQ_MIRROR_CHBYTES  = 20                       // per-channel prefix (<= SeqChannel_len)
 const SEQ_MIRROR_HDRCH    = 8 + SEQ_MIRROR_CHANNELS * SEQ_MIRROR_CHBYTES
 
-// Fit guards (comptime — they mirror the AS twin's `if X > Y / fatal` spans).
+// Fit guards (comptime): the ensures below enforce the size bounds.
 ensure(SEQ_MIRROR_CHBYTES <= SeqChannel_len,
        "SEQ_MIRROR_CHBYTES exceeds SeqChannel_len")
 ensure(64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN <= 176,

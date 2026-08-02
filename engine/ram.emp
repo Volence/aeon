@@ -73,7 +73,7 @@ pub vars lower_ram {
     // Block staging cache — recently decompressed blocks (§4.7). BLOCK_STAGE_SLOTS
     // slots of BLOCK_RAW_SIZE each: nametable (512 B) + collision plane A (128 B)
     // + collision plane B (128 B). Keys live in upper RAM (Block_Stage_Keys).
-    Block_Stage_Buffers:    [u8; BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS],       // 9216 bytes (12×768)
+    Block_Stage_Buffers:    [u8; BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS],       // BLOCK_STAGE_SLOTS × BLOCK_RAW_SIZE = 16 × 768 = 12288 bytes
 
     // Art staging — decompress one art-pool page here at level init (display off),
     // then DMA it to VRAM. Reuses the tile-cache nametable RAM, which is NOT yet

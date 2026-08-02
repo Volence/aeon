@@ -102,7 +102,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
         andi.w  #$0F, d1                        // d1 = LIT_CNT (0-15)
         beq     .no_literals                    // 0 literals -> skip
         cmpi.w  #15, d1
-        beq     .lit_extended                   // 15 = read count word (relaxes .s in plain; the debug dict-hit assert block pushes it past .s range — twin rides ifdef widths)
+        beq     .lit_extended                   // 15 = read count word (relaxes .s in plain; the debug dict-hit assert block pushes it past .s range)
 
         // --- Unrolled literal copy (1-14 words) ---
         add.w   d1, d1                          // count * 2 bytes per move.w instruction
@@ -186,7 +186,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
     .lit_dbf_loop:
         move.w  (a0)+, (a1)+
         dbf     d1, .lit_dbf_loop
-        jbra    .no_literals                    // continue to match portion (relaxes .s in plain; the span crosses the debug dict-hit assert block — twin rides ifdef widths)
+        jbra    .no_literals                    // continue to match portion (relaxes .s in plain; the span crosses the debug dict-hit assert block)
 
         // --- Extended match count (a2 = match source, set in .have_offset) ---
         // Short form: this word directly follows the literals.
@@ -235,7 +235,6 @@ proc TileDelta_Undo (a0: *u8, d0: u16) clobbers(d0-d1/a0-a1) {
 
     .tile_loop:
         // XOR 8 longwords (32 bytes) from previous tile into current
-        // (the twin spells this as a `rept 8` — 8 identical pairs)
         move.l  (a0)+, d1
         eor.l   d1, (a1)+
         move.l  (a0)+, d1

@@ -1,21 +1,22 @@
 // vectors.emp — engine-owned 64-vector table ($000000-$0000FF).
 // Every target is an engine symbol; the game contributes nothing here.
 // NullInterrupt intentionally does NOT live in this file — the org-0 image
-// is pure data until $200 (vectors $000-$0FF, header $100-$1FF), so the
-// rte for NullInterrupt stays emitted later in the image (engine.inc inline).
+// is pure data until $200 (vectors $000-$0FF, header $100-$1FF), so
+// NullInterrupt is emitted elsewhere (null_interrupt.emp, near the ROM tail).
 //
-// The 64 entries are raw dc.l link pointers: SYSTEM_STACK is a constants.asm
+// The 64 entries are raw dc.l link pointers: SYSTEM_STACK is a constants.emp
 // equ (folds to the initial SSP); the other 63 are labels resolved at link —
-// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp), and
-// VBlank_Handler (vblank.emp) are .emp-owned; NullInterrupt and the IRQ4
-// HBlank_Vector_Slot RAM trampoline stay AS-side. Bytes are shape-invariant in
+// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp),
+// VBlank_Handler (vblank.emp), and NullInterrupt (null_interrupt.emp) are
+// .emp-owned; the IRQ4 vector points at the HBlank_Vector_Slot RAM trampoline.
+// Bytes are shape-invariant in
 // SOURCE; the VALUES differ per shape through the link (normal). The region's
 // fixed 256-byte size makes the header boundary structurally byte-neutral.
 //
 // FORM — a proc with raw `dc.l <label>`, NOT a `data [*u8; 64]` array (the
-// tile_cache.emp BlockStage_PtrTable shape): the t25 `dc.l <label>` capability
-// was built for exactly this raw CPU-read vector/jump-table class (t25 step-6
-// named vectors.asm its one genuine consumer). The corpus `data [*u8;N]` pointer
+// tile_cache.emp BlockStage_PtrTable shape): raw `dc.l <label>` is the right
+// capability for this raw CPU-read vector/jump-table class. The corpus
+// `data [*u8;N]` pointer
 // arrays spell every cell as a quoted label-name string / `extern(...)` /
 // `comptime for` — none take a BAREWORD link symbol — so a `data` recast would
 // turn these 64 clean cross-module barewords into 64 quoted/extern cells, and
@@ -23,7 +24,7 @@
 // with the 63 label cells. `dc.l` handles the bareword symbols and the leading
 // int uniformly; that is the right form here. (The typed/label-carrying
 // data-table construct that would let a `data` array hold barewords + domain
-// types is the offset-table-roadmap language ask — ledgered t26.)
+// types is the offset-table-roadmap language ask — gap-ledgered.)
 module engine.system.vectors in vectors
 
 pub proc Vectors () clobbers() {

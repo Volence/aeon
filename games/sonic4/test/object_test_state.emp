@@ -48,7 +48,7 @@ const RING_ART_LEN = 512
 ensure(RingArt.len == RING_ART_LEN, "games/sonic4/test/ring_art.bin size drifted from RING_ART_LEN")
 // TestArt_End - TestArt = the two 128-byte squares + the ring blob (the DMA
 // length). A pure-int comptime const (link-time immediate arithmetic on a label
-// pair is not an expressible EA); byte-identical to the twin's TestArt_End - TestArt.
+// pair is not an expressible EA).
 const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
 
 // -----------------------------------------------

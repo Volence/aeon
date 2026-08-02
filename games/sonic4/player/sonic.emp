@@ -7,15 +7,13 @@ use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 
-// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
-// games/sonic4/config/constants.asm (game-config; the .emp const cannot be seen
-// by the gate-off AS build). The drift guard makes an AS-side change loud.
+// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
+// game-config value, imported from games.sonic4.constants below.
 use games.sonic4.constants.{VRAM_TEST_SONIC}
 
 // PHYS_* — Sonic's 8 section-modifiable physics base values (the PhysTable_Sonic
-// row below) HOISTED to the engine.constants twin at the ambient-hoist parcel
-// (kill-list row 77); consumed via `use engine.constants.{...}` above, drift
-// guards live at the twin.
+// row below), consumed from engine.constants via `use engine.constants.{...}`
+// above.
 
 // -----------------------------------------------
 // Sonic_InitAssets — point a player SST at Sonic's art set

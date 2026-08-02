@@ -14,8 +14,8 @@
 // adds the DrumTest + HCZ2 songs, so plain is 0x34E1 B (ends $5BAE8) and debug is
 // 0x4F33 B (ends $5D53A). The embed selects on DEBUG.
 //
-// NON-PHASED: the body is emitted AFTER `dephase/restore` in the AS twin, so its
-// labels are plain LMA (68k reads SongTable/SongPatchTable at their absolute ROM
+// NON-PHASED: the body's labels are plain LMA (68k reads SongTable/SongPatchTable
+// at their absolute ROM
 // addresses; the Z80 reads the song streams via runtime-computed window pointers
 // baked into the .bin, not via fixed phased labels). So this is a plain-LMA embed
 // section, like the DAC — NOT a `bank: $8000` phase section.

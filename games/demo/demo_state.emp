@@ -9,8 +9,8 @@ use engine.objects.objdef.{vram_bytes}
 use engine.vdp.{VDP_MODE2_OFF}
 use games.demo.constants.{VRAM_DEMO_OBJ}
 
-// DemoArt byte length (DemoArt_End - DemoArt in the AS twin): 40 longs = 160
-// bytes. A pure-int comptime const — the DMA length immediate.
+// DemoArt byte length (DemoArt_End - DemoArt): 40 longs = 160 bytes. A pure-int
+// comptime const — the DMA length immediate.
 const DEMO_ART_LEN = 160
 
 // -----------------------------------------------

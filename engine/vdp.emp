@@ -1,11 +1,7 @@
 // Typed VDP command interface — shared module (§ shared-VDP consolidation)
 //
-// The typed VDP command vocabulary + the address→command derivations, hoisted
-// out of section.emp when plane_buffer became the 2nd consumer (gap-ledger
-// row 1073 — the TILE_CACHE_* / Sec-Act shared-struct-module precedent: the 2nd
-// .emp consumer triggers consolidation). Consumers `use engine.vdp` and call
-// vdp_comm / vdp_comm_reg; the AS twins keep their inline/macro spelling
-// (`vdpComm` / `vdpCommReg`), byte-identical to these.
+// The typed VDP command vocabulary + the address→command derivations, a shared
+// module. Consumers `use engine.vdp` and call vdp_comm / vdp_comm_reg.
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
 // ROM — bytes appear only where a consumer splices vdp_comm_reg or folds a
@@ -15,7 +11,7 @@ module engine.vdp
 // VDP command target/op as pure sum types: an out-of-vocabulary target or
 // op cannot compile. Discriminants live ONCE — in the mapper fns below, not on
 // the variants — so the enum is the vocabulary and the mapper is the single
-// source of the %-encodings that feed the AS `(type & rwd)` derivation verbatim.
+// source of the %-encodings.
 // Comptime-only (never emitted as data). (Consumers use Vram/Write; the full
 // vocabulary is declared so a future consumer is type-checked and the exhaustive
 // mappers force an update when a variant is added.)
@@ -37,17 +33,16 @@ pub const VDP_MODE2_OFF = $01                // reg $01 (Mode Set 2) — carries
 pub const VDP_MODE3_OFF = $0B                // reg $0B (Mode Set 3) — ext-int/scroll modes
 pub const VDP_HINT_OFF  = $0A                // reg $0A — HInt line counter
 
-// vdpReg (engine/macros.asm): VDP register-set command word — $8000 base,
-// register number in the high byte, value in the low byte. The refinements close
-// the macro's silent bit-collisions (vram_art precedent): reg > $17 names a
-// register the VDP lacks, val > $FF bleeds into the register-number byte.
+// vdp_reg: VDP register-set command word — $8000 base, register number in the
+// high byte, value in the low byte. The `where` bounds close the silent
+// bit-collisions (vram_art precedent): reg > $17 names a register the VDP lacks,
+// val > $FF bleeds into the register-number byte.
 pub comptime fn vdp_reg(reg: int where 0..$17, val: int where 0..$FF) -> int {
     return $8000 | (reg << 8) | val
 }
 
-// bytesToLcnt (engine/macros.asm): byte count -> dbf longword-loop count. Bounded
-// to the real clear-loop domain; a non-multiple-of-4 count floors (the AS function
-// shares that edge — documentary).
+// bytes_to_lcnt: byte count -> dbf longword-loop count. Bounded to the real
+// clear-loop domain; a non-multiple-of-4 count floors.
 pub comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
     return n / 4 - 1
 }
@@ -70,7 +65,7 @@ comptime fn op_bits(o: VdpOp) -> int {
 }
 
 // Drift-lock the MAPPING, not just the constants: each arm is pinned to its
-// AS-side equ through the link seam, so the match itself can't drift.
+// engine.constants value through the link seam, so the match itself can't drift.
 ensure(target_bits(VdpTarget.Vram) == extern("VRAM"), "engine.constants and engine.vdp disagree on VRAM — update target_bits")
 ensure(target_bits(VdpTarget.Cram) == extern("CRAM"), "engine.constants and engine.vdp disagree on CRAM — update target_bits")
 ensure(target_bits(VdpTarget.Vsram) == extern("VSRAM"), "engine.constants and engine.vdp disagree on VSRAM — update target_bits")
@@ -79,7 +74,7 @@ ensure(op_bits(VdpOp.Write) == extern("WRITE"), "engine.constants and engine.vdp
 ensure(op_bits(VdpOp.Dma) == extern("DMA"), "engine.constants and engine.vdp disagree on DMA — update op_bits")
 
 // vdp_comm — build-time VDP command longword from a VRAM/CRAM/VSRAM byte
-// address (mirrors the AS `vdpComm` function). The typed target/op feed the
+// address. The typed target/op feed the
 // mappers; the derivation is the AS bit-trick verbatim.
 pub comptime fn vdp_comm(addr: int, target: VdpTarget, op: VdpOp) -> int {
     let type = target_bits(target)
@@ -126,36 +121,33 @@ pub comptime fn vdp_comm_reg(reg: Reg, target: VdpTarget, op: VdpOp, clr: bool =
 }
 
 // -----------------------------------------------
-// DMA/plane address derivations (mirror the AS functions in
-// engine/macros.asm; joined at the tranche-21 buffers port — the row-1052
-// shared-home adoption's second half). Pure comptime int fns: the byte gates
+// DMA/plane address derivations. Pure comptime int fns: the byte gates
 // bind every fold. dma_source takes COMPTIME addresses only — a link-time
 // RAM source (Palette_Buffer class) cannot reach a comptime fn and rides a
 // consumer-side `equ` spelling the same derivation over extern() (the
 // row-1004 comptime/link boundary; buffers.emp is the worked example).
 // -----------------------------------------------
 
-// dmaSource (engine/macros.asm): byte address -> DMA source word address for
-// VDP regs $95-$97 (bit 23 excluded: reg $17 bit 7 is DMD1, not an address).
+// dma_source: byte address -> DMA source word address for VDP regs $95-$97
+// (bit 23 excluded: reg $17 bit 7 is DMD1, not an address).
 pub comptime fn dma_source(addr: int) -> int {
     return (addr >> 1) & $7FFFFF
 }
 
-// dmaLength (engine/macros.asm): byte count -> DMA length in words for VDP
-// regs $93-$94.
+// dma_length: byte count -> DMA length in words for VDP regs $93-$94.
 pub comptime fn dma_length(bytes: int) -> int {
     return (bytes >> 1) & $FFFF
 }
 
-// vdpCommDelta (engine/macros.asm): VRAM byte-address DELTA -> the same
+// vdp_comm_delta: VRAM byte-address DELTA -> the same
 // scrambled bit layout as the command longword's address field, so adding it
 // to a write command advances the destination by `addr` bytes.
 pub comptime fn vdp_comm_delta(addr: int) -> int {
     return ((addr & $3FFF) << 16) | ((addr & $C000) >> 14)
 }
 
-// planeLoc (engine/macros.asm): nametable cell (col, row) -> byte offset in a
-// plane `width` cells wide.
+// plane_loc: nametable cell (col, row) -> byte offset in a plane `width` cells
+// wide.
 pub comptime fn plane_loc(width: int, col: int, row: int) -> int {
     return ((width * row) + col) * 2
 }

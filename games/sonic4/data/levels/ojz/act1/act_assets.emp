@@ -1,6 +1,5 @@
-// OJZ Act 1 palette + background assets (Parcel K3): the four BINCLUDEs that used
-// to sit in act_descriptor.asm after the descriptor, now a natively-placed `.emp`
-// section (ojz_act_assets). Even-length blobs — no inter-blob alignment padding.
+// OJZ Act 1 palette + background assets: four blobs in the natively-placed
+// `ojz_act_assets` section. Even-length blobs — no inter-blob alignment padding.
 //
 //   OJZ_Palette         — act CRAM palette (line 1..), consumed by act_descriptor.emp
 //   BGND_Palette        — shared/HUD palette (CRAM line 0), consumed by ojz_scroll_test.emp

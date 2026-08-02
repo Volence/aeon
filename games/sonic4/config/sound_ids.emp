@@ -15,8 +15,7 @@
 // sound_api's `assert.w d0, ls, #SONG_COUNT` — resolve against this authority via
 // the link seam.
 //
-// Flipped from AS (config/sound_ids.asm) to `.emp` at conversion-tail Parcel F2
-// (census #24). The typed newtype layer (SongId/SfxId) is a pre-ruled language-
+// The typed newtype layer (SongId/SfxId) is a pre-ruled language-
 // round deferral: the untyped id VALUES live HERE; the typed `: SfxId` /
 // `: SongId` mirrors that carry the newtype enforcement stay local to their
 // consumers (sound_api / mt_bank), each drift-guarded against this authority.

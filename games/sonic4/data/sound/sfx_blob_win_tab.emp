@@ -31,16 +31,14 @@
 
 module data.sfx_blob_win_tab (cpu: z80)
 
-// Partial mirror of the AS twin's `(End-Start) <> SFX_TABLE_SPAN*2 / error`
-// span guard: this checks that the DECLARED span (135 cells, the hand literal
+// The `ensure` below checks that the DECLARED span (135 cells, the hand literal
 // this table's explicit body emits) still equals SFX_TABLE_LEN — the derived SFX
-// id-range length owned by its authority sfx_bank.emp (Parcel F2; = SfxTable.len),
-// read here as a cross-seam extern (the co-link carrier folds it). It does NOT read
-// the EMITTED span, so unlike the AS `End-Start` half it cannot catch this body
-// emitting the wrong NUMBER of cells — that awaits a comptime section-length
-// primitive (gap-ledgered); until then the AS twin's canonical span guard + the
-// co-link byte gate cover body-length drift. A renumber that grows the SFX id range
-// bumps SFX_TABLE_LEN (automatically, from the table rows) and fires this,
+// id-range length owned by its authority sfx_bank.emp (= SfxTable.len), read here
+// as a cross-seam extern (the co-link carrier folds it). It does NOT read the
+// EMITTED span, so it cannot catch this body emitting the wrong NUMBER of cells —
+// that awaits a comptime section-length primitive (gap-ledgered); until then the
+// co-link byte gate covers body-length drift. A renumber that grows the SFX id
+// range bumps SFX_TABLE_LEN (automatically, from the table rows) and fires this,
 // prompting a matching edit here.
 ensure(135 == extern("SFX_TABLE_LEN"),
        "SfxBlobWinTab span (135 cells) disagrees with SFX_TABLE_LEN (sfx_bank.emp, SfxTable.len)")

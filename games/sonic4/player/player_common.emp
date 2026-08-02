@@ -29,8 +29,7 @@ use engine.types.{VramTile}
 
 // Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
 // set = supported, d0=1/Z clear = teetering) — resolves module-to-module to
-// player_sensors.emp (bare link); the P4 close retired its extern-proc boundary
-// decl (t34 die-at-port kill row).
+// player_sensors.emp (bare link, no extern-proc decl).
 
 // PlayerState — the state-handler routine type the Player_States table dispatches
 // (PState_Ground/Roll/Spindash/Air/Jump/RollJump/AirBall, surviving player_ground/
@@ -58,10 +57,9 @@ use games.sonic4.constants.{
 // Sound id — sole authority is games.sonic4.sound_ids.
 use games.sonic4.sound_ids.{SFXID_SKID}
 
-// Engine-constant mirrors (PHYS_* / radii / CURL / ST_* / COLLISION_NONE /
-// EDGE_* / BUTTON_A/C / BUTTON_*_BIT) HOISTED to the engine.constants twin at
-// the ambient-hoist parcel (kill-list rows 76/77/81) — consumed via the
-// `use engine.constants.{...}` above; their drift guards live at the twin.
+// PHYS_* / radii / CURL / ST_* / COLLISION_NONE / EDGE_* / BUTTON_A/C /
+// BUTTON_*_BIT are consumed from engine.constants via the
+// `use engine.constants.{...}` above.
 
 // -----------------------------------------------
 // PlayerV — the SST overlay (research structure-refs §2.2 budget: 12 of 34
@@ -110,8 +108,7 @@ const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STE
 // set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
 // sensors halve by lsr → standing 9/19, ball 7/14 — the exact classic radii).
 // The enter hooks are the ONE writer of these fields and of the paired
-// ±CURL_Y_SHIFT y-shift (spec §3.3). .emp counterparts of the setStandingSize /
-// setBallSize AS macros (macro-port rule); the AS twins keep the macros inline.
+// ±CURL_Y_SHIFT y-shift (spec §3.3).
 // In: sst = player SST register
 // -----------------------------------------------
 pub comptime fn set_standing_size(sst: Reg) -> Code {
@@ -162,9 +159,8 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 }
 
 // -----------------------------------------------
-// abs_w — the |v| in-place idiom (bpl/neg.w) HOISTED to engine.coords at the
-// ambient-hoist parcel (kill-list row 82): a corpus-wide engine idiom, not a
-// game one. Consumed via `use engine.coords.{abs_w}` above.
+// abs_w — the |v| in-place idiom (bpl/neg.w), a corpus-wide engine idiom
+// (engine.coords), not a game one. Consumed via `use engine.coords.{abs_w}` above.
 // -----------------------------------------------
 // Player_Init — set up a player slot as Sonic (called from level state init;
 // caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve the

@@ -16,7 +16,7 @@ use engine.z80_bus.{stop_z80, start_z80}
 // link-resolved addresses (truth: engine.constants) — EA-position only, all in
 // the $A1xxxx / $A0xxxx range that forces abs.l regardless of comptime
 // knownness. VDP_DATA / VDP_CTRL / PSG_PORT come from the shared engine.constants
-// twin because the PSG displacement below needs them at COMPTIME.
+// module because the PSG displacement below needs them at COMPTIME.
 
 // PSG_DATA_OFF is the directional derive the PSG displacement slot consumes off
 // the VDP_DATA base in a3 (the engine.vdp consumer-side derive pattern).
@@ -69,7 +69,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Preload hardware addresses via movem — the table head assigns:
         // d5=$8000 (VDP reg cmd base) d6=RAM-clear dbf count d7=$0100 (reg
         // stride / Z80 bus value); a0=Z80_RAM a1=Z80_BUS_REQUEST a2=Z80_RESET
-        // a3=VDP_DATA a4=VDP_CTRL (boot_data.asm owns the values).
+        // a3=VDP_DATA a4=VDP_CTRL (boot_data.emp owns the values).
         lea     BootData(pc), a5
         movem.w (a5)+, d5-d7
         movem.l (a5)+, a0-a4
@@ -138,8 +138,7 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
     .silence_psg:
         move.b  (a5)+, PSG_DATA_OFF(a3)     // PSG_PORT-VDP_DATA off the data-port base
         dbf     d2, .silence_psg
-        // code address is even here — the table walk needs no alignment pad
-        // (twin-lockstep: boot.asm's align 2 at this point emits nothing)
+        // code address is even here — the table walk needs no alignment pad.
 
         // --- WAIT FOR DMA FILL TO COMPLETE ---
     .wait_fill:

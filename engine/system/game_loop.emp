@@ -1,9 +1,9 @@
 // Game state machine and main loop
 module engine.game_loop in game_loop
 
-// Build-shape inputs (mt_bank pattern, -D NAME=0|1): SOUND_DRIVER_ENABLED
-// mirrors the AS twin's ifdef; SOUND_DEBUG_HOTKEYS is the sound test-harness
-// opt-in (build.sh: requires DEBUG=1; OFF in normal play builds).
+// Build-shape inputs (-D NAME=0|1): SOUND_DRIVER_ENABLED gates the sound driver;
+// SOUND_DEBUG_HOTKEYS is the sound test-harness opt-in (build.sh: requires
+// DEBUG=1; OFF in normal play builds).
 
 // GameState — the state-dispatch proc type: the Game_State dispatch runs
 // arbitrary state code, an honest ⊤ bound. `pub` so the engine's Game contract

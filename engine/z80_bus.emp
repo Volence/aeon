@@ -1,21 +1,19 @@
 // Z80 bus-control templates — shared module.
 //
-// The .emp counterparts of engine/macros.asm's `stopZ80`/`startZ80` macros
-// (hygienic per-site labels), hoisted out of sound_api.emp when bg became the
-// 2nd `.emp` consumer — the same 2nd-consumer consolidation rule that built
-// engine.vdp. Consumers `use engine.z80_bus.{stop_z80, start_z80}`; the AS
-// twins keep invoking the real macros, byte-identical to these.
+// The shared `stop_z80`/`start_z80` bus-control templates (hygienic per-site
+// labels). Consumers `use engine.z80_bus.{stop_z80, start_z80}`; each site
+// splices the template inline.
 //
 // `Z80_BUS_REQUEST` is a bare link-resolved hardware address (truth:
-// engine/constants.asm) — each splice site resolves it through the link.
+// engine/system/constants.emp) — each splice site resolves it through the link.
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
 // ROM — bytes appear only where a consumer splices the templates.
 module engine.z80_bus
 
-// stopZ80 (engine/macros.asm): request the Z80 bus and spin until granted —
-// the only way the 68k reads/writes Z80 RAM or drives blocking VDP copies
-// reliably. Pair with start_z80.
+// stop_z80: request the Z80 bus and spin until granted — the only way the 68k
+// reads/writes Z80 RAM or drives blocking VDP copies reliably. Pair with
+// start_z80.
 pub comptime fn stop_z80() -> Code {
     return asm {
         move.w  #$0100, Z80_BUS_REQUEST
@@ -25,7 +23,7 @@ pub comptime fn stop_z80() -> Code {
     }
 }
 
-// startZ80 (engine/macros.asm): release the bus.
+// start_z80: release the bus.
 pub comptime fn start_z80() -> Code {
     return asm {
         move.w  #$0000, Z80_BUS_REQUEST

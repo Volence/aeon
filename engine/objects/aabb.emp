@@ -1,14 +1,11 @@
-// aabb_axis_test — single-axis AABB overlap test (comptime-fn template)
-// Single source of truth for the overlap math on the .emp side; the
-// engine/objects/aabb.inc macro is its AS twin, now consumed only by the
-// gate-off AS twins (collision.asm + rings.asm) — twin scaffolding under
-// sigil kill-list row 5, dies at Spec 5. Call twice (X then Y) for
+// aabb_axis_test — single-axis AABB overlap test (comptime-fn template).
+// The single source of truth for the overlap math. Call twice (X then Y) for
 // full 2D overlap.
 //
 // Tests: abs(apos - bpos) * 2 < (adim + bdim)
 // Falls through if overlap on this axis; branches to mlab if not.
 //
-// Register contract (mirrors the .inc):
+// Register contract:
 //   apos        — position A (read-only, e.g. cached player X/Y)
 //   breg + boff — position B memory operand boff(breg) (read-only;
 //                 boff 0 collapses to (breg), asl parity)
@@ -18,14 +15,12 @@
 //   stmp        — scratch, clobbered (MUST NOT alias cdim or delt)
 //   mlab        — label to branch to on no overlap
 //
-// The .inc's utag parameter has no twin here: template labels are
-// hygienic, so each instantiation gets its own .aov.
+// Template labels are hygienic, so each instantiation gets its own .aov.
 //
 // The two branch widths stay PINNED `.s` (exempt from the bare-Bcc house
-// rule, Volence-ratified 2026-07-10): this template is byte-locked to the
-// .inc macro's explicit `.s` spellings — divergent relaxation between the
-// twins (a far mlab silently widening here while the .inc errors) is the
-// hazard the pin closes.
+// rule, Volence-ratified 2026-07-10): mlab is a caller-supplied label, so the
+// `.s` enforces the near-target reach contract — a far mlab must fail loud, not
+// silently widen.
 //
 // Pure comptime-fn module: opens no section and emits ZERO bytes anywhere
 // in the ROM — bytes appear only where a consumer splices the template.
@@ -67,6 +62,6 @@ pub comptime fn aabb_axis_test(apos: Reg, breg: Reg, boff: int, adim: Reg, bdim:
     .aov:
         add.w   {stmp}, {stmp}
         cmp.w   {cdim}, {stmp}
-        bhs.s   {mlab}                  // PINNED .s (splice-hole exception): {mlab} is a caller-supplied label; the .s locks the macro's near-target reach contract (aabb.inc's `bhs.s mlab`) — a far target must fail loud, not silently widen
+        bhs.s   {mlab}                  // PINNED .s (splice-hole exception): {mlab} is a caller-supplied label; the .s locks the near-target reach contract — a far target must fail loud, not silently widen
     }
 }

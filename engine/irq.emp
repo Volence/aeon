@@ -1,8 +1,7 @@
 // Interrupt-mask bracket templates — shared module.
 //
-// The .emp counterpart of the hand-spelled SR save/mask/restore bracket
-// (`move.w sr,-(sp)` / `move.w #$2700,sr` / `move.w (sp)+,sr`). The AS twins
-// keep spelling the bracket inline, byte-identical to the template.
+// The SR save/mask/restore bracket as a shared template
+// (`move.w sr,-(sp)` / `move.w #$2700,sr` / `move.w (sp)+,sr`).
 //
 // Consumers `use engine.irq.{sr_masked}`.
 //

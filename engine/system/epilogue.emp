@@ -1,9 +1,8 @@
 // ===========================================================================
-// engine/system/epilogue.emp — the ROM terminus (Parcel K4 B1)
+// engine/system/epilogue.emp — the ROM terminus
 // ===========================================================================
-// The `.emp` home of `EndOfRom` + the three ROM-tail walls, ported out of
-// engine.inc (which owned the AS `EndOfRom:` label + the three `if … error`
-// guards). EndOfRom is the one-past-the-end terminus label the header reads
+// The home of `EndOfRom` + the three ROM-tail walls. EndOfRom is the
+// one-past-the-end terminus label the header reads
 // (`games/*/config/header.emp`'s `rom_end = extern("EndOfRom") - 1`) and the
 // address the convsym deb2 appendix rides after. It is a zero-length `pub data`
 // label placed LAST (its boundary key EndOfRom is already frozen in all six

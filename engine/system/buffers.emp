@@ -22,8 +22,7 @@ const VDP_CTRL_OFF = VDP_CTRL - VDP_DATA
 
 // -----------------------------------------------
 // queue_static_dma — enqueue one pre-built static DMAEntry on the Critical
-// queue (the .emp counterpart of engine/macros.asm's queueStaticDMA; the AS
-// twin keeps the macro spelling — lockstep is byte-level).
+// queue.
 //
 // The interface is entry-only and Critical-bound: the slot/end pair lives
 // ONCE here, so a caller can never mismatch a slot variable with another

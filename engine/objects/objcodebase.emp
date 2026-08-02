@@ -1,16 +1,14 @@
 // ===========================================================================
-// engine/objects/objcodebase.emp — the object-code-bank base (Parcel K4 inc-6)
+// engine/objects/objcodebase.emp — the object-code-bank base
 // ===========================================================================
 // The object code bank starts at $10000 (ObjCodeBase). Offset 0 is the empty-slot
 // safety net: objroutine(0) resolves to ObjCodeBase, whose `rts` returns
 // immediately. Every object routine's code_addr is `label - ObjCodeBase` — the
 // player/test `.emp` modules compute it cross-module against this label.
 //
-// Was `org $10000 / ObjCodeBase: rts` in engine.inc. Native now (the inc-6 skeleton
-// dissolution): placed at $10000 by the map `object_bank` anchor + the frozen
-// boundary key ObjCodeBase, so the `org $10000` retires — the object bank's head is
-// a declared island, not an org. This is the FIRST object-bank section (the player
-// modules pack after it).
+// Placed at $10000 by the map `object_bank` anchor + the frozen boundary key
+// ObjCodeBase — the object bank's head is a declared island, not an org. This is
+// the FIRST object-bank section (the player modules pack after it).
 // ===========================================================================
 
 module engine.objects.objcodebase in objcodebase

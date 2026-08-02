@@ -1,5 +1,5 @@
-// The $100-$1FF Mega Drive ROM header (Parcel K4 — was engine/system/header.inc's
-// gameHeader macro). Game-declared strings: the `[u8; N]` FIELD TYPES are the
+// The $100-$1FF Mega Drive ROM header. Game-declared strings: the `[u8; N]`
+// FIELD TYPES are the
 // EXACT-width guards — a wrong-length string fails to lower at comptime (this
 // replaces the nine `strlen … fatal` walls; the type IS the assertion). The header
 // splits at the checksum so `Checksum` ($18E) stays a real boundary label: the
