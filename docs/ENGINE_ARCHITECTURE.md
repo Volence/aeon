@@ -1082,46 +1082,50 @@ Tile writes use direct CPU writes to the VDP data port (not DMA). This is correc
 
 | Mode | When | What it does | Status |
 |------|------|-------------|--------|
-| `VInt_Level` | Gameplay | Full pipeline: shadow flush + dirty buffers + plane-buffer drain + Critical DMA + VSRAM + budget reset + Important/Deferrable DMA + controllers | Implemented |
+| `VInt_Level` | Gameplay | Full pipeline: budget seed + shadow flush + dirty buffers + plane-buffer drain + Critical DMA + VSRAM + Important/Deferrable DMA + controllers | Implemented |
 | `VInt_Menu` | Menus/title | DMA queue + sound (no plane buffer, no HUD) | Planned |
 | `VInt_Load` | Loading screens | DMA queue + S4LZ processing (no gameplay state) | Planned |
 | `VInt_Lag` | Lag frame detected | Shadow flush, dirty-buffer enqueue, Critical DMA, VSRAM write, controllers, frame counter, VBlank_Flag — **omits the plane-buffer drain and the Important/Deferrable drains** (not "Critical DMA only": VSRAM and the shadow flush also run) | Implemented |
 
 Only these two levels exist today — no `VInt_Menu`/`VInt_Load` code exists yet (correctly marked "Planned" above).
 
-**VInt_Level execution order (as implemented, `engine/system/vblank.asm`):**
+**VInt_Level execution order (as implemented, `engine/system/vblank.emp`):**
 
 ```
 Step  System                              Priority     Notes
 ──────────────────────────────────────────────────────────────────────────
   1   DMA-window open                     Bus safety   Sound build: brief stopZ80 /
                                                          raise SND_CTRL_DMA_ACTIVE / startZ80
-                                                         (Z80 runs free through steps 2-9).
+                                                         (Z80 runs free through steps 3-9).
                                                          Sound-OFF build: stopZ80 held across
                                                          the whole window instead.
-  2   Flush_VDP_Shadow                    Critical     Writes only dirty VDP registers
-  3   Enqueue_Dirty_Buffers               Critical     Palette/sprite/hscroll static DMA
-  4   VInt_DrawLevel (plane buffer drain) Critical     §1.3 — direct VDP writes, not DMA
-  5   Process_DMA_Critical                Critical     Jump-table unrolled, ~514 cycles
-  6   Vscroll_Write (VSRAM, direct)       Critical     Must run AFTER HScroll DMA (§4.6)
-  7   DMA_Budget_Remaining ← _Default     Setup        7,200 NTSC / 15,000 PAL
-  8   Process_DMA_Important               Budget-gated Drain_Budgeted_Queue
+  2   Seed DMA_Budget_Remaining ← _Default Setup       6144 NTSC / 11648 PAL — the window
+                                                         capacity, before any VDP work (§1.1)
+  3   Flush_VDP_Shadow                    Critical     Writes only dirty VDP registers
+  4   Enqueue_Dirty_Buffers               Critical     Palette/sprite/hscroll static DMA
+  5   VInt_DrawLevel (plane buffer drain) Critical     §1.3 — direct VDP writes, not DMA;
+                                                         CHARGES budget by Plane_Buffer_Ptr first
+  6   Process_DMA_Critical                Critical     Jump-table unrolled, ~514 cycles;
+                                                         CHARGES budget by queued bytes, floor 0
+  7   Vscroll_Write (VSRAM, direct)       Critical     Must run AFTER HScroll DMA (§4.6)
+  8   Process_DMA_Important               Budget-gated Drain_Budgeted_Queue (sees residual)
   9   Process_DMA_Deferrable              Budget-gated Drain_Budgeted_Queue (shared routine)
  10   DMA-window close                    Bus release  Sound build: lower flag; sound-OFF: startZ80
- 11   Read_Controllers + press-edge latch I/O          Ctrl_1_Press_Accum → Ctrl_1_Press
+ 11   Read_Controllers + press-edge latch I/O          Ctrl_x_Press_Accum → Ctrl_x_Press
+                                                         (+ Ctrl_x_Ext_Press_Accum → _Ext_Press)
  12   Frame_Counter increment             Tracking
  13   VBlank_Flag signal                  Sync
 ```
 
-Note the ordering relative to earlier drafts of this doc: the plane-buffer drain (step 4) sits **before** Critical DMA, not after any DMA drain, and VSRAM (step 6) runs **after** Critical DMA, not as an early step — the code carries an explicit comment citing CODING_CONVENTIONS §3.4 for why HScroll DMA must precede the VSRAM write. This matches §0.10's baseline order for the file.
+Note the ordering relative to earlier drafts of this doc: the window budget is **seeded at the top** (step 2, before any VDP work) and then **charged** by the plane-buffer drain (step 5) and Critical DMA (step 6) — it is *not* a flat reset placed after VSRAM. The plane-buffer drain (step 5) sits **before** Critical DMA, not after any DMA drain, and VSRAM (step 7) runs **after** Critical DMA — the code carries an explicit comment citing CODING_CONVENTIONS §3.4 for why HScroll DMA must precede the VSRAM write. This matches §0.10's order for the file.
 
-**Z80 bus ownership is sound-build-conditional, not a blanket "steps 1-9 stopped" rule.** In `SOUND_DRIVER_ENABLED` builds the Z80 is stopped only very briefly at the top (to raise the `SND_CTRL_DMA_ACTIVE` flag) and briefly at the bottom (to lower it) — it runs **free** through the entire DMA/plane-buffer pipeline in between (steps 2-9), so the Z80 sound driver keeps ticking during VBlank. Only the sound-OFF build holds `stopZ80` across the whole window as a simpler, blanket "steps 1-9 bus-stopped" model would suggest.
+**Z80 bus ownership is sound-build-conditional, not a blanket "steps 1-9 stopped" rule.** In `SOUND_DRIVER_ENABLED` builds the Z80 is stopped only very briefly at the top (to raise the `SND_CTRL_DMA_ACTIVE` flag) and briefly at the bottom (to lower it) — it runs **free** through the entire DMA/plane-buffer pipeline in between (steps 3-9), so the Z80 sound driver keeps ticking during VBlank. Only the sound-OFF build holds `stopZ80` across the whole window as a simpler, blanket "bus-stopped" model would suggest.
 
-**Step 3 — Enqueue_Dirty_Buffers:** Checks the palette dirty bitmask (4 bits) and the sprite-table dirty flag, enqueueing pre-computed static DMA entries to the Critical queue via `queueStaticDMA`; also enqueues one of the two static HScroll entries (§1.1, §4.6) based on the active parallax config. See the "Known issue" note under §1.1 — the dirty flags it clears are cleared unconditionally, even on a dropped enqueue.
+**Step 4 — Enqueue_Dirty_Buffers:** Checks the palette dirty bitmask (4 bits) and the sprite-table dirty flag, enqueueing pre-computed static DMA entries to the Critical queue via `queueStaticDMA`; also enqueues one of the two static HScroll entries (§1.1, §4.6) based on the active parallax config. Each dirty bit/flag is cleared **only** when its enqueue succeeds (§1.1) — a dropped enqueue leaves the bit set for next frame's retry.
 
-**Step 6 — VSRAM:** Direct VDP write, not queued. Vertical scroll data is 4 bytes (FG + BG) written to VSRAM via control port command + data port write, RAM-shadowed at `Vscroll_Factor`. Too small to justify queue overhead. Runs after Critical DMA, not as an early step (see ordering note above).
+**Step 7 — VSRAM:** Direct VDP write, not queued. Vertical scroll data is 4 bytes (FG + BG) written to VSRAM via control port command + data port write, RAM-shadowed at `Vscroll_Factor`. Too small to justify queue overhead. Runs after Critical DMA, not as an early step (see ordering note above).
 
-**Steps 5, 8, 9 — DMA queue drain:** Critical queue always drains fully via jump-table dispatch (zero branches per entry). Important and Deferrable queues are budget-gated through the shared `Drain_Budgeted_Queue`: check `DMA_Budget_Remaining` before each entry, terminate on an address compare against the slot's first-free pointer (not a `dbf` counter — see §1.1). Budget is reset from `DMA_Budget_Default` (7,200 NTSC / 15,000 PAL) immediately before Important drain. On lag frames (`VInt_Lag`), only Critical drains — Important and Deferrable entries persist (compacted) in the queue for the next frame.
+**Steps 6, 8, 9 — DMA queue drain:** Critical queue always drains fully via jump-table dispatch (zero branches per entry) and charges the budget by its queued bytes. Important and Deferrable queues are budget-gated through the shared `Drain_Budgeted_Queue`: check `DMA_Budget_Remaining` before each entry, terminate on an address compare against the slot's first-free pointer (not a `dbf` counter — see §1.1). The budget was seeded from `DMA_Budget_Default` (6144 NTSC / 11648 PAL) at step 2 and charged down by the plane drain (step 5) and Critical DMA (step 6), so Important/Deferrable see the true residual window (§1.1). On lag frames (`VInt_Lag`), only Critical drains — Important and Deferrable entries persist (compacted) in the queue for the next frame.
 
 **Step 11 — controllers:** Also latches the previous frame's press-edge accumulator (`Ctrl_1_Press_Accum` → `Ctrl_1_Press`) — an interesting side effect of this being VBlank-driven: press-edge state survives a lag frame into the next tick rather than being lost.
 
@@ -1134,9 +1138,9 @@ Note the ordering relative to earlier drafts of this doc: the plane-buffer drain
 - `Lag_Frame_Count` increments for debugging (debug builds only, `ifdef __DEBUG__`)
 - `VBlank_Ready` is cleared by `VBlank_Handler` after dispatch, on either path
 
-**`VSync_Wait` torn-drain hazard (fixed, b96c861):** `VSync_Wait`'s clear-flag/set-`VBlank_Ready` pair is IRQ-masked (`engine/system/vblank.asm`). Without the mask, an IRQ6 landing between the flag-clear and the `Ready`-set could run `VInt_Lag` (which itself sets `VBlank_Flag`) while leaving `Ready=1` armed for the *next* VBlank — causing that next VBlank to fully dispatch `VInt_Level` and drain a `Plane_Buffer` still mid-fill by the main loop. This is a genuine Genesis-timing gotcha specific to a lag-detection scheme built on a main-loop-set-flag; the fix masks interrupts across the flag/Ready update pair.
+**`VSync_Wait` torn-drain hazard (fixed, b96c861):** `VSync_Wait`'s clear-flag/set-`VBlank_Ready` pair is IRQ-masked (`engine/system/vblank.emp`). Without the mask, an IRQ6 landing between the flag-clear and the `Ready`-set could run `VInt_Lag` (which itself sets `VBlank_Flag`) while leaving `Ready=1` armed for the *next* VBlank — causing that next VBlank to fully dispatch `VInt_Level` and drain a `Plane_Buffer` still mid-fill by the main loop. This is a genuine Genesis-timing gotcha specific to a lag-detection scheme built on a main-loop-set-flag; the fix masks interrupts across the flag/Ready update pair.
 
-**Why this order:** Visual stability first (shadow flush, dirty buffers, plane drain, Critical DMA, VSRAM all ensure correct display), then throughput (Important/Deferrable DMA for art streaming), then housekeeping (controllers, frame counter, flag). Each step is independently skippable without corrupting state — this is what lets `VInt_Lag` cleanly omit steps 4, 8, and 9.
+**Why this order:** Visual stability first (shadow flush, dirty buffers, plane drain, Critical DMA, VSRAM all ensure correct display), then throughput (Important/Deferrable DMA for art streaming), then housekeeping (controllers, frame counter, flag). Each step is independently skippable without corrupting state — this is what lets `VInt_Lag` cleanly omit steps 5, 8, and 9 (the plane drain and the Important/Deferrable drains).
 
 **Cross-references:**
 - S.C.E. `Interrupt Handler.asm`: VInt function pointer dispatch, VInt_Lag, Do_ControllerPal ordering
