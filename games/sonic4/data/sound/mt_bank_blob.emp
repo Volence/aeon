@@ -30,8 +30,8 @@
 // STRUCTURAL EXCLUSIVITY (spec §6, the ruled mechanism, inherited from Stage 2):
 // this native section is the SOLE MT-body placement — the AS BINCLUDE is DELETED
 // (can't-both), the section is unconditional in the sound-on registry
-// (can't-neither). main.asm's `ifdef SIGIL_EMP_MT` per-shape skip org moves the AS
-// cursor past this native region so the SFX block lands correctly.
+// (can't-neither). Placement is map-driven (the sound_bank anchor + contiguous
+// pack), which is what lands the SFX block correctly after this region.
 // ===========================================================================
 
 module games.sonic4.mt_bank_blob in mt_bank_blob

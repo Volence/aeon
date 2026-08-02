@@ -13,8 +13,9 @@
 // DEBUG-only ones' value
 // folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
 //
-// Pinned at $58607 by the map region `mt_bank` ($58607..$60000). Re-pin
-// via the harness PROVENANCE flow on any re-baseline.
+// Placed at $58607: the map's sound_bank anchor ($58000) + contiguous pack
+// after the soundBankHead. Re-pin via the harness PROVENANCE flow on any
+// re-baseline.
 //
 // The invariants this bank enforces:
 //   * No-straddle: the section's `bank: $8000` property is an always-on

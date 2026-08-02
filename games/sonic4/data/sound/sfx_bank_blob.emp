@@ -23,8 +23,8 @@
 //
 // STRUCTURAL EXCLUSIVITY (spec §6, inherited): the native section is the SOLE SFX
 // placement — the AS BINCLUDE is DELETED (can't-both), the section is unconditional
-// in the sound-on registry (can't-neither). main.asm's `ifdef SIGIL_EMP_SFX`
-// per-shape skip org moves the AS cursor past this native block.
+// in the sound-on registry (can't-neither). Placement is map-driven (the
+// sound_bank anchor + contiguous pack after the MT body).
 // ===========================================================================
 
 module games.sonic4.sfx_bank_blob in sfx_bank_blob

@@ -19,14 +19,14 @@
 // own bank-head position is fixed. The emitter co-links this head with
 // sfx_bank.emp PER SHAPE and emits sfx_blob_win_tab{,_debug}.bin.
 //
-// BANKED at the engine-table head of the song/SFX bank (main.asm's
-// `cpu z80 / phase 08000h` block), so it costs ZERO against the resident
+// BANKED at the engine-table head of the song/SFX bank (soundbankhead.emp's
+// phase-bank section, vma $8000), so it costs ZERO against the resident
 // Z80-code ceiling. The table label equals its $8000-window pointer; the
 // readers need no code change (indexed read).
 //
 // BANK GUARANTEE at the read sites: SfxDispatch/Sfx_BeginSound SetBank(
 // SFX_BLOB_BANK) BEFORE the lookup, and SFX_BLOB_BANK == SND_ENGINE_TABLE_BANK
-// == this bank (main.asm's SFX co-residency guard / sfx_bank.emp's ensure).
+// == this bank (sfx_bank.emp's co-residency ensure).
 // ===========================================================================
 
 module data.sfx_blob_win_tab (cpu: z80)

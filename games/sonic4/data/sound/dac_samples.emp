@@ -95,8 +95,8 @@ section dac_blip_bank (cpu: m68000, bank: $8000) {
 // kick/snare/hat + the 6 S3K HCZ2 drums, ~30908 bytes) packed contiguously into
 // one $8000 window so a single bank id covers the whole region and FILL never
 // re-banks mid-sample. Pinned at $50000 by the map (bank $A). Order matches the
-// .asm exactly. The DPCM codec was dropped for drums (the shared bank made
-// compression moot; raw is higher-rate and cleaner).
+// .asm exactly. Drums are raw 8-bit PCM, not DPCM: the shared bank makes
+// compression moot, and raw is higher-rate and cleaner.
 // ===========================================================================
 section dac_shared_bank (cpu: m68000, bank: $8000) {
     data Dac_Kick        = KickBlob

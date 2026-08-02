@@ -6,12 +6,10 @@
 //   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 //
 // A frame may carry 1..N entries (each a separate DMA), so the entry loop
-// below is load-bearing — NOT dead generality. (Item 6 originally asserted
-// "exactly 1 entry" per the contiguous-art optimization note; the ObjectTest
-// oracle soak DISPROVED it — DPLC_Sonic frames legitimately carry up to 6
-// entries — so that assert was removed. If a single-DMA guarantee is wanted
-// for the shipping art, it belongs in the build tool, not this shared runtime
-// path.)
+// below is load-bearing — NOT dead generality: DPLC_Sonic frames legitimately
+// carry up to 6 entries (ObjectTest oracle soak), so the entry loop must
+// handle 1..N. If a single-DMA guarantee is wanted for the shipping art, it
+// belongs in the build tool, not this shared runtime path.
 //
 // Cross-module: QueueDMA_Important / QueueDMA_Deferrable live in
 // engine.dma_queue and resolve at link.

@@ -205,9 +205,9 @@ pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) out(d5, a4) {
 
         // On-screen culling — X. d2 = SAT X (biased camera). The cull needs the
         // screen-relative centre→edge value, so the addi subtracts the fold bias
-        // back out: d0 = SAT_X + (RING_WIDTH/2 − bias) = screen X + RING_WIDTH/2,
-        // BYTE-IDENTICAL to the pre-fold unsigned window (no cmpi shift → no
-        // wraparound change). Culls ONLY when fully off-screen (centre-anchored).
+        // back out: d0 = SAT_X + (RING_WIDTH/2 − bias) = screen X + RING_WIDTH/2
+        // — an unsigned window compare with no wraparound (the cmpi bound below
+        // is unshifted). Culls ONLY when fully off-screen (centre-anchored).
         move.w  (a0), d2                // engine X
         sub.w   d6, d2                  // SAT X (screen X − 8 + VDP_SPRITE_X_OFFSET)
         move.w  d2, d0

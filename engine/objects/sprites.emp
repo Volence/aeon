@@ -195,8 +195,8 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         addq.w  #1, Sprite_Cycle_Counter
 
         // Camera-bias fold: read Camera_X/Y ONCE here (final for this
-        // frame's render — the same value the per-object world path used to
-        // read per-object) and store Camera - VDP_SPRITE_*_OFFSET. The
+        // frame's render — the single value every per-object world path
+        // consumes) and store Camera - VDP_SPRITE_*_OFFSET. The
         // per-object setup subtracts the BIASED camera, folding the +128 SAT
         // offset in, so all four Emit loops drop their per-piece `addi #128`
         // (16 cyc/piece). Behavior-identical; screen-coord paths compensate.
