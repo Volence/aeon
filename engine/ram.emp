@@ -141,6 +141,17 @@ pub vars upper_ram {
     Pad_1_Type:             u8,         // PAD_3BTN / PAD_6BTN (re-detected EVERY frame)
     Pad_2_Type:             u8,
 
+    // --- Replay (engine/system/replay.emp — spec 2026-08-02) ---
+    // Live cells: sit adjacent to the controller block so the input state reads as
+    // one region. INPUT_LIVE (0, boot-clear default) makes Input_Tick a no-op.
+    Input_Source:           u8,         // INPUT_LIVE / INPUT_PLAYBACK / INPUT_RECORD
+    Replay_Exit_Request:    u8,         // live Start pressed during playback (game polls; NEVER merged into Ctrl)
+    Replay_Done:            u8,         // stream ended (playback) or ring full (record)
+    Replay_Hold:            u8,         // remaining ticks of the current RLE run (hold_minus_1 semantics)
+    Replay_Prev:            u8,         // previous tick's STREAM byte (press-edge derivation, never the live pad)
+    pad(1),
+    Replay_Ptr:             u32,        // current stream position (ROM)
+
     // --- RNG ---
     RNG_Seed:               u32,
 
@@ -498,6 +509,20 @@ pub vars upper_ram {
     // (nametable + collision), word-even, in the boot-cleared 64KB Work RAM; never
     // written after boot (the staged-pointer read-only contract keeps it zero).
     Block_Stage_ZeroPage:   [u8; BLOCK_RAW_SIZE],       // 768 bytes — read-only zero staged block
+
+    // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
+    // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed
+    // at the RAM TAIL and @shape_divergent (size-varying group — REQUIRED by the
+    // region lowerer, [vars.shape-divergent]): the DEBUG-shape addition ripples ZERO
+    // existing engine-RAM addresses; only Engine_RAM_End (and the game RAM chained
+    // after it) shift, and only in the DEBUG shape (which is already shape-divergent
+    // from the profiling block above). Never present in release builds.
+    if DEBUG == 1 @shape_divergent {
+        Replay_Record_Idx:      u16,        // ticks recorded (byte index into the ring)
+        Replay_Check_Idx:       u16,        // checkpoint entries written
+        Replay_Record_Buf:      [u8; REPLAY_RECORD_TICKS],   // 8192 raw Ctrl_1_Held bytes
+        Replay_Check_Log:       [u8; 256 * 8],               // 256 × (Logic_Tick u32, hash u32) pairs
+    }
 
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
     // (games/<game>/config/ram.asm phases from this address).

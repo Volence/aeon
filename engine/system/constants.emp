@@ -299,6 +299,23 @@ pub const BG_TILE_CAPACITY  = 448
 // -----------------------------------------------
 pub const BUTTON_B     = 1 << 4         // $10
 pub const BUTTON_START = 1 << 7         // $80
+pub const BUTTON_START_BIT = 7          // for `btst #BUTTON_START_BIT` (replay exit poll)
+
+// -----------------------------------------------
+// Replay / input-source (engine/system/replay.emp — spec 2026-08-02).
+// The input seam demultiplexes into live / playback / record; the stream is an
+// RLE byte stream with an $FF escape (impossible as a held byte — the SOCD guard
+// kills U+D+L+R) carrying an end/checkpoint opcode.
+// -----------------------------------------------
+pub const INPUT_LIVE       = 0
+pub const INPUT_PLAYBACK   = 1
+pub const INPUT_RECORD     = 2          // DEBUG builds only
+pub const REPLAY_ESCAPE    = $FF        // impossible as a held byte (SOCD guard)
+pub const REPLAY_OP_END    = $00
+pub const REPLAY_OP_CHECK  = $01        // + u32 hash payload
+pub const REPLAY_CHECK_MASK   = 63      // checkpoint every 64 ticks (record side)
+pub const REPLAY_RECORD_TICKS = 8192    // 8 KB ring (DEBUG)
+pub const REPLAY_HEADER_LEN   = 20      // magic4+flags1+pad1+ticks4+corehash4+seed4+reserved2
 
 // -----------------------------------------------
 // Game state IDs.

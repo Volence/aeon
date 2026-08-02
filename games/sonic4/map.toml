@@ -24,7 +24,7 @@ order = [
   "Vectors", "GameHeader", "EntryPoint", "BootData",
   "Z80_IdleProgram", "BootData_PostBlob",
   "VDP_Shadow_Init", "Init_DMA_Queue", "Init_SpriteTable", "VBlank_Handler",
-  "HBlank_Install", "Read_Controllers", "GameLoop", "S4LZ_DecompressDict",
+  "HBlank_Install", "Read_Controllers", "GameLoop", "Input_Tick", "S4LZ_DecompressDict",
   "ZX0_Decompress", "GetSineCosine", "Perform_DPLC", "InitObjectRAM",
   "InitSpriteSystem", "AnimateSprite", "TouchResponse", "RingBuffer_Add",
   "Collected_Init", "PopulateSpawnedPieceCount", "Load_Object", "Plane_Buffer_Reset",

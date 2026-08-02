@@ -25,6 +25,7 @@ pub type GameState = proc () clobbers(d0-d7/a0-a6)
 pub proc GameLoop () clobbers(d0-d7/a0-a6) {
         jbsr    VSync_Wait
         addq.l  #1, Logic_Tick          // the deterministic timebase (one per tick, never per VBlank)
+        jbsr    Input_Tick              // replay seam: live no-op / playback overwrite / record tap
         if SOUND_DRIVER_ENABLED == 1 {
         jbsr    Sound_DrainSfxRing      // drain ONE pending SFX/frame into the mailbox
                                         // (release sound builds need this too, not just DEBUG)
