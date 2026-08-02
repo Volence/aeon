@@ -45,11 +45,16 @@ engine code before then moves the pin target and grows the port surface for no d
 5. **RNG** — trivial; fold into design #9 execution (the behavior sequencer is its first
    real consumer), not a standalone task.
 
-### PAL fixed-timestep — written at boot, zero readers (awaiting a product decision) — 2026-07-17
+### ✅ RESOLVED — PAL fixed-timestep — deleted, NTSC-only (ruling B) — 2026-08-02
+**Resolution (Volence, 2026-08-02, ruling B):** commit to NTSC-only. The dead PAL
+timestep machinery is deleted — `boot.emp` drops the two `Timing_Step` writes and the
+`Frame_Accumulator` clear, `ram.emp` drops both fields, `constants.emp` drops
+`NTSC_TIMING_STEP`/`PAL_TIMING_STEP`. The region-adaptive DMA budget stays (the drain
+reads it). Historical context of the decision follows.
 **Surfaced during:** the silent-drop-class doc-reconciliation audit (2026-07-16 review
 cross-check). Recorded as an UNFINISHED FEATURE awaiting a product decision, NOT a bug.
-**Status:** `boot.asm:167-174` performs region detection and writes a per-region timing
-step + accumulator, but nothing consumes them:
+**Status (pre-deletion):** `boot.asm:167-174` performed region detection and wrote a
+per-region timing step + accumulator, but nothing consumed them:
 - `Timing_Step` (ram.asm:79) ← `NTSC_TIMING_STEP=$0100` / `PAL_TIMING_STEP=$0133` (the 6/5
   ratio, constants.asm:83-84). **Zero readers** (grep-verified: only the two boot writes).
 - `Frame_Accumulator` (ram.asm:80) ← `0` at boot. **Zero readers.**
@@ -65,17 +70,16 @@ step + accumulator, but nothing consumes them:
   wall-clock speed. Couples to every frame-rate-sensitive system (physics caps, streaming
   budget, sound tempo — see item 6 above).
 - **(B) Commit to NTSC-only** — then `Timing_Step`/`Frame_Accumulator`/`PAL_TIMING_STEP`
-  and the PAL boot branch are dead and should be removed for honesty.
-**Do NOT delete the cells until the decision is made** — leaving them written-but-unread is
-the lesser evil vs. silently dropping a half-built feature. The write sites are harmless
-(two `move.w` at boot). Cite boot.asm:167-174.
+  and the PAL boot branch are dead and should be removed for honesty. **← chosen
+  (Volence, 2026-08-02); the timestep machinery is deleted.**
 **See:** item 6 above (PAL music tempo, the sound half of the same decision).
 
-6. **PAL music tempo** — small, likely WONTFIX (emulator-only project; classic games
-   shipped frame-based PAL music slow). Boot region-adapts the DMA budget (that IS wired,
-   read by the drain), but the region timing STEP it also writes is NOT consumed — see the
-   dated **"PAL fixed-timestep — written at boot, zero readers"** entry below; this line
-   records the decision, not a demand.
+6. **PAL music tempo** — ✅ DECIDED (Volence, 2026-08-02, by the same NTSC-only ruling B
+   that deleted the PAL fixed-timestep): frame-based PAL music slow is accepted as the
+   product goes NTSC-only (emulator-only project; classic games shipped frame-based PAL
+   music slow). Boot still region-adapts the DMA budget (that IS wired, read by the
+   drain); the region timing STEP it used to write is deleted — see the dated
+   **"✅ RESOLVED — PAL fixed-timestep — deleted, NTSC-only (ruling B)"** entry below.
 
 ---
 
