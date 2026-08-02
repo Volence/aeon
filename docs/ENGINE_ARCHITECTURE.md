@@ -2545,7 +2545,7 @@ Three playable characters (Sonic, Tails, Knuckles) with shared physics via `Play
 
 ### 5.1 6-Button Controller Support
 
-**6-button pad support:** Detect X/Y/Z/Mode buttons via rapid TH cycling protocol (see Section 9.4). Extra buttons provide debug shortcuts in debug builds (frame advance, profiler toggle) without conflicting with gameplay controls. In release builds, X/Y/Z can map to character-specific actions if needed.
+**6-button pad support (SHIPPED, §9.4):** The full 6-button read is live (`engine/system/controllers.emp`) — X/Y/Z/Mode are detected via the rapid TH-cycling protocol and exposed to game code through the `Ctrl_x_Ext_Held`/`_Ext_Press` RAM cells (0 on a 3-button pad). Extra buttons can drive debug shortcuts in debug builds (frame advance, profiler toggle) without conflicting with gameplay controls; in release builds, X/Y/Z can map to character-specific actions. Button mapping is game-side — the engine only reads and exposes the raw ext state.
 
 ### 5.2 Per-Section Terrain Physics (NOVEL)
 
@@ -3586,20 +3586,30 @@ Our implementation uses `parent_ptr` and `sibling_ptr` fields in the SST. S.C.E.
 
 ### 9.4 6-Button Controller Support
 
-**Protocol (from web research + plutiedev):** The 6-button controller IC has an internal counter that increments on each TH pin transition. Rapid TH cycling (3 toggles within 1.5ms) triggers extra read modes:
+**Status: SHIPPED (input parcel 2026-08-02, `engine/system/controllers.emp`).** `Read_Controllers` runs a full 6-button burst on **both** pads once per VBlank (from `VInt_Level` / `VInt_Lag`), with per-frame pad-type detection. The whole two-port burst is wrapped in one `stop_z80()`/`start_z80()` bracket — Z80 access to the 68k bus during `$A100xx` I/O reads corrupts them (hardware bug; plutiedev / SGDK `HALT_Z80_ON_IO` / Vectorman's bus-request lock).
 
-1. Cycles 1-2: Standard 3-button reads (Up/Down/Left/Right/A/B/C/Start)
-2. Cycle 3 (TH=LOW): If pins 1-4 all read LOW → 6-button pad detected (3-button shows different values)
-3. Cycle 4 (TH=HIGH): Extra buttons available: X, Y, Z, Mode
-4. Cycle 5+: Reset the IC counter
+**Read burst (per port).** LOW-first cadence (SGDK/plutiedev standard, verified against oracle's `MDControl6` model — the internal counter advances on TH *rising* edges, so a HIGH-first burst samples the extended phases a half-cycle early and always degrades to 3-button). Eight alternating TH writes starting `$00`, read after the first seven, 2-nop settle each:
+- `r2` (TH=1) → `1CBRLDU` main buttons; `r1` (TH=0) → `0SA00DU` (Start/A)
+- `r5` (TH=0) → D-pad nibble all-zero = **signature #1**
+- `r6` (TH=1) → `1CB MXYZ` extra buttons
+- `r7` (TH=0) → bits 3-2 read `%11` = **signature #2**
 
-**Detection:** After 3 rapid TH toggles, check TH=LOW state. All RLDU bits zero = 6-button. Save controller type flag at detection; skip extra reads for 3-button pads to avoid compatibility issues (some games toggle TH too frequently and break 6-button controllers — the Mode button forces 3-button emulation as a user workaround).
+**Detection = BOTH signatures required** (SGDK's rule: the all-zero nibble alone is faked by a 3-button pad holding U+D, which signature #2 then rejects). Re-confirmed **every frame** — hot-plug just works, and a glitched frame degrades to 3-button data for one frame instead of latching a wrong type. 3-button/SMS/empty ports resolve to `PAD_3BTN` with ext bytes 0. The existing SOCD guard (L+R / U+D cancel) still applies to the fused main byte.
 
-**Edge detection:** Two RAM bytes per controller: `Ctrl_Held` (current state) and `Ctrl_Press` (newly pressed this frame). The EOR+AND trick: `eor.b d0,d1; and.b d0,d1` — XOR finds changed bits, AND isolates newly-pressed ones. Virtually zero cost.
+**Outputs (RAM, engine-owned, `engine/ram.emp`).** Per pad `x` = 1,2:
+- `Ctrl_x_Held` / `Ctrl_x_Press` / `Ctrl_x_Press_Accum` — main `SACBRLDU` (existing cells, unchanged for every existing consumer)
+- `Ctrl_x_Ext_Held` / `Ctrl_x_Ext_Press` / `Ctrl_x_Ext_Press_Accum` — `0000MXYZ` (0 on a 3-button pad; oracle mapping D0=Z, D1=Y, D2=X, D3=Mode)
+- `Pad_x_Type` — `PAD_3BTN` / `PAD_6BTN`, refreshed per frame
 
-**Uses for extra buttons:** X = cycle debug overlay modes, Y = frame advance (debug), Z = quick shield swap, Mode = reserved. In release builds, X/Y/Z/Mode are available for gameplay features if desired.
+**Edge detection + lag-safe latch:** `Read_Controllers` ORs press edges into `*_Press_Accum` on **every** VBlank (including lag frames), via the EOR+AND trick (`eor` finds changed bits, `and` isolates newly-pressed). `VInt_Level` then latches `*_Press_Accum → *_Press` and clears the accumulator once per completed tick — so a press landing in any lag frame survives into the next logic tick (consume-once, no race). The 6-button ext bytes latch the same way.
+
+**Deterministic timebase (§0.10, `Logic_Tick`).** `GameLoop` increments `Logic_Tick` (u32) once per game tick after `VSync_Wait` — lag-immune, unlike `Frame_Counter` (a raw VBlank count). It is the intended timebase for the DEBUG demo record/replay harness (spec `docs/superpowers/specs/2026-08-02-input-replay-design.md`) that records the input seam and replays it byte-exactly as a determinism regression net. The recorder/replayer, the audit harness, and title/attract-mode wiring are **design-stage** (that spec); only the input layer and `Logic_Tick` timebase are shipped today.
+
+**Uses for extra buttons (game-side):** X/Y/Z/Mode are exposed to game code via the `_Ext_*` cells for debug shortcuts (frame advance, profiler toggle) or gameplay features. The engine only reads/exposes them; mapping is the game's.
 
 ### 9.5 Soft-Reset Persistence (CrossResetRAM)
+
+> **Status: DESIGN — not implemented (verified 2026-08-02, §0.11).** What ships today is soft-reset *detection* + DMA safety only: `EntryPoint` detects warm boot, `Warm_Boot` waits out any in-flight DMA, then falls through to the full `Cold_Boot` init — nothing is preserved. There is **no** `CrossResetRAM` region, no magic-string marker, and no `Warm_Reset` path in code (no such symbols exist; `$FFFFFF00` is the stack pointer). The rest of this subsection is the intended S.C.E.-derived design.
 
 **Hardware behavior:** All 64KB of work RAM survives a soft reset (Start+A+B+C or reset button). The 68000 CPU resets but RAM contents persist. The VDP also keeps running during reset — any in-progress DMA continues while the 68000 restarts, potentially overwriting freshly-loaded init code. Robust startup code must account for this (brief delay or VDP disable before initialization).
 
