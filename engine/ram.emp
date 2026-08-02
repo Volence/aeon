@@ -296,6 +296,8 @@ pub vars upper_ram {
     Camera_Deadzone_Base:   u16,        // base deadzone width in pixels
     Camera_Lookahead:       u16,        // zone-default lookahead pixels
     Camera_Pan_Offset:      u16,        // current extended lookahead pan
+    Camera_X_Max:           u16,        // per-act clamp ceiling: (grid_w << SECTION_SIZE_SHIFT) - SCREEN_WIDTH
+    Camera_Y_Max:           u16,        // per-act clamp ceiling: (grid_h << SECTION_SIZE_SHIFT) - SCREEN_HEIGHT
     Camera_Hold_Frames:     u8,         // frames the camera holds position (game code sets it;
                                         // Camera_Update tests it each frame to suppress movement,
                                         // then decrements)

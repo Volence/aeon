@@ -12,6 +12,7 @@ use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_
 use engine.structs.{Act, Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
 use engine.z80_bus.{stop_z80, start_z80}
+use engine.irq.{sr_masked}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -406,10 +407,18 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) {
         // register write regardless of any VBlank that lands mid-wrap.
         andi.w  #$00FF, d0
         ori.w   #$8B00, d0                          // d0 = $8B?? = "set reg $0B = ??"
-        stop_z80
-        move.w  VDP_CTRL, d1                        // (VDP_CTRL).l — reset command state machine
-        move.w  d0, VDP_CTRL                        // (VDP_CTRL).l
-        start_z80
+        // Mask IRQs across the whole bus hold. This is the tree's one atomic Z80
+        // hold that must also stay masked: an IRQ6 landing mid-bracket runs
+        // VBlank's own stop_z80/start_z80 pair and returns with the bus RELEASED,
+        // so the pending $8B?? write would then land with the Z80 live on its bank
+        // window (bus-latch corruption). The SR mask keeps the state-machine-reset
+        // read and the register write atomic against VBlank's own Z80 hold.
+        sr_masked(asm {
+            {stop_z80()}
+            move.w  VDP_CTRL, d1                    // (VDP_CTRL).l — reset command state machine
+            move.w  d0, VDP_CTRL                    // (VDP_CTRL).l
+            {start_z80()}
+        })
 
         moveq   #0, d7
         move.b  parallax_config.pcfg_band_count(a0), d7

@@ -422,12 +422,16 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
 // Clobbers: d0–d1, a0, a5–a6
 // -----------------------------------------------
 pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
-        tst.w   Plane_Buffer_Ptr
-        beq     .reset                             // nothing to draw
-
-        lea     Plane_Buffer, a0
+        // a5=VDP_CTRL is set up BEFORE the empty-buffer test so both exits honor the
+        // reg $0F=$02 (default autoincrement) postcondition: a column entry leaves
+        // reg $0F=$80, and a caller (or a prior VBlank step) may leave it non-$02,
+        // so the empty path must restore it too — not just the drain path's .done.
         lea     VDP_DATA, a6
         lea     VDP_CTRL_OFF(a6), a5               // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
+        tst.w   Plane_Buffer_Ptr
+        beq     .done                              // nothing to draw — still restore autoinc
+
+        lea     Plane_Buffer, a0
 
     .next:
         moveq   #0, d0
@@ -470,9 +474,10 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
         jbra    .next
 
     .done:
+        // Both exits land here: the drain terminator and the empty-buffer test
+        // above. Restore reg $0F=$02 (a column entry may have left $80), then clear
+        // the buffer pointer.
         move.w  #$8F02, (a5)
-
-    .reset:
         move.w  #0, Plane_Buffer_Ptr
         rts
 }
