@@ -2,14 +2,14 @@
 // the demo state loads. The minimal ROM-data island a game supplies. TODO: your
 // game's data starts here.
 //
-// The sprite-mapping structs (MapPiece / MapFrame1 / centered) mirror the engine's
-// VDP mapping format; they are authored locally so the template stays self-
-// contained (the sonic4 test_mappings module keeps its own copy the same way — a
-// shared mapping-DSL home is a gap-ledger candidate).
+// The sprite-mapping shape (MapPiece / MapFrame1 / centered) lives in the engine's
+// mapping DSL (engine/objects/mapping_dsl.emp); this module authors one frame from
+// it. The sonic4 test mappings share the same home.
 module games.demo.data.demo_data in demo_data
 
 use engine.objects.sst.{ObjDef}
 use engine.objects.objdef.{objdef, vram_art}
+use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered}
 use games.demo.constants.{VRAM_DEMO_OBJ}
 
 // -----------------------------------------------
@@ -27,51 +27,6 @@ pub data ObjDef_DemoBox: ObjDef = objdef(
 // (Y offset, size|link, tile attrs, X offset). The word offset replaces the old
 // `dc.w Frame - Map_DemoBox` hand-arithmetic — range-checked at link.
 // -----------------------------------------------
-
-// sprSize (engine/macros.asm) packs the VDP piece dimensions: (h-1) in bits 3:2,
-// (w-1) in bits 1:0 — the AS `sprSize(w,h) >> 8` high byte the record carries.
-comptime fn spr_size(w: int where 1..4, h: int where 1..4) -> int {
-    return ((h - 1) << 2) | (w - 1)
-}
-
-// One VDP sprite piece: Y offset, size byte (spr_size), link placeholder, tile
-// attribute word (relative to art_tile), X offset.
-struct MapPiece {
-    y_off: i16,
-    size:  u8,
-    link:  u8,
-    tile:  u16,
-    x_off: i16,
-}
-
-// A single-piece frame: signed bbox (far edges), a piece count of 1, the piece.
-struct MapFrame1 {
-    x_min: i8,
-    x_max: i8,
-    y_min: i8,
-    y_max: i8,
-    piece_count: u16,
-    piece: MapPiece,
-}
-
-// A centered single-piece frame: bbox = (-half, +half) each axis, the piece
-// offset to center. w/h are cell counts (8px); tile is the base tile index.
-comptime fn centered(half: int, w: int, h: int, tile: int) -> MapFrame1 {
-    return MapFrame1{
-        x_min: -half,
-        x_max: half,
-        y_min: -half,
-        y_max: half,
-        piece_count: 1,
-        piece: MapPiece{
-            y_off: -half,
-            size:  spr_size(w, h),
-            link:  0,
-            tile:  tile,
-            x_off: -half,
-        },
-    }
-}
 
 pub offsets Map_DemoBox {
     F0: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: 0),   // 16x16, color index 1
