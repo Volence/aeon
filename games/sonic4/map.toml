@@ -41,6 +41,7 @@ order = [
   "Ani_Sonic", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
   "Song_MovingTrucks", "Sfx_33",
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
+  "Replay_OJZ_Fixture",
 ]
 
 # ── Region geometry (this map is the SOLE owner — sigil.map.toml retired in K5) ──

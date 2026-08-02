@@ -17,6 +17,7 @@ engine/sound/generated/
 !art/uncompressed/**/*.bin
 !art/optimized/**/*.bin
 !games/sonic4/data/dplc/*.bin
+!games/sonic4/data/replays/*.bin
 !games/sonic4/data/dplc/optimized/*.bin
 !games/sonic4/data/mappings/*.bin
 !art/palettes/*.bin
