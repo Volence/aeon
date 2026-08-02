@@ -63,6 +63,25 @@ poke on parent 18 → first churn frame's despawn walk:
 A/B verdict: 33-with-orphans vs 30-clean — the row-1599 leak class is closed by
 the cascade.
 
+## Parcel 3 — PAL NTSC-only deletion: PASS (aeon merge 218608b, chain-24)
+
+Porter reader-sweep clean (only the 3 expected sites). Code −0x10/shape, RAM −4
+(every upper-RAM symbol ≥ $802C). Oracle B-side on the porter DEBUG ROM
+(8cdcaae5/422038): `DMA_Budget_Default` seeded $1800 (NTSC, DMA_BUDGET_NTSC=6144)
+at the shifted address $FF81FE; `Hardware_Region`=$A0/`Region_Flags`=$80 correct;
+600-frame held-right max-scroll run: Camera_X 0→5824 px, `Lag_Frame_Count`=0,
+clean OJZ render, no assert. Chain 23→24 (`pal-ntsc-only`), strict 2990/0/4
+own-run restored.
+
+Countersign catch (the parcel's lesson): the porter's fixture sweep got the suite
+to "all residuals are refreeze territory" — but FOUR more files carried stale
+literals of the same −0x10 class that only surfaced AFTER the refreeze
+(boot_data_port BootData windows, native_full LOAD_BEARING, native_offcanonical
+GameLoop/AnimateSprite, and `seam1::blob_lma` — a harness SRC literal, byte-gate-
+only consumer). All pin-sourced where pins exist (sigil 237c1afb). Standing rule
+confirmed: "refreeze territory" claims must be re-verified by an own-run AFTER the
+refreeze, not classified from failure names.
+
 ## Oracle tool observations (for the oracle backlog, NOT engine bugs)
 
 1. **`run_to` at the current PC is a no-op**: arming a transient breakpoint at the

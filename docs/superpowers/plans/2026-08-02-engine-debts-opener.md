@@ -5,7 +5,9 @@
 > **STATUS 2026-08-02:** Parcel 1 EXECUTED + MERGED (aeon `8678ddb` / sigil `7e6ca108`,
 > chain-23 `despawn-cascade`, strict 2990/0/4 own-run, oracle A/B in the evidence note).
 > Parcel 2 CLOSED (already-shipped spec-§9 latch, 7k-frame churn soak PASS, ledger
-> amended). Parcel 3 (PAL deletion) OPEN — next.
+> amended). Parcel 3 EXECUTED + MERGED (aeon `218608b` /
+> sigil `237c1afb`, chain-24 `pal-ntsc-only`, strict 2990/0/4 own-run, oracle B-side
+> in the evidence note). THE OPENER IS COMPLETE.
 
 **Goal:** Close the two ruled Tier-1 engine debts — the children-never-freed dynamic-slot
 leak (fix (a): despawn cascade) and the NTSC-only PAL-timestep deletion — plus formally
