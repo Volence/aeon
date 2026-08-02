@@ -1,0 +1,10 @@
+// OJZ replay fixture — the standing regression-net input stream (spec
+// 2026-08-02 §4). Recorded by the overseer harness session (I4); packed by
+// tools/replay_pack.py. Placed LAST in the emitting order so re-recording
+// (a content+size change) shifts ZERO gameplay addresses — the fixture build
+// and the recording build agree on every address the curated hash covers.
+// Playback entry: Replay_Ptr = Replay_OJZ_Fixture + REPLAY_HEADER_LEN,
+// Input_Source = INPUT_PLAYBACK (oracle poke recipe in the evidence note).
+module games.sonic4.replay_fixture in replay_fixture
+
+pub data Replay_OJZ_Fixture (align: 2) = embed("games/sonic4/data/replays/ojz_fixture.bin")
