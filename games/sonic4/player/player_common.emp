@@ -389,7 +389,14 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // fresh-arm edge — fire the skid SFX once before latching
         if SOUND_DRIVER_ENABLED == 1 {
                 moveq   #SFXID_SKID, d0
-                jbsr    Sound_PlaySFX
+                jsr     Sound_PlaySFX           // explicit jsr (kept-width class): the input-6button
+                                                // +0xB0 shift put Sound_PlaySFX (debug $81BA) right at
+                                                // the bsr.w reach boundary from this bank — jbsr's
+                                                // ladder is convergence-history-dependent there (the
+                                                // whole-ROM build locks jsr, a standalone lower picks
+                                                // bsr.w), so the encoding is PINNED placement-
+                                                // independent like every cross-bank call. Byte-equal
+                                                // to the converged jbsr in both shapes.
         }
 .skid_show:
         st      PlayerV.skid_latch(a0)
