@@ -112,10 +112,11 @@ pub vars upper_ram {
     pad(4),                             // reserved (interrupt dispatch)
 
     // --- Region detection (§0.8) ---
+    // NTSC-only product ruling (2026-08-02, B): the PAL fixed-timestep fields
+    // (Timing_Step/Frame_Accumulator) had zero readers and were deleted. The
+    // region-adaptive DMA budget (written at boot from Region_Flags) stays live.
     Hardware_Region:        u8,
     Region_Flags:           u8,
-    Timing_Step:            u16,
-    Frame_Accumulator:      u16,
 
     // --- Controllers ---
     Ctrl_1_Held:            u8,

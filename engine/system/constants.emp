@@ -287,12 +287,6 @@ pub const BG_TILE_BASE_SLOT = BG_TILE_BASE_VRAM / 32   // 1024 — nametable ind
 pub const BG_TILE_CAPACITY  = 448
 
 // -----------------------------------------------
-// Timing steps (8.8 fixed frame-advance rate).
-// -----------------------------------------------
-pub const NTSC_TIMING_STEP = $0100      // 1.0
-pub const PAL_TIMING_STEP  = $0133      // 1.2 (6/5 ratio)
-
-// -----------------------------------------------
 // Controller button masks (complete the d-pad/face-button set above).
 // -----------------------------------------------
 pub const BUTTON_B     = 1 << 4         // $10
