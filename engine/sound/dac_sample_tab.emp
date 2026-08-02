@@ -49,15 +49,13 @@ module engine.dac_sample_tab (cpu: z80)
 use engine.sound_constants.{DAC_SAMPLE_COUNT, DacSample_len}
 
 // The table emits 10 descriptors of 9 bytes (db,db,db,dw,dw,dw) = 90 bytes.
-// The `ensure` below checks only the RHS — that the engine's DECLARED count ×
-// stride still equals this table's declared 90 (a drift guard against
-// DAC_SAMPLE_COUNT / DacSample_len changing). It does NOT read the EMITTED span,
-// so it cannot catch this body emitting the wrong NUMBER of descriptors — the LHS
-// `10*9` is a hand literal, not a measured length. Emitted-span checking awaits a
-// comptime section-length primitive (gap-ledgered); until then the co-link byte
-// gate + the oracle's length pin cover table-body drift.
-ensure(10 * 9 == DAC_SAMPLE_COUNT * DacSample_len,
-       "DacSampleTable size (10 descriptors × 9 bytes) disagrees with DAC_SAMPLE_COUNT × DacSample_len")
+// `span(DacSampleTable)` folds the EMITTED byte span of the table body at
+// comptime, so this guard catches BOTH the engine's declared count × stride
+// drifting AND this body emitting the wrong NUMBER of descriptors — the LHS is a
+// measured length, not a hand literal. (`span` is the comptime emitted-span
+// primitive; it reads this same-module pure-data proc's lowering.)
+ensure(span(DacSampleTable) == DAC_SAMPLE_COUNT * DacSample_len,
+       "DacSampleTable emitted span disagrees with DAC_SAMPLE_COUNT × DacSample_len")
 
 // Pure data table — the proc emits only `db`/`dc.w` cells and touches no
 // register, so `clobbers()` is the honest empty contract.
