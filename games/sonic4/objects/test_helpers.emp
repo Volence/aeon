@@ -1,0 +1,38 @@
+// Shared authoring helpers for the sonic4 test objects — the init-prolog shape
+// several test objects splice, and the emitter timer overlay the two emitters
+// share. Types + comptime fns: this module emits no bytes of its own; each
+// consumer splices what it uses (a spliced body resolves its free names in the
+// splice-site scope, so consumers keep the imports the spliced code reaches).
+module games.sonic4.test_helpers
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
+use engine.objects.objdef.{vram_art}
+use games.sonic4.constants.{VRAM_TEST_OBJ}
+
+// EmitterV — the shared emitter state overlaying sst_custom: a single u16
+// countdown as the first word. Both test emitters carry the identical shape. The
+// overlay's always-on window-overflow check subsumes the AS `objvarsCheck`.
+pub vars EmitterV: Sst.sst_custom {
+        timer: u16,                     // countdown to next spawn
+}
+
+// test_obj_prolog — the shared TestObj init header: Map_TestObj mapping, test-obj
+// art, frame 1, priority, hitbox size, and (for the pixel-space objects) the
+// coordinate-mode bit. Splice at the head of an init routine holding a0 = *Sst.
+pub comptime fn test_obj_prolog(prio: int where 0..7, w: int, h: int, coordmode: bool) -> Code {
+        let head = asm {
+                move.l  #Map_TestObj, mappings(a0)
+                move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
+                move.b  #1, mapping_frame(a0)
+                ori.b   #{prio << RF_PRIORITY_SHIFT}, render_flags(a0)
+                move.b  #{w}, width_pixels(a0)
+                move.b  #{h}, height_pixels(a0)
+        }
+        if coordmode {
+                return head ++ asm {
+                        bset    #RF_COORDMODE, render_flags(a0)
+                }
+        }
+        return head
+}

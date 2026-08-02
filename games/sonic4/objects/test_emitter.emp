@@ -6,19 +6,14 @@ use engine.objects.sst.{Sst}
 use engine.objects.children.{SpawnDesc}
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
 use engine.objects.objdef.{vram_art}
-use engine.types.{VramTile}
-
-// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
-// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
 use games.sonic4.constants.{VRAM_TEST_OBJ}
+use games.sonic4.test_helpers.{EmitterV, test_obj_prolog}
+
+// The spliced test_obj_prolog body resolves vram_art, VRAM_TEST_OBJ, and the
+// RF_* bits in THIS module's scope (a comptime fn body resolves its free names
+// at the splice site), so those imports stay here.
 
 const EMITTER_INTERVAL = 30             // frames between spawns
-
-// TEmitterV — the per-object emitter state, overlaying sst_custom. The overlay's
-// always-on window-overflow check subsumes the AS `objvarsCheck`.
-vars TEmitterV: Sst.sst_custom {
-        timer: u16,                     // countdown to next spawn
-}
 
 // -----------------------------------------------
 // TestEmitter — set up emitter (called as first-frame code_addr)
@@ -27,14 +22,8 @@ vars TEmitterV: Sst.sst_custom {
 //   contract is CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1)).
 // -----------------------------------------------
 pub proc TestEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestEmitter_Main {
-        move.l  #Map_TestObj, mappings(a0)
-        move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
-        move.b  #1, mapping_frame(a0)           // frame 1 (color 2 square)
-        ori.b   #5<<RF_PRIORITY_SHIFT, render_flags(a0)
-        move.b  #16, width_pixels(a0)
-        move.b  #16, height_pixels(a0)
-        bset    #RF_COORDMODE, render_flags(a0)
-        move.w  #EMITTER_INTERVAL, TEmitterV.timer(a0)
+        test_obj_prolog(prio: 5, w: 16, h: 16, coordmode: true)  // frame 1 (color 2 square)
+        move.w  #EMITTER_INTERVAL, EmitterV.timer(a0)
         move.w  #TestEmitter_Main - ObjCodeBase, code_addr(a0)
 }
 
@@ -44,11 +33,11 @@ pub proc TestEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestEmitter_Mai
 // Clobbers: d0-d3, a1-a2 — CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1).
 // -----------------------------------------------
 pub proc TestEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
-        subq.w  #1, TEmitterV.timer(a0)
+        subq.w  #1, EmitterV.timer(a0)
         bne     .draw
 
         // Timer expired — spawn particle (particle sets its own velocity)
-        move.w  #EMITTER_INTERVAL, TEmitterV.timer(a0)
+        move.w  #EMITTER_INTERVAL, EmitterV.timer(a0)
         lea     emitter_particle_desc(pc), a1
         jbsr    CreateEffect_Normal
 
