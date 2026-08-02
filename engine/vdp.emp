@@ -37,6 +37,21 @@ pub const VDP_MODE2_OFF = $01                // reg $01 (Mode Set 2) — carries
 pub const VDP_MODE3_OFF = $0B                // reg $0B (Mode Set 3) — ext-int/scroll modes
 pub const VDP_HINT_OFF  = $0A                // reg $0A — HInt line counter
 
+// vdpReg (engine/macros.asm): VDP register-set command word — $8000 base,
+// register number in the high byte, value in the low byte. The refinements close
+// the macro's silent bit-collisions (vram_art precedent): reg > $17 names a
+// register the VDP lacks, val > $FF bleeds into the register-number byte.
+pub comptime fn vdp_reg(reg: int where 0..$17, val: int where 0..$FF) -> int {
+    return $8000 | (reg << 8) | val
+}
+
+// bytesToLcnt (engine/macros.asm): byte count -> dbf longword-loop count. Bounded
+// to the real clear-loop domain; a non-multiple-of-4 count floors (the AS function
+// shares that edge — documentary).
+pub comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
+    return n / 4 - 1
+}
+
 // The %-encodings (truth: engine.constants — VRAM/CRAM/VSRAM/READ/WRITE/DMA). Exhaustive match — Plan-3
 // totality checks it, so a new variant FORCES the mapper to grow.
 comptime fn target_bits(t: VdpTarget) -> int {

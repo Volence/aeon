@@ -36,22 +36,7 @@
 module engine.boot_data
 
 use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL}
-use engine.vdp.{vdp_comm}
-
-// vdpReg (engine/macros.asm): VDP register-set command word — $8000 base,
-// register number in the high byte, value in the low byte. The refinements close
-// the macro's silent bit-collisions: reg > $17 names a register the VDP lacks,
-// val > $FF bleeds into the register-number byte.
-comptime fn vdp_reg(reg: int where 0..$17, val: int where 0..$FF) -> int {
-    return $8000 | (reg << 8) | val
-}
-
-// bytesToLcnt (engine/macros.asm): byte count -> dbf longword-loop count. Bounded
-// to the real clear-loop domain; a non-multiple-of-4 count floors (the AS
-// function shares that edge — documentary).
-comptime fn bytes_to_lcnt(n: int where 4..$10000) -> int {
-    return n / 4 - 1
-}
+use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt}
 
 // The resident sound driver blob (seam-1 emit, the SAME generated file the AS
 // build BINCLUDE'd). Direct-embed consts (the mt_bank pattern) so the data item
