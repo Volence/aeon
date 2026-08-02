@@ -47,9 +47,21 @@ section compares miss → `.despawn` → `DeleteObject` (parent only). Then obse
   `Dynamic_Free_SP` recovered exactly 7 slots ($9EB2→$9EC0), never the 3 orphans.
 - Screenshot: `docs/research/leak_repro_orphans_2026-08-02.png`.
 
-B-side (post-fix, cascade): same procedure must show parent 18's despawn freeing
-4 slots (parent + 3 children) same frame, count → 36 after reconcile, free SP +8,
-no walk-rail assert. To be run on the `fix-despawn-cascade` ROM.
+## Parcel 1 — leak B-side: PASS on `fix-despawn-cascade` (aeon dbcb3795)
+
+Same procedure, porter ROM `s4.debug.bin` CRC `764d4e87`/422066 (worktree build,
+CRC countersigned). Identical staging (parents 17/18/19, chain head slot 3). Same
+poke on parent 18 → first churn frame's despawn walk:
+- Parent 18 AND children 3/4/5 all freed the SAME frame (`active:false` ×4);
+  `Dynamic_Free_SP` $9EB2→$9EBA (+8 = 4 slots) — the plan's exact prediction.
+- Next reconcile: `Dynamic_Live_Count` 40→36 (−4, was −1 pre-fix).
+- Parents 17/19 unaffected mid-run; free-run past their natural timer cascade:
+  END STATE ZERO parents/children/orphans, count 30 (pre-fix ended 33 with 3
+  corpse-orbiting orphans), free SP $9EC6 = base +10 slots = every allocated
+  parent/child slot returned. No walk-rail assert at any point.
+
+A/B verdict: 33-with-orphans vs 30-clean — the row-1599 leak class is closed by
+the cascade.
 
 ## Oracle tool observations (for the oracle backlog, NOT engine bugs)
 
