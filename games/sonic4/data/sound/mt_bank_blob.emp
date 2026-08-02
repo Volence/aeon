@@ -1,31 +1,30 @@
 // ===========================================================================
-// games/sonic4/data/sound/mt_bank_blob.emp — the Moving-Trucks streaming bank
-// body, native (K4 inc-5 Stage 3, the P2 MT probe)
+// games/sonic4/data/sound/mt_bank_blob.emp — the Moving-Trucks streaming bank,
+// native (song streams + the two pointer tables sound_api.emp reads cross-seam)
 // ===========================================================================
-// The Moving-Trucks song-stream bank was the BINCLUDE at $58607 in main.asm's
-// gameSoundDataIncludes (inside the sound bank, after the phased soundBankHead).
-// This module places it NATIVELY by EMBEDDING the seam-2-emitted mt_bank{,_debug}
-// .bin — the P2 path (spec §6): the emit-tool architecture is untouched
-// (`ensure_generated` still lowers mt_bank.emp → the .bin); this module just
-// places those bytes natively instead of via AS BINCLUDE.
+// The Moving-Trucks song-stream bank sits inside the sound bank at $58607 (after
+// the phased soundBankHead). This module places it NATIVELY by embedding the
+// seam-2-emitted THREE-WAY SPLIT of the bank: the body (song streams + heads),
+// the SongTable pointer table, and the parallel SongPatchTable — three contiguous
+// labeled members so SongTable / SongPatchTable are NATIVE section labels, not an
+// emitted equ artifact. The emit-tool architecture is untouched (`ensure_generated`
+// still lowers mt_bank.emp → the .bin); this module just places those bytes.
 //
 // SHAPE-DEPENDENT SIZE (shape-INVARIANT start): the body always starts at $58607
-// (the soundBankHead above it is $607 bytes both shapes), but the debug build
-// adds the DrumTest + HCZ2 songs, so plain is 0x34E1 B (ends $5BAE8) and debug is
-// 0x4F33 B (ends $5D53A). The embed selects on DEBUG.
+// (the soundBankHead above it is $607 bytes both shapes), but the debug build adds
+// the DrumTest + HCZ2 songs, so plain is 0x34E1 B (ends $5BAE8) and debug is
+// 0x4F33 B (ends $5D53A). Each member selects on DEBUG.
 //
-// NON-PHASED: the body's labels are plain LMA (68k reads SongTable/SongPatchTable
-// at their absolute ROM
-// addresses; the Z80 reads the song streams via runtime-computed window pointers
-// baked into the .bin, not via fixed phased labels). So this is a plain-LMA embed
-// section, like the DAC — NOT a `bank: $8000` phase section.
+// NON-PHASED: the members' labels are plain LMA (68k reads SongTable/SongPatchTable
+// at their absolute ROM addresses; the Z80 reads the song streams via runtime-
+// computed window pointers baked into the body, not via fixed phased labels). So
+// this is a plain-LMA embed section, like the DAC — NOT a `bank: $8000` phase
+// section.
 //
-// SongTable / SongPatchTable (the two labels sound_api.emp consumes cross-seam via
-// `extern`) sit in the last SONG_COUNT*8 bytes of the blob (SONG_COUNT = 1 plain /
-// 3 debug — a shape-dependent mid-blob offset a single `embed()` cannot label), so
-// they stay AS-provided by the emitted `mt_syms{,_debug}.asm` (an emitted artifact,
-// like the .bin). This module owns the BYTES + the head label Song_MovingTrucks
-// (the section head / map-order / frozen boundary key; no runtime consumer).
+// SongTable / SongPatchTable are the last two SONG_COUNT*4-byte members (SONG_COUNT
+// = 1 plain / 3 debug). sound_api.emp externs them; the whole-ROM link resolves the
+// externs against these native labels. Song_MovingTrucks is the body / section head
+// (the map-order / frozen boundary key; no runtime consumer).
 //
 // STRUCTURAL EXCLUSIVITY (spec §6, the ruled mechanism, inherited from Stage 2):
 // this native section is the SOLE MT-body placement — the AS BINCLUDE is DELETED
@@ -36,9 +35,37 @@
 
 module games.sonic4.mt_bank_blob in mt_bank_blob
 
-const _mt       = embed("engine/sound/generated/mt_bank.bin")
-const _mt_debug = embed("engine/sound/generated/mt_bank_debug.bin")
+// The body (song streams + soundbankhead-adjacent tables) and the two pointer
+// tables, split at emit so the tables get their own native labels.
+const _body_active = if DEBUG == 1 {
+    embed("engine/sound/generated/mt_bank_body_debug.bin")
+} else {
+    embed("engine/sound/generated/mt_bank_body.bin")
+}
+const _st_active = if DEBUG == 1 {
+    embed("engine/sound/generated/mt_songtable_debug.bin")
+} else {
+    embed("engine/sound/generated/mt_songtable.bin")
+}
+const _spt_active = if DEBUG == 1 {
+    embed("engine/sound/generated/mt_songpatchtable_debug.bin")
+} else {
+    embed("engine/sound/generated/mt_songpatchtable.bin")
+}
 
-// The whole Moving-Trucks streaming bank body (song streams + patch bank + pitch
-// table + the SongTable/SongPatchTable pointer tables) @ $58607.
-pub data Song_MovingTrucks = if DEBUG == 1 { _mt_debug } else { _mt }
+// SONG_COUNT (shape-dependent) sizes the two pointer tables. mt_bank_blob lowers
+// standalone in its region gate, so — like mt_bank.emp — SONG_COUNT resolves
+// comptime-locally here; the drift guard binds it to the authority
+// (games.sonic4.sound_ids) at whole-ROM link.
+const SONG_COUNT = if DEBUG == 1 { 3 } else { 1 }
+ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from games.sonic4.sound_ids: {SONG_COUNT}")
+
+// The three contiguous members: body, then the two SONG_COUNT*4 pointer tables.
+pub data Song_MovingTrucks = _body_active
+pub data SongTable         = _st_active
+pub data SongPatchTable    = _spt_active
+
+// Size walls (comptime): each pointer table is SONG_COUNT 4-byte entries. A drift
+// would mis-split the bank or desync sound_api's SongTable[id-1] indexing.
+ensure(_st_active.len  == SONG_COUNT * 4, "SongTable wrong size (must be SONG_COUNT*4)")
+ensure(_spt_active.len == SONG_COUNT * 4, "SongPatchTable wrong size (must be SONG_COUNT*4)")
