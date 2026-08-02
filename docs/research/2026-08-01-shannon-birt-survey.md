@@ -28,6 +28,15 @@ Sources (status IDs on x.com/birt_shannon):
 - 3D engine updates 8 / 8.5 (interleaved-plane framebuffer, sprite background) —
   status/2077723799316013354, status/2081168090247880746
 
+YouTube pass (2026-08-01, via yt-dlp auto-captions + descriptions; channel
+UC5CAIwM8ADZxzoSDfqKu4mg, 6 videos):
+- Sprite Multiplexing Madness (8waFxFKjDn4, 7:30, Nov 2023) — transcript
+- Lufthoheit WIP preview (DtnqBoSfbro, 11:43) — transcript
+- Mega Parodius Stage 8 boss "Puyon" (pqNbWbk8iPA) — description (dense)
+- Mega Parodius WIP / VRAM defrag (pq_IworHJr4) — description (dense)
+- Mega Parodius Catboss update (ID2WfqSnyk0) — description (dense)
+- Stage 1 WIP shooter engine (Uu__HghyWzY) — description
+
 ---
 
 ## KEEP #1 — Co-operative threading inside interrupt-wait gaps
@@ -205,6 +214,140 @@ technique; revisit only for a non-gameplay flourish with explicit fallback.
 - **5× sprite scaler** (64x32 → 320x160, 60 FPS vertical / 30 FPS horizontal update):
   no implementation details published; noted so we know the ceiling exists if we ever
   want scaling set pieces.
+
+---
+
+## KEEP #8 — HInt register partitioning: zero save/restore interrupt handlers
+
+**What (Puyon boss video):** During the vertical-scaling effect they split the 68k
+register file into two static sets: **4 registers permanently owned by the HInt
+handler** (which drives per-line vertical scaling), 12 for the main-loop horizontal
+scaler. The HInt does **no backup/restore at all** — their claim: save/restore "would
+double CPU costs" at their fire rate. The catch, in their words: the moment any
+background routine touches the HInt's registers mid-effect it all breaks, "so it has
+to be carefully timed."
+
+**Why it matters to us:** The standard prologue/epilogue is pure overhead multiplied
+by fire count — at every-4-scanlines rates it dominates the handler body. If Aeon ever
+ships an HInt-heavy scene (backlog #2/#19/#20 all trend there), a per-scene register
+reservation is the single biggest lever on HInt cost. AS makes this less scary than
+their hand-discipline version: a scene-scoped `reg` alias set + a lint/convention that
+the reserved registers are untouchable inside the affected loop gets build-time
+enforcement of what they enforce by care.
+
+**Caveats:** Only viable when the effect scopes cleanly (their scaler runs during a
+choreographed boss sequence, not open gameplay). Engine-wide reservation would tax
+every routine; scene-scoped is the only sane shape. VInt still saves/restores normally.
+
+**Where it lands:** Design note for backlog #19's dispatcher when it graduates —
+"handlers may declare a reserved register set; the scene that installs them accepts
+the constraint."
+
+---
+
+## KEEP #9 — Auto-defragging VRAM allocator with variable slot sizes
+
+**What (Parodius WIP video):** Their dynamic enemy-art region (444 tiles for level 1)
+is managed by a **defragmenting allocator**: variable-size slots (fixed slots rejected —
+sized for the worst case they'd be too big, leaving too few), and when objects die the
+surviving objects' streamed animations are **live-shifted** to compact free space —
+visible in their tile-viewer capture as animations physically move. Rationale verbatim:
+without defrag "VRAM would become like swiss cheese after a few screens of enemies,"
+and "sloppy VRAM management is the achilles heel of GFX diversity in a retro game."
+Sizing color: one boss (Catboss) eats 308 of the 444 tiles when on screen; the bomb
+effect needs a permanently reserved region because it can trigger anywhere.
+
+**Why it matters to us:** This is the strongest single find of the whole survey for
+Aeon's roadmap. Our current answer (fully-resident deduped act pool) deliberately has
+no dynamic region — but **art-streaming Phase 2 and the mega-act showcase reintroduce
+exactly this problem** (per-zone enemy sets streaming through a shared pool across
+zone seams). Their field experience gives us the design constraints up front: variable
+slots over fixed, defrag-on-death (amortized, DMA-cheap since it's VRAM→VRAM-sized
+moves at known boundaries), reserved regions for trigger-anywhere effects, and
+live-shift requiring every consumer to re-resolve tile bases (our objects already
+resolve art through per-object art_tile, so a move only needs an owner-notify).
+
+**Caveats:** Defrag moves cost DMA bandwidth in exactly the frames where lots is dying
+(explosions everywhere) — needs the same budget-slicing discipline as our tile-cache
+fill. Their shmup has no camera-reversal re-entry; our sliding entity window can
+re-demand art that defrag just evicted — eviction policy needs the entity window's
+lookahead, not just death events.
+
+**Where it lands:** Requirement input for the art-streaming Phase 2 design when it
+opens. Cross-link from that plan back here.
+
+---
+
+## KEEP #10 — Sprite-budget offloading: the plane layer as sprite relief
+
+**What:** Three recurring moves across their projects, all the same idea — spend plane
+bandwidth to protect the per-line sprite budget:
+1. **Player bullets as plane tiles, not sprites** (Stage 1 WIP): all player projectiles
+   draw into the scroll plane, freeing the entire sprite budget for enemies.
+2. **Boss composites** (Catboss): the huge boss is Plane A + sprites, with face/tail/
+   propeller as *plane tile animations*; laser effects relocated to Plane B; the
+   waterline over him rebuilt from sprites only where three "planes" must overlap.
+3. **Two-tier sprite path** (Lufthoheit engine): only the population that needs
+   multiplexing pays for Y-sorting/binning ("MP sprites"); big enemies ride the raw
+   unsorted hardware path ("VDP sprites" — "cheaper to use"). Their debug HUD tracks
+   the two counts separately, plus WF = worst-frame time *measured in scanlines* (/255).
+
+**Why it matters to us:** (1) is a real trick for any dense set piece: a plane-drawn
+projectile field costs tile writes + restore instead of per-line sprite pixels — the
+restore cost is the catch, but for slow-moving dense fields it wins. (2) is standard
+big-boss craft worth having on the shelf for our own set pieces. (3) validates a
+structural choice if we ever adopt multiplexing: split populations, don't tax the
+whole SAT build. The WF-in-scanlines metric is exactly our Lag_Frame_Count philosophy
+(measure the real deadline, not a proxy) — nice convergent evolution, no action.
+
+**Caveats:** Plane-drawn projectiles need cell-aligned art or shifted variants
+(pre-shifted copies cost VRAM), and dirty-cell restore each frame; collision stays in
+object space regardless. Boss-as-plane needs the plane free — their Catboss forced
+laser effects onto the other plane; we usually have both planes busy (FG + parallax BG).
+
+**Where it lands:** Backlog candidate under "Multi-sprite mega-objects" (#12) as a
+composite-boss pattern note; bullets-as-tiles is a set-piece tool, note here suffices.
+
+---
+
+## KEEP #11 — Temporal masking: build-time dead-region analysis for animation buffers
+
+**What (Puyon boss video):** For the scaled boss frames they scripted a build-time
+analysis of every animation frame that classifies buffer regions into: never-drawn
+(skip entirely), needs-CPU-clear, needs-ROM-copy. "Don't draw nothing to buffer if
+nothing is already there." Result: −30 KB ROM (headed for −60 KB) plus CPU savings on
+every frame — corners/edges of scaling frames simply stop existing as work.
+
+**Why it matters to us:** Pure philosophy match — this is our "build-time computation
+over runtime" rule applied to animation buffers, and a pattern our tools pipeline could
+reuse wholesale if we ever stream large composed animations (boss intros, title
+sequences): the generator emits per-frame draw scripts instead of uniform blits.
+
+**Where it lands:** No action now; pattern noted for any future big-animation tool.
+
+---
+
+## Video-pass enrichments to earlier items
+
+- **KEEP #4 (multiplexing):** the Madness demo reuses only **20 hardware sprites 22×**
+  rather than cycling all 80 — throughput was identical and the code simpler; small
+  recycled sets are the recommended shape (matches the 8-sprite Parodius starfield).
+  Also two ceilings quantified: ~**3 CRAM colors/line via CPU writes** in the border
+  (their first demo; pushing harder = CRAM dot artifacts) vs the 4-5/line the 1013
+  demo later achieved **via DMA**; and the VDP can't ingest 68k writes at full speed
+  mid-display — write pacing is part of the timing budget.
+- **KEEP #3 (CRAM racing):** production Lufthoheit runs "~6 palettes' worth of color
+  from 4 palettes" routinely mid-scene — the sustainable game-scale figure, vs the
+  demo-scale 22 rewrites of the Madness demo.
+- **Production sprite-load reference points:** enemy-hell scenes ship at **210-233
+  total sprites around 227-236/255 scanlines** of frame time — i.e., heavily multiplexed
+  crowds are playable with ~10% frame headroom on real scenes, engine cap 260.
+- **Aimed fire is the cost driver, not sprite count:** their heaviest CPU scenes are
+  8-9 shooters all computing player-relative trajectories (LUT angles, no arctan);
+  pre-baked trajectories are the budget lever. Matches our no-mulu/divu + LUT doctrine.
+- **Their debug workflow** runs two emulators side by side for complementary
+  inspectors (BlastEm accuracy + Gens per-line CRAM/sprite panels; later Exodus sprite
+  boxing). We hold this position already with oracle's unified MCP inspectors.
 
 ---
 
