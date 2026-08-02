@@ -82,6 +82,29 @@ only consumer). All pin-sourced where pins exist (sigil 237c1afb). Standing rule
 confirmed: "refreeze territory" claims must be re-verified by an own-run AFTER the
 refreeze, not classified from failure names.
 
+## Input/replay parcel I1 — 6-button layer: MERGED (chain-25 `input-6button`)
+
+aeon merge `0887b51` / sigil `16aa2175`. Oracle gate on the MDControl6 device:
+PAD_6BTN detected (port 2 degrades 3BTN), X/Y/Z/Mode → `BUTTON_EXT_*` exact, edge
+latch consume-once, 600-frame max-scroll behavioral A/B IDENTICAL to pre-parcel
+(Camera_X 5824 px, lag 0). Strict 2990/0/4 own-run post-refreeze.
+
+Findings worth their ledger space:
+1. **The live gate caught a protocol bug code review missed**: the first-pass
+   HIGH-first TH cadence sampled every 6-button phase a half-cycle early against
+   the rising-edge pad counter (oracle's MDControl6 model, and real pads) —
+   detection could never fire. Rewritten to the SGDK LOW-FIRST cadence, verified
+   phase-by-phase against the device source.
+2. **`jbsr` relaxation is convergence-history-dependent at the ±32K reach
+   boundary**: the parcel's shift pulled `Sound_PlaySFX` into bsr.w range of the
+   player bank; the whole-ROM build's monotonic grow keeps `jsr` while a
+   standalone lower picks `bsr.w`. Fixed by pinning the borderline cross-bank
+   call to explicit `jsr` (byte-identical) — the kept-width class.
+3. **Two stale-literal fixture classes killed structurally at the second bite**:
+   off-canonical LOAD_BEARING spots now read from the frozen size tables (which
+   regenerate at every refreeze); the keystone deform-pointer offset is
+   listing-derived. Plus the parallax RAM-label table pin-sourced at its third.
+
 ## Oracle tool observations (for the oracle backlog, NOT engine bugs)
 
 1. **`run_to` at the current PC is a no-op**: arming a transient breakpoint at the
