@@ -1,0 +1,213 @@
+// Demo record/replay — the tick-seam input harness (spec 2026-08-02 §3).
+module engine.replay in replay
+
+use engine.constants.{INPUT_PLAYBACK, INPUT_RECORD, REPLAY_ESCAPE, REPLAY_OP_CHECK, REPLAY_CHECK_MASK, REPLAY_RECORD_TICKS, BUTTON_START_BIT}
+use engine.objects.sst.{Sst}
+
+// -----------------------------------------------
+// Input_Tick — the ONE replay seam. Called from GameLoop AFTER VSync_Wait (VInt
+// has already latched the pads) and BEFORE the state dispatch, so every input
+// consumer downstream is untouched.
+//
+//   INPUT_LIVE     (0): no-op — the pads flow through unchanged.
+//   INPUT_PLAYBACK (1): overwrite Ctrl_1_Held / Ctrl_1_Press from the stream.
+//                       Presses derive from the STREAM's previous byte, NEVER the
+//                       live pad (the S1 REV00 / S2 input-bleed desync class,
+//                       killed structurally). A live Start press sets
+//                       Replay_Exit_Request WITHOUT merging into the latched
+//                       bytes (the replayed stream stays pure). On end-of-stream:
+//                       Replay_Done set, revert to live.
+//   INPUT_RECORD   (2): DEBUG only — tap the latched Ctrl_1_Held into the ring +
+//                       emit a curated-state checkpoint every 64 ticks.
+//
+// In:  none (reads Input_Source + the latched controller cells)
+// Out: Ctrl_1_Held / Ctrl_1_Press possibly overwritten (playback); ring + log
+//      appended (record); Replay_* flags updated.
+// Clobbers: d0-d3, a0-a1
+// -----------------------------------------------
+pub proc Input_Tick () clobbers(d0-d3/a0-a1) {
+        move.b  Input_Source, d0
+        beq     .live                       // INPUT_LIVE -> no-op
+        cmpi.b  #INPUT_PLAYBACK, d0
+        beq     .playback
+        if DEBUG == 1 { jbra .record }      // only INPUT_RECORD remains; it exists in DEBUG only
+    .live:
+        rts
+
+    // --- PLAYBACK ---------------------------------------------------------
+    .playback:
+        // Live Start -> exit-request FLAG. Read BEFORE the overwrite clobbers
+        // Ctrl_1_Press; the flag is public (the game polls it) and is NEVER merged
+        // into the latched bytes — the replayed input stream stays byte-pure.
+        btst    #BUTTON_START_BIT, Ctrl_1_Press
+        beq     .no_exit
+        st      Replay_Exit_Request
+    .no_exit:
+        tst.b   Replay_Hold
+        bne     .hold                       // still inside the current RLE run
+    .fetch:
+        movea.l Replay_Ptr, a0
+    .fetch_a0:                              // re-entry: a0 already = stream ptr
+        move.b  (a0)+, d0
+        cmpi.b  #REPLAY_ESCAPE, d0
+        bne     .pair                       // ordinary buttons byte -> new RLE run
+        move.b  (a0)+, d1                   // escape opcode
+        beq     .end                        // REPLAY_OP_END ($00)
+        cmpi.b  #REPLAY_OP_CHECK, d1
+        bne     .bad_stream                 // unknown opcode
+        // checkpoint record: u32 expected hash follows.
+        if DEBUG == 1 {
+            move.l  (a0)+, d2               // expected hash (d2 survives Replay_Hash)
+            move.l  a0, Replay_Ptr          // advance PAST the record before the clobbering call
+            jbsr    Replay_Hash             // d0.l = curated-block hash (clobbers d0-d1/a0-a1)
+            cmp.l   d0, d2
+            bne     .desync
+            movea.l Replay_Ptr, a0          // reload the advanced ptr, fetch the real pair this tick
+            jbra    .fetch_a0
+        }
+        if DEBUG == 0 {
+            addq.l  #4, a0                   // release: step over the payload, no compare
+            jbra    .fetch_a0
+        }
+    .pair:
+        move.b  (a0)+, Replay_Hold          // hold_minus_1 (run_len - 1; 0 = this tick only)
+        move.l  a0, Replay_Ptr
+        jbra    .apply                       // d0 = the new held byte
+    .hold:
+        subq.b  #1, Replay_Hold
+        move.b  Replay_Prev, d0             // same byte as last tick
+    .apply:
+        // press = new & (new ^ prev_stream) — STREAM history, not the live pad.
+        move.b  Replay_Prev, d1
+        move.b  d0, Replay_Prev
+        eor.b   d0, d1
+        and.b   d0, d1
+        move.b  d0, Ctrl_1_Held
+        move.b  d1, Ctrl_1_Press
+        rts
+    .end:
+        st      Replay_Done
+        clr.b   Input_Source                // revert to live
+        rts
+
+    // Unknown escape opcode: a DEBUG trap (corrupt/foreign stream), a graceful
+    // end in release. Split per shape so neither carries dead code after the tail.
+    if DEBUG == 1 {
+    .bad_stream:
+        raise_exception "REPLAY BAD OPCODE"
+    .desync:
+        // curated-block mismatch: d0 = actual, d2 = expected, d1 = tick. The MD
+        // Debugger register dump shows all three.
+        move.l  Logic_Tick, d1
+        raise_exception "REPLAY DESYNC"
+    }
+    if DEBUG == 0 {
+    .bad_stream:
+        jbra    .end
+    }
+
+    // --- RECORD (DEBUG only) ---------------------------------------------
+    if DEBUG == 1 {
+    .record:
+        move.w  Replay_Record_Idx, d0
+        cmpi.w  #REPLAY_RECORD_TICKS, d0
+        bhs     .rec_stop                   // ring already full (defensive)
+        // Checkpoint BEFORE storing this tick's input: at ring indices 0, 64, 128…
+        // the hash captures the curated state at the START of this tick — the same
+        // point playback compares it, so the packer places the record before this
+        // tick's input pair.
+        move.w  d0, d1
+        andi.w  #REPLAY_CHECK_MASK, d1
+        bne     .rec_store
+        move.w  Replay_Check_Idx, d1
+        lsl.w   #3, d1                       // entry stride 8 (tick u32, hash u32)
+        lea     Replay_Check_Log, a1
+        move.l  Logic_Tick, d0               // via a register: sigil can't lower abs-sym + indexed in one move
+        move.l  d0, (a1,d1.w)
+        jbsr    Replay_Hash                  // d0 = hash (clobbers d0-d1/a0-a1)
+        move.w  Replay_Check_Idx, d1         // reload the entry offset (d1 clobbered)
+        lsl.w   #3, d1
+        lea     Replay_Check_Log, a1
+        move.l  d0, 4(a1,d1.w)
+        addq.w  #1, Replay_Check_Idx
+    .rec_store:
+        move.w  Replay_Record_Idx, d0        // reload (hash may have clobbered d0)
+        move.b  Ctrl_1_Held, d1
+        lea     Replay_Record_Buf, a0
+        move.b  d1, (a0,d0.w)
+        addq.w  #1, d0
+        move.w  d0, Replay_Record_Idx
+        cmpi.w  #REPLAY_RECORD_TICKS, d0
+        bne     .rec_ret
+    .rec_stop:
+        st      Replay_Done
+        clr.b   Input_Source
+    .rec_ret:
+        rts
+    }
+}
+
+// -----------------------------------------------
+// Replay_Hash — the curated gameplay-state checksum (DEBUG net + recorder).
+// Longword sum + rol #1 over a const (addr, len_longs) table for the longword-
+// clean regions, then word folds for the odd cells:
+//   Logic_Tick (1) · Player_1 SST (20 = sizeof(Sst)/4) · Camera_X + Camera_Y (2) ·
+//   Section streaming state (Top+Bottom · Right+Left · Fwd · Bwd) ·
+//   Dynamic_Live_Count / Dynamic_Free_SP / Effect_Free_SP (words) ·
+//   Section_Plane_Dirty (word).
+// Excludes sound RAM, Ctrl_* cells, VDP staging, DEBUG-only cells — gameplay state
+// only. Player_1's SST carries ROM pointers (code_addr/mappings/anim_table), so the
+// value is build-SHAPE specific; that is harmless because record and playback run on
+// the SAME build, and it is deterministic WITHIN a build (the only property the
+// harness needs). The plan's Slot_Section_Map / Section_Stream_State names do NOT
+// exist in engine/ram.emp (the A.4 art-stream state machine was never landed under
+// those labels — they survive only in stale docs); the real section-streaming cells
+// stand in for the intent (cover streaming progress so a stream desync is caught).
+// Out: d0.l  Clobbers: d0-d1, a0-a1
+// -----------------------------------------------
+pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
+        moveq   #0, d0                       // accumulator
+        lea     .hash_table, a1
+    .hash_next:
+        move.l  (a1)+, d1                    // region base (0 = end of longword table)
+        beq     .hash_wtail
+        movea.l d1, a0
+        move.l  (a1)+, d1                    // length in longwords
+    .hash_fold:
+        rol.l   #1, d0
+        add.l   (a0)+, d0
+        subq.l  #1, d1
+        bne     .hash_fold
+        bra     .hash_next
+    .hash_wtail:
+        // Odd (non-longword) gameplay words, folded the same way.
+        moveq   #0, d1
+        move.w  Dynamic_Live_Count, d1
+        rol.l   #1, d0
+        add.l   d1, d0
+        moveq   #0, d1
+        move.w  Dynamic_Free_SP, d1
+        rol.l   #1, d0
+        add.l   d1, d0
+        moveq   #0, d1
+        move.w  Effect_Free_SP, d1
+        rol.l   #1, d0
+        add.l   d1, d0
+        moveq   #0, d1
+        move.w  Section_Plane_Dirty, d1      // Plane_Dirty byte + its pad byte
+        rol.l   #1, d0
+        add.l   d1, d0
+        rts
+
+    // (addr.l, len_longs.l) pairs, 0-terminated. move.l reads at even (not
+    // necessarily 4-aligned) addresses — legal on the 68000.
+    .hash_table:
+        dc.l    Logic_Tick, 1
+        dc.l    Player_1, sizeof(Sst) / 4    // 20 longs (80-byte SST)
+        dc.l    Camera_X, 2                  // Camera_X + Camera_Y (contiguous)
+        dc.l    Section_Top_Row_Written, 1   // Top + Bottom (contiguous words)
+        dc.l    Section_Right_Col_Written, 1 // Right + Left
+        dc.l    Section_Fwd_Neighbor_Data, 1
+        dc.l    Section_Bwd_Neighbor_Data, 1
+        dc.l    0, 0                         // terminator
+}
