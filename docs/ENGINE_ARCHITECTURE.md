@@ -25,13 +25,17 @@ This is the **design bible**. This document describes the engine we're building 
 
 ---
 
-## Engine/game contract (engine.inc)
+## Engine/game contract
 
-Aeon draws a hard **engine/game wall**. `engine/engine.inc` is the single entry point for any
-game built on Aeon — it owns the entire ROM layout (org-0 vectors/header, engine code block,
-object code bank, data region, sound-data region, epilogue). A game is a **manifest** —
-`games/<game>/main.asm` — plus config and content. Shipped 2026-07-07/08 (directory wall
-2026-06-28 + the agnostic-engine half, see the specs in `docs/superpowers/specs/`).
+Aeon draws a hard **engine/game wall**. The concept below is shipped and current; the *mechanism vocabulary* in the subsections that follow is retired AS-era and pending a full rewrite (see the note directly below).
+
+> **STALE — mechanism only (flagged 2026-08-02).** This section still describes the AS-Macro-Assembler era: an `engine/engine.inc` single-include, a `games/<game>/main.asm` manifest of seven `{GLOBALSYMBOLS}` macros, `gameHeader`/`soundBankHead`/`Engine_RAM_End` `.inc`/macro contracts, and `tools/fixheader`. **None of that exists in the shipped tree.** The `sigil build` flip (Spec-5 Stage 2) made `sigil build` the whole pipeline — asl/p2bin/fixheader are gone; the header checksum is folded in sigil's `emit_rom`. The engine/game seam is now the typed interface `engine/system/game_contract.emp` (`pub interface Game { CAMERA_JUMP_LOCK, ENTRY_ID, entry, boot_hook, debug_tick }`), which a game satisfies with one `implement Game` block in `games/<game>/config/game.emp`. ROM layout is driven per-game by `games/<game>/map.toml` (not an `.inc`); each `.emp` file is a `module`, and the header is the game-side `header.emp` struct (§0.1). The engine invokes game hooks with `invoke Game.boot_hook` / `invoke Game.debug_tick` (an unbound `= empty` hook emits zero bytes). The *design intent* the subsections capture (agnostic engine, RAM seam, per-game config/content) is intact and shipped; only the AS spellings are wrong. Full rewrite of the subsections is deferred to a dedicated pass.
+
+`engine/engine.inc` was the single entry point for any game built on Aeon under the AS
+toolchain — it owned the entire ROM layout (org-0 vectors/header, engine code block,
+object code bank, data region, sound-data region, epilogue). Shipped 2026-07-07/08 (directory wall
+2026-06-28 + the agnostic-engine half, see the specs in `docs/superpowers/specs/`); the ROM-layout
+ownership moved to the per-game `map.toml` in the sigil era.
 
 ### The manifest
 
@@ -106,7 +110,7 @@ full invariant text and the bank-D co-location note.
 
 ### Engine_RAM_End
 
-`engine/ram.asm`'s `$FFFF8000` phase block ends with an `Engine_RAM_End:` label; a game's
+`engine/ram.emp`'s `$FFFF8000` phase block ends with an `Engine_RAM_End:` label; a game's
 `games/<game>/config/ram.asm` phases its own RAM continuation from that address
 (`phase Engine_RAM_End`). Player state, debug harness variables, and other game-owned RAM all
 live game-side, after this seam.
@@ -173,7 +177,7 @@ The first 256 bytes of ROM are the 68000 exception vector table. Two entries mat
 | IRQ1 (External) | $000064 | `NullInterrupt` | External device (unused) |
 | IRQ2 (External) | $000068 | `NullInterrupt` | External device (unused) |
 | IRQ3 | $00006C | `NullInterrupt` | Unused on Genesis |
-| IRQ4 (HBlank) | $000070 | `HBlank_Dispatch` | **RAM-patched** — reads handler pointer from RAM |
+| IRQ4 (HBlank) | $000070 | `HBlank_Vector_Slot` | **RAM trampoline** — vector points into a 6-byte executable RAM slot (idle `rte`, or armed `jmp handler.l`) |
 | IRQ5 | $000074 | `NullInterrupt` | Unused on Genesis |
 | IRQ6 (VBlank) | $000078 | `VBlank_Handler` | Vertical blanking interrupt |
 | IRQ7 (NMI) | $00007C | `NullInterrupt` | Non-maskable (unused on standard hardware) |
@@ -183,42 +187,38 @@ The first 256 bytes of ROM are the 68000 exception vector table. Two entries mat
 **Design decisions:**
 
 - **SSP = $FFFFFF00** (not $00000000): Vectorman, Gunstar Heroes, and Alien Soldier all use high RAM. Stack grows downward from near-top of 64KB RAM, staying far from game data at low RAM addresses. $00000000 (used by S.C.E., Batman, Thunder Force IV) makes the stack grow down from the very bottom of the address space — wrapping bugs are silent and catastrophic. $FFFFFF00 gives 256 bytes of headroom below the RAM ceiling ($FFFFFFFF), which is sufficient since our deepest call chain is audited.
-- **RAM-patched HBlank**: The vector table entry at $70 points to a tiny ROM stub that reads and jumps through a pointer in RAM. This allows swapping raster effect handlers per-section without modifying ROM. Vectorman ($FFFF9D2E), Batman ($FFFFE560), Gunstar/Alien Soldier ($FFFFEE00) all do this. Thunder Force IV is the only holdout (ROM-based), and it can't change HBlank behavior between levels.
+- **RAM-slot HBlank trampoline**: The vector table entry at $70 points *directly into RAM* — at `HBlank_Vector_Slot`, a 6-byte executable slot that holds an idle `rte` ($4E73) when no raster effect is active, or `jmp handler.l` ($4EF9 + 4-byte target) when a handler is armed (`HBlank_Install`, §0.10). There is no ROM dispatch stub and no pointer indirection: IRQ4 reaches the handler through a single `jmp`, and the handler owns its own register save/restore and terminates with `rte`. This allows swapping raster effect handlers per-section without modifying ROM. Vectorman ($FFFF9D2E), Batman ($FFFFE560), Gunstar/Alien Soldier ($FFFFEE00) all do a variant of this (theirs read a pointer from RAM; ours executes an instruction from RAM, saving the pointer-load and indirect-jsr). Thunder Force IV is the only holdout (ROM-based), and it can't change HBlank behavior between levels.
 - **VBlank in ROM**: Unlike HBlank (which changes per-section), VBlank always does the same core work: drain DMA queue, update sprites, read controllers, process sound, set VBlank flag. A single ROM handler with conditional dispatch is sufficient.
 - **Exception routing**: Each exception has its own labeled entry point (`BusError`, `AddressError`, `IllegalInstr`, `ZeroDivide`, `ChkInstr`, `TrapvInstr`, `PrivilegeViol`, `Trace`, `Line1010Emu`, `Line1111Emu`), with `ErrorExcept` covering the reserved $30-$60 vectors — all integrating with the MD Debugger v2.6 error handler (§8.3). Per-exception labels let the error screen name the exact fault. In debug builds this shows register dumps, backtraces, and symbol resolution.
 - **TRAP vectors**: All 16 TRAP vectors (and the reserved $C0-$FC block) currently route to `ErrorTrap`. Reserved for the debug system — TRAP #0 can later be wired to `RaiseError` for debug assertions; other TRAPs available for future use (e.g., system calls for cooperative multitasking §9.7).
 
 **ROM Header** ($000100-$0001FF):
 
-Standard Sega header format — emitted by the engine's `gameHeader` macro (`engine/system/header.inc`) from game-declared string symbols, not a hardcoded block. Since the engine/game split, the game supplies the strings in its config (`games/sonic4/config/game.asm`) and the engine owns the layout:
+Standard Sega header format — emitted by the **game-side** module `games/sonic4/config/header.emp` (`module games.sonic4.header`), not the engine and not a macro. It is a plain `data GameHeader: HeaderTop` / `HeaderTail` struct with literal string values, placed by the game's `map.toml` at the `header` section directly after the vector table:
 
-| Offset | Symbol | Width | Sonic 4 value |
-|--------|--------|-------|---------------|
-| $100 | `GAME_CONSOLE` | 16 | `"SEGA GENESIS    "` (TMSS requires "SEGA" at $100) |
-| $110 | `GAME_COPYRIGHT` | 16 | Copyright string |
-| $120 | `GAME_TITLE_DOM` | 48 | Domestic name |
-| $150 | `GAME_TITLE_OVS` | 48 | Overseas name |
-| $180 | `GAME_SERIAL` | 14 | `"GM S4-0001-00 "` |
-| $18E | `Checksum` | word | Emitted 0, patched by `tools/fixheader` |
-| $190 | `GAME_IO` | 16 | I/O support (J = 3/6-button joypad) |
-| $1A0 | — | long | ROM start = $00000000 (engine-owned) |
-| $1A4 | — | long | ROM end = `EndOfRom-1` (engine epilogue label) |
-| $1A8/$1AC | — | 2 longs | RAM range $00FF0000-$00FFFFFF (engine-owned) |
-| $1B0 | `GAME_SRAM` | 12 | No SRAM/modem (SRAM handled in software §9.6) |
-| $1BC | `GAME_MEMO` | 52 | Memo field |
-| $1F0 | `GAME_REGION` | 16 | Region: Japan + US + Europe |
+| Offset | `header.emp` field | Width | Sonic 4 value |
+|--------|--------------------|-------|---------------|
+| $100 | `console` | 16 | `"SEGA GENESIS    "` (TMSS requires "SEGA" at $100) |
+| $110 | `copyright` | 16 | `"(C)     2026.APR"` |
+| $120 | `title_dom` | 48 | Domestic name |
+| $150 | `title_ovs` | 48 | Overseas name |
+| $180 | `serial` | 14 | `"GM S4-0001-00 "` |
+| $18E | `Checksum` | word | Emitted 0, folded by `sigil build`'s `emit_rom` (from the final image) |
+| $190 | `io` | 16 | I/O support (`"J"` = 3/6-button joypad) |
+| $1A0 | `rom_start` | long | ROM start = $00000000 |
+| $1A4 | `rom_end` | long | `extern("EndOfRom") - 1` — patched by `emit_rom` to the final image size |
+| $1A8/$1AC | `ram_start`/`ram_end` | 2 longs | RAM range $00FF0000-$00FFFFFF |
+| $1B0 | `sram` | 12 | No SRAM/modem (SRAM handled in software §9.6) |
+| $1BC | `memo` | 52 | Memo field |
+| $1F0 | `region` | 16 | `"JUE"` — Japan + US + Europe |
 
-**Build-time validation** (AS catches errors before we ever run):
+**Build-time validation** (sigil catches errors before we ever run):
 
-Every string field width-asserts inside `gameHeader` — a wrong-length string is a `fatal` build error, not a corrupt header. The ROM-size checks live at the engine epilogue (`engine/engine.inc`):
+The `[u8; N]` field *types* ARE the exact-width guards — a wrong-length string fails to lower at comptime (this replaces the old per-field `strlen … fatal` walls; the type is the assertion). The ROM-size checks live at the engine epilogue (`engine/system/epilogue.emp`):
 
-```asm
-    if (EndOfRom & 1) <> 0
-      error "ROM size is odd"
-    endif
-    if EndOfRom > $3FFFFF
-      error "ROM exceeds 4MB without banking"
-    endif
+```
+    ensure((EndOfRom & 1) == 0, "ROM size is odd")
+    ensure(EndOfRom <= $3FFFFF, "ROM exceeds 4MB without banking")
 ```
 
 ### 0.2 TMSS Handshake
@@ -397,7 +397,9 @@ setVDPReg macro reg,val
         ori.l   #(1<<reg), (VDP_Dirty_Mask).w      ; Mark dirty
         endm
 
-; VBlank flush — only writes changed registers (ascending from reg 0)
+; VBlank flush — only writes changed registers (ascending from reg 0).
+; The walk shifts the dirty mask one bit at a time (lsr.l/bcc) and early-exits
+; the moment the mask drains (dbeq on tst.l d1), bounded by VDP_Shadow_len-1.
 Flush_VDP_Shadow:
         move.l  (VDP_Dirty_Mask).w, d1
         beq.s   .done                       ; Fast path: nothing dirty
@@ -405,16 +407,17 @@ Flush_VDP_Shadow:
         lea.l   (VDP_CTRL).l, a1
         move.w  #$8000, d0                  ; VDP command base (reg 0)
         moveq   #0, d2                      ; register index (counts up)
-        moveq   #VDP_Shadow_len-1, d3       ; loop counter (counts down)
+        moveq   #VDP_Shadow_len-1, d3       ; upper-bound loop counter
 .loop:
-        btst    d2, d1
-        beq.s   .skip
+        lsr.l   #1, d1                      ; shift next dirty bit into carry
+        bcc.s   .skip
         move.b  (a0,d2.w), d0              ; load shadow value into low byte
         move.w  d0, (a1)                    ; write $8X00+val to VDP
 .skip:
         addi.w  #$0100, d0                  ; next register command
         addq.w  #1, d2                      ; next register index
-        dbf     d3, .loop
+        tst.l   d1                          ; any dirty bits left?
+        dbeq    d3, .loop                   ; early-exit when the mask drains, else loop to the bound
         clr.l   (VDP_Dirty_Mask).w
 .done:
         rts
@@ -428,7 +431,7 @@ Flush_VDP_Shadow:
 
 The `setVDPReg` macro is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
 
-1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.asm`, `engine/level/plane_buffer.asm`. Shadow drift is harmless because nothing reads back the shadow as authoritative state — `Flush_VDP_Shadow` only writes registers whose dirty bit is set.
+1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.emp`, `engine/level/plane_buffer.emp`. Shadow drift is harmless because nothing reads back the shadow as authoritative state — `Flush_VDP_Shadow` only writes registers whose dirty bit is set.
 2. **HInt-handler-internal raster effects (future §7.2).** HInt handlers may freely write VDP registers during the active line — that's the entire point of raster effects. They MUST NOT update the shadow or set the dirty mask. The shadow represents settled frame state, not transient mid-frame VDP changes. When the section's HInt program exits, hardware register state is whatever the last write left; the next VBlank's `Flush_VDP_Shadow` re-asserts settled values for any dirty registers, and HInt handlers re-establish their own per-line program from scratch.
 3. **DMA register writes (`$13-$17`)** are not shadowed and are set per-transfer by the DMA queue. This is by design — `setVDPReg` only covers `$00-$12`.
 
@@ -478,7 +481,7 @@ The `setVDPReg` macro is the only sanctioned write path for **persistent** frame
         move.w  d0, (a1)                ; Release bus — Z80 has control
 ```
 
-**Z80 idle program** (`engine/system/z80_init.asm` — used only in sound-OFF builds):
+**Z80 idle program** (`engine/system/z80_init.emp` — used only in sound-OFF builds):
 
 Clears Z80 RAM *after its own code* via LDIR (BC/DE/HL computed from the assembled program size, stack parked at the program end), pops IX/IY/both register banks clean from the zeroed RAM, clears I and R, sets `di`/`im 1`, then self-patches a `jp (hl)` opcode ($E9) at Z80 address 0 and jumps to it — the idle loop is a single 1-byte instruction spinning at address 0, not a two-address `jp` loop:
 
@@ -490,11 +493,11 @@ Clears Z80 RAM *after its own code* via LDIR (BC/DE/HL computed from the assembl
         jp      (hl)                ; idle loop — jp (hl) at 0 jumps to itself
 ```
 
-**Sound-driver loading:** the driver (`engine/sound/z80_sound_driver.asm`) is assembled inline as a `phase 0` Z80 blob; in the default build (`SOUND_DRIVER_ENABLED`) it is what boot copies into Z80 RAM — the idle program is included and loaded *only* in sound-OFF builds. Nothing is streamed over the bus at title-screen init.
+**Sound-driver loading:** the driver (`engine/sound/z80_sound_driver.emp`, a `(cpu: z80)` module) is pre-assembled into a `phase 0` blob that boot embeds in the `BootData` table (`engine/system/boot_data.emp`: `embed("engine/sound/generated/z80_sound_blob.bin")`); in the default build (`SOUND_DRIVER_ENABLED`) it is what boot copies into Z80 RAM — the idle program is included and loaded *only* in sound-OFF builds. Nothing is streamed over the bus at title-screen init.
 
 **Critical hardware rule** (from plutiedev): the Z80 must never fetch from the 68K bus (e.g., reading ROM for music data) while a DMA transfer runs — DMA loads garbage. This is not optional — it corrupts art on real hardware, especially early board revisions. How we enforce it depends on the build:
 - **Sound-OFF build:** classic full fence — `stopZ80` before the VBlank DMA pipeline, `startZ80` after.
-- **Sound build (default):** the `SND_CTRL_DMA_ACTIVE` flag bracket (MegaPCM-2 drain model, §6) supersedes the blanket fence. VBlank raises the flag before any VDP work and clears it after the last DMA; the Z80 driver checks it every sample and takes its RAM-only DRAIN path while set, so no ROM fetch can land inside a DMA burst. The DMA pipeline itself runs with the Z80 *free* — only the two flag-byte writes briefly bus-hold. See `engine/system/vblank.asm`.
+- **Sound build (default):** the `SND_CTRL_DMA_ACTIVE` flag bracket (MegaPCM-2 drain model, §6) supersedes the blanket fence. VBlank raises the flag before any VDP work and clears it after the last DMA; the Z80 driver checks it every sample and takes its RAM-only DRAIN path while set, so no ROM fetch can land inside a DMA burst. The DMA pipeline itself runs with the Z80 *free* — only the two flag-byte writes briefly bus-hold. See `engine/system/vblank.emp`.
 
 ### 0.6 PSG Silence & YM2612 Reset
 
@@ -630,15 +633,17 @@ The region branch happens exactly once, at boot — the chosen value (`DMA_Budge
 .region_done:
 
 ; Compile-time constants (engine/system/constants.emp — these two are the ones that exist)
-DMA_BUDGET_NTSC         = 7200      ; usable DMA bytes per NTSC VBlank
-DMA_BUDGET_PAL          = 15000     ; usable DMA bytes per PAL VBlank
+DMA_BUDGET_NTSC         = 6144      ; per-VBlank blanking-window capacity, DMA-byte-equiv
+DMA_BUDGET_PAL          = 11648     ; PAL window capacity (nearly double the blank lines)
 ```
+
+These are the **window-charged** budget model (m1-budget-fix): `DMA_Budget_Default` is seeded into `DMA_Budget_Remaining` at the *top* of `VInt_Level`, and the frame's big window riders (the plane-buffer drain and the mandatory Critical DMA) then **charge** it as they run, so the Important/Deferrable drain sees the true blanking-window headroom left — not a flat "usable bytes" allowance. Derivation (oracle cycle model): blanking window ≈ 488.6 68k cyc/line × 38 blank lines (NTSC) / 72 (PAL) → ~6876 / ~13029 raw bytes at ~2.7 cyc/byte, × ~0.89 safety margin for the uncharged non-DMA VInt tail ≈ 6144 / 11648. See §1.1 and `engine/system/constants.emp`.
 
 The scanline/cycle table above is hardware background, not engine constants — no `VBLANK_LINES`/`CYCLES_PER_VBLANK` symbols exist in code.
 
 **PAL timing compensation: none — NTSC-only product (ruling B, 2026-08-02).** The engine
 commits to NTSC-only. `GameLoop` dispatches exactly one game-state tick per VSync
-unconditionally (`engine/system/game_loop.asm`), so on PAL hardware the whole game runs
+unconditionally (`engine/system/game_loop.emp`), so on PAL hardware the whole game runs
 at 50 Hz uncompensated (~5/6 speed) — accepted, matching classic frame-based PAL slow.
 The half-built fixed-timestep accumulator (`Timing_Step`/`Frame_Accumulator` +
 `NTSC_TIMING_STEP`/`PAL_TIMING_STEP`) that would have driven PAL compensation was deleted
@@ -690,33 +695,24 @@ VBlank_Handler:
         rte
 ```
 
-`VInt_Level` (normal frames) runs: DMA-window open (sound build: raise `SND_CTRL_DMA_ACTIVE` flag bracket; sound-OFF build: stopZ80 — see §0.5) → Flush_VDP_Shadow → Enqueue_Dirty_Buffers → VInt_DrawLevel (Plane_Buffer drain, §4.1) → Process_DMA_Critical → Vscroll_Write (VSRAM write must come **after** the HScroll DMA, §4.6) → budget set → Process_DMA_Important → Process_DMA_Deferrable → DMA-window close (clear flag / startZ80) → Read_Controllers → press-edge latch → frame counter → VBlank_Flag.
+`VInt_Level` (normal frames) runs: DMA-window open (sound build: raise `SND_CTRL_DMA_ACTIVE` flag bracket; sound-OFF build: stopZ80 — see §0.5) → **seed window budget** (`DMA_Budget_Default` → `DMA_Budget_Remaining`, before any VDP work, §0.8) → Flush_VDP_Shadow → Enqueue_Dirty_Buffers → *charge plane drain* (subtract `Plane_Buffer_Ptr`) → VInt_DrawLevel (Plane_Buffer drain, §4.1) → *charge Critical DMA* (subtract the queued entry bytes, floor budget at 0) → Process_DMA_Critical → Vscroll_Write (VSRAM write must come **after** the HScroll DMA, §4.6) → Process_DMA_Important → Process_DMA_Deferrable → DMA-window close (clear flag / startZ80) → Read_Controllers → press-edge latch (main `SACBRLDU` + 6-button `MXYZ` ext) → frame counter → VBlank_Flag. The budget is seeded once at the top and drawn down by the two big riders, so Important/Deferrable see the true leftover window, not a flat allowance.
 
 `VInt_Lag` (lag frames) runs the same pipeline **minus** VInt_DrawLevel and the Important/Deferrable drains: shadow flush, dirty-buffer enqueue, Critical DMA, VSRAM write, controllers, frame counter, VBlank_Flag (plus `Lag_Frame_Count` in DEBUG). The plane-buffer drain is deliberately skipped — on a lag frame the main loop is still mid-fill and the buffer may be torn. See §1.4 for details.
 
-**HBlank (IRQ4) — RAM-patched dispatch** (Vectorman/Batman/Treasure pattern):
+**HBlank (IRQ4) — RAM jmp-slot trampoline** (`engine/system/hblank.emp`; §1.8). The IRQ4 vector points *directly* at `HBlank_Vector_Slot`, a 6-byte executable RAM slot. No ROM dispatch stub, no pointer read, no wrapper `jsr` — the interrupt reaches the handler through one `jmp`, and the handler owns its own save/restore and terminates with `rte`. The slot holds one of two forms:
 
 ```asm
-; ROM stub (in vector table, never changes)
-HBlank_Dispatch:
-        movem.l d0-d1/a0, -(sp)        ; Save minimal registers
-        movea.l (HBlank_Handler_Ptr).w, a0  ; Read handler pointer from RAM
-        jsr     (a0)                    ; Call current handler
-        movem.l (sp)+, d0-d1/a0
-        rte
-
-; In RAM
-HBlank_Handler_Ptr:     ds.l 1          ; Swapped per-section for raster effects (§7.2)
+; In RAM — the IRQ4 vector ($70) points here
+HBlank_Vector_Slot:     ds.b 6          ; executable instruction slot
+; idle:  $4E73                          → rte           (no raster handler)
+; armed: $4EF9, handler.l               → jmp handler.l (HBlank_Install target, §7.2)
 ```
 
-**Default HBlank handler** (when no raster effects are active):
+`HBlank_Install(a0=handler, d0=line counter)` patches the slot to `jmp a0`, programs the HInt line counter (reg $0A) and sets IE1 (reg $00 bit 4) — all register writes through the VDP shadow (§0.4) so `Flush_VDP_Shadow` never reverts the enable. `HBlank_Uninstall` restores the idle `rte` *first* (a direct, instant RAM store, so any in-flight HInt hits a bare `rte`) then clears IE1. Boot seeds the slot with an `rte` pair (`move.l #$4E734E73, HBlank_Vector_Slot`) before interrupts unmask.
 
-```asm
-HBlank_Null:
-        rts                             ; Immediate return — ~16 cycles total including dispatch
-```
+**Default HBlank behavior** (no raster effects active): the slot decodes to a bare `rte` — immediate return, no register save/restore, no pointer load.
 
-**Why RAM-patched HBlank but pointer-dispatched VBlank:** HBlank fires up to 224 times per frame and must be as fast as possible. The dispatch through a RAM pointer adds only 16 cycles to the null case. VBlank fires once per frame but needs mode-specific behavior (VInt_Level, VInt_Lag, future VInt_Menu/VInt_Load). The `VInt_Ptr` RAM pointer selects the mode; the lag detection is handled in the ROM dispatcher itself via the `VBlank_Ready` flag.
+**Why a RAM instruction slot for HBlank but a pointer for VBlank:** HBlank fires up to 224 times per frame and must be as fast as possible — executing an instruction straight out of RAM saves the pointer-load and indirect-`jsr` a dispatched design would pay on every line, so the null case is a single `rte`. VBlank fires once per frame but needs mode-specific behavior (VInt_Level, VInt_Lag, future VInt_Menu/VInt_Load). The `VInt_Ptr` RAM pointer selects the mode; the lag detection is handled in the ROM dispatcher itself via the `VBlank_Ready` flag.
 
 ### 0.11 Soft Reset Detection (CrossResetRAM §9.5)
 
@@ -742,13 +738,13 @@ Cold_Boot:
 ; Full hardware init (§0.2-§0.9)
 ```
 
-The top 256 bytes of RAM are reserved for the mechanism (`CROSS_RESET_RAM = $FFFFFF00`, `engine/ram.asm`), and boot writes `CROSS_RESET_MAGIC` ('INIT') to $FFFFFF00 at the end of init — but today that magic is purely a "cold boot completed" marker: the RAM clear wipes it and boot unconditionally rewrites it every time. Nothing survives soft reset.
+There is **no reserved persistence region and no magic marker** in code today. `$FFFFFF00` is the initial stack pointer (`SYSTEM_STACK`, `engine/system/constants.emp`), not a reserved cross-reset block — no `CROSS_RESET_RAM` or `CROSS_RESET_MAGIC` symbol exists (`grep engine/ games/` returns only `SYSTEM_STACK`), and boot writes no marker at the end of init. Every boot, warm or cold, runs the full RAM clear and full hardware init; nothing survives a soft reset.
 
-**Design (not implemented): CrossResetRAM persistence.** **Status: design, not implemented (2026-07-16).** The intended end state is a small Work-RAM region that survives soft reset: on warm boot, a valid magic word gates preservation of the region (lives/continues/score) while everything else is cleared and the game re-enters at the title screen via a dedicated `Warm_Reset` path. On cold boot the region reads as garbage/zero and is initialized. This allows "press RESET to return to title screen with score intact" behavior. No `Warm_Reset` path exists in code yet.
+**Design (not implemented): CrossResetRAM persistence.** **Status: design, not implemented (verified 2026-08-02).** The intended end state is a small Work-RAM region that survives soft reset: on warm boot, a valid magic word gates preservation of the region (lives/continues/score) while everything else is cleared and the game re-enters at the title screen via a dedicated `Warm_Reset` path. On cold boot the region reads as garbage/zero and is initialized. This allows "press RESET to return to title screen with score intact" behavior. None of it exists in code yet — no reserved region, no magic constant, no `Warm_Reset` path.
 
 ### 0.12 Boot Sequence — Complete Execution Order
 
-The real order from `engine/system/boot.asm` (line references as of 2026-07-16):
+The real order from `engine/system/boot.emp`:
 
 ```
 Power On
@@ -794,13 +790,12 @@ Power On
   ├── Region detection ($A10001 → Hardware_Region/Region_Flags,
   │   bake DMA_Budget_Default; NTSC-only, no timestep — §0.8)
   ├── Controller port init ($40 → 3 control regs AND 3 data ports, §0.9)
-  ├── Set HBlank_Handler_Ptr = HBlank_Null (§0.10)
+  ├── Init HBlank_Vector_Slot to idle rte (move.l #$4E734E73 → HBlank_Vector_Slot, §0.10)
   │
   ├── setVDPReg mode2 = $34 (VInt enable in VDP — display still OFF)
   ├── Flush_VDP_Shadow (VInt enabled in hardware before unmasking)
   ├── enableInts — interrupts are LIVE from here on (SR = $2300)
   │
-  ├── Write CROSS_RESET_MAGIC ('INIT') to $FFFFFF00 (§0.11 — cold-boot-complete marker)
   ├── DEBUG builds: CompressionSelfTest (golden decompressor self-test)
   ├── Sound builds: Sound_Init (Z80 mailbox idle handshake)
   ├── gameBootHook (game-supplied, may be empty)
@@ -816,7 +811,7 @@ Note the final interrupt state: boot **enables** interrupts (`enableInts`, SR = 
 
 ### 0.13 Boot-Time Data Tables
 
-**Sine/Cosine table** (`engine/system/math.asm`, S.C.E./Sonic 2 format): 320 word entries BINCLUDE'd from `engine/data/sine.bin` — one full cycle over 256 angle units plus a quarter-cycle overlap so `cos(angle) = Sine_Table[angle + $40]` with no wrap logic. Output amplitude is $100 (sin(90°) = $100), matching the classic Sonic physics scale. One angle unit = 360°/256 ≈ 1.41°.
+**Sine/Cosine table** (`engine/system/math.emp`, S.C.E./Sonic 2 format): 320 word entries embedded from `engine/data/sine.bin` — one full cycle over 256 angle units plus a quarter-cycle overlap so `cos(angle) = Sine_Table[angle + $40]` with no wrap logic. Output amplitude is $100 (sin(90°) = $100), matching the classic Sonic physics scale. One angle unit = 360°/256 ≈ 1.41°.
 
 ```asm
 GetSineCosine:                              ; d0.b = angle → d0.w = sin×$100, d1.w = cos×$100
@@ -832,7 +827,7 @@ Sine_Table:
         BINCLUDE "engine/data/sine.bin"     ; 320 words, amplitude $100
 ```
 
-**RNG** — **Status: design, not implemented (2026-07-16).** The `RNG_Seed: ds.l 1` RAM slot exists (`engine/ram.asm`), but no `Random_Number` routine has been written yet. When needed, the plan is a linear congruential generator (same as S.C.E.): multiply-by-41 via shift/add on the 32-bit seed, swap-and-add to mix the halves, returning a random word in d0 — with a rescue constant for the zero-seed degenerate case.
+**RNG** — **Status: design, not implemented (verified 2026-08-02).** The `RNG_Seed: u32` RAM slot exists (`engine/ram.emp`), but no `Random_Number` routine has been written yet. When needed, the plan is a linear congruential generator (same as S.C.E.): multiply-by-41 via shift/add on the 32-bit seed, swap-and-add to mix the halves, returning a random word in d0 — with a rescue constant for the zero-seed degenerate case.
 
 **Fixed-point convention** (documented here, used everywhere):
 
@@ -853,13 +848,13 @@ Changes in this section that ripple to other sections:
 | SSP = $FFFFFF00 | §8.3 Error Handler | Stack guard checks adjusted for high-RAM stack |
 | VDP shadow table | §1 DMA Pipeline | DMA queue writes to shadow, not direct VDP |
 | VDP shadow table | §7 Visual Effects | HInt/section transitions use shadow writes, flush in VBlank |
-| RAM-patched HBlank | §7.2 HBlank System | Section transitions swap handler pointer, not vector |
+| RAM-slot HBlank trampoline | §7.2 HBlank System | Section transitions rewrite the RAM slot instruction (`jmp handler` / idle `rte`) via HBlank_Install/Uninstall, not the vector |
 | 64×64 plane init | §2.3 VRAM Layout | Plane size register confirmed, nametable addresses validated |
 | Region detection | §5 Player Physics | NTSC-only (ruling B, 2026-08-02); PAL runs uncompensated ~5/6 speed, no timing accumulator — §0.8 |
 | Region detection | §1.1 DMA Queue | PAL gets nearly double DMA budget — adaptive byte count |
 | Controller port init | §9.4 6-Button | Boot sets TH output; VBlank reads using rapid TH cycling |
 | Z80 idle program | §6 Audio | Boot loads the sound driver directly when SOUND_DRIVER_ENABLED (default); the idle program ships only in sound-OFF builds |
-| CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold and reserves the region; persistence is design-stage (§0.11) |
+| CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold (DMA-safe fall-through to full init); no region reserved and no magic written — persistence is design-stage (§0.11) |
 | DMA-parallel init | §1.1 DMA Queue | Validates that DMA fill + CPU work can overlap safely |
 
 ---
@@ -894,7 +889,7 @@ The VDP pipeline governs everything that reaches the screen: DMA transfers, spri
 Total: 32 slots × 14 bytes = 448 bytes RAM
 ```
 
-**Entry format:** Flamewing Ultra DMA Queue 14-byte entries (`DMAEntry` struct, `engine/structs.asm`). VDP register-marker bytes sit at the EVEN offsets (0, 2, 4, 6, 8), written once at boot by `Init_DMA_Queue`/`BuildStaticDMA` via `movep`; size/source data bytes are interleaved at the ODD offsets (1, 3, 5, 7, 9). The drain loop never touches the marker bytes — it writes pre-computed VDP commands directly, zero computation during VBlank.
+**Entry format:** Flamewing Ultra DMA Queue 14-byte entries (`DMAEntry` struct, `engine/structs.emp`). VDP register-marker bytes sit at the EVEN offsets (0, 2, 4, 6, 8), written once at boot by `Init_DMA_Queue`/`BuildStaticDMA` via `movep`; size/source data bytes are interleaved at the ODD offsets (1, 3, 5, 7, 9). The drain loop never touches the marker bytes — it writes pre-computed VDP commands directly, zero computation during VBlank.
 
 ```
 Offset  Field    Contents
@@ -922,20 +917,20 @@ Offset  Field    Contents
 
 **Per-palette-line dirty DMA:** Palette uses a 4-bit dirty bitmask (`Palette_Dirty`, one bit per palette line = 32 bytes). Each frame, only dirty lines are enqueued as Critical DMA via `Enqueue_Dirty_Buffers`. On a typical gameplay frame, only the lines that actually changed are re-sent; on section transitions, all 4 bits set. The palette-line-to-content mapping (e.g. "Line 0 = BG/environment") is a game-side content convention, not something the engine enforces — the engine only knows about 4 independent dirty bits.
 
-**Hscroll DMA — two fixed-size static entries, not variable-range:** `Hscroll_Dirty_Start`/`Hscroll_Dirty_End` fields exist in RAM (`engine/ram.asm`) but are dead — nothing reads them. The shipped mechanism (`Enqueue_Dirty_Buffers`, §4.6) enqueues one of exactly two build-time-fixed static entries depending on parallax mode: `Static_Hscroll_Cell` (112 bytes, per-cell mode) or `Static_Hscroll_Line` (896 bytes, per-line mode, used when an H-deform table is active on either plane). There is no computed dirty-range transfer.
+**Hscroll DMA — two fixed-size static entries, not variable-range:** `Hscroll_Dirty_Start`/`Hscroll_Dirty_End` fields exist in RAM (`engine/ram.emp`) but are dead — nothing reads them. The shipped mechanism (`Enqueue_Dirty_Buffers`, §4.6) enqueues one of exactly two build-time-fixed static entries depending on parallax mode: `Static_Hscroll_Cell` (112 bytes, per-cell mode) or `Static_Hscroll_Line` (896 bytes, per-line mode, used when an H-deform table is active on either plane). There is no computed dirty-range transfer.
 
-**VBlank DMA budget (concrete numbers from hardware research):**
+**VBlank DMA budget — window-charged model (m1-budget-fix, chain-21):**
 
-| System | VBlank Lines | 68K Cycles | DMA Bytes (68K→VRAM) | Practical Budget |
-|--------|-------------|------------|---------------------|-----------------|
-| NTSC H40 | 38 | ~18,544 | 7,524 | ~7,200 |
-| PAL H40 (224p) | 89 | ~43,432 | 17,622 | ~15,000 |
+`DMA_BUDGET_NTSC` = **6144** and `DMA_BUDGET_PAL` = **11648** (`engine/system/constants.emp`) are the per-VBlank **blanking-window capacity** (DMA-byte-equiv), wired into `DMA_Budget_Default` at boot by region (`engine/system/boot.emp`). They are **not** a flat "usable bytes" allowance: `VInt_Level` seeds `DMA_Budget_Remaining` from `DMA_Budget_Default` at the top of the frame, then the two big window riders **charge** it as they run — the plane-buffer drain subtracts `Plane_Buffer_Ptr` (pending buffer bytes) and the mandatory Critical DMA subtracts its queued entry bytes (walked from the queue), with the result floored at 0. Only then do `Process_DMA_Important` / `Process_DMA_Deferrable` run, so they see the *true* headroom left in the window, not the whole window as if nothing had run. Derivation (oracle cycle model): ~488.6 68k cyc/line × 38 blank lines NTSC / 72 PAL → ~6876 / ~13029 raw bytes at ~2.7 cyc/byte, × ~0.89 margin ≈ 6144 / 11648 (§0.8).
 
-The practical budget accounts for CPU overhead (drain loop, VDP shadow flush, controller polling, sound driver). `DMA_BUDGET_NTSC` = 7200 and `DMA_BUDGET_PAL` = 15000 (`engine/constants.asm`) are wired into `DMA_Budget_Default` at boot by region (`engine/system/boot.asm`) and copied into `DMA_Budget_Remaining` every VBlank, unconditionally — there is no adaptation (see below). Vectorman's $B40 (2,880 bytes) is conservative — our 3-queue system with ~7,200 bytes available has substantial headroom for art streaming in the Deferrable queue.
+| System | VBlank Lines | Window capacity (`DMA_BUDGET_*`) |
+|--------|-------------|-----------------------------------|
+| NTSC H40 | ~38 | 6144 |
+| PAL H40 | ~72 | 11648 |
 
-**Adaptive byte budget and lag recovery budget — design, not implemented (2026-07-17).** The original design called for shrinking the Important/Deferrable budget for a frame or two after a lag event, then gradually restoring it, plus a temporary 1.5× boost to Deferrable to flush any backlog. None of this exists in code: `DMA_Budget_Default` is set once at boot by region and copied to `DMA_Budget_Remaining` unconditionally every VBlank with no lag-history feedback. Left here as a design note for a future self-tuning pass; the idea was inspired by Vectorman's `cmpi.w #$B40` budget check, extended with feedback that was never built.
+**Lag-history feedback budget — design, not implemented.** A further adaptation — shrinking the Important/Deferrable budget for a frame or two after a lag event then gradually restoring it, plus a temporary 1.5× Deferrable boost to flush backlog — does **not** exist. The shipped budget is window-charged per frame (above) but carries no lag *history*: each frame reseeds from `DMA_Budget_Default` independent of prior frames' overruns. Left as a design note for a future self-tuning pass; inspired by Vectorman's `cmpi.w #$B40` budget check, extended with feedback that was never built.
 
-**128KB boundary safety — implemented.** The VDP increments only the low 17 bits of the 23-bit DMA source address; transfers crossing a 128KB boundary wrap within the same block and produce garbage. `QueueDMATransfer` (`engine/system/dma_queue.asm`) detects this via a sub+sub carry check (`sub.w d3,d0 / sub.w d1,d0 / blo .split`, comparing source+length words against the boundary) and, on a crossing, splits the transfer into two queue entries in the `.split` path: the first part finishes at the boundary, the second continues from the wrapped source with the correct destination offset. The split requires a second free slot in the same sub-queue (checked via `subi.w #DMAEntry_len,d4 / cmpa.w d4,a1`); if only one slot is free, only the first part is enqueued and the routine still returns carry-clear (documented in the routine's header comment as a known, vanishingly-rare edge case for small DPLC transfers that straddle a boundary).
+**128KB boundary safety — implemented.** The VDP increments only the low 17 bits of the 23-bit DMA source address; transfers crossing a 128KB boundary wrap within the same block and produce garbage. `QueueDMATransfer` (`engine/system/dma_queue.emp`) detects this via a sub+sub carry check (`sub.w d3,d0 / sub.w d1,d0 / blo .split`, comparing source+length words against the boundary) and, on a crossing, splits the transfer into two queue entries in the `.split` path: the first part finishes at the boundary, the second continues from the wrapped source with the correct destination offset. The split requires a second free slot in the same sub-queue (checked via `subi.w #DMAEntry_len,d4 / cmpa.w d4,a1`); if only one slot is free, only the first part is enqueued and the routine still returns carry-clear (documented in the routine's header comment as a known, vanishingly-rare edge case for small DPLC transfers that straddle a boundary).
 
 **RAM source address safety:** When a RAM source address ($FF0000+) is right-shifted by 1 for the VDP, bit 23 can become set, which the VDP interprets as a VRAM copy flag instead of 68K→VDP DMA. `QueueDMATransfer` clears bit 23 after the shift (`bclr.l #23,d1`).
 
@@ -949,7 +944,7 @@ The practical budget accounts for CPU overhead (drain loop, VDP shadow flush, co
 
 **Overflow handling:** In debug builds, `QueueDMATransfer`'s `.full` path increments `DMA_Overflow_Count` and returns carry-set; there is no queue-specific `trap` assertion on Critical-queue-full as an earlier draft of this doc claimed — overflow on all three queues is tracked through the same shared debug counter, not a hard trap. In release builds it silently returns without enqueueing (graceful degradation) either way. Important/Deferrable queues never "overflow" in the drop sense — when the budget runs out, `Drain_Budgeted_Queue`'s `.compact` path shifts the undrained entries to the queue base and updates the slot pointer so they persist to next frame; this is expected, budget-gated deferral, not an error condition.
 
-**Known issue (2026-07-17):** `Enqueue_Dirty_Buffers` (`engine/system/buffers.asm`) clears `Palette_Dirty`/`Sprite_Table_Dirty` **unconditionally** right after calling `queueStaticDMA`, even when the Critical queue was full and the macro's enqueue silently failed. This can leave stale palette or sprite-table data on screen indefinitely with no automatic retry, since the dirty bit that would trigger a retry has already been cleared. Confirmed live in code as of the 2026-07-16 optimization review; not yet fixed.
+**Dirty-flag retry — fixed.** `Enqueue_Dirty_Buffers` (`engine/system/buffers.emp`) clears each `Palette_Dirty` line bit / `Sprite_Table_Dirty` flag **only when its enqueue succeeded** (`queue_static_dma(...) / bcs .skip / bclr`). On a drop (Critical queue full — reachable during a fade + heavy art staging) the bit is left set so the next VBlank retries it, instead of clearing it and stranding stale palette/SAT data in VRAM. (This closes the unconditional-clear bug an earlier draft of this doc flagged as live in the 2026-07-16 review.)
 
 **Debug profiling counters (§8 integration):** Behind `ifdef __DEBUG__` guards, the DMA system tracks: `DMA_Bytes_ThisFrame` (total bytes enqueued), `DMA_Peak_Critical` / `DMA_Peak_Important` / `DMA_Peak_Deferrable` (one high-water mark per sub-queue — not a single combined counter), `DMA_Overflow_Count` (enqueue rejections), `Lag_Frame_Count` (VBlank overruns). Readable via Oracle MCP or KDebug console. Zero cost in release builds.
 
@@ -1087,46 +1082,50 @@ Tile writes use direct CPU writes to the VDP data port (not DMA). This is correc
 
 | Mode | When | What it does | Status |
 |------|------|-------------|--------|
-| `VInt_Level` | Gameplay | Full pipeline: shadow flush + dirty buffers + plane-buffer drain + Critical DMA + VSRAM + budget reset + Important/Deferrable DMA + controllers | Implemented |
+| `VInt_Level` | Gameplay | Full pipeline: budget seed + shadow flush + dirty buffers + plane-buffer drain + Critical DMA + VSRAM + Important/Deferrable DMA + controllers | Implemented |
 | `VInt_Menu` | Menus/title | DMA queue + sound (no plane buffer, no HUD) | Planned |
 | `VInt_Load` | Loading screens | DMA queue + S4LZ processing (no gameplay state) | Planned |
 | `VInt_Lag` | Lag frame detected | Shadow flush, dirty-buffer enqueue, Critical DMA, VSRAM write, controllers, frame counter, VBlank_Flag — **omits the plane-buffer drain and the Important/Deferrable drains** (not "Critical DMA only": VSRAM and the shadow flush also run) | Implemented |
 
 Only these two levels exist today — no `VInt_Menu`/`VInt_Load` code exists yet (correctly marked "Planned" above).
 
-**VInt_Level execution order (as implemented, `engine/system/vblank.asm`):**
+**VInt_Level execution order (as implemented, `engine/system/vblank.emp`):**
 
 ```
 Step  System                              Priority     Notes
 ──────────────────────────────────────────────────────────────────────────
   1   DMA-window open                     Bus safety   Sound build: brief stopZ80 /
                                                          raise SND_CTRL_DMA_ACTIVE / startZ80
-                                                         (Z80 runs free through steps 2-9).
+                                                         (Z80 runs free through steps 3-9).
                                                          Sound-OFF build: stopZ80 held across
                                                          the whole window instead.
-  2   Flush_VDP_Shadow                    Critical     Writes only dirty VDP registers
-  3   Enqueue_Dirty_Buffers               Critical     Palette/sprite/hscroll static DMA
-  4   VInt_DrawLevel (plane buffer drain) Critical     §1.3 — direct VDP writes, not DMA
-  5   Process_DMA_Critical                Critical     Jump-table unrolled, ~514 cycles
-  6   Vscroll_Write (VSRAM, direct)       Critical     Must run AFTER HScroll DMA (§4.6)
-  7   DMA_Budget_Remaining ← _Default     Setup        7,200 NTSC / 15,000 PAL
-  8   Process_DMA_Important               Budget-gated Drain_Budgeted_Queue
+  2   Seed DMA_Budget_Remaining ← _Default Setup       6144 NTSC / 11648 PAL — the window
+                                                         capacity, before any VDP work (§1.1)
+  3   Flush_VDP_Shadow                    Critical     Writes only dirty VDP registers
+  4   Enqueue_Dirty_Buffers               Critical     Palette/sprite/hscroll static DMA
+  5   VInt_DrawLevel (plane buffer drain) Critical     §1.3 — direct VDP writes, not DMA;
+                                                         CHARGES budget by Plane_Buffer_Ptr first
+  6   Process_DMA_Critical                Critical     Jump-table unrolled, ~514 cycles;
+                                                         CHARGES budget by queued bytes, floor 0
+  7   Vscroll_Write (VSRAM, direct)       Critical     Must run AFTER HScroll DMA (§4.6)
+  8   Process_DMA_Important               Budget-gated Drain_Budgeted_Queue (sees residual)
   9   Process_DMA_Deferrable              Budget-gated Drain_Budgeted_Queue (shared routine)
  10   DMA-window close                    Bus release  Sound build: lower flag; sound-OFF: startZ80
- 11   Read_Controllers + press-edge latch I/O          Ctrl_1_Press_Accum → Ctrl_1_Press
+ 11   Read_Controllers + press-edge latch I/O          Ctrl_x_Press_Accum → Ctrl_x_Press
+                                                         (+ Ctrl_x_Ext_Press_Accum → _Ext_Press)
  12   Frame_Counter increment             Tracking
  13   VBlank_Flag signal                  Sync
 ```
 
-Note the ordering relative to earlier drafts of this doc: the plane-buffer drain (step 4) sits **before** Critical DMA, not after any DMA drain, and VSRAM (step 6) runs **after** Critical DMA, not as an early step — the code carries an explicit comment citing CODING_CONVENTIONS §3.4 for why HScroll DMA must precede the VSRAM write. This matches §0.10's baseline order for the file.
+Note the ordering relative to earlier drafts of this doc: the window budget is **seeded at the top** (step 2, before any VDP work) and then **charged** by the plane-buffer drain (step 5) and Critical DMA (step 6) — it is *not* a flat reset placed after VSRAM. The plane-buffer drain (step 5) sits **before** Critical DMA, not after any DMA drain, and VSRAM (step 7) runs **after** Critical DMA — the code carries an explicit comment citing CODING_CONVENTIONS §3.4 for why HScroll DMA must precede the VSRAM write. This matches §0.10's order for the file.
 
-**Z80 bus ownership is sound-build-conditional, not a blanket "steps 1-9 stopped" rule.** In `SOUND_DRIVER_ENABLED` builds the Z80 is stopped only very briefly at the top (to raise the `SND_CTRL_DMA_ACTIVE` flag) and briefly at the bottom (to lower it) — it runs **free** through the entire DMA/plane-buffer pipeline in between (steps 2-9), so the Z80 sound driver keeps ticking during VBlank. Only the sound-OFF build holds `stopZ80` across the whole window as a simpler, blanket "steps 1-9 bus-stopped" model would suggest.
+**Z80 bus ownership is sound-build-conditional, not a blanket "steps 1-9 stopped" rule.** In `SOUND_DRIVER_ENABLED` builds the Z80 is stopped only very briefly at the top (to raise the `SND_CTRL_DMA_ACTIVE` flag) and briefly at the bottom (to lower it) — it runs **free** through the entire DMA/plane-buffer pipeline in between (steps 3-9), so the Z80 sound driver keeps ticking during VBlank. Only the sound-OFF build holds `stopZ80` across the whole window as a simpler, blanket "bus-stopped" model would suggest.
 
-**Step 3 — Enqueue_Dirty_Buffers:** Checks the palette dirty bitmask (4 bits) and the sprite-table dirty flag, enqueueing pre-computed static DMA entries to the Critical queue via `queueStaticDMA`; also enqueues one of the two static HScroll entries (§1.1, §4.6) based on the active parallax config. See the "Known issue" note under §1.1 — the dirty flags it clears are cleared unconditionally, even on a dropped enqueue.
+**Step 4 — Enqueue_Dirty_Buffers:** Checks the palette dirty bitmask (4 bits) and the sprite-table dirty flag, enqueueing pre-computed static DMA entries to the Critical queue via `queueStaticDMA`; also enqueues one of the two static HScroll entries (§1.1, §4.6) based on the active parallax config. Each dirty bit/flag is cleared **only** when its enqueue succeeds (§1.1) — a dropped enqueue leaves the bit set for next frame's retry.
 
-**Step 6 — VSRAM:** Direct VDP write, not queued. Vertical scroll data is 4 bytes (FG + BG) written to VSRAM via control port command + data port write, RAM-shadowed at `Vscroll_Factor`. Too small to justify queue overhead. Runs after Critical DMA, not as an early step (see ordering note above).
+**Step 7 — VSRAM:** Direct VDP write, not queued. Vertical scroll data is 4 bytes (FG + BG) written to VSRAM via control port command + data port write, RAM-shadowed at `Vscroll_Factor`. Too small to justify queue overhead. Runs after Critical DMA, not as an early step (see ordering note above).
 
-**Steps 5, 8, 9 — DMA queue drain:** Critical queue always drains fully via jump-table dispatch (zero branches per entry). Important and Deferrable queues are budget-gated through the shared `Drain_Budgeted_Queue`: check `DMA_Budget_Remaining` before each entry, terminate on an address compare against the slot's first-free pointer (not a `dbf` counter — see §1.1). Budget is reset from `DMA_Budget_Default` (7,200 NTSC / 15,000 PAL) immediately before Important drain. On lag frames (`VInt_Lag`), only Critical drains — Important and Deferrable entries persist (compacted) in the queue for the next frame.
+**Steps 6, 8, 9 — DMA queue drain:** Critical queue always drains fully via jump-table dispatch (zero branches per entry) and charges the budget by its queued bytes. Important and Deferrable queues are budget-gated through the shared `Drain_Budgeted_Queue`: check `DMA_Budget_Remaining` before each entry, terminate on an address compare against the slot's first-free pointer (not a `dbf` counter — see §1.1). The budget was seeded from `DMA_Budget_Default` (6144 NTSC / 11648 PAL) at step 2 and charged down by the plane drain (step 5) and Critical DMA (step 6), so Important/Deferrable see the true residual window (§1.1). On lag frames (`VInt_Lag`), only Critical drains — Important and Deferrable entries persist (compacted) in the queue for the next frame.
 
 **Step 11 — controllers:** Also latches the previous frame's press-edge accumulator (`Ctrl_1_Press_Accum` → `Ctrl_1_Press`) — an interesting side effect of this being VBlank-driven: press-edge state survives a lag frame into the next tick rather than being lost.
 
@@ -1139,9 +1138,9 @@ Note the ordering relative to earlier drafts of this doc: the plane-buffer drain
 - `Lag_Frame_Count` increments for debugging (debug builds only, `ifdef __DEBUG__`)
 - `VBlank_Ready` is cleared by `VBlank_Handler` after dispatch, on either path
 
-**`VSync_Wait` torn-drain hazard (fixed, b96c861):** `VSync_Wait`'s clear-flag/set-`VBlank_Ready` pair is IRQ-masked (`engine/system/vblank.asm`). Without the mask, an IRQ6 landing between the flag-clear and the `Ready`-set could run `VInt_Lag` (which itself sets `VBlank_Flag`) while leaving `Ready=1` armed for the *next* VBlank — causing that next VBlank to fully dispatch `VInt_Level` and drain a `Plane_Buffer` still mid-fill by the main loop. This is a genuine Genesis-timing gotcha specific to a lag-detection scheme built on a main-loop-set-flag; the fix masks interrupts across the flag/Ready update pair.
+**`VSync_Wait` torn-drain hazard (fixed, b96c861):** `VSync_Wait`'s clear-flag/set-`VBlank_Ready` pair is IRQ-masked (`engine/system/vblank.emp`). Without the mask, an IRQ6 landing between the flag-clear and the `Ready`-set could run `VInt_Lag` (which itself sets `VBlank_Flag`) while leaving `Ready=1` armed for the *next* VBlank — causing that next VBlank to fully dispatch `VInt_Level` and drain a `Plane_Buffer` still mid-fill by the main loop. This is a genuine Genesis-timing gotcha specific to a lag-detection scheme built on a main-loop-set-flag; the fix masks interrupts across the flag/Ready update pair.
 
-**Why this order:** Visual stability first (shadow flush, dirty buffers, plane drain, Critical DMA, VSRAM all ensure correct display), then throughput (Important/Deferrable DMA for art streaming), then housekeeping (controllers, frame counter, flag). Each step is independently skippable without corrupting state — this is what lets `VInt_Lag` cleanly omit steps 4, 8, and 9.
+**Why this order:** Visual stability first (shadow flush, dirty buffers, plane drain, Critical DMA, VSRAM all ensure correct display), then throughput (Important/Deferrable DMA for art streaming), then housekeeping (controllers, frame counter, flag). Each step is independently skippable without corrupting state — this is what lets `VInt_Lag` cleanly omit steps 5, 8, and 9 (the plane drain and the Important/Deferrable drains).
 
 **Cross-references:**
 - S.C.E. `Interrupt Handler.asm`: VInt function pointer dispatch, VInt_Lag, Do_ControllerPal ordering
@@ -1176,7 +1175,7 @@ The design below is preserved as an unimplemented proposal:
 
 ### 1.7 VDP Register & VSRAM Management
 
-**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.asm`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach.
+**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.emp`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach.
 
 **Known exception (2026-07-16 review):** OJZ test/game-shell code has a direct `$8B` VDP write for HScroll mode that bypasses `SetVDPReg`, violating the invariant above. This is tracked as a bug, not a supported pattern — the engine-level convention still holds; the violation is game-side content, not engine code.
 
@@ -1195,9 +1194,9 @@ The design below is preserved as an unimplemented proposal:
 
 **Purpose:** Execute per-scanline raster effects via a section-installable interrupt handler. The dispatch mechanism is simple — the raster command table system (§7.2) defines what actually runs.
 
-**RAM-patched pointer dispatch (§0.10) — dispatch mechanism built and wired, walker not yet built.** The HBlank vector in the exception table points to a tiny ROM stub (`HBlank_Dispatch`, `engine/system/hblank.asm`, byte-identical `.emp` twin not yet gated in) that reads a handler pointer from RAM (`HBlank_Handler_Ptr`) and calls it (`movem.l d0-d1/a0,-(sp) / movea.l HBlank_Handler_Ptr,a0 / jsr (a0) / movem.l (sp)+,d0-d1/a0 / rte`). This part is real and shipped. What's *not* shipped: the raster command table walker itself (§7.2) is design-stage — zero handlers exist today, only `HBlank_Null` is installed as the boot-time default. The pointer indirection is ready for the walker to be dropped in, but nothing currently installs it.
+**RAM jmp-slot trampoline (§0.10) — mechanism built and wired, walker not yet built.** The HBlank vector in the exception table points *directly* at `HBlank_Vector_Slot` (`engine/system/hblank.emp`), a 6-byte executable RAM slot. There is no ROM dispatch stub and no pointer read: the slot holds an idle `rte` ($4E73) when nothing is armed, or `jmp handler.l` ($4EF9 + 4-byte target) once `HBlank_Install` arms a handler — the interrupt reaches the handler through a single `jmp`, and the handler owns its own save/restore and terminates with `rte`. `HBlank_Install(a0=handler, d0=line counter)` / `HBlank_Uninstall` are shipped and exported, and both program IE1 (reg $00 bit 4) and the HInt counter (reg $0A) through the VDP shadow. What's *not* shipped: the raster command table walker itself (§7.2) is design-stage — zero handlers exist today (nothing calls `HBlank_Install`; only the `sec_raster_table` struct field is defined), so the slot sits at the idle `rte` boot default. The trampoline is ready for the walker to be dropped in.
 
-**`HBlank_Null` cost — corrected (2026-07-16 review).** The null-return cost is roughly **~180 cycles** (`movem` save/restore + `jsr`/`rts` + `movem` restore + `rte`), not the ~20 cycles an earlier draft of this doc claimed — about 8× understated. A proposed RAM-trampoline fix (not yet applied) would bring this down to roughly ~76 cycles by skipping the indirect call for the common empty-table case.
+**Idle HBlank cost.** With no handler armed the slot decodes to a bare `rte` — a single ~20-cycle return, with no register save/restore, no pointer load, and no indirect `jsr`. (The RAM-trampoline design that earlier drafts flagged as "not yet applied" is now the shipped mechanism; the old ~180-cycle pointer-dispatch stub it replaced is gone.)
 
 **H-Int counter:** Set via VDP shadow table (§0.4, §1.7) to control which scanline triggers the interrupt. For single-event effects (water line): set to the trigger scanline. For continuous effects (deformation, gradient): set to 0 (fire every scanline) or the effect start line. The raster command table handles multiple effects at different scanlines automatically.
 
@@ -1481,7 +1480,9 @@ Camera scrolls toward a section boundary
   → Object art is already resident (whole-act VRAM pool, paged at init);
     objects spawn at the camera edge (4.9) with their static art_tile
   → Camera crosses (Camera >> SECTION_SIZE_SHIFT) changes:
-      → parallax config snap/lerp, palette cross-fade, music swap
+      → parallax config snap/lerp (shipped); palette cross-fade + music
+        swap are descriptor-driven design-stage (sec_pal/sec_music have no
+        transition consumer yet — §4.2, §7.1)
   → No art swap, no preload window, no Section_Enter event — the camera
     just keeps moving; the section is "entered" purely by world position
 ```
@@ -2021,7 +2022,7 @@ Example: Oracle Jungle Zone Act 1
 Each section in the 2D grid is fully self-describing — almost its own level:
 
 ```
-; Section definition — 66 bytes per (X, Y) cell (Sec struct in structs.asm):
+; Section definition — 66 bytes per (X, Y) cell (Sec struct in structs.emp):
     dc.l    sec_block_index      ; +$00: 256-entry block index (ROM pointer, see §4.3/§4.7)
     dc.l    sec_objects          ; +$04: object layout (6-byte objentry entries, X-sorted, see 4.9)
     dc.l    sec_rings            ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
@@ -2051,7 +2052,7 @@ Each section in the 2D grid is fully self-describing — almost its own level:
 
 Fields default to 0 (keep current state). Each section is effectively its own world — unique terrain art, unique background motion, unique palette cycling, unique physics, unique music, unique parallax, all from data alone. No Genesis game has this level of per-area control within a single level.
 
-**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes). No delta format, no compression — raw CRAM data, instant load on section transition. Palette cross-fading (7.1) interpolates between the outgoing and incoming 128-byte copies over ~16 frames.
+**Palette format:** `sec_pal` points to a full 128-byte palette copy (all 4 palette lines × 16 colors × 2 bytes) — raw CRAM data, no delta format, no compression. **Descriptor field only — no shipped consumer.** No section-transition code reads `sec_pal` today (engine level code reads `sec_bg_layout`/`sec_parallax_config`/`sec_block_dict`/`sec_block_index`/`sec_camera_lookahead`, not `sec_pal`); the descriptor-driven palette *load* on section transition — instant or cross-faded — is **design-stage** (§7.1, whose §7 banner marks the whole palette-transition/cross-fade/cycling cluster as PLANNED, not implemented). What ships today is the game-poked path: game code writes `Palette_Buffer` (128 B RAM) and sets `Palette_Dirty` bits, and `Enqueue_Dirty_Buffers` DMAs the dirty lines to CRAM (§7.1 "Per-palette-line dirty DMA").
 
 ### 4.3 Pre-Computed Nametable Data (Block-Based) (confirmed by Batman & Robin)
 
@@ -2548,7 +2549,7 @@ Three playable characters (Sonic, Tails, Knuckles) with shared physics via `Play
 
 ### 5.1 6-Button Controller Support
 
-**6-button pad support:** Detect X/Y/Z/Mode buttons via rapid TH cycling protocol (see Section 9.4). Extra buttons provide debug shortcuts in debug builds (frame advance, profiler toggle) without conflicting with gameplay controls. In release builds, X/Y/Z can map to character-specific actions if needed.
+**6-button pad support (SHIPPED, §9.4):** The full 6-button read is live (`engine/system/controllers.emp`) — X/Y/Z/Mode are detected via the rapid TH-cycling protocol and exposed to game code through the `Ctrl_x_Ext_Held`/`_Ext_Press` RAM cells (0 on a 3-button pad). Extra buttons can drive debug shortcuts in debug builds (frame advance, profiler toggle) without conflicting with gameplay controls; in release builds, X/Y/Z can map to character-specific actions. Button mapping is game-side — the engine only reads and exposes the raw ext state.
 
 ### 5.2 Per-Section Terrain Physics (NOVEL)
 
@@ -3097,7 +3098,9 @@ Palette management, raster effects, hardware-driven lighting, and a lightweight 
 
 ### 7.1 Palette System
 
-**Palette cross-fading:** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Armed as the camera nears a section boundary and completed across the crossing, so there is no jarring palette snap at the boundary. ~3840 cycles during the transition window, run in idle time.
+**Shipped vs planned.** Only the **dirty-line DMA upload** is implemented (see "Palette DMA via queue" below and §1.1's `Palette_Dirty` 4-bit mask + `Enqueue_Dirty_Buffers` in `engine/system/buffers.emp`): game code writes `Palette_Buffer` and flags dirty lines, which DMA to CRAM as Critical priority. Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design** (per the §7 banner); no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet.
+
+**Palette cross-fading (planned):** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Armed as the camera nears a section boundary and completed across the crossing, so there is no jarring palette snap at the boundary. ~3840 cycles during the transition window, run in idle time.
 
 **Computed water palette (NOVEL):** Instead of maintaining separate water palette data per zone, compute at runtime: `water_color = (base_color >> 1) + blue_bias`. Automatically adapts to palette cycling AND cross-fading — water palette is always derived from current palette, never stale. No Genesis game computes water palettes at runtime.
 
@@ -3587,20 +3590,30 @@ Our implementation uses `parent_ptr` and `sibling_ptr` fields in the SST. S.C.E.
 
 ### 9.4 6-Button Controller Support
 
-**Protocol (from web research + plutiedev):** The 6-button controller IC has an internal counter that increments on each TH pin transition. Rapid TH cycling (3 toggles within 1.5ms) triggers extra read modes:
+**Status: SHIPPED (input parcel 2026-08-02, `engine/system/controllers.emp`).** `Read_Controllers` runs a full 6-button burst on **both** pads once per VBlank (from `VInt_Level` / `VInt_Lag`), with per-frame pad-type detection. The whole two-port burst is wrapped in one `stop_z80()`/`start_z80()` bracket — Z80 access to the 68k bus during `$A100xx` I/O reads corrupts them (hardware bug; plutiedev / SGDK `HALT_Z80_ON_IO` / Vectorman's bus-request lock).
 
-1. Cycles 1-2: Standard 3-button reads (Up/Down/Left/Right/A/B/C/Start)
-2. Cycle 3 (TH=LOW): If pins 1-4 all read LOW → 6-button pad detected (3-button shows different values)
-3. Cycle 4 (TH=HIGH): Extra buttons available: X, Y, Z, Mode
-4. Cycle 5+: Reset the IC counter
+**Read burst (per port).** LOW-first cadence (SGDK/plutiedev standard, verified against oracle's `MDControl6` model — the internal counter advances on TH *rising* edges, so a HIGH-first burst samples the extended phases a half-cycle early and always degrades to 3-button). Eight alternating TH writes starting `$00`, read after the first seven, 2-nop settle each:
+- `r2` (TH=1) → `1CBRLDU` main buttons; `r1` (TH=0) → `0SA00DU` (Start/A)
+- `r5` (TH=0) → D-pad nibble all-zero = **signature #1**
+- `r6` (TH=1) → `1CB MXYZ` extra buttons
+- `r7` (TH=0) → bits 3-2 read `%11` = **signature #2**
 
-**Detection:** After 3 rapid TH toggles, check TH=LOW state. All RLDU bits zero = 6-button. Save controller type flag at detection; skip extra reads for 3-button pads to avoid compatibility issues (some games toggle TH too frequently and break 6-button controllers — the Mode button forces 3-button emulation as a user workaround).
+**Detection = BOTH signatures required** (SGDK's rule: the all-zero nibble alone is faked by a 3-button pad holding U+D, which signature #2 then rejects). Re-confirmed **every frame** — hot-plug just works, and a glitched frame degrades to 3-button data for one frame instead of latching a wrong type. 3-button/SMS/empty ports resolve to `PAD_3BTN` with ext bytes 0. The existing SOCD guard (L+R / U+D cancel) still applies to the fused main byte.
 
-**Edge detection:** Two RAM bytes per controller: `Ctrl_Held` (current state) and `Ctrl_Press` (newly pressed this frame). The EOR+AND trick: `eor.b d0,d1; and.b d0,d1` — XOR finds changed bits, AND isolates newly-pressed ones. Virtually zero cost.
+**Outputs (RAM, engine-owned, `engine/ram.emp`).** Per pad `x` = 1,2:
+- `Ctrl_x_Held` / `Ctrl_x_Press` / `Ctrl_x_Press_Accum` — main `SACBRLDU` (existing cells, unchanged for every existing consumer)
+- `Ctrl_x_Ext_Held` / `Ctrl_x_Ext_Press` / `Ctrl_x_Ext_Press_Accum` — `0000MXYZ` (0 on a 3-button pad; oracle mapping D0=Z, D1=Y, D2=X, D3=Mode)
+- `Pad_x_Type` — `PAD_3BTN` / `PAD_6BTN`, refreshed per frame
 
-**Uses for extra buttons:** X = cycle debug overlay modes, Y = frame advance (debug), Z = quick shield swap, Mode = reserved. In release builds, X/Y/Z/Mode are available for gameplay features if desired.
+**Edge detection + lag-safe latch:** `Read_Controllers` ORs press edges into `*_Press_Accum` on **every** VBlank (including lag frames), via the EOR+AND trick (`eor` finds changed bits, `and` isolates newly-pressed). `VInt_Level` then latches `*_Press_Accum → *_Press` and clears the accumulator once per completed tick — so a press landing in any lag frame survives into the next logic tick (consume-once, no race). The 6-button ext bytes latch the same way.
+
+**Deterministic timebase + record/replay (§0.10, `Logic_Tick`).** `GameLoop` increments `Logic_Tick` (u32) once per game tick after `VSync_Wait` — lag-immune, unlike `Frame_Counter` (a raw VBlank count) — then calls `Input_Tick` (`engine/system/replay.emp`), the single replay seam, before the state dispatch. `Input_Tick` reads `Input_Source`: **LIVE** (0) passes the pads through untouched; **PLAYBACK** (1) overwrites `Ctrl_1_Held`/`Ctrl_1_Press` from an ARP0 RLE stream (presses derived from the stream's previous byte, never the live pad — the S1/S2 input-bleed desync class killed structurally; a live Start sets `Replay_Exit_Request` without polluting the stream); **RECORD** (2, DEBUG-only) taps the latched pad into an 8 KB ring and emits a curated-state checkpoint every 64 ticks. `Replay_Hash` (longword sum+rol over `Logic_Tick` + Player 1 SST + camera + section-streaming cells + pool counts) is the desync net, with a DEBUG desync trap. `tools/replay_pack.py` packs/dumps streams. **Shipped** (parcel I3, DEBUG record + LIVE/PLAYBACK): the mechanism and one committed fixture. **Deferred:** title/attract-mode menu integration (game-side wiring), player-facing replay saving, and CI/strict-suite integration (needs headless oracle) — see the spec `docs/superpowers/specs/2026-08-02-input-replay-design.md`.
+
+**Uses for extra buttons (game-side):** X/Y/Z/Mode are exposed to game code via the `_Ext_*` cells for debug shortcuts (frame advance, profiler toggle) or gameplay features. The engine only reads/exposes them; mapping is the game's.
 
 ### 9.5 Soft-Reset Persistence (CrossResetRAM)
+
+> **Status: DESIGN — not implemented (verified 2026-08-02, §0.11).** What ships today is soft-reset *detection* + DMA safety only: `EntryPoint` detects warm boot, `Warm_Boot` waits out any in-flight DMA, then falls through to the full `Cold_Boot` init — nothing is preserved. There is **no** `CrossResetRAM` region, no magic-string marker, and no `Warm_Reset` path in code (no such symbols exist; `$FFFFFF00` is the stack pointer). The rest of this subsection is the intended S.C.E.-derived design.
 
 **Hardware behavior:** All 64KB of work RAM survives a soft reset (Start+A+B+C or reset button). The 68000 CPU resets but RAM contents persist. The VDP also keeps running during reset — any in-progress DMA continues while the 68000 restarts, potentially overwriting freshly-loaded init code. Robust startup code must account for this (brief delay or VDP disable before initialization).
 
