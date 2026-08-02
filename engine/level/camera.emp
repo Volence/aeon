@@ -10,6 +10,7 @@ module engine.camera in camera
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
+use engine.coords.{pixels_to_coord}
 
 // The <<SECTION_SIZE_SHIFT chains below split as 8 + (SECTION_SIZE_SHIFT-8)
 // (an immediate shift is 1..8/op). The split spelling is derivation-locked to
@@ -74,33 +75,30 @@ equ PL_STATE_ADDR = pl_state_addr()
 
 // -----------------------------------------------
 // clamp_camera_axis — the continuous-scroll world clamp, one axis:
-//   cam = max(0, min(cam, (grid_dim << SECTION_SIZE_SHIFT) - screen_dim))
-// Spliced for X (.x_done) and Y (.clamp_y) — the two sites are the same
-// 13-instruction shape differing only in these three terms.
-// In: the axis' 16.16 RAM cell, the Act grid-dim field offset, the screen
-// extent. Uses d0/d1/a0 (inside both callers' licenses). Emits no rts and
-// no external branches — control falls through the splice.
+//   cam = max(0, min(cam, max_cell))    where max_cell holds the precomputed
+//   (grid_dim << SECTION_SIZE_SHIFT) - screen_dim upper bound.
+// Spliced for X (.x_done) and Y (.clamp_y). The per-act ceiling is precomputed
+// once in Camera_Init (grid dims are act constants) and read here as a bare
+// word — the shift chain no longer runs per frame.
+// In: the axis' 16.16 RAM cell, the axis' precomputed max-coord word cell.
+// Uses d0/d1 (inside both callers' licenses). Emits no rts and no external
+// branches — control falls through the splice.
 //
-// MEGA-ACT CEILING: the upper-bound clamp is WORD arithmetic (subi.w/cmp.w),
-// so an axis extent above $FFFF px — grid dim > 31 sections — word-wraps.
-// Guarded today by act_descriptor's (GRID_* << SECTION_SIZE_SHIFT) <= $8000
-// ensures (grid dims <= 16, tighter than 31). Floating-origin Phase 4
-// removes the word truncation.
+// MEGA-ACT CEILING: the ceiling is a WORD (subi.w at init, cmp.w here), so an
+// axis extent above $FFFF px — grid dim > 31 sections — word-wraps. Guarded
+// today by act_descriptor's (GRID_* << SECTION_SIZE_SHIFT) <= $8000 ensures
+// (grid dims <= 16, tighter than 31). Floating-origin Phase 4 removes the word
+// truncation.
 // -----------------------------------------------
-comptime fn clamp_camera_axis(cam: Label, dim_off: int, screen: int) -> Code {
+comptime fn clamp_camera_axis(cam: Label, max_cell: Label) -> Code {
     return asm {
-        movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
         move.l  {cam}, d0
         swap    d0
         tst.w   d0
         bge     .min_ok
         moveq   #0, d0
     .min_ok:
-        moveq   #0, d1
-        move.w  {dim_off}(a0), d1
-        lsl.l   #8, d1                          // grid dim << SECTION_SIZE_SHIFT
-        lsl.l   #SECTION_SIZE_SHIFT-8, d1       //   = axis extent (px); split 8+rest
-        subi.w  #{screen}, d1
+        move.w  {max_cell}, d1                  // precomputed axis ceiling (px)
         cmp.w   d1, d0
         ble     .clamp
         move.w  d1, d0
@@ -150,6 +148,24 @@ pub proc Camera_Init (a0: *Act) clobbers(d0) {
         move.w  #CAM_X_DEADZONE_INIT, Camera_Deadzone_Base  // (Camera_Deadzone_Base).w
         clr.b   Camera_Hold_Frames                 // (Camera_Hold_Frames).w — spindash release
                                                    // writes it; Camera_Update consumes it
+
+        // Precompute the per-act clamp ceilings. Grid dims are act constants, so
+        // the upper bound (grid_dim << SECTION_SIZE_SHIFT) - screen is fixed for
+        // the whole act; compute it once here (re-run on every act's Camera_Init)
+        // instead of every frame inside clamp_camera_axis. WORD result — the
+        // MEGA-ACT CEILING guard (grid dims <= 16) keeps it under $FFFF.
+        moveq   #0, d0
+        move.w  Act.grid_w(a0), d0                 // sections wide
+        lsl.l   #8, d0                             // << SECTION_SIZE_SHIFT, split 8+rest
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0
+        subi.w  #SCREEN_WIDTH, d0
+        move.w  d0, Camera_X_Max                   // (Camera_X_Max).w
+        moveq   #0, d0
+        move.w  Act.grid_h(a0), d0                 // sections tall
+        lsl.l   #8, d0
+        lsl.l   #SECTION_SIZE_SHIFT-8, d0
+        subi.w  #SCREEN_HEIGHT, d0
+        move.w  d0, Camera_Y_Max                   // (Camera_Y_Max).w
         rts
 }
 
@@ -217,10 +233,13 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.w  #CAM_MAX_X_STEP, d3
 
     .apply_x:
-        // falls through into .x_done below after applying the step
-        ext.l   d3
-        lsl.l   #8, d3
-        lsl.l   #8, d3                             // to 16.16 fixed (lsl.l #16 split for AS)
+        // falls through into .x_done below after applying the step. d3.w holds the
+        // signed clamped step; promote it to a 16.16 Coord (step in the high word,
+        // fraction 0) before adding. swap+clr.w discards d3's stale high word and
+        // gives step<<16 — identical to the old ext.l/lsl.l#16 for every step incl.
+        // negatives (the sign bits ext.l produced fall entirely off the top of the
+        // <<16, so both encodings leave exactly the step word in the high word).
+        pixels_to_coord(d3)
         add.l   d3, Camera_X                       // (Camera_X).w
 
     .x_done:
@@ -230,7 +249,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    ALL X paths converge here — .x_done is the branch target for the
         //    deadzone hold and the spindash freeze, and .apply_x falls through;
         //    control continues into .y_track below.
-        clamp_camera_axis(Camera_X, offsetof(Act, grid_w), SCREEN_WIDTH)
+        clamp_camera_axis(Camera_X, Camera_X_Max)
 
     .y_track:
         tst.b   d4                                  // spindash freeze active?
@@ -313,9 +332,8 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         bge     .y_step_lo_ok
         move.w  #-CAM_MAX_Y_STEP, d3
     .y_step_lo_ok:
-        ext.l   d3
-        lsl.l   #8, d3
-        lsl.l   #8, d3
+        // d3.w = signed clamped step; promote to a 16.16 Coord (see .apply_x).
+        pixels_to_coord(d3)
         add.l   d3, Camera_Y                        // (Camera_Y).w
 
     .clamp_y:
@@ -324,6 +342,6 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    symmetric with the X clamp — no act-supplied camera bounds.
         //    External entry (spindash freeze, .land_lock, fall-through from
         //    .y_step_lo_ok); must keep the .clamp_y label and the trailing rts.
-        clamp_camera_axis(Camera_Y, offsetof(Act, grid_h), SCREEN_HEIGHT)
+        clamp_camera_axis(Camera_Y, Camera_Y_Max)
         rts
 }
