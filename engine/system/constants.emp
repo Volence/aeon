@@ -305,10 +305,26 @@ pub const GS_BOOT = 0
 pub const GS_IDLE = 1
 
 // -----------------------------------------------
-// DMA-queue VBlank budgets (usable DMA bytes per VBlank).
+// DMA-queue VBlank budgets — the per-frame WINDOW capacity in DMA-byte-equiv.
+// Seeded into DMA_Budget_Remaining at the TOP of VInt_Level; the frame's big
+// window riders (plane drain, Critical DMA) then CHARGE it as they run, so the
+// Important/Deferrable drain sees the TRUE headroom left in the blanking window.
+//
+// Derivation (oracle cycle model, hardware-verified):
+//   blanking window ≈ 488.6 68k cyc/line ×
+//       NTSC 38 blank lines ≈ 18,565 cyc   |   PAL 72 blank lines ≈ 35,179 cyc
+//   blanking DMA ≈ 2.7 cyc/byte  →  raw capacity  NTSC 6876 / PAL 13029 bytes
+//   × ~0.89 safety margin for the uncharged non-DMA VInt tail (Flush_VDP_Shadow /
+//     Enqueue_Dirty_Buffers / Vscroll_Write / Read_Controllers / sound brackets)
+//     and the plane drain's CPU-write rate running above 2.7 cyc/byte:
+//       NTSC 6876 × 0.89 ≈ 6144   |   PAL 13029 × 0.89 ≈ 11648
+// On calm frames the charged riders are small, so the residual budget stays far
+// above realistic Important/Deferrable demand and never binds (behaviorally
+// identical). On an overloaded frame the riders draw it down to the real window
+// headroom, capping the drain instead of overrunning into active display.
 // -----------------------------------------------
-pub const DMA_BUDGET_NTSC = 7200
-pub const DMA_BUDGET_PAL  = 15000
+pub const DMA_BUDGET_NTSC = 6144
+pub const DMA_BUDGET_PAL  = 11648
 
 // -----------------------------------------------
 // Decompression / art staging.
