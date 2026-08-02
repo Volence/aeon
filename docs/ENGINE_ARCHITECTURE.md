@@ -110,7 +110,7 @@ full invariant text and the bank-D co-location note.
 
 ### Engine_RAM_End
 
-`engine/ram.asm`'s `$FFFF8000` phase block ends with an `Engine_RAM_End:` label; a game's
+`engine/ram.emp`'s `$FFFF8000` phase block ends with an `Engine_RAM_End:` label; a game's
 `games/<game>/config/ram.asm` phases its own RAM continuation from that address
 (`phase Engine_RAM_End`). Player state, debug harness variables, and other game-owned RAM all
 live game-side, after this seam.
@@ -889,7 +889,7 @@ The VDP pipeline governs everything that reaches the screen: DMA transfers, spri
 Total: 32 slots × 14 bytes = 448 bytes RAM
 ```
 
-**Entry format:** Flamewing Ultra DMA Queue 14-byte entries (`DMAEntry` struct, `engine/structs.asm`). VDP register-marker bytes sit at the EVEN offsets (0, 2, 4, 6, 8), written once at boot by `Init_DMA_Queue`/`BuildStaticDMA` via `movep`; size/source data bytes are interleaved at the ODD offsets (1, 3, 5, 7, 9). The drain loop never touches the marker bytes — it writes pre-computed VDP commands directly, zero computation during VBlank.
+**Entry format:** Flamewing Ultra DMA Queue 14-byte entries (`DMAEntry` struct, `engine/structs.emp`). VDP register-marker bytes sit at the EVEN offsets (0, 2, 4, 6, 8), written once at boot by `Init_DMA_Queue`/`BuildStaticDMA` via `movep`; size/source data bytes are interleaved at the ODD offsets (1, 3, 5, 7, 9). The drain loop never touches the marker bytes — it writes pre-computed VDP commands directly, zero computation during VBlank.
 
 ```
 Offset  Field    Contents
@@ -917,20 +917,20 @@ Offset  Field    Contents
 
 **Per-palette-line dirty DMA:** Palette uses a 4-bit dirty bitmask (`Palette_Dirty`, one bit per palette line = 32 bytes). Each frame, only dirty lines are enqueued as Critical DMA via `Enqueue_Dirty_Buffers`. On a typical gameplay frame, only the lines that actually changed are re-sent; on section transitions, all 4 bits set. The palette-line-to-content mapping (e.g. "Line 0 = BG/environment") is a game-side content convention, not something the engine enforces — the engine only knows about 4 independent dirty bits.
 
-**Hscroll DMA — two fixed-size static entries, not variable-range:** `Hscroll_Dirty_Start`/`Hscroll_Dirty_End` fields exist in RAM (`engine/ram.asm`) but are dead — nothing reads them. The shipped mechanism (`Enqueue_Dirty_Buffers`, §4.6) enqueues one of exactly two build-time-fixed static entries depending on parallax mode: `Static_Hscroll_Cell` (112 bytes, per-cell mode) or `Static_Hscroll_Line` (896 bytes, per-line mode, used when an H-deform table is active on either plane). There is no computed dirty-range transfer.
+**Hscroll DMA — two fixed-size static entries, not variable-range:** `Hscroll_Dirty_Start`/`Hscroll_Dirty_End` fields exist in RAM (`engine/ram.emp`) but are dead — nothing reads them. The shipped mechanism (`Enqueue_Dirty_Buffers`, §4.6) enqueues one of exactly two build-time-fixed static entries depending on parallax mode: `Static_Hscroll_Cell` (112 bytes, per-cell mode) or `Static_Hscroll_Line` (896 bytes, per-line mode, used when an H-deform table is active on either plane). There is no computed dirty-range transfer.
 
-**VBlank DMA budget (concrete numbers from hardware research):**
+**VBlank DMA budget — window-charged model (m1-budget-fix, chain-21):**
 
-| System | VBlank Lines | 68K Cycles | DMA Bytes (68K→VRAM) | Practical Budget |
-|--------|-------------|------------|---------------------|-----------------|
-| NTSC H40 | 38 | ~18,544 | 7,524 | ~7,200 |
-| PAL H40 (224p) | 89 | ~43,432 | 17,622 | ~15,000 |
+`DMA_BUDGET_NTSC` = **6144** and `DMA_BUDGET_PAL` = **11648** (`engine/system/constants.emp`) are the per-VBlank **blanking-window capacity** (DMA-byte-equiv), wired into `DMA_Budget_Default` at boot by region (`engine/system/boot.emp`). They are **not** a flat "usable bytes" allowance: `VInt_Level` seeds `DMA_Budget_Remaining` from `DMA_Budget_Default` at the top of the frame, then the two big window riders **charge** it as they run — the plane-buffer drain subtracts `Plane_Buffer_Ptr` (pending buffer bytes) and the mandatory Critical DMA subtracts its queued entry bytes (walked from the queue), with the result floored at 0. Only then do `Process_DMA_Important` / `Process_DMA_Deferrable` run, so they see the *true* headroom left in the window, not the whole window as if nothing had run. Derivation (oracle cycle model): ~488.6 68k cyc/line × 38 blank lines NTSC / 72 PAL → ~6876 / ~13029 raw bytes at ~2.7 cyc/byte, × ~0.89 margin ≈ 6144 / 11648 (§0.8).
 
-The practical budget accounts for CPU overhead (drain loop, VDP shadow flush, controller polling, sound driver). `DMA_BUDGET_NTSC` = 7200 and `DMA_BUDGET_PAL` = 15000 (`engine/constants.asm`) are wired into `DMA_Budget_Default` at boot by region (`engine/system/boot.asm`) and copied into `DMA_Budget_Remaining` every VBlank, unconditionally — there is no adaptation (see below). Vectorman's $B40 (2,880 bytes) is conservative — our 3-queue system with ~7,200 bytes available has substantial headroom for art streaming in the Deferrable queue.
+| System | VBlank Lines | Window capacity (`DMA_BUDGET_*`) |
+|--------|-------------|-----------------------------------|
+| NTSC H40 | ~38 | 6144 |
+| PAL H40 | ~72 | 11648 |
 
-**Adaptive byte budget and lag recovery budget — design, not implemented (2026-07-17).** The original design called for shrinking the Important/Deferrable budget for a frame or two after a lag event, then gradually restoring it, plus a temporary 1.5× boost to Deferrable to flush any backlog. None of this exists in code: `DMA_Budget_Default` is set once at boot by region and copied to `DMA_Budget_Remaining` unconditionally every VBlank with no lag-history feedback. Left here as a design note for a future self-tuning pass; the idea was inspired by Vectorman's `cmpi.w #$B40` budget check, extended with feedback that was never built.
+**Lag-history feedback budget — design, not implemented.** A further adaptation — shrinking the Important/Deferrable budget for a frame or two after a lag event then gradually restoring it, plus a temporary 1.5× Deferrable boost to flush backlog — does **not** exist. The shipped budget is window-charged per frame (above) but carries no lag *history*: each frame reseeds from `DMA_Budget_Default` independent of prior frames' overruns. Left as a design note for a future self-tuning pass; inspired by Vectorman's `cmpi.w #$B40` budget check, extended with feedback that was never built.
 
-**128KB boundary safety — implemented.** The VDP increments only the low 17 bits of the 23-bit DMA source address; transfers crossing a 128KB boundary wrap within the same block and produce garbage. `QueueDMATransfer` (`engine/system/dma_queue.asm`) detects this via a sub+sub carry check (`sub.w d3,d0 / sub.w d1,d0 / blo .split`, comparing source+length words against the boundary) and, on a crossing, splits the transfer into two queue entries in the `.split` path: the first part finishes at the boundary, the second continues from the wrapped source with the correct destination offset. The split requires a second free slot in the same sub-queue (checked via `subi.w #DMAEntry_len,d4 / cmpa.w d4,a1`); if only one slot is free, only the first part is enqueued and the routine still returns carry-clear (documented in the routine's header comment as a known, vanishingly-rare edge case for small DPLC transfers that straddle a boundary).
+**128KB boundary safety — implemented.** The VDP increments only the low 17 bits of the 23-bit DMA source address; transfers crossing a 128KB boundary wrap within the same block and produce garbage. `QueueDMATransfer` (`engine/system/dma_queue.emp`) detects this via a sub+sub carry check (`sub.w d3,d0 / sub.w d1,d0 / blo .split`, comparing source+length words against the boundary) and, on a crossing, splits the transfer into two queue entries in the `.split` path: the first part finishes at the boundary, the second continues from the wrapped source with the correct destination offset. The split requires a second free slot in the same sub-queue (checked via `subi.w #DMAEntry_len,d4 / cmpa.w d4,a1`); if only one slot is free, only the first part is enqueued and the routine still returns carry-clear (documented in the routine's header comment as a known, vanishingly-rare edge case for small DPLC transfers that straddle a boundary).
 
 **RAM source address safety:** When a RAM source address ($FF0000+) is right-shifted by 1 for the VDP, bit 23 can become set, which the VDP interprets as a VRAM copy flag instead of 68K→VDP DMA. `QueueDMATransfer` clears bit 23 after the shift (`bclr.l #23,d1`).
 
@@ -944,7 +944,7 @@ The practical budget accounts for CPU overhead (drain loop, VDP shadow flush, co
 
 **Overflow handling:** In debug builds, `QueueDMATransfer`'s `.full` path increments `DMA_Overflow_Count` and returns carry-set; there is no queue-specific `trap` assertion on Critical-queue-full as an earlier draft of this doc claimed — overflow on all three queues is tracked through the same shared debug counter, not a hard trap. In release builds it silently returns without enqueueing (graceful degradation) either way. Important/Deferrable queues never "overflow" in the drop sense — when the budget runs out, `Drain_Budgeted_Queue`'s `.compact` path shifts the undrained entries to the queue base and updates the slot pointer so they persist to next frame; this is expected, budget-gated deferral, not an error condition.
 
-**Known issue (2026-07-17):** `Enqueue_Dirty_Buffers` (`engine/system/buffers.asm`) clears `Palette_Dirty`/`Sprite_Table_Dirty` **unconditionally** right after calling `queueStaticDMA`, even when the Critical queue was full and the macro's enqueue silently failed. This can leave stale palette or sprite-table data on screen indefinitely with no automatic retry, since the dirty bit that would trigger a retry has already been cleared. Confirmed live in code as of the 2026-07-16 optimization review; not yet fixed.
+**Dirty-flag retry — fixed.** `Enqueue_Dirty_Buffers` (`engine/system/buffers.emp`) clears each `Palette_Dirty` line bit / `Sprite_Table_Dirty` flag **only when its enqueue succeeded** (`queue_static_dma(...) / bcs .skip / bclr`). On a drop (Critical queue full — reachable during a fade + heavy art staging) the bit is left set so the next VBlank retries it, instead of clearing it and stranding stale palette/SAT data in VRAM. (This closes the unconditional-clear bug an earlier draft of this doc flagged as live in the 2026-07-16 review.)
 
 **Debug profiling counters (§8 integration):** Behind `ifdef __DEBUG__` guards, the DMA system tracks: `DMA_Bytes_ThisFrame` (total bytes enqueued), `DMA_Peak_Critical` / `DMA_Peak_Important` / `DMA_Peak_Deferrable` (one high-water mark per sub-queue — not a single combined counter), `DMA_Overflow_Count` (enqueue rejections), `Lag_Frame_Count` (VBlank overruns). Readable via Oracle MCP or KDebug console. Zero cost in release builds.
 
@@ -1171,7 +1171,7 @@ The design below is preserved as an unimplemented proposal:
 
 ### 1.7 VDP Register & VSRAM Management
 
-**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.asm`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach.
+**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.emp`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach.
 
 **Known exception (2026-07-16 review):** OJZ test/game-shell code has a direct `$8B` VDP write for HScroll mode that bypasses `SetVDPReg`, violating the invariant above. This is tracked as a bug, not a supported pattern — the engine-level convention still holds; the violation is game-side content, not engine code.
 
