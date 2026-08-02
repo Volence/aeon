@@ -177,6 +177,13 @@ def cmd_pack(args):
             checks.append((tick, h))
     core_hash = int(args.core_hash, 0)
     stream = pack_stream(raw, checks, core_hash)
+    # Pad to a 16-byte multiple with zeros AFTER the terminator (the reader stops
+    # at $FF $00, so the tail is inert). This keeps the chain-tail fixture flush
+    # with EndOfRom under the packer's provisional-alignment inference in every
+    # shape (a 194-byte stream once left a 14-byte align gap in plain that broke
+    # the assembled-bar completeness guard).
+    if len(stream) % 16:
+        stream = stream + bytes(16 - (len(stream) % 16))
     open(args.out, "wb").write(stream)
     # Verify our own output round-trips before declaring success.
     dr, dc, _, _, _, _ = decode_stream(stream)
