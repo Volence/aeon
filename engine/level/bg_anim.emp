@@ -22,7 +22,10 @@
 // Table format:
 //   dc.w band_count                      (0 = system disabled)
 //   then per band, a 44-byte record:
-//   $00 dc.w driver       0 = Camera_X, 1 = Camera_Y, 2 = Frame_Counter
+//   $00 dc.w driver       0 = Camera_X, 1 = Camera_Y, 2 = Logic_Tick (low word) —
+//                         lag-immune so BG anim phase can't diverge between record
+//                         and playback (BG anims now freeze during lag frames, the
+//                         intended behavior; audit 2026-08-02)
 //   $02 dc.w rate_shift   step = driver_value >> rate_shift
 //   $04 dc.w step_mask    pattern width in px, minus 1
 //   $06 dc.w col_shift    log2 of column stride in bytes (rows*32)
@@ -43,7 +46,8 @@ const BGANIM_BANKS     = 8          // pre-shifted art banks, 1px apart (fine ph
 // this struct exists so every hand-tracked cursor offset below is DERIVED
 // from the layout instead of a magic number.
 struct bganim_band {
-    driver:     u16,                // 0 = Camera_X, 1 = Camera_Y, 2 = Frame_Counter
+    driver:     u16,                // 0 = Camera_X, 1 = Camera_Y, 2 = Logic_Tick (low word,
+                                    // lag-immune — record/playback phase can't diverge)
     rate_shift: u16,                // step = driver_value >> rate_shift
     step_mask:  u16,                // pattern width in px, minus 1
     col_shift:  u16,                // log2 of column stride in bytes (rows*32)
@@ -114,7 +118,8 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         beq     .cam_x
         subq.w  #1, d0
         beq     .cam_y
-        move.w  Frame_Counter, d0               // (Frame_Counter).w
+        move.w  Logic_Tick+2, d0                // (Logic_Tick+2).w — low word of the
+                                                // lag-immune tick counter
         jbra    .have_value
     .cam_x:
         move.w  Camera_X, d0                    // (Camera_X).w — integer px (16.16 high word)

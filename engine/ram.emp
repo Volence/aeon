@@ -96,6 +96,9 @@ pub vars upper_ram {
     VBlank_Flag:            u8,
     pad(1),
     Frame_Counter:          u16,
+    Logic_Tick:             u32,        // logic-TICK counter (game loop, post-VSync) —
+                                        // lag-immune, unlike Frame_Counter (VBlank count).
+                                        // The replay/determinism timebase (spec 2026-08-02).
     Game_State:             u32,
     Game_State_ID:          u8,
     Game_State_Init:        u8,
