@@ -126,6 +126,18 @@ pub vars upper_ram {
     Ctrl_1_Press_Accum:     u8,         // edges OR'd here by EVERY VBlank (incl. lag)
     Ctrl_2_Press_Accum:     u8,         // latched into Ctrl_*_Press by the non-lag handler
 
+    // 6-button extension (2026-08-02 input parcel): MXYZ nibble per pad
+    // (0 on a 3-button pad) + per-frame-refreshed pad type. Same
+    // accumulate/latch discipline as the main bytes.
+    Ctrl_1_Ext_Held:        u8,         // 0000MXYZ
+    Ctrl_1_Ext_Press:       u8,         // tick-stable (latched like Ctrl_1_Press)
+    Ctrl_2_Ext_Held:        u8,
+    Ctrl_2_Ext_Press:       u8,
+    Ctrl_1_Ext_Press_Accum: u8,
+    Ctrl_2_Ext_Press_Accum: u8,
+    Pad_1_Type:             u8,         // PAD_3BTN / PAD_6BTN (re-detected EVERY frame)
+    Pad_2_Type:             u8,
+
     // --- RNG ---
     RNG_Seed:               u32,
 
