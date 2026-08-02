@@ -5,6 +5,21 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ✅ RESOLVED — BUG-004 — window-despawned parent leaks its children (gap-ledger row 1599) — FIXED 2026-08-02
+
+**Was:** `EntityWindow_DespawnObjects` deleted only the parent; children are untagged by
+construction (`AllocDynamic` tags `SLOT_TAG_UNTAGGED`, only the window spawn path re-tags),
+so they could never despawn themselves — a window-despawned parent leaked its children's
+dynamic slots for the level, each orphan dereferencing a freed `parent_ptr` every frame.
+**Fix (ruled (a), Volence):** the despawn path cascades `jbsr DeleteChildren` before
+`DeleteObject` (merge `8678ddb`, chain-23 `despawn-cascade`). **Oracle A/B:** pre-fix
+3 orphans orbit the zeroed corpse at origin forever (end-state live=33, 3 slots never
+returned); post-fix parent+3 children freed the same frame, end-state 30-clean, free stack
+fully recovered. Full procedure + screenshots:
+`docs/superpowers/2026-08-02-engine-debts-opener-evidence.md`.
+
+---
+
 ## BUG-002 — SFX gameplay-integration cluster (spurious triggers, wrong duration, rev churn)
 
 **Status:** PARTLY FIXED (see each item). **Severity:** medium (audible wrongness, no crash).
