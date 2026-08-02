@@ -17,7 +17,14 @@ engine code before then moves the pin target and grows the port surface for no d
 
 **Recommended pickup order after the port:**
 
-1. **Input layer maturity + demo recording/replay** — do FIRST: 6-button read (TH-toggle
+1. ✅ **RESOLVED 2026-08-02** — **Input layer maturity + demo recording/replay** — SHIPPED
+   as the input/replay phase (spec/plan `docs/superpowers/{specs,plans}/2026-08-02-input-replay*`,
+   parcels I1-I4, chains 25-30): full 6-button layer (SGDK low-first cadence, two-signature
+   per-frame detect, Ext/Pad_Type cells), `Logic_Tick` timebase, the `Input_Tick` replay seam
+   (`engine/system/replay.emp`), the committed OJZ fixture + proven checkpoint net
+   (evidence: `docs/superpowers/2026-08-02-engine-debts-opener-evidence.md`). Pad-2 was
+   already read; a human P2 + the determinism audit shipped with the harness. ORIGINAL
+   ENTRY (historical): do FIRST: 6-button read (TH-toggle
    protocol), pad-2 support (a human second player; design #3's Tails AI is input-filter
    based and doesn't need it, a player does), and an input abstraction a record/replay
    harness hooks. Replay's real cost is the determinism audit (RNG seeding,

@@ -105,6 +105,60 @@ Findings worth their ledger space:
    regenerate at every refreeze); the keystone deform-pointer offset is
    listing-derived. Plus the parallax RAM-label table pin-sourced at its third.
 
+## Parcels I2/I3/I4 + the harness proofs (chains 26-30)
+
+I2 `logic-tick` (chain 26) and I3 `replay-harness` (chain 27) merged per plan
+(first-try 2990/0/4 post-refreeze both — the structurally-sourced fixtures now
+ride refreezes). I4 delivered the committed OJZ fixture
+(`games/sonic4/data/replays/ojz_fixture.bin`, 1288 ticks / 21 checkpoints /
+208 B RLE) embedded at the CHAIN TAIL: the fixture base is address-stable under
+re-records (listing-diff proven — zero gameplay labels move), and after the
+terminus work (chains 29-30: EndOfRom map-named last + the sigil zero-byte-marker
+align-2 cap + the packer 16-pad) the assembled bar encloses it cleanly.
+
+**The proofs (all oracle, overseer foreground):**
+1. **Determinism:** 21/21 checkpoint hashes matched on three full replays across
+   two byte-different builds (fixture-swap tail) including one from POISONED RAM
+   (FF-strips across the system/player/live-list regions pre-reset) — the boot
+   clear covers everything gameplay reads.
+2. **The net bites:** a doctored-hash fixture trapped `REPLAY DESYNC` at exactly
+   the doctored checkpoint (tick 130; screen shows tick d1 / expected d2 /
+   actual d0 — actual matched the true recorded hash, expected showed the
+   flipped byte). A gravity ±1 perturbation diverged and crashed loudly
+   (address error from diverged physics) pre-checkpoint — also a catch.
+3. **The harness as arbiter:** a hard freeze DURING RECORDING (68k bus-stalled
+   mid-CRAM-DMA drain, Z80 parked at the bank port — superficially BUG-001-ish)
+   did NOT reproduce under the identical input stream free-running → adjudicated
+   an ORACLE PAUSE ARTIFACT (press-tool pause landing mid-DMA-window), not an
+   engine bug. Filed on the oracle side.
+4. **Open curiosity (non-gating):** PHYS_ACCEL ±1 produced NO curated-state
+   divergence across 1282 ticks despite live `PPHYS_ACCEL(a4)` reads
+   (player_ground:537/556). The net is proven sound by (2), so this is a real
+   physics-path question for a future session, not a net gap.
+
+**The standing runbook (regression net):** persistent bp `GameState_OJZScroll_Init`
+BEFORE `reload_rom` → break lands at `Logic_Tick`=1 deterministically → poke
+`Input_Source`=1 + `Replay_Ptr` = `Replay_OJZ_Fixture`+20 → clear bps → resume →
+~75 s → `Replay_Done`=$FF with no `REPLAY DESYNC`/error screen = PASS. (Recording:
+same anchor with `Input_Source`=2; dump `Replay_Record_Buf`/`Replay_Check_Log`;
+`tools/replay_pack.py`.) LESSON: `run_to` after reload is wall-clock-racy — the
+bp-before-reload anchor is mandatory; and the OJZ Init tick swallows ~2,700
+frames, so press-frame budgets ≠ tick budgets across it.
+
+## Oracle breakpoint engine fixed (oracle master 7b81fb9)
+
+`run_to` at the parked PC executed ZERO instructions (transient bp matched at the
+top-of-step check before executing) — root-caused to
+`Processor::CheckExecutionInternal` and fixed with a one-shot skip-first-check
+(industry-standard step-over). The "fall-through breakpoints never fire" report
+was this defect masquerading (their regression test proves fall-through bps fire
+in threaded mode). LIVE GATE on the swapped instance: consecutive `run_to` at the
+same per-frame proc now advances exactly +1 frame per call (frame_token
+1495→1496). New regression harness `linux-port/harness/breakpoint_regression_test.py`.
+Ledgered separately (not fixed): det-serial-mode bp stops land at commit
+granularity, and screenshot's `path` parameter is ignored (minor). oracle-next has
+no execution-bp engine yet — nothing shared.
+
 ## Oracle tool observations (for the oracle backlog, NOT engine bugs)
 
 1. **`run_to` at the current PC is a no-op**: arming a transient breakpoint at the
