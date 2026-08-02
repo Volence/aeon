@@ -12,7 +12,7 @@ This is the **design bible**. This document describes the engine we're building 
 
 | # | System | Key Decisions |
 |---|--------|---------------|
-| 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, deterministic cold/warm boot (CrossResetRAM), region detection with PAL timing constants, 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
+| 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, deterministic cold/warm boot (CrossResetRAM), region detection with region-adaptive DMA budget (NTSC-only), 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
 | 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. The FG act art pool ships as ZX0 pages; S4LZ remains the runtime block-stream format. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile deduplication + spatial pool ordering + paging** (globally-deduped, spatially-ordered, paged act art pool — no per-section allocation), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Whole-act paged art pool (fully resident, loaded once at init — no per-section art swap), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
@@ -613,7 +613,7 @@ Bits 3-0: VER — Hardware revision
 
 **Design — detect once, bake into RAM:**
 
-The region branch happens exactly once, at boot — the chosen values are stored in RAM (`Timing_Step`, `DMA_Budget_Default`) and consumed from there, so no runtime code re-tests the region flag on hot paths:
+The region branch happens exactly once, at boot — the chosen value (`DMA_Budget_Default`) is stored in RAM and consumed from there, so no runtime code re-tests the region flag on hot paths:
 
 ```asm
 ; Detection (runs once at boot)
@@ -623,41 +623,29 @@ The region branch happens exactly once, at boot — the chosen values are stored
         move.b  d0, (Region_Flags).w    ; Bit 7 = overseas, bit 6 = PAL
         btst    #6, d0
         bne.s   .pal
-        move.w  #NTSC_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
         bra.s   .region_done
 .pal:
-        move.w  #PAL_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
 .region_done:
-        move.w  #0, (Frame_Accumulator).w
 
-; Compile-time constants (engine/constants.asm — these four are the ones that exist)
-NTSC_TIMING_STEP        = $0100     ; 1.0 (8.8 fixed)
-PAL_TIMING_STEP         = $0133     ; 1.2 (8.8 fixed, 6/5 ratio)
+; Compile-time constants (engine/system/constants.emp — these two are the ones that exist)
 DMA_BUDGET_NTSC         = 7200      ; usable DMA bytes per NTSC VBlank
 DMA_BUDGET_PAL          = 15000     ; usable DMA bytes per PAL VBlank
 ```
 
 The scanline/cycle table above is hardware background, not engine constants — no `VBLANK_LINES`/`CYCLES_PER_VBLANK` symbols exist in code.
 
-**PAL compensation** (from modern frame-rate independent design):
-
-PAL runs at 50Hz vs NTSC's 60Hz. Physics must compensate or the game plays 17% slower. Two approaches:
-
-1. **Speed multiplier** (Sonic 3 approach): multiply velocities by 6/5 on PAL. Simple but introduces rounding drift.
-2. **Frame skip** (Treasure approach): run two game logic ticks every 5th frame. Maintains exact NTSC behavior but causes occasional visual stutter.
-3. **Fixed timestep accumulator** (modern approach, NOVEL for Genesis): accumulate real time, consume fixed 1/60s ticks. On PAL, every 5th frame accumulates enough for 2 ticks. Same as approach 2 but expressed as a general-purpose system.
-
-We use approach 3 — the accumulator. It handles both PAL compensation and future lag-frame recovery (if a frame takes >100% CPU, the accumulator catches up next frame rather than permanently falling behind).
-
-```asm
-; In RAM
-Frame_Accumulator:      ds.w 1      ; 8.8 fixed-point, incremented by Timing_Step each frame
-Timing_Step:            ds.w 1      ; NTSC_TIMING_STEP or PAL_TIMING_STEP, baked at boot
-```
-
-**Status: consume side is design, not implemented (2026-07-16).** Boot detects the region and initializes `Timing_Step`/`Frame_Accumulator`, but nothing reads them yet — `GameLoop` dispatches exactly one game-state tick per VSync unconditionally (`engine/system/game_loop.asm`). The accumulate/consume loop still needs to be wired into the game loop before PAL plays at correct speed.
+**PAL timing compensation: none — NTSC-only product (ruling B, 2026-08-02).** The engine
+commits to NTSC-only. `GameLoop` dispatches exactly one game-state tick per VSync
+unconditionally (`engine/system/game_loop.asm`), so on PAL hardware the whole game runs
+at 50 Hz uncompensated (~5/6 speed) — accepted, matching classic frame-based PAL slow.
+The half-built fixed-timestep accumulator (`Timing_Step`/`Frame_Accumulator` +
+`NTSC_TIMING_STEP`/`PAL_TIMING_STEP`) that would have driven PAL compensation was deleted
+rather than left as dead scaffolding — it had zero readers. Only the region-adaptive DMA
+budget survives the region branch (the drain reads `DMA_Budget_Default`). The three
+compensation approaches once considered (Sonic 3 speed multiplier, Treasure frame-skip,
+the accumulator) are recorded in the DEFERRED_WORK PAL entry as historical design context.
 
 ### 0.9 Controller Port Initialization
 
@@ -804,7 +792,7 @@ Power On
   ├── Set VInt_Ptr = VInt_Level (§1.2)
   │
   ├── Region detection ($A10001 → Hardware_Region/Region_Flags,
-  │   bake Timing_Step + DMA_Budget_Default, zero Frame_Accumulator)
+  │   bake DMA_Budget_Default; NTSC-only, no timestep — §0.8)
   ├── Controller port init ($40 → 3 control regs AND 3 data ports, §0.9)
   ├── Set HBlank_Handler_Ptr = HBlank_Null (§0.10)
   │
@@ -867,10 +855,9 @@ Changes in this section that ripple to other sections:
 | VDP shadow table | §7 Visual Effects | HInt/section transitions use shadow writes, flush in VBlank |
 | RAM-patched HBlank | §7.2 HBlank System | Section transitions swap handler pointer, not vector |
 | 64×64 plane init | §2.3 VRAM Layout | Plane size register confirmed, nametable addresses validated |
-| Region detection | §5 Player Physics | PAL timing accumulator affects physics tick rate |
+| Region detection | §5 Player Physics | NTSC-only (ruling B, 2026-08-02); PAL runs uncompensated ~5/6 speed, no timing accumulator — §0.8 |
 | Region detection | §1.1 DMA Queue | PAL gets nearly double DMA budget — adaptive byte count |
 | Controller port init | §9.4 6-Button | Boot sets TH output; VBlank reads using rapid TH cycling |
-| Frame accumulator | §9.7 Cooperative Multitasking | Tick count determines how many logic frames to simulate (consume side not yet wired — §0.8) |
 | Z80 idle program | §6 Audio | Boot loads the sound driver directly when SOUND_DRIVER_ENABLED (default); the idle program ships only in sound-OFF builds |
 | CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold and reserves the region; persistence is design-stage (§0.11) |
 | DMA-parallel init | §1.1 DMA Queue | Validates that DMA fill + CPU work can overlap safely |

@@ -205,24 +205,23 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Set initial VBlank handler (§1.2)
         move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share an instruction (core.emp kept-width class)
 
-        // Region detection (§0.8)
+        // Region detection (§0.8) — NTSC-only product ruling (2026-08-02, B):
+        // the region-adaptive DMA budget IS consumed (the drain reads it); the
+        // PAL fixed-timestep machinery (Timing_Step/Frame_Accumulator) had zero
+        // readers and was deleted rather than left as dead scaffolding.
         move.b  HW_VERSION, d0
         move.b  d0, Hardware_Region
         andi.b  #$C0, d0                    // keep bits 7:6 (domestic/export, NTSC/PAL)
         move.b  d0, Region_Flags
         btst    #6, d0                      // bit 6 = PAL
         bne     .pal
-        // The four stores below keep explicit `.w` dests: a link-imm source
-        // and a relaxable dest can't share an instruction (core.emp
-        // kept-width class, gap-ledger row 1046).
-        move.w  #NTSC_TIMING_STEP, (Timing_Step).w
+        // Explicit `.w` dest kept: a link-imm source and a relaxable dest can't
+        // share an instruction (core.emp kept-width class, gap-ledger row 1046).
         move.w  #DMA_BUDGET_NTSC, (DMA_Budget_Default).w
         jbra    .region_done
     .pal:
-        move.w  #PAL_TIMING_STEP, (Timing_Step).w
         move.w  #DMA_BUDGET_PAL, (DMA_Budget_Default).w
     .region_done:
-        clr.w   Frame_Accumulator           // RAM operand — the 68000 clr read-before-write hazard is I/O-only
 
         // Controller port init (§0.9)
         move.b  #$40, HW_PORT_1_CTRL        // TH as output
