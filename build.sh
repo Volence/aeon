@@ -71,8 +71,8 @@ fi
 
 # The resident sound blob + banked sound data are sigil-native-linked (seam-1/seam-2);
 # this preflight regenerates engine/sound/generated (the .bin blobs the sound-bank .emp
-# sections embed() + the mt_syms cross-seam equs) from the .emp sources. Sound-ON games
-# only (demo is silent).
+# sections embed(), including the three-way-split MT bank) from the .emp sources.
+# Sound-ON games only (demo is silent).
 if [[ "${SOUND_DRIVER_ENABLED:-1}" == "1" ]]; then
     SIGIL_EMIT="${SIGIL_EMIT:-}"
     if [[ -z "${SIGIL_EMIT}" || ! -x "${SIGIL_EMIT}" ]]; then
