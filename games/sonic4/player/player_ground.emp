@@ -33,11 +33,9 @@ use games.sonic4.constants.{
 // Sound ids — sole authority is games.sonic4.sound_ids.
 use games.sonic4.sound_ids.{SFXID_ROLL, SFXID_JUMP, SFXID_SPINDASH}
 
-// Engine-constant mirrors (PHYS_* / radii / CURL / PUSH / BUTTON_LEFT/RIGHT /
-// ST_*) HOISTED to the engine.constants twin at the ambient-hoist parcel
-// (kill-list row 81) — consumed via `use engine.constants.{...}` above; their
-// drift guards live at the twin. The shift-form assumption ensures below stay
-// (they guard THIS file's asr-shift slope math, not the mirror).
+// PHYS_* / radii / CURL / PUSH / BUTTON_LEFT/RIGHT / ST_* are consumed from
+// engine.constants via `use engine.constants.{...}` above. The shift-form
+// assumption ensures below stay (they guard THIS file's asr-shift slope math).
 
 // physics-table field offsets (a4-relative; the Player_Phys field displacements).
 // File-local; a divergent offset shows up as a mismatched instruction byte in the
@@ -752,8 +750,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 .dir_table:
         dc.b    2, 0, 3, 1                      // gsp>0: right/down/left/up
         dc.b    3, 1, 2, 0                      // gsp<0: mirrored
-        // (AS twin's trailing `align 2` is a no-op — the 8-byte table is
-        // already word-aligned; omitted here, byte-identical)
+        // (the 8-byte table is already word-aligned — no trailing pad needed)
 }
 
 // -----------------------------------------------

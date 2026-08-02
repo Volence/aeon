@@ -19,10 +19,8 @@ use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
 // Game-config constants — sole authority is games.sonic4.constants.
 use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL}
 
-// Engine-constant mirrors (PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS /
-// ST_* / BUTTON_LEFT/RIGHT/A/C) HOISTED to the engine.constants twin at the
-// ambient-hoist parcel (kill-list row 81) — consumed via `use engine.constants`
-// above; their drift guards live at the twin.
+// PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS / ST_* / BUTTON_LEFT/RIGHT/A/C
+// are consumed from engine.constants via `use engine.constants` above.
 
 // Jump press sources: A and C only — B is the debug-fly toggle. File-local now
 // (player_common.asm's BUTTON_JUMP_MASK + its drift guard are gone).

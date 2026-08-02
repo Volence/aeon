@@ -15,10 +15,10 @@ use engine.objects.sst.{Sst}
 pub proc TestSolid_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestSolid_Main {
         move.b  subtype(a0), mapping_frame(a0)
         // The dispatch-store value: this object's Main routine as an offset from
-        // the object-code-bank base (engine.inc's ObjCodeBase — objroutine in
-        // the AS twin), a `.w` link-time immediate. `TestSolid_Main` is this
-        // module's own `pub proc` (exports unmangled); `ObjCodeBase` is the
-        // cross-seam .asm symbol — both resolve through the shared link.
+        // the object-code-bank base (engine.objects.objcodebase's ObjCodeBase),
+        // a `.w` link-time immediate. `TestSolid_Main` is this module's own
+        // `pub proc` (exports unmangled); `ObjCodeBase` is a cross-module symbol —
+        // both resolve through the shared link.
         move.w  #TestSolid_Main - ObjCodeBase, code_addr(a0)
 }
 

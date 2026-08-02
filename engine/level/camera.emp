@@ -37,14 +37,13 @@ const CAM_X_DEADZONE_INIT = $10     // Camera_Deadzone_Base seed: the classic 16
 const CAM_Y_DEADZONE      = 32      // fixed vertical deadzone half-window (px)
 
 // Game-contract values the landing lock reads (truth: games/sonic4/config/
-// constants.asm + player_common.asm). The PSTATE_* values sit in cmpi.b imm8
+// constants.emp + player_common.emp). The PSTATE_* values sit in cmpi.b imm8
 // positions, which cannot read through extern() until the imm-link width
-// deferral ships — mirrored + drift-locked (the game-mirror class, kill-list
-// row 18). The mirrors are bare ints (no game reference); the guard fns
-// COMPTIME-SELECT their expression on the gate — a `Game.CAMERA_JUMP_LOCK=false`
-// game returns `true` before the extern() is ever evaluated, so it need not
-// define the symbols at all (the property the AS twin's "set the flag to 0"
-// comment promises; the false link probe in camera_port proves it).
+// deferral ships — mirrored + drift-locked. The mirrors are bare ints (no game
+// reference); the guard fns COMPTIME-SELECT their expression on the gate — a
+// `Game.CAMERA_JUMP_LOCK=false` game returns `true` before the extern() is ever
+// evaluated, so it need not define the symbols at all (the false link probe in
+// camera_port proves it).
 const PSTATE_JUMP     = 8      // airborne curled from jump — release cap active
 const PSTATE_ROLLJUMP = 10     // as JUMP + air control lockout
 comptime fn pstate_jump_mirror_ok() -> bool {

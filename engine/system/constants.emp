@@ -51,9 +51,8 @@ pub const RF_PRIORITY_SHIFT = 5       // bits 5-7 = sprite priority band (0-7)
 pub const RF_PRIORITY_MASK = $E0      // the band bits themselves — a runtime band change
                                       // must clear these before or-ing the new band in
 
-// Animation script control codes ($F7-$FF) + interpreter inputs. Script DATA
-// files (anim twins, test objects) read these in both build shapes; the AS
-// spelling is injected from here for the residual side.
+// Animation script control codes ($F7-$FF) + interpreter inputs. Animation and
+// test-object data modules read these in both build shapes.
 pub const AF_END       = $FF          // loop: restart from first frame
 pub const AF_BACK      = $FE          // jump back N: next byte = rewind count
 pub const AF_CHANGE    = $FD          // switch animation: next byte = new anim ID
@@ -112,9 +111,7 @@ pub const ST_ON_OBJECT   = 5          // 1 = standing on a solid object
 pub const ST_PUSHING     = 6          // 1 = pushing against a wall
 pub const ST_UNDERWATER  = 7          // 1 = submerged
 
-// Player + ball collision radii and the curl y-shift (mirror engine/constants.asm
-// — player = the 1st .emp consumer of the engine physics block; hoisted here
-// at the ambient-hoist parcel, kill-list rows 76/77/81).
+// Player + ball collision radii and the curl y-shift.
 pub const PLAYER_X_RADIUS = 9
 pub const PLAYER_Y_RADIUS = 19
 pub const BALL_X_RADIUS   = 7
@@ -127,9 +124,8 @@ pub const EDGE_CLAMP  = 0
 pub const EDGE_WRAP_V = 1
 pub const EDGE_KILL   = 2
 
-// Player physics parameters (mirror engine/constants.asm — the values Sonic's
-// PhysTable holds plus the shared movement thresholds; player state files are
-// the .emp consumers). Hoisted at the ambient-hoist parcel (rows 76/77/81).
+// Player physics parameters — the values Sonic's PhysTable holds plus the shared
+// movement thresholds; player state files consume them.
 pub const PHYS_ACCEL            = $C
 pub const PHYS_DECEL            = $80
 pub const PHYS_FRICTION         = $C
@@ -166,12 +162,8 @@ pub const RING_HEIGHT      = 16
 pub const RING_ANIM_FRAMES = 4
 pub const RING_ANIM_SPEED  = 8              // frames per animation tick
 
-// Section / level geometry (mirrors engine/constants.asm). Consolidated here
-// at the tranche-15 section.emp port: SECTION_SIZE_SHIFT reached its 3rd .emp
-// consumer (entity_window + act_descriptor + section), tripping row-22/row-8's
-// "consolidate on a 2nd consumer" kill condition. SECTION_SIZE moves with its
-// shift partner and SEC_VOID with the family so entity_window's mirror clears
-// whole. SEC_VOID = flat section-id sentinel ("no section here").
+// Section / level geometry, shared by entity_window + act_descriptor + section.
+// SEC_VOID = flat section-id sentinel ("no section here").
 pub const SECTION_SIZE       = $0800        // section width/height in world px
 pub const SECTION_SIZE_SHIFT = 11           // log2(SECTION_SIZE)
 pub const SEC_VOID           = $FF          // sentinel flat section id (void cell)
@@ -186,43 +178,33 @@ pub const TILE_CACHE_ROWS    = 60                                 // viewport 28
 pub const TILE_CACHE_STRIDE  = TILE_CACHE_COLS                    // row stride (cols)
 pub const TILE_CACHE_NT_SIZE = TILE_CACHE_COLS * TILE_CACHE_ROWS * 2  // 9600 bytes
 
-// DMA-queue geometry (mirrors engine/constants.asm) — slot counts per
-// priority sub-queue; the total is the derived sum, as in the .asm. First
-// consumed at the tranche-20 dma_queue.emp port (Init's pre-fill count and
-// the Critical drain's hand-spelled slot count, ensure-pinned there).
+// DMA-queue geometry — slot counts per priority sub-queue; the total is the
+// derived sum.
 pub const DMA_CRITICAL_SLOTS   = 8
 pub const DMA_IMPORTANT_SLOTS  = 12
 pub const DMA_DEFERRABLE_SLOTS = 12
 pub const DMA_TOTAL_SLOTS      = DMA_CRITICAL_SLOTS + DMA_IMPORTANT_SLOTS + DMA_DEFERRABLE_SLOTS
 
-// Act art-pool paging + compressed-art wrapper (mirrors engine/constants.asm).
-// Every compressed art blob starts with the 4-byte wrapper
-// [u16 BE uncompressed size][u8 flags][u8 version]; first consumed at the
-// tranche-20 load_art.emp port.
+// Act art-pool paging + compressed-art wrapper. Every compressed art blob starts
+// with the 4-byte wrapper [u16 BE uncompressed size][u8 flags][u8 version].
 pub const ART_POOL_PAGE_TILES = 256         // tiles per pool page (matches build tool + ojz_strip_gen)
 pub const ART_HDR_VERSION     = 3           // byte offset of version within wrapper
 pub const ART_HDR_SIZE        = 4           // wrapper bytes ahead of the stream
 pub const ART_VER_S4LZ        = 1           // S4LZ v3 token stream (runtime tier)
 pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-time tier)
 
-// VRAM fixed-region byte addresses + plane geometry (mirrors
-// engine/constants.asm). First consumed at the tranche-21 buffers.emp port
-// (the static sprite/HScroll DMA entries and PlaneMapToVRAM's row stride).
+// VRAM fixed-region byte addresses + plane geometry.
 pub const VRAM_SPRITE_TABLE = $B800         // relocated from $D800 to free plane rows 48-63
 pub const VRAM_HSCROLL_TABLE = $BC00        // relocated from $DC00 (was inside Plane A 64x64 nametable)
 pub const VRAM_PLANE_B_BYTES = $E000        // Plane B nametable VRAM byte address (bg/plane_buffer/section)
 pub const PLANE_H_CELLS     = 64
 
-// VDP sprite-table geometry (mirrors engine/constants.asm — hoisted there
-// from sprites.asm at the tranche-11 sprites.emp port so it survives the
-// SIGIL_EMP_SPRITES gate for the gate-off rings.asm twin; kill-list row 17
-// → row-1 class).
+// VDP sprite-table geometry.
 pub const MAX_VDP_SPRITES     = 80
 pub const VDP_SPRITE_X_OFFSET = 128         // VDP adds 128 to sprite X
 pub const VDP_SPRITE_Y_OFFSET = 128         // VDP adds 128 to sprite Y
 
-// Sprite priority-band + scanline budgeting geometry (mirror
-// engine/constants.asm — first consumed at the tranche-11 sprites.emp port).
+// Sprite priority-band + scanline budgeting geometry.
 pub const PRIORITY_BANDS        = 8
 pub const SPRITES_PER_BAND      = 32
 pub const SCANLINE_BANDS        = 7         // 224 / 32 = 7 bands of 32 scanlines

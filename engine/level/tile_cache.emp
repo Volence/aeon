@@ -24,7 +24,7 @@ use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_
 // Act_grid_w_lo / Act_grid_h_lo) — the file-local offset-const mirrors are gone. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // The ×66 Sec stride (lsl #6 + lsl #1) in TileCache_DecompressBlock assumes the
-// Sec struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.
+// Sec struct is 66 bytes; the `ensure` below enforces it.
 ensure(sizeof(Sec) == 66, "tile_cache Sec stride (lsl #6 + lsl #1 = ×66) assumes sizeof(Sec)=66 — update the shifts")
 
 // coll_src_row_base — staged-block collision-row byte base from an intra-block
@@ -43,8 +43,8 @@ comptime fn coll_src_row_base(reg: Reg) -> Code {
 // decompose_block — split a WORLD TILE (col, row) into section coords + block
 // index for a FindStagedBlock / DecompressBlock probe: sec = tile >> 8 (256-tile
 // sections), block = (tile >> 4) & 15, block_index = block_y*16 + block_x. Names
-// the idiom the donor flagged "(same pattern as FillColumn/FillRow)". File-local;
-// the AS twin keeps the sequence inline. col/row must be preserved regs (NOT the
+// the idiom the donor flagged "(same pattern as FillColumn/FillRow)". File-local.
+// col/row must be preserved regs (NOT the
 // d0-d3 scratch). Out: d0 = sec_x, d1 = sec_y, d2 = block_index. Clobbers d0-d3.
 comptime fn decompose_block(col: Reg, row: Reg) -> Code {
     return asm {
@@ -1547,7 +1547,7 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         // byte index = coll_row_offset + physical col; src byte = (plane base, intra_col),
         // contiguous. a5/a6 = plane A/B DEST bases (per-row); a3/a2 = plane A/B SRC bases
         // (per-block); a1/a4 = the run dest pointers (a4 = NT base, dead after phase 1).
-        // (move.b runs; move.w/move.l byte-pairing is the ledgered step-5 rider.)
+        // (move.b runs; move.w/move.l byte-pairing is a ledgered optimization.)
         move.w  2(sp), d0
         cmpi.w  #$FFFF, d0
         beq     .fr_next_block                // even row: no collision this row

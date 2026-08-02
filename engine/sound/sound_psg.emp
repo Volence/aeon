@@ -1,23 +1,22 @@
 // ===========================================================================
 // engine/sound/sound_psg.emp — SN76489 PSG voice writer (Sound 1C, Task 4)
 // ===========================================================================
-// The .emp port of sound_psg.asm (this directory) — the rung-2 CONTRACT-model
-// acceptance corpus (design note 2026-07-29-z80-rung2-contracts.md). Assembled
-// INLINE inside the z80_sound_driver.asm `phase 0` blob (4th of 5 includes:
-// sequencer -> sfx -> fm -> psg -> tables), so its labels resolve into Z80 RAM
-// and it reaches PsgDivisorTableZ / the PsgVolEnv_* tables with direct Z80
+// The rung-2 CONTRACT-model acceptance corpus (design note
+// 2026-07-29-z80-rung2-contracts.md). Assembled INLINE inside the
+// z80_sound_driver.emp `phase 0` blob (4th of 5: sequencer -> sfx -> fm -> psg ->
+// tables), so its labels resolve into Z80 RAM and it reaches PsgDivisorTableZ /
+// the PsgVolEnv_* tables with direct Z80
 // addressing (no $8000-window banking). Turns the sequencer's PSG-route hooks
 // into real SN76489 register writes: the three tone channels + the noise
 // channel become audible.
 //
-// The `.asm` twin stays CANONICAL in the build (blob-precedes-engine: one Z80
-// byte slides the whole corpus). This `.emp` is proven by the SCALE-1 WINDOWED
-// oracle (`sound_psg_port`), NOT wired into build.sh — the seam sub-tranche owns
-// whole-ROM placement. The phase-0 window is SHAPE-VARIANT: base $1660 (plain)
-// vs $16DE (debug), because the upstream driver/sequencer/sfx/fm includes grow
-// under __DEBUG__ before psg. psg's OWN layout is shape-invariant (no __DEBUG__
-// here), so the two shapes differ only in the absolute base embedded in the
-// internal call/jp targets + the external symbol values — the oracle proves both.
+// The CANONICAL, only source (no .asm twin). Native-linked via seam-1
+// (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
+// the whole-ROM byte gate proves both shapes. The phase-0 window is SHAPE-VARIANT:
+// base $1660 (plain) vs $16DE (debug), because the upstream driver/sequencer/sfx/fm
+// includes grow under __DEBUG__ before psg. psg's OWN layout is shape-invariant (no
+// __DEBUG__ here), so the two shapes differ only in the absolute base embedded in
+// the internal call/jp targets + the external symbol values — seam-1 links both.
 //
 // --- PSG PORT + COEXISTENCE WITH THE 1B DAC LOOP --------------------------
 // The PSG is a single write port at $7F11 (SND_Z80_PSG). Every write is a plain

@@ -19,9 +19,9 @@
 //
 // The end-of-code marker `Z80_IdleProgram_CodeEnd` (three imm16 references: the
 // ldir clear count, the store cursor, the stack top) is a trailing LOCAL label
-// `.code_end` inside the proc — it resolves to the same address as the AS-side
-// global, and the global has no external consumer (Z80_IDLE_SIZE = End - Start
-// is a SEPARATE boot-cursor equate that these code bytes do not contain).
+// `.code_end` inside the proc — it has no external consumer (Z80_IDLE_SIZE =
+// End - Start is a SEPARATE boot-cursor equate that these code bytes do not
+// contain).
 // ===========================================================================
 
 module engine.z80_init (cpu: z80)

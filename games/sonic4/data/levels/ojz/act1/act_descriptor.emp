@@ -5,14 +5,14 @@
 // cannot compile; the type IS the old `* == Act_len` size guard), the nine
 // sections flow through one validating constructor, and the engine
 // invariants are written ONCE as comptime checks instead of per-act
-// if/error blocks. Generated data (pool pages, block blobs, palettes, BG)
-// stays AS-side; its symbols cross the seam as externs.
+// if/error blocks. Generated data (pool pages, block blobs, palettes, BG) lives
+// in separate natively-placed `.emp` sections; act_descriptor reads their
+// symbols cross-module.
 module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 
-// ---- Sec/Act ROM-descriptor struct twins now live in the shared
-// engine.structs module (row 1051 consolidation — the 3rd+ consumer trigger).
-// It carries the layout + the per-field drift wall; act keeps the validating
-// constructor + field defaults below.
+// ---- The Sec/Act ROM-descriptor structs live in the shared engine.structs
+// module: it carries the layout + the per-field drift wall; act keeps the
+// validating constructor + field defaults below.
 use engine.structs.{Act, Sec}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
@@ -21,7 +21,7 @@ use engine.structs.{Act, Sec}
 // the u8 field directly (a link-folded extern could not — the old mirror note).
 use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TILE_CEILING}
 
-// Generated interior-island manifests (Parcel K3): the art-pool page count/tile
+// Generated interior-island manifests: the art-pool page count/tile
 // total and the per-section block-dict lengths are `.emp` const modules the
 // generators emit (tools/ojz_strip_gen.py / ojz_block_gen.py) — comptime ints
 // consumed directly (they range-prove into the u16 fields; a link-folded extern

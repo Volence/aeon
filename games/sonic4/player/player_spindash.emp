@@ -27,9 +27,7 @@ use games.sonic4.constants.{
 // Sound ids — sole authority is games.sonic4.sound_ids.
 use games.sonic4.sound_ids.{SFXID_SPINDASH, SFXID_DASH}
 
-// Engine-constant mirror (ST_XFLIP) HOISTED to the engine.constants twin at the
-// ambient-hoist parcel (kill-list row 81) — consumed via `use engine.constants`
-// above; its drift guard lives at the twin.
+// ST_XFLIP is consumed from engine.constants via `use engine.constants` above.
 
 // -----------------------------------------------
 // PState_Spindash — Sonic's spindash charge (a CHARACTER state BODY:

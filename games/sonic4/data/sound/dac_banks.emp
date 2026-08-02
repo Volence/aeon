@@ -15,16 +15,14 @@
 // and FILL never re-banks mid-sample: the blip bank at $48000 (bank $9), the
 // shared drum bank at $50000 (bank $A). Both LMAs are fixed Z80-SetBank latches
 // (declared map anchors, when="sound_on"). The `align $8000` between them is the
-// AS twin's inter-bank pad (the intervening bytes are $00 fill, matching the
-// reference). One section, one head label Dac_Temp_Blip (the section head +
+// inter-bank pad (the intervening bytes are $00 fill, matching the reference). One section, one head label Dac_Temp_Blip (the section head +
 // the map-order/frozen boundary key) — the shared-bank labels are mid-section.
 //
 // STRUCTURAL EXCLUSIVITY (spec §6, the ruled mechanism): this native section is
 // the SOLE DAC placement — the AS BINCLUDE arm is DELETED, so it can't double-
 // place (can't-both); it is unconditionally in the sound-on registry, so it can't
-// go missing (can't-neither). main.asm's `ifdef SIGIL_EMP_DAC` skip arm moves the
-// AS cursor past this native region ($48000..$58000) so the MT bank lands at
-// $58000. The map anchor validation + the whole-ROM byte gate enforce it loudly.
+// go missing (can't-neither). The map anchor validation + the whole-ROM byte gate
+// enforce it loudly.
 //
 // The SND_* per-sample {bank,ptr,len} triples are NOT here — they are folded into
 // the DacSampleTable head (dac_sample_tab.bin) at emit from dac_samples.emp's

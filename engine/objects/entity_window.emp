@@ -1,10 +1,9 @@
 // Entity window — camera-driven sliding entity loader
 // §4.9: rings and objects load/despawn based on camera proximity
 //
-// Build-shape inputs (-D NAME=0|1, the mt_bank/game_loop convention):
-// DEBUG mirrors the AS twin's `ifdebug` one-liners and `ifdef __DEBUG__`
-// blocks (the list-index range asserts, the park no-dup invariant, the
-// single-axis slide invariant). A bare `assert` self-gates on DEBUG
+// Build-shape inputs (-D NAME=0|1, the mt_bank/game_loop convention): DEBUG
+// gates the list-index range asserts, the park no-dup invariant, and the
+// single-axis slide invariant. A bare `assert` self-gates on DEBUG
 // (core.emp precedent); multi-line debug blocks wrap in `if DEBUG == 1 {}`
 // because their non-assert setup needs gating too.
 
@@ -86,8 +85,7 @@ ensure(ENTITY_LOAD_BUFFER_Y >= ENTITY_RESCAN_ROW_SIZE, "ENTITY_LOAD_BUFFER_Y < c
 
 // clear_slot_bitmasks — zero a collected-window slot's pad byte + both 16-byte
 // bitmasks (ring collected + object killed); a0 = slot pointer, preserved.
-// The tag byte at (a0) is stamped by the caller. LOCKSTEP: the AS twin spells
-// these nine stores inline at each site (no `rept`) — the byte gates guard.
+// The tag byte at (a0) is stamped by the caller.
 comptime fn clear_slot_bitmasks() -> Code {
     return asm {
         clr.b   1(a0)

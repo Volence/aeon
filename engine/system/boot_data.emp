@@ -1,7 +1,7 @@
 // ===========================================================================
 // engine/system/boot_data.emp — the BootData boot table (movem preloads, VDP
 // register bytes, DMA fill, the resident Z80 program, PSG silence, post-DMA
-// commands). The .emp port of boot_data.asm.
+// commands).
 // ===========================================================================
 // The boot code (engine/system/boot.emp) walks this table with ONE sequential
 // `(a5)+` cursor: `lea BootData(pc), a5`, then movem the preload head, loop the
@@ -13,7 +13,7 @@
 // `boot_head` and `boot_tail`, with the resident Z80 program placed BETWEEN
 // them:
 //   - SOUND-ON: `boot_head` carries the head (54 B) + the sound driver blob
-//     (`embed`, the same seam-1 file the AS build BINCLUDE'd); `boot_tail`
+//     (`embed`); `boot_tail`
 //     abuts it. `engine.z80_init` is absent (the sound driver replaces the
 //     idle).
 //   - SOUND-OFF: `boot_head` is the 54-byte head alone; `engine.z80_init`'s
@@ -26,11 +26,10 @@
 //     either direction moves `boot_tail`'s base and fails the whole-ROM anchor
 //     gate loud.
 //
-// The AS twin's `org $3FE` existed only because the idle was a separately
-// assembled module the AS cursor had to skip; native placement packs the three
-// sections contiguously in declared order, so the hole is the natural gap the
-// chained idle occupies — the frozen `BootData` / `Z80_IdleProgram` /
-// `BootData_End` pins pin every boundary and the six-target anchor gate proves it.
+// Native placement packs the three sections contiguously in declared order, so
+// the hole is the natural gap the chained idle occupies (no absolute `org`) — the
+// frozen `BootData` / `Z80_IdleProgram` / `BootData_End` pins pin every boundary
+// and the six-target anchor gate proves it.
 // ===========================================================================
 
 module engine.boot_data
@@ -38,8 +37,8 @@ module engine.boot_data
 use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL}
 use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt}
 
-// The resident sound driver blob (seam-1 emit, the SAME generated file the AS
-// build BINCLUDE'd). Direct-embed consts (the mt_bank pattern) so the data item
+// The resident sound driver blob (seam-1 emit). Direct-embed consts (the
+// mt_bank pattern) so the data item
 // below infers its type; the embeds are referenced ONLY inside the sound-on
 // comptime branch, so no-sound shapes (demo, config_b) — which never generate
 // these files — never read them.
@@ -49,15 +48,14 @@ const SoundBlobDebug = embed("engine/sound/generated/z80_sound_blob_debug.bin")
 // shapes never force either embed).
 const ShapeBlob = if DEBUG == 1 { SoundBlobDebug } else { SoundBlobPlain }
 
-// Z80_SOUND_SIZE (was boot_data.asm `= Z80_Sound_End - Z80_Sound_Start`): the
-// resident blob's byte count, read by boot.emp's sound-on copy loop. A LINK
-// difference of the two blob-bracket labels (the AS twin's exact form), so it
+// Z80_SOUND_SIZE: the resident blob's byte count, read by boot.emp's sound-on
+// copy loop. A LINK difference of the two blob-bracket labels, so it
 // stays 0 in a no-sound shape (the labels coincide, the blob is `Data.empty`)
 // without reading `.len` off the gated blob — and boot.emp's sound-on arm (the
 // sole consumer) is comptime-elided there anyway.
 pub equ Z80_SOUND_SIZE = extern("Z80_Sound_End") - extern("Z80_Sound_Start")
 
-// Z80_IDLE_SIZE (was boot_data.asm `= $3FE - $3D8`): the no-sound idle program's
+// Z80_IDLE_SIZE: the no-sound idle program's
 // byte count, read by boot.emp's idle copy loop AND cross-checked by
 // engine.z80_init's `ensure(extern("Z80_IDLE_SIZE") == 38)` self-guard (the
 // idle's BootData-relative waypoints are link-external — the row-52 wall — so the

@@ -30,9 +30,9 @@
 // main.asm phase block.
 //
 // The 32-entry count is load-bearing: a short table sends high opcodes into the
-// neighbouring table's bytes as a bogus "handler". The AS twin's `if/error`
-// span guard enforces it canonically; a comptime table-span guard here awaits a
-// section-length mechanism (gap-ledgered).
+// neighbouring table's bytes as a bogus "handler". A comptime table-span guard
+// here awaits a section-length mechanism (gap-ledgered); until then the co-link
+// byte gate + the oracle's length pin cover table-body drift.
 // ===========================================================================
 
 module engine.seq_opcode_tab (cpu: z80)

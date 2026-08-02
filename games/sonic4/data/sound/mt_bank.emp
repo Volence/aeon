@@ -1,60 +1,51 @@
 // ===========================================================================
 // data/sound/mt_bank.emp — the MT streaming-bank DATA (sound-migration T2)
 // ===========================================================================
-// Ports everything from `Song_MovingTrucks` ($58607) through
-// `SongPatchTable_End` — the .asm engine-table head (`soundBankHead`, the Z80
-// phase-0 blob, $58000..$58607, incl. `MovingTrucks_Bank_Start` and the
-// `SND_ENGINE_TABLE_BANK` equ) STAYS driver-side in main.asm; this module
-// picks up right after it, in the SAME bank-aligned 32KB window.
+// This module carries the MT streaming-bank DATA: from `Song_MovingTrucks`
+// ($58607) through `SongPatchTable_End`. The engine-table head (`soundBankHead`,
+// the Z80 phase-0 blob at $58000..$58607, incl. `MovingTrucks_Bank_Start` and the
+// `SND_ENGINE_TABLE_BANK` equ) precedes it; this module picks up right after it,
+// in the SAME bank-aligned 32KB window.
 //
-// Shape input: `-D DEBUG=0|1` (mirrors AS `-D __DEBUG__`). Plain shape
-// (DEBUG=0) carries only Moving Trucks (song id 1); DEBUG shape (DEBUG=1)
-// additionally carries the DrumTest (id 2) and HCZ2 (id 3) DEBUG songs, per
-// R4 — both shapes emit the SAME data items, with the DEBUG-only ones' value
+// Shape input: `-D DEBUG=0|1`. Plain shape (DEBUG=0) carries only Moving Trucks
+// (song id 1); DEBUG shape (DEBUG=1) additionally carries the DrumTest (id 2)
+// and HCZ2 (id 3) DEBUG songs — both shapes emit the SAME data items, with the
+// DEBUG-only ones' value
 // folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
 //
-// Pinned at $58607 by the map region `mt_bank` ($58607..$60000, R7). Re-pin
+// Pinned at $58607 by the map region `mt_bank` ($58607..$60000). Re-pin
 // via the harness PROVENANCE flow on any re-baseline.
 //
-// What each .asm guard becomes here (R5):
-//   * song_table.asm:91/110/128 (straddle) + :99 (window-top) → the section's
-//     `bank: $8000` property (always-on no-straddle link assert — no hand
-//     `if`/`fatal` needed).
-//   * main.asm:143 `SND_ENGINE_TABLE_BANK` co-residency (every stream/patch
-//     bank must share the engine-table head's bank, since the sequencer reads
-//     FM pitch/log-volume/opcode tables window-relative from the bank head) →
-//     the five `ensure(bankid(...) == bankid("MovingTrucks_Bank_Start"), …)`
-//     asserts below. NOTE (deviation from the plan sketch): the sketch wrote
-//     these against a bare `SND_ENGINE_TABLE_BANK` name; that equ is NOT a
-//     data/proc label and is invisible outside `label_ctx` (only a CALL
-//     ARGUMENT — e.g. `bankid(...)`'s own argument — turns an unresolved
-//     bareword into a deferred link symbol; a bare name used as a plain
-//     sub-expression operand of `==` is not a call argument and hard-errors
-//     "unknown name" at comptime, confirmed empirically). Since
+// The invariants this bank enforces:
+//   * No-straddle: the section's `bank: $8000` property is an always-on
+//     no-straddle link assert (no hand `if`/`fatal` needed).
+//   * Co-residency: every stream/patch bank must share the engine-table head's
+//     bank, since the sequencer reads FM pitch/log-volume/opcode tables
+//     window-relative from the bank head. The five
+//     `ensure(bankid(...) == bankid("MovingTrucks_Bank_Start"), …)` asserts
+//     below enforce it. They assert against the LABEL `MovingTrucks_Bank_Start`,
+//     not the `SND_ENGINE_TABLE_BANK` equ: that equ is not a data/proc label and
+//     is invisible outside a call argument (only a bareword used AS a call
+//     argument becomes a deferred link symbol; a bare name as a plain `==`
+//     operand hard-errors "unknown name" at comptime). Since
 //     `SND_ENGINE_TABLE_BANK = MovingTrucks_Bank_Start >> 15` and
-//     `MovingTrucks_Bank_Start` is bank-aligned (`align $8000` in main.asm),
-//     `bankid(MovingTrucks_Bank_Start)` folds to EXACTLY the same value as
-//     `SND_ENGINE_TABLE_BANK` — `(L & $7F8000) >> 15 == L >> 15` whenever L's
-//     low 15 bits are zero. `MovingTrucks_Bank_Start` (unlike the equ) IS a
-//     real .asm label, so `bankid("MovingTrucks_Bank_Start")` is the proven
-//     cross-seam idiom (ports.rs `probe_b`) and reads the identical value.
-//     COUPLING LOSS: the five ensures assert against the LABEL — if
-//     main.asm:143 ever redefines `SND_ENGINE_TABLE_BANK` to something other
-//     than `MovingTrucks_Bank_Start >> 15`, they keep asserting against the
-//     label, not the equ's new intent (update them alongside any such change).
-//   * main.asm:164-166 (MT_PITCHTAB_OFFSET pitch-contiguity fatal) →
-//     contiguous BY CONSTRUCTION (items in a section always emit back-to-back,
-//     no auto-pad, §4.3) + `ensure(SongBlob.len == MT_PITCHTAB_OFFSET, …)`
-//     with the pinned const below (same manual re-pin-on-regen contract the
-//     .asm's generator-emitted equ already has).
-//   * song_table.asm's own table-length checks + the `SONG_COUNT < $FF` guard
-//     → comptime `ensure`s (SONG_COUNT is itself a comptime if-expression, so
-//     the table-length check is structural: the array TYPE literally IS
+//     `MovingTrucks_Bank_Start` is bank-aligned, `bankid(MovingTrucks_Bank_Start)`
+//     folds to EXACTLY the equ's value — `(L & $7F8000) >> 15 == L >> 15`
+//     whenever L's low 15 bits are zero — so the label read is the proven
+//     cross-seam idiom. COUPLING LOSS: if the equ is ever redefined to something
+//     other than `MovingTrucks_Bank_Start >> 15`, the ensures keep asserting
+//     against the label, not the equ's new intent (update them alongside any
+//     such change).
+//   * Pitch-contiguity: contiguous BY CONSTRUCTION (items in a section always
+//     emit back-to-back, no auto-pad, §4.3) + `ensure(SongBlob.len ==
+//     MT_PITCHTAB_OFFSET, …)` with the pinned const below.
+//   * Table length: comptime `ensure`s (SONG_COUNT is itself a comptime
+//     if-expression, so the check is structural: the array TYPE literally IS
 //     `[*u8; SONG_COUNT]`, and a mismatched literal-element count is a clean
-//     comptime error — P3, proven).
-//   * song_hcz2.asm's / song_drumtest.asm's trailing `align 2` → EXPLICIT
-//     self-adjusting pad items (`.emp` sections never auto-pad, §4.3) — see
-//     the comments at each pad below for why they're needed (or not).
+//     comptime error).
+//   * Trailing pads: EXPLICIT self-adjusting pad items (`.emp` sections never
+//     auto-pad, §4.3) — see the comments at each pad below for why they're
+//     needed (or not).
 //
 // DELIBERATELY NOT PORTED: the `_End` labels (`Song_MovingTrucks_End`, etc.)
 // and `MovingTrucks_Patches_End` / `Song_DrumTest_End` / `Song_HCZ2_End` /
@@ -76,8 +67,7 @@ module data.mt_bank
 
 use engine.types.{SongId}
 
-// --- the six stream blobs (generated .bin twins of the committed dc.b .asm;
-// see tools' --emit-bin + the dc.b-equality verifier). Bound to `const` first
+// --- the six stream blobs (generated .bin). Bound to `const` first
 // so each `.len` is a readable comptime int (the `data K = embed(...)`
 // readability gate — the const both emits AND measures, dac_samples.emp
 // precedent). ---
@@ -97,16 +87,15 @@ const Hcz2PatchBlob = embed("hcz2_patches.bin")                   // 128 B ($80)
 // catches any gross length blowup, and the byte-identity harness (Task 6)
 // catches anything subtler.
 
-// song ids (the .asm twins live in config/sound_ids.asm — R2; the TABLE
-// ORDER below must keep entry[id-1] = that song, the same coupling the .asm
-// table had — SongTable[id-1]/SongPatchTable[id-1], id 0 reserved = stop).
+// song ids — the TABLE ORDER below must keep entry[id-1] = that song
+// (SongTable[id-1]/SongPatchTable[id-1], id 0 reserved = stop).
 //
-// Mirrors of config/sound_ids.asm's song ids (they document the id contract for
+// Mirrors of the song ids (they document the id contract for
 // readers of this file — only SONG_COUNT is actually consumed, in the
 // SongTable/SongPatchTable declarations below; the byte-bearing coupling that
 // matters is the TABLE ORDER at SongTable/SongPatchTable).
 //
-// The song-id authority is games.sonic4.sound_ids (Parcel F2). These stay as
+// The song-id authority is games.sonic4.sound_ids. These stay as
 // LOCAL mirrors, drift-guarded against that authority via ensure(extern(...)):
 // the focused seam-2 MT-bank emit lowers this module without a game module in
 // scope, so SONG_COUNT must resolve comptime-locally here (it sizes SongTable/
@@ -124,13 +113,10 @@ ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from games.sonic4
 ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")
 
 // The generator-baked header offset (song_movingtrucks header pitchtable_ptr
-// = packed song length). The .asm twin: MT_PITCHTAB_OFFSET equ $30B1
-// (song_movingtrucks.asm:798). Re-pin BOTH on song regeneration; this ensure
-// is the detune guard (main.asm's old :164-166 fatal) — a mismatch means the
-// header disagrees with the layout below (a pad byte between the song and
-// the pitch table would shift every pitch lookup one byte early = the whole
-// song plays a semitone flat — the shipped-and-fixed bug main.asm's comment
-// documents).
+// = packed song length). Re-pin on song regeneration; this ensure is the detune
+// guard — a mismatch means the header disagrees with the layout below (a pad byte
+// between the song and the pitch table would shift every pitch lookup one byte
+// early = the whole song plays a semitone flat).
 const MT_PITCHTAB_OFFSET = $30B1
 ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
     "MT pitch table not contiguous with the song: song len != header's pitchtable_ptr — a pad byte would detune the whole song")

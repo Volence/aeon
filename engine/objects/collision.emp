@@ -27,8 +27,7 @@ type TouchHandler = proc (a0: *Sst) clobbers(d6-d7/a2-a4)
 // In:  a2 = player SST, a3 = candidate SST, d4/d5 = cached player X/Y
 // Uses/clobbers d0-d4, a0-a1; on overlap dispatches the handler (see the
 // handler contract on TouchResponse). Falls through to `skip` on no contact.
-// The AS twin (collision.asm) spells this body inline in BOTH segments (no
-// comptime fn in AS) — the byte gates are the guard that the two forms agree.
+// A comptime fn spliced inline into both collision segments.
 comptime fn touch_test_target(skip: Label) -> Code {
     return asm {
         tst.w   Sst.code_addr(a3)

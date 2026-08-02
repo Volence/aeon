@@ -1,8 +1,8 @@
 // DEBUG boot self-test — 68000 decompressors verified against the build encoders
 //
-// This module exists ONLY in the debug shape (the .asm twin is whole-file
-// `ifdef __DEBUG__`; the build/harness includes this module only when
-// DEBUG=1 — the plain shape carries zero bytes and no symbols). The five
+// This module exists ONLY in the debug shape: the build/harness includes it
+// only when DEBUG=1 — the plain shape carries zero bytes and no symbols. The
+// five
 // golden vectors are `.emp`-native: the CSelf_* labels below `embed()` the
 // blobs tools/gen_compression_vectors.py writes, and the three CSELF_* values
 // are `use`d from the generated constants module (that generator is their sole
@@ -17,9 +17,8 @@ use engine.compression_vectors.{CSELF_PAYLOAD_SIZE, CSELF_PAYLOAD_SUM, CSELF_DIC
 // (abs.w), Art_Staging_Buffer at $FFFF0000 sits outside the sign-extended
 // abs.w window (abs.l). The ensure below is the fit-lock: if the generated
 // vectors ever push the LAST label to $8000+, this fails loudly instead of
-// the two twins silently diverging (the .asm twin spells (sym).w and would
-// error; the .emp would relax to abs.l).
-ensure(extern("CSelf_Expected") < $8000, "generated compression vectors grew past the abs.w window — re-widen the CSelf_* operands in BOTH twins (s4lz selftest)")
+// silently relaxing the bare operands from abs.w to abs.l.
+ensure(extern("CSelf_Expected") < $8000, "generated compression vectors grew past the abs.w window — re-widen the CSelf_* operands (s4lz selftest)")
 
 // -----------------------------------------------
 // CompressionSelfTest — decode golden vectors, assert checksums

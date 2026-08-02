@@ -59,8 +59,8 @@ section soundbankhead (cpu: m68000, vma: $8000) {
     pub data DacSampleTable = _dacsamp
 }
 
-// The AS twin's `fatal` span walls, now comptime facts: a size drift here would slide
-// a downstream head off its fixed banked-carrier VMA and desync the resident Z80 blob.
+// Size walls (comptime): a size drift here would slide a downstream head off its
+// fixed banked-carrier VMA and desync the resident Z80 blob.
 ensure(_sound_tables.len == $357, "sound_tables_z80 head wrong size ($357=855 B) — downstream head VMAs would shift")
 ensure(_pitchtab.len == $108, "MovingTrucks_PitchTable wrong size (must be 2*PITCHTAB_COUNT = $108)")
 ensure(_sfxwin.len == $10E, "SfxBlobWinTab wrong size (must be SFX_TABLE_LEN*2 = $10E)")

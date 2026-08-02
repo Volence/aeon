@@ -12,8 +12,8 @@ use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_MULTISPRITE}
 use engine.objects.objdef.{vram_art}
 use engine.types.{VramTile, Angle}
 
-// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Mirrors
-// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
+// VRAM_TEST_OBJ — tile 992, test object art (8 tiles). A game-config value,
+// imported from games.sonic4.constants below.
 use games.sonic4.constants.{VRAM_TEST_OBJ}
 
 const PARENT_LIFETIME      = 180        // frames before self-destruct (3 seconds)
@@ -108,8 +108,7 @@ pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
 
         // sin/cos at d0 -> d0=sin*$100, d1=cos*$100. No register save around the
         // call: GetSineCosine's contract is `clobbers()` (it preserves everything
-        // but its d0/d1 outputs), so a1 survives it and d2-d3 are dead here anyway
-        // (the AS twin's movem save/restore was doubly redundant).
+        // but its d0/d1 outputs), so a1 survives it and d2-d3 are dead here anyway.
         jbsr    GetSineCosine
 
         // Scale: sine amplitude = $100 = 256, radius = 32 = 2^5.

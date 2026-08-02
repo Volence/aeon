@@ -1,16 +1,14 @@
 // engine.objects.objdef — the v2 archetype template emitter.
 //
-// Ports the AS `objdef` macro (engine/macros.asm): builds one ObjDef record
-// — the compact 26-byte spawn template (engine/objects/sst.emp) — from named,
-// mostly-defaulted inputs. The AS macro's per-param `if "x" <> ""` defaulting
-// becomes real default parameters; its `dc.w/dc.b` field emission becomes a
-// checked ObjDef struct literal (every field named, no silent fill).
+// Builds one ObjDef record — the compact 26-byte spawn template
+// (engine/objects/sst.emp) — from named, mostly-defaulted inputs: real default
+// parameters and a checked ObjDef struct literal (every field named, no silent
+// fill).
 //
-// Two behaviors the macro carried, kept here:
+// Two computed behaviors:
 //   - render_flags is COMPUTED: render_bits | (priority << RF_PRIORITY_SHIFT).
-//   - priority is bounded 0..7. The macro checked this at assemble time with
-//     `fatal "priority exceeds 7"`; the refinement type makes it a COMPILE
-//     error instead (totality) — byte-identical for every valid input.
+//   - priority is bounded 0..7 by a refinement type, so an out-of-range value
+//     is a COMPILE error (totality).
 //
 // code/map are ROM symbol NAMES (strings), externed to link values — the
 // `equ ROUTINE_* = extern("...") - OBJ_CODE_BASE` idiom, generalized. The
@@ -23,7 +21,7 @@ use engine.types.{Velocity, VramArtTile, VramTile, VramAddr, HitboxDim, AnimId}
 use engine.constants.{RF_PRIORITY_SHIFT}
 
 // vram_art(tile, pal, pri) — pack a VRAM tile INDEX with palette + priority
-// bits (macros.asm's `vram_art` function: (pri<<15)|(pal<<13)|tile). The
+// bits ((pri<<15)|(pal<<13)|tile). The
 // param refinements make an out-of-range field a COMPILE error rather than a
 // silent bit-collision: pal>3 would corrupt the priority bit via `pal<<13`,
 // tile>$1FFF would bleed into the palette bits. `tile` is a VramTile (a tile
@@ -39,8 +37,8 @@ pub comptime fn vram_art(
     return (pri << 15) | (pal << 13) | tile   // pri→bit15, pal→bits13-14, tile→bits0-12
 }
 
-// vram_bytes(tile) — the VDP BYTE ADDRESS of a tile (tile index × 32), the
-// counterpart of macros.asm's `vram_bytes` function. VramTile in, VramAddr out
+// vram_bytes(tile) — the VDP BYTE ADDRESS of a tile (tile index × 32).
+// VramTile in, VramAddr out
 // keeps the tile-vs-address conversion honest. Shared home alongside vram_art
 // (the VRAM-layout home the vram_art header anticipated); consumers
 // test_animated + sonic (the 2nd consumer that tripped the hoist).

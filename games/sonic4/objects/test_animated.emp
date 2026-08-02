@@ -6,8 +6,8 @@ use engine.constants.{RF_PRIORITY_SHIFT}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 
-// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). Mirrors
-// games/sonic4/config/constants.asm; the drift guard makes an AS-side change loud.
+// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
+// game-config value, imported from games.sonic4.constants below.
 use games.sonic4.constants.{VRAM_TEST_SONIC}
 
 // DplcV — the per-object DPLC state, overlaying sst_custom. This module owns the

@@ -8,9 +8,9 @@
 // tables, and bodies. BANKED at the engine-table head (soundBankHead, VMA
 // $8000); the resident FM/PSG writers read the 8 head labels via the seam-1
 // banked carriers at their fixed VMAs, so the byte-exact $8000-based layout
-// is load-bearing. SHAPE-INVARIANT (855 bytes both shapes). The AS twin's
-// vol-env count guards are RHS-only here (no emitted-length introspection —
-// gap-ledger row 1805); the byte gate covers body-length drift.
+// is load-bearing. SHAPE-INVARIANT (855 bytes both shapes). The vol-env count
+// guards here are RHS-only (no emitted-length introspection — gap-ledger row
+// 1805); the byte gate covers body-length drift.
 // ===========================================================================
 
 module engine.sound_tables_z80 (cpu: z80)

@@ -1,19 +1,17 @@
 // Sonic animation scripts — the offsets table IS the animation index,
-// ordered by the shared ANIM_* ids (games/sonic4/config/constants.asm).
+// ordered by the shared ANIM_* ids (games/sonic4/config/constants.emp).
 // Walk/Run/Roll use DUR_DYNAMIC: AnimateSprite takes the hold from d3,
 // which Player_Animate computes from ground speed (speed-scaled timing).
 //
 // The ordinals ARE the ids: Ani_Sonic.Walk == ANIM_WALK by declaration
 // position, and the drift guards below prove the hand-synced pairing
-// stays synced — the AS twin's entry-count assert rides as the .count
-// guard, and its `if (End-Base) > $7FFF` guard is subsumed by the
-// construct's link-time range check on every table word.
+// stays synced — the `.count` guard checks the entry count, and the span
+// guard is subsumed by the construct's link-time range check on every
+// table word.
 module games.sonic4.sonic_anims in sonic_anims
 
-// Animation command bytes + DUR_DYNAMIC come from the constants twin —
-// the "grows an animation block" jot from port #1 landed at the animate
-// port (kill-list row 3 closed by consolidation); the twin's
-// own ensures guard the values.
+// Animation command bytes + DUR_DYNAMIC come from engine.constants (via the
+// `use` below).
 use engine.constants.{AF_END, AF_BACK, DUR_DYNAMIC}
 
 // rep(frame, n) — n copies of `frame`, for splicing HELD POSES into a
@@ -33,12 +31,9 @@ comptime fn rep(frame: int, n: int) {
 }
 
 offsets Ani_Sonic {
-    // The ordinals-replace-hand-synced-constants story: declaration
-    // position IS the ANIM_* id (guards below), and each body rides INLINE
-    // — the step-5 rewrite: the AS twin's inter-body `align 2` pads were
-    // dead weight (AnimateSprite reads scripts BYTE-wise; only the table
-    // needs evenness), so the bodies pack and the construct's inline form
-    // becomes expressible. −6 bytes vs the first port.
+    // Declaration position IS the ANIM_* id (guards below), and each body rides
+    // INLINE with no inter-body `align 2` pads (AnimateSprite reads scripts
+    // BYTE-wise; only the table needs evenness), so the bodies pack.
     Walk:     [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     Run:      [u8; 6]  = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END],
     Roll:     [u8; 10] = [DUR_DYNAMIC, $96, $97, $96, $98, $96, $99, $96, $9A, AF_END],

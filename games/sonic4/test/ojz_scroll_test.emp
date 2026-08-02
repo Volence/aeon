@@ -37,7 +37,7 @@ use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER}
 // TestArt_End - TestArt (the marker-DMA length) — object_test_state owns the
 // TestArt blob; this mirrors its length (two 128-byte squares + the 512-byte ring
 // blob, drift-guarded there). A pure-int comptime const (label-pair immediate
-// arithmetic isn't an expressible EA); byte-identical to the twin's TestArt_End - TestArt.
+// arithmetic isn't an expressible EA).
 const TEST_ART_LEN = 128 + 128 + 512
 
 // Player_1 SST-field absolute addresses (the extern-equ-sum idiom, camera.emp's

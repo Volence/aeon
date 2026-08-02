@@ -20,10 +20,10 @@ use engine.z80_bus.{stop_z80, start_z80}
 
 // ---- VRAM_PLANE_A / PLANE_V_CELLS / PLANE_BUFFER_SIZE + the TILE_CACHE_* /
 // Sec-Act layout all come from the shared engine.constants + engine.structs
-// twins (`use`d above), which carry the drift locks. ----
+// modules (`use`d above), which carry the drift locks. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // The ×66 stride trick in Section_GetSecPtrXY (lsl #6 + lsl #1) assumes the Sec
-// struct is 66 bytes — the AS twin's `if Sec_len <> 66 / error` guard.
+// struct is 66 bytes; the `ensure` below enforces it.
 ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY stride (lsl #6 + lsl #1 = ×66) assumes sizeof(Sec)=66 — update the shifts")
 // Section_GetSecPtrXY's `adda.w d0, a0` (d0 = flat × 66) sign-extends the word
 // offset: once flat × 66 crosses $7FFF the pointer wraps negative, capping an act

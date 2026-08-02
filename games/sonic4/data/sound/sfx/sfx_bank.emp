@@ -47,14 +47,12 @@
 
 module data.sfx_bank
 
-// The id contract — the SOLE AUTHORITY (Parcel F2). DERIVED from the table rows:
-// zero bytes, drift-proof from the SFX SET (a renumber that changes the row set
-// changes these automatically). This module owns the SFX bank, so it owns the
-// counts that index it; the former hand-owned config/sound_ids.asm mirror + the
-// seam hardcodes are dissolved into this derivation. Exported (`pub`) so the build
-// harvests them for the residual AS (sound_bank.inc's SfxBlobWinTab span guard reads
-// SFX_TABLE_LEN) + the seam authority-eval (the resident SFX reader's SFX_ID_BASE /
-// SFX_TABLE_LEN -D; the head co-link's SFX_TABLE_LEN carrier). No self-referential
+// The id contract — the SOLE AUTHORITY. DERIVED from the table rows: zero bytes,
+// drift-proof from the SFX SET (a renumber that changes the row set changes these
+// automatically). This module owns the SFX bank, so it owns the counts that index
+// it. Exported (`pub`) so the build harvests them for the seam authority-eval (the
+// resident SFX reader's SFX_ID_BASE / SFX_TABLE_LEN -D; the head co-link's
+// SFX_TABLE_LEN carrier). No self-referential
 // ensure(extern("SFX_*") == …): the derivation IS the truth, nothing external to
 // cross-check. The one surviving guard that reads this contract is a CONSUMER's —
 // sfx_blob_win_tab.emp's span guard (its 135-cell hand body vs SFX_TABLE_LEN).

@@ -2,10 +2,9 @@
 // §4.9 camera-driven entity window
 //
 // Build-shape inputs (-D NAME=VALUE, the SOUND_DRIVER_ENABLED/game_loop
-// convention): DEBUG mirrors the AS twin's `ifdef __DEBUG__` (the
-// RingBuffer_Add drop assert); SOUND_DRIVER_ENABLED gates the ring-collect
-// SFX call. MAX_RING_BUFFER / VRAM_RING_PLACEHOLDER are GAME-config inputs
-// (see below).
+// convention): DEBUG gates the RingBuffer_Add drop assert; SOUND_DRIVER_ENABLED
+// gates the ring-collect SFX call. MAX_RING_BUFFER / VRAM_RING_PLACEHOLDER are
+// GAME-config inputs (see below).
 
 module engine.objects.rings in rings
 
@@ -30,16 +29,14 @@ use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEE
 const RING_BUFFER_ENTRY_SIZE = 6
 const RING_WIDTH             = 16
 // SAT attr base: priority | palette line 1 | tile. The act palette carries
-// the ring's gold on CRAM line 1 (OJZ_Palette → line 1). The AS twin spells
-// the pack inline (its isolated gate sees no macros.asm).
+// the ring's gold on CRAM line 1 (OJZ_Palette → line 1).
 const RING_ART_ATTR          = vram_art(VRAM_RING_PLACEHOLDER, 1, 1)
 // MAX_RING_BUFFER / VRAM_RING_PLACEHOLDER are game-varying GAME->ENGINE `-D`
-// interface values (native.rs emp_defines) with NO `.emp`/AS authority to
-// cross-check against (Parcel F flipped sonic4's config to `.emp`, which does not
-// declare a `-D` name); a wrong `-D` moves ROM bytes, so six-target byte-identity
+// interface values (native.rs emp_defines) with NO `.emp` authority to
+// cross-check against; a wrong `-D` moves ROM bytes, so six-target byte-identity
 // is their drift net. RING_BUFFER_ENTRY_SIZE / RING_WIDTH are engine-invariant
-// game config — the game `.emp` (or demo's AS config) is their authority, so the
-// cross-checks against the link export stay.
+// game config — the game `.emp` is their authority, so the cross-checks against
+// the link export stay.
 ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "game config and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 ensure(extern("RING_WIDTH") == RING_WIDTH, "game config and rings.emp disagree on RING_WIDTH — update both")
 

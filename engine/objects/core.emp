@@ -1,6 +1,6 @@
 // Object system core — allocation, dispatch, deletion
 //
-// Build-shape input (-D __DEBUG__ AS-side → DEBUG==1 .emp-side): the
+// Build-shape input (DEBUG==1 in the debug shape): the
 // Debug_AssertObjLoop proc + the two ifdebug call sites (in .run_always /
 // .run_culled) exist only in the debug shape, so the region length differs
 // per shape (plain 0x1C4, debug 0x2EC).
@@ -544,7 +544,7 @@ pub proc RunObjects () clobbers(d0-d7/a0-a6) {
 // Out: none (raises debugger error on violation)
 // Clobbers: none
 //
-// DEBUG-shape only (AS twin's `ifdef __DEBUG__`): the whole proc emits ZERO
+// DEBUG-shape only: the whole proc emits ZERO
 // bytes in the plain shape — the body sits inside `if DEBUG == 1 {}` so the
 // region length is shape-dependent (rings.emp precedent).
 // -----------------------------------------------

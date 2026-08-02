@@ -1,8 +1,6 @@
 // OJZ / global collision + Sonic character data (§4.7 — shared across all zones),
-// natively placed at the `collision_data` section (Parcel K4). Was the flat
-// BINCLUDE island at the tail of games/sonic4/main.asm's gameDataIncludes. Every
-// blob is even-length (the AS `align 2`s were no-ops), so the labels stay
-// word-aligned with no inter-blob padding. Boundary key HeightMaps.
+// natively placed at the `collision_data` section. Every blob is even-length, so
+// the labels stay word-aligned with no inter-blob padding. Boundary key HeightMaps.
 module games.sonic4.collision_data in collision_data
 
 const _heightmaps     = embed("games/sonic4/data/collision/heightmaps.bin")

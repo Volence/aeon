@@ -1,15 +1,12 @@
 // ===========================================================================
-// engine/system/null_interrupt.emp — the no-op interrupt handler (Parcel K4 inc-6)
+// engine/system/null_interrupt.emp — the no-op interrupt handler
 // ===========================================================================
 // The default IRQ handler: `rte`, does nothing. The vector table (vectors.emp)
 // points IRQ1/2/3/5/7 (external + NMI) at it — `dc.l NullInterrupt` — so an
 // unexpected interrupt returns cleanly. It deliberately does NOT live in vectors.emp
 // (that file is the fixed org-0 image); it sits near the ROM tail, just before the
-// exception-vector stubs (error_handler).
-//
-// Was `NullInterrupt: rte` (a "temporary stub") in engine.inc. Native now (the inc-6
-// skeleton dissolution): placed at its frozen boundary key by the chainer, so the
-// AS residual no longer emits it — the last hand-written AS bytes leave the tree.
+// exception-vector stubs (error_handler). Placed at its frozen boundary key by
+// the chainer.
 // ===========================================================================
 
 module engine.system.null_interrupt in null_interrupt

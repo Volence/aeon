@@ -20,9 +20,7 @@ const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set
 // from a VRAM byte address via engine.vdp's shared `vdp_comm_reg(reg,
 // VdpTarget.Vram, VdpOp.Write, clr: false)` — plane_buffer is the 2nd consumer
 // of that typed-VDP interface (gap-ledger row 1073, the hoist that let this
-// adopt). The AS twin plane_buffer.asm keeps the inline `lsl.l #2 / addq.w #1 /
-// ror.w #2 / swap`, byte-identical to the vdp_comm_reg expansion for
-// (Vram, Write, clr=false).
+// adopt).
 
 // -----------------------------------------------
 // Plane_Buffer_Reset — clear the plane buffer (zero the write cursor).
@@ -30,8 +28,7 @@ const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set
 // pre-transition lag frame must NOT drain its stale (old-level) entries into
 // the new level's VRAM. NO CALLER yet — act transitions aren't wired (single-
 // level harness), and VInt_DrawLevel does the per-frame post-drain reset inline
-// (its .reset). Kept as the forward reset hook (§9 dead-code flag; see the
-// stale-drain audit in the tranche-17 packet).
+// (its .reset). Kept as the forward reset hook (§9 dead-code flag).
 // Clobbers: none
 // -----------------------------------------------
 @scaffolding("VInt_Lag race fix — forward reset hook for act transitions (unwired: single-level harness)")

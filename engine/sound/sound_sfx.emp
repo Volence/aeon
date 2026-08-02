@@ -1,22 +1,21 @@
 // ===========================================================================
 // engine/sound/sound_sfx.emp — Phase 5a SFX engine: steal + per-frame interpreter
 // ===========================================================================
-// The .emp port of sound_sfx.asm (this directory) — the FOURTH resident Z80 CODE
-// file and the last interpreter before the driver top (rung 4). A parallel SFX
-// interpreter layered over the music sequencer: a fixed 7-slot SfxChannel array
-// whose shared prefix MIRRORS SeqChannel, so the SHARED interpreter (ModUpdate +
-// Sequencer_Channel, DEFINED in sound_sequencer.emp) walks it with ix = the
-// SfxChannel exactly as it walks a music channel. Assembled INLINE inside the
-// z80_sound_driver.asm `phase 0` blob (AFTER sound_sequencer.asm — whose
-// ModUpdate/Sequencer_Channel this REUSES — and BEFORE sound_fm.asm/sound_psg.asm
-// — whose writers it CALLS). Its labels resolve into Z80 RAM at base $0CD7 (plain).
+// The FOURTH resident Z80 CODE file and the last interpreter before the driver
+// top (rung 4). A parallel SFX interpreter layered over the music sequencer: a
+// fixed 7-slot SfxChannel array whose shared prefix MIRRORS SeqChannel, so the
+// SHARED interpreter (ModUpdate + Sequencer_Channel, DEFINED in
+// sound_sequencer.emp) walks it with ix = the SfxChannel exactly as it walks a
+// music channel. Assembled INLINE inside the z80_sound_driver.emp `phase 0` blob
+// (AFTER sound_sequencer.emp — whose ModUpdate/Sequencer_Channel this REUSES —
+// and BEFORE sound_fm.emp/sound_psg.emp — whose writers it CALLS). Its labels
+// resolve into Z80 RAM at base $0CD7 (plain).
 //
-// The `.asm` twin stays CANONICAL in the build (Z80-blob-precedes-engine: one byte
-// slides the whole corpus). This `.emp` is proven by the SCALE-1 WINDOWED oracle
-// (`sound_sfx_port`, BOTH shapes), NOT wired into build.sh — the seam sub-tranche
-// owns whole-ROM placement.
+// The CANONICAL, only source (no .asm twin). Native-linked via seam-1
+// (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
+// the whole-ROM byte gate proves both shapes.
 //
-// --- SHAPE VARIANCE: the PSG t32 CASE (shape-VARIANT base, shape-INVARIANT body) -
+// --- SHAPE VARIANCE: the PSG CASE (shape-VARIANT base, shape-INVARIANT body) ----
 // Base is $0CD7 (plain) / $0D55 (debug) — a +$7E shift from the sequencer's own 16
 // internal `if DEBUG == 1` blocks that PRECEDE this window. sfx has NO internal
 // debug blocks of its own, so its window length is 1516 B ($5EC) in BOTH shapes;
@@ -48,7 +47,7 @@
 // (`ld ix, SND_SFX_CHANNELS`), advances it (`add ix, de`), and reads
 // `(ix+sc_flags)` across `call Sequencer_Channel` (the shared interpreter, whose
 // ix preservation is TRUE but checker-invisible across its `ex (sp),hl` computed
-// dispatch — the t36 §3.4 finding; sound_sfx.asm:294 is the 2nd relied-upon site).
+// dispatch).
 // So there is NO module-scope `invariant: preserves(ix)` (a module invariant would
 // correctly fire on Sfx_Frame + the dispatch/allocation procs that clobber ix);
 // `preserves(ix)` is declared PER-PROC on the routines the checker verifies it for
@@ -1360,13 +1359,11 @@ section sound_sfx (cpu: z80, vma: $0CD7) {
         dc.b    SFXEL_NONE   // CHROUTE_DAC  (10) — DAC trigger channel, never stolen
     }
     // Length drift guard — RHS-ONLY (the literal 11 is the AUTHORED row count, hand-
-    // kept). This is WEAKER than the AS twin's `(SfxEligTable_End - SfxEligTable) <>
-    // CHROUTE_COUNT`: the twin checks the EMITTED byte count, so adding a `db` row
-    // trips it; this checks only that the constant CHROUTE_COUNT still equals the
-    // authored count, because `.emp` has no data-proc emitted-length introspection
-    // (the `sizeof`/end-label ask — gap-ledgered). A row added here is caught by the
-    // twin's byte gate, not this ensure. (The fm RegDeltaGroupBase / dac_sample_tab
-    // RHS-only precedent.)
+    // kept). It checks only that the constant CHROUTE_COUNT still equals the authored
+    // count; it cannot catch an added `db` row, because `.emp` has no data-proc
+    // emitted-length introspection (the `sizeof`/end-label ask — gap-ledgered). A row
+    // added here is caught by the whole-ROM byte gate, not this ensure. (The fm
+    // RegDeltaGroupBase / dac_sample_tab RHS-only precedent.)
     ensure(11 == CHROUTE_COUNT, "SfxEligTable length must equal CHROUTE_COUNT")
 
     // ======================================================================

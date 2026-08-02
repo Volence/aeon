@@ -6,8 +6,7 @@
 // has to be PROMOTED into that layout before it can be added to or stored in a
 // Coord field, and the promotion is always the same two instructions.
 //
-// Consumers `use engine.coords.{pixels_to_coord}`; the AS twins keep the two
-// instructions inline, byte-identical to this.
+// Consumers `use engine.coords.{pixels_to_coord}`.
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
 // ROM — bytes appear only where a consumer splices the template.
@@ -37,8 +36,7 @@ pub comptime fn pixels_to_coord(v: Reg) -> Code {
 // (entity_window), AABB |delta| (collision), and |pos-camera| culling (core) all
 // splice it. The caller must have v's sign live in the condition codes — every
 // site loads/computes v immediately before, so the bpl reads v's own sign (no
-// self-tst, exactly the inline idiom). The AS twins keep the bpl/neg inline
-// (byte-level lockstep — no macro needed).
+// self-tst, exactly the inline idiom).
 // In:  v = data register holding a signed word; N reflects its sign
 // Out: v = |v|
 pub comptime fn abs_w(v: Reg) -> Code {

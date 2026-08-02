@@ -14,10 +14,10 @@
 // `raise_exception` construct (t25) is exactly that shape — the raise tail with
 // no `pea self(pc)`/`move.w sr` prefix — so each stub is one line. The two
 // bus/address vectors carry the `address_error` flag (shows the Address field).
-// vectors.asm references all 12 labels by name (dc.l).
+// vectors.emp references all 12 labels by name (dc.l).
 //
 // THE BLOB is opaque vendored binary (MD Debugger v2.6, (c) Vladikcomper),
-// transliterated dc.l verbatim from error_handler.asm; its bytes are untouchable.
+// transliterated dc.l verbatim; its bytes are untouchable.
 // It carries two symbolic source lines: the `dc.w $148` is
 // STR_OFFSET_SELECTOR - DrawOffsetLocation_inj - 2 (a self-relative CONSTANT — the
 // handler base cancels), and the extension-button pointers are spelled as their
@@ -30,9 +30,8 @@
 // `.emp` label is `ErrorHandlerBlob` (not `ErrorHandler`) so it never collides
 // with a bare `ErrorHandler` name at link.
 //
-// WARNING (from error_handler.asm): this region MUST stay the final ROM
-// emission — the convsym symbol-table appendix rides after `EndOfRom`; no data
-// may follow.
+// WARNING: this region MUST stay the final ROM emission — the convsym
+// symbol-table appendix rides after `EndOfRom`; no data may follow.
 
 module engine.debug.error_handler in error_handler
 
@@ -41,8 +40,8 @@ module engine.debug.error_handler in error_handler
 //
 // Every entry derives off `extern("ErrorHandlerBlob")` (the blob label below); the
 // sigil link folds the `+ off` per shape/game. Emits ZERO bytes. Consumed by this
-// module's blob (the two extension-button pointers, `dc.l` link-expr value cells),
-// the AS-side vendored debugger (engine/debug/debugger.asm), and engine.inc.
+// module's blob (the two extension-button pointers, `dc.l` link-expr value cells)
+// and the AS-side vendored debugger (engine/debug/debugger.asm).
 // -----------------------------------------------
 pub equ MDDBG__ErrorHandler = extern("ErrorHandlerBlob")
 pub equ MDDBG__Error_IdleLoop = extern("ErrorHandlerBlob") + $128
