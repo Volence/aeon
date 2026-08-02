@@ -64,9 +64,10 @@ pub proc VBlank_Handler () clobbers() preserves(d0-d7/a0-a6) {
 // Clobbers: the union of the pipeline callees (Flush_VDP_Shadow d0-d3/a0-a1 ·
 //   Enqueue_Dirty_Buffers d0/a1-a2 · VInt_DrawLevel d0-d1/a0/a5-a6 ·
 //   Process_DMA_Critical a1/a5 · Vscroll_Write d0/a0/a5 ·
-//   Process_DMA_Important/Deferrable d0-d1/a0-a3/a5 · Read_Controllers d0-d1/a0)
+//   Process_DMA_Important/Deferrable d0-d1/a0-a3/a5 · Read_Controllers d0-d4/a0)
+// (d4 enters the union with the 6-button burst — Read_Controllers widened, input parcel 2026-08-02)
 // -----------------------------------------------
-pub proc VInt_Level () clobbers(d0-d3/a0-a3/a5-a6) {
+pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) {
         // --- VDP work ---
         // Sound (MegaPCM-2 model): when the Z80 sound driver is enabled we do NOT
         // stop the Z80 during the VDP/DMA pipeline. Instead we raise a FLAG BRACKET
@@ -168,6 +169,11 @@ pub proc VInt_Level () clobbers(d0-d3/a0-a3/a5-a6) {
         clr.b   Ctrl_1_Press_Accum
         move.b  (Ctrl_2_Press_Accum).w, (Ctrl_2_Press).w    // widths pinned: mem-to-mem two-symbolic operands
         clr.b   Ctrl_2_Press_Accum
+        // 6-button ext press edges latch the same consume-once way (input parcel 2026-08-02)
+        move.b  (Ctrl_1_Ext_Press_Accum).w, (Ctrl_1_Ext_Press).w    // widths pinned: mem-to-mem two-symbolic operands
+        clr.b   Ctrl_1_Ext_Press_Accum
+        move.b  (Ctrl_2_Ext_Press_Accum).w, (Ctrl_2_Ext_Press).w    // widths pinned: mem-to-mem two-symbolic operands
+        clr.b   Ctrl_2_Ext_Press_Accum
         addq.w  #1, Frame_Counter
         move.b  #1, VBlank_Flag
         rts
@@ -181,9 +187,10 @@ pub proc VInt_Level () clobbers(d0-d3/a0-a3/a5-a6) {
 // drains on the next complete frame (VInt_Level). See note below.
 // Clobbers: the union of the lag-path callees (Flush_VDP_Shadow d0-d3/a0-a1 ·
 //   Enqueue_Dirty_Buffers d0/a1-a2 · Process_DMA_Critical a1/a5 ·
-//   Vscroll_Write d0/a0/a5 · Read_Controllers d0-d1/a0)
+//   Vscroll_Write d0/a0/a5 · Read_Controllers d0-d4/a0)
+// (d4 enters the union with the 6-button burst — Read_Controllers widened, input parcel 2026-08-02)
 // -----------------------------------------------
-proc VInt_Lag () clobbers(d0-d3/a0-a2/a5) {
+proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) {
         // Sound (flag bracket): see VInt_Level — raise SND_CTRL_DMA_ACTIVE=1 at the
         // very top (before any VDP work) so the Z80 producer takes its DRAIN path
         // for the whole VDP/DMA window; cleared =0 after the last DMA below. OFF
