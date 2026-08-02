@@ -16,6 +16,11 @@ use engine.types.{VramTile, Angle}
 // imported from games.sonic4.constants below.
 use games.sonic4.constants.{VRAM_TEST_OBJ}
 
+// The spliced test_obj_prolog body resolves vram_art, VRAM_TEST_OBJ, and the
+// RF_* bits in THIS module's scope (a comptime fn body resolves its free names
+// at the splice site), so those imports stay above.
+use games.sonic4.test_helpers.{test_obj_prolog}
+
 const PARENT_LIFETIME      = 180        // frames before self-destruct (3 seconds)
 const PARENT_SWING_PERIOD  = 180        // swing-phase counter start/reset (must exceed 2*PARENT_SWING_RANGE)
 const PARENT_SPEED         = 1          // px/frame swing rate
@@ -138,14 +143,7 @@ pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
 // Clobbers: d0-d3, a1-a2 — CreateChild_Normal(d0-d3/a1-a2) ∪ the Main it branches to.
 // -----------------------------------------------
 pub proc TestParent (a0: *Sst) clobbers(d0-d3/a1-a2) {
-        move.l  #Map_TestObj, mappings(a0)
-        move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
-        moveq   #0, d0
-        move.b  d0, mapping_frame(a0)           // frame 0 (color 1 square)
-        ori.b   #3<<RF_PRIORITY_SHIFT, render_flags(a0)
-        move.b  #16, width_pixels(a0)
-        move.b  #16, height_pixels(a0)
-        bset    #RF_COORDMODE, render_flags(a0)
+        test_obj_prolog(prio: 3, w: 16, h: 16, coordmode: true, frame: 0)  // frame 0 (color 1 square)
         bset    #RF_MULTISPRITE, render_flags(a0)       // batched render
         move.w  #PARENT_LIFETIME, TParentV.life_timer(a0)
         move.w  #PARENT_SWING_PERIOD, TParentV.swing_phase(a0)

@@ -4,10 +4,9 @@
 //
 // OJZ Act 1 entity data — flat X-sorted ring lists + object placements
 // + per-section minimized type tables (§4.9 camera-driven entity window),
-// natively placed at the entity_data section (Parcel K3 run A). The AS
-// objentry/objend macros are gone: an object entry is the packed 3-word
-// record { x, y, flags|(type<<8)|subtype } + a $FFFF list terminator; a
-// ring list is dc.w X,Y pairs + a longword-0 terminator.
+// natively placed at the entity_data section. An object entry is the packed
+// 3-word record { x, y, flags|(type<<8)|subtype } + a $FFFF list terminator;
+// a ring list is dc.w X,Y pairs + a longword-0 terminator.
 //
 // Stats:
 //   grid: 3x3 (9 sections)
@@ -28,8 +27,8 @@ module games.sonic4.ojz_entity_data_act1 in entity_data
 
 // Object-type table shapes: a count byte + pad byte, then `count` ObjDef
 // pointers (`dc.l`). The ObjDef_* archetypes are cross-module link labels
-// (test_objects / path_swap). Structs pack tight — the pointer sits at
-// offset 2 (even), matching the AS `dc.b count,0` + `dc.l` layout.
+// (test_objects / path_swap). Structs pack tight — a count byte + pad byte
+// precede the pointers, so the first pointer sits at offset 2 (even).
 struct ObjTypeTable1 { count: u8, pad: u8, t0: *u8 }
 struct ObjTypeTable2 { count: u8, pad: u8, t0: *u8, t1: *u8 }
 
