@@ -687,6 +687,27 @@ ensure(offsetof(SfxChannel, sc_porta_accum) == offsetof(SeqChannel, sc_porta_acc
 ensure(offsetof(SfxChannel, sc_porta_incr) == offsetof(SeqChannel, sc_porta_incr), "SfxChannel.sc_porta_incr diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_last_pan) == offsetof(SeqChannel, sc_last_pan), "SfxChannel.sc_last_pan diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_master), "SfxChannel.sc_fill_master diverges from SeqChannel")
+
+// --- SFX B4: the two POST-DIVERGENCE ALIASES, asserted rather than commented ----
+// Past +56 the structs deliberately disagree, and the SHARED interpreter still
+// walks both. So the two overlaps below are load-bearing aliases, not accidents:
+//   +57  SfxChannel.sx_priority  ==  SeqChannel.sc_noise_mode
+//   +58  SfxChannel.sx_pad       ==  SeqChannel.sc_detune
+// The shared code reaches these offsets through ix. On an SfxChannel that means a
+// music opcode writing sc_noise_mode would corrupt the running SFX's PRIORITY, and
+// one writing sc_detune would set sx_pad non-zero — and sx_pad MUST stay 0, because
+// the FM/PSG note paths fold (ix+sc_detune) unconditionally, so a non-zero byte
+// there detunes every SFX note. Both were protected ONLY by a comment saying "the
+// transcoder never emits those ops" plus the full-struct wipe on allocation.
+// These ensures pin the alias itself, so a future field insertion that slides one
+// side relative to the other fails the build at the exact pair that moved instead
+// of silently re-pointing a music write at an SFX control byte. The behavioural
+// half of the guarantee (that no SFX stream CONTAINS MEV_PSGNOISE/MEV_DETUNE) is
+// enforced build-side in tools/sfx_transcode.py — this is the layout half.
+ensure(offsetof(SfxChannel, sx_priority) == offsetof(SeqChannel, sc_noise_mode),
+       "sx_priority (+{offsetof(SfxChannel, sx_priority)}) no longer aliases sc_noise_mode (+{offsetof(SeqChannel, sc_noise_mode)}) — the shared interpreter's post-divergence overlap moved")
+ensure(offsetof(SfxChannel, sx_pad) == offsetof(SeqChannel, sc_detune),
+       "sx_pad (+{offsetof(SfxChannel, sx_pad)}) no longer aliases sc_detune (+{offsetof(SeqChannel, sc_detune)}) — the MUST-STAY-ZERO pad and the detune byte have separated")
 ensure(offsetof(SfxChannel, sc_fill_count) == offsetof(SeqChannel, sc_fill_count), "SfxChannel.sc_fill_count diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_psgenv) == offsetof(SeqChannel, sc_psgenv), "SfxChannel.sc_psgenv diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_psgenv_cur) == offsetof(SeqChannel, sc_psgenv_cur), "SfxChannel.sc_psgenv_cur diverges from SeqChannel")

@@ -475,6 +475,23 @@ def _emit_vol_env_emp(kind: str, envs) -> list:
     out.append("        dc.w    %s" % ptrs)
     out.append("    }")
     for env_id, label, body in envs:
+        # SEQUENCER B2 — a vol-env whose FIRST body byte is $80 (Loop) WEDGES the
+        # driver inside the Timer-A tick: the loop control resets the cursor to 0,
+        # reads $80 again, and spins forever with interrupts off, so the DAC ring
+        # starves and the whole driver is gone. There is no packer between the
+        # author and the driver, so this is the only place it can be caught. The
+        # review costed the runtime guard at ~5 Z80 bytes against 86 bytes of
+        # headroom; here it is free and total.
+        if not body:
+            raise SystemExit(
+                "gen_sound_tables: %sVolEnv_%02X (%s) has an EMPTY body — the driver "
+                "reads byte 0 unconditionally" % (kind, env_id, label))
+        if body[0] == _CTL_LOOP:
+            raise SystemExit(
+                "gen_sound_tables: %sVolEnv_%02X (%s) starts with $80 (Loop) — this "
+                "hangs the driver in the Timer-A tick (cursor 0 -> $80 -> cursor 0 -> "
+                "...). A vol-env must emit at least one level byte before it loops."
+                % (kind, env_id, label))
         toks = ", ".join(ctl.get(b, "$%02X" % b) for b in body)
         out.append("    proc %sVolEnv_%02X () clobbers() {   // %s" % (kind, env_id, label))
         out.append("        dc.b    %s" % toks)
@@ -562,8 +579,15 @@ def main():
     # This generator is the SINGLE SOURCE of the pure-math LUT values.
     emp_path = os.path.join(here, "..", "engine", "sound", "sound_tables_z80.emp")
     emp_path = os.path.normpath(emp_path)
+    # Build the whole text BEFORE opening the output. `open(path, "w")` truncates
+    # immediately, so generating into the open file means any validation failure
+    # (e.g. the vol-env $80-first-byte check above) leaves the tracked generated
+    # file EMPTY — a failed generate silently becomes a destructive one, and the
+    # next build fails somewhere unrelated. Found the hard way while proving that
+    # check fires.
+    text = emit_emp_z80()
     with open(emp_path, "w") as f:
-        f.write(emit_emp_z80())
+        f.write(text)
     print("wrote", emp_path)
 
 
