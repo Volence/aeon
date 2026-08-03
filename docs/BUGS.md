@@ -5,9 +5,9 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
-## BUG-005 — one-frame stray Sonic sprite piece ("second face") — OPEN, minor
+## BUG-005 — one-frame stray Sonic sprite piece ("second face") — OPEN-INSTRUMENTED, minor
 
-**Status:** OPEN. **Severity:** low (single-frame visual flicker, no state corruption).
+**Status:** OPEN-INSTRUMENTED. **Severity:** low (single-frame visual flicker, no state corruption).
 **Reported:** 2026-08-02 by the user from a live spindash-stress session (OJZ, DEBUG
 build, chain-30): one captured frame shows a duplicate chunk of Sonic's head floating
 beside him. Frozen-state diagnosis was lost to an emulator control-socket hang before
@@ -35,10 +35,20 @@ call the normal band-exit runs — the one named site where the `a4`/`d5` proven
 `.done` differs from the common path (`DrawRings` is contracted `out(d5, a4)`, so a
 skew there requires an internal bug — but this is where to look first).
 
+**Live net (2026-08-02, DEBUG builds only):** the chain-walk assert is now in place
+at `Render_Sprites.done` (`engine/objects/sprites.emp`), immediately after the
+terminator fix-up. It walks the finished SAT link chain from entry 0 (bounded at
+`MAX_VDP_SPRITES` iterations so a cyclic chain cannot hang) and
+`assert.w d1, eq, d5` traps if the link-path length ≠ the emitted count — in-frame,
+with the builder's registers live (d5 = count, a4 = write ptr), before
+`Sprites_Rendered` is stored. Both exit paths (`.band_limit_pop` included) converge
+on `.done`, so the cap path is covered; the `.empty_table` path needs no walk
+(count 0, entry 0 is the hidden terminator). Plain ROMs are byte-identical — the
+net compiles only under `DEBUG == 1`.
+
 **Next step (its own session):** replay-based screenshot burst through pose
-transitions with ring-emission active, or a DEBUG assert that walks the finished
-chain and traps if the link path length ≠ `Sprites_Rendered` (the cheap net: catches
-the frame in the act with the builder's registers live). Scope note: the assert
+transitions with ring-emission active, running on a DEBUG build so the net above
+catches the frame in the act. Scope note: the assert
 proves link==count CONSISTENCY — it catches the named skew class, not a bug that
 advances both in lockstep to an over-count (a different class than this ghost).
 

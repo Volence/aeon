@@ -433,6 +433,24 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         tst.w   d5
         beq   .empty_table              // nothing rendered
         move.b  #0, -5(a4)               // overwrite last sprite's link byte with 0
+        // BUG-005 net: walk the finished link chain from entry 0; the link-path
+        // length must equal the emitted count. Traps in-frame with the builder's
+        // registers live (d5 = count, a4 = write ptr). Bounded at MAX_VDP_SPRITES
+        // so a cyclic chain traps on the mismatch instead of hanging.
+        if DEBUG == 1 {
+        lea     Sprite_Table_Buffer, a0
+        moveq   #0, d0                  // d0 = current entry index
+        moveq   #0, d1                  // d1 = links walked
+        move.w  #MAX_VDP_SPRITES-1, d2  // loop bound
+    .chain_walk:
+        addq.w  #1, d1
+        move.w  d0, d3
+        lsl.w   #3, d3                  // entry * 8
+        moveq   #0, d0
+        move.b  3(a0,d3.w), d0          // link byte -> next index (sets Z from link)
+        dbeq    d2, .chain_walk         // stop on link 0 (terminator)
+        assert.w d1, eq, d5             // link-path length == Sprites_Rendered
+        }
         move.w  d5, Sprites_Rendered
         move.b  #1, Sprite_Table_Dirty
         rts
