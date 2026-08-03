@@ -510,12 +510,16 @@ data CellOffsets_XFlip: [u8; 16] = [
 // into the emit_piece_loop skeleton as holes without touching its .piece_loop.
 // -----------------------------------------------
 
-// Y position: flipped negates then subtracts the sprite height; upright just
-// adds the camera-relative origin.
+// Y position (stream read: piece +0): flipped negates then subtracts the
+// sprite height — peeking the size byte at (a3) WITHOUT consuming it (a3 sits
+// on piece +2 after the Y read; size_link consumes it next). Upright just adds
+// the camera-relative origin.
 comptime fn y_term(yflip: int) -> Code {
     if yflip != 0 {
         return asm {
+            move.w  (a3)+, d0               // Y offset (signed)
             neg.w   d0
+            move.b  (a3), d1                // peek VDP size code (piece +2, not consumed)
             andi.w  #3, d1                  // height-1 from VDP size code low 2 bits
             addq.w  #1, d1
             lsl.w   #3, d1                  // height in pixels
@@ -525,41 +529,48 @@ comptime fn y_term(yflip: int) -> Code {
         }
     }
     return asm {
+        move.w  (a3)+, d0               // Y offset (signed)
         add.w   d3, d0                  // d3 = Camera_Y_Biased origin (+128 pre-folded)
         move.w  d0, (a4)+              // SAT +0: Y
     }
 }
 
-// size code + link: the yflip height calc clobbered d1 → re-read it first.
+// size code + link (stream read: piece +2 word = size<<8 | pad): the mapping
+// pad byte sits exactly at the SAT link position, so the unflipped form reads
+// the whole word and overwrites the pad with the link counter — one word write
+// instead of two byte writes. yflip keeps the byte-wise form (review decision:
+// its size byte serves the Y computation via y_term's peek).
 comptime fn size_link(yflip: int) -> Code {
     if yflip != 0 {
         return asm {
-            move.b  -6(a3), d1              // re-read VDP size code
-            move.b  d1, (a4)+              // SAT +2: size code
+            move.b  (a3)+, (a4)+           // SAT +2: size code
+            addq.w  #1, a3                  // skip padding byte
             addq.b  #1, d5
             move.b  d5, (a4)+              // SAT +3: link
         }
     }
     return asm {
-        move.b  d1, (a4)+              // SAT +2: size code
+        move.w  (a3)+, d1               // size<<8 | pad
         addq.b  #1, d5
-        move.b  d5, (a4)+              // SAT +3: link
+        move.b  d5, d1                  // pad byte -> link
+        move.w  d1, (a4)+              // SAT +2: size, +3: link
     }
 }
 
-// tile attrs: toggle the flip bits — X=$0800, Y=$1000, both=$1800.
+// tile attrs (stream read: piece +4): toggle the flip bits — X=$0800,
+// Y=$1000, both=$1800.
 comptime fn tile_term(xflip: int, yflip: int) -> Code {
     if xflip != 0 {
         if yflip != 0 {
             return asm {
-                move.w  a6, d0
+                move.w  (a3)+, d0               // tile attrs (relative)
                 eori.w  #$1800, d0              // toggle both flip bits
                 add.w   d6, d0
                 move.w  d0, (a4)+
             }
         }
         return asm {
-            move.w  a6, d0
+            move.w  (a3)+, d0               // tile attrs (relative)
             eori.w  #$0800, d0              // toggle X flip bit
             add.w   d6, d0
             move.w  d0, (a4)+
@@ -567,30 +578,32 @@ comptime fn tile_term(xflip: int, yflip: int) -> Code {
     }
     if yflip != 0 {
         return asm {
-            move.w  a6, d0
+            move.w  (a3)+, d0               // tile attrs (relative)
             eori.w  #$1000, d0              // toggle Y flip bit
             add.w   d6, d0
             move.w  d0, (a4)+
         }
     }
     return asm {
-        move.w  a6, d0
+        move.w  (a3)+, d0               // tile attrs (relative)
         add.w   d6, d0
         move.w  d0, (a4)+              // SAT +4: tile attrs
     }
 }
 
-// X position: flipped negates then subtracts the sprite width (from
-// CellOffsets_XFlip via a0); upright just adds the origin. The .x_ok label +
-// its bne are BOTH here (self-contained) → resolved within this block, so the
-// splice never touches the skeleton's .piece_loop.
+// X position (stream read: piece +6, the last field — a3 lands on the next
+// piece): flipped negates then subtracts the sprite width (from
+// CellOffsets_XFlip via a0); the size byte is re-read at -6(a3) (a3 is at
+// piece +8 here, so -6 = piece +2). Upright just adds the origin. The .x_ok
+// label + its bne are BOTH here (self-contained) → resolved within this
+// block, so the splice never touches the skeleton's .piece_loop.
 comptime fn x_term(xflip: int) -> Code {
     if xflip != 0 {
         return asm {
-            move.w  a1, d0
+            move.w  (a3)+, d0               // X offset (signed)
             neg.w   d0
             moveq   #0, d1
-            move.b  -6(a3), d1              // re-read VDP size code
+            move.b  -6(a3), d1              // re-read VDP size code (piece +2)
             move.b  (a0,d1.w), d1           // X-flip width from CellOffsets_XFlip
             sub.w   d1, d0
             add.w   d2, d0                  // d2 = Camera_X_Biased origin (+128 pre-folded)
@@ -601,7 +614,7 @@ comptime fn x_term(xflip: int) -> Code {
         }
     }
     return asm {
-        move.w  a1, d0
+        move.w  (a3)+, d0               // X offset (signed)
         add.w   d2, d0                  // d2 = Camera_X_Biased origin (+128 pre-folded)
         bne     .x_ok
         moveq   #1, d0
@@ -615,17 +628,17 @@ comptime fn x_term(xflip: int) -> Code {
 // flip. The loop-back label (.piece_loop) and its dbeq live in THIS ONE block;
 // the flip-dependent segments are label-free {term()} splices (holes). The
 // caller jumps to the matching instantiation, so the code stays fully UNROLLED
-// (zero JSR per piece). Byte-identical to the four former inline variants.
+// (zero JSR per piece).
+//
+// H2 stream-order: each term does its own (a3)+ reads in piece order
+// (Y, size|pad, tile, X — already SAT order), so nothing is front-loaded or
+// parked in registers between terms. SAT output is byte-identical to the
+// pre-H2 front-loaded form; a1/a6 are no longer touched.
 // -----------------------------------------------
 comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
     return asm {
         subq.w  #1, d4
     .piece_loop:
-        move.w  (a3)+, d0               // Y offset (signed)
-        move.b  (a3)+, d1               // VDP size code
-        addq.w  #1, a3                  // skip padding byte
-        move.w  (a3)+, a6              // tile attrs (relative)
-        move.w  (a3)+, a1              // X offset (signed)
         {y_term(yflip)}
         {size_link(yflip)}
         {tile_term(xflip, yflip)}
@@ -654,11 +667,11 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
 //      a4 advanced past emitted SAT entries
 //      d5 incremented per emitted piece (capped at MAX_VDP_SPRITES)
 //      d4 = -1 (consumed by dbf)
-// Clobbers: d0, d1, d4, a0 (repurposed for flip-table), a1, a3 (walked past
-//   the consumed pieces), a6
-// Preserves: d2, d3, d6, d7
+// Clobbers: d0, d1, d4, a0 (repurposed for flip-table), a3 (walked past
+//   the consumed pieces)
+// Preserves: d2, d3, d6, d7, a1, a6 (freed by the H2 stream-order restructure)
 // -----------------------------------------------
-proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5: u16, d6: u16) clobbers(d0-d1/d4/a0-a1/a3/a6) out(d5, a4) {
+proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5: u16, d6: u16) clobbers(d0-d1/d4/a0/a3) out(d5, a4) {
         lea     CellOffsets_XFlip(pc), a0  // a0 = flip-table base for variants
         tst.b   d0
         beq   .pieces_unflipped
