@@ -30,7 +30,7 @@ engine code before then moves the pin target and grows the port surface for no d
    harness hooks. Replay's real cost is the determinism audit (RNG seeding,
    frame-count/window-scan-dependent logic must be replay-stable); its payoff is a
    deterministic regression net under every later engine execution (#1/#2/#7-#9).
-   `engine/system/controllers.asm` is 62 lines today — 3-button, pad 1.
+   `engine/system/controllers.emp` is 62 lines today — 3-button, pad 1.
 2. **SRAM save system** — 68k side is simple; the design is slot format + checksums +
    wear pattern. HIDDEN DEPENDENCY: oracle must emulate SRAM persistence first (verify;
    likely an oracle-side task). UI home = design #7's menu screens. The `gameHeader`
@@ -1957,7 +1957,7 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
 
 - **Ring frame swap (the concrete, do-first one).** Today: 16 tiles resident at
   `VRAM_RING_PLACEHOLDER` (4 frames × 2×2), `DrawRings` computes attr = base + frame×4
-  (engine/objects/rings.asm:141-149) off global `Ring_Anim_Frame`. Change: shrink the
+  (engine/objects/rings.emp:141-149) off global `Ring_Anim_Frame`. Change: shrink the
   slot to 4 tiles, freeze the attr at base (per-ring hot loop gets CHEAPER — attr becomes
   a constant), and in the existing `Ring_Anim_Timer` tick queue a $80-byte DMA of the new
   frame from ROM when the frame byte changes (every 8 frames ≈ 16 B/frame amortized,
