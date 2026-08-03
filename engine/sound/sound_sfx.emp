@@ -1538,6 +1538,30 @@ section sound_sfx (cpu: z80) {
     //       music voice back) and reuse the slot; else carry-set DROP. A lower-priority
     //       SFX can never cut off a higher one.
     // ======================================================================
+    // --- 8-BIT INDEX -> 16-BIT TABLE POINTER (the `jr nc / inc h` idiom, S3) ------
+    // Every table lookup below adds an 8-bit index to a 16-bit table base. The high
+    // byte must absorb the carry, and the shape used here is:
+    //     add a,l / ld l,a / jr nc,.x / inc h / .x:
+    // rather than the wider `add a,l / ld l,a / ld a,0 / adc a,h / ld h,a` — same
+    // result, 3 B instead of 4, at all six sites. It also leaves `a` holding the
+    // low byte instead of the high byte, which is dead at every site (each one
+    // immediately reloads `a` from (hl), or overwrites it from c / pop af).
+    //
+    // WHY NOT DROP THE CARRY HANDLING ENTIRELY: if the four tables were known to
+    // sit inside one 256-byte page the propagate would be provably dead and the
+    // sites could be 4 B shorter still. That needs the tables page-ALIGNED, and
+    // they are RESIDENT — `align 256` here emits real padding into the very region
+    // this parcel is reclaiming: 63 B in the plain shape, 193 B in debug, against
+    // 24 B saved. A net loss in both shapes.
+    //
+    // The alternative — assert the block happens not to straddle a page and drop
+    // the propagate — is address-DEPENDENT and build-FATAL. Measured tolerance
+    // today is 27 bytes of upstream growth in the plain shape ($11C1..$11E4 under
+    // a $1200 boundary). Arming a 27-byte tripwire inside a campaign whose whole
+    // purpose is to move every module base by hundreds of bytes is not a trade
+    // worth 24 B. Revisit if the tables are ever evicted to the banked $8000
+    // window, where alignment padding is free.
+    // -----------------------------------------------------------------------------
     // Contract: out(a, d, carry: dropped); clobbers f,bc,e,hl,ix,iy (a + d are the
     // outs, so f/e carry the a/de scratch halves that remain clobbered).
     pub proc Sfx_SelectVoice () out(a, d, carry: dropped) clobbers(f, bc, e, hl, ix, iy) {
@@ -1546,9 +1570,9 @@ section sound_sfx (cpu: z80) {
         ld      a, c
         add     a, l
         ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a                     // hl = &SfxEligTable[c]
+        jr      nc, .elig_hi_ok
+        inc     h
+    .elig_hi_ok:                         // hl = &SfxEligTable[c]
         ld      a, (hl)
         ld      b, a                     // b = incoming kind (SFXEL_*)
 
@@ -1557,9 +1581,9 @@ section sound_sfx (cpu: z80) {
         ld      a, c
         add     a, l
         ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a                     // hl = &SfxRouteSlot[c]
+        jr      nc, .pref_hi_ok
+        inc     h
+    .pref_hi_ok:                         // hl = &SfxRouteSlot[c]
         ld      a, (hl)                  // a = preferred slot (0..6; $FF if unmapped)
         cp      SFX_SLOT_NONE
         jr      z, .substitute           // defensive: unmapped route -> skip to scan
@@ -1585,9 +1609,9 @@ section sound_sfx (cpu: z80) {
         ld      hl, SfxSlotKind
         add     a, l
         ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a
+        jr      nc, .sub_hi_ok
+        inc     h
+    .sub_hi_ok:
         ld      a, (hl)                  // a = kind of the route slot c owns
         cp      b
         jr      nz, .sub_next            // different kind -> skip
@@ -1601,9 +1625,9 @@ section sound_sfx (cpu: z80) {
         ld      hl, SfxSlotRoute
         add     a, l
         ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a
+        jr      nc, .subroute_hi_ok
+        inc     h
+    .subroute_hi_ok:
         ld      d, (hl)                  // d = the slot's owned physical route
         ld      a, c                     // a = chosen slot
         or      a                        // CARRY CLEAR -> success
@@ -1626,9 +1650,9 @@ section sound_sfx (cpu: z80) {
         ld      hl, SfxSlotKind
         add     a, l
         ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a
+        jr      nc, .steal_hi_ok
+        inc     h
+    .steal_hi_ok:
         ld      a, (hl)                  // a = slot's kind (build-time composition)
         pop     hl                       // restore (best slot,best prio)
         cp      b
@@ -1673,9 +1697,9 @@ section sound_sfx (cpu: z80) {
         ld      hl, SfxSlotRoute
         add     a, l
         ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a
+        jr      nc, .victim_hi_ok
+        inc     h
+    .victim_hi_ok:
         ld      d, (hl)                  // d = the victim slot's owned physical route
         pop     af                       // a = victim slot (chosen)
         or      a                        // CARRY CLEAR -> success
