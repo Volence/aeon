@@ -71,14 +71,14 @@ ROM `s4.bin` crc `3add2a69` / 413224 B — matches `golden/provenance.toml` tip 
 
 **Files:** `sigil/crates/sigil-harness/src/seam1.rs`, `sigil/crates/sigil-cli/tests/{seam1_native_link,boot_port,tranche23_spelling_probes}.rs`, the five `aeon/engine/sound/*.emp` section headers
 
-- [ ] **Step 1:** Replace the base lookup in `native_blob_doctored` (`seam1.rs:400-411`) with a running cursor: `sec.vma_base = Some(cursor); sec.lma = blob_lma(debug) + cursor; cursor += emitted_span;`. Soundness: Z80 section sizes are base-independent (intra-section `jr` relaxation is relative; cross-module refs are 3-byte absolute `call nn`), so one pass converges — no fixpoint needed.
-- [ ] **Step 2:** Resolve the `handler_symbols` coupling (`seam1.rs:379-395`): it currently reads the sequencer base from `seq.vma_plain` *specifically to avoid* lowering the driver (the `:366-373` comment says so — lowering pulls `DacSampleTable` through `seam2::sound_layout` and re-enters the chain). Fix: lower the driver for **size only** with a placeholder `DacSampleTable` (a Z80 16-bit immediate; instruction length is value-independent). This is the one piece of real engineering in the task.
-- [ ] **Step 3:** Delete `vma_plain`/`vma_debug` from `FileSpec` (`seam1.rs:78-79`) and the ten values at `:92-121`.
-- [ ] **Step 4:** Demote `BLOB_LEN_PLAIN`/`BLOB_LEN_DEBUG` (`seam1.rs:27,29`) from build input to a **tripwire assert** — keep them as "the reclaim moved the number I expected" checks, now safe because they no longer participate in placement. Update to the current values.
-- [ ] **Step 5:** Un-hardcode / update the three test constants: `seam1_native_link.rs:141` (the `0x0565..0x0CD7` handler window — derive it or widen it), `boot_port.rs:101-102`, `tranche23_spelling_probes.rs:135,139`.
-- [ ] **Step 6:** Delete the now-provably-dead `vma:` attributes from the five `.emp` section headers, or (if the frontend requires the attribute) leave them and add a comment naming seam1.rs as the authority. **Do not leave them stating stale numbers.**
-- [ ] **Step 7:** Rebuild sigil; rebuild both Aeon shapes. **Acceptance: byte-identical blobs to the Task-1 baseline** (this task is a pure refactor of *how* addresses are computed, not what they are). `SIGIL_STRICT_GATE=1 AEON_DIR=... cargo test --workspace` green.
-- [ ] **Step 8:** Commit (sigil + aeon, two commits, cross-referenced).
+- [x] **Step 1:** Replace the base lookup in `native_blob_doctored` (`seam1.rs:400-411`) with a running cursor: `sec.vma_base = Some(cursor); sec.lma = blob_lma(debug) + cursor; cursor += emitted_span;`. Soundness: Z80 section sizes are base-independent (intra-section `jr` relaxation is relative; cross-module refs are 3-byte absolute `call nn`), so one pass converges — no fixpoint needed.
+- [x] **Step 2:** Resolve the `handler_symbols` coupling (`seam1.rs:379-395`): it currently reads the sequencer base from `seq.vma_plain` *specifically to avoid* lowering the driver (the `:366-373` comment says so — lowering pulls `DacSampleTable` through `seam2::sound_layout` and re-enters the chain). Fix: lower the driver for **size only** with a placeholder `DacSampleTable` (a Z80 16-bit immediate; instruction length is value-independent). This is the one piece of real engineering in the task.
+- [x] **Step 3:** Delete `vma_plain`/`vma_debug` from `FileSpec` (`seam1.rs:78-79`) and the ten values at `:92-121`.
+- [x] **Step 4:** Demote `BLOB_LEN_PLAIN`/`BLOB_LEN_DEBUG` (`seam1.rs:27,29`) from build input to a **tripwire assert** — keep them as "the reclaim moved the number I expected" checks, now safe because they no longer participate in placement. Update to the current values.
+- [x] **Step 5:** Un-hardcode / update the three test constants: `seam1_native_link.rs:141` (the `0x0565..0x0CD7` handler window — derive it or widen it), `boot_port.rs:101-102`, `tranche23_spelling_probes.rs:135,139`.
+- [x] **Step 6:** Delete the now-provably-dead `vma:` attributes from the five `.emp` section headers, or (if the frontend requires the attribute) leave them and add a comment naming seam1.rs as the authority. **Do not leave them stating stale numbers.**
+- [x] **Step 7:** Rebuild sigil; rebuild both Aeon shapes. **Acceptance: byte-identical blobs to the Task-1 baseline** (this task is a pure refactor of *how* addresses are computed, not what they are). `SIGIL_STRICT_GATE=1 AEON_DIR=... cargo test --workspace` green.
+- [x] **Step 8:** Commit (sigil + aeon, two commits, cross-referenced).
 
 ### Task 3: `pad_to_cycles` dense mode — the H3 enabler
 
@@ -117,10 +117,34 @@ Lands **before** the size work, per the review's ordering: refactoring around kn
 
 **Files:** `engine/sound/{z80_sound_driver,sound_sfx,sound_psg,sound_sequencer,sound_fm,sound_constants}.emp`, `tools/{gen_sound_tables,sfx_transcode}.py`
 
-- [ ] **Step 1:** 4.1 — replace `ld (SND_SFX_QUEUE_CNT), a` with `call Sfx_StopAll` (3 B either way). Verified safe: `Sfx_StopAll` (`sound_sfx.emp:1312-1337`) clears SfxChannel `SCF_ACTIVE`+`sx_priority` ×7, QUEUE_CNT, both duck bytes, and **returns `a`=0** (`xor a` at `:1331`) so `:205-213`'s stores run unchanged; `clobbers(af,bc,de,hl,ix)` ⊂ Init's set; `sp` is set at `:153`, pre-`ei` at `:245`. Add a comment noting it RMWs garbage `sc_flags` on SeqChannels (harmless while `SND_SEQ_ACTIVE=0`/`CHCOUNT=0`). Fix the header comment "over the idle program" → "instead of".
-- [ ] **Step 2:** 4.2 through 4.7 — one commit each, each with the reachability argument in the message.
-- [ ] **Step 3:** 4.8 + 4.9 — generator/transcoder asserts. Confirm they FAIL on a deliberately bad input before accepting them (a build-time assert that cannot fire is not a net).
-- [ ] **Step 4:** Rebuild both shapes; record the headroom ledger (expect DEBUG ≈ 66 B). Strict suite green.
+**PHASE 1 COMPLETE (2026-08-03).** Actual +28 B (plan said +20). Blob 6172→6200 plain,
+6298→6326 debug; DEBUG headroom 86→58 B. Deviations, all deliberate:
+
+- **4.1 site moved, and it mattered.** `Sfx_StopAll` clobbers `de`, and `de` holds `$4001`
+  (the YM part-I DATA port) as a DRIVER-LIFETIME invariant. At the review's site — below
+  `ld de, SND_Z80_YM_A1` — the call would have left `de = 68`, pointing every steady-state
+  `ld (de),a` DAC write at Z80 RAM `$0044`. Call moved ABOVE the `ld de`, ordering
+  constraint commented at the site. Still ±0 B.
+- **4.6 (FM 11) is +4, not +2, and NOT the review's fix.** "Source `$B4` from `sc_pan`"
+  would be a regression: `sc_pan` is the raw `$B4` byte and `0` means "never panned, keep
+  the patch default", so it would write `$00` (both outputs off) and silence every unpanned
+  channel. Correct fix is the pan-shadow resync (`sc_last_pan = 0`) that `Sfx_Restore`
+  already uses after its own patch re-upload.
+- **4.7 (PSG M5) is +11, not +5.** Took the both-cases clamp (negative AND exact-zero)
+  rather than the negative-only test, because negative-only is exactly the defect being
+  fixed in 4.4 one commit earlier. Re-shipping that shape to save 6 B is a bad trade in a
+  parcel handing back ~250.
+- **Both build-time nets proven to fire** (poisoned vol-env exits 1; the transcoder
+  validator raises on `Detune` and `PsgNoise`, passes a clean stream). An assert never seen
+  to fail is not yet a net.
+- **Incidental fix:** `gen_sound_tables.py` generated INTO its already-opened output, so a
+  validation failure truncated the tracked `sound_tables_z80.emp` to empty — a failed
+  generate was silently destructive. Content is now built before the file is opened.
+
+- [x] **Step 1:** 4.1 — replace `ld (SND_SFX_QUEUE_CNT), a` with `call Sfx_StopAll` (3 B either way). Verified safe: `Sfx_StopAll` (`sound_sfx.emp:1312-1337`) clears SfxChannel `SCF_ACTIVE`+`sx_priority` ×7, QUEUE_CNT, both duck bytes, and **returns `a`=0** (`xor a` at `:1331`) so `:205-213`'s stores run unchanged; `clobbers(af,bc,de,hl,ix)` ⊂ Init's set; `sp` is set at `:153`, pre-`ei` at `:245`. Add a comment noting it RMWs garbage `sc_flags` on SeqChannels (harmless while `SND_SEQ_ACTIVE=0`/`CHCOUNT=0`). Fix the header comment "over the idle program" → "instead of".
+- [x] **Step 2:** 4.2 through 4.7 — one commit each, each with the reachability argument in the message.
+- [x] **Step 3:** 4.8 + 4.9 — generator/transcoder asserts. Confirm they FAIL on a deliberately bad input before accepting them (a build-time assert that cannot fire is not a net).
+- [x] **Step 4:** Rebuild both shapes; headroom ledger recorded (DEBUG 58 B, not 66 — see deviations).
 
 ---
 
