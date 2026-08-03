@@ -1019,15 +1019,21 @@ section z80_sound_driver (cpu: z80) {
 
         // Clear the sequencer header + channel block FIRST (before the load setup
         // below), so the SND_SEQ_PATCHTAB + base it writes are NOT zeroed by it.
+        // LDIR self-propagating wipe: seed byte 0, then copy it forward over the
+        // remaining N-1 bytes. Same region, same value, one byte smaller than the
+        // hand-rolled `dec bc / ld a,b / or c / jr nz` loop it replaces — and about
+        // HALF the cycles (~27.7k -> ~13.9k for this ~660-byte block, 21 T/byte vs
+        // 42). Those cycles are not free perf: this runs inside the VBlank ISR's
+        // mailbox service, and the 68k's Sound_PlayMusic spins on MUSIC_SLOT == 0
+        // waiting for it, so halving the wipe directly shortens that await_slot spin.
+        // de is clobbered here (it was not before) — already inside this proc's
+        // declared clobbers, and de = $4001 is re-established by both return paths
+        // (SndDrv_ISR pops it; SndDrv_TimerATick reloads it).
         ld      hl, SND_SEQ_BASE
-        ld      bc, SND_SEQ_END-SND_SEQ_BASE
-    .seq_clr:
-        ld      (hl), 0
-        inc     hl
-        dec     bc
-        ld      a, b
-        or      c
-        jr      nz, .seq_clr
+        ld      de, SND_SEQ_BASE+1
+        ld      bc, SND_SEQ_END-SND_SEQ_BASE-1
+        ld      (hl), 0                 // seed the first byte; ldir smears it forward
+        ldir
 
         // B1/B2 banking: record this song's bank for the per-frame bracket. Seed the
         // sample bank to it too — but ONLY when no DAC sample is in flight. A music
