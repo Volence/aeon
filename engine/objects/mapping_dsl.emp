@@ -33,10 +33,7 @@ pub struct MapFrame1 {
 // A centered single-piece frame: bbox = (-half, +half) each axis, the piece
 // offset to center (y_off/x_off = -half). w/h are cell counts (8px); tile is the
 // base tile index. The size byte is the VDP packing: (w-1) in bits 3:2,
-// (h-1) in bits 1:0 (sprites.emp:468 and hardware agree). NOTE: the retired AS
-// sprSize macro had w/h SWAPPED (the 2026-06 latent finding) and the swap was
-// faithfully ported here — corrected 2026-08-02; latent-only because every
-// caller to date passes square pieces (byte-identical fix, CRC-proven).
+// (h-1) in bits 1:0 (sprites.emp:468 and hardware agree).
 pub comptime fn centered(half: int, w: int where 1..4, h: int where 1..4, tile: int) -> MapFrame1 {
     return MapFrame1{
         x_min: -half,
@@ -53,3 +50,9 @@ pub comptime fn centered(half: int, w: int where 1..4, h: int where 1..4, tile: 
         },
     }
 }
+
+// A non-square witness locks the packing orientation: every live caller is
+// square (where the swap is invisible), so this is the one guard that makes a
+// width/height transposition a build error instead of a CRC-silent latent bug.
+ensure(centered(half: 8, w: 2, h: 1, tile: 0).piece.size == 0b0100,
+       "sprSize must pack (w-1) in bits 3:2 and (h-1) in bits 1:0")

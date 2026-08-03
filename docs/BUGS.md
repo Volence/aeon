@@ -29,12 +29,18 @@ the sprite table could be dumped (the artifact frame could not be re-frozen).
 the wrong entry for one frame if `d5`/`a4` skew (e.g. a `DrawRings` path that moves
 one without the other), or a multisprite sibling-walk piece-count edge on a specific
 pose transition. Both would extend the chain into stale entries for exactly one frame
-— matching the observed single-frame ghost.
+— matching the observed single-frame ghost. Concrete probe target: the band-cap path
+(`sprites.emp` `.band_limit_pop`, ~line 463) reaches `.done` SKIPPING the `DrawRings`
+call the normal band-exit runs — the one named site where the `a4`/`d5` provenance at
+`.done` differs from the common path (`DrawRings` is contracted `out(d5, a4)`, so a
+skew there requires an internal bug — but this is where to look first).
 
 **Next step (its own session):** replay-based screenshot burst through pose
 transitions with ring-emission active, or a DEBUG assert that walks the finished
 chain and traps if the link path length ≠ `Sprites_Rendered` (the cheap net: catches
-the frame in the act with the builder's registers live).
+the frame in the act with the builder's registers live). Scope note: the assert
+proves link==count CONSISTENCY — it catches the named skew class, not a bug that
+advances both in lockstep to an over-count (a different class than this ghost).
 
 ---
 
@@ -227,7 +233,12 @@ The BACKGROUND planes render garbage tiles over a red backdrop. Sprites (player)
 > (`Section_Plane_Dirty`, `Section_Top_Row_Written` / `Section_Bottom_Row_Written`,
 > `Section_Left_Col_Written` / `Section_Right_Col_Written`, `Section_Fwd_Neighbor_Data` /
 > `Section_Bwd_Neighbor_Data`). Read the two addresses above as "whatever streaming-progress cell
-> occupied that offset at capture time," not as live symbol names.
+> occupied that offset at capture time," not as live symbol names. The same reading applies to the
+> rest of this frozen record: capture-era paths (`ram.asm:28` — today `engine/ram.emp`) and the
+> in-record suspect annotations are historical. In particular the `Decomp_Buffer`-aliases-cache
+> "Strong suspect" bullets are SUPERSEDED by the reclassification banner above — the alias is
+> `Art_Staging_Buffer: alias(Tile_Cache_Nametable)` today, init-only/display-off, structurally
+> retired as a suspect.
 
 - **`Tile_Cache_Nametable` (RAM $FF0000): BLANK — uniform tile-0 entries (`1000 0000` repeating).** The RAM-side
   section nametable cache holds no real art. (NOTE: `Decomp_Buffer` *aliases* `Tile_Cache_Nametable`,
