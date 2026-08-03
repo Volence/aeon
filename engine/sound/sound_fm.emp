@@ -893,10 +893,9 @@ section sound_fm (cpu: z80) {
     pub proc Fm_NoteOnFreqExact () clobbers(af, bc, de, hl) {
         // Write $A4 then $A0 (no key-on yet) via the shared Fm_WriteFreq head. It
         // re-parks $2A at the end, harmless before the key-on below. de (the fnum
-        // word) is reloaded after for the base-freq latch.
-        push    de                       // save the split fnum bytes across the writes
-        call    Fm_WriteFreq             // $A4 then $A0 (Fm_ScratchPart/Ch set inside)
-        pop     de                       // e = $A0 val, d = $A4 val (for the latch below)
+        // word) survives the call by contract — Fm_WriteFreq declares
+        // preserves(de, hl) — so it is still live for the base-freq latch below.
+        call    Fm_WriteFreq             // $A4 then $A0 (de intact on return)
 
         // --- latch the unmodulated note word for the vibrato renderer (spec §5) AND
         // per-note pitch-mod re-arm. Music + SFX FM both latch now.
