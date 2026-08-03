@@ -98,6 +98,14 @@ const Fm_ScratchOp   = SND_FM_SCRATCH + 4    // op index 0..3 (Fm_PatchTlGroup)
 ensure(Fm_ScratchOp - SND_FM_SCRATCH < SND_FM_SCRATCH_LEN,
        "Fm_Scratch* exceed SND_FM_SCRATCH_LEN")
 
+// The three per-operator write loops (Fm_PatchOpGroup, Fm_PatchTlGroup and
+// Fm_SetVolume's carrier loop) read BOTH part and ch-in-part on every operator,
+// and reach them with ONE `ld hl, Fm_ScratchPart` + `inc hl` instead of two
+// 3-byte pointer loads. That is only the right pair of bytes while the two cells
+// stay adjacent in this order.
+ensure(Fm_ScratchCh == Fm_ScratchPart + 1,
+       "the per-operator loops walk Fm_ScratchPart -> Fm_ScratchCh with one inc hl")
+
 section sound_fm (cpu: z80) {
 
     // ------------------------------------------------------------------
@@ -312,22 +320,19 @@ section sound_fm (cpu: z80) {
         ld      b, 4                     // 4 operators
     .op_loop:
         push    bc                       // save op counter (Fm_YmWrite uses bc)
-        push    de                       // save base+offset accumulator
-        // reg = base + (op*4) + ch
+        // reg = base + (op*4) + ch. de needs NO bracket: nothing between here and
+        // the tail writes d or e, and Fm_YmWrite preserves de.
         ld      a, d                     // base
         add     a, e                     // + op*4
-        push    hl
-        ld      hl, Fm_ScratchCh
-        add     a, (hl)                  // + ch-in-part
-        pop     hl
-        ld      c, (hl)                  // data = patch[op]
-        inc     hl                       // advance patch ptr
-        push    hl
+        ld      c, (hl)                  // data = patch[op] (read while hl is still
+        inc     hl                       //   the patch ptr) + advance
+        push    hl                       // ONE bracket covers BOTH scratch reads
         ld      hl, Fm_ScratchPart
         ld      b, (hl)                  // b = part
+        inc     hl                       // -> Fm_ScratchCh (adjacent; ensure at top)
+        add     a, (hl)                  // + ch-in-part -> a = the YM register
         pop     hl
         call    Fm_YmWrite               // a=reg, c=data, b=part
-        pop     de
         ld      a, e
         add     a, 4
         ld      e, a                     // op offset += 4
@@ -412,10 +417,10 @@ section sound_fm (cpu: z80) {
         ld      a, d                     // $40 base
         add     a, e                     // + op*4
         push    hl
-        ld      hl, Fm_ScratchCh
-        add     a, (hl)                  // + ch-in-part
         ld      hl, Fm_ScratchPart
         ld      b, (hl)                  // b = part
+        inc     hl                       // -> Fm_ScratchCh (adjacent; ensure at top)
+        add     a, (hl)                  // + ch-in-part
         pop     hl
         call    Fm_YmWrite               // a=reg, c=data, b=part
         pop     de
@@ -609,10 +614,10 @@ section sound_fm (cpu: z80) {
         ld      a, SND_REG_OP_TL
         add     a, e                     // + op*4
         push    hl
-        ld      hl, Fm_ScratchCh
-        add     a, (hl)                  // a = reg = $40 + op*4 + ch
         ld      hl, Fm_ScratchPart
         ld      b, (hl)                  // b = part
+        inc     hl                       // -> Fm_ScratchCh (adjacent; ensure at top)
+        add     a, (hl)                  // a = reg = $40 + op*4 + ch
         pop     hl
         call    Fm_YmWrite               // a=reg, c=data, b=part
     .skip_op:
