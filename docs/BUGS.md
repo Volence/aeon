@@ -5,6 +5,18 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## FIXED — G10 — move_lock permafreeze on solid-object landing — 2026-08-03
+
+A slip-locked player (move_lock set by the S3K slip nudge) who landed on a solid
+object kept frozen input forever: Player_SlopeRepel (the normal decrementer) is
+bypassed by Ground_PostMove's on-object exit, and nothing else ticked the lock.
+Fixed on parcel/bug005-sprites-player (`a8e2b5b` + comment follow-ups): the
+on-object exit now ticks the lock (memory-direct form — the register form trips
+a sigil relaxation oscillation at the player_ground/player_air section boundary).
+Grounded-frame-only semantics preserved (airborne stays frozen by design).
+
+---
+
 ## BUG-005 — one-frame stray Sonic sprite piece ("second face") — OPEN-INSTRUMENTED, minor
 
 **Status:** OPEN-INSTRUMENTED. **Severity:** low (single-frame visual flicker, no state corruption).
