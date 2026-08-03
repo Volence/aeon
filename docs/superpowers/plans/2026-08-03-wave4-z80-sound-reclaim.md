@@ -152,7 +152,26 @@ Lands **before** the size work, per the review's ordering: refactoring around kn
 
 Ordered SFX-first because the table eviction (5.1) defuses a page-boundary landmine that would otherwise constrain everything downstream.
 
-### Task 5: SFX size batch (≈ −112 B)
+### Task 5: SFX size batch — LANDED −59 B (est. −112)
+
+**5.1 (evict the lookup tables to the banked window) is DROPPED.** Investigated twice.
+The Rust-side symbol registration is trivial, but the task's precondition — "append a sixth
+head without disturbing the existing pins" — is FALSE, proven by bytes: the five head
+artifacts concatenate to exactly `$607` and `s4.bin[$58607..]` is byte-identical to
+`mt_bank_body.bin` from byte 0, so there is zero slack. `seam2::sound_layout` computes
+`mt_bank_lma` as a bare unaligned running cursor, and `pins.rs` chains the whole ROM tail
+off the head length (`SOUNDBANKHEAD $607` → `MT_BANK_BLOB $58607` → `SFX_BANK_BLOB $5BAE8`
+→ `OBJECT_TEST_STATE $5C230`), so a sixth head moves **8 pinned regions** — and `mt_port.rs`
+hardcodes three of those as literals that `repin` would not fix. Cost is also far beyond
+"register a symbol": a new banked `.emp` module, a new seam-2 emitter, a new `SoundLayout`
+field, an artifact write, an embed + size ensure. For **36 B** (it is four tables now, not
+three — `SfxSlotKind` from 5.5 joined them). Not worth destabilising the bank layout.
+Consequences already absorbed: 5.5 paid 7 resident bytes it would otherwise have saved, and
+5.6 took its documented address-independent fallback.
+
+Original estimates and outcomes below.
+
+### Task 5 (original): SFX size batch (≈ −112 B)
 
 | # | Item | Anchor | Δ |
 |---|---|---|---|
@@ -252,7 +271,28 @@ Per `sigil/crates/sigil-harness/golden/ab/AB_PROTOCOL.md`. Sound needs a **sound
 
 ---
 
-## Projected ledger
+## MEASURED ledger (updated 2026-08-03, through Task 8 + Task 3)
+
+| phase | est. | **MEASURED** | blob (plain/DEBUG) |
+|---|---|---|---|
+| baseline | — | — | 6172 / 6298 |
+| Phase 1 (7 bug fixes) | +20 | **+28** | 6200 / 6326 |
+| Task 5 SFX | −112 | **−59** (5.1 dropped) | 6141 / 6267 |
+| Task 6 driver core | −63 | **−67** | 6074 / 6200 |
+| Task 7 FM | −70 | **−89** | — |
+| Task 8 PSG | −23 | **−31** | 5954 / 6080 |
+| Task 3 dense pads (sigil) | −13 | **−13** | 5941 / 6067 |
+| **NET** | −261 | **−231** | **5941 / 6067** |
+
+**DEBUG headroom 86 B → 317 B.** Plain 212 B → 443 B. The review's stated goal was to
+"roughly triple" the 86 B; this is 3.7x, with all seven defects fixed and paid for.
+
+Deviations of substance: 5.1 dropped (see Task 5 header); the `Psg_SetVolume` fold reorder
+REJECTED by enumeration (517,440 mismatches — see Task 8); plan item 7.7's transform
+measures exactly zero and was replaced; the −5 B `DacSampleTable` variant's page-alignment
+premise was false (`$85AD`).
+
+## Projected ledger (original estimates, kept for the record)
 
 | phase | Δ plain/DEBUG |
 |---|---|
