@@ -1397,82 +1397,95 @@ section sound_sfx (cpu: z80) {
     }
 
     // ======================================================================
-    // SfxEligTable — per-physical-route eligibility (CHROUTE_* -> SFXEL_*), the
-    // build-time data that drives runtime voice substitution (spec §4). FM1/FM2/FM6/
-    // DAC are SFXEL_NONE (lead/bass/DAC never stolen); FM3/4/5 = SFXEL_FM; PSG1/2/3 =
-    // SFXEL_PSG; PSGN = SFXEL_NOISE. The transcoder already rejects reserved-route
-    // SFX at build time; this table is what Sfx_SelectVoice consults at RUNTIME to
-    // find a same-kind free voice (FM<->FM, PSG<->PSG dynamic substitution). Opening
-    // FM6 to SFX later for DAC-off songs is a one-byte edit here (design-for-C).
-    // ======================================================================
-    pub proc SfxEligTable () clobbers() {
-        dc.b    SFXEL_NONE   // CHROUTE_FM1  (0) — lead, never stolen
-        dc.b    SFXEL_NONE   // CHROUTE_FM2  (1) — bass, never stolen
-        dc.b    SFXEL_FM     // CHROUTE_FM3  (2)
-        dc.b    SFXEL_FM     // CHROUTE_FM4  (3)
-        dc.b    SFXEL_FM     // CHROUTE_FM5  (4)
-        dc.b    SFXEL_NONE   // CHROUTE_FM6  (5) — reserved v1 (DAC / DAC-off FM)
-        dc.b    SFXEL_PSG    // CHROUTE_PSG1 (6)
-        dc.b    SFXEL_PSG    // CHROUTE_PSG2 (7)
-        dc.b    SFXEL_PSG    // CHROUTE_PSG3 (8)
-        dc.b    SFXEL_NOISE  // CHROUTE_PSGN (9)
-        dc.b    SFXEL_NONE   // CHROUTE_DAC  (10) — DAC trigger channel, never stolen
-    }
-    // Length drift guard — RHS-ONLY (the literal 11 is the AUTHORED row count, hand-
-    // kept). It checks only that the constant CHROUTE_COUNT still equals the authored
-    // count; it cannot catch an added `db` row, because `.emp` has no data-proc
-    // emitted-length introspection (the `sizeof`/end-label ask — gap-ledgered). A row
-    // added here is caught by the whole-ROM byte gate, not this ensure. (The fm
-    // RegDeltaGroupBase / dac_sample_tab RHS-only precedent.)
-    ensure(11 == CHROUTE_COUNT, "SfxEligTable length must equal CHROUTE_COUNT")
-
-    // ======================================================================
-    // SfxRouteSlot — per-physical-route SfxChannel SLOT index (CHROUTE_* -> 0..6, or
-    // SFX_SLOT_NONE for non-stealable routes). The 7 SfxChannel slots map 1:1 onto
-    // the 7 stealable physical voices (FM3,FM4,FM5,PSG1,PSG2,PSG3,PSGN), so a slot
-    // PERMANENTLY owns its physical voice — "is this physical voice free" reduces to
-    // "is SfxChannel[SfxRouteSlot[route]] SCF_ACTIVE clear", and a slot's sc_route is
-    // always its own physical route. This makes Sfx_SelectVoice tiers (a) "preferred
-    // route busy?" and (b) "any free same-kind voice?" direct slot lookups (no
-    // multiply). Non-stealable routes ($FF) are never passed here (the transcoder
-    // rejects them; the eligibility table also gates them out).
+    // THE SFX VOICE MAP — authored ONCE as two comptime arrays, emitted FOUR ways.
     //
+    // Everything the allocator knows about which physical voices an SFX may take,
+    // and which SfxChannel slot owns each of them, comes from the two `const`
+    // arrays below. The emitted tables are projections of those arrays, so the
+    // relationships between the tables are facts of construction rather than
+    // things a future editor has to remember. In particular SfxSlotKind — the
+    // table this rewrite exists to add — is DERIVED, so it cannot disagree with
+    // SfxEligTable/SfxSlotRoute the way a hand-authored fourth table would.
+    //
+    // Editing note: opening FM6 to SFX for DAC-off songs is still a ONE-cell edit
+    // (SFX_ELIG[5]), and it now propagates into SfxSlotKind automatically.
+    // ======================================================================
+
+    // Per-physical-route eligibility (CHROUTE_* -> SFXEL_*), spec §4. FM1/FM2/FM6/
+    // DAC are SFXEL_NONE (lead/bass/DAC never stolen); FM3/4/5 = SFXEL_FM;
+    // PSG1/2/3 = SFXEL_PSG; PSGN = SFXEL_NOISE. The transcoder already rejects
+    // reserved-route SFX at build time; this is what the allocator consults at
+    // RUNTIME to find a same-kind free voice (FM<->FM, PSG<->PSG substitution).
+    const SFX_ELIG: [u8; CHROUTE_COUNT] = [
+        SFXEL_NONE,   // CHROUTE_FM1  (0) — lead, never stolen
+        SFXEL_NONE,   // CHROUTE_FM2  (1) — bass, never stolen
+        SFXEL_FM,     // CHROUTE_FM3  (2)
+        SFXEL_FM,     // CHROUTE_FM4  (3)
+        SFXEL_FM,     // CHROUTE_FM5  (4)
+        SFXEL_NONE,   // CHROUTE_FM6  (5) — reserved v1 (DAC / DAC-off FM)
+        SFXEL_PSG,    // CHROUTE_PSG1 (6)
+        SFXEL_PSG,    // CHROUTE_PSG2 (7)
+        SFXEL_PSG,    // CHROUTE_PSG3 (8)
+        SFXEL_NOISE,  // CHROUTE_PSGN (9)
+        SFXEL_NONE    // CHROUTE_DAC  (10) — DAC trigger channel, never stolen
+    ]
+
+    // Per-physical-route SfxChannel SLOT index (CHROUTE_* -> 0..6, or
+    // SFX_SLOT_NONE for non-stealable routes). The 7 SfxChannel slots map 1:1 onto
+    // the 7 stealable physical voices, so a slot PERMANENTLY owns its physical
+    // voice — "is this physical voice free" reduces to "is
+    // SfxChannel[SfxRouteSlot[route]] SCF_ACTIVE clear", and a slot's sc_route is
+    // always its own physical route. That is what makes the allocator's tier (a)
+    // "preferred route busy?" a direct slot lookup with no multiply. Non-stealable
+    // routes ($FF) are never passed here (the transcoder rejects them; the
+    // eligibility table also gates them out).
+    const SFX_ROUTE_SLOT: [u8; CHROUTE_COUNT] = [
+        SFX_SLOT_NONE, // CHROUTE_FM1  (0)
+        SFX_SLOT_NONE, // CHROUTE_FM2  (1)
+        0,             // CHROUTE_FM3  (2) -> slot 0
+        1,             // CHROUTE_FM4  (3) -> slot 1
+        2,             // CHROUTE_FM5  (4) -> slot 2
+        SFX_SLOT_NONE, // CHROUTE_FM6  (5)
+        3,             // CHROUTE_PSG1 (6) -> slot 3
+        4,             // CHROUTE_PSG2 (7) -> slot 4
+        5,             // CHROUTE_PSG3 (8) -> slot 5
+        6,             // CHROUTE_PSGN (9) -> slot 6
+        SFX_SLOT_NONE  // CHROUTE_DAC  (10)
+    ]
+
+    // The inverse map: SfxChannel slot index (0..6) -> its permanently-owned
+    // physical route.
     //   slot 0 = FM3 (route 2)   slot 3 = PSG1 (route 6)
     //   slot 1 = FM4 (route 3)   slot 4 = PSG2 (route 7)
     //   slot 2 = FM5 (route 4)   slot 5 = PSG3 (route 8)
     //                            slot 6 = PSGN (route 9)
-    // ======================================================================
-    pub proc SfxRouteSlot () clobbers() {
-        dc.b    SFX_SLOT_NONE // CHROUTE_FM1  (0)
-        dc.b    SFX_SLOT_NONE // CHROUTE_FM2  (1)
-        dc.b    0             // CHROUTE_FM3  (2) -> slot 0
-        dc.b    1             // CHROUTE_FM4  (3) -> slot 1
-        dc.b    2             // CHROUTE_FM5  (4) -> slot 2
-        dc.b    SFX_SLOT_NONE // CHROUTE_FM6  (5)
-        dc.b    3             // CHROUTE_PSG1 (6) -> slot 3
-        dc.b    4             // CHROUTE_PSG2 (7) -> slot 4
-        dc.b    5             // CHROUTE_PSG3 (8) -> slot 5
-        dc.b    6             // CHROUTE_PSGN (9) -> slot 6
-        dc.b    SFX_SLOT_NONE // CHROUTE_DAC  (10)
-    }
-    ensure(11 == CHROUTE_COUNT, "SfxRouteSlot length must equal CHROUTE_COUNT")
+    const SFX_SLOT_ROUTE: [u8; SFX_VOICE_COUNT] = [
+        CHROUTE_FM3,  // slot 0
+        CHROUTE_FM4,  // slot 1
+        CHROUTE_FM5,  // slot 2
+        CHROUTE_PSG1, // slot 3
+        CHROUTE_PSG2, // slot 4
+        CHROUTE_PSG3, // slot 5
+        CHROUTE_PSGN  // slot 6
+    ]
 
-    // ======================================================================
-    // SfxSlotRoute — inverse of SfxRouteSlot: SfxChannel slot index (0..6) -> its
-    // permanently-owned physical route (CHROUTE_*). Used by Sfx_SelectVoice's
-    // same-kind scan + priority-steal to recover the physical route a chosen slot
-    // owns (so the incoming SFX is steered onto a free voice it didn't author).
-    // ======================================================================
-    pub proc SfxSlotRoute () clobbers() {
-        dc.b    CHROUTE_FM3   // slot 0
-        dc.b    CHROUTE_FM4   // slot 1
-        dc.b    CHROUTE_FM5   // slot 2
-        dc.b    CHROUTE_PSG1  // slot 3
-        dc.b    CHROUTE_PSG2  // slot 4
-        dc.b    CHROUTE_PSG3  // slot 5
-        dc.b    CHROUTE_PSGN  // slot 6
-    }
-    ensure(7 == SFX_VOICE_COUNT, "SfxSlotRoute length must equal SFX_VOICE_COUNT")
+    // --- the emitted tables ------------------------------------------------
+    pub data SfxEligTable: [u8; CHROUTE_COUNT] = SFX_ELIG
+    pub data SfxRouteSlot: [u8; CHROUTE_COUNT] = SFX_ROUTE_SLOT
+    pub data SfxSlotRoute: [u8; SFX_VOICE_COUNT] = SFX_SLOT_ROUTE
+
+    // SfxSlotKind (S2) — slot index (0..6) -> the SFXEL_* kind of the route that
+    // slot owns. This is the composition SfxEligTable[SfxSlotRoute[slot]], which
+    // Sfx_SelectVoice previously walked at RUNTIME, twice, once per allocator
+    // tier: two table-address computations and two indexed loads to answer a
+    // question whose answer is fixed at build time. Folding the composition here
+    // costs 7 resident bytes and removes 10 bytes from each of the two chases.
+    //
+    // DERIVED, NOT AUTHORED: writing the seven values by hand would introduce a
+    // fourth table that could silently disagree with the other three after a
+    // route/slot edit — exactly the drift the comptime projection makes
+    // impossible.
+    pub data SfxSlotKind: [u8; SFX_VOICE_COUNT] = comptime for i in 0..SFX_VOICE_COUNT { SFX_ELIG[SFX_SLOT_ROUTE[i]] }
 
     // ======================================================================
     // Sfx_SlotPtr — resolve an SfxChannel slot index (in `a`, 0..6) to its RAM ptr
@@ -1563,24 +1576,19 @@ section sound_sfx (cpu: z80) {
 
     .substitute:
         // --- TIER (b): first FREE slot of the SAME kind (b) on its OWNED route. ---
-        // Scan slots 0..6: kind = SfxEligTable[SfxSlotRoute[slot]] == b AND free.
+        // Scan slots 0..6: kind = SfxSlotKind[slot] == b AND free. (SfxSlotKind IS
+        // the build-time composition SfxEligTable[SfxSlotRoute[slot]] this used to
+        // chase at runtime.)
         ld      c, 0                     // c = slot index cursor (0..6)
     .sub_loop:
         ld      a, c
-        ld      hl, SfxSlotRoute
+        ld      hl, SfxSlotKind
         add     a, l
         ld      l, a
         ld      a, 0
         adc     a, h
         ld      h, a
-        ld      a, (hl)                  // a = route owned by slot c
-        ld      hl, SfxEligTable
-        add     a, l
-        ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a
-        ld      a, (hl)                  // a = SfxEligTable[route] = slot's kind
+        ld      a, (hl)                  // a = kind of the route slot c owns
         cp      b
         jr      nz, .sub_next            // different kind -> skip
         // same kind: is this slot free?
@@ -1615,20 +1623,13 @@ section sound_sfx (cpu: z80) {
     .steal_loop:
         ld      a, c
         push    hl                       // preserve (best slot,best prio) across the lookup
-        ld      hl, SfxSlotRoute
+        ld      hl, SfxSlotKind
         add     a, l
         ld      l, a
         ld      a, 0
         adc     a, h
         ld      h, a
-        ld      a, (hl)                  // a = route owned by slot c
-        ld      hl, SfxEligTable
-        add     a, l
-        ld      l, a
-        ld      a, 0
-        adc     a, h
-        ld      h, a
-        ld      a, (hl)                  // a = slot's kind
+        ld      a, (hl)                  // a = slot's kind (build-time composition)
         pop     hl                       // restore (best slot,best prio)
         cp      b
         jr      nz, .steal_next          // different kind -> ignore
