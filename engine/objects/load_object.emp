@@ -72,11 +72,13 @@ pub proc Load_Object (a1: *u8, d0: u16, d1: u16, d2: u16) clobbers(d0-d1/d3, a2,
         move.l  #$FF000000, Sst.prev_anim:l(a1)
         move.b  #$FF, Sst.prev_frame(a1)
 
-        // --- initial sprite_piece_count from mappings frame 0 ---
+        // --- initial sprite_piece_count + frame_off from mappings frame 0 ---
         move.l  Sst.mappings(a1), d3
-        beq     .no_piece_count
+        beq     .no_piece_count             // null mappings: frame_off stays 0
+                                            // (fresh slots are zeroed at release)
         movea.l d3, a3
         move.w  (a3), d3                    // offset to frame 0 data
+        move.w  d3, Sst.frame_off(a1)       // H1 cache: seed from entry-0 word
         frame_piece_count(a3, d3, d3)       // d3 = piece-count word from frame 0
         move.b  d3, Sst.sprite_piece_count(a1)
     .no_piece_count:

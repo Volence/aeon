@@ -29,7 +29,8 @@ pub comptime fn frame_piece_count(base: Reg, off: Reg, dest: Reg) -> Code {
     return asm { move.w FRAME_PIECE_COUNT({base}, {off}.w), {dest} }
 }
 
-// refresh_piece_count — recompute an SST's cached sprite_piece_count from the
+// refresh_piece_count — recompute an SST's cached sprite_piece_count AND
+// cached frame-data offset (Sst.frame_off, the H1 render cache) from the
 // frame its `mappings`/`mapping_frame` currently name.
 //
 // The engine needs this in two places that do NOT share a proc: the animator
@@ -46,7 +47,9 @@ pub comptime fn frame_piece_count(base: Reg, off: Reg, dest: Reg) -> Code {
 //   scratch — scratch data register; the frame offset, then the count (Dn)
 //
 // A null `mappings` leaves `sprite_piece_count` untouched (a slot with no
-// mappings draws nothing, so a stale count cannot be observed).
+// mappings draws nothing, so a stale count cannot be observed) but writes 0
+// to `frame_off` — the render consumers guard on mappings before adding the
+// cache, so the zero is a defined default, never a dangling offset.
 pub comptime fn refresh_piece_count(sst: Reg, ptr: Reg, scratch: Reg) -> Code {
     return asm {
         movea.l Sst.mappings({sst}), {ptr}
@@ -56,10 +59,14 @@ pub comptime fn refresh_piece_count(sst: Reg, ptr: Reg, scratch: Reg) -> Code {
         move.b  Sst.mapping_frame({sst}), {scratch}
         add.w   {scratch}, {scratch}             // frame index -> word offset
         move.w  ({ptr},{scratch}.w), {scratch}   // offset to this frame's data
+        move.w  {scratch}, Sst.frame_off({sst})  // H1 cache: frame-data offset
         // frame header: 4 signed bbox bytes (FRAME_BBOX_*), then the
         // piece-count word at FRAME_PIECE_COUNT, then pieces at FRAME_PIECES
         move.w  FRAME_PIECE_COUNT({ptr}, {scratch}.w), {scratch}
         move.b  {scratch}, Sst.sprite_piece_count({sst})
+        jbra    .rpc_done
     .no_mappings:
+        clr.w   Sst.frame_off({sst})             // defined default for the H1 cache
+    .rpc_done:
     }
 }

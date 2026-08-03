@@ -77,11 +77,7 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         bne   .screen_coords          // screen-relative objects are always on-screen
 
         // --- Resolve current frame for its precomputed bbox ---
-        moveq   #0, d0
-        move.b  Sst.mapping_frame(a0), d0
-        add.w   d0, d0                  // d0 = frame * 2 (word offset table)
-        move.w  (a1,d0.w), d0          // d0 = word offset to frame data
-        lea     (a1,d0.w), a1          // a1 = frame data (bbox at +0)
+        adda.w  Sst.frame_off(a0), a1   // a1 = frame data (bbox at +0) — H1 cache
 
         // --- Exact X cull ---
         // screen_x = SST_x_pos - Camera_X (origin screen position)
@@ -272,12 +268,17 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         move.l  a3, d0
         beq   .next_object
 
-        // Get frame offset from mapping table
-        moveq   #0, d0
-        move.b  Sst.mapping_frame(a0), d0  // d0 = frame index
-        add.w   d0, d0                     // d0 = frame * 2 (word offset table)
-        move.w  (a3,d0.w), d0             // d0 = word offset to frame data
-        lea     (a3,d0.w), a3             // a3 = pointer to frame data (bbox at +0)
+        // Get frame offset from the H1 cache (d0/d1 both dead here: next reads
+        // load them fresh at .budget_ok / the flip mask below)
+        if DEBUG == 1 {
+        moveq   #0, d0                  // H1 staleness net: live-resolve and
+        move.b  Sst.mapping_frame(a0), d0   // compare against the cache
+        add.w   d0, d0
+        move.w  (a3,d0.w), d0
+        move.w  Sst.frame_off(a0), d1
+        assert.w d1, eq, d0
+        }
+        adda.w  Sst.frame_off(a0), a3      // a3 = frame data (bbox at +0) — H1 cache
 
         // Piece count is at FRAME_PIECE_COUNT (+4), pieces start at FRAME_PIECES (+6)
         move.w  FRAME_PIECE_COUNT(a3), d4  // d4 = piece count
@@ -358,7 +359,11 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
 
         movea.w d0, a0                  // a0 = current child SST
 
-        // Read child's mappings; index using PARENT's mapping_frame (semantic C)
+        // Read child's mappings; index using PARENT's mapping_frame (semantic C).
+        // DELIBERATELY LIVE-RESOLVED, not the H1 frame_off cache: the child's
+        // frame is a function of the PARENT's mapping_frame, so a per-child
+        // cached offset would go stale the moment the parent animates (and the
+        // parent's own frame_off indexes the PARENT's table, not the child's).
         move.l  Sst.mappings(a0), d1
         beq   .sibling_advance
         movea.l d1, a3

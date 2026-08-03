@@ -1,4 +1,4 @@
-// The spawn-template structs — Sst (the live $50-byte object record) and
+// The spawn-template structs — Sst (the live $52-byte object record) and
 // ObjDef (its compact 26-byte ROM source image). Both are TYPE-ONLY twins:
 // this module emits ZERO bytes (no section, no placement). Sst gives object
 // code typed field access (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on
@@ -10,7 +10,7 @@
 // the gated player/test header equates) reads the same offsets.
 //
 // Sst's field offsets are pinned in-file: every field carries an `@` literal
-// offset and the struct a `(size: $50)` — the layout engine verifies both, so
+// offset and the struct a `(size: $52)` — the layout engine verifies both, so
 // a drifted field fails the module's own lowering. ObjDef is pinned to Sst by
 // the burst-copy ensure-chain (below).
 //
@@ -22,7 +22,7 @@ module engine.objects.sst
 
 use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame}
 
-pub struct Sst (size: $50) {
+pub struct Sst (size: $52) {
     // --- dispatch + position ------------------------------------------------
     // The first word IS the dispatch: the object executor jumps to
     // ObjCodeBase + code_addr each frame (0 = empty slot, the bank's safety
@@ -65,17 +65,28 @@ pub struct Sst (size: $50) {
 
     // --- per-object custom data ----------------------------------------------
     sst_custom: [u8; 34] @ $2E,   // $2E-$4F — overlay window (`vars X: sst_custom`)
+
+    // --- engine render cache (past the custom window) ------------------------
+    frame_off: u16 @ $50,         // $50 — cached word offset from mappings base to
+                                  //       current frame data (H1). MUST be refreshed
+                                  //       on every mapping_frame/mappings write. The
+                                  //       sibling walk does NOT use it: a multisprite
+                                  //       child's frame is a function of the PARENT's
+                                  //       mapping_frame, so a per-child cache would
+                                  //       go stale when the parent animates.
 }
 
 // SST_interact ($4E): the tail word of the custom window, engine-owned for the
 // TouchResponse lifecycle (the solid that claimed a PLAYER slot this pass) — NOT
-// a Sst struct field, so it can't be reached by field name. `sizeof(Sst) - 2` is
-// the record's tail word; the build harvests the same value as the AS SST_interact
-// equ. Spelled as a comptime fn because a bare const in displacement position on a
-// TYPED register is (correctly) closed to the field namespace — the call-expr form
-// is the escape (collision + player_sensors consume it).
+// a Sst struct field, so it can't be reached by field name. NOT `sizeof(Sst) - 2`
+// anymore: the record's tail is now the engine's frame_off cache ($50), so the
+// custom window's tail word is the word immediately BELOW frame_off. The build
+// harvests the same value as the AS SST_interact equ. Spelled as a comptime fn
+// because a bare const in displacement position on a TYPED register is (correctly)
+// closed to the field namespace — the call-expr form is the escape (collision +
+// player_sensors consume it).
 pub comptime fn interact_off() -> int {
-    return sizeof(Sst) - 2
+    return offsetof(Sst, frame_off) - 2
 }
 
 // -----------------------------------------------

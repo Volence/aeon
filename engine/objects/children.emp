@@ -76,15 +76,18 @@ pub struct SpawnDesc (size: 4) {
 }
 
 // -----------------------------------------------
-// PopulateSpawnedPieceCount — refresh sprite_piece_count for newly-spawned
-// SST in a2. Called from each CreateChild_*/CreateEffect_* site after
-// mappings have been inherited. Direct-alloc path that bypasses Load_Object.
+// PopulateSpawnedPieceCount — refresh sprite_piece_count + the frame_off H1
+// cache for newly-spawned SST in a2. Called from each CreateChild_*/
+// CreateEffect_* site after mappings have been inherited. Direct-alloc path
+// that bypasses Load_Object.
 //
 // In:  a2 = newly-spawned SST — `mappings` must already be inherited.
 //      `mapping_frame` is read as-is: every creator here spawns into a
 //      freshly-zeroed slot, so it is ALWAYS frame 0 at this point (no call
-//      site sets it). A null `mappings` leaves the field untouched.
-// Out: Sst.sprite_piece_count(a2) populated from that frame's header
+//      site sets it). A null `mappings` leaves sprite_piece_count untouched
+//      (frame_off is written 0 — the template's defined default).
+// Out: Sst.sprite_piece_count(a2) + Sst.frame_off(a2) populated from that
+//      frame's header
 // Clobbers: d0 — dead at all eight call sites (the six creators below re-load
 //           it at the top of their next iteration; test_churn.asm:45 and
 //           test_stress_emitter.asm:29 write it immediately after the call)

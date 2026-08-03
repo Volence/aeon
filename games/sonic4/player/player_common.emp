@@ -229,7 +229,7 @@ pub proc Player_RefreshPhysics () clobbers(a1-a2) {
 // -----------------------------------------------
 pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display {
         // press bits read ONCE for the frame — d6 survives the debug toggle
-        // calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2) and feeds both
+        // calls (DebugEnter clobbers d2/a1, DebugExit d0-d2/a1-a2) and feeds both
         // the B-toggle and the jump-buffer latch
         move.b  Ctrl_1_Press, d6
         // --- debug-fly toggle (B press) ---
@@ -754,15 +754,16 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
 // PSTATE_AIR with velocities cleared. The art/size writes here are the one
 // tolerated exception to the hook one-writer rule (outside the state machine).
 // -----------------------------------------------
-// In:  a0 = player SST.  Clobbers: none
-pub proc Player_DebugEnter (a0: *Sst) clobbers() {
+// In:  a0 = player SST.  Clobbers: d2, a1 (RefreshSpritePieceCount)
+pub proc Player_DebugEnter (a0: *Sst) clobbers(d2/a1) {
         st      PlayerV.debug_flag(a0)
         move.l  #Map_TestObj, mappings(a0)
         move.w  #vram_art(VRAM_TEST_MARKER, 1, 1), art_tile(a0) // PlayerMarkerTile
         move.b  #16, width_pixels(a0)
         move.b  #16, height_pixels(a0)
-        move.b  #1, sprite_piece_count(a0)      // debug path skips AnimateSprite's refresh
         clr.b   mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // debug path skips AnimateSprite's refresh:
+                                                // re-cache piece count + frame_off here
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         clr.w   PlayerV.ground_speed(a0)
@@ -776,6 +777,9 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // standing radii until the AIR frame lands and hooks take over
         set_standing_size(a0)
         clr.b   mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // prev_anim=$FF forces a refresh NEXT
+                                                // frame, but a render can run before
+                                                // that — re-cache now (d2/a1 in our set)
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
         clr.w   x_vel(a0)
