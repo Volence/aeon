@@ -384,6 +384,16 @@ section sound_sequencer (cpu: z80) {
         ld      a, d
         sbc     a, 0
         ld      h, a                    // hl = current - rate
+        // B1: UNDERFLOW SNAPS TOO. If the rate exceeds the current divisor the
+        // 16-bit subtract borrows and hl wraps to $FFxx — which the overshoot test
+        // below then reads as "still WAY above target" and stores, so the glide
+        // keeps running downward through wrapped space for up to ~65536/rate more
+        // frames at a garbage pitch. The borrow is already sitting in CF from the
+        // `sbc` above and was simply never tested. Reachable: PsgDivisorTableZ ships
+        // its top 13 entries as $0001, so any glide-down rate > 1 from a top-octave
+        // note wraps on the FIRST step. (The FM path is shielded by
+        // Fm_FnumApplyDelta's own clamp.)
+        jr      c, .psg_snap            // borrowed -> underflowed past the floor
         // overshoot? new <= target -> snap
         ld      a, (ix+sc_base_freq)
         cp      h
