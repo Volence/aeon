@@ -9,16 +9,17 @@
 // music channel. Assembled INLINE inside the z80_sound_driver.emp `phase 0` blob
 // (AFTER sound_sequencer.emp — whose ModUpdate/Sequencer_Channel this REUSES —
 // and BEFORE sound_fm.emp/sound_psg.emp — whose writers it CALLS). Its labels
-// resolve into Z80 RAM at base $0CD7 (plain).
+// resolve into Z80 RAM at a base DERIVED by seam-1 from the driver's and
+// sequencer's emitted spans (this section declares no `vma:`).
 //
 // The CANONICAL, only source (no .asm twin). Native-linked via seam-1
 // (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
 // the whole-ROM byte gate proves both shapes.
 //
 // --- SHAPE VARIANCE: the PSG CASE (shape-VARIANT base, shape-INVARIANT body) ----
-// Base is $0CD7 (plain) / $0D55 (debug) — a +$7E shift from the sequencer's own 16
-// internal `if DEBUG == 1` blocks that PRECEDE this window. sfx has NO internal
-// debug blocks of its own, so its window length is 1516 B ($5EC) in BOTH shapes;
+// The debug base sits +$7E above the plain one — the sequencer's own 16 internal
+// `if DEBUG == 1` blocks PRECEDE this window. sfx has NO internal
+// debug blocks of its own, so its window length is identical in BOTH shapes;
 // the shapes differ only in the base embedded in internal jp/call targets + the
 // +$7E-shifted fm/psg external call targets (the two sequencer procs ModUpdate/
 // Sequencer_Channel + the two driver procs SndDrv_SetBank/Snd_RouteClassFlags
@@ -70,7 +71,7 @@ use engine.sound_fm.{Fm_PatchLoad, Fm_NoteOff, Fm_SetVolume, Fm_PatchPtr, Fm_Not
 use engine.sound_psg.{Psg_NoteOff, Psg_SetVolume, Psg_NoteOn, Psg_Noise}
 use engine.z80_sound_driver.{SndDrv_SetBank, Snd_RouteClassFlags}
 
-section sound_sfx (cpu: z80, vma: $0CD7) {
+section sound_sfx (cpu: z80) {
 
     // SFX_SLOT_NONE = 255 ($FF) — route not mapped to any SfxChannel slot.
     const SFX_SLOT_NONE = 255

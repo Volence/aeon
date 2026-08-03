@@ -5,8 +5,9 @@
 // trust surface goes to ZERO (Mod_ReArm/Mod_Advance, the last two declaration-
 // trusted externs, are DEFINED + CHECKED here). Assembled INLINE inside the
 // z80_sound_driver.emp `phase 0` blob (linked after SndDrv_SetBank, before
-// sound_sfx.emp). Its labels
-// resolve into Z80 RAM at base $0565 (shape-INVARIANT). Hardware-AGNOSTIC: it
+// sound_sfx.emp). Its labels resolve into Z80 RAM at a base DERIVED by seam-1
+// from the driver's emitted span (shape-INVARIANT, since only the
+// shape-invariant driver precedes it). Hardware-AGNOSTIC: it
 // walks the per-channel byte streams, counts durations, handles loops, and
 // DISPATCHES musical events to the FM/PSG/DAC writer hooks. Under DEBUG the trace
 // ring fires independently.
@@ -16,12 +17,15 @@
 // the whole-ROM byte gate proves both shapes.
 //
 // --- SHAPE VARIANCE: the FIRST resident Z80 CODE file with INTERNAL __DEBUG__ ---
-// Base is $0565 in BOTH shapes (invariant). Unlike psg/fm (shape-invariant
-// bodies, only the base shifts), the sequencer's OWN body is shape-VARIANT: the
-// debug shape carries 16 `if DEBUG == 1` blocks (the Seq_Trace body + 15 scattered
-// `call Seq_Trace` sites in the handlers), for +$7E = 126 bytes (plain window
-// $0565..$0CD7 = 1906 B; debug $0565..$0D55 = 2032 B). This +$7E internal growth
-// is the upstream growth that shifts psg's base $1660->$16DE in the debug shape.
+// The base is identical in BOTH shapes (only the driver precedes it, and the
+// driver is shape-invariant). Unlike psg/fm (shape-invariant bodies, only the
+// base shifts), the sequencer's OWN body is shape-VARIANT: the debug shape
+// carries 16 `if DEBUG == 1` blocks (the Seq_Trace body + 15 scattered
+// `call Seq_Trace` sites in the handlers), for +$7E = 126 bytes. That internal
+// growth is what pushes sfx/fm/psg to higher bases in the debug shape.
+// Bases themselves are DERIVED by seam-1 from a running cursor over the
+// preceding modules' emitted spans — no section here declares a `vma:`, and no
+// base address is written down in either repo.
 // This file carries the `if DEBUG == 1 { … }` bodies directly — one source, both
 // shapes.
 //
@@ -78,7 +82,7 @@ use engine.sound_psg.{Psg_SetVolume, Psg_NoteOn, Psg_NoteOff, Psg_Noise, Psg_App
     Psg_EmitDivisor, Psg_SilenceAll, PsgVolEnv_Resolve, FmVolEnv_Resolve}
 use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup}
 
-section sound_sequencer (cpu: z80, vma: $0565) {
+section sound_sequencer (cpu: z80) {
 
     // ----------------------------------------------------------------------
     // Sequencer_Frame — the PER-FRAME engine (Phase 3). Runs ONCE per Timer-A

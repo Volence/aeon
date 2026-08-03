@@ -12,11 +12,15 @@
 //
 // The CANONICAL, only source (no .asm twin). Native-linked via seam-1
 // (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
-// the whole-ROM byte gate proves both shapes. The phase-0 window is SHAPE-VARIANT:
-// base $1660 (plain) vs $16DE (debug), because the upstream driver/sequencer/sfx/fm
-// includes grow under __DEBUG__ before psg. psg's OWN layout is shape-invariant (no
-// __DEBUG__ here), so the two shapes differ only in the absolute base embedded in
-// the internal call/jp targets + the external symbol values — seam-1 links both.
+// the whole-ROM byte gate proves both shapes. This section declares NO `vma:` —
+// seam-1 DERIVES every resident base from a running cursor over the preceding
+// modules' emitted spans (sigil `seam1::place_resident_sections`), so no base
+// address is written down anywhere and a size change cannot leave a stale pin.
+// The phase-0 window is still SHAPE-VARIANT: psg sits lower in the plain shape
+// than in the debug shape, because the upstream driver/sequencer/sfx/fm grow under
+// __DEBUG__ before psg. psg's OWN layout is shape-invariant (no __DEBUG__ here),
+// so the two shapes differ only in the absolute base embedded in the internal
+// call/jp targets + the external symbol values — seam-1 links both.
 //
 // --- PSG PORT + COEXISTENCE WITH THE 1B DAC LOOP --------------------------
 // The PSG is a single write port at $7F11 (SND_Z80_PSG). Every write is a plain
@@ -86,7 +90,7 @@ module engine.sound_psg (cpu: z80, invariant: preserves(ix))
 use engine.sound_fm.{Snd_ChanClass}
 use engine.sound_sequencer.{Mod_ReArm, Mod_Advance}
 
-section sound_psg (cpu: z80, vma: $1660) {
+section sound_psg (cpu: z80) {
 
     // ------------------------------------------------------------------
     // Psg_HwCh — derive the hardware tone-channel index (0..2) from sc_route.

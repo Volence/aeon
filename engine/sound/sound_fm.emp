@@ -12,9 +12,11 @@
 //
 // The CANONICAL, only source (no .asm twin). Native-linked via seam-1
 // (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
-// the whole-ROM byte gate proves both shapes. The phase-0 window is SHAPE-VARIANT:
-// base $12C3 (plain)
-// vs $1341 (debug), because the upstream driver/sequencer/sfx includes grow
+// the whole-ROM byte gate proves both shapes. This section declares NO `vma:` —
+// seam-1 DERIVES every resident base from a running cursor over the preceding
+// modules' emitted spans, so no base address is written down anywhere and a size
+// change cannot leave a stale pin. The phase-0 window is still SHAPE-VARIANT: fm
+// sits lower in the plain shape, because the upstream driver/sequencer/sfx grow
 // under __DEBUG__ before fm. fm's OWN layout is shape-invariant (no __DEBUG__
 // here), so the two shapes differ only in the absolute base embedded in the
 // internal call/jp targets — the oracle proves both. Unlike psg, fm's external
@@ -96,7 +98,7 @@ const Fm_ScratchOp   = SND_FM_SCRATCH + 4    // op index 0..3 (Fm_PatchTlGroup)
 ensure(Fm_ScratchOp - SND_FM_SCRATCH < SND_FM_SCRATCH_LEN,
        "Fm_Scratch* exceed SND_FM_SCRATCH_LEN")
 
-section sound_fm (cpu: z80, vma: $12C3) {
+section sound_fm (cpu: z80) {
 
     // ------------------------------------------------------------------
     // Fm_YmWrite — write one YM2612 register, ABSOLUTE addressing (de untouched).

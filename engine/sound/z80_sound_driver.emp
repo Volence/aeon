@@ -5,17 +5,19 @@
 // The TOP of the sound stack and the LAST Z80 CODE file — the CANONICAL, only
 // source (no .asm twin). Assembled INLINE inside the 68k ROM at `phase 0`: this
 // file DEFINES the blob origin ($0000) every downstream sound file's base is
-// measured from. Its own window is blob offset $0000..$0565 (1381 B). Native-
-// linked via seam-1 (emit_sound_blob): the five sound `.emp` files link as one
-// Z80 module set and the whole-ROM byte gate proves both shapes.
+// measured from — seam-1 derives each later module's base from a running cursor
+// over the preceding spans, so no section here declares a `vma:` and no base
+// address is written down. Native-linked via seam-1 (emit_sound_blob): the five
+// sound `.emp` files link as one Z80 module set and the whole-ROM byte gate
+// proves both shapes.
 //
 // --- SHAPE VARIANCE: same SIZE both shapes, but NOT byte-identical -----------
 // The driver has ZERO internal __DEBUG__ content, so its own code is
-// shape-invariant in SIZE (1381 B) and POSITION ($0000) in BOTH shapes. But it
+// shape-invariant in SIZE and POSITION ($0000, the origin) in BOTH shapes. But it
 // is NOT byte-identical across shapes: five `call` sites target callees that
 // live AFTER the sequencer's +$7E debug growth (Sequencer_StopAll / Sfx_StopAll /
 // SfxDispatch all shift +$7E in the debug shape), so those call operands differ
-// plain vs debug. Sequencer_Frame ($0565, the sequencer base) is the one
+// plain vs debug. Sequencer_Frame (immediately after the driver) is the one
 // shape-INVARIANT external target. seam-1 therefore links each shape at its own
 // per-shape addresses and gates BOTH shapes (the two blobs are NOT equal bytes).
 //
@@ -99,13 +101,13 @@
 module engine.z80_sound_driver (cpu: z80)
 
 // The cross-file resident callees this driver calls, resolved by import.
-// Sequencer_Frame is the only shape-invariant target ($0565); the other three
+// Sequencer_Frame is the only shape-invariant target; the other three
 // shift +$7E in the debug shape. SndDrv_IdleTick relies on Sequencer_Frame
 // preserving iy (its definition clobbers af/bc/de/hl/ix — iy untouched).
 use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll}
 use engine.sound_sfx.{Sfx_StopAll, SfxDispatch}
 
-section z80_sound_driver (cpu: z80, vma: $0000) {
+section z80_sound_driver (cpu: z80) {
 
     // --- reset vector + IM1 VBlank vector --------------------------------
     // $0000: jump over the vector region into init. The Genesis asserts the Z80
