@@ -190,9 +190,12 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         btst    #ST_ON_OBJECT, status(a0)
         beq     .terrain
         clr.b   angle(a0)
-        // G10: Player_SlopeRepel (the sole lock decrementer) is bypassed on this
-        // exit — without a tick here, a slip-locked player landing on a solid
-        // object keeps frozen input forever (only jump escapes).
+        // G10: Player_SlopeRepel (the normal lock decrementer) is bypassed on
+        // this exit — without a tick here, a slip-locked player landing on a
+        // solid object keeps frozen input forever (only jump escapes).
+        // Grounded-frame tick ONLY — airborne must stay frozen (do not hoist
+        // to Player_Main). Memory-direct form on purpose: the register form
+        // trips a sigil relaxation oscillation at this section boundary (G10).
         tst.w   PlayerV.move_lock(a0)
         beq     .lock_done
         subq.w  #1, PlayerV.move_lock(a0)
@@ -256,7 +259,8 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
 // -----------------------------------------------
 // Player_SlopeRepel — S3K slip/detach (research physics-classics §7
 // "S3K slip rework", feel-modern §1 Slopes). Runs ONLY via the grounded
-// fall-through above. move_lock semantics: the lock ticks down HERE —
+// fall-through above. move_lock semantics: the lock ticks down HERE (and on
+// Ground_PostMove's on-object exit, which bypasses this proc — G10) —
 // grounded frames only, frozen while airborne; while nonzero the slip
 // check is skipped entirely this frame (Ground_Move separately skips
 // INPUT — friction and slope factor still run).
