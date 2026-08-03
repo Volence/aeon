@@ -69,6 +69,9 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // gate is down held + |gsp| < PHYS_ROLL_START_MIN — the same
         // threshold that separates duck from roll in S3K. At rolling
         // speed the press falls through to the jump check instead. ---
+        // NOTE: deliberately not move_lock-gated — the trigger needs a
+        // down-hold + jump press; the lock freezes directional response,
+        // not this (review S4, self-resolving).
         btst    #BUTTON_DOWN_BIT, Ctrl_1_Held
         beq     .no_spindash
         tst.b   Player_JumpBuffer
@@ -187,6 +190,13 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         btst    #ST_ON_OBJECT, status(a0)
         beq     .terrain
         clr.b   angle(a0)
+        // G10: Player_SlopeRepel (the sole lock decrementer) is bypassed on this
+        // exit — without a tick here, a slip-locked player landing on a solid
+        // object keeps frozen input forever (only jump escapes).
+        tst.w   PlayerV.move_lock(a0)
+        beq     .lock_done
+        subq.w  #1, PlayerV.move_lock(a0)
+.lock_done:
         rts
 .terrain:
 
