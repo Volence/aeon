@@ -15,6 +15,18 @@ on-object exit now ticks the lock (memory-direct form — the register form trip
 a sigil relaxation oscillation at the player_ground/player_air section boundary).
 Grounded-frame-only semantics preserved (airborne stays frozen by design).
 
+**CONFIRMED IN-EMULATOR 2026-08-03** (previously review-proven only). Repro
+recipe, invariant-safe — do NOT poke `Camera_X/Y` to get there, that trips
+entity_window's single-axis slide assert: boot DEBUG, stay in debug-fly (the OJZ
+scroll test boots into it — 16px box, `height_pixels` $10), fly to the Sec1
+`TestSolid` at world (2304, 176) so the entity window spawns it legitimately
+(`emulator_object_list` confirms), fly ~80px above it, press B once to toggle
+back to Sonic (`height_pixels` $27), let him land. With `status` = $20
+(ST_ON_OBJECT) held throughout, poking `PlayerV.move_lock` = 30 then advancing
+frames gives 30 -> 20 (10 frames) -> 0 (25 more), i.e. exactly 1/frame, floored
+at 0. Pre-fix this path never ticked, so the value would have stayed at 30
+indefinitely.
+
 ---
 
 ## BUG-005 — one-frame stray Sonic sprite piece ("second face") — OPEN-INSTRUMENTED, minor
