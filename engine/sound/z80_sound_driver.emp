@@ -1148,7 +1148,11 @@ section z80_sound_driver (cpu: z80) {
         ld      a, (SND_SEQ_CHCOUNT)
         ld      c, a                    // restore c = channel count (add iy clobbered bc)
     .chan_init:
-        push    bc                      // preserve channel counter
+        // NO push/pop bc bracket around this body: c (the channel counter) survives
+        // it by CONTRACT, not by luck. The body's only call, Snd_RouteClassFlags,
+        // declares preserves(bc,de,hl,ix,iy) — so the checker proves the save dead —
+        // and nothing else in the body writes b or c (every scratch here goes through
+        // a/de/hl/ix/iy).
         // route byte.
         ld      a, (iy+SHC_ROUTE)
         ld      (ix+sc_route), a
@@ -1229,7 +1233,6 @@ section z80_sound_driver (cpu: z80) {
         add     iy, de
         ld      de, SeqChannel_len
         add     ix, de
-        pop     bc
         dec     c
         jp      nz, .chan_init          // jr out-ranged when loop body > 127B; jp is safe
 
