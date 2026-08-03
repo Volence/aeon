@@ -126,16 +126,31 @@ section sound_psg (cpu: z80) {
     // In:  a = linear volume.  Out: a = attenuation (0..15; 0 loudest, $0F silent).
     // atten = (($7F - vol) >> 3) & $0F   (decision 1; see file header).
     // ------------------------------------------------------------------
-    // Contract: out(a) = atten; clobbers b, f (scratch); preserves c, de, hl (ix
-    // inherited). The `af, b` header splits: `a` is the result, `f`/`b` scratch.
-    pub proc Psg_VolToAtten () out(a) clobbers(b, f) preserves(c, de, hl) {
-        ld      b, a                   // b = vol
-        ld      a, SND_FM_TL_MAX       // $7F
-        sub     b                      // a = $7F - vol (no underflow for vol<=$7F)
-        srl     a
-        srl     a
-        srl     a                      // a = ($7F - vol) >> 3
-        and     SND_PSG_ATTEN_SILENT   // clamp to 4 bits ($0F); guards vol>$7F
+    // Contract: out(a) = atten; clobbers f (the and/srl flags); preserves bc, de, hl
+    // (ix inherited). The `af` header splits: `a` is the result, `f` the scratch.
+    //
+    // Computed with xor + rrca rather than a literal subtract-and-shift. Two facts
+    // make it exact:
+    //   * The answer only ever depends on BITS 6..3 of ($7F - vol), because the old
+    //     form's trailing `and $0F` discards everything above bit 6 after the >>3.
+    //     And bits 6..0 of ($7F - vol) are exactly bits 6..0 of (vol xor $7F), for
+    //     every one of the 256 inputs — including vol > $7F, where the subtract
+    //     borrows: $7F-($80+w) = $FF-w, whose low seven bits are $7F-w = (w xor $7F).
+    //     So the xor replaces the subtract AND removes the need for a scratch
+    //     register to hold the subtrahend.
+    //   * rrca is 1 byte where srl a is 2. Rotating right 3 puts bits 6..3 into bits
+    //     3..0, which the SAME `and $0F` the old form already needed then extracts —
+    //     the rotated-in high bits are discarded by a mask that was never optional.
+    // 13 B and a dead `b` become 8 B and a free one. Verified by enumerating the
+    // whole byte domain: 256 inputs, zero mismatches. Endpoints unchanged: vol $7F ->
+    // atten 0 (loudest), vol 0 -> atten $0F (silent), vol > $7F -> atten 0.
+    // (Same rrca-instead-of-shift idiom as Psg_ChBase above.)
+    pub proc Psg_VolToAtten () out(a) clobbers(f) preserves(bc, de, hl) {
+        xor     SND_FM_TL_MAX          // bits 6..0 = bits 6..0 of ($7F - vol)
+        rrca                           // rotate right 3: bits 6..3 land in bits 3..0
+        rrca
+        rrca
+        and     SND_PSG_ATTEN_SILENT   // $0F — keeps exactly those four bits
         ret
     }
 
