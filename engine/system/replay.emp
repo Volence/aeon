@@ -2,12 +2,94 @@
 module engine.replay in replay
 
 use engine.constants.{INPUT_PLAYBACK, INPUT_RECORD, REPLAY_ESCAPE, REPLAY_OP_CHECK, REPLAY_CHECK_MASK, REPLAY_RECORD_TICKS, BUTTON_START_BIT}
-use engine.objects.sst.{Sst}
+use engine.objects.sst.{Sst, interact_off}
 
-// The Player_1 hash span in LONGS: the $50 pre-frame_off bytes. The frame_off
-// tail word ($50-$51) is a derived render cache, excluded from the gameplay
-// hash — and sizeof(Sst) = $52 is not long-divisible anyway.
-const PLAYER_HASH_LONGS = (sizeof(Sst) - 2) / 4
+// -----------------------------------------------
+// The Player_1 hash map — ADDRESS-FREE BY CONSTRUCTION.
+//
+// The hash covers Player_1's gameplay state, and ONLY the fields whose value is
+// not an address. Every ROM pointer and every RAM pointer in the SST is skipped,
+// so two builds that differ only in WHERE things landed (any parcel that shifts
+// ROM addresses, any RAM-layout change) hash a behaviour-identical tick to the
+// SAME value. That is the property a RECORDED fixture needs to survive a parcel:
+// the old whole-SST hash was build-shape specific, which invalidated every
+// recorded checkpoint on address-shifting-but-behaviour-neutral work.
+//
+//   hashed   $02..$0D  x_pos, y_pos, x_vel, y_vel                    3 longs
+//            $0E..$0F  render_flags, collision_resp                  word fold
+//            $14..$17  art_tile, width_pixels, height_pixels         1 long
+//            $18..$19  anim, subtype                                 word fold
+//            $1E..$25  status, angle, prev_anim, anim_frame,
+//                      anim_timer, mapping_frame, prev_frame,
+//                      sprite_piece_count                            2 longs
+//            $2A..$2D  slot_tag, entity_section_id,
+//                      entity_list_index, layer                      1 long
+//            $2E..$4D  sst_custom — the PlayerV overlay              8 longs
+//            $4E..$4F  interact — the engine's TouchResponse claim    word fold
+//
+//   excluded $00 code_addr    ROM address (offset from ObjCodeBase — shifts with
+//                             the object-code bank's layout)
+//            $10 mappings     ROM pointer
+//            $1A anim_table   ROM pointer
+//            $26 parent_ptr   RAM pointer (0 for the player — no coverage lost)
+//            $28 sibling_ptr  RAM pointer (0 for the player — no coverage lost)
+//            $50 frame_off    derived render cache — a pure function of
+//                             mappings + mapping_frame, and itself a ROM-relative
+//                             offset (excluded before this change too)
+//
+// CONTRACT: every field inside a hashed span MUST be address-free. Adding a
+// pointer field to the SST is fine; moving one INTO a span is not. The ensures
+// below pin each excluded field's offset AND the total byte accounting, so any
+// reshuffle that would silently re-poison the hash fails the BUILD instead.
+// Fix the map (add a new span / a new fold); never widen a span over a pointer.
+//
+// Span bases are link-time (the extern-equ-sum idiom); span lengths are comptime
+// and derived from the BOUNDING EXCLUDED field, so they track the struct.
+// -----------------------------------------------
+equ HASH_P1_MOTION  = extern("Player_1") + offsetof(Sst, x_pos)         // $02
+equ HASH_P1_RENDER  = extern("Player_1") + offsetof(Sst, render_flags)  // $0E (word)
+equ HASH_P1_DISPLAY = extern("Player_1") + offsetof(Sst, art_tile)      // $14
+equ HASH_P1_ANIMSUB = extern("Player_1") + offsetof(Sst, anim)          // $18 (word)
+equ HASH_P1_ANIM    = extern("Player_1") + offsetof(Sst, status)        // $1E
+equ HASH_P1_ENTITY  = extern("Player_1") + offsetof(Sst, slot_tag)      // $2A
+equ HASH_P1_CUSTOM  = extern("Player_1") + offsetof(Sst, sst_custom)    // $2E
+equ HASH_P1_INTERACT = extern("Player_1") + interact_off()              // $4E (word)
+
+const HASH_P1_MOTION_LONGS  = (offsetof(Sst, render_flags) - offsetof(Sst, x_pos)) / 4
+const HASH_P1_DISPLAY_LONGS = (offsetof(Sst, anim)         - offsetof(Sst, art_tile)) / 4
+const HASH_P1_ANIM_LONGS    = (offsetof(Sst, parent_ptr)   - offsetof(Sst, status)) / 4
+const HASH_P1_ENTITY_LONGS  = (offsetof(Sst, sst_custom)   - offsetof(Sst, slot_tag)) / 4
+const HASH_P1_CUSTOM_LONGS  = (interact_off()              - offsetof(Sst, sst_custom)) / 4
+
+// Excluded-offset pins: a struct reshuffle that moves a pointer field trips one
+// of these by name, so the failure says WHICH pointer moved.
+ensure(offsetof(Sst, code_addr)   == $00, "Sst.code_addr moved — it is a ROM-relative address EXCLUDED from Replay_Hash; re-cut the hash map")
+ensure(offsetof(Sst, mappings)    == $10, "Sst.mappings moved — ROM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
+ensure(offsetof(Sst, anim_table)  == $1A, "Sst.anim_table moved — ROM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
+ensure(offsetof(Sst, parent_ptr)  == $26, "Sst.parent_ptr moved — RAM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
+ensure(offsetof(Sst, sibling_ptr) == $28, "Sst.sibling_ptr moved — RAM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
+ensure(offsetof(Sst, frame_off)   == $50, "Sst.frame_off moved — derived ROM-relative cache EXCLUDED from Replay_Hash; re-cut the hash map")
+
+// Span integrity: every span base must be even (move.l/move.w would otherwise
+// address-error), and every long span long-divisible.
+ensure(offsetof(Sst, x_pos) % 2 == 0 && offsetof(Sst, art_tile) % 2 == 0 && offsetof(Sst, status) % 2 == 0 && offsetof(Sst, slot_tag) % 2 == 0 && offsetof(Sst, sst_custom) % 2 == 0, "a Replay_Hash long-span base landed odd — move.l would address-error")
+ensure(offsetof(Sst, render_flags) % 2 == 0 && offsetof(Sst, anim) % 2 == 0 && interact_off() % 2 == 0, "a Replay_Hash word-fold base landed odd — move.w would address-error")
+ensure((offsetof(Sst, render_flags) - offsetof(Sst, x_pos)) % 4 == 0, "Replay_Hash motion span ($02..render_flags) is no longer long-divisible — re-cut the hash map")
+ensure((offsetof(Sst, anim) - offsetof(Sst, art_tile)) % 4 == 0, "Replay_Hash display span (art_tile..anim) is no longer long-divisible — re-cut the hash map")
+ensure((offsetof(Sst, parent_ptr) - offsetof(Sst, status)) % 4 == 0, "Replay_Hash anim/status span (status..parent_ptr) is no longer long-divisible — re-cut the hash map")
+ensure((offsetof(Sst, sst_custom) - offsetof(Sst, slot_tag)) % 4 == 0, "Replay_Hash entity span (slot_tag..sst_custom) is no longer long-divisible — re-cut the hash map")
+ensure((interact_off() - offsetof(Sst, sst_custom)) % 4 == 0, "Replay_Hash custom span (sst_custom..interact) is no longer long-divisible — re-cut the hash map")
+
+// Total accounting: hashed bytes + the 16 deliberately-excluded bytes (code_addr 2
+// + mappings 4 + anim_table 4 + parent_ptr 2 + sibling_ptr 2 + frame_off 2) must be
+// the WHOLE record. Any field added to the SST lands in a span (fine, if it is
+// address-free) or outside every span (then this fails, and the map must be
+// re-cut deliberately) — nothing drifts out of the hash unnoticed.
+const HASH_P1_EXCLUDED_BYTES = 2 + 4 + 4 + 2 + 2 + 2   // code_addr, mappings, anim_table, parent_ptr, sibling_ptr, frame_off
+// (the trailing + 6 = the three word folds: render_flags/collision_resp, anim/subtype, interact)
+const HASH_P1_HASHED_BYTES = (HASH_P1_MOTION_LONGS + HASH_P1_DISPLAY_LONGS + HASH_P1_ANIM_LONGS + HASH_P1_ENTITY_LONGS + HASH_P1_CUSTOM_LONGS) * 4 + 6
+ensure(HASH_P1_HASHED_BYTES + HASH_P1_EXCLUDED_BYTES == sizeof(Sst),
+        "Replay_Hash no longer accounts for every SST byte ({HASH_P1_HASHED_BYTES} hashed + {HASH_P1_EXCLUDED_BYTES} excluded != sizeof(Sst)) — a field was added or moved; re-cut the hash map (and keep it address-free)")
 
 // -----------------------------------------------
 // Input_Tick — the ONE replay seam. Called from GameLoop AFTER VSync_Wait (VInt
@@ -156,16 +238,21 @@ pub proc Input_Tick () clobbers(d0-d3/a0-a1) {
 // Replay_Hash — the curated gameplay-state checksum (DEBUG net + recorder).
 // Longword sum + rol #1 over a const (addr, len_longs) table for the longword-
 // clean regions, then word folds for the odd cells:
-//   Logic_Tick (1) · Player_1 SST (20 = (sizeof(Sst)-2)/4 — frame_off tail excluded) ·
+//   Logic_Tick (1) · Player_1's five address-free SST spans (15 longs) ·
 //   Camera_X + Camera_Y (2) ·
 //   Section streaming state (Top+Bottom · Right+Left · Fwd · Bwd) ·
+//   Player_1 render_flags+collision_resp / anim+subtype / interact (words) ·
 //   Dynamic_Live_Count / Dynamic_Free_SP / Effect_Free_SP (words) ·
 //   Section_Plane_Dirty (word).
 // Excludes sound RAM, Ctrl_* cells, VDP staging, DEBUG-only cells — gameplay state
-// only. Player_1's SST carries ROM pointers (code_addr/mappings/anim_table), so the
-// value is build-SHAPE specific; that is harmless because record and playback run on
-// the SAME build, and it is deterministic WITHIN a build (the only property the
-// harness needs). The plan's Slot_Section_Map / Section_Stream_State names do NOT
+// only. The Player_1 coverage is ADDRESS-FREE: every SST field holding a ROM or RAM
+// address is skipped (see the hash-map block at the top of this module for the
+// per-field map, the reasons, and the build-time ensures that keep it honest), so a
+// behaviour-neutral parcel that merely shifts addresses reproduces recorded
+// checkpoint hashes and the committed fixture stays a valid regression net.
+// WARNING: any field added to a hashed span MUST be address-free — a pointer
+// landing inside one silently re-poisons every recorded fixture.
+// The plan's Slot_Section_Map / Section_Stream_State names do NOT
 // exist in engine/ram.emp (the A.4 art-stream state machine was never landed under
 // those labels — they survive only in stale docs); the real section-streaming cells
 // stand in for the intent (cover streaming progress so a stream desync is caught).
@@ -186,7 +273,21 @@ pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
         bne     .hash_fold
         bra     .hash_next
     .hash_wtail:
-        // Odd (non-longword) gameplay words, folded the same way.
+        // Odd (non-longword) gameplay words, folded the same way. The first three
+        // are Player_1 cells stranded between the address-free long spans (the
+        // pointer fields sit between them) — see the hash map at the top.
+        moveq   #0, d1
+        move.w  HASH_P1_RENDER, d1           // render_flags + collision_resp ($0E)
+        rol.l   #1, d0
+        add.l   d1, d0
+        moveq   #0, d1
+        move.w  HASH_P1_ANIMSUB, d1          // anim + subtype ($18)
+        rol.l   #1, d0
+        add.l   d1, d0
+        moveq   #0, d1
+        move.w  HASH_P1_INTERACT, d1         // interact ($4E — sst.emp's interact_off())
+        rol.l   #1, d0
+        add.l   d1, d0
         moveq   #0, d1
         move.w  Dynamic_Live_Count, d1
         rol.l   #1, d0
@@ -209,8 +310,13 @@ pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
     // necessarily 4-aligned) addresses — legal on the 68000.
     .hash_table:
         dc.l    Logic_Tick, 1
-        dc.l    Player_1, PLAYER_HASH_LONGS  // 20 longs — see const above (frame_off
-                                             // tail word excluded from the hash)
+        // Player_1 — the address-free spans only (map + reasons at the top of this
+        // module). The gaps between rows are exactly the excluded pointer fields.
+        dc.l    HASH_P1_MOTION,  HASH_P1_MOTION_LONGS   // $02 x_pos, y_pos, x_vel, y_vel
+        dc.l    HASH_P1_DISPLAY, HASH_P1_DISPLAY_LONGS  // $14 art_tile, width, height
+        dc.l    HASH_P1_ANIM,    HASH_P1_ANIM_LONGS     // $1E status..sprite_piece_count
+        dc.l    HASH_P1_ENTITY,  HASH_P1_ENTITY_LONGS   // $2A slot_tag..layer
+        dc.l    HASH_P1_CUSTOM,  HASH_P1_CUSTOM_LONGS   // $2E sst_custom (PlayerV)
         dc.l    Camera_X, 2                  // Camera_X + Camera_Y (contiguous)
         dc.l    Section_Top_Row_Written, 1   // Top + Bottom (contiguous words)
         dc.l    Section_Right_Col_Written, 1 // Right + Left
