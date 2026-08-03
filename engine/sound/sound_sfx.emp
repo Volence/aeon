@@ -334,6 +334,20 @@ section sound_sfx (cpu: z80) {
     .store:
         ld      (SND_SFX_DUCK_LEVEL), a  // the level CHANGED this frame (== guarded above)
 
+        // B1: NO SONG -> store the level, but do NOT walk. Sfx_Restore:.restore gates
+        // its equivalent walk on SND_SEQ_ACTIVE; this one did not. Without the gate,
+        // StopMusic leaves a PSG channel with SCF_ACTIVE|SCF_KEYED stale (
+        // Sequencer_StopAll clears only SND_SEQ_ACTIVE, never the per-channel flags),
+        // so any ducking SFX afterwards drives the "changed" path here, walks the DEAD
+        // song's channels, and Psg_SetVolume UN-SILENCES the channel at whatever tone
+        // divisor was last latched — Psg_SilenceAll writes attenuation only, never
+        // tone. Result: an audible drone that persists until the next song load. The
+        // FM side is benign (carrier TL re-asserted on a keyed-off channel is silent).
+        // The level itself must still update above, so the gate goes AFTER the store.
+        ld      a, (SND_SEQ_ACTIVE)
+        or      a
+        ret     z
+
         // --- re-assert held music notes at the new duck level ----------------------
         // Walk the 11 music SeqChannels. For each ACTIVE, NON-overridden, KEYED FM/PSG
         // channel, re-apply sc_volume through the duck-aware writer (which re-folds
