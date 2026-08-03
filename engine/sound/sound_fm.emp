@@ -254,19 +254,24 @@ section sound_fm (cpu: z80) {
         // hl (the patch ptr) survives by contract — Fm_StashRoute preserves de/hl.
         call    Fm_StashRoute            // b = part, c = ch-in-part (+ both stashed)
 
+        // The two channel-header registers are written BEFORE any bc-hostile helper
+        // runs, so they read part/ch out of the registers Fm_StashRoute returned
+        // rather than back out of the scratch it just wrote. `b` (part) is carried
+        // by Fm_YmWrite's preserves(bc); `c` must become the data byte, so ch moves
+        // to `e`, carried by the same contract's preserves(de). (The scratch copies
+        // are still needed — Fm_PatchOpGroup/Fm_PatchTlGroup below have no free
+        // registers and DO re-read them per operator.)
+        ld      e, c                     // e = ch-in-part, live across both writes
+
         // --- $B0+ch : algorithm/feedback ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
+        ld      a, c
         add     a, SND_REG_ALG_FB        // reg = $B0 + ch
         ld      c, (hl)                  // data = fp_alg_fb
         inc     hl
         call    Fm_YmWrite
 
         // --- $B4+ch : L/R / AMS / FMS ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
+        ld      a, e
         add     a, SND_REG_LR_AMS_FMS    // reg = $B4 + ch
         ld      c, (hl)                  // data = fp_lr_ams_fms
         inc     hl
