@@ -88,9 +88,10 @@ pub struct SpawnDesc (size: 4) {
 //      (frame_off is written 0 — the template's defined default).
 // Out: Sst.sprite_piece_count(a2) + Sst.frame_off(a2) populated from that
 //      frame's header
-// Clobbers: d0 — dead at all eight call sites (the six creators below re-load
-//           it at the top of their next iteration; test_churn.asm:45 and
-//           test_stress_emitter.asm:29 write it immediately after the call)
+// Clobbers: d0 — dead at all six call sites (the six creators below re-load
+//           it at the top of their next iteration; the former test_churn /
+//           test_stress_emitter direct calls were retired when the
+//           test_obj_prolog gained its own RefreshSpritePieceCount)
 // Preserves: a0 (the shared template's pointer scratch)
 //
 // The empty-but-EXPLICIT `clobbers()` half of the contract is load-bearing:

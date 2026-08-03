@@ -19,15 +19,12 @@ const STRESS_EMITTER_INTERVAL = 8
 // TestStressEmitter — init
 // In:  a0 = SST pointer
 // Clobbers: d0-d3, a1-a2 — the whole-object set (falls into Main below, whose
-//   contract is CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1)); the
-//   init frame also runs PopulateSpawnedPieceCount (clobbers d0, preserves a0).
+//   contract is CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1)).
 // -----------------------------------------------
 pub proc TestStressEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestStressEmitter_Main {
         test_obj_prolog(prio: 7, w: 8, h: 8, coordmode: true)
-        // Direct-alloc + no animation: populate sprite_piece_count manually
-        // (Load_Object would have done this; AnimateSprite refresh won't fire.)
-        movea.l a0, a2
-        jbsr    PopulateSpawnedPieceCount
+        // (direct-alloc + no animation, but the prolog's RefreshSpritePieceCount
+        // already cached piece count + frame_off — no manual populate needed)
         move.w  #STRESS_EMITTER_INTERVAL, EmitterV.timer(a0)
         move.w  #TestStressEmitter_Main - ObjCodeBase, code_addr(a0)
 }
