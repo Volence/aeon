@@ -927,14 +927,16 @@ section sound_sfx (cpu: z80) {
         // (the slot may be a just-restored steal victim — wipe clears stale state.)
         push    ix                       // save the slot ptr across the wipe
         pop     hl                       // hl = &SfxChannel[slot] (wipe cursor)
-        ld      bc, SfxChannel_len
+        // S5: 8-bit djnz counter. The 16-bit form (dec bc / ld a,b / or c / jr nz)
+        // was 4 B and ~13 T per byte more expensive for a struct that cannot
+        // exceed a byte — the ensure below is what makes the 8-bit counter a fact
+        // rather than an assumption. (LDIR from a zero source would be 13 B, worse
+        // than this 7, and would need a 68-byte zero blob in the resident window.)
+        ld      b, SfxChannel_len
     .wipe:
         ld      (hl), 0
         inc     hl
-        dec     bc
-        ld      a, b
-        or      c
-        jr      nz, .wipe
+        djnz    .wipe
 
         // sc_route = the PHYSICAL route the slot owns (NOT necessarily the preferred
         // one — substitution/steal may have steered it to a different eligible voice).
@@ -1050,6 +1052,13 @@ section sound_sfx (cpu: z80) {
     .no_duck_arm:
         ret
     }
+    // The guard behind Sfx_BeginSound's `.wipe` djnz counter: the slot wipe walks
+    // SfxChannel_len bytes with an 8-bit `b`, so a struct that grew past 255 would
+    // silently wipe (len mod 256) bytes — or 256 of them at exactly 256, walking
+    // off the end of the slot into its neighbour. 68 today; build-fatal if edited
+    // past a byte.
+    ensure(SfxChannel_len >= 1 && SfxChannel_len <= 255,
+           "SfxChannel_len must fit an 8-bit djnz counter (Sfx_BeginSound .wipe)")
 
     // ----------------------------------------------------------------------
     // Sfx_RouteKind — map a physical route (in `a`, CHROUTE_*) to its SFXEL_* kind.
