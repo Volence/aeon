@@ -550,8 +550,9 @@ comptime fn y_term(yflip: int) -> Code {
 // size code + link (stream read: piece +2 word = size<<8 | pad): the mapping
 // pad byte sits exactly at the SAT link position, so the unflipped form reads
 // the whole word and overwrites the pad with the link counter — one word write
-// instead of two byte writes. yflip keeps the byte-wise form (review decision:
-// its size byte serves the Y computation via y_term's peek).
+// instead of two byte writes. yflip retains the byte-wise form only pending a
+// re-verification pass — y_term's peek is NON-consuming, so the merged word
+// form applies to yflip/xyflip too (~8 cycles/piece); see DEFERRED_WORK.
 comptime fn size_link(yflip: int) -> Code {
     if yflip != 0 {
         return asm {
