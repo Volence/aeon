@@ -258,6 +258,24 @@ section sound_psg (cpu: z80) {
         ld      h, d
         ld      l, e
         add     hl, bc                 // divisor + detune
+        // FLOOR GUARD (M5), same family and same shape as Psg_ApplyMod's. A NEGATIVE
+        // detune on a small divisor underflows: the table's top 13 entries are $0001,
+        // so a detune of -1 there reaches exactly 0 and anything beyond wraps to
+        // $FFxx, which the emit path masks into a garbage low note. Clamp to 1 (the
+        // same inaudible ~111.9 kHz floor), covering BOTH the wrapped-negative and
+        // the exact-zero case — clamping only the negative half is precisely the bug
+        // that shipped in Psg_ApplyMod. Unreachable with today's authored content (no
+        // negative detune on top-octave PSG notes), so this is a guard, not a repair.
+        // The no-detune path needs no clamp: PsgDivisorTableZ is generated with a
+        // floor of 1, so the looked-up value alone can never be 0.
+        bit     7, h
+        jr      nz, .det_floor
+        ld      a, h
+        or      l
+        jr      nz, .det_ok
+    .det_floor:
+        ld      hl, 1                  // clamp at the divisor floor
+    .det_ok:
         ld      d, h
         ld      e, l
     .no_detune:
