@@ -199,6 +199,88 @@ together or the player will outrun streaming / tunnel through geometry:
 Do not re-add the `-$FC0` cap silently. The separate `$FC0` cap in the
 steep-landing conversion is a different, retained mechanism.
 
+### Fall cap `PHYS_FALL_CAP = $1000` — S3K deviation, PARKED with a known 1px hole (§2.1 FEEL DEVIATION) — 2026-08-03
+**Surfaced by:** Volence noticed falls feel slower than S3K. Researched + parked
+the same day ("doesn't seem like something I want to get into right now") — this
+entry exists so the analysis is not re-derived. Sibling of the up-velocity-cap
+entry above; the two share the same coupling set.
+
+**Provenance (settled — do not re-litigate from precedent):**
+- **S3K has NO fall cap.** `MoveSprite` adds `#$38` to `y_vel` and returns, no
+  clamp on the path (`skdisasm/sonic3k.asm:36041`). **S2: none** either.
+- **S.C.E. DOES cap at `$1000`** (`Objects/Players/Sonic/Sonic.asm:435-437` air,
+  `:508-510` jump) — and our line is a clone of S.C.E.'s, NOT a Sonic-CD import.
+- **S.C.E.'s cap has no documented rationale.** Git-archaeology (2026-08-03): it
+  was added in `8c6e438` "Big March update" (2024-03-09), a 92-file /
+  4,535-insertion omnibus whose message says only "Objects optimization and
+  fixes / New level loading header / Other fixes". The lines carry NO comment,
+  though every neighbouring velocity clamp in the same routine is commented
+  (`; limit upward y velocity exiting the water`, `; reduce gravity by $28`).
+  No README/changelog mentions it. The one plausible motive — that it
+  accompanied that commit's level-loading/size rework — was checked and does NOT
+  hold (those diffs are whitespace-only). **Conclusion: S.C.E. is not evidence of
+  an engineering rationale; any future argument for capping must stand on our own
+  measured constraints below.**
+
+**Our constraints (these ARE real, and they are ours, not inherited):**
+- *Axis A — thin-floor tunneling (camera-irrelevant).* The probe examines two
+  16px cells, so max safe per-frame Y step = `min_floor_thickness − 1`. OJZ act 1's
+  thinnest floor is 16px → **safe step = 15px**, and 224 pixel-columns are that
+  thin. **The shipped `$1000` (16px) is therefore ONE PIXEL HOT**: a frame ending
+  with feet exactly on a 16px slab's surface (dist 0 → `bpl .no_land`) plus a full
+  16px step skips the slab. Needs 577px of prior fall + exact alignment, so it is
+  narrow but real, and it is in the shipped build today.
+- *Axis B — collision residency (camera-coupled).* Collision reads
+  `Tile_Cache_Collision`, an 80×30-cell RAM ring bounded by `Cache_Top_Row`/
+  `Cache_Bottom_Row` which follow the camera; outside it every probe returns air
+  (`engine/level/collision_lookup.emp:47-56`). Cells arrive only by decompressing
+  block streams (`tile_cache.emp:365-375`) — there is NO directly-indexable
+  collision map in ROM. **This is why S3K gets uncapped falls for free and we do
+  not: S3K's layout is fully RAM-resident, so its collision is camera-independent.**
+
+**Why a taller collision band is NOT the answer** (asked + answered 2026-08-03):
+the band buys a fixed reach, but under gravity the player↔window gap grows
+quadratically, so safe fall distance grows only as ~√(band size):
+
+| slack below player | total fall before collision blackout |
+|---|---|
+| ~188px (today) | ~1,450px |
+| ~700px (2× band) | ~2,560px |
+| ~1,400px (4× band) | ~3,790px |
+
+Quadrupling RAM buys 2.6× the fall. Fine as margin, cannot be load-bearing —
+and it gets weaker exactly as levels get taller (cf. the mega-act goal).
+
+**If it is ever picked up, the real shape is:**
+1. **Swept / sub-stepped vertical movement** in `PState_AirShared` (move
+   `min(STEP, remaining)` with `STEP <= min_floor_thickness − 1`, probe, repeat).
+   Unavoidable for Axis A; cycles are affordable (~8 probes/frame at 48px/f vs 2
+   today) — the cost is semantic: class dispatch, wall probes, `jump_headroom`
+   consumption and quadrant forcing all currently assume one move per tick.
+2. **Speed-scaled vertical fill** for Axis B — raise fill rate with fall speed
+   rather than raising the fixed budget. Attractive because a vertical plunge is
+   when horizontal streaming is otherwise idle, so the block-decompression budget
+   is mostly unspent — **premise unverified, check it before betting on it.**
+   Alternative (more expensive): raise `CAM_MAX_Y_STEP` + `VFILL_ROWS_PER_FRAME`
+   together, which is the §4 streaming budget.
+3. Housekeeping: `player_common.emp:662`'s `ensure(PBOUND_BOTTOM_MARGIN > ...)`
+   references the constant and must be re-expressed if it is removed; import
+   lists in `player_air.emp:12` / `player_common.emp:25`.
+
+**Cheap option available anytime (NOT taken — user parked the topic):** set
+`PHYS_FALL_CAP = $0F00` (15px/f). One-constant change, closes the Axis-A hole,
+imperceptible in feel (only reached after ~540px of fall; the act's deepest
+floor-terminated drop is 592px). Strictly safer than today.
+
+**Micro-optimisation dead end (checked, do not retry):** the clamp cannot be
+replaced by a bitwise op. `ori`/`andi`/`bclr` give WRAP, not saturation —
+`andi.b #$0F` on the high byte turns `$1000` into `$0000`, producing a mid-air
+sawtooth. Saturation needs a comparison. Branchless forms lose on 68000 (no
+conditional move; shifts cost 2 cycles/bit): sign-mask ~68 cyc, `Scc`+merge
+~30 cyc, vs 18 for the current `cmpi.w`+`ble`. We already clamp in a register
+(S.C.E. clamps in memory, twice — we have ONE site because `PState_AirShared`
+is shared). Best remaining win is 2 cycles by inverting the branch; not worth it.
+
 ### §5 Deferred Items — Player/Character Follow-Up Work — 2026-06-14 (updated 2026-06-15)
 **Status:** §5 (player-system branch) shipped Sonic-only, physics-first, on OJZ
 with real collision, the full sensor layer, ground/air/roll/spindash, the loop,
