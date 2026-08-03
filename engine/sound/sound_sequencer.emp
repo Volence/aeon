@@ -42,7 +42,7 @@
 //     RESIDENT (code is never banked).
 //   * The YM $A4/$A0 freq write pair, the $28 key on/off (always part I), and the
 //     DAC $2A repark after any $22/global write are hardware-ordering contracts
-//     the writer callees honor (Fm_WriteFreq / Fm_YmWrite+Fm_ReparkDac).
+//     the writer callees honor (Fm_WriteFreq / Fm_YmWrite+Snd_ParkDac).
 //   * Timer-A is the whole-driver frame clock (~59.92 Hz NTSC); Seq_Op_RegWrite +
 //     MacroTick REFUSE writes to $24-$27 (timer block) and $2A/$2B (DAC) so a song
 //     can never stop the clock or corrupt the DAC stream.
@@ -77,10 +77,10 @@ module engine.sound_sequencer (cpu: z80)
 use engine.sound_sfx.{Sfx_Frame}
 use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteOn,
     Fm_NoteOnFreq, Fm_NoteOff, Fm_SetVolume, Fm_SetPan, Fm_PatchPtr, Fm_PatchLoad,
-    Fm_RegDelta, Fm_YmWrite, Fm_ReparkDac, Snd_ChanClass}
+    Fm_RegDelta, Fm_YmWrite, Snd_ChanClass}
 use engine.sound_psg.{Psg_SetVolume, Psg_NoteOn, Psg_NoteOff, Psg_Noise, Psg_ApplyMod,
     Psg_EmitDivisor, Psg_SilenceAll, PsgVolEnv_Resolve, FmVolEnv_Resolve}
-use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup}
+use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup, Snd_ParkDac}
 
 section sound_sequencer (cpu: z80) {
 
@@ -1089,8 +1089,8 @@ section sound_sequencer (cpu: z80) {
     // $F4 MEV_LFO + value : write YM2612 $22 (bit3 enable | bits0-2 rate). MUST re-park
     // the DAC $2A addr after the $22 write: the addr port is left on $22 by the write, so
     // a DAC byte racing in before the consumer's next pass would misroute to $22 — hence
-    // Fm_ReparkDac re-selects $2A here (the $22-specific case; not the generally-redundant
-    // repark). Fm_YmWrite (part I) + Fm_ReparkDac both preserve hl (the live stream ptr).
+    // Snd_ParkDac re-selects $2A here (the $22-specific case; not the generally-redundant
+    // repark). Fm_YmWrite (part I) + Snd_ParkDac both preserve hl (the live stream ptr).
     // Zero-tick.
     pub proc Seq_Op_Lfo () clobbers(af, bc) {
         ld      c, (hl)                 // c = operand ($22 value: enable|rate)
@@ -1098,7 +1098,7 @@ section sound_sequencer (cpu: z80) {
         ld      a, SND_REG_LFO          // $22
         ld      b, 0                    // part I
         call    Fm_YmWrite              // $4000=$22, $4001=value (preserves bc/de/hl/ix)
-        call    Fm_ReparkDac            // restore the DAC $2A park (DAC-safe)
+        call    Snd_ParkDac            // restore the DAC $2A park (DAC-safe)
         jp      Seq_ContinueFetch
     }
 
@@ -1429,7 +1429,7 @@ section sound_sequencer (cpu: z80) {
     // $F8 MEV_REGWRITE + part + reg + val : write ONE arbitrary YM2612 register for an
     // EXPLICIT part (0/1), IMMEDIATELY. Zero command-tick. GUARD: reg==$2A/$2B (DAC
     // data/enable) and reg $24-$27 (the timer block) are SKIPPED so a song can never
-    // clobber the DAC stream or stop Timer A. After the write, Fm_ReparkDac re-selects
+    // clobber the DAC stream or stop Timer A. After the write, Snd_ParkDac re-selects
     // $2A. Clobbers: af, bc. Manipulates: hl (kept live). Uses ix.
     pub proc Seq_Op_RegWrite () clobbers(af, bc) {
         ld      a, (hl)
@@ -1457,7 +1457,7 @@ section sound_sequencer (cpu: z80) {
         ld      a, e                    // a = reg (Fm_YmWrite wants reg in a)
         push    hl                      // defensive: keep the live stream ptr across the write
         call    Fm_YmWrite              // a=reg, c=val, b=part (absolute addr; de untouched)
-        call    Fm_ReparkDac            // re-select $2A on the addr port
+        call    Snd_ParkDac            // re-select $2A on the addr port
         pop     hl
     .skip:
         jp      Seq_ContinueFetch       // zero tick (jp: out of jr range to the tail)
@@ -1615,7 +1615,7 @@ section sound_sequencer (cpu: z80) {
 
     .reg:
         // TAG_MAC_REG + part + reg + val : immediate YM write + repark $2A. Reads three
-        // operand bytes, then writes via Fm_YmWrite (a=reg, c=val, b=part) + Fm_ReparkDac.
+        // operand bytes, then writes via Fm_YmWrite (a=reg, c=val, b=part) + Snd_ParkDac.
         // GUARD: refuse reg == $2A/$2B (DAC data/enable) and $24-$27 (timer block).
         ld      c, (hl)
         inc     hl                      // c = part (0/1)
@@ -1640,7 +1640,7 @@ section sound_sequencer (cpu: z80) {
     .reg_write:
         ld      a, e                    // a = reg (b=part, c=val already set)
         call    Fm_YmWrite              // a=reg, c=val, b=part (preserves bc,de,hl,ix)
-        call    Fm_ReparkDac            // re-park $2A (preserves bc,de,hl,ix)
+        call    Snd_ParkDac            // re-park $2A (preserves bc,de,hl,ix)
     .reg_skip:
         jr      .fetch                  // multiple regs per frame: keep walking
 

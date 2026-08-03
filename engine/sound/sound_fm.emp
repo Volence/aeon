@@ -33,7 +33,7 @@
 // YM port write here uses ABSOLUTE addressing (`ld ($4000),a` style) and NEVER
 // LEAVES a port address in `de`, so the tick's reload restores de=$4001 cleanly
 // (fm does NOT itself hold de=$4001 live). As belt-and-suspenders, every
-// multi-write batch re-parks reg $2A on $4000 at the END (Fm_ReparkDac) —
+// multi-write batch re-parks reg $2A on $4000 at the END (Snd_ParkDac) —
 // redundant against the tick's own re-park, but cheap and future-proof. We NEVER
 // touch $2B (the DAC-enable edge is owned by init / sample-start — re-toggling it
 // clicks). These are HARDWARE-PORT disciplines
@@ -79,10 +79,14 @@
 
 module engine.sound_fm (cpu: z80, invariant: preserves(ix))
 
-// The one cross-module resident callee fm sub-calls (the FM key-on re-arm),
-// resolved by import; its contract is sound_sequencer's definition. (Snd_ChanClass
-// is DEFINED in this module.)
+// The cross-module resident callees fm sub-calls, resolved by import; their
+// contracts are the definitions'. (Snd_ChanClass is DEFINED in this module.)
+// The FM key-on re-arm:
 use engine.sound_sequencer.{Mod_ReArm}
+// The DAC $2A re-park is ONE routine, defined by the driver that owns the park
+// as a lifetime invariant (z80_sound_driver.emp). fm used to carry a private
+// byte-identical copy (Fm_ReparkDac); it does not any more.
+use engine.z80_sound_driver.{Snd_ParkDac}
 
 // FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
 // Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at
@@ -131,23 +135,6 @@ section sound_fm (cpu: z80) {
         nop                              // inter-write delay
         ld      a, c
         ld      (SND_Z80_YM_A3), a       // $4003 = data (part II)
-        ret
-    }
-
-    // ------------------------------------------------------------------
-    // Fm_ReparkDac — re-select reg $2A on $4000 (part-I addr port) so a racing DAC
-    // write lands on the DAC-data reg. Defensive end-of-batch belt-and-suspenders
-    // (the DAC consumer/idle loop re-selects $2A every pass — cheap, future-proof).
-    // NEVER touches $2B.
-    // ------------------------------------------------------------------
-    // Contract: clobbers af (a is scratch). preserves bc, de, hl (+ ix inherited).
-    // f in fact survives (only `ld` instructions run — none write the flags), but the
-    // checker does not track flag writes in its Z80 write set, so a lone `preserves(f)`
-    // would be a manual-honor claim it cannot verify; the conservative `clobbers(af)`
-    // stands (over-claiming a clobber is the safe direction — callers assume worse).
-    pub proc Fm_ReparkDac () clobbers(af) preserves(bc, de, hl) {
-        ld      a, SND_REG_DAC_DATA      // $2A
-        ld      (SND_Z80_YM_A0), a       // re-park part-I addr port on DAC data
         ret
     }
 
@@ -303,7 +290,7 @@ section sound_fm (cpu: z80) {
         ld      a, SND_REG_OP_SSG_EG     // $90 (SSG-EG group; hl now points at fp_ssg_eg[0])
         call    Fm_PatchOpGroup          // writes $90+ch+op*4 = fp_ssg_eg[op] for op 0..3
 
-        jp      Fm_ReparkDac             // defensive end-of-batch re-park ($2A)
+        jp      Snd_ParkDac             // defensive end-of-batch re-park ($2A)
     }
 
     // ------------------------------------------------------------------
@@ -628,7 +615,7 @@ section sound_fm (cpu: z80) {
         pop     bc                       // restore op counter (b) + walking bit (c)
         sla     c                        // walking bit <<= 1 (next op)
         djnz    .op_loop
-        jp      Fm_ReparkDac             // defensive re-park ($2A)
+        jp      Snd_ParkDac             // defensive re-park ($2A)
     }
 
     // ------------------------------------------------------------------
@@ -638,14 +625,14 @@ section sound_fm (cpu: z80) {
     // never redundant. NOTE: $B4 is a STEREO-OUTPUT (+ hardware LFO depth) register.
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc. preserves de, hl (Fm_RoutePart/Fm_YmWrite/
-    // Fm_ReparkDac all use absolute YM addressing and preserve de/hl) (+ ix inherited).
+    // Snd_ParkDac all use absolute YM addressing and preserve de/hl) (+ ix inherited).
     pub proc Fm_SetPan () clobbers(af, bc) preserves(de, hl) {
         call    Fm_RoutePart             // b = part, c = ch-in-part (clobbers af,bc)
         ld      a, c                     // a = ch-in-part
         add     a, SND_REG_LR_AMS_FMS    // reg = $B4 + ch (b still = part)
         ld      c, (ix+sc_pan)           // data = sc_pan (the raw $B4 byte)
         call    Fm_YmWrite               // a=reg, c=data, b=part
-        jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
+        jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
 
     // ------------------------------------------------------------------
@@ -698,7 +685,7 @@ section sound_fm (cpu: z80) {
         ld      b, a                     // b = part
         pop     af                       // a = reg
         call    Fm_YmWrite               // a=reg, c=value, b=part (preserves ix)
-        jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
+        jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
 
     // RegDeltaGroupBase — group_code 0..5 -> the per-operator YM register-group base.
@@ -974,7 +961,7 @@ section sound_fm (cpu: z80) {
         or      a
         jr      z, .do_keyon             // DAC idle -> FM6 keys on normally
         set     SCF_KEYED_B, (ix+sc_flags) // DAC owns ch6: advance bookkeeping, no chip $28
-        jp      Fm_ReparkDac
+        jp      Snd_ParkDac
     .do_keyon:
         // --- EG RETRIGGER (spec B): the $28 key-on is edge-triggered; keying an
         // already-keyed channel is a chip NO-OP. Key OFF first so EVERY producer
@@ -991,14 +978,14 @@ section sound_fm (cpu: z80) {
         ld      b, 0                     // key on/off is GLOBAL -> part I
         call    Fm_YmWrite
         set     SCF_KEYED_B, (ix+sc_flags)
-        jp      Fm_ReparkDac             // defensive re-park ($2A)
+        jp      Snd_ParkDac             // defensive re-park ($2A)
     }
 
     // ------------------------------------------------------------------
     // Fm_NoteOff — key the channel off (op_mask = 0). Always via part I.
     // In: ix = SeqChannel. Clears SCF_KEYED.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc. preserves de, hl (Fm_ChSel/Fm_YmWrite/Fm_ReparkDac
+    // Contract: clobbers af, bc. preserves de, hl (Fm_ChSel/Fm_YmWrite/Snd_ParkDac
     // all preserve de/hl; de is never loaded with a port address) (+ ix inherited).
     // NOTE: the `.asm` `Clobbers af,bc,de` header OVER-CLAIMS de — de survives.
     pub proc Fm_NoteOff () clobbers(af, bc) preserves(de, hl) {
@@ -1008,7 +995,7 @@ section sound_fm (cpu: z80) {
         ld      b, 0                     // GLOBAL -> part I
         call    Fm_YmWrite
         res     SCF_KEYED_B, (ix+sc_flags)
-        jp      Fm_ReparkDac             // defensive re-park ($2A)
+        jp      Snd_ParkDac             // defensive re-park ($2A)
     }
 
     // ------------------------------------------------------------------
@@ -1022,7 +1009,7 @@ section sound_fm (cpu: z80) {
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc. preserves de, hl (de is never loaded with a port
     // address — absolute YM addressing — and both callees preserve it; hl is never
-    // written and the callees Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all preserve it)
+    // written and the callees Fm_RoutePart/Fm_YmWrite/Snd_ParkDac all preserve it)
     // (+ ix inherited). NOTE: the `.asm` `Clobbers af,bc,de,hl` header OVER-CLAIMS
     // BOTH de and hl — both survive.
     //
@@ -1054,7 +1041,7 @@ section sound_fm (cpu: z80) {
         sub     SND_REG_FNUM_HI - SND_REG_FNUM_LO   // reg = $A0 + ch
         ld      c, e                     // data = $A0 value (b still = part)
         call    Fm_YmWrite
-        jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
+        jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
 
     // Fm_WriteFreq derives the $A0 register by subtracting from the $A4 one, which
