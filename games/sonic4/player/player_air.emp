@@ -10,6 +10,7 @@ module games.sonic4.player_air in player_air
 use engine.objects.sst.{Sst}
 use engine.coords.{abs_w}
 use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
+        ST_ROLLING, PLAYER_Y_RADIUS, BALL_Y_RADIUS, CURL_Y_SHIFT,
         BUTTON_LEFT, BUTTON_RIGHT, BUTTON_A, BUTTON_C, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
 
@@ -417,23 +418,42 @@ proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
 // — so a curled landing stays curled (RollEnter's EnsureBall is a no-op)
 // and an uncurled AIR landing curls; the uncurl-flicker
 // class is gone.
+// A7 guard: a CURLED landing (ST_ROLLING — set only by the AirBall enter
+// hook, so JUMP/ROLLJUMP/AIRBALL) may only pick GROUND if the standing
+// head rise fits — same hazard class and same threshold expression as
+// PState_Roll's unroll guard (player_ground.emp). The caller has already
+// floor-snapped with Player_Quadrant = 0, so Player_SensorCeiling probes
+// the ball box upward at the landed position — identical geometry.
+// Blocked → PSTATE_ROLL (KEEP_ROLL owns the low-speed case next frame).
 // In:  a0 = player SST (_pl_gsp already converted by the caller)
 // Out: d0.w = PSTATE_ROLL / PSTATE_GROUND (feed to Player_SetState)
-// Clobbers: d1
+// Clobbers: d1-d7, a1-a2 (Player_SensorCeiling's set; d0 is the output)
 // -----------------------------------------------
-proc Air_LandState (a0: *Sst) clobbers(d1) out(d0) {
-        moveq   #PSTATE_GROUND, d0
+proc Air_LandState (a0: *Sst) clobbers(d1-d7/a1-a2) out(d0) {
         move.b  Ctrl_1_Held, d1
         btst    #BUTTON_DOWN_BIT, d1
-        beq     .done
+        beq     .check_headroom
         andi.b  #BUTTON_LEFT|BUTTON_RIGHT, d1
-        bne     .done                           // sideways intent vetoes
+        bne     .check_headroom                 // sideways intent vetoes
         move.w  PlayerV.ground_speed(a0), d1
         abs_w(d1)
         cmpi.w  #PHYS_ROLL_START_MIN, d1
-        blt     .done
+        blt     .check_headroom
+        moveq   #PSTATE_ROLL, d0                // player chose to keep rolling
+        rts
+.check_headroom:
+        // A7 guard (ruling 2026-08-02): curled → GROUND only if the
+        // standing head rise fits (10px, the unroll-guard expression)
+        btst    #ST_ROLLING, status(a0)
+        beq     .stand                          // landed uncurled: nothing to guard
+        jbsr    Player_SensorCeiling            // d0 = head clearance (ball box)
+        cmpi.w  #(PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT, d0
+        blt     .stay_rolling
+.stand:
+        moveq   #PSTATE_GROUND, d0
+        rts
+.stay_rolling:
         moveq   #PSTATE_ROLL, d0
-.done:
         rts
 }
 
