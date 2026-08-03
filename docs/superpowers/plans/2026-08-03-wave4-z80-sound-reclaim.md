@@ -239,12 +239,54 @@ Original estimates and outcomes below.
 
 ### Task 9: Turn hand-audits into build-time invariants
 
-- [ ] **Step 1: YM write-spacing ensures.** The review audited every YM write path by hand and marked it PASS. Make it structural: cut labels around each port write + `ensure(cycles(.addr_write, .data_write) >= 8)` and `ensure(cycles(.data_write, .next_addr) >= 39)`. **Caveat:** `[cycles.ambiguous-branch]` fires on the `jr nz,.partII` inside `Fm_YmWrite`, so the two straight-line halves must be measured separately. This is the single highest-value comptime addition in the parcel — it retires the spacing audit permanently and makes 7.1 safe by construction.
-- [ ] **Step 2: table size asserts** (`sound_tables_z80.emp:27,41,55,73`) — `span(FmPitchTableZ) == (FMPITCH_MAX_IDX+1)*2`, `span(PsgDivisorTableZ)==190`, `span(LogVolumeLutZ)==256`, `span(CarrierMaskTableZ)==8`. Generator-emitted. `FMPITCH_MAX_IDX` currently trusts a comment.
-- [ ] **Step 3: PSG env-byte ceiling assert** — every PSG env body byte `< $80` must be `<= $10`. A `$11` byte makes `$11+$0F = $20` pass `bit 4,a` and OR into the latch's channel-select bits (`sound_psg.emp:475-483`; env bodies max `$10` today at `sound_tables_z80.emp:86,107`).
-- [ ] **Step 4: doc/comment truth pass** — `sound_fm.emp:10,41` + `sound_psg.emp:8-9` stale "INLINE, not banked" headers (the `sound_tables_z80.emp:8-9` twin is already correct); `tools/gen_sound_tables.py:265,283,285` legacy `.asm` emitter still prints the wrong claim; `dac_sample_tab.emp:20` "main.asm's phase block" → `soundBankHead`; `z80_sound_driver.emp:554` stale SfxDispatch comment; `:948-950` LoadSong "DAC loop is PAUSED" (false — the Timer-A tick services the mailbox, as `:986-990` itself says); `sound_sfx.emp:164` drain-tie "FIFO"; sound_constants `:43` SND_REQ_SFX "reserved (Phase 1C)", `:488` sfh_priority bit7 "RESERVED (Stage B)", `:486,491,493` sfh_gain/sfh_cap "INERT in Stage A", `:76` dead `SND_SAMPLE_TEST`; sequencer `:14,885,1658` stale `.asm` filename refs.
-- [ ] **Step 5: document the two accepted edge cases** — FM `FnumApplyDelta` block-bit bleed at extremes (`sound_fm.emp:784-814`, unreachable at ±127 detune) and its sequencer twin (`sound_sequencer.emp:808-846`, `FNUM_HI=$0508` so only block 7 with fnum ≥ $800 reaches it). Comment, do not spend bytes.
-- [ ] **Step 6: sequencer B6 contract comment** — `Sequencer_StopAll` (`:1783-1805`) touches only `SND_SEQ_ACTIVE`, never per-channel `sc_flags`, so `SCF_KEYED`/`SCF_ACTIVE` go stale. Known and worked around at both consumers; record it as a contract.
+**PHASE 3 COMPLETE (2026-08-03).** Zero Z80 bytes spent, as required: blob
+**5941 plain / 6067 debug — UNCHANGED** from the Task-8/Task-3 end state. Every
+assert added was proven to fire by poisoning it and watching the build fail.
+
+Deviations, all forced by what the machinery can express (none of them optional):
+
+- **Step 1 is HALF structural, not whole.** The address->data floor is covered at
+  **9 sites** (Fm_YmWrite x2 = 21 T each, matching the review's hand figure
+  exactly; Timer-A $24/$25/$27 = 20 T; Snd_StartSample $28/$2B = 20 T;
+  SndDrv_Sample `.stop` $2B/$28 = 17/20 T; Sequencer_StopAll $28 = 24 T). Seven
+  of those are DIRECT YM writes that bypass Fm_YmWrite, so the review's premise
+  ("every YM write funnels through Fm_YmWrite") never reached them.
+  The **data->next-address floor could NOT be expressed at any site.** Two
+  independent blockers, both established by probe: (a) `cycles()` takes
+  proc-local labels and carves ONE proc's code buffer, while every such gap
+  starts inside Fm_YmWrite, exits through `ret` into the caller, and re-enters
+  Fm_YmWrite — three procs of straight line; (b) even the caller-local remainder
+  contains `call nn` / `ret` / `pop af` / `bit n,r` / `add a,n`, none of which are
+  in `z80_cycles::instr_cost`'s demand subset, so the span bails
+  `[cycles.unknown-op]`. Splitting the requirement across hand-derived
+  prologue/tail constants was rejected — that is the hand audit this task exists
+  to retire. Recorded as a coverage ledger above `Fm_WriteFreq` instead.
+  `YM_DATA_TO_ADDR_MIN_T` deliberately NOT declared: a const nothing consumes
+  would advertise coverage that does not exist.
+- **The spacing floor is declared per module** (fm / driver / sequencer), not once.
+  seam-1 injects only a FIXED authority list of consts from `sound_constants.emp`
+  (a new name there is invisible to the resident modules), and `use` imports
+  procs, not consts. Both verified by build failure.
+- **Step 2: `FMPITCH_MAX_IDX` could not be named in the ensure.** seam-2 lowers
+  `sound_tables_z80.emp` STANDALONE, so sound_constants' names are out of scope
+  and a `use` does not help. Split into two halves that together replace the
+  comment: the emitted extent is asserted numerically in the `.emp`, and the
+  constant is checked against the same geometry in `gen_sound_tables.py`, which
+  parses it out of `sound_constants.emp` (the technique the existing FNUM_LO/HI
+  sync check already uses).
+- **Step 3 was done FIRST**, as the load-bearing item — the `bit 4,a` /
+  `cp $0F+1` asymmetry it pins is what makes an out-of-range env byte write
+  attenuation to the WRONG PSG CHANNEL.
+- **Data-poisoning does not isolate the LUT extent guards** (shortening a table
+  trips an unrelated pre-existing constraint first). Threshold-poisoning does, and
+  is what was used.
+
+- [x] **Step 1: YM write-spacing ensures.** The review audited every YM write path by hand and marked it PASS. Make it structural: cut labels around each port write + `ensure(cycles(.addr_write, .data_write) >= 8)` and `ensure(cycles(.data_write, .next_addr) >= 39)`. **Caveat:** `[cycles.ambiguous-branch]` fires on the `jr nz,.partII` inside `Fm_YmWrite`, so the two straight-line halves must be measured separately. This is the single highest-value comptime addition in the parcel — it retires the spacing audit permanently and makes 7.1 safe by construction.
+- [x] **Step 2: table size asserts** (`sound_tables_z80.emp:27,41,55,73`) — `span(FmPitchTableZ) == (FMPITCH_MAX_IDX+1)*2`, `span(PsgDivisorTableZ)==190`, `span(LogVolumeLutZ)==256`, `span(CarrierMaskTableZ)==8`. Generator-emitted. `FMPITCH_MAX_IDX` currently trusts a comment.
+- [x] **Step 3: PSG env-byte ceiling assert** — every PSG env body byte `< $80` must be `<= $10`. A `$11` byte makes `$11+$0F = $20` pass `bit 4,a` and OR into the latch's channel-select bits (`sound_psg.emp:475-483`; env bodies max `$10` today at `sound_tables_z80.emp:86,107`).
+- [x] **Step 4: doc/comment truth pass** — `sound_fm.emp:10,41` + `sound_psg.emp:8-9` stale "INLINE, not banked" headers (the `sound_tables_z80.emp:8-9` twin is already correct); `tools/gen_sound_tables.py:265,283,285` legacy `.asm` emitter still prints the wrong claim; `dac_sample_tab.emp:20` "main.asm's phase block" → `soundBankHead`; `z80_sound_driver.emp:554` stale SfxDispatch comment; `:948-950` LoadSong "DAC loop is PAUSED" (false — the Timer-A tick services the mailbox, as `:986-990` itself says); `sound_sfx.emp:164` drain-tie "FIFO"; sound_constants `:43` SND_REQ_SFX "reserved (Phase 1C)", `:488` sfh_priority bit7 "RESERVED (Stage B)", `:486,491,493` sfh_gain/sfh_cap "INERT in Stage A", `:76` dead `SND_SAMPLE_TEST`; sequencer `:14,885,1658` stale `.asm` filename refs.
+- [x] **Step 5: document the two accepted edge cases** — FM `FnumApplyDelta` block-bit bleed at extremes (`sound_fm.emp:784-814`, unreachable at ±127 detune) and its sequencer twin (`sound_sequencer.emp:808-846`, `FNUM_HI=$0508` so only block 7 with fnum ≥ $800 reaches it). Comment, do not spend bytes.
+- [x] **Step 6: sequencer B6 contract comment** — `Sequencer_StopAll` (`:1783-1805`) touches only `SND_SEQ_ACTIVE`, never per-channel `sc_flags`, so `SCF_KEYED`/`SCF_ACTIVE` go stale. Known and worked around at both consumers; record it as a contract.
 
 ---
 

@@ -108,15 +108,24 @@ class TestFmPitchTable(unittest.TestCase):
 
     def test_fnum_band_matches_engine_constants(self):
         """The generator's FNUM_LO/FNUM_HI must equal the engine's authoritative
-        band in sound_constants.asm — an engine-side band change must fail here
-        loudly instead of silently drifting the generated table."""
-        asm = os.path.join(os.path.dirname(__file__), "..", "engine", "sound_constants.asm")
-        with open(asm) as fh:
+        band in sound_constants.emp — an engine-side band change must fail here
+        loudly instead of silently drifting the generated table.
+
+        This guard had been DEAD since the E4 engine/game def split (2402dff)
+        moved `engine/sound_constants.asm` to `engine/sound/sound_constants.emp`:
+        the open() raised FileNotFoundError, so the test errored instead of
+        checking anything. Path and const syntax (`pub const NAME = $XXX`)
+        updated to the `.emp` form.
+        """
+        src = os.path.join(os.path.dirname(__file__), "..",
+                           "engine", "sound", "sound_constants.emp")
+        with open(src) as fh:
             text = fh.read()
         engine = {}
         for name in ("FNUM_LO", "FNUM_HI"):
-            m = re.search(rf"^{name}\s*=\s*\$([0-9A-Fa-f]+)", text, re.M)
-            self.assertIsNotNone(m, f"{name} not found in sound_constants.asm")
+            m = re.search(rf"^\s*(?:pub\s+)?const\s+{name}\s*=\s*\$([0-9A-Fa-f]+)",
+                          text, re.M)
+            self.assertIsNotNone(m, f"{name} not found in sound_constants.emp")
             engine[name] = int(m.group(1), 16)
         self.assertEqual(engine["FNUM_LO"], FNUM_LO)
         self.assertEqual(engine["FNUM_HI"], FNUM_HI)
