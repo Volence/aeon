@@ -831,34 +831,32 @@ section z80_sound_driver (cpu: z80) {
     // `a` = (sample_addr & $7F8000) >> 15. Touches the $6000 latch only — NEVER ROM
     // — so it is DMA-safe. CLOBBERS af AND hl (hl ends at SND_CUR_BANK on the cached
     // path, or $6000 otherwise) — callers MUST NOT rely on hl surviving.
-    // INBOUND TRUST CONVERSION: sound_sfx.emp:84 declares
-    // `SndDrv_SetBank () preserves(bc, de, ix)` — a conservative subset (omits iy) -> SAFE.
-    pub proc SndDrv_SetBank () clobbers(af, hl) preserves(bc, de, ix, iy) {
+    // ALSO CLOBBERS `b` (the 8-bit rolled bit-write counter), but NOT `c`: the
+    // contract is spelled at 8-bit granularity on purpose, because
+    // SndDrv_PollMailbox parks the pending sample id in `c` across its SetBank call
+    // and that must stay build-enforced. `b` is dead at every call site
+    // (SndDrv_Idle -> the sample loop reloads it from RAM; Snd_PollMailbox_Banked,
+    // Run_SeqFrame_OnSongBank, Snd_LoadSong, Sfx_Frame and Sfx_ResolveBlob's two
+    // callers all clobber bc themselves). NOTE the cached path returns before
+    // touching b — the clause is the honest worst case, not a per-path claim.
+    pub proc SndDrv_SetBank () clobbers(af, b, hl) preserves(c, de, ix, iy) {
         ld      hl, SND_CUR_BANK
         cp      (hl)
         ret     z                       // already current -> no I/O
         ld      (hl), a                 // cache the new bank
         ld      hl, SND_Z80_BANKREG     // $6000 bank latch
-        // rept 8: write the current LSB (b0..b7), LSB-first, rotating each bit in.
+        // 8 writes of the current LSB (b0..b7), LSB-first, rotating each bit in.
+        // Rolled, not unrolled: identical bytes on the wire, 10 fewer bytes of ROM.
+        // `rrca` is an 8-bit rotate, so the 8 rotations also restore `a` to the
+        // ORIGINAL bank, exactly as the unrolled form did.
+        ld      b, 8
+    .bit_write:
         ld      (hl), a
         rrca
-        ld      (hl), a
-        rrca
-        ld      (hl), a
-        rrca
-        ld      (hl), a
-        rrca
-        ld      (hl), a
-        rrca
-        ld      (hl), a
-        rrca
-        ld      (hl), a
-        rrca
-        ld      (hl), a
-        rrca
-        // 9th write = bit8 (the latch is 9-bit). `rrca` is an 8-bit rotate, so after
-        // 8 rotations `a` is back to the ORIGINAL bank (its bit0 is b0, NOT b8).
-        // All our banks are < $100, so b8 = 0; write 0 explicitly.
+        djnz    .bit_write
+        // 9th write = bit8 (the latch is 9-bit). After 8 rotations `a` is back to the
+        // ORIGINAL bank (its bit0 is b0, NOT b8). All our banks are < $100, so b8 = 0;
+        // write 0 explicitly.
         xor     a                       // b8 = 0 (banks < $100)
         ld      (hl), a                 // 9th write (bit8)
         ret

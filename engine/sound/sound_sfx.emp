@@ -554,9 +554,12 @@ section sound_sfx (cpu: z80) {
     // caller's bank latch untouched, while a zero-pointer id does not — exactly the
     // behaviour both call sites had before.
     // ======================================================================
-    // Contract: out(de, carry: invalid); clobbers af, hl; preserves bc, ix, iy
-    // (SndDrv_SetBank preserves bc/de/ix/iy, so only af/hl are spent here).
-    pub proc Sfx_ResolveBlob () out(de, carry: invalid) clobbers(af, hl) preserves(bc, ix, iy) {
+    // Contract: out(de, carry: invalid); clobbers af, b, hl; preserves c, ix, iy.
+    // SndDrv_SetBank preserves c/de/ix/iy and CLOBBERS b (its rolled 9-bit latch
+    // program uses b as the djnz counter), so `b` cannot be claimed here either.
+    // Harmless: both callers (SfxDispatch, Sfx_BeginSound) declare clobbers(bc), so
+    // nothing was relying on b surviving this call.
+    pub proc Sfx_ResolveBlob () out(de, carry: invalid) clobbers(af, b, hl) preserves(c, ix, iy) {
         // --- id range check (dense table indexed by id - SFX_ID_BASE) ---
         sub     SFX_ID_BASE
         ret     c                        // id < base -> carry ALREADY set = invalid
