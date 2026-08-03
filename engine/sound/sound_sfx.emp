@@ -575,6 +575,18 @@ section sound_sfx (cpu: z80) {
         push    de
         pop     iy                       // iy = blob base for header reads
         ld      b, (iy+SFXH_PRIORITY)    // b = incoming SFX priority
+        // B2: MASK TO THE 7-BIT MODEL before the value enters the queue. Bit 7 of
+        // sfh_priority is the non-latching FLAG, not magnitude — Sfx_BeginSound
+        // already splits it (SND_SFX_DISP_PRIO_RAW keeps the flag, SND_SFX_DISP_PRIO
+        // is masked, and sx_priority stores the masked value). The queue was the one
+        // path carrying it unmasked: the drain's max-scan and the overflow eviction
+        // both compare this byte, so a bit-7 SFX would arbitrate with +128 of phantom
+        // weight and evict everything. Nothing is lost by masking here — a queue
+        // entry is {id, priority} and the drain re-dispatches by ID, so BeginSound
+        // re-reads the header from the blob and recovers the flag. Latent today
+        // (sound_ids.emp's build-fatal ensure keeps every authored priority < $80);
+        // this is the 2 bytes that keep it latent when that guard is relaxed.
+        res     7, b
         ld      a, (iy+SFXH_FLAGS)
 
         // --- CONTINUOUS-EXTEND HOOK (5b seam, fully dormant in 5a) -----------------
