@@ -988,39 +988,48 @@ section sound_fm (cpu: z80) {
     // In: ix = SeqChannel/SfxChannel, d = $A4 value (block|fnumHi), e = $A0 value
     // (fnum low).
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc. preserves de, hl (de is push/pop-bracketed and
-    // never loaded with a port address — absolute YM addressing; hl is never
+    // Contract: clobbers af, bc. preserves de, hl (de is never loaded with a port
+    // address — absolute YM addressing — and both callees preserve it; hl is never
     // written and the callees Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all preserve it)
     // (+ ix inherited). NOTE: the `.asm` `Clobbers af,bc,de,hl` header OVER-CLAIMS
     // BOTH de and hl — both survive.
+    //
+    // NO Fm_Scratch* ROUND-TRIP: part/ch-in-part are produced in `bc` by
+    // Fm_RoutePart and CONSUMED IN `bc`, because Fm_YmWrite is declared
+    // `preserves(bc, de, hl)` — `b` (part) therefore survives BOTH writes and only
+    // `c` (the data byte) needs reloading between them. The register number is
+    // carried across the first write in `af` (1 B of push/pop vs 6 B of absolute
+    // load/store), and the SECOND register is derived by subtraction rather than
+    // recomputed from ch — $A0 and $A4 are four apart, asserted below. The three
+    // push/pop de brackets this routine used to carry are likewise dead by
+    // contract: Fm_RoutePart and Fm_YmWrite both preserve de.
+    //
+    // YM SPACING: the data->next-address gap narrows from ~93 T to ~63 T (the
+    // deleted absolute loads were pure padding), still far above the ~39 T floor.
+    // The address->data gap inside Fm_YmWrite is untouched.
     pub proc Fm_WriteFreq () clobbers(af, bc) preserves(de, hl) {
-        push    de                       // save the split fnum bytes across Fm_RoutePart
         call    Fm_RoutePart             // b = part, c = ch-in-part
-        ld      a, c
-        ld      (Fm_ScratchCh), a
-        ld      a, b
-        ld      (Fm_ScratchPart), a
-        pop     de                       // e = $A0 val, d = $A4 val
+        ld      a, c                     // a = ch-in-part
+        add     a, SND_REG_FNUM_HI       // reg = $A4 + ch
 
         // --- $A4+ch FIRST (block + fnum high) ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
-        add     a, SND_REG_FNUM_HI       // reg = $A4 + ch
-        ld      c, d                     // data = $A4 value
-        push    de
+        ld      c, d                     // data = $A4 value (b still = part)
+        push    af                       // carry the register number across the write
         call    Fm_YmWrite
-        pop     de
+        pop     af                       // a = $A4 + ch again
 
         // --- $A0+ch (fnum low) ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
-        add     a, SND_REG_FNUM_LO       // reg = $A0 + ch
-        ld      c, e                     // data = $A0 value
+        sub     SND_REG_FNUM_HI - SND_REG_FNUM_LO   // reg = $A0 + ch
+        ld      c, e                     // data = $A0 value (b still = part)
         call    Fm_YmWrite
         jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
     }
+
+    // Fm_WriteFreq derives the $A0 register by subtracting from the $A4 one, which
+    // is only the same channel's fnum-low register while the two bases stay four
+    // apart (they are YM2612 architecture, but assert rather than trust).
+    ensure(SND_REG_FNUM_HI - SND_REG_FNUM_LO == 4,
+           "Fm_WriteFreq derives $A0+ch from $A4+ch by subtracting 4")
 
     // ------------------------------------------------------------------
     // Fm_ChSel — compute the $28 channel-select nibble = (part<<2)|ch-in-part.
