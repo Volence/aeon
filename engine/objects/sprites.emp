@@ -462,6 +462,10 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // H3: ship only the live entries — the link chain terminates at the last
         // written entry, so a partial SAT DMA is safe. VDP length is in WORDS:
         // entries * 8 bytes = entries * 4 words.
+        // ORDERING IS LOAD-BEARING (here and at .empty_table): buffer writes ->
+        // length patch -> Sprite_Table_Dirty LAST. queue_static_dma snapshots the
+        // whole 14-byte entry at IRQ6 time, so dirty-last is what keeps the
+        // shipped (buffer, length) pair coherent. Do not hoist the dirty set.
         move.w  d5, d0
         lsl.w   #2, d0
         lea     Static_Sprite_DMA, a0

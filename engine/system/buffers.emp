@@ -240,6 +240,14 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
         beq     .no_spr
         queue_static_dma(Static_Sprite_DMA)
         bcs     .no_spr                         // dropped -> leave flag set
+                                                // (retry note: a drop leaves dirty
+                                                // armed; if IRQ6 then lands mid-
+                                                // Render_Sprites on a lag frame the
+                                                // PREVIOUS length ships with a mid-
+                                                // emit buffer — pre-existing torn-
+                                                // ship class; post-H3 the short-
+                                                // length variant can also reference
+                                                // un-shipped entries for one frame)
         clr.b   Sprite_Table_Dirty              // enqueued -> clear
     .no_spr:
         // §4.6: enqueue HScroll DMA when a parallax_config is active.
