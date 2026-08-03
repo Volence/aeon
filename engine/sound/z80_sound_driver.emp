@@ -303,8 +303,7 @@ section z80_sound_driver (cpu: z80) {
         // latch holds $80, so re-writing $80 every idle spin would be pure
         // VGM-logger flood; gating the write to the ~59 Hz tick keeps DC-center
         // silence and lets the VGM capture stay faithful.
-        ld      a, SND_REG_DAC_DATA     // re-select $2A on the ADDR port ($4000)
-        ld      (SND_Z80_YM_A0), a
+        call    Snd_ParkDac             // re-select $2A on the ADDR port ($4000)
         ld      a, $80
         ld      (de), a                 // DAC <- $80 (DC center silence)
     .idle_settled:
@@ -417,8 +416,8 @@ section z80_sound_driver (cpu: z80) {
         // One-shot terminal event (once per sample). DC-center the DAC, clear
         // active, PHASE=idle, return to the idle loop (which re-enables interrupts).
         // RD/WR are final (lead 0); the next Snd_StartSample re-primes them in RAM.
-        ld      a, SND_REG_DAC_DATA     // re-park $2A on $4000
-        ld      (SND_Z80_YM_A0), a
+        call    Snd_ParkDac             // re-park $2A on $4000 (OUTSIDE the cycles span:
+                                        // .stop is the span END label, so this body is excluded)
         ld      a, $80
         ld      (SND_Z80_YM_A1), a      // $2A = $80 (DC center silence)
         // Layer 7 adaptive: hand ch6 back to FM6 music. ORDER MATTERS (click
@@ -446,8 +445,7 @@ section z80_sound_driver (cpu: z80) {
         ld      a, SND_FM_KEYON_OPMASK|6 // $F0 | chsel(FM6 = $06) = $F6 -> key ON (all ops)
         ld      (SND_Z80_YM_A1), a      // real 0->1 edge -> EG re-attacks FM6's held note
     .stop_repark:
-        ld      a, SND_REG_DAC_DATA     // re-park $2A on $4000 (the FM writes moved the addr port)
-        ld      (SND_Z80_YM_A0), a
+        call    Snd_ParkDac             // re-park $2A on $4000 (the FM writes moved the addr port)
     .stop_done:
         xor     a
         ld      (SND_STAT_DAC_ACTIVE), a // clear active
@@ -635,6 +633,30 @@ section z80_sound_driver (cpu: z80) {
         ret
     }
 
+    // --- Snd_ParkDac — re-select YM reg $2A on the part-I ADDR port ($4000).
+    // The $2A park is a DRIVER-LIFETIME hardware contract (see the file header):
+    // the steady-state consumer write is a bare `ld (de),a` with de = $4001, so
+    // reg $2A must be the selected address at all times. Every path that writes a
+    // NON-$2A register to $4000 must therefore re-park before returning to the
+    // consumer — nine such paths exist (idle tick, .stop, .stop_repark, both
+    // Snd_StartSample re-asserts, the Timer-A tick's .reparkDac, ProgramFixed,
+    // Rearm, Snd_LoadSong), and each spelled the same two instructions inline.
+    // Callers that had this as their LAST act tail-call it (`jp`, its ret is
+    // theirs); the rest `call` it. `a` is dead at all nine sites — every one either
+    // reloads `a` immediately or returns — so leaving $2A in it is free.
+    // NOT in any cycles() span: `.stop` is the END label of the DRAINING span, so
+    // its body (and .stop_repark below it) is excluded by construction; the
+    // remaining sites are in other procs entirely. The hot streaming loop
+    // (.loop..exhaust) contains no $2A re-select at all — that is the whole point
+    // of the park.
+    // Effect on YM write spacing is one-directional: the call/ret only WIDENS the
+    // gap between the $4000 address write and any following data write.
+    pub proc Snd_ParkDac () clobbers(af) preserves(bc, de, hl, ix, iy) {
+        ld      a, SND_REG_DAC_DATA     // $2A (DAC DATA reg)
+        ld      (SND_Z80_YM_A0), a      // $4000 = $2A — parked
+        ret
+    }
+
     // --- Snd_TempoCommand — a = $FF (restore authored base) or a target tempo mod
     // (1..$FE; S3K TempoWait units — bigger = slower, 0 = full speed). Sets
     // SND_TEMPO_TARGET; Tempo_Ramp glides cur toward it. RESIDENT: reached from the
@@ -741,8 +763,7 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_Z80_YM_A0), a      // $4000 = $2B (select DAC-enable reg)
         ld      a, $80
         ld      (SND_Z80_YM_A1), a      // $4001 = $80 -> DAC mode ON
-        ld      a, SND_REG_DAC_DATA
-        ld      (SND_Z80_YM_A0), a      // $4000 = $2A (re-park addr port on DAC DATA)
+        call    Snd_ParkDac             // $4000 = $2A (re-park addr port on DAC DATA)
         // FM6 $B6 (DAC pan): NOT forced here — the dedicate default ($C0, centered)
         // is set ONCE at song load; forcing it per sample-start would stomp any pan
         // the DAC stream authors via MEV_REGWRITE. ADAPTIVE keeps FM6's music $B6.
@@ -794,8 +815,7 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_DAC_PHASE), a      // PHASE = 1 (playing) — two-stage stop SM
         // restore the DAC consumer's invariants for BOTH call contexts: re-park reg
         // $2A on $4000, and de = $4001 (the streaming-loop DATA port).
-        ld      a, SND_REG_DAC_DATA
-        ld      (SND_Z80_YM_A0), a      // re-park $2A on the addr port
+        call    Snd_ParkDac             // re-park $2A on the addr port
         ld      de, SND_Z80_YM_A1       // de = $4001 (DAC DATA port invariant)
         pop     ix
         ret
@@ -928,8 +948,7 @@ section z80_sound_driver (cpu: z80) {
         ld      a, 2
         ld      (SND_DAC_PHASE), a      // len 0 -> PHASE = DRAINING_TAIL
     .reparkDac:
-        ld      a, SND_REG_DAC_DATA     // re-park $2A on $4000 (frame/refill moved it)
-        ld      (SND_Z80_YM_A0), a
+        call    Snd_ParkDac             // re-park $2A on $4000 (frame/refill moved it)
         jp      SndDrv_Sample.afterPoll // rejoin the hot loop's dispatch
     }
 
@@ -954,10 +973,9 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_Z80_YM_A0), a      // select $27 on $4000
         ld      a, SND_TIMERA_CTRL_PROGRAM // $05 = LOAD:A | ENBL:A
         ld      (SND_Z80_YM_A1), a      // $4001 = program Timer A
-        // re-park reg $2A on the addr port for the DAC consumer.
-        ld      a, SND_REG_DAC_DATA     // $2A
-        ld      (SND_Z80_YM_A0), a
-        ret
+        // re-park reg $2A on the addr port for the DAC consumer (tail-call: the
+        // helper's ret is ours, and its contract is identical to this proc's).
+        jp      Snd_ParkDac
     }
 
     // --- Snd_TimerA_Rearm — clear the Timer-A overflow status flag, keeping the
@@ -970,9 +988,7 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_Z80_YM_A0), a      // select $27 on $4000
         ld      a, SND_TIMERA_CTRL_REARM // $15 = LOAD:A | ENBL:A | RST:A (clear overflow flag)
         ld      (SND_Z80_YM_A1), a      // $4001 = re-arm Timer A
-        ld      a, SND_REG_DAC_DATA     // $2A
-        ld      (SND_Z80_YM_A0), a      // re-park addr port on DAC DATA
-        ret
+        jp      Snd_ParkDac             // re-park addr port on DAC DATA (tail-call)
     }
 
     // --- Snd_LoadSong — load + arm the song the 68k posted. REACHED ONLY from
@@ -1036,8 +1052,7 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_Z80_YM_A0), a      // select $2B on $4000
         xor     a
         ld      (SND_Z80_YM_A1), a      // $4001 = $00 -> DAC mode OFF
-        ld      a, SND_REG_DAC_DATA     // $2A
-        ld      (SND_Z80_YM_A0), a      // re-park addr port on DAC data
+        call    Snd_ParkDac             // re-park addr port on DAC data
         xor     a
         ld      (SND_STAT_DAC_ACTIVE), a // DAC not streaming (idle loop ticks the song)
         // SELF-HEAL (bank-latch desync insurance): SetBank's cached no-op assumes
