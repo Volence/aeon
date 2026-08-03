@@ -162,7 +162,14 @@ section sound_sfx (cpu: z80) {
         // compare candidate(a) vs best(d): if a > d -> new winner
         cp      d                        // CARRY set if a < d; Z if equal
         jr      c, .drain_no_update      // a < d -> no update
-        jr      z, .drain_no_update      // tie -> FIFO (earlier slot = lower index wins)
+        // Tie -> keep the LOWER slot index. That is FIFO only while the queue has
+        // never overflowed: the append path writes slot[CNT] in arrival order, so
+        // index order == arrival order. Sfx_QueueEnqueue's OVERFLOW path breaks it —
+        // it overwrites the lowest-priority slot in place, so a newer entry can sit
+        // at a lower index than an older one, and the tie-break then favours the
+        // NEWER of the two. Accepted: overflow already drops audio, and the tie is
+        // between equal priorities.
+        jr      z, .drain_no_update      // tie -> lower slot index wins (see above)
         ld      d, a                     // new best priority
         ld      c, e                     // new best slot
     .drain_no_update:

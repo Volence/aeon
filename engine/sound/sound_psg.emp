@@ -4,9 +4,12 @@
 // The rung-2 CONTRACT-model acceptance corpus (design note
 // 2026-07-29-z80-rung2-contracts.md). Assembled INLINE inside the
 // z80_sound_driver.emp `phase 0` blob (4th of 5: sequencer -> sfx -> fm -> psg ->
-// tables), so its labels resolve into Z80 RAM and it reaches PsgDivisorTableZ /
-// the PsgVolEnv_* tables with direct Z80
-// addressing (no $8000-window banking). Turns the sequencer's PSG-route hooks
+// tables), so its labels resolve into Z80 RAM.
+// It reaches PsgDivisorTableZ / the PsgVolEnv_* tables through the $8000 BANK
+// WINDOW — those tables are banked data at the engine-table head
+// (soundBankHead), not inline blob bytes; each label equals its window pointer,
+// so the reads look like plain absolute addressing but are only valid while the
+// song bank is selected. Turns the sequencer's PSG-route hooks
 // into real SN76489 register writes: the three tone channels + the noise
 // channel become audible.
 //

@@ -588,15 +588,18 @@ section z80_sound_driver (cpu: z80) {
         call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .after_music:
     .no_music:
-        // SFX request? (id -> SfxDispatch steal + per-frame interp). Inserted
-        // BEFORE the SAMPLE block's `ret z` so a frame with only an SFX request
-        // still dispatches. SfxDispatch reads the SFX blob via the $8000 window
-        // (banks it in, leaves it set) — DAC-paused ISR context, same ROM-read
-        // safety as Snd_LoadSong (the ring lead absorbs it).
+        // SFX request? (id -> SfxDispatch ENQUEUE; the queue drain later starts it).
+        // Inserted BEFORE the SAMPLE block's `ret z` so a frame with only an SFX
+        // request still dispatches. SfxDispatch reads the SFX blob via the $8000
+        // window (banks it in, leaves it set) — same ROM-read safety as
+        // Snd_LoadSong, i.e. the ring lead absorbs it. (NOT "DAC-paused": this
+        // path also runs from the Timer-A tick with a sample in flight.)
         ld      a, (SND_REQ_SFX)
         or      a
         jr      z, .no_sfx
-        call    SfxDispatch             // resolve blob + init slot 0 + steal voice
+        call    SfxDispatch             // resolve blob + read header prio/flags + ENQUEUE
+                                        // (it does NOT init a slot or steal a voice —
+                                        // Sfx_QueueDrain -> Sfx_BeginSound does that)
         ld      hl, SND_REQ_SFX
         call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_sfx:
@@ -1062,10 +1065,19 @@ section z80_sound_driver (cpu: z80) {
         jp      Snd_ParkDac             // re-park addr port on DAC DATA (tail-call)
     }
 
-    // --- Snd_LoadSong — load + arm the song the 68k posted. REACHED ONLY from
-    // SndDrv_PollMailbox in the VBlank ISR, so the DAC streaming loop is PAUSED —
-    // the bank switch below cannot corrupt an in-flight DAC FILL, and the ring lead
-    // vastly outlasts the work here. EVERY song STREAMS from ROM (SH_F_STREAM is
+    // --- Snd_LoadSong — load + arm the song the 68k posted. Reached from
+    // SndDrv_PollMailbox, which runs from BOTH the VBlank ISR (idle context) AND
+    // the Timer-A tick mid-sample (`:959`, via Snd_PollMailbox_Banked). So a song
+    // load CAN land with a DAC sample in flight: the loader does not stop the DAC,
+    // the ring keeps draining, and the lead absorbs the work here. What protects
+    // the in-flight FILL is the explicit .keep_sample_bank guard below, which
+    // declines to reseed SND_ROM_BANK while SND_STAT_DAC_ACTIVE is set — not any
+    // guarantee that streaming is stopped.
+    // (This header used to claim "REACHED ONLY from ... the VBlank ISR, so the DAC
+    // streaming loop is PAUSED". False since the Timer-A tick began servicing the
+    // mailbox, and flatly contradicted by .keep_sample_bank's own comment further
+    // down. Corrected in the Task 9.4 truth pass — no code change.)
+    // EVERY song STREAMS from ROM (SH_F_STREAM is
     // always set): the sequencer reads the song's streams + patch bank DIRECTLY
     // through the banked $8000 window. Steps: (1) $2B=$00 (DAC OFF, re-park $2A) +
     // DAC_ACTIVE=0; (2) SetBank(song bank) and LEAVE it set; (3) song base + patch

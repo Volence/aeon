@@ -5,9 +5,12 @@
 // 2026-07-29-z80-rung2-contracts.md; the sound_psg.emp sibling is the CONTRACT-
 // model acceptance corpus). Assembled INLINE inside the z80_sound_driver.emp
 // `phase 0` blob (3rd of 5: sequencer -> sfx -> fm -> psg -> tables), so its
-// labels resolve into Z80 RAM
-// and it reaches FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ with direct
-// Z80 addressing (no $8000-window banking). Turns the sequencer's FM-route hooks
+// labels resolve into Z80 RAM.
+// It reaches FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ through the
+// $8000 BANK WINDOW — those tables are banked data at the engine-table head
+// (soundBankHead), not inline blob bytes; each label equals its window pointer,
+// so the reads look like plain absolute addressing but are only valid while the
+// song bank is selected. Turns the sequencer's FM-route hooks
 // into real YM2612 register writes: the six FM voices become audible.
 //
 // The CANONICAL, only source (no .asm twin). Native-linked via seam-1
@@ -40,10 +43,14 @@
 // (the `[fm.dac-repark]` / `[bus.*]` lint SEAM, design §3.3/§9-B), carried here
 // as present-tense prose — NOT register contracts.
 //
-// --- TABLES (decision 1: INLINE, not banked) ------------------------------
+// --- TABLES (decision 1: BANKED, not inline) ------------------------------
 // FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ live as Z80 data at the
 // engine-table head of the song bank ($8000 window); the labels equal their
-// window pointers. They are static and tiny (~454 bytes).
+// window pointers. They are static and tiny (~454 bytes). The heading used to
+// read "INLINE, not banked", which inverted what the body says and what the
+// code does — they cost zero against the RESIDENT blob ceiling precisely
+// BECAUSE they are banked (sound_tables_z80.emp's own header has always been
+// correct).
 //
 // --- VOLUME SOURCE (decision 2: RE-READ the patch, no per-channel cache) ---
 // Fm_SetVolume re-derives the FmPatch pointer from sc_patch + the loaded patch-

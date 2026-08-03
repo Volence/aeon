@@ -17,8 +17,10 @@
 // constants, so they fold to literals. The size invariant is drift-guarded
 // against the engine's DacSample_len / DAC_SAMPLE_COUNT via `extern(...)` below.
 //
-// BANKED at the engine-table head of the song/SFX bank (main.asm's
-// `cpu z80 / phase 08000h` block), so it costs ZERO against the resident
+// BANKED at the engine-table head of the song/SFX bank — placed by the
+// `soundBankHead` macro (engine/sound/sound_bank.inc), which is the contract
+// now; the old `cpu z80 / phase 08000h` block in main.asm that this comment
+// used to name is gone. Being banked, it costs ZERO against the resident
 // Z80-code ceiling. The table label equals its $8000-window pointer
 // (Snd_DacLookup's pointer math is unchanged).
 //

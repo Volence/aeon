@@ -903,7 +903,7 @@ section sound_sequencer (cpu: z80) {
     // Mod_ApplyVibrato — one frame of FM continuous pitch modulation. Thin wrapper
     // over the shared Mod_Advance triangle core: if it says "write", emit $A4/$A0 on
     // the HELD note (NO key-on). Called from ModUpdate's FM path for any channel with
-    // sc_mod_ctrl != 0. The PSG analogue is Psg_ApplyMod (sound_psg.asm), sharing the
+    // sc_mod_ctrl != 0. The PSG analogue is Psg_ApplyMod (sound_psg.emp), sharing the
     // same core. In: ix = FM channel, sc_mod_ctrl != 0. Clobbers af,bc,de,hl. Preserves ix.
     // ----------------------------------------------------------------------
     pub proc Mod_ApplyVibrato () clobbers(af, bc, de, hl) preserves(ix) {
@@ -1676,7 +1676,7 @@ section sound_sequencer (cpu: z80) {
     // ======================================================================
     // SeqOpcodeTable (the $E0..$FF dw jump table) was MOVED out of this resident
     // phase-0 blob into the engine-table head of the song/SFX bank (file
-    // seq_opcode_tab.asm). The `.coord` dispatch above reads it through the $8000
+    // seq_opcode_tab.emp). The `.coord` dispatch above reads it through the $8000
     // window unchanged. Handlers stay RESIDENT (code is never banked).
     // ======================================================================
 
