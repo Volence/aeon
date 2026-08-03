@@ -165,6 +165,17 @@ The BACKGROUND planes render garbage tiles over a red backdrop. Sprites (player)
 - **`Section_Stream_State` ($FFA8EC): section 0 = `$02` (SS_RESIDENT), section 1 = `$02`, rest `$00` (IDLE).**
   → the engine believes section 0 (the player's section) is fully loaded.
 - **`Slot_Section_Map` ($FFA8E0): slot0=(0,0) slot1=(1,0) slot2=(0,0) slot3=(0,0).**
+
+> **Doc note (2026-08-02):** the cell names `Section_Stream_State` ($FFA8EC) and `Slot_Section_Map`
+> ($FFA8E0) cited in the two bullets above no longer exist in `engine/ram.emp` — the A.4 art-stream
+> state machine was never landed under those labels (this is confirmed in-code by the comment in
+> `engine/system/replay.emp`). The evidence is left verbatim as the original 2026-06-21 frozen-frame
+> record; the equivalent current section-streaming state lives in the `Section_*` cells
+> (`Section_Plane_Dirty`, `Section_Top_Row_Written` / `Section_Bottom_Row_Written`,
+> `Section_Left_Col_Written` / `Section_Right_Col_Written`, `Section_Fwd_Neighbor_Data` /
+> `Section_Bwd_Neighbor_Data`). Read the two addresses above as "whatever streaming-progress cell
+> occupied that offset at capture time," not as live symbol names.
+
 - **`Tile_Cache_Nametable` (RAM $FF0000): BLANK — uniform tile-0 entries (`1000 0000` repeating).** The RAM-side
   section nametable cache holds no real art. (NOTE: `Decomp_Buffer` *aliases* `Tile_Cache_Nametable`,
   ram.asm:28 — a decompress firing during a streaming event would clobber this cache. Strong suspect.)
@@ -192,7 +203,7 @@ art/collision, and the fill/DMA then drew the empty/blank cache → garbage tile
 
 ### Leading suspects (unconfirmed)
 1. **Teleport/rebase "pure rebase, no redraw" path** treating the section as already-resident and SKIPPING the
-   art/collision (re)load in an edge case where the data wasn't actually present. (See `engine/level/section.asm`
+   art/collision (re)load in an edge case where the data wasn't actually present. (See `engine/level/section.emp`
    teleport/rebase; memory `project_teleport_rebase` — "teleports are pure rebases, reinit/redraw removed".)
 2. **`Decomp_Buffer` aliases `Tile_Cache_Nametable`** (ram.asm:28). A decompress during the streaming event
    would overwrite the nametable cache → blank/garbage cache → blank/garbage VRAM after the next fill/DMA.
