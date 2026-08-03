@@ -406,6 +406,33 @@ section sound_fm (cpu: z80) {
     }
 
     // ------------------------------------------------------------------
+    // Fm_FoldTlDelta — fold one non-negative attenuation operand into the running
+    // carrier-TL delta held in Fm_ScratchLog, saturating at $7F.
+    //   Fm_ScratchLog = min($7F, Fm_ScratchLog + a)
+    // In: a = the operand (0..$FF; the 8-bit carry out of the add is caught too, so
+    // an operand large enough to wrap still saturates rather than aliasing down).
+    // The THREE folds Fm_SetVolume composes — per-SFX gain, the FM vol-env delta,
+    // and the master-fade+duck total — were three byte-identical copies of this
+    // block. Being a saturating add of a non-negative operand against a shared
+    // ceiling is also exactly why their ORDER does not matter (see Fm_SetVolume).
+    // ------------------------------------------------------------------
+    // Contract: clobbers af, hl (the scratch pointer). preserves bc, de (+ ix
+    // inherited — leaf, ix never written). hl is dead at all three call sites.
+    pub proc Fm_FoldTlDelta () clobbers(af, hl) preserves(bc, de) {
+        ld      hl, Fm_ScratchLog
+        add     a, (hl)                  // operand + running delta
+        jr      nc, .cap
+        ld      a, SND_FM_TL_MAX         // carry out of 8 bits -> clamp $7F (silent)
+    .cap:
+        cp      SND_FM_TL_MAX+1
+        jr      c, .store
+        ld      a, SND_FM_TL_MAX         // clamp the summed delta to $7F
+    .store:
+        ld      (hl), a
+        ret
+    }
+
+    // ------------------------------------------------------------------
     // Fm_SetVolume — apply linear volume to the CARRIER operators only.
     // In: ix = SeqChannel, a = linear volume (0..127).
     // log = LogVolumeLutZ[vol]; alg = patch.fp_alg_fb & 7; mask = CarrierMaskTableZ[alg].
@@ -433,16 +460,7 @@ section sound_fm (cpu: z80) {
         ld      a, (ix+sx_gain)
         or      a
         jr      z, .no_sfx_gain
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  // sx_gain + log delta
-        jr      nc, .sfx_gain_cap
-        ld      a, SND_FM_TL_MAX         // 8-bit carry -> clamp $7F (silent)
-    .sfx_gain_cap:
-        cp      SND_FM_TL_MAX+1
-        jr      c, .sfx_gain_store
-        ld      a, SND_FM_TL_MAX
-    .sfx_gain_store:
-        ld      (hl), a
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, log + sx_gain)
     .no_sfx_gain:
 
         // --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
@@ -453,16 +471,7 @@ section sound_fm (cpu: z80) {
         ld      a, (ix+sc_env_out)
         or      a
         jr      z, .env_done
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  // env delta + log delta
-        jr      nc, .env_ok
-        ld      a, SND_FM_TL_MAX         // carry out of 8 bits -> clamp to $7F (silent)
-    .env_ok:
-        cp      SND_FM_TL_MAX+1
-        jr      c, .env_store
-        ld      a, SND_FM_TL_MAX         // clamp the summed delta to $7F
-    .env_store:
-        ld      (hl), a                  // env-folded carrier-TL delta
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + env)
     .env_done:
 
         // --- master fade + Phase 5a music ducking fold (music-only) ---------------
@@ -483,16 +492,7 @@ section sound_fm (cpu: z80) {
     .ga_have:
         or      a
         jr      z, .no_global_atten      // nothing to add (no fade, no duck)
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  // log delta + combined global atten
-        jr      nc, .ga_ok
-        ld      a, SND_FM_TL_MAX         // carry out of 8 bits -> clamp to $7F (silent)
-    .ga_ok:
-        cp      SND_FM_TL_MAX+1
-        jr      c, .ga_store
-        ld      a, SND_FM_TL_MAX         // clamp the summed delta to $7F
-    .ga_store:
-        ld      (hl), a                  // faded+ducked carrier-TL delta
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + fade+duck)
     .no_global_atten:
 
         call    Fm_RoutePart             // b = part, c = ch-in-part
