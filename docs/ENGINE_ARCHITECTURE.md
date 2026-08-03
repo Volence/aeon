@@ -27,93 +27,201 @@ This is the **design bible**. This document describes the engine we're building 
 
 ## Engine/game contract
 
-Aeon draws a hard **engine/game wall**. The concept below is shipped and current; the *mechanism vocabulary* in the subsections that follow is retired AS-era and pending a full rewrite (see the note directly below).
+Aeon draws a hard **engine/game wall**. `engine/` is the reusable, Sonic-agnostic
+engine; `games/<game>/` is one game built on it. The two meet at a single typed seam
+so the engine can be compiled against any game that satisfies the contract, and a new
+game starts from a handful of small files (see `games/demo/`). This section is the game
+author's reference: what the engine consumes from a game, and what a game must provide.
 
-> **STALE — mechanism only (flagged 2026-08-02).** This section still describes the AS-Macro-Assembler era: an `engine/engine.inc` single-include, a `games/<game>/main.asm` manifest of seven `{GLOBALSYMBOLS}` macros, `gameHeader`/`soundBankHead`/`Engine_RAM_End` `.inc`/macro contracts, and `tools/fixheader`. **None of that exists in the shipped tree.** The `sigil build` flip (Spec-5 Stage 2) made `sigil build` the whole pipeline — asl/p2bin/fixheader are gone; the header checksum is folded in sigil's `emit_rom`. The engine/game seam is now the typed interface `engine/system/game_contract.emp` (`pub interface Game { CAMERA_JUMP_LOCK, ENTRY_ID, entry, boot_hook, debug_tick }`), which a game satisfies with one `implement Game` block in `games/<game>/config/game.emp`. ROM layout is driven per-game by `games/<game>/map.toml` (not an `.inc`); each `.emp` file is a `module`, and the header is the game-side `header.emp` struct (§0.1). The engine invokes game hooks with `invoke Game.boot_hook` / `invoke Game.debug_tick` (an unbound `= empty` hook emits zero bytes). The *design intent* the subsections capture (agnostic engine, RAM seam, per-game config/content) is intact and shipped; only the AS spellings are wrong. Full rewrite of the subsections is deferred to a dedicated pass.
+The build is `sigil build` end to end (Spec-5 Stage 2 flip). There is no separate
+assembler/linker/checksum stage: every ROM byte is a natively-placed `.emp` `section`,
+the ROM layout is a per-game declaration (`map.toml`), and the header checksum is folded
+into sigil's `emit_rom`. Each `.emp` file is a `module`; the engine and the game modules
+are resolved together at whole-ROM link.
 
-`engine/engine.inc` was the single entry point for any game built on Aeon under the AS
-toolchain — it owned the entire ROM layout (org-0 vectors/header, engine code block,
-object code bank, data region, sound-data region, epilogue). Shipped 2026-07-07/08 (directory wall
-2026-06-28 + the agnostic-engine half, see the specs in `docs/superpowers/specs/`); the ROM-layout
-ownership moved to the per-game `map.toml` in the sigil era.
+### The typed interface (`engine/system/game_contract.emp`)
 
-### The manifest
+The seam is a typed interface the engine *declares* and a game *implements*:
 
-A game's `main.asm` must, before `include "engine/engine.inc"`:
+```
+pub interface Game {
+    const CAMERA_JUMP_LOCK: bool     // comptime feature gate
+    const ENTRY_ID: u8               // initial game-state id
+    proc  entry: GameState           // first game-state routine
+    hook  boot_hook () clobbers(d0-d4/a0-a1) = empty
+    hook  debug_tick () clobbers(d0-d7/a0-a6) = empty
+}
+```
 
-1. Define `PAD_TO_POWER_OF_TWO` (0/1).
-2. Declare all seven manifest macros below — each may be empty, but **all seven must be
-   declared, and every one must carry the `{GLOBALSYMBOLS}` macro attribute** (see "AS
-   gotchas" below):
+The module `engine.game_contract` emits no bytes — it is pure declaration. The engine
+names members qualified (`Game.CAMERA_JUMP_LOCK`, `#Game.entry`, `#Game.ENTRY_ID`) and
+calls the hooks with `invoke Game.hook`. An `invoke` lowers to an absolute `jsr` when a
+game binds the hook and to **zero bytes** when the hook stays `= empty` — the
+canonical-shape invariant (an unbound hook costs nothing). `GameState` (the state-dispatch
+proc type `entry` is typed by) is `pub type`-declared in `engine.game_loop`; the bind pass
+resolves member types across the whole reachable module set, so the interface consumes it
+without a cross-module type import.
 
-| Macro | Purpose |
-|---|---|
-| `gameConfigIncludes` | Game config includes (constants / sound ids / the game contract file) |
-| `gameRamIncludes` | Game RAM continuation (phases from `Engine_RAM_End`) |
-| `gameEngineBlockIncludes` | Game files that must live in the engine code block (e.g. player sensors, debug harness — no `objroutine()` entry points) |
-| `gameObjectBankIncludes` | Game files that must live in the object code bank (`org $10000`, `objroutine()`-addressed: player state files, test/path objects) |
-| `gameDataIncludes` | Game data region: parallax, objdefs, entity/act data, mappings, animations, collision, character art |
-| `gameSoundDataIncludes` | Game sound-data region contents (DAC samples, bank head, songs, SFX) — WITHOUT the outer `ifdef SOUND_DRIVER_ENABLED` (engine.inc supplies that) |
-| `gameStatesIncludes` | Game state includes, outside the sound conditional — **a game must boot without sound** (added as a 7th hook during execution so states assemble in `SOUND_DRIVER_ENABLED=0` builds; `Game_Entry` must resolve here even sound-off) |
+Each member drives a specific engine consumer:
 
-`gameBootHook` (called during boot, after `Sound_Init`) and `gameDebugTick` (called once per
-frame from the debug tick) are also required, but are defined *inside* the game's own contract
-file (`games/<game>/config/game.asm`), which `gameConfigIncludes` pulls in — they are not
-separate manifest hooks.
+- `CAMERA_JUMP_LOCK` — comptime-selected by `engine/level/camera.emp`: `true` arms the
+  jump-state landing-lock block (which reads the game-defined `_pl_state` / `PSTATE_JUMP`
+  / `PSTATE_ROLLJUMP`), `false` compiles to the plain deadzone follow with the lock code
+  absent entirely.
+- `ENTRY_ID` / `entry` — the boot handoff: `engine/system/boot.emp` ends with
+  `move.l #Game.entry, (Game_State).w` / `move.b #Game.ENTRY_ID, (Game_State_ID).w`.
+- `boot_hook` — `engine/system/boot.emp` invokes it after `Sound_Init`, just before the
+  game-state handoff.
+- `debug_tick` — `engine/system/game_loop.emp` invokes it once per frame after the
+  VSync/SFX drain.
 
-### Required symbols (the game contract)
+### The manifest (`implement Game`)
 
-Copied from `engine/engine.inc`'s header comment:
+A game satisfies the contract with exactly one `implement Game` block in
+`games/<game>/config/game.emp`. This module also emits nothing — it binds each interface
+member to a symbol or value, and the bind pass resolves it against the interface before
+the engine's `Game.MEMBER` / `invoke Game.hook` sites fold and lower.
 
-| Symbol | Consumer | Notes |
+Comparing the two shipped games shows the whole contract surface. Sonic 4
+(`games/sonic4/config/game.emp`):
+
+```
+pub implement Game {
+    const CAMERA_JUMP_LOCK = true
+    const ENTRY_ID = GS_OJZ_SCROLL_TEST
+    proc  entry = GameState_OJZScroll_Init
+    if SOUND_DEBUG_HOTKEYS == 1 && SOUND_DRIVER_ENABLED == 1 {
+        hook boot_hook  = SoundTest_BootPing
+        hook debug_tick = Debug_MusicToggle
+    }
+}
+```
+
+The demo (`games/demo/config/game.emp`) is the minimal case — three value bindings, no
+hook binds, so the `= empty` defaults carry both hooks and the demo installs nothing at
+boot or per frame:
+
+```
+pub implement Game {
+    const CAMERA_JUMP_LOCK = false      // no player/camera jump-lock system
+    const ENTRY_ID = GS_DEMO
+    proc  entry = GameState_Demo_Init
+}
+```
+
+The two differences are the whole point of the wall: Sonic 4 turns the camera jump-lock
+on and (in the hotkeys shape only) binds the two sound test-harness hooks; the demo turns
+the jump-lock off and binds nothing. Everything the engine needs from a game to *boot* is
+these three-to-five bindings.
+
+### Beyond the interface: linked game symbols
+
+The typed interface is the formal contract, but the engine also resolves a set of
+game-supplied constants and data tables at whole-ROM link. Game-varying constants are
+declared engine-side with a matching value and cross-checked against the game's define
+with an `ensure(extern("NAME") == NAME, ...)` wall, so a game that supplies the wrong
+value fails the build loudly on both sides; data tables are named with a typed
+`extern NAME: Type`. The main ones a game provides:
+
+| Symbol(s) | Engine consumer | Notes |
 |---|---|---|
-| `Game_Entry` | `engine/system/boot.asm` | Game entry point routine, called from boot |
-| `GAME_ENTRY_ID` | `engine/system/boot.asm` | Initial game-state id |
-| `GAME_CAMERA_JUMP_LOCK` | `engine/level/camera.asm` | 1 gates the jump-state landing-lock block (requires the game to define `_pl_state`/`PSTATE_JUMP`/`PSTATE_ROLLJUMP`); 0 = plain deadzone follow |
-| `GAME_*` header strings | `engine/system/header.inc` | Domestic/overseas titles, serial, region, etc. — see `gameHeader` below |
-| `VRAM_RING_PLACEHOLDER` | `engine/objects/rings.asm` (`DrawRings`) | Ring art VRAM slot |
-| `MAX_RING_BUFFER`, `RING_BUFFER_ENTRY_SIZE`, `RING_WIDTH` | `engine/objects/rings.asm` | Ring buffer capacity/sizing — engine-tunable via game constants |
-| `COLLECTED_WINDOW_SLOTS`, `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE` | `engine/objects/entity_window.asm` | Collected-entity bookkeeping capacity (×4 sizing family) |
-| `BgAnim_Table` | `engine/level/bg_anim.asm` | BG tile-band animation table, part of `gameDataIncludes`; `dc.w 0` (band_count) disables the system for games with no BG animation |
+| `VRAM_RING_PLACEHOLDER` | `engine/objects/rings.emp` | Ring art VRAM slot |
+| `MAX_RING_BUFFER`, `RING_BUFFER_ENTRY_SIZE`, `RING_WIDTH` | `engine/objects/rings.emp` | Ring buffer capacity/sizing (`ensure`-checked) |
+| `COLLECTED_WINDOW_SLOTS`, `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE` | `engine/objects/entity_window.emp` | Collected-entity bookkeeping capacity |
+| `BgAnim_Table` | `engine/level/bg_anim.emp` | BG tile-band animation table (a `dc.w 0` band count disables the system) |
 | With `SOUND_DRIVER_ENABLED`, additionally: | | |
-| `SFXID_REV_LOOP`, `SFXID_RING_LEFT`, `SFXID_RING_RIGHT` | `engine/sound/sound_sfx.asm`, `sound_api.asm` | `SFXID_REV_LOOP = -1` disables the rev-loop special case |
-| `SND_ENGINE_TABLE_BANK` | sound bank placement | Derives from the game's bank placement |
-| `SndDefaultPitchTable`, `SfxBlobWinTab` | `engine/sound/sound_fm.asm`, `sound_sfx.asm` | Supplied as `soundBankHead` macro arguments (see below) |
-| `SongTable`, `SfxTable` + song data | sound driver data contract | Game-supplied song/SFX tables |
+| `SFXID_REV_LOOP`, `SFXID_RING_LEFT`, `SFXID_RING_RIGHT` | `engine/sound/sound_sfx.emp`, `sound_api.emp` | Typed `extern … : SfxId`; `SFXID_REV_LOOP = -1` disables the rev-loop special case |
+| `SndDefaultPitchTable`, `SfxBlobWinTab` | `engine/sound/sound_fm.emp`, `sound_sfx.emp` | Live in the game's sound-bank head (see `soundbankhead` below) |
+| `SongTable`, `SfxTable`, `SND_ENGINE_TABLE_BANK` + song/SFX data | `engine/sound/sound_api.emp`, `z80_sound_driver.emp` | Game-supplied song/SFX tables and bank placement |
 
-### gameHeader
+### ROM layout (`map.toml`)
 
-`engine/system/header.inc` — symbol-driven, not parameter-driven. The game defines `GAME_*`
-string-valued `equ` symbols (`GAME_CONSOLE`, `GAME_COPYRIGHT`, `GAME_TITLE_DOM`,
-`GAME_TITLE_OVS`, `GAME_SERIAL`, `GAME_IO`, `GAME_SRAM`, `GAME_MEMO`, `GAME_REGION`); the
-`gameHeader` macro emits the $100-$1FF Mega Drive header and **width-asserts every field at
-build time** (`strlen(GAME_TITLE_DOM) <> 48` etc. → `fatal`) — a wrong-length string is a build
-error, not a corrupt header. Checksum ($18E) is emitted 0 (patched by `tools/fixheader`);
-ROM start/end and RAM range are engine-owned (`EndOfRom` is the engine epilogue label).
+ROM placement is a per-game declaration in `games/<game>/map.toml`, consumed by the sigil
+chainer. It owns the reviewed placement facts (the frozen provisional-base measurement
+caches under `golden/` are the per-label measurement cache the order derivation sorts). It
+has five kinds of entry:
 
-### Parameterized boot
+- **`order`** — the byte-emitting section head-labels in canonical union order. Each build
+  shape's derived byte-emitting order must be a *subsequence* of this list; a derivation
+  change that reorders anything fails loud (the sonic4 map spans four shapes — s4, s4_debug,
+  config_a, config_b — and each is a subsequence of the union). Zero-byte markers are
+  excluded, since their tie position is byte-neutral.
+- **`[[region]]`** — an address window with a base and size: `rom` (the whole 4 MB image),
+  `object_bank` (the 64 KB `org $10000` object-code bank), and, sound-on, the
+  `z80_moving_trucks_bank` phase bank (`vma_base = 0x8000`). Regions are the sole owner of
+  the ROM geometry.
+- **`[[anchor]]`** — a hard LMA for an island whose address is latched by hardware or a
+  frozen boundary: `boot_head` at `0x0`, `object_bank` at `0x10000`, and (sound-on) the
+  `dac_banks` DAC-sample banks at `0x48000` and the `sound_bank` engine-table head at
+  `0x58000` (`vma = 0x8000`). An anchored section never repacks.
+- **`[[hole]]`** — a declared gap: the sound-off Z80 idle program occupies `$3d8..$3fe`,
+  so the map declares a hole `after = "Z80_IdleProgram"` at `0x3FE` filled by
+  `engine.z80_init`, gated `when = "sound_off"`.
+- **`[[budget]]`** — a pack-time ceiling (the old assembler `if * > $20000 / error` guard):
+  the `object_bank` region has `ceiling = 0x20000` with `cursor` set to the head-label of
+  the first section past the bank (the data-region head), whose resolved LMA is the used
+  cursor. Overflowing the bank is a build error.
 
-The engine boot sequence ends by handing off to the game: `move.l #Game_Entry,(Game_State).w`
-/ `move.b #GAME_ENTRY_ID,(Game_State_ID).w`, with `gameBootHook` (game-supplied, may be empty)
-invoked just before the handoff, after `Sound_Init`.
+The demo's `map.toml` is the minimal template — two anchors (boot head + object bank), the
+sound-off Z80-idle hole, the object-bank budget, and the order list — and declares no Z80
+sound bank because it is sound-off.
 
-### soundBankHead
+### The ROM header (`header.emp`)
 
-`engine/sound/sound_bank.inc` — the engine-tables-at-bank-head contract. Every Z80 bank the
-sequencer runs a frame on must invoke `soundBankHead <pitchfile>, <sfxtabfile>` first, inside
-its `align $8000` / `phase $8000` bracket, so the fixed-address engine reader tables (pitch,
-SFX window, opcode dispatch, DAC sample table) land at the addresses the driver expects. The
-hard rule: **no code may be authored in the banked window — data tables only** — Z80 opcode
-fetches from a banked $8000-$FFFF window traverse the 68k bus, and 68k bus contention (VRAM
-DMA-from-ROM / BUSREQ) corrupts fetched opcodes, not just data. See `sound_bank.inc` for the
-full invariant text and the bank-D co-location note.
+The $100-$1FF Mega Drive header is a game-side module, `games/sonic4/config/header.emp`
+(`module games.sonic4.header in header`) — placed by the map's `header` section directly
+after the vector table, not emitted by the engine and not a macro. It is a plain
+`data GameHeader: HeaderTop` struct of literal string fields whose **`[u8; N]` field types
+are the width guards**: a wrong-length string fails to lower at comptime, so the type *is*
+the assertion (this replaced the old per-field `strlen … fatal` walls). The struct splits
+at the checksum so `Checksum` ($18E) stays a real boundary label: `HeaderTop` ($100-$18D),
+the checksum word, then `HeaderTail` ($190-$1FF). `Checksum` and `rom_end` ($1A4, declared
+`extern("EndOfRom") - 1`) are patched post-pipeline by sigil from the final image size;
+`ram_start`/`ram_end` are literal.
 
-### Engine_RAM_End
+### The build entry (`build.sh`)
 
-`engine/ram.emp`'s `$FFFF8000` phase block ends with an `Engine_RAM_End:` label; a game's
-`games/<game>/config/ram.asm` phases its own RAM continuation from that address
-(`phase Engine_RAM_End`). Player state, debug harness variables, and other game-owned RAM all
-live game-side, after this seam.
+`build.sh [game]` takes the game as a positional argument (`GAME="${1:-sonic4}"`, default
+`sonic4` → `s4.bin`; `demo` → `demo.bin`). It is a thin wrapper around the sigil binaries,
+selected by environment variable:
+
+- `SIGIL_BUILD` — the `sigil build` binary, the whole assembler/linker/checksum pipeline.
+  It is a **hard requirement**: a missing or non-executable `SIGIL_BUILD` aborts the build
+  (there is no asl fallback).
+- `SIGIL_EMIT` — the seam-1 `emit_sound_blob` binary, run as a preflight for sound-on games
+  to regenerate `engine/sound/generated/` (the `.bin` blobs the sound-bank `.emp` files
+  embed).
+
+The core invocation is `"${SIGIL_BUILD}" build --aeon . --native --game ${GAME} [--debug]
+-o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"`. `DEBUG=1` adds `--debug`. The
+off-canonical sonic4 sound shapes map to sigil's `--config-a` (sound + debug hotkeys/mirror)
+and `--config-b` (sound off) profiles.
+
+### Engine_RAM_End — the RAM seam
+
+Engine RAM and game RAM are declared as chained `region`s. `engine/ram.emp`
+(`module engine.ram`) owns the engine layout: `upper_ram @ $FFFF8000 .. SYSTEM_STACK`
+(`.w`-addressed hot data) ends with a `mark Engine_RAM_End,`. A game continues from there:
+`games/<game>/config/ram.emp` declares `pub region game_ram @ after(upper_ram) .. SYSTEM_STACK`
+and phases its own variables in — exactly where the AS-era `phase Engine_RAM_End` did.
+Player state, debug harness variables, and all other game-owned RAM live game-side, after
+this seam; the `game_ram` region's `limit` (`SYSTEM_STACK`) is the overflow guard. The demo's
+`game_ram` is empty (just `mark Game_RAM_End,`) — the template a new game grows from.
+
+### soundBankHead — engine tables at the bank head
+
+The engine's per-frame sequencer reads its lookup tables (pitch, SFX window, opcode dispatch,
+DAC sample descriptors) from fixed $8000-window VMAs. A sound-on game places them with a
+`section soundbankhead (cpu: m68000, vma: $8000)` in `games/sonic4/data/sound/soundbankhead.emp`
+(`module games.sonic4.soundbankhead`), which the map anchors at LMA `0x58000`. The section
+`embed`s the seam-1-generated `.bin` artifacts (`SoundTablesZ80_Head` @ $8000,
+`SndDefaultPitchTable` @ $8357, `SfxBlobWinTab` @ $845F, `SeqOpcodeTable` @ $856D,
+`DacSampleTable` @ $85AD) at the exact VMAs the resident Z80 driver's banked carriers expect,
+and guards each span's size with a comptime `ensure` — a size drift would slide a downstream
+head off its fixed carrier VMA and desync the Z80 blob, so it fails the build loudly. **Hard
+rule: no code is authored in a banked $8000-window section — data tables only.** Z80 opcode
+fetches from a banked window traverse the 68k bus, and 68k bus contention (VRAM DMA-from-ROM /
+BUSREQ) corrupts fetched opcodes, not just data.
 
 ### build.conf + prebuild.sh
 
@@ -129,22 +237,21 @@ Per-game build hooks, both optional and sourced/invoked by `build.sh` before ass
 
 ### games/demo — the permanent agnosticism regression
 
-`games/demo/` is a ~30-line game: a manifest with all seven macros, a 16×16 white box object,
-and a one-shot init state. `DEBUG=1 ./build.sh demo` produces `demo.bin` (89830 bytes) and
-boots to a dark-blue backdrop with the white box centered on screen — zero Sonic code anywhere
-in the ROM. It exists both as the "start here" template for a new game and as a standing proof
-that the engine really is game-agnostic; keep it building green as a regression check whenever
-`engine/` changes. (v1 limitation: builds with sound off — see `docs/DEFERRED_WORK.md`,
-"Engine substrate gaps" item 4.)
+`games/demo/` is a minimal game: the `implement Game` manifest above, its `map.toml` and
+`header.emp`, a 16×16 white box object, and a one-shot init state. `DEBUG=1 ./build.sh demo`
+produces `demo.bin` and boots to a dark-blue backdrop with the white box centered on screen —
+zero Sonic code anywhere in the ROM. It exists both as the "start here" template for a new
+game and as a standing proof that the engine really is game-agnostic; keep it building green
+as a regression check whenever `engine/` changes. (v1 limitation: builds with sound off — see
+`docs/DEFERRED_WORK.md`, "Engine substrate gaps".)
 
-### AS gotchas the contract depends on
+### The residual AS root
 
-- **`{GLOBALSYMBOLS}` is required on every contract/hook macro.** AS macro labels are
-  **macro-local by default** — labels defined inside a macro body, or inside any file
-  `include`d from a macro body, are invisible outside the expansion and vanish from the symbol
-  table (`convsym` deb2 appendix). Every manifest macro, `gameHeader`, `gameBootHook`,
-  `gameDebugTick`, and `soundBankHead` must be declared `name macro {GLOBALSYMBOLS}` or
-  downstream references (and the debug symbol table) silently break.
+One `.asm` file survives per game: `games/<game>/game_root.asm`. It emits **no bytes** and
+declares no orgs — it exists only to pull in the one named survivor, the vendored MD Debugger
+blob (`engine/debug/debugger.asm`), so its defines/macros/link-externs enter the residual
+symbol environment the sigil frontend harvests. The game contract itself is fully `.emp`-native;
+no game-authored `.asm` carries semantics.
 
 ---
 
