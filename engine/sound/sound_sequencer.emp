@@ -74,6 +74,13 @@ module engine.sound_sequencer (cpu: z80)
 // vol-env resolvers carry `out(hl, carry: found)` so the sequencer's `ret c` bails
 // EXERCISE the [call.flag-result-unused] cross-proc credit end-to-end (they are
 // DEFINED + checked in sound_psg.emp).
+// The YM2612 address->data spacing floor in Z80 T-states. MUST equal
+// sound_fm.emp's YM_ADDR_TO_DATA_MIN_T, where the derivation and the
+// measurement convention are documented. Re-declared per module because seam-1
+// injects only a FIXED authority list of constants from sound_constants.emp and
+// a `use` clause imports procs, not consts.
+const YM_ADDR_TO_DATA_MIN_T = 8
+
 use engine.sound_sfx.{Sfx_Frame}
 use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteOn,
     Fm_NoteOnFreq, Fm_NoteOff, Fm_SetVolume, Fm_SetPan, Fm_PatchPtr, Fm_PatchLoad,
@@ -1814,9 +1821,11 @@ section sound_sequencer (cpu: z80) {
         ld      b, 6
     .fm_keyoff:
         ld      a, SND_REG_KEY_ONOFF    // $28 (key on/off, always part I)
+    .keyoff_addr:
         ld      (SND_Z80_YM_A0), a      // select $28 on $4000
         nop                             // inter-write delay (no busy-poll)
         ld      a, (hl)                 // chsel (op-mask bits 7..4 = 0 -> key off)
+    .keyoff_data:
         ld      (SND_Z80_YM_A1), a      // $4001 = $28 data
         inc     hl
         djnz    .fm_keyoff
@@ -1831,6 +1840,14 @@ section sound_sequencer (cpu: z80) {
         xor     a
         ld      (SND_SEQ_ACTIVE), a
         ret
+
+        // YM address->data spacing, machine-checked (Task 9.2). This key-off loop
+        // writes the YM DIRECTLY, not through Fm_YmWrite, so the funnel's ensures
+        // do not cover it. The span is the loop BODY only — it stops before the
+        // `djnz`, whose taken/not-taken costs differ and which would otherwise
+        // fire [cycles.ambiguous-branch].
+        ensure(cycles(.keyoff_addr, .keyoff_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Sequencer_StopAll $28 key-off: address->data gap is under the YM2612 floor")
     }
 
     // The six FM channel-select nibbles ($28 data bytes with op-mask 0 -> key off):

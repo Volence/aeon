@@ -97,6 +97,36 @@ const Fm_ScratchLog  = SND_FM_SCRATCH + 2    // log-volume delta
 const Fm_ScratchMask = SND_FM_SCRATCH + 3    // carrier mask
 const Fm_ScratchOp   = SND_FM_SCRATCH + 4    // op index 0..3 (Fm_PatchTlGroup)
 
+// --- YM2612 WRITE-SPACING FLOORS (T-states, Z80 @ 3.579545 MHz) -------------
+// This driver does NO busy-poll — it never reads the YM status bit before a
+// write — so every write path must be spaced BY CONSTRUCTION. The Sega wait
+// table gives 17 (68k) cycles after an address-port write and 83 after a
+// data-port write to a register in $21..$B6; converted to the Z80's clock (68k
+// 7.670454 MHz -> Z80 3.579545 MHz, ~0.4667) those are ~8 T and ~39 T.
+//
+// The 2026-07-16 review audited every write path against these two numbers BY
+// HAND and marked the audit PASS (review §⓪, "address->data 21 T >= ~8 T;
+// data->next-address tightest path ~50 T >= ~39 T"). Task 9.2 makes the FIRST
+// of those two structural. The SECOND could not be mechanized — see the
+// coverage note above Fm_WriteFreq, which is the honest ledger of what a build
+// now checks and what is still only a hand audit. The ~39 T data->next-address
+// floor is therefore deliberately NOT declared as a constant here: nothing
+// reads it, and a const no build input consumes would read as coverage that
+// does not exist.
+//
+// CONVENTION (the review's, kept so the numbers stay comparable): a gap is
+// measured from the START of one port-write instruction to the START of the
+// next — the writing instruction's own T-states count toward the gap that
+// FOLLOWS it. Under that convention Fm_YmWrite's address->data gap is 21 T.
+//
+// Declared here, per module, rather than once in sound_constants.emp: seam-1
+// injects only a FIXED authority list of constants from that file (a new name
+// added there is invisible to the resident modules — verified: "unknown name
+// `YM_ADDR_TO_DATA_MIN_T`"), and a `use` clause imports procs, not consts.
+// z80_sound_driver.emp and sound_sequencer.emp carry the same declaration with
+// a pointer back here.
+pub const YM_ADDR_TO_DATA_MIN_T = 8     // after an address-port write
+
 // The scratch defs must all fit inside SND_FM_SCRATCH_LEN (the ensure below
 // enforces it).
 ensure(Fm_ScratchOp - SND_FM_SCRATCH < SND_FM_SCRATCH_LEN,
@@ -122,20 +152,52 @@ section sound_fm (cpu: z80) {
     // ------------------------------------------------------------------
     // Contract: clobbers af (a is consumed as scratch; the bit/jr test writes f).
     // preserves bc, de, hl (+ ix inherited).
+    //
+    // --- YM WRITE-SPACING: MACHINE-CHECKED HERE (Task 9.2) -------------------
+    // The 2026-07-16 review audited every YM write path by hand against the two
+    // hardware floors (YM_ADDR_TO_DATA_MIN_T / YM_DATA_TO_ADDR_MIN_T,
+    // sound_constants.emp) and marked it PASS. The ADDRESS->DATA half of that
+    // audit is now structural: the two `ensure(cycles(...))` at the bottom of
+    // this proc re-measure both straight-line halves at every build. Because
+    // this proc is the single funnel for every FM register write, covering it
+    // covers the address->data gap of every FM write path in the driver.
+    //
+    // The two halves are measured SEPARATELY, not as one span: the `jr nz`
+    // dispatch below has different taken/not-taken costs, so any span crossing
+    // it fires `[cycles.ambiguous-branch]` (by design — an ambiguous span has
+    // no single T-total to assert). Splitting at the branch is the correct
+    // reading, not a workaround: each arm IS a straight line.
+    //
+    // The nops are load-bearing under these ensures. Deleting them (the −2 B
+    // micro the review floated and this parcel REJECTED) takes each gap 21 T ->
+    // 17 T; still above the floor, so the ensures would not catch it — they
+    // pin the requirement, not the current value. Do not read a passing ensure
+    // as permission to shave the margin.
+    //
+    // NOT covered here — the DATA->NEXT-ADDRESS gap. See the coverage note
+    // above Fm_WriteFreq for why `cycles()` cannot express it.
     pub proc Fm_YmWrite () clobbers(af) preserves(bc, de, hl) {
         bit     0, b                     // part II?
         jr      nz, .partII
+    .p1_addr:                            // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A0), a       // $4000 = reg select (part I)
         nop                              // inter-write delay (no busy-poll)
         ld      a, c
+    .p1_data:                            // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A1), a       // $4001 = data (part I)
         ret
-    .partII:
+    .partII:                             // also the part-II address-write cut label
         ld      (SND_Z80_YM_A2), a       // $4002 = reg select (part II)
         nop                              // inter-write delay
         ld      a, c
+    .p2_data:                            // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A3), a       // $4003 = data (part II)
         ret
+
+        ensure(cycles(.p1_addr, .p1_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Fm_YmWrite part I: address->data gap is under the YM2612 floor")
+        ensure(cycles(.partII, .p2_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Fm_YmWrite part II: address->data gap is under the YM2612 floor")
     }
 
     // ------------------------------------------------------------------
@@ -1026,6 +1088,44 @@ section sound_fm (cpu: z80) {
     // YM SPACING: the data->next-address gap narrows from ~93 T to ~63 T (the
     // deleted absolute loads were pure padding), still far above the ~39 T floor.
     // The address->data gap inside Fm_YmWrite is untouched.
+    //
+    // --- YM SPACING COVERAGE LEDGER (Task 9.2) -----------------------------
+    // What a build now CHECKS, and what is still only a hand audit. Read this
+    // before trusting "the spacing is asserted".
+    //
+    // CHECKED — address->data, 9 sites, every one a straight-line span:
+    //   Fm_YmWrite part I / part II            21 T each  (the FM funnel: these
+    //                                                      two cover the
+    //                                                      address->data gap of
+    //                                                      EVERY FM write path)
+    //   Snd_TimerA_ProgramFixed $24/$25/$27    20 T each
+    //   Snd_StartSample $28 / $2B              20 T each
+    //   SndDrv_Sample .stop $2B / $28          17 T / 20 T
+    //   Sequencer_StopAll $28 key-off          24 T
+    // The last seven are DIRECT YM writes that bypass Fm_YmWrite, so the review's
+    // "every YM write funnels through Fm_YmWrite" premise did not reach them.
+    //
+    // NOT CHECKED — data->next-address, at any site. Two independent blockers,
+    // both verified by probe rather than assumed:
+    //   1. STRUCTURAL. `cycles(L1, L2)` requires both labels to be proc-local and
+    //      carves the span from ONE proc's code buffer. Every data->next-address
+    //      gap begins inside Fm_YmWrite (just after its data write), runs out
+    //      through `ret` into the caller, and ends back inside Fm_YmWrite at the
+    //      next address write. That is three procs of straight line and can never
+    //      be one span.
+    //   2. OP COVERAGE. Even the caller-local remainder is unmeasurable:
+    //      `call nn`, `ret`, `pop af`, `bit n,r` and `add a,n` are all absent from
+    //      `z80_cycles::instr_cost`'s demand subset, so any span containing them
+    //      bails `[cycles.unknown-op]` (probed: "`pop` is not in the timed-region
+    //      T-state table"). Adding them is a sigil-side change, out of scope for
+    //      this parcel.
+    // Splitting the requirement across the pieces was rejected: it would need a
+    // hand-derived constant for the callee's prologue and tail, which is the very
+    // hand audit this task exists to retire. A partial mechanical check plus this
+    // note is worth more than a proof shaped around a hardcoded number.
+    //
+    // The ~63 T figure below, and Fm_PatchLoad's ~66 T $B0->$B4 gap, therefore
+    // remain HAND-DERIVED. Both are well over the ~39 T floor.
     pub proc Fm_WriteFreq () clobbers(af, bc) preserves(de, hl) {
         call    Fm_RoutePart             // b = part, c = ch-in-part
         ld      a, c                     // a = ch-in-part

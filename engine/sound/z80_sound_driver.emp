@@ -104,6 +104,14 @@ module engine.z80_sound_driver (cpu: z80)
 // Sequencer_Frame is the only shape-invariant target; the other three
 // shift +$7E in the debug shape. SndDrv_IdleTick relies on Sequencer_Frame
 // preserving iy (its definition clobbers af/bc/de/hl/ix — iy untouched).
+// The YM2612 address->data spacing floor in Z80 T-states. MUST equal
+// sound_fm.emp's YM_ADDR_TO_DATA_MIN_T, where the derivation and the
+// measurement convention are documented. It is re-declared per module rather
+// than shared because seam-1 injects only a FIXED authority list of constants
+// from sound_constants.emp (a new name added there is invisible to the resident
+// modules), and a `use` clause imports procs, not consts.
+const YM_ADDR_TO_DATA_MIN_T = 8
+
 use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll}
 use engine.sound_sfx.{Sfx_StopAll, SfxDispatch}
 
@@ -431,8 +439,10 @@ section z80_sound_driver (cpu: z80) {
         or      a
         jr      z, .stop_done
         ld      a, SND_REG_DAC_ENABLE   // $2B
+    .stop_dacoff_addr:
         ld      (SND_Z80_YM_A0), a
         xor     a
+    .stop_dacoff_data:
         ld      (SND_Z80_YM_A1), a      // $2B = $00 -> ch6 returns to FM (output was centered)
         ld      ix, (SND_FM6_CHAN_PTR)
         push    ix
@@ -443,8 +453,10 @@ section z80_sound_driver (cpu: z80) {
         bit     SCF_KEYED_B, (ix+sc_flags)
         jr      z, .stop_repark         // FM6 resting -> leave it silent
         ld      a, SND_REG_KEY_ONOFF    // $28 (key on/off, part I)
+    .stop_rekey_addr:
         ld      (SND_Z80_YM_A0), a
         ld      a, SND_FM_KEYON_OPMASK|6 // $F0 | chsel(FM6 = $06) = $F6 -> key ON (all ops)
+    .stop_rekey_data:
         ld      (SND_Z80_YM_A1), a      // real 0->1 edge -> EG re-attacks FM6's held note
     .stop_repark:
         call    Snd_ParkDac             // re-park $2A on $4000 (the FM writes moved the addr port)
@@ -479,6 +491,16 @@ section z80_sound_driver (cpu: z80) {
         ensure(cycles(.loop, .fill_body) + cycles(.drain, .drain_end) == 195, "DRAIN pass must equal FILL (195 T-states)")
         // DRAINING_TAIL = prefix 82 (consumer+poll+phase-taken) + tail body 112.
         ensure(cycles(.loop, .dma_check) + cycles(.draining, .stop) == 194, "DRAINING_TAIL pass must be 194 T-states (FILL - 1, tail-only)")
+
+        // --- YM address->data spacing, machine-checked (Task 9.2) --------------
+        // The `.stop` epilogue writes the YM DIRECTLY (not through Fm_YmWrite), so
+        // the funnel's ensures do not cover it. Both pairs sit AFTER `.stop`, which
+        // is the END label of the DRAINING span above, so these labels add nothing
+        // to any timed hot-path span (and, being labels, no bytes either).
+        ensure(cycles(.stop_dacoff_addr, .stop_dacoff_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "DAC stop $2B disable: address->data gap is under the YM2612 floor")
+        ensure(cycles(.stop_rekey_addr, .stop_rekey_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "DAC stop $28 FM6 re-key: address->data gap is under the YM2612 floor")
     }
 
     // --- SndDrv_ISR — minimal VBlank ISR (RST 38h $0038 -> jp here). Mailbox poll
@@ -773,15 +795,19 @@ section z80_sound_driver (cpu: z80) {
         or      a
         jr      z, .ss_no_fm6_keyoff
         ld      a, SND_REG_KEY_ONOFF    // $28 (key on/off, part I)
+    .ss_keyoff_addr:
         ld      (SND_Z80_YM_A0), a
         ld      a, 6                    // chsel FM6 = $06, op-mask 0 -> key OFF
+    .ss_keyoff_data:
         ld      (SND_Z80_YM_A1), a
     .ss_no_fm6_keyoff:
         // Re-assert DAC mode ($2B bit7), then re-park $2A. (One-time per trigger,
         // not per loop -> no recurring click.)
         ld      a, SND_REG_DAC_ENABLE
+    .ss_dacen_addr:
         ld      (SND_Z80_YM_A0), a      // $4000 = $2B (select DAC-enable reg)
         ld      a, $80
+    .ss_dacen_data:
         ld      (SND_Z80_YM_A1), a      // $4001 = $80 -> DAC mode ON
         call    Snd_ParkDac             // $4000 = $2A (re-park addr port on DAC DATA)
         // FM6 $B6 (DAC pan): NOT forced here — the dedicate default ($C0, centered)
@@ -842,6 +868,14 @@ section z80_sound_driver (cpu: z80) {
         ld      de, SND_Z80_YM_A1       // de = $4001 (DAC DATA port invariant)
         pop     ix
         ret
+
+        // YM address->data spacing, machine-checked (Task 9.2). These two pairs
+        // write the YM DIRECTLY, not through Fm_YmWrite, so the funnel's ensures
+        // do not cover them.
+        ensure(cycles(.ss_keyoff_addr, .ss_keyoff_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Snd_StartSample $28 key-off: address->data gap is under the YM2612 floor")
+        ensure(cycles(.ss_dacen_addr, .ss_dacen_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Snd_StartSample $2B DAC-enable: address->data gap is under the YM2612 floor")
     }
 
     // --- SndDrv_SetBank — select ROM bank in `a` into the Z80 $8000 window; no-op
@@ -981,22 +1015,38 @@ section z80_sound_driver (cpu: z80) {
     pub proc Snd_TimerA_ProgramFixed () clobbers(af) preserves(bc, de, hl, ix, iy) {
         // $24 = N>>2 (MSB) — write MSB before LSB.
         ld      a, SND_REG_TIMER_A_HI   // $24
+    .t24_addr:
         ld      (SND_Z80_YM_A0), a      // select $24 on $4000
         ld      a, SND_TIMERA_N>>2      // N bits 9..2 (build-time constant)
+    .t24_data:
         ld      (SND_Z80_YM_A1), a      // $4001 = N>>2
         // $25 = N&3 (LSB).
         ld      a, SND_REG_TIMER_A_LO   // $25
+    .t25_addr:
         ld      (SND_Z80_YM_A0), a      // select $25 on $4000
         ld      a, SND_TIMERA_N&3       // N bits 1..0
+    .t25_data:
         ld      (SND_Z80_YM_A1), a      // $4001 = N&3
         // $27 = LOAD:A | ENBL:A -> start the counter, let overflow raise the flag.
         ld      a, SND_REG_TIMER_CTRL   // $27
+    .t27_addr:
         ld      (SND_Z80_YM_A0), a      // select $27 on $4000
         ld      a, SND_TIMERA_CTRL_PROGRAM // $05 = LOAD:A | ENBL:A
+    .t27_data:
         ld      (SND_Z80_YM_A1), a      // $4001 = program Timer A
         // re-park reg $2A on the addr port for the DAC consumer (tail-call: the
         // helper's ret is ours, and its contract is identical to this proc's).
         jp      Snd_ParkDac
+
+        // YM address->data spacing, machine-checked (Task 9.2). This proc writes
+        // the YM directly rather than through Fm_YmWrite, so it is NOT covered by
+        // the funnel's ensures — each of the three register pairs is asserted here.
+        ensure(cycles(.t24_addr, .t24_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Timer-A $24: address->data gap is under the YM2612 floor")
+        ensure(cycles(.t25_addr, .t25_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Timer-A $25: address->data gap is under the YM2612 floor")
+        ensure(cycles(.t27_addr, .t27_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Timer-A $27: address->data gap is under the YM2612 floor")
     }
 
     // --- Snd_TimerA_Rearm — clear the Timer-A overflow status flag, keeping the
