@@ -165,6 +165,31 @@ section sound_fm (cpu: z80) {
     }
 
     // ------------------------------------------------------------------
+    // Fm_StashRoute — Fm_RoutePart, then publish the result to the module scratch.
+    // In: ix = SeqChannel. Out: b = part, c = ch-in-part, AND Fm_ScratchPart /
+    // Fm_ScratchCh set to the same two values.
+    // The prologue of every multi-write batch here (Fm_PatchLoad, Fm_SetVolume,
+    // Fm_RegDelta): they each emit several YM writes through helper loops that
+    // cannot keep bc live across their own scratch use, so the pair is spilled once
+    // up front and re-read per write. Fm_WriteFreq used to be a fourth site until
+    // 7.1 proved it never needed the spill at all.
+    // RETURNS bc INTACT so a caller whose FIRST write happens before any bc-hostile
+    // helper (Fm_PatchLoad's two header registers) can read part/ch straight out of
+    // the registers and skip the reload.
+    // ------------------------------------------------------------------
+    // Contract: out(b, c) = part / ch-in-part; clobbers af (Fm_RoutePart's scratch).
+    // preserves de, hl (Fm_RoutePart preserves both and the stores are absolute)
+    // (+ ix inherited).
+    pub proc Fm_StashRoute () out(b, c) clobbers(af) preserves(de, hl) {
+        call    Fm_RoutePart             // b = part, c = ch-in-part
+        ld      a, c
+        ld      (Fm_ScratchCh), a        // stash ch-in-part
+        ld      a, b
+        ld      (Fm_ScratchPart), a      // stash part
+        ret
+    }
+
+    // ------------------------------------------------------------------
     // Snd_ChanClass — channel-class test, factored from the 12-site inline pattern
     // to reclaim Z80 code space. CARRY SET => ix is a MUSIC channel (ix below the
     // page-aligned SND_SFX_BASE); CARRY CLEAR => SFX channel.
@@ -226,13 +251,8 @@ section sound_fm (cpu: z80) {
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl (+ ix inherited — every callee preserves it).
     pub proc Fm_PatchLoad () clobbers(af, bc, de, hl) {
-        push    hl                       // save patch ptr (Fm_RoutePart clobbers bc only)
-        call    Fm_RoutePart             // b = part, c = ch-in-part
-        ld      a, c
-        ld      (Fm_ScratchCh), a        // stash ch-in-part
-        ld      a, b
-        ld      (Fm_ScratchPart), a      // stash part
-        pop     hl                       // hl -> patch (fp_alg_fb)
+        // hl (the patch ptr) survives by contract — Fm_StashRoute preserves de/hl.
+        call    Fm_StashRoute            // b = part, c = ch-in-part (+ both stashed)
 
         // --- $B0+ch : algorithm/feedback ---
         ld      a, (Fm_ScratchPart)
@@ -495,11 +515,7 @@ section sound_fm (cpu: z80) {
         call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + fade+duck)
     .no_global_atten:
 
-        call    Fm_RoutePart             // b = part, c = ch-in-part
-        ld      a, c
-        ld      (Fm_ScratchCh), a
-        ld      a, b
-        ld      (Fm_ScratchPart), a
+        call    Fm_StashRoute            // Fm_ScratchPart/Ch = part / ch-in-part
 
         call    Fm_PatchPtr              // hl -> FmPatch for the channel voice
         // algorithm = fp_alg_fb & 7 -> carrier mask
@@ -629,12 +645,8 @@ section sound_fm (cpu: z80) {
         ld      a, c
         ld      (Fm_ScratchMask), a      // stash value    (reuse the same free scratch)
 
-        // route -> part + ch-in-part (the same pattern as Fm_SetPan/Fm_NoteOnFreq).
-        call    Fm_RoutePart             // b = part, c = ch-in-part (clobbers af,bc)
-        ld      a, c
-        ld      (Fm_ScratchCh), a        // ch-in-part
-        ld      a, b
-        ld      (Fm_ScratchPart), a      // part
+        // route -> part + ch-in-part (the same prologue as Fm_PatchLoad/Fm_SetVolume).
+        call    Fm_StashRoute            // Fm_ScratchPart/Ch = part / ch-in-part
 
         // --- resolve the register from reg_sel: base[group] + op*4 + ch ---
         ld      a, (Fm_ScratchLog)       // a = reg_sel
