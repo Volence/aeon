@@ -151,6 +151,11 @@ pub const PHYS_SLOPE_ROLL_UP    = $14    // rolling uphill slope factor
 pub const PHYS_SLOPE_STAND_MIN  = $D     // min gsp to stand on a slope
 pub const PHYS_ROLL_START_MIN   = $100   // min |gsp| to start a roll
 pub const PHYS_JUMP_HEADROOM    = 6      // clearance needed to jump
+// Max first-frame rise = jump_force >> 8 (Sonic: $680 -> 6.5px) + 1 margin.
+pub const PHYS_JUMP_SKIP_CLEARANCE = 8   // press-frame clearance that makes the
+                                         // same-tick mostly-up ceiling re-probe a
+                                         // guaranteed no-op (G1 skip gate)
+ensure(PHYS_JUMP_SKIP_CLEARANCE * 256 > PHYS_JUMP_FORCE, "skip clearance must cover the first-frame rise")
 pub const PHYS_GSP_CAP          = $1000  // ground-speed cap
 pub const PHYS_ROLL_DECEL       = $20    // roll brake decel
 pub const PHYS_ROLL_FRICTION    = $6     // rolling friction (half PHYS_FRICTION)

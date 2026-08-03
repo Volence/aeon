@@ -62,7 +62,7 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 12 of 34
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 18 of 34
 // bytes). This module owns the overlay outright (player_common.asm deleted); the
 // state files reach the fields through the imported PlayerV struct, so no `_pl_*`
 // mirror equate survives (only the link-exported `_pl_state` offset for camera).
@@ -83,6 +83,10 @@ pub vars PlayerV: Sst.sst_custom {
         skid_latch:       u8,           // nonzero = hold the skid pose (display latch)
         getup_timer:      u8,           // >0 = play ANIM_GETUP one-shot, counts down
         look_offset:      u8,           // camera look/duck pan seam — stays 0 this pass
+        jump_headroom:    u8,           // press-frame ceiling clearance carried into
+                                        // the same tick's air body; MUST be zero at
+                                        // tick end (replay-hash discipline)
+        even_pad:         u8,           // pad — keeps the overlay even
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
