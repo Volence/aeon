@@ -772,22 +772,25 @@ section z80_sound_driver (cpu: z80) {
         // reading fields off it afterward would hit the $6000 bank-register region.
         ld      a, (hl)                 // ds_bank (+0)
         ld      (SND_ROM_BANK), a       // stash the sample bank (banked in below)
-        push    hl
-        ld      de, DacSample_ds_ptr    // +3
+        // ds_ptr (+3) and ds_length (+5) are ADJACENT little-endian words in the
+        // descriptor, and their destinations SND_ROM_PTR/SND_ROM_LEN are adjacent
+        // little-endian words in Z80 RAM — so the four bytes move as ONE block
+        // instead of two hand-unrolled (hl)-walks through de. Both adjacencies are
+        // now ASSERTED below rather than assumed: if either struct or the RAM map is
+        // ever re-laid-out, this becomes a build error, not a silently wrong ptr/len
+        // pair (which would stream garbage ROM at a garbage length).
+        // Reads still come from the $8000 window under the caller's BANK CONTRACT —
+        // same 4 descriptor bytes, same order, no payload read, no SetBank.
+        ld      de, DacSample_ds_ptr    // +3 (start of the ptr/length pair)
         add     hl, de
-        ld      e, (hl)
-        inc     hl
-        ld      d, (hl)                 // de = ds_ptr (window ptr)
-        ld      (SND_ROM_PTR), de
-        pop     hl
-        // raw 8-bit PCM: no decode setup. hl is still the descriptor base (from the
-        // pop above); read ds_length (+5) below.
-        ld      de, DacSample_ds_length // +5
-        add     hl, de
-        ld      e, (hl)
-        inc     hl
-        ld      d, (hl)                 // de = ds_length
-        ld      (SND_ROM_LEN), de
+        ld      de, SND_ROM_PTR         // ... -> SND_ROM_PTR, SND_ROM_LEN
+        ld      bc, 4
+        ldir
+        // The two adjacencies the block move rests on (zero emitted bytes).
+        ensure(SND_ROM_LEN == SND_ROM_PTR+2,
+               "SND_ROM_LEN ({SND_ROM_LEN}) must follow SND_ROM_PTR ({SND_ROM_PTR}) for Snd_StartSample's ldir")
+        ensure(DacSample_ds_length == DacSample_ds_ptr+2,
+               "DacSample.ds_length (+{DacSample_ds_length}) must follow ds_ptr (+{DacSample_ds_ptr}) for Snd_StartSample's ldir")
         // B2: stash-only. The sample bank was stashed to SND_ROM_BANK above; do NOT
         // SetBank here (in the $E2 context this runs mid-Sequencer_Frame where the
         // window MUST stay on the SONG bank). The brackets latch the sample at the
