@@ -13,12 +13,14 @@ module engine.compression_selftest in compression_selftest
 use engine.compression_vectors.{CSELF_PAYLOAD_SIZE, CSELF_PAYLOAD_SUM, CSELF_DICT_LEN}
 
 // Addressing modes: every CSelf_*/Art_Staging_Buffer operand is spelled BARE
-// and the width rule picks the mode — the CSelf_* ROM labels sit below $8000
-// (abs.w), Art_Staging_Buffer at $FFFF0000 sits outside the sign-extended
-// abs.w window (abs.l). The ensure below is the fit-lock: if the generated
-// vectors ever push the LAST label to $8000+, this fails loudly instead of
-// silently relaxing the bare operands from abs.w to abs.l.
-ensure(extern("CSelf_Expected") < $8000, "generated compression vectors grew past the abs.w window — re-widen the CSelf_* operands (s4lz selftest)")
+// and the width rule picks the mode per shape — Art_Staging_Buffer at
+// $FFFF0000 is always abs.l; the CSelf_* ROM labels sat below $8000 (abs.w)
+// until the bug005-sprites-player parcel's DEBUG growth pushed Config-A past
+// the window (2026-08-03). DECISION: the per-shape widening to abs.l is
+// ACCEPTED (+4 bytes x 5 sites, overflowing DEBUG shapes only; boot-time
+// cold path, cycles irrelevant). The old `CSelf_Expected < $8000` fit-lock
+// is retired — it existed to make exactly this crossing conscious, and the
+// width rule handles either side correctly.
 
 // -----------------------------------------------
 // CompressionSelfTest — decode golden vectors, assert checksums
