@@ -154,6 +154,29 @@ section z80_sound_driver (cpu: z80) {
         im      1                       // VBlank /INT -> RST 38h -> $0038
         ld      sp, SND_STACK_TOP       // stack top $1FFE (z80-ram-map spec)
 
+        // BOOT-WINDOW GARBAGE (B1). boot.asm loads this blob INSTEAD of the
+        // RAM-clearing idle program, so the SfxChannel array, the two duck bytes
+        // and the SeqChannels are POWER-ON GARBAGE until the first Snd_LoadSong.
+        // Sequencer_Frame falls through to .run_sfx even with SND_SEQ_ACTIVE=0, so
+        // Sfx_Frame would walk 7 garbage channels every frame from the first tick
+        // after `ei` — garbage SCF_ACTIVE means stream interpretation over random
+        // pointers, i.e. possible wild chip and bank-latch writes, and the garbage
+        // duck folds into every pre-song volume write. Sfx_StopAll clears exactly
+        // that state (active bits, priorities, queue count, both duck bytes) and
+        // costs the same 3 bytes as the `ld (SND_SFX_QUEUE_CNT),a` it replaces
+        // below. Emulators zero RAM at power-on, so the oracle can NEVER show this.
+        //
+        // MUST STAY ABOVE THE `ld de` BELOW. Sfx_StopAll clobbers de (it loads
+        // SeqChannel_len/SfxChannel_len into it to stride the arrays). Moving this
+        // call down into the store block — where the cleared byte it replaces used
+        // to live — would leave de = 68 instead of $4001, pointing every
+        // steady-state `ld (de),a` DAC write at Z80 RAM $0044. Silent, total.
+        // It also RMWs garbage sc_flags on the SeqChannels (clearing only
+        // SCF_SFX_OVERRIDE_B and leaving other garbage bits set); harmless while
+        // SND_SEQ_ACTIVE=0 and SND_SEQ_CHCOUNT=0, and Snd_LoadSong wipes the
+        // channel block wholesale before it raises either.
+        call    Sfx_StopAll             // returns a = 0 (its own trailing xor a)
+
         // de = $4001 = YM2612 part-I DATA port. Held INVARIANT for the whole
         // driver lifetime (steady-state DAC write is `ld (de),a`, 7 cyc).
         ld      de, SND_Z80_YM_A1       // de = $4001 (DATA port)
@@ -203,7 +226,8 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_STAT_TICK), a
         ld      (SND_SEQ_ACTIVE), a     // sequencer idle until a song loads
         ld      (SND_SEQ_CHCOUNT), a    // no channels until a song loads
-        ld      (SND_SFX_QUEUE_CNT), a  // 0 SFX entries pending
+        // (SND_SFX_QUEUE_CNT is cleared by the Sfx_StopAll call above, along with
+        // the SfxChannel array and both duck bytes — see the B1 note.)
         ld      (Snd_SpindashRev), a    // spindash rev escalation starts at 0
         // fade = full volume (0), idle; tempo mod = 0 (full speed). a is still 0.
         ld      (SND_MASTER_FADE), a
