@@ -4,6 +4,11 @@ module engine.replay in replay
 use engine.constants.{INPUT_PLAYBACK, INPUT_RECORD, REPLAY_ESCAPE, REPLAY_OP_CHECK, REPLAY_CHECK_MASK, REPLAY_RECORD_TICKS, BUTTON_START_BIT}
 use engine.objects.sst.{Sst}
 
+// The Player_1 hash span in LONGS: the $50 pre-frame_off bytes. The frame_off
+// tail word ($50-$51) is a derived render cache, excluded from the gameplay
+// hash — and sizeof(Sst) = $52 is not long-divisible anyway.
+const PLAYER_HASH_LONGS = (sizeof(Sst) - 2) / 4
+
 // -----------------------------------------------
 // Input_Tick — the ONE replay seam. Called from GameLoop AFTER VSync_Wait (VInt
 // has already latched the pads) and BEFORE the state dispatch, so every input
@@ -151,7 +156,8 @@ pub proc Input_Tick () clobbers(d0-d3/a0-a1) {
 // Replay_Hash — the curated gameplay-state checksum (DEBUG net + recorder).
 // Longword sum + rol #1 over a const (addr, len_longs) table for the longword-
 // clean regions, then word folds for the odd cells:
-//   Logic_Tick (1) · Player_1 SST (20 = sizeof(Sst)/4) · Camera_X + Camera_Y (2) ·
+//   Logic_Tick (1) · Player_1 SST (20 = (sizeof(Sst)-2)/4 — frame_off tail excluded) ·
+//   Camera_X + Camera_Y (2) ·
 //   Section streaming state (Top+Bottom · Right+Left · Fwd · Bwd) ·
 //   Dynamic_Live_Count / Dynamic_Free_SP / Effect_Free_SP (words) ·
 //   Section_Plane_Dirty (word).
@@ -203,7 +209,8 @@ pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
     // necessarily 4-aligned) addresses — legal on the 68000.
     .hash_table:
         dc.l    Logic_Tick, 1
-        dc.l    Player_1, sizeof(Sst) / 4    // 20 longs (80-byte SST)
+        dc.l    Player_1, PLAYER_HASH_LONGS  // 20 longs — see const above (frame_off
+                                             // tail word excluded from the hash)
         dc.l    Camera_X, 2                  // Camera_X + Camera_Y (contiguous)
         dc.l    Section_Top_Row_Written, 1   // Top + Bottom (contiguous words)
         dc.l    Section_Right_Col_Written, 1 // Right + Left

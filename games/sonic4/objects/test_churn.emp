@@ -36,15 +36,15 @@ vars TChurnV: Sst.sst_custom {
 // -----------------------------------------------
 // TestChurnObj — init (also the replacement code_addr)
 // In:  a0 = SST pointer (slot allocated, x/y_pos already set by spawner)
-// Clobbers: d0-d3, a1-a2 — the whole-object set: init writes d0-d1 (lifetime
-//   calc) + a2 (PopulateSpawnedPieceCount pointer) and falls into Main, whose
-//   contract is AllocDynamic(d0) ∪ DeleteObject(d0-d1/a1) ∪ Draw_Sprite(d0-d3/a1).
+// Clobbers: d0-d3, a1 — the whole-object set: init writes d0-d1 (lifetime
+//   calc) + d2/a1 (the prolog's RefreshSpritePieceCount) and falls into Main,
+//   whose contract is AllocDynamic(d0) ∪ DeleteObject(d0-d1/a1) ∪ Draw_Sprite(d0-d3/a1).
 // -----------------------------------------------
-pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestChurnObj_Main {
+pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChurnObj_Main {
         test_obj_prolog(prio: 4, w: 16, h: 16, coordmode: false)
+        // (piece count + frame_off cached by the prolog's refresh — the former
+        // manual PopulateSpawnedPieceCount here was made redundant by it)
         move.b  #COLLISION_TOUCH, collision_resp(a0)   // TouchResponse work, non-lethal
-        movea.l a0, a2
-        jbsr    PopulateSpawnedPieceCount
         // Staggered lifetime = MIN + ((Frame_Counter + slot>>3) & (SPREAD-1)).
         // slot term spreads the initial batch across positions; Frame_Counter
         // term spreads successive replacement generations -> steady expiry.

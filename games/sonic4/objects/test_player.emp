@@ -88,6 +88,8 @@ pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
         move.w  #$A0FA, art_tile(a0)            // debug square art_tile: priority | palette 1 | tile $0FA
         move.b  #16, height_pixels(a0)
         clr.b   mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame changed →
+                                                // re-cache (d2/a1 dead here)
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         bra     .no_toggle
@@ -97,6 +99,8 @@ pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
         move.w  #vram_art(VRAM_TEST_SONIC), art_tile(a0)
         move.b  #32, height_pixels(a0)
         clr.b   mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mappings + mapping_frame changed →
+                                                // re-cache before any render (d2/a1 dead)
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
         bset    #ST_IN_AIR, status(a0)

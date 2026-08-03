@@ -69,6 +69,9 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // gate is down held + |gsp| < PHYS_ROLL_START_MIN — the same
         // threshold that separates duck from roll in S3K. At rolling
         // speed the press falls through to the jump check instead. ---
+        // NOTE: deliberately not move_lock-gated — the trigger needs a
+        // down-hold + jump press; the lock freezes directional response,
+        // not this (review S4, self-resolving).
         btst    #BUTTON_DOWN_BIT, Ctrl_1_Held
         beq     .no_spindash
         tst.b   Player_JumpBuffer
@@ -187,6 +190,16 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         btst    #ST_ON_OBJECT, status(a0)
         beq     .terrain
         clr.b   angle(a0)
+        // G10: Player_SlopeRepel (the normal lock decrementer) is bypassed on
+        // this exit — without a tick here, a slip-locked player landing on a
+        // solid object keeps frozen input forever (only jump escapes).
+        // Grounded-frame tick ONLY — airborne must stay frozen (do not hoist
+        // to Player_Main). Memory-direct form on purpose: the register form
+        // trips a sigil relaxation oscillation at this section boundary (G10).
+        tst.w   PlayerV.move_lock(a0)
+        beq     .lock_done
+        subq.w  #1, PlayerV.move_lock(a0)
+.lock_done:
         rts
 .terrain:
 
@@ -246,7 +259,8 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
 // -----------------------------------------------
 // Player_SlopeRepel — S3K slip/detach (research physics-classics §7
 // "S3K slip rework", feel-modern §1 Slopes). Runs ONLY via the grounded
-// fall-through above. move_lock semantics: the lock ticks down HERE —
+// fall-through above. move_lock semantics: the lock ticks down HERE (and on
+// Ground_PostMove's on-object exit, which bypasses this proc — G10) —
 // grounded frames only, frozen while airborne; while nonzero the slip
 // check is skipped entirely this frame (Ground_Move separately skips
 // INPUT — friction and slope factor still run).
@@ -768,6 +782,22 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // G1: carry the press-frame clearance (d0 from the caller's
+        // Player_SensorCeiling gate, 6..32 — fits a byte) into the same-tick
+        // air body; consumed/cleared by every PState_AirShared class head.
+        // flat REST jumps only — slope projection can exceed the 7px rise
+        // bound and wall quadrants probe horizontally (review (b)); the extra
+        // y_vel==0 gate closes the slope->flat transition frame, where angle
+        // reads 0 but y_vel still carries LAST frame's slope projection
+        // (review re-check (2)). angle==0 AND y_vel==0 => press-frame
+        // y_vel = -jump_force exactly, so the 7px bound is unconditional.
+        // The byte stays 0 on every gated-off jump by invariant.
+        tst.b   angle(a0)
+        bne     .no_carry
+        tst.w   y_vel(a0)
+        bne     .no_carry
+        move.b  d0, PlayerV.jump_headroom(a0)
+.no_carry:
         clr.b   Player_JumpBuffer               // consume the buffered press
         if SOUND_DRIVER_ENABLED == 1 {
                 moveq   #SFXID_JUMP, d0

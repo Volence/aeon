@@ -297,6 +297,17 @@ Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is
 **Status:** `data/editor/ojz/act1/export/act_descriptor.asm` is git-tracked but NOT in the build include graph (`main.asm:198` includes only `data/levels/ojz/act1/act_descriptor.asm`, which IS correct), and it would not even assemble as-is (e.g. a path where a symbol is expected). So it is no build/runtime risk. But it still emits the OLD Act layout: the removed `cam_min_x/max_x/min_y/max_y` 4-word camera block, no `edge_mode` byte/pad, and pre-paging art fields — mismatched to the current `Act_len=$22`. This dir is auto-commit-daemon-watched (do NOT hand-edit autonomously).
 **What:** Update the editor EXPORTER tool to emit the current Act format (no cam bounds, `edge_mode` + pad, `act_art_pool_table`/`pages`) so a future regeneration can never reintroduce the obsolete layout into the build. Coordinate with the user (daemon-watched path). Optional belt-and-suspenders: add an AS assert at the `OJZ_Act1_Descriptor` site that the emitted descriptor size equals `Act_len`, so ANY drifting descriptor (hand-written or exported) fails the build instead of silently mis-parsing.
 
+### yflip/xyflip size+link word merge in the sprite emit loop (§1.2 perf) — 2026-08-03
+**Surfaced during:** sprites H2 quality review (parcel/bug005-sprites-player).
+**Status:** H2 merged the size+link SAT write into one word write for unflipped/xflip
+(~12 cycles/piece). yflip/xyflip kept the byte-wise form, but the constraint that
+forced it (the front-loaded size read) died with the stream-order restructure —
+`y_term(1)`'s size peek is now NON-consuming, so the merged form applies to those
+variants too (~8 cycles/piece on yflip pieces).
+**What:** Switch `size_link(1)` to the merged word form; verify SAT byte-identity for
+yflip/xyflip (piggyback on any session that already does SAT-level oracle checking).
+**See:** `engine/objects/sprites.emp` `size_link` header comment.
+
 ### Static Sub-Sprite Array — Render-Path Optimization (§1.2 / §3.5)
 **Surfaced during:** §1.2 multi-sprite implementation Task 8 research (2026-04-27).
 **Status:** Implementation shipped with sibling-chain walk per spec; the static-array

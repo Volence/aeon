@@ -130,7 +130,10 @@ pub proc BuildStaticDMA () clobbers(d0-d3/d5/a0) {
         move.l  #vdp_comm($60, VdpTarget.Cram, VdpOp.Dma), d2
         jbsr    .build_entry
 
-        // Sprite table: Sprite_Table_Buffer -> VRAM sprite table, 640 bytes
+        // Sprite table: Sprite_Table_Buffer -> VRAM sprite table. 640 bytes is
+        // the boot default only — Render_Sprites (sprites H3) re-patches the
+        // length words (SizeH/SizeL via movep.w) every frame to the live entry
+        // count, so the SAT DMA ships only entries up to the chain terminator.
         lea     Static_Sprite_DMA, a0
         move.l  #SRC_SPRITE_TABLE, d1
         move.w  #dma_length(640), d3
@@ -237,6 +240,14 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
         beq     .no_spr
         queue_static_dma(Static_Sprite_DMA)
         bcs     .no_spr                         // dropped -> leave flag set
+                                                // (retry note: a drop leaves dirty
+                                                // armed; if IRQ6 then lands mid-
+                                                // Render_Sprites on a lag frame the
+                                                // PREVIOUS length ships with a mid-
+                                                // emit buffer — pre-existing torn-
+                                                // ship class; post-H3 the short-
+                                                // length variant can also reference
+                                                // un-shipped entries for one frame)
         clr.b   Sprite_Table_Dirty              // enqueued -> clear
     .no_spr:
         // §4.6: enqueue HScroll DMA when a parallax_config is active.

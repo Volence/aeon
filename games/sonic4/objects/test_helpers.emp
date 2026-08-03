@@ -20,12 +20,15 @@ pub vars EmitterV: Sst.sst_custom {
 // test_obj_prolog — the shared TestObj init header: Map_TestObj mapping, test-obj
 // art, mapping frame (default 1), priority, hitbox size, and (for the pixel-space
 // objects) the coordinate-mode bit. Splice at the head of an init routine holding
-// a0 = *Sst.
+// a0 = *Sst. The prolog jbsr's RefreshSpritePieceCount after the mappings +
+// mapping_frame writes (clobbers d2/a1 — every splice site's clobbers set covers
+// both, and neither is live at the splice point).
 pub comptime fn test_obj_prolog(prio: int where 0..7, w: int, h: int, coordmode: bool, frame: int = 1) -> Code {
         let head = asm {
                 move.l  #Map_TestObj, mappings(a0)
                 move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
                 move.b  #{frame}, mapping_frame(a0)
+                jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written → re-cache
                 ori.b   #{prio << RF_PRIORITY_SHIFT}, render_flags(a0)
                 move.b  #{w}, width_pixels(a0)
                 move.b  #{h}, height_pixels(a0)

@@ -464,20 +464,20 @@ pub proc Player_SensorWallDir (a0: *Sst) clobbers(d0-d6/a1) {
 // -----------------------------------------------
 // Player_AtLedgeEdge — true when the leading foot is over a ledge edge, for
 // the idle balance/teeter animation. Probes the floor one foot-width toward
-// the FACING direction (single downward probe via Player_SensorPair). If that
+// the FACING direction (single downward Collision_ProbeDown call). If that
 // probe finds no nearby ground while the body is still supported (caller gates
 // on grounded-at-rest), the player is teetering.
 // In:  a0 = player SST (grounded, at rest — caller gates this)
 // Out: d0 = 0 and Z set (beq) = solidly supported; d0 = 1 and Z clear (bne)
 //      = at an edge. (Z reflects d0 so the caller can branch on beq/bne.)
-// Clobbers: d0-d6, a1-a2 (d6 = the SOLID_TOP class mask on the terrain path)
+// Clobbers: d0-d6, a1 (d6 = the SOLID_TOP class mask on the terrain path)
 // -----------------------------------------------
 const LEDGE_PROBE_REACH = PLAYER_X_RADIUS+2    // just past the support foot
 const LEDGE_NO_GROUND   = 8                     // floor dist beyond this = no ground
                                                 // under the leading foot (TUNE at the
                                                 // visual pass if needed)
 
-pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
+pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1) {
         // On a solid object the object IS the floor (Player_SensorFloor's
         // chokepoint rule) — but this probe bypasses that wrapper and asks
         // the TERRAIN directly, which finds air under the object and teeters
@@ -532,10 +532,11 @@ pub proc Player_AtLedgeEdge (a0: *Sst) clobbers(d0-d6/a1-a2) {
 .face_left:
         subi.w  #LEDGE_PROBE_REACH, d0           // facing left
 .single:
-        move.w  d0, d4                           // B = A (single-point probe)
-        move.w  d1, d5
-        lea     Collision_ProbeDown(pc), a2
-        jbsr    Player_SensorPair                // d0 = floor distance at the foot
+        // Single-point balance probe: call the core directly — the pair
+        // wrapper would run the identical probe twice and compare the
+        // result with itself. d0/d1 (probe point), d3 (layer) and d6
+        // (SOLID_TOP) are already exactly Collision_ProbeDown's inputs.
+        jbsr    Collision_ProbeDown              // d0 = floor distance at the foot
         cmpi.w  #LEDGE_NO_GROUND, d0
         bgt     .at_edge
         moveq   #0, d0                           // supported -> Z set

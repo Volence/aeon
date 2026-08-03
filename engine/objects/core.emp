@@ -41,6 +41,14 @@ comptime fn clear_longs(n: int) -> Code {
     return 0..n |> fold(asm {}, |acc, _i| acc ++ asm { move.l d0, (a0)+ })
 }
 
+// Link-time parity guard: the init clear below runs in LONGS
+// (`(Object_RAM_End-Object_RAM)/4-1` dbf), so the region size must be
+// long-divisible or the truncating /4 silently leaves the tail word
+// uncleared. Since the SST grew to $52 (not itself long-divisible) the
+// property holds only because the TOTAL slot count is even — this pins it
+// at build time instead of leaving it parity-dependent by accident.
+ensure((extern("Object_RAM_End") - extern("Object_RAM")) % 4 == 0, "SST size x slot count must stay long-divisible — the InitObjectRAM clear runs in longs")
+
 // -----------------------------------------------
 // InitObjectRAM — clear all slots, push addresses to free stacks
 // Called at game state init (level start, etc.)
@@ -288,8 +296,13 @@ pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(a0) {
 
     .clear_slot:
         // Zero all sizeof(Sst) bytes of the SST entry, one long at a time.
+        // sizeof(Sst) = $52 is NOT long-divisible: (sizeof-2)/4 divides exactly
+        // ($50 = 20 longs) and the tail word (frame_off, $50-$51) is cleared
+        // explicitly — the "whole SST zeroed on release" invariant (children.emp
+        // chain contract) must include the H1 cache word.
         moveq   #0, d0
-        clear_longs(sizeof(Sst) / 4)
+        clear_longs((sizeof(Sst) - 2) / 4)
+        clr.w   (a0)+                // the $50-$51 tail word (frame_off)
         lea     -sizeof(Sst)(a0), a0 // restore a0 to slot start
         rts
 }

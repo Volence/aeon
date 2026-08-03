@@ -14,6 +14,9 @@ use engine.objects.sst.{Sst}
 // -----------------------------------------------
 pub proc TestSolid_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestSolid_Main {
         move.b  subtype(a0), mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // mapping_frame changed → re-cache
+                                                // piece count + frame_off (d2/a1
+                                                // dead here, both in our clobbers)
         // The dispatch-store value: this object's Main routine as an offset from
         // the object-code-bank base (engine.objects.objcodebase's ObjCodeBase),
         // a `.w` link-time immediate. `TestSolid_Main` is this module's own

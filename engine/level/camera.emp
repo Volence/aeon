@@ -73,15 +73,24 @@ equ PL_STATE_ADDR = pl_state_addr()
 
 
 // -----------------------------------------------
-// clamp_camera_axis — the continuous-scroll world clamp, one axis:
-//   cam = max(0, min(cam, max_cell))    where max_cell holds the precomputed
+// clamp_camera_axis_reg — the continuous-scroll world clamp, one axis, on a
+// VALUE ALREADY IN d0 (16.16):
+//   {cam} = max(0, min(d0, max_cell))   where max_cell holds the precomputed
 //   (grid_dim << SECTION_SIZE_SHIFT) - screen_dim upper bound.
-// Spliced for X (.x_done) and Y (.clamp_y). The per-act ceiling is precomputed
-// once in Camera_Init (grid dims are act constants) and read here as a bare
-// word — the shift chain no longer runs per frame.
-// In: the axis' 16.16 RAM cell, the axis' precomputed max-coord word cell.
-// Uses d0/d1 (inside both callers' licenses). Emits no rts and no external
-// branches — control falls through the splice.
+// Spliced at Camera_Update's .x_clamp and .y_clamp convergence points: the
+// apply paths arrive with d0 = cam + step computed in-register (no RAM
+// round-trip), the freeze/hold entries load d0 from the cell one instruction
+// upstream. The per-act ceiling is precomputed once in Camera_Init (grid dims
+// are act constants) and read here as a bare word — the shift chain no longer
+// runs per frame.
+// In: d0 = 16.16 axis value; the axis' RAM cell (store target); the axis'
+// precomputed max-coord word cell.
+// Uses d0/d1 ONLY (inside all callers' licenses; d4 = Camera_Update's reserved
+// freeze flag must survive the X splice — do not widen). Emits no rts and no
+// external branches — control falls through the splice.
+//
+// The swap/clr.w/move.l store discards the subpixel fraction EVERY frame on
+// both axes — load-bearing behavior (replay-A/B-gated); keep it exactly.
 //
 // MEGA-ACT CEILING: the ceiling is a WORD (subi.w at init, cmp.w here), so an
 // axis extent above $FFFF px — grid dim > 31 sections — word-wraps. Guarded
@@ -89,9 +98,8 @@ equ PL_STATE_ADDR = pl_state_addr()
 // (grid dims <= 16, tighter than 31). Floating-origin Phase 4 removes the word
 // truncation.
 // -----------------------------------------------
-comptime fn clamp_camera_axis(cam: Label, max_cell: Label) -> Code {
+comptime fn clamp_camera_axis_reg(cam: Label, max_cell: Label) -> Code {
     return asm {
-        move.l  {cam}, d0
         swap    d0
         tst.w   d0
         bge     .min_ok
@@ -103,8 +111,18 @@ comptime fn clamp_camera_axis(cam: Label, max_cell: Label) -> Code {
         move.w  d1, d0
     .clamp:
         swap    d0
-        clr.w   d0
+        clr.w   d0                              // fraction discarded every frame — load-bearing
         move.l  d0, {cam}
+    }
+}
+
+// clamp_camera_axis — memory-form wrapper: load the cell, then the register
+// clamp above. Sole remaining user is Camera_Init's seed clamp (Camera_Update
+// splices the reg form directly at its convergence points).
+comptime fn clamp_camera_axis(cam: Label, max_cell: Label) -> Code {
+    return asm {
+        move.l  {cam}, d0
+        {clamp_camera_axis_reg(cam, max_cell)}
     }
 }
 
@@ -112,9 +130,9 @@ comptime fn clamp_camera_axis(cam: Label, max_cell: Label) -> Code {
 // Camera_Init — initialise from act descriptor
 // In:  a0 = act descriptor pointer (read only — preserved)
 // Out: none
-// Clobbers: d0
+// Clobbers: d0-d1
 // -----------------------------------------------
-pub proc Camera_Init (a0: *Act) clobbers(d0) {
+pub proc Camera_Init (a0: *Act) clobbers(d0-d1) {
         // Camera_X/Y are 16.16 fixed-point, WORLD coordinates (continuous-scroll).
         // start X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x - CAM_SCREEN_HALF_W
         moveq   #0, d0
@@ -165,6 +183,15 @@ pub proc Camera_Init (a0: *Act) clobbers(d0) {
         lsl.l   #SECTION_SIZE_SHIFT-8, d0
         subi.w  #SCREEN_HEIGHT, d0
         move.w  d0, Camera_Y_Max                   // (Camera_Y_Max).w
+
+        // Clamp the seed. The start-position math above is unclamped — a start
+        // point within half a screen of a world edge seeds Camera_X/Y negative
+        // (or past the max), and the OJZ init ladder consumes the raw seed:
+        // one bogus-camera frame leaks into cache population before
+        // Camera_Update's per-frame clamp first runs. Clamp here so every
+        // consumer of the seed sees in-bounds values from frame zero.
+        clamp_camera_axis(Camera_X, Camera_X_Max)
+        clamp_camera_axis(Camera_Y, Camera_Y_Max)
         rts
 }
 
@@ -232,23 +259,32 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.w  #CAM_MAX_X_STEP, d3
 
     .apply_x:
-        // falls through into .x_done below after applying the step. d3.w holds the
-        // signed clamped step; promote it to a 16.16 Coord (step in the high word,
-        // fraction 0) before adding. swap+clr.w discards d3's stale high word and
-        // gives step<<16 — identical to the old ext.l/lsl.l#16 for every step incl.
-        // negatives (the sign bits ext.l produced fall entirely off the top of the
-        // <<16, so both encodings leave exactly the step word in the high word).
+        // d3.w holds the signed clamped step; promote it to a 16.16 Coord (step
+        // in the high word, fraction 0) before adding. swap+clr.w discards d3's
+        // stale high word and gives step<<16 — identical to the old ext.l/
+        // lsl.l#16 for every step incl. negatives (the sign bits ext.l produced
+        // fall entirely off the top of the <<16, so both encodings leave exactly
+        // the step word in the high word). Single-pass: cam + step is computed
+        // in d0 and handed straight to the register clamp at .x_clamp — the
+        // clamped result is the ONLY Camera_X store on this path (the old shape
+        // add.l-to-memory + reload in the clamp round-tripped through RAM).
         pixels_to_coord(d3)
-        add.l   d3, Camera_X                       // (Camera_X).w
+        move.l  Camera_X, d0                       // (Camera_X).w
+        add.l   d3, d0                             // d0 = stepped camera X, in-register
+        jbra    .x_clamp
 
     .x_done:
         // -- continuous-scroll X clamp: [0, level_width − SCREEN_WIDTH] --
         //    level_width = grid_w << SECTION_SIZE_SHIFT. No more Section_Edge_Flags
         //    / PREVIEW_PIXELS branches — the world camera spans the whole act.
-        //    ALL X paths converge here — .x_done is the branch target for the
-        //    deadzone hold and the spindash freeze, and .apply_x falls through;
-        //    control continues into .y_track below.
-        clamp_camera_axis(Camera_X, Camera_X_Max)
+        //    ALL X paths converge on .x_clamp — .x_done is the no-apply entry
+        //    (branch target for the deadzone hold and the spindash freeze): it
+        //    loads the untouched cell so the clamp still runs on the MEMORY
+        //    value; .apply_x arrives at .x_clamp with d0 already stepped.
+        //    Control continues into .y_track below.
+        move.l  Camera_X, d0                       // (Camera_X).w
+    .x_clamp:
+        clamp_camera_axis_reg(Camera_X, Camera_X_Max)
 
     .y_track:
         tst.b   d4                                  // spindash freeze active?
@@ -332,15 +368,23 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         move.w  #-CAM_MAX_Y_STEP, d3
     .y_step_lo_ok:
         // d3.w = signed clamped step; promote to a 16.16 Coord (see .apply_x).
+        // Single-pass like X: cam + step computed in d0, handed to .y_clamp.
         pixels_to_coord(d3)
-        add.l   d3, Camera_Y                        // (Camera_Y).w
+        move.l  Camera_Y, d0                        // (Camera_Y).w
+        add.l   d3, d0                              // d0 = stepped camera Y, in-register
+        jbra    .y_clamp
 
     .clamp_y:
         // -- continuous-scroll Y clamp: [0, level_height − SCREEN_HEIGHT] --
         //    level_height = grid_h << SECTION_SIZE_SHIFT. Grid-derived, fully
         //    symmetric with the X clamp — no act-supplied camera bounds.
-        //    External entry (spindash freeze, .land_lock, fall-through from
-        //    .y_step_lo_ok); must keep the .clamp_y label and the trailing rts.
-        clamp_camera_axis(Camera_Y, Camera_Y_Max)
+        //    .clamp_y is the no-apply entry (spindash freeze, .land_lock,
+        //    .down_ok hold): it loads the untouched cell so the clamp still
+        //    runs on the MEMORY value; the apply path arrives at .y_clamp with
+        //    d0 already stepped. Must keep the .clamp_y label and the trailing
+        //    rts.
+        move.l  Camera_Y, d0                        // (Camera_Y).w
+    .y_clamp:
+        clamp_camera_axis_reg(Camera_Y, Camera_Y_Max)
         rts
 }

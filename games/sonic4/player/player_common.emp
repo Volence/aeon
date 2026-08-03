@@ -62,7 +62,7 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 12 of 34
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 18 of 34
 // bytes). This module owns the overlay outright (player_common.asm deleted); the
 // state files reach the fields through the imported PlayerV struct, so no `_pl_*`
 // mirror equate survives (only the link-exported `_pl_state` offset for camera).
@@ -83,6 +83,10 @@ pub vars PlayerV: Sst.sst_custom {
         skid_latch:       u8,           // nonzero = hold the skid pose (display latch)
         getup_timer:      u8,           // >0 = play ANIM_GETUP one-shot, counts down
         look_offset:      u8,           // camera look/duck pan seam — stays 0 this pass
+        jump_headroom:    u8,           // press-frame ceiling clearance carried into
+                                        // the same tick's air body; MUST be zero at
+                                        // tick end (replay-hash discipline)
+        even_pad:         u8,           // pad — keeps the overlay even
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
@@ -229,7 +233,7 @@ pub proc Player_RefreshPhysics () clobbers(a1-a2) {
 // -----------------------------------------------
 pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display {
         // press bits read ONCE for the frame — d6 survives the debug toggle
-        // calls (DebugEnter clobbers none, DebugExit d0-d2/a1-a2) and feeds both
+        // calls (DebugEnter clobbers d2/a1, DebugExit d0-d2/a1-a2) and feeds both
         // the B-toggle and the jump-buffer latch
         move.b  Ctrl_1_Press, d6
         // --- debug-fly toggle (B press) ---
@@ -658,6 +662,38 @@ const PBOUND_BOTTOM_MARGIN = 48
 ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must exceed the per-frame fall cap")
 
 // -----------------------------------------------
+// Player_BoundsInit — compute the act-invariant player clamp edges (M3).
+// Call once per act init, after the act descriptor is live; Player_LevelBound
+// consumes the cached words per-frame instead of re-deriving them. The
+// derivations mirror Player_LevelBound's retired per-frame chains exactly
+// (split 8+3 shift, word-domain subtract), so the cached words are
+// bit-identical to what the per-frame code computed.
+//   right  = (grid_w << SECTION_SIZE_SHIFT) − PBOUND_RIGHT_MARGIN
+//   bottom = (grid_h << SECTION_SIZE_SHIFT) − SCREEN_HEIGHT
+// MEGA-ACT CEILING: the word store word-wraps for level_width/height above
+// $FFFF px — grid dim > 31 sections; guarded by act_descriptor's <= $8000
+// ensure. That trap now lives HERE only.
+// In:  a0 = act descriptor
+// Out: none
+// Clobbers: d1
+// -----------------------------------------------
+pub proc Player_BoundsInit (a0: *Act) clobbers(d1) {
+        moveq   #0, d1
+        move.w  Act.grid_w(a0), d1
+        lsl.l   #8, d1
+        lsl.l   #3, d1                          // grid_w × 2048 = level_width (px)
+        subi.w  #PBOUND_RIGHT_MARGIN, d1
+        move.w  d1, Player_Bound_Right
+        moveq   #0, d1
+        move.w  Act.grid_h(a0), d1
+        lsl.l   #8, d1
+        lsl.l   #3, d1                          // grid_h × 2048 = level_height (px)
+        subi.w  #SCREEN_HEIGHT, d1
+        move.w  d1, Player_Bound_Bottom
+        rts
+}
+
+// -----------------------------------------------
 // Player_LevelBound — clamp the player to the act's playable bounds (classic
 // Sonic_LevelBound, adapted to world coordinates).
 //
@@ -673,6 +709,8 @@ ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must e
 //   right — level_width − PBOUND_RIGHT_MARGIN, level_width = grid_w << SECTION_SIZE_SHIFT.
 //   bottom — playable bottom = (grid_h << SECTION_SIZE_SHIFT) − SCREEN_HEIGHT.
 //   top   — NO clamp (classic allows above-screen travel).
+// The right/bottom edges are act-invariant, so they are precomputed once by
+// Player_BoundsInit (M3) and read back here as cached words per-frame.
 //
 // On X clamp: integer x written with subpixel zeroed, x_vel and gsp cleared.
 // On bottom trip: y is clamped to the playable bottom edge and y_vel zeroed
@@ -682,7 +720,6 @@ ensure(PBOUND_BOTTOM_MARGIN > (PHYS_FALL_CAP >> 8), "PBOUND_BOTTOM_MARGIN must e
 // Clobbers: d0-d2, a1
 // -----------------------------------------------
 pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
-        movea.l Current_Act_Ptr, a1
         move.w  x_pos(a0), d0                   // integer X (16.16 high word)
 
         // --- left bound: world [0, level_width) ---
@@ -690,14 +727,10 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         cmp.w   d1, d0
         blt     .clamp_x
         // --- right bound: world level_width − margin ---
-        //     level_width = grid_w << SECTION_SIZE_SHIFT (split 8+3 for AS).
-        moveq   #0, d1
-        move.w  Act.grid_w(a1), d1
-        lsl.l   #8, d1
-        lsl.l   #3, d1                          // grid_w × 2048 = level_width (px)
-        // MEGA-ACT CEILING: word clamp word-wraps for level_width above $FFFF px
-        // — grid_w > 31 sections; guarded by act_descriptor's <= $8000 ensure.
-        subi.w  #PBOUND_RIGHT_MARGIN, d1
+        //     cached by Player_BoundsInit at act init (M3) — the derivation
+        //     (and the MEGA-ACT word-wrap trap note) lives there now.
+        move.w  Player_Bound_Right, d1
+        if DEBUG == 1 { assert.w d1, ne, #0 }   // zero = Player_BoundsInit never ran
         cmp.w   d1, d0
         ble     .x_done
 .clamp_x:
@@ -707,19 +740,17 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
         clr.w   PlayerV.ground_speed(a0)
 .x_done:
         // --- bottom guard (no top clamp) ---
-        //     playable bottom = (grid_h << SECTION_SIZE_SHIFT) − SCREEN_HEIGHT.
+        //     playable bottom cached by Player_BoundsInit at act init (M3).
         move.w  y_pos(a0), d0                   // integer Y
-        moveq   #0, d1
-        move.w  Act.grid_h(a1), d1
-        lsl.l   #8, d1
-        lsl.l   #3, d1
-        // MEGA-ACT CEILING: word clamp word-wraps for level_height above $FFFF px.
-        subi.w  #SCREEN_HEIGHT, d1              // d1 = playable bottom edge (world)
+        move.w  Player_Bound_Bottom, d1         // d1 = playable bottom edge (world)
         move.w  d1, d2
         addi.w  #PBOUND_BOTTOM_MARGIN, d2
         cmp.w   d2, d0
         ble     .y_ok                           // above the bottom guard → done
         // --- player tripped the bottom edge: dispatch on the act's edge_mode ---
+        //     act ptr loaded HERE (rare path): edge_mode is its only remaining
+        //     consumer since M3 cached the extents.
+        movea.l Current_Act_Ptr, a1
         move.b  Act.edge_mode(a1), d2
         cmpi.b  #EDGE_WRAP_V, d2
         beq     .edge_wrap
@@ -754,15 +785,16 @@ pub proc Player_LevelBound (a0: *Sst) clobbers(d0-d2/a1) {
 // PSTATE_AIR with velocities cleared. The art/size writes here are the one
 // tolerated exception to the hook one-writer rule (outside the state machine).
 // -----------------------------------------------
-// In:  a0 = player SST.  Clobbers: none
-pub proc Player_DebugEnter (a0: *Sst) clobbers() {
+// In:  a0 = player SST.  Clobbers: d2, a1 (RefreshSpritePieceCount)
+pub proc Player_DebugEnter (a0: *Sst) clobbers(d2/a1) {
         st      PlayerV.debug_flag(a0)
         move.l  #Map_TestObj, mappings(a0)
         move.w  #vram_art(VRAM_TEST_MARKER, 1, 1), art_tile(a0) // PlayerMarkerTile
         move.b  #16, width_pixels(a0)
         move.b  #16, height_pixels(a0)
-        move.b  #1, sprite_piece_count(a0)      // debug path skips AnimateSprite's refresh
         clr.b   mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // debug path skips AnimateSprite's refresh:
+                                                // re-cache piece count + frame_off here
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         clr.w   PlayerV.ground_speed(a0)
@@ -776,6 +808,9 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // standing radii until the AIR frame lands and hooks take over
         set_standing_size(a0)
         clr.b   mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // prev_anim=$FF forces a refresh NEXT
+                                                // frame, but a render can run before
+                                                // that — re-cache now (d2/a1 in our set)
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
         clr.w   x_vel(a0)

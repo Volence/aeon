@@ -246,13 +246,15 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
         // dc.b AF_SET_FIELD, sst_offset, value, 0
         moveq   #0, d0
         move.b  2(a1,d1.w), d0
-        // DEBUG rails: a script offset >= SST_len writes into the NEXT
-        // object's SST (neighbour corruption); targeting mapping_frame bypasses
-        // RefreshSpritePieceCount, so the SAT emits the wrong piece count for the
-        // frame. The full cure is the typed animation-script DSL (ledger:
-        // byte-command-DSL demand). Byte-neutral in release.
+        // DEBUG rails: a script offset >= SST_frame_off writes the engine-owned
+        // H1 cache tail ($50/$51) or the NEXT object's SST (neighbour
+        // corruption) — the bound fences the engine tail, not just the record
+        // end; targeting mapping_frame bypasses RefreshSpritePieceCount, so the
+        // SAT emits the wrong piece count for the frame. The full cure is the
+        // typed animation-script DSL (ledger: byte-command-DSL demand).
+        // Byte-neutral in release.
         if DEBUG == 1 {
-        assert.w d0, lo, #SST_len
+        assert.w d0, lo, #SST_frame_off
         assert.w d0, ne, #SST_mapping_frame
         }
         move.b  3(a1,d1.w), (a0,d0.w)
@@ -269,10 +271,16 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
 }
 
 // -----------------------------------------------
-// RefreshSpritePieceCount — refresh Sst.sprite_piece_count from current frame
-// Called from AnimateSprite paths whenever mapping_frame is written.
+// RefreshSpritePieceCount — refresh Sst.sprite_piece_count + the frame_off H1
+// cache from the current frame.
+// Called whenever mapping_frame (or mappings) is written: from AnimateSprite's
+// paths here, and jbsr'd directly by every non-animating mapping_frame writer
+// (test objects, player debug enter/exit). A writer may ALTERNATIVELY be
+// animator-owned: force prev_anim = $FF with AnimateSprite guaranteed to run
+// before the first render — the Sonic_InitAssets / TestAnimated idiom.
 // In:  a0 = SST pointer
-// Out: Sst.sprite_piece_count(a0) = first word of current frame's data
+// Out: Sst.sprite_piece_count(a0) = first word of current frame's data;
+//      Sst.frame_off(a0) = word offset from mappings base to that frame
 // Clobbers: d2, a1
 // -----------------------------------------------
 pub proc RefreshSpritePieceCount (a0: *Sst) clobbers(d2, a1) {

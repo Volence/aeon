@@ -142,6 +142,11 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) {
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
         jbsr    Section_Init
 
+        // -- precompute the act-invariant player clamp edges (M3). Section_Init
+        //    clobbers a0-a4, so reload the descriptor. --
+        lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
+        jbsr    Player_BoundsInit
+
         // -- populate tile cache (must run AFTER Camera_Init + Section_Init so
         //    Camera_X and Current_Act_Ptr are valid) --
         jbsr    Tile_Cache_Init
