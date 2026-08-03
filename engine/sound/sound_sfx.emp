@@ -1470,6 +1470,24 @@ section sound_sfx (cpu: z80) {
     ]
 
     // --- the emitted tables ------------------------------------------------
+    // THE LENGTH GUARD IS THE TYPE ANNOTATION. `[u8; CHROUTE_COUNT]` is checked at
+    // lower time: adding a twelfth cell fails the build with "array length
+    // mismatch: expected 11 element(s), got 12". That is strictly stronger than the
+    // three `ensure(11 == CHROUTE_COUNT)` guards it replaces, which were RHS-only —
+    // they could catch someone editing the constant but never someone adding or
+    // dropping a table row. (The comment that used to sit here, claiming `.emp` has
+    // no emitted-length introspection and that a stray row could only be caught by
+    // the whole-ROM byte gate, was stale on both counts and is gone.)
+    //
+    // `span(...)` — the comptime emitted-byte-span primitive used for exactly this
+    // in dac_sample_tab.emp and sound_tables_z80.emp — is NOT applicable here: it
+    // resolves only against a `proc`, and these are `data` items. The type
+    // annotation covers the same ground, and covers it at the authored array rather
+    // than at the projection, which is where an edit would actually go wrong.
+    //
+    // What this protects: the resident scans run CHROUTE_COUNT / SFX_VOICE_COUNT
+    // deep, so a table with fewer cells than its constant would have the scan read
+    // its neighbour's bytes as routing data.
     pub data SfxEligTable: [u8; CHROUTE_COUNT] = SFX_ELIG
     pub data SfxRouteSlot: [u8; CHROUTE_COUNT] = SFX_ROUTE_SLOT
     pub data SfxSlotRoute: [u8; SFX_VOICE_COUNT] = SFX_SLOT_ROUTE
@@ -1486,6 +1504,20 @@ section sound_sfx (cpu: z80) {
     // route/slot edit — exactly the drift the comptime projection makes
     // impossible.
     pub data SfxSlotKind: [u8; SFX_VOICE_COUNT] = comptime for i in 0..SFX_VOICE_COUNT { SFX_ELIG[SFX_SLOT_ROUTE[i]] }
+
+    // MEASURED length guards. These fold `span(...)`, the comptime emitted-byte-span
+    // primitive, so the left-hand side is what the table actually EMITS — not a
+    // hand-kept row count. The guards these replace compared a literal 11 against
+    // CHROUTE_COUNT, which could only catch someone editing the constant, never
+    // someone adding or dropping a table row; the comment above them asserting that
+    // `.emp` has no emitted-length introspection was simply out of date (`span` is
+    // used for exactly this in dac_sample_tab.emp and sound_tables_z80.emp).
+    //
+    // With the tables now projected from SFX_ELIG / SFX_ROUTE_SLOT / SFX_SLOT_ROUTE,
+    // these check the authored ARRAYS against the routing constants the resident
+    // code indexes them with — the drift that would actually hurt: a scan that runs
+    // CHROUTE_COUNT/SFX_VOICE_COUNT deep over a table with fewer cells reads its
+    // neighbour's bytes as routing data.
 
     // ======================================================================
     // Sfx_SlotPtr — resolve an SfxChannel slot index (in `a`, 0..6) to its RAM ptr
@@ -1573,8 +1605,7 @@ section sound_sfx (cpu: z80) {
         jr      nc, .elig_hi_ok
         inc     h
     .elig_hi_ok:                         // hl = &SfxEligTable[c]
-        ld      a, (hl)
-        ld      b, a                     // b = incoming kind (SFXEL_*)
+        ld      b, (hl)                  // b = incoming kind (SFXEL_*), direct to b
 
         // --- TIER (a): preferred route's own slot, if free. ----------------------
         ld      hl, SfxRouteSlot
