@@ -41,6 +41,14 @@ comptime fn clear_longs(n: int) -> Code {
     return 0..n |> fold(asm {}, |acc, _i| acc ++ asm { move.l d0, (a0)+ })
 }
 
+// Link-time parity guard: the init clear below runs in LONGS
+// (`(Object_RAM_End-Object_RAM)/4-1` dbf), so the region size must be
+// long-divisible or the truncating /4 silently leaves the tail word
+// uncleared. Since the SST grew to $52 (not itself long-divisible) the
+// property holds only because the TOTAL slot count is even — this pins it
+// at build time instead of leaving it parity-dependent by accident.
+ensure((extern("Object_RAM_End") - extern("Object_RAM")) % 4 == 0, "SST size x slot count must stay long-divisible — the InitObjectRAM clear runs in longs")
+
 // -----------------------------------------------
 // InitObjectRAM — clear all slots, push addresses to free stacks
 // Called at game state init (level start, etc.)
