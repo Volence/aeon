@@ -259,8 +259,10 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // G1: press-frame skip — Player_Jump carried its gate probe's clearance
         // (this runs post-ObjectMove, so the first-frame rise — integer bound
         // 7px: $680 = 6.5px + subpixel carry — is already spent). The store is
-        // flat-angle-gated, so that bound holds for EVERY carried value: no
-        // slope-projected pre-jump y_vel, no wall-quadrant horizontal probe.
+        // gated on angle==0 AND y_vel==0 at the store, so that bound holds for
+        // EVERY carried value: press-frame y_vel is exactly -jump_force — no
+        // slope-projected pre-jump y_vel (not even the slope->flat transition
+        // frame's stale projection), no wall-quadrant horizontal probe.
         // Clearance ≥ the ensure-guarded PHYS_JUMP_SKIP_CLEARANCE means the
         // re-probe would return dist ≥ 1 → the snap/bump/reattach block below
         // cannot fire — skipping it is behavior-identical (sentinel-only skip)

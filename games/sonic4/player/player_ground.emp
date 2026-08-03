@@ -785,11 +785,16 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // G1: carry the press-frame clearance (d0 from the caller's
         // Player_SensorCeiling gate, 6..32 — fits a byte) into the same-tick
         // air body; consumed/cleared by every PState_AirShared class head.
-        // flat jumps only — slope projection can exceed the 7px rise bound
-        // and wall quadrants probe horizontally (review (b)); angle here is
-        // still LAST frame's ground angle (the projection below reads the
-        // same byte), so the byte stays 0 on every non-flat jump by invariant
+        // flat REST jumps only — slope projection can exceed the 7px rise
+        // bound and wall quadrants probe horizontally (review (b)); the extra
+        // y_vel==0 gate closes the slope->flat transition frame, where angle
+        // reads 0 but y_vel still carries LAST frame's slope projection
+        // (review re-check (2)). angle==0 AND y_vel==0 => press-frame
+        // y_vel = -jump_force exactly, so the 7px bound is unconditional.
+        // The byte stays 0 on every gated-off jump by invariant.
         tst.b   angle(a0)
+        bne     .no_carry
+        tst.w   y_vel(a0)
         bne     .no_carry
         move.b  d0, PlayerV.jump_headroom(a0)
 .no_carry:
