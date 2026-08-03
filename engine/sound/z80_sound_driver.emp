@@ -408,8 +408,10 @@ section z80_sound_driver (cpu: z80) {
         // DERIVED timing pad -> DRAINING = 194 (FILL - 1). measured non-pad
         // cost = prefix cycles(.loop,.dma_check)=82 + this body pre-pad
         // cycles(.draining,.draining_pad)=18 + trailing jp .loop=10 = 110;
-        // pad = (194-110)/4 = 21 nops.
-        pad_to_cycles(194, cycles(.loop, .dma_check) + cycles(.draining, .draining_pad) + 10)
+        // pad = 194-110 = 84 T. DENSE: 84/12 = 7 unconditional `jr` (12 T in 2 B
+        // each), no nop remainder -> 14 B instead of 21 nops. Same T-total, and the
+        // `.draining` ensure below re-measures it, so the pitch stays build-proven.
+        pad_to_cycles(194, cycles(.loop, .dma_check) + cycles(.draining, .draining_pad) + 10, dense: true)
         jp      .loop
 
     .stop:
@@ -459,8 +461,11 @@ section z80_sound_driver (cpu: z80) {
     .drain:
         // DERIVED timing pad -> DRAIN = 195 (== FILL). measured non-pad cost =
         // prefix cycles(.loop,.fill_body)=109 + trailing jp .loop=10 = 119;
-        // pad = (195-119)/4 = 19 nops (the lead is recovered at the tick).
-        pad_to_cycles(195, cycles(.loop, .fill_body) + 10)
+        // pad = 195-119 = 76 T (the lead is recovered at the tick). DENSE:
+        // 76/12 = 6 unconditional `jr` (12 T in 2 B each) + 76%12/4 = 1 nop -> 13 B
+        // instead of 19 nops. Same T-total; the `.drain_end` ensure below re-measures
+        // it. Reg-safe like the nop pad (a `jr` writes no register and no flag).
+        pad_to_cycles(195, cycles(.loop, .fill_body) + 10, dense: true)
         jp      .loop
     .drain_end:                         // cycles() span cut label (zero bytes)
 
