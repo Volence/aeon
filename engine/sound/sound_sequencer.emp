@@ -1768,6 +1768,20 @@ section sound_sequencer (cpu: z80) {
         ret     z                       // PSG/DAC have no patch -> ignore
         call    Fm_PatchPtr             // hl = FmPatch ptr for sc_patch
         call    Fm_PatchLoad            // load the voice (preserves ix)
+        // FM-11 pan shadow resync. Fm_PatchLoad writes $B4 straight from the patch,
+        // so a mid-song patch change silently CLOBBERS a song-commanded MEV_PAN. Pan
+        // is rendered write-on-change (ModUpdate compares sc_pan against sc_last_pan),
+        // and the shadow still matches, so it would never refire — the channel stays
+        // mispanned until the next explicit pan event, which for most songs is never.
+        // Zeroing the shadow makes ModUpdate re-assert sc_pan on the next frame.
+        // Sourcing $B4 from sc_pan inside PatchLoad instead would be WRONG: sc_pan is
+        // the raw $B4 byte and 0 means "never panned, keep the patch's own default",
+        // so that would write $00 (both outputs off) and silence every unpanned
+        // channel. Never-panned channels compare equal here (0 == 0) and correctly
+        // keep the patch default. Same idiom, same reason, as Sfx_Restore's resync
+        // after its voice-steal patch re-upload.
+        xor     a
+        ld      (ix+sc_last_pan), a
         // Fm_PatchLoad wrote the patch's BASE TLs but NOT the channel's current volume —
         // re-apply sc_volume so a patch change preserves the intended loudness.
         // Fm_SetVolume OVERWRITES the TLs Fm_PatchLoad just wrote — no double-apply.
