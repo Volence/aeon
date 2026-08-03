@@ -345,8 +345,19 @@ section sound_psg (cpu: z80) {
         // Divisor 1 = ~111.9 kHz (3579545/32), inaudible: a floored sweep goes
         // silent-high instead of wrapping to a wrong low note. (The UPWARD overflow
         // past $3FF is left as-is — S3K's zDoModulation wraps identically there.)
+        //
+        // The guard used to test `bit 7,d` ALONE, which catches only a NEGATIVE sum
+        // and so contradicted the "clamp to 1, not 0" it is written under: an EXACT
+        // ZERO passed straight through to the chip. Reachable, not theoretical —
+        // PsgDivisorTableZ ships its top 13 entries as $0001, so a single step of
+        // downward mod (accum -1) lands exactly on 0. Psg_EmitNoiseClock has always
+        // done this correctly (or e / jr nz / inc e); this is that test, here.
         bit     7, d                   // negative 16-bit sum = the sweep underflowed
-        jr      z, .div_ok
+        jr      nz, .div_floor
+        ld      a, d
+        or      e                      // ... or an exact-zero sum (the missed case)
+        jr      nz, .div_ok
+    .div_floor:
         ld      de, 1                  // clamp at the divisor floor
     .div_ok:
         // de = modulated divisor (d=hi, e=lo). Re-latch via the shared emit helper
