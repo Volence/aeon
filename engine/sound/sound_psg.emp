@@ -478,36 +478,59 @@ section sound_psg (cpu: z80) {
     }
 
     // ------------------------------------------------------------------
+    // Psg_FoldAtten — fold one FM-TL-unit operand into the running PSG attenuation.
+    //   c = min($0F, c + (a >> 3))
+    // In: a = the operand in FM-TL units (0.75 dB/step, NONZERO — both call sites
+    // fast-path a zero operand out before calling), c = running attenuation.
+    // The >>3 converts TL units to the PSG's 4-bit ladder. Shared by the two
+    // class-exclusive folds in Psg_SetVolume — the per-SFX sfh_gain and the
+    // master-fade+duck total — which were two byte-identical copies of this block.
+    // NOTE this is a TRUE SATURATING fold (cp $0F+1), unlike the vol-env fold in
+    // Psg_SetVolume, which tests `bit 4` and therefore does NOT saturate. That
+    // difference is why the two folds cannot be freely reordered; see the comment
+    // at the env fold.
+    // ------------------------------------------------------------------
+    // Contract: out(c) = folded attenuation; clobbers af (a is the scratch, the
+    // shifts/cp write f). preserves b, de, hl (+ ix inherited — leaf).
+    pub proc Psg_FoldAtten () out(c) clobbers(af) preserves(b, de, hl) {
+        srl     a
+        srl     a
+        srl     a                      // TL units >> 3 -> atten units
+        add     a, c
+        cp      SND_PSG_ATTEN_SILENT+1
+        jr      c, .store
+        ld      a, SND_PSG_ATTEN_SILENT  // clamp $0F (silent)
+    .store:
+        ld      c, a
+        ret
+    }
+
+    // ------------------------------------------------------------------
     // Psg_SetVolume — set the channel attenuation from a linear volume.
     // In:  ix = SeqChannel (PSG1..3 OR PSGN), a = linear vol (0..127).
     // Tone:  emit $90 | (ch<<5) | atten.   Noise: emit $F0 | atten.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc; preserves de, hl (de survives via the callees'
-    // contracts — Psg_VolToAtten/Snd_ChanClass/Psg_ChBase all preserve de; hl is
-    // push/pop-bracketed around each Snd_ChanClass) + ix (inherited).
-    pub proc Psg_SetVolume () clobbers(af, bc) preserves(de, hl) {
+    // Contract: clobbers af, bc, hl; preserves de (de survives via the callees'
+    // contracts — Psg_VolToAtten/Snd_ChanClass/Psg_ChBase all preserve de) + ix
+    // (inherited). hl is NOT preserved: Snd_ChanClass returns ix in it and no
+    // caller needs it live across this routine (the one site that does —
+    // Seq_HookSetVol's stream pointer, sound_sequencer.emp — brackets the call
+    // itself), so the two push hl/pop hl pairs that used to honour the old claim
+    // were pure cost. The .emp contract checker enforces this against every caller.
+    pub proc Psg_SetVolume () clobbers(af, bc, hl) preserves(de) {
         call    Psg_VolToAtten         // a = 4-bit attenuation (clobbers b)
         ld      c, a                   // c = attenuation
 
         // --- Stage B sfh_gain (SFX slots only): +sx_gain>>3 in PSG atten units.
-        // Mirrors the fade/duck fold's TL->atten (>>3) conversion below. Music
-        // SeqChannels have no sx_gain -> gate on SFX class. Gain 0 -> no-op.
-        push    hl                     // Snd_ChanClass clobbers hl (contract: preserve)
+        // Mirrors the fade/duck fold's TL->atten (>>3) conversion below — the shared
+        // Psg_FoldAtten. Music SeqChannels have no sx_gain -> gate on SFX class.
+        // Gain 0 -> no-op (fast-pathed here, so the fold never sees a zero).
         call    Snd_ChanClass          // CARRY set => MUSIC
-        pop     hl
         jr      c, .no_sfx_gain
         ld      a, (ix+sx_gain)
         or      a
         jr      z, .no_sfx_gain
-        srl     a
-        srl     a
-        srl     a                      // sx_gain (TL units) >> 3 -> atten units
-        add     a, c
-        cp      SND_PSG_ATTEN_SILENT+1
-        jr      c, .sfx_gain_store
-        ld      a, SND_PSG_ATTEN_SILENT  // clamp $0F (silent)
-    .sfx_gain_store:
-        ld      c, a
+        call    Psg_FoldAtten          // c = min($0F, c + sx_gain>>3)
     .no_sfx_gain:
 
         // --- PSG volume envelope (spec §4): add the per-frame env atten delta ----
@@ -516,6 +539,18 @@ section sound_psg (cpu: z80) {
         // branch (the noise route gets the contour too — the hi-hat). A channel with
         // no envelope has it = 0 -> the `or a / jr z` fast path skips the fold. Underflow
         // guard (S3K `bit 4,a`): if the sum sets bit 4 (>= $10) force $0F silent.
+        //
+        // ORDERING IS LOAD-BEARING HERE — do not hoist this fold past the two
+        // class-exclusive folds around it to save a Snd_ChanClass call. `bit 4,a` is a
+        // SINGLE-BIT test, not a magnitude test, so unlike Psg_FoldAtten this fold does
+        // NOT saturate: a sum of $20..$2F leaves bit 4 clear and passes through, and a
+        // later saturating fold would have clamped it while an earlier one would not.
+        // Exhaustively enumerated over atten x env x operand: the two orderings differ
+        // in 517440 of 1048576 cases (smallest witness: atten $00, env $11, operand
+        // $78 -> $0F if env folds first, $20 if it folds second). They agree only while
+        // every env body byte stays <= $10, which is true of today's authored content
+        // but is NOT asserted anywhere yet. Reorder once that ceiling is build-enforced,
+        // not before.
         ld      a, (ix+sc_psgenv_out)
         or      a
         jr      z, .env_done           // no env delta -> skip
@@ -531,12 +566,10 @@ section sound_psg (cpu: z80) {
         // Sum the GLOBAL master-fade scalar (SND_MASTER_FADE) and the SFX duck level
         // in carrier-TL units, map to PSG attenuation (>>3), and fold into the
         // attenuation so EVERY music volume write fades/ducks automatically. Clamp the
-        // sum to $0F (silent) so it can't wrap. hl is preserved by contract — save it
-        // around the test. A full fade ($7F TL) >>3 = $0F = silent; fade 0 + duck 0 ->
-        // byte-identical.
-        push    hl                     // (Snd_ChanClass clobbers hl)
+        // sum to $0F (silent) so it can't wrap — the shared Psg_FoldAtten does both the
+        // >>3 and the clamp. A full fade ($7F TL) >>3 = $0F = silent; fade 0 + duck 0
+        // -> byte-identical.
         call    Snd_ChanClass          // CARRY set => ix below the SFX page => MUSIC
-        pop     hl                     // restore caller's hl (contract)
         jr      nc, .no_global_atten   // SFX channel -> never fade/duck
         ld      a, (SND_SFX_DUCK_LEVEL)
         ld      b, a
@@ -544,15 +577,7 @@ section sound_psg (cpu: z80) {
         add     a, b                   // a = (duck + fade) in carrier-TL units
         or      a
         jr      z, .no_global_atten    // nothing to add (no fade, no duck)
-        srl     a
-        srl     a
-        srl     a                      // TL units -> 4-bit atten units (>>3)
-        add     a, c                   // atten + global atten
-        cp      SND_PSG_ATTEN_SILENT+1  // clamp to $0F (silent)
-        jr      c, .ga_ok
-        ld      a, SND_PSG_ATTEN_SILENT
-    .ga_ok:
-        ld      c, a                   // faded+ducked attenuation
+        call    Psg_FoldAtten          // c = min($0F, c + (duck+fade)>>3)
     .no_global_atten:
 
         ld      a, (ix+sc_route)
