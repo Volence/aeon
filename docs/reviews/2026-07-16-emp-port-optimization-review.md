@@ -51,6 +51,66 @@ All cycle figures are estimates (68000 cycle tables / Z80 T-state tables); no em
 profiling was run. The cross-file priority list and bug roll-up below cover ALL FOUR
 waves. Coverage is complete: every engine and game source file has been reviewed.
 
+## STATUS UPDATE (2026-08-03) — wave-4 items 23 + 24 EXECUTED
+
+**Item 23 (sound bug-fix batch) and item 24 (Z80 size-reclaim campaign) are EXECUTED**, on
+`parcel/wave4-z80-sound-reclaim`. Plan:
+`docs/superpowers/plans/2026-08-03-wave4-z80-sound-reclaim.md`. A/B evidence:
+`docs/superpowers/notes/2026-08-03-wave4-sound-ab.md`. Defect write-ups: `docs/BUGS.md`.
+
+- **Item 23** — all five listed defects fixed, plus three extras approved at plan time
+  (sequencer B1 PSG glide underflow, FM bug 11 patch-load pan clobber, PSG M5 unguarded
+  detune fold), plus two build-time nets (sequencer B2 env assert, SFX B4 alias ensures).
+  Driver B2 was dropped, not fixed — see below. Cost **+28 B** (planned +20).
+- **Item 24** — reclaimed **−231 B** net across SFX, driver core, FM, PSG and a sigil-side
+  dense-pad mode. Resident blob **6172 → 5941 plain**, **6298 → 6067 debug**; DEBUG headroom
+  against the `$18F0` ceiling **86 B → 316 B**. The review hoped to "roughly triple" the
+  86 B; the measured result is 3.7×.
+- Frozen as provenance chain entry 33.
+
+### Dropped or REJECTED during execution (with reasons)
+
+| Item | Disposition | Reason |
+|---|---|---|
+| **driver B2** (Snd_LoadSong repost race, +8 B) | **DROPPED** | The corruption half is already closed by **H-1** (slot clear moved ahead of the last param read) plus the 68k's pre-write gate — it spins on `MUSIC_SLOT == 0` *before* writing, and all params post under one bus hold. What remained was 68k spin latency only, which **driver M1** (`.seq_clr` → `LDIR`) buys for **−1 B** instead of +8. |
+| **SFX S4** (DrainQueue 3-way max) | **DROPPED** | Review scored −15..25 B; the actual unroll **measures +3 B**. `Sfx_QueueEntryPtr` cannot be deleted (three other callers). Cycle-only win, no bytes. |
+| **SFX S1** (evict 3 lookup tables to the banked window) | **DROPPED** | Its precondition — "append a sixth banked head without disturbing the existing pins" — is FALSE, proven by bytes: the five head artifacts concatenate to exactly `$607` with **zero slack**, so a sixth head moves **8 pinned regions**, and **three of those are hardcoded as literals** that `repin` cannot fix. Cost far beyond "register a symbol" (new banked module, new seam-2 emitter, new layout field, artifact write, embed + size ensure) for **36 B**. Not worth destabilising the bank layout. |
+| **FM micro** — delete the two `nop`s in `Fm_YmWrite` | **REJECTED** | 2 B for the **only** change in the entire campaign that NARROWS YM address→data spacing (≈21 T → ≈17 T). |
+| **sequencer M2** (cache `sc_flags` in a register) | **REJECTED** | Real saving is **−5..12 T**, not the reviewed −40..60. |
+| **`Psg_SetVolume` `Snd_ChanClass` collapse** (the PSG twin of FM 7.6) | **REJECTED** | Exhaustive offline enumeration found **517,440 divergent cases out of 1,048,576**. The FM reorder is safe; the PSG one is not, and the reason is a real latent hazard — see the PSG vol-env clamp entry in `docs/DEFERRED_WORK.md`. |
+| **plan item 7.7's transform** (`PatchOpGroup` invariant hoist) | **replaced** | Measures **EXACTLY ZERO** bytes — the Z80 has no `add a,(nn)`. Replaced with a different −10 B change in the same routine. |
+| **−5 B `DacSampleTable` variant** (page-aligned `Snd_DacLookup`) | **replaced** | Its page-alignment premise is **FALSE**: seam-2 places `DacSampleTable` at `$85AD`, not on a page boundary. Took the −1 B shift form instead. |
+
+### Factual corrections to this review
+
+- **(a) The YM-spacing audit rested on a false premise.** It assumed every YM write funnels
+  through `Fm_YmWrite`. **SEVEN of nine write sites BYPASS it** (Timer-A `$24`/`$25`/`$27`,
+  `Snd_StartSample` `$28`/`$2B`, `SndDrv_Sample.stop` `$2B`/`$28`, `Sequencer_StopAll`
+  `$28`) and were therefore effectively unaudited. All nine now carry structural
+  `ensure(cycles(...))` guards on the address→data floor and all nine pass (`Fm_YmWrite`
+  ×2 = 21 T each, matching the review's hand figure exactly; the direct sites 17-24 T). The
+  data→next-address floor could **not** be expressed at any site — see the entry in
+  `docs/DEFERRED_WORK.md`.
+- **(b) The Tier-4 blob-evenness item was marked closed by a mechanism that never shipped.**
+  "No build-time evenness assert on either Z80 blob (odd blob = boot address error)" carried
+  a `[closed by D8 linker asserts — do not hand-fix]` marker; D8 was never built, and the
+  first parcel to change the blob length by an odd number took the boot ADDRESS ERROR for
+  real. Hand-fixed in `5526113` (`align 2` + evenness `ensure`). Full write-up in
+  `docs/BUGS.md`. **Process lesson:** a `[closed by <pending mechanism>]` marker is not a
+  closure — it is an open item wearing a closed label until the mechanism actually lands.
+
+### Carry-forward correction for item 25 (the follow-on parcel)
+
+The review calls sequencer H1's per-channel tempo gate "provably redundant." **It is not.**
+`Seq_Op_Tempo` (`$F3`) broadcasts **mid-frame**, from inside channel N's tick, so channels
+0..N run that frame's gate with the old modulus and N+1.. with the new — leaving a
+**permanent accumulator phase offset**. Hoisting to a global accumulator is *more* S3K-exact
+but IS a chip-stream change on that frame. It is dormant only because no shipped song
+contains a tempo event. Its advertised "**−2 B/channel RAM**" is also **not collectable**:
+`sc_tempo_mod`/`sc_tempo_accum` live in the SeqChannel↔SfxChannel shared prefix that the
+`sx_pad+58 == sc_detune` invariant depends on. Do not re-plan item 25 on the original
+premise.
+
 ## REMAINING FUNCTIONAL BUGS (2026-07-17 audit)
 
 Definitive cross-reference of this review's correctness roll-up against the two merged fix
@@ -92,6 +152,12 @@ review; re-derive against current HEAD before fixing.
 
 ### Tier 3 — Z80 sound cluster (real, but oracle-invisible; deferred to the sound bug-fix batch + rendered-audio A/B)
 
+> **FIXED 2026-08-03** by `parcel/wave4-z80-sound-reclaim` (item 23) — every row below
+> EXCEPT **sound_api PB-2** (the non-MUSIC mailbox slots; 68k-side, out of that parcel's
+> scope) and **driver B2**, which was DROPPED as already-closed (see the STATUS UPDATE
+> above). Three defects not listed here were folded in as extras: sequencer B1, FM bug 11,
+> PSG M5. Per-defect mechanism/reachability/fix write-ups: `docs/BUGS.md`.
+
 | Site | Class | Sev | Note |
 |---|---|---|---|
 | driver B1 — SfxChannels+duck bytes are power-on garbage until first Snd_LoadSong; Sfx_Frame walks garbage (possible wild chip/bank writes) | uninit state | High | net-zero fix (init → `call Sfx_StopAll`); emulators zero RAM so oracle can NEVER show it |
@@ -108,7 +174,7 @@ review; re-derive against current HEAD before fixing.
 - PSG silence writes race the in-flight VRAM DMA fill (~2× implicit margin, no enforcement) — free reorder fix.
 - YM key-off block: no busy-wait + address-latch race vs the already-running Z80 driver.
 - z80_init leaves SP=0 (future push lands in the 68k bank window); EntryPoint doesn't reload SP (jmp-reset unsupported); spurious-interrupt vector policy inconsistent (crash in release); `ld bc` operand parse trap.
-- No build-time evenness assert on either Z80 blob (odd blob = boot address error). **[closed by D8 linker asserts — blob alignment becomes a link-time invariant; do not hand-fix]**
+- No build-time evenness assert on either Z80 blob (odd blob = boot address error). ~~**[closed by D8 linker asserts — blob alignment becomes a link-time invariant; do not hand-fix]**~~ **MARKER WAS WRONG — D8 never shipped, and this fired for real on 2026-08-03 (boot ADDRESS ERROR as soon as the reclaim made the blob odd). HAND-FIXED in `5526113`: `align 2` inside the `Z80_Sound_Start`/`_End` brackets + `ensure((Z80_SOUND_SIZE & 1) == 0)`. See `docs/BUGS.md`.**
 
 ### Tier 5 — latent guards / data-width (condition not reached today; add asserts or width fixes)
 
@@ -257,16 +323,24 @@ Wave-3 additions (merged by expected value — parallax H1 above outranks everyt
 
 Wave-4 additions (merged by expected value):
 
-23. **Sound bug-fix batch** (before any sound optimization): driver B1 boot-window fix
+23. **[EXECUTED 2026-08-03 — `parcel/wave4-z80-sound-reclaim`; +28 B, three extra defects
+    folded in, driver B2 dropped as already-closed. See the STATUS UPDATE section.]**
+    **Sound bug-fix batch** (before any sound optimization): driver B1 boot-window fix
     (net-zero bytes), SFX B1 DuckRamp gate (+5 B), PSG zero-divisor clamp (+5 B),
     sequencer B2 env assert (0 Z80 bytes, generator-side), driver B2 PlayMusic snapshot
     (+8 B) — total ≈ +18 bytes, paid for many times over by:
-24. **Z80 size-reclaim campaign** (−180..230 B behavior-identical): SFX S1-S6 (−80..110),
+24. **[EXECUTED 2026-08-03 — same parcel; MEASURED −231 B net, blob 6172→5941 plain /
+    6298→6067 debug, DEBUG headroom 86→316 B. SFX S1 and S4 dropped, the `Fm_YmWrite` nop
+    micro rejected. See the STATUS UPDATE section.]**
+    **Z80 size-reclaim campaign** (−180..230 B behavior-identical): SFX S1-S6 (−80..110),
     FM/PSG dedups + ChanClass single-calls + WriteFreq rewrite (−55..70), driver H1-H4 +
     M1 (−50..60). Most are lst-diff-verifiable (chip-stream identical); H3 (nop→jr pads)
     is cadence-sensitive — recount + VGM A/B.
 25. **Sequencer H1-H3** — global tempo accumulator (smaller + faster + more S3K-exact),
     page-aligned opcode dispatch (−30 T/op), Seq_ContinueFetch retarget (free).
+    **CORRECTION (2026-08-03): H1's per-channel tempo gate is NOT "provably redundant" and
+    its "−2 B/channel RAM" is not collectable — see the carry-forward correction in the
+    STATUS UPDATE section before planning this. Tracked in `docs/DEFERRED_WORK.md`.**
 26. **Game-shell ordering decisions** — sprite-cull camera skew (ordering or margin),
     kill the per-frame direct $8B write, clamp in Camera_Init, stopZ80 inside
     Section_RedrawPlanes.
