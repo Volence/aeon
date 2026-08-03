@@ -5,6 +5,59 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## BUG-005 — one-frame stray Sonic sprite piece ("second face") — OPEN, minor
+
+**Status:** OPEN. **Severity:** low (single-frame visual flicker, no state corruption).
+**Reported:** 2026-08-02 by the user from a live spindash-stress session (OJZ, DEBUG
+build, chain-30): one captured frame shows a duplicate chunk of Sonic's head floating
+beside him. Frozen-state diagnosis was lost to an emulator control-socket hang before
+the sprite table could be dumped (the artifact frame could not be re-frozen).
+
+**Ruled out (2026-08-02 forensics):**
+- The `mapping_dsl` sprSize w/h swap — real, but Sonic's mappings come from the
+  hardware-correct S2 conversion path, and the swap is FIXED anyway (byte-identical,
+  see the mapping_dsl commit).
+- The torn-table DMA race — structurally prevented: `Sprite_Table_Dirty` is set only
+  AFTER the terminator fix-up in `Render_Sprites.done`, and the 68k-source DMA halts
+  the CPU, so a mid-build table can never ship.
+- Steady-state chain corruption — tick-stepped VDP sprite-table sampling through a
+  replayed jump transition (ticks 1002-1015) shows coherent link chains, correct
+  terminators, and `Sprites_Rendered` matching the chain every sampled tick. Stale
+  entries beyond the terminator exist by design and are unreferenced.
+
+**Leading suspects:** the `.done` terminator fix-up (`move.b #0, -5(a4)`) landing on
+the wrong entry for one frame if `d5`/`a4` skew (e.g. a `DrawRings` path that moves
+one without the other), or a multisprite sibling-walk piece-count edge on a specific
+pose transition. Both would extend the chain into stale entries for exactly one frame
+— matching the observed single-frame ghost.
+
+**Next step (its own session):** replay-based screenshot burst through pose
+transitions with ring-emission active, or a DEBUG assert that walks the finished
+chain and traps if the link path length ≠ `Sprites_Rendered` (the cheap net: catches
+the frame in the act with the builder's registers live).
+
+---
+
+## ✅ RECLASSIFIED — BUG-001 — section-streaming corruption — UNREPRODUCIBLE ON CURRENT ENGINE (2026-08-02)
+
+**Disposition:** the June-2026 corruption (red field + garbage BG tiles, often
+post-spindash) is reclassified NOT-REPRODUCIBLE-BY-DESIGN on the current engine. All
+three recorded suspects are structurally retired by architecture that shipped AFTER
+the report: (1) the decompress-clobbers-cache alias — mid-game block decompression
+now targets the separate `Block_Stage_Buffers`; the `Art_Staging_Buffer` alias of
+`Tile_Cache_Nametable` is init-only (display-off, pre-cache-live, `engine/ram.emp`);
+(2) the teleport/rebase skip-reload edge — per-frame teleports were deleted by
+continuous scroll (2026-06-22/23); (3) the spindash camera-jump race — camera jumps
+are contract-locked (`CAMERA_JUMP_LOCK`). Empirical: the 2026-08-02 replay-harness
+sessions ran the streaming path under sustained scroll + repeated spindash bursts
+(multiple full fixture replays + two live stress rounds) with zero corruption, clean
+render, zero lag frames. The original evidence block below is HISTORICAL (its RAM
+cell names predate the engine/game split — see the dated annotation). If the symptom
+ever reappears, the replay harness is the capture tool: record at the deterministic
+anchor and the corrupting timeline becomes replayable.
+
+---
+
 ## ✅ RESOLVED — BUG-004 — window-despawned parent leaks its children (gap-ledger row 1599) — FIXED 2026-08-02
 
 **Was:** `EntityWindow_DespawnObjects` deleted only the parent; children are untagged by
