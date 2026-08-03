@@ -533,6 +533,61 @@ section sound_sfx (cpu: z80) {
     }
 
     // ======================================================================
+    // Sfx_ResolveBlob (S1) — the shared id -> blob-window-pointer resolve. The one
+    // definition of "is this a real SFX id, and where does its blob live".
+    //
+    // In:  a  = raw SFX id (as posted to SND_REQ_SFX / popped from the queue).
+    // Out: CARRY CLEAR -> de = the blob's $8000-window pointer (guaranteed non-zero)
+    //      CARRY SET   -> the id is not dispatchable; de is undefined.
+    //
+    // Three ways to be invalid, all funnelled through the single `.bad` exit so the
+    // carry contract is set in exactly one place:
+    //   * id < SFX_ID_BASE          (the `sub` itself sets carry)
+    //   * id >= SFX_TABLE_LEN       (past the dense table)
+    //   * SfxBlobWinTab[index] == 0 (an id slot with no blob authored)
+    // The success exit is `ret nz` off the `or e`, which clears carry as a side
+    // effect of the OR — the valid path never needs an explicit carry write.
+    //
+    // BANK SIDE EFFECT (deliberate, and identical to the two blocks this replaces):
+    // SetBank(SFX_BLOB_BANK) runs only AFTER the range check passes, because the
+    // table read itself needs the bank. So an out-of-range id still leaves the
+    // caller's bank latch untouched, while a zero-pointer id does not — exactly the
+    // behaviour both call sites had before.
+    // ======================================================================
+    // Contract: out(de, carry: invalid); clobbers af, hl; preserves bc, ix, iy
+    // (SndDrv_SetBank preserves bc/de/ix/iy, so only af/hl are spent here).
+    pub proc Sfx_ResolveBlob () out(de, carry: invalid) clobbers(af, hl) preserves(bc, ix, iy) {
+        // --- id range check (dense table indexed by id - SFX_ID_BASE) ---
+        sub     SFX_ID_BASE
+        ret     c                        // id < base -> carry ALREADY set = invalid
+        cp      SFX_TABLE_LEN
+        jr      nc, .bad                 // id > max -> invalid
+        // --- bank the SFX/table bank in FIRST: SfxBlobWinTab is BANKED in this same
+        // bank (F5 recovery), so the lookup reads it through the $8000 window. SetBank
+        // touches only the $6000 latch (DMA-safe) and leaves it set. Preserve the
+        // index in a across it (clobbers af,hl).
+        push    af                       // a = index
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank
+        pop     af                       // a = index
+        // hl = &SfxBlobWinTab[index] (2-byte window-ptr entries; index*2 via add)
+        ld      l, a
+        ld      h, 0
+        add     hl, hl                   // index*2
+        ld      de, SfxBlobWinTab        // window addr (read under the SFX bank now)
+        add     hl, de                   // hl = &SfxBlobWinTab[index]
+        ld      e, (hl)
+        inc     hl
+        ld      d, (hl)                  // de = blob window ptr (0 = unused id)
+        ld      a, d
+        or      e                        // Z if unused; `or` also CLEARS carry
+        ret     nz                       // valid -> carry clear, de = blob base
+    .bad:
+        scf                              // CARRY SET -> not dispatchable
+        ret
+    }
+
+    // ======================================================================
     // SfxDispatch (Task 9) — the FAST mailbox handler: resolve the id, read the
     // SfxHeader for priority + flags, check the continuous-extend seam (5b dormant),
     // then ENQUEUE {id, priority} via Sfx_QueueEnqueue and return immediately.
@@ -544,32 +599,13 @@ section sound_sfx (cpu: z80) {
     // ----------------------------------------------------------------------
     // Contract: clobbers af,bc,de,hl,ix,iy.
     pub proc SfxDispatch () clobbers(af, bc, de, hl, ix, iy) {
-        // --- id range check (dense table indexed by id - SFX_ID_BASE) ---
+        // The raw-id save stays OUT here, not inside Sfx_ResolveBlob: the enqueue
+        // below needs the id the CALLER posted, while the callee consumes the
+        // range-adjusted index. Keeping the push/pop at this level also keeps the
+        // callee's stack balanced for Sfx_BeginSound, which has no id to save.
         push    af                       // save raw id (needed for enqueue after range/ptr work)
-        sub     SFX_ID_BASE
-        jr      c, .disp_ignore          // id < base -> ignore
-        cp      SFX_TABLE_LEN
-        jr      nc, .disp_ignore         // id > max -> ignore
-        // --- bank the SFX/table bank in FIRST: SfxBlobWinTab is now BANKED in this
-        // same bank (F5 recovery), so the lookup reads it through the $8000 window.
-        // SetBank touches only the $6000 latch (DMA-safe) and leaves it set (restored
-        // by the mailbox wrapper). Preserve the index in a across it (clobbers af,hl).
-        push    af                       // a = index
-        ld      a, SFX_BLOB_BANK
-        call    SndDrv_SetBank
-        pop     af                       // a = index
-        // hl = &SfxBlobWinTab[index] (2-byte entries; index*2 via add)
-        ld      l, a
-        ld      h, 0
-        add     hl, hl                   // index*2
-        ld      de, SfxBlobWinTab        // window addr (read under the SFX bank now)
-        add     hl, de
-        ld      e, (hl)
-        inc     hl
-        ld      d, (hl)                  // de = blob window ptr (0 = unused id)
-        ld      a, d
-        or      e
-        jr      z, .disp_ignore          // unused id slot -> ignore
+        call    Sfx_ResolveBlob          // de = blob window ptr, or carry set
+        jr      c, .disp_ignore          // bad id / unused slot -> ignore
 
         // --- read SfxHeader: priority + flags (two bytes, no clobber of id) --------
         push    de
@@ -754,30 +790,8 @@ section sound_sfx (cpu: z80) {
             ld      (hl), 0              // normal SFX -> rev escalation back to 0 (a preserved)
         .keep_rev:
         }
-        // --- id range check (dense table indexed by id - SFX_ID_BASE) ---
-        sub     SFX_ID_BASE
-        ret     c                        // id < base -> ignore
-        cp      SFX_TABLE_LEN
-        ret     nc                       // id > max -> ignore
-        // --- bank the SFX/table bank in FIRST: SfxBlobWinTab is BANKED in this same
-        // bank (F5 recovery), so the lookup reads it through the $8000 window. SetBank
-        // touches only the $6000 latch (DMA-safe). Preserve the index in a (clobbers af,hl).
-        push    af                       // a = index
-        ld      a, SFX_BLOB_BANK
-        call    SndDrv_SetBank           // $6000 latch only (DMA-safe); leaves it set
-        pop     af                       // a = index
-        // hl = &SfxBlobWinTab[index] (2-byte window-ptr entries; index*2 via add)
-        ld      l, a
-        ld      h, 0
-        add     hl, hl                   // index*2
-        ld      de, SfxBlobWinTab        // window addr (read under the SFX bank now)
-        add     hl, de                   // hl = &SfxBlobWinTab[index]
-        ld      e, (hl)
-        inc     hl
-        ld      d, (hl)                  // de = blob window ptr (0 = unused id)
-        ld      a, d
-        or      e
-        ret     z                        // unused id slot -> ignore
+        call    Sfx_ResolveBlob          // de = blob window ptr, or carry set
+        ret     c                        // bad id / unused slot -> ignore
 
         // --- stash the blob base + header fields into the dispatch scratch RAM ----
         ld      (SND_SFX_DISP_BASE), de  // blob window base (little-endian word)
