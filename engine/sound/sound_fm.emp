@@ -476,38 +476,38 @@ section sound_fm (cpu: z80) {
         ld      a, (hl)
         ld      (Fm_ScratchLog), a       // stash log delta
 
-        // --- Stage B sfh_gain (SFX slots only): authored per-SFX master attenuation
-        // in FM-TL units (0.75 dB/step). Folded into the carrier-TL delta BEFORE the
-        // env/duck folds so the existing $7F clamps cover the sum. Music SeqChannels
-        // have no sx_gain -> gate on SFX class. Gain 0 -> byte-identical to no fold.
-        call    Snd_ChanClass            // CARRY set => MUSIC channel
-        jr      c, .no_sfx_gain          // music -> no per-SFX gain
+        // --- THE CLASS-EXCLUSIVE FOLD (one Snd_ChanClass, two destinations) -------
+        // Exactly one of these applies to any channel:
+        //   SFX   -> Stage B sfh_gain: authored per-SFX master attenuation in FM-TL
+        //            units (0.75 dB/step). Music SeqChannels have no sx_gain.
+        //   MUSIC -> master fade + Phase 5a ducking: the GLOBAL SND_MASTER_FADE
+        //            scalar plus the SFX duck level, so every music volume write
+        //            picks both up. An SfxChannel must NOT fade/duck — that would
+        //            defeat the SFX cut-through.
+        // They used to be two separate `call Snd_ChanClass` tests straddling the env
+        // fold, each throwing away the other's answer. One classification now
+        // dispatches both.
+        //
+        // ORDER: this moves the music fade/duck fold from AFTER the env fold to
+        // BEFORE it. That is output-preserving, and not by inspection — every fold
+        // here is Fm_FoldTlDelta, i.e. a saturating add of a non-negative operand
+        // against the common $7F ceiling, so any composition of them collapses to
+        // min($7F, log + env + atten) regardless of sequence. Verified by EXHAUSTIVE
+        // ENUMERATION of the real Z80 semantics (8-bit add, carry catch, cp clamp,
+        // and the callers' `or a / jr z` zero-skip) over the full domain
+        // r x env x atten = 256 x 256 x 128 = 8,388,608 combinations: zero
+        // mismatches between the old and new orderings.
+        call    Snd_ChanClass            // CARRY set => MUSIC channel (hl = ix)
+        jr      c, .music_atten
+        // --- SFX: per-SFX gain. Gain 0 -> byte-identical to no fold.
         ld      a, (ix+sx_gain)
         or      a
-        jr      z, .no_sfx_gain
+        jr      z, .class_fold_done
         call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, log + sx_gain)
-    .no_sfx_gain:
-
-        // --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
-        // attenuation delta to the carrier-TL delta. Folded HERE, BEFORE the
-        // duck/master-fade fold, so env + duck compose. sc_env_out is the unified
-        // slot; 0 on a no-env channel -> the or a/jr z fast path is byte-identical
-        // to no envelope. Reaches CARRIER ops only for free.
-        ld      a, (ix+sc_env_out)
-        or      a
-        jr      z, .env_done
-        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + env)
-    .env_done:
-
-        // --- master fade + Phase 5a music ducking fold (music-only) ---------------
-        // Sum the GLOBAL master-fade scalar (SND_MASTER_FADE) and the SFX duck level,
-        // then fold the total into the carrier-TL delta so EVERY music volume write
-        // picks both up. MUSIC ONLY: an SfxChannel lives at/above SND_SFX_BASE and
-        // must NOT fade/duck (that would defeat the SFX cut-through). Each operand is
-        // 0..$7F; clamp the sum to $7F, then fold into Fm_ScratchLog (clamp $7F).
-        // fade 0 + duck 0 -> byte-identical no-op.
-        call    Snd_ChanClass            // CARRY set => MUSIC channel (hl = ix)
-        jr      nc, .no_global_atten     // SFX channel -> never fade/duck (no add)
+        jr      .class_fold_done
+    .music_atten:
+        // --- MUSIC: fade + duck. Each operand is 0..$7F; clamp the pair's sum to
+        // $7F first, then fold. fade 0 + duck 0 -> byte-identical no-op.
         ld      a, (SND_SFX_DUCK_LEVEL)
         ld      hl, SND_MASTER_FADE
         add     a, (hl)                  // a = duck + master fade
@@ -516,9 +516,20 @@ section sound_fm (cpu: z80) {
         ld      a, SND_FM_TL_MAX         // clamp combined to $7F
     .ga_have:
         or      a
-        jr      z, .no_global_atten      // nothing to add (no fade, no duck)
+        jr      z, .class_fold_done      // nothing to add (no fade, no duck)
         call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + fade+duck)
-    .no_global_atten:
+    .class_fold_done:
+
+        // --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
+        // attenuation delta to the carrier-TL delta, so env composes with whichever
+        // class fold ran above. sc_env_out is the unified slot; 0 on a no-env
+        // channel -> the or a/jr z fast path is byte-identical to no envelope.
+        // Reaches CARRIER ops only for free.
+        ld      a, (ix+sc_env_out)
+        or      a
+        jr      z, .env_done
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + env)
+    .env_done:
 
         call    Fm_StashRoute            // Fm_ScratchPart/Ch = part / ch-in-part
 
