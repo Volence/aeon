@@ -55,6 +55,14 @@ const ShapeBlob = if DEBUG == 1 { SoundBlobDebug } else { SoundBlobPlain }
 // sole consumer) is comptime-elided there anyway.
 pub equ Z80_SOUND_SIZE = extern("Z80_Sound_End") - extern("Z80_Sound_Start")
 
+// THE NET the review asked for and never got. The `align 2` inside the blob
+// brackets is what MAKES this true; this is what makes it STAY true — if that
+// pad is ever removed, or the blob ever reaches boot by another route, the build
+// fails here instead of address-erroring on hardware before the first frame.
+// Cheap to state, and the failure it replaces is invisible until you boot.
+ensure((Z80_SOUND_SIZE & 1) == 0,
+       "Z80_SOUND_SIZE ({Z80_SOUND_SIZE}) is ODD — boot.emp walks a5 through the blob into boot_tail's word-wide VDP commands, so an odd blob address-errors at boot")
+
 // Z80_IDLE_SIZE: the no-sound idle program's
 // byte count, read by boot.emp's idle copy loop AND cross-checked by
 // engine.z80_init's `ensure(extern("Z80_IDLE_SIZE") == 38)` self-guard (the
@@ -131,6 +139,19 @@ section boot_head (cpu: m68000) {
     // here). Z80_Sound_End brackets the blob so Z80_SOUND_SIZE folds as the link
     // difference.
     data Z80_Sound_Start = if SOUND_DRIVER_ENABLED == 1 { ShapeBlob } else { Data.empty }
+    // EVENNESS PAD — load-bearing, and its absence is a BOOT ADDRESS ERROR.
+    // boot.emp's copy loop walks a5 THROUGH this blob and then keeps going: the
+    // 4 PSG-silence bytes and the word-wide VDP commands in `boot_tail` are read
+    // with the SAME a5. So a5's alignment past the blob — and boot_tail's own
+    // placement — are a function of the blob's length. An ODD blob makes every
+    // `move.w (a5)+` past it land on an odd address and the 68k takes an address
+    // error before the first frame. The 2026-07-16 review listed exactly this
+    // ("odd blob = boot address error") and marked it closed by a pending linker
+    // mechanism that never landed; the wave-4 reclaim then shrank the blob from
+    // 6172/6298 (even) to an odd length and crashed both shapes on boot.
+    // Aligning INSIDE the brackets makes Z80_SOUND_SIZE itself even as well, so
+    // the copy count and the tail placement are fixed by one directive.
+    align 2
     data Z80_Sound_End = Data.empty
 }
 
