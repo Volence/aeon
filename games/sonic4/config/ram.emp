@@ -51,7 +51,14 @@ pub vars game_ram {
     Player_Death_Pending:   u8,     // EDGE_KILL hook: set when the player crosses a
                                     // kill-edge; the death system consumes it.
                                     // Boot-cleared with all Work-RAM.
-    pad(1),                         // keep the following rings even-aligned
+    pad(1),                         // keep the following words even-aligned
+
+    // Act-invariant player clamp edges — computed once per act by
+    // Player_BoundsInit (player_common), consumed per-frame by
+    // Player_LevelBound. Boot-cleared with all Work-RAM (zero until init;
+    // Player_LevelBound carries a DEBUG assert against the stale-zero case).
+    Player_Bound_Right:     u16,    // act right clamp edge (px): level_width − PBOUND_RIGHT_MARGIN
+    Player_Bound_Bottom:    u16,    // act playable bottom edge (px): level_height − SCREEN_HEIGHT
 
     // -----------------------------------------------
     // Player history rings (§5)
