@@ -36,6 +36,7 @@ Tests: python3 -m pytest tools/test_gen_sound_tables.py -q
 
 import math
 import os
+import re
 
 # --- Hardware clocks (NTSC) ---
 MASTER_CLOCK = 53693175           # Hz
@@ -460,6 +461,11 @@ def _emit_dc_emp(width: str, values, per_line: int) -> list:
     return lines
 
 
+# The PSG vol-env LEVEL-byte ceiling. See _emit_vol_env_emp for why this is a hard
+# build gate and not a style rule.
+_PSG_ENV_LEVEL_MAX = 0x10
+
+
 def _emit_vol_env_emp(kind: str, envs) -> list:
     """Emit the id-list + intra-module pointer table + bodies as .emp procs."""
     ctl = {_CTL_LOOP: "%sVolEnvCtl_Loop" % kind,
@@ -492,6 +498,47 @@ def _emit_vol_env_emp(kind: str, envs) -> list:
                 "hangs the driver in the Timer-A tick (cursor 0 -> $80 -> cursor 0 -> "
                 "...). A vol-env must emit at least one level byte before it loops."
                 % (kind, env_id, label))
+        # PSG ENV-BYTE CEILING (Task 9.1) — every LEVEL byte (< $80; >= $80 is a
+        # control byte) must be <= $10. This is a CORRECTNESS gate, not hygiene:
+        #
+        #   Psg_SetVolume's vol-env fold clamps with `bit 4,a` (sound_psg.emp), a
+        #   SINGLE-BIT test, not a magnitude test. The two other PSG folds
+        #   (Psg_FoldAtten) clamp with `cp $0F+1`, a real magnitude test, and so
+        #   saturate; the env fold does NOT. A fold sum in $20..$2F leaves bit 4
+        #   clear and passes through UNCLAMPED. The result is then OR'd into the
+        #   volume latch byte: `Psg_ChBase` -> `or $90` -> `or c`. $90|(ch<<5) uses
+        #   bits 6-5 as CHANNEL SELECT, so an attenuation of $20 flips a
+        #   channel-select bit and the write lands on the WRONG PSG CHANNEL
+        #   (ch 0 + atten $20 -> $B0 = channel 1's volume latch).
+        #
+        #   Max reachable fold sum = (max env body byte) + (max prior attenuation
+        #   $0F). Today every authored PSG env body byte is <= $10, so the worst
+        #   case is $10 + $0F = $1F — exactly ONE below the cliff. A single
+        #   authored $11 byte makes the corruption reachable. Hence the ceiling is
+        #   $10, and it is enforced HERE because there is no packer between the
+        #   author and the driver.
+        #
+        #   This ceiling is also the precondition under which the env fold and the
+        #   saturating folds around it could ever be reordered (an exhaustive
+        #   enumeration found 517,440/1,048,576 mismatches without it). The
+        #   reorder was rejected on other grounds; the ceiling stands on its own.
+        #
+        # FM is deliberately NOT subject to this: the FM fold saturates against the
+        # 7-bit TL ceiling ($7F) and writes a dedicated TL register with no
+        # channel-select bits in the data byte, so FM bodies legitimately reach $20.
+        if kind == "Psg":
+            for pos, b in enumerate(body):
+                if b < 0x80 and b > _PSG_ENV_LEVEL_MAX:
+                    raise SystemExit(
+                        "gen_sound_tables: %sVolEnv_%02X (%s) body byte %d is $%02X, "
+                        "above the PSG env LEVEL ceiling $%02X. Psg_SetVolume's env "
+                        "fold clamps with `bit 4,a` (single-bit, NOT saturating), so a "
+                        "fold sum of $20..$2F passes through unclamped and ORs into the "
+                        "volume latch's CHANNEL-SELECT bits ($90|(ch<<5)) — the "
+                        "attenuation lands on the wrong PSG channel. Max sum is "
+                        "(body byte + max prior atten $0F), so bytes must stay <= $%02X."
+                        % (kind, env_id, label, pos, b, _PSG_ENV_LEVEL_MAX,
+                           _PSG_ENV_LEVEL_MAX))
         toks = ", ".join(ctl.get(b, "$%02X" % b) for b in body)
         out.append("    proc %sVolEnv_%02X () clobbers() {   // %s" % (kind, env_id, label))
         out.append("        dc.b    %s" % toks)
@@ -561,6 +608,41 @@ def emit_emp_z80() -> str:
     out.append('           "PsgVolEnv_Ptrs entry count mismatch vs PsgVolEnv_Ids")')
     out.append('    ensure(span(FmVolEnv_Ptrs) == span(FmVolEnv_Ids) * 2,')
     out.append('           "FmVolEnv_Ptrs entry count mismatch vs FmVolEnv_Ids")')
+    out.append("")
+    out.append("    // --- pure-math LUT extent guards (Task 9.3) -------------------------")
+    out.append("    // Each of the four LUTs has a resident reader that indexes it with a")
+    out.append("    // bound this generator chose, and until now the agreement between the")
+    out.append("    // two was carried by a COMMENT. `span()` measures the emitted byte")
+    out.append("    // extent, so a generator geometry change that outruns the reader's")
+    out.append("    // clamp (or vice versa) is now a build error instead of an")
+    out.append("    // out-of-table read at runtime.")
+    out.append("    //")
+    out.append("    // FmPitchTableZ: 2 B/entry, indexed 0..FMPITCH_MAX_IDX by")
+    out.append("    // Fm_TransposeClamp (sound_fm.emp) — the ONLY clamp on that index.")
+    out.append("    // The bound is spelled `(FMPITCH_MAX_IDX + 1) * 2`, but written out")
+    out.append("    // NUMERICALLY: this module is lowered STANDALONE by seam-2")
+    out.append("    // (`seam2::emit_sound_tables_z80` passes only this file), so")
+    out.append("    // sound_constants.emp's names are not in scope here and a `use` does")
+    out.append("    // not bring them in. The FMPITCH_MAX_IDX half of the agreement is")
+    out.append("    // therefore checked in tools/gen_sound_tables.py, which parses the")
+    out.append("    // constant out of sound_constants.emp — the one place both facts are")
+    out.append("    // visible. Together the two halves replace the comment that used to")
+    out.append("    // carry it.")
+    out.append("    ensure(span(FmPitchTableZ) == %d, %s)"
+               % (NUM_PITCHES * 2,
+                  '"FmPitchTableZ extent disagrees with FMPITCH_MAX_IDX+1 (%d entries x 2 B)"'
+                  % NUM_PITCHES))
+    out.append("    // PsgDivisorTableZ: 2 B/entry over the same %d-entry pitch domain."
+               % NUM_PITCHES)
+    out.append("    ensure(span(PsgDivisorTableZ) == %d, %s)"
+               % (NUM_PITCHES * 2,
+                  '"PsgDivisorTableZ must be %d pitch entries x 2 B"' % NUM_PITCHES))
+    out.append("    // LogVolumeLutZ: the reader indexes it with a RAW 8-bit volume byte")
+    out.append("    // and performs no bounds check at all — a full 256 entries is the")
+    out.append("    // precondition for that, not a convenience.")
+    out.append('    ensure(span(LogVolumeLutZ) == 256, "LogVolumeLutZ must be a full 256-byte LUT (readers are unbounded)")')
+    out.append("    // CarrierMaskTableZ: one entry per YM2612 algorithm (3-bit field).")
+    out.append('    ensure(span(CarrierMaskTableZ) == 8, "CarrierMaskTableZ must have one entry per YM algorithm (8)")')
     out.append("}")
     out.append("")
     out.append("// The resident FM/PSG writers scan these tables COUNT entries deep. The count")
@@ -572,8 +654,45 @@ def emit_emp_z80() -> str:
     return "\n".join(out) + "\n"
 
 
+def _check_fmpitch_max_idx(here: str) -> None:
+    """Assert the engine's FMPITCH_MAX_IDX matches this generator's table geometry.
+
+    `Fm_TransposeClamp` (sound_fm.emp) clamps the pitch index to
+    0..FMPITCH_MAX_IDX and that is the ONLY bound on the FmPitchTableZ read, so
+    the constant and the emitted table must agree exactly. The emitted-extent
+    half of that agreement is an `ensure(span(FmPitchTableZ) == ...)` in the
+    generated module, but the constant itself is out of scope there — seam-2
+    lowers sound_tables_z80.emp STANDALONE, so sound_constants.emp's names are
+    not visible and a `use` clause does not bring them in. This is the one place
+    both facts can be seen at once, so the constant half is checked here.
+    Same technique the FNUM_LO/FNUM_HI sync check already uses.
+    """
+    path = os.path.normpath(
+        os.path.join(here, "..", "engine", "sound", "sound_constants.emp"))
+    with open(path) as f:
+        text = f.read()
+    m = re.search(r"^\s*(?:pub\s+)?const\s+FMPITCH_MAX_IDX\s*=\s*\$([0-9A-Fa-f]+)",
+                  text, re.M)
+    if m is None:
+        raise SystemExit(
+            "gen_sound_tables: FMPITCH_MAX_IDX not found in %s — the pitch-table "
+            "bound check cannot run. If the constant was renamed, update this "
+            "check; do NOT delete it (it is the only guard on the FmPitchTableZ "
+            "index clamp)." % path)
+    engine_max = int(m.group(1), 16)
+    if engine_max != NUM_PITCHES - 1:
+        raise SystemExit(
+            "gen_sound_tables: FMPITCH_MAX_IDX is $%02X (%d) in sound_constants.emp "
+            "but FmPitchTableZ has %d entries (max index %d). Fm_TransposeClamp "
+            "clamps to FMPITCH_MAX_IDX and nothing else bounds the read, so a "
+            "too-large constant reads PAST the end of the table and a too-small "
+            "one silently truncates the playable range."
+            % (engine_max, engine_max, NUM_PITCHES, NUM_PITCHES - 1))
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
+    _check_fmpitch_max_idx(here)
     # seam-2 stage-3: the canonical output is the sigil-native `.emp` (the `.asm`
     # twin is deleted and BINCLUDE'd from the emitted `sound_tables_z80.bin`).
     # This generator is the SINGLE SOURCE of the pure-math LUT values.

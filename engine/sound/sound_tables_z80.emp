@@ -138,6 +138,35 @@ section sound_tables_z80 (cpu: z80, vma: $8000) {
            "PsgVolEnv_Ptrs entry count mismatch vs PsgVolEnv_Ids")
     ensure(span(FmVolEnv_Ptrs) == span(FmVolEnv_Ids) * 2,
            "FmVolEnv_Ptrs entry count mismatch vs FmVolEnv_Ids")
+
+    // --- pure-math LUT extent guards (Task 9.3) -------------------------
+    // Each of the four LUTs has a resident reader that indexes it with a
+    // bound this generator chose, and until now the agreement between the
+    // two was carried by a COMMENT. `span()` measures the emitted byte
+    // extent, so a generator geometry change that outruns the reader's
+    // clamp (or vice versa) is now a build error instead of an
+    // out-of-table read at runtime.
+    //
+    // FmPitchTableZ: 2 B/entry, indexed 0..FMPITCH_MAX_IDX by
+    // Fm_TransposeClamp (sound_fm.emp) — the ONLY clamp on that index.
+    // The bound is spelled `(FMPITCH_MAX_IDX + 1) * 2`, but written out
+    // NUMERICALLY: this module is lowered STANDALONE by seam-2
+    // (`seam2::emit_sound_tables_z80` passes only this file), so
+    // sound_constants.emp's names are not in scope here and a `use` does
+    // not bring them in. The FMPITCH_MAX_IDX half of the agreement is
+    // therefore checked in tools/gen_sound_tables.py, which parses the
+    // constant out of sound_constants.emp — the one place both facts are
+    // visible. Together the two halves replace the comment that used to
+    // carry it.
+    ensure(span(FmPitchTableZ) == 190, "FmPitchTableZ extent disagrees with FMPITCH_MAX_IDX+1 (95 entries x 2 B)")
+    // PsgDivisorTableZ: 2 B/entry over the same 95-entry pitch domain.
+    ensure(span(PsgDivisorTableZ) == 190, "PsgDivisorTableZ must be 95 pitch entries x 2 B")
+    // LogVolumeLutZ: the reader indexes it with a RAW 8-bit volume byte
+    // and performs no bounds check at all — a full 256 entries is the
+    // precondition for that, not a convenience.
+    ensure(span(LogVolumeLutZ) == 256, "LogVolumeLutZ must be a full 256-byte LUT (readers are unbounded)")
+    // CarrierMaskTableZ: one entry per YM2612 algorithm (3-bit field).
+    ensure(span(CarrierMaskTableZ) == 8, "CarrierMaskTableZ must have one entry per YM algorithm (8)")
 }
 
 // The resident FM/PSG writers scan these tables COUNT entries deep. The count

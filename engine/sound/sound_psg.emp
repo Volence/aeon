@@ -562,10 +562,22 @@ section sound_psg (cpu: z80) {
         // later saturating fold would have clamped it while an earlier one would not.
         // Exhaustively enumerated over atten x env x operand: the two orderings differ
         // in 517440 of 1048576 cases (smallest witness: atten $00, env $11, operand
-        // $78 -> $0F if env folds first, $20 if it folds second). They agree only while
-        // every env body byte stays <= $10, which is true of today's authored content
-        // but is NOT asserted anywhere yet. Reorder once that ceiling is build-enforced,
-        // not before.
+        // $78 -> $0F if env folds first, $20 if it folds second). REJECTED on that
+        // evidence; do not retry.
+        //
+        // WHY AN UNCLAMPED SUM IS A REAL DEFECT, not just an ordering nuisance: `c`
+        // is OR'd straight into the volume latch byte at .noise's sibling path below
+        // (`Psg_ChBase` -> `or $90` -> `or c`). $90|(ch<<5) carries the PSG
+        // CHANNEL SELECT in bits 6-5, so an attenuation of $20 flips a select bit and
+        // the attenuation is written to the WRONG CHANNEL (ch 0 + $20 -> $B0, which is
+        // channel 1's volume latch). Reachable iff some sum lands in $20..$2F, i.e.
+        // iff some env body byte exceeds $10 (max prior atten is $0F, so $10 + $0F =
+        // $1F is exactly one below the cliff).
+        //
+        // That ceiling is now BUILD-ENFORCED: tools/gen_sound_tables.py rejects any
+        // PSG vol-env body byte < $80 (a level byte, as opposed to a control byte)
+        // above $10. See _emit_vol_env_emp there. Raising the ceiling requires making
+        // this fold saturating first.
         ld      a, (ix+sc_psgenv_out)
         or      a
         jr      z, .env_done           // no env delta -> skip
