@@ -207,7 +207,9 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // boundaries split asymmetrically per CalcAngle rounding; our
         // tie rule: ties go to the VERTICAL class, so the down class
         // keeps landing authority on perfect diagonal launches.
-        // Signed copies live in d3/d4 — no velocity re-reads below
+        // Signed copies live in d3/d4 — no velocity re-reads below.
+        // Every air class head must consume/clear jump_headroom first
+        // (same-tick discipline)
         move.w  x_vel(a0), d3
         move.w  d3, d1
         abs_w(d1)
@@ -255,11 +257,13 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbsr    Air_WallProbeLeft
         jbsr    Air_WallProbeRight
         // G1: press-frame skip — Player_Jump carried its gate probe's clearance
-        // (this runs post-ObjectMove, so the first-frame rise, at most
-        // jump_force >> 8 + 1 = 7.5px, is already spent). Clearance ≥ the
-        // ensure-guarded PHYS_JUMP_SKIP_CLEARANCE means the re-probe would
-        // return dist ≥ 1 → the snap/bump/reattach block below cannot fire —
-        // skipping it is behavior-identical (sentinel-only skip)
+        // (this runs post-ObjectMove, so the first-frame rise — integer bound
+        // 7px: $680 = 6.5px + subpixel carry — is already spent). The store is
+        // flat-angle-gated, so that bound holds for EVERY carried value: no
+        // slope-projected pre-jump y_vel, no wall-quadrant horizontal probe.
+        // Clearance ≥ the ensure-guarded PHYS_JUMP_SKIP_CLEARANCE means the
+        // re-probe would return dist ≥ 1 → the snap/bump/reattach block below
+        // cannot fire — skipping it is behavior-identical (sentinel-only skip)
         move.b  PlayerV.jump_headroom(a0), d0
         clr.b   PlayerV.jump_headroom(a0)       // consume — never survives the tick
         cmpi.b  #PHYS_JUMP_SKIP_CLEARANCE, d0

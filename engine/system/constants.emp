@@ -155,6 +155,8 @@ pub const PHYS_JUMP_HEADROOM    = 6      // clearance needed to jump
 pub const PHYS_JUMP_SKIP_CLEARANCE = 8   // press-frame clearance that makes the
                                          // same-tick mostly-up ceiling re-probe a
                                          // guaranteed no-op (G1 skip gate)
+// guards the BUILD-TIME seed only — the runtime phys table is
+// section-modifiable and must never exceed it
 ensure(PHYS_JUMP_SKIP_CLEARANCE * 256 > PHYS_JUMP_FORCE, "skip clearance must cover the first-frame rise")
 pub const PHYS_GSP_CAP          = $1000  // ground-speed cap
 pub const PHYS_ROLL_DECEL       = $20    // roll brake decel

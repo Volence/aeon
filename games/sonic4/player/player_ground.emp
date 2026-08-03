@@ -784,8 +784,15 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // G1: carry the press-frame clearance (d0 from the caller's
         // Player_SensorCeiling gate, 6..32 — fits a byte) into the same-tick
-        // air body; consumed/cleared by every PState_AirShared class head
+        // air body; consumed/cleared by every PState_AirShared class head.
+        // flat jumps only — slope projection can exceed the 7px rise bound
+        // and wall quadrants probe horizontally (review (b)); angle here is
+        // still LAST frame's ground angle (the projection below reads the
+        // same byte), so the byte stays 0 on every non-flat jump by invariant
+        tst.b   angle(a0)
+        bne     .no_carry
         move.b  d0, PlayerV.jump_headroom(a0)
+.no_carry:
         clr.b   Player_JumpBuffer               // consume the buffered press
         if SOUND_DRIVER_ENABLED == 1 {
                 moveq   #SFXID_JUMP, d0
