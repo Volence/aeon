@@ -688,6 +688,37 @@ section sound_sfx (cpu: z80) {
     }
 
     // ----------------------------------------------------------------------
+    // Sfx_RecordPtr (S6) — point iy at the CURRENT channel record of the SFX blob
+    // being dispatched: blob_base + SFXH_CHANNELS + SND_SFX_DISP_IDX * SFXHC_LEN,
+    // via an add-loop (NO multiply). Both operands come from the dispatch scratch
+    // RAM, so the proc takes no register arguments.
+    //
+    // WHY A PROC: Sfx_BeginSound needs this pointer TWICE per channel iteration —
+    // once to read SFXHC_ROUTE before Sfx_SelectVoice, and again after it, because
+    // Sfx_SelectVoice clobbers iy. The two occurrences were byte-identical 23 B
+    // blocks; sharing them costs one `call` each (3 B) plus a `ret`.
+    //
+    // ix MUST SURVIVE: at the second call site ix already holds the chosen
+    // SfxChannel pointer (from Sfx_SlotPtr). This body never names ix, so the
+    // `preserves(ix)` below is checker-verified rather than asserted by comment.
+    // ----------------------------------------------------------------------
+    // Contract: out(iy); clobbers af, bc, de; preserves hl, ix.
+    pub proc Sfx_RecordPtr () out(iy) clobbers(af, bc, de) preserves(hl, ix) {
+        ld      iy, (SND_SFX_DISP_BASE)
+        ld      bc, SFXH_CHANNELS        // bc = fixed-header size (record array start)
+        add     iy, bc
+        ld      a, (SND_SFX_DISP_IDX)
+        or      a
+        ret     z                        // record 0 -> no stride
+        ld      b, a                     // b = record index (iteration count)
+        ld      de, SFXHC_LEN            // 6-byte records; advance via add-loop (no mul)
+    .rec_stride:
+        add     iy, de
+        djnz    .rec_stride
+        ret
+    }
+
+    // ----------------------------------------------------------------------
     // Sfx_BeginSound — resolve a posted SFX id to its blob, then for EACH of the
     // SFX's channels (chcount) call Sfx_SelectVoice (dynamic-among-eligible +
     // priority steal, Task 8) and, on success, init the chosen SfxChannel slot
@@ -843,18 +874,7 @@ section sound_sfx (cpu: z80) {
 
     .chan_loop:
         // --- point iy at the current channel record: base + SFXH_CHANNELS + idx*6 -
-        ld      iy, (SND_SFX_DISP_BASE)
-        ld      bc, SFXH_CHANNELS        // bc = fixed-header size (record array start)
-        add     iy, bc
-        ld      a, (SND_SFX_DISP_IDX)
-        or      a
-        jr      z, .rec_ready            // record 0 -> no stride
-        ld      b, a                     // b = record index (iteration count)
-        ld      de, SFXHC_LEN            // 6-byte records; advance via add-loop (no mul)
-    .rec_stride:
-        add     iy, de
-        djnz    .rec_stride
-    .rec_ready:
+        call    Sfx_RecordPtr
 
         // --- run the selection ladder for this channel's PREFERRED route ----------
         // In: c = preferred route; incoming priority is read from SND_SFX_DISP_PRIO
@@ -886,18 +906,8 @@ section sound_sfx (cpu: z80) {
 
         // re-point iy at the channel record (Sfx_SlotPtr left iy intact, but
         // Sfx_SelectVoice clobbered it — recompute base + SFXH_CHANNELS + idx*6).
-        ld      iy, (SND_SFX_DISP_BASE)
-        ld      bc, SFXH_CHANNELS
-        add     iy, bc
-        ld      a, (SND_SFX_DISP_IDX)
-        or      a
-        jr      z, .rec2_ready
-        ld      b, a
-        ld      de, SFXHC_LEN
-    .rec2_stride:
-        add     iy, de
-        djnz    .rec2_stride
-    .rec2_ready:
+        // ix (the chosen slot ptr, just set) survives: Sfx_RecordPtr preserves it.
+        call    Sfx_RecordPtr
 
         // --- wipe the chosen slot, then populate it from the record ---------------
         // (the slot may be a just-restored steal victim — wipe clears stale state.)
