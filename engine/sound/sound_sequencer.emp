@@ -827,6 +827,22 @@ section sound_sequencer (cpu: z80) {
         ld      d, (ix+(sc_mod_accum+1))
         add     hl, de                  // hl = fnum + signed accum
         // hi correction: fnum >= FNUM_HI -> fnum>>=1, block++ (block capped at 7)
+        //
+        // ACCEPTED EDGE CASE (Task 9.5) — the block-7 skip below is the same
+        // block-bit bleed documented at length on Fm_FnumApplyDelta (sound_fm.emp),
+        // this being its inlined twin. A block-7 note gets no hi correction, so an
+        // fnum + accum that reaches $800 overflows fnumHi3 and `.fm_pack`'s `or h`
+        // bleeds bit 3 of h into the BLOCK field of the $A4 value.
+        //
+        // ONLY block 7 can reach it: FNUM_HI = $0508, so any lower block whose fnum
+        // climbs past $508 is corrected down into the band on the same pass. And at
+        // the shipped modulation depth it is unreachable — every pitch entry starts
+        // inside [FNUM_LO, FNUM_HI) and the accumulator is bounded well short of the
+        // ~$2F8 needed to cross $800. Not guarded: a runtime clamp would spend
+        // resident bytes on a state no input can produce.
+        //
+        // The block-0 skip at .fm_lo is NOT a bleed — h stays 0..7 and the packed
+        // word is well-formed; it just truncates at the lowest representable pitch.
         ld      a, b
         cp      $07
         jr      z, .fm_lo               // block already 7 -> cannot raise further
@@ -1814,6 +1830,31 @@ section sound_sequencer (cpu: z80) {
     // all PSG channels, then clear the active flag. Direct hardware silencing (decision
     // 4): unconditional, cannot leave a note hanging. Does NOT touch $2B (DAC enable).
     // Clobbers af, bc, hl. Preserves de (the DAC loop's $4001), ix.
+    //
+    // --- CONTRACT: THE PER-CHANNEL FLAGS GO STALE (Task 9.5) ----------------
+    // This routine touches exactly TWO things: the chip (FM key-offs + PSG
+    // silence) and SND_SEQ_ACTIVE. It does NOT clear any SeqChannel's sc_flags,
+    // so after a StopMusic every stopped channel still reads SCF_ACTIVE and
+    // SCF_KEYED as SET. Only a song LOAD (Snd_LoadSong's .seq_clr wipe) clears
+    // them. Callers must therefore treat SND_SEQ_ACTIVE as the sole authority on
+    // whether a music note is live, and must never infer it from sc_flags.
+    //
+    // This is KNOWN and worked around at both consumers, each after a field bug:
+    //   * Sfx_Restore's stopped-sequencer gate (sound_sfx.emp, 2026-07-03) — its
+    //     re-key path was gated only on the stale SCF_KEYED and latched an
+    //     unkillable PSG tone over stopped music.
+    //   * Sfx_DuckRamp's .store gate (sound_sfx.emp) — the SAME stale-flag
+    //     exposure. Without it, a ducking SFX after StopMusic walked the dead
+    //     song's channels and Psg_SetVolume un-silenced one at whatever tone
+    //     divisor was last latched (Psg_SilenceAll writes attenuation, never
+    //     tone), producing a drone until the next song load. Fixed earlier in
+    //     this parcel; the defect was possible only because of what is written
+    //     here.
+    //
+    // Left as-is on purpose: wiping 11 channels' flags costs resident Z80 bytes
+    // and cycles on the StopMusic path to fix what two one-instruction gates
+    // already handle. Recorded as a contract so the THIRD consumer does not have
+    // to rediscover it by ear.
     // ======================================================================
     pub proc Sequencer_StopAll () clobbers(af, bc, hl) preserves(de, ix) {
         // --- FM: key-off all six FM channels (op-mask 0) via $28 on part I. ---

@@ -857,6 +857,29 @@ section sound_fm (cpu: z80) {
     // ------------------------------------------------------------------
     // Contract: out(d, e) = normalized packed word; clobbers af, bc, hl (block/fnum
     // scratch + the input delta) (+ ix inherited — leaf, ix never written).
+    //
+    // --- ACCEPTED EDGE CASE: block-bit bleed at the extremes (Task 9.5) -------
+    // The correction is SINGLE-STEP and skipped at both ends of the block range.
+    // At the top (`cp $07 / jr z, .lo`) a block-7 note gets NO hi correction, so
+    // if fnum + delta reaches $800 the result no longer fits fnumHi3 and `.pack`'s
+    // `or h` — which assumes h is 0..7 — bleeds bit 3 of h into the BLOCK field of
+    // the $A4 value. The note would jump an octave rather than merely detune.
+    //
+    // UNREACHABLE at the shipped detune range. Every FmPitchTableZ entry is
+    // normalized into [FNUM_LO, FNUM_HI) = [$284, $508), so a block-7 note starts
+    // below $508 and the delta is bounded at +/-127: worst case $507 + $7F = $586,
+    // well under $800. It becomes reachable only if the detune range is widened
+    // past ~$2F8, or if a pitch entry is authored outside the canonical band.
+    //
+    // The bottom end (`.lo`'s `or a / jr z, .pack` at block 0) is NOT a bleed:
+    // skipping the low correction just leaves a small fnum, h stays 0..7, and the
+    // packed word is well-formed. It is a range truncation — the lowest
+    // representable pitch — not corruption.
+    //
+    // Deliberately NOT guarded: a runtime clamp costs resident Z80 bytes to
+    // defend a state no input can produce. If the detune range ever widens, add
+    // the guard THEN. The same hazard exists in the sequencer's inlined twin
+    // (sound_sequencer.emp `.fm_pack`) and is documented there too.
     pub proc Fm_FnumApplyDelta () out(d, e) clobbers(af, bc, hl) {
         ld      a, d
         rrca
