@@ -436,7 +436,10 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // BUG-005 net: walk the finished link chain from entry 0; the link-path
         // length must equal the emitted count. Traps in-frame with the builder's
         // registers live (d5 = count, a4 = write ptr). Bounded at MAX_VDP_SPRITES
-        // so a cyclic chain traps on the mismatch instead of hanging.
+        // so a cyclic chain traps on the mismatch instead of hanging — below the
+        // cap; at d5 == 80 exhaustion equals the count and a cycle is invisible.
+        // A corrupt link may index past the 640-byte buffer: read-only probe,
+        // harmless, do not "fix".
         if DEBUG == 1 {
         lea     Sprite_Table_Buffer, a0
         moveq   #0, d0                  // d0 = current entry index
