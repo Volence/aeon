@@ -543,11 +543,8 @@ section z80_sound_driver (cpu: z80) {
         or      a
         jr      z, .no_ping
         ld      (SND_STAT_PING_ECHO), a // echo the request value
-        xor     a
-        ld      (SND_REQ_PING), a       // clear slot (consumed)
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
+        ld      hl, SND_REQ_PING
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_ping:
         // music request? (1..$FE play SongTable[id-1], $FF stop).
         ld      a, (SND_REQ_MUSIC)
@@ -562,11 +559,8 @@ section z80_sound_driver (cpu: z80) {
         // clock. An idle tick with SND_SEQ_ACTIVE=0 is a cheap early-out.
         call    Sequencer_StopAll       // key-off FM + silence PSG + clear active flag
         call    Sfx_StopAll             // clear overrides + kill SfxChannels + queue/duck
-        xor     a
-        ld      (SND_REQ_MUSIC), a      // clear slot (consumed)
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
+        ld      hl, SND_REQ_MUSIC
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .after_music:
     .no_music:
         // SFX request? (id -> SfxDispatch steal + per-frame interp). Inserted
@@ -578,33 +572,24 @@ section z80_sound_driver (cpu: z80) {
         or      a
         jr      z, .no_sfx
         call    SfxDispatch             // resolve blob + init slot 0 + steal voice
-        xor     a
-        ld      (SND_REQ_SFX), a        // clear slot (consumed)
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
+        ld      hl, SND_REQ_SFX
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_sfx:
         // fade request? (1 = out, 2 = in).
         ld      a, (SND_REQ_FADE)
         or      a
         jr      z, .no_fade
         call    Snd_FadeCommand         // set target + seed delay ctr (RAM only; bank-safe)
-        xor     a
-        ld      (SND_REQ_FADE), a       // clear slot (consumed)
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
+        ld      hl, SND_REQ_FADE
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_fade:
         // tempo request? (1..$FE target mod, bigger = slower; $FF restore base).
         ld      a, (SND_REQ_TEMPO)
         or      a
         jr      z, .no_tempo
         call    Snd_TempoCommand        // set SND_TEMPO_TARGET (RAM only; bank-safe)
-        xor     a
-        ld      (SND_REQ_TEMPO), a
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
+        ld      hl, SND_REQ_TEMPO
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_tempo:
         // sample request? (id -> DacSampleTable[id-1] -> Snd_StartSample).
         ld      a, (SND_REQ_SAMPLE)
@@ -623,8 +608,27 @@ section z80_sound_driver (cpu: z80) {
         jr      c, .sample_done         // bad id -> ignore (still clear the slot below)
         call    Snd_StartSample         // start DAC playback from the descriptor at hl
     .sample_done:
-        xor     a
-        ld      (SND_REQ_SAMPLE), a     // clear slot
+        ld      hl, SND_REQ_SAMPLE
+        jp      Snd_AckSlot             // clear slot + bump ACK_COUNT (tail-call; its ret is ours)
+    }
+
+    // --- Snd_AckSlot / Snd_AckBump — the mailbox request tail, factored.
+    // Every consumed request ends the same way: zero the request slot the 68k
+    // wrote, then bump SND_STAT_ACK_COUNT (the 68k's "the driver saw it" counter).
+    // Two entry points sharing one tail:
+    //   Snd_AckSlot — in: hl = the request slot to clear. Falls into Snd_AckBump.
+    //   Snd_AckBump — no input; bumps the ack count only (Snd_LoadSong's tail,
+    //                 where the slot was already cleared early by the H-1 repost gate).
+    // `hl` is DEAD at all six clear-sites (each is immediately followed by an
+    // absolute-addressed `ld a,(SND_REQ_*)` or a return) and at Snd_LoadSong's
+    // tail; `a` is likewise dead at every site, so leaving the bumped count in it
+    // costs nothing. RESIDENT + RAM-only, so it is bank-safe from the ISR and the
+    // Timer-A tick alike.
+    proc Snd_AckSlot () clobbers(af) preserves(bc, de, hl, ix, iy) falls_into Snd_AckBump {
+        ld      (hl), 0                 // clear the consumed request slot
+    }
+
+    pub proc Snd_AckBump () clobbers(af) preserves(bc, de, hl, ix, iy) {
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
@@ -1238,12 +1242,9 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_TEMPO_TARGET), a
         ld      (SND_TEMPO_BASE), a
         // H-1: the request slot was already cleared at .fm6_pan_owned; just bump the
-        // ack count here. Clearing at THIS point would wipe a repost that landed
-        // during the load tail.
-        ld      a, (SND_STAT_ACK_COUNT)
-        inc     a
-        ld      (SND_STAT_ACK_COUNT), a
-        ret
+        // ack count here (the bump-only helper entry). Clearing at THIS point would
+        // wipe a repost that landed during the load tail.
+        jp      Snd_AckBump             // bump ACK_COUNT (tail-call; its ret is ours)
     }
 
     // --- Snd_RouteClassFlags — map a route byte (in `a`) to its sc_flags init value:
