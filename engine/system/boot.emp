@@ -8,7 +8,7 @@
 // Z80_IDLE_SIZE are boot_data.emp's link-exported `equ`s.
 module engine.boot in boot
 
-use engine.constants.{VDP_DATA, VDP_CTRL, PSG_PORT}
+use engine.constants.{VDP_DATA, VDP_CTRL, PSG_PORT, SYSTEM_STACK}
 use engine.vdp.{VDP_MODE2_OFF, vdp_reg, bytes_to_lcnt}
 use engine.z80_bus.{stop_z80, start_z80}
 
@@ -25,14 +25,32 @@ const PSG_DATA_OFF = PSG_PORT - VDP_DATA
 // -----------------------------------------------
 // EntryPoint — first instruction after reset
 // Never returns (falls through Warm/Cold boot into the GameLoop tail), so the
-// contract is the honest ⊤ bound: the body destroys every register except
-// sp, which keeps the reset vector's stack.
-// RESET-ENTRY ONLY (the reset vector is the sole referencer): everything up
-// to the interrupt unmask relies on the 68000 reset forcing SR=$2700 — a
-// software `jmp EntryPoint` with interrupts live would race the RAM clear
-// (VInt_Ptr zeroed) against a pending VInt.
+// contract is the honest ⊤ bound: the body destroys every register, sp
+// included (it reloads sp from SYSTEM_STACK below).
+// RESET-ENTRY ONLY in practice (the reset vector is the sole referencer):
+// everything up to the interrupt unmask relies on the 68000 reset forcing
+// SR=$2700 — a software `jmp EntryPoint` with interrupts live would race the
+// RAM clear (VInt_Ptr zeroed) against a pending VInt. The sp reload below does
+// NOT make a software re-entry safe on its own; it only removes the second
+// failure mode (see the comment on the lea).
 // -----------------------------------------------
 pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
+        // Reload the stack pointer (S2/S3K both do this). On a hardware reset
+        // the 68000 has already loaded sp from vector $000, so this is
+        // redundant — but a software `jmp EntryPoint` soft-reset does NOT, and
+        // without this the 64KB RAM clear below runs on whatever sp the game
+        // was using and then `jbsr VDP_Shadow_Init` pushes a return address
+        // into just-cleared (or worse, live) RAM and returns through garbage.
+        // One instruction closes that; the interrupt-state caveat above still
+        // stands separately.
+        // Explicit `.w`: $FFFFFF00 sign-extends from $FF00, so abs.w is the
+        // 4-byte encoding and the relaxer would pick it anyway — but only when
+        // SYSTEM_STACK arrives comptime-known. The standalone boot port gate
+        // feeds it as a link equ, where a relaxable form could choose abs.l and
+        // silently diverge by two bytes. Pinning the width makes both paths
+        // agree by construction (the row-1046 kept-width class).
+        lea     (SYSTEM_STACK).w, sp
+
         tst.l   HW_PORT_A_CTRL_FULL
         bne     .warm_boot
         tst.w   HW_EXPANSION_CTRL_FULL
@@ -53,7 +71,11 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Fall through to cold boot.
 
     // -----------------------------------------------
-    // Cold boot — full hardware initialization
+    // Cold boot — full hardware initialization.
+    // NAME ONLY: this runs on EVERY boot. The warm path above falls straight
+    // through, so everything below (RAM clear included) executes on a soft
+    // reset exactly as it does on power-on. Nothing is preserved across a
+    // reset — see docs/ENGINE_ARCHITECTURE.md §0.11.
     // -----------------------------------------------
     .cold_boot:
         // TMSS handshake (§0.2)
@@ -91,13 +113,16 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // --- PARALLEL WORK WHILE DMA FILLS VRAM ---
         // Window invariant: until .wait_fill, nothing may touch the VDP DATA
         // port ($C00000) — a data write mid-fill both lands in VRAM and
-        // REPLACES the fill byte. The PSG writes below ($C00011) are the one
-        // VDP-DECODED access in the window; their safety is TEMPORAL, not
-        // topological: the 64KB RAM clear (~360k cycles ≈ 47ms) strictly
-        // dominates the display-off fill (~21ms), so the fill is complete
-        // before the PSG loop runs. Moving the PSG loop ahead of the RAM
-        // clear (or shrinking the clear) re-opens a real-hardware hazard —
-        // move it below .wait_fill instead.
+        // REPLACES the fill byte. NOTHING below does: the Z80 reset/bus dance,
+        // the blob copy and the 64KB RAM clear are all off-VDP. The PSG port
+        // ($C00011) is VDP-DECODED and used to be the one exception here; the
+        // 4 PSG-silence writes now live BELOW .wait_fill (2026-08-04, review
+        // item 27 finding 2 — the PSG sits inside the VDP, a plutiedev-
+        // documented hazard). Their old placement was safe only TEMPORALLY
+        // (the RAM clear, ~360k cycles ≈ 47ms, strictly dominates the
+        // display-off fill's ~21ms), never topologically — a future shrink of
+        // the clear would have re-opened a real-hardware race with no gate to
+        // catch it. Keep VDP-decoded accesses OUT of this window.
 
         // Z80 init (§0.5)
         move.w  d0, (a2)                    // assert Z80 reset
@@ -108,11 +133,14 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         btst    d0, (a1)                    // wait for bus grant (d0 = 0 → test bit 0)
         bne     .wait_z80
 
-        // Copy Z80 program to Z80 RAM (a5 already points at the included blob)
+        // Copy Z80 program to Z80 RAM (a5 already points at the included blob).
+        // d1 is a BYTE count minus 1 and the loop below is byte-wide — the Z80
+        // program is a byte stream, not words. "Optimizing" this to move.w and
+        // halving the count would copy half the driver.
         if SOUND_DRIVER_ENABLED == 1 {
-            move.w  #Z80_SOUND_SIZE-1, d1   // byte count — the blob size exceeds moveq's signed-8 immediate
+            move.w  #Z80_SOUND_SIZE-1, d1   // bytes-1 (move.w, not moveq: the blob exceeds moveq's signed-8 immediate)
         } else {
-            moveq   #Z80_IDLE_SIZE-1, d1
+            moveq   #Z80_IDLE_SIZE-1, d1    // bytes-1
         }
     .load_z80:
         move.b  (a5)+, (a0)+
@@ -126,25 +154,37 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.w  d7, (a2)                    // release reset — Z80 starts idle loop
         move.w  d0, (a1)                    // release bus — Z80 has control
 
-        // Clear Work RAM — 64KB (§0.7)
+        // Clear Work RAM — ALL 64KB, on warm boots as well as cold (§0.7).
+        // There is deliberately no preserved region: no CrossResetRAM block, no
+        // magic marker, no `Warm_Reset` entry — those exist only as a design in
+        // docs/ENGINE_ARCHITECTURE.md §0.11 / §9.5, never in code. A soft reset
+        // is a full restart. Anything that should survive one has to be carved
+        // out here FIRST, and that is a product decision (owner ruling), not a
+        // refactor.
         movea.l d0, a6                      // a6 = 0
         move.w  d6, d2                      // d2 = $3FFF dbf count → $4000 longs = 64KB
     .clear_ram:
         move.l  d0, -(a6)                   // wraps: $00000000 → $FFFFFFFC → ... → $FFFF0000
         dbf     d2, .clear_ram
 
-        // PSG silence (§0.6) — 4 bytes from data table
-        moveq   #3, d2
-    .silence_psg:
-        move.b  (a5)+, PSG_DATA_OFF(a3)     // PSG_PORT-VDP_DATA off the data-port base
-        dbf     d2, .silence_psg
-        // code address is even here — the table walk needs no alignment pad.
-
         // --- WAIT FOR DMA FILL TO COMPLETE ---
     .wait_fill:
         move.w  (a4), d2
         btst    #1, d2
         bne     .wait_fill
+
+        // PSG silence (§0.6) — 4 bytes from data table. Deliberately AFTER
+        // .wait_fill: the PSG is decoded inside the VDP, so a write here while
+        // the VRAM fill is still in flight is a real-hardware hazard. The
+        // (a5)+ table cursor is NOT disturbed by the move — .wait_fill touches
+        // only a4 (read) and d2, and the 4 PSG bytes still sit between the Z80
+        // blob and boot_tail's auto-increment word in the same sequential
+        // order. Do not move these back above .wait_fill.
+        moveq   #3, d2
+    .silence_psg:
+        move.b  (a5)+, PSG_DATA_OFF(a3)     // PSG_PORT-VDP_DATA off the data-port base
+        dbf     d2, .silence_psg
+        // code address is even here — the table walk needs no alignment pad.
 
         // Restore auto-increment to 2
         move.w  (a5)+, (a4)                 // vdpReg($0F, $02)
@@ -169,6 +209,17 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // boot silence is actually guaranteed by the >=192-cycle /IC reset
         // pulse above; this block is belt-and-braces. If it ever becomes
         // load-bearing, poll $A04000 bit 7 between data writes.
+        // There is a SECOND, sharper defect here that this comment used to
+        // miss: in a sound build the Z80 driver has been running since the bus
+        // release above, and stop_z80() can halt it BETWEEN its own YM address
+        // and data writes — the 68k then latches $28 and the Z80's resumed data
+        // write lands on the Key On/Off register. Both defects, the two
+        // candidate fixes, and the owner ruling that this block stays
+        // BYTE-FOR-BYTE UNCHANGED (no real hardware to verify timing against; a
+        // wrong fix is worse because it would look addressed) are written up in
+        // docs/specs/boot-ym-keyoff-race.md. Read it before touching this block
+        // OR the /IC reset pulse above — shortening that pulse is what would
+        // make these six writes load-bearing.
         stop_z80()
         lea     YM2612_A0, a6
         move.b  #$28, (a6)                  // select Key On/Off register

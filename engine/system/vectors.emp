@@ -1,14 +1,38 @@
 // vectors.emp — engine-owned 64-vector table ($000000-$0000FF).
 // Every target is an engine symbol; the game contributes nothing here.
+//
+// ── UNEXPECTED-INTERRUPT POLICY — OWNER-RULED 2026-08-04, DO NOT SILENTLY
+// ── REVERT (review item 27, finding 10)
+// Every vector the engine does not model — the spurious-interrupt vector ($60),
+// the 12 reserved slots ($30-$5C), and IRQ1/2/3/5/7 ($64/$68/$6C/$74/$7C) —
+// points at ErrorExcept and HALTS LOUDLY, in BOTH shapes, release included.
+// Ruling, verbatim: "A spurious IRQ means a state the engine does not model;
+// surface it during development rather than let it corrupt silently."
+// Before this the table was internally inconsistent — $60 halted loudly while
+// IRQ1/2/3/5/7 took the tolerant `rte` (NullInterrupt) stance — so an
+// unmodelled interrupt level either crashed or vanished depending on which
+// line the glitch landed on. It is now one policy.
+// The release-shape error-handler/MDDBG strip (docs/DEFERRED_WORK.md, "Release-
+// shape error handler / MDDBG strip", BLOCKED) may one day remove the vendored
+// debugger from release. If it does, these 60 cells must keep pointing at
+// SOMETHING that halts loudly (a `bra.s *` freeze, a coloured-border hang, a
+// jump to EntryPoint — the owner picks). Repointing them at NullInterrupt's
+// `rte` would revert this ruling, and for the fault classes it is actively
+// wrong: an `rte` from a bus or address error re-executes the faulting
+// instruction and hard-loops.
+//
 // NullInterrupt intentionally does NOT live in this file — the org-0 image
 // is pure data until $200 (vectors $000-$0FF, header $100-$1FF), so
 // NullInterrupt is emitted elsewhere (null_interrupt.emp, near the ROM tail).
+// It has NO referencer in this table any more (see the policy note above); it
+// is kept as the engine's `rte` handler for a future opt-in tolerant vector,
+// and its deletion is the blocked strip parcel's call, not this file's.
 //
 // The 64 entries are raw dc.l link pointers: SYSTEM_STACK is a constants.emp
 // equ (folds to the initial SSP); the other 63 are labels resolved at link —
-// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp),
-// VBlank_Handler (vblank.emp), and NullInterrupt (null_interrupt.emp) are
-// .emp-owned; the IRQ4 vector points at the HBlank_Vector_Slot RAM trampoline.
+// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp) and
+// VBlank_Handler (vblank.emp) are .emp-owned; the IRQ4 vector points at the
+// HBlank_Vector_Slot RAM trampoline.
 // Bytes are shape-invariant in
 // SOURCE; the VALUES differ per shape through the link (normal). The region's
 // fixed 256-byte size makes the header boundary structurally byte-neutral.
@@ -53,13 +77,13 @@ pub proc Vectors () clobbers() {
     dc.l    ErrorExcept                     // $58: Reserved
     dc.l    ErrorExcept                     // $5C: Reserved
     dc.l    ErrorExcept                     // $60: Spurious interrupt
-    dc.l    NullInterrupt                   // $64: IRQ1 (external)
-    dc.l    NullInterrupt                   // $68: IRQ2 (external)
-    dc.l    NullInterrupt                   // $6C: IRQ3
+    dc.l    ErrorExcept                     // $64: IRQ1 (unused on MD)
+    dc.l    ErrorExcept                     // $68: IRQ2 (external — controller TH)
+    dc.l    ErrorExcept                     // $6C: IRQ3 (unused on MD)
     dc.l    HBlank_Vector_Slot              // $70: IRQ4 (HBlank) — RAM jmp-slot trampoline
-    dc.l    NullInterrupt                   // $74: IRQ5
+    dc.l    ErrorExcept                     // $74: IRQ5 (unused on MD)
     dc.l    VBlank_Handler                  // $78: IRQ6 (VBlank)
-    dc.l    NullInterrupt                   // $7C: IRQ7 (NMI)
+    dc.l    ErrorExcept                     // $7C: IRQ7 (NMI)
     dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $80-$8C: TRAP 0-3
     dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $90-$9C: TRAP 4-7
     dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $A0-$AC: TRAP 8-11

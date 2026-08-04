@@ -2207,9 +2207,16 @@ call site, `if debug` in the registry, `plain_len: 0x0` in `pins.rs`, keep the
 name in `map.toml`'s union order) covers the placement, but four things sit on
 top:
 
-1. **55 dangling `dc.l` cells.** `engine/system/vectors.emp` currently points 55
+1. **60 dangling `dc.l` cells.** `engine/system/vectors.emp` currently points 60
    of 64 vectors at handler labels, identically in both shapes; it would need a
-   shape split.
+   shape split. (Was 55. The item-27 parcel, 2026-08-04, executed ruling 2 and
+   repointed IRQ1/2/3/5/7 — $64/$68/$6C/$74/$7C — from `NullInterrupt` to
+   `ErrorExcept`, so five more cells now depend on the handler surviving. Those
+   five are the NON-fault levels; for them an `rte` replacement is at least
+   *safe*, unlike the fault classes. `NullInterrupt` itself is now referenced by
+   nothing and is kept deliberately — see the note at the top of
+   `engine/system/null_interrupt.emp` — precisely so this parcel has a tolerant
+   primitive available if the ruling wants one for those five.)
 2. **Four ungated file-scope `equ`s in the vendored `engine/debug/debugger.asm`**
    resolve to `pub equ`s living *inside* `error_handler.emp`. Unplacing the
    module removes them from the plain link. Whether the AS residual prunes them
@@ -2222,10 +2229,35 @@ top:
    `EPILOGUE`/`EndOfRom`, `pins::ASSEMBLED_LEN`. `error_handler_port.rs` must
    drop its plain arm. Full byte-changing ritual.
 4. **`demo` is in scope** on the same registry filter and carries the same 4,272
-   bytes and the same 55 vectors.
+   bytes and the same 60 vectors.
 
 ### Recommendation
 
 Take the ruling on release-fault behaviour first, then run it as its own parcel.
 Sequenced after the ruling it is a day of work with a large, well-understood
 blast radius; sequenced before, it is a coin flip on a product decision.
+
+---
+
+## Boot YM2612 key-off race — SPEC'd, deliberately NOT fixed (2026-08-04)
+
+Review item 27, finding 3. The boot key-off block (`engine/system/boot.emp:200-230`)
+has two real hardware defects: its six data writes are not busy-paced (most are
+dropped on real silicon), and in a **sound build** `stop_z80()` can halt the
+running driver between its own YM address and data writes, so the 68k's `$28`
+latch steals the Z80's resumed data write (a dual-owner address-latch race).
+
+**Owner ruling (2026-08-04): leave the code byte-for-byte untouched, write the
+spec instead** — there is no real hardware here to verify timing against, and a
+wrong fix is worse than the documented status quo because it would look
+addressed. Done: `docs/specs/boot-ym-keyoff-race.md` carries the mechanism, the
+two candidate fixes (key off before the bus release; or drop the block in sound
+builds), the moot-today reasoning, and the revisit triggers.
+
+**The dangerous revisit trigger:** the block is redundant only because the
+`/IC` reset pulse at `engine/system/boot.emp:143-148` already keys every channel
+off. Shorten or remove that pulse and these six unpaced writes become
+load-bearing. Anyone touching the pulse must read the spec first.
+
+**Unblocks on:** real hardware, or an emulator that models the YM2612 busy flag
+and address-latch contention.

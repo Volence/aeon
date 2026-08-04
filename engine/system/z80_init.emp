@@ -4,7 +4,10 @@
 // The .emp port of z80_init.asm (this directory) — the FIRST Z80 CODE module
 // and the first live `module (cpu: z80)`. It is the Z80 program the boot loader
 // copies into Z80 RAM when SOUND_DRIVER_ENABLED is undefined: it clears Z80 RAM
-// and patches a `jp (hl)` at address 0 so the CPU idles forever.
+// ABOVE ITS OWN PROGRAM (`.code_end` .. $1FFF — the bytes it is executing out of
+// are deliberately left alone), drains the register file through that cleared
+// area, seeds a real stack pointer, and patches a `jp (hl)` at address 0 so the
+// CPU idles forever.
 //
 // CANONICALLY EMPTY (the game_debug config-shape class): boot_data.asm includes
 // the sound driver blob when SOUND_DRIVER_ENABLED is defined and this idle
@@ -26,13 +29,25 @@
 
 module engine.z80_init (cpu: z80)
 
-// OQ-D size mirror: boot_data.asm folds Z80_IDLE_SIZE numerically ($3FE-$3D8 = 38) —
-// its assemble-time cursor protocol cannot fold this cross-seam idle size off the
+// The Z80's own RAM span ($A00000-$A02000 in the 68k view = $0000-$1FFF in the
+// Z80's), hoisted to a name. Two operands below need it, and written inline the
+// clear count spells `ld bc, (Z80_RAM_END-Z80_RAM) - .code_end - 1` — a LEADING
+// PAREN in a Z80 operand is the classic indirect-vs-parenthesised-expression
+// parse trap. Naming it removes the trap at the source rather than relying on
+// the reader (or the next frontend) to disambiguate.
+const Z80_RAM_SIZE = extern("Z80_RAM_END") - extern("Z80_RAM")      // $2000 (8 KB)
+
+// OQ-D size mirror: boot_data.emp folds Z80_IDLE_SIZE numerically — its
+// assemble-time cursor protocol cannot fold this cross-seam idle size off the
 // link-external Z80_IdleProgram base (the row-52 wall). This module OWNS the idle
-// body, so it self-asserts that the numeric mirror equals the 38 bytes it fills
-// (0x3d8..0x3fe); the whole-ROM assembled-anchor gate independently checks the body
-// actually spans that region. A drift on either side fires here or there.
-ensure(extern("Z80_IDLE_SIZE") == 38, "boot_data.asm Z80_IDLE_SIZE mirror drifted from z80_init.emp's 38-byte idle body")
+// body, so it self-asserts that the numeric mirror equals the number of bytes it
+// actually fills; the whole-ROM assembled-anchor gate independently checks the
+// body's span. A drift on either side fires here or there.
+// 38 -> 40 on 2026-08-04: the SP seed at the tail became `ld sp, nn` (3 B) from
+// `ld sp, hl` (1 B) — review item 27 finding 11. If you change the body's length
+// again, this number and boot_data.emp's Z80_IDLE_SIZE move together or boot
+// copies the wrong count.
+ensure(extern("Z80_IDLE_SIZE") == 40, "boot_data.emp Z80_IDLE_SIZE mirror drifted from z80_init.emp's 40-byte idle body")
 
 section z80_idle (cpu: z80, vma: $0) {
     // No register contract: Z80 contract checking is a rung-2 class (the 68k
@@ -42,7 +57,7 @@ section z80_idle (cpu: z80, vma: $0) {
     // declares no contract, honest until the rung-2 Z80 model checks it.
     pub proc Z80_IdleProgram () {
         xor     a
-        ld      bc, extern("Z80_RAM_END") - extern("Z80_RAM") - .code_end - 1
+        ld      bc, Z80_RAM_SIZE - .code_end - 1
         ld      de, 1 + .code_end       // (== code_end+1) leading-`.`local bug: see gap-ledger
         ld      hl, .code_end
         ld      sp, hl
@@ -61,10 +76,21 @@ section z80_idle (cpu: z80, vma: $0) {
         pop     de
         pop     hl
         pop     af
-        ld      sp, hl
+        // SP = $1FFE, the top of the Z80's own 8 KB RAM ($0000-$1FFF), matching
+        // SndDrv_Init's SND_STACK_TOP convention (the sound driver's stack top —
+        // never resident at the same time as this idle, since boot copies one OR
+        // the other, so there is nothing to overlap). This USED to be `ld sp, hl`
+        // with hl == 0, leaving SP = 0: the first push would wrap SP to $FFFE and
+        // write $FFFE/$FFFF, which on the Mega Drive's Z80 map is the 68k bank
+        // window ($8000-$FFFF), i.e. a stray write into 68k address space rather
+        // than Z80 RAM. Inert today — this program disables interrupts and never
+        // pushes — but it is the blob anyone copies to start a new Z80 program,
+        // so it should not ship a booby-trapped stack. (2026-08-04, review item
+        // 27 finding 11.)
+        ld      sp, Z80_RAM_SIZE - 2
         di
         im      1
-        ld      (hl), $E9               // patch: jp (hl) opcode at address 0
+        ld      (hl), $E9               // patch: jp (hl) opcode at address 0 (hl == 0 from the pop above)
         jp      (hl)                    // idle loop
     .code_end:
     }
