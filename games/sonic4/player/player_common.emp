@@ -51,7 +51,7 @@ use games.sonic4.constants.{
     PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
-    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -167,8 +167,13 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 // (engine.coords), not a game one. Consumed via `use engine.coords.{abs_w}` above.
 // -----------------------------------------------
 // Player_Init — set up a player slot as Sonic (called from level state init;
-// caller writes x_pos/y_pos first). Boots in DEBUG-FLY to preserve the
-// streaming-test workflow — B drops into physics.
+// caller writes x_pos/y_pos first). Boots into DEBUG-FLY when CHEAT_DEBUG_FLY is
+// armed — the debug shape arms it at game init, so the streaming-test workflow
+// still starts in the yellow square and B drops into physics. With the cheat
+// clear (the release/lean default) the player boots as a PLAYER: this returns
+// normally with the slot in PSTATE_AIR, dropping to ground on frame 1. Gating
+// only the B toggle and not this tail would strand a release player in
+// free-flight forever, since B would then be inert.
 // In:  a0 = player SST
 // Out: none
 // Clobbers: d0-d2, a1-a2 (d2 via Player_SetState's hook dispatch)
@@ -197,7 +202,12 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         jbsr    Player_SetState
         jbsr    Player_RefreshPhysics
         move.w  #Player_Main - ObjCodeBase, code_addr(a0)
-        jbra    Player_DebugEnter
+        // Boot-entry into debug-fly rides the SAME runtime cheat bit as the B
+        // toggle in Player_Main — one gate, one story for an auditor.
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        bne     Player_DebugEnter               // armed: tail-call, its rts returns to our caller
+        rts                                     // clear: normal player (PSTATE_AIR, lands frame 1)
 }
 
 // -----------------------------------------------
@@ -236,9 +246,24 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         // calls (DebugEnter clobbers d2/a1, DebugExit d0-d2/a1-a2) and feeds both
         // the B-toggle and the jump-buffer latch
         move.b  Ctrl_1_Press, d6
-        // --- debug-fly toggle (B press) ---
+        // --- debug-fly toggle (B press), behind the CHEAT_DEBUG_FLY gate ---
+        // Debug-fly is a CHEAT, not debug equipment: the payload
+        // (Player_DebugEnter/Exit/Move) SHIPS in every build shape and is simply
+        // UNREACHABLE until the bit is set. Equipment is gated at BUILD time and
+        // absent from release; a cheat is gated at RUNTIME and present but
+        // unreachable (CODING_CONVENTIONS §1.7). Cheat_Flags is boot-cleared with
+        // all Work-RAM, so release/lean start with B doing nothing here; the DEBUG
+        // shape arms the bit at game init, and a cheat code (button sequence, menu
+        // unlock) will arm it in release with NO code change. Boot-ENTRY into
+        // debug-fly (Player_Init's tail) is gated on the same bit, so a release
+        // player boots as a player and B leaves them one; there is no state where
+        // half the gate applies. Auditors: these bytes in a release ROM are
+        // deliberate cheat payload, not a debug leak.
         btst    #4, d6                          // BUTTON_B
         beq     .no_toggle
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .no_toggle                      // cheat off: B is inert (d6 untouched)
         tst.b   PlayerV.debug_flag(a0)
         bne     .toggle_exit
         jbsr    Player_DebugEnter

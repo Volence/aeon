@@ -10,7 +10,8 @@ use engine.types.{VramTile}
 
 // VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
 // game-config value, imported from games.sonic4.constants below.
-use games.sonic4.constants.{VRAM_TEST_SONIC}
+// CHEAT_DEBUG_FLY — bit 0 of Cheat_Flags, the runtime gate on debug free-flight.
+use games.sonic4.constants.{VRAM_TEST_SONIC, CHEAT_DEBUG_FLY}
 
 // TPlayerV — the player's SST overlay: the shared DPLC prefix (dplc_ptr/art_base,
 // byte-identical to test_animated's DplcV) plus a debug_flag. This module owns the
@@ -72,14 +73,27 @@ pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main 
 //   word is not preserved. The old AS header's "d0-d7, a0-a6" over-claimed a0/a4-a6.
 // -----------------------------------------------
 pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d7/a1-a3) {
-        // --- B press toggles debug free-flight mode ---
+        // --- B press toggles debug free-flight mode, behind CHEAT_DEBUG_FLY ---
         // d4 NOT d7: object routines must preserve a0/d7 (RunObjects loop
         // contract). A d7.b clobber here overran the player slot loop by
         // up to 255 slots — executing free-stack words as code offsets
         // (the intermittent RAM-clobber / ILLEGAL INSTRUCTION root cause).
+        //
+        // Debug-fly is a CHEAT, not debug equipment: the payload ships in every
+        // build shape and is simply UNREACHABLE until Cheat_Flags bit 0 is set.
+        // Equipment is gated at BUILD time and absent from release; a cheat is
+        // gated at RUNTIME and present but unreachable (CODING_CONVENTIONS §1.7).
+        // Cheat_Flags is boot-cleared, so B is inert in release/lean until a cheat
+        // code sets the bit — no code change needed then. This mirrors the two gates
+        // in player_common.emp: the same test in Player_Main, and the same test on
+        // Player_Init's boot-ENTRY into debug-fly (so a release player boots as a
+        // player). Auditors: deliberate cheat payload, not a debug leak.
         move.b  Ctrl_1_Press, d4
         btst    #4, d4                          // BUTTON_B
         beq     .no_toggle
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .no_toggle                      // cheat off: B is inert (d4 untouched)
         tst.b   TPlayerV.debug_flag(a0)
         bne     .exit_debug
         // Enter debug mode
