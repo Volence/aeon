@@ -2276,12 +2276,29 @@ load-bearing. Anyone touching the pulse must read the spec first.
 **Unblocks on:** real hardware, or an emulator that models the YM2612 busy flag
 and address-latch contention.
 
-## BG blit posture + column-major transpose — STOPPED at a coupled design fork (2026-08-04)
+## BG blit posture + column-major transpose — EXECUTED 2026-08-05 (parcel/item28-bg-transpose)
+
+> **EXECUTED.** Owner ruling 2026-08-04: take the transpose, take Tier-1
+> `move.l`, **no DMA anywhere** (load_art keeps the queue). Deciding the CPU
+> posture first dissolved the coupling below — "column-major forces 64 small
+> DMAs" only bites if the init blits become DMA, and they did not.
+> Landed as provenance chain entry 40; evidence in
+> `docs/superpowers/notes/2026-08-05-item28-bg-transpose-ab.md`. The layout blob
+> is column-major (pure permutation, 4,096/4,096 cells exact) transposed at the
+> single editor->engine boundary (`tools/inject_editor_bg.py`), so editor-space
+> artifacts stay row-major and no dual format exists. Framebuffers byte-identical
+> over a 900-frame run including 600 frames of max-speed diagonal; zero
+> scroll-lag frames on either build; +1 one-time init lag frame (the 64
+> per-column VDP command setups), which is the cost the review itself priced as
+> init-only noise.
+>
+> The analysis below is retained as the historical record of the fork.
 
 The part of review item 28 the item is actually named for. The safe half (the
 length-1 VRAM-spray guard, the dispatch inversion, the contract and comment
-corrections) landed on `parcel/item28-bg-blit`; this half stopped, per the
-overnight run's standing instruction to stop on a design fork rather than pick.
+corrections) landed on `parcel/item28-bg-blit`; this half stopped at the time,
+per the overnight run's standing instruction to stop on a design fork rather
+than pick.
 
 ### Why it is one decision, not three
 
