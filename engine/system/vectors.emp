@@ -13,22 +13,33 @@
 // unmodelled interrupt level either crashed or vanished depending on which
 // line the glitch landed on. It is now one policy.
 //
-// ── RELEASE-SHAPE ERROR-HANDLER / MDDBG STRIP — EXECUTED 2026-08-05
-// ── (review item 29 part 4). This IS the strip the item-27 policy note above
-// ── anticipated ("if the release strip lands, these cells must keep pointing at
-// ── SOMETHING that halts loudly"): the vendored MD Debugger / error_handler
-// island (the 12 per-class stubs + the MDDBG blob, ~4.2 KB) is now DEBUG-ONLY.
-// The two shapes split THIS table's fault cells:
-//   * DEBUG   — every fault points at its error_handler.emp per-class stub
-//               (BusError/AddressError/… + ErrorExcept + ErrorTrap), exactly as
-//               before: the vendored debugger paints the exception screen.
-//   * RELEASE — the island is gone; every fault points at ReleaseFault
-//               (engine/system/release_fault.emp) — mask IRQs, red backdrop,
-//               freeze. That is the loud-failure implementation the ruling
-//               required. Repointing release at a tolerant `rte` would revert
-//               the ruling, and for the fault classes it is actively wrong: an
-//               `rte` from a bus or address error re-executes the faulting
-//               instruction and hard-loops.
+// ── CRASH-REPORT POLICY — OWNER-RULED 2026-08-04, SUPERSEDES THE 2026-08-05
+// ── RELEASE STRIP (review item 29 part 4)
+// The release ROM is ~9% of a 4 MB cart, so space is not a constraint on the
+// 68k side, and a player's crash must be REPORTABLE. The vendored MD Debugger /
+// error_handler island (the 12 per-class stubs + the MDDBG blob, ~4.2 KB) plus
+// its deb2 symbol appendix are DIAGNOSTICS, not debug EQUIPMENT, and diagnostics
+// SHIP. The build shape that decides is `CRASH_REPORT`, an ordinary comptime
+// define carried by every profile (1 everywhere except the opt-in `lean`
+// profile, which sets 0). The predicate here is therefore
+// `DEBUG == 1 || CRASH_REPORT == 1` — NOT `DEBUG == 1`.
+// The three shapes split THIS table's fault cells:
+//   * DEBUG   (DEBUG=1)                  — every fault points at its
+//   * RELEASE (DEBUG=0, CRASH_REPORT=1)    error_handler.emp per-class stub
+//               (BusError/AddressError/… + ErrorExcept + ErrorTrap): the
+//               vendored debugger paints the exception screen and names the
+//               faulting symbol out of the shipped deb2 table.
+//   * LEAN    (DEBUG=0, CRASH_REPORT=0) — the island is absent; every fault
+//               points at ReleaseFault (engine/system/release_fault.emp) —
+//               mask IRQs, red backdrop, freeze. That is the loud-failure
+//               implementation the item-27 ruling required for a shape that
+//               carries no debugger. Repointing it at a tolerant `rte` would
+//               revert the ruling, and for the fault classes it is actively
+//               wrong: an `rte` from a bus or address error re-executes the
+//               faulting instruction and hard-loops.
+// What release still does NOT carry: asserts, SOUND_DEBUG_HOTKEYS,
+// SOUND_DBG_MIRROR, boot autoplay, CompressionSelfTest, the sound-debug mirror.
+// Those are equipment and stay strictly `DEBUG`-only.
 // $00 SYSTEM_STACK / $04 EntryPoint / $70 HBlank_Vector_Slot / $78
 // VBlank_Handler are shape-INVARIANT (untouched in both arms).
 //
@@ -40,8 +51,8 @@
 //
 // The 64 entries are raw dc.l link pointers: SYSTEM_STACK is a constants.emp
 // equ (folds to the initial SSP); the others are labels resolved at link —
-// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp, DEBUG arm)
-// / ReleaseFault (release_fault.emp, RELEASE arm) and VBlank_Handler
+// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp, the
+// debug+release arm) / ReleaseFault (release_fault.emp, the lean arm) and VBlank_Handler
 // (vblank.emp) are .emp-owned; the IRQ4 vector points at the
 // HBlank_Vector_Slot RAM trampoline.
 // The fault-cell VALUES now differ per shape by DESIGN (the shape split above),
@@ -65,9 +76,10 @@ module engine.system.vectors in vectors
 pub proc Vectors () clobbers() {
     dc.l    SYSTEM_STACK                    // $00: Initial SSP
     dc.l    EntryPoint                      // $04: Reset PC
-    if DEBUG == 1 {
-        // DEBUG — faults route to the MD Debugger / error_handler per-class
-        // stubs (error_handler.emp); the vendored debugger paints the screen.
+    if DEBUG == 1 || CRASH_REPORT == 1 {
+        // DEBUG + RELEASE — faults route to the MD Debugger / error_handler
+        // per-class stubs (error_handler.emp); the vendored debugger paints the
+        // screen and names the fault out of the shipped deb2 symbol table.
         dc.l    BusError                    // $08: Bus error
         dc.l    AddressError                // $0C: Address error
         dc.l    IllegalInstr                // $10: Illegal instruction
@@ -86,8 +98,9 @@ pub proc Vectors () clobbers() {
         dc.l    ErrorExcept                 // $68: IRQ2 (external — controller TH)
         dc.l    ErrorExcept                 // $6C: IRQ3 (unused on MD)
     } else {
-        // RELEASE — the error_handler island is stripped; every fault routes to
-        // ReleaseFault (release_fault.emp): mask, red backdrop, freeze.
+        // LEAN (CRASH_REPORT=0) — the error_handler island is absent; every
+        // fault routes to ReleaseFault (release_fault.emp): mask, red backdrop,
+        // freeze.
         dc.l    ReleaseFault                // $08: Bus error
         dc.l    ReleaseFault                // $0C: Address error
         dc.l    ReleaseFault                // $10: Illegal instruction
@@ -107,18 +120,18 @@ pub proc Vectors () clobbers() {
         dc.l    ReleaseFault                // $6C: IRQ3 (unused on MD)
     }
     dc.l    HBlank_Vector_Slot              // $70: IRQ4 (HBlank) — RAM jmp-slot trampoline
-    if DEBUG == 1 {
+    if DEBUG == 1 || CRASH_REPORT == 1 {
         dc.l    ErrorExcept                 // $74: IRQ5 (unused on MD)
     } else {
         dc.l    ReleaseFault                // $74: IRQ5 (unused on MD)
     }
     dc.l    VBlank_Handler                  // $78: IRQ6 (VBlank)
-    if DEBUG == 1 {
+    if DEBUG == 1 || CRASH_REPORT == 1 {
         dc.l    ErrorExcept                 // $7C: IRQ7 (NMI)
     } else {
         dc.l    ReleaseFault                // $7C: IRQ7 (NMI)
     }
-    if DEBUG == 1 {
+    if DEBUG == 1 || CRASH_REPORT == 1 {
         dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $80-$8C: TRAP 0-3
         dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $90-$9C: TRAP 4-7
         dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $A0-$AC: TRAP 8-11

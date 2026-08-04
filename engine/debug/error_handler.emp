@@ -8,6 +8,16 @@
 // ---------------------------------------------------------------
 // The 12 CPU exception-vector stubs + the vendored MD Debugger blob.
 //
+// WHICH SHAPES CARRY IT (owner-ruled 2026-08-04 — the crash-report axis): the
+// DEBUG shape AND the RELEASE shape. This island plus its deb2 symbol appendix
+// are DIAGNOSTICS, not debug EQUIPMENT, and diagnostics ship — a player's crash
+// has to be reportable, and the release ROM is ~9% of a 4 MB cart. The registry
+// pushes this module under `debug || crash_report`; the only shape without it is
+// the opt-in LEAN profile (`sigil build --native --lean`, CRASH_REPORT=0), which
+// routes every fault at ReleaseFault instead. Equipment (asserts,
+// SOUND_DEBUG_HOTKEYS, SOUND_DBG_MIRROR, boot autoplay, CompressionSelfTest, the
+// sound-debug mirror) stays strictly `DEBUG`-only.
+//
 // EXCEPTION STUBS (the __ErrorMessage counterpart): each stub is a CPU
 // exception-vector handler, entered by the processor with SR+PC already pushed
 // by the hardware exception frame, so it must NOT simulate that frame. The
