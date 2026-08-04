@@ -1,5 +1,23 @@
 # Wave-4 Z80 Sound Reclaim — Implementation Plan
 
+> **STATUS: COMPLETE (2026-08-03).** Merged to master. Net **−231 B** resident Z80;
+> DEBUG headroom **86 → 316 B** (3.7×) against the `$18F0` ceiling. Seven defects fixed
+> and paid for. Verified in-emulator and frozen as provenance chain entry 33
+> (`wave4-z80-sound-reclaim`), evidence in
+> `docs/superpowers/notes/2026-08-03-wave4-sound-ab.md`.
+>
+> **The verification phase earned its place.** The reclaim left the Z80 blob an ODD
+> number of bytes, which address-errors the 68k at boot in both shapes — `boot.emp`
+> walks `a5` through the blob into `boot_tail`'s word-wide VDP reads. Every ROM built
+> during Tasks 5-8 was unrunnable; their blob-size figures stayed valid only because
+> the blob is emitted independently of the ROM link. Fixed with `align 2` inside the
+> blob brackets plus the evenness `ensure` the 2026-07-16 review asked for and marked
+> `[closed by D8 linker asserts]` — a mechanism that never shipped.
+>
+> Final gates: aeon builds clean in both shapes with the size tripwire ARMED (no
+> `SIGIL_BLOB_LEN_DRIFT` override); sigil strict suite **3000 passed / 0 failed**;
+> `refreeze --check` OK; `repin --check` clean.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Execute the 2026-07-16 review's wave-4 sound items — the sound bug-fix batch (item 23) and the Z80 size-reclaim campaign (item 24) — recovering resident Z80 code space and closing seven real sound defects. Target: DEBUG headroom 86 B → ~300 B.
