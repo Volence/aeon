@@ -65,12 +65,16 @@ ensure((Z80_SOUND_SIZE & 1) == 0,
 
 // Z80_IDLE_SIZE: the no-sound idle program's
 // byte count, read by boot.emp's idle copy loop AND cross-checked by
-// engine.z80_init's `ensure(extern("Z80_IDLE_SIZE") == 38)` self-guard (the
+// engine.z80_init's `ensure(extern("Z80_IDLE_SIZE") == 40)` self-guard (the
 // idle's BootData-relative waypoints are link-external — the row-52 wall — so the
 // numeric mirror is the comptime-foldable half; the whole-ROM anchor gate proves
-// the idle body actually spans $3d8..$3fe).
-pub equ Z80_IDLE_SIZE = $3FE - $3D8
-ensure(($3FE - $3D8) % 2 == 0,
+// the idle body actually spans the hole).
+// It is a plain BYTE COUNT. It used to be spelled `$3FE - $3D8`, which read like
+// a position constraint but was only ever "38"; the addresses in that spelling
+// went stale the moment boot's code length moved. 38 -> 40 on 2026-08-04 (review
+// item 27 finding 11 gave the idle a real `ld sp, nn`, +2 B).
+pub equ Z80_IDLE_SIZE = 40
+ensure((Z80_IDLE_SIZE % 2) == 0,
     "Z80_IDLE_SIZE is odd — the post-idle boundary would shear the (a5)+ cursor by one")
 
 // Comptime-folded table cells (bound to consts so the `dc` emitters below carry
@@ -110,7 +114,13 @@ section boot_head (cpu: m68000) {
         dc.b    $04                         // $00: HInt off, HV counter readable
         dc.b    $14                         // $01: display OFF, VInt OFF, DMA ON
         dc.b    $30                         // $02: Plane A nametable at $C000
-        dc.b    $3C                         // $03: Window nametable at $F000
+        // $03: Window nametable at $F000. CONSTRAINT, not a free choice: with
+        // 64x64 planes (reg $10 = $11) Plane B at $E000 spans $E000-$FFFF, so
+        // $F000 lies INSIDE Plane B. Harmless today — the window is disabled
+        // (regs $11/$12 = 0), so the VDP never fetches from it — but there is
+        // NO free window space anywhere in this VRAM map. Enabling the window
+        // means first re-planning the VRAM layout, not just writing $11/$12.
+        dc.b    $3C                         // $03: Window nametable at $F000 (see above)
         dc.b    $07                         // $04: Plane B nametable at $E000
         dc.b    $5C                         // $05: Sprite table at $B800
         dc.b    $00                         // $06: unused
