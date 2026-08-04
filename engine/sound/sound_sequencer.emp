@@ -480,7 +480,10 @@ section sound_sequencer (cpu: z80) {
         // --- PSG PITCH MODULATION (spec §5) + PORTAMENTO (PSG, spec §4): CF set =>
         // glide active -> skip pitch-mod (lands at .psg_env so the vol-env still runs).
         ld      a, (ix+sc_porta_incr)
-        or      (ix+(sc_porta_incr+1))
+        or      a                       // INVARIANT: sc_porta_incr's high byte is 0 by
+                                        // construction — the only writers are Seq_Op_Porta
+                                        // ($F5, forces hi=0) and the song/SFX channel wipes.
+                                        // Porta_Apply already relies on it (`ld h, 0`).
         jr      z, .no_psg_porta
         call    Porta_Apply
         jr      c, .psg_env
@@ -516,7 +519,10 @@ section sound_sequencer (cpu: z80) {
         // (suppresses vibrato); once at target it falls through so a held note still
         // vibratos. Only armed channels (sc_porta_incr != 0) pay more than one test.
         ld      a, (ix+sc_porta_incr)
-        or      (ix+(sc_porta_incr+1))
+        or      a                       // INVARIANT: sc_porta_incr's high byte is 0 by
+                                        // construction — the only writers are Seq_Op_Porta
+                                        // ($F5, forces hi=0) and the song/SFX channel wipes.
+                                        // Porta_Apply already relies on it (`ld h, 0`).
         jr      z, .no_porta
         call    Porta_Apply             // CF set => glide active -> skip vibrato
         jr      c, .vibrato_done
@@ -953,7 +959,9 @@ section sound_sequencer (cpu: z80) {
     pub proc Sequencer_NextOpcode () clobbers(af, bc, de, hl) {
         ld      l, (ix+sc_stream_ptr)
         ld      h, (ix+(sc_stream_ptr+1)) // hl = current stream ptr
-    export .fetch:                        // reached by Seq_ContinueFetch's tail jp
+    export .fetch:                        // zero-tick re-entry: `jp` handlers target this
+                                          // label DIRECTLY; only the four in-range `jr`
+                                          // handlers go via Seq_ContinueFetch's tail jp
         ld      a, (hl)
         inc     hl                      // consume the opcode byte
         // --- range-dispatch ladder (research order: coord first, then rest/note) ---
@@ -1026,9 +1034,11 @@ section sound_sequencer (cpu: z80) {
 
     // ======================================================================
     // Coordination-flag handlers ($E0..$FF). Entered with hl = stream ptr just past
-    // the opcode byte. Zero-tick handlers fall back to .fetch (Seq_ContinueFetch); the
+    // the opcode byte. Zero-tick handlers fall back to Sequencer_NextOpcode.fetch —
+    // `jp` sites target it DIRECTLY (same 3 bytes, one jump instead of two); only the
+    // four in-jr-range sites use the Seq_ContinueFetch trampoline. The
     // note-dur/end handlers store the ptr and return. Reached ONLY via the trampoline
-    // (never `call`ed), and the `jp Seq_ContinueFetch` tail loops back into the
+    // (never `call`ed), and the zero-tick tail loops back into the
     // dispatch — the static preserve checker cannot follow ix through the computed
     // dispatch, so these handlers declare clobbers only (no `preserves(ix)`).
     // ======================================================================
@@ -1047,7 +1057,7 @@ section sound_sequencer (cpu: z80) {
         push    hl                      // hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookSetVol          // -> Fm_SetVolume / Psg_SetVolume per route
         pop     hl
-        jp      Seq_ContinueFetch       // jp (not jr): the 1D repeat handlers pushed this out of jr range
+        jp      Sequencer_NextOpcode.fetch // jp (not jr): the 1D repeat handlers pushed this out of jr range
     }
 
     // $ED MEV_NOTEFILL + master : set per-channel note-fill (frames keyed from attack),
@@ -1056,7 +1066,7 @@ section sound_sequencer (cpu: z80) {
         ld      a, (hl)
         inc     hl                      // consume operand (master)
         ld      (ix+sc_fill_master), a
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $EB MEV_PSGENV + env_id : set the channel's PSG volume-envelope id (1-based;
@@ -1067,7 +1077,7 @@ section sound_sequencer (cpu: z80) {
         inc     hl                      // consume operand
         ld      (ix+sc_psgenv), a       // set env id (music + SFX)
         ld      (ix+sc_psgenv_cur), 0   // restart the contour from frame 0
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $F9 MEV_MACRO + dw blob_offset (BE) : (re)arm the channel's slot[1] macro stream.
@@ -1087,7 +1097,7 @@ section sound_sequencer (cpu: z80) {
         ld      a, 1
         ld      (ix+sc_macro_active), a // mark active (sc_pad alias)
         pop     hl                      // restore the slot[0] stream ptr
-        jp      Seq_ContinueFetch       // jp (not jr): out of jr range, like the others
+        jp      Sequencer_NextOpcode.fetch // jp (not jr): out of jr range, like the others
     }
 
     // $F2 MEV_PSGNOISE + ctrl : set the SN76489 noise control byte (mode+rate), latch
@@ -1106,7 +1116,7 @@ section sound_sequencer (cpu: z80) {
         ld      a, SND_PSG_SILENCE_T3   // $DF = tone-ch2 volume | max attenuation
         ld      (SND_Z80_PSG), a        // silence ch2 tone (its frequency still clocks noise)
     .noise_latched:
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $F4 MEV_LFO + value : write YM2612 $22 (bit3 enable | bits0-2 rate). MUST re-park
@@ -1122,7 +1132,7 @@ section sound_sequencer (cpu: z80) {
         ld      b, 0                    // part I
         call    Fm_YmWrite              // $4000=$22, $4001=value (preserves bc/de/hl/ix)
         call    Snd_ParkDac            // restore the DAC $2A park (DAC-safe)
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $F6 MEV_DETUNE + dd : set the channel's signed fine-pitch detune (applied at the
@@ -1131,7 +1141,7 @@ section sound_sequencer (cpu: z80) {
         ld      a, (hl)
         inc     hl                      // consume operand (signed detune)
         ld      (ix+sc_detune), a
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $F5 MEV_PORTA + dd : set the persistent portamento glide-rate magnitude (the
@@ -1142,7 +1152,7 @@ section sound_sequencer (cpu: z80) {
         inc     hl                      // consume operand (rate)
         ld      (ix+sc_porta_incr), a
         ld      (ix+(sc_porta_incr+1)), 0
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $F3 MEV_TEMPO + dd : set the GLOBAL tempo mod (S3K TempoWait units; 0 = full
@@ -1155,7 +1165,7 @@ section sound_sequencer (cpu: z80) {
         ld      (SND_TEMPO_CUR), a      // instant snap (no ramp for an authored set)
         ld      (SND_TEMPO_TARGET), a
         call    Tempo_WriteChanMods     // propagate to the per-channel gates
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $EC MEV_MODSET + wait speed change step : latch the pitch-modulation params.
@@ -1196,7 +1206,7 @@ section sound_sequencer (cpu: z80) {
         // NO base-pitch snap on mod-off (fidelity fix 2026-07-03): with ctrl=0,
         // Mod_Advance simply stops writing and the chip HOLDS the last modulated pitch,
         // which IS the S3K freeze.
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $F0 MEV_SPINREV (no operand) : port of cfSpindashRev. Add the GLOBAL rev into this
@@ -1214,7 +1224,7 @@ section sound_sequencer (cpu: z80) {
         inc     (hl)                    // otherwise climb the global by one
     .spin_done:
         pop     hl                      // restore the stream ptr for Seq_ContinueFetch
-        jp      Seq_ContinueFetch
+        jp      Sequencer_NextOpcode.fetch
     }
 
     // $E1 MEV_PATCH + pp : set FM patch index, zero tick
@@ -1231,7 +1241,7 @@ section sound_sequencer (cpu: z80) {
         push    hl                      // hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookSetPatch        // FM: Fm_PatchLoad + re-apply vol; PSG/DAC ignore
         pop     hl
-        jp      Seq_ContinueFetch       // jp (not jr): the 1D repeat handlers pushed this out of jr range
+        jp      Sequencer_NextOpcode.fetch // jp (not jr): the 1D repeat handlers pushed this out of jr range
     }
 
     // $E2 MEV_DAC  + ss : DAC trigger (sample id in operand), zero tick. It fires the
@@ -1249,7 +1259,7 @@ section sound_sequencer (cpu: z80) {
         push    hl                      // hook clobbers hl; stream ptr stays LIVE here
         call    Seq_HookDac             // -> Snd_StartSample (DAC sample id in sc_note)
         pop     hl
-        jp      Seq_ContinueFetch       // jp (not jr): the 1D repeat handlers pushed this out of jr range
+        jp      Sequencer_NextOpcode.fetch // jp (not jr): the 1D repeat handlers pushed this out of jr range
     }
 
     // $E3 MEV_NOTE_DUR + nn dd : note nn with explicit duration dd (advances time)
@@ -1375,7 +1385,7 @@ section sound_sequencer (cpu: z80) {
             ld      a, SEQEV_VOL        // reuse the VOL trace code (no dedicated pan code)
             call    Seq_Trace           // preserves hl (the live stream ptr)
         }
-        jp      Seq_ContinueFetch       // zero tick
+        jp      Sequencer_NextOpcode.fetch // zero tick
     }
 
     // $E9 MEV_OPBIAS + op(0..3) + val : set one operator's additive TL bias. Coordination
@@ -1408,7 +1418,7 @@ section sound_sequencer (cpu: z80) {
         // (no DEBUG trace here: OpBias is a per-op TL micro-event that would flood the
         //  32-entry trace ring; the audible note-on / patch change is traced elsewhere.)
         pop     hl                      // restore the live stream ptr
-        jp      Seq_ContinueFetch       // zero tick
+        jp      Sequencer_NextOpcode.fetch // zero tick
     }
 
     // $EA MEV_REGDELTA + count + count*(reg_sel, value) : VOICE-STEPPING — write `count`
@@ -1431,7 +1441,7 @@ section sound_sequencer (cpu: z80) {
         ld      b, 0
         add     hl, bc                  // advance hl past the operand pairs
     .skipped:
-        jp      Seq_ContinueFetch       // zero tick
+        jp      Sequencer_NextOpcode.fetch // zero tick
     .fm:
         ld      b, a                    // b = count (loop bound)
         // (no DEBUG trace here: RegDelta is a mid-note voice-stepping micro-event.)
@@ -1446,7 +1456,7 @@ section sound_sequencer (cpu: z80) {
         pop     hl
         pop     bc
         djnz    .delta_loop
-        jp      Seq_ContinueFetch       // zero tick
+        jp      Sequencer_NextOpcode.fetch // zero tick
     }
 
     // $F8 MEV_REGWRITE + part + reg + val : write ONE arbitrary YM2612 register for an
@@ -1483,7 +1493,7 @@ section sound_sequencer (cpu: z80) {
         call    Snd_ParkDac            // re-select $2A on the addr port
         pop     hl
     .skip:
-        jp      Seq_ContinueFetch       // zero tick (jp: out of jr range to the tail)
+        jp      Sequencer_NextOpcode.fetch // zero tick (jp: out of jr range to the tail)
     }
 
     // $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
@@ -1598,7 +1608,10 @@ section sound_sequencer (cpu: z80) {
         ret
     }
 
-    // Common tail for zero-tick handlers: resume the fetch loop with hl = stream ptr.
+    // Common tail for the FOUR zero-tick handlers that sit within `jr` range of it:
+    // resume the fetch loop with hl = stream ptr. Every out-of-range handler `jp`s
+    // Sequencer_NextOpcode.fetch directly (same 3 bytes, no double jump), so this
+    // trampoline exists purely to let those four pay 2 bytes instead of 3.
     pub proc Seq_ContinueFetch () clobbers() {
         jp      Sequencer_NextOpcode.fetch
     }

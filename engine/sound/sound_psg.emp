@@ -330,7 +330,10 @@ section sound_psg (cpu: z80) {
         // snap accum = target. Reload from sc_porta_accum/sc_base_freq (Psg_EmitDivisor/
         // Mod_ReArm clobbered de). de = the start divisor (armed) for the no-rekey re-latch.
         ld      a, (ix+sc_porta_incr)
-        or      (ix+(sc_porta_incr+1))
+        or      a                       // INVARIANT: sc_porta_incr's high byte is 0 by
+                                        // construction — the only writers are Seq_Op_Porta
+                                        // ($F5, forces hi=0) and the song/SFX channel wipes.
+                                        // Porta_Apply already relies on it (`ld h, 0`).
         jr      z, .porta_snap
         ld      d, (ix+sc_porta_accum)
         ld      e, (ix+(sc_porta_accum+1))
