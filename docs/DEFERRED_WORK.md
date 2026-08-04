@@ -2154,11 +2154,25 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
   break sync so only the common loop streams. Genuinely novel — no classic or reference
   disasm does this; flag before designing (leapfrog-provenance rule).
 
-## Release-shape error handler / MDDBG strip — BLOCKED on an owner ruling (2026-08-04)
+## Release-shape error handler / MDDBG strip — EXECUTED 2026-08-05 (parcel/item29-mddbg-strip)
 
 Part 4 of review item 29 ("build hygiene / release leaks"). Parts 1-3 landed on
-`parcel/item29-build-hygiene`; this half stopped at the design gate rather than
-guessing, per the overnight run's standing instruction.
+`parcel/item29-build-hygiene`; this half stopped at the design gate — now RULED and
+EXECUTED. The owner ruling: RELEASE ships ZERO debug equipment but still HALTS
+LOUDLY. Implementation:
+
+- `engine/debug/error_handler.emp` (the 12 exception stubs + the vendored MDDBG v2.6
+  blob, ~4.2 KB) is now DEBUG-ONLY — registry `if debug` (native.rs), repin.toml
+  `debug_only`, and `debugger.asm` gated behind `__DEBUG__` in both `game_root.asm`s.
+- NEW `engine/system/release_fault.emp` — `ReleaseFault`: mask IRQs (`move.w #$2700,sr`),
+  reset the VDP command state, set the backdrop red (`CRAM[0]=$000E`), `bra.s *` freeze.
+  No stack, no `rte`, no `rts`, no `stop_z80`. RELEASE-ONLY (registry `if !debug`,
+  repin.toml `plain_only`).
+- `engine/system/vectors.emp` fault cells shape-split: DEBUG → per-class stubs, RELEASE
+  → ReleaseFault (all 60). `null_interrupt.emp` DELETED (no referencer since item 27).
+
+Verified: plain vector cells all point at ReleaseFault, MDDBG blob absent in plain /
+present in debug, plain shrinks ~4.2 KB. Historical design record below.
 
 ### What ships in release today
 
