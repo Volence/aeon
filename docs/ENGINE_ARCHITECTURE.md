@@ -3490,27 +3490,9 @@ The build tool generates tile budget data that the level editor displays in real
 
 ### 8.2 Debug System Architecture (from S.C.E. + Vladikcomper + Vectorman)
 
-**Two-phase debug gating (from S.C.E.):** Two independent debug dimensions that compose cleanly:
+**One shape flag, four idioms.** The S.C.E.-style per-subsystem flag layer (`DEBUG_ALL` / `DEBUG_DMA` / …) was evaluated and never built: a check either belongs in the DEBUG shape or it does not, and a second dimension bought nothing but a matrix of untested shapes. The single flag is `DEBUG` (`-D DEBUG=0|1`; `__DEBUG__` on the AS side). The idioms it drives — self-gating `assert`, hand-wrapped `if DEBUG == 1 { raise_error … }`, comptime `ensure(...)`, and registry-level whole-file exclusion — are specified in `CODING_CONVENTIONS.md` §1.7, which is the canonical statement. There is no `ifdebug`/`debugend` layer in `.emp` (the AS `ifdebug` macro survives in `engine/debug/debugger.asm` with zero users) and no profiler overlay.
 
-1. **`GameDebug`** — in-game debug mode (fly around, place objects). Gameplay feature, always available in debug builds.
-2. **`__DEBUG__`** — engine assertions and diagnostics. Defined by assembler flag `-D __DEBUG__` in `build_debug.sh`. Gates all `RaiseError` checks, `ifdebug` blocks, and the profiler overlay. The `ifdebug` macro expands its arguments only when `__DEBUG__` is defined — zero overhead in release.
-
-**Per-subsystem debug toggles (from S.C.E.):** Each engine subsystem has its own compile-time flag, all OR'd with a master `DEBUG_ALL` switch:
-```
-DEBUG_ALL                = 1           ; master switch
-DEBUG_DMA                = 0|DEBUG_ALL ; DMA queue overflow
-DEBUG_DrawLevel          = 0|DEBUG_ALL ; plane buffer overflow
-DEBUG_S4LZ               = 0|DEBUG_ALL ; S4LZ buffer overflow
-DEBUG_LoadObjects        = 0|DEBUG_ALL ; object slot bitmask / type table overflow
-DEBUG_LoadRings          = 0|DEBUG_ALL ; ring slot buffer / bitmask overflow
-DEBUG_RenderSprites      = 0|DEBUG_ALL ; object/mappings address validation
-DEBUG_SectionStreaming    = 0|DEBUG_ALL ; section boundary/preload checks
-DEBUG_VRAMAllocator      = 0|DEBUG_ALL ; VRAM allocation overflow
-```
-
-Individual checks can be enabled/disabled without recompiling everything. The two-layer gating means: compile-time `if DEBUG_xxx` controls whether the check is assembled, and `ifdebug` requires `__DEBUG__` at the assembler level.
-
-**Build scripts:** Release and debug builds are identical except for `-D __DEBUG__`. Debug includes all assertion modules, error handler, profiler, and symbol table. Release compiles them all out — zero ROM cost.
+**Build shapes:** `DEBUG=1` adds the assertion expansions, the debug-only raise sites, and the debug-only modules (`compression_selftest`; `game_debug` at the hotkeys shape), and emits suffixed artifacts (`s4.debug.bin`) plus the deb2 symbol appendix consumed by MD-Debugger. Release assembles none of that and (review item 29) ships no appendix. The error-handler module itself is currently resident in **both** shapes — its release posture is a separate open review item.
 
 ### 8.3 Error Handler (Vladikcomper MD Debugger v2.6)
 
@@ -3558,7 +3540,7 @@ Two complementary profiling approaches, both debug-only:
 
 **VDP window plane lagometer (from S.C.E.):** Before the VSync wait loop, set window plane H position to default (hidden). After VSync completes, shift the window plane right. The visible bar width shows how much frame budget was consumed. No RAM variables needed — just two VDP register writes per frame. Cleaner than raster bars (no CRAM dots) but less granular (shows total frame time, not per-system breakdown).
 
-**KDebug timer interface (from S.C.E.):** Writes to VDP register `$9F` are intercepted by Gens KMod and compatible emulators as debugger commands. `KDebug.StartTimer` / `KDebug.EndTimer` measure exact cycle counts between two points. `KDebug.BreakPoint` pauses emulation. Only works in KMod-compatible emulators, but provides the most precise timing data. All gated behind `ifdebug`.
+**KDebug timer interface (from S.C.E.):** Writes to VDP register `$9F` are intercepted by Gens KMod and compatible emulators as debugger commands. `KDebug.StartTimer` / `KDebug.EndTimer` measure exact cycle counts between two points. `KDebug.BreakPoint` pauses emulation. Only works in KMod-compatible emulators, but provides the most precise timing data. The `KDebug` macros self-gate on `__DEBUG__` (see `engine/debug/debugger.asm`).
 
 **Lag frame detection (from Batman & Robin):** Dual frame counters — VBlank increments one, main loop samples it with a threshold comparison. If VBlank has fired multiple times before the main loop finished, lag is detected. Batman uses `addq.l #2; cmp.l` to allow up to 1 frame of slack. Our implementation: `Lag_frame_count` incremented in VBlank, reset in main loop. Value > 1 = lag frame. The profiler overlay displays a lag indicator.
 

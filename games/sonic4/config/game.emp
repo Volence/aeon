@@ -7,6 +7,13 @@ module games.sonic4.game
 // ENTRY_ID's value is the game-state id from the sole constants author.
 use games.sonic4.constants.{GS_OJZ_SCROLL_TEST}
 
+// The sound test harness is DEBUG-shape equipment: its hooks pull in
+// games.sonic4.game_debug (mirror buffers, hotkey polling) and its ping fires
+// unbidden at boot. A release build must never carry it, so the invariant is a
+// comptime ensure here rather than a build.sh guard — build.sh is one build
+// path among several (the sigil profiles drive their own defines).
+ensure(SOUND_DEBUG_HOTKEYS == 0 || DEBUG == 1, "SOUND_DEBUG_HOTKEYS requires DEBUG=1")
+
 pub implement Game {
     // The camera landing-lock system is present (requires the game-defined
     // _pl_state / PSTATE_JUMP / PSTATE_ROLLJUMP the camera's =1 arm reads).

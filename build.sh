@@ -5,15 +5,21 @@ set -euo pipefail
 # The AS Macro Assembler (asl) + p2bin + fixheader have left the pipeline; one sigil
 # invocation assembles (every .emp module lowered natively + the residual .asm DATA
 # via sigil-frontend-as), links in declared order, folds the header checksum in
-# emit_rom, emits the sigil-canonical .lst, and appends the deb2 symbol table via the
-# surviving `convsym`. The .asm CODE twins are deleted — the .emp is the only source.
+# emit_rom, emits the sigil-canonical .lst, and — in DEBUG shapes ONLY — appends the
+# deb2 symbol table via the surviving `convsym`. The .asm CODE twins are deleted — the
+# .emp is the only source.
 #
-# ARTIFACT LEDGER (post-flip): the shipped ROM full files are now the SIGIL-CANONICAL
-# values (sonic4 plain 2198deb2/395374, debug 1d895fcb/402696; demo plain 0646d4bf/
-# 76851, debug 7e4a358a/77244) — the appendix is sigil's own symbol set. The PRIMARY
-# assembled anchors are UNCHANGED (the assembled prefix [0,EndOfRom) stays byte-for-
-# byte the asl-witnessed e5765873/dab4f06c, header-neutral). See sigil-harness
-# golden/PROVENANCE.md and the native_full_rom / native_offcanonical_full gates.
+# APPENDIX SHAPE SPLIT (review item 29): the deb2 table is MD-Debugger equipment parked
+# past EndOfRom, ~29 KB of a shipped cartridge that nothing on hardware reads. A release
+# build therefore writes the assembled image verbatim (file length == EndOfRom, header
+# untouched — emit_rom already checksummed exactly those bytes); DEBUG keeps the table.
+# The `native_rom_plain` gate pins the no-appendix release shape byte-for-byte.
+#
+# ARTIFACT LEDGER (post-flip): the assembled anchors are the PRIMARY values and are
+# UNCHANGED (the prefix [0,EndOfRom) stays byte-for-byte the asl-witnessed
+# e5765873/dab4f06c, header-neutral); the full-file CRCs move on every golden re-freeze
+# and live in sigil-harness golden/provenance.toml, not here. See golden/PROVENANCE.md
+# and the native_full_rom / native_offcanonical_full gates.
 
 GAME="${1:-sonic4}"
 # sonic4 keeps the historical ROM name s4.bin (game content); other games use their own name.
@@ -122,7 +128,8 @@ if ! python3 "${TOOLS}/verify_level_bin.py"; then
 fi
 
 # THE BUILD: one sigil invocation — assemble -> declared-order link -> emit_rom
-# (checksum folded) -> sigil-canonical .lst -> convsym deb2 appendix -> full ROM.
+# (checksum folded) -> sigil-canonical .lst -> ROM. DEBUG additionally gets the
+# convsym deb2 appendix; release ships the assembled image alone (item 29).
 NATIVE_FLAGS="--game ${GAME}"
 if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
 echo "Building ${MAIN_ASM} (sigil)..."

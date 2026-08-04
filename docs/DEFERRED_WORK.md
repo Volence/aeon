@@ -2153,3 +2153,79 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
   costs: lockstep look (subtle for loops), and state-dependent frames (attack poses)
   break sync so only the common loop streams. Genuinely novel — no classic or reference
   disasm does this; flag before designing (leapfrog-provenance rule).
+
+## Release-shape error handler / MDDBG strip — BLOCKED on an owner ruling (2026-08-04)
+
+Part 4 of review item 29 ("build hygiene / release leaks"). Parts 1-3 landed on
+`parcel/item29-build-hygiene`; this half stopped at the design gate rather than
+guessing, per the overnight run's standing instruction.
+
+### What ships in release today
+
+`ERROR_HANDLER` is resident in **both** shapes — `plain_len == debug_len == 0x10B0`
+(4,272 B) — and nothing in `engine/debug/error_handler.emp` is shape-conditional.
+The registry places it unconditionally (`sigil/crates/sigil-harness/src/native.rs`,
+the `engine.` prefix filter), so `demo.bin` carries it too.
+
+| component | bytes |
+|---|---|
+| 12 exception-vector stubs | 346 (0x15A) |
+| vendored MDDBG v2.6 blob (`ErrorHandlerBlob`) | 3,926 (0xF56) |
+| `MDDBG__*` equ table | 0 (link-folded) |
+
+The `MDDBG_ERROR_HANDLER` pin is tagged "debug-shape consumer only", which is
+about the *symbol reference*, not the bytes. The bytes ship in release.
+
+`Replay_OJZ_Fixture` is NOT in this region — it is its own 320-byte region
+immediately after it. It is referenced by nothing in either shape (playback is
+armed by an external poke) and is deliberately last before `EndOfRom` so
+re-recording shifts no gameplay address. It is not part of this strip; it only
+moves as a downstream address.
+
+### Why this is blocked, not merely unstarted
+
+**The two pre-run rulings pull opposite ways.** Ruling 1 says strip the MDDBG
+blob *and the exception stubs* from release. Ruling 2 (item 27) says a spurious
+or unexpected interrupt must **halt loudly in BOTH shapes**, because it means a
+state the engine does not model and should surface rather than corrupt silently.
+A release build with the stubs stripped cannot halt loudly unless something
+replaces them.
+
+The likely resolution is "strip the 3,926-byte vendored *debugger*, keep a
+minimal loud halt for the fault vectors" — but that leaves a real product
+question the code cannot answer: **what should a release build actually do on a
+bus error?** `NullInterrupt` (`rte`) is the wrong answer for the fault classes —
+an `rte` from a bus or address error re-executes the faulting instruction and
+hard-loops. Candidate answers, all defensible: a 2-byte `bra.s *` freeze; a jump
+to `EntryPoint` (soft reset); a coloured-border-then-hang so the failure is
+visible on a TV. Whatever is chosen becomes the target of 55 vector cells.
+
+### What it costs once ruled
+
+Not mechanical. Following the `compression_selftest` pattern (source-gate every
+call site, `if debug` in the registry, `plain_len: 0x0` in `pins.rs`, keep the
+name in `map.toml`'s union order) covers the placement, but four things sit on
+top:
+
+1. **55 dangling `dc.l` cells.** `engine/system/vectors.emp` currently points 55
+   of 64 vectors at handler labels, identically in both shapes; it would need a
+   shape split.
+2. **Four ungated file-scope `equ`s in the vendored `engine/debug/debugger.asm`**
+   resolve to `pub equ`s living *inside* `error_handler.emp`. Unplacing the
+   module removes them from the plain link. Whether the AS residual prunes them
+   (it emits no bytes) or errors on the unresolved extern could not be
+   determined statically — it must be settled by building. If it errors,
+   `debugger.asm` also has to leave `game_root.asm` in the plain shape, which is
+   harmless since it is inert without `__DEBUG__`.
+3. **Large pin/golden churn**, in release AND in Config-B (silent, plain shape):
+   `ERROR_HANDLER.plain_len` 0x10B0 -> 0, `REPLAY_FIXTURE.plain_base`,
+   `EPILOGUE`/`EndOfRom`, `pins::ASSEMBLED_LEN`. `error_handler_port.rs` must
+   drop its plain arm. Full byte-changing ritual.
+4. **`demo` is in scope** on the same registry filter and carries the same 4,272
+   bytes and the same 55 vectors.
+
+### Recommendation
+
+Take the ruling on release-fault behaviour first, then run it as its own parcel.
+Sequenced after the ruling it is a day of work with a large, well-understood
+blast radius; sequenced before, it is a coin flip on a product decision.
