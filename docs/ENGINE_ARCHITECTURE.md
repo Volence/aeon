@@ -281,23 +281,26 @@ The first 256 bytes of ROM are the 68000 exception vector table. Two entries mat
 | Line 1111 | $00002C | `Line1111Emu` | Unimplemented F-line trap |
 | Reserved | $000030-$00005C | `ErrorExcept` | 12 reserved vectors |
 | Spurious Interrupt | $000060 | `ErrorExcept` | Uninitialized interrupt |
-| IRQ1 (External) | $000064 | `NullInterrupt` | External device (unused) |
-| IRQ2 (External) | $000068 | `NullInterrupt` | External device (unused) |
-| IRQ3 | $00006C | `NullInterrupt` | Unused on Genesis |
+| IRQ1 (External) | $000064 | `ErrorExcept` | Unmodelled level — halts loudly |
+| IRQ2 (External) | $000068 | `ErrorExcept` | External (controller TH) — unmodelled, halts loudly |
+| IRQ3 | $00006C | `ErrorExcept` | Unmodelled level — halts loudly |
 | IRQ4 (HBlank) | $000070 | `HBlank_Vector_Slot` | **RAM trampoline** — vector points into a 6-byte executable RAM slot (idle `rte`, or armed `jmp handler.l`) |
-| IRQ5 | $000074 | `NullInterrupt` | Unused on Genesis |
+| IRQ5 | $000074 | `ErrorExcept` | Unmodelled level — halts loudly |
 | IRQ6 (VBlank) | $000078 | `VBlank_Handler` | Vertical blanking interrupt |
-| IRQ7 (NMI) | $00007C | `NullInterrupt` | Non-maskable (unused on standard hardware) |
+| IRQ7 (NMI) | $00007C | `ErrorExcept` | Non-maskable — unmodelled, halts loudly |
 | TRAP #0-15 | $000080-$0000BC | `ErrorTrap` | 16 TRAP vectors — reserved for the debug system |
 | Reserved | $0000C0-$0000FC | `ErrorTrap` | Remaining reserved vectors |
+
+The "Our Value" column above is the **DEBUG and RELEASE** shape (`DEBUG == 1 || CRASH_REPORT == 1`). In the opt-in **lean** shape (`DEBUG=0, CRASH_REPORT=0`) the error-handler island is absent and every fault, reserved, TRAP and unmodelled-interrupt cell instead holds `ReleaseFault` (`engine/system/release_fault.emp` — mask IRQs, red backdrop, freeze). Four cells are shape-invariant: $00 `SYSTEM_STACK`, $04 `EntryPoint`, $70 `HBlank_Vector_Slot`, $78 `VBlank_Handler`. The region's 256-byte size is shape-invariant either way, so the header boundary at $100 stays byte-neutral. See §8.4 for the three-shape table.
 
 **Design decisions:**
 
 - **SSP = $FFFFFF00** (not $00000000): Vectorman, Gunstar Heroes, and Alien Soldier all use high RAM. Stack grows downward from near-top of 64KB RAM, staying far from game data at low RAM addresses. $00000000 (used by S.C.E., Batman, Thunder Force IV) makes the stack grow down from the very bottom of the address space — wrapping bugs are silent and catastrophic. $FFFFFF00 gives 256 bytes of headroom below the RAM ceiling ($FFFFFFFF), which is sufficient since our deepest call chain is audited.
 - **RAM-slot HBlank trampoline**: The vector table entry at $70 points *directly into RAM* — at `HBlank_Vector_Slot`, a 6-byte executable slot that holds an idle `rte` ($4E73) when no raster effect is active, or `jmp handler.l` ($4EF9 + 4-byte target) when a handler is armed (`HBlank_Install`, §0.10). There is no ROM dispatch stub and no pointer indirection: IRQ4 reaches the handler through a single `jmp`, and the handler owns its own register save/restore and terminates with `rte`. This allows swapping raster effect handlers per-section without modifying ROM. Vectorman ($FFFF9D2E), Batman ($FFFFE560), Gunstar/Alien Soldier ($FFFFEE00) all do a variant of this (theirs read a pointer from RAM; ours executes an instruction from RAM, saving the pointer-load and indirect-jsr). Thunder Force IV is the only holdout (ROM-based), and it can't change HBlank behavior between levels.
 - **VBlank in ROM**: Unlike HBlank (which changes per-section), VBlank always does the same core work: drain DMA queue, update sprites, read controllers, process sound, set VBlank flag. A single ROM handler with conditional dispatch is sufficient.
-- **Exception routing**: Each exception has its own labeled entry point (`BusError`, `AddressError`, `IllegalInstr`, `ZeroDivide`, `ChkInstr`, `TrapvInstr`, `PrivilegeViol`, `Trace`, `Line1010Emu`, `Line1111Emu`), with `ErrorExcept` covering the reserved $30-$60 vectors — all integrating with the MD Debugger v2.6 error handler (§8.3). Per-exception labels let the error screen name the exact fault. In debug builds this shows register dumps, backtraces, and symbol resolution.
-- **TRAP vectors**: All 16 TRAP vectors (and the reserved $C0-$FC block) currently route to `ErrorTrap`. Reserved for the debug system — TRAP #0 can later be wired to `RaiseError` for debug assertions; other TRAPs available for future use (e.g., system calls for cooperative multitasking §9.7).
+- **Exception routing**: Each exception has its own labeled entry point (`BusError`, `AddressError`, `IllegalInstr`, `ZeroDivide`, `ChkInstr`, `TrapvInstr`, `PrivilegeViol`, `Trace`, `Line1010Emu`, `Line1111Emu`), with `ErrorExcept` covering the reserved $30-$60 vectors — all integrating with the MD Debugger v2.6 error handler (§8.3). Per-exception labels let the error screen name the exact fault, out of the deb2 symbol appendix that both canonical shapes ship. In the lean shape the island is absent and every one of these cells holds `ReleaseFault` instead; repointing lean at a tolerant `rte` would be actively wrong for the fault classes, since an `rte` from a bus or address error re-executes the faulting instruction and hard-loops.
+- **Unmodelled interrupts halt loudly** (owner ruling, 2026-08-04): the spurious vector ($60) and IRQ1/2/3/5/7 route to `ErrorExcept` (`ReleaseFault` in lean), never to a tolerant `rte`. A spurious IRQ means a state the engine does not model, so it is surfaced during development rather than allowed to corrupt silently. The earlier `NullInterrupt` primitive that gave these five levels a bare `rte` is **deleted** — the table used to be internally inconsistent, crashing or vanishing depending on which line the glitch landed on. Do not reintroduce a tolerant vector without an owner ruling.
+- **TRAP vectors**: All 16 TRAP vectors (and the reserved $C0-$FC block) currently route to `ErrorTrap` (`ReleaseFault` in lean). Reserved for the debug system — TRAP #0 can later be wired to `RaiseError` for debug assertions; other TRAPs available for future use.
 
 **ROM Header** ($000100-$0001FF):
 
@@ -334,6 +337,7 @@ The Trademark Security System exists on Model 1 VA7+ and all Model 2/3 units. If
 
 ```asm
 EntryPoint:
+        lea.l   (SYSTEM_STACK).w, sp        ; reload sp — see below
         tst.l   (HW_PORT_A_CTRL_FULL).l     ; Port A control — non-zero on soft reset
         bne.s   Warm_Boot
         tst.w   (HW_EXPANSION_CTRL_FULL).l  ; Expansion control — second soft-reset check
@@ -356,6 +360,8 @@ Cold_Boot:
 
 **Why this order:** The soft-reset detection (port A control + expansion control) must come before TMSS because on soft reset, VDP state is already initialized — a DMA may still be in progress. The warm path exists solely to wait out that in-flight DMA safely; it then performs the same full cold-boot initialization (there is no separate warm-reset path — see §0.11). S.C.E. does exactly this check. On cold boot (power-on), both port registers read zero.
 
+**Why the stack reload first:** on a hardware reset the 68000 has already loaded sp from vector $000, so `lea (SYSTEM_STACK).w, sp` is redundant — but a software `jmp EntryPoint` soft-reset does not, and without it the 64KB RAM clear runs on whatever sp the game was using, after which `jbsr VDP_Shadow_Init` pushes a return address into just-cleared (or live) RAM and returns through garbage. One instruction closes that. It does *not* make software re-entry safe on its own: everything up to the interrupt unmask relies on the 68000 reset forcing SR=$2700, so a `jmp EntryPoint` with interrupts live still races the RAM clear (which zeroes `VInt_Ptr`) against a pending VInt. The reset vector is the sole referencer in practice.
+
 ### 0.3 VDP Register Initialization
 
 24 VDP registers ($00-$17) configured from a compile-time validated table. During init, display is OFF and DMA is enabled — this allows DMA fill of VRAM while the CPU continues working.
@@ -367,7 +373,7 @@ Cold_Boot:
 | $00 | `$04` | Mode 5 enabled, HInt OFF, HV counter readable | HInt enabled later per-section |
 | $01 | `$14` | Display OFF, VInt OFF, DMA ON, V28 (224px), M5 | Display enabled after init completes |
 | $02 | `$30` | Plane A nametable at $C000 | §2.3 — tile $600 × 32 = byte $C000, reg bits 5-3 = 6 → $30 |
-| $03 | `$3C` | Window nametable at $F000 | HUD overlay, letterboxing (§7) |
+| $03 | `$3C` | Window nametable at $F000 | Inert placeholder — $F000 lies INSIDE Plane B (see below) |
 | $04 | `$07` | Plane B nametable at $E000 | §2.3 — tile $700 × 32 = byte $E000, reg bits 2-0 = 7 → $07 |
 | $05 | `$5C` | Sprite attribute table at $B800 | 80 sprites × 8 bytes = 640 bytes |
 | $06 | `$00` | Sprite generator base (normal mode) | Not used in standard 64KB VRAM |
@@ -388,6 +394,8 @@ Cold_Boot:
 | $15 | `$00` | DMA source low | Set per-transfer |
 | $16 | `$00` | DMA source mid | Set per-transfer |
 | $17 | `$80` | DMA source high = fill mode | Primes VRAM fill for clearing |
+
+**Reg $03 is a constraint, not a free choice.** With 64×64 planes (reg $10 = $11), Plane B at $E000 spans $E000-$FFFF, so the window nametable at $F000 sits *inside* Plane B's map. This is harmless today only because the window is disabled — regs $11/$12 are both `$00`, so the VDP never fetches from it — but there is **no free window space anywhere in this VRAM map** (§2.3 fills VRAM exactly). Enabling the window for a HUD overlay or letterbox (§7) means re-planning the VRAM layout first, not just writing regs $11/$12.
 
 **Reg $02/$04 calculation for our VRAM layout:**
 
@@ -415,19 +423,21 @@ Cold_Boot:
 
 **Compile-time validation of register table:**
 
-```asm
-; AS function for VDP register command
-vdpReg  function reg,val, ($8000 | ((reg) << 8) | (val))
+The register command word is built by a comptime function whose parameter ranges are
+themselves the guard (`engine/vdp.emp`):
 
-; Plane size validation
-PLANE_H_CELLS = 64
-PLANE_V_CELLS = 64
-    if (PLANE_H_CELLS <> 32) && (PLANE_H_CELLS <> 64) && (PLANE_H_CELLS <> 128)
-      error "Invalid horizontal plane size: \{PLANE_H_CELLS}"
-    endif
-    if PLANE_H_CELLS * PLANE_V_CELLS > 4096
-      error "Plane exceeds 8KB: \{PLANE_H_CELLS}x\{PLANE_V_CELLS} = \{PLANE_H_CELLS*PLANE_V_CELLS} entries"
-    endif
+```emp
+pub comptime fn vdp_reg(reg: int where 0..$17, val: int where 0..$FF) -> int {
+    return $8000 | (reg << 8) | val
+}
+```
+
+An out-of-range register number or value fails to lower — there is no runtime check and
+no separate assertion to keep in sync. The plane-geometry wall lives at the engine
+epilogue (`engine/system/epilogue.emp`), where it folds against pure constants:
+
+```emp
+ensure(PLANE_H_CELLS * PLANE_V_CELLS <= 4096, "Plane exceeds 8KB")
 ```
 
 **Init method — preloaded register approach** (from S.C.E., used by every commercial game):
@@ -496,14 +506,22 @@ VDP_Dirty_Mask:     ds.l 1      ; bits 0-18 for regs $00-$12
                                 ; Bit 0 = reg $00, bit 1 = reg $01, etc.
 ```
 
-**Write-through macro** (game code uses this, never writes VDP directly):
+**Write-through idiom** (game code uses this, never writes VDP directly). The AS-era
+`setVDPReg` macro is gone; in `.emp` it is spelled out as its two-instruction expansion at
+each site, so the shadow write and the dirty bit are visible together:
 
 ```asm
-setVDPReg macro reg,val
-        move.b  val, (VDP_Shadow_Table+reg).w      ; Update shadow
-        ori.l   #(1<<reg), (VDP_Dirty_Mask).w      ; Mark dirty
-        endm
+        move.b  #$34, VDP_Shadow_Table + VDP_MODE2_OFF   ; update shadow
+        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    ; mark dirty
+```
 
+The register-slot offsets (`VDP_MODE1_OFF`, `VDP_MODE2_OFF`, `VDP_HINT_OFF`, …) come from
+`engine/vdp.emp`, drift-locked against the `VdpShadow` struct in `engine/structs.emp`.
+Read-modify-write sites (setting a single bit such as IE1 without disturbing the rest of
+reg $00) load the shadow byte, mask, store it back and then set the dirty bit — see
+`HBlank_Install` / `HBlank_Uninstall` (`engine/system/hblank.emp`).
+
+```asm
 ; VBlank flush — only writes changed registers (ascending from reg 0).
 ; The walk shifts the dirty mask one bit at a time (lsr.l/bcc) and early-exits
 ; the moment the mask drains (dbeq on tst.l d1), bounded by VDP_Shadow_len-1.
@@ -536,13 +554,13 @@ Flush_VDP_Shadow:
 
 **Direct VDP register-write conventions** (audited 2026-04-27, see `docs/superpowers/specs/2026-04-27-vdp-shadow-dma-audit-design.md`):
 
-The `setVDPReg` macro is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
+The shadow + dirty-bit idiom is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
 
 1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.emp`, `engine/level/plane_buffer.emp`. Shadow drift is harmless because nothing reads back the shadow as authoritative state — `Flush_VDP_Shadow` only writes registers whose dirty bit is set.
 2. **HInt-handler-internal raster effects (future §7.2).** HInt handlers may freely write VDP registers during the active line — that's the entire point of raster effects. They MUST NOT update the shadow or set the dirty mask. The shadow represents settled frame state, not transient mid-frame VDP changes. When the section's HInt program exits, hardware register state is whatever the last write left; the next VBlank's `Flush_VDP_Shadow` re-asserts settled values for any dirty registers, and HInt handlers re-establish their own per-line program from scratch.
-3. **DMA register writes (`$13-$17`)** are not shadowed and are set per-transfer by the DMA queue. This is by design — `setVDPReg` only covers `$00-$12`.
+3. **DMA register writes (`$13-$17`)** are not shadowed and are set per-transfer by the DMA queue. This is by design — the shadow only covers `$00-$12`.
 
-**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST go through `setVDPReg`. Bypassing the shadow for settled state risks the next dirty-flush overwriting a hardware-only change with a stale shadow value. Audit grep: `grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]' engine/` periodically; classify each new hit as transient (OK) or settled (use shadow).
+**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST use the shadow + dirty-bit idiom above. Bypassing the shadow for settled state risks the next dirty-flush overwriting a hardware-only change with a stale shadow value. Audit grep: `grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]' engine/` periodically; classify each new hit as transient (OK) or settled (use the shadow). The sanctioned transient hits today are the `$8F02` autoincrement restores in `engine/level/bg.emp`, `engine/level/plane_buffer.emp` and `engine/level/section.emp`.
 
 ### 0.5 Z80 Initialization & Sound System Bootstrap
 
@@ -590,17 +608,18 @@ The `setVDPReg` macro is the only sanctioned write path for **persistent** frame
 
 **Z80 idle program** (`engine/system/z80_init.emp` — used only in sound-OFF builds):
 
-Clears Z80 RAM *after its own code* via LDIR (BC/DE/HL computed from the assembled program size, stack parked at the program end), pops IX/IY/both register banks clean from the zeroed RAM, clears I and R, sets `di`/`im 1`, then self-patches a `jp (hl)` opcode ($E9) at Z80 address 0 and jumps to it — the idle loop is a single 1-byte instruction spinning at address 0, not a two-address `jp` loop:
+Clears Z80 RAM *after its own code* via LDIR (BC/DE/HL computed from the assembled program size, stack parked at the program end for the pops), pops IX/IY/both register banks clean from the zeroed RAM, clears I and R, re-seeds SP to $1FFE (the top of the Z80's own 8KB RAM, matching the sound driver's `SND_STACK_TOP`), sets `di`/`im 1`, then self-patches a `jp (hl)` opcode ($E9) at Z80 address 0 and jumps to it — the idle loop is a single 1-byte instruction spinning at address 0, not a two-address `jp` loop:
 
 ```z80
         ...
+        ld      sp, 1FFEh           ; real stack top — NOT `ld sp, hl` (hl == 0 here)
         di
         im      1
         ld      (hl), 0E9h          ; patch: jp (hl) opcode at address 0
         jp      (hl)                ; idle loop — jp (hl) at 0 jumps to itself
 ```
 
-**Sound-driver loading:** the driver (`engine/sound/z80_sound_driver.emp`, a `(cpu: z80)` module) is pre-assembled into a `phase 0` blob that boot embeds in the `BootData` table (`engine/system/boot_data.emp`: `embed("engine/sound/generated/z80_sound_blob.bin")`); in the default build (`SOUND_DRIVER_ENABLED`) it is what boot copies into Z80 RAM — the idle program is included and loaded *only* in sound-OFF builds. Nothing is streamed over the bus at title-screen init.
+**Sound-driver loading:** the driver (`engine/sound/z80_sound_driver.emp`, a `(cpu: z80)` module) is pre-assembled into a `phase 0` blob that boot embeds in the `BootData` table (`engine/system/boot_data.emp` embeds **two** — `z80_sound_blob.bin` and `z80_sound_blob_debug.bin` — and `ShapeBlob` selects on `DEBUG`); in the default build (`SOUND_DRIVER_ENABLED`) it is what boot copies into Z80 RAM — the idle program is included and loaded *only* in sound-OFF builds. Nothing is streamed over the bus at title-screen init.
 
 **Critical hardware rule** (from plutiedev): the Z80 must never fetch from the 68K bus (e.g., reading ROM for music data) while a DMA transfer runs — DMA loads garbage. This is not optional — it corrupts art on real hardware, especially early board revisions. How we enforce it depends on the build:
 - **Sound-OFF build:** classic full fence — `stopZ80` before the VBlank DMA pipeline, `startZ80` after.
@@ -613,16 +632,25 @@ Clears Z80 RAM *after its own code* via LDIR (BC/DE/HL computed from the assembl
 Volume attenuation of $F = silent. Each channel has a latch byte format: `1 CC 1 AAAA` where CC = channel, AAAA = attenuation.
 
 ```asm
-; Silence table — 4 bytes
-PSG_Silence:  dc.b $9F, $BF, $DF, $FF  ; Channels 0-3 at max attenuation
+; Silence bytes — 4, in the BootData table (engine/system/boot_data.emp,
+; BootData_PostBlob); boot reads them with the same sequential (a5)+ cursor.
+        dc.b    $9F, $BF, $DF, $FF      ; channels 0-3 at max attenuation
 
-; Init code
-        lea.l   PSG_Silence(pc), a6
-        moveq   #3, d0
+; Init code — runs AFTER the VRAM fill completes (see below)
+        moveq   #3, d2
 .silence_psg:
-        move.b  (a6)+, $11(a3)          ; a3 = $C00000 (VDP data), +$11 = PSG input
-        dbf     d0, .silence_psg
+        move.b  (a5)+, PSG_DATA_OFF(a3) ; a3 = $C00000 (VDP data); PSG_DATA_OFF = $11
+        dbf     d2, .silence_psg
 ```
+
+**Placement is load-bearing.** These four writes sit *below* the DMA-fill wait, not inside
+the parallel window (§0.7). The PSG is decoded inside the VDP, so a write to $C00011 while
+the VRAM fill is in flight is a real-hardware hazard (plutiedev). Their old placement
+inside the window was safe only *temporally* — the 64KB RAM clear (~360k cycles ≈ 47 ms)
+strictly dominates the display-off fill (~21 ms) — never topologically: a future shrink of
+the clear would have re-opened the race with no gate to catch it. Corrected 2026-08-04
+(review item 27, finding 2). The window invariant is now absolute: **nothing VDP-decoded,
+data port or PSG, may be touched between the fill trigger and the fill wait.**
 
 **YM2612 reset** (FM synth at $A04000-$A04003):
 
@@ -657,11 +685,16 @@ The Z80 idle program handles this implicitly by clearing Z80 RAM (which includes
 2. Start VRAM fill: set increment=1, write destination + trigger word → DMA runs in background
 3. While DMA runs: init Z80 (bus dance, program copy, YM-safe reset)
 4. While DMA runs: clear 68K RAM (64KB = ~180,000 cycles)
-5. While DMA runs: silence PSG
-6. After CPU work: poll DMA busy bit, wait for fill to complete; restore increment=2
-7. Clear CRAM (128 bytes — fast CPU loop)
-8. Clear VSRAM (80 bytes — fast CPU loop)
+5. After CPU work: poll DMA busy bit, wait for fill to complete
+6. Silence PSG (4 bytes — VDP-decoded, so strictly after the fill, §0.6)
+7. Restore increment=2
+8. Clear CRAM (128 bytes — fast CPU loop)
+9. Clear VSRAM (80 bytes — fast CPU loop)
 ```
+
+Only steps 3 and 4 ride the fill window, and both are entirely off-VDP. Nothing between
+the trigger (step 2) and the wait (step 5) may touch the VDP data port — a data write
+mid-fill both lands in VRAM *and* replaces the fill byte — nor the VDP-decoded PSG port.
 
 **Work RAM clear** (64KB, ~180,000 cycles):
 
@@ -797,6 +830,8 @@ VBlank_Handler:
 .lag:
         bsr.w   VInt_Lag                ; Reduced handler — skips the plane-buffer drain
 .done:
+;       DEBUG && SOUND_DRIVER_ENABLED && SOUND_DBG_MIRROR only:
+;       bsr.w   Sound_DebugMirror       ; Z80-state snapshot (stops the Z80 ~190us)
         clr.b   (VBlank_Ready).w
         movem.l (sp)+, d0-a6
         rte
@@ -825,7 +860,7 @@ HBlank_Vector_Slot:     ds.b 6          ; executable instruction slot
 
 **Problem:** When the user presses RESET, only the 68000 resets. VDP, Z80, VRAM, CRAM, all retain their state. A running DMA may still be in progress.
 
-**What is implemented (as of 2026-07-16):** soft-reset *detection* and DMA safety only. `Warm_Boot` waits for any in-flight DMA to finish and then falls through to `Cold_Boot` — the full hardware init runs on every boot, warm or cold:
+**What is implemented (and ruled final 2026-08-05):** soft-reset *detection* and DMA safety only. `Warm_Boot` waits for any in-flight DMA to finish and then falls through to `Cold_Boot` — the full hardware init runs on every boot, warm or cold:
 
 ```asm
 EntryPoint:
@@ -872,6 +907,8 @@ Power On
   ├── 68000 reads Reset PC from $000004 (EntryPoint)
   │
   EntryPoint:
+  ├── Reload sp from SYSTEM_STACK (lea (SYSTEM_STACK).w, sp — redundant after a
+  │   hardware reset, load-bearing after a software jmp EntryPoint; §0.2)
   ├── Soft reset check ($A10008 tst.l / $A1000C tst.w)
   │     ├── Warm_Boot: poll VDP status bit 1 until DMA idle, FALL THROUGH to Cold_Boot
   │     └── Cold: continue below
@@ -886,13 +923,13 @@ Power On
   ├── Set auto-increment to 1 ($8F01 — explicit write, not the table value)
   ├── Start VRAM DMA fill (write dest+trigger → VDP fills 64KB in background)
   │
-  ├── WHILE DMA RUNS (parallel work):
+  ├── WHILE DMA RUNS (parallel work — strictly off-VDP, §0.7):
   │     ├── Init Z80 (reset/bus dance, load sound driver — or idle blob when
   │     │   sound is off — reset with YM2612-safe delay, release bus)
-  │     ├── Clear Work RAM (64KB via wrapping predecrement, ~180,000 cycles)
-  │     └── Silence PSG (4 bytes to $C00011)
+  │     └── Clear Work RAM (64KB via wrapping predecrement, ~180,000 cycles)
   │
   ├── Wait for DMA fill completion (poll VDP status bit 1)
+  ├── Silence PSG (4 bytes to $C00011 — VDP-decoded, so only after the fill, §0.6)
   ├── Restore auto-increment to 2 ($8F02)
   ├── Clear CRAM (32 longs via CPU loop)
   ├── Clear VSRAM (20 longs via CPU loop)
@@ -912,7 +949,7 @@ Power On
   ├── Controller port init ($40 → 3 control regs AND 3 data ports, §0.9)
   ├── Init HBlank_Vector_Slot to idle rte (move.l #$4E734E73 → HBlank_Vector_Slot, §0.10)
   │
-  ├── setVDPReg mode2 = $34 (VInt enable in VDP — display still OFF)
+  ├── Shadow write mode2 = $34 (VInt enable in VDP — display still OFF)
   ├── Flush_VDP_Shadow (VInt enabled in hardware before unmasking)
   ├── enableInts — interrupts are LIVE from here on (SR = $2300)
   │
@@ -920,10 +957,11 @@ Power On
   ├── Sound builds: Sound_Init (Z80 mailbox idle handshake)
   ├── gameBootHook (game-supplied, may be empty)
   │
-  ├── Set Game_State = Game_Entry, Game_State_ID = GAME_ENTRY_ID,
-  │   clear Game_State_Init (game-supplied entry contract)
+  ├── Set Game_State = Game.entry, Game_State_ID = Game.ENTRY_ID,
+  │   clear Game_State_Init (the game manifest's entry contract — Sonic 4 binds
+  │   these to GameState_OJZScroll_Init / GS_OJZ_SCROLL_TEST)
   └── bra.w GameLoop (never returns)
-        └── Game_Entry state runs first — logos/title etc.
+        └── The game's entry state runs first
             (sound driver already loaded over the Z80 at boot)
 ```
 
@@ -3741,6 +3779,8 @@ home for saves, best times and unlocks. See §0.11 for the full reasoning.
 
 ### 9.6 SRAM Save System
 
+> **Status: PLANNED design — not one line implemented (verified 2026-08-04).** No SRAM code exists in the tree, and neither shipped header declares SRAM (`sram` reads 12 spaces at `$1B0` in both `games/sonic4/config/header.emp` and `games/demo/config/header.emp`). This matters more than it used to: §0.11 and §9.5 rule out cross-reset RAM persistence *on the grounds that SRAM is this engine's persistence mechanism*, so until the design below is built the engine has no persistence at all. Everything below is the intended design.
+
 **Hardware (from web research + plutiedev):** SRAM mapped at `$200001+` (odd bytes only due to 8-bit SRAM chip on D0-D7 via /LWR). Controlled by register `$A130F1`: write `$01` to enable SRAM, `$00` to disable. Standard capacity: up to 32KB usable (64KB address range / 2 for odd-byte access). Battery-backed with CR2032.
 
 **ROM header declaration:** Offset `$1B0` must declare SRAM: `dc.b "RA", $F8, $20` with start/end addresses. Some emulators (BizHawk) won't enable SRAM without correct header.
@@ -3758,6 +3798,8 @@ home for saves, best times and unlocks. See §0.11 for the full reasoning.
 **ROM banking interaction:** For ROMs >2MB that also need SRAM, a mapper switches the `$200000-$3FFFFF` range between upper ROM banks and SRAM. Sound data and frequently-accessed code should live in bank 0 (`$000000-$07FFFF`, fixed) to avoid switching conflicts.
 
 ### 9.7 Background Task System — Cooperative Multitasking (from plutiedev, NOVEL for Sonic engines)
+
+> **Status: PLANNED design — not implemented (verified 2026-08-04).** No task system, context switch or user-mode path exists in the tree. Read the drift flag below before treating this as the adopted design.
 
 > **DRIFT FLAG (2026-07-16, not fixed here):** this user-mode/supervisor design was
 > superseded — the Phase-2 streaming spec (2026-07-02 §3) rewrites deferred decode to
