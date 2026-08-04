@@ -9,6 +9,7 @@ module engine.dma_queue in dma_queue
 use engine.structs.{DMAEntry}
 use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
+use engine.irq.{vblank}
 
 // Derived entry displacements (one-consumer usage detail — file-local per the
 // engine.structs boundary rule). The ENTRY2_* forms address the SECOND entry
@@ -243,7 +244,7 @@ ensure(sizeof(DMAEntry) == 14, "the jump-table slot stride is spelled as 14 fixe
 // register write and desync the whole stream (every VInt writer issues
 // paired words; single-word register writes like $8F02 cannot strand it).
 // -----------------------------------------------
-pub proc Process_DMA_Critical () clobbers(a1/a5) {
+pub proc Process_DMA_Critical () clobbers(a1/a5) requires(vblank) {
         movea.w DMA_Critical_Slot, a1           // (DMA_Critical_Slot).w
         suba.w  #DMA_Critical, a1               // a1 = byte offset into queue
         jmp     .jump_table(a1)
@@ -287,7 +288,7 @@ pub proc Process_DMA_Critical () clobbers(a1/a5) {
 // Out: none
 // Clobbers: d0-d1, a0-a3, a5
 // -----------------------------------------------
-pub proc Process_DMA_Important () clobbers(d0-d1/a0-a3/a5) {
+pub proc Process_DMA_Important () clobbers(d0-d1/a0-a3/a5) requires(vblank) {
         movea.w DMA_Important_Slot, a1          // (DMA_Important_Slot).w
         lea     DMA_Important, a0               // (DMA_Important).w
         cmpa.l  a0, a1
@@ -304,7 +305,7 @@ pub proc Process_DMA_Important () clobbers(d0-d1/a0-a3/a5) {
 // Out: none
 // Clobbers: d0-d1, a0-a3, a5
 // -----------------------------------------------
-pub proc Process_DMA_Deferrable () clobbers(d0-d1/a0-a3/a5) {
+pub proc Process_DMA_Deferrable () clobbers(d0-d1/a0-a3/a5) requires(vblank) {
         movea.w DMA_Deferrable_Slot, a1         // (DMA_Deferrable_Slot).w
         lea     DMA_Deferrable, a0              // (DMA_Deferrable).w
         cmpa.l  a0, a1

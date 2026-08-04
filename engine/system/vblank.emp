@@ -1,8 +1,8 @@
 // VBlank handler with function pointer dispatch and lag detection (§1.2)
 module engine.vblank in vblank
 
-use engine.z80_bus.{stop_z80, start_z80}
-use engine.irq.{sr_masked}
+use engine.z80_bus.{z80_stopped}
+use engine.irq.{ints_off, vblank}
 use engine.structs.{DMAEntry}
 
 use engine.sound_constants.*
@@ -36,7 +36,7 @@ type VBlankHandler = proc () clobbers(d0-d7/a0-a6)
 // latch/autoincrement state: the dispatched handlers own the engine's
 // VDP-access invariants.
 // -----------------------------------------------
-pub proc VBlank_Handler () clobbers() preserves(d0-d7/a0-a6) {
+pub proc VBlank_Handler () clobbers() preserves(d0-d7/a0-a6) grants(vblank) {
         movem.l d0-a6, -(sp)
         tst.b   VBlank_Ready                    // (VBlank_Ready).w
         beq     .lag
@@ -67,7 +67,7 @@ pub proc VBlank_Handler () clobbers() preserves(d0-d7/a0-a6) {
 //   Process_DMA_Important/Deferrable d0-d1/a0-a3/a5 · Read_Controllers d0-d4/a0)
 // (d4 enters the union with the 6-button burst — Read_Controllers widened, input parcel 2026-08-02)
 // -----------------------------------------------
-pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) {
+pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
         // --- VDP work ---
         // Sound (MegaPCM-2 model): when the Z80 sound driver is enabled we do NOT
         // stop the Z80 during the VDP/DMA pipeline. Instead we raise a FLAG BRACKET
@@ -77,85 +77,83 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) {
         // the DAC from the RAM ring with NO ROM read) for as long as the flag is
         // set — so a banked ROM read can never land inside a DMA burst and stall
         // the Z80 bus (the under-load pitch sag). The brief bus-held byte write is
-        // the ONLY 68k stopZ80 in the sound build; the DMA pipeline itself runs
+        // the ONLY 68k bus hold in the sound build; the DMA pipeline itself runs
         // with the Z80 free. The OFF build keeps the original full-DMA Z80 fence.
         if SOUND_DRIVER_ENABLED == 1 {
-            stop_z80()
-            move.b  #1, SND_DMA_ACTIVE_SLOT     // raise: DMA window open (Z80 -> DRAIN)
-            start_z80()
+            with z80_stopped {
+                move.b  #1, SND_DMA_ACTIVE_SLOT // raise: DMA window open (Z80 -> DRAIN)
+            }
         }
-        if SOUND_DRIVER_ENABLED == 0 {
-            stop_z80()
-        }
+        // Sound-OFF fence: with no driver to hand the DRAIN contract to, the whole
+        // VDP/DMA pipeline runs with the bus held. The bracket is comptime-gated so
+        // ONE body serves both shapes — under sound ON it lowers unbracketed and the
+        // flag pair above is the fence instead.
+        with z80_stopped if SOUND_DRIVER_ENABLED == 0 {
+            // Seed the frame's window budget BEFORE any VDP work (§1.1). The two big
+            // window riders below (plane drain + Critical DMA) then charge it as they
+            // run, so the Important/Deferrable drain sees the true blanking-window
+            // headroom left — not the whole window as if nothing had run.
+            move.w  (DMA_Budget_Default).w, (DMA_Budget_Remaining).w    // widths pinned: mem-to-mem two-symbolic operands need both widths spelled
 
-        // Seed the frame's window budget BEFORE any VDP work (§1.1). The two big
-        // window riders below (plane drain + Critical DMA) then charge it as they
-        // run, so the Important/Deferrable drain sees the true blanking-window
-        // headroom left — not the whole window as if nothing had run.
-        move.w  (DMA_Budget_Default).w, (DMA_Budget_Remaining).w    // widths pinned: mem-to-mem two-symbolic operands need both widths spelled
+            jbsr    Flush_VDP_Shadow
 
-        jbsr    Flush_VDP_Shadow
+            jbsr    Enqueue_Dirty_Buffers   // queues palette + sprites + HScroll (§4.6)
 
-        jbsr    Enqueue_Dirty_Buffers   // queues palette + sprites + HScroll (§4.6)
+            // Charge the plane drain against the window budget: Plane_Buffer_Ptr is
+            // this frame's pending buffer-content bytes (0 = empty), a conservative
+            // proxy for the CPU-written drain's window cost (headers counted in;
+            // the CPU-write rate running above 2.7 cyc/byte is absorbed by the
+            // DMA_BUDGET_* safety margin). Read it BEFORE VInt_DrawLevel zeroes it.
+            move.w  Plane_Buffer_Ptr, d0
+            sub.w   d0, DMA_Budget_Remaining
+            jbsr    VInt_DrawLevel          // drain Plane_Buffer to VDP (§4.1)
 
-        // Charge the plane drain against the window budget: Plane_Buffer_Ptr is
-        // this frame's pending buffer-content bytes (0 = empty), a conservative
-        // proxy for the CPU-written drain's window cost (headers counted in;
-        // the CPU-write rate running above 2.7 cyc/byte is absorbed by the
-        // DMA_BUDGET_* safety margin). Read it BEFORE VInt_DrawLevel zeroes it.
-        move.w  Plane_Buffer_Ptr, d0
-        sub.w   d0, DMA_Budget_Remaining
-        jbsr    VInt_DrawLevel          // drain Plane_Buffer to VDP (§4.1)
+            // Charge the Critical DMA (mandatory, always fully drains): sum the queued
+            // entries' byte sizes and subtract them, so the leftover for Important/
+            // Deferrable reflects the window Critical is about to consume. Walk runs
+            // between Enqueue_Dirty_Buffers (fills the queue) and Process_DMA_Critical
+            // (drains + resets the slot); ≤ DMA_CRITICAL_SLOTS iterations.
+            lea     DMA_Critical, a0
+            movea.w DMA_Critical_Slot, a2   // (DMA_Critical_Slot).w — first-free entry
+            moveq   #0, d1                  // word accumulator
+        .charge_critical:
+            cmpa.l  a0, a2
+            bls     .charged_critical
+            moveq   #0, d0
+            movep.w DMAEntry.SizeH(a0), d0  // entry length in words
+            add.w   d0, d1
+            lea     sizeof(DMAEntry)(a0), a0
+            jbra    .charge_critical
+        .charged_critical:
+            add.w   d1, d1                  // words -> bytes
+            sub.w   d1, DMA_Budget_Remaining
+            // Floor the budget at 0: a pathological rider confluence could drive it
+            // negative (u16 underflow reads as signed-negative), and the drain's
+            // signed test would already refuse — but keep the stored cell a clean
+            // non-negative headroom value (matches the drain's own >= 0 invariant).
+            tst.w   DMA_Budget_Remaining
+            bpl     .budget_floored
+            clr.w   DMA_Budget_Remaining
+        .budget_floored:
 
-        // Charge the Critical DMA (mandatory, always fully drains): sum the queued
-        // entries' byte sizes and subtract them, so the leftover for Important/
-        // Deferrable reflects the window Critical is about to consume. Walk runs
-        // between Enqueue_Dirty_Buffers (fills the queue) and Process_DMA_Critical
-        // (drains + resets the slot); ≤ DMA_CRITICAL_SLOTS iterations.
-        lea     DMA_Critical, a0
-        movea.w DMA_Critical_Slot, a2   // (DMA_Critical_Slot).w — first-free entry
-        moveq   #0, d1                  // word accumulator
-    .charge_critical:
-        cmpa.l  a0, a2
-        bls     .charged_critical
-        moveq   #0, d0
-        movep.w DMAEntry.SizeH(a0), d0  // entry length in words
-        add.w   d0, d1
-        lea     sizeof(DMAEntry)(a0), a0
-        jbra    .charge_critical
-    .charged_critical:
-        add.w   d1, d1                  // words -> bytes
-        sub.w   d1, DMA_Budget_Remaining
-        // Floor the budget at 0: a pathological rider confluence could drive it
-        // negative (u16 underflow reads as signed-negative), and the drain's
-        // signed test would already refuse — but keep the stored cell a clean
-        // non-negative headroom value (matches the drain's own >= 0 invariant).
-        tst.w   DMA_Budget_Remaining
-        bpl     .budget_floored
-        clr.w   DMA_Budget_Remaining
-    .budget_floored:
+            jbsr    Process_DMA_Critical    // drains palette + sprites + HScroll
 
-        jbsr    Process_DMA_Critical    // drains palette + sprites + HScroll
+            // §4.6: VSRAM write must come AFTER HScroll DMA (CODING_CONVENTIONS §3.4)
+            jbsr    Vscroll_Write
 
-        // §4.6: VSRAM write must come AFTER HScroll DMA (CODING_CONVENTIONS §3.4)
-        jbsr    Vscroll_Write
-
-        jbsr    Process_DMA_Important
-        jbsr    Process_DMA_Deferrable
-
-        if SOUND_DRIVER_ENABLED == 0 {
-            start_z80()
+            jbsr    Process_DMA_Important
+            jbsr    Process_DMA_Deferrable
         }
 
         // Sound (flag bracket close): the VDP/DMA window is finished — ROM is safe
         // to read again. Clear SND_CTRL_DMA_ACTIVE=0 so the Z80 producer leaves its
         // DRAIN path and resumes FILL read-ahead. Net: the flag was 1 for the
-        // whole VDP/DMA window. Brief bus-held write (the only 68k stopZ80 in the
+        // whole VDP/DMA window. Brief bus-held write (the only 68k bus hold in the
         // sound build); the DMA pipeline above ran with the Z80 free.
         if SOUND_DRIVER_ENABLED == 1 {
-            stop_z80()
-            move.b  #0, SND_DMA_ACTIVE_SLOT     // lower: DMA window closed (Z80 -> FILL)
-            start_z80()
+            with z80_stopped {
+                move.b  #0, SND_DMA_ACTIVE_SLOT // lower: DMA window closed (Z80 -> FILL)
+            }
         }
 
         // --- Non-VDP work ---
@@ -190,51 +188,49 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) {
 //   Vscroll_Write d0/a0/a5 · Read_Controllers d0-d4/a0)
 // (d4 enters the union with the 6-button burst — Read_Controllers widened, input parcel 2026-08-02)
 // -----------------------------------------------
-proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) {
+proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
         // Sound (flag bracket): see VInt_Level — raise SND_CTRL_DMA_ACTIVE=1 at the
         // very top (before any VDP work) so the Z80 producer takes its DRAIN path
         // for the whole VDP/DMA window; cleared =0 after the last DMA below. OFF
         // build keeps the original full-DMA Z80 fence.
         if SOUND_DRIVER_ENABLED == 1 {
-            stop_z80()
-            move.b  #1, SND_DMA_ACTIVE_SLOT     // raise: DMA window open (Z80 -> DRAIN)
-            start_z80()
+            with z80_stopped {
+                move.b  #1, SND_DMA_ACTIVE_SLOT // raise: DMA window open (Z80 -> DRAIN)
+            }
         }
-        if SOUND_DRIVER_ENABLED == 0 {
-            stop_z80()
-        }
-
-        jbsr    Flush_VDP_Shadow
-        jbsr    Enqueue_Dirty_Buffers
-        // Do NOT drain Plane_Buffer here. On a lag frame the main loop has not
-        // finished (VBlank_Ready=0) and is still appending to Plane_Buffer inside
-        // Section_UpdateColumns. VInt_DrawLevel drains on Plane_Buffer_Ptr!=0 with
-        // no "complete" guard, so draining now reads TORN entries — a half-written
-        // entry's addr field is garbage, so the drain writes to a garbage VDP dest
-        // (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
-        // resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
-        // lag and more torn drains. The palette/sprite enqueues above ARE safe:
-        // they are dirty-FLAG gated (the flag is set only after a complete write).
-        // The HScroll enqueue is NOT flag-gated (it fires every VBlank) — it is
-        // safe by a different, weaker mechanism: the static entry's destination
-        // and length are pre-built, so a lag-frame tear corrupts scroll VALUES
-        // only (one frame of mixed offsets, self-healing next complete frame),
-        // never the VDP destination — the garbage-destination write is what makes
-        // the Ptr-gated plane buffer dangerous. The plane drain defers to the
-        // next complete frame (VInt_Level, VBlank_Ready=1).
-        jbsr    Process_DMA_Critical
-        jbsr    Vscroll_Write           // §4.6 — after Critical DMA
-
-        if SOUND_DRIVER_ENABLED == 0 {
-            start_z80()
+        // Sound-OFF fence: with no driver to hand the DRAIN contract to, the whole
+        // VDP/DMA pipeline runs with the bus held. The bracket is comptime-gated so
+        // ONE body serves both shapes — under sound ON it lowers unbracketed and the
+        // flag pair above is the fence instead.
+        with z80_stopped if SOUND_DRIVER_ENABLED == 0 {
+            jbsr    Flush_VDP_Shadow
+            jbsr    Enqueue_Dirty_Buffers
+            // Do NOT drain Plane_Buffer here. On a lag frame the main loop has not
+            // finished (VBlank_Ready=0) and is still appending to Plane_Buffer inside
+            // Section_UpdateColumns. VInt_DrawLevel drains on Plane_Buffer_Ptr!=0 with
+            // no "complete" guard, so draining now reads TORN entries — a half-written
+            // entry's addr field is garbage, so the drain writes to a garbage VDP dest
+            // (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
+            // resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
+            // lag and more torn drains. The palette/sprite enqueues above ARE safe:
+            // they are dirty-FLAG gated (the flag is set only after a complete write).
+            // The HScroll enqueue is NOT flag-gated (it fires every VBlank) — it is
+            // safe by a different, weaker mechanism: the static entry's destination
+            // and length are pre-built, so a lag-frame tear corrupts scroll VALUES
+            // only (one frame of mixed offsets, self-healing next complete frame),
+            // never the VDP destination — the garbage-destination write is what makes
+            // the Ptr-gated plane buffer dangerous. The plane drain defers to the
+            // next complete frame (VInt_Level, VBlank_Ready=1).
+            jbsr    Process_DMA_Critical
+            jbsr    Vscroll_Write           // §4.6 — after Critical DMA
         }
 
         // Sound (flag bracket close): VDP/DMA window finished — clear the flag so
         // the Z80 producer resumes FILL read-ahead (see VInt_Level).
         if SOUND_DRIVER_ENABLED == 1 {
-            stop_z80()
-            move.b  #0, SND_DMA_ACTIVE_SLOT     // lower: DMA window closed (Z80 -> FILL)
-            start_z80()
+            with z80_stopped {
+                move.b  #0, SND_DMA_ACTIVE_SLOT // lower: DMA window closed (Z80 -> FILL)
+            }
         }
 
         jbsr    Read_Controllers
@@ -272,10 +268,10 @@ pub proc VSync_Wait () clobbers(d0) preserves(sr) {
         // the pair (46 cy — 14+16+16 — on this once-per-frame path); this also makes
         // Lag_Frame_Count exact. SR is restored BEFORE .wait — the wait itself
         // depends on IRQ6 setting the flag.
-        sr_masked(asm {
+        with ints_off {
             move.b  d0, VBlank_Flag
             move.b  #1, VBlank_Ready
-        })
+        }
     .wait:
         tst.b   VBlank_Flag
         beq     .wait

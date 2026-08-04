@@ -23,8 +23,8 @@
 //     and the access-address longword as PC, so `rte` from such a frame runs off
 //     into garbage. `rte` is unusable here.
 //   * NO rts — nothing called us with a return address to trust.
-//   * NO stop_z80 — the Z80-bus busy-wait could hang forever (before the red
-//     screen ever paints) if the Z80 is wedged; every VDP write below is
+//   * NO Z80-bus hold — the bus-request busy-wait could hang forever (before
+//     the red screen ever paints) if the Z80 is wedged; every VDP write below is
 //     best-effort, so we never gate the red screen on the sound CPU.
 //   * A double bus fault while the CPU pushes its OWN exception frame halts the
 //     68000 outright — which is ALSO acceptably loud (a frozen machine), so the

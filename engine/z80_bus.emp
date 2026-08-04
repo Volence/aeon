@@ -1,31 +1,36 @@
-// Z80 bus-control templates — shared module.
+// Z80 bus ownership — the declared context.
 //
-// The shared `stop_z80`/`start_z80` bus-control templates (hygienic per-site
-// labels). Consumers `use engine.z80_bus.{stop_z80, start_z80}`; each site
-// splices the template inline.
+// The 68k can only read/write Z80 RAM, or drive a blocking VDP copy, while it
+// OWNS the Z80 bus. `with z80_stopped { … }` is the only door: the bracket
+// splices the request-and-spin before its body and the release after it, and
+// the compiler PROVES the pairing — every path through the body reaches the
+// release (`[context.escape]`), no branch enters the region past the request
+// (`[context.entry-skip]`), and the hold is never taken twice
+// (`[context.reacquire]`, because a bus request is not a counting lock: an
+// inner release frees the outer hold).
 //
-// `Z80_BUS_REQUEST` is a bare link-resolved hardware address (truth:
-// engine/system/constants.emp) — each splice site resolves it through the link.
+// Consumers `use engine.z80_bus.{z80_stopped}`.
+//
+// The acquire/release are spelled INLINE rather than calling a template: a
+// context's halves evaluate in the CONSUMER's scope, so a cross-module context
+// may only name link-resolved symbols. `Z80_BUS_REQUEST` is exactly that — a
+// bare link-resolved hardware address (truth: engine/system/constants.emp)
+// each splice site resolves through the link.
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
-// ROM — bytes appear only where a consumer splices the templates.
+// ROM — bytes appear only where a consumer brackets with it.
 module engine.z80_bus
 
-// stop_z80: request the Z80 bus and spin until granted — the only way the 68k
-// reads/writes Z80 RAM or drives blocking VDP copies reliably. Pair with
-// start_z80.
-pub comptime fn stop_z80() -> Code {
-    return asm {
+pub context z80_stopped {
+    // Request the bus and spin until the Z80 grants it.
+    acquire = asm {
         move.w  #$0100, Z80_BUS_REQUEST
     .wait_z80:
         btst    #0, Z80_BUS_REQUEST
         bne     .wait_z80
     }
-}
-
-// start_z80: release the bus.
-pub comptime fn start_z80() -> Code {
-    return asm {
+    // Release it.
+    release = asm {
         move.w  #$0000, Z80_BUS_REQUEST
     }
 }

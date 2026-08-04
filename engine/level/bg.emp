@@ -48,7 +48,7 @@ module engine.bg in bg
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
-use engine.z80_bus.{stop_z80, start_z80}
+use engine.z80_bus.{z80_stopped}
 
 const BG_LAYOUT_SIZE      = 64*64*2     // 8192 bytes (full Plane B nametable)
 // The shared BG tile region runs from BG_TILE_BASE_VRAM up to the relocated
@@ -111,61 +111,62 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         // blobs are 32-byte granular (inject_editor_bg.py asserts len%4==0), so the
         // drop never fires in practice — it is the last line of defense.
         //
-        // Both counter ops are hoisted ABOVE the stop_z80 bracket on purpose:
-        // .skip_tiles sits past the matching start_z80, so a guard branch taken
-        // from inside the bracket would leave the Z80 halted for the rest of the
-        // level. Neither stop_z80 nor the VDP setup touches d1, so the hoist is
-        // free. (No assert on the drop: the debug expansion would push
+        // Both counter ops sit ABOVE the z80_stopped bracket on purpose:
+        // .skip_tiles is past the bracket's release, so a guard branch taken from
+        // inside it would leave the Z80 halted for the rest of the level — the
+        // bracket refuses that shape outright (`[context.escape]`). Neither the
+        // bus request nor the VDP setup touches d1, so the hoist is free. (No
+        // assert on the drop: the debug expansion would push
         // .skip_tiles past short-branch reach and force shape-dependent width
         // pins — ledgered instead; the emitter always emits 32-byte multiples.)
         lsr.w   #2, d1                  // longword count = bytes/4
         beq     .skip_tiles             // 1..3-byte (sub-long) blob -> nothing to copy
         subq.w  #1, d1                  // dbf counter (safe: longword count >= 1)
-        stop_z80
-        move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
-        move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
-        lea     VDP_DATA, a2            // (VDP_DATA).l
-    .tile_copy:
-        move.l  (a1)+, (a2)
-        dbf     d1, .tile_copy
-        start_z80
+        with z80_stopped {
+            move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
+            move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
+            lea     VDP_DATA, a2            // (VDP_DATA).l
+        .tile_copy:
+            move.l  (a1)+, (a2)
+            dbf     d1, .tile_copy
+        }
     .skip_tiles:
 
         // --- blit BG nametable to Plane B ---
         movea.l Act.act_bg_layout(a3), a1
         cmpa.w  #0, a1
         beq     .skip_nt
-        stop_z80
-        // Column-major blit: the layout blob is column-contiguous
-        // (blob[col*128 + row*2], 64 rows/column). Per column, point the VDP at
-        // the column's top cell and drain all 64 rows with autoinc $80 — one
-        // move.l = two vertically-adjacent cells = two adjacent source words.
-        // 32 move.l per column × 64 columns = 2048 longwords = the full 8192 B.
-        // The 64 command setups are init-only. No length guard needed: the
-        // geometry is the compile-time constant BG_LAYOUT_SIZE, never derived
-        // from blob data, so the sub-word underflow that bites the tile blit
-        // above cannot occur — the layout blob is a fixed 8192 B image by
-        // contract. The 64×32-longword geometry below IS BG_LAYOUT_SIZE
-        // (64 cols × 64 rows × 2 B = 64 × 32 longwords); keep them in lockstep.
-        move.w  #$8F80, VDP_CTRL       // (VDP_CTRL).l — autoincrement $80 (column stride)
-        lea     VDP_DATA, a2           // (VDP_DATA).l
-        moveq   #0, d1                 // d1 = column index 0..63
-    .nt_col:
-        moveq   #0, d0
-        move.w  d1, d0
-        add.w   d0, d0                 // d0 = col*2 (byte offset of row 0)
-        addi.l  #VRAM_PLANE_B_BYTES, d0
-        vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Write)
-        move.l  d0, VDP_CTRL          // set VDP address to this column's top cell
-        moveq   #32-1, d0             // 32 longwords = 64 words = rows 0..63
-    .nt_row:
-        move.l  (a1)+, (a2)
-        dbf     d0, .nt_row
-        addq.w  #1, d1
-        cmpi.w  #64, d1
-        blt     .nt_col
-        move.w  #$8F02, VDP_CTRL      // restore default autoincrement = 2
-        start_z80
+        with z80_stopped {
+            // Column-major blit: the layout blob is column-contiguous
+            // (blob[col*128 + row*2], 64 rows/column). Per column, point the VDP at
+            // the column's top cell and drain all 64 rows with autoinc $80 — one
+            // move.l = two vertically-adjacent cells = two adjacent source words.
+            // 32 move.l per column × 64 columns = 2048 longwords = the full 8192 B.
+            // The 64 command setups are init-only. No length guard needed: the
+            // geometry is the compile-time constant BG_LAYOUT_SIZE, never derived
+            // from blob data, so the sub-word underflow that bites the tile blit
+            // above cannot occur — the layout blob is a fixed 8192 B image by
+            // contract. The 64×32-longword geometry below IS BG_LAYOUT_SIZE
+            // (64 cols × 64 rows × 2 B = 64 × 32 longwords); keep them in lockstep.
+            move.w  #$8F80, VDP_CTRL       // (VDP_CTRL).l — autoincrement $80 (column stride)
+            lea     VDP_DATA, a2           // (VDP_DATA).l
+            moveq   #0, d1                 // d1 = column index 0..63
+        .nt_col:
+            moveq   #0, d0
+            move.w  d1, d0
+            add.w   d0, d0                 // d0 = col*2 (byte offset of row 0)
+            addi.l  #VRAM_PLANE_B_BYTES, d0
+            vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Write)
+            move.l  d0, VDP_CTRL          // set VDP address to this column's top cell
+            moveq   #32-1, d0             // 32 longwords = 64 words = rows 0..63
+        .nt_row:
+            move.l  (a1)+, (a2)
+            dbf     d0, .nt_row
+            addq.w  #1, d1
+            cmpi.w  #64, d1
+            blt     .nt_col
+            move.w  #$8F02, VDP_CTRL      // restore default autoincrement = 2
+        }
     .skip_nt:
         move.w  (sp)+, sr               // restore interrupt mask
         movem.l (sp)+, a3

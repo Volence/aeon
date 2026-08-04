@@ -11,8 +11,8 @@ module engine.parallax in parallax
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act, Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
-use engine.z80_bus.{stop_z80, start_z80}
-use engine.irq.{sr_masked}
+use engine.z80_bus.{z80_stopped}
+use engine.irq.{ints_off, vblank}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -283,7 +283,7 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // (c) live with it. See DEFERRED_WORK.md "VDP register $0B …" entry and
 // the §4.6 spec note about leftmost-column garble.
 // ----------------------------------------------------------------------
-pub proc Vscroll_Write () clobbers(d0/a0/a5) {
+pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         lea     VDP_CTRL, a5                        // (VDP_CTRL).l
         move.l  #vdp_comm(0, VdpTarget.Vsram, VdpOp.Write), (a5)
 
@@ -421,16 +421,16 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) {
         ori.w   #$8B00, d0                          // d0 = $8B?? = "set reg $0B = ??"
         // Mask IRQs across the whole bus hold. This is the tree's one atomic Z80
         // hold that must also stay masked: an IRQ6 landing mid-bracket runs
-        // VBlank's own stop_z80/start_z80 pair and returns with the bus RELEASED,
-        // so the pending $8B?? write would then land with the Z80 live on its bank
+        // VBlank's own bus bracket and returns with the bus RELEASED, so the
+        // pending $8B?? write would then land with the Z80 live on its bank
         // window (bus-latch corruption). The SR mask keeps the state-machine-reset
         // read and the register write atomic against VBlank's own Z80 hold.
-        sr_masked(asm {
-            {stop_z80()}
-            move.w  VDP_CTRL, d1                    // (VDP_CTRL).l — reset command state machine
-            move.w  d0, VDP_CTRL                    // (VDP_CTRL).l
-            {start_z80()}
-        })
+        with ints_off {
+            with z80_stopped {
+                move.w  VDP_CTRL, d1                // (VDP_CTRL).l — reset command state machine
+                move.w  d0, VDP_CTRL                // (VDP_CTRL).l
+            }
+        }
     .mode3_reg_live:
 
         moveq   #0, d7

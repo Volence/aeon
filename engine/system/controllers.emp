@@ -2,20 +2,21 @@
 module engine.controllers in controllers
 
 use engine.constants.{HW_PORT_1_DATA, HW_PORT_2_DATA, BUTTON_UP, BUTTON_DOWN, BUTTON_LEFT, BUTTON_RIGHT, PAD_3BTN, PAD_6BTN}
-use engine.z80_bus.{stop_z80, start_z80}
+use engine.z80_bus.{z80_stopped}
+use engine.irq.{vblank}
 
 // -----------------------------------------------
 // Read_Controllers — full 6-button burst, both pads, once per VBlank.
 // Called from the VBlank handler (VInt_Level / VInt_Lag).
 //
-// The WHOLE two-port burst runs under ONE stop_z80()/start_z80() bracket:
+// The WHOLE two-port burst runs under ONE `with z80_stopped` bracket:
 // Z80 access to the 68k bus during $A100xx I/O reads corrupts them (hardware
 // bug — SGDK HALT_Z80_ON_IO / Vectorman's bus-request lock; plutiedev).
 //
 // Z80-bracket nesting (TRACED 2026-08-02, sound-OFF build): VInt_Level's DMA
-// fence STOPs the Z80 at its top (vblank.emp) but START_z80s it BEFORE the
-// jbsr Read_Controllers call site — the OFF fence does NOT cover this call, and
-// the sound-ON build never holds the Z80 across the pipeline. Both shapes reach
+// fence holds the bus over its VDP pipeline (vblank.emp) but RELEASES it before
+// the jbsr Read_Controllers call site — the OFF fence does NOT cover this call,
+// and the sound-ON build never holds the Z80 across the pipeline. Both shapes reach
 // here with the Z80 running, so the bracket is UNCONDITIONAL (an inner
 // SOUND_DRIVER_ENABLED-gated bracket would leave the burst unfenced in one of
 // the shapes).
@@ -25,38 +26,36 @@ use engine.z80_bus.{stop_z80, start_z80}
 //      updated (SACBRLDU main, 0000MXYZ ext, PAD_3BTN/PAD_6BTN type).
 // Clobbers: d0-d4, a0
 // -----------------------------------------------
-pub proc Read_Controllers () clobbers(d0-d4/a0) {
-        stop_z80()                          // unconditional — see header trace
+pub proc Read_Controllers () clobbers(d0-d4/a0) requires(vblank) {
+        with z80_stopped {                  // unconditional — see header trace
+            lea     HW_PORT_1_DATA, a0
+            jbsr    .read_pad_6                 // d0=SACBRLDU d1=0000MXYZ d2=type
+            move.b  Ctrl_1_Held, d3
+            move.b  d0, Ctrl_1_Held
+            eor.b   d0, d3
+            and.b   d0, d3
+            or.b    d3, Ctrl_1_Press_Accum        // main edge accumulate across lag frames (§5)
+            move.b  Ctrl_1_Ext_Held, d3
+            move.b  d1, Ctrl_1_Ext_Held
+            eor.b   d1, d3
+            and.b   d1, d3
+            or.b    d3, Ctrl_1_Ext_Press_Accum    // ext edge accumulate (same idiom, ×2 per pad)
+            move.b  d2, Pad_1_Type
 
-        lea     HW_PORT_1_DATA, a0
-        jbsr    .read_pad_6                 // d0=SACBRLDU d1=0000MXYZ d2=type
-        move.b  Ctrl_1_Held, d3
-        move.b  d0, Ctrl_1_Held
-        eor.b   d0, d3
-        and.b   d0, d3
-        or.b    d3, Ctrl_1_Press_Accum        // main edge accumulate across lag frames (§5)
-        move.b  Ctrl_1_Ext_Held, d3
-        move.b  d1, Ctrl_1_Ext_Held
-        eor.b   d1, d3
-        and.b   d1, d3
-        or.b    d3, Ctrl_1_Ext_Press_Accum    // ext edge accumulate (same idiom, ×2 per pad)
-        move.b  d2, Pad_1_Type
-
-        lea     HW_PORT_2_DATA, a0
-        jbsr    .read_pad_6
-        move.b  Ctrl_2_Held, d3
-        move.b  d0, Ctrl_2_Held
-        eor.b   d0, d3
-        and.b   d0, d3
-        or.b    d3, Ctrl_2_Press_Accum
-        move.b  Ctrl_2_Ext_Held, d3
-        move.b  d1, Ctrl_2_Ext_Held
-        eor.b   d1, d3
-        and.b   d1, d3
-        or.b    d3, Ctrl_2_Ext_Press_Accum
-        move.b  d2, Pad_2_Type
-
-        start_z80()
+            lea     HW_PORT_2_DATA, a0
+            jbsr    .read_pad_6
+            move.b  Ctrl_2_Held, d3
+            move.b  d0, Ctrl_2_Held
+            eor.b   d0, d3
+            and.b   d0, d3
+            or.b    d3, Ctrl_2_Press_Accum
+            move.b  Ctrl_2_Ext_Held, d3
+            move.b  d1, Ctrl_2_Ext_Held
+            eor.b   d1, d3
+            and.b   d1, d3
+            or.b    d3, Ctrl_2_Ext_Press_Accum
+            move.b  d2, Pad_2_Type
+        }
         rts
 
     // -----------------------------------------------

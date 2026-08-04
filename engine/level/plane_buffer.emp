@@ -8,6 +8,7 @@ use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act, Sec}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
+use engine.irq.{vblank}
 
 const VDP_CTRL_OFF       = VDP_CTRL - VDP_DATA   // control port = data port + this (byte-saving a6-relative derive; VInt_DrawLevel). The bare A-B(An) disp misparses as a call (gap-ledger), so this named derive is the house spelling until that grammar lands.
 const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set = column mode (word drain), clear = row mode (longword drain)
@@ -421,7 +422,7 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
 // Called with Z80 already stopped by VInt_Level / VInt_Lag.
 // Clobbers: d0–d1, a0, a5–a6
 // -----------------------------------------------
-pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) {
+pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
         // a5=VDP_CTRL is set up BEFORE the empty-buffer test so both exits honor the
         // reg $0F=$02 (default autoincrement) postcondition: a column entry leaves
         // reg $0F=$80, and a caller (or a prior VBlank step) may leave it non-$02,
