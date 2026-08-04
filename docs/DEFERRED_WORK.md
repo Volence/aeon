@@ -1991,6 +1991,80 @@ audible: key-on primes the shadow with a never-matches sentinel.
 
 ---
 
+## Sound — deferred follow-ups from the wave-4 Z80 reclaim (2026-08-03)
+
+Parcel record: `docs/superpowers/plans/2026-08-03-wave4-z80-sound-reclaim.md` +
+`docs/superpowers/notes/2026-08-03-wave4-sound-ab.md` (A/B evidence) +
+`docs/reviews/2026-07-16-emp-port-optimization-review.md` STATUS UPDATE (drops/rejections).
+Defect write-ups in `docs/BUGS.md`. The parcel executed review items **23 + 24**; item 25
+and the two coverage gaps below are what it deliberately left on the table.
+
+### Review item 25 — sequencer H1-H3 + M-items (≈ −71..−94 B still available)
+**Surfaced during:** wave-4 scoping — item 25 was ruled OUT of the parcel by Volence as a
+separate follow-on.
+**Status:** unstarted. Roughly **−71..−94 B of pure-size, chip-stream-identical work**
+remains in `sound_sequencer.emp`; `Porta_Apply`'s ladder factor alone is **−40..55 B**.
+Everything in the parcel's ledger was measured, so these estimates are the last unmeasured
+ones in the sound tree.
+**CORRECTION that must not be inherited (do NOT re-plan on the review's premise):** the
+review calls H1's per-channel tempo gate "provably redundant." **It is not.**
+`Seq_Op_Tempo` (`$F3`) broadcasts **mid-frame**, from inside channel N's tick, so channels
+0..N run that frame's gate with the old modulus and N+1.. with the new — a **permanent
+accumulator phase offset**. Hoisting to a global accumulator is *more* S3K-exact but IS a
+chip-stream change on that frame, so it cannot ride a PS (pure-size) bar. Dormant only
+because no shipped song contains a tempo event. Its advertised "**−2 B/channel RAM**" is
+also **not collectable**: `sc_tempo_mod`/`sc_tempo_accum` live in the SeqChannel↔SfxChannel
+shared prefix that the `sx_pad+58 == sc_detune` invariant depends on.
+
+### PSG vol-env fold clamp is a SINGLE-BIT test — wrong-channel write hazard
+**Surfaced during:** wave-4 Task 9 (comptime hardening), while proving out the
+`Psg_SetVolume` `Snd_ChanClass` collapse.
+**Status:** contained by a build-time assert, NOT repaired. High-value to record because
+the containment is data-side, not code-side.
+**What:** the PSG **class** fold clamps with `cp $0F+1` — a real magnitude test. The PSG
+**vol-env** fold clamps with `bit 4,a` — a **SINGLE-BIT** test. A fold sum in `$20..$2F`
+therefore passes **UNCLAMPED**, and `$20` OR'd into the `$90|(ch<<5)` volume latch corrupts
+the **CHANNEL-SELECT bits** — i.e. the attenuation is written to the WRONG PSG CHANNEL.
+**Why it is unreachable today:** every authored PSG env body byte is `<= $10`, so the worst
+fold is `$10 + $0F = $1F` — exactly one below the cliff. That margin is now **enforced by a
+generator assert added in this parcel** (poison-tested: a `$11` byte fails the build).
+**Consequences worth keeping together:**
+- This asymmetry is also what makes the `Psg_SetVolume` fold-collapse UNSAFE — the
+  full-domain enumeration returns **517,440 divergent cases out of 1,048,576**, which is why
+  that optimization was rejected while its FM twin (7.6) shipped.
+- **Restricted to env `<= $10`, the same reorder enumerates CLEAN (0 / 69,632 divergent).**
+  So the −5..7 B optimization becomes available the moment the vol-env fold is made a real
+  magnitude clamp (matching the class fold) instead of a bit test. That is the fix to reach
+  for if the bytes are ever wanted — it buys the optimization AND removes the hazard.
+
+### YM data→next-address spacing has NO structural coverage
+**Surfaced during:** wave-4 Task 9 — the task set out to make the review's hand YM-spacing
+audit structural, and got **half** of it.
+**Status:** address→data IS covered, at all **9** write sites, by `ensure(cycles(...))`
+guards that all pass (`Fm_YmWrite` ×2 = 21 T each, matching the review's hand figure
+exactly; the seven DIRECT sites that bypass `Fm_YmWrite` measure 17-24 T). The
+**data→next-address floor could not be expressed at any site.**
+**Why (two independent blockers, both established by probe, not assumed):**
+1. `cycles()` takes **proc-local labels** and carves ONE proc's code buffer. Every
+   data→next-address gap starts inside `Fm_YmWrite`, exits through `ret` into the caller,
+   and re-enters `Fm_YmWrite` — three procs of straight line.
+2. Even the caller-local remainder contains `call nn` / `ret` / `pop af` / `bit n,r` /
+   `add a,n`, none of which are in `z80_cycles::instr_cost`'s demand subset, so the span
+   bails `[cycles.unknown-op]`.
+Splitting the requirement across hand-derived prologue/tail constants was rejected — that is
+exactly the hand audit the task existed to retire. A coverage ledger comment above
+`Fm_WriteFreq` records the gap instead, and `YM_DATA_TO_ADDR_MIN_T` was deliberately NOT
+declared: a constant nothing consumes would advertise coverage that does not exist.
+**What would unblock it:** widening the cycle model's demand subset to the caller-local
+opcodes above, plus a `cycles()` form that can span a call boundary.
+**Unresolved question flagged as a CANDIDATE, not a defect:** several direct-write paths
+measure **~20 T** data→next-address by hand, against the **~39 T** figure the review used as
+the floor. This is NOT confirmed as a defect — the exact per-register hardware rule was not
+verified, and there is no real hardware available here to settle it. Worth resolving before
+any future change narrows those gaps further.
+
+---
+
 ## On-target diagnostic instrumentation — idea capture 2026-07-20
 
 **Framing (shared across three repos):** we use vladikcomper's Error Handler/Debugger
