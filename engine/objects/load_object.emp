@@ -36,7 +36,7 @@ ensure(RF_XFLIP == 1 && RF_YFLIP == 2, "rol.w #4 placement-flip fold assumes OEF
 // Clobbers: d0-d1/d3, a1-a3 (d2 is read-only — placement subtype/flags source)
 // -----------------------------------------------
 pub proc Load_Object (a1: *u8, d0: u16, d1: u16, d2: u16) clobbers(d0-d1/d3, a2, a3) out(a1, zero: success) {
-        movem.l d0/a1, -(sp)          // AllocDynamic clobbers d0 only; d1,d2 need no save
+        movem.l d0/a1, -(sp)          // AllocDynamic clobbers d0/a1; d1,d2 need no save
         jbsr    AllocDynamic
         bne     .alloc_fail
         movem.l (sp)+, d0/a2          // a2 = template (saved a1), a1 = new SST

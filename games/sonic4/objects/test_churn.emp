@@ -38,7 +38,7 @@ vars TChurnV: Sst.sst_custom {
 // In:  a0 = SST pointer (slot allocated, x/y_pos already set by spawner)
 // Clobbers: d0-d3, a1 — the whole-object set: init writes d0-d1 (lifetime
 //   calc) + d2/a1 (the prolog's RefreshSpritePieceCount) and falls into Main,
-//   whose contract is AllocDynamic(d0) ∪ DeleteObject(d0-d1/a1) ∪ Draw_Sprite(d0-d3/a1).
+//   whose contract is AllocDynamic(d0/a1) ∪ DeleteObject(d0-d1/a1) ∪ Draw_Sprite(d0-d3/a1).
 // -----------------------------------------------
 pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChurnObj_Main {
         test_obj_prolog(prio: 4, w: 16, h: 16, coordmode: false)
@@ -63,7 +63,7 @@ pub proc TestChurnObj (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChurnObj_Main
 // TestChurnObj_Main — per-frame: countdown; on expiry replace + self-delete
 // In:  a0 = SST pointer
 // Out: none  (a0/d7 preserved for the RunObjects loop contract)
-// Clobbers: d0-d3, a1 — AllocDynamic(d0) ∪ DeleteObject(d0-d1/a1) ∪
+// Clobbers: d0-d3, a1 — AllocDynamic(d0/a1) ∪ DeleteObject(d0-d1/a1) ∪
 //   Draw_Sprite(d0-d3/a1). Main never writes a2 (only the init frame does).
 // a0 is net-PRESERVED (the ObjRoutine dispatch contract preserves(a0, d7)): the
 // expiry path stack-saves self, restores it (pop), and self-deletes via

@@ -150,7 +150,7 @@ pub proc CreateChild_Normal (a0: *Sst, a1: *u8) clobbers(d0-d3/a1-a2) {
         beq     .done                   // 0 = end of table
 
         // ALLOC SAVE: the descriptor cursor is the ONLY register at risk.
-        // AllocDynamic's license is `clobbers(d0) out(a1 if eq) preserves(a0)`
+        // AllocDynamic's license is `clobbers(d0/a1) out(a1 if eq) preserves(a0)`
         // — an EXHAUSTIVE license, so this loop's own registers (d3 here, plus
         // d4 in FlipAware) and a0 are contractually intact — while a1 is
         // written on BOTH outcomes (the slot on success, the pop-rollback path
