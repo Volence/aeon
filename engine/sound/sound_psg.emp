@@ -4,19 +4,26 @@
 // The rung-2 CONTRACT-model acceptance corpus (design note
 // 2026-07-29-z80-rung2-contracts.md). Assembled INLINE inside the
 // z80_sound_driver.emp `phase 0` blob (4th of 5: sequencer -> sfx -> fm -> psg ->
-// tables), so its labels resolve into Z80 RAM and it reaches PsgDivisorTableZ /
-// the PsgVolEnv_* tables with direct Z80
-// addressing (no $8000-window banking). Turns the sequencer's PSG-route hooks
+// tables), so its labels resolve into Z80 RAM.
+// It reaches PsgDivisorTableZ / the PsgVolEnv_* tables through the $8000 BANK
+// WINDOW — those tables are banked data at the engine-table head
+// (soundBankHead), not inline blob bytes; each label equals its window pointer,
+// so the reads look like plain absolute addressing but are only valid while the
+// song bank is selected. Turns the sequencer's PSG-route hooks
 // into real SN76489 register writes: the three tone channels + the noise
 // channel become audible.
 //
 // The CANONICAL, only source (no .asm twin). Native-linked via seam-1
 // (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
-// the whole-ROM byte gate proves both shapes. The phase-0 window is SHAPE-VARIANT:
-// base $1660 (plain) vs $16DE (debug), because the upstream driver/sequencer/sfx/fm
-// includes grow under __DEBUG__ before psg. psg's OWN layout is shape-invariant (no
-// __DEBUG__ here), so the two shapes differ only in the absolute base embedded in
-// the internal call/jp targets + the external symbol values — seam-1 links both.
+// the whole-ROM byte gate proves both shapes. This section declares NO `vma:` —
+// seam-1 DERIVES every resident base from a running cursor over the preceding
+// modules' emitted spans (sigil `seam1::place_resident_sections`), so no base
+// address is written down anywhere and a size change cannot leave a stale pin.
+// The phase-0 window is still SHAPE-VARIANT: psg sits lower in the plain shape
+// than in the debug shape, because the upstream driver/sequencer/sfx/fm grow under
+// __DEBUG__ before psg. psg's OWN layout is shape-invariant (no __DEBUG__ here),
+// so the two shapes differ only in the absolute base embedded in the internal
+// call/jp targets + the external symbol values — seam-1 links both.
 //
 // --- PSG PORT + COEXISTENCE WITH THE 1B DAC LOOP --------------------------
 // The PSG is a single write port at $7F11 (SND_Z80_PSG). Every write is a plain
@@ -86,7 +93,7 @@ module engine.sound_psg (cpu: z80, invariant: preserves(ix))
 use engine.sound_fm.{Snd_ChanClass}
 use engine.sound_sequencer.{Mod_ReArm, Mod_Advance}
 
-section sound_psg (cpu: z80, vma: $1660) {
+section sound_psg (cpu: z80) {
 
     // ------------------------------------------------------------------
     // Psg_HwCh — derive the hardware tone-channel index (0..2) from sc_route.
@@ -122,16 +129,31 @@ section sound_psg (cpu: z80, vma: $1660) {
     // In:  a = linear volume.  Out: a = attenuation (0..15; 0 loudest, $0F silent).
     // atten = (($7F - vol) >> 3) & $0F   (decision 1; see file header).
     // ------------------------------------------------------------------
-    // Contract: out(a) = atten; clobbers b, f (scratch); preserves c, de, hl (ix
-    // inherited). The `af, b` header splits: `a` is the result, `f`/`b` scratch.
-    pub proc Psg_VolToAtten () out(a) clobbers(b, f) preserves(c, de, hl) {
-        ld      b, a                   // b = vol
-        ld      a, SND_FM_TL_MAX       // $7F
-        sub     b                      // a = $7F - vol (no underflow for vol<=$7F)
-        srl     a
-        srl     a
-        srl     a                      // a = ($7F - vol) >> 3
-        and     SND_PSG_ATTEN_SILENT   // clamp to 4 bits ($0F); guards vol>$7F
+    // Contract: out(a) = atten; clobbers f (the and/srl flags); preserves bc, de, hl
+    // (ix inherited). The `af` header splits: `a` is the result, `f` the scratch.
+    //
+    // Computed with xor + rrca rather than a literal subtract-and-shift. Two facts
+    // make it exact:
+    //   * The answer only ever depends on BITS 6..3 of ($7F - vol), because the old
+    //     form's trailing `and $0F` discards everything above bit 6 after the >>3.
+    //     And bits 6..0 of ($7F - vol) are exactly bits 6..0 of (vol xor $7F), for
+    //     every one of the 256 inputs — including vol > $7F, where the subtract
+    //     borrows: $7F-($80+w) = $FF-w, whose low seven bits are $7F-w = (w xor $7F).
+    //     So the xor replaces the subtract AND removes the need for a scratch
+    //     register to hold the subtrahend.
+    //   * rrca is 1 byte where srl a is 2. Rotating right 3 puts bits 6..3 into bits
+    //     3..0, which the SAME `and $0F` the old form already needed then extracts —
+    //     the rotated-in high bits are discarded by a mask that was never optional.
+    // 13 B and a dead `b` become 8 B and a free one. Verified by enumerating the
+    // whole byte domain: 256 inputs, zero mismatches. Endpoints unchanged: vol $7F ->
+    // atten 0 (loudest), vol 0 -> atten $0F (silent), vol > $7F -> atten 0.
+    // (Same rrca-instead-of-shift idiom as Psg_ChBase above.)
+    pub proc Psg_VolToAtten () out(a) clobbers(f) preserves(bc, de, hl) {
+        xor     SND_FM_TL_MAX          // bits 6..0 = bits 6..0 of ($7F - vol)
+        rrca                           // rotate right 3: bits 6..3 land in bits 3..0
+        rrca
+        rrca
+        and     SND_PSG_ATTEN_SILENT   // $0F — keeps exactly those four bits
         ret
     }
 
@@ -156,17 +178,42 @@ section sound_psg (cpu: z80, vma: $1660) {
 
     // ------------------------------------------------------------------
     // PsgVolEnv_Resolve — map a 1-based PSG vol-env id (a) to its body ptr (hl) via
-    // the PsgVolEnv_Ids/PsgVolEnv_Ptrs parallel-array map (sound_tables_z80.asm).
+    // the PsgVolEnv_Ids/PsgVolEnv_Ptrs parallel-array map (sound_tables_z80.emp).
     // Out: carry clear + hl = body base on a match; carry set on an unknown id.
     // In: a = 1-based env id.
+    // This is only the THREE-CONSTANT HEAD — count + the two table bases — falling
+    // into the shared scan (VolEnv_ResolveScan). The FM mirror is byte-identical
+    // apart from those three constants, so the scan exists once and each family
+    // supplies its own head. See VolEnv_ResolveScan for why this is not a generic.
     // ------------------------------------------------------------------
     // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f
     // (scan scratch); preserves c (untouched) + ix (inherited). The `bc` header
     // over-claims — only `b` (the djnz counter) dies, `c` survives.
-    pub proc PsgVolEnv_Resolve () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) {
+    pub proc PsgVolEnv_Resolve () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) falls_into VolEnv_ResolveScan {
         ld      b, PSGVOLENV_COUNT
         ld      hl, PsgVolEnv_Ids      // banked table; label = its $8000-window ptr
         ld      de, PsgVolEnv_Ptrs     // banked ptr array (entries are window ptrs)
+        // fall into VolEnv_ResolveScan
+    }
+
+    // ------------------------------------------------------------------
+    // VolEnv_ResolveScan — the shared parallel-array lookup behind both vol-env id
+    // resolvers. Walks the id array comparing `a`, and on a hit reads the
+    // same-index entry out of the parallel pointer array.
+    // In:  a = 1-based env id, b = entry count, hl = ids array, de = ptrs array.
+    // Out: carry clear + hl = body base on a match; carry set on an unknown id.
+    //
+    // NOT A GENERIC. Instantiating this per constant-set would emit two copies of
+    // the scan, which is precisely the duplication being deleted — the whole point
+    // is that ONE copy of the code serves both tables at runtime.
+    // Only ONE head can fall through; PsgVolEnv_Resolve is placed immediately above
+    // and takes it, and FmVolEnv_Resolve pays a 2-byte `jr` to get here. The
+    // `falls_into` contract makes that placement machine-checked instead of a
+    // comment that a later edit can quietly invalidate.
+    // ------------------------------------------------------------------
+    // Contract: out(hl) = body base + out(carry: found); clobbers a, b, de, f;
+    // preserves c (untouched) + ix (inherited).
+    pub proc VolEnv_ResolveScan () out(hl, carry: found) clobbers(a, b, de, f) preserves(c) {
     .scan:
         cp      (hl)
         jr      z, .found
@@ -188,8 +235,10 @@ section sound_psg (cpu: z80, vma: $1660) {
 
     // ------------------------------------------------------------------
     // FmVolEnv_Resolve — map a 1-based FM vol-env id (a) to its body ptr (hl) via
-    // the FmVolEnv_Ids/FmVolEnv_Ptrs parallel arrays (sound_tables_z80.asm, banked
-    // $8000 window). The FM mirror of PsgVolEnv_Resolve.
+    // the FmVolEnv_Ids/FmVolEnv_Ptrs parallel arrays (sound_tables_z80.emp, banked
+    // $8000 window). The FM mirror of PsgVolEnv_Resolve: the same head shape with
+    // the FM family's three constants, jumping to the shared scan (it cannot fall
+    // through — PsgVolEnv_Resolve has that slot).
     // Out: carry clear + hl = body base on a match; carry set on an unknown id.
     // In: a = 1-based env id.
     // ------------------------------------------------------------------
@@ -200,23 +249,7 @@ section sound_psg (cpu: z80, vma: $1660) {
         ld      b, FMVOLENV_COUNT
         ld      hl, FmVolEnv_Ids       // banked table; label = its $8000-window ptr
         ld      de, FmVolEnv_Ptrs      // banked ptr array (entries are window ptrs)
-    .scan:
-        cp      (hl)
-        jr      z, .found
-        inc     hl                     // next id byte
-        inc     de
-        inc     de                     // next ptr (2 bytes)
-        djnz    .scan
-        scf                            // not found
-        ret
-    .found:
-        ex      de, hl                 // hl = &ptr entry
-        ld      e, (hl)
-        inc     hl
-        ld      d, (hl)
-        ex      de, hl                 // hl = body base
-        or      a                      // carry clear
-        ret
+        jr      VolEnv_ResolveScan
     }
 
     // ------------------------------------------------------------------
@@ -254,6 +287,24 @@ section sound_psg (cpu: z80, vma: $1660) {
         ld      h, d
         ld      l, e
         add     hl, bc                 // divisor + detune
+        // FLOOR GUARD (M5), same family and same shape as Psg_ApplyMod's. A NEGATIVE
+        // detune on a small divisor underflows: the table's top 13 entries are $0001,
+        // so a detune of -1 there reaches exactly 0 and anything beyond wraps to
+        // $FFxx, which the emit path masks into a garbage low note. Clamp to 1 (the
+        // same inaudible ~111.9 kHz floor), covering BOTH the wrapped-negative and
+        // the exact-zero case — clamping only the negative half is precisely the bug
+        // that shipped in Psg_ApplyMod. Unreachable with today's authored content (no
+        // negative detune on top-octave PSG notes), so this is a guard, not a repair.
+        // The no-detune path needs no clamp: PsgDivisorTableZ is generated with a
+        // floor of 1, so the looked-up value alone can never be 0.
+        bit     7, h
+        jr      nz, .det_floor
+        ld      a, h
+        or      l
+        jr      nz, .det_ok
+    .det_floor:
+        ld      hl, 1                  // clamp at the divisor floor
+    .det_ok:
         ld      d, h
         ld      e, l
     .no_detune:
@@ -341,8 +392,19 @@ section sound_psg (cpu: z80, vma: $1660) {
         // Divisor 1 = ~111.9 kHz (3579545/32), inaudible: a floored sweep goes
         // silent-high instead of wrapping to a wrong low note. (The UPWARD overflow
         // past $3FF is left as-is — S3K's zDoModulation wraps identically there.)
+        //
+        // The guard used to test `bit 7,d` ALONE, which catches only a NEGATIVE sum
+        // and so contradicted the "clamp to 1, not 0" it is written under: an EXACT
+        // ZERO passed straight through to the chip. Reachable, not theoretical —
+        // PsgDivisorTableZ ships its top 13 entries as $0001, so a single step of
+        // downward mod (accum -1) lands exactly on 0. Psg_EmitNoiseClock has always
+        // done this correctly (or e / jr nz / inc e); this is that test, here.
         bit     7, d                   // negative 16-bit sum = the sweep underflowed
-        jr      z, .div_ok
+        jr      nz, .div_floor
+        ld      a, d
+        or      e                      // ... or an exact-zero sum (the missed case)
+        jr      nz, .div_ok
+    .div_floor:
         ld      de, 1                  // clamp at the divisor floor
     .div_ok:
         // de = modulated divisor (d=hi, e=lo). Re-latch via the shared emit helper
@@ -434,36 +496,59 @@ section sound_psg (cpu: z80, vma: $1660) {
     }
 
     // ------------------------------------------------------------------
+    // Psg_FoldAtten — fold one FM-TL-unit operand into the running PSG attenuation.
+    //   c = min($0F, c + (a >> 3))
+    // In: a = the operand in FM-TL units (0.75 dB/step, NONZERO — both call sites
+    // fast-path a zero operand out before calling), c = running attenuation.
+    // The >>3 converts TL units to the PSG's 4-bit ladder. Shared by the two
+    // class-exclusive folds in Psg_SetVolume — the per-SFX sfh_gain and the
+    // master-fade+duck total — which were two byte-identical copies of this block.
+    // NOTE this is a TRUE SATURATING fold (cp $0F+1), unlike the vol-env fold in
+    // Psg_SetVolume, which tests `bit 4` and therefore does NOT saturate. That
+    // difference is why the two folds cannot be freely reordered; see the comment
+    // at the env fold.
+    // ------------------------------------------------------------------
+    // Contract: out(c) = folded attenuation; clobbers af (a is the scratch, the
+    // shifts/cp write f). preserves b, de, hl (+ ix inherited — leaf).
+    pub proc Psg_FoldAtten () out(c) clobbers(af) preserves(b, de, hl) {
+        srl     a
+        srl     a
+        srl     a                      // TL units >> 3 -> atten units
+        add     a, c
+        cp      SND_PSG_ATTEN_SILENT+1
+        jr      c, .store
+        ld      a, SND_PSG_ATTEN_SILENT  // clamp $0F (silent)
+    .store:
+        ld      c, a
+        ret
+    }
+
+    // ------------------------------------------------------------------
     // Psg_SetVolume — set the channel attenuation from a linear volume.
     // In:  ix = SeqChannel (PSG1..3 OR PSGN), a = linear vol (0..127).
     // Tone:  emit $90 | (ch<<5) | atten.   Noise: emit $F0 | atten.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc; preserves de, hl (de survives via the callees'
-    // contracts — Psg_VolToAtten/Snd_ChanClass/Psg_ChBase all preserve de; hl is
-    // push/pop-bracketed around each Snd_ChanClass) + ix (inherited).
-    pub proc Psg_SetVolume () clobbers(af, bc) preserves(de, hl) {
+    // Contract: clobbers af, bc, hl; preserves de (de survives via the callees'
+    // contracts — Psg_VolToAtten/Snd_ChanClass/Psg_ChBase all preserve de) + ix
+    // (inherited). hl is NOT preserved: Snd_ChanClass returns ix in it and no
+    // caller needs it live across this routine (the one site that does —
+    // Seq_HookSetVol's stream pointer, sound_sequencer.emp — brackets the call
+    // itself), so the two push hl/pop hl pairs that used to honour the old claim
+    // were pure cost. The .emp contract checker enforces this against every caller.
+    pub proc Psg_SetVolume () clobbers(af, bc, hl) preserves(de) {
         call    Psg_VolToAtten         // a = 4-bit attenuation (clobbers b)
         ld      c, a                   // c = attenuation
 
         // --- Stage B sfh_gain (SFX slots only): +sx_gain>>3 in PSG atten units.
-        // Mirrors the fade/duck fold's TL->atten (>>3) conversion below. Music
-        // SeqChannels have no sx_gain -> gate on SFX class. Gain 0 -> no-op.
-        push    hl                     // Snd_ChanClass clobbers hl (contract: preserve)
+        // Mirrors the fade/duck fold's TL->atten (>>3) conversion below — the shared
+        // Psg_FoldAtten. Music SeqChannels have no sx_gain -> gate on SFX class.
+        // Gain 0 -> no-op (fast-pathed here, so the fold never sees a zero).
         call    Snd_ChanClass          // CARRY set => MUSIC
-        pop     hl
         jr      c, .no_sfx_gain
         ld      a, (ix+sx_gain)
         or      a
         jr      z, .no_sfx_gain
-        srl     a
-        srl     a
-        srl     a                      // sx_gain (TL units) >> 3 -> atten units
-        add     a, c
-        cp      SND_PSG_ATTEN_SILENT+1
-        jr      c, .sfx_gain_store
-        ld      a, SND_PSG_ATTEN_SILENT  // clamp $0F (silent)
-    .sfx_gain_store:
-        ld      c, a
+        call    Psg_FoldAtten          // c = min($0F, c + sx_gain>>3)
     .no_sfx_gain:
 
         // --- PSG volume envelope (spec §4): add the per-frame env atten delta ----
@@ -472,6 +557,30 @@ section sound_psg (cpu: z80, vma: $1660) {
         // branch (the noise route gets the contour too — the hi-hat). A channel with
         // no envelope has it = 0 -> the `or a / jr z` fast path skips the fold. Underflow
         // guard (S3K `bit 4,a`): if the sum sets bit 4 (>= $10) force $0F silent.
+        //
+        // ORDERING IS LOAD-BEARING HERE — do not hoist this fold past the two
+        // class-exclusive folds around it to save a Snd_ChanClass call. `bit 4,a` is a
+        // SINGLE-BIT test, not a magnitude test, so unlike Psg_FoldAtten this fold does
+        // NOT saturate: a sum of $20..$2F leaves bit 4 clear and passes through, and a
+        // later saturating fold would have clamped it while an earlier one would not.
+        // Exhaustively enumerated over atten x env x operand: the two orderings differ
+        // in 517440 of 1048576 cases (smallest witness: atten $00, env $11, operand
+        // $78 -> $0F if env folds first, $20 if it folds second). REJECTED on that
+        // evidence; do not retry.
+        //
+        // WHY AN UNCLAMPED SUM IS A REAL DEFECT, not just an ordering nuisance: `c`
+        // is OR'd straight into the volume latch byte at .noise's sibling path below
+        // (`Psg_ChBase` -> `or $90` -> `or c`). $90|(ch<<5) carries the PSG
+        // CHANNEL SELECT in bits 6-5, so an attenuation of $20 flips a select bit and
+        // the attenuation is written to the WRONG CHANNEL (ch 0 + $20 -> $B0, which is
+        // channel 1's volume latch). Reachable iff some sum lands in $20..$2F, i.e.
+        // iff some env body byte exceeds $10 (max prior atten is $0F, so $10 + $0F =
+        // $1F is exactly one below the cliff).
+        //
+        // That ceiling is now BUILD-ENFORCED: tools/gen_sound_tables.py rejects any
+        // PSG vol-env body byte < $80 (a level byte, as opposed to a control byte)
+        // above $10. See _emit_vol_env_emp there. Raising the ceiling requires making
+        // this fold saturating first.
         ld      a, (ix+sc_psgenv_out)
         or      a
         jr      z, .env_done           // no env delta -> skip
@@ -487,12 +596,10 @@ section sound_psg (cpu: z80, vma: $1660) {
         // Sum the GLOBAL master-fade scalar (SND_MASTER_FADE) and the SFX duck level
         // in carrier-TL units, map to PSG attenuation (>>3), and fold into the
         // attenuation so EVERY music volume write fades/ducks automatically. Clamp the
-        // sum to $0F (silent) so it can't wrap. hl is preserved by contract — save it
-        // around the test. A full fade ($7F TL) >>3 = $0F = silent; fade 0 + duck 0 ->
-        // byte-identical.
-        push    hl                     // (Snd_ChanClass clobbers hl)
+        // sum to $0F (silent) so it can't wrap — the shared Psg_FoldAtten does both the
+        // >>3 and the clamp. A full fade ($7F TL) >>3 = $0F = silent; fade 0 + duck 0
+        // -> byte-identical.
         call    Snd_ChanClass          // CARRY set => ix below the SFX page => MUSIC
-        pop     hl                     // restore caller's hl (contract)
         jr      nc, .no_global_atten   // SFX channel -> never fade/duck
         ld      a, (SND_SFX_DUCK_LEVEL)
         ld      b, a
@@ -500,15 +607,7 @@ section sound_psg (cpu: z80, vma: $1660) {
         add     a, b                   // a = (duck + fade) in carrier-TL units
         or      a
         jr      z, .no_global_atten    // nothing to add (no fade, no duck)
-        srl     a
-        srl     a
-        srl     a                      // TL units -> 4-bit atten units (>>3)
-        add     a, c                   // atten + global atten
-        cp      SND_PSG_ATTEN_SILENT+1  // clamp to $0F (silent)
-        jr      c, .ga_ok
-        ld      a, SND_PSG_ATTEN_SILENT
-    .ga_ok:
-        ld      c, a                   // faded+ducked attenuation
+        call    Psg_FoldAtten          // c = min($0F, c + (duck+fade)>>3)
     .no_global_atten:
 
         ld      a, (ix+sc_route)

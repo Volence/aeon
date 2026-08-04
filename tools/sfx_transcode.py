@@ -1421,6 +1421,39 @@ def _apply_s3k_modset_load_points(events, sfx_id, chanid):
 # SFX blob packer (mirrors pack_song but emits SfxHeader + per-channel records)
 # ---------------------------------------------------------------------------
 
+def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
+    """SFX B4 — reject the two music opcodes that ALIAS SfxChannel control bytes.
+
+    Past offset +56 SfxChannel and SeqChannel deliberately disagree, but the
+    interpreter is SHARED and reaches those offsets through ix. Two overlaps are
+    therefore live hazards on an SFX channel:
+
+      MEV_PSGNOISE ($F2) writes sc_noise_mode == SfxChannel.sx_priority (+57)
+          -> corrupts the RUNNING SFX's arbitration priority mid-stream.
+      MEV_DETUNE   ($F6) writes sc_detune     == SfxChannel.sx_pad      (+58)
+          -> sx_pad MUST stay 0; the FM/PSG note paths fold (ix+sc_detune)
+             unconditionally, so a non-zero byte there detunes every SFX note.
+
+    This was previously guaranteed only by the CONVENTION that the transcoder
+    happens not to emit either op, recorded in a comment. Since SFX sources are
+    S3K SMPS data that we do not control, "we never emit it" is a property worth
+    checking rather than asserting. Zero Z80 bytes: a stream that cannot contain
+    the opcode needs no runtime guard. The layout half of the invariant (that the
+    two fields really do still alias) is pinned by ensures in sound_constants.emp.
+    """
+    for ev in events:
+        name = type(ev).__name__
+        if name in ('PsgNoise', 'Detune'):
+            which = ('MEV_PSGNOISE ($F2), which aliases sx_priority'
+                     if name == 'PsgNoise'
+                     else 'MEV_DETUNE ($F6), which aliases the must-stay-zero sx_pad')
+            raise TranscodeError(
+                f"SFX ${sfx_id:02X} (route {route}) emits {which}. The shared "
+                f"interpreter would write an SfxChannel CONTROL byte through that "
+                f"offset. If this op is genuinely needed for SFX, SfxChannel must "
+                f"grow a dedicated field first — do not relax this check.")
+
+
 def _validate_sfx_repeat(events, sfx_id=0):
     """Reject a REPEAT_START..REPEAT_END span containing no time-advancing event
     (Note/Rest/NoteDur). The Z80 replays such a body in a single fetch frame, so the
@@ -1487,6 +1520,7 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     streams = []
     for ch in channels:
         _validate_sfx_repeat(ch['events'], sfx_desc.get('id', 0))
+        _validate_no_aliasing_ops(ch['events'], sfx_desc.get('id', 0), ch.get('route'))
         s = b''.join(e.encode() for e in ch['events'])
         streams.append(s)
 

@@ -5,16 +5,21 @@
 // 2026-07-29-z80-rung2-contracts.md; the sound_psg.emp sibling is the CONTRACT-
 // model acceptance corpus). Assembled INLINE inside the z80_sound_driver.emp
 // `phase 0` blob (3rd of 5: sequencer -> sfx -> fm -> psg -> tables), so its
-// labels resolve into Z80 RAM
-// and it reaches FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ with direct
-// Z80 addressing (no $8000-window banking). Turns the sequencer's FM-route hooks
+// labels resolve into Z80 RAM.
+// It reaches FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ through the
+// $8000 BANK WINDOW — those tables are banked data at the engine-table head
+// (soundBankHead), not inline blob bytes; each label equals its window pointer,
+// so the reads look like plain absolute addressing but are only valid while the
+// song bank is selected. Turns the sequencer's FM-route hooks
 // into real YM2612 register writes: the six FM voices become audible.
 //
 // The CANONICAL, only source (no .asm twin). Native-linked via seam-1
 // (emit_sound_blob): the five sound `.emp` files link as one Z80 module set and
-// the whole-ROM byte gate proves both shapes. The phase-0 window is SHAPE-VARIANT:
-// base $12C3 (plain)
-// vs $1341 (debug), because the upstream driver/sequencer/sfx includes grow
+// the whole-ROM byte gate proves both shapes. This section declares NO `vma:` —
+// seam-1 DERIVES every resident base from a running cursor over the preceding
+// modules' emitted spans, so no base address is written down anywhere and a size
+// change cannot leave a stale pin. The phase-0 window is still SHAPE-VARIANT: fm
+// sits lower in the plain shape, because the upstream driver/sequencer/sfx grow
 // under __DEBUG__ before fm. fm's OWN layout is shape-invariant (no __DEBUG__
 // here), so the two shapes differ only in the absolute base embedded in the
 // internal call/jp targets — the oracle proves both. Unlike psg, fm's external
@@ -31,17 +36,21 @@
 // YM port write here uses ABSOLUTE addressing (`ld ($4000),a` style) and NEVER
 // LEAVES a port address in `de`, so the tick's reload restores de=$4001 cleanly
 // (fm does NOT itself hold de=$4001 live). As belt-and-suspenders, every
-// multi-write batch re-parks reg $2A on $4000 at the END (Fm_ReparkDac) —
+// multi-write batch re-parks reg $2A on $4000 at the END (Snd_ParkDac) —
 // redundant against the tick's own re-park, but cheap and future-proof. We NEVER
 // touch $2B (the DAC-enable edge is owned by init / sample-start — re-toggling it
 // clicks). These are HARDWARE-PORT disciplines
 // (the `[fm.dac-repark]` / `[bus.*]` lint SEAM, design §3.3/§9-B), carried here
 // as present-tense prose — NOT register contracts.
 //
-// --- TABLES (decision 1: INLINE, not banked) ------------------------------
+// --- TABLES (decision 1: BANKED, not inline) ------------------------------
 // FmPitchTableZ / LogVolumeLutZ / CarrierMaskTableZ live as Z80 data at the
 // engine-table head of the song bank ($8000 window); the labels equal their
-// window pointers. They are static and tiny (~454 bytes).
+// window pointers. They are static and tiny (~454 bytes). The heading used to
+// read "INLINE, not banked", which inverted what the body says and what the
+// code does — they cost zero against the RESIDENT blob ceiling precisely
+// BECAUSE they are banked (sound_tables_z80.emp's own header has always been
+// correct).
 //
 // --- VOLUME SOURCE (decision 2: RE-READ the patch, no per-channel cache) ---
 // Fm_SetVolume re-derives the FmPatch pointer from sc_patch + the loaded patch-
@@ -77,10 +86,14 @@
 
 module engine.sound_fm (cpu: z80, invariant: preserves(ix))
 
-// The one cross-module resident callee fm sub-calls (the FM key-on re-arm),
-// resolved by import; its contract is sound_sequencer's definition. (Snd_ChanClass
-// is DEFINED in this module.)
+// The cross-module resident callees fm sub-calls, resolved by import; their
+// contracts are the definitions'. (Snd_ChanClass is DEFINED in this module.)
+// The FM key-on re-arm:
 use engine.sound_sequencer.{Mod_ReArm}
+// The DAC $2A re-park is ONE routine, defined by the driver that owns the park
+// as a lifetime invariant (z80_sound_driver.emp). fm used to carry a private
+// byte-identical copy (Fm_ReparkDac); it does not any more.
+use engine.z80_sound_driver.{Snd_ParkDac}
 
 // FM writer scratch (Z80 RAM in the free sequencer block; single-threaded — only
 // Sequencer_Frame reaches the FM writer, so a static scratch is safe). Placed at
@@ -91,12 +104,50 @@ const Fm_ScratchLog  = SND_FM_SCRATCH + 2    // log-volume delta
 const Fm_ScratchMask = SND_FM_SCRATCH + 3    // carrier mask
 const Fm_ScratchOp   = SND_FM_SCRATCH + 4    // op index 0..3 (Fm_PatchTlGroup)
 
+// --- YM2612 WRITE-SPACING FLOORS (T-states, Z80 @ 3.579545 MHz) -------------
+// This driver does NO busy-poll — it never reads the YM status bit before a
+// write — so every write path must be spaced BY CONSTRUCTION. The Sega wait
+// table gives 17 (68k) cycles after an address-port write and 83 after a
+// data-port write to a register in $21..$B6; converted to the Z80's clock (68k
+// 7.670454 MHz -> Z80 3.579545 MHz, ~0.4667) those are ~8 T and ~39 T.
+//
+// The 2026-07-16 review audited every write path against these two numbers BY
+// HAND and marked the audit PASS (review §⓪, "address->data 21 T >= ~8 T;
+// data->next-address tightest path ~50 T >= ~39 T"). Task 9.2 makes the FIRST
+// of those two structural. The SECOND could not be mechanized — see the
+// coverage note above Fm_WriteFreq, which is the honest ledger of what a build
+// now checks and what is still only a hand audit. The ~39 T data->next-address
+// floor is therefore deliberately NOT declared as a constant here: nothing
+// reads it, and a const no build input consumes would read as coverage that
+// does not exist.
+//
+// CONVENTION (the review's, kept so the numbers stay comparable): a gap is
+// measured from the START of one port-write instruction to the START of the
+// next — the writing instruction's own T-states count toward the gap that
+// FOLLOWS it. Under that convention Fm_YmWrite's address->data gap is 21 T.
+//
+// Declared here, per module, rather than once in sound_constants.emp: seam-1
+// injects only a FIXED authority list of constants from that file (a new name
+// added there is invisible to the resident modules — verified: "unknown name
+// `YM_ADDR_TO_DATA_MIN_T`"), and a `use` clause imports procs, not consts.
+// z80_sound_driver.emp and sound_sequencer.emp carry the same declaration with
+// a pointer back here.
+pub const YM_ADDR_TO_DATA_MIN_T = 8     // after an address-port write
+
 // The scratch defs must all fit inside SND_FM_SCRATCH_LEN (the ensure below
 // enforces it).
 ensure(Fm_ScratchOp - SND_FM_SCRATCH < SND_FM_SCRATCH_LEN,
        "Fm_Scratch* exceed SND_FM_SCRATCH_LEN")
 
-section sound_fm (cpu: z80, vma: $12C3) {
+// The three per-operator write loops (Fm_PatchOpGroup, Fm_PatchTlGroup and
+// Fm_SetVolume's carrier loop) read BOTH part and ch-in-part on every operator,
+// and reach them with ONE `ld hl, Fm_ScratchPart` + `inc hl` instead of two
+// 3-byte pointer loads. That is only the right pair of bytes while the two cells
+// stay adjacent in this order.
+ensure(Fm_ScratchCh == Fm_ScratchPart + 1,
+       "the per-operator loops walk Fm_ScratchPart -> Fm_ScratchCh with one inc hl")
+
+section sound_fm (cpu: z80) {
 
     // ------------------------------------------------------------------
     // Fm_YmWrite — write one YM2612 register, ABSOLUTE addressing (de untouched).
@@ -108,37 +159,52 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // ------------------------------------------------------------------
     // Contract: clobbers af (a is consumed as scratch; the bit/jr test writes f).
     // preserves bc, de, hl (+ ix inherited).
+    //
+    // --- YM WRITE-SPACING: MACHINE-CHECKED HERE (Task 9.2) -------------------
+    // The 2026-07-16 review audited every YM write path by hand against the two
+    // hardware floors (YM_ADDR_TO_DATA_MIN_T / YM_DATA_TO_ADDR_MIN_T,
+    // sound_constants.emp) and marked it PASS. The ADDRESS->DATA half of that
+    // audit is now structural: the two `ensure(cycles(...))` at the bottom of
+    // this proc re-measure both straight-line halves at every build. Because
+    // this proc is the single funnel for every FM register write, covering it
+    // covers the address->data gap of every FM write path in the driver.
+    //
+    // The two halves are measured SEPARATELY, not as one span: the `jr nz`
+    // dispatch below has different taken/not-taken costs, so any span crossing
+    // it fires `[cycles.ambiguous-branch]` (by design — an ambiguous span has
+    // no single T-total to assert). Splitting at the branch is the correct
+    // reading, not a workaround: each arm IS a straight line.
+    //
+    // The nops are load-bearing under these ensures. Deleting them (the −2 B
+    // micro the review floated and this parcel REJECTED) takes each gap 21 T ->
+    // 17 T; still above the floor, so the ensures would not catch it — they
+    // pin the requirement, not the current value. Do not read a passing ensure
+    // as permission to shave the margin.
+    //
+    // NOT covered here — the DATA->NEXT-ADDRESS gap. See the coverage note
+    // above Fm_WriteFreq for why `cycles()` cannot express it.
     pub proc Fm_YmWrite () clobbers(af) preserves(bc, de, hl) {
         bit     0, b                     // part II?
         jr      nz, .partII
+    .p1_addr:                            // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A0), a       // $4000 = reg select (part I)
         nop                              // inter-write delay (no busy-poll)
         ld      a, c
+    .p1_data:                            // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A1), a       // $4001 = data (part I)
         ret
-    .partII:
+    .partII:                             // also the part-II address-write cut label
         ld      (SND_Z80_YM_A2), a       // $4002 = reg select (part II)
         nop                              // inter-write delay
         ld      a, c
+    .p2_data:                            // cycles() span cut label (zero bytes)
         ld      (SND_Z80_YM_A3), a       // $4003 = data (part II)
         ret
-    }
 
-    // ------------------------------------------------------------------
-    // Fm_ReparkDac — re-select reg $2A on $4000 (part-I addr port) so a racing DAC
-    // write lands on the DAC-data reg. Defensive end-of-batch belt-and-suspenders
-    // (the DAC consumer/idle loop re-selects $2A every pass — cheap, future-proof).
-    // NEVER touches $2B.
-    // ------------------------------------------------------------------
-    // Contract: clobbers af (a is scratch). preserves bc, de, hl (+ ix inherited).
-    // f in fact survives (only `ld` instructions run — none write the flags), but the
-    // checker does not track flag writes in its Z80 write set, so a lone `preserves(f)`
-    // would be a manual-honor claim it cannot verify; the conservative `clobbers(af)`
-    // stands (over-claiming a clobber is the safe direction — callers assume worse).
-    pub proc Fm_ReparkDac () clobbers(af) preserves(bc, de, hl) {
-        ld      a, SND_REG_DAC_DATA      // $2A
-        ld      (SND_Z80_YM_A0), a       // re-park part-I addr port on DAC data
-        ret
+        ensure(cycles(.p1_addr, .p1_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Fm_YmWrite part I: address->data gap is under the YM2612 floor")
+        ensure(cycles(.partII, .p2_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Fm_YmWrite part II: address->data gap is under the YM2612 floor")
     }
 
     // ------------------------------------------------------------------
@@ -159,6 +225,31 @@ section sound_fm (cpu: z80, vma: $12C3) {
         sub     3                        // ch-in-part = route - 3
     .done:
         ld      c, a                     // c = ch-in-part (0..2)
+        ret
+    }
+
+    // ------------------------------------------------------------------
+    // Fm_StashRoute — Fm_RoutePart, then publish the result to the module scratch.
+    // In: ix = SeqChannel. Out: b = part, c = ch-in-part, AND Fm_ScratchPart /
+    // Fm_ScratchCh set to the same two values.
+    // The prologue of every multi-write batch here (Fm_PatchLoad, Fm_SetVolume,
+    // Fm_RegDelta): they each emit several YM writes through helper loops that
+    // cannot keep bc live across their own scratch use, so the pair is spilled once
+    // up front and re-read per write. Fm_WriteFreq used to be a fourth site until
+    // 7.1 proved it never needed the spill at all.
+    // RETURNS bc INTACT so a caller whose FIRST write happens before any bc-hostile
+    // helper (Fm_PatchLoad's two header registers) can read part/ch straight out of
+    // the registers and skip the reload.
+    // ------------------------------------------------------------------
+    // Contract: out(b, c) = part / ch-in-part; clobbers af (Fm_RoutePart's scratch).
+    // preserves de, hl (Fm_RoutePart preserves both and the stores are absolute)
+    // (+ ix inherited).
+    pub proc Fm_StashRoute () out(b, c) clobbers(af) preserves(de, hl) {
+        call    Fm_RoutePart             // b = part, c = ch-in-part
+        ld      a, c
+        ld      (Fm_ScratchCh), a        // stash ch-in-part
+        ld      a, b
+        ld      (Fm_ScratchPart), a      // stash part
         ret
     }
 
@@ -224,27 +315,27 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc, de, hl (+ ix inherited — every callee preserves it).
     pub proc Fm_PatchLoad () clobbers(af, bc, de, hl) {
-        push    hl                       // save patch ptr (Fm_RoutePart clobbers bc only)
-        call    Fm_RoutePart             // b = part, c = ch-in-part
-        ld      a, c
-        ld      (Fm_ScratchCh), a        // stash ch-in-part
-        ld      a, b
-        ld      (Fm_ScratchPart), a      // stash part
-        pop     hl                       // hl -> patch (fp_alg_fb)
+        // hl (the patch ptr) survives by contract — Fm_StashRoute preserves de/hl.
+        call    Fm_StashRoute            // b = part, c = ch-in-part (+ both stashed)
+
+        // The two channel-header registers are written BEFORE any bc-hostile helper
+        // runs, so they read part/ch out of the registers Fm_StashRoute returned
+        // rather than back out of the scratch it just wrote. `b` (part) is carried
+        // by Fm_YmWrite's preserves(bc); `c` must become the data byte, so ch moves
+        // to `e`, carried by the same contract's preserves(de). (The scratch copies
+        // are still needed — Fm_PatchOpGroup/Fm_PatchTlGroup below have no free
+        // registers and DO re-read them per operator.)
+        ld      e, c                     // e = ch-in-part, live across both writes
 
         // --- $B0+ch : algorithm/feedback ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
+        ld      a, c
         add     a, SND_REG_ALG_FB        // reg = $B0 + ch
         ld      c, (hl)                  // data = fp_alg_fb
         inc     hl
         call    Fm_YmWrite
 
         // --- $B4+ch : L/R / AMS / FMS ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
+        ld      a, e
         add     a, SND_REG_LR_AMS_FMS    // reg = $B4 + ch
         ld      c, (hl)                  // data = fp_lr_ams_fms
         inc     hl
@@ -268,7 +359,7 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      a, SND_REG_OP_SSG_EG     // $90 (SSG-EG group; hl now points at fp_ssg_eg[0])
         call    Fm_PatchOpGroup          // writes $90+ch+op*4 = fp_ssg_eg[op] for op 0..3
 
-        jp      Fm_ReparkDac             // defensive end-of-batch re-park ($2A)
+        jp      Snd_ParkDac             // defensive end-of-batch re-park ($2A)
     }
 
     // ------------------------------------------------------------------
@@ -285,22 +376,19 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      b, 4                     // 4 operators
     .op_loop:
         push    bc                       // save op counter (Fm_YmWrite uses bc)
-        push    de                       // save base+offset accumulator
-        // reg = base + (op*4) + ch
+        // reg = base + (op*4) + ch. de needs NO bracket: nothing between here and
+        // the tail writes d or e, and Fm_YmWrite preserves de.
         ld      a, d                     // base
         add     a, e                     // + op*4
-        push    hl
-        ld      hl, Fm_ScratchCh
-        add     a, (hl)                  // + ch-in-part
-        pop     hl
-        ld      c, (hl)                  // data = patch[op]
-        inc     hl                       // advance patch ptr
-        push    hl
+        ld      c, (hl)                  // data = patch[op] (read while hl is still
+        inc     hl                       //   the patch ptr) + advance
+        push    hl                       // ONE bracket covers BOTH scratch reads
         ld      hl, Fm_ScratchPart
         ld      b, (hl)                  // b = part
+        inc     hl                       // -> Fm_ScratchCh (adjacent; ensure at top)
+        add     a, (hl)                  // + ch-in-part -> a = the YM register
         pop     hl
         call    Fm_YmWrite               // a=reg, c=data, b=part
-        pop     de
         ld      a, e
         add     a, 4
         ld      e, a                     // op offset += 4
@@ -385,10 +473,10 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      a, d                     // $40 base
         add     a, e                     // + op*4
         push    hl
-        ld      hl, Fm_ScratchCh
-        add     a, (hl)                  // + ch-in-part
         ld      hl, Fm_ScratchPart
         ld      b, (hl)                  // b = part
+        inc     hl                       // -> Fm_ScratchCh (adjacent; ensure at top)
+        add     a, (hl)                  // + ch-in-part
         pop     hl
         call    Fm_YmWrite               // a=reg, c=data, b=part
         pop     de
@@ -400,6 +488,33 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      (Fm_ScratchOp), a        // op index += 1
         pop     bc
         djnz    .tl_loop
+        ret
+    }
+
+    // ------------------------------------------------------------------
+    // Fm_FoldTlDelta — fold one non-negative attenuation operand into the running
+    // carrier-TL delta held in Fm_ScratchLog, saturating at $7F.
+    //   Fm_ScratchLog = min($7F, Fm_ScratchLog + a)
+    // In: a = the operand (0..$FF; the 8-bit carry out of the add is caught too, so
+    // an operand large enough to wrap still saturates rather than aliasing down).
+    // The THREE folds Fm_SetVolume composes — per-SFX gain, the FM vol-env delta,
+    // and the master-fade+duck total — were three byte-identical copies of this
+    // block. Being a saturating add of a non-negative operand against a shared
+    // ceiling is also exactly why their ORDER does not matter (see Fm_SetVolume).
+    // ------------------------------------------------------------------
+    // Contract: clobbers af, hl (the scratch pointer). preserves bc, de (+ ix
+    // inherited — leaf, ix never written). hl is dead at all three call sites.
+    pub proc Fm_FoldTlDelta () clobbers(af, hl) preserves(bc, de) {
+        ld      hl, Fm_ScratchLog
+        add     a, (hl)                  // operand + running delta
+        jr      nc, .cap
+        ld      a, SND_FM_TL_MAX         // carry out of 8 bits -> clamp $7F (silent)
+    .cap:
+        cp      SND_FM_TL_MAX+1
+        jr      c, .store
+        ld      a, SND_FM_TL_MAX         // clamp the summed delta to $7F
+    .store:
+        ld      (hl), a
         ret
     }
 
@@ -422,56 +537,38 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      a, (hl)
         ld      (Fm_ScratchLog), a       // stash log delta
 
-        // --- Stage B sfh_gain (SFX slots only): authored per-SFX master attenuation
-        // in FM-TL units (0.75 dB/step). Folded into the carrier-TL delta BEFORE the
-        // env/duck folds so the existing $7F clamps cover the sum. Music SeqChannels
-        // have no sx_gain -> gate on SFX class. Gain 0 -> byte-identical to no fold.
-        call    Snd_ChanClass            // CARRY set => MUSIC channel
-        jr      c, .no_sfx_gain          // music -> no per-SFX gain
+        // --- THE CLASS-EXCLUSIVE FOLD (one Snd_ChanClass, two destinations) -------
+        // Exactly one of these applies to any channel:
+        //   SFX   -> Stage B sfh_gain: authored per-SFX master attenuation in FM-TL
+        //            units (0.75 dB/step). Music SeqChannels have no sx_gain.
+        //   MUSIC -> master fade + Phase 5a ducking: the GLOBAL SND_MASTER_FADE
+        //            scalar plus the SFX duck level, so every music volume write
+        //            picks both up. An SfxChannel must NOT fade/duck — that would
+        //            defeat the SFX cut-through.
+        // They used to be two separate `call Snd_ChanClass` tests straddling the env
+        // fold, each throwing away the other's answer. One classification now
+        // dispatches both.
+        //
+        // ORDER: this moves the music fade/duck fold from AFTER the env fold to
+        // BEFORE it. That is output-preserving, and not by inspection — every fold
+        // here is Fm_FoldTlDelta, i.e. a saturating add of a non-negative operand
+        // against the common $7F ceiling, so any composition of them collapses to
+        // min($7F, log + env + atten) regardless of sequence. Verified by EXHAUSTIVE
+        // ENUMERATION of the real Z80 semantics (8-bit add, carry catch, cp clamp,
+        // and the callers' `or a / jr z` zero-skip) over the full domain
+        // r x env x atten = 256 x 256 x 128 = 8,388,608 combinations: zero
+        // mismatches between the old and new orderings.
+        call    Snd_ChanClass            // CARRY set => MUSIC channel (hl = ix)
+        jr      c, .music_atten
+        // --- SFX: per-SFX gain. Gain 0 -> byte-identical to no fold.
         ld      a, (ix+sx_gain)
         or      a
-        jr      z, .no_sfx_gain
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  // sx_gain + log delta
-        jr      nc, .sfx_gain_cap
-        ld      a, SND_FM_TL_MAX         // 8-bit carry -> clamp $7F (silent)
-    .sfx_gain_cap:
-        cp      SND_FM_TL_MAX+1
-        jr      c, .sfx_gain_store
-        ld      a, SND_FM_TL_MAX
-    .sfx_gain_store:
-        ld      (hl), a
-    .no_sfx_gain:
-
-        // --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
-        // attenuation delta to the carrier-TL delta. Folded HERE, BEFORE the
-        // duck/master-fade fold, so env + duck compose. sc_env_out is the unified
-        // slot; 0 on a no-env channel -> the or a/jr z fast path is byte-identical
-        // to no envelope. Reaches CARRIER ops only for free.
-        ld      a, (ix+sc_env_out)
-        or      a
-        jr      z, .env_done
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  // env delta + log delta
-        jr      nc, .env_ok
-        ld      a, SND_FM_TL_MAX         // carry out of 8 bits -> clamp to $7F (silent)
-    .env_ok:
-        cp      SND_FM_TL_MAX+1
-        jr      c, .env_store
-        ld      a, SND_FM_TL_MAX         // clamp the summed delta to $7F
-    .env_store:
-        ld      (hl), a                  // env-folded carrier-TL delta
-    .env_done:
-
-        // --- master fade + Phase 5a music ducking fold (music-only) ---------------
-        // Sum the GLOBAL master-fade scalar (SND_MASTER_FADE) and the SFX duck level,
-        // then fold the total into the carrier-TL delta so EVERY music volume write
-        // picks both up. MUSIC ONLY: an SfxChannel lives at/above SND_SFX_BASE and
-        // must NOT fade/duck (that would defeat the SFX cut-through). Each operand is
-        // 0..$7F; clamp the sum to $7F, then fold into Fm_ScratchLog (clamp $7F).
-        // fade 0 + duck 0 -> byte-identical no-op.
-        call    Snd_ChanClass            // CARRY set => MUSIC channel (hl = ix)
-        jr      nc, .no_global_atten     // SFX channel -> never fade/duck (no add)
+        jr      z, .class_fold_done
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, log + sx_gain)
+        jr      .class_fold_done
+    .music_atten:
+        // --- MUSIC: fade + duck. Each operand is 0..$7F; clamp the pair's sum to
+        // $7F first, then fold. fade 0 + duck 0 -> byte-identical no-op.
         ld      a, (SND_SFX_DUCK_LEVEL)
         ld      hl, SND_MASTER_FADE
         add     a, (hl)                  // a = duck + master fade
@@ -480,24 +577,22 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      a, SND_FM_TL_MAX         // clamp combined to $7F
     .ga_have:
         or      a
-        jr      z, .no_global_atten      // nothing to add (no fade, no duck)
-        ld      hl, Fm_ScratchLog
-        add     a, (hl)                  // log delta + combined global atten
-        jr      nc, .ga_ok
-        ld      a, SND_FM_TL_MAX         // carry out of 8 bits -> clamp to $7F (silent)
-    .ga_ok:
-        cp      SND_FM_TL_MAX+1
-        jr      c, .ga_store
-        ld      a, SND_FM_TL_MAX         // clamp the summed delta to $7F
-    .ga_store:
-        ld      (hl), a                  // faded+ducked carrier-TL delta
-    .no_global_atten:
+        jr      z, .class_fold_done      // nothing to add (no fade, no duck)
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + fade+duck)
+    .class_fold_done:
 
-        call    Fm_RoutePart             // b = part, c = ch-in-part
-        ld      a, c
-        ld      (Fm_ScratchCh), a
-        ld      a, b
-        ld      (Fm_ScratchPart), a
+        // --- FM TL VOLUME ENVELOPE (spec §4 flagship): add the per-frame env
+        // attenuation delta to the carrier-TL delta, so env composes with whichever
+        // class fold ran above. sc_env_out is the unified slot; 0 on a no-env
+        // channel -> the or a/jr z fast path is byte-identical to no envelope.
+        // Reaches CARRIER ops only for free.
+        ld      a, (ix+sc_env_out)
+        or      a
+        jr      z, .env_done
+        call    Fm_FoldTlDelta           // Fm_ScratchLog = min($7F, delta + env)
+    .env_done:
+
+        call    Fm_StashRoute            // Fm_ScratchPart/Ch = part / ch-in-part
 
         call    Fm_PatchPtr              // hl -> FmPatch for the channel voice
         // algorithm = fp_alg_fb & 7 -> carrier mask
@@ -575,10 +670,10 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      a, SND_REG_OP_TL
         add     a, e                     // + op*4
         push    hl
-        ld      hl, Fm_ScratchCh
-        add     a, (hl)                  // a = reg = $40 + op*4 + ch
         ld      hl, Fm_ScratchPart
         ld      b, (hl)                  // b = part
+        inc     hl                       // -> Fm_ScratchCh (adjacent; ensure at top)
+        add     a, (hl)                  // a = reg = $40 + op*4 + ch
         pop     hl
         call    Fm_YmWrite               // a=reg, c=data, b=part
     .skip_op:
@@ -589,7 +684,7 @@ section sound_fm (cpu: z80, vma: $12C3) {
         pop     bc                       // restore op counter (b) + walking bit (c)
         sla     c                        // walking bit <<= 1 (next op)
         djnz    .op_loop
-        jp      Fm_ReparkDac             // defensive re-park ($2A)
+        jp      Snd_ParkDac             // defensive re-park ($2A)
     }
 
     // ------------------------------------------------------------------
@@ -599,14 +694,14 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // never redundant. NOTE: $B4 is a STEREO-OUTPUT (+ hardware LFO depth) register.
     // ------------------------------------------------------------------
     // Contract: clobbers af, bc. preserves de, hl (Fm_RoutePart/Fm_YmWrite/
-    // Fm_ReparkDac all use absolute YM addressing and preserve de/hl) (+ ix inherited).
+    // Snd_ParkDac all use absolute YM addressing and preserve de/hl) (+ ix inherited).
     pub proc Fm_SetPan () clobbers(af, bc) preserves(de, hl) {
         call    Fm_RoutePart             // b = part, c = ch-in-part (clobbers af,bc)
         ld      a, c                     // a = ch-in-part
         add     a, SND_REG_LR_AMS_FMS    // reg = $B4 + ch (b still = part)
         ld      c, (ix+sc_pan)           // data = sc_pan (the raw $B4 byte)
         call    Fm_YmWrite               // a=reg, c=data, b=part
-        jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
+        jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
 
     // ------------------------------------------------------------------
@@ -627,12 +722,8 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      a, c
         ld      (Fm_ScratchMask), a      // stash value    (reuse the same free scratch)
 
-        // route -> part + ch-in-part (the same pattern as Fm_SetPan/Fm_NoteOnFreq).
-        call    Fm_RoutePart             // b = part, c = ch-in-part (clobbers af,bc)
-        ld      a, c
-        ld      (Fm_ScratchCh), a        // ch-in-part
-        ld      a, b
-        ld      (Fm_ScratchPart), a      // part
+        // route -> part + ch-in-part (the same prologue as Fm_PatchLoad/Fm_SetVolume).
+        call    Fm_StashRoute            // Fm_ScratchPart/Ch = part / ch-in-part
 
         // --- resolve the register from reg_sel: base[group] + op*4 + ch ---
         ld      a, (Fm_ScratchLog)       // a = reg_sel
@@ -663,7 +754,7 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      b, a                     // b = part
         pop     af                       // a = reg
         call    Fm_YmWrite               // a=reg, c=value, b=part (preserves ix)
-        jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
+        jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
 
     // RegDeltaGroupBase — group_code 0..5 -> the per-operator YM register-group base.
@@ -766,6 +857,29 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // ------------------------------------------------------------------
     // Contract: out(d, e) = normalized packed word; clobbers af, bc, hl (block/fnum
     // scratch + the input delta) (+ ix inherited — leaf, ix never written).
+    //
+    // --- ACCEPTED EDGE CASE: block-bit bleed at the extremes (Task 9.5) -------
+    // The correction is SINGLE-STEP and skipped at both ends of the block range.
+    // At the top (`cp $07 / jr z, .lo`) a block-7 note gets NO hi correction, so
+    // if fnum + delta reaches $800 the result no longer fits fnumHi3 and `.pack`'s
+    // `or h` — which assumes h is 0..7 — bleeds bit 3 of h into the BLOCK field of
+    // the $A4 value. The note would jump an octave rather than merely detune.
+    //
+    // UNREACHABLE at the shipped detune range. Every FmPitchTableZ entry is
+    // normalized into [FNUM_LO, FNUM_HI) = [$284, $508), so a block-7 note starts
+    // below $508 and the delta is bounded at +/-127: worst case $507 + $7F = $586,
+    // well under $800. It becomes reachable only if the detune range is widened
+    // past ~$2F8, or if a pitch entry is authored outside the canonical band.
+    //
+    // The bottom end (`.lo`'s `or a / jr z, .pack` at block 0) is NOT a bleed:
+    // skipping the low correction just leaves a small fnum, h stays 0..7, and the
+    // packed word is well-formed. It is a range truncation — the lowest
+    // representable pitch — not corruption.
+    //
+    // Deliberately NOT guarded: a runtime clamp costs resident Z80 bytes to
+    // defend a state no input can produce. If the detune range ever widens, add
+    // the guard THEN. The same hazard exists in the sequencer's inlined twin
+    // (sound_sequencer.emp `.fm_pack`) and is documented there too.
     pub proc Fm_FnumApplyDelta () out(d, e) clobbers(af, bc, hl) {
         ld      a, d
         rrca
@@ -891,10 +1005,9 @@ section sound_fm (cpu: z80, vma: $12C3) {
     pub proc Fm_NoteOnFreqExact () clobbers(af, bc, de, hl) {
         // Write $A4 then $A0 (no key-on yet) via the shared Fm_WriteFreq head. It
         // re-parks $2A at the end, harmless before the key-on below. de (the fnum
-        // word) is reloaded after for the base-freq latch.
-        push    de                       // save the split fnum bytes across the writes
-        call    Fm_WriteFreq             // $A4 then $A0 (Fm_ScratchPart/Ch set inside)
-        pop     de                       // e = $A0 val, d = $A4 val (for the latch below)
+        // word) survives the call by contract — Fm_WriteFreq declares
+        // preserves(de, hl) — so it is still live for the base-freq latch below.
+        call    Fm_WriteFreq             // $A4 then $A0 (de intact on return)
 
         // --- latch the unmodulated note word for the vibrato renderer (spec §5) AND
         // per-note pitch-mod re-arm. Music + SFX FM both latch now.
@@ -940,7 +1053,7 @@ section sound_fm (cpu: z80, vma: $12C3) {
         or      a
         jr      z, .do_keyon             // DAC idle -> FM6 keys on normally
         set     SCF_KEYED_B, (ix+sc_flags) // DAC owns ch6: advance bookkeeping, no chip $28
-        jp      Fm_ReparkDac
+        jp      Snd_ParkDac
     .do_keyon:
         // --- EG RETRIGGER (spec B): the $28 key-on is edge-triggered; keying an
         // already-keyed channel is a chip NO-OP. Key OFF first so EVERY producer
@@ -957,14 +1070,14 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      b, 0                     // key on/off is GLOBAL -> part I
         call    Fm_YmWrite
         set     SCF_KEYED_B, (ix+sc_flags)
-        jp      Fm_ReparkDac             // defensive re-park ($2A)
+        jp      Snd_ParkDac             // defensive re-park ($2A)
     }
 
     // ------------------------------------------------------------------
     // Fm_NoteOff — key the channel off (op_mask = 0). Always via part I.
     // In: ix = SeqChannel. Clears SCF_KEYED.
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc. preserves de, hl (Fm_ChSel/Fm_YmWrite/Fm_ReparkDac
+    // Contract: clobbers af, bc. preserves de, hl (Fm_ChSel/Fm_YmWrite/Snd_ParkDac
     // all preserve de/hl; de is never loaded with a port address) (+ ix inherited).
     // NOTE: the `.asm` `Clobbers af,bc,de` header OVER-CLAIMS de — de survives.
     pub proc Fm_NoteOff () clobbers(af, bc) preserves(de, hl) {
@@ -974,7 +1087,7 @@ section sound_fm (cpu: z80, vma: $12C3) {
         ld      b, 0                     // GLOBAL -> part I
         call    Fm_YmWrite
         res     SCF_KEYED_B, (ix+sc_flags)
-        jp      Fm_ReparkDac             // defensive re-park ($2A)
+        jp      Snd_ParkDac             // defensive re-park ($2A)
     }
 
     // ------------------------------------------------------------------
@@ -986,39 +1099,86 @@ section sound_fm (cpu: z80, vma: $12C3) {
     // In: ix = SeqChannel/SfxChannel, d = $A4 value (block|fnumHi), e = $A0 value
     // (fnum low).
     // ------------------------------------------------------------------
-    // Contract: clobbers af, bc. preserves de, hl (de is push/pop-bracketed and
-    // never loaded with a port address — absolute YM addressing; hl is never
-    // written and the callees Fm_RoutePart/Fm_YmWrite/Fm_ReparkDac all preserve it)
+    // Contract: clobbers af, bc. preserves de, hl (de is never loaded with a port
+    // address — absolute YM addressing — and both callees preserve it; hl is never
+    // written and the callees Fm_RoutePart/Fm_YmWrite/Snd_ParkDac all preserve it)
     // (+ ix inherited). NOTE: the `.asm` `Clobbers af,bc,de,hl` header OVER-CLAIMS
     // BOTH de and hl — both survive.
+    //
+    // NO Fm_Scratch* ROUND-TRIP: part/ch-in-part are produced in `bc` by
+    // Fm_RoutePart and CONSUMED IN `bc`, because Fm_YmWrite is declared
+    // `preserves(bc, de, hl)` — `b` (part) therefore survives BOTH writes and only
+    // `c` (the data byte) needs reloading between them. The register number is
+    // carried across the first write in `af` (1 B of push/pop vs 6 B of absolute
+    // load/store), and the SECOND register is derived by subtraction rather than
+    // recomputed from ch — $A0 and $A4 are four apart, asserted below. The three
+    // push/pop de brackets this routine used to carry are likewise dead by
+    // contract: Fm_RoutePart and Fm_YmWrite both preserve de.
+    //
+    // YM SPACING: the data->next-address gap narrows from ~93 T to ~63 T (the
+    // deleted absolute loads were pure padding), still far above the ~39 T floor.
+    // The address->data gap inside Fm_YmWrite is untouched.
+    //
+    // --- YM SPACING COVERAGE LEDGER (Task 9.2) -----------------------------
+    // What a build now CHECKS, and what is still only a hand audit. Read this
+    // before trusting "the spacing is asserted".
+    //
+    // CHECKED — address->data, 9 sites, every one a straight-line span:
+    //   Fm_YmWrite part I / part II            21 T each  (the FM funnel: these
+    //                                                      two cover the
+    //                                                      address->data gap of
+    //                                                      EVERY FM write path)
+    //   Snd_TimerA_ProgramFixed $24/$25/$27    20 T each
+    //   Snd_StartSample $28 / $2B              20 T each
+    //   SndDrv_Sample .stop $2B / $28          17 T / 20 T
+    //   Sequencer_StopAll $28 key-off          24 T
+    // The last seven are DIRECT YM writes that bypass Fm_YmWrite, so the review's
+    // "every YM write funnels through Fm_YmWrite" premise did not reach them.
+    //
+    // NOT CHECKED — data->next-address, at any site. Two independent blockers,
+    // both verified by probe rather than assumed:
+    //   1. STRUCTURAL. `cycles(L1, L2)` requires both labels to be proc-local and
+    //      carves the span from ONE proc's code buffer. Every data->next-address
+    //      gap begins inside Fm_YmWrite (just after its data write), runs out
+    //      through `ret` into the caller, and ends back inside Fm_YmWrite at the
+    //      next address write. That is three procs of straight line and can never
+    //      be one span.
+    //   2. OP COVERAGE. Even the caller-local remainder is unmeasurable:
+    //      `call nn`, `ret`, `pop af`, `bit n,r` and `add a,n` are all absent from
+    //      `z80_cycles::instr_cost`'s demand subset, so any span containing them
+    //      bails `[cycles.unknown-op]` (probed: "`pop` is not in the timed-region
+    //      T-state table"). Adding them is a sigil-side change, out of scope for
+    //      this parcel.
+    // Splitting the requirement across the pieces was rejected: it would need a
+    // hand-derived constant for the callee's prologue and tail, which is the very
+    // hand audit this task exists to retire. A partial mechanical check plus this
+    // note is worth more than a proof shaped around a hardcoded number.
+    //
+    // The ~63 T figure below, and Fm_PatchLoad's ~66 T $B0->$B4 gap, therefore
+    // remain HAND-DERIVED. Both are well over the ~39 T floor.
     pub proc Fm_WriteFreq () clobbers(af, bc) preserves(de, hl) {
-        push    de                       // save the split fnum bytes across Fm_RoutePart
         call    Fm_RoutePart             // b = part, c = ch-in-part
-        ld      a, c
-        ld      (Fm_ScratchCh), a
-        ld      a, b
-        ld      (Fm_ScratchPart), a
-        pop     de                       // e = $A0 val, d = $A4 val
+        ld      a, c                     // a = ch-in-part
+        add     a, SND_REG_FNUM_HI       // reg = $A4 + ch
 
         // --- $A4+ch FIRST (block + fnum high) ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
-        add     a, SND_REG_FNUM_HI       // reg = $A4 + ch
-        ld      c, d                     // data = $A4 value
-        push    de
+        ld      c, d                     // data = $A4 value (b still = part)
+        push    af                       // carry the register number across the write
         call    Fm_YmWrite
-        pop     de
+        pop     af                       // a = $A4 + ch again
 
         // --- $A0+ch (fnum low) ---
-        ld      a, (Fm_ScratchPart)
-        ld      b, a
-        ld      a, (Fm_ScratchCh)
-        add     a, SND_REG_FNUM_LO       // reg = $A0 + ch
-        ld      c, e                     // data = $A0 value
+        sub     SND_REG_FNUM_HI - SND_REG_FNUM_LO   // reg = $A0 + ch
+        ld      c, e                     // data = $A0 value (b still = part)
         call    Fm_YmWrite
-        jp      Fm_ReparkDac             // defensive re-park ($2A); preserves ix
+        jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
+
+    // Fm_WriteFreq derives the $A0 register by subtracting from the $A4 one, which
+    // is only the same channel's fnum-low register while the two bases stay four
+    // apart (they are YM2612 architecture, but assert rather than trust).
+    ensure(SND_REG_FNUM_HI - SND_REG_FNUM_LO == 4,
+           "Fm_WriteFreq derives $A0+ch from $A4+ch by subtracting 4")
 
     // ------------------------------------------------------------------
     // Fm_ChSel — compute the $28 channel-select nibble = (part<<2)|ch-in-part.

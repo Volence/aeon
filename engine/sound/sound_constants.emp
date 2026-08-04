@@ -40,7 +40,9 @@ pub const SND_REQ_SAMPLE          = SND_REQ_BASE+$01       // DAC sample id (0 =
 // song id (or $FF) AFTER the SND_MUSIC_PARAM block, under the SAME bus hold, so the
 // Z80 never reads a half-updated param block.
 pub const SND_REQ_MUSIC           = SND_REQ_BASE+$02       // music command (0 idle / 1..$FE play / $FF stop)
-pub const SND_REQ_SFX             = SND_REQ_BASE+$03       // reserved (Phase 1C)
+pub const SND_REQ_SFX             = SND_REQ_BASE+$03       // SFX command (0 idle / 1..$FF sfx id) — LIVE
+// (was marked "reserved (Phase 1C)"; it has been a real mailbox slot since the SFX
+// phase — SndDrv_PollMailbox reads it and calls SfxDispatch, then Snd_AckSlot.)
 pub const SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04       // $1F04: 1 = 68k DMA in progress (no ROM reads)
 pub const SND_REQ_FADE            = SND_REQ_BASE+$05       // master-fade cmd (0 idle / 1 out / 2 in)
 pub const SND_REQ_TEMPO           = SND_REQ_BASE+$06       // tempo cmd (0 idle / 1..$FE target mod / $FF restore)
@@ -73,7 +75,9 @@ ensure(SND_STACK_TOP == $1FFE,
        "SND_STACK_TOP moved — the z80-ram-map spec + debug docs pin $1FFE")
 
 // --- Sample IDs ---
-pub const SND_SAMPLE_TEST         = 1                      // Foundations test tone
+// DEAD — no reader anywhere in engine/, games/ or tools/. Kept only so the
+// numbering below reads continuously; do not treat it as an addressable sample.
+pub const SND_SAMPLE_TEST         = 1                      // (unused)
 
 // --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
 // SND_STATE_BASE is ALSO the resident-code ceiling: the driver CODE blob grows up
@@ -483,14 +487,22 @@ pub const FmPatch_fp_tl          = offsetof(FmPatch, fp_tl)   // = 6 (patch base
 ensure(FmPatch_len == 32, "FmPatch struct is {FmPatch_len} bytes, expected 32")
 
 // --- SFX blob header (prefixes the event-list). Big-endian ptr offsets. Grown to
-// 8 bytes to reserve Stage-B gain/duck/cap fields (INERT in Stage A). ---
+// 8 bytes for the gain/duck/cap fields. Those were inert when the struct was
+// first laid out; Stage B/C landed and all three are read live now. ---
 pub struct SfxHeader {
-    sfh_priority: u8,      // +0  authored priority byte (SFXPRI_*); higher wins (bit 7 RESERVED Stage B)
+    sfh_priority: u8,      // +0  authored priority byte (SFXPRI_*); higher wins.
+                           //     bit 7 = the LIVE non-latching flag (Stage B/C landed):
+                           //     Sfx_BeginSound keeps it in SND_SFX_DISP_PRIO_RAW and
+                           //     stores the masked value; the queue masks it too
+                           //     (SfxDispatch `res 7,b`), because bits 0-6 are the only
+                           //     magnitude. NOT "RESERVED".
     sfh_flags:    u8,      // +1  SHF_* (continuous / stereo-alt / loop)
     sfh_chcount:  u8,      // +2  number of SFX channels (1 or 2 for the core set)
-    sfh_gain:     u8,      // +3  Stage B authored master attenuation (INERT in Stage A)
+    sfh_gain:     u8,      // +3  authored master attenuation — LIVE: copied to sx_gain by
+                           //     Sfx_BeginSound and folded by Fm_SetVolume/Psg_SetVolume
     sfh_duck:     u8,      // +4  Stage B per-SFX duck depth (0 = never ducks)
-    sfh_cap:      u8,      // +5  Stage B instance cap (INERT in Stage A; engine hard-caps at 1)
+    sfh_cap:      u8,      // +5  instance cap — LIVE: read into SND_SFX_DISP_CAP by
+                           //     Sfx_BeginSound and enforced there
     sfh_rsvd:     [u8; 2], // +6  keep the per-channel records even-aligned
 }
 pub const SfxHeader_len          = sizeof(SfxHeader)    // = 8
@@ -687,6 +699,27 @@ ensure(offsetof(SfxChannel, sc_porta_accum) == offsetof(SeqChannel, sc_porta_acc
 ensure(offsetof(SfxChannel, sc_porta_incr) == offsetof(SeqChannel, sc_porta_incr), "SfxChannel.sc_porta_incr diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_last_pan) == offsetof(SeqChannel, sc_last_pan), "SfxChannel.sc_last_pan diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_fill_master) == offsetof(SeqChannel, sc_fill_master), "SfxChannel.sc_fill_master diverges from SeqChannel")
+
+// --- SFX B4: the two POST-DIVERGENCE ALIASES, asserted rather than commented ----
+// Past +56 the structs deliberately disagree, and the SHARED interpreter still
+// walks both. So the two overlaps below are load-bearing aliases, not accidents:
+//   +57  SfxChannel.sx_priority  ==  SeqChannel.sc_noise_mode
+//   +58  SfxChannel.sx_pad       ==  SeqChannel.sc_detune
+// The shared code reaches these offsets through ix. On an SfxChannel that means a
+// music opcode writing sc_noise_mode would corrupt the running SFX's PRIORITY, and
+// one writing sc_detune would set sx_pad non-zero — and sx_pad MUST stay 0, because
+// the FM/PSG note paths fold (ix+sc_detune) unconditionally, so a non-zero byte
+// there detunes every SFX note. Both were protected ONLY by a comment saying "the
+// transcoder never emits those ops" plus the full-struct wipe on allocation.
+// These ensures pin the alias itself, so a future field insertion that slides one
+// side relative to the other fails the build at the exact pair that moved instead
+// of silently re-pointing a music write at an SFX control byte. The behavioural
+// half of the guarantee (that no SFX stream CONTAINS MEV_PSGNOISE/MEV_DETUNE) is
+// enforced build-side in tools/sfx_transcode.py — this is the layout half.
+ensure(offsetof(SfxChannel, sx_priority) == offsetof(SeqChannel, sc_noise_mode),
+       "sx_priority (+{offsetof(SfxChannel, sx_priority)}) no longer aliases sc_noise_mode (+{offsetof(SeqChannel, sc_noise_mode)}) — the shared interpreter's post-divergence overlap moved")
+ensure(offsetof(SfxChannel, sx_pad) == offsetof(SeqChannel, sc_detune),
+       "sx_pad (+{offsetof(SfxChannel, sx_pad)}) no longer aliases sc_detune (+{offsetof(SeqChannel, sc_detune)}) — the MUST-STAY-ZERO pad and the detune byte have separated")
 ensure(offsetof(SfxChannel, sc_fill_count) == offsetof(SeqChannel, sc_fill_count), "SfxChannel.sc_fill_count diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_psgenv) == offsetof(SeqChannel, sc_psgenv), "SfxChannel.sc_psgenv diverges from SeqChannel")
 ensure(offsetof(SfxChannel, sc_psgenv_cur) == offsetof(SeqChannel, sc_psgenv_cur), "SfxChannel.sc_psgenv_cur diverges from SeqChannel")

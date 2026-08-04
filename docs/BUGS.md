@@ -5,6 +5,131 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## FIXED — odd Z80 blob → boot ADDRESS ERROR — 2026-08-03
+
+**Caused and fixed by the same parcel** (`parcel/wave4-z80-sound-reclaim`), and the most
+instructive defect of the batch: it was a KNOWN hazard that had been marked closed by a
+mechanism that never shipped.
+
+**Mechanism:** `boot.emp`'s copy loop walks `a5` through the Z80 blob and then continues
+with the SAME register into `boot_tail` — four PSG-silence bytes and its word-wide VDP
+command reads. Nothing re-aligned `a5` at the hand-off, so the blob's length silently
+became an alignment precondition for every following `move.w (a5)+`.
+
+**Reachability:** every blob size shipped before this parcel happened to be even (6172
+plain / 6298 debug), so the precondition held by accident. The reclaim moved the blob to
+5941 / 6067 — both ODD — and the 68k landed in `ErrorHandlerBlob` with `ADDRESS ERROR` at
+`$001889` (debug) / `$001B91` (config_a), i.e. the first misaligned word read. Symptom at
+the A/B bench: NEW produced 26,721 bytes of VGM against OLD's 157,311. Bisected to the
+reclaim half by building at the end of the bug batch (`2adf697`), which boots clean.
+
+**Why it was live at all:** the 2026-07-16 review listed this exact hazard in its Tier-4
+boot/hardware-risk list — "No build-time evenness assert on either Z80 blob (odd blob =
+boot address error)" — and tagged it **[closed by D8 linker asserts — do not hand-fix]**.
+That diagnostics-tier mechanism was never built, so the item sat un-fixed under a
+closed-looking marker, and the first parcel to change the blob length by an odd number hit
+it. See the corresponding correction in the review's STATUS section.
+
+**Fix (`5526113`):** `align 2` inside the `Z80_Sound_Start`/`Z80_Sound_End` brackets plus
+`ensure((Z80_SOUND_SIZE & 1) == 0)` — the padding makes it right and the ensure makes it
+stay right, independent of any future diagnostics tier.
+
+**Two false leads recorded so they are not re-walked:** `pins.rs` was stale (regenerated
+with `repin`) but is a gate/record, NOT a placement input — ROM CRCs were byte-identical
+before and after the repin. And `Z80_SOUND_SIZE` is link-derived with no hardcoded mirror
+in Aeon, so a stale size constant was not the cause either.
+
+**Consequence for the record:** every ROM built during the reclaim tasks was unrunnable for
+this reason. Those tasks' blob-size measurements remain valid (the blob is emitted
+independently of the ROM link), but no functional claim about them could have been made
+before `5526113`. Evidence: `docs/superpowers/notes/2026-08-03-wave4-sound-ab.md` Result 3.
+
+---
+
+## FIXED — Z80 sound defect cluster (7 defects) — 2026-08-03
+
+Review item 23's sound bug-fix batch plus three extras approved at plan time, all landed on
+`parcel/wave4-z80-sound-reclaim` ahead of the size campaign (refactoring around known-broken
+code means touching the same routines twice). Net cost +28 Z80 bytes, repaid many times over
+by the reclaim in the same parcel. A/B evidence:
+`docs/superpowers/notes/2026-08-03-wave4-sound-ab.md`.
+
+### driver B1 — SFX state is power-on GARBAGE from boot until the first song — **FIXED (`9ef153e`)**
+**Mechanism:** `SfxChannels`, both duck bytes and `SeqChannels` are never initialised at
+driver start — they hold whatever the Z80 RAM powered up with until the first
+`Snd_LoadSong` wipes them. `Sequencer_Frame` FALLS THROUGH to `.run_sfx` even with
+`SND_SEQ_ACTIVE = 0`, so `Sfx_Frame` walks all 7 channel records every frame from the very
+first tick. **Reachability:** the whole boot window before the first song load — with
+garbage `sx_*` fields, wild chip writes and bank-latch writes are reachable, not
+theoretical. **Fix:** `call Sfx_StopAll` at init, net **±0 bytes** (it replaces the
+3-byte `ld (SND_SFX_QUEUE_CNT), a` and returns `a = 0`, so the following stores are
+unchanged).
+**Placement constraint — this is the part that matters:** `Sfx_StopAll` clobbers `de`, and
+`de` holds `$4001` (the YM part-I DATA port) as a **driver-lifetime invariant**. At the
+review's suggested site — below the `ld de, SND_Z80_YM_A1` — the call would have left
+`de = 68`, redirecting every steady-state `ld (de),a` DAC write to Z80 RAM `$0044`. The
+call therefore sits ABOVE the `ld de`, with the ordering constraint commented at the site.
+**ORACLE-INVISIBLE by construction:** emulators zero RAM at power-on, so the pre-fix
+behaviour cannot be exhibited in oracle. Verified statically.
+
+### SFX B1 — Sfx_DuckRamp resurrects a STOPPED song's PSG channel — **FIXED (`53660ad`)**
+**Mechanism:** `Sfx_DuckRamp` re-asserts volume across the music channels with no
+`SND_SEQ_ACTIVE` gate (unlike `Sfx_Restore`, which has one). **Reachability:** `StopMusic`
+leaves a PSG channel with `SCF_KEYED` still set and its tone latch stale, so the next
+ducking SFX un-silences that channel at the stale latched pitch — an audible tone that
+**DRONES until the next song load**, with nothing in the stopped-sequencer path to kill it.
+**Fix:** +5 B `SND_SEQ_ACTIVE` gate after the level store.
+
+### SFX B2 — queue arbitration compared RAW priority — **FIXED (`e94fc47`)**
+**Mechanism:** the SFX queue arbitrates on the raw priority byte, but bit 7 is the
+non-latching flag under the 7-bit priority model (SFX Stage B), not magnitude. A bit-7 SFX
+would therefore carry **+128 phantom queue weight** and win arbitration it should lose.
+**Reachability:** LATENT — the build-fatal ensure added in the Stage B/C parcel keeps every
+authored priority below `$80`, so no shipped SFX can express it today. Fixed anyway because
+the flag is a supported authoring feature. **Fix:** +2 B mask.
+
+### PSG #1 — Psg_ApplyMod let an EXACT-ZERO divisor reach the chip — **FIXED (`d5f8d6d`)**
+**Mechanism:** the floor guard tested only for a NEGATIVE sum, so a modulation accumulator
+landing on exactly zero passed straight through to the PSG divisor latch — a
+chip-ambiguous value, and a direct contradiction of the routine's own comment
+(`Psg_EmitNoiseClock` does the same clamp correctly). **Reachability:** live from MUSIC,
+not just SFX — `Mod_Update` reaches it, and `PsgDivisorTableZ` ships its **top 13 entries as
+`$0001`**, so an accumulator of −1 lands on exact zero from ordinary high notes. **Fix:**
++4 B, clamping the exact-zero case as well as the negative one.
+
+### sequencer B1 — PSG down-glide 16-bit underflow evaded the overshoot snap — **FIXED (`bb66ff8`)**
+**Mechanism:** a portamento down-glide subtracts the rate from a 16-bit divisor; on
+underflow the value wraps to `$FFxx`, which the overshoot test then reads as "still ABOVE
+the target". The glide therefore keeps running through wrapped space at garbage pitch for
+up to ~65536/rate frames instead of snapping. The borrow was already sitting in CF and was
+simply never tested. **Reachability:** same `$0001` top-of-table divisors as PSG #1 — any
+fast down-glide from a high note. **Fix:** +2 B (`jr c` off the `sbc` into the existing
+snap).
+
+### FM bug 11 — Fm_PatchLoad clobbers sc_pan on a mid-song patch change — **FIXED (`dda5e74`)**
+**Mechanism:** `Fm_PatchLoad` writes register `$B4` straight from the patch, overwriting
+the channel's authored pan. Pan is **write-on-change** against a shadow, and
+`Seq_HookSetPatch` never re-asserts it, so the shadow still reads "already correct" and
+the channel stays MISPANNED indefinitely — for the rest of the song. **Reachability:** any
+song with a `MEV_PATCH` after a `MEV_PAN` on the same channel. **Fix:** +4 B — zero the
+`sc_last_pan` shadow so the next pan write re-fires, the same resync `Sfx_Restore` already
+performs after its own patch re-upload.
+**Recorded because it is a trap:** the review's suggested fix — "source `$B4` from
+`sc_pan`" — would have been a **REGRESSION**. `sc_pan` is the raw `$B4` byte and `0` means
+"never panned, keep the patch default", so that fix would write `$00` (both outputs off)
+and SILENCE every unpanned channel.
+
+### PSG M5 — Psg_NoteOn's detune fold had no floor — **GUARDED (`9463906`)**
+**Mechanism:** `Psg_NoteOn` folds detune into the divisor with no range guard, so a
+negative detune applied to a divisor-1 note wraps to `$FFxx`. **Reachability:** NOT
+reachable with any authored content today — recorded as a **guard, not a repair**. **Fix:**
++11 B, clamping BOTH the negative and the exact-zero case rather than the cheaper
+negative-only test: negative-only is precisely the defect fixed in PSG #1 one commit
+earlier, and re-shipping that shape to save 6 B is a bad trade inside a parcel handing back
+~230.
+
+---
+
 ## FIXED — G10 — move_lock permafreeze on solid-object landing — 2026-08-03
 
 A slip-locked player (move_lock set by the S3K slip nudge) who landed on a solid
