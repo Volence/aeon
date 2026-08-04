@@ -42,10 +42,11 @@ use engine.constants.{VDP_CTRL, VDP_DATA}
 use engine.vdp.{vdp_comm, VdpTarget, VdpOp}
 
 section release_fault (cpu: m68000) {
-    // Terminal fault handler — like the error_handler stubs it replaces, it is a
-    // hardware/vector entry that never returns, so the contract clobber set is
-    // empty (nothing survives to care; see the d0 note above).
-    pub proc ReleaseFault () clobbers() {
+    // Terminal fault handler — a hardware/vector entry that never returns, so no
+    // caller ever observes a register. The clobber set still declares the d0
+    // write honestly (the contract-closure gate checks the BODY, not reachability
+    // of a return; see the d0 note above).
+    pub proc ReleaseFault () clobbers(d0) {
         move.w  #$2700, sr                  // terminal: mask every interrupt level
         move.w  VDP_CTRL, d0                // read: reset the VDP command state
                                             // machine (the fault may have landed
