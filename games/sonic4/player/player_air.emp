@@ -11,21 +11,23 @@ use engine.objects.sst.{Sst}
 use engine.coords.{abs_w}
 use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PHYS_JUMP_SKIP_CLEARANCE, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
         ST_ROLLING, PLAYER_Y_RADIUS, BALL_Y_RADIUS, CURL_Y_SHIFT,
-        BUTTON_LEFT, BUTTON_RIGHT, BUTTON_A, BUTTON_C, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix}
+        BUTTON_LEFT, BUTTON_RIGHT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix,
+        BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
 
 // Player_SensorFloor/Ceiling/WallAt resolve module-to-module to player_sensors.emp
 // (bare link) — the P4 close retired their extern-proc boundary decls (kill row 80).
 
 // Game-config constants — sole authority is games.sonic4.constants.
-use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL}
+use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL, CHEAT_DEBUG_FLY}
 
-// PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS / ST_* / BUTTON_LEFT/RIGHT/A/C
+// PHYS_FALL_CAP / PHYS_ROLL_START_MIN / PUSH_RADIUS / ST_* / BUTTON_LEFT/RIGHT
 // are consumed from engine.constants via `use engine.constants` above.
 
-// Jump press sources: A and C only — B is the debug-fly toggle. File-local now
-// (player_common.asm's BUTTON_JUMP_MASK + its drift guard are gone).
-const BUTTON_JUMP_MASK = BUTTON_A | BUTTON_C
+// BUTTON_JUMP_MASK / BUTTON_JUMP_MASK_NO_B are IMPORTED from player_common, which
+// is their sole authority — the release-cap HELD check below and player_common's
+// press latch must resolve to the same effective mask, so they cannot be
+// file-local copies (a latch-without-sustain gives B jumps a clipped arc).
 
 // physics-table field offsets (a4-relative displacements; the Player_Phys field
 // displacements). File-local; a divergent offset shows up as a mismatched
@@ -101,9 +103,25 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  y_vel(a0), d0
         cmp.w   PPHYS_RELEASE_CAP(a4), d0
         bge     .no_cap                         // not rising past the cap
+        // B SUSTAINS a jump exactly when B could start one — same gate, same two
+        // masks as player_common's press latch (which owns both). If B latched a
+        // jump here but did not sustain it, B jumps would come out with a clipped
+        // arc. While CHEAT_DEBUG_FLY is armed B belongs to the free-flight toggle
+        // instead, so it neither starts nor sustains. Read the bit here rather
+        // than caching it — a cheat code can arm it on any frame. d0 is dead at
+        // this point (its y_vel copy is finished with, and step 2 reloads it from
+        // x_vel), so the moveq/and probe costs no register pressure; it is also the
+        // one shape a port-test compile can lower, since `btst #<cheat const>,
+        // Cheat_Flags` would pair two link symbols.
         move.b  Ctrl_1_Held, d1
-        andi.b  #BUTTON_JUMP_MASK, d1
+        andi.b  #BUTTON_JUMP_MASK, d1           // A|B|C — classic three-button jump
+        beq     .cut_arc                        // nothing held → cut to the cap
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .no_cap                         // cheat clear: B sustains like A and C
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d1      // armed: B is the fly toggle, not a jump
         bne     .no_cap                         // still held → full arc
+.cut_arc:
         move.w  PPHYS_RELEASE_CAP(a4), y_vel(a0)
 .no_cap:
 

@@ -36,6 +36,13 @@ pub const GS_OBJECT_TEST          = 2
 // Bits are cleared at boot with all Work-RAM; the DEBUG shape arms the ones a
 // developer expects, and a cheat code will arm them in release.
 pub const CHEAT_DEBUG_FLY         = 1 << 0    // bit 0 of Cheat_Flags — free-flight debug mode
+// Every gate site reads the MASK, never a twin bit-number: `moveq #CHEAT_<x>, dN`
+// / `and.b Cheat_Flags, dN`. That is deliberate on two counts. A bit-number twin
+// would be a second representation of the same fact and could drift silently, and
+// `btst #<bit>, Cheat_Flags` is unlowerable in a standalone port-test compile —
+// these consts harvest into link EquSyms, and a link-time immediate combined with
+// another symbolic operand is not supported ([lower.imm-link]). The moveq/and pair
+// keeps one symbolic operand per instruction and costs the same 6 bytes.
 
 pub const ANIM_RUN_THRESHOLD      = $600      // |gsp| at/above which walk -> run anim (S3K)
 pub const SPINDASH_BASE           = $800

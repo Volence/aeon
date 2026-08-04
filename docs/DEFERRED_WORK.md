@@ -2396,18 +2396,67 @@ sequence was conditional on debug-fly. **The DEBUG shape is unaffected**:
 build still boots into the yellow square exactly as it did, and the dev convenience
 survives for free. Only release behaviour changed, which was the intent.
 
-**What remains.**
+**What remains.** (Item 2 was the follow-on question about the B button; it has since
+been ruled and executed, and is kept in place below so the ruling sits next to the
+gate it depends on. Items 1 and 3 are the genuinely open ones.)
 
 1. **Author the cheat code that sets the bit.** Nothing else has to change when it
    lands: a button sequence or a menu unlock writes `CHEAT_DEBUG_FLY` into
    `Cheat_Flags` and debug-fly becomes reachable in a release ROM. That is the whole
    point of the runtime-gate shape.
-2. **Should B join `BUTTON_JUMP_MASK`?** Still open, filed separately from this
-   ruling. Jump is `A|C` only today (`games/sonic4/player/player_common.emp:107`,
-   `games/sonic4/player/player_air.emp:28`) precisely because B was the debug-fly
-   toggle. With the cheat off, B now does nothing at all in release, which is the
-   classic-wrong behaviour — S3K jumps on all three. Byte-changing and player-facing,
-   so it wants its own parcel.
+2. **Should B join `BUTTON_JUMP_MASK`? — RESOLVED, and EXECUTED as parcel
+   `b-jumps` (ruled 2026-08-05).** Jump was `A|C` only precisely because B was the
+   debug-fly toggle; once the toggle went behind `CHEAT_DEBUG_FLY`, B did nothing at
+   all in release, which is the classic-wrong behaviour — S3K jumps on all three face
+   buttons.
+
+   **Owner ruling: B jumps when `CHEAT_DEBUG_FLY` is CLEAR; B does not jump when the
+   bit is ARMED.** Default players get the correct three-button jump; anyone who has
+   deliberately enabled the cheat accepts that B is the free-flight toggle instead.
+   The gate is a conditional mask, not a static one, because the cheat bit is
+   runtime-settable — a future cheat code can arm it on any frame, so anything
+   precomputed at init would go stale. Both sites read the bit where they use it.
+
+   **The exit path is what forced the exclusion.** The conflict is not on ENTERING
+   free-flight — that returns early through `Player_DebugMove` and never reaches the
+   jump code. It is on EXITING: `Player_DebugExit` clears `debug_flag` and falls
+   straight through into normal physics, so the very same B press that left
+   free-flight would be seen by the jump latch and buffer a jump on that tick.
+   Excluding B from the mask exactly while the bit is armed is the whole mechanism;
+   a mask that always included B would give every debug-fly exit a spurious jump.
+
+   **Both consumers had to agree, so the mask stopped being duplicated.** The press
+   latch (`Player_Main`) and the variable-jump-height HELD check
+   (`PState_AirShared`) each carried their own file-local `BUTTON_JUMP_MASK`. If B
+   latched a jump but did not sustain it, B jumps would come out with a clipped arc —
+   a feel bug that would be miserable to trace. The pair now lives once, in
+   `games/sonic4/player/player_common.emp` as `pub const BUTTON_JUMP_MASK`
+   (`A|B|C`) and `pub const BUTTON_JUMP_MASK_NO_B` (`A|C`), and `player_air` imports
+   both. Both sites run the identical shape: mask `A|B|C` and short-circuit,
+   `moveq #CHEAT_DEBUG_FLY, d0` / `and.b Cheat_Flags, d0`, re-mask `A|C` only when
+   armed. Cost lands on the cold side — the frames with no face-button press (in the
+   latch) or no face button held (in the release-cap check) exit on the first `beq`
+   and never probe the cheat byte, so the per-frame cost is unchanged from before.
+
+   **Why the gate is `moveq`/`and` and not `btst`, at all four cheat sites.** A
+   `btst #CHEAT_DEBUG_FLY_BIT, Cheat_Flags` shape was written first and assembled
+   fine in the full build, but it is unlowerable in a standalone port-test compile:
+   `games/sonic4/config/constants.emp` `pub const`s harvest into link EquSyms
+   (`harvest_game_constants`), and `Cheat_Flags` is a link symbol too, so both
+   operands are symbolic — `[lower.imm-link]`, "a link-time immediate combined with
+   another symbolic operand is not yet supported". `andi.b #BUTTON_JUMP_MASK, d1` is
+   unaffected because only one operand is symbolic. The `moveq`/`and` pair keeps one
+   symbolic operand per instruction, costs the same 6 bytes and the same 16 cycles,
+   and is the shape the `cheat-flag` parcel already used at `Player_Init` /
+   `TestPlayer_Main`. Caught by `test_p2_player_states_port` under the strict suite,
+   not by `build.sh`. **There is deliberately no `CHEAT_DEBUG_FLY_BIT` twin**: a bit
+   number and a mask that can disagree is precisely the drift class this run has been
+   paying for, and with the mask as the sole representation there is nothing to
+   guard.
+
+   **Not in scope: `test_player`.** `TestPlayer_Main` jumps on C only and uses A as
+   its free-flight turbo modifier; it is scaffolding with its own input map, not the
+   player, and item 3 below already asks the larger question about it.
 3. **`test_player` as a unit.** The whole object is scaffolding that ships in release
    regardless of this ruling; whether it should is a separate question about the test
    object set, not about debug-fly.
