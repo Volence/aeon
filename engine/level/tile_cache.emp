@@ -126,8 +126,12 @@ pub data BlockStage_PtrTable: [*u8; BLOCK_STAGE_SLOTS] = comptime for i in 0..BL
 // Out: Z set + a1 = slot base (nametable; collision at +BLOCK_NT_SIZE) on hit;
 //      Z clear on miss (a1 trashed). d0–d2 preserved.
 // Clobbers: d3-d4, a1
+// CONTRACT — a1 is a RESULT on the eq edge and SCRATCH on the others, which is
+// why it is declared in both `clobbers` and `out`. The probe walks a1 across the
+// key table before the hit/miss is known, so the miss exit returns a1 destroyed;
+// a caller holding a value in a1 must save it on every path.
 // -----------------------------------------------
-pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4) out(a1 if eq) {
+pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1) out(a1 if eq) preserves(d0-d2) {
         move.w  d0, d3
         lsl.w   #8, d3
         move.b  d1, d3
