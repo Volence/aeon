@@ -2351,31 +2351,50 @@ ongoing value; (1) and (2) are load-time only.
 
 ---
 
-## `Debug_AssertObjLoop` ships in release (found 2026-08-05, NOT caused by that parcel)
+## Debug-fly mode is REACHABLE in the shipped release ROM (found 2026-08-05)
 
-Surfaced during the `crash-report` parcel's no-debug-equipment audit, which is the
-only reason it is written down: the audit greps release for debug symbols, and this
-one is present.
+Surfaced by re-auditing the `crash-report` parcel's no-debug-equipment claim. That
+parcel established the rule **diagnostics ship, equipment does not**
+(`CODING_CONVENTIONS.md` §1.7); this violates it.
 
-`Debug_AssertObjLoop` (`engine/objects/core.emp:564`) is an **unconditional
-`pub proc`**, but both of its call sites are `if DEBUG == 1`-wrapped
-(`core.emp:491`, `:543`). So the body assembles into every shape while nothing in
-release can ever reach it. It sits at `$2BEE` in the new release `s4.bin` **and** at
-`$2BEE` in `lean.bin` — which is byte-for-byte the pre-crash-report release ROM —
-so it predates this work by a long way. It is the a0/d7 RunObjects loop-contract
-assert added in the 2026-06-10 bug-005 fix (see the entry above).
+**`Player_Main` (`games/sonic4/player/player_common.emp:240-251`) toggles free-flight
+debug mode on a B press, with NO `DEBUG` gate of any kind.** The same shape exists in
+the test player (`games/sonic4/objects/test_player.emp:83-110`). Emitted in the
+release ROM today:
 
-**Why it was not fixed in place:** the `crash-report` parcel's central piece of
-evidence is that `lean.bin` is byte-identical to the pre-parcel release ROM, which
-proves the whole `CRASH_REPORT` axis is inert at 0. Folding an unrelated byte change
-into that parcel would have destroyed the one measurement that made the flag algebra
-trustworthy.
+| symbol | release addr | bytes |
+|---|---|---|
+| `Player_DebugEnter` | `$103BA` | 52 |
+| `Player_DebugExit` | `$103EE` | 58 |
+| `Player_DebugMove` (+4 locals) | `$10428` | 56 |
+| `TestPlayer_Debug` (+5 locals) | `$10F46` | 60 |
+| `TestPlayer_Main.exit_debug` | `$10D9E` | 50 |
 
-**The fix is one line, either shape:** wrap the proc body's module in the registry
-`if debug` (the `compression_selftest` idiom, `CODING_CONVENTIONS.md` §1.7 idiom 4),
-or move the proc to a debug-only module. The registry route is cleaner — the proc has
-no non-debug caller in any shape, so nothing needs a stub.
+`grep debug_flag` over `engine/` and `games/` returns eleven sites and **not one is
+inside an `if DEBUG == 1`**. So a player holding B in the shipped build flies.
 
-**Worth a wider sweep when taken:** the same shape (unconditional `pub proc`, all call
-sites `DEBUG`-gated) may exist elsewhere. Grep for `pub proc Debug_*` and check each
-one's call sites, rather than fixing only the one the audit happened to name.
+**The fix is a ruling, not a patch.** Gating it is byte-changing (full repin/refreeze
+ritual) and changes player-facing behaviour, so it wants an owner decision: gate the
+toggle behind `DEBUG` (the equipment reading), or keep debug-fly as a shipped feature
+(some games ship a cheat). The `debug_flag` field itself can stay either way — it is
+one byte of SST and the state dispatch reads it.
+
+Note the whole `test_player` object is scaffolding that ships in release regardless;
+if debug-fly is gated, ask the same question of `test_player` as a unit.
+
+### Correction: the `Debug_AssertObjLoop` entry that used to be here was WRONG
+
+An earlier version of this entry claimed `Debug_AssertObjLoop`
+(`engine/objects/core.emp:564`) shipped its bytes in release. **It does not.** Its body
+is already `if DEBUG == 1`-wrapped, so it emits ZERO bytes in the plain shape — the
+symbol and `RunObjects_Frozen` share address `$2BEE`, i.e. span 0, and `core_port`'s
+`debug_shape_length_diverges` already pins plain = zero bytes. The source comment says
+so explicitly.
+
+The claim came from a subagent that read the symbol's ADDRESS out of `s4.lst` and
+concluded bytes ship, and it was propagated into this document and into
+`docs/superpowers/notes/2026-08-05-crash-report-ab.md` without being checked. **A
+symbol in the listing is not emitted bytes** — zero-length labels appear at the address
+of whatever follows them. The right measurement is the span to the next symbol, which
+is what found the real leak above. Fourth instance of this repo paying for an unverified
+claim; the first three were `[closed by <pending mechanism>]` markers.

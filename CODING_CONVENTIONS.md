@@ -205,6 +205,10 @@ ensure(SOUND_DEBUG_HOTKEYS == 0 || DEBUG == 1, "SOUND_DEBUG_HOTKEYS requires DEB
 
 One structural consequence to respect: whenever the `error_handler` island is present it MUST be the final byte-emitting section, because the vendored blob locates its symbol table through PC-relative displacements baked into its own bytes that point one past its end, and `convsym` appends at `EndOfRom`. That was a debug-only concern before; it now binds the shipped release ROM too. The order is declared in each game's `map.toml` and enforced as a hard build error in `sigil`'s `append_deb2_appendix`.
 
+**Known violation, recorded not hidden:** free-flight **debug-fly mode is currently ungated and reachable in release** — `Player_Main` toggles it on a B press with no `DEBUG` gate, and the test player does the same. It is equipment by the rule above and predates the rule's statement. Awaiting an owner ruling in `docs/DEFERRED_WORK.md`; do not cite this section as evidence that release is equipment-free until that lands.
+
+**How to audit this claim — measure spans, not names.** Greping release for a list of debug symbol *names* only confirms the assumptions of whoever wrote the list, and a symbol appearing in `s4.lst` is **not** evidence that it emits bytes: a zero-length label sits at the address of whatever follows it. Walk the listing sorted by address and take each debug-ish symbol's **span to the next symbol**; span 0 means correctly elided. That method is what caught the debug-fly leak, and what disproved an earlier false report against `Debug_AssertObjLoop` (whose body is `if DEBUG == 1`-wrapped and genuinely emits nothing).
+
 ### 1.8 Build-Time Data Generation
 
 Use `rept`, `irp`, and math functions to generate lookup tables at assembly time.

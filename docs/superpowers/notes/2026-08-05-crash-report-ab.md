@@ -143,16 +143,47 @@ only in `games/sonic4/debug/game_debug.emp`, a Config-A-only registry module, an
 is absent from release AND from `s4.debug.bin`. `lean.lst` inverts correctly:
 `ReleaseFault` present, `BusError`/`ErrorHandlerBlob` absent.
 
-### One pre-existing leak found in passing, NOT caused by this parcel
+### CORRECTED 2026-08-05 — the audit above was too narrow, and its one "leak" was false
 
-`Debug_AssertObjLoop` (`engine/objects/core.emp:564`) is an unconditional
-`pub proc` whose only call sites are `if DEBUG == 1`-wrapped, so its bytes ship in
-release. It sits at `0x2BEE` in both the new `s4.bin` **and** in `lean.bin` (= the
-pre-ruling release ROM), which proves it predates this work. Recorded in
-`docs/DEFERRED_WORK.md` for a one-line follow-up (registry-gate it or wrap the
-proc); deliberately not fixed here, because folding an unrelated byte change into
-a parcel whose central evidence is "lean is byte-identical" would have destroyed
-that evidence.
+**Retracted:** an earlier version of this section claimed `Debug_AssertObjLoop`
+(`engine/objects/core.emp:564`) shipped its bytes in release. It does not. Its
+body is already `if DEBUG == 1`-wrapped and emits **zero bytes** in the plain
+shape — it shares address `$2BEE` with `RunObjects_Frozen` (span 0), and
+`core_port`'s `debug_shape_length_diverges` already pins plain = zero bytes. The
+claim came from reading the symbol's ADDRESS out of `s4.lst`; a zero-length label
+sits at the address of whatever follows it. **A symbol in the listing is not
+emitted bytes.**
+
+**The audit method was the real defect.** It greped release for a hand-written
+list of debug symbol NAMES. That answers "did these specific things leak", not
+"did anything leak", and the list was written by the same pass that did the
+gating — so it could only confirm its own assumptions. The sound measurement is
+**span to the next symbol**, over every debug-ish symbol in the listing.
+
+Re-run that way, the release ROM **does** carry reachable debug equipment, and it
+is not the proc above:
+
+| symbol | release addr | bytes |
+|---|---|---|
+| `Player_DebugEnter` | `$103BA` | 52 |
+| `Player_DebugExit` | `$103EE` | 58 |
+| `Player_DebugMove` (+4 locals) | `$10428` | 56 |
+| `TestPlayer_Debug` (+5 locals) | `$10F46` | 60 |
+| `TestPlayer_Main.exit_debug` | `$10D9E` | 50 |
+
+`Player_Main` (`player_common.emp:240-251`) toggles free-flight debug mode on a B
+press with **no `DEBUG` gate at all**; `grep debug_flag` returns eleven sites and
+not one is inside an `if DEBUG == 1`. A player holding B in the shipped build
+flies.
+
+This is **pre-existing** — every one of those addresses is identical in
+`lean.bin`, which is byte-for-byte the pre-parcel release ROM — so it is not a
+regression from this parcel, and the parcel's byte-identity evidence stands
+unaffected. But the claim "no debug equipment in release" that this section
+originally made was **wrong as stated**, and is withdrawn: what this parcel
+actually proved is that it added none. Gating debug-fly is byte-changing and
+player-facing, so it is written up for an owner ruling in
+`docs/DEFERRED_WORK.md` rather than folded in here.
 
 ---
 
