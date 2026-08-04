@@ -5,7 +5,8 @@
 //
 // Canonical-emission: byte-identical to ojz_scroll_test.asm both shapes
 // (ojz_scroll_test window; shape-DEPENDENT — the two Debug_Scene_Freeze skip
-// blocks grow the region +$C in DEBUG). As the boot state it is a LIVE oracle-A/B
+// blocks plus the DEBUG cheat-arm write grow the region +$12 in DEBUG). As the
+// boot state it is a LIVE oracle-A/B
 // instrument: its two Debug_Scene_Freeze skips (camera + entity-scan) are the
 // deterministic-cache-fill / frame-lock hooks the A/B soak uses, so the port
 // keeps them bit-exact (any byte-gate-blind change names the oracle-A/B rider).
@@ -30,7 +31,7 @@ use engine.coords.{pixels_to_coord}
 // VRAM_TEST_OBJ / VRAM_TEST_MARKER — sole authority is games.sonic4.constants
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY}
 
 // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
 // real home is engine/level/camera.asm (not exported by camera.emp), mirrored
@@ -54,6 +55,16 @@ equ PLAYER_1_Y_VEL = extern("Player_1") + extern("SST_y_vel")
 // GameState_OJZScroll_Init — one-shot setup
 // -----------------------------------------------
 pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) {
+        // -- arm the developer cheats (DEBUG shape only). This is the game's
+        //    one-shot boot init (Game.entry), so the write lands exactly once per
+        //    boot, before any state can read Cheat_Flags. Release/lean emit NOTHING
+        //    here: boot clears all Work-RAM, so every cheat is already off, and
+        //    debug-fly's B toggle (Player_Main / TestPlayer_Main) stays inert until
+        //    a cheat code sets the bit. --
+        if DEBUG == 1 {
+                move.b  #CHEAT_DEBUG_FLY, Cheat_Flags   // (Cheat_Flags).w
+        }
+
         // -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
         move.b  #$02, VDP_Shadow_Table + VDP_MODE3_OFF   // setVDPReg VDP_Shadow_vdp_mode3, #$02
         ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask

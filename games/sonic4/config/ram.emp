@@ -29,6 +29,18 @@ pub vars game_ram {
     }
 
     // -----------------------------------------------
+    // Cheats
+    // -----------------------------------------------
+    // The runtime cheat gate — a bitfield of the CHEAT_* masks (config/constants.emp).
+    // Cheat PAYLOAD ships in every build shape; this byte is the only thing that
+    // makes a cheat reachable, so authoring a cheat code (button sequence, menu
+    // unlock) later needs no engine or player change — it just sets a bit here.
+    // Boot-cleared with all Work-RAM, so the release/lean default (every cheat off)
+    // costs ZERO bytes; only the DEBUG shape writes it (ojz_scroll_test's init).
+    Cheat_Flags:            u8,
+    pad(1),                         // keep the following words even-aligned
+
+    // -----------------------------------------------
     // Player (§5)
     // -----------------------------------------------
     // Effective physics table — recomputed by Player_RefreshPhysics on section

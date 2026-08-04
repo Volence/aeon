@@ -2351,36 +2351,66 @@ ongoing value; (1) and (2) are load-time only.
 
 ---
 
-## Debug-fly mode is REACHABLE in the shipped release ROM (found 2026-08-05)
+## RESOLVED — debug-fly is a CHEAT, gated at runtime (ruled 2026-08-05)
 
-Surfaced by re-auditing the `crash-report` parcel's no-debug-equipment claim. That
-parcel established the rule **diagnostics ship, equipment does not**
-(`CODING_CONVENTIONS.md` §1.7); this violates it.
+Raised as "debug-fly mode is REACHABLE in the shipped release ROM", found by
+re-auditing the `crash-report` parcel's no-debug-equipment claim: `Player_Main` and
+`TestPlayer_Main` toggled free-flight on a B press with no gate of any kind, so a
+player holding B in the shipped build flew.
 
-**`Player_Main` (`games/sonic4/player/player_common.emp:240-251`) toggles free-flight
-debug mode on a B press, with NO `DEBUG` gate of any kind.** The same shape exists in
-the test player (`games/sonic4/objects/test_player.emp:83-110`). Emitted in the
-release ROM today:
+**Owner ruling: debug-fly is a CHEAT, not debug equipment.** It is therefore not a
+§1.7 violation at all once it is gated the way a cheat is gated. Equipment is gated
+at BUILD time and absent from release; a cheat is gated at RUNTIME and present but
+unreachable. The payload SHIPS in release deliberately.
 
-| symbol | release addr | bytes |
-|---|---|---|
-| `Player_DebugEnter` | `$103BA` | 52 |
-| `Player_DebugExit` | `$103EE` | 58 |
-| `Player_DebugMove` (+4 locals) | `$10428` | 56 |
-| `TestPlayer_Debug` (+5 locals) | `$10F46` | 60 |
-| `TestPlayer_Main.exit_debug` | `$10D9E` | 50 |
+**What shipped (parcel `cheat-flag`).** A runtime gate, no build-shape gate:
 
-`grep debug_flag` over `engine/` and `games/` returns eleven sites and **not one is
-inside an `if DEBUG == 1`**. So a player holding B in the shipped build flies.
+- `Cheat_Flags` — a `u8` bitfield in game RAM (`games/sonic4/config/ram.emp`; cheats
+  are game content, not engine).
+- `CHEAT_DEBUG_FLY = 1 << 0` — bit 0 (`games/sonic4/config/constants.emp`).
+- Both toggle sites test the bit before doing anything and fall straight through
+  when it is clear: `Player_Main` (`games/sonic4/player/player_common.emp:249-270`)
+  and `TestPlayer_Main` (`games/sonic4/objects/test_player.emp:76-119`).
+- Boot-entry tests the same bit: `Player_Init`
+  (`games/sonic4/player/player_common.emp:205-209`) — see below.
+- The debug shape arms the bit at the game's one-shot boot init
+  (`GameState_OJZScroll_Init`, `games/sonic4/test/ojz_scroll_test.emp`) inside an
+  `if DEBUG == 1`. Release/lean write nothing: boot clears all Work-RAM, so the
+  default of 0 costs **zero release bytes**.
 
-**The fix is a ruling, not a patch.** Gating it is byte-changing (full repin/refreeze
-ritual) and changes player-facing behaviour, so it wants an owner decision: gate the
-toggle behind `DEBUG` (the equipment reading), or keep debug-fly as a shipped feature
-(some games ship a cheat). The `debug_flag` field itself can stay either way — it is
-one byte of SST and the state dispatch reads it.
+So `Player_DebugEnter` / `DebugExit` / `DebugMove` / `TestPlayer_Debug` still emit
+their bytes in release — that is now intended cheat payload, and all three gate sites
+say so in comments for the next auditor.
 
-Note the whole `test_player` object is scaffolding that ships in release regardless;
-if debug-fly is gated, ask the same question of `test_player` as a unit.
+**Boot-entry rides the same bit (done in this parcel).** `Player_Init` used to end
+with an unconditional `jbra Player_DebugEnter` — the player *booted* into free-flight
+so the streaming-test workflow started in the yellow square. Gating only the B toggle
+would have stranded a release player in free-flight forever, since B is now inert:
+strictly worse than the ungated state we started from. No separate ruling was needed,
+because "default off, a cheat code turns it on" already means a release player starts
+as a normal player. `Player_Init` now tests the same bit and tail-calls
+`Player_DebugEnter` only when it is armed; with the bit clear it returns normally
+with the slot in `PSTATE_AIR`, which lands on frame 1 — nothing else in the init
+sequence was conditional on debug-fly. **The DEBUG shape is unaffected**:
+`GameState_OJZScroll_Init` arms the bit before it calls `Player_Init`, so a debug
+build still boots into the yellow square exactly as it did, and the dev convenience
+survives for free. Only release behaviour changed, which was the intent.
+
+**What remains.**
+
+1. **Author the cheat code that sets the bit.** Nothing else has to change when it
+   lands: a button sequence or a menu unlock writes `CHEAT_DEBUG_FLY` into
+   `Cheat_Flags` and debug-fly becomes reachable in a release ROM. That is the whole
+   point of the runtime-gate shape.
+2. **Should B join `BUTTON_JUMP_MASK`?** Still open, filed separately from this
+   ruling. Jump is `A|C` only today (`games/sonic4/player/player_common.emp:107`,
+   `games/sonic4/player/player_air.emp:28`) precisely because B was the debug-fly
+   toggle. With the cheat off, B now does nothing at all in release, which is the
+   classic-wrong behaviour — S3K jumps on all three. Byte-changing and player-facing,
+   so it wants its own parcel.
+3. **`test_player` as a unit.** The whole object is scaffolding that ships in release
+   regardless of this ruling; whether it should is a separate question about the test
+   object set, not about debug-fly.
 
 ### Correction: the `Debug_AssertObjLoop` entry that used to be here was WRONG
 

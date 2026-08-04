@@ -27,6 +27,16 @@ use engine.constants.{COLLECTED_MASK_BYTES}
 // Game state ids
 pub const GS_OBJECT_TEST          = 2
 
+// -----------------------------------------------
+// Cheats — the bits of Cheat_Flags (config/ram.emp)
+// -----------------------------------------------
+// A cheat is RUNTIME-gated payload: its code ships in every shape and stays
+// unreachable until its bit is set. That is the opposite of debug EQUIPMENT,
+// which is gated at BUILD time and absent from release (CODING_CONVENTIONS §1.7).
+// Bits are cleared at boot with all Work-RAM; the DEBUG shape arms the ones a
+// developer expects, and a cheat code will arm them in release.
+pub const CHEAT_DEBUG_FLY         = 1 << 0    // bit 0 of Cheat_Flags — free-flight debug mode
+
 pub const ANIM_RUN_THRESHOLD      = $600      // |gsp| at/above which walk -> run anim (S3K)
 pub const SPINDASH_BASE           = $800
 pub const SPINDASH_CHARGE_STEP    = $200
