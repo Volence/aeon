@@ -360,8 +360,9 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
 // Out: none (silently drops if buffer full)
 // Clobbers: d0–d3, a1–a2
 // Note: plane B is 64×32 tiles. Strip = 32 words; header = $8000 | (32-1) = $801F.
-//       Source layout is row-major 64×32 — for col N, words at byte offsets
-//       row*128 + N*2 for row=0..31 (stride = 64 cols * 2 B = 128).
+//       Source layout is COLUMN-MAJOR 64×64 — for col N, the 32 words for rows
+//       0..31 are contiguous at byte offset N*128 (column stride = 64 rows *
+//       2 B = 128), so the gather is a sequential move.l run, not a strided read.
 // -----------------------------------------------
 pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         // -- overflow check (entry size = 4 + 32*2 = 68 bytes) --
@@ -379,9 +380,10 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         cmpa.w  #0, a1
         beq     .done
     .have_layout:
-        // -- a1 = layout base; advance by (col * 2) to point at row 0 of col --
+        // -- a1 = layout base; advance by (col * 128) to the top of the column --
+        //    (column-major: the column's 64 rows are contiguous from here) --
         move.w  d1, d3
-        add.w   d3, d3
+        lsl.w   #7, d3                          // col * 128 (column stride)
         adda.w  d3, a1
 
         // -- write buffer header --
@@ -392,11 +394,12 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         move.w  d0, (a2)+
         move.w  #PLANE_ENTRY_COL_FLAG | (32 - 1), (a2)+   // column write, 32 words - 1
 
-        // -- copy 32 words (one per row), reading column-major (stride = 128) --
-        moveq   #32-1, d3
+        // -- copy 32 words (rows 0..31), column-contiguous, paired as move.l:
+        //    16 longwords = 32 words. Source and dest are word-even (even layout
+        //    base + 128-byte column stride; even buffer) — all move.l needs. --
+        moveq   #16-1, d3
     .copy:
-        move.w  (a1), (a2)+
-        lea     128(a1), a1
+        move.l  (a1)+, (a2)+
         dbf     d3, .copy
 
         // -- zero terminator + buffer pointer update --

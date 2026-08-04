@@ -14,15 +14,24 @@
 //
 // Layout shape: each nametable layout is a raw 64x64 = 8192 bytes (full
 // Plane B nametable — the BG is 512px tall for vertical parallax; the
-// injector zero-pads 32-row layouts).
+// injector zero-pads 32-row layouts). Byte order is COLUMN-MAJOR:
+// blob[col*128 + row*2] — each column's 64 rows are contiguous (column stride
+// = 64 rows * 2 B = 128). tools/inject_editor_bg.py transposes the row-major
+// editor layout into this order at the editor->engine boundary. Every consumer
+// here reads it column-wise: BG_Init and Section_RedrawPlanes' Plane B blit set
+// the VDP address per column with autoinc $80 (one move.l = two vertically-
+// adjacent cells); Draw_BG_TileColumn gathers a column as a sequential move.l
+// run. The row-major intermediate ojz_strip_gen.py emits is ALWAYS overwritten
+// by the injector, so it never reaches the engine.
 //
 // RUNTIME 32-ROW LIMIT — do NOT trust the 512px headroom the shape advertises.
 // BG_Init below is the ONLY writer that fills all 64 nametable rows. Every
 // runtime maintainer of Plane B tops out at 32:
-//   * Section_RedrawPlanes (section.emp) — Plane B blit is 1024 longwords =
-//     4096 bytes = 64 cols x 32 rows, from the layout base.
+//   * Section_RedrawPlanes (section.emp) — Plane B blit writes rows 0..31 of
+//     all 64 columns (16 move.l per column, autoinc $80), skipping each
+//     column's rows 32..63.
 //   * Draw_BG_TileColumn (plane_buffer.emp) — 32-word column strips
-//     (header $8000|31), source stride 128 = rows 0..31 only.
+//     (header $8000|31), reading the first 32 of the column's 64 contiguous rows.
 // So rows 32-63 are INIT-ONLY: whatever BG_Init lays down there is never
 // refreshed, and a per-section redraw or a streamed column silently reverts
 // the top 32 rows to a 32-row world while the bottom 32 keep stale init
@@ -38,7 +47,7 @@ module engine.bg in bg
 
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_PLANE_B_BYTES, BG_TILE_BASE_VRAM, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act}
-use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{stop_z80, start_z80}
 
 const BG_LAYOUT_SIZE      = 64*64*2     // 8192 bytes (full Plane B nametable)
@@ -86,12 +95,21 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         bls     .bg_len_ok
         move.w  #BG_TILE_REGION_BYTES, d1
     .bg_len_ok:
+        // Tier-1 blit: copy the tile body a LONGWORD at a time (autoinc 2 keeps
+        // it linear in VRAM). The count is quartered, so the length guard must be
+        // RE-DERIVED — the parcel-6 word-count guard (lsr #1) does not survive the
+        // move.l translation, it just underflows on a different set of lengths.
+        //
         // The clamp above bounds the copy from ABOVE. It does NOT bound it from
-        // below: a drifted length of exactly 1 byte passes the `beq` (nonzero)
-        // and the `bls` (in range), then lsr -> 0 and subq -> $FFFF, and dbf
-        // runs 65,536 words = 128KB straight through the SAT and every other
-        // VRAM structure. Close it by taking the word count FIRST and skipping
-        // on zero. Odd lengths >= 3 still merely drop their trailing byte.
+        // below: a drifted length of 1..3 bytes passes the `beq` (nonzero) and the
+        // `bls` (in range), then lsr.w #2 -> 0 and subq -> $FFFF, and dbf would run
+        // 65,536 LONGWORDS = 256KB straight through the SAT and every other VRAM
+        // structure. Close it by taking the LONGWORD count FIRST and skipping on
+        // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
+        // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
+        // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
+        // blobs are 32-byte granular (inject_editor_bg.py asserts len%4==0), so the
+        // drop never fires in practice — it is the last line of defense.
         //
         // Both counter ops are hoisted ABOVE the stop_z80 bracket on purpose:
         // .skip_tiles sits past the matching start_z80, so a guard branch taken
@@ -100,15 +118,15 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         // free. (No assert on the drop: the debug expansion would push
         // .skip_tiles past short-branch reach and force shape-dependent width
         // pins — ledgered instead; the emitter always emits 32-byte multiples.)
-        lsr.w   #1, d1                  // word count = bytes/2
-        beq     .skip_tiles             // 1-byte (sub-word) blob -> nothing to copy
-        subq.w  #1, d1                  // dbf counter (safe: word count >= 1)
+        lsr.w   #2, d1                  // longword count = bytes/4
+        beq     .skip_tiles             // 1..3-byte (sub-long) blob -> nothing to copy
+        subq.w  #1, d1                  // dbf counter (safe: longword count >= 1)
         stop_z80
         move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
         move.l  #vdp_comm(BG_TILE_BASE_VRAM, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
         lea     VDP_DATA, a2            // (VDP_DATA).l
     .tile_copy:
-        move.w  (a1)+, (a2)
+        move.l  (a1)+, (a2)
         dbf     d1, .tile_copy
         start_z80
     .skip_tiles:
@@ -118,17 +136,35 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         cmpa.w  #0, a1
         beq     .skip_nt
         stop_z80
-        move.w  #$8F02, VDP_CTRL        // (VDP_CTRL).l — autoincrement = 2
-        move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), VDP_CTRL
-        lea     VDP_DATA, a2            // (VDP_DATA).l
-        // No length guard needed here: the count is the compile-time constant
-        // BG_LAYOUT_SIZE/2 - 1 = 4095, never derived from blob data, so the
-        // sub-word underflow that bites the tile blit above cannot occur. The
-        // layout blob is a fixed-size 8192 B nametable image by contract.
-        move.w  #BG_LAYOUT_SIZE/2 - 1, d0
-    .nt_copy:
-        move.w  (a1)+, (a2)
-        dbf     d0, .nt_copy
+        // Column-major blit: the layout blob is column-contiguous
+        // (blob[col*128 + row*2], 64 rows/column). Per column, point the VDP at
+        // the column's top cell and drain all 64 rows with autoinc $80 — one
+        // move.l = two vertically-adjacent cells = two adjacent source words.
+        // 32 move.l per column × 64 columns = 2048 longwords = the full 8192 B.
+        // The 64 command setups are init-only. No length guard needed: the
+        // geometry is the compile-time constant BG_LAYOUT_SIZE, never derived
+        // from blob data, so the sub-word underflow that bites the tile blit
+        // above cannot occur — the layout blob is a fixed 8192 B image by
+        // contract. The 64×32-longword geometry below IS BG_LAYOUT_SIZE
+        // (64 cols × 64 rows × 2 B = 64 × 32 longwords); keep them in lockstep.
+        move.w  #$8F80, VDP_CTRL       // (VDP_CTRL).l — autoincrement $80 (column stride)
+        lea     VDP_DATA, a2           // (VDP_DATA).l
+        moveq   #0, d1                 // d1 = column index 0..63
+    .nt_col:
+        moveq   #0, d0
+        move.w  d1, d0
+        add.w   d0, d0                 // d0 = col*2 (byte offset of row 0)
+        addi.l  #VRAM_PLANE_B_BYTES, d0
+        vdp_comm_reg(d0, VdpTarget.Vram, VdpOp.Write)
+        move.l  d0, VDP_CTRL          // set VDP address to this column's top cell
+        moveq   #32-1, d0             // 32 longwords = 64 words = rows 0..63
+    .nt_row:
+        move.l  (a1)+, (a2)
+        dbf     d0, .nt_row
+        addq.w  #1, d1
+        cmpi.w  #64, d1
+        blt     .nt_col
+        move.w  #$8F02, VDP_CTRL      // restore default autoincrement = 2
         start_z80
     .skip_nt:
         move.w  (sp)+, sr               // restore interrupt mask

@@ -248,7 +248,7 @@ BG_TILE_CAPACITY  = 512     ; tiles
 
 ### BG nametable layout
 
-`act_bg_layout` points to a raw 64×32 nametable = 4096 bytes (2 bytes/cell, 64 cols × 32 rows, row-major). Written directly to VDP Plane B nametable at $E000.
+`act_bg_layout` points to a raw 64×64 nametable = 8192 bytes (2 bytes/cell), written to VDP Plane B nametable at $E000. Byte order is **column-major** (`blob[col*128 + row*2]` — each column's 64 rows are contiguous, column stride 128 bytes). The editor authors the layout row-major; `tools/inject_editor_bg.py` transposes it to column-major at the editor→engine boundary, so the engine can blit each column with a sequential `move.l` run (autoinc $80). Rows 32-63 are init-only today (the injector zero-pads 32-row layouts); the runtime maintainers refresh rows 0-31.
 
 ---
 
