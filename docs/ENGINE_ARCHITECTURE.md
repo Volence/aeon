@@ -12,7 +12,7 @@ This is the **design bible**. This document describes the engine we're building 
 
 | # | System | Key Decisions |
 |---|--------|---------------|
-| 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, soft-reset detection + DMA-safe warm path (warm boot falls through to full init — CrossResetRAM persistence is DESIGN ONLY, §0.11), region detection with region-adaptive DMA budget (NTSC-only), 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
+| 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, soft-reset detection + DMA-safe warm path (warm boot falls through to full init; nothing is preserved by design — §0.11), region detection with region-adaptive DMA budget (NTSC-only), 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
 | 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. The FG act art pool ships as ZX0 pages; S4LZ remains the runtime block-stream format. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile deduplication + spatial pool ordering + paging** (globally-deduped, spatially-ordered, paged act art pool — no per-section allocation), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Whole-act paged art pool (fully resident, loaded once at init — no per-section art swap), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $52 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
@@ -21,7 +21,7 @@ This is the **design bible**. This document describes the engine we're building 
 | 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.06 Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **ALSO SHIPPED (DAC-drum revision + SFX engine + music-expression spine, through 2026-06-27):** one-shot PCM drums with adaptive FM6 time-share; the **SFX engine** (steal/priority/ducking, `Sound_PlaySFX`); and the **music-expression spine** — software vibrato/`MEV_MODSET` for music, per-frame FM-TL volume envelope (`MEV_FMENV`), inline raw-register write (`MEV_REGWRITE`, $2A/$2B-guarded), SSG-EG load-time per-op patch (`FmPatch` $90 group), dual-stream macro automation (`MEV_MACRO`/`MacroTick` on `sc_mod_ptr` slot[1]), PSG volume envelopes. **ALSO SHIPPED (music-expression Phase 2 + sound-perf phase, through 2026-07-02):** per-note portamento (`MEV_PORTA`, resident) + detune/fine-pitch, global fade (`SND_REQ_FADE`) + S3K-exact tempo (`MEV_TEMPO` accumulator+skip) + hardware-LFO opcode (`MEV_LFO`), measured 59.9227 Hz frame-clock pin, envelope write-on-change. **DEFERRED:** ~~N-channel DAC mixer~~ (REJECTED — single-voice + pre-mixed composites RATIFIED by user 2026-07-03, see §6.2); runtime SSG-EG 7th-RegDelta-group, Ch3 special/CSM, detune-unison (Ph3b residuals); Phase-4 richer content-adaptive FM6/DAC modes (basic dedicate/adaptive Echo toggle already SHIPPED); **game-feel moments — pause/unpause, jingle push/pop + mid-song resume, song-finished contract (the current sound priority, spec in the 2026-07-03 banking queue)**; section-aware banking (§6.4); continuous SFX (→ SFX Stage C, §6.7); distance attenuation DEMOTED (§6.5); procedural ambient CUT (§6.6); MegaDAW compiler/export (Ph6, blocked on content sourcing). See §6 body + the 2026-06-16 master sound spec. |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
 | 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, spatially-order and page the global act art pool, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
-| 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset detection (CrossResetRAM *persistence* is design only — nothing survives a reset today, §9.5)**, SRAM save system (Sonic 3 dual-copy checksums), **cooperative multitasking (NOVEL — supervisor/user mode context switching, background S4LZ decompression)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
+| 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset detection + DMA-safe warm path (persistence RULED OUT 2026-08-05 — SRAM is the mechanism, §9.5/§9.6)**, SRAM save system (Sonic 3 dual-copy checksums), **cooperative multitasking (NOVEL — supervisor/user mode context switching, background S4LZ decompression)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
 
 ---
 
@@ -821,7 +821,7 @@ HBlank_Vector_Slot:     ds.b 6          ; executable instruction slot
 
 **Why a RAM instruction slot for HBlank but a pointer for VBlank:** HBlank fires up to 224 times per frame and must be as fast as possible — executing an instruction straight out of RAM saves the pointer-load and indirect-`jsr` a dispatched design would pay on every line, so the null case is a single `rte`. VBlank fires once per frame but needs mode-specific behavior (VInt_Level, VInt_Lag, future VInt_Menu/VInt_Load). The `VInt_Ptr` RAM pointer selects the mode; the lag detection is handled in the ROM dispatcher itself via the `VBlank_Ready` flag.
 
-### 0.11 Soft Reset Detection (CrossResetRAM §9.5)
+### 0.11 Soft Reset Detection
 
 **Problem:** When the user presses RESET, only the 68000 resets. VDP, Z80, VRAM, CRAM, all retain their state. A running DMA may still be in progress.
 
@@ -847,9 +847,20 @@ Cold_Boot:
 
 There is **no reserved persistence region and no magic marker** in code today. `$FFFFFF00` is the initial stack pointer (`SYSTEM_STACK`, `engine/system/constants.emp`), not a reserved cross-reset block — no `CROSS_RESET_RAM` or `CROSS_RESET_MAGIC` symbol exists (`grep engine/ games/` returns only `SYSTEM_STACK`), and boot writes no marker at the end of init. Every boot, warm or cold, runs the full RAM clear and full hardware init; nothing survives a soft reset.
 
-> **Re-verified 2026-08-04 (review item 27, finding 1).** The review claimed the clear loop *wipes a documented CROSS_RESET_RAM region* and that a `CROSS_RESET_MAGIC` is written but never read. Neither is true of this tree: `grep -r "CROSS_RESET" engine/ games/` returns nothing at all — there is no region, no magic constant, and no write to remove. The finding described the pre-`.emp` `ram.asm`/`boot.asm` state; the mechanism was already gone by the time the review shipped. The clear loop was left exactly as it is (`engine/system/boot.emp`, `.clear_ram`) and only the comments were corrected. **Open ruling for the owner: keep this design or delete it from the doc.** It has now survived two review passes as a design with no code and no scheduled work; a soft-reset semantics change is a product decision, not a refactor, so nothing here moves without a ruling.
-
-**Design (not implemented): CrossResetRAM persistence.** **Status: design, not implemented (verified 2026-08-02, re-verified 2026-08-04).** The intended end state is a small Work-RAM region that survives soft reset: on warm boot, a valid magic word gates preservation of the region (lives/continues/score) while everything else is cleared and the game re-enters at the title screen via a dedicated `Warm_Reset` path. On cold boot the region reads as garbage/zero and is initialized. This allows "press RESET to return to title screen with score intact" behavior. None of it exists in code yet — no reserved region, no magic constant, no `Warm_Reset` path.
+> **CrossResetRAM persistence was RULED OUT (Volence, 2026-08-05) and its design is
+> deleted, not deferred.** Two reasons. (1) It straddles the engine/game wall badly:
+> warm/cold *detection* is engine (it lives in boot), but the *policy* — what is worth
+> preserving — is pure game (the demo has no score to keep), so the engine would have to
+> reserve a region it cannot give meaning to. (2) **SRAM (§9.6) is the persistence
+> mechanism for this project.** It survives power-off, not just reset, and it is the
+> right home for saves, best times and unlocks. The one thing SRAM cannot replicate is
+> live-at-the-instant-of-reset state — cross-reset RAM works precisely because you write
+> nothing at reset time (reset raises no interrupt), whereas SRAM only holds what was
+> deliberately written earlier. That narrow gap ("keep the exact live score through a
+> RESET press") is not a feature worth an engine/game contract.
+>
+> Soft-reset detection + the DMA-safe warm path above STAY — they are real, they ship,
+> and they are what stops an in-flight DMA from scribbling over fresh init code.
 
 ### 0.12 Boot Sequence — Complete Execution Order
 
@@ -963,7 +974,7 @@ Changes in this section that ripple to other sections:
 | Region detection | §1.1 DMA Queue | PAL gets nearly double DMA budget — adaptive byte count |
 | Controller port init | §9.4 6-Button | Boot sets TH output; VBlank reads using rapid TH cycling |
 | Z80 idle program | §6 Audio | Boot loads the sound driver directly when SOUND_DRIVER_ENABLED (default); the idle program ships only in sound-OFF builds |
-| CrossResetRAM | §9.5 Soft-Reset | Boot detects warm/cold (DMA-safe fall-through to full init); no region reserved and no magic written — persistence is design-stage (§0.11) |
+| Soft-reset handling | §9.5 Soft-Reset | Boot detects warm/cold (DMA-safe fall-through to full init); nothing preserved BY DESIGN — CrossResetRAM persistence ruled out 2026-08-05, SRAM (§9.6) is the mechanism |
 | DMA-parallel init | §1.1 DMA Queue | Validates that DMA fill + CPU work can overlap safely |
 
 ---
@@ -3704,29 +3715,21 @@ Our implementation uses `parent_ptr` and `sibling_ptr` fields in the SST. S.C.E.
 
 **Uses for extra buttons (game-side):** X/Y/Z/Mode are exposed to game code via the `_Ext_*` cells for debug shortcuts (frame advance, profiler toggle) or gameplay features. The engine only reads/exposes them; mapping is the game's.
 
-### 9.5 Soft-Reset Persistence (CrossResetRAM)
+### 9.5 Soft-Reset Handling
 
-> **Status: DESIGN — not implemented (verified 2026-08-02, §0.11).** What ships today is soft-reset *detection* + DMA safety only: `EntryPoint` detects warm boot, `Warm_Boot` waits out any in-flight DMA, then falls through to the full `Cold_Boot` init — nothing is preserved. There is **no** `CrossResetRAM` region, no magic-string marker, and no `Warm_Reset` path in code (no such symbols exist; `$FFFFFF00` is the stack pointer). The rest of this subsection is the intended S.C.E.-derived design.
+**What ships:** soft-reset *detection* + DMA safety, and nothing else. `EntryPoint`
+distinguishes warm from cold boot, `Warm_Boot` waits out any in-flight DMA, then falls
+through to the full `Cold_Boot` init. Every boot clears all 64 KB and re-inits all
+hardware; **nothing survives a soft reset by design.** See §0.11.
 
-**Hardware behavior:** All 64KB of work RAM survives a soft reset (Start+A+B+C or reset button). The 68000 CPU resets but RAM contents persist. The VDP also keeps running during reset — any in-progress DMA continues while the 68000 restarts, potentially overwriting freshly-loaded init code. Robust startup code must account for this (brief delay or VDP disable before initialization).
-
-**Cold vs warm detection (from S.C.E.):** Write a magic string (`'INIT'`) to a fixed RAM address during first boot. On subsequent boots, check for the magic string — if present, it's a warm boot (skip full init, preserve game state). If absent, cold boot (full init, clear everything).
-
-**CrossResetRAM region (from S.C.E.):** Explicit RAM region between `CrossResetRAM` and `CrossResetRAM_end` that is NOT cleared on warm boot. Contains:
-- Current zone/act and section coordinates
-- Music state (so music doesn't restart)
-- Star post / checkpoint saves (zone, position, rings, timer, camera, water level)
-- HUD state (score, lives, continues)
-- Debug mode saved state
-- Graphics flags (PAL/NTSC detection result)
-
-Startup sequence:
-1. Always clear `RAM_start` to `CrossResetRAM` (volatile state)
-2. Check magic string at `Checksum_string`
-3. If absent (cold boot): clear `CrossResetRAM` to `CrossResetRAM_end`, write magic string
-4. If present (warm boot): skip CrossResetRAM clear, resume from saved state
-
-**Player experience:** On soft reset, the player resumes at their last section checkpoint rather than restarting from the beginning. Music continues from the current track. This is free — just organizing RAM correctly.
+**CrossResetRAM persistence: RULED OUT 2026-08-05 — design deleted.** The S.C.E.-derived
+scheme (a magic-gated RAM region preserving zone/act, music state, checkpoint, HUD across
+a RESET press) is not on the roadmap and its description has been removed from this doc
+rather than left standing as a design nobody is building. It had survived two review
+passes with zero code and no scheduled work, and it repeatedly produced FALSE review
+findings — reviewers kept "discovering" that boot wipes a region that never existed.
+Persistence in this engine is **SRAM (§9.6)**, which survives power-off and is the right
+home for saves, best times and unlocks. See §0.11 for the full reasoning.
 
 ### 9.6 SRAM Save System
 
@@ -3831,7 +3834,7 @@ All macros handle odd start addresses (emit a `move.b` first) and leftover bytes
 
 **Background task → decompression throughput:** The multitasking system (9.7) enables S4LZ to run continuously in spare CPU time. Combined with the priority DMA queue (§1.1), this creates a pipeline: background decompresses to RAM buffer → main loop enqueues DMA → VBlank transfers to VRAM. Each stage runs independently at its own pace. S4LZ's 700-1100 KB/s throughput means per-section tile art can decompress in 1-2 frames of background time even on busy scenes.
 
-**SRAM → CrossResetRAM → player experience:** SRAM provides permanent saves across power cycles. CrossResetRAM provides session persistence across soft resets. Together, the player never loses more than one section of progress.
+**SRAM → player experience:** SRAM (§9.6) provides permanent saves across power cycles, and is the SOLE persistence mechanism — soft-reset persistence was ruled out (§9.5), so a RESET press is a clean restart and progress granularity is whatever SRAM was last written at (checkpoint/star-post granularity).
 
 **Error handler → debug assertions → stability:** The Vladikcomper error handler (8.3) is the foundation. Per-module assertions (8.4) are the sensors. Together, they catch bugs at their source — buffer overflows, null pointers, corrupted indices — before they cascade into mysterious crashes elsewhere.
 
@@ -3883,7 +3886,7 @@ GameLoop:
 **Cross-references:**
 - §0.12 Boot Sequence: cold boot ends at `Game_StateInit` → `GS_SEGA`
 - §1.4 VBlank Structure: `VInt_ptr` selects handler per game state
-- §9.5 CrossResetRAM: warm boot resumes at `GS_TITLE` with preserved score/lives
+- §9.5 Soft-reset handling: warm boot waits out in-flight DMA then runs the full cold init — it does NOT resume with preserved state (persistence ruled out 2026-08-05)
 
 ### 9.14 Text & Font Rendering
 

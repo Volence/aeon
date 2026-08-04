@@ -155,12 +155,15 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.w  d0, (a1)                    // release bus — Z80 has control
 
         // Clear Work RAM — ALL 64KB, on warm boots as well as cold (§0.7).
-        // There is deliberately no preserved region: no CrossResetRAM block, no
-        // magic marker, no `Warm_Reset` entry — those exist only as a design in
-        // docs/ENGINE_ARCHITECTURE.md §0.11 / §9.5, never in code. A soft reset
-        // is a full restart. Anything that should survive one has to be carved
-        // out here FIRST, and that is a product decision (owner ruling), not a
-        // refactor.
+        // There is deliberately no preserved region, and this is now a RULING
+        // (Volence, 2026-08-05), not an unfinished feature: soft-reset
+        // persistence is OUT, and SRAM (arch §9.6) is this engine's persistence
+        // mechanism — it survives power-off, not just a RESET press. A soft
+        // reset is a full restart. Do not re-propose a CrossResetRAM-style
+        // carve-out here; the design was deleted from the arch doc precisely
+        // because standing text kept generating false review findings against
+        // this loop (reviewers "discovering" it wipes a region that never
+        // existed). See arch §0.11 / §9.5.
         movea.l d0, a6                      // a6 = 0
         move.w  d6, d2                      // d2 = $3FFF dbf count → $4000 longs = 64KB
     .clear_ram:
