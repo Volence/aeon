@@ -20,19 +20,24 @@
     ; macros only here; the error-handler blob itself is native (engine/debug/
     ; error_handler.emp), and debugger.asm resolves MDDBG__* as link externs off that base.
     ;
-    ; DEBUG-ONLY (review item 29 part 4 — the MDDBG strip): error_handler.emp is now a
-    ; DEBUG-only native module, so in the RELEASE shape the MDDBG__* link externs
-    ; debugger.asm's equ table derives off have no definition and the include would be a
-    ; hard link error. Gate the include on __DEBUG__ (defined only in debug builds).
-    ifdef __DEBUG__
+    ; GATED ON __MDDBG__ (the crash-report axis, owner-ruled 2026-08-04): the include is
+    ; valid exactly when error_handler.emp is placed, because the MDDBG__* link externs
+    ; its equ table derives off are that module's `pub equ`s — without the island they are
+    ; unresolvable, a hard link error. __MDDBG__ is pushed when
+    ; `profile.debug || profile.crash_report`, so DEBUG and RELEASE include it and only
+    ; the opt-in LEAN shape does not. The demo's release shape carries the debugger like
+    ; any other game: it rides the engine.* registry filter, no exclusion. AS `ifdef`
+    ; tests DEFINEDNESS, not value, so the axis is push-or-omit.
+    ifdef __MDDBG__
     include "engine/debug/debugger.asm"
     endif
 
-    ; EquSym carrier (review item 29 part 4) — see games/sonic4/game_root.asm for the
-    ; full rationale. In RELEASE the debugger.asm include is gated out, so this single
-    ; zero-byte equate forces the carrier section that attach_guarded_equ_exports needs
-    ; to re-export the harvested engine-constant EquSyms (HW_*, …) to the `.emp` link.
-    ; Byte-neutral in both shapes.
+    ; EquSym carrier — see games/sonic4/game_root.asm for the full rationale. Since the
+    ; crash-report ruling the RELEASE shape normally has a section again (the __MDDBG__
+    ; include opens one); the carrier stays as the belt-and-braces for the LEAN shape,
+    ; where the include is gated out and this single zero-byte equate is what forces open
+    ; the carrier section attach_guarded_equ_exports needs to re-export the harvested
+    ; engine-constant EquSyms (HW_*, …) to the `.emp` link. Byte-neutral in every shape.
 __Aeon_AS_Carrier:  equ 0
 
     END

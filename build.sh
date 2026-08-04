@@ -5,15 +5,21 @@ set -euo pipefail
 # The AS Macro Assembler (asl) + p2bin + fixheader have left the pipeline; one sigil
 # invocation assembles (every .emp module lowered natively + the residual .asm DATA
 # via sigil-frontend-as), links in declared order, folds the header checksum in
-# emit_rom, emits the sigil-canonical .lst, and — in DEBUG shapes ONLY — appends the
-# deb2 symbol table via the surviving `convsym`. The .asm CODE twins are deleted — the
-# .emp is the only source.
+# emit_rom, emits the sigil-canonical .lst, and appends the deb2 symbol table via the
+# surviving `convsym`. The .asm CODE twins are deleted — the .emp is the only source.
 #
-# APPENDIX SHAPE SPLIT (review item 29): the deb2 table is MD-Debugger equipment parked
-# past EndOfRom, ~29 KB of a shipped cartridge that nothing on hardware reads. A release
-# build therefore writes the assembled image verbatim (file length == EndOfRom, header
-# untouched — emit_rom already checksummed exactly those bytes); DEBUG keeps the table.
-# The `native_rom_plain` gate pins the no-appendix release shape byte-for-byte.
+# APPENDIX SHAPE SPLIT (crash-report axis, owner-ruled 2026-08-04 — this SUPERSEDES the
+# review-item-29 release strip): the MD Debugger island and its deb2 symbol table are
+# DIAGNOSTICS, not debug EQUIPMENT. A player's crash has to be reportable, and the
+# release ROM is ~9% of a 4 MB cart, so both canonical shapes this script builds —
+# release and DEBUG — carry the island AND the appendix. What release still does NOT
+# carry is equipment: asserts, SOUND_DEBUG_HOTKEYS, SOUND_DBG_MIRROR, boot autoplay,
+# CompressionSelfTest, the sound-debug mirror.
+#
+# The one shape without the debugger is the opt-in LEAN profile, which is NOT reachable
+# from here (it is a named off-canonical profile, like config-a/config-b):
+#   sigil build --aeon . --native --lean -o lean.bin
+# Lean routes every fault vector at ReleaseFault (mask, red backdrop, freeze) instead.
 #
 # ARTIFACT LEDGER (post-flip): the assembled anchors are the PRIMARY values and are
 # UNCHANGED (the prefix [0,EndOfRom) stays byte-for-byte the asl-witnessed
@@ -63,6 +69,16 @@ if [[ "$GAME" == "sonic4" ]]; then
         echo "  debug + hotkeys+mirror -> sigil build --native --config-a -o s4.debug.bin"
         exit 1
     fi
+fi
+
+# CRASH_REPORT is not an env axis of this script: the two shapes build.sh ships (release
+# and DEBUG) both carry the MD Debugger island + deb2 symbols, by the 2026-08-04 ruling.
+# The debugger-less shape is the named LEAN profile, gated by its own goldens — same
+# treatment as the non-canonical sound shapes above.
+if [[ "${CRASH_REPORT:-1}" != "1" ]]; then
+    echo "ERROR: CRASH_REPORT=0 is not a build.sh shape — it is the off-canonical lean profile:"
+    echo "  no debugger, no deb2 symbols -> sigil build --aeon . --native --lean -o lean.bin"
+    exit 1
 fi
 
 # The sigil build binary — THE assembler now. No asl fallback: a missing/failed sigil

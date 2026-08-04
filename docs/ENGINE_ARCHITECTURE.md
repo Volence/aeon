@@ -3503,9 +3503,17 @@ The build tool generates tile budget data that the level editor displays in real
 
 ### 8.2 Debug System Architecture (from S.C.E. + Vladikcomper + Vectorman)
 
-**One shape flag, four idioms.** The S.C.E.-style per-subsystem flag layer (`DEBUG_ALL` / `DEBUG_DMA` / …) was evaluated and never built: a check either belongs in the DEBUG shape or it does not, and a second dimension bought nothing but a matrix of untested shapes. The single flag is `DEBUG` (`-D DEBUG=0|1`; `__DEBUG__` on the AS side). The idioms it drives — self-gating `assert`, hand-wrapped `if DEBUG == 1 { raise_error … }`, comptime `ensure(...)`, and registry-level whole-file exclusion — are specified in `CODING_CONVENTIONS.md` §1.7, which is the canonical statement. There is no `ifdebug`/`debugend` layer in `.emp` (the AS `ifdebug` macro survives in `engine/debug/debugger.asm` with zero users) and no profiler overlay.
+**Two shape flags, four idioms.** The S.C.E.-style per-subsystem flag layer (`DEBUG_ALL` / `DEBUG_DMA` / …) was evaluated and never built: a check either belongs in the DEBUG shape or it does not, and a second dimension bought nothing but a matrix of untested shapes. `DEBUG` (`-D DEBUG=0|1`; `__DEBUG__` on the AS side) is that one flag and still means exactly "the debug shape". The second flag is not a subsystem layer but a *category* split, owner-ruled 2026-08-04: `CRASH_REPORT` (`__MDDBG__` on the AS side) separates **diagnostics, which ship**, from **debug equipment, which does not**. The idioms both drive — self-gating `assert`, hand-wrapped `if DEBUG == 1 { raise_error … }`, comptime `ensure(...)`, and registry-level whole-file exclusion — are specified in `CODING_CONVENTIONS.md` §1.7, which is the canonical statement. There is no `ifdebug`/`debugend` layer in `.emp` (the AS `ifdebug` macro survives in `engine/debug/debugger.asm` with zero users) and no profiler overlay.
 
-**Build shapes:** `DEBUG=1` adds the assertion expansions, the debug-only raise sites, and the debug-only modules (`compression_selftest`; `game_debug` at the hotkeys shape), and emits suffixed artifacts (`s4.debug.bin`) plus the deb2 symbol appendix consumed by MD-Debugger. Release assembles none of that and (review item 29) ships no appendix. The error-handler module itself is currently resident in **both** shapes — its release posture is a separate open review item.
+**Build shapes (three):**
+
+| shape | asserts / hotkeys / selftest / boot autoplay | MD Debugger + deb2 symbols | fault vectors point at |
+|---|---|---|---|
+| **debug** (`DEBUG=1`) | yes | yes | `error_handler` per-class stubs |
+| **release** (default) | no | yes | `error_handler` per-class stubs |
+| **lean** (`sigil build --native --lean`) | no | no | `ReleaseFault` |
+
+`DEBUG=1` adds the assertion expansions, the debug-only raise sites, and the debug-only modules (`compression_selftest`; `game_debug` at the hotkeys shape), and emits suffixed artifacts (`s4.debug.bin`). Release assembles none of that. Both canonical shapes carry the error-handler island and the deb2 symbol appendix consumed by MD-Debugger, so a player's crash is reportable — the ruling is that the release ROM is ~9% of a 4 MB cart and space does not decide this. Only the opt-in `lean` profile drops the island, and it routes every fault at `ReleaseFault` (mask, red backdrop, freeze) so the loud-failure ruling still holds there.
 
 ### 8.3 Error Handler (Vladikcomper MD Debugger v2.6)
 

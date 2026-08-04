@@ -136,7 +136,23 @@ Catch errors at build time, not at runtime. Every boundary, table size, and layo
 
 ### 1.7 Conditional Debug Assembly
 
-**One shape flag: `DEBUG`** (`-D DEBUG=0|1`; the AS-side spelling is `__DEBUG__`). There is no per-subsystem flag layer — code is either in the DEBUG shape or it is not. Debug builds carry the suffixed artifacts (`s4.debug.bin`), so the two shapes never overwrite each other.
+**Two shape flags, and one rule that tells them apart: diagnostics ship, equipment does not.**
+
+A *diagnostic* answers "what went wrong?" after the fact and costs nothing while the game is running correctly — the crash screen, the symbol table it names addresses out of. A *developer's instrument* — an assert that costs cycles every frame, a hotkey that lets you skip a level, a self-test that runs at boot — is equipment. Diagnostics are in the shipped ROM. Equipment is not. The release ROM is ~9% of a 4 MB cart, so size never decides this; the rule does.
+
+That gives three build shapes across two flags (`DEBUG`, `CRASH_REPORT`):
+
+| shape | flags | asserts / hotkeys / selftest / boot autoplay | MD Debugger + deb2 symbols | fault vectors point at |
+|---|---|---|---|---|
+| **debug** | `DEBUG=1`, `CRASH_REPORT=1` | yes | yes | `error_handler` per-class stubs |
+| **release** (default) | `DEBUG=0`, `CRASH_REPORT=1` | **no** | **yes** | `error_handler` per-class stubs |
+| **lean** (opt-in) | `DEBUG=0`, `CRASH_REPORT=0` | no | no | `ReleaseFault` |
+
+`DEBUG` (`-D DEBUG=0|1`; the AS-side spelling is `__DEBUG__`) means exactly "the debug shape" and nothing else. There is still no per-subsystem flag layer under it — code is either in the DEBUG shape or it is not. Debug builds carry the suffixed artifacts (`s4.debug.bin`), so the shapes never overwrite each other.
+
+`CRASH_REPORT` is an ordinary comptime define (`1` in every profile except `lean`), not a special-cased one. The predicate for anything on the crash-report axis is always `DEBUG == 1 || CRASH_REPORT == 1` — never bare `DEBUG == 1`, or the debugger vanishes from release. On the AS side the axis is a *definedness* define, `__MDDBG__`, pushed by the native driver whenever `debug || crash_report` (AS `ifdef` tests definedness, not value, so a `=0` would still take the arm — the axis has to be push-or-omit). `__DEBUG__` keeps its old meaning; the two are independent.
+
+**lean** is a full off-canonical build profile, not an env toggle: `sigil build --aeon . --native --lean`. It exists so the "no debugger at all" shape stays buildable and gated, and it is the only shape whose fault vectors route at `ReleaseFault` (`engine/system/release_fault.emp` — mask, red backdrop, freeze).
 
 Four idioms, in order of preference.
 
@@ -176,7 +192,7 @@ ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync wit
 ensure(SOUND_DEBUG_HOTKEYS == 0 || DEBUG == 1, "SOUND_DEBUG_HOTKEYS requires DEBUG=1")
 ```
 
-**4. Whole-file gating — registry-level module exclusion.** A module-level comptime `if` wrapping items is not expressible in `.emp`, so the **file** is the gated unit and the exclusion happens in the build registry, not in the source. Worked example, `engine/debug/compression_selftest.emp`:
+**4. Whole-file gating — registry-level module exclusion.** A module-level comptime `if` wrapping items is not expressible in `.emp`, so the **file** is the gated unit and the exclusion happens in the build registry, not in the source. `engine/debug/compression_selftest.emp` is gated on `debug` (equipment); `engine/debug/error_handler.emp` is gated on `debug || crash_report` and `engine/system/release_fault.emp` on the `else` of the same predicate (the crash-report axis). Worked example, `engine/debug/compression_selftest.emp`:
 
 - the source carries no gate at all;
 - the module spec is pushed only in the debug shape — `if debug { specs.push(m!("engine.compression_selftest", …)) }` in `sigil/crates/sigil-harness/src/native.rs`;
@@ -185,7 +201,9 @@ ensure(SOUND_DEBUG_HOTKEYS == 0 || DEBUG == 1, "SOUND_DEBUG_HOTKEYS requires DEB
 
 `games/sonic4/debug/game_debug.emp` is the same pattern one shape further out (compiled only at the Config-A hotkeys shape).
 
-**Release cost is zero by construction.** A non-DEBUG ROM carries no assert, no raise site from a wrapped block, no debug-only module — and, since review item 29, no deb2 symbol appendix past `EndOfRom` either.
+**Release carries the diagnostics and none of the equipment.** A non-DEBUG ROM carries no assert, no raise site from a wrapped block, no `DEBUG`-gated module — no `CompressionSelfTest`, no `SOUND_DEBUG_HOTKEYS`, no `SOUND_DBG_MIRROR`, no boot autoplay. It *does* carry the `error_handler` island and the deb2 symbol appendix past `EndOfRom`, because those are what make a player's crash reportable. Only the opt-in **lean** profile drops them.
+
+One structural consequence to respect: whenever the `error_handler` island is present it MUST be the final byte-emitting section, because the vendored blob locates its symbol table through PC-relative displacements baked into its own bytes that point one past its end, and `convsym` appends at `EndOfRom`. That was a debug-only concern before; it now binds the shipped release ROM too. The order is declared in each game's `map.toml` and enforced as a hard build error in `sigil`'s `append_deb2_appendix`.
 
 ### 1.8 Build-Time Data Generation
 

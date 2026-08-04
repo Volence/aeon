@@ -1,16 +1,19 @@
 // ===========================================================================
-// engine/system/release_fault.emp — the RELEASE-shape loud-failure handler
+// engine/system/release_fault.emp — the LEAN-shape loud-failure handler
 // ===========================================================================
-// RELEASE builds ship ZERO debug equipment (the MD Debugger / error_handler
-// island is DEBUG-only — review item 29 part 4, the MDDBG strip), but a fault
-// must still HALT LOUDLY rather than corrupt silently. ReleaseFault is that
-// loud failure: mask every interrupt, reset the VDP command state machine, set
-// the backdrop RED, and freeze. It is the RELEASE arm of every fault vector
+// The LEAN shape (`sigil build --native --lean`, CRASH_REPORT=0) is the one
+// build that ships NO MD Debugger / error_handler island — but a fault must
+// still HALT LOUDLY rather than corrupt silently. ReleaseFault is that loud
+// failure: mask every interrupt, reset the VDP command state machine, set the
+// backdrop RED, and freeze. It is the LEAN arm of every fault vector
 // ($08-$2C class stubs, $30-$60 reserved/spurious, $64/$68/$6C/$74/$7C IRQ,
-// $80-$FC TRAP) — vectors.emp points all 60 at this proc in the release shape,
-// exactly where the debug shape points them at error_handler's per-class stubs.
-// The owner ruling (vectors.emp policy block, item 27) required that a release
-// strip PRESERVE loud failure; this is that implementation.
+// $80-$FC TRAP) — vectors.emp points all 60 at this proc when CRASH_REPORT=0,
+// exactly where the debug + release shapes point them at error_handler's
+// per-class stubs. The owner ruling (vectors.emp policy block, item 27)
+// required that any shape without the debugger PRESERVE loud failure; this is
+// that implementation. (Its name is historical: it was minted when RELEASE was
+// the debugger-less shape. The 2026-08-04 crash-report ruling moved release
+// onto the debugger; lean inherited the handler unchanged.)
 //
 // SEMANTICS — ruled, implement exactly (do NOT "improve"):
 //   * NO stack use — a bus/address fault may have landed with a wild SSP; every
@@ -31,9 +34,13 @@
 //
 // It deliberately does NOT live in vectors.emp (that file is the fixed org-0
 // image, pure data to $200); it sits near the ROM tail, at the placement slot
-// the deleted null_interrupt.emp used to occupy (map order, just before where
-// the DEBUG-only error_handler island begins). RELEASE-shape ONLY: the registry
-// pushes it under `if !debug`, so the debug shapes never carry it.
+// the deleted null_interrupt.emp used to occupy (map order, at the same tail
+// position the error_handler island takes in the shapes that carry it).
+// LEAN-shape ONLY: the registry pushes it under the `else` of
+// `if debug || crash_report`, so neither canonical shape carries it. It is
+// therefore absent from every canonical listing, which is why it has no `repin`
+// region — lean places it from its frozen size table like every other
+// off-canonical section.
 // ===========================================================================
 
 module engine.system.release_fault in release_fault

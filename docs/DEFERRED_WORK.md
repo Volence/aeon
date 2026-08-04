@@ -2348,3 +2348,34 @@ Take it as one parcel with a posture ruling in front of it, after measuring the
 act-load time that (1)+(2) actually cost today — the review's cycle figures are
 estimates and no profiling was run. The per-frame win in (3) is the one with
 ongoing value; (1) and (2) are load-time only.
+
+---
+
+## `Debug_AssertObjLoop` ships in release (found 2026-08-05, NOT caused by that parcel)
+
+Surfaced during the `crash-report` parcel's no-debug-equipment audit, which is the
+only reason it is written down: the audit greps release for debug symbols, and this
+one is present.
+
+`Debug_AssertObjLoop` (`engine/objects/core.emp:564`) is an **unconditional
+`pub proc`**, but both of its call sites are `if DEBUG == 1`-wrapped
+(`core.emp:491`, `:543`). So the body assembles into every shape while nothing in
+release can ever reach it. It sits at `$2BEE` in the new release `s4.bin` **and** at
+`$2BEE` in `lean.bin` — which is byte-for-byte the pre-crash-report release ROM —
+so it predates this work by a long way. It is the a0/d7 RunObjects loop-contract
+assert added in the 2026-06-10 bug-005 fix (see the entry above).
+
+**Why it was not fixed in place:** the `crash-report` parcel's central piece of
+evidence is that `lean.bin` is byte-identical to the pre-parcel release ROM, which
+proves the whole `CRASH_REPORT` axis is inert at 0. Folding an unrelated byte change
+into that parcel would have destroyed the one measurement that made the flag algebra
+trustworthy.
+
+**The fix is one line, either shape:** wrap the proc body's module in the registry
+`if debug` (the `compression_selftest` idiom, `CODING_CONVENTIONS.md` §1.7 idiom 4),
+or move the proc to a debug-only module. The registry route is cleaner — the proc has
+no non-debug caller in any shape, so nothing needs a stub.
+
+**Worth a wider sweep when taken:** the same shape (unconditional `pub proc`, all call
+sites `DEBUG`-gated) may exist elsewhere. Grep for `pub proc Debug_*` and check each
+one's call sites, rather than fixing only the one the audit happened to name.

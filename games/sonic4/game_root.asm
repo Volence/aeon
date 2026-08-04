@@ -20,14 +20,18 @@
     ; macros only here; the error-handler blob itself is native (engine/debug/
     ; error_handler.emp), and debugger.asm resolves MDDBG__* as link externs off that base.
     ;
-    ; DEBUG-ONLY (review item 29 part 4 — the MDDBG strip): error_handler.emp is now a
-    ; DEBUG-only native module, so in the RELEASE shape the MDDBG__* link externs
-    ; debugger.asm's equ table derives off (MDDBG__Debugger_AddressRegisters, …,
-    ; MDDBG__Str_OffsetLocation_24bit) have no definition. Including it in release makes
-    ; those equs unresolvable — a hard link error. Gate the include on __DEBUG__ (defined
-    ; only in debug builds): release ships zero debugger definitions, exactly as it ships
-    ; zero debugger code.
-    ifdef __DEBUG__
+    ; GATED ON __MDDBG__ (the crash-report axis, owner-ruled 2026-08-04): the include is
+    ; valid exactly when error_handler.emp is placed, because the MDDBG__* link externs
+    ; its equ table derives off (MDDBG__Debugger_AddressRegisters, …,
+    ; MDDBG__Str_OffsetLocation_24bit) are that module's `pub equ`s. Including it without
+    ; the island makes those equs unresolvable — a hard link error.
+    ; __MDDBG__ is pushed by the native driver when `profile.debug || profile.crash_report`,
+    ; i.e. in the DEBUG and RELEASE shapes but NOT in the opt-in LEAN shape
+    ; (`sigil build --native --lean`, CRASH_REPORT=0). It is a separate define from
+    ; __DEBUG__ — __DEBUG__ still means exactly "debug shape" (asserts, hotkeys, selftest,
+    ; boot autoplay). AS `ifdef` tests DEFINEDNESS, not value, so the axis is push-or-omit:
+    ; a `__MDDBG__ = 0` would still take this arm.
+    ifdef __MDDBG__
     include "engine/debug/debugger.asm"
     endif
 
@@ -36,9 +40,11 @@
     ; EquSyms, so the `.emp` modules that reference them as BARE link symbols (e.g.
     ; boot.emp's `tst.l HW_PORT_A_CTRL_FULL`) resolve at the joint link. That export
     ; (attach_guarded_equ_exports) only runs when the assembled module has ≥1 section.
-    ; In DEBUG the debugger.asm include opens one; in RELEASE it is gated out, so this
-    ; single zero-byte equate forces the carrier section open. It emits no bytes and is
-    ; filtered from the (DEBUG-only) deb2 symbol appendix — byte-neutral in both shapes.
+    ; Since the crash-report ruling the RELEASE shape normally HAS a section again (the
+    ; __MDDBG__ debugger.asm include opens one, as DEBUG always did) — but the carrier
+    ; stays as the belt-and-braces for the LEAN shape, the one shape where the include is
+    ; gated out and nothing else would open a section. It emits no bytes and is filtered
+    ; from the deb2 symbol appendix — byte-neutral in every shape.
 __Aeon_AS_Carrier:  equ 0
 
     END
