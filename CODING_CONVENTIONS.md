@@ -342,12 +342,30 @@ Rules:
 
 Convergence vs frame count (assuming target stays fixed):
 
-| Shift `N` | Frames to ~95% | Frames to ~99% | Use case |
-|---|---|---|---|
-| 2 | ~4 | ~6 | Snappy (UI, hit-stop recovery) |
-| 3 | ~8 | ~13 | Camera, parallax transitions |
-| 4 | ~16 | ~26 | Audio fade, palette crossfade |
-| 5 | ~32 | ~52 | Gentle environmental drift |
+Each frame the gap is multiplied by `(1 - 2^-N)`, so frames to reach fraction `f`
+of the way is `ln(1-f) / ln(1 - 2^-N)` — NOT `N` or `2^N` frames. An earlier
+version of this table understated every figure by roughly 3x; the corrected
+values:
+
+| Shift `N` | Retained per frame | Frames to ~95% | Frames to ~99% | Use case |
+|---|---|---|---|---|
+| 2 | 3/4 | ~10 | ~16 | Snappy (UI, hit-stop recovery) |
+| 3 | 7/8 | ~22 | ~34 | Camera, parallax transitions |
+| 4 | 15/16 | ~46 | ~71 | Audio fade, palette crossfade |
+| 5 | 31/32 | ~94 | ~145 | Gentle environmental drift |
+
+Budget the shift against the time you actually have. A fixed-length transition
+window shorter than the ~95% column ends with a visible residual: the engine's BG
+vscroll transition runs `PARALLAX_LERP_SHIFT = 4` for `PARALLAX_TRANS_DEFAULT = 16`
+frames, which leaves `(15/16)^16 ~= 36%` of the gap outstanding, and
+`Parallax_Step5_Vscroll` closes it with a snap on the promote frame. Either size
+the window from this table or (as the per-band horizontal scroll does) use an
+exact `gap / frames_remaining` ramp instead, which converges on the last frame by
+construction.
+
+Integer `asr` also truncates toward negative infinity, so a small positive gap can
+stall one unit short while a small negative gap always closes — another reason to
+snap or ramp when exactness matters.
 
 Cost: ~6 cycles per value. Idempotent — safe to run when already converged (delta = 0 → no-op). Works for any signed value. Use this everywhere a transition needs to feel smooth: camera lookahead pan, parallax factor changes across section boundaries, palette fade, audio gain ramps, animation easing. Avoid frame-counter-driven lerps (`current = lerp(start, end, frame/N)`) — they require state and a multiply, this requires neither.
 

@@ -170,12 +170,35 @@ pub const PHYS_FALL_ANGLE       = $30    // fall-off angle window
 pub const PHYS_SLIP_NUDGE       = $80    // slip velocity nudge
 pub const PHYS_MOVE_LOCK_TIME   = 30     // control-lock duration after a slip (frames)
 
-// Ring geometry/animation (mirrors engine/constants.asm:401-403; the
-// game-owned ring capacity constants live module-local in rings.emp —
-// they are engine.inc game-CONTRACT symbols, not engine constants).
+// Ring geometry/animation. The game-VARYING ring capacity values
+// (MAX_RING_BUFFER, VRAM_RING_PLACEHOLDER) stay per-profile `-D`s — a game knob.
 pub const RING_HEIGHT      = 16
 pub const RING_ANIM_FRAMES = 4
 pub const RING_ANIM_SPEED  = 8              // frames per animation tick
+
+// Engine-owned BUFFER FORMAT (review item 30/G). RING_BUFFER_ENTRY_SIZE
+// describes the layout of an ENGINE-owned RAM buffer (Ring_Buffer) walked only
+// by engine code (rings.emp / entity_window.emp / ram.emp). It is NOT a game
+// knob: no game may pick a different value, yet both game configs carried
+// byte-identical copies the engine then had to `ensure(extern(..))`-guard
+// against. Homed here, the guard chain disappears with the duplication. Only the
+// COUNT stays a game knob (MAX_RING_BUFFER, a per-profile `-D`).
+// COLLECTED_SLOT_SIZE, the other moved format, lives with its own field-offset
+// companions in the collected-bitmask block below.
+pub const RING_BUFFER_ENTRY_SIZE = 6        // dc.w x, y; dc.b section_id, list_index
+
+// Driver-keyed BG tile-band animation (engine/level/bg_anim.emp). This sizes
+// engine/ram.emp's BgAnim_LastStep array, which is why it exists here at all —
+// ram.emp cannot import a CODE module's consts at comptime.
+//
+// DELIBERATE MIRROR, not a single authority: bg_anim.emp keeps its OWN
+// module-local BGANIM_MAX_BANDS and must keep it. `bg_anim_port` lowers that file
+// standalone against an empty symbol table, and the constant harvest turns names
+// from this module into LINK EQUATES rather than comptime constants — so a
+// `use engine.constants.{BGANIM_MAX_BANDS}` there compiles to an unresolved fixup
+// and breaks the standalone gate. Collapsing the two needs a comptime ram->code
+// import path that does not exist. KEEP THE TWO IN SYNC BY HAND (both are 4).
+pub const BGANIM_MAX_BANDS = 4              // animated BG strips per act
 
 // Section / level geometry, shared by entity_window + act_descriptor + section.
 // SEC_VOID = flat section-id sentinel ("no section here").
@@ -374,17 +397,21 @@ pub const SOLID_LRB  = 2
 pub const SOLID_ALL  = 3
 
 // -----------------------------------------------
-// Section tile geometry (derived from SECTION_SIZE).
-// -----------------------------------------------
-pub const SECTION_TILE_WIDTH  = SECTION_SIZE / 8  // 256 — tile cols per section
-pub const SECTION_TILE_HEIGHT = SECTION_SIZE / 8  // 256 — tile rows per section
-
-// -----------------------------------------------
 // Parallax (§4.6).
 // -----------------------------------------------
 pub const MAX_PARALLAX_BANDS    = 8
 pub const PARALLAX_TRANS_DEFAULT = 16   // default boundary lerp duration (frames)
-pub const PARALLAX_LERP_SHIFT   = 4     // per-frame BG transition lerp = gap>>4
+// Per-frame BG vscroll transition lerp: current += (target - current) >> 4.
+// CONVERGENCE (the exponential-lerp table in CODING_CONVENTIONS §2.6): each frame
+// retains 15/16 of the gap, so after the PARALLAX_TRANS_DEFAULT window of 16
+// frames (15/16)^16 ~= 36% of the gap is STILL outstanding — ~95% convergence
+// needs ~46 frames at this shift, ~99% needs ~71. That residual is not a bug: the
+// promote frame in Parallax_Step5_Vscroll takes the `.v_snap` path (transition
+// counter is 0), so the last ~36% lands as a single-frame snap. The per-band
+// HORIZONTAL scroll does NOT use this shift — it uses an exact
+// gap/frames_remaining ramp (parallax.emp Step 4) and converges on the last
+// window frame with no residual.
+pub const PARALLAX_LERP_SHIFT   = 4
 
 // -----------------------------------------------
 // Act art-pool VRAM ceiling + per-act section grid cap.
@@ -418,7 +445,15 @@ pub const BLOCK_COLL_SIZE       = BLOCK_COLL_PLANE_SIZE * TILE_CACHE_COLL_PLANES
 pub const BLOCK_RAW_SIZE        = BLOCK_NT_SIZE + BLOCK_COLL_SIZE         // 768 bytes
 pub const BLOCK_STAGE_SLOTS     = 16    // staged decompressed blocks (round-robin evict)
 pub const BLOCK_DECOMP_BUDGET   = 6     // max block decompresses per frame (columns + rows share)
-pub const VFILL_ROWS_PER_FRAME  = 2     // rows filled per frame cap (must be >= CAM_MAX_Y_STEP/8)
+// Rows filled per frame cap. Must be >= CAM_MAX_Y_STEP/8 — build-asserted at the
+// CAM_MAX_Y_STEP definition below. 2 exactly MATCHES the 16 px/frame camera cap
+// (2*8 == 16): the fill keeps up with the worst case but has ZERO catch-up
+// headroom, so a frame the fill misses is only recovered by the 16-row cache
+// margin, never by filling faster. (The 2026-06-10 vertical-streaming plan sized
+// this at 4 for catch-up; the shipped value is 2. Raising it is a budget
+// decision — BLOCK_DECOMP_BUDGET is shared with the column fill — not a
+// comment fix, so the value is left alone here.)
+pub const VFILL_ROWS_PER_FRAME  = 2
 pub const H_PFX_HYST            = 16    // net opposite-motion px before the horizontal prefetch latch flips
 pub const BLOCKS_PER_SECTION_AXIS = 16  // 16 blocks across, 16 down
 pub const BLOCK_INDEX_ENTRIES   = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  // 256
@@ -434,6 +469,16 @@ pub const CAM_LOOKAHEAD_THRESHOLD = $0600  // ground speed for pan enable
 pub const CAM_PAN_SPEED = 2                // pixels/frame pan rate
 pub const CAM_PAN_LIMIT = 64               // max pan pixels
 pub const CAM_MAX_Y_STEP = 16              // max camera Y movement px/frame
+
+// The §4.7 streaming contract, as a build guard (conventions §1.6). The vertical
+// tile-cache fill may only advance VFILL_ROWS_PER_FRAME rows (8 px each) per
+// frame; if the camera can outrun that, the cache trails the view and the top/
+// bottom margin drains until the fill visibly lags. Currently at EXACT equality
+// (16 == 2*8, zero slack) — raising CAM_MAX_Y_STEP without raising
+// VFILL_ROWS_PER_FRAME (or vice versa) is a silent streaming regression, so the
+// relation is asserted rather than left to the comment above.
+ensure(CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME * 8,
+       "camera Y step outruns the vertical tile-cache fill rate (CAM_MAX_Y_STEP > VFILL_ROWS_PER_FRAME*8)")
 
 // Sprite-cull margin (px) added to all four sides of the visibility box in
 // Update_Sprite_Visibility. Sprite culling runs inside RunObjects, which the
@@ -465,6 +510,12 @@ pub const KILLED_BITMASK_OFFSET   = 18      // object killed bitmask starts afte
 pub const COLLECTED_EMPTY_TAG     = $FF     // slot not owned by any section
 pub const COLLECTED_MASK_BYTES    = KILLED_BITMASK_OFFSET - COLLECTED_BITMASK_OFFSET  // 16 — one bitmask
 pub const MAX_LIST_ENTRIES        = 128     // collected/killed bitmask capacity per section
+// Slot STRIDE — an engine-owned FORMAT, not a game knob (review item 30/G). It
+// is the sum of the field offsets above, so it is derived, not restated; the
+// game knob is the slot COUNT (COLLECTED_WINDOW_SLOTS, a per-profile `-D`).
+// Was duplicated byte-identically in every game config with `ensure(extern(..))`
+// guards in ram.emp + entity_window.emp; homed here, both go away.
+pub const COLLECTED_SLOT_SIZE     = KILLED_BITMASK_OFFSET + COLLECTED_MASK_BYTES  // 34 — tag + pad + ring mask + killed mask
 
 // Slot tag (SST_slot_tag) — which quadrant entry (0-3) spawned an object.
 pub const SLOT_TAG_LEFT    = 0              // upper-left

@@ -40,17 +40,17 @@ ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState 
 ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
 
 // --- game-config buffer-layout sizes: ENGINE-INVARIANT (identical in every
-//     game's config/constants.asm), homed here as engine consts + drift-guarded
+//     game's config/constants.emp), homed here as engine consts + drift-guarded
 //     against the AS game config (the rings.emp convention). MAX_RING_BUFFER /
-//     COLLECTED_WINDOW_SLOTS VARY per game and arrive as -D defines. ------------
-const RING_BUFFER_ENTRY_SIZE   = 6    // dc.w x, y; dc.b section_id, list_index
-const COLLECTED_SLOT_SIZE      = 34   // 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
+//     COLLECTED_WINDOW_SLOTS VARY per game and arrive as -D defines.
+//     RING_BUFFER_ENTRY_SIZE / COLLECTED_SLOT_SIZE used to live here too; review
+//     item 30/G moved those two FORMATS to engine.constants (the glob import
+//     above supplies them now), so their game-config copies and the extern drift
+//     guards that policed them are gone. --------------------------------------
 const COLLECTED_PARK_SLOTS     = 4    // park entries (rolling overwrite)
 const COLLECTED_PARK_ENTRY_SIZE = 33  // 1 id byte + collected + killed masks (byte-packed)
-ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "game config/constants.asm and ram.emp disagree on RING_BUFFER_ENTRY_SIZE")
-ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "game config/constants.asm and ram.emp disagree on COLLECTED_SLOT_SIZE")
-ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "game config/constants.asm and ram.emp disagree on COLLECTED_PARK_SLOTS")
-ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "game config/constants.asm and ram.emp disagree on COLLECTED_PARK_ENTRY_SIZE")
+ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "game config/constants.emp and ram.emp disagree on COLLECTED_PARK_SLOTS")
+ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "game config/constants.emp and ram.emp disagree on COLLECTED_PARK_ENTRY_SIZE")
 
 pub region lower_ram @ $FFFF0000 .. $FFFF8000
 pub region upper_ram @ $FFFF8000 .. SYSTEM_STACK, w_addressable
@@ -68,7 +68,13 @@ pub vars lower_ram {
     //   Plane B: Tile_Cache_Collision + TILE_CACHE_COLL_SIZE (2400 bytes, 80×30)
     // Tile_Cache_GetCollision selects the plane via the caller's SST_layer value.
     Tile_Cache_Collision:   [u8; TILE_CACHE_COLL_SIZE * TILE_CACHE_COLL_PLANES],  // 4800 bytes
-    pad(2),                                                                 // pad to even
+    // RESERVED, not an alignment pad. The collision region above is 4800 bytes —
+    // already even — so this contributes nothing to alignment; the "pad to even"
+    // it used to claim was wrong. Kept as 2 reserved bytes rather than converted
+    // to a computed `& 1` pad because a computed pad evaluates to 0 today and
+    // would shift all of lower RAM by −2 (a layout change, out of scope for a
+    // comment/guard parcel — reclaim it with the D7 deletion batch).
+    pad(2),                                                                 // reserved (region already even)
 
     // Block staging cache — recently decompressed blocks (§4.7). BLOCK_STAGE_SLOTS
     // slots of BLOCK_RAW_SIZE each: nametable (512 B) + collision plane A (128 B)
@@ -191,7 +197,10 @@ pub vars upper_ram {
 
     Vscroll_Factor:         u32,        // FG word + BG word
 
-    // --- Parallax state (§4.6) — ~126 bytes ---
+    // --- Parallax state (§4.6) — 244 bytes at MAX_PARALLAX_BANDS=8 ---
+    // (3 phase words + 2×8 scroll words + vscroll word + 2 config longs +
+    //  4 transition/section bytes + 80 B column buf + 80 B shadow bands +
+    //  2×16 B shadow scrolls. Marked by Parallax_State/_End.)
     mark Parallax_State,
     Parallax_Deform_Phase_FG:    u16,   // (frame_counter * speed_fg) & $FF
     Parallax_Deform_Phase_BG:    u16,
@@ -218,8 +227,8 @@ pub vars upper_ram {
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
     mark Parallax_State_End,
 
-    // Driver-keyed BG tile-band animation (engine/level/bg_anim.asm)
-    BgAnim_LastStep:        [u16; 4],   // per band: last DMA'd step; -1 = none yet (size = BGANIM_MAX_BANDS)
+    // Driver-keyed BG tile-band animation (engine/level/bg_anim.emp)
+    BgAnim_LastStep:        [u16; BGANIM_MAX_BANDS],  // per band: last DMA'd step; -1 = none yet
 
     // --- Static DMA Entries (§1.5) — pre-computed 14-byte entries for fixed transfers ---
     Static_Pal_Line0:       [u8; sizeof(DMAEntry)],
@@ -279,7 +288,11 @@ pub vars upper_ram {
     // --- Sprite Rendering (§3.5) ---
     // Priority band lists — each band holds up to SPRITES_PER_BAND object addresses
     Sprite_Bands:           [u16; SPRITES_PER_BAND * PRIORITY_BANDS],
-    Sprite_Band_Counts:     [u8; PRIORITY_BANDS],   // PRIORITY_BANDS=8, already even — no pad needed
+    Sprite_Band_Counts:     [u8; PRIORITY_BANDS],
+    pad(PRIORITY_BANDS & 1),            // computed: 0 today (PRIORITY_BANDS=8, even).
+                                        // Was a comment asserting "already even — no pad
+                                        // needed"; an odd band count would have silently
+                                        // address-errored the words below.
 
     Sprites_Rendered:       u16,        // total sprites rendered this frame
     Sprite_Cycle_Counter:   u16,        // link-order cycling frame counter
@@ -294,7 +307,10 @@ pub vars upper_ram {
 
     // Scanline band sprite budgeting (§3.5) — 7 bands of 32 scanlines
     Scanline_Band_Sprites:  [u8; SCANLINE_BANDS],
-    pad(1),                             // pad to even (7+1=8)
+    pad(SCANLINE_BANDS & 1),            // computed: 1 today (SCANLINE_BANDS=7, odd).
+                                        // Was a fixed `1` that silently assumed an odd
+                                        // band count — an even one would have shifted
+                                        // every field below by 1.
 
     // --- Camera (stub for §3, real implementation in §4) ---
     Camera_X:               u32,        // 16.16 camera X position
@@ -382,8 +398,11 @@ pub vars upper_ram {
     Tile_Override_Table:    [u8; 96],
 
     // --- Entity System (§4.9 — camera-driven sliding window) ---
-    // Unified ring buffer — 128 entries × 6 bytes (dc.w x, y; dc.b section_id, list_index)
-    Ring_Buffer:            [u8; MAX_RING_BUFFER * RING_BUFFER_ENTRY_SIZE],  // 768 bytes
+    // Unified ring buffer — MAX_RING_BUFFER entries × RING_BUFFER_ENTRY_SIZE
+    // (dc.w x, y; dc.b section_id, list_index). sonic4: 128 × 6 = 768 B;
+    // demo: 16 × 6 = 96 B. The entry count is the game knob; the 6-byte entry
+    // format is engine-owned (engine.constants).
+    Ring_Buffer:            [u8; MAX_RING_BUFFER * RING_BUFFER_ENTRY_SIZE],
 
     // Ring count (unified) + buffer diagnostics (reset by RingBuffer_Clear at level init)
     Ring_Count:             u8,
@@ -409,9 +428,17 @@ pub vars upper_ram {
     Entity_Mask_Scratch:    [u8; 4 + MAX_TRACKED_SECTIONS * ENTITY_LOADED_SLOT_SIZE],  // 132B (even) — slide snapshot: 4 old section ids + 4×32B old masks
     Camera_Y_Coarse_Prev:   u16,        // camY & $FF80 at last vertical re-scan
 
-    // Rolling collected/killed bitmask — 9 slots × 34 bytes
-    Ring_Collected_Window:  [u8; COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE],  // 306 bytes
-    pad(2),                             // pad to even
+    // Rolling collected/killed bitmask — COLLECTED_WINDOW_SLOTS × COLLECTED_SLOT_SIZE
+    // (sonic4: 9 × 34 = 306 B; demo: 4 × 34 = 136 B). The slot count is the game
+    // knob; the 34-byte stride is the engine format.
+    Ring_Collected_Window:  [u8; COLLECTED_WINDOW_SLOTS * COLLECTED_SLOT_SIZE],
+    // RESERVED, not an alignment pad. COLLECTED_SLOT_SIZE is even, so the region
+    // above is even for ANY slot count — this contributes nothing to alignment and
+    // the "pad to even" it used to claim was wrong. Kept as 2 reserved bytes rather
+    // than converted to a computed `& 1` pad because a computed pad evaluates to 0
+    // today and would shift every field below it by −2 (a layout change, out of
+    // scope for a comment/guard parcel — reclaim it with the D7 deletion batch).
+    pad(2),                             // reserved (region already even)
 
     // Respawn park (§4.9.4) — 4 entries × 33 bytes (byte-packed, copied bytewise)
     Ring_Collected_Park:    [u8; COLLECTED_PARK_SLOTS * COLLECTED_PARK_ENTRY_SIZE],  // 132 bytes
@@ -434,8 +461,12 @@ pub vars upper_ram {
     Sfx_Ring_Wr:            u8,         // write cursor (0..SFX_RING_MASK)
     Sfx_Ring_Rd:            u8,         // read cursor  (0..SFX_RING_MASK); SFX_RING_DEPTH(8)+2 = 10 even
 
-    // Sound driver debug mirror. Declared unconditionally (160 bytes, negligible)
-    // so the RAM layout is identical between DEBUG and release. Only WRITTEN under
+    // Sound driver debug mirror. Declared unconditionally (176 bytes, negligible)
+    // so that IT adds no DEBUG/release divergence of its own. (The shapes are NOT
+    // otherwise identical: the DEBUG profiler block above adds 36 bytes and the
+    // DEBUG replay block at the RAM tail adds 10,244, so every field from the
+    // profiler block down sits 36 bytes higher under DEBUG and Engine_RAM_End
+    // moves by 10,280.) Only WRITTEN under
     // DEBUG + SOUND_DRIVER_ENABLED + SOUND_DBG_MIRROR. Lets the Exodus MCP — which
     // reads 68k RAM but not Z80 RAM at $A00000 — observe the driver's
     // mailbox+status+sequencer state. Sized for the 5-channel sequencer window +
@@ -456,8 +487,11 @@ pub vars upper_ram {
     // A2 walk-live rail: set while a dynamic live-list walk holds a cursor into
     // Dynamic_Live, asserted CLEAR at CompactDynamicLive entry — a set flag there
     // means a mid-walk compaction is about to move entries under a live cursor
-    // (the A2 hazard). Occupies the release pad slot, so Engine_RAM_End is
-    // shape-INVARIANT (no downstream RAM address moves in either shape).
+    // (the A2 hazard). Occupies the release pad slot, so THIS FIELD adds no
+    // DEBUG/release divergence — nothing below it moves relative to it in either
+    // shape. It does not make Engine_RAM_End shape-invariant: the DEBUG profiler
+    // block (+36) and the DEBUG replay block (+10,244) already diverge the shapes,
+    // so Engine_RAM_End sits 10,280 bytes higher under DEBUG.
     if DEBUG == 1 {
         Dynamic_Live_Walking:   u8,     // DEBUG-only: a dynamic live-list walk is in progress
     } else {
@@ -525,6 +559,6 @@ pub vars upper_ram {
     }
 
     // Engine RAM ends here — game RAM continues from Engine_RAM_End
-    // (games/<game>/config/ram.asm phases from this address).
+    // (games/<game>/config/ram.emp declares `game_ram @ after(upper_ram)`).
     mark Engine_RAM_End,
 }

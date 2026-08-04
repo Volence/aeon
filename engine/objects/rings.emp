@@ -13,7 +13,7 @@ use engine.objects.aabb.{aabb_axis_test}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
                       MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
-                      SCREEN_WIDTH, SCREEN_HEIGHT}
+                      SCREEN_WIDTH, SCREEN_HEIGHT, RING_BUFFER_ENTRY_SIZE}
 
 // GAME-config inputs (truth: games/<game>/config/constants.asm). These VARY
 // per game (sonic4: 128 / $3E8; demo: 16 / $3E4), so the engine takes them as
@@ -23,10 +23,12 @@ use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEE
 // supplies the wrong value is loud on both sides. VRAM_RING_PLACEHOLDER is a
 // PLACEHOLDER art slot; its range is enforced where it feeds vram_art.
 //
-// RING_BUFFER_ENTRY_SIZE / RING_WIDTH are ENGINE-invariant buffer layout
-// (every game's config carries the same values, "matches sonic4"), so they
-// stay engine consts — the ensures keep any game's config honest to them.
-const RING_BUFFER_ENTRY_SIZE = 6
+// RING_WIDTH is ENGINE-invariant buffer layout (every game's config carries the
+// same value, "matches sonic4"), so it stays an engine const — the ensure keeps
+// any game's config honest to it. RING_BUFFER_ENTRY_SIZE was the same shape but
+// is a pure ENGINE-owned FORMAT (no game may vary it): review item 30/G moved it
+// to engine.constants (imported above), retiring both its game-config copies and
+// the extern guard that policed them.
 const RING_WIDTH             = 16
 // SAT attr base: priority | palette line 1 | tile. The act palette carries
 // the ring's gold on CRAM line 1 (OJZ_Palette → line 1).
@@ -37,7 +39,6 @@ const RING_ART_ATTR          = vram_art(VRAM_RING_PLACEHOLDER, 1, 1)
 // is their drift net. RING_BUFFER_ENTRY_SIZE / RING_WIDTH are engine-invariant
 // game config — the game `.emp` is their authority, so the cross-checks against
 // the link export stay.
-ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "game config and rings.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
 ensure(extern("RING_WIDTH") == RING_WIDTH, "game config and rings.emp disagree on RING_WIDTH — update both")
 
 // -----------------------------------------------
