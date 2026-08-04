@@ -2398,3 +2398,17 @@ symbol in the listing is not emitted bytes** — zero-length labels appear at th
 of whatever follows them. The right measurement is the span to the next symbol, which
 is what found the real leak above. Fourth instance of this repo paying for an unverified
 claim; the first three were `[closed by <pending mechanism>]` markers.
+
+---
+
+## `VInt_Level` header comment states a stale execution order (found 2026-08-05)
+
+`engine/system/vblank.emp:61-63` documents `VInt_Level` as running "Critical drain ->
+VSRAM -> budget -> Important drain". The body (`vblank.emp:91-138`) seeds the frame
+budget at the top and charges it **before** the Critical drain. `ENGINE_ARCHITECTURE.md`
+§0.10 describes the body correctly, so the doc is right and the **code comment** is the
+thing that drifted — the inverse of the usual direction, which is why the §0
+reconciliation pass surfaced it.
+
+One-line comment fix, zero byte change. Left out of the §0 doc parcel because that
+parcel was deliberately doc-only (no `.emp` touched, so it needed no repin/refreeze).
