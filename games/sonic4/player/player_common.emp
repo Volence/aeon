@@ -23,8 +23,8 @@ use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{RF_PRIORITY_SHIFT, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS,
-        CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_C,
-        BUTTON_UP_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
+        CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
+        BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
 
 // Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
@@ -57,7 +57,7 @@ use games.sonic4.constants.{
 // Sound id — sole authority is games.sonic4.sound_ids.
 use games.sonic4.sound_ids.{SFXID_SKID}
 
-// PHYS_* / radii / CURL / ST_* / COLLISION_NONE / EDGE_* / BUTTON_A/C /
+// PHYS_* / radii / CURL / ST_* / COLLISION_NONE / EDGE_* / BUTTON_A/B/C /
 // BUTTON_*_BIT are consumed from engine.constants via the
 // `use engine.constants.{...}` above.
 
@@ -103,8 +103,19 @@ equ _pl_state = offsetof(Sst, sst_custom) + offsetof(PlayerV, player_state)
 const SST_x_pos_sub = offsetof(Sst, x_pos) + 2
 const SST_y_pos_sub = offsetof(Sst, y_pos) + 2
 
-// Jump press sources: A and C only — B is the debug-fly toggle.
-const BUTTON_JUMP_MASK = BUTTON_A | BUTTON_C
+// -----------------------------------------------
+// Jump press sources — the SOLE authority for both consumers (ruled 2026-08-05,
+// docs/DEFERRED_WORK.md). Classic Sonic jumps on all three face buttons, so the
+// default mask is A|B|C. B falls back out of it ONLY while CHEAT_DEBUG_FLY is
+// armed, because there B owns the free-flight toggle instead.
+//
+// Two sites consume these and MUST stay in lockstep: the press latch in
+// Player_Main below, and the variable-jump-height HELD check in
+// player_air.PState_AirShared. A mask that latches a jump but does not sustain it
+// gives B-jumps a clipped arc — hence one definition, imported by both.
+// -----------------------------------------------
+pub const BUTTON_JUMP_MASK      = BUTTON_A | BUTTON_B | BUTTON_C
+pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns B
 
 const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
 
@@ -259,7 +270,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
         // player boots as a player and B leaves them one; there is no state where
         // half the gate applies. Auditors: these bytes in a release ROM are
         // deliberate cheat payload, not a debug leak.
-        btst    #4, d6                          // BUTTON_B
+        btst    #BUTTON_B_BIT, d6
         beq     .no_toggle
         moveq   #CHEAT_DEBUG_FLY, d0
         and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
@@ -288,8 +299,34 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display 
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
-        andi.b  #BUTTON_JUMP_MASK, d6
+        //
+        // B IS a jump button — except while the debug-fly cheat owns it. The
+        // conflict is on EXITING free-flight, not entering: entering returns early
+        // through Player_DebugMove and never reaches this latch, but DebugExit
+        // clears debug_flag and falls straight through to normal physics, so the
+        // same B press that left free-flight would buffer a jump on that very tick.
+        // Hence B is excluded from the mask exactly while CHEAT_DEBUG_FLY is armed.
+        //
+        // The bit is READ HERE, never cached: a cheat code can arm it on any frame.
+        // Cost is on the right side of the hot path — the A|B|C test short-circuits
+        // on every frame with no face-button press edge, which is nearly all of
+        // them, so the cheat probe only runs on an actual jump press. d0 is dead
+        // here (the quadrant it held was stored above), so the moveq/and probe is
+        // free of register pressure; it is also the one shape a port-test compile
+        // can lower, since `btst #<cheat const>, Cheat_Flags` would pair two link
+        // symbols.
+        //
+        // player_air's variable-jump-height HELD check uses the same two masks and
+        // the same gate; they must not drift or a B jump latches without
+        // sustaining (clipped arc).
+        andi.b  #BUTTON_JUMP_MASK, d6           // A|B|C — classic three-button jump
         beq     .no_latch
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .latch                          // cheat clear: B jumps like A and C
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d6      // armed: B is the fly toggle, not a jump
+        beq     .no_latch
+.latch:
         move.b  #PHYS_JUMP_BUFFER, Player_JumpBuffer
         jbra    .buffer_done
 .no_latch:

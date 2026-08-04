@@ -328,6 +328,7 @@ pub const BG_TILE_CAPACITY  = 448
 // Controller button masks (complete the d-pad/face-button set above).
 // -----------------------------------------------
 pub const BUTTON_B     = 1 << 4         // $10
+pub const BUTTON_B_BIT = 4              // for `btst #BUTTON_B_BIT` (debug-fly toggle poll)
 pub const BUTTON_START = 1 << 7         // $80
 pub const BUTTON_START_BIT = 7          // for `btst #BUTTON_START_BIT` (replay exit poll)
 
