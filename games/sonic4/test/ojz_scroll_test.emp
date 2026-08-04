@@ -12,9 +12,11 @@
 //
 // C3 (VDP/DMA/timing) surface: setVDPReg mode2/mode3, Level_LoadArt,
 // QueueDMA_Critical, CRAM palette copies, the VBlank-masked marker-tile VRAM copy
-// (ints masked so a mid-copy VBlank cannot retarget the VDP address), and the
-// stop_z80/start_z80 bus wraps around Section_UpdateColumns. The per-frame VDP
-// reg $0B (Mode Set 3) re-assert is owned by Parallax_Update (engine-side).
+// (ints masked so a mid-copy VBlank cannot retarget the VDP address). Both
+// Section_UpdateColumns calls are BARE: Section_RedrawPlanes owns the Z80
+// posture for its own poke storm in both build shapes (engine-side). The
+// per-frame VDP reg $0B (Mode Set 3) re-assert is owned by Parallax_Update
+// (engine-side), which now skips the bus hold on unchanged-mode frames.
 module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
@@ -155,10 +157,14 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) {
         //    on so the nametable is fully populated from frame 1. Without this,
         //    Section_UpdateColumns gradually fills over ~3 frames, causing a
         //    visible snap when starting at non-zero X. --
+        //    Section_RedrawPlanes owns its own Z80 posture in both build shapes
+        //    (flag bracket with sound on, whole-storm bus hold with sound off),
+        //    so this call is deliberately BARE — matching the per-frame call
+        //    below. The stop_z80/start_z80 wrap that used to sit here was a
+        //    false lock: RedrawPlanes' internal flag-bracket start_z80 released
+        //    it on the way in, so the storm ran unheld anyway.
         st      Section_Plane_Dirty            // (Section_Plane_Dirty).w
-        stop_z80
         jbsr    Section_UpdateColumns
-        start_z80
 
         // -- parallax init: pull the start section's parallax_config.
         //    Section_GetSecPtrXY handles the full grid math (sec_y included);
