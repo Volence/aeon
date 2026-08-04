@@ -19,6 +19,19 @@
 # the vendored MDDBG blob) and NOT ReleaseFault. Both `ReleaseFault` and `BusError` sit in the
 # union order consecutively — no single target carries both, so each target's derived order
 # stays a subsequence. (`NullInterrupt` — the deleted tolerant `rte` — is gone from both.)
+#
+# INVARIANT — THE FAULT-HANDLER ISLAND IS LAST: the error_handler island MUST remain the
+# FINAL byte-emitting section in every shape that carries it. The vendored MD Debugger blob
+# locates its deb2 symbol appendix through two PC-relative `lea` displacements BAKED INTO
+# the opaque blob bytes, both pointing at `ErrorHandlerBlob + $F56` = one past the blob's
+# last byte — i.e. the blob asserts `symbol table == blob end`. convsym appends the deb2
+# table at `EndOfRom`, so anything placed between the blob and `EndOfRom` silently breaks
+# runtime symbol resolution (the blob's `cmpi.w #$DEB2,(a1)+` reads the intruding bytes,
+# fails, and every backtrace line prints `<unknown>`). NOTHING may be appended after the
+# island: `Replay_OJZ_Fixture` therefore sits BEFORE `ReleaseFault`/`BusError`, not after.
+# See the WARNING block at the top of engine/debug/error_handler.emp for the mechanism,
+# and the hard build guard in sigil crates/sigil-harness/src/native.rs
+# (`append_deb2_appendix`), which fails the build if this order ever drifts back.
 
 fill = 0x00
 
@@ -47,8 +60,9 @@ order = [
   "BgAnim_Table", "Map_TestObj",
   "Ani_Sonic", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
   "Song_MovingTrucks", "Sfx_33",
-  "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "ReleaseFault", "BusError",
-  "__align$games.sonic4.replay_fixture$0", "Replay_OJZ_Fixture", "EndOfRom",
+  "GameState_ObjectTest_Init", "GameState_OJZScroll_Init",
+  "__align$games.sonic4.replay_fixture$0", "Replay_OJZ_Fixture",
+  "ReleaseFault", "BusError", "EndOfRom",
 ]
 
 # ── Region geometry (this map is the SOLE owner — sigil.map.toml retired in K5) ──
