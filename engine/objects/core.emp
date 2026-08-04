@@ -102,7 +102,7 @@ pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
 // Out: a1 = SST address of allocated slot (d0=0/Z set on success)
 //      d0=1/Z clear if pool exhausted
 //      Slot is tagged SLOT_TAG_UNTAGGED on return.
-// Clobbers: d0
+// Clobbers: d0, a1
 // CALLER INVARIANT: the caller MUST write the returned slot's
 // code_addr before the NEXT AllocDynamic. The append-on-full guard runs
 // CompactDynamicLive, which treats code_addr==0 as dead and drops the slot
@@ -111,16 +111,16 @@ pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
 // zombie), reachable only at a full count. All current callers write code_addr
 // immediately (children/load_object/object_test emitters).
 // -----------------------------------------------
-// CONTRACT CAVEAT — a1 IS DESTROYED ON THE FAILURE EDGE TOO. `out(a1 if eq)`
-// reads, under the exhaustive-license convention, as "a1 survives unless eq";
-// that is FALSE here. The pop below writes a1 BEFORE the full/latch tests, so
-// both failure exits (.latch_full and .full-via-latch) return with a1
-// destroyed. A caller holding something in a1 across this call must save it on
-// EVERY path, not just the success path — children.emp's six alloc sites do.
-// The honest declaration `clobbers(d0, a1) out(a1 if eq)` is REJECTED today:
-// [proc.out-clobbers-overlap] treats a register as either a result or scratch,
-// never both (ledgered as the conditional-out-on-clobbered-register ask).
-pub proc AllocDynamic () clobbers(d0) out(a1 if eq) preserves(a0) {
+// CONTRACT — a1 is a RESULT on the eq edge and SCRATCH on the others, which is
+// why it is declared in both `clobbers` and `out`. The pool-empty test runs
+// BEFORE the pop, so that exit returns a1 untouched; the `.latch_full` exit is
+// past the pop and returns a1 destroyed. A caller cannot tell the two failure
+// edges apart from the Z flag alone, so a value held in a1 must be saved on
+// every path, not just the success path.
+// (AllocEffect below is the honest contrast: its pool test also precedes its
+// pop and it has no latch path, so a1 genuinely survives every failure edge —
+// `clobbers(d0)` there is correct and must not be "fixed" to match this proc.)
+pub proc AllocDynamic () clobbers(d0/a1) out(a1 if eq) preserves(a0) {
         cmpi.w  #extern("Dynamic_Free_Stack"), (Dynamic_Free_SP).w   // explicit .w kept: link-imm source + bare symbolic dest — imm-link lowering gap (see AllocDynamic init)
         beq     .full
         movea.w Dynamic_Free_SP, a1
