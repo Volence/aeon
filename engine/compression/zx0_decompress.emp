@@ -52,6 +52,9 @@ module engine.zx0 in zx0
 // spelling (§5-verified). The single rts at `.got_elias` serves BOTH the
 // internal `.get_elias` subroutine returns and, via `.done`'s restore, the
 // proc exit — the only true exit path is the EOD branch through `.done`.
+// Elias values accumulate in d0.l but both copy loops count with dbf (word):
+// safe by construction — our u16 wrapper caps the uncompressed size at 65535,
+// so no run length can exceed a word (upstream-exact; do not "fix").
 pub proc ZX0_Decompress (a0: *u8, a1: *u8) clobbers(d0-d1) out(a0, a1) preserves(d2/a2) {
         movem.l a2/d2, -(sp)            // preserve registers
         moveq   #-128, d1               // initialize empty bit queue

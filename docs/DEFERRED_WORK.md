@@ -2261,3 +2261,59 @@ load-bearing. Anyone touching the pulse must read the spec first.
 
 **Unblocks on:** real hardware, or an emulator that models the YM2612 busy flag
 and address-latch contention.
+
+## BG blit posture + column-major transpose — STOPPED at a coupled design fork (2026-08-04)
+
+The part of review item 28 the item is actually named for. The safe half (the
+length-1 VRAM-spray guard, the dispatch inversion, the contract and comment
+corrections) landed on `parcel/item28-bg-blit`; this half stopped, per the
+overnight run's standing instruction to stop on a design fork rather than pick.
+
+### Why it is one decision, not three
+
+The review says so itself, three separate times: "decide together with bg.asm's
+posture", "decide with load_art", and "column-major forces 64 small DMAs if the
+init blits become DMA (decide together)".
+
+1. **bg init blits** — both are CPU word pokes today: nametable 4,096 words
+   (~90k cycles), tiles up to 7,168 words (~158k) — about **2 frames with SR
+   masked and the Z80 stopped**. The ROM sources make this the conventions §7.2
+   zero-copy case. Tier 1 `move.l` + halved `dbf` is a ~3-line change for ~80k;
+   Tier 2 is a 4x unroll; Tier 3 is real DMA (~0.3-0.4 frame for all 22 KB) but
+   needs 128KB-straddle handling.
+2. **load_art posture** — queue+VSync vs direct blocking `stopZ80`/DMA/`startZ80`
+   at display-off init. Each page currently pays up to a full frame parked in
+   `VSync_Wait`; direct DMA saves an estimated **3-8 frames per act load**.
+3. **the BG transpose** — column-major takes `Draw_BG_TileColumn` from ~34 to
+   ~22 cyc/word (~380 per strip, and this is a **per-frame** cost at scroll
+   speed), plus it unlocks `move.l` pairing. The review's consumer census says
+   it needs NO dual format: the two linear consumers adapt via autoinc `$80`
+   (row stride 128 fits the 8-bit autoinc register exactly) at ~2-3k cycles per
+   blob, init-only noise, and their inner loops stay sequential-source.
+
+The coupling is real: choosing DMA for (1) forces column-major into 64 small
+DMAs, which changes the arithmetic on (3); and (2) shares the straddle handling
+with (1).
+
+### What the transpose costs beyond the engine
+
+- **The ACT blob must be transposed too.** Production sections ship
+  `sec_bg_layout = NULL`, so the act fallback is the common per-frame path — a
+  transpose that only covers per-section blobs would miss the case that matters.
+- `.emp` twins, `tools/ojz_strip_gen.py` and the editor-library blobs all flip
+  **in one commit**, or the format is inconsistent between producer and consumer.
+- Verification has to be mid-scroll, not at rest.
+
+### One finding from the safe half, for whoever takes this
+
+**The length-1 guard just added is NOT made redundant by a `move.l` conversion.**
+A halved long count underflows identically on a 2-byte blob, so the guard would
+be re-derived rather than deleted. The guard and the posture are less coupled
+than they look, which is why the guard was safe to land alone.
+
+### Recommendation
+
+Take it as one parcel with a posture ruling in front of it, after measuring the
+act-load time that (1)+(2) actually cost today — the review's cycle figures are
+estimates and no profiling was run. The per-frame win in (3) is the one with
+ongoing value; (1) and (2) are load-time only.
