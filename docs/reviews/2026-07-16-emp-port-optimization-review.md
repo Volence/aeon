@@ -111,6 +111,84 @@ contains a tempo event. Its advertised "**−2 B/channel RAM**" is also **not co
 `sx_pad+58 == sc_detune` invariant depends on. Do not re-plan item 25 on the original
 premise.
 
+## STATUS UPDATE (2026-08-04) — wave-4 items 25-30 EXECUTED (five landed whole, two halves blocked)
+
+Overnight hardening run. Plan:
+`docs/superpowers/plans/2026-08-04-hardening-overnight-run.md`. Six sequential
+parcels, one branch each, each merged to master only when verified. A/B evidence
+per parcel in `docs/superpowers/notes/2026-08-04-item*.md`. Frozen as provenance
+chain entries 34-38.
+
+| item | parcel | outcome |
+|---|---|---|
+| 26 | `item26-game-shell` | MERGED — chain 34 |
+| 25 | `item25-sequencer-reclaim` | MERGED (scoped subset) — chain 35 |
+| 29 | `item29-build-hygiene` | MERGED (parts 1-3; part 4 BLOCKED) — chain 36 |
+| 30 | `item30-ram-constants` | MERGED (byte-neutral, no chain entry) |
+| 27 | `item27-boot-hardening` | MERGED (ruling-4 subset) — chain 37 |
+| 28 | `item28-bg-guard` | MERGED (safe half; posture STOPPED) — chain 38 |
+
+**The single biggest find was not in the review:** the deb2 symbol table was
+shipping in RELEASE ROMs — 29,198 bytes, **7.1% of `s4.bin`**, and 21 KB of
+`demo.bin`. The review's anchor for it (`build.sh:130-134`, convsym) was stale
+(build.sh no longer calls convsym; sigil absorbed it and ran it unconditionally),
+and a first pass nearly cleared it as already-fixed by grepping the ROM for ASCII
+`deb2` when the appendix magic is the **binary word `$DE $B2`**.
+
+The other headline: **`BG_Init` could spray 128 KB across all of VRAM.** A
+length-1 tile blob gave `lsr` -> `$0000`, `subq` -> `$FFFF`, and `dbf` then wrote
+65,536 words through the SAT, both planes and the HScroll table.
+
+### Corrections to this review, found by executing it
+
+- **Item 26's High finding had the wrong mechanism.** "Fix engine-side (stopZ80
+  inside `Section_RedrawPlanes`)" would starve the DAC for ~3 frames. HEAD
+  already used the correct posture under sound (the `SND_CTRL_DMA_ACTIVE` flag
+  bracket). The real defects were a caller-side stop_z80 acting as a FALSE LOCK
+  (the routine's own internal `start_z80` released it on the way in — stop/start
+  is not a counting lock) and a sound-OFF shape with no Z80 management at all.
+- **Item 26's `Camera_Init` clamp and direct `$8B` write were already closed** or
+  superseded at HEAD.
+- **Item 27's vector premise never existed.** It described a shape split
+  (`NullInterrupt` in release, `ErrorExcept` under `__DEBUG__`) that was never
+  implemented — `vectors.emp` has no `if DEBUG` at all. The real inconsistency
+  was WITHIN the table.
+- **Item 27's cross-reset RAM finding is void** — `grep -r CROSS_RESET` over
+  `engine/` and `games/` returns nothing. It described the pre-`.emp` tree.
+- **Item 28's prescribed one-line guard fix would have introduced a second bug** —
+  placed after the `lsr`, the skip target sits past the matching `start_z80`, so
+  a taken guard branch strands the Z80 bus for the rest of the level.
+- **Item 28's `load_art` clobber claim is stale** — d7 IS clobbered now. The real
+  defect was d5: declared, written by nothing.
+- **Item 30 was largely already closed** by a 2026-07-22 sigil pass
+  (`Spawn_Count`, `MAX_SPAWNS_PER_FRAME`, and most of the dead-defs list).
+  `PHYS_ROLL_FRICTION` is under a standing ratified DO-NOT-DELETE ruling despite
+  zero readers.
+- **Item 29's `RaiseError`/`Console` leak is not a leak** — both are AS macros
+  with zero call sites, inert in a residual that emits no bytes in release.
+
+**The `[closed by <pending mechanism>]` pattern claimed another one:** item 29
+carried `[closed by D10 flag algebra — do not hand-fix the flag-gating half]`.
+D10 never shipped, and the release leaks were entirely open. That is the second
+time a pending-mechanism marker has hidden live work (after the D8 blob-evenness
+marker, which took a boot ADDRESS ERROR for real on 2026-08-03).
+
+### Still open, both BLOCKED on an owner ruling (see `docs/DEFERRED_WORK.md`)
+
+- **Item 29 part 4 — the release-shape error-handler / MDDBG strip.** 4,272 bytes
+  ship in BOTH shapes, `demo` included. Ruling 1 ("strip the exception stubs")
+  is in tension with ruling 2 ("halt loudly in BOTH shapes"), and the code cannot
+  answer what a release build should do on a bus error (`rte` is actively wrong
+  for the fault classes — it re-executes the faulting instruction). Costs beyond
+  placement: 60 dangling `dc.l` cells, four ungated `debugger.asm` equs that
+  resolve into the module, large pin/golden churn including Config-B.
+- **Item 28 — the blit posture and the BG column-major transpose.** A coupled
+  three-way fork (bg posture <-> load_art direct-DMA <-> transpose) the review
+  itself says three times must be decided together.
+- **Item 25 H1** (global tempo accumulator) and **H2** (page-aligned opcode
+  dispatch) were dropped with reasons; **M3** was dropped because wave-4 already
+  took DEBUG headroom 86 -> 316 B, inverting its bytes-for-cycles trade.
+
 ## REMAINING FUNCTIONAL BUGS (2026-07-17 audit)
 
 Definitive cross-reference of this review's correctness roll-up against the two merged fix
