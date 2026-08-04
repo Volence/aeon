@@ -28,6 +28,13 @@ const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * 32
 // Callers must skip size-0 blobs BEFORE calling (empty stubs carry no
 // decodable stream).
 //
+// Dispatch order (§2.2 — common case falls through): ZX0 is the common case
+// on every production path. The two-tier split puts ZX0 on the load-time art
+// tier, and every act-pool page the engine ships is a .zx0 blob
+// (games/sonic4/data/generated/**/act_pool_page*.zx0); the S4LZ arm is
+// reached only from the DEBUG compression self-test, which exercises both
+// arms deliberately. So the ZX0 test is the not-taken branch.
+//
 // In:  a0 = source ROM pointer (wrapper at start, word-aligned)
 //      a1 = destination buffer
 // Out: a0 = past end of compressed data
@@ -38,11 +45,11 @@ const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * 32
 // -----------------------------------------------
 pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
         cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
-        beq     .zx0
-        jbra    S4LZ_Decompress                 // S4LZ_Decompress reads its own wrapper
-    .zx0:
+        bne     .s4lz                           // rare arm out of line (§2.2)
         addq.l  #ART_HDR_SIZE, a0               // ZX0 stream starts past wrapper
         jbra    ZX0_Decompress
+    .s4lz:
+        jbra    S4LZ_Decompress                 // S4LZ_Decompress reads its own wrapper
 }
 
 // -----------------------------------------------
@@ -50,11 +57,18 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 //
 // In:  a0 = act descriptor pointer
 // Out: none
-// Clobbers: d0-d5, d7, a0-a3; d6/a4-a6 are movem-PRESERVED (the loop-live
+// Clobbers: d0-d4, d7, a0-a3; d6/a4-a6 are movem-PRESERVED (the loop-live
 //      registers below sit in them so both callees' licenses leave them
-//      alone, and the movem round-trip proves the preservation). d5/a3
-//      enter the license only through BG_Init's callee license — no
-//      instruction in THIS file writes them.
+//      alone, and the movem round-trip proves the preservation).
+//      Derivation — own writes: a4, d6, a5, a6, a0, d4, a1, d7, d1, d2, d3.
+//      Callee licenses folded in: Art_Decompress d0-d3/a2-a3 (its S4LZ tail
+//      call is d0-d3/a2-a3, its ZX0 tail call d0-d1, both covered),
+//      QueueDMA_Critical d0-d4/a1-a2, VSync_Wait d0, BG_Init d0-d1/a1-a2.
+//      Union minus the movem set = d0-d4/d7/a0-a3. a3 enters via
+//      Art_Decompress (NOT via BG_Init, which explicitly preserves a3).
+//      d5 is written by no instruction here and by no callee license, so it
+//      is NOT in the set — an earlier header carried it and made callers
+//      save a register this proc never touches.
 //
 // The act ships one paged art pool. Each page
 // is a wrapped ZX0/S4LZ blob of up to ART_POOL_PAGE_TILES (256) tiles. We
@@ -86,7 +100,7 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 // data; VSync_Wait touches neither it nor a6). Both directions are testable:
 // force the Critical queue full and confirm DEBUG halts / release retries + lands.
 // -----------------------------------------------
-pub proc Level_LoadArt (a0: *Act) clobbers(d0-d5/d7/a0-a3) preserves(d6/a4-a6) {
+pub proc Level_LoadArt (a0: *Act) clobbers(d0-d4/d7/a0-a3) preserves(d6/a4-a6) {
         movem.l d6/a4-a6, -(sp)
         movea.l a0, a4                              // a4 = act ptr (preserved)
 
