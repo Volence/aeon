@@ -12,6 +12,13 @@
 # config_a (adds Debug_MusicToggle / Sound_DebugMirror / CompressionSelfTest, sound+debug),
 # config_b (sound-OFF: adds the Z80 idle Z80_IdleProgram / BootData_End). `when` gates the
 # sound-conditional facts; the ORDER list is the union — each target is a subsequence.
+#
+# FAULT-HANDLER SHAPE SPLIT (review item 29 part 4 — the MDDBG strip): RELEASE targets
+# (s4, config_b) place ReleaseFault (release_fault.emp — loud-failure freeze) and NOT the
+# error_handler island; DEBUG targets (s4_debug, config_a) place BusError.. (error_handler.emp,
+# the vendored MDDBG blob) and NOT ReleaseFault. Both `ReleaseFault` and `BusError` sit in the
+# union order consecutively — no single target carries both, so each target's derived order
+# stays a subsequence. (`NullInterrupt` — the deleted tolerant `rte` — is gone from both.)
 
 fill = 0x00
 
@@ -40,7 +47,7 @@ order = [
   "BgAnim_Table", "Map_TestObj",
   "Ani_Sonic", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
   "Song_MovingTrucks", "Sfx_33",
-  "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "NullInterrupt", "BusError",
+  "GameState_ObjectTest_Init", "GameState_OJZScroll_Init", "ReleaseFault", "BusError",
   "__align$games.sonic4.replay_fixture$0", "Replay_OJZ_Fixture", "EndOfRom",
 ]
 

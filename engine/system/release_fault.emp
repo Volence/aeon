@@ -1,0 +1,70 @@
+// ===========================================================================
+// engine/system/release_fault.emp — the RELEASE-shape loud-failure handler
+// ===========================================================================
+// RELEASE builds ship ZERO debug equipment (the MD Debugger / error_handler
+// island is DEBUG-only — review item 29 part 4, the MDDBG strip), but a fault
+// must still HALT LOUDLY rather than corrupt silently. ReleaseFault is that
+// loud failure: mask every interrupt, reset the VDP command state machine, set
+// the backdrop RED, and freeze. It is the RELEASE arm of every fault vector
+// ($08-$2C class stubs, $30-$60 reserved/spurious, $64/$68/$6C/$74/$7C IRQ,
+// $80-$FC TRAP) — vectors.emp points all 60 at this proc in the release shape,
+// exactly where the debug shape points them at error_handler's per-class stubs.
+// The owner ruling (vectors.emp policy block, item 27) required that a release
+// strip PRESERVE loud failure; this is that implementation.
+//
+// SEMANTICS — ruled, implement exactly (do NOT "improve"):
+//   * NO stack use — a bus/address fault may have landed with a wild SSP; every
+//     write here is register/absolute, never a push.
+//   * NO rte — a group-0 fault (bus/address error) pushes a 14-byte exception
+//     frame the 68000's `rte` MISPARSES: it pops the function-code word as SR
+//     and the access-address longword as PC, so `rte` from such a frame runs off
+//     into garbage. `rte` is unusable here.
+//   * NO rts — nothing called us with a return address to trust.
+//   * NO stop_z80 — the Z80-bus busy-wait could hang forever (before the red
+//     screen ever paints) if the Z80 is wedged; every VDP write below is
+//     best-effort, so we never gate the red screen on the sound CPU.
+//   * A double bus fault while the CPU pushes its OWN exception frame halts the
+//     68000 outright — which is ALSO acceptably loud (a frozen machine), so the
+//     no-stack posture cannot make the failure quieter.
+// The d0 clobber (VDP status readback) is irrelevant: this proc is TERMINAL, it
+// never returns, so no caller observes any register.
+//
+// It deliberately does NOT live in vectors.emp (that file is the fixed org-0
+// image, pure data to $200); it sits near the ROM tail, at the placement slot
+// the deleted null_interrupt.emp used to occupy (map order, just before where
+// the DEBUG-only error_handler island begins). RELEASE-shape ONLY: the registry
+// pushes it under `if !debug`, so the debug shapes never carry it.
+// ===========================================================================
+
+module engine.system.release_fault in release_fault
+
+use engine.constants.{VDP_CTRL, VDP_DATA}
+use engine.vdp.{vdp_comm, VdpTarget, VdpOp}
+
+section release_fault (cpu: m68000) {
+    // Terminal fault handler — like the error_handler stubs it replaces, it is a
+    // hardware/vector entry that never returns, so the contract clobber set is
+    // empty (nothing survives to care; see the d0 note above).
+    pub proc ReleaseFault () clobbers() {
+        move.w  #$2700, sr                  // terminal: mask every interrupt level
+        move.w  VDP_CTRL, d0                // read: reset the VDP command state
+                                            // machine (the fault may have landed
+                                            // mid-command; this re-primes it)
+        move.w  #$8134, VDP_CTRL            // reg 1 = display OFF (M5+DMA kept,
+                                            // VBlank-int moot under the SR mask).
+                                            // With the display off the ENTIRE
+                                            // raster is the backdrop colour —
+                                            // without this, a scene whose planes
+                                            // cover the screen hides the red
+                                            // completely (oracle-proven on OJZ:
+                                            // the freeze looked like a normal
+                                            // frame until this write was added)
+        move.w  #$8700, VDP_CTRL            // reg 7 = backdrop is palette line 0,
+                                            // colour index 0 → backdrop = CRAM[0]
+        move.l  #vdp_comm(0, VdpTarget.Cram, VdpOp.Write), VDP_CTRL  // point at CRAM[0]
+        move.w  #$000E, VDP_DATA            // CRAM[0] = red (Genesis BGR: $000E)
+    .halt:
+        bra     .halt                       // frozen; state preserved for the
+                                            // emulator post-mortem
+    }
+}

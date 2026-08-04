@@ -5,91 +5,136 @@
 // ── REVERT (review item 27, finding 10)
 // Every vector the engine does not model — the spurious-interrupt vector ($60),
 // the 12 reserved slots ($30-$5C), and IRQ1/2/3/5/7 ($64/$68/$6C/$74/$7C) —
-// points at ErrorExcept and HALTS LOUDLY, in BOTH shapes, release included.
-// Ruling, verbatim: "A spurious IRQ means a state the engine does not model;
-// surface it during development rather than let it corrupt silently."
+// HALTS LOUDLY, in BOTH shapes, release included. Ruling, verbatim: "A spurious
+// IRQ means a state the engine does not model; surface it during development
+// rather than let it corrupt silently."
 // Before this the table was internally inconsistent — $60 halted loudly while
 // IRQ1/2/3/5/7 took the tolerant `rte` (NullInterrupt) stance — so an
 // unmodelled interrupt level either crashed or vanished depending on which
 // line the glitch landed on. It is now one policy.
-// The release-shape error-handler/MDDBG strip (docs/DEFERRED_WORK.md, "Release-
-// shape error handler / MDDBG strip", BLOCKED) may one day remove the vendored
-// debugger from release. If it does, these 60 cells must keep pointing at
-// SOMETHING that halts loudly (a `bra.s *` freeze, a coloured-border hang, a
-// jump to EntryPoint — the owner picks). Repointing them at NullInterrupt's
-// `rte` would revert this ruling, and for the fault classes it is actively
-// wrong: an `rte` from a bus or address error re-executes the faulting
-// instruction and hard-loops.
 //
-// NullInterrupt intentionally does NOT live in this file — the org-0 image
-// is pure data until $200 (vectors $000-$0FF, header $100-$1FF), so
-// NullInterrupt is emitted elsewhere (null_interrupt.emp, near the ROM tail).
-// It has NO referencer in this table any more (see the policy note above); it
-// is kept as the engine's `rte` handler for a future opt-in tolerant vector,
-// and its deletion is the blocked strip parcel's call, not this file's.
+// ── RELEASE-SHAPE ERROR-HANDLER / MDDBG STRIP — EXECUTED 2026-08-05
+// ── (review item 29 part 4). This IS the strip the item-27 policy note above
+// ── anticipated ("if the release strip lands, these cells must keep pointing at
+// ── SOMETHING that halts loudly"): the vendored MD Debugger / error_handler
+// island (the 12 per-class stubs + the MDDBG blob, ~4.2 KB) is now DEBUG-ONLY.
+// The two shapes split THIS table's fault cells:
+//   * DEBUG   — every fault points at its error_handler.emp per-class stub
+//               (BusError/AddressError/… + ErrorExcept + ErrorTrap), exactly as
+//               before: the vendored debugger paints the exception screen.
+//   * RELEASE — the island is gone; every fault points at ReleaseFault
+//               (engine/system/release_fault.emp) — mask IRQs, red backdrop,
+//               freeze. That is the loud-failure implementation the ruling
+//               required. Repointing release at a tolerant `rte` would revert
+//               the ruling, and for the fault classes it is actively wrong: an
+//               `rte` from a bus or address error re-executes the faulting
+//               instruction and hard-loops.
+// $00 SYSTEM_STACK / $04 EntryPoint / $70 HBlank_Vector_Slot / $78
+// VBlank_Handler are shape-INVARIANT (untouched in both arms).
+//
+// NullInterrupt (the old tolerant `rte` primitive, null_interrupt.emp) is
+// DELETED by this same strip — it had had no referencer in this table since the
+// item-27 ruling, and the strip answered its open question ("does release still
+// need a tolerant handler?") with ReleaseFault. Do NOT reintroduce a tolerant
+// vector without an owner ruling; see the policy block above.
 //
 // The 64 entries are raw dc.l link pointers: SYSTEM_STACK is a constants.emp
-// equ (folds to the initial SSP); the other 63 are labels resolved at link —
-// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp) and
-// VBlank_Handler (vblank.emp) are .emp-owned; the IRQ4 vector points at the
+// equ (folds to the initial SSP); the others are labels resolved at link —
+// EntryPoint (boot.emp), the 12 exception stubs (error_handler.emp, DEBUG arm)
+// / ReleaseFault (release_fault.emp, RELEASE arm) and VBlank_Handler
+// (vblank.emp) are .emp-owned; the IRQ4 vector points at the
 // HBlank_Vector_Slot RAM trampoline.
-// Bytes are shape-invariant in
-// SOURCE; the VALUES differ per shape through the link (normal). The region's
-// fixed 256-byte size makes the header boundary structurally byte-neutral.
+// The fault-cell VALUES now differ per shape by DESIGN (the shape split above),
+// but the region's fixed 256-byte size is shape-invariant, so the header
+// boundary at $100 stays structurally byte-neutral.
 //
-// FORM — a proc with raw `dc.l <label>`, NOT a `data [*u8; 64]` array (the
-// tile_cache.emp BlockStage_PtrTable shape): raw `dc.l <label>` is the right
-// capability for this raw CPU-read vector/jump-table class. The corpus
-// `data [*u8;N]` pointer
-// arrays spell every cell as a quoted label-name string / `extern(...)` /
-// `comptime for` — none take a BAREWORD link symbol — so a `data` recast would
-// turn these 64 clean cross-module barewords into 64 quoted/extern cells, and
-// element 0 (`SYSTEM_STACK`, an integer equ, not a pointer) is heterogeneous
-// with the 63 label cells. `dc.l` handles the bareword symbols and the leading
-// int uniformly; that is the right form here. (The typed/label-carrying
-// data-table construct that would let a `data` array hold barewords + domain
-// types is the offset-table-roadmap language ask — gap-ledgered.)
+// FORM — a proc with raw `dc.l <label>` (+ a comptime `if DEBUG` shape split),
+// NOT a `data [*u8; 64]` array (the tile_cache.emp BlockStage_PtrTable shape):
+// raw `dc.l <label>` is the right capability for this raw CPU-read vector/jump-
+// table class. The corpus `data [*u8;N]` pointer arrays spell every cell as a
+// quoted label-name string / `extern(...)` / `comptime for` — none take a
+// BAREWORD link symbol — so a `data` recast would turn these clean cross-module
+// barewords into quoted/extern cells, and element 0 (`SYSTEM_STACK`, an integer
+// equ, not a pointer) is heterogeneous with the label cells. `dc.l` handles the
+// bareword symbols and the leading int uniformly; that is the right form here.
+// (The typed/label-carrying data-table construct that would let a `data` array
+// hold barewords + domain types is the offset-table-roadmap language ask —
+// gap-ledgered.)
 module engine.system.vectors in vectors
 
 pub proc Vectors () clobbers() {
     dc.l    SYSTEM_STACK                    // $00: Initial SSP
     dc.l    EntryPoint                      // $04: Reset PC
-    dc.l    BusError                        // $08: Bus error
-    dc.l    AddressError                    // $0C: Address error
-    dc.l    IllegalInstr                    // $10: Illegal instruction
-    dc.l    ZeroDivide                      // $14: Division by zero
-    dc.l    ChkInstr                        // $18: CHK exception
-    dc.l    TrapvInstr                      // $1C: TRAPV
-    dc.l    PrivilegeViol                   // $20: Privilege violation
-    dc.l    Trace                           // $24: Trace
-    dc.l    Line1010Emu                     // $28: Line 1010
-    dc.l    Line1111Emu                     // $2C: Line 1111
-    dc.l    ErrorExcept                     // $30: Reserved
-    dc.l    ErrorExcept                     // $34: Reserved
-    dc.l    ErrorExcept                     // $38: Reserved
-    dc.l    ErrorExcept                     // $3C: Reserved
-    dc.l    ErrorExcept                     // $40: Reserved
-    dc.l    ErrorExcept                     // $44: Reserved
-    dc.l    ErrorExcept                     // $48: Reserved
-    dc.l    ErrorExcept                     // $4C: Reserved
-    dc.l    ErrorExcept                     // $50: Reserved
-    dc.l    ErrorExcept                     // $54: Reserved
-    dc.l    ErrorExcept                     // $58: Reserved
-    dc.l    ErrorExcept                     // $5C: Reserved
-    dc.l    ErrorExcept                     // $60: Spurious interrupt
-    dc.l    ErrorExcept                     // $64: IRQ1 (unused on MD)
-    dc.l    ErrorExcept                     // $68: IRQ2 (external — controller TH)
-    dc.l    ErrorExcept                     // $6C: IRQ3 (unused on MD)
+    if DEBUG == 1 {
+        // DEBUG — faults route to the MD Debugger / error_handler per-class
+        // stubs (error_handler.emp); the vendored debugger paints the screen.
+        dc.l    BusError                    // $08: Bus error
+        dc.l    AddressError                // $0C: Address error
+        dc.l    IllegalInstr                // $10: Illegal instruction
+        dc.l    ZeroDivide                  // $14: Division by zero
+        dc.l    ChkInstr                    // $18: CHK exception
+        dc.l    TrapvInstr                  // $1C: TRAPV
+        dc.l    PrivilegeViol               // $20: Privilege violation
+        dc.l    Trace                       // $24: Trace
+        dc.l    Line1010Emu                 // $28: Line 1010
+        dc.l    Line1111Emu                 // $2C: Line 1111
+        dc.l    ErrorExcept, ErrorExcept, ErrorExcept, ErrorExcept   // $30-$3C: Reserved
+        dc.l    ErrorExcept, ErrorExcept, ErrorExcept, ErrorExcept   // $40-$4C: Reserved
+        dc.l    ErrorExcept, ErrorExcept, ErrorExcept, ErrorExcept   // $50-$5C: Reserved
+        dc.l    ErrorExcept                 // $60: Spurious interrupt
+        dc.l    ErrorExcept                 // $64: IRQ1 (unused on MD)
+        dc.l    ErrorExcept                 // $68: IRQ2 (external — controller TH)
+        dc.l    ErrorExcept                 // $6C: IRQ3 (unused on MD)
+    } else {
+        // RELEASE — the error_handler island is stripped; every fault routes to
+        // ReleaseFault (release_fault.emp): mask, red backdrop, freeze.
+        dc.l    ReleaseFault                // $08: Bus error
+        dc.l    ReleaseFault                // $0C: Address error
+        dc.l    ReleaseFault                // $10: Illegal instruction
+        dc.l    ReleaseFault                // $14: Division by zero
+        dc.l    ReleaseFault                // $18: CHK exception
+        dc.l    ReleaseFault                // $1C: TRAPV
+        dc.l    ReleaseFault                // $20: Privilege violation
+        dc.l    ReleaseFault                // $24: Trace
+        dc.l    ReleaseFault                // $28: Line 1010
+        dc.l    ReleaseFault                // $2C: Line 1111
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $30-$3C: Reserved
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $40-$4C: Reserved
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $50-$5C: Reserved
+        dc.l    ReleaseFault                // $60: Spurious interrupt
+        dc.l    ReleaseFault                // $64: IRQ1 (unused on MD)
+        dc.l    ReleaseFault                // $68: IRQ2 (external — controller TH)
+        dc.l    ReleaseFault                // $6C: IRQ3 (unused on MD)
+    }
     dc.l    HBlank_Vector_Slot              // $70: IRQ4 (HBlank) — RAM jmp-slot trampoline
-    dc.l    ErrorExcept                     // $74: IRQ5 (unused on MD)
+    if DEBUG == 1 {
+        dc.l    ErrorExcept                 // $74: IRQ5 (unused on MD)
+    } else {
+        dc.l    ReleaseFault                // $74: IRQ5 (unused on MD)
+    }
     dc.l    VBlank_Handler                  // $78: IRQ6 (VBlank)
-    dc.l    ErrorExcept                     // $7C: IRQ7 (NMI)
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $80-$8C: TRAP 0-3
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $90-$9C: TRAP 4-7
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $A0-$AC: TRAP 8-11
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $B0-$BC: TRAP 12-15
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $C0-$CC: Reserved
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $D0-$DC: Reserved
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $E0-$EC: Reserved
-    dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $F0-$FC: Reserved
+    if DEBUG == 1 {
+        dc.l    ErrorExcept                 // $7C: IRQ7 (NMI)
+    } else {
+        dc.l    ReleaseFault                // $7C: IRQ7 (NMI)
+    }
+    if DEBUG == 1 {
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $80-$8C: TRAP 0-3
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $90-$9C: TRAP 4-7
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $A0-$AC: TRAP 8-11
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $B0-$BC: TRAP 12-15
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $C0-$CC: Reserved
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $D0-$DC: Reserved
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $E0-$EC: Reserved
+        dc.l    ErrorTrap, ErrorTrap, ErrorTrap, ErrorTrap   // $F0-$FC: Reserved
+    } else {
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $80-$8C: TRAP 0-3
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $90-$9C: TRAP 4-7
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $A0-$AC: TRAP 8-11
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $B0-$BC: TRAP 12-15
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $C0-$CC: Reserved
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $D0-$DC: Reserved
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $E0-$EC: Reserved
+        dc.l    ReleaseFault, ReleaseFault, ReleaseFault, ReleaseFault   // $F0-$FC: Reserved
+    }
 }

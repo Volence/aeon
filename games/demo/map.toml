@@ -9,6 +9,9 @@ fill = 0x00
 
 # Byte-emitting section order (root array — precedes the [[table]] sections below).
 # Each demo target's derived order is a subsequence; a derivation change fails loud.
+# Fault-handler shape split (review item 29 part 4): demo (release) places ReleaseFault
+# and not the error_handler island; demo_debug places BusError.. and not ReleaseFault.
+# Both sit in this union consecutively (no target carries both). NullInterrupt is deleted.
 order = [
   "Vectors", "GameHeader", "EntryPoint", "BootData",
   "Z80_IdleProgram", "BootData_PostBlob",
@@ -20,7 +23,7 @@ order = [
   "Tile_Cache_GetTile", "Collision_GetType", "Section_Init", "Camera_Init",
   "Parallax_Init", "Art_Decompress", "BG_Init", "BgAnim_Init",
   "CompressionSelfTest", "ObjCodeBase", "DemoBox_Main", "ObjDef_DemoBox",
-  "GameState_Demo_Init", "NullInterrupt", "BusError",
+  "GameState_Demo_Init", "ReleaseFault", "BusError",
 ]
 
 [[region]]
