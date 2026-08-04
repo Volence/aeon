@@ -73,15 +73,18 @@ pub const GS_OJZ_SCROLL_TEST      = 3
 // is NOT declared here because the codebase forbids declaring a `-D` name in any
 // `.emp` module. Its home is native.rs `emp_defines` (byte-identity is the drift
 // net — a wrong value moves ROM bytes).
-pub const RING_BUFFER_ENTRY_SIZE  = 6           // dc.w x, y; dc.b section_id, list_index
+// RING_BUFFER_ENTRY_SIZE is NOT declared here: it is an engine-owned buffer
+// FORMAT, homed in engine.constants (review item 30/G). Only the ring COUNT is a
+// game knob.
 pub const RING_WIDTH              = 16          // collision AABB pixels
 
 // 3x3 rolling collected bitmask sizing (+/-1 section in each axis). Slot count and
 // eviction radius must agree: 3x3 = 9 slots, radius = +/-1. Collected_UpdateCenter
 // evicts any slot where |dx|>1 OR |dy|>1. COLLECTED_WINDOW_SLOTS is a game-varying
 // GAME->ENGINE `-D` interface value (sonic4 9, demo 4) — same as MAX_RING_BUFFER
-// above, homed in native.rs `emp_defines`.
-pub const COLLECTED_SLOT_SIZE     = 34          // 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
+// above, homed in native.rs `emp_defines`. COLLECTED_SLOT_SIZE is not declared
+// here either — the slot STRIDE is an engine-owned format derived from the
+// bitmask field offsets, homed in engine.constants (review item 30/G).
 
 // Rolling respawn park (spec 4.9.4) — sections evicted from the 3x3 with any
 // collected/killed bit set park here; restored on re-claim. Oldest rolls off.

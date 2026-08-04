@@ -15,21 +15,23 @@ use engine.constants.{MAX_TRACKED_SECTIONS, MAX_LIST_ENTRIES, ENTITY_LOAD_BUFFER
 use engine.constants.{ENTITY_LOAD_BUFFER_Y, ENTITY_DESPAWN_BUFFER_Y, ENTITY_LOADED_SLOT_SIZE, ENTITY_LOADED_OBJ_OFFSET}
 use engine.constants.{ENTITY_RESCAN_COARSE_MASK, ENTITY_RESCAN_ROW_SIZE, COLLECTED_BITMASK_OFFSET, KILLED_BITMASK_OFFSET}
 use engine.constants.{COLLECTED_EMPTY_TAG, COLLECTED_MASK_BYTES, OEF_TYPE_SHIFT, OEF_TYPE_MASK, OBJ_ENTRY_SIZE}
+use engine.constants.{COLLECTED_SLOT_SIZE, RING_BUFFER_ENTRY_SIZE}
 use engine.objects.sst.{Sst}
 use engine.structs.{Sec, Act_grid_w_lo}
 use engine.coords.{abs_w}
 
-// GAME-config input (truth: games/<game>/config/constants.asm).
+// GAME-config input (truth: games/<game>/config/constants.emp).
 // COLLECTED_WINDOW_SLOTS VARIES per game (sonic4: 9; demo: 4), so the engine
 // takes it as a comptime define (-D, the SOUND_DRIVER_ENABLED class) rather
-// than hardcoding sonic4's 9 — the engine/game split's contract. The ensure
-// below cross-checks it against the game's AS-side extern. COLLECTED_SLOT_SIZE
-// / COLLECTED_PARK_SLOTS are ENGINE-invariant slot layout (every game's config
-// carries the same values), so they stay engine consts, ensure-guarded.
-const COLLECTED_SLOT_SIZE       = 34
+// than hardcoding sonic4's 9 — the engine/game split's contract.
+// COLLECTED_PARK_SLOTS is ENGINE-invariant slot layout (every game's config
+// carries the same value), so it stays an engine const, ensure-guarded.
+// COLLECTED_SLOT_SIZE / RING_BUFFER_ENTRY_SIZE were the same shape but are pure
+// ENGINE-owned FORMATS (no game may vary them): review item 30/G moved them to
+// engine.constants (imported above), retiring their game-config copies and the
+// extern guards that policed them.
 const COLLECTED_PARK_SLOTS      = 4
 const COLLECTED_PARK_ENTRY_SIZE = 1 + 2*COLLECTED_MASK_BYTES
-const RING_BUFFER_ENTRY_SIZE    = 6
 
 // EntityScanState — one scan-state record per tracked section (4 entries in
 // Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
@@ -62,12 +64,18 @@ struct EntityScanState (size: $1A) {
 // COLLECTED_WINDOW_SLOTS is a game-varying GAME->ENGINE `-D` interface value
 // (native.rs emp_defines; sonic4 9, demo 4) with no `.emp`/AS authority to
 // cross-check against — six-target byte-identity is its drift net (a wrong `-D`
-// moves ROM bytes). COLLECTED_SLOT_SIZE/PARK_* are engine-invariant game config
-// (game `.emp` / demo AS authority), so their link cross-checks stay.
-ensure(extern("COLLECTED_SLOT_SIZE") == COLLECTED_SLOT_SIZE, "game config and entity_window.emp disagree on COLLECTED_SLOT_SIZE — update both")
-ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_SLOTS — update both")
-ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on COLLECTED_PARK_ENTRY_SIZE — update both")
-ensure(extern("RING_BUFFER_ENTRY_SIZE") == RING_BUFFER_ENTRY_SIZE, "games/sonic4/config/constants.asm and entity_window.emp disagree on RING_BUFFER_ENTRY_SIZE — update both")
+// moves ROM bytes). COLLECTED_PARK_* are engine-invariant game config
+// (game `.emp` authority), so their link cross-checks stay. COLLECTED_SLOT_SIZE
+// and RING_BUFFER_ENTRY_SIZE no longer appear here: item 30/G re-homed those two
+// FORMATS in engine.constants, so there is nothing left to cross-check.
+ensure(extern("COLLECTED_PARK_SLOTS") == COLLECTED_PARK_SLOTS, "game config/constants.emp and entity_window.emp disagree on COLLECTED_PARK_SLOTS — update both")
+ensure(extern("COLLECTED_PARK_ENTRY_SIZE") == COLLECTED_PARK_ENTRY_SIZE, "game config/constants.emp and entity_window.emp disagree on COLLECTED_PARK_ENTRY_SIZE — update both")
+// Collected_UpdateCenter's eviction radius is fixed at ±1, so the keep-
+// neighborhood is at most 3×3 = 9 sections. More slots than that can never be
+// filled — they would be dead RAM and a silent sign the radius was meant to grow
+// with them. Fewer is fine and intentional (demo ships 4); see the
+// Collected_UpdateCenter header for why the lower bound is a budget, not a rule.
+ensure(COLLECTED_WINDOW_SLOTS <= 9, "COLLECTED_WINDOW_SLOTS exceeds the 3x3 (=9) keep-neighborhood Collected_UpdateCenter's +/-1 eviction radius can fill")
 // (Act/Sec field access comes from engine.structs, the sole layout author.)
 
 // Loaded-mask geometry static asserts (AS `if <> / error` → ensure).
@@ -414,8 +422,14 @@ proc Collected_UnparkSlot () clobbers(d1, a1) preserves(a0) {
 
 // -----------------------------------------------
 // Collected_UpdateCenter — evict slots outside new 3×3 range (±1 in each axis)
-// Radius ±1 gives a 3×3 = 9-section keep-neighborhood, matching COLLECTED_WINDOW_SLOTS.
-// Increasing the radius beyond ±1 would overflow the 9 available slots.
+// Radius ±1 gives a 3×3 = 9-section keep-neighborhood. That is the MAXIMUM a
+// game needs; COLLECTED_WINDOW_SLOTS may legitimately be SMALLER (demo ships 4).
+// Fewer slots is not a correctness break — Collected_Claim simply finds no free
+// slot for some in-range section and that section's collected/killed state is not
+// remembered while off-window; it is only a memory budget. Demo can afford 4
+// because it spawns no rings and kills nothing. Raising the radius beyond ±1
+// WOULD need more than 9 slots, hence the upper-bound assert below; there is no
+// meaningful lower bound to assert.
 // Evicted slots with any collected/killed bit park in the respawn buffer (§4.9.4).
 //
 // In:  d0.b = new center section_id

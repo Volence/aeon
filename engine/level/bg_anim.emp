@@ -37,7 +37,16 @@ module engine.bg_anim in bg_anim
 
 use engine.types.{VramAddr}
 
+// MODULE-LOCAL ON PURPOSE — do not re-home this to engine.constants (tried, item
+// 30/F, reverted). `bg_anim_port` lowers this file STANDALONE and links it against
+// an EMPTY symbol table, so the module must stay self-contained: an engine.constants
+// value used as an immediate becomes a link fixup (the harvest makes those names
+// link equates, not comptime constants), and the standalone link then fails with
+// `unresolved symbol BGANIM_MAX_BANDS`. engine/ram.emp carries its own mirror with a
+// drift comment; a real single-authority fix needs a comptime path from ram.emp to a
+// CODE module's consts, which does not exist today.
 const BGANIM_MAX_BANDS = 4
+
 const BGANIM_BANKS     = 8          // pre-shifted art banks, 1px apart (fine phase)
 
 // The 44-byte band record — the comptime layout twin of the table

@@ -36,12 +36,14 @@ pub const VRAM_DEMO_OBJ           : VramTile = $03E0
 // -----------------------------------------------
 // Engine-consumed capacity contracts
 // -----------------------------------------------
-// Ring buffer entry layout (ENGINE-invariant; rings.emp keeps its own copy and
+// Ring collision box (ENGINE-invariant; rings.emp keeps its own copy and
 // `ensure(extern(..))`-checks it against this authority).
-pub const RING_BUFFER_ENTRY_SIZE  = 6           // dc.w x, y; dc.b section_id, list_index
+// RING_BUFFER_ENTRY_SIZE and COLLECTED_SLOT_SIZE are NOT declared here: they are
+// engine-owned buffer FORMATS no game may vary, homed in engine.constants
+// (review item 30/G). Only the COUNTS are game knobs, and those are per-profile
+// `-D`s (MAX_RING_BUFFER, COLLECTED_WINDOW_SLOTS).
 pub const RING_WIDTH              = 16          // collision AABB pixels
 
 // Rolling collected-window sizing (engine ram.emp cross-checks these).
-pub const COLLECTED_SLOT_SIZE     = 34          // 1 tag + 1 pad + 16 ring bitmask + 16 killed bitmask
 pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwrite)
 pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed)
