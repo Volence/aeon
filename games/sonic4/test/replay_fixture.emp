@@ -1,8 +1,15 @@
 // OJZ replay fixture — the standing regression-net input stream (spec
 // 2026-08-02 §4). Recorded by the overseer harness session (I4); packed by
-// tools/replay_pack.py. Placed LAST in the emitting order so re-recording
-// (a content+size change) shifts ZERO gameplay addresses — the fixture build
-// and the recording build agree on every address the curated hash covers.
+// tools/replay_pack.py. Placed after ALL GAMEPLAY content but BEFORE the
+// fault-handler island (ReleaseFault / the error_handler MDDBG blob), which the
+// deb2 symbol-table contract requires to be the final byte-emitting section —
+// the blob's two baked `lea` displacements point at blob end, so nothing may be
+// appended after it (see engine/debug/error_handler.emp's WARNING and the
+// INVARIANT block in games/sonic4/map.toml). So re-recording (a content+size
+// change) still shifts ZERO gameplay addresses — the fixture build and the
+// recording build agree on every address the curated hash covers — but it DOES
+// shift the fault-handler island and EndOfRom. That island is pure
+// fault-handling equipment, carries no gameplay state, and `repin` re-pins it.
 // Playback entry: Replay_Ptr = Replay_OJZ_Fixture + REPLAY_HEADER_LEN,
 // Input_Source = INPUT_PLAYBACK (oracle poke recipe in the evidence note).
 module games.sonic4.replay_fixture in replay_fixture

@@ -30,8 +30,36 @@
 // `.emp` label is `ErrorHandlerBlob` (not `ErrorHandler`) so it never collides
 // with a bare `ErrorHandler` name at link.
 //
-// WARNING: this region MUST stay the final ROM emission — the convsym
-// symbol-table appendix rides after `EndOfRom`; no data may follow.
+// WARNING — THIS ISLAND MUST BE THE LAST BYTE-EMITTING SECTION, IN EVERY SHAPE
+// THAT CARRIES IT. Not a convention: a hard property of the opaque blob bytes.
+// The blob finds its deb2 symbol table through two PC-relative `lea`s BAKED into
+// the vendored binary, and both are hardcoded to point one byte past the blob:
+//
+//   line 229  dc.l $43FA090A  ->  lea $90A(pc),a1  @ blob+$64A (MDDBG__GetSymbolByOffset)
+//   line 233  dc.l $47FA0872  ->  lea $872(pc),a3  @ blob+$6E2 (the name decompressor)
+//
+// Both resolve to `ErrorHandlerBlob + $F56` = the byte immediately AFTER the
+// blob's last byte ($F56 IS the vendored blob's length; the whole island is the
+// $15A of exception stubs + the $F56 blob = $10B0). Each then does
+// `cmpi.w #$DEB2,(a1)+` to validate the table it just addressed. Upstream MD
+// Debugger's contract is "convsym appends the symbol table immediately after me",
+// and convsym appends at `EndOfRom` — so the contract is exactly
+// `EndOfRom == ErrorHandlerBlob + $F56`.
+//
+// Place ANY byte-emitting section after this island and the two `lea`s land on
+// that section instead: the $DEB2 check fails, `GetSymbolByOffset` returns
+// d0 = -1, and every crash-screen Offset/Caller line prints `<unknown>`. It is a
+// SILENT failure — the ROM builds, boots and crashes correctly, it just cannot
+// name anything. (This is precisely what `Replay_OJZ_Fixture` did while it sat
+// between the blob and `EndOfRom`.)
+//
+// The order is declared in each game's map.toml `order` list (the island's head
+// labels, `BusError`/`ReleaseFault`, sit last before `EndOfRom`) and is ENFORCED
+// as a hard build error by the guard in sigil
+// crates/sigil-harness/src/native.rs::append_deb2_appendix.
+//
+// The blob bytes below are untouchable — do NOT "fix" the displacements; fix the
+// placement.
 
 module engine.debug.error_handler in error_handler
 
