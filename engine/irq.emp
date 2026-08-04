@@ -1,34 +1,44 @@
-// Interrupt-mask bracket templates — shared module.
+// Interrupt state — the declared contexts.
 //
-// The SR save/mask/restore bracket as a shared template
-// (`move.w sr,-(sp)` / `move.w #$2700,sr` / `move.w (sp)+,sr`).
+// `ints_off` is the SR save/mask/restore bracket (`move.w sr,-(sp)` /
+// `move.w #$2700,sr` … `move.w (sp)+,sr`) as an ACQUIRED context: the compiler
+// splices both halves and PROVES every path through the body reaches the
+// restore. A caller that exposes SR in its contract declares `preserves(sr)` —
+// the save/restore is the enforcement — and owns the WHY comment at the
+// bracket: atomicity rationales are site facts, not context facts.
 //
-// Consumers `use engine.irq.{sr_masked}`.
+// `vblank` is a GRANTED context: the VBlank window cannot be acquired, only
+// entered by the hardware. `grants(vblank)` on an interrupt entry point is a
+// TRUST ROOT — the assembler cannot verify hardware dispatch, so the assertion
+// is greppable and auditable rather than proven. What IS proven is the other
+// side: a proc declaring `requires(vblank)` may only be called from inside the
+// window (`[context.unsatisfied]`), so a VBlank-only routine can no longer be
+// reached from the main loop by accident.
 //
-// PAIRED USE ONLY: sr_masked is for the one-save/one-restore bracket whose
-// masked section is a label-free straight-line block (the splice-hole house
-// rule). Sites that stay inline BY DESIGN: multi-exit brackets (one save,
-// several restore-and-return paths — the DMA-queue transfer core), loops that
-// re-mask under a single save (Sound_Init's alive-wait), brackets with
-// internal labels/branches (Sound_DrainSfxRing), and long-span brackets whose
-// masked section is a whole code region (Section_RedrawPlanes, BG_Init).
-// STRUCTURAL exclusion: any bracket with a CCR out-contract can NEVER adopt —
-// the full-SR restore overwrites CCR, so those sites pin their carry AFTER
-// the restore (the DMA-queue core's andi/ori-to-ccr ordering).
+// Sites that stay HAND-SPELLED by design (a bracket is one lexical region with
+// one entry and one exit): multi-exit brackets (one save, several
+// restore-and-return paths — the DMA-queue transfer core); loops that re-mask
+// under a single save (Sound_Init's alive-wait); and long spans whose masked
+// region is a whole code block with its own internal structure
+// (Section_RedrawPlanes, BG_Init, Sound_DrainSfxRing). STRUCTURAL exclusion: any
+// bracket with a CCR out-contract can NEVER adopt — the full-SR restore
+// overwrites CCR, so those sites pin their carry AFTER the restore (the
+// DMA-queue core's andi/ori-to-ccr ordering).
+//
+// Consumers `use engine.irq.{ints_off}` / `use engine.irq.{vblank}`.
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
-// ROM — bytes appear only where a consumer splices the template.
+// ROM — bytes appear only where a consumer brackets with it.
 module engine.irq
 
-// Mask all interrupts (level 7) around `code`, restoring the caller's SR
-// after. The caller declares `preserves(sr)` (the save/restore is the
-// enforcement) and owns the WHY comment at the call site — atomicity
-// rationales are site facts, not template facts.
-pub comptime fn sr_masked(code: Code) -> Code {
-    return asm {
+pub context ints_off {
+    acquire = asm {
         move.w  sr, -(sp)
         move.w  #$2700, sr
-    } ++ code ++ asm {
+    }
+    release = asm {
         move.w  (sp)+, sr
     }
 }
+
+pub context vblank { granted }

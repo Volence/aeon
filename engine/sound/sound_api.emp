@@ -9,14 +9,15 @@
 // pending flag and no wait-idle spin (latest-wins, Flamedriver model).
 // See docs/superpowers/specs/2026-06-16-sound-command-api.md.
 //
-// stop_z80()/start_z80() below are the engine macros (engine/macros.asm)
-// as comptime-fn templates — each call site splices its own hygienic
-// `.wait_z80` poll loop.
+// The bus hold is the `z80_stopped` context (engine/z80_bus.emp) — each
+// `with z80_stopped { … }` bracket splices its own hygienic `.wait_z80` poll
+// loop, and the compiler proves every path through the body reaches the
+// release.
 // ======================================================================
 module engine.sound_api in sound_api
 
-use engine.z80_bus.{stop_z80, start_z80}
-use engine.irq.{sr_masked}
+use engine.z80_bus.{z80_stopped}
+use engine.irq.{ints_off}
 
 use engine.types.{SongId, SfxId}
 
@@ -72,8 +73,6 @@ equ PARAM_PATCHPTR_HI = PARAM_PATCHPTR_LO + 1
 equ SONG_TABLE       = extern("SongTable")
 equ SONG_PATCH_TABLE = extern("SongPatchTable")
 
-// stop_z80/start_z80 come from the shared engine.z80_bus module.
-
 // z80_bank / z80_window — split a 68k ROM address into the two parts the Z80
 // uses to read that ROM through its banked $8000 window: `bank` selects the
 // $8000-byte page, `window` is the in-page pointer ORed with $8000. Same
@@ -103,11 +102,11 @@ comptime fn z80_window(dst: Reg, src: Reg) -> Code {
 // Clobbers: SR restored; nothing else.
 // ----------------------------------------------------------------------
 pub proc Sound_PostByte (d0: u16, a0: *u8) clobbers() preserves(sr) {
-        sr_masked(asm {
-            {stop_z80()}
-            move.b  d0, (a0)                // mask: no mirror-stopZ80 nesting
-            {start_z80()}
-        })
+        with ints_off {
+            with z80_stopped {
+                move.b  d0, (a0)            // mask: no mirror bus hold can nest
+            }
+        }
         rts
 }
 
@@ -123,12 +122,13 @@ pub proc Sound_PostByte (d0: u16, a0: *u8) clobbers() preserves(sr) {
 // build/ROM fault, not a runtime state worth recovering from). The DEBUG build
 // adds a bounded SPIN_WATCHDOG_LIMIT counter that raise_errors on a wedge, so the
 // otherwise-silent hang is loud under DEBUG.
-// The marker byte is CAPTURED into d0 under the bus hold and compared AFTER
-// start_z80: start_z80's bus-release write (move.w #0, Z80_BUS_REQUEST) sets the
-// CCR, so a compare straddling the release would test the release's flags, not
-// the marker — the loop condition must come from the captured register. The
-// probe must still release the bus each iteration (the Z80 needs the bus to run
-// and post the marker), so branch-before-release is not an option here.
+// The marker byte is CAPTURED into d0 under the bus hold and compared after the
+// bracket closes: the bus-release write (move.w #0, Z80_BUS_REQUEST) the bracket
+// splices sets the CCR, so a compare straddling it would test the release's
+// flags, not the marker — the loop condition must come from the captured
+// register. The probe must still release the bus each iteration (the Z80 needs
+// the bus to run and post the marker), so branch-before-release is not an
+// option here.
 // Clobbers: d0 (marker scratch), d1 (DEBUG watchdog counter); SR preserved.
 // (boot calls this in post-boot setup where registers are free.)
 // ----------------------------------------------------------------------
@@ -137,9 +137,9 @@ pub proc Sound_Init () clobbers(d0-d1) preserves(sr) {
         if DEBUG == 1 { move.l #SPIN_WATCHDOG_LIMIT, d1 }   // DEBUG watchdog budget
     .wait_alive:
         move.w  #$2700, sr
-        stop_z80
-        move.b  ALIVE_SLOT, d0                 // capture marker under the hold
-        start_z80
+        with z80_stopped {
+            move.b  ALIVE_SLOT, d0             // capture marker under the hold
+        }
         cmp.b   #SND_ALIVE_MARKER, d0          // test AFTER release (flags clean)
         if DEBUG == 1 {
             beq    .alive_go                    // marker present -> proceed to exit
@@ -193,17 +193,17 @@ pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr) {
         // Z80 clears the slot after consuming the params). Spin until the previous
         // request is consumed (MUSIC_SLOT == 0) before touching the block. Common
         // case — no load in flight — the slot is already 0 and this falls straight
-        // through. stop_z80 per iteration so the read is reliable AND the Z80 runs
-        // between reads to actually clear the slot (a held bus would deadlock).
-        // The slot byte is CAPTURED into d1 under the hold and tested AFTER
-        // start_z80: the bus-release write sets the CCR, so the loop condition
+        // through. One bracket per iteration so the read is reliable AND the Z80
+        // runs between reads to actually clear the slot (a held bus would deadlock).
+        // The slot byte is CAPTURED into d1 under the hold and tested after the
+        // bracket closes: its bus-release write sets the CCR, so the loop condition
         // must come from the captured register, not a test straddling the release.
         // See docs/superpowers/2026-07-16-sound-repost-gate-design.md.
     if DEBUG == 1 { move.l #SPIN_WATCHDOG_LIMIT, d4 }   // DEBUG watchdog budget
     .await_slot:
-        stop_z80
-        move.b  MUSIC_SLOT, d1                 // capture the slot under the hold
-        start_z80
+        with z80_stopped {
+            move.b  MUSIC_SLOT, d1             // capture the slot under the hold
+        }
         tst.b   d1                             // test AFTER release (flags clean)
         if DEBUG == 1 {
             beq    .await_go                    // slot cleared -> proceed to exit
@@ -239,23 +239,23 @@ pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr) {
         adda.l  d0, a0                      // d0 still = index*4
         movea.l (a0), a1                    // a1 = patch-bank 68k ROM address
         z80_window(d0, a1)                  // d0 = patch-bank window ptr (shares the song's bank)
-        // --- post the param block + trigger under one bus hold (SR-masked so the
-        // DEBUG mirror's stopZ80 can't nest and release the bus mid-write). ---
-        sr_masked(asm {
-            {stop_z80()}
-            // param block FIRST. bank, song window_ptr (LE), flags, patch window_ptr (LE).
-            move.b  d1, PARAM_BANK
-            move.b  d4, PARAM_PTR_LO        // song window ptr low byte
-            lsr.w   #8, d4
-            move.b  d4, PARAM_PTR_HI        // song window ptr high byte
-            move.b  d3, PARAM_FLAGS         // song SH_FLAGS byte
-            move.b  d0, PARAM_PATCHPTR_LO   // patch window ptr low
-            lsr.w   #8, d0
-            move.b  d0, PARAM_PATCHPTR_HI   // patch window ptr high
-            // trigger LAST: the song id (1..$FE) tells the Z80 a load is pending.
-            move.b  d2, MUSIC_SLOT
-            {start_z80()}
-        })
+        // --- post the param block + trigger under one bus hold (ints_off so the
+        // DEBUG mirror's own hold can't nest and release the bus mid-write). ---
+        with ints_off {
+            with z80_stopped {
+                // param block FIRST. bank, song window_ptr (LE), flags, patch window_ptr (LE).
+                move.b  d1, PARAM_BANK
+                move.b  d4, PARAM_PTR_LO        // song window ptr low byte
+                lsr.w   #8, d4
+                move.b  d4, PARAM_PTR_HI        // song window ptr high byte
+                move.b  d3, PARAM_FLAGS         // song SH_FLAGS byte
+                move.b  d0, PARAM_PATCHPTR_LO   // patch window ptr low
+                lsr.w   #8, d0
+                move.b  d0, PARAM_PATCHPTR_HI   // patch window ptr high
+                // trigger LAST: the song id (1..$FE) tells the Z80 a load is pending.
+                move.b  d2, MUSIC_SLOT
+            }
+        }
         rts
 }
 
@@ -352,18 +352,18 @@ pub proc Sound_DrainSfxRing () clobbers(d0-d1/a0) preserves(sr) {
         cmp.b   Sfx_Ring_Wr, d0
         beq     .dr_ret                     // Rd == Wr -> ring empty -> nothing to drain
         move.w  sr, -(sp)
-        move.w  #$2700, sr                  // mask ints (no mirror-stopZ80 nesting), like Sound_PostByte
-        stop_z80
-        tst.b   SFX_SLOT   // mailbox still holds a pending id?
-        bne     .dr_done                    // yes -> Z80 not consumed; leave Rd, just release the bus
-        lea     Sfx_Ring_Buf, a0
-        move.b  (a0,d0.w), d1               // d1 = next pending id (d0 = Rd)
-        move.b  d1, SFX_SLOT   // post it — still inside the same bus hold
-        addq.b  #1, d0
-        and.b   #SFX_RING_MASK, d0
-        move.b  d0, Sfx_Ring_Rd         // advance Rd (slot consumed)
-    .dr_done:                               // ONE startZ80, reached z80-stopped from both paths
-        start_z80
+        move.w  #$2700, sr                  // mask ints (no mirror bus hold can nest), like Sound_PostByte
+        with z80_stopped {
+            tst.b   SFX_SLOT   // mailbox still holds a pending id?
+            bne     .dr_done                // yes -> Z80 not consumed; leave Rd, just release the bus
+            lea     Sfx_Ring_Buf, a0
+            move.b  (a0,d0.w), d1           // d1 = next pending id (d0 = Rd)
+            move.b  d1, SFX_SLOT   // post it — still inside the same bus hold
+            addq.b  #1, d0
+            and.b   #SFX_RING_MASK, d0
+            move.b  d0, Sfx_Ring_Rd         // advance Rd (slot consumed)
+        .dr_done:                           // ONE release, reached bus-held from both paths
+        }
         move.w  (sp)+, sr
     .dr_ret:
         rts

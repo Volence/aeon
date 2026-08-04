@@ -3740,7 +3740,7 @@ Our implementation uses `parent_ptr` and `sibling_ptr` fields in the SST. S.C.E.
 
 ### 9.4 6-Button Controller Support
 
-**Status: SHIPPED (input parcel 2026-08-02, `engine/system/controllers.emp`).** `Read_Controllers` runs a full 6-button burst on **both** pads once per VBlank (from `VInt_Level` / `VInt_Lag`), with per-frame pad-type detection. The whole two-port burst is wrapped in one `stop_z80()`/`start_z80()` bracket — Z80 access to the 68k bus during `$A100xx` I/O reads corrupts them (hardware bug; plutiedev / SGDK `HALT_Z80_ON_IO` / Vectorman's bus-request lock).
+**Status: SHIPPED (input parcel 2026-08-02, `engine/system/controllers.emp`).** `Read_Controllers` runs a full 6-button burst on **both** pads once per VBlank (from `VInt_Level` / `VInt_Lag`), with per-frame pad-type detection. The whole two-port burst runs under one `with z80_stopped { … }` bracket — Z80 access to the 68k bus during `$A100xx` I/O reads corrupts them (hardware bug; plutiedev / SGDK `HALT_Z80_ON_IO` / Vectorman's bus-request lock).
 
 **Read burst (per port).** LOW-first cadence (SGDK/plutiedev standard, verified against oracle's `MDControl6` model — the internal counter advances on TH *rising* edges, so a HIGH-first burst samples the extended phases a half-cycle early and always degrades to 3-button). Eight alternating TH writes starting `$00`, read after the first seven, 2-nop settle each:
 - `r2` (TH=1) → `1CBRLDU` main buttons; `r1` (TH=0) → `0SA00DU` (Start/A)

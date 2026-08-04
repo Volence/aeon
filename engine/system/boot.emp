@@ -10,7 +10,7 @@ module engine.boot in boot
 
 use engine.constants.{VDP_DATA, VDP_CTRL, PSG_PORT, SYSTEM_STACK}
 use engine.vdp.{VDP_MODE2_OFF, vdp_reg, bytes_to_lcnt}
-use engine.z80_bus.{stop_z80, start_z80}
+use engine.z80_bus.{z80_stopped}
 
 // The hardware ports below (HW_*, TMSS_REGISTER, YM2612_A0) are bare
 // link-resolved addresses (truth: engine.constants) — EA-position only, all in
@@ -214,8 +214,8 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // load-bearing, poll $A04000 bit 7 between data writes.
         // There is a SECOND, sharper defect here that this comment used to
         // miss: in a sound build the Z80 driver has been running since the bus
-        // release above, and stop_z80() can halt it BETWEEN its own YM address
-        // and data writes — the 68k then latches $28 and the Z80's resumed data
+        // release above, and the bus request can halt it BETWEEN its own YM
+        // address and data writes — the 68k then latches $28 and the Z80's data
         // write lands on the Key On/Off register. Both defects, the two
         // candidate fixes, and the owner ruling that this block stays
         // BYTE-FOR-BYTE UNCHANGED (no real hardware to verify timing against; a
@@ -223,20 +223,20 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // docs/specs/boot-ym-keyoff-race.md. Read it before touching this block
         // OR the /IC reset pulse above — shortening that pulse is what would
         // make these six writes load-bearing.
-        stop_z80()
-        lea     YM2612_A0, a6
-        move.b  #$28, (a6)                  // select Key On/Off register
-        moveq   #2, d2
-    .keyoff_part1:
-        move.b  d2, 1(a6)                   // key off channels 0-2
-        dbf     d2, .keyoff_part1
-        moveq   #6, d2
-        moveq   #2, d1
-    .keyoff_part2:
-        move.b  d2, 1(a6)                   // key off channels 4-6 ($04,$05,$06)
-        subq.w  #1, d2
-        dbf     d1, .keyoff_part2
-        start_z80()
+        with z80_stopped {
+            lea     YM2612_A0, a6
+            move.b  #$28, (a6)                  // select Key On/Off register
+            moveq   #2, d2
+        .keyoff_part1:
+            move.b  d2, 1(a6)                   // key off channels 0-2
+            dbf     d2, .keyoff_part1
+            moveq   #6, d2
+            moveq   #2, d1
+        .keyoff_part2:
+            move.b  d2, 1(a6)                   // key off channels 4-6 ($04,$05,$06)
+            subq.w  #1, d2
+            dbf     d1, .keyoff_part2
+        }
 
         // Clear d0-a6 from just-cleared RAM (sp keeps the reset-vector stack)
         movem.l (RAM_Start).w, d0-a6        // explicit .w: movem's abs seam is pinned-width (relaxable movem form ledgered)

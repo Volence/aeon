@@ -4,6 +4,7 @@ module engine.buffers in buffers
 use engine.structs.{DMAEntry, parallax_config}
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length}
+use engine.irq.{vblank}
 
 // DMA source word addresses for the static entries — the link-time arm of
 // engine.vdp's dma_source derivation ((addr >> 1) & $7FFFFF): the sources are
@@ -208,7 +209,7 @@ pub proc PlaneMapToVRAM (a1: *u8, d0: u32, d1: u16, d2: u16) clobbers(d0-d4/a1/a
 // On a drop (Critical queue full — reachable during a fade + heavy art staging)
 // the bit is left set so the next VBlank retries it, instead of clearing it and
 // leaving stale palette/SAT data in VRAM indefinitely.
-pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) {
+pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         move.b  Palette_Dirty, d0               // (Palette_Dirty).w
         beq     .no_pal
         btst    #0, d0

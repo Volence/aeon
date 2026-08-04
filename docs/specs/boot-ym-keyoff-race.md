@@ -29,12 +29,12 @@ clear:
 | line | what |
 |---|---|
 | 200-216 | the comment block (states both defects and points here) |
-| 217 | `stop_z80()` — request the Z80 bus, spin until granted |
+| 217 | `with z80_stopped {` — request the Z80 bus, spin until granted |
 | 218 | `lea YM2612_A0, a6` |
 | 219 | `move.b #$28, (a6)` — latch YM address = $28 (Key On/Off) |
 | 220-223 | `.keyoff_part1` — three `move.b d2, 1(a6)` writes, d2 = 2,1,0 |
 | 224-229 | `.keyoff_part2` — three `move.b d2, 1(a6)` writes, d2 = 6,5,4 |
-| 230 | `start_z80()` — release the bus |
+| 230 | the bracket's close — release the bus |
 
 The values are correct: {$00,$01,$02,$04,$05,$06}, skipping $03/$07 (the YM2612
 channel encoding has no 3 or 7). Only the *pacing* and the *ownership* are wrong.
@@ -48,9 +48,9 @@ The two supporting anchors:
 - `engine/system/boot.emp:149` — `move.w d0, (a1)`, the bus release. **From
   this instruction onward the Z80 is executing.** In a sound build that is the
   full sound driver, not an idle loop.
-- `engine/z80_bus.emp:17-30` — the `stop_z80` / `start_z80` templates. `stop_z80`
-  asserts BUSREQ and spins on the grant bit; it does not and cannot know what
-  instruction the Z80 was in the middle of.
+- `engine/z80_bus.emp` — the `z80_stopped` context. Its acquire asserts BUSREQ
+  and spins on the grant bit; it does not and cannot know what instruction the
+  Z80 was in the middle of.
 
 ---
 
@@ -97,7 +97,7 @@ sequencer output, DAC parking, Timer-A programming. Every one of those writes is
 an address/data *pair* with a small gap between the halves, and the driver's
 `ensure(cycles(...) >= YM_ADDR_TO_DATA_MIN_T)` guards prove that gap exists.
 
-`stop_z80()` at `:217` can land in exactly that gap:
+the bus request at `:217` can land in exactly that gap:
 
 ```
   Z80:  write $4000 <- reg N        (address latched = N)
@@ -125,7 +125,7 @@ half is well-formed; they say nothing about a second master reaching in between.
 
 1. The `/IC` reset at `:143-148` has already silenced the chip, so the block is
    redundant on the path it was written for.
-2. The race requires `stop_z80()` to land inside a window of a handful of Z80
+2. The race requires the bus request to land inside a window of a handful of Z80
    T-states, once, during a single boot.
 3. If it does fire, the damage is one stray write to $28 during the boot frame,
    before any music has been started — audibly nothing.
@@ -141,7 +141,7 @@ the YM2612 busy flag or the address-latch contention at this granularity.
 **Candidate 1 — key off before the bus release.** Move the block to sit between
 the `/IC` reset release (`:148`) and the bus release (`:149`). There the 68k
 already owns the Z80 bus, the Z80 has not executed a single instruction, and
-there is exactly one master touching the YM. `stop_z80()` / `start_z80()` are
+there is exactly one master touching the YM. The bus request / release are
 then unnecessary and defect B disappears entirely. Defect A remains and would
 still want a busy poll.
 

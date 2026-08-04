@@ -10,7 +10,7 @@ use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
-use engine.z80_bus.{stop_z80, start_z80}
+use engine.z80_bus.{z80_stopped}
 // SND_DMA_ACTIVE_SLOT (the 68k-side DMA-window flag slot) is a global linker
 // symbol defined by engine.vblank; referenced bare below for the poke-storm bracket.
 
@@ -195,11 +195,10 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
 //     without killing sound.
 //   * sound OFF — no driver to hand that contract to, so the bus IS held for
 //     the whole storm.
-// Both are raised/lowered INSIDE this proc. A caller-side stop_z80 wrap is
-// actively harmful under sound ON: the flag bracket's own start_z80 releases
-// the caller's hold (stop_z80/start_z80 is not a counting lock), so the caller
-// runs the rest of the storm believing it holds a bus it does not. The OJZ init
-// site did exactly that until this was fixed.
+// Both are raised/lowered INSIDE this proc. A caller-side bus hold is actively
+// harmful under sound ON: the flag bracket's own release frees the caller's hold
+// (a bus request is not a counting lock), so the caller would run the rest of
+// the storm believing it holds a bus it does not.
 //
 // In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B derives the
 //      on-screen section from the world camera for the BG layout ptr)
@@ -223,218 +222,216 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         // Sound-OFF build: there is no driver to hand the DRAIN contract to, so
         // the flag write is meaningless and the Z80 is unmanaged for the whole
         // storm. Hold the bus across it instead (nothing to starve without a
-        // driver). This routine now owns its Z80 posture in BOTH shapes — see
-        // the Z80-POSTURE note in the header — so callers must NOT wrap it.
+        // driver). This routine owns its Z80 posture in BOTH shapes — see the
+        // Z80-POSTURE note in the header — so callers must NOT wrap it.
         if SOUND_DRIVER_ENABLED == 1 {
-            stop_z80()
-            move.b  #1, SND_DMA_ACTIVE_SLOT     // raise: poke storm open (Z80 -> DRAIN)
-            start_z80()
-        } else {
-            stop_z80()                          // bus held for the whole storm
+            with z80_stopped {
+                move.b  #1, SND_DMA_ACTIVE_SLOT // raise: poke storm open (Z80 -> DRAIN)
+            }
         }
+        // Comptime-gated so ONE body serves both shapes (see the Z80-POSTURE note).
+        with z80_stopped if SOUND_DRIVER_ENABLED == 0 {
+            // -- Plane A: column-major write --
+            move.w  #$8F80, (a5)
 
-        // -- Plane A: column-major write --
-        move.w  #$8F80, (a5)
+            // compute start nametable row from Cache_Top_Row (world_row & 63)
+            move.w  Cache_Top_Row, d6
+            andi.w  #63, d6                         // d6 = start_nt_row (preserved)
 
-        // compute start nametable row from Cache_Top_Row (world_row & 63)
-        move.w  Cache_Top_Row, d6
-        andi.w  #63, d6                         // d6 = start_nt_row (preserved)
+            // compute start world col = Camera_X >> 3
+            move.l  Camera_X, d5
+            swap    d5
+            lsr.w   #3, d5                          // d5 = start_world_col
 
-        // compute start world col = Camera_X >> 3
-        move.l  Camera_X, d5
-        swap    d5
-        lsr.w   #3, d5                          // d5 = start_world_col
+            moveq   #0, d3                          // col counter (0..63)
+            lea     Tile_Cache_Nametable+TILE_CACHE_NT_SIZE, a0   // row-wrap sentinel
+                                                    // (a0 free until the Plane B pass)
 
-        moveq   #0, d3                          // col counter (0..63)
-        lea     Tile_Cache_Nametable+TILE_CACHE_NT_SIZE, a0   // row-wrap sentinel
-                                                // (a0 free until the Plane B pass)
+        .pla_fill:
+            move.w  d5, d7
+            add.w   d3, d7                          // d7 = world_col
 
-    .pla_fill:
-        move.w  d5, d7
-        add.w   d3, d7                          // d7 = world_col
+            // check cache range BEFORE setting VDP address — skip entirely
+            // on miss so off-screen columns retain old nametable content
+            // instead of flashing black/zero tiles
+            cmp.w   Cache_Left_Col, d7
+            blt     .pla_next
+            cmp.w   Cache_Head_Col, d7
+            bgt     .pla_next
 
-        // check cache range BEFORE setting VDP address — skip entirely
-        // on miss so off-screen columns retain old nametable content
-        // instead of flashing black/zero tiles
-        cmp.w   Cache_Left_Col, d7
-        blt     .pla_next
-        cmp.w   Cache_Head_Col, d7
-        bgt     .pla_next
+            // convert world col → plane col (world_col & 63)
+            move.w  d7, d0
+            andi.w  #63, d0                         // d0 = plane_col = world_col & 63
+            add.w   d0, d0                          // d0 = col byte offset
+            move.w  d0, -(sp)                       // save for Part B
 
-        // convert world col → plane col (world_col & 63)
-        move.w  d7, d0
-        andi.w  #63, d0                         // d0 = plane_col = world_col & 63
-        add.w   d0, d0                          // d0 = col byte offset
-        move.w  d0, -(sp)                       // save for Part B
+            // read from tile cache — compute cache column pointer
+            move.w  d7, d0
+            sub.w   Cache_Left_Col, d0
+            add.w   Cache_Origin_Col, d0
+            cmpi.w  #TILE_CACHE_COLS, d0
+            blt     .col_nowrap
+            subi.w  #TILE_CACHE_COLS, d0
+        .col_nowrap:
+            add.w   d0, d0                          // byte offset = col × 2
+            move.w  Cache_Origin_Row, d1
+            move.w  d1, d2
+            lsl.w   #7, d1                          // × 128
+            lsl.w   #5, d2                          // × 32
+            add.w   d2, d1                          // origin_row × 160 (stride bytes)
+            add.w   d1, d0
+            lea     Tile_Cache_Nametable, a1
+            adda.w  d0, a1                          // a1 = cache[logical row 0][col]
 
-        // read from tile cache — compute cache column pointer
-        move.w  d7, d0
-        sub.w   Cache_Left_Col, d0
-        add.w   Cache_Origin_Col, d0
-        cmpi.w  #TILE_CACHE_COLS, d0
-        blt     .col_nowrap
-        subi.w  #TILE_CACHE_COLS, d0
-    .col_nowrap:
-        add.w   d0, d0                          // byte offset = col × 2
-        move.w  Cache_Origin_Row, d1
-        move.w  d1, d2
-        lsl.w   #7, d1                          // × 128
-        lsl.w   #5, d2                          // × 32
-        add.w   d2, d1                          // origin_row × 160 (stride bytes)
-        add.w   d1, d0
-        lea     Tile_Cache_Nametable, a1
-        adda.w  d0, a1                          // a1 = cache[logical row 0][col]
+            // -- Part A: nametable rows start_nt_row to 63 --
+            move.w  (sp), d4                        // col byte offset
+            move.w  d6, d2
+            lsl.w   #7, d2                          // start_nt_row × 128
+            add.w   d2, d4
+            moveq   #0, d2
+            move.w  d4, d2
+            addi.l  #VRAM_PLANE_A, d2
+            vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
+            move.l  d2, (a5)
 
-        // -- Part A: nametable rows start_nt_row to 63 --
-        move.w  (sp), d4                        // col byte offset
-        move.w  d6, d2
-        lsl.w   #7, d2                          // start_nt_row × 128
-        add.w   d2, d4
-        moveq   #0, d2
-        move.w  d4, d2
-        addi.l  #VRAM_PLANE_A, d2
-        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
-        move.l  d2, (a5)
+            move.w  #64, d2
+            sub.w   d6, d2                          // d2 = count_A (rows in Part A)
+            moveq   #TILE_CACHE_ROWS, d4
+            cmp.w   d2, d4
+            ble     .pA_clamp
+            move.w  d2, d4                          // d4 = data_A = min(cache_rows, count_A)
+        .pA_clamp:
+            move.w  d4, d0
+            subq.w  #1, d0
+            bmi     .pA_dskip
+        .pA_data:
+            move.w  (a1), (a6)
+            lea     TILE_CACHE_STRIDE*2(a1), a1
+            cmpa.l  a0, a1
+            blo     .pa_nowrap
+            suba.w  #TILE_CACHE_NT_SIZE, a1         // physical row 59 → 0
+        .pa_nowrap:
+            dbf     d0, .pA_data
+        .pA_dskip:
+            move.w  d2, d0
+            sub.w   d4, d0                          // zero_A = count_A - data_A
+            subq.w  #1, d0
+            bmi     .pA_zskip
+            moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
+        .pA_zero:
+            move.w  d1, (a6)
+            dbf     d0, .pA_zero
+        .pA_zskip:
 
-        move.w  #64, d2
-        sub.w   d6, d2                          // d2 = count_A (rows in Part A)
-        moveq   #TILE_CACHE_ROWS, d4
-        cmp.w   d2, d4
-        ble     .pA_clamp
-        move.w  d2, d4                          // d4 = data_A = min(cache_rows, count_A)
-    .pA_clamp:
-        move.w  d4, d0
-        subq.w  #1, d0
-        bmi     .pA_dskip
-    .pA_data:
-        move.w  (a1), (a6)
-        lea     TILE_CACHE_STRIDE*2(a1), a1
-        cmpa.l  a0, a1
-        blo     .pa_nowrap
-        suba.w  #TILE_CACHE_NT_SIZE, a1         // physical row 59 → 0
-    .pa_nowrap:
-        dbf     d0, .pA_data
-    .pA_dskip:
-        move.w  d2, d0
-        sub.w   d4, d0                          // zero_A = count_A - data_A
-        subq.w  #1, d0
-        bmi     .pA_zskip
-        moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
-    .pA_zero:
-        move.w  d1, (a6)
-        dbf     d0, .pA_zero
-    .pA_zskip:
+            // -- Part B: nametable rows 0 to start_nt_row - 1 --
+            tst.w   d6
+            beq     .pB_skip
+            moveq   #0, d2
+            move.w  (sp), d2                        // col byte offset
+            addi.l  #VRAM_PLANE_A, d2
+            vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
+            move.l  d2, (a5)
+            move.w  d6, d2                          // d2 = count_B = start_nt_row
+            move.w  #TILE_CACHE_ROWS, d0
+            sub.w   d4, d0                          // remaining cache rows
+            ble     .pB_allz
+            cmp.w   d2, d0
+            ble     .pB_dok
+            move.w  d2, d0
+        .pB_dok:
+            move.w  d0, d4
+            subq.w  #1, d0
+        .pB_data:
+            move.w  (a1), (a6)
+            lea     TILE_CACHE_STRIDE*2(a1), a1
+            cmpa.l  a0, a1
+            blo     .pb_nowrap
+            suba.w  #TILE_CACHE_NT_SIZE, a1         // physical row 59 → 0
+        .pb_nowrap:
+            dbf     d0, .pB_data
+            move.w  d2, d0
+            sub.w   d4, d0
+            subq.w  #1, d0
+            bmi     .pB_skip
+            moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
+        .pB_zfill:
+            move.w  d1, (a6)
+            dbf     d0, .pB_zfill
+            jbra    .pB_skip
+        .pB_allz:
+            move.w  d2, d0
+            subq.w  #1, d0
+            moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
+        .pB_az:
+            move.w  d1, (a6)
+            dbf     d0, .pB_az
+        .pB_skip:
+            addq.l  #2, sp                          // pop col byte offset
 
-        // -- Part B: nametable rows 0 to start_nt_row - 1 --
-        tst.w   d6
-        beq     .pB_skip
-        moveq   #0, d2
-        move.w  (sp), d2                        // col byte offset
-        addi.l  #VRAM_PLANE_A, d2
-        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
-        move.l  d2, (a5)
-        move.w  d6, d2                          // d2 = count_B = start_nt_row
-        move.w  #TILE_CACHE_ROWS, d0
-        sub.w   d4, d0                          // remaining cache rows
-        ble     .pB_allz
-        cmp.w   d2, d0
-        ble     .pB_dok
-        move.w  d2, d0
-    .pB_dok:
-        move.w  d0, d4
-        subq.w  #1, d0
-    .pB_data:
-        move.w  (a1), (a6)
-        lea     TILE_CACHE_STRIDE*2(a1), a1
-        cmpa.l  a0, a1
-        blo     .pb_nowrap
-        suba.w  #TILE_CACHE_NT_SIZE, a1         // physical row 59 → 0
-    .pb_nowrap:
-        dbf     d0, .pB_data
-        move.w  d2, d0
-        sub.w   d4, d0
-        subq.w  #1, d0
-        bmi     .pB_skip
-        moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
-    .pB_zfill:
-        move.w  d1, (a6)
-        dbf     d0, .pB_zfill
-        jbra    .pB_skip
-    .pB_allz:
-        move.w  d2, d0
-        subq.w  #1, d0
-        moveq   #0, d1                          // zero source (clr.w would RMW-read VDP)
-    .pB_az:
-        move.w  d1, (a6)
-        dbf     d0, .pB_az
-    .pB_skip:
-        addq.l  #2, sp                          // pop col byte offset
+        .pla_next:
+            addq.w  #1, d3
+            cmpi.w  #64, d3
+            blt     .pla_fill
 
-    .pla_next:
-        addq.w  #1, d3
-        cmpi.w  #64, d3
-        blt     .pla_fill
-
-        // -- Plane B: column-major write (BG layout is act-wide, not position-dependent) --
-        // Continuous-scroll: derive the on-screen section straight from the
-        // world camera (sec_x = Camera_X >> SECTION_SIZE_SHIFT, sec_y likewise).
-        // At level init the camera sits in the start section, so this returns the
-        // start section's BG.
-        movea.l Current_Act_Ptr, a2
-        move.w  Camera_X, d2                    // world X px (16.16 high word)
-        moveq   #SECTION_SIZE_SHIFT, d0
-        asr.w   d0, d2 as GridX                 // d2.w = sec_x
-        move.w  Camera_Y, d3                    // world Y px
-        asr.w   d0, d3 as GridY                 // d3.w = sec_y
-        jbsr    Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
-        beq     .plb_use_act_layout
-        movea.l Sec.sec_bg_layout(a0), a1
-        cmpa.w  #0, a1
-        bne     .plb_have_layout
-    .plb_use_act_layout:
-        movea.l Act.act_bg_layout(a2), a1       // T1 fallback to act-level BG
-        cmpa.w  #0, a1
-        beq     .plb_done
-    .plb_have_layout:
-        // Column-major blit. The layout blob is column-contiguous
-        // (blob[col*128 + row*2], 64 rows/column). Per column: set the VDP
-        // address to the column's top cell and drain rows 0..31 with autoinc
-        // $80, so one move.l = two VERTICALLY-adjacent cells — exactly two
-        // adjacent source words. 16 move.l per column. Then skip the column's
-        // lower 32 rows (INIT-ONLY here; never refreshed at runtime — see the
-        // RUNTIME 32-ROW LIMIT note in bg.emp). 64 per-column command setups
-        // are init/recovery-only noise, not a per-frame cost.
-        move.w  #$8F80, (a5)                    // autoincrement $80 (step one plane row/word)
-        moveq   #0, d3                          // d3 = column index 0..63
-    .plb_col:
-        moveq   #0, d2
-        move.w  d3, d2
-        add.w   d2, d2                          // d2 = col*2 (byte offset of row 0)
-        addi.l  #VRAM_PLANE_B_BYTES, d2
-        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
-        move.l  d2, (a5)
-        moveq   #16-1, d2                       // 16 longwords = 32 words = rows 0..31
-    .plb_word:
-        move.l  (a1)+, (a6)
-        dbf     d2, .plb_word
-        adda.w  #64, a1                         // skip rows 32..63 (column stride = 128 B)
-        addq.w  #1, d3
-        cmpi.w  #64, d3
-        blt     .plb_col
-    .plb_done:
-        // Restore default autoincrement (matches VInt_DrawLevel cleanup)
-        move.w  #$8F02, (a5)
+            // -- Plane B: column-major write (BG layout is act-wide, not position-dependent) --
+            // Continuous-scroll: derive the on-screen section straight from the
+            // world camera (sec_x = Camera_X >> SECTION_SIZE_SHIFT, sec_y likewise).
+            // At level init the camera sits in the start section, so this returns the
+            // start section's BG.
+            movea.l Current_Act_Ptr, a2
+            move.w  Camera_X, d2                    // world X px (16.16 high word)
+            moveq   #SECTION_SIZE_SHIFT, d0
+            asr.w   d0, d2 as GridX                 // d2.w = sec_x
+            move.w  Camera_Y, d3                    // world Y px
+            asr.w   d0, d3 as GridY                 // d3.w = sec_y
+            jbsr    Section_GetSecPtrXY             // a0 = on-screen Sec ptr (Z set = none)
+            beq     .plb_use_act_layout
+            movea.l Sec.sec_bg_layout(a0), a1
+            cmpa.w  #0, a1
+            bne     .plb_have_layout
+        .plb_use_act_layout:
+            movea.l Act.act_bg_layout(a2), a1       // T1 fallback to act-level BG
+            cmpa.w  #0, a1
+            beq     .plb_done
+        .plb_have_layout:
+            // Column-major blit. The layout blob is column-contiguous
+            // (blob[col*128 + row*2], 64 rows/column). Per column: set the VDP
+            // address to the column's top cell and drain rows 0..31 with autoinc
+            // $80, so one move.l = two VERTICALLY-adjacent cells — exactly two
+            // adjacent source words. 16 move.l per column. Then skip the column's
+            // lower 32 rows (INIT-ONLY here; never refreshed at runtime — see the
+            // RUNTIME 32-ROW LIMIT note in bg.emp). 64 per-column command setups
+            // are init/recovery-only noise, not a per-frame cost.
+            move.w  #$8F80, (a5)                    // autoincrement $80 (step one plane row/word)
+            moveq   #0, d3                          // d3 = column index 0..63
+        .plb_col:
+            moveq   #0, d2
+            move.w  d3, d2
+            add.w   d2, d2                          // d2 = col*2 (byte offset of row 0)
+            addi.l  #VRAM_PLANE_B_BYTES, d2
+            vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
+            move.l  d2, (a5)
+            moveq   #16-1, d2                       // 16 longwords = 32 words = rows 0..31
+        .plb_word:
+            move.l  (a1)+, (a6)
+            dbf     d2, .plb_word
+            adda.w  #64, a1                         // skip rows 32..63 (column stride = 128 B)
+            addq.w  #1, d3
+            cmpi.w  #64, d3
+            blt     .plb_col
+        .plb_done:
+            // Restore default autoincrement (matches VInt_DrawLevel cleanup)
+            move.w  #$8F02, (a5)
+        }
 
         // Sound (flag bracket close): the poke storm is finished — ROM is safe to
         // read again. Clear SND_CTRL_DMA_ACTIVE=0 so the Z80 producer leaves DRAIN
         // and resumes FILL read-ahead. Still inside the SR mask (the bus-held write
         // stays IRQ-protected); the mask is released immediately below.
         if SOUND_DRIVER_ENABLED == 1 {
-            stop_z80()
-            move.b  #0, SND_DMA_ACTIVE_SLOT     // lower: poke storm closed (Z80 -> FILL)
-            start_z80()
-        } else {
-            start_z80()                         // release the whole-storm bus hold
+            with z80_stopped {
+                move.b  #0, SND_DMA_ACTIVE_SLOT // lower: poke storm closed (Z80 -> FILL)
+            }
         }
 
         // Restore interrupt mask (allow VBlank again)
