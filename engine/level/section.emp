@@ -184,6 +184,23 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
 // world_col & 63 (continuous-scroll: world == engine, the plane is a
 // 64-cell ring the world wraps through).
 //
+// Z80 POSTURE — THIS ROUTINE OWNS IT; DO NOT WRAP THE CALL.
+// The storm is a ~3-frame direct-VDP poke run, so a caller-side bus hold is
+// both wrong and unenforceable:
+//   * sound ON  — halting the Z80 for ~3 frames starves the DAC outright. The
+//     correct posture is the engine-wide SND_CTRL_DMA_ACTIVE flag bracket (the
+//     same one VInt_Level uses): the Z80 keeps running but takes its DRAIN path
+//     and issues no banked ROM read, so it never touches the 68k bus window
+//     while the storm pokes VDP. That is the property bus-holding would buy,
+//     without killing sound.
+//   * sound OFF — no driver to hand that contract to, so the bus IS held for
+//     the whole storm.
+// Both are raised/lowered INSIDE this proc. A caller-side stop_z80 wrap is
+// actively harmful under sound ON: the flag bracket's own start_z80 releases
+// the caller's hold (stop_z80/start_z80 is not a counting lock), so the caller
+// runs the rest of the storm believing it holds a bus it does not. The OJZ init
+// site did exactly that until this was fixed.
+//
 // In:  none (reads Camera_X, Cache_*, Current_Act_Ptr; Plane B derives the
 //      on-screen section from the world camera for the BG layout ptr)
 // Out: d5.w = start_world_col (for tracker reset by caller)
@@ -203,10 +220,17 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         // would contend with the storm and underrun the DAC. The raise's own
         // bus-held write sits inside the SR mask, so a mid-bracket IRQ6 can't
         // release the bus under it. Lowered before the SR restore below.
+        // Sound-OFF build: there is no driver to hand the DRAIN contract to, so
+        // the flag write is meaningless and the Z80 is unmanaged for the whole
+        // storm. Hold the bus across it instead (nothing to starve without a
+        // driver). This routine now owns its Z80 posture in BOTH shapes — see
+        // the Z80-POSTURE note in the header — so callers must NOT wrap it.
         if SOUND_DRIVER_ENABLED == 1 {
             stop_z80()
             move.b  #1, SND_DMA_ACTIVE_SLOT     // raise: poke storm open (Z80 -> DRAIN)
             start_z80()
+        } else {
+            stop_z80()                          // bus held for the whole storm
         }
 
         // -- Plane A: column-major write --
@@ -390,6 +414,8 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
             stop_z80()
             move.b  #0, SND_DMA_ACTIVE_SLOT     // lower: poke storm closed (Z80 -> FILL)
             start_z80()
+        } else {
+            start_z80()                         // release the whole-storm bus hold
         }
 
         // Restore interrupt mask (allow VBlank again)

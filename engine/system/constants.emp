@@ -435,6 +435,17 @@ pub const CAM_PAN_SPEED = 2                // pixels/frame pan rate
 pub const CAM_PAN_LIMIT = 64               // max pan pixels
 pub const CAM_MAX_Y_STEP = 16              // max camera Y movement px/frame
 
+// Sprite-cull margin (px) added to all four sides of the visibility box in
+// Update_Sprite_Visibility. Sprite culling runs inside RunObjects, which the
+// game shell calls BEFORE Camera_Update, so the cull tests against LAST frame's
+// camera while positioning uses the post-update value. An object within one
+// frame of camera motion of a screen edge therefore culls one frame late or
+// early -> edge pop-in. The margin absorbs that skew without perturbing update
+// order (reordering Camera_Update ahead of RunObjects would shift
+// gameplay-visible timing). Must be >= max(CAM_MAX_X_STEP, CAM_MAX_Y_STEP);
+// 32 = 2x the 16 px/frame worst case on both axes.
+pub const SPRITE_CULL_MARGIN = 32
+
 // -----------------------------------------------
 // Entity window scan (§4.9 — camera-driven sliding window).
 // -----------------------------------------------

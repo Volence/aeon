@@ -10,7 +10,8 @@ use engine.constants.{PRIORITY_BANDS, SPRITES_PER_BAND, SCANLINE_BANDS,
                       FRAME_BBOX_X_MIN, FRAME_BBOX_X_MAX,
                       FRAME_BBOX_Y_MIN, FRAME_BBOX_Y_MAX,
                       FRAME_PIECE_COUNT, FRAME_PIECES,
-                      MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET}
+                      MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
+                      SPRITE_CULL_MARGIN}
 
 // Sprite X=0 masking — VDP size code for mask sprites (1×4 cells = 8×32 pixels)
 const SPRITE_MASK_SIZE   = %00000011     // width=1, height=4 (32 scanlines per mask)
@@ -79,33 +80,40 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
         // --- Resolve current frame for its precomputed bbox ---
         adda.w  Sst.frame_off(a0), a1   // a1 = frame data (bbox at +0) — H1 cache
 
-        // --- Exact X cull ---
+        // --- Exact X cull (SPRITE_CULL_MARGIN-widened) ---
         // screen_x = SST_x_pos - Camera_X (origin screen position)
-        // Visible if: screen_x + x_min < SCREEN_WIDTH AND screen_x + x_max > 0
+        // Visible if: screen_x + x_min < SCREEN_WIDTH + MARGIN
+        //         AND screen_x + x_max > -MARGIN
+        // The margin covers the RunObjects-before-Camera_Update skew — see
+        // SPRITE_CULL_MARGIN in engine/system/constants.emp. The min-side
+        // compares absorb it into their existing immediate (free); the max-side
+        // compares cost one cmpi.w each (the old test was an implicit "> 0").
         move.w  Sst.x_pos(a0), d0
         sub.w   Camera_X, d0        // d0 = screen-relative X origin
         move.b  FRAME_BBOX_X_MIN(a1), d2
         ext.w   d2
         add.w   d0, d2                 // d2 = screen_x + x_min (left edge)
-        cmpi.w  #SCREEN_WIDTH, d2
-        bge   .offscreen             // left edge at/past right side — invisible
+        cmpi.w  #SCREEN_WIDTH+SPRITE_CULL_MARGIN, d2
+        bge   .offscreen             // left edge past right side + margin — invisible
         move.b  FRAME_BBOX_X_MAX(a1), d2
         ext.w   d2
         add.w   d0, d2                 // d2 = screen_x + x_max (right edge)
-        ble   .offscreen             // right edge at/left of screen — invisible
+        cmpi.w  #-SPRITE_CULL_MARGIN, d2
+        ble   .offscreen             // right edge left of screen − margin — invisible
 
-        // --- Exact Y cull ---
+        // --- Exact Y cull (SPRITE_CULL_MARGIN-widened) ---
         move.w  Sst.y_pos(a0), d0
         sub.w   Camera_Y, d0        // d0 = screen-relative Y origin
         move.b  FRAME_BBOX_Y_MIN(a1), d2
         ext.w   d2
         add.w   d0, d2                 // d2 = screen_y + y_min (top edge)
-        cmpi.w  #SCREEN_HEIGHT, d2
-        bge   .offscreen             // top edge at/past bottom — invisible
+        cmpi.w  #SCREEN_HEIGHT+SPRITE_CULL_MARGIN, d2
+        bge   .offscreen             // top edge past bottom + margin — invisible
         move.b  FRAME_BBOX_Y_MAX(a1), d2
         ext.w   d2
         add.w   d0, d2                 // d2 = screen_y + y_max (bottom edge)
-        ble   .offscreen             // bottom edge at/above screen — invisible
+        cmpi.w  #-SPRITE_CULL_MARGIN, d2
+        ble   .offscreen             // bottom edge above screen − margin — invisible
 
     .screen_coords:
         // --- Object is on-screen ---

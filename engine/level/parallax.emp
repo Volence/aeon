@@ -395,8 +395,20 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) {
         beq     .mode3_shadow
         ori.b   #%100, d0                           // bit 2 = per-column V-scroll
     .mode3_shadow:
+        // Read the previous mode BEFORE overwriting the shadow: it is the record
+        // of what this routine last drove onto reg $0B directly, and the shadow
+        // flush keeps the register at that value in between. So shadow == d0
+        // means the hardware register ALREADY holds d0 and the direct write
+        // below would be a no-op — skip it and its bus hold. This is the ≥99%
+        // case (every frame whose active config keeps the same mode); the write
+        // is only load-bearing on the frame the mode actually changes.
+        // Sole writer of reg $0B / this shadow byte is this site (grep-verified),
+        // which is what makes the shadow a sound record of the register.
+        move.b  VDP_Shadow_Table + VDP_MODE3_OFF, d1   // previous mode
         move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
         ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
+        cmp.b   d1, d0
+        beq     .mode3_reg_live                        // unchanged — register already correct
         // Also drive reg $0B on the hardware directly (not only the shadow): the
         // shadow→register flush is a VBlank step, and a config's mode must be live
         // for the frame it becomes active, not one VBlank later. Read VDP_CTRL
@@ -419,6 +431,7 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) {
             move.w  d0, VDP_CTRL                    // (VDP_CTRL).l
             {start_z80()}
         })
+    .mode3_reg_live:
 
         moveq   #0, d7
         move.b  parallax_config.pcfg_band_count(a0), d7
