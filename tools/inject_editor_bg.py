@@ -125,13 +125,21 @@ def main():
     assert len(layout) == 4096, f'layout must be 64x32 or 64x64 words, got {len(layout)}'
     assert len(tiles) <= BG_TILE_CAPACITY, f'{len(tiles)} tiles exceeds BG capacity {BG_TILE_CAPACITY}'
 
-    # nametable: local -> VRAM-absolute indices, preserving pal/pri/flip bits
-    nt = bytearray()
-    for word in layout:
-        if word != 0:
-            idx = word & 0x7FF
-            word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
-        nt += struct.pack('>H', word)
+    # nametable: local -> VRAM-absolute indices, preserving pal/pri/flip bits.
+    # This is the editor->engine boundary: the editor layout is ROW-MAJOR
+    # (idx = row*64 + col), the engine reads COLUMN-MAJOR (blob[col*128 + row*2]
+    # — column-contiguous, 64 rows per column). Transpose here so every engine
+    # consumer (BG_Init, Section_RedrawPlanes' Plane B blit, Draw_BG_TileColumn)
+    # gathers a column with sequential reads. See engine/level/bg.emp header.
+    COLS, ROWS = 64, 64
+    nt = bytearray(COLS * ROWS * 2)
+    for col in range(COLS):
+        for row in range(ROWS):
+            word = layout[row * COLS + col]
+            if word != 0:
+                idx = word & 0x7FF
+                word = (word & ~0x7FF) | ((idx + BG_TILE_BASE_SLOT) & 0x7FF)
+            struct.pack_into('>H', nt, (col * ROWS + row) * 2, word)
     with open(os.path.join(OUT_DIR, 'zone_bg.bin'), 'wb') as f:
         f.write(nt)
 
@@ -143,6 +151,11 @@ def main():
                 hi = t[row*8 + col*2] & 0xF
                 lo = t[row*8 + col*2 + 1] & 0xF
                 blob.append((hi << 4) | lo)
+    # Tier-1 move.l blit contract (BG_Init .tile_copy): the runtime copies the
+    # tile body a longword at a time, so the byte length must be a multiple of 4.
+    # Tiles are 32 bytes each, so this holds by construction; assert it anyway so
+    # a format change can never feed the move.l loop a sub-longword remainder.
+    assert len(blob) % 4 == 0, f'BG tile blob must be 4-byte granular for move.l, got {len(blob)}'
     with open(os.path.join(OUT_DIR, 'bg_tiles.bin'), 'wb') as f:
         f.write(struct.pack('>H', len(blob)))
         f.write(blob)

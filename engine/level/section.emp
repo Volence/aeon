@@ -375,7 +375,7 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         cmpi.w  #64, d3
         blt     .pla_fill
 
-        // -- Plane B: row-major linear write (BG layout is act-wide, not position-dependent) --
+        // -- Plane B: column-major write (BG layout is act-wide, not position-dependent) --
         // Continuous-scroll: derive the on-screen section straight from the
         // world camera (sec_x = Camera_X >> SECTION_SIZE_SHIFT, sec_y likewise).
         // At level init the camera sits in the start section, so this returns the
@@ -396,12 +396,31 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6, sr) out(d5, d7) {
         cmpa.w  #0, a1
         beq     .plb_done
     .plb_have_layout:
-        move.w  #$8F02, (a5)                    // autoincrement $02 (row-major)
-        move.l  #vdp_comm(VRAM_PLANE_B_BYTES, VdpTarget.Vram, VdpOp.Write), (a5)
-        move.w  #1024-1, d3                     // 4096 bytes / 4 = 1024 longwords - 1
-    .plb_loop:
+        // Column-major blit. The layout blob is column-contiguous
+        // (blob[col*128 + row*2], 64 rows/column). Per column: set the VDP
+        // address to the column's top cell and drain rows 0..31 with autoinc
+        // $80, so one move.l = two VERTICALLY-adjacent cells — exactly two
+        // adjacent source words. 16 move.l per column. Then skip the column's
+        // lower 32 rows (INIT-ONLY here; never refreshed at runtime — see the
+        // RUNTIME 32-ROW LIMIT note in bg.emp). 64 per-column command setups
+        // are init/recovery-only noise, not a per-frame cost.
+        move.w  #$8F80, (a5)                    // autoincrement $80 (step one plane row/word)
+        moveq   #0, d3                          // d3 = column index 0..63
+    .plb_col:
+        moveq   #0, d2
+        move.w  d3, d2
+        add.w   d2, d2                          // d2 = col*2 (byte offset of row 0)
+        addi.l  #VRAM_PLANE_B_BYTES, d2
+        vdp_comm_reg(d2, VdpTarget.Vram, VdpOp.Write)
+        move.l  d2, (a5)
+        moveq   #16-1, d2                       // 16 longwords = 32 words = rows 0..31
+    .plb_word:
         move.l  (a1)+, (a6)
-        dbf     d3, .plb_loop
+        dbf     d2, .plb_word
+        adda.w  #64, a1                         // skip rows 32..63 (column stride = 128 B)
+        addq.w  #1, d3
+        cmpi.w  #64, d3
+        blt     .plb_col
     .plb_done:
         // Restore default autoincrement (matches VInt_DrawLevel cleanup)
         move.w  #$8F02, (a5)
