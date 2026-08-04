@@ -173,7 +173,27 @@ D10 never shipped, and the release leaks were entirely open. That is the second
 time a pending-mechanism marker has hidden live work (after the D8 blob-evenness
 marker, which took a boot ADDRESS ERROR for real on 2026-08-03).
 
-### Still open, both BLOCKED on an owner ruling (see `docs/DEFERRED_WORK.md`)
+### UPDATE (2026-08-05): the two blocked halves were RULED and EXECUTED overnight
+
+Both received owner rulings on 2026-08-04 and landed as parcels 7-8 (provenance
+chain entries 39-40):
+
+- **Item 29 part 4** — `parcel/item29-mddbg-strip` (chain 39): error_handler is
+  DEBUG-only; release faults route to the 46 B `ReleaseFault` (mask, display
+  off, red backdrop, freeze). Release ROMs −4,226 B. The oracle induced-fault
+  test caught the ruled handler being invisibly quiet (planes cover the
+  backdrop) — the display-off write was added because of it. Same probe on
+  debug lands in the full MDDBG screen.
+- **Item 28's fork** — `parcel/item28-bg-transpose` (chain 40): BG layout
+  column-major (pure permutation, 4,096/4,096 cells exact), Draw_BG_TileColumn
+  sequential move.l, per-column autoinc-$80 blits, Tier-1 move.l tile blit with
+  a re-derived guard. NO DMA; load_art untouched. Framebuffers byte-identical
+  over 900 frames incl. max diagonal; zero scroll-lag frames both sides.
+
+With these, **every item of the 2026-07-16 review is closed.** The dropped
+sub-items (25's H1/H2/M3) remain deliberate rejections with recorded reasons.
+
+### The pre-ruling BLOCKED write-ups (historical, superseded above)
 
 - **Item 29 part 4 — the release-shape error-handler / MDDBG strip.** 4,272 bytes
   ship in BOTH shapes, `demo` included. Ruling 1 ("strip the exception stubs")
