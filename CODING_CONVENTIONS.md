@@ -136,33 +136,56 @@ Catch errors at build time, not at runtime. Every boundary, table size, and layo
 
 ### 1.7 Conditional Debug Assembly
 
-Two-layer gating for zero-cost debug in release builds.
+**One shape flag: `DEBUG`** (`-D DEBUG=0|1`; the AS-side spelling is `__DEBUG__`). There is no per-subsystem flag layer — code is either in the DEBUG shape or it is not. Debug builds carry the suffixed artifacts (`s4.debug.bin`), so the two shapes never overwrite each other.
 
-```asm
-; Per-subsystem flags
-DEBUG_ALL           = 1
-DEBUG_DMA           = 0 | DEBUG_ALL
-DEBUG_VRAM          = 0 | DEBUG_ALL
-DEBUG_Objects       = 0 | DEBUG_ALL
-DEBUG_Collision     = 0 | DEBUG_ALL
+Four idioms, in order of preference.
 
-; Debug wrapper macros
-ifdebug macro subsystem
-        if __DEBUG__ && DEBUG_\subsystem
-        endm
+**1. `assert` — self-gating, free in release.** Emits ZERO bytes when `DEBUG != 1`, so it needs no wrapper. A build with `DEBUG` undefined is a hard error, not a silent skip: the shape must be explicit. This is the default check — reach for it first.
 
-debugend macro
-        endif
-        endm
-
-; Usage — compiled out entirely in release
-        ifdebug DMA
-        cmpa.w  #DMA_Queue_End, a1
-        blo.s   .dma_ok
-        RaiseError "DMA queue overflow at %a1"
-.dma_ok:
-        debugend
+```emp
+assert.w    d0, ls, #SONG_COUNT             // song id in range
+assert.w    d0, eq, #CSELF_PAYLOAD_SUM      // selftest payload checksum
 ```
+
+**2. `if DEBUG == 1 { … }` — everything else.** `raise_error` / `raise_exception` do **not** self-gate: they lower their raise tail unconditionally, so every raise site is hand-wrapped. Format args use the fstring form `%<.w d0>`.
+
+```emp
+if DEBUG == 1 {
+    raise_error "Sound_Init: STAT_ALIVE never posted - Z80 driver wedged?"
+}
+```
+
+Give the block an `else` arm when the fault is recoverable — release then takes the recovery path instead of dying:
+
+```emp
+.drop_page:
+    if DEBUG == 1 {
+        raise_error "Level_LoadArt: Critical DMA queue full during init art load"
+    } else {
+        jbsr    VSync_Wait                  // release: drain a frame, then retry
+        jbra    .queue_page
+    }
+```
+
+Mind branch range: the DEBUG expansion grows the block it sits in. Keep raise handlers out of line so the loop body's `.s` branches stay in range in **both** shapes.
+
+**3. `ensure(...)` — comptime invariants.** Assembles nothing in any shape; a false condition fails the build with the message. Use it for shape/table/layout facts, including the shape rules themselves (§1.6 covers the wider compile-time-validation family).
+
+```emp
+ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
+ensure(SOUND_DEBUG_HOTKEYS == 0 || DEBUG == 1, "SOUND_DEBUG_HOTKEYS requires DEBUG=1")
+```
+
+**4. Whole-file gating — registry-level module exclusion.** A module-level comptime `if` wrapping items is not expressible in `.emp`, so the **file** is the gated unit and the exclusion happens in the build registry, not in the source. Worked example, `engine/debug/compression_selftest.emp`:
+
+- the source carries no gate at all;
+- the module spec is pushed only in the debug shape — `if debug { specs.push(m!("engine.compression_selftest", …)) }` in `sigil/crates/sigil-harness/src/native.rs`;
+- its pin carries `plain_len: 0x0` — the region resolves against the debug listing only;
+- the name stays in the union `order` list in `games/sonic4/map.toml`, which spans both shapes.
+
+`games/sonic4/debug/game_debug.emp` is the same pattern one shape further out (compiled only at the Config-A hotkeys shape).
+
+**Release cost is zero by construction.** A non-DEBUG ROM carries no assert, no raise site from a wrapped block, no debug-only module — and, since review item 29, no deb2 symbol appendix past `EndOfRom` either.
 
 ### 1.8 Build-Time Data Generation
 
@@ -444,7 +467,7 @@ This applies to any pair of (data, state) that are both consumed mid-scanline. N
 | Local labels | `.lowercase_dotted` | `.loop`, `.skip`, `.done`, `.return`, `.not_found` |
 | Struct fields | `lowercase_underscored` | `x_pos`, `art_tile`, `render_flags`, `code_addr` |
 | AS functions | `camelCase` | `vdpComm`, `vram_art`, `sprSize`, `secIndex` |
-| AS macros | `camelCase` | `stopZ80`, `setVDPReg`, `queueStaticDMA`, `ifdebug` |
+| AS macros | `camelCase` | `stopZ80`, `setVDPReg`, `queueStaticDMA` |
 | Enum values | `ALL_CAPS` with prefix | `STATE_IDLE`, `STATE_RUNNING`, `FLAG_ON_SCREEN` |
 | SST custom overlays | `_lowercase_underscored` | `_dplc_ptr`, `_patrol_left`, `_art_base` |
 | Overlay var structs | `<Object>V` PascalCase | `TEnemyV`, `TPlayerV`, `DplcV` (shared) |

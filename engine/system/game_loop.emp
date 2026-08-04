@@ -2,8 +2,10 @@
 module engine.game_loop in game_loop
 
 // Build-shape inputs (-D NAME=0|1): SOUND_DRIVER_ENABLED gates the sound driver;
-// SOUND_DEBUG_HOTKEYS is the sound test-harness opt-in (build.sh: requires
-// DEBUG=1; OFF in normal play builds).
+// SOUND_DEBUG_HOTKEYS is the sound test-harness opt-in (OFF in normal play
+// builds; requires DEBUG=1 — enforced for every build path by the comptime
+// `ensure` in games/sonic4/config/game.emp, which build.sh's shell guard now
+// merely front-runs with a friendlier message).
 
 // GameState — the state-dispatch proc type: the Game_State dispatch runs
 // arbitrary state code, an honest ⊤ bound. `pub` so the engine's Game contract
