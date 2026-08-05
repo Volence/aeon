@@ -33,6 +33,13 @@ use engine.coords.{abs_w}
 const COLLECTED_PARK_SLOTS      = 4
 const COLLECTED_PARK_ENTRY_SIZE = 1 + 2*COLLECTED_MASK_BYTES
 
+// The section-mask register d5 is carried across calls that DECLARE clobbers(d5)
+// and restore only its low word (TrySpawnRing's DEBUG no-dup scan, and the three
+// procs it reaches). Every reader tests it with `btst d6, d5`, which on a data
+// register selects bit (d6 mod 32) of the whole LONG — so the half-width restore
+// covers the read only while the bit index stays inside the restored 16 bits.
+ensure(MAX_TRACKED_SECTIONS <= 16, "MAX_TRACKED_SECTIONS > 16 puts `btst d6, d5` past bit 15, into the half of d5 that the DEBUG no-dup scan's move.w restore does not return — widen that save/restore pair to .l before raising this")
+
 // EntityScanState — one scan-state record per tracked section (4 entries in
 // Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
 // gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
