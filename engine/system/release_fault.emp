@@ -10,10 +10,10 @@
 // $80-$FC TRAP) — vectors.emp points all 60 at this proc when CRASH_REPORT=0,
 // exactly where the debug + release shapes point them at error_handler's
 // per-class stubs. The owner ruling (vectors.emp policy block, item 27)
-// required that any shape without the debugger PRESERVE loud failure; this is
-// that implementation. (Its name is historical: it was minted when RELEASE was
-// the debugger-less shape. The 2026-08-04 crash-report ruling moved release
-// onto the debugger; lean inherited the handler unchanged.)
+// requires that any shape without the debugger PRESERVE loud failure; this is
+// that implementation. (The name says RELEASE and the shape that carries it is
+// LEAN: under the 2026-08-04 crash-report ruling the release shape carries the
+// debugger, so lean is the debugger-less shape this handler serves.)
 //
 // SEMANTICS — ruled, implement exactly (do NOT "improve"):
 //   * NO stack use — a bus/address fault may have landed with a wild SSP; every
@@ -29,13 +29,14 @@
 //   * A double bus fault while the CPU pushes its OWN exception frame halts the
 //     68000 outright — which is ALSO acceptably loud (a frozen machine), so the
 //     no-stack posture cannot make the failure quieter.
-// The d0 clobber (VDP status readback) is irrelevant: this proc is TERMINAL, it
-// never returns, so no caller observes any register.
+// The d0 clobber (VDP status readback) and the sr clobber (the terminal mask)
+// are both irrelevant in practice: this proc is TERMINAL, it never returns, so
+// no caller observes any register or the interrupt mask. They are declared
+// because the contract is a statement about the BODY.
 //
 // It deliberately does NOT live in vectors.emp (that file is the fixed org-0
-// image, pure data to $200); it sits near the ROM tail, at the placement slot
-// the deleted null_interrupt.emp used to occupy (map order, at the same tail
-// position the error_handler island takes in the shapes that carry it).
+// image, pure data to $200); it sits near the ROM tail in map order, at the same
+// tail position the error_handler island takes in the shapes that carry it.
 // LEAN-shape ONLY: the registry pushes it under the `else` of
 // `if debug || crash_report`, so neither canonical shape carries it. It is
 // therefore absent from every canonical listing, which is why it has no `repin`
@@ -49,11 +50,10 @@ use engine.constants.{VDP_CTRL, VDP_DATA}
 use engine.vdp.{vdp_comm, VdpTarget, VdpOp}
 
 section release_fault (cpu: m68000) {
-    // Terminal fault handler — a hardware/vector entry that never returns, so no
-    // caller ever observes a register. The clobber set still declares the d0
-    // write honestly (the contract-closure gate checks the BODY, not reachability
-    // of a return; see the d0 note above).
-    pub proc ReleaseFault () clobbers(d0) {
+    // Terminal fault handler — a hardware/vector entry that never returns (see
+    // the clobber note above). `sr` is a clobber and never a preserve: the mask
+    // is permanent by design, so nothing restores it.
+    pub proc ReleaseFault () clobbers(d0/sr) {
         move.w  #$2700, sr                  // terminal: mask every interrupt level
         move.w  VDP_CTRL, d0                // read: reset the VDP command state
                                             // machine (the fault may have landed

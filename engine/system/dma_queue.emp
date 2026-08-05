@@ -77,6 +77,22 @@ pub proc Init_DMA_Queue () clobbers(d0-d1/a0) {
 //      contractually preserved. Callers rely on exactly this set (dplc's
 //      Perform_DPLC* skip saving a3 across the call), so widening it means
 //      re-checking every dead-save caller.
+// SR (precise contract): the interrupt MASK round-trips on every path — the
+//      core saves SR once at .transfer and each of its three exits
+//      (.finish_entry, .full, the split tail) restores it before returning.
+//      preserves(sr) states the CALLER-side reliance: whatever mask the caller
+//      was running under is the mask it resumes under, so a caller that masked
+//      for its own atomicity is not silently unmasked by enqueueing. (The mask
+//      the core INSTALLS is a separate job — it keeps a VBlank from landing
+//      mid-write and seeing a half-built queue entry.)
+//      CCR does NOT round-trip: the carry is this proc's declared result, pinned
+//      after the restore, so `out(carry: dropped)` and `preserves(sr)` partition
+//      SR between them by hand — no checker sees that split (CCR liveness as a
+//      checked fact is S2-D7's dataflow half).
+//      The clause rides QueueDMA_Deferrable, whose body carries the save/restore
+//      the checker verifies. The two sibling entry points reach the same core
+//      through a tail transfer, which the PRESERVES closure does not credit (the
+//      clobbers closure does).
 // -----------------------------------------------
 pub proc QueueDMA_Critical (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
         lea     DMA_Critical_Slot, a2           // (DMA_Critical_Slot).w
@@ -90,7 +106,7 @@ pub proc QueueDMA_Important (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) ou
         jbra    QueueDMA_Deferrable.transfer
 }
 
-pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) {
+pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) preserves(sr) {
         lea     DMA_Deferrable_Slot, a2         // (DMA_Deferrable_Slot).w
         move.w  #DMA_Deferrable_End, d4
 
