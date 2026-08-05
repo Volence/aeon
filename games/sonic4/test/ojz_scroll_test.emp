@@ -38,11 +38,22 @@ use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY}
 // real home is engine/level/camera.asm (not exported by camera.emp), mirrored
 // file-local with a drift guard.
 
-// TestArt_End - TestArt (the marker-DMA length) — object_test_state owns the
-// TestArt blob; this mirrors its length (two 128-byte squares + the 512-byte ring
-// blob, drift-guarded there). A pure-int comptime const (label-pair immediate
-// arithmetic isn't an expressible EA).
-const TEST_ART_LEN = 128 + 128 + 512
+// TestArt blob length — THIS module owns TestArt now (objtest-gate, 2026-08-05:
+// ownership moved here from object_test_state when that module went DEBUG-only;
+// the shipped OJZ init DMAs the blob and the release debug-fly cheat renders
+// from it, so it must live in the plain shape — and the old length MIRROR this
+// comment block used to describe is deleted with the move). Two 128-byte colour
+// squares + the 512-byte ring blob; drift-guarded at the data block below. A
+// pure-int comptime const (label-pair immediate arithmetic isn't an
+// expressible EA).
+// The ring blob (512 B) that tails the two 128-byte colour squares in TestArt.
+const RingArt = embed("games/sonic4/test/ring_art.bin")
+pub const RING_ART_LEN = 512
+// Drift guard on the embedded blob's size (an `ensure` evaluates the embed in a
+// sandbox-rooted context; a proc-body immediate does not, so TEST_ART_LEN below
+// must stay pure-int). RING_ART_LEN feeds the DMA length.
+ensure(RingArt.len == RING_ART_LEN, "games/sonic4/test/ring_art.bin size drifted from RING_ART_LEN")
+pub const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
 
 // Player_1 SST-field absolute addresses (the extern-equ-sum idiom, camera.emp's
 // PL_STATE_ADDR precedent) — the init writes the spawn position/velocity directly
@@ -341,3 +352,41 @@ data PlayerMarkerTile: [u32; 32] = [
         $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
         $CCCCCCCC, $CCCCCCCC, $CCCCCCCC, $CCCCCCCC,
 ]
+
+// -----------------------------------------------
+// Test art — two 16x16 colored squares (4 tiles each = 128 bytes each) then the
+// ring blob. TestArt is the DMA source; TestArt_End - TestArt = TEST_ART_LEN.
+// Owned HERE (objtest-gate, 2026-08-05): the shipped OJZ init DMAs it to
+// VRAM_TEST_OBJ and the release debug-fly cheat's marker renders from it, so
+// the blob ships in the plain shape; the DEBUG-only object-test scene imports
+// the label cross-module for its own re-DMA.
+// -----------------------------------------------
+// Square 1 — palette 0, color index 1 (solid fill)
+pub data TestArt: [u32; 32] = [
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+        $11111111, $11111111, $11111111, $11111111,
+]
+// Square 2 — palette 0, color index 2
+data TestArt_Square2: [u32; 32] = [
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+        $22222222, $22222222, $22222222, $22222222,
+]
+// Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
+// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
+// (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
+// F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
+// line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
+// DrawRings picks a frame with base + Ring_Anim_Frame×4.
+data TestArt_Ring = RingArt
