@@ -258,9 +258,17 @@ on `.done`, so the cap path is covered; the `.empty_table` path needs no walk
 (count 0, entry 0 is the hidden terminator). Plain ROMs are byte-identical — the
 net compiles only under `DEBUG == 1`.
 
-**Next step (its own session):** replay-based screenshot burst through pose
-transitions with ring-emission active, running on a DEBUG build so the net above
-catches the frame in the act. Scope note: the assert
+**~~Next step (its own session)~~ — EXECUTED 2026-08-05** (the overnight
+verification round, `docs/superpowers/notes/2026-08-05-verification-round.md`):
+(1) the `.band_limit_pop` suspect was probed DIRECTLY — a file-level probe ROM
+forced the cap to 12 so the path fired every frame for 25 s under the
+object-test soak; the chain-walk net stayed silent and every frame rendered
+exactly cap-many coherent sprites. **The named a4/d5-skew class does not
+reproduce at this path — suspect downgraded.** (2) The replay screenshot burst
+through pose transitions with ring emission ran clean (7 sampled frames, no
+ghost, net silent, Replay_Done=$FF). Status stays OPEN-INSTRUMENTED at LOW —
+the original artifact remains unreproduced and the standing DEBUG net is the
+trap; there is no active suspect left. Scope note (unchanged): the assert
 proves link==count CONSISTENCY — it catches the named skew class, not a bug that
 advances both in lockstep to an over-count (a different class than this ghost).
 
