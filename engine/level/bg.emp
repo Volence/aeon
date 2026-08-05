@@ -102,8 +102,11 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
         // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
         // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
-        // blobs are 32-byte granular (inject_editor_bg.py asserts len%4==0), so the
-        // drop never fires in practice — it is the last line of defense.
+        // blobs are 32-byte granular, and BOTH producers now assert len%4==0 —
+        // ojz_strip_gen.py (the unconditional emitter; assert added NEW-4
+        // 2026-08-05 — the old comment here credited only the injector, which
+        // runs solely when an editor override exists) and inject_editor_bg.py
+        // — so the drop never fires in practice; it is the last line of defense.
         //
         // Both counter ops sit ABOVE the z80_stopped bracket on purpose:
         // .skip_tiles is past the bracket's release, so a guard branch taken from

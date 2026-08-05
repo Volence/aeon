@@ -341,6 +341,17 @@ def emit_bg_tile_blob(
     }
 
     body = b"".join(unique)
+    # Tier-1 move.l blit contract (BG_Init .tile_copy, engine/level/bg.emp):
+    # the runtime copies longwords and SILENTLY DROPS a sub-longword tail (the
+    # in-engine assert was deliberately omitted — DEBUG expansion would push
+    # .skip_tiles past short-branch reach). 32-byte tiles guarantee granularity
+    # by construction; assert so a format change can't feed the blit a dropped
+    # tail (mirrors inject_editor_bg.py:158 — but THIS emitter is the
+    # unconditional producer; the injector only runs when an editor override
+    # exists).
+    assert len(body) % 4 == 0, (
+        f"BG tile blob must be 4-byte granular for move.l, got {len(body)}"
+    )
     header = struct.pack(">H", len(body))
     with open(out_path, "wb") as f:
         f.write(header)
