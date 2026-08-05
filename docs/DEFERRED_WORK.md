@@ -2,12 +2,175 @@
 
 Tracks work that was identified during design/implementation but deferred because dependencies don't exist yet. Check this document at the start of each new system's planning phase — items here may now be unblocked.
 
-> **Open defects** (not deferred features) live in **`docs/BUGS.md`**. See BUG-001: intermittent
-> section-streaming rendering corruption (garbage tiles + red field) — captured live-emulator evidence.
+> **Open defects** (not deferred features) live in **`docs/BUGS.md`**.
+> ~~See BUG-001: intermittent section-streaming rendering corruption (garbage tiles + red field) —
+> captured live-emulator evidence.~~ **CORRECTED 2026-08-05:** BUG-001 was **RECLASSIFIED
+> UNREPRODUCIBLE on the current engine (2026-08-02)** — see `docs/BUGS.md:206`. The banner is kept
+> struck-through rather than deleted because the pre-July entries below were written while that
+> corruption was believed live, and several of them cite it as motivation.
 
 ---
 
-## Engine substrate gaps — stocktake 2026-07-07 (execute AFTER the Sigil port)
+## ⚠ RECONCILIATION BANNER — verified against HEAD `0e1f32c` on 2026-08-05
+
+**This file was re-derived against the tree on 2026-08-05 (parcel `parcel/backlog-reconcile`).
+Roughly 20-25% of the entries that read as OPEN were wrong.** The corrections are annotated in
+place — every corrected entry keeps its original text beneath a marked correction, because knowing
+*why* something was believed is load-bearing in this repo.
+
+**Where the rot is concentrated:**
+
+| stratum | trust |
+|---|---|
+| pre-July §1 / §2 / §4 entries (Apr-Jun 2026) | **LOW** — many describe deleted subsystems |
+| §4 teleport / leapfrog cluster specifically | **DEAD** — 11 entries, subsystem deleted by `eddbbf7` |
+| §3 / §4.6 parallax / §4.9 entity entries | mixed — anchors drift, substance mostly holds |
+| sound sections (all) | **GOOD** — self-annotating, mostly current |
+| 2026-07 and 2026-08 strata | **GOOD** — written under the current conventions |
+
+**Anchor warning — do not chase file:line citations blind.** Pre-July entries were written
+against the AS-era tree and cite `.asm` paths and line numbers into files that **no longer exist**:
+`main.asm`, `ram.asm`, `constants.asm`, `engine/player/*.asm`, `engine/level/section.asm`,
+`engine/sound_*.asm`, `data/sound/fm_patches.asm`. The `.emp` port replaced them (`build.sh:4` —
+"`sigil build` IS the build"); the only surviving `.asm` files are the vendored
+`engine/debug/debugger.asm` and the two 40-50 line `games/*/game_root.asm` residual roots.
+**Re-derive the anchor from the symbol name before acting on any pre-July line number.**
+
+**Three things the file previously said that were flatly inverted, all now fixed below:**
+1. The **MDDBG / release-fault** entry described the *opposite* of what ships (owner ruling
+   2026-08-04 superseded the 2026-08-05 strip). See the corrected entry near the bottom.
+2. The **graph-coloring allocator** was listed as future work *and* as Done in the same file,
+   while the allocator is dead code that no longer exists anywhere in the tree.
+3. The **VDP `$0B` propagation bug** entry described a live bug that the *same file*, 60 lines
+   earlier, records as a **misdiagnosis**.
+
+---
+
+## NOW UNBLOCKED — actionable (compiled 2026-08-05)
+
+Every item here had a stated blocker that **no longer holds**. This is the pick-up list. Ordered
+by leverage, not by section. Each links back to its full entry below; read the entry (and its
+correction) before planning — several carry caveats that shrink the win.
+
+### 1. §9.7 cooperative multitasking / resumable decode — **THE highest-leverage single unlock**
+Its blocker was "when §9.7 is designed and the S4LZ decompressor exists". **Both compressors now
+exist and ship** (`engine/compression/`). §9.7 is currently the sole gate on **three** separate
+backlog items that are otherwise ready:
+- **S4LZ Streaming Mode** (§2.1) — bookmark-based interruptible decompression.
+- **ZX0 budgeted decode** — required before *any* mid-gameplay ZX0 use (~76 KB/s = ~5 frames
+  synchronous for a 6.3 KB blob).
+- **Art-streaming Phase 2** — its binding amendment #1 makes resumable decode a *requirement*,
+  and the Phase-2 spec (`2026-07-02-art-streaming-phase2-design.md` §3) names the
+  supervisor-bookmark mechanism as the vehicle.
+Nothing else in this file unlocks three downstream items at once. If one thing is picked up from
+this list, pick this.
+
+### 2. The whole "Engine substrate gaps" gate is satisfied
+The stocktake's gate was "execute AFTER the Sigil port". **The port is done** — `build.sh:4`,
+no `.asm` code twins remain. Per-item status is annotated on the stocktake itself; summary:
+- **SRAM save (item 2)** — mechanically ready, but retains a genuinely unverified dependency
+  (oracle SRAM persistence) *and* `3c96265` has since ruled SRAM **is** the persistence
+  mechanism (CrossResetRAM ruled out), which raises its priority.
+- **Water (item 3)** — unblocked but still wants its own design pass. Not a pick-up-and-go.
+- **Engine-default sound bank (item 4)** — mechanically ready, but **must be re-targeted**: the
+  contract file it names was deleted. See the corrected item.
+- **RNG (item 5)** — folds into design #9, as stated. Not standalone.
+
+### 3. Cheap, self-contained, verification-bounded
+- **`yflip`/`xyflip` size+link word merge** (`engine/objects/sprites.emp` `size_link`) — the
+  constraint that forced the byte-wise form is recorded as dead. Needs only SAT byte-identity
+  verification for the two flipped variants. ~8 cycles/piece.
+- **Parallax computed-jump-table unroll** — per-cell HScroll is permanently CLOSED, so this is
+  the *only* remaining lever on the ~7.4%-of-frame parallax fill.
+- **Variable HScroll DMA — variable-length transfer** — its blocker ("await a confirmed
+  performance need") is **DISCHARGED by this file's own measurement**: per-line HScroll is
+  896 B/frame, ~20% of the frame, and this file names it "the single biggest lever". Caveat: the
+  `Hscroll_Dirty_Start/End` infrastructure it assumed **was deleted** and must be rebuilt.
+- **`VInt_Level` header comment** — one-line comment fix, zero byte change (entry at the bottom).
+
+### 4. Object-system items whose §3 blocker is long satisfied
+`engine/objects/` is fully built (`load_object.emp`, `animate.emp`, `dplc.emp`, `collision.emp`,
+`children.emp`, `sprites.emp`), so these are unblocked *mechanically* — but read the caveats:
+- **DPLC Lookahead** (§1.6) — `animate.emp` + `dplc.emp` exist. Clean pick-up.
+- **Dynamic VRAM Allocator** + **Refcount-based Art Caching** (§2.2) — `load_object.emp` exists,
+  **but the fully-resident deduped art pool may have made the premise moot.** Re-read the design
+  before planning; do not assume the 2026-04 framing still applies.
+- **Section-aware Streaming / Predictive Preloading** (§2.1/§4.8) — blockers exist, and the
+  block-stream half **effectively shipped** (`tile_cache.emp:1001` row scan, `:1093` col scan with
+  H3 hysteresis). What remains is the *art* half, which is item 1 above.
+
+### 5. Diagnostics / instrumentation
+- **Contract-enforcement trap handler** (68K half, idea-capture section) — its expensive
+  prerequisite, the In:/Out: contract grammar, **has landed and is still growing** (HEAD `fa0ae0b`
+  made the Z80 bus and the interrupt mask declared contexts). The cheap half of a
+  design-for-it-now item is now the only half left.
+
+### 6. Sound package 4 — genuinely open and independent
+**D1, D4, D5, D6, D7** and **E5's 7th RegDelta group** are open, verified against the tree, and do
+**not** depend on the unexecuted packages 1/3/5/6. (**D2 is DONE** — corrected below.) This is the
+largest cluster of small, well-specified, independent sound work in the file.
+
+---
+
+## CANNOT BE SETTLED STATICALLY — needs an emulator run or an owner ruling
+
+Recorded so nobody burns another pass trying to re-verify these by reading code. Each is
+genuinely open; none of them can be closed from the tree alone.
+
+**Needs a live emulator run (oracle):**
+- **A2 — two SFX in one 68k frame.** The 8-deep ring shipped; the *runtime* check (jump+ring,
+  skid+ring, death+ring-loss in one frame, both SFX reaching the chip) has never been run. Partly
+  discharged by the Stage-A fix-3 live debugging, but not formally.
+- **FM env attack seam (T8 residual)** — explicitly "awaiting the user's by-ear pass". Not
+  visible in rendered A/B at capture scale.
+- **Bank-latch desync corrupter** — captured exactly once, did not reproduce deterministically.
+  Needs a live watchpoint session on `$6000`-latch writes around a mid-sample DAC retrigger. May
+  be an emulator artifact.
+- **DAC worst-tick profiling round** — the honest lever for the remaining hold tail; requires
+  profiling what dominates the 5-10 ms ticks, not code reading.
+- **§2 A.5 T1 — FG tile-flip A/B vs sonic_hack** — requires two emulators paused at the same
+  screen comparing VRAM bytes. Build-tool math already verifies correct.
+- **oracle SRAM persistence** (substrate item 2's hidden dependency) — likely an oracle-side task,
+  not an Aeon one.
+
+**Needs an owner ruling (product decision, not an engineering answer):**
+- The **diagonal streaming budget** tradeoff (A: accept the dip / B: cap combined diagonal step /
+  C: cut BgAnim bands during fast scroll). Recommendation on file is (A).
+- **`test_player` as a unit** — whether the test object set should ship in release at all.
+- **Authoring the debug-fly cheat code** — mechanism is shipped and waiting on content.
+
+---
+
+## MAINTENANCE PROTOCOL — in-place annotation is the convention (settled 2026-08-05)
+
+The "How to Use This Document" section at the bottom says to *move* completed items to the Done
+section. **That protocol lapsed:** the Done section stops at 2026-06-11, while roughly a dozen
+later closures were annotated in place instead (`~~struck~~` headings, `✅ RESOLVED` prefixes,
+`DONE <date>` suffixes, inline `**CORRECTION**` blocks).
+
+**Ruling: in-place annotation IS the convention now. Do not move entries to Done.** It preserves
+the reasoning chain next to the claim it corrects, which is the property this repo actually wants.
+The Done section below is frozen as a historical tail (Apr-Jun 2026); nothing new goes into it.
+
+When you close or correct an entry:
+1. Leave the heading where it is; prefix it with `✅ RESOLVED —`, `~~strike~~`, or
+   `**CORRECTED <date>**`.
+2. State the evidence — commit hash, `file:line`, or the ruling that superseded it.
+3. **Keep the original text beneath.** Never silently delete a wrong claim; a wrong statement
+   reading as current is the only unacceptable outcome.
+
+---
+
+## Engine substrate gaps — stocktake 2026-07-07 (~~execute AFTER the Sigil port~~ — **GATE SATISFIED 2026-08-05**)
+
+> **✅ GATE SATISFIED (verified 2026-08-05).** The whole section was gated on "execute AFTER the
+> Sigil port". **The port is done.** `build.sh:4` reads "THE FLIP (Spec-5 Stage 2, the point of no
+> return): `sigil build` IS the build" — asl/p2bin/fixheader have left the pipeline and the `.asm`
+> CODE twins are deleted. The only `.asm` survivors are the vendored `engine/debug/debugger.asm`
+> and the two ~40-50 line `games/*/game_root.asm` residual roots, neither of which is a twin.
+> **The pin-target argument that justified deferring no longer applies.** Per-item status is
+> annotated on each item below — three of the five are ready, one needs a design pass, one is not
+> standalone.
 
 Gaps with no owning design anywhere (not in the nine design-week specs, not in the sound
 packages, not in the engine/game split plan). Deliberately deferred until Sigil finishes
@@ -31,11 +194,17 @@ engine code before then moves the pin target and grows the port surface for no d
    frame-count/window-scan-dependent logic must be replay-stable); its payoff is a
    deterministic regression net under every later engine execution (#1/#2/#7-#9).
    `engine/system/controllers.emp` is 62 lines today — 3-button, pad 1.
-2. **SRAM save system** — 68k side is simple; the design is slot format + checksums +
+2. **SRAM save system** — **PORT GATE CLEARED (2026-08-05); hidden dependency still live.**
+   68k side is simple; the design is slot format + checksums +
    wear pattern. HIDDEN DEPENDENCY: oracle must emulate SRAM persistence first (verify;
-   likely an oracle-side task). UI home = design #7's menu screens. The `gameHeader`
+   likely an oracle-side task) — **this one is NOT satisfied and cannot be settled by reading
+   the tree.** UI home = design #7's menu screens. The `gameHeader`
    SRAM field (engine/game split plan) already parameterizes the header declaration.
-3. **Water/underwater engine hooks** — NOT simple; needs its own design pass, and only
+   **PRIORITY RAISED (2026-08-05):** `3c96265` ("CrossResetRAM persistence RULED OUT — design
+   deleted, SRAM is the mechanism") makes SRAM the *only* persistence mechanism the engine has.
+   It is no longer an optional convenience feature.
+3. **Water/underwater engine hooks** — **PORT GATE CLEARED (2026-08-05), but this is NOT a
+   pick-up-and-go item — it still wants its own design pass.** NOT simple; needs its own design pass, and only
    when a level actually needs water. Two halves: mid-frame underwater palette via HInt
    (CRAM-dot timing hazards; design #8's raster script engine is the natural host —
    extend it, don't build parallel machinery) and per-section physics-modifier plumbing
@@ -49,8 +218,28 @@ engine code before then moves the pin target and grows the port surface for no d
    author a minimal engine-side (or demo-side) bank that satisfies the `soundBankHead`
    contract (`engine/sound/sound_bank.inc`) — pitch table + SFX window table + song/SFX
    data — and flip the default on.
+
+   > **⚠ CORRECTED 2026-08-05 — THE CONTRACT FILE THIS ITEM NAMES NO LONGER EXISTS.**
+   > `engine/sound/sound_bank.inc` was **DELETED** by `1afa9aa` (2026-08-01, "K4 inc-5 Stage 4b —
+   > P2 soundBankHead probe: the head is native; sound_bank.inc DELETED"). The `soundBankHead`
+   > macro is gone; the head is now emitted natively.
+   > **The live contract to satisfy is instead:**
+   > - the `sound_bank` anchor declared at **`games/sonic4/map.toml:110`**
+   >   (`name = "sound_bank"  # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000)`), and
+   > - the worked reference implementation at
+   >   **`games/sonic4/data/sound/soundbankhead.emp`**.
+   >
+   > Three places still cite the dead path and will mislead the next reader — **all three are
+   > out of scope for this doc-only parcel, listed so they get fixed together:**
+   > `games/demo/build.conf:2`, `engine/sound/dac_sample_tab.emp:21`, and
+   > `games/sonic4/data/sound/soundbankhead.emp:5` (the last is past-tense and least harmful).
+   >
+   > The item's *substance* is unchanged and the port gate is cleared: author a minimal
+   > engine-side or demo-side bank, then flip `games/demo/build.conf`'s
+   > `SOUND_DRIVER_ENABLED` default on. Only the target has moved.
 5. **RNG** — trivial; fold into design #9 execution (the behavior sequencer is its first
-   real consumer), not a standalone task.
+   real consumer), not a standalone task. **(2026-08-05: port gate cleared, but this remains
+   NOT standalone — it lands with design #9, not on its own.)**
 
 ### ✅ RESOLVED — PAL fixed-timestep — deleted, NTSC-only (ruling B) — 2026-08-02
 **Resolution (Volence, 2026-08-02, ruling B):** commit to NTSC-only. The dead PAL
@@ -161,7 +350,18 @@ sets, flag/enum layouts, DEFERRED_WORK-tracked scaffolding), not cruft. Shipped:
 
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
 **Surfaced during:** §5 Task 10.4 frame-budget pass.
-**Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built. The
+**Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built.
+> **⚠ PARTIALLY CORRECTED 2026-08-05 — the "written NOWHERE" claim is a FALSE NEGATIVE.**
+> The `Prof_*` block **IS** written, in `games/sonic4/test/object_test_state.emp:158-195`
+> (`Prof_RunObjects`, `Prof_Peak_RunObjects`, `Prof_TouchResponse`, `Prof_Peak_Touch`,
+> `Prof_RenderSprites`, …) — landed all the way back in `739143f` (2026-04-25, "combined
+> integration + stress test scene with profiling"), i.e. it was already wired when this entry
+> was written. What is true is narrower: **the counters are unwired in OJZ gameplay**, which is
+> the state the original live read at `0xFF89FC` was measuring. The headline claim ("declared but
+> written NOWHERE") is wrong; the conclusion (no profiler on the gameplay path) survives.
+> The §8.5 raster-bar/lagometer presentation layer is genuinely not built.
+
+Original text: The
 `Prof_*` RAM block (`ram.asm`: `Prof_RunObjects`/`Prof_TouchResponse`/
 `Prof_RenderSprites`/`Prof_FrameTotal` + their `Prof_Peak_*`, DEBUG only) is
 declared but written NOWHERE — confirmed live: all sixteen bytes at
@@ -296,7 +496,12 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   mappings + DPLC; frame-index layout follows the S2 convention, but the pixels are
   our custom design — NOT stock S2). Still provisional is the VRAM SLOT —
   `VRAM_TEST_SONIC` is a hand-placed test slot, not yet allocated via the build-time
-  graph-color allocator (separate art-pipeline task).
+  ~~graph-color allocator~~ (separate art-pipeline task).
+  **⚠ CORRECTED 2026-08-05: there is no graph-color allocator.** DSATUR/`color_sections`/
+  `compute_adjacency` have zero hits tree-wide; the allocator was superseded by the
+  globally-deduped paged act pool (2026-06-22) and removed in the Phase-3 cleanup. The slot is
+  still hand-placed and still provisional — but whatever allocates it later, it will not be a
+  graph colorer. See the corrected "Build-time Graph Coloring (§2.3)" entry.
 - ~~**Spindash shared across all 3 characters** — `PState_Spindash` was in
   `sonic.asm`, blocking Tails/Knuckles.~~ **DONE (feat/sonic-animations):** relocated
   to `engine/player/player_spindash.asm`; resolves `ANIM_SPINDASH` per-character via
@@ -305,10 +510,21 @@ following are deliberately **deferred to follow-up plans** (not bugs):
 - **In-game get-up trigger** — `ANIM_GETUP` (id 10) is defined and viewer-visible
   but nothing arms it in gameplay. A future pass needs the "just landed after a hurt"
   state to write `ANIM_GETUP` into the classifier path (or a dedicated PSTATE).
+  **⚠ NARROWED 2026-08-05 — most of this shipped; only the ARMING is missing.** The classifier
+  path the entry asks for **exists**: `PlayerV.getup_timer` is a real field
+  (`games/sonic4/player/player_common.emp:84`), it is cleared at init (`:209`), and `:488-492`
+  already runs the one-shot — `tst.b getup_timer` / `subq.b #1` / `move.b #ANIM_GETUP, anim(a0)`.
+  What is missing is **the writer**: nothing sets `getup_timer` non-zero, because no hurt/landing
+  state exists to set it. So this is not "build the get-up trigger" any more, it is "when damage
+  ships, poke one byte". Fold it into the shields/damage work rather than planning it separately.
 - **Duck / look-up camera pan** — duck and look-up are display conditions computed
   each frame (no new PSTATE); the camera-pan half is NOT implemented. The field
-  `_pl_look_offset` is reserved as a zero-valued seam in the `PlayerV` SST overlay
+  ~~`_pl_look_offset`~~ is reserved as a zero-valued seam in the `PlayerV` SST overlay
   for the future pass that wires this up.
+  **⚠ ANCHOR CORRECTED 2026-08-05:** the field is `PlayerV.look_offset`
+  (`games/sonic4/player/player_common.emp:86`, `// camera look/duck pan seam — stays 0 this
+  pass`), cleared at `:210`. `_pl_look_offset` has **zero hits** tree-wide — that name never
+  survived the port. The substance is unchanged: the seam exists, still zero, still unwired.
 - **Balance threshold tuning** — `LEDGE_NO_GROUND` in `player_sensors.asm` is
   flagged as tunable; the current value is a first estimate.
 - **Dropdash, instashield** — Sonic move-kit extensions.
@@ -364,7 +580,10 @@ Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is
 - **The real cause is band-boundary precision.** A BG parallax band's on-screen boundary = `band_top_plane_row*8 − BG_vertical_scroll`. With smooth per-pixel vertical parallax (`vFactorBg`), those boundaries land at ARBITRARY screen lines (measured the per-line table putting one at **line 22**). Per-cell mode can only change scroll at 8-px cell-rows (lines 0,8,16,24…), so it rounds line 22 → 16/24, misaligning each band by up to 7 px → the FG/BG **tears at every band boundary during scroll** (user-confirmed at Cam `$02D0,$019D`; reproduced in free-fly).
 **What:** Nothing — per-line (`DeformTable_Zero`) is mandatory for smooth banded vertical parallax and stays. The only way to use per-cell would be to give up smooth vertical scroll (chunky 8-px-stepped vscroll), which is not worth ~20%. Do NOT re-attempt the per-cell switch. Lesson: a settled/at-rest frame HIDES scroll-time tearing — verify under continuous motion ([[feedback_verify_during_motion]]), and read the actual VDP register before theorizing about propagation.
 
-### Parallax fill — computed-jump-table unroll (§4.6 perf) — 2026-07-14
+### Parallax fill — computed-jump-table unroll (§4.6 perf) — 2026-07-14 — **UNBLOCKED / only lever left**
+> **2026-08-05 reconciliation:** still open and still correct. Flagged in the NOW UNBLOCKED list
+> because per-cell HScroll is **permanently CLOSED** (entry directly above), which makes this the
+> *only* remaining lever on the parallax fill cost. Nothing gates it.
 **Surfaced during:** TheBlad768 survey (S.C.E. updated `DeformScroll`, unreleased) — see `docs/research/2026-07-14-theblad768-survey.md`.
 **Status:** Idea banked, not started. `Parallax_Update`'s per-line fill (~7.4% of frame under max diagonal, per the diagonal-budget profile above) runs a 224-iteration `move.l/dbf` loop; the `dbf` alone is ~10 cycles/line ≈ ~2,200 cycles/frame of pure loop overhead. Per-line is mandatory (per-cell CLOSED above), so the fill itself is the only lever left on this line item.
 **What:** Replace the constant-span inner loop with a computed jump into an unrolled `move.l d1,(a2)+` run (`jmp table(pc,d0.w)`, entry offset `(224-N)*2`) — Duff's-device style, ~448 bytes ROM per body. Applies cleanly to the zero-deform/constant-span case (OJZ ships `DeformTable_Zero`); the deform-active path needs a second unrolled sample+write body or keeps the loop. Verify with the lag counter under sustained max-scroll, not the profiler ([[project_vertical_streaming]]).
@@ -374,12 +593,32 @@ Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is
 **Status:** The SAT was relocated to $B800, making it the BG region's hard ceiling — usable BG space is $8000-$B7FF = **448 tiles**, not the nominal 512 ($8000-$BFFF, which now overlaps the SAT). The value is inconsistent across the pipeline: `tools/inject_editor_bg.py` already uses 448 (correct), but `constants.asm BG_TILE_CAPACITY` and `tools/ojz_strip_gen.py BG_TILE_CAPACITY_PY` still say 512. **PARTIALLY ADDRESSED 2026-06-23 (commit 0aab611):** `engine/level/bg.asm` `BG_Init` now CLAMPS the blob copy to `BG_TILE_REGION_BYTES` ($8000-$B7FF), so it can no longer spray into the SAT (the runtime last-line guard). OJZ is safe today (340 tiles ≤ 448). **RESOLVED 2026-06-23 (Engine Phase 3 Task 2):** both `constants.asm BG_TILE_CAPACITY` and `tools/ojz_strip_gen.py BG_TILE_CAPACITY_PY` now gate at 448; the full build passes at the tightened gate. A too-large BG blob now fails at generation (the `ojz_strip_gen.py` assert) instead of being silently runtime-clamped.
 **What:** Reconcile the gate to 448 in `constants.asm` AND `tools/ojz_strip_gen.py` (the latter is auto-commit-daemon-watched — coordinate with the user, do NOT hand-edit autonomously). Add a runtime/build guard in `BG_Init` (or an AS assert) that the BG blob ≤ `VRAM_SPRITE_TABLE - BG_TILE_BASE_VRAM`, so a future >448-tile blob fails loudly instead of silently spraying into the SAT.
 
-### Editor-export Act descriptor format drift (§8 tooling) — 2026-06-23
+### ~~Editor-export Act descriptor format drift (§8 tooling)~~ — **VOID 2026-08-05 (the artifact was deleted)** — 2026-06-23
+> **⚠ VOID — the file this entry is about no longer exists.** `46c2e0f` (2026-08-01, "Parcel J:
+> delete the parked ojz editor exports (#25/#26/#27)") deleted the parked export directory, so
+> `data/editor/ojz/act1/export/act_descriptor.asm` is gone and there is no stale descriptor left
+> to drift. The entry additionally cites `main.asm:198` — **`main.asm` itself is deleted** (the
+> ROM layout is now the declared sigil map, `games/sonic4/map.toml`).
+>
+> **What survives as real work:** the *belt-and-suspenders* half at the end of the entry — an
+> assert that an emitted descriptor's size equals `Act_len`, so any future hand-written or
+> re-exported descriptor fails the build instead of silently mis-parsing. That is still worth
+> having and is now the only actionable content here. The exporter-rewrite half is moot until
+> an exporter is rebuilt, and the direction of travel recorded elsewhere in this file
+> ("editor authors JSON, BUILD generates engine format") says it should not be rebuilt in place.
+>
+> Historical text below.
+
 **Surfaced during:** continuous-scroll Phase 2 final review.
 **Status:** `data/editor/ojz/act1/export/act_descriptor.asm` is git-tracked but NOT in the build include graph (`main.asm:198` includes only `data/levels/ojz/act1/act_descriptor.asm`, which IS correct), and it would not even assemble as-is (e.g. a path where a symbol is expected). So it is no build/runtime risk. But it still emits the OLD Act layout: the removed `cam_min_x/max_x/min_y/max_y` 4-word camera block, no `edge_mode` byte/pad, and pre-paging art fields — mismatched to the current `Act_len=$22`. This dir is auto-commit-daemon-watched (do NOT hand-edit autonomously).
 **What:** Update the editor EXPORTER tool to emit the current Act format (no cam bounds, `edge_mode` + pad, `act_art_pool_table`/`pages`) so a future regeneration can never reintroduce the obsolete layout into the build. Coordinate with the user (daemon-watched path). Optional belt-and-suspenders: add an AS assert at the `OJZ_Act1_Descriptor` site that the emitted descriptor size equals `Act_len`, so ANY drifting descriptor (hand-written or exported) fails the build instead of silently mis-parsing.
 
-### yflip/xyflip size+link word merge in the sprite emit loop (§1.2 perf) — 2026-08-03
+### yflip/xyflip size+link word merge in the sprite emit loop (§1.2 perf) — 2026-08-03 — **UNBLOCKED, verification-bounded**
+> **2026-08-05 reconciliation:** confirmed accurate and confirmed unblocked. `size_link` is live at
+> `engine/objects/sprites.emp:568`, called at `:668`; the dead-constraint note is at `:539`.
+> Nothing gates the change — the entire remaining cost is **SAT byte-identity verification for the
+> yflip/xyflip variants**, which is emulator work. Piggyback it on any session already doing
+> SAT-level oracle checking, exactly as the entry says.
 **Surfaced during:** sprites H2 quality review (parcel/bug005-sprites-player).
 **Status:** H2 merged the size+link SAT write into one word write for unflipped/xflip
 (~12 cycles/piece). yflip/xyflip kept the byte-wise form, but the constraint that
@@ -416,12 +655,29 @@ enemies, etc. Premature without that signal.
 **Completed in:** §4 Phase 1 Level/World System
 **What:** Deferred Plane_Buffer (1536 bytes), Draw_TileColumn/Row, VInt_DrawLevel with autoincrement $80 column mode, overflow protection, pre-computed nametable strips.
 
-### Scroll / Plane Drawing — Dual Plane / Row Updates (§1.3)
+### ~~Scroll / Plane Drawing — Dual Plane / Row Updates (§1.3)~~ — **DONE / RESCOPE-OR-DELETE 2026-08-05**
+> **⚠ CORRECTED 2026-08-05 — every component this entry lists now exists.**
+> - `Draw_TileRow` shipped as **`Draw_TileRow_FromCache`** (`engine/level/plane_buffer.emp:219`),
+>   called twice from `engine/level/section.emp:628,667`.
+> - **Plane B scroll support** shipped — Plane B is owned by `engine/level/bg.emp`.
+> - The stated blocker ("vertical section support / §4.2 vertical section teleport") is doubly
+>   void: vertical streaming shipped, and **section teleport itself was deleted** (see the
+>   teleport-cluster correction under §4).
+>
+> The only bullet with any life left is "double-update mechanism for fast travel", and that is now
+> just a restatement of the streaming budget work tracked under the diagonal-budget entry.
+> **Recommendation: delete or rescope this entry the next time §1 is touched — do not plan from it.**
+> Original text below.
+
 **Blocked by:** Vertical section support (§4.2)
 **What:** Plane B scroll support, Draw_TileRow for vertical section transitions, double-update mechanism for fast travel.
 **When ready:** After §4.2 adds vertical section teleport.
 
-### DPLC Lookahead (§1.6)
+### DPLC Lookahead (§1.6) — **✅ UNBLOCKED 2026-08-05**
+> **Blocker discharged.** The §3 object system is fully built: `engine/objects/animate.emp` and
+> `engine/objects/dplc.emp` both exist and ship, so "AnimateSprite and DPLC tables" — the stated
+> dependency — is satisfied. Clean pick-up; the design below still reads correctly against the
+> current code. Listed in the NOW UNBLOCKED section.
 **Blocked by:** Object System (§3) — specifically AnimateSprite and DPLC tables
 **What:** Predictive art loading by peeking at next animation frame's DPLC requirements one frame early. Queue as Important-priority DMA.
 **When ready:** After §3 defines animation system with frame scripts and DPLC mappings.
@@ -435,12 +691,43 @@ enemies, etc. Premature without that signal.
 **Completed in:** §4 Phase 1 Level/World System
 **What:** Hscroll_Dirty_Start/End tracking, Hscroll_Update fills 28 per-8-row bands from Camera_X.
 
-### Variable HScroll DMA — Variable-Length Transfer (§1.1)
+### Variable HScroll DMA — Variable-Length Transfer (§1.1) — **BLOCKER DISCHARGED, INFRASTRUCTURE GONE**
+> **⚠ TWO CORRECTIONS 2026-08-05, pulling in opposite directions.**
+> 1. **The blocker is discharged.** "Confirmed performance need" is exactly what this file's own
+>    diagonal-budget entry supplies: the per-line HScroll DMA is **896 B/frame**, measured at
+>    **~20% of the frame**, and the file names it "the single biggest lever" and "a FLAT tax (same
+>    stationary or scrolling)". It is no longer waiting on evidence.
+> 2. **The infrastructure it assumes was DELETED.** The entry (and the `~~DONE 2026-04-25~~`
+>    infrastructure entry above it) both key on `Hscroll_Dirty_Start`/`Hscroll_Dirty_End` —
+>    **zero hits tree-wide.** Only `Hscroll_Buffer` survives (`engine/ram.emp:195`). The
+>    dirty-range tracking has to be **rebuilt**, not merely consumed.
+>
+> Net: unblocked, but it is a build-it-then-use-it, not a wire-up. **Also read the caveat that
+> already killed the neighbouring idea:** the diagonal-budget entry measured an HScroll-DMA
+> dirty-gate as "near-useless" under deform, because the deform phase animates every frame so the
+> buffer is always dirty. A dirty-*range* transfer is a different mechanism from a dirty-*gate*
+> and is not obviously subject to the same objection — but establish that before committing.
 **Blocked by:** Confirmed performance need (currently always DMAs full 224-line table)
 **What:** Use Hscroll_Dirty_Start/End to DMA only the dirty scanline range instead of all 896 bytes.
 **When ready:** When HScroll partial updates become a measurable DMA budget issue.
 
-### Background Work / Cooperative Multitasking (§1.5 → §9.7)
+### Background Work / Cooperative Multitasking (§1.5 → §9.7) — **✅ UNBLOCKED — HIGHEST-LEVERAGE ITEM IN THIS FILE**
+> **Blocker discharged 2026-08-05.** "When §9.7 is designed and the S4LZ decompressor exists" —
+> **both decompressors exist and ship** (`engine/compression/`, S4LZ + ZX0).
+>
+> **This is the single highest-leverage unlock in the document** because it is the *sole* remaining
+> gate on three independent downstream items, each of which names it explicitly:
+> - **S4LZ Streaming Mode (§2.1)** — "Blocked by: §9.7 Cooperative Multitasking".
+> - **ZX0 needs budgeted decode before any mid-gameplay use** — ~76 KB/s, ~5 frames synchronous
+>   for a 6.3 KB blob; the entry's stated resolution is "route them through §9.7".
+> - **Art-streaming Phase 2** — binding amendment #1 promotes resumable decode from tunable to
+>   *requirement*, and `2026-07-02-art-streaming-phase2-design.md` §3 names the
+>   supervisor-bookmark pattern as the vehicle.
+>
+> Nothing else here unlocks three items at once. Note the design has moved on since this entry was
+> written: amendment #1 was superseded on format (ZX0 + raw-direct hybrid, not S4LZ pages), but
+> **the resumable-decode requirement survived that supersession and is now format-independent** —
+> so read the Phase-2 spec, not this stub, for the shape.
 **Blocked by:** Full design of §9.7
 **What:** Supervisor/user mode context switching for background S4LZ decompression in leftover CPU time.
 **When ready:** When §9.7 is designed and the S4LZ decompressor exists.
@@ -461,7 +748,20 @@ enemies, etc. Premature without that signal.
 3. **Stress-validate Phase 2 under sustained MAX DIAGONAL scroll** — parallax (~20%) + dual-axis block fill + art decode contend for the same idle pool (~76% lag already at max diagonal, see §1 diagonal-budget entry). Honorable degradation: S3K-style gate (brief camera soft-clamp at a worst-case seam).
 4. **Adopt from the corpus:** B&R's per-act art/DMA byte budget (a descriptor word reloaded per frame, not a global constant); Vectorman's dual cap (entries AND bytes per frame) on the DMA queue.
 5. **Motivating showcase (user goal, 2026-07-10): the multi-zone "mega-act" tech demo** — several classic zones (or a whole game's worth) as one seamless act, no score-tally/camera-lock transitions. Zone themes live in separate pool pages; seams are transition corridors built from shared/neutral tiles where page swaps stream behind the player (the S3K PLC-during-transition pattern, corridor-loading style). Depends on: Phase 2 page streaming (this entry) + floating-origin rebase (§4.11) for the coordinate span. Per-section palettes/parallax/entities already scale. Constraint to author around: zones hand off through corridors, never interleave at fine grain.
-**All 7 audit bugs were fixed + merged same day** (blank-slot-0 pin, 960 ceiling assert x2, numeric page enumeration, column-guard off-by-4, marker relocation + PIO int-mask, grid $8000 assert). Remaining small backlog: orphaned teleport-era RAM (`Section_Fwd/Bwd_Neighbor_Data`, `Tile_Override_Table`, `Pos_table`, `H_scroll_frame_offset`, `Camera_Lookahead`), dead `Plane_Buffer_Reset`, `Section_RedrawPlanes` PIO without stopZ80 (convention deviation, currently safe), stale comment at `plane_buffer.asm` "Called with Z80 already stopped by VInt_Level / VInt_Lag", Aurora still exporting the dead parity-model `vram_bases.asm` (ROM ignores it; editor schema drift — see the §8 editor-export entry).
+**All 7 audit bugs were fixed + merged same day** (blank-slot-0 pin, 960 ceiling assert x2, numeric page enumeration, column-guard off-by-4, marker relocation + PIO int-mask, grid $8000 assert). Remaining small backlog: orphaned teleport-era RAM (`Section_Fwd/Bwd_Neighbor_Data`, `Tile_Override_Table`, `Pos_table`, `H_scroll_frame_offset`, `Camera_Lookahead`), dead `Plane_Buffer_Reset`, ~~`Section_RedrawPlanes` PIO without stopZ80 (convention deviation, currently safe)~~, stale comment at `plane_buffer.asm` "Called with Z80 already stopped by VInt_Level / VInt_Lag", Aurora still exporting the dead parity-model `vram_bases.asm` (ROM ignores it; editor schema drift — see the §8 editor-export entry).
+
+> **⚠ BACKLOG LINE CORRECTED 2026-08-05 — one of these six is DONE.**
+> **`Section_RedrawPlanes` PIO without stopZ80 is RESOLVED.** The routine now owns its own Z80
+> posture in *both* build shapes — flag bracket with sound on, whole-storm bus hold with sound off
+> — documented at the call site (`games/sonic4/test/ojz_scroll_test.emp:171`), which explains that
+> the call is deliberately BARE because a caller-side hold would be a FALSE lock. Not a convention
+> deviation any more.
+>
+> The other five **remain genuinely open and were re-verified**: `Tile_Override_Table` still exists
+> with no writer (`engine/ram.emp:398`, 96 B), the orphan teleport-era RAM is still orphaned, dead
+> `Plane_Buffer_Reset` and the stale `plane_buffer.emp` comment both survive, and the Aurora
+> `vram_bases.asm` export is still dead. Note the last one's cross-reference now dangles — the §8
+> editor-export entry it points at is itself VOID (its artifact was deleted by `46c2e0f`).
 
 ### ~~§2 A.5 T2/T3 — Per-Section BG~~ — VERIFIED 2026-04-27
 **Engine paths proven end-to-end** via temporary fixtures in OJZ Act 1, then reverted. Production ships pure T1.
@@ -474,7 +774,11 @@ enemies, etc. Premature without that signal.
 ### §2 A.5 — Section_Check d0-Clobber Bug — FIXED 2026-04-27
 **Status:** `preload_fwd` / `preload_bwd` in `engine/level/section.asm` clobber d0 to build a section offset, but `.threshold_check` assumed d0 = Camera_X high word. After preload fired, the threshold check read garbage d0, frequently spurious-triggering BWD teleport (`d0 ≤ $200` accidentally true). Fixed by reloading Camera_X at the top of `.threshold_check`. Was masking BG verification work.
 
-### §2 A.5 T1 — FG Plane A Tile-Flip Mismatch vs sonic_hack
+### §2 A.5 T1 — FG Plane A Tile-Flip Mismatch vs sonic_hack — **EMULATOR-GATED (cannot be settled statically)**
+> **2026-08-05:** left open deliberately. This entry's own "Needs:" line already says what it
+> needs — a live A/B with two emulators paused at the same screen comparing VRAM bytes. It is on
+> the CANNOT-BE-SETTLED-STATICALLY list at the top so nobody re-derives the build-tool math a
+> fourth time; that half is already verified correct. It blocks nothing.
 **Status:** Architectural milestone shipped, but Exodus's Plane A nametable viewer shows tile-orientation differences between our build and sonic_hack's running OJZ. Build-tool math verifies correct (chunk-level X/Y flip per sonic_hack ProcessAndWriteBlock + dedupe canonicalization + strip remap), so the residual gap is likely in Exodus viewer rendering details (CRAM shadow mode, palette auto-selection) rather than build-tool output — but that's not confirmed.
 **Needs:** Live A/B diagnostic with sonic_hack paused at OJZ Act 1 + our build paused at the same screen, comparing specific VRAM tile bytes.
 **Doesn't block:** anything; T1 architecture is solid and BG renders correctly.
@@ -505,27 +809,70 @@ sonic_hack. No engine work to do.
 **Completed in:** §3 Object System audit cleanup
 **What:** Perform_DPLC with internalized change detection (SST_prev_frame), Important and Deferrable variants. Objects pass a2=DPLC table, a3=art base, d1=VRAM dest.
 
-### Dynamic VRAM Allocator (§2.2)
+### Dynamic VRAM Allocator (§2.2) — **UNBLOCKED, BUT THE PREMISE MAY BE MOOT**
+> **⚠ 2026-08-05 — blocker discharged, premise questioned.** The stated blocker (§3 Object System,
+> `Load_Object` lifecycle) is satisfied: `engine/objects/load_object.emp` exists and ships, as does
+> the rest of `engine/objects/`.
+> **But do not plan straight from the 2026-04 text.** It was written when art was expected to swap
+> per section. The engine now ships a **fully-resident globally-deduped paged act pool** loaded
+> once at init, which is exactly the model that made the graph-color allocator (below) dead. Much
+> of "section compaction" and the swap-driven pressure this allocator was designed to relieve may
+> no longer exist. **Re-read the current art-pipeline design before planning; the honest first
+> question is whether this item should be rescoped to object/sprite VRAM only.**
 **Blocked by:** §3 Object System (`Load_Object` spawn/destroy lifecycle drives `AllocVRAM`/`FreeVRAM` calls)
 **What:** Bump allocator for unified VRAM pool, loaded table tracking, refcount per type_id, lazy reclaim, section compaction.
 **When ready:** After §3 defines object RAM layout and the object loop exists.
 
-### Refcount-based Art Caching / Lazy Reclaim (§2.2)
+### Refcount-based Art Caching / Lazy Reclaim (§2.2) — **UNBLOCKED, SAME MOOTNESS CAVEAT**
+> **⚠ 2026-08-05:** §3 exists (`load_object.emp`), so the blocker is discharged — but this entry
+> is downstream of the Dynamic VRAM Allocator above and inherits its caveat verbatim: under a
+> fully-resident deduped pool there may be nothing to refcount. Evaluate the two together, and
+> evaluate the premise before the implementation.
 **Blocked by:** §3 Object System (refcount increments/decrements tied to object spawn/destroy)
 **What:** Freed art stays in VRAM until pool needs space. Re-spawn of same type is free (refcount bump, no decompression).
 **When ready:** After §3 and the dynamic VRAM allocator exist.
 
-### Build-time Graph Coloring (§2.3)
+### ~~Build-time Graph Coloring (§2.3)~~ — **DEAD 2026-08-05: the allocator does not exist and is not coming back**
+> **⚠ VOID — this is not deferred work, it is a deleted design.** Verified 2026-08-05: `DSATUR`,
+> `color_sections` and `compute_adjacency` have **zero hits** anywhere in the tree.
+>
+> The approach was **superseded** by the globally-deduped, spatially-ordered, paged act art pool
+> (2026-06-22, the OJZ tile-budget resolution) and the machinery was then removed — this file's own
+> Phase-3 cleanup entry records `ENGINE_ARCHITECTURE.md` being reconciled to "no
+> graph-coloring/DSATUR/`LoadSectionTiles`/per-section art swap", and `CLAUDE.md` being corrected
+> from "graph-color" to "dedup + spatial paging".
+>
+> **The file was contradicting itself:** this entry listed graph coloring as future work while the
+> Done section below carries "§2 Phase 2 Layer A.3 — Build-time Graph Coloring — 2026-04-26" as
+> shipped. It was both done and not-done and is in fact neither: it shipped, then was deleted.
+> Two other entries referenced the allocator as a live dependency (§5's Sonic VRAM slot, and the
+> A.5 T1 Done entry's architectural note) — both corrected in place.
+>
+> **Do not resurrect this without a fresh design.** Historical text below.
 **Blocked by:** §4 Level/World (section adjacency graph) + §8 Build Tools (tile deduplication pipeline)
 **What:** Non-adjacent sections share VRAM tile indices. Build tool computes coloring from section adjacency graph.
 **When ready:** After §4 defines section grid and §8 has flatten/deduplicate pipeline.
 
-### Section-aware Streaming / Predictive Preloading (§2.1/§4.8)
+### Section-aware Streaming / Predictive Preloading (§2.1/§4.8) — **UNBLOCKED; the block-stream half already shipped**
+> **⚠ 2026-08-05 — half of this is already done, and the blocker text is stale.**
+> **Blocker discharged, but not as written:** it names "leapfrog loading" and "section transition
+> triggers", and **the leapfrog/teleport subsystem was deleted** (`eddbbf7`). What replaced it —
+> continuous scroll with a camera-driven streamer — supplies the same dependency better.
+> **The block-stream half effectively SHIPPED** as the unified direction-aware prefetch:
+> `engine/level/tile_cache.emp:1001` (row scan, vertical, no hysteresis — "gravity is decisive")
+> and `:1093` (column scan with H3 direction hysteresis). That is precisely "predictive preloading
+> based on camera velocity and direction", for blocks.
+> **What genuinely remains is the ART half** — deferrable-DMA streaming of *tile art* — and that is
+> art-streaming Phase 2, which gates on §9.7 (item 1 of the NOW UNBLOCKED list). Rescope this entry
+> to the art half or fold it into Phase 2; do not plan it as written.
 **Blocked by:** §4 Level/World (section transition triggers, camera position, leapfrog loading)
 **What:** Deferrable-priority DMA streaming of next section's art based on camera velocity and direction.
 **When ready:** After §4 implements section transitions and camera system.
 
-### S4LZ Streaming Mode (§2.1)
+### S4LZ Streaming Mode (§2.1) — **gated ONLY on §9.7, which is now unblocked**
+> **2026-08-05:** entry is accurate. Recorded here as one of the three items whose sole gate is
+> §9.7 cooperative multitasking — see the NOW UNBLOCKED list, item 1. The decompressor exists; the
+> bookmark/preemption mechanism is what is missing, and it is shared with the other two consumers.
 **Blocked by:** §9.7 Cooperative Multitasking (interruptible decompression with VBlank context switch)
 **What:** Bookmark-based interruptible decompression. VBlank preempts mid-decompress, resumes next frame.
 **When ready:** After §9.7 supervisor/user mode exists. Blocking mode handles all current use cases.
@@ -625,7 +972,24 @@ objects), alongside the §3 SST field audit.
 
 ## From §4 Phase 1 — Level/World System
 
-### Path-B collision content — wire the secondary index through the strip generator (§4.7)
+### ~~Path-B collision content — wire the secondary index through the strip generator (§4.7)~~ — **✅ DONE (both halves) — verified 2026-08-05**
+> **⚠ CORRECTED 2026-08-05 — this entry asked for two things and BOTH shipped.**
+> 1. **The real secondary index is loaded and baked.** `tools/collision_pipeline.py:301` loads
+>    `"OJZ secondary 16x16 collision index.bin"` alongside the primary, and `:172-189`
+>    (`bake_cell`) bakes *both* layers per placement, driving path selection off
+>    `PATH_A_SOL_SHIFT` / `PATH_B_SOL_SHIFT` (bits 13:12 and 15:14 of the chunk-entry word) with
+>    per-path flip handling. The VDP-priority-bit placeholder this entry complains about is gone —
+>    and note the pipeline moved: it is `tools/collision_pipeline.py` now, not
+>    `tools/ojz_strip_gen.py`.
+> 2. **The path-swapper objects exist.** `games/sonic4/objects/path_swap.emp` is implemented and
+>    actually placed in level data — `ObjDef_PathSwap` appears as type 1 in
+>    `games/sonic4/data/generated/ojz/act1/entity_data.emp:41`
+>    (`OJZ_Sec1_TypeTable ... t1: ObjDef_PathSwap`).
+>
+> Layer B is no longer a byte-copy of layer A. **The RAM-slack note in the entry (910 bytes lower
+> RAM, one more `BLOCK_STAGE_SLOTS` fits) is from 2026-06-10 and has NOT been re-measured — do not
+> trust that number.** Historical text below.
+
 **Surfaced during:** objects-formats-v2 T7 (2026-06-10).
 **What:** Dual-layer collision SHIPPED format-wise (768-byte blocks, two cache planes,
 SST_layer select) but layer B is a byte-copy of layer A. The real data exists:
@@ -693,7 +1057,47 @@ honored:** ANY_Y objects spawn on X coverage regardless of camera Y and are exem
 from Y despawn, with the flag mirrored to `SST_slot_tag` bit 7 at spawn. Full 7-check
 verification matrix passed in Exodus 2026-06-11. See ENGINE_ARCHITECTURE.md §4.9.3/§4.9.6.
 
-### Plane A wrap-cycle visible during scroll (§4.2 streaming polish)
+---
+
+## ☠ DEAD CLUSTER — the §4 teleport / leapfrog entries (11 entries, VOID 2026-08-05)
+
+**Every entry marked `[DEAD CLUSTER]` below describes a subsystem that no longer exists.**
+`eddbbf7` (2026-06-22, "refactor(level): delete the dead leapfrog subsystem — continuous-scroll
+Task 10") removed it wholesale, and the continuous-scroll engine that replaced it does not
+teleport at all: it scrolls continuously and rebases the floating origin.
+
+**Grep evidence (2026-08-05, whole tree, source only — every one returns ZERO hits):**
+`Section_Check`, `Section_TeleportFwd`, `Section_TeleportBwd`, `Section_TeleportUp`,
+`Section_TeleportDown`, `Section_QueueNewSlot`, `Section_Preload`, `SECTION_SHIFT`,
+`Slot_Section_Map`, `SyncSlide`, `TeleportShift`.
+(`Slot_Section_Map` appears exactly once, in a comment at `engine/system/replay.emp:255`
+explicitly noting the name does **not** exist.)
+
+**What `engine/level/section.emp` actually exports today** — the complete list:
+`Section_Init`, `Section_FillInitial`, `Section_FlatIDXY`, `Section_GetSecPtrXY`,
+`Section_RedrawPlanes`, `Section_UpdateColumns`. No teleport, no preload, no slot map, no
+threshold check.
+
+**How to read these entries:** as **historical record only**. They are retained (not deleted)
+because they document real reasoning about plane wrap, streaming budgets, landing suppression and
+register-clobber contracts, and because the continuous-scroll design was chosen *against* them —
+knowing what was rejected is worth keeping. **Do not plan from any of them. Do not "fix" the
+defects they describe.** A few contain observations that outlived the subsystem; those are called
+out individually.
+
+**The eleven:** Plane A wrap-cycle · Section Preload with S4LZ Deferrable DMA · Section Preload
+Velocity-Based Timing · Vertical Section Teleport · Section Null-Neighbor Camera Clamp · Section
+rotation cascading work · Plane A fill-in after teleport · Section teleport landing-flag mechanism
+· X-BWD clamp-to-zero degenerate slot pair · `Section_TeleportBwd` `.at_start` guard ·
+`Section_Check` clobber header understates.
+
+---
+
+### [DEAD CLUSTER] ~~Plane A wrap-cycle visible during scroll (§4.2 streaming polish)~~
+> **VOID — see the DEAD CLUSTER banner above.** The whole entry is framed on `SECTION_SHIFT`
+> (deleted) and `Section_UpdateColumns`' teleport-era ring math. Its recommended fix — "camera
+> teleport per plane-width" — is the opposite of the direction the engine actually took
+> (continuous scroll + floating-origin rebase, shipped 2026-06-22/23). Historical text below.
 **Surfaced during:** §4.6 polish session 2026-04-28 (after bhi→bhs core fix + Section_Teleport_Guard increase shipped).
 
 **Symptom:** When scrolling right through a single section, foreground (Plane A) terrain appears to "draw from left to right" — chunks of FG content materialize at screen LEFT and seem to fill toward screen RIGHT as the user scrolls. When scrolling left (back), the LEFT chunk disappears first while the RIGHT chunk persists. User confirmed via experiment: stub'ing `Section_UpdateColumns` to `rts` immediately makes all FG content disappear, proving the streaming engine *is* producing the visible artifacts.
@@ -724,22 +1128,38 @@ verification matrix passed in Exodus 2026-06-11. See ENGINE_ARCHITECTURE.md §4.
 
 **Additional finding:** `SECTION_SHIFT = $1000` ≠ `SECTION_SIZE = $0800`. Comment claims "uniform shift applied on teleport (pixels)" but the value is 2× SECTION_SIZE. With current values, post-FWD Camera_X = $200 (= cam_min_x = BWD_THRESHOLD), which is what causes the section oscillation that the 30-frame Section_Teleport_Guard patches. The "natural" fix would be `SECTION_SHIFT = SECTION_SIZE = $0800` (so FWD/BWD both land Cam mid-window at $0A00, no oscillation), but this requires recalibrating Right_Col_Written / Left_Col_Written math in Section_UpdateColumns and the Section_FillInitial init values. Worth investigating as part of §4.2 polish — may also resolve the plane-wrap perception issue if the ring rotation is "shorter" per teleport.
 
-### Section Preload with S4LZ Deferrable DMA (§4.2)
+### [DEAD CLUSTER] ~~Section Preload with S4LZ Deferrable DMA (§4.2)~~
+> **VOID — see the DEAD CLUSTER banner.** `Section_Preload` and `Section_QueueNewSlot*` do not
+> exist. **One idea outlived the subsystem:** deferrable-DMA streaming of upcoming *art* is real
+> work — it lives on as **art-streaming Phase 2**, gated on §9.7. Plan it from the Phase-2 spec,
+> not from this entry.
 **Blocked by:** S4LZ art streaming pipeline (§2.1) and section adjacency graph
 **What:** When camera crosses Section_FWD/BWD_PRELOAD threshold, queue Deferrable-priority DMA to load next section's tile art into the VRAM pool. Currently Section_QueueNewSlot1/0Cols just writes nametable strips; the art must already be in VRAM.
 **When ready:** After §2 art streaming and §4.2 section preload are designed.
 
-### Section Preload — Velocity-Based Timing (§4.2)
+### [DEAD CLUSTER] ~~Section Preload — Velocity-Based Timing (§4.2)~~
+> **VOID — see the DEAD CLUSTER banner.** No preload threshold exists to make velocity-adaptive.
+> **The idea outlived it in shipped form:** direction/velocity-aware prefetch is live in
+> `engine/level/tile_cache.emp` (`:1001` row scan, `:1093` column scan with H3 hysteresis) for the
+> block stream. What that does not cover is art — again art-streaming Phase 2.
 **Blocked by:** Player physics providing ground_speed
 **What:** Preload threshold adapts to player ground_speed — trigger earlier at high speed to ensure art arrives before new columns are visible. Currently fires at fixed SECTION_FWD/BWD_PRELOAD constants.
 **When ready:** After §3 player physics provides ground_speed to the section system.
 
-### Vertical Section Teleport (§4.2)
+### [DEAD CLUSTER] ~~Vertical Section Teleport (§4.2)~~
+> **VOID — see the DEAD CLUSTER banner.** `Section_TeleportUp`/`Down` never existed beyond a stub
+> and the `Section_Check` that would have hosted them is deleted. **The capability shipped by
+> other means:** continuous vertical scrolling + the vertical entity window + vertical tile-cache
+> fill, all merged 2026-06-11/23. Multi-row section grids work today without any teleport.
 **Blocked by:** Vertical level design and camera Y handling
 **What:** Section_TeleportUp / Section_TeleportDown paths (stub exists in Section_Check). Camera Y threshold mirrors the X system. Required for multi-row section grids.
 **When ready:** After a level with vertical transitions is designed.
 
-### Section Null-Neighbor Camera Clamp (§4.2)
+### [DEAD CLUSTER] ~~Section Null-Neighbor Camera Clamp (§4.2)~~
+> **VOID — see the DEAD CLUSTER banner.** There is no `Section_TeleportBwd` to add a null check
+> to. Note the underlying concern *was* separately addressed in the teleport era via the
+> `SEC_VOID` sentinel + camera max-x void clamp (see the grid-edge entry), and the concept
+> survives as ordinary act-boundary camera clamping in the continuous-scroll engine.
 **Blocked by:** Act descriptor null-section encoding
 **What:** When camera approaches a section slot with no neighbour (edge of the level), Camera_X should clamp to the act boundary instead of teleporting. Currently Section_TeleportBwd has a note for zero-clamp but no null check.
 **When ready:** After act descriptors encode level boundaries.
@@ -901,7 +1321,11 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 ### ~~Section rotation should be block-style, not rolling~~ — DONE 2026-04-28
 **Completed in:** §4.6 T15 commit. `Section_TeleportFwd`/`Bwd` now advance both slots by 2 sections per teleport (block-style), matching `SECTION_SHIFT = $1000` and the user's "infinite forward walking" intent. Architecture doc §4.1 still describes the older rolling-leapfrog model and needs updating in T17.
 
-### Section rotation cascading work (§4.2 architectural fix)
+### [DEAD CLUSTER] ~~Section rotation cascading work (§4.2 architectural fix)~~
+> **VOID — see the DEAD CLUSTER banner.** Slot rotation, `SECTION_SHIFT`, the RC/LC trackers and
+> the preload bandwidth model all went with the subsystem. `Section_UpdateColumns` survives by
+> name only — it is now a continuous-scroll column streamer, not a slot-pair ring walker, so its
+> "ring-buffer math" bullet does not describe today's routine.
 **Surfaced during:** §4.6 T15 testing 2026-04-28.
 
 **State:** The rotation logic itself is now block-style (shipped 2026-04-28). The cascade work below remains.
@@ -916,7 +1340,10 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 
 **When to revisit:** §4.2 polish session. Pair with the FG-redraw work and the landing-flag mechanism; they're all the same teleport pipeline. Recommend reading `sonic_hack/code/engines/section_streaming.asm:Section_ForwardTeleport` end-to-end as the reference implementation.
 
-### Plane A "fill-in" after teleport (§4.2 streaming polish)
+### [DEAD CLUSTER] ~~Plane A "fill-in" after teleport (§4.2 streaming polish)~~
+> **VOID — see the DEAD CLUSTER banner.** There is no teleport, so there is no post-teleport
+> fill-in. `Section_RedrawPlanes` does survive (it is one of the six real exports) but as the
+> synchronous initial plane fill at level start, not as a teleport repair path.
 **Surfaced during:** §4.6 T14 testing 2026-04-28.
 
 **Symptom:** Crossing a section teleport boundary (`$1200` FWD or `$200` BWD), Plane A foreground content visibly "runs in" over ~2-3 frames as `Section_UpdateColumns` re-streams the visible 40 columns into the plane. User wants the teleport to be imperceptible — same content visible before and after.
@@ -936,7 +1363,12 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 
 **When to revisit:** §4.2 polish session. Path 1 is the most aligned with the current architecture; path 2 is where to head once we're tightening the engine. Reference `BG_RedrawForSection` as the model — Plane A version follows the same structure but writes 32 nametable cols × ~30 rows per slot.
 
-### Section teleport landing-flag mechanism (player-physics polish)
+### [DEAD CLUSTER] ~~Section teleport landing-flag mechanism (player-physics polish)~~
+> **VOID — see the DEAD CLUSTER banner.** The `SECTION_SHIFT = $0FFF` stopgap it describes, the
+> `$200`/`$1200` thresholds, and `Section_Check` are all deleted. The physics concern that
+> motivated it (a player flung past a boundary by a spring or terminal fall) is real and
+> permanent, but under continuous scroll there is no boundary to be flung past — it degenerates to
+> ordinary camera clamping.
 **Surfaced during:** §4.6 T14 testing 2026-04-28.
 
 **Current state:** `SECTION_SHIFT = $0FFF` (= FWD - BWD - 1) so post-teleport camera lands 1 px inside the safe zone, preventing idle oscillation between `$200` and `$1200`. Works for the OJZ camera-driven scroll test where camera is bounded directly by `cam_min_x` and user input is at fixed pixel-step.
@@ -954,7 +1386,30 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 
 **When to revisit:** when integrating player physics (§3 spec). Restore `SECTION_SHIFT = $1000` at the same time so post-teleport camera lands exactly at the boundary, and the landing flag handles the rest. Until then, the `$0FFF` nudge is a clean equivalent for the camera-driven test setup.
 
-### VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)
+### ~~VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)~~ — **MISDIAGNOSIS, CLOSED (corrected 2026-08-05)**
+> **⚠ THERE IS NO `$0B` PROPAGATION BUG. This entry asserts a live hardware defect that the same
+> file already retracts.** The retraction is ~60 lines earlier, in the per-cell HScroll entry
+> (2026-06-23), and is unambiguous:
+> > "**`$0B` is NOT the problem.** With `deformBg` dropped, the VDP register `$0B` reads `$02`
+> > (`hscroll_mode: cell`) correctly — per-cell IS active and the shadow→register propagation
+> > works fine. The original `DeformTable_Zero` comment's 'intermittent `$0B` stuck at `$03`'
+> > explanation was a **MISDIAGNOSIS**"
+> — and the attempted flush-side fix (`Flush_VDP_Shadow`, branch `fix/vdp-mode3-propagation`)
+> changed nothing and was deleted.
+>
+> **The real cause was band-boundary precision:** smooth per-pixel vertical parallax puts band
+> boundaries on arbitrary scanlines (one measured at line 22), and per-cell mode can only change
+> scroll at 8-px cell rows, so it tears at every band boundary during scroll. Per-line is therefore
+> **mandatory and permanent**, not a workaround.
+>
+> **The per-frame `$0B` force described here is also gone.** `games/sonic4/test/ojz_scroll_test.emp:70`
+> writes the shadow byte and dirty mask **once, at init** — it is not re-forced per frame.
+>
+> **Do NOT action the four "when to revisit" investigation leads below** (interrupt-time VDP_CTRL
+> writes, Z80 bus interaction during shadow flush, boot register ordering, clean-place `$8B02`
+> write). They chase a bug that does not exist. The whole entry stands as historical record of a
+> misdiagnosis — and, per its own retraction's lesson, as the reason this repo now insists on
+> reading the actual VDP register before theorizing, and on verifying under continuous motion.
 **Surfaced during:** §4.6 polish session 2026-04-28.
 
 **Symptom:** When `pcfg_deform_table_fg` and `pcfg_deform_table_bg` are both NULL (e.g. ParallaxConfig_OJZ_Default), the parallax pipeline auto-selects per-cell HScroll mode: `Parallax_Fill_PerCell` writes 28 longwords, the per-cell static DMA enqueues 112 bytes, `setVDPReg vdp_mode3 = $02` marks shadow dirty, and Flush_VDP_Shadow writes $8B02 to VDP_CTRL on every VBlank. Visually we expected per-cell HScroll: all 28 cell rows scroll uniformly with the same `-Camera_X`. We observed instead per-line behavior: only scanlines 0-27 (the top 28 px = 3.5 cell rows) scrolled correctly, lines 28-223 stayed pinned to plane col 0.
@@ -1205,7 +1660,11 @@ contracts + budget validation.
 
 ## From Vertical Entity Window — Task 8 closeout (2026-06-11)
 
-### X-BWD clamp-to-zero degenerate slot pair
+### [DEAD CLUSTER] ~~X-BWD clamp-to-zero degenerate slot pair~~
+> **VOID — see the DEAD CLUSTER banner under §4.** `Section_TeleportBwd` and its clamp-to-zero
+> path are deleted, and there is no slot pair to be degenerate. The `section.asm ~:481` anchor is
+> doubly dead (the file is `.emp` now, and the routine is gone). The "revisit if any act starts at
+> an odd `sec_x`" trigger can never fire.
 **Surfaced during:** Task 8 teleport-table review 2026-06-11.
 **What:** From an odd start `sec_x`, `Section_TeleportBwd`'s clamp-to-zero (section.asm
 ~:481) can produce BOTH slots tracking section 0 — a two-entries-same-section window
@@ -1236,7 +1695,21 @@ bursts that needed N-way staging + a frame budget (2026-06-10).
 vertical traversal (the profiler misses single-frame bursts). Tile-cache N-way staging
 is the precedent if budgeting is needed.
 
-### Entity despawner micro-opts
+### Entity despawner micro-opts — **dead-field half DONE, but the refund is SPENT (corrected 2026-08-05)**
+> **⚠ THE PROMISE IN THIS ENTRY IS NO LONGER DELIVERABLE — the struct will NOT shrink.**
+> The dead fields `ess_ring_left_idx`/`ess_obj_left_idx` are **gone** (zero hits), so that half is
+> done. But `EntityScanState` did **not** shrink to `$16`: it is still declared
+> `struct EntityScanState (size: $1A)` at `engine/objects/entity_window.emp:45`, because the four
+> reclaimed bytes were **immediately reused** by the trigger caches
+> `ess_ring_next_x: u16 @ $16` and `ess_obj_next_x: u16 @ $18` (":engine-X of next ring/object
+> entering right; $FFFF = none"). Those are live fields serving the X ratchet.
+> **Anyone planning a `$1A → $16` shrink from this entry will find nothing to remove.** Also note
+> the module moved: `engine/objects/entity_window.emp`, not `engine/level/`.
+>
+> **The other two halves are still genuinely open** and were re-verified: the loop-invariant Y
+> band-bound hoist in `DespawnRings`/`DespawnObjects` (~3.5k cycles/frame at a full 128-ring
+> buffer), and trimming `RescanY`'s defensive d7 save. Those remain the actionable content.
+> Original text below.
 **Surfaced during:** Task 8 closeout review 2026-06-11.
 **What:** `DespawnRings`/`DespawnObjects` recompute the loop-invariant Y band bounds
 per entity (~3.5k cycles/frame at a full 128-ring buffer — hoist to registers before
@@ -1255,12 +1728,22 @@ above) — not worth a dedicated session.
 **What:** `EntityWindow_PopulateSectionRings` (and the object equivalent) offers every entry in the section's ROM list to `TrySpawnRing`/`TrySpawnObject` without an X edge filter. On a rightward slide the newly tracked section can be up to ~$500px beyond the right load edge, so all its in-band rings are added immediately rather than waiting for the ratchet to reach them. Fine at current entity counts; could front-load spawns noticeably on dense production sections.
 **When to revisit:** when production entity density lands — watch `Ring_HighWater` after a slide vs a normal X ratchet advance. Perf backlog family (tile-cache N-way staging is the precedent for budgeted populate).
 
-### Section_TeleportBwd .at_start clamp path lacks a SyncSlide-style guard
+### [DEAD CLUSTER] ~~Section_TeleportBwd .at_start clamp path lacks a SyncSlide-style guard~~
+> **VOID — see the DEAD CLUSTER banner under §4.** `Section_TeleportBwd`, `EntityWindow_SyncSlide`,
+> `EntityWindow_TeleportShift` and `Slot_Section_Map` are all deleted (zero hits each). There is no
+> path to guard and the "add the defense when `Section_TeleportBwd` is next modified" trigger can
+> never fire.
 **Surfaced during:** visibility-window plan review 2026-06-12.
 **What:** `Section_TeleportBwd` calls `EntityWindow_SyncSlide` unconditionally before the camera rebase, then may fall through `.at_start` with the slot map left as-is and still call `EntityWindow_TeleportShift`. Today `.at_start` is only reachable when `sec_x == 0` (already at the left edge of the grid — slot map parity guarantee holds). If that invariant ever breaks, the invariance assert would fire: a second SyncSlide call after an unchanged slot map with an already-shifted camera would re-derive the correct anchor, but the assert would see a mismatch. Add an Up-style guard (`cmpi.b #0, (Slot_Section_Map).w / blo.s .at_start_nop` pattern) when this path is next touched.
 **When to revisit:** add the defense when `Section_TeleportBwd` is modified for any reason.
 
-### Section_Check clobber header understates
+### [DEAD CLUSTER] ~~Section_Check clobber header understates~~
+> **VOID — see the DEAD CLUSTER banner under §4.** `Section_Check` does not exist, nor do the
+> `Section_TeleportFwd` / `SyncSlide` / `TeleportShift` handlers whose clobbers it understated.
+> **Worth noting the concern was structural, not incidental**, and the engine has since gone much
+> further in that direction: clobber/preserve sets are now *declared* on every proc
+> (`clobbers(...)` / `preserves(...)`) and machine-checked, with declared contexts added as
+> recently as HEAD `fa0ae0b`. The class of bug this entry describes is now caught by the language.
 **Surfaced during:** grid-edge branch review 2026-06-11 (pre-existing).
 **What:** The `Section_Check` routine header documents a narrow clobber set, but its tail-branches (`bra.w Section_TeleportFwd` etc.) enter handler routines that clobber d0–d7/a0–a4 (`SyncSlide` + `TeleportShift` rebuild paths). Any caller that saves only the documented set around `Section_Check` will see unexpected register corruption. Fix the header when opportunistically passing through.
 **When to revisit:** opportunistically when touching `Section_Check` or any teleport handler.
@@ -1332,6 +1815,18 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 > After packages 5+6 execute, this file's sound sections should contain ONLY closed/annotated
 > entries; anything still open then is a process bug. (The 2026-07-01 review pair remains the
 > analytical record behind the packages.)
+>
+> **EXECUTION STATUS as of 2026-08-05 (reconciliation pass):**
+> - **Package 2** (SFX Stage B/C) — **EXECUTED + merged 2026-07-07**, annotated on its own entry.
+> - **Packages 1 / 3 / 4 / 5 / 6** — **still unexecuted.** Recommended order remains 1→3→4→5→6.
+> - **Package 4 has open work that does not need the others.** Verified against the tree:
+>   **D2 is DONE** (corrected on its own line below — do not re-plan it), while **D1, D4, D5, D6,
+>   D7 and E5's 7th RegDelta group are genuinely open** and are independent of packages 1/3/5/6.
+>   If sound work is picked up piecemeal, that cluster is the cleanest entry point.
+> - Three sound items **cannot be closed statically at all** and are listed in the
+>   CANNOT-BE-SETTLED-STATICALLY section at the top of this file: the A2 two-SFX-in-one-frame
+>   runtime check, the FM env attack seam by-ear pass, and the bank-latch desync hunt (plus the
+>   DAC worst-tick profiling round).
 
 ### Music-expression Task 0 (Z80 code recovery) — follow-ups — 2026-06-24
 Task 0 recovered Z80 code headroom (2 → ~1016 B) by **co-locating** the engine lookup tables
@@ -1346,10 +1841,15 @@ renders == pre-banking baseline. Merged on `feat/sound-task0-recovery`. Two foll
   since the labels are defined once in MT's bank). The Phase-3 scratch COPY test songs (id 1–5)
   were dropped, so nothing needs this today. The banking model (tables at bank-start in whatever
   bank the window holds) is the general rule; this is just the COPY instance.
-- **Dead 68k table copies.** With the scratch COPY songs gone, `data/sound/fm_patches.asm`
+- ~~**Dead 68k table copies.**~~ **✅ DONE — deleted by `a3f2332`** (2026-07-01, "chore: tier-2
+  mess cleanup — orphans deleted, references protected, handoff neutralized). Verified 2026-08-05:
+  `data/sound/fm_patches.asm` and `data/sound/sound_tables.asm` are gone from
+  `games/sonic4/data/sound/`, and **`FmPatchTable` has zero hits tree-wide**. (Original text:
+  with the scratch COPY songs gone, `data/sound/fm_patches.asm`
   (`FmPatchTable`) and `data/sound/sound_tables.asm` (the 68k duplicate of the Z80 tables) are
   now **wholly unreferenced** (the runtime uses the Z80 copies). Candidate for removal — left in
-  this pass to keep Task 0 scoped to recovery.
+  this pass to keep Task 0 scoped to recovery.) **See also the "Dead-but-drift-guarded 68k ROM
+  table/patch copies (Plan 1C)" entry further down — same two files, also closed by this commit.**
 
 > **Driver note:** the engine ships a **from-scratch custom Z80-autonomous sound driver**
 > (2026-06-16 master sound spec), NOT an imported Flamedriver. Plans **1A** (foundations),
@@ -1522,8 +2022,13 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
 #### D. Latent correctness (trust-the-packer / new-content surfaces)
 - **D1** PSG pitch-mod has no noise-route gate (`sound_sequencer.asm` 162; `sound_psg.asm` 239) — a noise
   channel carrying `sc_mod_ctrl!=0` corrupts the noise control register. Gate on tone route + reject in transcoder.
-- **D2** note before any set-duration reloads from a zeroed `sc_dur_default` → 255-tick stuck note
-  (`sound_sequencer.asm` 536; init `sc_dur_default` to 1).
+- ~~**D2** note before any set-duration reloads from a zeroed `sc_dur_default` → 255-tick stuck note
+  (`sound_sequencer.asm` 536; init `sc_dur_default` to 1).~~ **✅ DONE — verified 2026-08-05.**
+  The seed-to-1 the entry prescribes is in place at **both** init sites:
+  `engine/sound/z80_sound_driver.emp:1276` (`ld (ix+sc_dur_default), 1`, with the rationale
+  spelled out in the comment at `:1273` — "seeds to 1 (not 0): a channel that issues a note BEFORE
+  any set-duration…") and `engine/sound/sound_sfx.emp:1034`. **Package 4 must not re-plan this
+  item;** D1/D4/D5/D6/D7 in the same block are still open.
 - ~~**D3** `sc_mod_wait` never restored on note re-arm — 2nd+ modulated note gets zero delay vs S3K
   `zPrepareModulation` (`sound_sequencer.asm` 381; add `sc_mod_wait_raw`).~~ **DONE 2026-07-02
   (budget phase T6):** `sc_mod_wait_raw` + `sc_mod_delta_raw` latched at MODSET, reloaded every
@@ -1612,16 +2117,34 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   `SND_SFX_BASE` / frozen `$1F00+` mailbox), layout invariants (incl. the `Snd_ChanClass` page-compare
   contract), headroom history, and the complete assert inventory. `sound_constants.asm` stays the
   authoritative values; the spec documents the design + which assert guards which seam.
-  **Phase-final headroom (2026-07-02, end of the budget phase): `Z80_SOUND_SIZE` = $175A, ceiling
-  `SND_STATE_BASE` = $18F0 → $196 (406) bytes free** — DEBUG=1 figures; plain builds are 126 B
-  leaner. (A.1 song-buffer delete + A.2 table banking + A.3's +512 ceiling raise recovered ~790 B
+  ~~**Phase-final headroom (2026-07-02, end of the budget phase): `Z80_SOUND_SIZE` = $175A, ceiling
+  `SND_STATE_BASE` = $18F0 → $196 (406) bytes free**~~ — DEBUG=1 figures; plain builds are 126 B
+  leaner.
+  > **⚠ HEADROOM FIGURE SUPERSEDED TWICE — corrected 2026-08-05.** The `$175A` / 406-free number
+  > is from 2026-07-02 and was **spent back down to 86 B DEBUG** by the phases that followed, then
+  > **recovered by the wave-4 Z80 reclaim (2026-08-03)** to roughly **317 B DEBUG** (plain
+  > 212 B → ~443 B). Source: `docs/superpowers/plans/2026-08-03-wave4-z80-sound-reclaim.md`
+  > (header + closing ledger) and this file's own "Sound — deferred follow-ups from the wave-4
+  > Z80 reclaim (2026-08-03)" section near the bottom.
+  > **Treat the wave-4 section as the current record, not F1/F5.** The *design* content of F1 (the
+  > RAM map, layout invariants, assert inventory) is unaffected and still stands; only the
+  > headroom arithmetic drifted. Item 25 in the wave-4 section notes a further −71..−94 B is
+  > available in the sequencer if more is ever wanted. (A.1 song-buffer delete + A.2 table banking + A.3's +512 ceiling raise recovered ~790 B
   to a peak of 802 free; the phase then spent it on fidelity — rekey −10, mod re-arm +18, porta
   +386, tempo model −8. Full ledger: `docs/research/phase_harness/t12_matrix.md`.) The
   resident-code budget remains the binding sound constraint; data-banking remains the recovery lever
   (code may NOT be banked).
 - **F2** `ENGINE_ARCHITECTURE.md §6` still lists SFX deferred + AF_SOUND a stub (update on merge to master).
 - **F3** Dead ROM: `dc.l SfxTable` 540 B unused (engine uses its own Z80 `dw` window table); duplicate
-  `sfx_NN_patches` banks ~208 B; dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715). Purge.
+  `sfx_NN_patches` banks ~208 B; ~~dead `Snd_TimerA_Program` (`z80_sound_driver.asm` 715)~~. Purge.
+  > **⚠ ONE THIRD OF THIS IS WRONG — corrected 2026-08-05.** There is no dead
+  > `Snd_TimerA_Program`. The only symbol of that name in the tree is
+  > **`Snd_TimerA_ProgramFixed`**, and it is **LIVE — called twice**, at
+  > `engine/sound/z80_sound_driver.emp:277` and `:1331` (defined `:1018`, documented `:1013`,
+  > cross-referenced from `sound_fm.emp:1134` and `sound_constants.emp:151`).
+  > Whatever unfixed-rate twin existed in 2026-06 is gone; **do not purge the survivor.**
+  > The other two thirds (`dc.l SfxTable`, duplicate `sfx_NN_patches` banks) were not re-verified
+  > in this pass — treat them as unconfirmed rather than established.
 - **F4** Stale/load-bearing-wrong comments: ISR "ix NOT touched" (it IS, via SfxDispatch — safe by
   construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
   PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
@@ -1631,8 +2154,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
   in the `$8000` window — no swap), recovering Z80 code headroom from ~2 B → ~1016 B. The Phase 1/3
   music-expression features consumed most of that back; music-expr Phase 2 (detune/LFO/tempo/fade) and the
-  2026-07-01 review fix pass took the rest. **Phase-final as of 2026-07-02 (budget phase complete):
-  `Z80_SOUND_SIZE` = $175A, ceiling `SND_STATE_BASE` = $18F0 → $196 (406) bytes free, DEBUG=1**
+  2026-07-01 review fix pass took the rest. ~~**Phase-final as of 2026-07-02 (budget phase complete):
+  `Z80_SOUND_SIZE` = $175A, ceiling `SND_STATE_BASE` = $18F0 → $196 (406) bytes free, DEBUG=1**~~
+  **⚠ SUPERSEDED — see the correction under F1 above; the live figure is ~317 B DEBUG after the
+  2026-08-03 wave-4 reclaim, having dipped to 86 B in between.**
   (build message / `s4.lst`; plain builds 126 B leaner — the A.1/A.2/A.3 recovery peaked at 802
   free, then portamento + the fidelity fixes spent it back). See F1 above (now DONE — the rewritten
   z80-ram-map spec carries the full headroom history), and the "Music-expression Task 0 (Z80 code
@@ -1696,7 +2221,14 @@ have the exhaust branch reload `SND_ROM_PTR`/`SND_ROM_LEN` from the currently-pl
 descriptor's loop fields (the `SND_LOOP_OFS` / per-sample loop machinery already exists in
 `SND_STATE_BASE`), not from the fixed `SND_BLIP_*` constants.
 
-### Dead-but-drift-guarded 68k ROM table/patch copies (Plan 1C)
+### ~~Dead-but-drift-guarded 68k ROM table/patch copies (Plan 1C)~~ — **✅ DONE — resolved as option (b), `a3f2332`**
+> **⚠ CLOSED — verified 2026-08-05.** The entry offered two exits: (a) adopt a banked-ROM loader
+> so the 68k copies become live, or (b) decide inline-only is permanent and drop them.
+> **(b) happened.** `a3f2332` (2026-07-01) deleted `data/sound/fm_patches.asm` and
+> `data/sound/sound_tables.asm`; `FmPatchTable` has zero hits tree-wide and the files are absent
+> from `games/sonic4/data/sound/`. The `main.asm` includes they rode on are moot — `main.asm`
+> itself is deleted. Same closure as the "Dead 68k table copies" bullet in the Task-0 follow-ups
+> above; the two entries were tracking the same two files.
 **Surfaced during:** Sound 1C pre-merge audit (2026-06-17).
 **Status:** Harmless in 1C; candidate for trimming in a later phase.
 **What:** The FM writer / sequencer read **inline Z80 copies** of the sound tables and FM
@@ -1830,22 +2362,48 @@ future desync to a single frame instead of one song.
 
 ### Animated Tile DMA Scripts
 **Surfaced during:** §4.7 world-space strip cache brainstorm (2026-04-30).
-**What:** Pre-compute animated tile sequences (waterfalls, conveyors, flickering lights) as table-driven DMA scripts at build time. Each frame entry is a pre-built DMA command (source ROM addr, VRAM dest, length). Runtime just steps through the table — zero computation, zero logic. Build tool handles figuring out VRAM addresses after graph coloring and structuring DMA entries.
-**Blocked by:** Animated tile system design (Phase 4), VRAM graph coloring integration.
+**What:** Pre-compute animated tile sequences (waterfalls, conveyors, flickering lights) as table-driven DMA scripts at build time. Each frame entry is a pre-built DMA command (source ROM addr, VRAM dest, length). Runtime just steps through the table — zero computation, zero logic. Build tool handles figuring out VRAM addresses after ~~graph coloring~~ and structuring DMA entries.
+**Blocked by:** Animated tile system design (Phase 4), ~~VRAM graph coloring integration~~.
+> **⚠ BLOCKER CORRECTED 2026-08-05 — the second blocker cannot ever be satisfied.** There is no
+> VRAM graph coloring to integrate with; the allocator is dead (see the §2.3 correction). Read
+> both mentions as "after the build tool assigns VRAM addresses", which the **deduped paged act
+> pool already does** — so that half of the blocker is effectively discharged, not pending.
+> **What genuinely blocks this is the first item only: the animated-tile system design.**
+> Note also that a table-driven animated-band mechanism already ships in some form (`BgAnim`
+> bands, referenced by the diagonal-budget and Deep-Forest-BG entries); check against it before
+> designing from scratch.
 
 ---
 
 ## How to Use This Document
 
 When starting a new planning phase:
-1. Read through deferred items
-2. Check if any blockers are now resolved
-3. If so, include the deferred work in the new plan
-4. Move completed items to a "Done" section at the bottom (with the date and the system that unblocked them)
+1. Read the **RECONCILIATION BANNER** at the top first — it tells you which strata to trust.
+2. Read the **NOW UNBLOCKED — actionable** section. That is the pick-up list.
+3. Read through the remaining deferred items; check whether any blockers are now resolved.
+4. **Re-derive any pre-July `file:line` anchor before chasing it** — those citations point into
+   `.asm` files that no longer exist.
+5. If an item is live, include it in the new plan.
+6. ~~Move completed items to a "Done" section at the bottom (with the date and the system that
+   unblocked them)~~ — **superseded 2026-08-05: annotate closures IN PLACE.** See the
+   MAINTENANCE PROTOCOL section at the top. The Done section below is a frozen historical tail
+   (Apr-Jun 2026); nothing new goes into it.
 
 ---
 
-## Done
+## Done (FROZEN — historical tail, Apr-Jun 2026)
+
+> **Frozen 2026-08-05.** This section stops at 2026-06-11 and is not being extended. Roughly a
+> dozen later closures were annotated in place instead of being moved here, and in-place
+> annotation is now the convention (see MAINTENANCE PROTOCOL at the top). Entries below are kept
+> verbatim as the record of the Apr-Jun era.
+>
+> **⚠ One entry in this section is actively misleading:** "§2 Phase 2 Layer A.3 — Build-time Graph
+> Coloring — 2026-04-26" records a shipped feature that was **later deleted** (superseded by the
+> globally-deduped paged act pool, 2026-06-22). Reading it alongside the §2.3 entry above produced
+> the contradiction — the same feature listed as both future work and done — that this pass
+> resolved. It shipped, then it was removed. Its sibling A.4 entry already carries a
+> DELETED-2026-06-11 note of the same kind; A.3 did not, and now does.
 
 ### Strip data emission + streaming decompressor removed (dead format) — 2026-06-11
 **Completed in:** compression-two-tier Task 5 (dead-code sweep).
@@ -1885,7 +2443,15 @@ retired; `SS_IDLE`/`SS_RESIDENT` keep their values). Entry below kept as history
 **Closes the §4 Phase 1 deferred item:** "Section Preload with S4LZ Deferrable DMA" (the engine plumbing).
 **See:** `docs/research/section-streaming.md`, `docs/research/tile-pipeline-measurements.md`.
 
-### §2 Phase 2 Layer A.3 — Build-time Graph Coloring — 2026-04-26
+### §2 Phase 2 Layer A.3 — Build-time Graph Coloring — 2026-04-26 — **DELETED SINCE (see note)**
+> **⚠ SHIPPED, THEN DELETED.** Annotated 2026-08-05, matching the note its sibling A.4 entry has
+> carried since 2026-06-11. The DSATUR coloring, `compute_adjacency`/`color_sections`,
+> `assign_section_slots`, per-section tile blobs and `sec_vram_bases.asm` described below were
+> **superseded by the globally-deduped, spatially-ordered paged act art pool** (2026-06-22, the
+> OJZ tile-budget resolution) and then removed. Zero hits tree-wide for `DSATUR`,
+> `color_sections`, `compute_adjacency` as of 2026-08-05; `ENGINE_ARCHITECTURE.md` and `CLAUDE.md`
+> were both reconciled away from graph coloring in the Phase-3 cleanup. Kept verbatim as the
+> record of what was built and why it was replaced.
 **Completed in:** §2 Phase 2 Layer A.3
 **What:** Section adjacency graph + DSATUR greedy coloring + per-section VRAM-slot assignment, all at build time. `tile_dedupe.py` gained `compute_adjacency`, `color_sections`, `assign_section_slots`. `tools/ojz_strip_gen.py` emits per-section tile blobs (one per OJZ section) and an auto-generated `sec_vram_bases.asm` constants file. `Sec` struct gained `tile_art_s4lz` longword + `tile_art_vram` word (struct $40 → $48; `Section_GetSlotDef` updated to multiply by $48 = 72 instead of 64). New `Section_LoadArt` decompresses + DMAs one section's blob; `Level_LoadArt` walks the slot map and calls it for both initial slots; `Section_TeleportFwd`/`Bwd` call it for the new section after each teleport. The leapfrog system's adjacency invariant guarantees that the two visible slots always hold sections in DIFFERENT colors → DIFFERENT VRAM ranges → both render correctly simultaneously. A.2's region-1/region-2 fields removed from `Act_Desc` (multi-region packing remains in `tile_dedupe` for future use; A.3's per-section model is the active path; Act struct shrunk back to $16).
 **OJZ measurement:** 16 sections in a horizontal chain → 15 adjacency edges → chromatic number 2 (path graph is bipartite; DSATUR optimal). Color bases: [0, 10]. Max simultaneously-resident: 20 tiles (10 per color × 2 colors; per-section blobs include shared tile 0 separately, so total > A.1's 10. Structural regression for OJZ-scale data; structural enabler for any zone that exceeds A.1's 1536-tile ceiling).
@@ -2099,12 +2665,19 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
 - **Z80 heartbeat / watchdog.** A counter the Z80 bumps that the 68K samples each frame;
   a stalled counter = silent sound-driver hang, which currently nothing catches (the
   drop-in handler is 68K-only). Small; closes a real blind spot.
-- **Contract-enforcement trap handler (the 68K half).** Depends on sigil emitting the
+- **Contract-enforcement trap handler (the 68K half). — ✅ PREREQUISITE HAS LANDED (2026-08-05).**
+  Depends on sigil emitting the
   shadow-check instrumentation (see the sigil note). This repo's In:/Out: contract grammar
   (recent `contract-grammar` commits) is the vocabulary; a DEBUG build traps the exact
   instant a routine clobbers a register it swore to preserve or returns garbage in a
   promised `Out:`. High value because the expensive prerequisite (the contract grammar)
   is already being paid for.
+  > **2026-08-05:** "already being paid for" has become "already paid, and still growing".
+  > `clobbers(...)`/`preserves(...)` are declared and machine-checked across the tree, and HEAD
+  > `fa0ae0b` extended the grammar to **declared contexts** (the Z80 bus and the interrupt mask).
+  > The vocabulary this item needs exists and is richer than when the idea was captured. What
+  > remains genuinely blocked is the **sigil half** — emitting the shadow-check instrumentation —
+  > which is a Sigil-repo task, not an Aeon one. Listed in NOW UNBLOCKED with that caveat.
 
 ---
 
@@ -2154,7 +2727,74 @@ These are unbuilt ideas, not committed work. Pick up opportunistically.
   break sync so only the common loop streams. Genuinely novel — no classic or reference
   disasm does this; flag before designing (leapfrog-provenance rule).
 
-## Release-shape error handler / MDDBG strip — EXECUTED 2026-08-05 (parcel/item29-mddbg-strip)
+## Release-shape error handler / MDDBG strip — EXECUTED 2026-08-05, then **SUPERSEDED BY OWNER RULING** (corrected 2026-08-05)
+
+> # ⚠ THIS ENTRY DESCRIBED THE OPPOSITE OF WHAT SHIPS
+>
+> **The strip executed, and was then reversed. Release ships the FULL 4.2 KB MDDBG island.**
+> `ReleaseFault` is **not** the release path — it is the **opt-in `lean`-profile-only** path.
+> Anyone reading the text below as current would conclude that release has no crash handler and
+> that all 60 fault vectors point at a red-screen freeze. Both are false.
+>
+> ### What actually ships (verified against HEAD, 2026-08-05)
+>
+> The deciding axis is **`CRASH_REPORT`**, an ordinary comptime define carried by every profile
+> (`1` everywhere except the opt-in `lean` profile). `CODING_CONVENTIONS.md` §1.7 tabulates the
+> three shapes:
+>
+> | shape | flags | debug equipment | crash handler | fault vectors point at |
+> |---|---|---|---|---|
+> | **debug** | `DEBUG=1`, `CRASH_REPORT=1` | yes | yes | `error_handler` per-class stubs |
+> | **release** (default) | `DEBUG=0`, `CRASH_REPORT=1` | **no** | **yes** | `error_handler` per-class stubs |
+> | **lean** (opt-in) | `DEBUG=0`, `CRASH_REPORT=0` | no | no | `ReleaseFault` |
+>
+> The gate predicate everywhere on this axis is **`DEBUG == 1 || CRASH_REPORT == 1`** — never bare
+> `DEBUG == 1`, "or the debugger vanishes from release" (§1.7).
+>
+> ### The superseding ruling, in the code's own words
+>
+> `engine/system/vectors.emp:16-19`:
+> > `── CRASH-REPORT POLICY — OWNER-RULED 2026-08-04, SUPERSEDES THE 2026-08-05`
+> > `── RELEASE STRIP (review item 29 part 4)`
+>
+> …continuing: the release ROM is ~9% of a 4 MB cart, so space is not a 68k-side constraint, and
+> **a player's crash must be REPORTABLE**. The MDDBG island and its deb2 symbol appendix are
+> **DIAGNOSTICS, not debug EQUIPMENT, and diagnostics SHIP.** The shape-split gates are at
+> `vectors.emp:79` and `:123`, both reading `if DEBUG == 1 || CRASH_REPORT == 1`.
+> `engine/debug/error_handler.emp:12-17` states the same: the island ships in the DEBUG **and**
+> RELEASE shapes; "the only shape without it is the opt-in LEAN profile
+> (`sigil build --native --lean`, `CRASH_REPORT=0`), which routes every fault at `ReleaseFault`".
+> `build.sh:10-19` says it a third time, and enumerates what release still does *not* carry —
+> **equipment**: asserts, `SOUND_DEBUG_HOTKEYS`, `SOUND_DBG_MIRROR`, boot autoplay,
+> `CompressionSelfTest`, the sound-debug mirror.
+>
+> ### Why the ordering looks wrong (it isn't)
+>
+> The ruling is dated **2026-08-04** and the parcel **2026-08-05**. The ruling is nonetheless the
+> later authority: it explicitly names and supersedes the strip. The equipment-vs-diagnostics
+> distinction is the whole point — the strip conflated the two, the ruling separated them.
+>
+> ### What survived the reversal
+>
+> The parcel's work was not wasted; it was **re-gated**, not reverted:
+> - `engine/system/release_fault.emp` / `ReleaseFault` **still exists** and is still the described
+>   red-screen freeze — it just serves the `lean` profile instead of release.
+> - The vectors shape-split still exists — the predicate widened from `debug` to
+>   `debug || crash_report`.
+> - `null_interrupt.emp` deletion stands.
+> - What reverted is the **placement**: `error_handler.emp` is NOT `debug_only`; it is placed
+>   under `debug || crash_report`, so plain does **not** shrink by 4.2 KB.
+>
+> ### Consequences for anything downstream
+>
+> The "What ships in release today" table below (`plain_len == debug_len == 0x10B0`, 4,272 B) is
+> **once again accurate for the release shape** — it was briefly wrong between the parcel and the
+> ruling. Its framing as *a leak to be fixed* is what is wrong now: those bytes ship **by design**.
+> Likewise the "Why this is blocked" section's central question ("what should a release build do
+> on a bus error?") **has been answered**: release runs the real handler. The `lean` profile is
+> where the `bra.s *` freeze answer applies.
+>
+> **Historical record of the strip parcel follows, retained unaltered.**
 
 Part 4 of review item 29 ("build hygiene / release leaks"). Parts 1-3 landed on
 `parcel/item29-build-hygiene`; this half stopped at the design gate — now RULED and

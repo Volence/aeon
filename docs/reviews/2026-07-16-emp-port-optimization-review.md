@@ -219,34 +219,152 @@ High = reachable corruption/crash/gameplay-break; Med = visible glitch or reacha
 corruption; Low = latent (condition not hit today) or hygiene. Cited lines are as-of the
 review; re-derive against current HEAD before fixing.
 
-### Tier 1 — silent-drop class (`fix/silent-drop-class` parcel, being fixed now)
+### ⚠️ RECONCILED AGAINST HEAD (2026-08-05) — READ THIS BEFORE THE TABLES
 
-| Site | Class | Sev | Why out of the two batches |
+Every row below was re-derived line-by-line against the code at HEAD by the
+`parcel/backlog-reconcile` verification pass. **The tables as originally written are badly
+stale: they present 19 rows (3 Tier-1 + 16 Tier-2) with zero FIXED markers, and only 3 are
+genuinely open.**
+
+- **16 of 19 closed.** 15 were fixed by later parcels (each row now carries the fixing
+  commit); 1 (`vblank` #3) was never a reachable defect and is reclassified.
+- **3 open** — `children` C1b, C1c, C1d. All three are conditional: none is reachable in a
+  shipped code path today. One of them (C1c) is a **documented deliberate refusal awaiting a
+  design ruling**, not an unfixed oversight.
+- **Six rows were real but MIS-DESCRIBED.** The mechanism corrections are listed below the
+  open table, because in every one of those cases the mechanism matters more than the label —
+  two of them prescribed fixes that would have introduced new defects.
+
+The original row text is preserved verbatim in the tables (it is the historical record); a
+**Verdict** column carries the current disposition. Rows are otherwise in their original
+order — read the STILL OPEN table first.
+
+#### ⚠️ STILL OPEN (3 — all `children`, all conditional)
+
+| Row | Why it is still open | What holds it shut today | What it needs |
 |---|---|---|---|
-| `buffers.asm` Enqueue_Dirty_Buffers (Palette_Dirty clear) | enqueue-result-ignored, state cleared | High | buffers untouched by either batch; the `queueStaticDMA` macro silently no-ops on full and the caller clears the dirty bits unconditionally → stale palette persists through a fade (reachable: fade + heavy Critical art staging both fill Critical) |
-| `buffers.asm` Enqueue_Dirty_Buffers (Sprite_Table_Dirty clear) | same shape | High | identical pattern one routine down; Fable-verified same class → stale SAT persists |
-| `load_art.asm:79` (QueueDMA_Critical carry ignored) | enqueue-result-ignored, state assumed | Med | review names it "same silent-drop class as the buffers bug"; runs display-off at init (extended VBlank drains each VSync → queue-full unlikely) but on a full Critical queue a page's art DMA is dropped and never retried → permanently wrong tile page for the act |
+| `children` C1b — stale `parent_ptr` on parent-slot recycle | **Latent, no mechanism.** No generation/epoch anywhere: `Sst` carries a bare `parent_ptr: u16 @ $26` (`sst.emp:59`). `DeleteObject` zeroes only the freed slot (`core.emp:297-307`) and never walks `sibling_ptr`. `Draw_Sprite` dereferences the raw word with **no liveness check** (`sprites.emp:60-63`). | **Caller discipline only** — `entity_window.emp:1538` calls `DeleteChildren` before `DeleteObject` at :1544 (the BUG-004 cascade fix). Nothing structural prevents a future caller from skipping it. | A generation/epoch tag on the slot, or a parent-side chain walk in `DeleteObject`. Design work, not a drive-by. |
+| `children` C1c — children never inherit a priority band | **Deliberate documented refusal, NOT an oversight.** `CHILD_INHERITED_FLAGS = (1 << RF_COORDMODE)` (`children.emp:62`) is applied with `or.b`, and a band is a 3-bit VALUE in bits 5-7 — so inheriting it via `or` UNIONS the bands (band-5 parent + band-6 child → band 7), which is strictly worse than the band-0 default. Rationale documented at `children.emp:52-61`, restated :188-196. | The refusal itself: band 0 is a correct-if-suboptimal default, the union would not be. | **An owner design ruling, not a code fix.** A real fix needs a clear-then-set child-side idiom, i.e. a game-wide convention change (every `ori.b #N<<RF_PRIORITY_SHIFT` site). |
+| `children` C1d — `CreateChild_Linked` orphans a pre-existing chain | **Open in release, DEBUG-asserted, ZERO call sites.** The head overwrite is real (`children.emp:504-505` writes the new head with no read or free of the old one — contrast the three prepend creators at :147, :262, :344). DEBUG rails at :437-438 and :444-446 catch it. | Severity zero today: the proc is `@scaffolding` and nothing calls it. | Free-or-splice the old head before the overwrite, at the same time as anyone makes the proc live. |
+
+#### Mechanism corrections — the row was REAL but the description was WRONG
+
+These six matter more than their FIXED/OPEN labels, because two of them prescribed fixes
+that would have shipped new defects and two inverted the direction of the finding.
+
+1. **`parallax` B2 — the mismatch window is ONE FRAME, not "≤16 frames."** The row's
+   "≤16 frames mode/length mismatch" is wrong by an order of magnitude: after `7482ebf`
+   there is a single selector (`Parallax_Active_Config`, `parallax.emp:251-259`), and the
+   shell stages at `ojz_scroll_test.emp:288` and rebuilds at :306 — a one-frame residual,
+   not a whole transition's worth.
+2. **`parallax` B3 — the "convergence comment is wrong" half is INVERTED.** The lerp
+   defect was real and is fixed (`f4d6aea`: horizontal lerp is now exact, `divs.w` by
+   frames-remaining, `parallax.emp:500-506`). But the `>>4` shift **legitimately survives**
+   for BG VERTICAL scroll (:677-682), terminated by `.v_snap` (:675-686) — it is not a
+   leftover — and the convergence comment at `engine/system/constants.emp:405-414` is now
+   **CORRECT**. Do not "fix" either.
+3. **`player` G9 — the review UNDERSTATED it.** The row says "0 today only because d7=0",
+   i.e. dormant. Entry `d7` was in fact observed as **1**, so the word-width consumption
+   was **live**, not latent. Also: the §2.5b sweep it was deferred to did NOT land as a
+   one-off audit — it landed as a **permanent lint**, `tools/s4lint.py` W026 with taint
+   tracking (:471-475, :1639-1691, `6677e21`). Fix itself: `moveq #0,d7` before the byte
+   load, `player_ground.emp:665-669` (`c49e5b8`).
+4. **game-shell `Section_RedrawPlanes` — THE PRESCRIBED FIX WAS WRONG.** The row says
+   "engine-side fix (stopZ80 inside RedrawPlanes)". That would **starve the DAC for ~3
+   frames** — the storm is a ~3-frame direct-VDP poke run. The real defects were different:
+   (a) a caller-side `stop_z80` acting as a **FALSE LOCK** (the routine's own internal
+   release frees it on the way in — a bus request is not a counting lock, so the caller ran
+   the rest of the storm believing it held a bus it did not), and (b) a sound-OFF shape with
+   no Z80 management at all. Fixed in `7660d1f`: sound-ON raises/lowers `SND_DMA_ACTIVE_SLOT`
+   inside its own `$2700` mask (`section.emp:228-233`, :432-433) so the Z80 keeps running on
+   its DRAIN path; sound-OFF uses `with z80_stopped if SOUND_DRIVER_ENABLED == 0` (:233). The
+   header now states the posture as a contract: "**THIS ROUTINE OWNS IT; DO NOT WRAP THE
+   CALL**" (`section.emp:187-201`).
+5. **`vblank` #3 — the OBSERVATION is true but the CONSEQUENCE is unreachable.** `DMAEntry`
+   really has no `$0F` byte, and neither `Process_DMA_Critical` nor `dma_send_entry` writes
+   `$8Fxx`. But `VInt_DrawLevel` runs one call earlier in the same VBlank
+   (`vblank.emp:109` → :139) and **unconditionally** exits `$8F02` (`plane_buffer.emp:481`),
+   including on the empty-buffer path (a5 is set up before the `beq .done` at :428-429).
+   Every other `$8F80` writer restores inside `$2700`. This is an **ambient-invariant note,
+   not a corruption bug** — reclassified, not fixed. (Hardened by F-4 in `822c79a`. But see
+   NEW finding 1 below: the invariant is unasserted, and `VInt_Lag` depends on it.)
+6. **game-shell sprite cull — the reordering half was deliberately REJECTED.** Reordering
+   `RunObjects` after `Camera_Update` is gameplay-timing-visible and was ruled out; the
+   margin arm shipped instead (`7660d1f`): `SPRITE_CULL_MARGIN = 32`
+   (`engine/system/constants.emp:493`, rationale :484-492), applied on all four sides in
+   `sprites.emp:96,101,110,115`. The row should not be read as an outstanding ordering
+   decision.
+
+### Tier 1 — silent-drop class (`fix/silent-drop-class` parcel, being fixed now) — **ALL THREE FIXED**
+
+| Site | Class | Sev | Why out of the two batches | **Verdict (2026-08-05)** |
+|---|---|---|---|---|
+| `buffers.asm` Enqueue_Dirty_Buffers (Palette_Dirty clear) | enqueue-result-ignored, state cleared | High | buffers untouched by either batch; the `queueStaticDMA` macro silently no-ops on full and the caller clears the dirty bits unconditionally → stale palette persists through a fade (reachable: fade + heavy Critical art staging both fill Critical) | **FIXED** `bd91b48`, `.emp` port `c45e525`. `queue_static_dma` is a comptime template that now emits `ori.b #1,ccr` on the drop arm (`buffers.emp:59`) and `andi.b #$FE,ccr` on success (:56); all four callers `bcs` **over** the `bclr` (:217-219, :223-225, :229-231, :235-237), so a full queue leaves the dirty bit armed for retry. |
+| `buffers.asm` Enqueue_Dirty_Buffers (Sprite_Table_Dirty clear) | same shape | High | identical pattern one routine down; Fable-verified same class → stale SAT persists | **FIXED** `bd91b48`. Same file :240-252 — `.no_spr` sits past the `clr.b`, so a drop retains the flag. (Introduced a documented residual — see NEW finding 3.) |
+| `load_art.asm:79` (QueueDMA_Critical carry ignored) | enqueue-result-ignored, state assumed | Med | review names it "same silent-drop class as the buffers bug"; runs display-off at init (extended VBlank drains each VSync → queue-full unlikely) but on a full Critical queue a page's art DMA is dropped and never retried → permanently wrong tile page for the act | **FIXED** `c1449b9`, `.emp` `8f4615d`. `load_art.emp:128-129` `bcs .drop_page`; the handler at :148-154 raises under DEBUG and, in release, does `VSync_Wait` + retries the SAME page. |
 
 ### Tier 2 — other functional bugs (runtime/hardware-visible; each needs its own fix or ruling)
 
-| Site | Class | Sev | Why out of the two batches |
-|---|---|---|---|
-| `vblank` #3 — Critical DMA entries never set autoinc ($8F); drain inherits stride from prior frame | corruption (stride) | Med | bundled with vblank H1/H2 perf reorder (the `$8F02` write goes at the Critical drain head) → deferred to the perf phase, not a wave-2 correctness item |
-| `vblank` H1 — Critical DMA bytes + CPU plane-copy uncharged by frame budget; worst case ~1.7× the ~18.5k window | timing/overrun | Med | budget-accounting restructure → perf phase |
-| `parallax` B1 — re-crossing current config's section mid-transition doesn't cancel the staged transition | wrong-config persists | Med | needs a transition-logic design pass, not a drive-by (excluded by design from wave-2) |
-| `parallax` B2 — builder/DMA-length/VSRAM-mode consumers disagree on "active" config mid-transition (≤16 frames mode/length mismatch); overlaps the game-shell direct-`$8B`-write §3.4 tear | visual tear | Med | same design pass |
-| `parallax` B3 — 16-frame `>>4` lerp ends ~36% short of target → end-of-transition pop | visual pop | Med | same design pass (+ constants.asm:319 convergence comment is wrong) |
-| `children` C1a — effect spawned by an RF_MULTISPRITE parent is NEVER rendered | rendering | Med | bundled with children M1 spawn-flag rework (rendering-model change), not wave-2 |
-| `children` C1b — stale parent_ptr on parent-slot recycle can silently hide children | rendering | Med | same bundle |
-| `children` C1c — children never inherit a priority band (always band 0 = backmost) | rendering | Med | same bundle |
-| `children` C1d — CreateChild_Linked orphans a pre-existing chain | dynamic-slot leak | Med | same bundle |
-| `player` G10 — move_lock never ticks while standing on a solid object → frozen input forever (only jump escapes) | gameplay | Med | not in either batch; needs fix + solid-object-landing test |
-| `player` G9 — Ground_Move:620 byte-loads probe into d7, consumed at WORD width (high byte = caller residue; 0 today only because d7=0) | latent §2.5b | Low | latent; same class as shipped Sound_PlaySFX; deferred to the §2.5b sweep / diagnostics tier |
-| `player` A7 — landing always uncurls with no clearance check while the roll path guards the same wall-clip hazard | needs ruling | Med | design ruling (parity decision), not a drive-by |
-| `camera` P2 / game-shell — Camera_Init doesn't clamp; whole OJZ init ladder seeds from the unclamped value → one negative-camera frame into cache at edge starts | init glitch | Med | P1b only guarded the mega-act WORD-WIDTH ceiling, NOT the init clamp; game-shell ordering decision |
-| game-shell — Section_RedrawPlanes Z80-safety asymmetry: per-frame path (via runtime Section_Plane_Dirty cache recovery) does direct VDP writes with the Z80 live | hardware bus / crash risk | High | engine-side fix (stopZ80 inside RedrawPlanes); game-shell ordering batch |
-| game-shell — sprite culling uses LAST frame's camera (RunObjects before Camera_Update; zero cull margin, 16px/frame) | edge pop-in | Med | needs ordering-or-margin decision; game-shell ordering batch |
-| `bg.asm` — a length-1 tile blob sprays 64K words across all of VRAM past the existing guard | corruption (malformed data) | Med | bg blit-posture batch |
+**Verdict roll-up: 12 FIXED · 1 never existed as a reachable defect · 3 OPEN (tabled above).**
+
+| Site | Class | Sev | Why out of the two batches | **Verdict (2026-08-05)** |
+|---|---|---|---|---|
+| `vblank` #3 — Critical DMA entries never set autoinc ($8F); drain inherits stride from prior frame | corruption (stride) | Med | bundled with vblank H1/H2 perf reorder (the `$8F02` write goes at the Critical drain head) → deferred to the perf phase, not a wave-2 correctness item | **NEVER EXISTED as a reachable defect** — observation true, consequence unreachable (`VInt_DrawLevel` exits `$8F02` unconditionally one call earlier). Reclassified as an ambient-invariant note; see correction 5 and NEW finding 1. |
+| `vblank` H1 — Critical DMA bytes + CPU plane-copy uncharged by frame budget; worst case ~1.7× the ~18.5k window | timing/overrun | Med | budget-accounting restructure → perf phase | **FIXED** `6fab3eb`. Budget seeded at `vblank.emp:96`; CPU plane copy charged :107-108; Critical DMA charged by `.charge_critical` :116-129; floored :134-137; `Drain_Budgeted_Queue` honours it (`bmi .out_of_budget`, `dma_queue.emp:340-343`). |
+| `parallax` B1 — re-crossing current config's section mid-transition doesn't cancel the staged transition | wrong-config persists | Med | needs a transition-logic design pass, not a drive-by (excluded by design from wave-2) | **FIXED** `1fc0897`. `parallax.emp:171-174` `cmpa.l Parallax_Current_Config,a0 / beq .recross_current`; `.recross_current` (:217-229) zeroes target + frames and sets snap-pending. |
+| `parallax` B2 — builder/DMA-length/VSRAM-mode consumers disagree on "active" config mid-transition (≤16 frames mode/length mismatch); overlaps the game-shell direct-`$8B`-write §3.4 tear | visual tear | Med | same design pass | **FIXED** `7482ebf` — single selector `Parallax_Active_Config` (:251-259). **Description corrected: the residual window is ONE FRAME, not ≤16** (correction 1). |
+| `parallax` B3 — 16-frame `>>4` lerp ends ~36% short of target → end-of-transition pop | visual pop | Med | same design pass (+ constants.asm:319 convergence comment is wrong) | **FIXED** `f4d6aea` — horizontal lerp exact (`divs.w` by frames-remaining, :500-506). **The parenthetical is INVERTED: the `>>4` legitimately survives for BG vertical (:677-682, snapped at :675-686) and the convergence comment is now CORRECT** (`constants.emp:405-414`) — see correction 2. |
+| `children` C1a — effect spawned by an RF_MULTISPRITE parent is NEVER rendered | rendering | Med | bundled with children M1 spawn-flag rework (rendering-model change), not wave-2 | **FIXED** `559b6ce`. `CreateEffect_Normal` no longer writes `parent_ptr` (`children.emp:604-613`); the multisprite skip is now driven only by the spawned object's own pointer (`sprites.emp:60-64`). |
+| `children` C1b — stale parent_ptr on parent-slot recycle can silently hide children | rendering | Med | same bundle | **⚠️ OPEN (latent).** Held shut by caller discipline only. See the STILL OPEN table. |
+| `children` C1c — children never inherit a priority band (always band 0 = backmost) | rendering | Med | same bundle | **⚠️ OPEN — but as a DELIBERATE DOCUMENTED REFUSAL awaiting a design ruling**, not an unfixed oversight. See the STILL OPEN table. |
+| `children` C1d — CreateChild_Linked orphans a pre-existing chain | dynamic-slot leak | Med | same bundle | **⚠️ OPEN in release, DEBUG-asserted, zero call sites** (`@scaffolding`). See the STILL OPEN table. |
+| `player` G10 — move_lock never ticks while standing on a solid object → frozen input forever (only jump escapes) | gameplay | Med | not in either batch; needs fix + solid-object-landing test | **FIXED** `a8e2b5b` (merged `ec8a1cc`, emulator-confirmed `7d3dd18`). `player_ground.emp:199-201` ticks the lock on the `ST_ON_OBJECT` exit. Repro recipe in `docs/BUGS.md`. |
+| `player` G9 — Ground_Move:620 byte-loads probe into d7, consumed at WORD width (high byte = caller residue; 0 today only because d7=0) | latent §2.5b | Low | latent; same class as shipped Sound_PlaySFX; deferred to the §2.5b sweep / diagnostics tier | **FIXED** `c49e5b8` (`moveq #0,d7`, `player_ground.emp:665-669`). **Row UNDERSTATED it — d7 was observed as 1, so this was LIVE, not latent; and the sweep landed as a permanent lint (`s4lint.py` W026), not a one-off.** See correction 3. |
+| `player` A7 — landing always uncurls with no clearance check while the roll path guards the same wall-clip hazard | needs ruling | Med | design ruling (parity decision), not a drive-by | **FIXED** `0f8aead` — and the ruling exists: `docs/superpowers/plans/2026-08-02-bug005-sprites-player-parcel.md:15` ("A7: GUARD IT"). All landings funnel through `Air_LandState` (`player_air.emp:474`); the guard at :486-493 uses the identical threshold as the roll path (`player_ground.emp:473-475`). |
+| `camera` P2 / game-shell — Camera_Init doesn't clamp; whole OJZ init ladder seeds from the unclamped value → one negative-camera frame into cache at edge starts | init glitch | Med | P1b only guarded the mega-act WORD-WIDTH ceiling, NOT the init clamp; game-shell ordering decision | **FIXED** `a79256f` (merged `ec8a1cc`). `Camera_Init` now ends with `clamp_camera_axis` on both axes. |
+| game-shell — Section_RedrawPlanes Z80-safety asymmetry: per-frame path (via runtime Section_Plane_Dirty cache recovery) does direct VDP writes with the Z80 live | hardware bus / crash risk | High | engine-side fix (stopZ80 inside RedrawPlanes); game-shell ordering batch | **FIXED** `7660d1f` — **but the prescribed fix in this row was WRONG and must not be re-attempted** ("stopZ80 inside RedrawPlanes" starves the DAC ~3 frames). See correction 4 for the real defects and the shipped posture. |
+| game-shell — sprite culling uses LAST frame's camera (RunObjects before Camera_Update; zero cull margin, 16px/frame) | edge pop-in | Med | needs ordering-or-margin decision; game-shell ordering batch | **FIXED** `7660d1f` via the margin arm; **the reordering arm was deliberately REJECTED** as gameplay-timing-visible. `SPRITE_CULL_MARGIN = 32` (`constants.emp:493`, rationale :484-492), four sides (`sprites.emp:96,101,110,115`). See correction 6. |
+| `bg.asm` — a length-1 tile blob sprays 64K words across all of VRAM past the existing guard | corruption (malformed data) | Med | bg blit-posture batch | **FIXED** — safe half `f6458a0`, re-derived for the `move.l` blit in `7b6f55b`. `bg.emp:122-124` takes the longword count FIRST (`lsr.w #2` / `beq .skip_tiles` / `subq.w #1`), so lengths 1-3 fold to 0 before the `subq` underflow; both counter ops sit ABOVE the `with z80_stopped` bracket deliberately (:114-121), because `.skip_tiles` is past the bracket's release. (Left a ledgered gap — see NEW finding 4.) |
+
+### NEW (2026-08-05 reconciliation) — five defects in these areas that are in NO register
+
+Found by the verification pass, **not** by the original review, and not tracked anywhere else
+(not in this table, not in `docs/BUGS.md`, not in `DEFERRED_WORK.md`). Listed here because
+they live in exactly the code the rows above cover.
+
+1. **`VInt_Lag`'s Critical drain rests on an UNASSERTED ambient invariant.** `vblank.emp:206-225`
+   deliberately skips `VInt_DrawLevel` on a lag frame (draining a torn `Plane_Buffer` is worse),
+   so on a lag frame **nothing re-asserts reg `$0F=$02` in-frame** before `Process_DMA_Critical`.
+   It is correct today only because every `$8F80` writer restores before yielding. No build-time
+   check and no runtime guard enforces that. A future `$8F80` writer that returns without
+   restoring breaks Critical DMA **on lag frames only** — a nearly untestable failure mode. This
+   is the live residue of the reclassified `vblank` #3 row: the observation was right, it just
+   points at an invariant rather than at a bug. Cheapest close: a `$8F02` write at the Critical
+   drain head, or an assert on the shadow.
+2. **`animate.emp:201-202` (`.cc_delete: jbra DeleteObject`) orphans a parent's child chain.**
+   An anim-script `AF_DELETE` on a parent bypasses `DeleteChildren` entirely — the **same
+   permanent Dynamic-pool leak as C1d and BUG-004**, arriving from a path nobody flagged. No
+   shipped parent object uses `AF_DELETE` today, and nothing prevents one from doing so. Same
+   root shape as C1b: the safety is caller discipline, not mechanism.
+3. **`buffers.emp:244-251` — a torn-ship residual INTRODUCED by the Tier-1 fix itself**
+   (self-documented at the site). Retaining `Sprite_Table_Dirty` on a drop is correct for
+   retry, but if IRQ6 then lands mid-`Render_Sprites` on a lag frame, the PREVIOUS length
+   ships against a mid-emit buffer; post-H3 the short-length variant can also reference
+   un-shipped entries for one frame. Pre-existing class, newly reachable — ledgered in code,
+   registered nowhere.
+4. **`BG_Init` silently drops a sub-longword tail.** `bg.emp:109-121` — for lengths ≥4 it
+   copies `floor(len/4)` longwords and drops the remaining 1-3 bytes with **no assert**. The
+   assert was omitted deliberately: the DEBUG expansion would push `.skip_tiles` past
+   short-branch reach and force shape-dependent width pins. Real blobs are 32-byte granular
+   (`inject_editor_bg.py` asserts `len%4==0`), so it never fires in practice. **Ledgered, not
+   guarded** — a build-tool-side assert is the free close.
+5. **BG nametable rows 32-63 are INIT-ONLY.** `bg.emp:27-41` — `BG_Init` is the only writer
+   that fills all 64 rows. `Section_RedrawPlanes` (`section.emp:414-419`) and
+   `Draw_BG_TileColumn` (`plane_buffer.emp`, 32-word strips, header `$8000|31`) both top out
+   at 32. So any BG art using the advertised 512px vertical headroom **silently half-reverts**
+   the moment a per-section redraw or a streamed column runs — invisible today only because
+   the injector zero-pads rows 32-63 to blank. The 512px headroom is documented as live in the
+   shape but is not. Any BG work that reaches for it must widen both runtime maintainers FIRST.
 
 ### Tier 3 — Z80 sound cluster (real, but oracle-invisible; deferred to the sound bug-fix batch + rendered-audio A/B)
 
