@@ -9,8 +9,8 @@
 //     children overwrites that link and orphans every sibling behind it.
 //     ONE LEVEL of nesting only. ASSERT COVERAGE IS DELIBERATELY PARTIAL:
 //     the DEBUG rail rides CreateChild_Normal (the only chaining creator with
-//     call sites) and CreateChild_Linked (its own childless-parent
-//     constraint); Complex and FlipAware carry the constraint in their
+//     call sites) and CreateChild_Linked (whose splice would otherwise thread
+//     a run into the grandparent's chain); Complex and FlipAware carry the constraint in their
 //     headers ONLY. Chosen, not overlooked — an assert on a zero-caller proc
 //     can never fire, while its message blob costs debug bytes that are not
 //     free at the system level (past a threshold they push engine symbols
@@ -428,12 +428,13 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
 // -----------------------------------------------
 // CreateChild_Linked — spawn a chain of identical children
 //
-// CONSTRAINT: the parent must be CHILDLESS. This creator APPENDS, so it
-// overwrites the parent's chain head with its first child; any children the
-// parent already had are orphaned — they stay allocated and running, and
-// NOTHING ever frees them: entity-window despawn calls DeleteObject on the
-// parent alone, and it skips SLOT_TAG_UNTAGGED slots, which is exactly what
-// every child is. The leak is permanent for the level. Asserted in DEBUG.
+// A pre-existing chain is SPLICED, not orphaned (C1d, 2026-08-05): the old
+// head is parked at entry and the appended run's tail points at it on every
+// exit, so the parent's chain reads first-appended .. last-appended ..
+// old-chain. The old CONSTRAINT ("the parent must be CHILDLESS") and its
+// DEBUG assert are gone — the splice covers both the repeat-call case and the
+// mid-run alloc-fail case (which used to lose the head even for a childless
+// parent). The parent-may-not-be-a-child rail remains.
 //
 // In:  a0 = parent SST
 //      d0.w = child code_addr (objroutine value)
@@ -448,19 +449,21 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: i8, d3: i8) 
         if DEBUG == 1 {
         move.w  Sst.parent_ptr(a0), d4
         assert.w d4, eq, #0             // chain contract: a parent may not itself be
-                                        // a linked child. The sibling_ptr test below
-                                        // does NOT imply this one — the TAIL child of
-                                        // a grandparent has sibling_ptr == 0 and would
-                                        // pass it while splicing its children into the
-                                        // grandparent's chain.
-        move.w  Sst.sibling_ptr(a0), d4
-        assert.w d4, eq, #0             // this creator APPENDS over the chain head:
-                                        // a pre-existing chain would be orphaned
+                                        // a linked child — a linked child's
+                                        // sibling_ptr is its next-sibling link, and
+                                        // parking it as "the old head" below would
+                                        // splice this run into the grandparent's
+                                        // chain. (The old childless-parent assert is
+                                        // GONE — C1d: a pre-existing chain is now
+                                        // spliced, not orphaned.)
         }
         subq.w  #1, d1                  // adjust for dbf
         bmi     .done
         move.w  d0, d4                  // d4 = code_addr, parked (d0 is the alloc's scratch)
-        move.w  d1, d5                  // d5 = dbf counter
+        move.w  Sst.sibling_ptr(a0), d5 // old chain head, parked in d5's HIGH word —
+        swap    d5                      //   the appended run's tail splices onto it
+                                        //   at exit (dbf touches only the low word)
+        move.w  d1, d5                  // d5.w = dbf counter
         moveq   #0, d1                  // d1 = previous child addr
 
         // Start position = parent position
@@ -521,12 +524,19 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: i8, d3: i8) 
         jbsr    PopulateSpawnedPieceCount
 
         dbf     d5, .spawn_loop
+    .link_fail:                         // full run falls in; a mid-run alloc fail
+                                        //   branches here — both exits splice
         addq.w  #8, sp                  // clean running position from stack
+        swap    d5                      // recover the parked old head
+        tst.w   d1                      // nothing spawned -> head never overwritten,
+        beq     .done                   //   old chain intact (first-alloc-fail path)
+        movea.w d1, a1                  // a1 = last appended child (the run's tail)
+        move.w  d5, Sst.sibling_ptr(a1) // splice: tail -> old head. Childless parent:
+                                        //   rewrites the 0 already there. This also
+                                        //   fixes the PARTIAL-RUN orphan the old code
+                                        //   had even under its childless constraint —
+                                        //   a mid-run alloc fail used to lose the head
     .done:
-        rts
-
-    .link_fail:
-        addq.w  #8, sp                  // clean running position
         rts
 }
 
