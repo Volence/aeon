@@ -427,6 +427,11 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
         // reg $0F=$02 (default autoincrement) postcondition: a column entry leaves
         // reg $0F=$80, and a caller (or a prior VBlank step) may leave it non-$02,
         // so the empty path must restore it too — not just the drain path's .done.
+        // The postcondition is engine-wide: every $8F80 writer restores $8F02
+        // before yielding. It is BELT-AND-BRACES since NEW-1 (2026-08-05) —
+        // VInt_Lag re-asserts $8F02 at its Critical drain head, so a lag frame
+        // no longer rests on this convention alone — but keep honoring it; the
+        // complete-frame path (VInt_Level) still does.
         lea     VDP_DATA, a6
         lea     VDP_CTRL_OFF(a6), a5               // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
         tst.w   Plane_Buffer_Ptr

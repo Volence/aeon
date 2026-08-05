@@ -267,7 +267,8 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // via stopZ80 (sound-off build) OR the SND_CTRL_DMA_ACTIVE flag bracket (sound
 // build, where the Z80 is deliberately not halted). VDP writes happen here, and
 // they inherit the ambient autoincrement (reg $0F must be 2 for the per-column
-// VSRAM stride — the drain path leaves it $02).
+// VSRAM stride — the drain path leaves it $02, and on a lag frame VInt_Lag
+// re-asserts $8F02 at its Critical drain head before reaching here (NEW-1)).
 //
 // In:  none (reads Parallax_Active_Config, Vscroll_Factor)
 // Out: VSRAM written
