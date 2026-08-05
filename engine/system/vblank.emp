@@ -214,7 +214,11 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
             // resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
             // lag and more torn drains. The palette/sprite enqueues above ARE safe:
-            // they are dirty-FLAG gated (the flag is set only after a complete write).
+            // they are dirty-FLAG gated (the flag is set only after a complete
+            // write), and the sprite ship is additionally Sprite_Emit_Active-gated
+            // (NEW-3) — a DROP-RETAINED dirty flag from a full Critical queue is
+            // set-but-stale, and without the emit bracket this IRQ could ship the
+            // previous length against a mid-emit buffer.
             // The HScroll enqueue is NOT flag-gated (it fires every VBlank) — it is
             // safe by a different, weaker mechanism: the static entry's destination
             // and length are pre-built, so a lag-frame tear corrupts scroll VALUES

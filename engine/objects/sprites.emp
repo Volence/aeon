@@ -197,6 +197,13 @@ pub proc Draw_Sprite (a0: *Sst) clobbers(d0-d3/a1) {
 // -----------------------------------------------
 pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         addq.w  #1, Sprite_Cycle_Counter
+        // NEW-3 bracket OPEN — before any buffer/length write. A Critical-queue
+        // drop retains Sprite_Table_Dirty for retry (buffers.emp); if IRQ6 then
+        // lands in here on a lag frame, the retained flag would ship the
+        // PREVIOUS length against this mid-emit buffer. Enqueue_Dirty_Buffers
+        // skips the ship while this byte is set; closed at every exit AFTER the
+        // dirty set, so no window opens between them.
+        st      Sprite_Emit_Active
 
         // Camera-bias fold: read Camera_X/Y ONCE here (final for this
         // frame's render — the single value every per-object world path
@@ -480,6 +487,8 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         movep.w d0, DMAEntry.SizeH(a0)
         move.w  d5, Sprites_Rendered
         move.b  #1, Sprite_Table_Dirty
+        sf      Sprite_Emit_Active      // NEW-3 bracket CLOSE — strictly after the
+                                        // dirty set (no window between them)
         rts
 
     .empty_table:
@@ -500,6 +509,7 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         movep.w d0, DMAEntry.SizeH(a0)
         move.b  #1, Sprite_Table_Dirty
     .still_empty:
+        sf      Sprite_Emit_Active      // NEW-3 bracket CLOSE (empty + still-empty exits)
         rts
 
     .band_limit_pop:

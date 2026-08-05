@@ -190,7 +190,10 @@ pub vars upper_ram {
 
     Sprite_Table_Buffer:    [u8; 640],  // 80 entries × 8 bytes
     Sprite_Table_Dirty:     u8,
-    pad(1),
+    Sprite_Emit_Active:     u8,         // NEW-3 bracket: main loop is inside
+                                        // Render_Sprites — buffer/length are
+                                        // mid-mutation; IRQ6 must not ship a
+                                        // drop-retained dirty against them
 
     Hscroll_Buffer:         [u8; 896],  // 224 lines × 4 bytes (FG + BG)
     pad(2),                             // reserved (pad)
