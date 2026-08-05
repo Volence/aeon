@@ -1491,9 +1491,11 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
 // and duplicate when its section re-enters (its loaded bit died with the
 // entry).
 //
-// A despawned parent CASCADES: DeleteChildren runs before DeleteObject, so a
-// window-managed parent's linked children die with it (they are untagged and
-// could never despawn themselves — the row-1599 leak, fixed 2026-08-02).
+// A despawned parent CASCADES: DeleteObject itself frees a parent's linked
+// chain (the C1b mechanism, 2026-08-05 — formerly a caller-side DeleteChildren
+// this walker had to remember), so a window-managed parent's linked children
+// die with it (they are untagged and could never despawn themselves — the
+// row-1599 leak, fixed 2026-08-02).
 // -----------------------------------------------
 proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         // Walk the dynamic live list (spawn order) instead of the fixed
@@ -1504,7 +1506,7 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         rts
     .have_live:
         // Walk-flag assert rail: the fourth dynamic live-list walker. DespawnObjects
-        // only deletes (DeleteChildren + DeleteObject — no alloc → no mid-walk compaction today), but flag the walk so the
+        // only deletes (DeleteObject, which cascades children — no alloc → no mid-walk compaction today), but flag the walk so the
         // CompactDynamicLive assert stays TOTAL if a spawn is ever added here.
         if DEBUG == 1 { st Dynamic_Live_Walking }
         lea     Dynamic_Live, a2
@@ -1560,13 +1562,11 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         jbsr    EntityLoaded_Clear
     .clr_obj_skip:
         movea.l 12(sp), a0              // SST ptr (a0 slot of the movem frame)
-        jbsr    DeleteChildren          // cascade FIRST: free the sibling chain before
-                                        // the parent (leak fix (a), gap-ledger row 1599).
-                                        // Children are untagged -> this walker skipped
-                                        // them; their live-list entries zero out and the
-                                        // null-guard at .loop skips them. preserves(a0),
-                                        // clobbers(d0-d2/a1) — all dead here.
-        jbsr    DeleteObject
+        jbsr    DeleteObject            // cascades the sibling chain itself (C1b
+                                        // mechanism). Children are untagged -> this
+                                        // walker skipped them; their live-list entries
+                                        // zero out and the null-guard at .loop skips
+                                        // them.
         movem.l (sp)+, d5-d7/a0/a2
 
     .next:

@@ -197,7 +197,8 @@ pub proc AllocEffect () clobbers(d0) out(a1 if eq) {
 }
 
 // -----------------------------------------------
-// DeleteObject — push slot back to appropriate free stack, zero SST
+// DeleteObject — cascade a parent's child chain, push slot back to
+// appropriate free stack, zero SST
 // Pool detection (RAM order: Player | Dynamic | System | Effect):
 //   addr < Dynamic_Slots           → player slot (no stack push)
 //   addr >= Dynamic_Slots AND
@@ -209,9 +210,9 @@ pub proc AllocEffect () clobbers(d0) out(a1 if eq) {
 //                 SST_len*NUM_EFFECTS → effect pool
 // In:  a0 = SST address of object to delete
 // Out: none
-// Clobbers: d0, a1
+// Clobbers: d0-d1, a1
 // -----------------------------------------------
-pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(a0) {
+pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(d2, a0) {
         // DEBUG rails: a0 must point at a live SST inside Object_RAM.
         // An out-of-range a0 falls to .clear_slot and zeroes wild memory; a
         // code_addr==0 slot is an already-deleted (double-delete) slot whose
@@ -223,6 +224,31 @@ pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(a0) {
         move.w  Sst.code_addr(a0), d0
         assert.w d0, ne, #0
         }
+        // MECHANISM, not caller discipline (children C1b): a dying PARENT's
+        // linked chain is freed HERE, so no caller can skip the cascade and
+        // strand children holding a stale parent_ptr into a recycled slot.
+        // Front-guards keep the common cases nearly free: `sibling_ptr` is
+        // overloaded (children.emp chain contract) — on a linked CHILD it is
+        // the next-sibling link, never a head, so parent_ptr != 0 exits before
+        // touching it; a childless object exits on the zero head. Depth is
+        // bounded by the one-level nesting contract: the cascade's own
+        // DeleteObject calls re-enter with parent_ptr set and never walk.
+        // a0 is parked for the WHOLE body, popped at .clear_slot's exit
+        // (replacing the old `lea -sizeof(Sst)(a0), a0` walk-back, net 0
+        // bytes): the preserves prover cannot credit DeleteChildren's own
+        // preserves(a0) through the recursive DeleteObject -> DeleteChildren
+        // cycle, and its linear-delta model dies at any call — a stack
+        // round-trip covering every exit is the one shape provable on both
+        // the cascade and the plain path.
+        move.l  a0, -(sp)
+        tst.w   Sst.parent_ptr(a0)
+        bne     .no_cascade
+        tst.w   Sst.sibling_ptr(a0)
+        beq     .no_cascade
+        move.l  d2, -(sp)               // DeleteChildren's chain cursor — outside
+        jbsr    DeleteChildren          //   this proc's d0-d1/a1 license
+        move.l  (sp)+, d2
+    .no_cascade:
         // Check Effect pool first (highest address range)
         cmpa.w  #extern("Effect_Slots"), a0
         bhs     .check_effect
@@ -303,7 +329,7 @@ pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(a0) {
         moveq   #0, d0
         clear_longs((sizeof(Sst) - 2) / 4)
         clr.w   (a0)+                // the $50-$51 tail word (frame_off)
-        lea     -sizeof(Sst)(a0), a0 // restore a0 to slot start
+        movea.l (sp)+, a0            // restore a0 to slot start (parked at entry)
         rts
 }
 

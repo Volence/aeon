@@ -56,7 +56,10 @@ pub struct Sst (size: $52) {
     mapping_frame: MappingFrame @ $23, // $23 — current mapping frame index
     prev_frame: MappingFrame @ $24,    // $24 — previous mapping_frame (DPLC change detection; $FF at spawn)
     sprite_piece_count: u8 @ $25, // $25 — current frame's piece count (overflow prediction)
-    parent_ptr: u16 @ $26,        // $26 — parent object RAM address
+    parent_ptr: u16 @ $26,        // $26 — parent object RAM address. INVARIANT: every
+                                  //   writer must also link the object into the parent's
+                                  //   sibling chain (all CreateChild_* do) — DeleteObject's
+                                  //   C1b cascade walk is complete only while that holds
     sibling_ptr: u16 @ $28,       // $28 — sibling link (multi-part objects)
     slot_tag: u8 @ $2A,           // $2A — entity window quadrant entry index 0-3 ($FF = untagged)
     entity_section_id: u8 @ $2B,  // $2B — spawning section's flat id (despawn bookkeeping)

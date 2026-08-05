@@ -1,6 +1,6 @@
 // Test parent — spawns 3 orbiting children, oscillates horizontally for
-// PARENT_LIFETIME frames, then self-destructs (DeleteChildren + DeleteObject),
-// freeing its children. Demonstrates CreateChild_Normal spawning, child
+// PARENT_LIFETIME frames, then self-destructs (DeleteObject cascades the
+// chain), freeing its children. Demonstrates CreateChild_Normal spawning, child
 // orbit-follow via stored state, and the parent-lifecycle cascade. The life
 // countdown (life_timer) is independent of the swing-phase counter (swing_phase),
 // so it reaches 0 on schedule and the cascade fires (see TestParent_Main).
@@ -173,18 +173,18 @@ data child_desc_term: u16 = 0
 // TestParent_Main — per-frame: count the life timer down and oscillate X.
 // The self-destruct branch fires when life_timer reaches 0: the life countdown is
 // a pure timer, independent of swing_phase (the oscillation counter), so it
-// reaches 0 on schedule and the DeleteChildren + DeleteObject cascade runs,
-// freeing the children.
+// reaches 0 on schedule and the DeleteObject tail-call runs, cascading the
+// children (C1b mechanism).
 // In:  a0 = SST pointer
-// Clobbers: d0-d3, a1 — DeleteChildren(d0-d2/a1) ∪ Draw_Sprite(d0-d3/a1); the
-//   delete tail is DeleteObject(d0-d1). (a2 is never touched here.)
+// Clobbers: d0-d3, a1 — Draw_Sprite(d0-d3/a1) ∪ the DeleteObject delete tail
+//   (d0-d1/a1). (a2 is never touched here.)
 // -----------------------------------------------
 pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) {
         subq.w  #1, TParentV.life_timer(a0)
         bne     .move
 
-        // Self-destruct: kill children, then self.
-        jbsr    DeleteChildren
+        // Self-destruct. DeleteObject cascades the child chain itself (C1b
+        // mechanism) — no caller-side DeleteChildren.
         jbra    DeleteObject
 
 .move:
