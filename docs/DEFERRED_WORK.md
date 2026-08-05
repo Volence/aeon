@@ -3131,3 +3131,60 @@ reconciliation pass surfaced it.
 
 One-line comment fix, zero byte change. Left out of the §0 doc parcel because that
 parcel was deliberately doc-only (no `.emp` touched, so it needed no repin/refreeze).
+
+---
+
+## Owner rulings, 2026-08-05 (backlog reconciliation follow-up)
+
+Four decisions taken after the reconciliation. Recorded here so they stop resurfacing as
+open questions.
+
+### Diagonal streaming budget — MARK AND REVISIT (not accepted, not fixed)
+
+**Ruling (Volence):** neither accept the dip nor spend on it yet — mark it and revisit.
+
+So this stays OPEN and is deliberately *not* closed with the on-file "accept the dip"
+recommendation. The three shapes remain: (A) accept the dip, (B) cap the combined diagonal
+step, (C) cut BgAnim bands during fast scroll. Revisit when there is a reason to — most
+likely alongside art-streaming Phase 2, whose budget model touches the same frame window,
+or when a level actually plays at sustained max diagonal. Do not re-ask it before then, and
+do not silently take (A).
+
+### `children` C1c — band inheritance: IMPLEMENT clear-then-set
+
+**Ruling (Volence):** implement proper inheritance rather than ratifying the refusal.
+
+The existing refusal is sound *for the current idiom* (`CHILD_INHERITED_FLAGS` composes with
+`or.b`, and the priority band is a 3-bit VALUE, so `or`-ing 5 and 6 yields 7). The fix is
+therefore not "add the band to the inherit mask" — it is a **clear-then-set** idiom: mask
+the band bits out of the child's render flags, then OR the parent's band in. This is a
+convention change affecting every child-creation site, so it lands as a single templated
+change rather than nine hand-edits. Tracked in the defect batch.
+
+### Object-test scene — GATE DEBUG-ONLY
+
+**Ruling (Volence):** the whole scene stops shipping in release.
+
+`GameState_ObjectTest_Init` and its test objects (TestPlayer, TestStatic, TestAnimated,
+TestEnemy, TestSolid, TestParticle, TestEmitter, TestChildPart, TestStressEmitter,
+TestChurnObj) are pushed unconditionally today (`native.rs` registry, no `if debug`) and are
+**unreachable from the game entry point** (`games/sonic4/config/game.emp:23-24` →
+`GameState_OJZScroll_Init`). By the `CODING_CONVENTIONS.md` §1.7 rule — a harness you drive
+is equipment, and equipment does not ship — they belong in the debug shape only. Same
+registry idiom as `CompressionSelfTest`. The OJZ level is unaffected: it spawns the real
+Sonic player (`ojz_scroll_test.emp:134 jbsr Player_Init`), not `TestPlayer`.
+
+**Correction worth keeping:** an earlier framing of this decision claimed `test_player` was
+"the object driving the test scene". It is not. The yellow square in the OJZ level is
+`Player_DebugMove` — the real player's debug-fly. `TestPlayer` is a separate object used
+only by the object-test scene (`object_test_state.emp:88, :271`). The two were conflated.
+
+### Debug-fly cheat code — DEFER to design #7
+
+**Ruling (Volence):** defer until the screens/HUD design lands.
+
+The runtime gate (`Cheat_Flags` bit 0, `CHEAT_DEBUG_FLY`) shipped with chain 43 and is
+covered by the replay net, so the payload is ready and tested. What is missing is somewhere
+to *enter* a code: classic codes live on a title or level-select screen, and screens are
+design #7 (banked, unexecuted). Inventing an in-gameplay button sequence now would be
+throwaway work replaced when #7 lands. Pick this up as part of #7.
