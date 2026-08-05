@@ -2,7 +2,8 @@
 // games/sonic4/data/sound/soundbankhead.emp — the engine-table bank HEAD, native
 // (K4 inc-5 Stage 4b, the P2 soundBankHead probe — the last sound-bank piece)
 // ===========================================================================
-// The `soundBankHead` macro (engine/sound/sound_bank.inc) emitted the 5 engine-
+// The `soundBankHead` macro (engine/sound/sound_bank.inc — DELETED in 1afa9aa;
+// the contract is now this module plus the `sound_bank` anchor in map.toml) emitted the 5 engine-
 // table heads inside the `phase 08000h` bracket at fixed $8000-window VMAs. This
 // module places them NATIVELY as a PHASE-BANK section (vma $8000, lma $58000 via
 // the map `sound_bank` anchor) embedding the seam-2-emitted artifacts — the P2 path
