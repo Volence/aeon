@@ -66,7 +66,7 @@ equ PLAYER_1_Y_VEL = extern("Player_1") + extern("SST_y_vel")
 // -----------------------------------------------
 // GameState_OJZScroll_Init — one-shot setup
 // -----------------------------------------------
-pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr) {
+pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // -- arm the developer cheats (DEBUG shape only). This is the game's
         //    one-shot boot init (Game.entry), so the write lands exactly once per
         //    boot, before any state can read Cheat_Flags. Release/lean emit NOTHING

@@ -342,7 +342,7 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
 // (a5/a6 also clobbered via the Step5/Step4 tail-branch pipeline — see the
 // contract-audit note; declared here so the closure check covers the tail.)
 // ----------------------------------------------------------------------
-pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr) {
+pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // --- Step 1: select active config for this frame ---
         // During a smooth transition (Parallax_Transition_Frames > 0) drive
         // band targets from Target_Config; the per-band scroll lerp eases
