@@ -215,7 +215,7 @@ Custom word-aligned LZ compression.
 | $02 | byte | Flags: bit 0 = tile-delta XOR preprocessing |
 | $03 | byte | Reserved (0) |
 
-**Body:** Token-based sequences. Each token has a high nibble (literal word count) and low nibble (match word count). Token byte $00 = end of stream. 15 in either nibble triggers an extended count word. See `engine/s4lz_decompress.asm` for full decode logic.
+**Body:** Token-based sequences. Each token has a high nibble (literal word count) and low nibble (match word count). Token byte $00 = end of stream. 15 in either nibble triggers an extended count word. See `engine/compression/s4lz.emp` for full decode logic.
 
 **Tile-delta preprocessing** (flag bit 0): After decompression, each 32-byte tile is XOR'd against the previous tile. Used for tile art blobs where adjacent tiles share patterns.
 
