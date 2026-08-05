@@ -266,11 +266,12 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
 // In:  none
 // Out: none
 // Clobbers: d0
-// PRECONDITION: the caller runs below IPL 6 — preserves(sr) faithfully
+// PRECONDITION: the caller runs below IPL 6 — preserves(sr.mask) faithfully
 // re-masks, so a caller already at IPL >= 6 spins forever (no in-tree caller
-// does).
+// does). The CCR is NOT the caller's at return: the post-bracket wait loop and
+// flag clear write flags after the restore.
 // -----------------------------------------------
-pub proc VSync_Wait () clobbers(d0) preserves(sr) {
+pub proc VSync_Wait () clobbers(d0) preserves(sr.mask) {
         // Clear any STALE VBlank_Flag first — VInt_Lag (which fires when
         // VBlank_Ready=0) sets VBlank_Flag, so a long pre-Wait operation
         // (e.g., S4LZ_Decompress) can leave the flag set from a previous

@@ -3,11 +3,17 @@
 // `ints_off` is the SR save/mask/restore bracket (`move.w sr,-(sp)` /
 // `move.w #$2700,sr` … `move.w (sp)+,sr`) as an ACQUIRED context: the compiler
 // splices both halves and PROVES every path through the body reaches the
-// restore. A caller that exposes SR in its contract declares `preserves(sr)` —
-// the save/restore is the enforcement, and the spliced pair satisfies the
-// balance check on its own — and owns the WHY comment at the bracket: atomicity
-// rationales are site facts, not context facts. Every consumer in the tree
-// declares it, so the clause reads as the contract and never as a lint's
+// restore. A caller that exposes SR in its contract declares the claim its
+// WHOLE BODY earns, not the one the bracket alone would: `preserves(sr.mask)`
+// when any instruction outside the bracket writes flags on a path to return —
+// the release restores the caller's mask, but post-bracket flag traffic makes
+// the CCR half false (and a bracket whose save is mid-proc restores mid-proc
+// flags, never the caller's) — and bare `preserves(sr)` only when every CCR
+// effect sits inside the pair. Either spelling's mask half is enforced by the
+// spliced save/restore, which satisfies the balance check on its own. The
+// adopter owns the WHY comment at the bracket: atomicity rationales are site
+// facts, not context facts. Every consumer in the tree declares one of these
+// spellings, so the clause reads as the contract and never as a lint's
 // pressure: `[proc.sr-undeclared]` does NOT charge a consumer for the SR traffic
 // this context splices in, because that traffic is declared HERE.
 //

@@ -185,9 +185,12 @@ pub proc Sound_PlaySample (d0: u16) clobbers(a0) {
 // adaptive-FM6 bit (SH_F_FM6_ADAPTIVE) from the param block during the header
 // parse (SH_F_FM6_FM is materialized at pack time; never read at runtime).
 // In:  d0.b = song id (1..SONG_COUNT).
-// Clobbers: d0/d1/d2/d3/d4/a0/a1; SR restored.
+// Clobbers: d0/d1/d2/d3/d4/a0/a1; interrupt mask restored. The CCR is NOT the
+// caller's at return: each bracket's save is mid-proc, so the final release
+// restores mid-proc flags, and the id/index arithmetic writes flags between
+// brackets.
 // ----------------------------------------------------------------------
-pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr) {
+pub proc Sound_PlayMusic (d0: SongId) clobbers(d0-d4/a0-a1) preserves(sr.mask) {
         // H-1 repost gate: a second Sound_PlayMusic landing while the Z80 is mid
         // Snd_LoadSong would tear the 6-byte param block AND lose this trigger (the
         // Z80 clears the slot after consuming the params). Spin until the previous
