@@ -150,3 +150,19 @@ ensure(offsetof(ObjDef, anim_table) + TEMPLATE_COPY_SHIFT == offsetof(Sst, anim_
 ensure(offsetof(ObjDef, status) + TEMPLATE_COPY_SHIFT == offsetof(Sst, status), "ObjDef/Sst burst-copy correspondence broken at status")
 ensure(offsetof(ObjDef, angle) + TEMPLATE_COPY_SHIFT == offsetof(Sst, angle), "ObjDef/Sst burst-copy correspondence broken at angle")
 ensure(offsetof(ObjDef, pad) + TEMPLATE_COPY_SHIFT == offsetof(Sst, prev_anim), "ObjDef/Sst burst-copy correspondence broken at pad→prev_anim")
+
+// -----------------------------------------------
+// set_priority_band — the engine-wide band-setting idiom (C1c ruling,
+// 2026-08-05): CLEAR the band bits, then set the object's own. Replaces the
+// bare `ori.b #N<<RF_PRIORITY_SHIFT`: plain or composes with an INHERITED
+// band (CHILD_INHERITED_FLAGS carries the parent's band since C1c) as the
+// bitwise UNION — a band-5 parent spawning a band-6 child rendered at band 7.
+// Splice with a0 = *Sst. A spliced body resolves free names at the splice
+// site, so consumers import RF_PRIORITY_MASK + RF_PRIORITY_SHIFT themselves.
+// -----------------------------------------------
+pub comptime fn set_priority_band(prio: int where 0..7) -> Code {
+        return asm {
+                andi.b  #{~RF_PRIORITY_MASK & $FF}, render_flags(a0)
+                ori.b   #{prio << RF_PRIORITY_SHIFT}, render_flags(a0)
+        }
+}

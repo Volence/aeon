@@ -2,8 +2,8 @@
 // Uses Sonic sprite art (DPLC-loaded), reads P1 controller input.
 module games.sonic4.test_player in test_player
 
-use engine.objects.sst.{Sst}
-use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP, ST_IN_AIR, ST_ON_OBJECT, COLLISION_NONE,
+use engine.objects.sst.{Sst, set_priority_band}
+use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_XFLIP, ST_IN_AIR, ST_ON_OBJECT, COLLISION_NONE,
         BUTTON_UP_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
@@ -53,7 +53,7 @@ pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main 
         move.b  #1, anim(a0)                    // idle
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
-        ori.b   #4<<RF_PRIORITY_SHIFT, render_flags(a0)
+        set_priority_band(4)                    // C1c idiom: clear-then-set
         move.b  #16, width_pixels(a0)
         move.b  #32, height_pixels(a0)
         move.b  #COLLISION_NONE, collision_resp(a0)

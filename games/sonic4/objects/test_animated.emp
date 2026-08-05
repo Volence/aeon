@@ -1,8 +1,8 @@
 // Test object — animated Sonic walk cycle with DPLC art streaming.
 module games.sonic4.test_animated in test_animated
 
-use engine.objects.sst.{Sst}
-use engine.constants.{RF_PRIORITY_SHIFT}
+use engine.objects.sst.{Sst, set_priority_band}
+use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK}
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 
@@ -34,7 +34,7 @@ pub proc TestAnimated (a0: *Sst) clobbers(d0-d4/a1-a3) falls_into TestAnimated_M
         move.b  #0, anim(a0)
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
-        ori.b   #4<<RF_PRIORITY_SHIFT, render_flags(a0)
+        set_priority_band(4)                    // C1c idiom: clear-then-set
         move.w  #TestAnimated_Main - ObjCodeBase, code_addr(a0)
 }
 

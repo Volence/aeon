@@ -6,9 +6,9 @@
 // so it reaches 0 on schedule and the cascade fires (see TestParent_Main).
 module games.sonic4.test_parent in test_parent
 
-use engine.objects.sst.{Sst}
+use engine.objects.sst.{Sst, set_priority_band}
 use engine.objects.children.{SpawnDesc}
-use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_MULTISPRITE}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, RF_MULTISPRITE}
 use engine.objects.objdef.{vram_art}
 use engine.types.{VramTile, Angle}
 
@@ -55,7 +55,7 @@ vars TOrbitChildV: Sst.sst_custom {
 // Clobbers: d0-d3, a1 — its own d0-d2/a1 ∪ the orbit loop it falls into below.
 // -----------------------------------------------
 pub proc TestChildPart (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChildPart_Main {
-        ori.b   #3<<RF_PRIORITY_SHIFT, render_flags(a0)
+        set_priority_band(3)                    // C1c idiom: clear-then-set
         move.b  #16, width_pixels(a0)
         move.b  #16, height_pixels(a0)
         bset    #RF_COORDMODE, render_flags(a0)

@@ -4,7 +4,7 @@ module games.sonic4.test_stress_emitter in test_stress_emitter
 
 use engine.objects.sst.{Sst}
 use engine.objects.children.{SpawnDesc}
-use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_PRIORITY_MASK}
 use engine.objects.objdef.{vram_art}
 use games.sonic4.constants.{VRAM_TEST_OBJ}
 use games.sonic4.test_helpers.{EmitterV, test_obj_prolog}
