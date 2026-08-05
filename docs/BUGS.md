@@ -227,7 +227,11 @@ the sprite table could be dumped (the artifact frame could not be re-frozen).
   see the mapping_dsl commit).
 - The torn-table DMA race — structurally prevented: `Sprite_Table_Dirty` is set only
   AFTER the terminator fix-up in `Render_Sprites.done`, and the 68k-source DMA halts
-  the CPU, so a mid-build table can never ship.
+  the CPU, so a mid-build table can never ship. *(Amended 2026-08-05: that claim had
+  one hole — a DROP-RETAINED dirty flag (Critical queue full) is set-but-stale, and
+  IRQ6 landing mid-emit on a lag frame could ship the previous length against a
+  mid-emit buffer. Closed by the `Sprite_Emit_Active` bracket, `parcel/defect-batch-8`
+  — the "can never ship" claim is now unconditional again.)*
 - Steady-state chain corruption — tick-stepped VDP sprite-table sampling through a
   replayed jump transition (ticks 1002-1015) shows coherent link chains, correct
   terminators, and `Sprites_Rendered` matching the chain every sampled tick. Stale

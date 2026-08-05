@@ -231,6 +231,8 @@ genuinely open.**
 - **3 open** — `children` C1b, C1c, C1d. All three are conditional: none is reachable in a
   shipped code path today. One of them (C1c) is a **documented deliberate refusal awaiting a
   design ruling**, not an unfixed oversight.
+  **→ ALL THREE CLOSED 2026-08-05** by `parcel/defect-batch-8` (C1b cascade-in-DeleteObject,
+  C1c clear-then-set inheritance per the owner ruling, C1d splice) — see the row verdicts.
 - **Six rows were real but MIS-DESCRIBED.** The mechanism corrections are listed below the
   open table, because in every one of those cases the mechanism matters more than the label —
   two of them prescribed fixes that would have introduced new defects.
@@ -239,7 +241,7 @@ The original row text is preserved verbatim in the tables (it is the historical 
 **Verdict** column carries the current disposition. Rows are otherwise in their original
 order — read the STILL OPEN table first.
 
-#### ⚠️ STILL OPEN (3 — all `children`, all conditional)
+#### ~~⚠️ STILL OPEN (3 — all `children`, all conditional)~~ — ALL THREE FIXED 2026-08-05 (`parcel/defect-batch-8`; table kept as the mechanism record)
 
 | Row | Why it is still open | What holds it shut today | What it needs |
 |---|---|---|---|
@@ -315,9 +317,9 @@ that would have shipped new defects and two inverted the direction of the findin
 | `parallax` B2 — builder/DMA-length/VSRAM-mode consumers disagree on "active" config mid-transition (≤16 frames mode/length mismatch); overlaps the game-shell direct-`$8B`-write §3.4 tear | visual tear | Med | same design pass | **FIXED** `7482ebf` — single selector `Parallax_Active_Config` (:251-259). **Description corrected: the residual window is ONE FRAME, not ≤16** (correction 1). |
 | `parallax` B3 — 16-frame `>>4` lerp ends ~36% short of target → end-of-transition pop | visual pop | Med | same design pass (+ constants.asm:319 convergence comment is wrong) | **FIXED** `f4d6aea` — horizontal lerp exact (`divs.w` by frames-remaining, :500-506). **The parenthetical is INVERTED: the `>>4` legitimately survives for BG vertical (:677-682, snapped at :675-686) and the convergence comment is now CORRECT** (`constants.emp:405-414`) — see correction 2. |
 | `children` C1a — effect spawned by an RF_MULTISPRITE parent is NEVER rendered | rendering | Med | bundled with children M1 spawn-flag rework (rendering-model change), not wave-2 | **FIXED** `559b6ce`. `CreateEffect_Normal` no longer writes `parent_ptr` (`children.emp:604-613`); the multisprite skip is now driven only by the spawned object's own pointer (`sprites.emp:60-64`). |
-| `children` C1b — stale parent_ptr on parent-slot recycle can silently hide children | rendering | Med | same bundle | **⚠️ OPEN (latent).** Held shut by caller discipline only. See the STILL OPEN table. |
-| `children` C1c — children never inherit a priority band (always band 0 = backmost) | rendering | Med | same bundle | **⚠️ OPEN — but as a DELIBERATE DOCUMENTED REFUSAL awaiting a design ruling**, not an unfixed oversight. See the STILL OPEN table. |
-| `children` C1d — CreateChild_Linked orphans a pre-existing chain | dynamic-slot leak | Med | same bundle | **⚠️ OPEN in release, DEBUG-asserted, zero call sites** (`@scaffolding`). See the STILL OPEN table. |
+| `children` C1b — stale parent_ptr on parent-slot recycle can silently hide children | rendering | Med | same bundle | **FIXED 2026-08-05** (`defect-batch-8`). The cascade is DeleteObject's own mechanism now (front-guards + DeleteChildren; caller-side cascades deleted). Chosen over an epoch byte: SST is fully packed (growth = +132 B RAM + replay re-cut), the epoch charges the Draw_Sprite hot path, and the walk is provably complete (every parent_ptr writer chain-links). Also subsumes NEW finding 2. |
+| `children` C1c — children never inherit a priority band (always band 0 = backmost) | rendering | Med | same bundle | **FIXED 2026-08-05** (`defect-batch-8`, per the owner ruling): CHILD_INHERITED_FLAGS gains RF_PRIORITY_MASK and the child-side idiom becomes the `set_priority_band` clear-then-set template (sst.emp) — one edit in test_obj_prolog + five direct-site swaps. |
+| `children` C1d — CreateChild_Linked orphans a pre-existing chain | dynamic-slot leak | Med | same bundle | **FIXED 2026-08-05** (`defect-batch-8`): the old head is parked in d5's high word and both exits splice it onto the appended run's tail; the childless-parent constraint + assert dissolve. Also fixes the partial-run orphan the constraint never covered. |
 | `player` G10 — move_lock never ticks while standing on a solid object → frozen input forever (only jump escapes) | gameplay | Med | not in either batch; needs fix + solid-object-landing test | **FIXED** `a8e2b5b` (merged `ec8a1cc`, emulator-confirmed `7d3dd18`). `player_ground.emp:199-201` ticks the lock on the `ST_ON_OBJECT` exit. Repro recipe in `docs/BUGS.md`. |
 | `player` G9 — Ground_Move:620 byte-loads probe into d7, consumed at WORD width (high byte = caller residue; 0 today only because d7=0) | latent §2.5b | Low | latent; same class as shipped Sound_PlaySFX; deferred to the §2.5b sweep / diagnostics tier | **FIXED** `c49e5b8` (`moveq #0,d7`, `player_ground.emp:665-669`). **Row UNDERSTATED it — d7 was observed as 1, so this was LIVE, not latent; and the sweep landed as a permanent lint (`s4lint.py` W026), not a one-off.** See correction 3. |
 | `player` A7 — landing always uncurls with no clearance check while the roll path guards the same wall-clip hazard | needs ruling | Med | design ruling (parity decision), not a drive-by | **FIXED** `0f8aead` — and the ruling exists: `docs/superpowers/plans/2026-08-02-bug005-sprites-player-parcel.md:15` ("A7: GUARD IT"). All landings funnel through `Air_LandState` (`player_air.emp:474`); the guard at :486-493 uses the identical threshold as the roll path (`player_ground.emp:473-475`). |
@@ -332,7 +334,10 @@ Found by the verification pass, **not** by the original review, and not tracked 
 (not in this table, not in `docs/BUGS.md`, not in `DEFERRED_WORK.md`). Listed here because
 they live in exactly the code the rows above cover.
 
-1. **`VInt_Lag`'s Critical drain rests on an UNASSERTED ambient invariant.** `vblank.emp:206-225`
+1. **FIXED 2026-08-05** (`defect-batch-8`): VInt_Lag re-asserts `$8F02` at its Critical
+   drain head — the declared-contexts close was evaluated and rejected (values out of scope
+   by spec §9; IRQ is not a CFG edge), ledgered in DEFERRED_WORK. Original finding:
+   **`VInt_Lag`'s Critical drain rests on an UNASSERTED ambient invariant.** `vblank.emp:206-225`
    deliberately skips `VInt_DrawLevel` on a lag frame (draining a torn `Plane_Buffer` is worse),
    so on a lag frame **nothing re-asserts reg `$0F=$02` in-frame** before `Process_DMA_Critical`.
    It is correct today only because every `$8F80` writer restores before yielding. No build-time
@@ -341,24 +346,37 @@ they live in exactly the code the rows above cover.
    is the live residue of the reclassified `vblank` #3 row: the observation was right, it just
    points at an invariant rather than at a bug. Cheapest close: a `$8F02` write at the Critical
    drain head, or an assert on the shadow.
-2. **`animate.emp:201-202` (`.cc_delete: jbra DeleteObject`) orphans a parent's child chain.**
+2. **FIXED 2026-08-05** (`defect-batch-8`): subsumed by the C1b cascade — DeleteObject
+   itself frees a dying parent's chain, so this site needs no change. Original finding:
+   **`animate.emp:201-202` (`.cc_delete: jbra DeleteObject`) orphans a parent's child chain.**
    An anim-script `AF_DELETE` on a parent bypasses `DeleteChildren` entirely — the **same
    permanent Dynamic-pool leak as C1d and BUG-004**, arriving from a path nobody flagged. No
    shipped parent object uses `AF_DELETE` today, and nothing prevents one from doing so. Same
    root shape as C1b: the safety is caller discipline, not mechanism.
-3. **`buffers.emp:244-251` — a torn-ship residual INTRODUCED by the Tier-1 fix itself**
+3. **FIXED 2026-08-05** (`defect-batch-8`): `Sprite_Emit_Active` bracket (consumes the
+   RAM pad) — the enqueue skips the sprite ship while Render_Sprites is mid-emit, keeping
+   the drop-retry and the hidden-terminator edge ship. Original finding:
+   **`buffers.emp:244-251` — a torn-ship residual INTRODUCED by the Tier-1 fix itself**
    (self-documented at the site). Retaining `Sprite_Table_Dirty` on a drop is correct for
    retry, but if IRQ6 then lands mid-`Render_Sprites` on a lag frame, the PREVIOUS length
    ships against a mid-emit buffer; post-H3 the short-length variant can also reference
    un-shipped entries for one frame. Pre-existing class, newly reachable — ledgered in code,
    registered nowhere.
-4. **`BG_Init` silently drops a sub-longword tail.** `bg.emp:109-121` — for lengths ≥4 it
+4. **FIXED 2026-08-05** (`defect-batch-8`) — and the ledger text below was WRONG-BY-OMISSION:
+   the credited assert lives in `inject_editor_bg.py`, which runs only when an editor override
+   exists; the UNCONDITIONAL producer `ojz_strip_gen.py` had no assert. It does now. Original:
+   **`BG_Init` silently drops a sub-longword tail.** `bg.emp:109-121` — for lengths ≥4 it
    copies `floor(len/4)` longwords and drops the remaining 1-3 bytes with **no assert**. The
    assert was omitted deliberately: the DEBUG expansion would push `.skip_tiles` past
    short-branch reach and force shape-dependent width pins. Real blobs are 32-byte granular
    (`inject_editor_bg.py` asserts `len%4==0`), so it never fires in practice. **Ledgered, not
    guarded** — a build-tool-side assert is the free close.
-5. **BG nametable rows 32-63 are INIT-ONLY.** `bg.emp:27-41` — `BG_Init` is the only writer
+5. **FIXED 2026-08-05** (`defect-batch-8`): both maintainers widened to 64 rows. Two premise
+   corrections mattered: `Draw_BG_TileColumn` has ZERO callers (cost of widening = 0 steady-state),
+   and "the injector zero-pads rows 32-63" is FALSE for shipped content — the OJZ override
+   carries real art there, and the shipped full-plane vscroll wrap puts those rows on screen,
+   which is why declare-32-the-limit was rejected. Original finding:
+   **BG nametable rows 32-63 are INIT-ONLY.** `bg.emp:27-41` — `BG_Init` is the only writer
    that fills all 64 rows. `Section_RedrawPlanes` (`section.emp:414-419`) and
    `Draw_BG_TileColumn` (`plane_buffer.emp`, 32-word strips, header `$8000|31`) both top out
    at 32. So any BG art using the advertised 512px vertical headroom **silently half-reverts**
