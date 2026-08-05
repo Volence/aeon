@@ -164,10 +164,10 @@ section sound_psg (cpu: z80) {
     // unused while sc_psgenv=0).
     // In: ix = SeqChannel/SfxChannel.
     // ------------------------------------------------------------------
-    // Contract: clobbers nothing — the two (ix+d) immediate stores touch no
-    // register (the .asm's `Clobbers af` over-claims). Preserves af, bc, de, hl (ix
-    // inherited); the checker VERIFIES the af the header wrongly claimed clobbered.
-    pub proc Psg_EnvCursorReset () preserves(af, bc, de, hl) {
+    // Contract: clobbers nothing — the two (ix+d) immediate stores touch no register
+    // and no flags. Preserves af, bc, de, hl (ix inherited). The explicit `clobbers()`
+    // makes the "touches nothing" claim machine-checked rather than closure-exempt.
+    pub proc Psg_EnvCursorReset () clobbers() preserves(af, bc, de, hl) {
         ld      (ix+sc_psgenv_cur), 0  // restart the contour from frame 0
         ld      (ix+sc_psgenv_out), 0  // drop the previous note's env tail so the
                                        // attack's volume emit (Psg_NoteOn's SetVolume,
@@ -327,8 +327,8 @@ section sound_psg (cpu: z80) {
         // sc_mod_ctrl==0 (every un-modulated channel pays only one test).
         call    Mod_ReArm              // PSG pitch-mod re-arm (preserves bc/de/hl/ix)
         // --- PORTAMENTO note-on (PSG, spec §4): attack at sc_porta_accum + glide, or
-        // snap accum = target. Reload from sc_porta_accum/sc_base_freq (Psg_EmitDivisor/
-        // Mod_ReArm clobbered de). de = the start divisor (armed) for the no-rekey re-latch.
+        // snap accum = target. Load de from sc_porta_accum/sc_base_freq — de = the
+        // start divisor (armed) for the no-rekey re-latch.
         ld      a, (ix+sc_porta_incr)
         or      a                       // INVARIANT: sc_porta_incr's high byte is 0 by
                                         // construction — the only writers are Seq_Op_Porta
@@ -423,11 +423,11 @@ section sound_psg (cpu: z80) {
     // In: ix = PSG tone channel, d = div hi, e = div lo.
     // Falls into Psg_EmitDivisorTo (tail; c = latch base, de = divisor).
     // ------------------------------------------------------------------
-    // Contract: clobbers a, c, f (latch scratch); preserves b, de, hl (de is
-    // push/pop-bracketed across Psg_ChBase, hl via ChBase's contract, b untouched)
-    // + ix (inherited). The `af, bc, de` header over-claims — de and b survive.
+    // Contract: clobbers a, c, f (latch scratch) + b (the tail's data-byte split
+    // writes it, `ld b, a` in Psg_EmitDivisorTo); preserves de (push/pop-bracketed
+    // across Psg_ChBase) + hl (via ChBase's contract) + ix (inherited).
     // falls_into Psg_EmitDivisorTo.
-    pub proc Psg_EmitDivisor () clobbers(a, c, f) preserves(b, de, hl) falls_into Psg_EmitDivisorTo {
+    pub proc Psg_EmitDivisor () clobbers(a, b, c, f) preserves(de, hl) falls_into Psg_EmitDivisorTo {
         push    de                     // save divisor across Psg_ChBase
         call    Psg_ChBase             // a = ch<<5 ($00/$20/$40)
         or      SND_PSG_TONE_LATCH     // a = $80 | (ch<<5)

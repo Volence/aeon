@@ -730,10 +730,10 @@ section z80_sound_driver (cpu: z80) {
     // DacSample_len = 9, computed as index*8 + index.) DacSampleTable is BANKED:
     // hl is a WINDOW address — pure pointer math here (no ROM read), dereferenceable
     // only while the window holds the engine-table bank (the caller's contract).
-    // INBOUND TRUST CONVERSION: sound_sequencer.emp:101 declares
-    // `Snd_DacLookup () out(hl, carry: ok) preserves(ix)` — a conservative subset
-    // of this real closure (it omits the bc,iy preserves), so the conversion is SAFE.
-    pub proc Snd_DacLookup () out(hl, carry: ok) preserves(bc, ix, iy) {
+    // Clobbers a + de (the index/offset math) + f (the id-validity flags and the
+    // final `add hl` carry); hl carries the descriptor pointer result; bc, ix, iy
+    // are untouched.
+    pub proc Snd_DacLookup () out(hl, carry: ok) clobbers(a, de, f) preserves(bc, ix, iy) {
         or      a
         scf
         ret     z                       // id 0 -> bad (carry set)
@@ -785,8 +785,6 @@ section z80_sound_driver (cpu: z80) {
     // This routine NEVER SetBanks (B2: stash-only) and reads no sample payload. It
     // re-parks reg $2A on $4000 and restores de=$4001 at the END. Clobbers
     // af,bc,de,hl. Preserves ix (the sequencer channel loop relies on it) + iy.
-    // INBOUND TRUST CONVERSION: sound_sequencer.emp:100 declares
-    // `Snd_StartSample () preserves(ix)` — a conservative subset (omits iy) -> SAFE.
     pub proc Snd_StartSample () clobbers(af, bc, de, hl) preserves(ix, iy) {
         push    ix                      // preserve the sequencer channel ptr
         push    hl                      // descriptor ptr (we re-read fields below)
@@ -1358,11 +1356,9 @@ section z80_sound_driver (cpu: z80) {
     // SCF_ACTIVE | (SCF_IS_FM for FM1..FM6 / SCF_IS_PSG for PSG1..PSGN / SCF_IS_DAC
     // for the DAC route). (CHROUTE order: FM1..FM6 = 0..5, PSG1..PSGN = 6..9,
     // DAC = 10.) The comparisons use the named CHROUTE_* equates, so the boundaries
-    // track the enum automatically. Clobbers af (out a).
-    // INBOUND TRUST CONVERSION: sound_sfx.emp:85 declares
-    // `Snd_RouteClassFlags () preserves(bc, de, hl, ix)` — a conservative subset
-    // (omits iy + out(a)) of this real closure -> SAFE.
-    pub proc Snd_RouteClassFlags () out(a) preserves(bc, de, hl, ix, iy) {
+    // track the enum automatically. Clobbers f (the two `cp` comparisons); a carries
+    // the class-flags result; bc, de, hl, ix, iy are untouched.
+    pub proc Snd_RouteClassFlags () out(a) clobbers(f) preserves(bc, de, hl, ix, iy) {
         cp      CHROUTE_PSG1            // < PSG1 (6) -> FM route (0..5 incl. FM6)
         jr      c, .fm
         cp      CHROUTE_DAC            // < DAC (10) -> PSG route (6..9)
