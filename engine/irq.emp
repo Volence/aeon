@@ -4,8 +4,12 @@
 // `move.w #$2700,sr` … `move.w (sp)+,sr`) as an ACQUIRED context: the compiler
 // splices both halves and PROVES every path through the body reaches the
 // restore. A caller that exposes SR in its contract declares `preserves(sr)` —
-// the save/restore is the enforcement — and owns the WHY comment at the
-// bracket: atomicity rationales are site facts, not context facts.
+// the save/restore is the enforcement, and the spliced pair satisfies the
+// balance check on its own — and owns the WHY comment at the bracket: atomicity
+// rationales are site facts, not context facts. Every consumer in the tree
+// declares it, so the clause reads as the contract and never as a lint's
+// pressure: `[proc.sr-undeclared]` does NOT charge a consumer for the SR traffic
+// this context splices in, because that traffic is declared HERE.
 //
 // `vblank` is a GRANTED context: the VBlank window cannot be acquired, only
 // entered by the hardware. `grants(vblank)` on an interrupt entry point is a
