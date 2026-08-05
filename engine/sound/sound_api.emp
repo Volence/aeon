@@ -335,16 +335,15 @@ pub proc Sound_PlaySFX (d0: SfxId) preserves(d1/a0) {
 // post are done inside ONE stopZ80/startZ80 bus hold (SR-masked, exactly like
 // Sound_PostByte) so the Z80's once/VBlank consume cannot land between them. Empty ring
 // is a fast no-op.
-// Clobbers: d0/d1/a0. SR (precise contract): the
-//   interrupt MASK is never altered on either path. The empty fast-path
-//   (beq .dr_ret) saves no SR and leaves CCR clobbered (the cmp result) — cheaper,
-//   and harmless to the only caller (GameLoop discards flags). The posting path
-//   saves and restores the FULL SR around the mask. preserves(sr) marks that
-//   posting-path save/restore — the load-bearing reliance: the DMA-window stopZ80
-//   can't nest and corrupt the caller's mask. (S2-D7 CCR-liveness lint is the
-//   deferred enforcement that would make the empty-path CCR clobber a checked fact.)
+// Clobbers: d0/d1/a0, plus the CCR half of SR — `clobbers(sr.ccr)` is the empty
+//   fast-path's cmp result escaping (beq .dr_ret saves no SR: cheaper, and the
+//   only caller, GameLoop, discards flags). `preserves(sr.mask)` is the mask
+//   half's claim on BOTH paths: the posting path round-trips the full SR around
+//   its mask, and the empty path never writes SR at all. What the contract
+//   cannot say: the reliance behind the mask half — the DMA-window stopZ80
+//   can't nest and corrupt the caller's mask.
 // ----------------------------------------------------------------------
-pub proc Sound_DrainSfxRing () clobbers(d0-d1/a0) preserves(sr) {
+pub proc Sound_DrainSfxRing () clobbers(d0-d1/a0/sr.ccr) preserves(sr.mask) {
         moveq   #0, d0                      // d0 is an (a0,d0.w) index below — clear the
                                             // caller's bits 8-15 (same class as the
                                             // Sound_PlaySFX index bug, found 2026-07-03)
