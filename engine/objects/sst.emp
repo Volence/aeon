@@ -1,4 +1,4 @@
-// The spawn-template structs — Sst (the live $52-byte object record) and
+// The spawn-template structs — Sst (the live $50-byte object record) and
 // ObjDef (its compact 26-byte ROM source image). Both are TYPE-ONLY twins:
 // this module emits ZERO bytes (no section, no placement). Sst gives object
 // code typed field access (`Sst.code_addr(a0)`, and bare `code_addr(a0)` on
@@ -10,7 +10,7 @@
 // the gated player/test header equates) reads the same offsets.
 //
 // Sst's field offsets are pinned in-file: every field carries an `@` literal
-// offset and the struct a `(size: $52)` — the layout engine verifies both, so
+// offset and the struct a `(size: $50)` — the layout engine verifies both, so
 // a drifted field fails the module's own lowering. ObjDef is pinned to Sst by
 // the burst-copy ensure-chain (below).
 //
@@ -22,7 +22,7 @@ module engine.objects.sst
 
 use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame}
 
-pub struct Sst (size: $52) {
+pub struct Sst (size: $50) {
     // --- dispatch + position ------------------------------------------------
     // The first word IS the dispatch: the object executor jumps to
     // ObjCodeBase + code_addr each frame (0 = empty slot, the bank's safety
@@ -66,30 +66,34 @@ pub struct Sst (size: $52) {
     entity_list_index: u8 @ $2C,  // $2C — index in section's ROM object list (killed bitmask)
     layer: u8 @ $2D,              // $2D — collision layer select (0 = path A, 1 = path B)
 
-    // --- per-object custom data ----------------------------------------------
-    sst_custom: [u8; 34] @ $2E,   // $2E-$4F — overlay window (`vars X: sst_custom`)
-
-    // --- engine render cache (past the custom window) ------------------------
-    frame_off: u16 @ $50,         // $50 — cached word offset from mappings base to
+    // --- engine render cache (sst-fold, 2026-08-05: moved here from its H1
+    //     bolt-on position at $50, closing the engine block at $00-$2F and
+    //     shrinking the record $52 -> $50) ------------------------------------
+    frame_off: u16 @ $2E,         // $2E — cached word offset from mappings base to
                                   //       current frame data (H1). MUST be refreshed
                                   //       on every mapping_frame/mappings write. The
                                   //       sibling walk does NOT use it: a multisprite
                                   //       child's frame is a function of the PARENT's
                                   //       mapping_frame, so a per-child cache would
                                   //       go stale when the parent animates.
+
+    // --- per-object custom data ----------------------------------------------
+    sst_custom: [u8; 32] @ $30,   // $30-$4F — overlay window (`vars X: sst_custom`);
+                                  //       the tail word $4E-$4F is the engine-owned
+                                  //       SST_interact (30 game-usable bytes)
 }
 
 // SST_interact ($4E): the tail word of the custom window, engine-owned for the
 // TouchResponse lifecycle (the solid that claimed a PLAYER slot this pass) — NOT
-// a Sst struct field, so it can't be reached by field name. NOT `sizeof(Sst) - 2`
-// anymore: the record's tail is now the engine's frame_off cache ($50), so the
-// custom window's tail word is the word immediately BELOW frame_off. The build
-// harvests the same value as the AS SST_interact equ. Spelled as a comptime fn
-// because a bare const in displacement position on a TYPED register is (correctly)
-// closed to the field namespace — the call-expr form is the escape (collision +
-// player_sensors consume it).
+// a Sst struct field, so it can't be reached by field name. Back to
+// `sizeof(Sst) - 2` since the sst-fold (2026-08-05): frame_off moved into the
+// engine block at $2E, so the record's tail IS the custom window's tail word
+// again. The build harvests the same value as the AS SST_interact equ. Spelled
+// as a comptime fn because a bare const in displacement position on a TYPED
+// register is (correctly) closed to the field namespace — the call-expr form is
+// the escape (collision + player_sensors consume it).
 pub comptime fn interact_off() -> int {
-    return offsetof(Sst, frame_off) - 2
+    return sizeof(Sst) - 2
 }
 
 // -----------------------------------------------
