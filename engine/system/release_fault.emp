@@ -29,8 +29,10 @@
 //   * A double bus fault while the CPU pushes its OWN exception frame halts the
 //     68000 outright — which is ALSO acceptably loud (a frozen machine), so the
 //     no-stack posture cannot make the failure quieter.
-// The d0 clobber (VDP status readback) is irrelevant: this proc is TERMINAL, it
-// never returns, so no caller observes any register.
+// The d0 clobber (VDP status readback) and the sr clobber (the terminal mask)
+// are both irrelevant in practice: this proc is TERMINAL, it never returns, so
+// no caller observes any register or the interrupt mask. They are declared
+// because the contract is a statement about the BODY.
 //
 // It deliberately does NOT live in vectors.emp (that file is the fixed org-0
 // image, pure data to $200); it sits near the ROM tail, at the placement slot
@@ -50,10 +52,11 @@ use engine.vdp.{vdp_comm, VdpTarget, VdpOp}
 
 section release_fault (cpu: m68000) {
     // Terminal fault handler — a hardware/vector entry that never returns, so no
-    // caller ever observes a register. The clobber set still declares the d0
-    // write honestly (the contract-closure gate checks the BODY, not reachability
-    // of a return; see the d0 note above).
-    pub proc ReleaseFault () clobbers(d0) {
+    // caller ever observes a register. The clobber set still declares the d0 and
+    // sr writes honestly (the contract-closure gate checks the BODY, not
+    // reachability of a return; see the note above). `sr` is a clobber and never
+    // a preserve: the mask is permanent by design, so nothing restores it.
+    pub proc ReleaseFault () clobbers(d0/sr) {
         move.w  #$2700, sr                  // terminal: mask every interrupt level
         move.w  VDP_CTRL, d0                // read: reset the VDP command state
                                             // machine (the fault may have landed
