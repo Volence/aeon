@@ -114,6 +114,35 @@ guarded range. Use as the review checklist for whatever we build.
 5. Re-measure the `VSync_Wait` idle distribution under the current main loop
    before sizing anything (open question 3 of the reconciliation dossier).
 
+## Idle re-measurement (2026-08-05, answers open decision point 5)
+
+Measured on current master (plain build, sound on, crc `c2d17ee3` — loaded-ROM
+hash verified against the build), oracle profiler, OJZ scroll-test state, NTSC
+128,000-cycle frames. Idle = cycles attributed to `VSync_Wait` (the `.wait`
+spin), averaged over the stated window:
+
+| Scenario | Idle cycles/frame | Idle % | Notes |
+|---|---|---|---|
+| At rest | 95,148 | 74.3% | 120-frame window |
+| Sustained max-H (6 px/frame ground speed) | 86,717 | 67.8% | 120-frame window; `Tile_Cache_Fill` only 6.1% — prefetch campaign tamed pure-H streaming |
+| Diagonal fall (6 px/frame H + up to 16 px/frame V) | 42,496 | 33.2% | 100-frame window incl. some pre-fall run-up; `Tile_Cache_Fill` 36.1% inclusive in these frames |
+
+vs the 2026-06-22 vintage figures (62% max scroll / ~24% worst diagonal): both
+improved, consistent with the prefetch campaign.
+
+**Design consequence for decision point 1 (page size / bookmark):** a 64-tile
+2 KB ZX0 page ≈ 45K cycles does NOT fit the measured worst-window *average*
+frame (42.5K idle), and per-frame minima inside that window are necessarily
+lower. So at 2 KB pages, pure pre-chunking either overruns into lag on
+diagonal-heavy frames or must defer (latency) exactly when streaming demand is
+highest. Live options: (a) 32-tile/1 KB pages (~22.5K cycles — fits the worst
+window with ~2x margin; the spec's planned page-size sweep covers this), or
+(b) the bookmark, whose value concentrates precisely in these frames.
+Caveats: averages hide minima (instrument per-frame during implementation, per
+the spec's DEBUG self-test); the OJZ test scene is object-light — real levels
+with badniks will shave idle further; measurement is emulator (oracle), not
+hardware, per project policy.
+
 ## Consumers and their actual needs (from the reconciliation dossier)
 
 | Consumer | Need |
