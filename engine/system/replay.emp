@@ -24,7 +24,8 @@ use engine.objects.sst.{Sst, interact_off}
 //                      sprite_piece_count                            2 longs
 //            $2A..$2D  slot_tag, entity_section_id,
 //                      entity_list_index, layer                      1 long
-//            $2E..$4D  sst_custom — the PlayerV overlay              8 longs
+//            $30..$4B  sst_custom — the PlayerV overlay              7 longs
+//            $4C..$4D  sst_custom tail — the window's last game word  word fold
 //            $4E..$4F  interact — the engine's TouchResponse claim    word fold
 //
 //   excluded $00 code_addr    ROM address (offset from ObjCodeBase — shifts with
@@ -33,9 +34,12 @@ use engine.objects.sst.{Sst, interact_off}
 //            $1A anim_table   ROM pointer
 //            $26 parent_ptr   RAM pointer (0 for the player — no coverage lost)
 //            $28 sibling_ptr  RAM pointer (0 for the player — no coverage lost)
-//            $50 frame_off    derived render cache — a pure function of
+//            $2E frame_off    derived render cache — a pure function of
 //                             mappings + mapping_frame, and itself a ROM-relative
-//                             offset (excluded before this change too)
+//                             offset (was $50 before the sst-fold, excluded there
+//                             too; the fold moved it inside the engine block, so
+//                             the entity span now ENDS at it and the custom
+//                             window's 30 bytes hash as 7 longs + a word tail)
 //
 // CONTRACT: every field inside a hashed span MUST be address-free. Adding a
 // pointer field to the SST is fine; moving one INTO a span is not. The ensures
@@ -52,14 +56,15 @@ equ HASH_P1_DISPLAY = extern("Player_1") + offsetof(Sst, art_tile)      // $14
 equ HASH_P1_ANIMSUB = extern("Player_1") + offsetof(Sst, anim)          // $18 (word)
 equ HASH_P1_ANIM    = extern("Player_1") + offsetof(Sst, status)        // $1E
 equ HASH_P1_ENTITY  = extern("Player_1") + offsetof(Sst, slot_tag)      // $2A
-equ HASH_P1_CUSTOM  = extern("Player_1") + offsetof(Sst, sst_custom)    // $2E
+equ HASH_P1_CUSTOM  = extern("Player_1") + offsetof(Sst, sst_custom)    // $30
+equ HASH_P1_CUSTOM_TAIL = extern("Player_1") + interact_off() - 2       // $4C (word)
 equ HASH_P1_INTERACT = extern("Player_1") + interact_off()              // $4E (word)
 
 const HASH_P1_MOTION_LONGS  = (offsetof(Sst, render_flags) - offsetof(Sst, x_pos)) / 4
 const HASH_P1_DISPLAY_LONGS = (offsetof(Sst, anim)         - offsetof(Sst, art_tile)) / 4
 const HASH_P1_ANIM_LONGS    = (offsetof(Sst, parent_ptr)   - offsetof(Sst, status)) / 4
-const HASH_P1_ENTITY_LONGS  = (offsetof(Sst, sst_custom)   - offsetof(Sst, slot_tag)) / 4
-const HASH_P1_CUSTOM_LONGS  = (interact_off()              - offsetof(Sst, sst_custom)) / 4
+const HASH_P1_ENTITY_LONGS  = (offsetof(Sst, frame_off)   - offsetof(Sst, slot_tag)) / 4
+const HASH_P1_CUSTOM_LONGS  = (interact_off() - 2          - offsetof(Sst, sst_custom)) / 4
 
 // Excluded-offset pins: a struct reshuffle that moves a pointer field trips one
 // of these by name, so the failure says WHICH pointer moved.
@@ -68,17 +73,17 @@ ensure(offsetof(Sst, mappings)    == $10, "Sst.mappings moved — ROM pointer EX
 ensure(offsetof(Sst, anim_table)  == $1A, "Sst.anim_table moved — ROM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
 ensure(offsetof(Sst, parent_ptr)  == $26, "Sst.parent_ptr moved — RAM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
 ensure(offsetof(Sst, sibling_ptr) == $28, "Sst.sibling_ptr moved — RAM pointer EXCLUDED from Replay_Hash; re-cut the hash map")
-ensure(offsetof(Sst, frame_off)   == $50, "Sst.frame_off moved — derived ROM-relative cache EXCLUDED from Replay_Hash; re-cut the hash map")
+ensure(offsetof(Sst, frame_off)   == $2E, "Sst.frame_off moved — derived ROM-relative cache EXCLUDED from Replay_Hash; re-cut the hash map")
 
 // Span integrity: every span base must be even (move.l/move.w would otherwise
 // address-error), and every long span long-divisible.
 ensure(offsetof(Sst, x_pos) % 2 == 0 && offsetof(Sst, art_tile) % 2 == 0 && offsetof(Sst, status) % 2 == 0 && offsetof(Sst, slot_tag) % 2 == 0 && offsetof(Sst, sst_custom) % 2 == 0, "a Replay_Hash long-span base landed odd — move.l would address-error")
-ensure(offsetof(Sst, render_flags) % 2 == 0 && offsetof(Sst, anim) % 2 == 0 && interact_off() % 2 == 0, "a Replay_Hash word-fold base landed odd — move.w would address-error")
+ensure(offsetof(Sst, render_flags) % 2 == 0 && offsetof(Sst, anim) % 2 == 0 && (interact_off() - 2) % 2 == 0 && interact_off() % 2 == 0, "a Replay_Hash word-fold base landed odd — move.w would address-error")
 ensure((offsetof(Sst, render_flags) - offsetof(Sst, x_pos)) % 4 == 0, "Replay_Hash motion span ($02..render_flags) is no longer long-divisible — re-cut the hash map")
 ensure((offsetof(Sst, anim) - offsetof(Sst, art_tile)) % 4 == 0, "Replay_Hash display span (art_tile..anim) is no longer long-divisible — re-cut the hash map")
 ensure((offsetof(Sst, parent_ptr) - offsetof(Sst, status)) % 4 == 0, "Replay_Hash anim/status span (status..parent_ptr) is no longer long-divisible — re-cut the hash map")
-ensure((offsetof(Sst, sst_custom) - offsetof(Sst, slot_tag)) % 4 == 0, "Replay_Hash entity span (slot_tag..sst_custom) is no longer long-divisible — re-cut the hash map")
-ensure((interact_off() - offsetof(Sst, sst_custom)) % 4 == 0, "Replay_Hash custom span (sst_custom..interact) is no longer long-divisible — re-cut the hash map")
+ensure((offsetof(Sst, frame_off) - offsetof(Sst, slot_tag)) % 4 == 0, "Replay_Hash entity span (slot_tag..frame_off) is no longer long-divisible — re-cut the hash map")
+ensure((interact_off() - 2 - offsetof(Sst, sst_custom)) % 4 == 0, "Replay_Hash custom span (sst_custom..custom_tail) is no longer long-divisible — re-cut the hash map")
 
 // Total accounting: hashed bytes + the 16 deliberately-excluded bytes (code_addr 2
 // + mappings 4 + anim_table 4 + parent_ptr 2 + sibling_ptr 2 + frame_off 2) must be
@@ -86,8 +91,9 @@ ensure((interact_off() - offsetof(Sst, sst_custom)) % 4 == 0, "Replay_Hash custo
 // address-free) or outside every span (then this fails, and the map must be
 // re-cut deliberately) — nothing drifts out of the hash unnoticed.
 const HASH_P1_EXCLUDED_BYTES = 2 + 4 + 4 + 2 + 2 + 2   // code_addr, mappings, anim_table, parent_ptr, sibling_ptr, frame_off
-// (the trailing + 6 = the three word folds: render_flags/collision_resp, anim/subtype, interact)
-const HASH_P1_HASHED_BYTES = (HASH_P1_MOTION_LONGS + HASH_P1_DISPLAY_LONGS + HASH_P1_ANIM_LONGS + HASH_P1_ENTITY_LONGS + HASH_P1_CUSTOM_LONGS) * 4 + 6
+// (the trailing + 8 = the four word folds: render_flags/collision_resp,
+//  anim/subtype, the sst_custom tail word, interact)
+const HASH_P1_HASHED_BYTES = (HASH_P1_MOTION_LONGS + HASH_P1_DISPLAY_LONGS + HASH_P1_ANIM_LONGS + HASH_P1_ENTITY_LONGS + HASH_P1_CUSTOM_LONGS) * 4 + 8
 ensure(HASH_P1_HASHED_BYTES + HASH_P1_EXCLUDED_BYTES == sizeof(Sst),
         "Replay_Hash no longer accounts for every SST byte ({HASH_P1_HASHED_BYTES} hashed + {HASH_P1_EXCLUDED_BYTES} excluded != sizeof(Sst)) — a field was added or moved; re-cut the hash map (and keep it address-free)")
 
@@ -285,6 +291,10 @@ pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
         rol.l   #1, d0
         add.l   d1, d0
         moveq   #0, d1
+        move.w  HASH_P1_CUSTOM_TAIL, d1      // sst_custom tail word ($4C — the 30-byte
+        rol.l   #1, d0                       //   window's non-long remainder, sst-fold)
+        add.l   d1, d0
+        moveq   #0, d1
         move.w  HASH_P1_INTERACT, d1         // interact ($4E — sst.emp's interact_off())
         rol.l   #1, d0
         add.l   d1, d0
@@ -316,7 +326,7 @@ pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
         dc.l    HASH_P1_DISPLAY, HASH_P1_DISPLAY_LONGS  // $14 art_tile, width, height
         dc.l    HASH_P1_ANIM,    HASH_P1_ANIM_LONGS     // $1E status..sprite_piece_count
         dc.l    HASH_P1_ENTITY,  HASH_P1_ENTITY_LONGS   // $2A slot_tag..layer
-        dc.l    HASH_P1_CUSTOM,  HASH_P1_CUSTOM_LONGS   // $2E sst_custom (PlayerV)
+        dc.l    HASH_P1_CUSTOM,  HASH_P1_CUSTOM_LONGS   // $30 sst_custom (PlayerV; the window's tail word folds in .hash_wtail)
         dc.l    Camera_X, 2                  // Camera_X + Camera_Y (contiguous)
         dc.l    Section_Top_Row_Written, 1   // Top + Bottom (contiguous words)
         dc.l    Section_Right_Col_Written, 1 // Right + Left

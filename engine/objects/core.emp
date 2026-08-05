@@ -322,13 +322,13 @@ pub proc DeleteObject (a0: *Sst) clobbers(d0-d1, a1) preserves(d2, a0) {
 
     .clear_slot:
         // Zero all sizeof(Sst) bytes of the SST entry, one long at a time.
-        // sizeof(Sst) = $52 is NOT long-divisible: (sizeof-2)/4 divides exactly
-        // ($50 = 20 longs) and the tail word (frame_off, $50-$51) is cleared
-        // explicitly — the "whole SST zeroed on release" invariant (children.emp
-        // chain contract) must include the H1 cache word.
+        // sizeof(Sst) = $50 is exactly 20 longs since the sst-fold (2026-08-05
+        // — frame_off moved to $2E, so the old explicit tail-word clear and its
+        // not-long-divisible special case are gone). The "whole SST zeroed on
+        // release" invariant (children.emp chain contract) covers the H1 cache
+        // word like every other field.
         moveq   #0, d0
-        clear_longs((sizeof(Sst) - 2) / 4)
-        clr.w   (a0)+                // the $50-$51 tail word (frame_off)
+        clear_longs(sizeof(Sst) / 4)
         movea.l (sp)+, a0            // restore a0 to slot start (parked at entry)
         rts
 }
