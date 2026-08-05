@@ -87,7 +87,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
                 // buffer above, PState_Spindash's .rev sees it empty and won't fire for this
                 // press, so play it here. (Subsequent taps fire .rev in player_spindash.asm.)
                 // Sound_PlaySFX preserves a0/a4; only d0 is clobbered (reloaded below).
-                move.b  #SFXID_SPINDASH, d0
+                move.b  #SFXID_SPINDASH, d0 as SfxId
                 jbsr    Sound_PlaySFX
         }
         moveq   #PSTATE_SPINDASH, d0
@@ -159,7 +159,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         moveq   #PSTATE_ROLL, d0
         jbsr    Player_SetState                 // hook curls (+5px y-shift)
         if SOUND_DRIVER_ENABLED == 1 {
-                moveq   #SFXID_ROLL, d0
+                moveq   #SFXID_ROLL, d0 as SfxId
                 jbsr    Sound_PlaySFX
         }
         // fall through — the frame completes below as a roll
@@ -800,7 +800,7 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .no_carry:
         clr.b   Player_JumpBuffer               // consume the buffered press
         if SOUND_DRIVER_ENABLED == 1 {
-                moveq   #SFXID_JUMP, d0
+                moveq   #SFXID_JUMP, d0 as SfxId
                 jbsr    Sound_PlaySFX
         }
         move.w  PPHYS_JUMP_FORCE(a4), d2
