@@ -239,16 +239,13 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
     .no_pal:
         tst.b   Sprite_Table_Dirty              // (Sprite_Table_Dirty).w
         beq     .no_spr
+        tst.b   Sprite_Emit_Active              // NEW-3: a drop-retained dirty +
+        bne     .no_spr                         //   mid-emit buffer = torn ship;
+                                                //   keep dirty armed, retry next
+                                                //   VBlank (worst case one extra
+                                                //   stale-SAT frame, on a lag frame)
         queue_static_dma(Static_Sprite_DMA)
-        bcs     .no_spr                         // dropped -> leave flag set
-                                                // (retry note: a drop leaves dirty
-                                                // armed; if IRQ6 then lands mid-
-                                                // Render_Sprites on a lag frame the
-                                                // PREVIOUS length ships with a mid-
-                                                // emit buffer — pre-existing torn-
-                                                // ship class; post-H3 the short-
-                                                // length variant can also reference
-                                                // un-shipped entries for one frame)
+        bcs     .no_spr                         // dropped -> leave flag set for retry
         clr.b   Sprite_Table_Dirty              // enqueued -> clear
     .no_spr:
         // §4.6: enqueue HScroll DMA when a parallax_config is active.

@@ -423,7 +423,9 @@ pub const MAX_ACT_SECTIONS  = 48        // flat id = sec_y*grid_w + sec_x; build
 // -----------------------------------------------
 // Plane-update ring buffer.
 // -----------------------------------------------
-pub const PLANE_BUFFER_SIZE = 1536      // bytes (~22 column entries per frame)
+pub const PLANE_BUFFER_SIZE = 1536      // bytes (~11 FG column entries per frame; a BG
+                                        // column entry is 132 B since the NEW-5 64-row
+                                        // widening — worst realistic frame ~800 B)
 
 // -----------------------------------------------
 // 2D tile-cache collision geometry + 16x16 block format (§4.7). The COLL_* /

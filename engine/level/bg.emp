@@ -24,21 +24,15 @@
 // run. The row-major intermediate ojz_strip_gen.py emits is ALWAYS overwritten
 // by the injector, so it never reaches the engine.
 //
-// RUNTIME 32-ROW LIMIT — do NOT trust the 512px headroom the shape advertises.
-// BG_Init below is the ONLY writer that fills all 64 nametable rows. Every
-// runtime maintainer of Plane B tops out at 32:
-//   * Section_RedrawPlanes (section.emp) — Plane B blit writes rows 0..31 of
-//     all 64 columns (16 move.l per column, autoinc $80), skipping each
-//     column's rows 32..63.
-//   * Draw_BG_TileColumn (plane_buffer.emp) — 32-word column strips
-//     (header $8000|31), reading the first 32 of the column's 64 contiguous rows.
-// So rows 32-63 are INIT-ONLY: whatever BG_Init lays down there is never
-// refreshed, and a per-section redraw or a streamed column silently reverts
-// the top 32 rows to a 32-row world while the bottom 32 keep stale init
-// content. That is invisible today only because the injector zero-pads to
-// 64 rows (rows 32-63 are blank, so "stale" == "blank"). Any BG art that
-// actually uses rows 32-63 needs the runtime maintainers widened to 64
-// rows FIRST — the 512px vertical headroom is not live yet.
+// ALL 64 ROWS ARE LIVE (NEW-5 close, 2026-08-05). Both runtime maintainers
+// of Plane B now cover the full plane — Section_RedrawPlanes blits 32 move.l
+// per column (rows 0..63) and Draw_BG_TileColumn emits 64-word strips
+// (header $8000|63) — matching BG_Init below. The old 32-row maintainer limit
+// silently half-reverted any BG art above row 31 on a redraw; that was NOT
+// hypothetical: the shipped OJZ override carries real art in rows 32-63, and
+// the full-plane vscroll wrap (v_factor_bg with a 512px plane) puts those
+// rows on screen, including at spawn. The 512px vertical headroom the shape
+// advertises is therefore real, in every writer.
 // Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes
 //   (mirrors S4LZ blob shape so engine can read length without a separate field).
 // Decision rationale: docs/research/per-section-background.md (Q4 + Q5).
@@ -108,8 +102,11 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         // zero: lengths 1,2,3 all lsr#2 -> 0 -> `beq` skips BEFORE the subq, so the
         // underflow is unreachable. Lengths >= 4 copy floor(len/4) longwords and
         // drop the sub-longword tail (len 5 -> 1 longword + 1 dropped byte). Real
-        // blobs are 32-byte granular (inject_editor_bg.py asserts len%4==0), so the
-        // drop never fires in practice — it is the last line of defense.
+        // blobs are 32-byte granular, and BOTH producers now assert len%4==0 —
+        // ojz_strip_gen.py (the unconditional emitter; assert added NEW-4
+        // 2026-08-05 — the old comment here credited only the injector, which
+        // runs solely when an editor override exists) and inject_editor_bg.py
+        // — so the drop never fires in practice; it is the last line of defense.
         //
         // Both counter ops sit ABOVE the z80_stopped bracket on purpose:
         // .skip_tiles is past the bracket's release, so a guard branch taken from

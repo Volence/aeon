@@ -15,14 +15,15 @@
 module games.sonic4.test_churn in test_churn
 
 use engine.objects.sst.{Sst}
-use engine.constants.{COLLISION_TOUCH, RF_PRIORITY_SHIFT}
+use engine.constants.{COLLISION_TOUCH, RF_PRIORITY_SHIFT, RF_PRIORITY_MASK}
 use engine.objects.objdef.{vram_art}
 use games.sonic4.constants.{VRAM_TEST_OBJ}
 use games.sonic4.test_helpers.{test_obj_prolog}
 
 // The spliced test_obj_prolog body resolves vram_art, VRAM_TEST_OBJ, and
-// RF_PRIORITY_SHIFT in THIS module's scope (a comptime fn body resolves its free
-// names at the splice site), so those imports stay here.
+// RF_PRIORITY_SHIFT/RF_PRIORITY_MASK (via its set_priority_band splice) in THIS
+// module's scope (a comptime fn body resolves its free names at the splice
+// site), so those imports stay here.
 
 const CHURN_MIN_LIFE = 4                // shortest lifetime (frames)
 const CHURN_SPREAD   = 8                // lifetime stagger range (power of two)

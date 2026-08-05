@@ -5,8 +5,8 @@
 // splice-site scope, so consumers keep the imports the spliced code reaches).
 module games.sonic4.test_helpers
 
-use engine.objects.sst.{Sst}
-use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT}
+use engine.objects.sst.{Sst, set_priority_band}
+use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, RF_PRIORITY_MASK}
 use engine.objects.objdef.{vram_art}
 use games.sonic4.constants.{VRAM_TEST_OBJ}
 
@@ -29,7 +29,7 @@ pub comptime fn test_obj_prolog(prio: int where 0..7, w: int, h: int, coordmode:
                 move.w  #vram_art(VRAM_TEST_OBJ), art_tile(a0)
                 move.b  #{frame}, mapping_frame(a0)
                 jbsr    RefreshSpritePieceCount         // mappings + mapping_frame written → re-cache
-                ori.b   #{prio << RF_PRIORITY_SHIFT}, render_flags(a0)
+        } ++ set_priority_band(prio) ++ asm {           // C1c: clear-then-set, never bare ori
                 move.b  #{w}, width_pixels(a0)
                 move.b  #{h}, height_pixels(a0)
         }

@@ -9,25 +9,37 @@
 //     children overwrites that link and orphans every sibling behind it.
 //     ONE LEVEL of nesting only. ASSERT COVERAGE IS DELIBERATELY PARTIAL:
 //     the DEBUG rail rides CreateChild_Normal (the only chaining creator with
-//     call sites) and CreateChild_Linked (its own childless-parent
-//     constraint); Complex and FlipAware carry the constraint in their
+//     call sites) and CreateChild_Linked (whose splice would otherwise thread
+//     a run into the grandparent's chain); Complex and FlipAware carry the constraint in their
 //     headers ONLY. Chosen, not overlooked — an assert on a zero-caller proc
 //     can never fire, while its message blob costs debug bytes that are not
 //     free at the system level (past a threshold they push engine symbols
 //     across $8000 and relocate the whole debug object bank). When either
 //     creator gains a caller, it gains the assert in the same change.
+//   * The cascade is MECHANISM, not caller discipline (C1b, 2026-08-05):
+//     DeleteObject itself front-guards on `parent_ptr`/`sibling_ptr` and runs
+//     DeleteChildren on a dying parent, so no delete path can strand children
+//     holding a stale parent_ptr into a recycled slot. DeleteChildren's only
+//     caller is DeleteObject; do not add caller-side cascades — they are
+//     redundant (the walk re-entered from the cascade exits on the cleared
+//     head in a few cycles, but the call is noise the mechanism exists to
+//     delete).
 //   * `DeleteChildren` is therefore NOT recursive by contract, not by
 //     omission: a child cannot have children, so there is nothing to recurse
-//     into. It also leaves each deleted child's `parent_ptr` alone — the slot
-//     is zeroed wholesale by DeleteObject, so the stale value is unreachable.
-//   * A chain member may NEVER be released except through DeleteChildren.
-//     Termination below relies on a freshly allocated slot's `sibling_ptr`
-//     being zero, which is necessary but NOT sufficient: if a linked child
-//     frees itself with DeleteObject, the parent keeps a stale head, the LIFO
-//     free stack can hand that very slot back to the parent's NEXT spawn, and
-//     the prepend then writes `sibling_ptr(C) = C` — a self-loop that makes
+//     into (each cascaded child's own DeleteObject re-entry exits on its set
+//     `parent_ptr` before touching its next-sibling link). It also leaves
+//     each deleted child's `parent_ptr` alone — the slot is zeroed wholesale
+//     by DeleteObject, so the stale value is unreachable.
+//   * A chain member may NEVER release ITSELF. Termination below relies on a
+//     freshly allocated slot's `sibling_ptr` being zero, which is necessary
+//     but NOT sufficient: if a linked child frees itself with DeleteObject
+//     (legal for the slot, fatal for the chain — the child's parent_ptr guard
+//     means no unlink happens), the parent keeps a stale head, the LIFO free
+//     stack can hand that very slot back to the parent's NEXT spawn, and the
+//     prepend then writes `sibling_ptr(C) = C` — a self-loop that makes
 //     Render_Sprites' sibling walk spin forever and DeleteChildren free the
-//     same slot twice. Unlink first, or delete the whole chain.
+//     same slot twice. Delete the parent (the cascade frees the chain), or
+//     unlink first.
 //   * Chain SHAPE differs by creator, deliberately: Normal/Complex/FlipAware
 //     PREPEND (each new child points at the old head, so the parent always
 //     points at the NEWEST child), while Linked APPENDS (each child points at
@@ -39,7 +51,7 @@
 
 module engine.objects.children in children
 
-use engine.constants.{RF_COORDMODE, RF_XFLIP}
+use engine.constants.{RF_COORDMODE, RF_XFLIP, RF_PRIORITY_MASK}
 use engine.coords.{pixels_to_coord}
 use engine.objects.frames.{refresh_piece_count}
 use engine.objects.sst.{Sst}
@@ -49,17 +61,15 @@ use engine.types.{ObjRoutine}
 // six creators state the POLICY rather than re-deriving the mask, and so the
 // omission list below has a single home.
 //
-// THE PRIORITY BAND IS NOT IN THIS MASK, and that is a correctness constraint,
-// not an oversight. A band is a 3-bit VALUE in bits 5-7, while this inherit
-// composes with `or`, and the engine-wide child-side idiom for setting one is
-// `ori.b #N<<RF_PRIORITY_SHIFT` — which also ors, on the assumption that the
-// field is zero. Or-ing an inherited band with the child's own therefore
-// yields their bitwise UNION, not the child's choice: a band-5 parent
-// (test_emitter) spawning a band-6 child (test_particle) produces band 7.
-// Inheriting a band correctly needs either a clear-then-set idiom on the child
-// side (game-wide convention change) or a mechanism that runs before child
-// init without being overwritten by it — ruled elsewhere, ledgered here.
-const CHILD_INHERITED_FLAGS = (1 << RF_COORDMODE)
+// THE PRIORITY BAND IS IN THIS MASK (C1c ruling, 2026-08-05 — the old ledger
+// here refused it while the child-side idiom was a bare
+// `ori.b #N<<RF_PRIORITY_SHIFT`, whose or over an inherited band yields the
+// bitwise UNION: band-5 parent + band-6 child = band 7). The creator-side
+// copy needs no idiom change — it ors onto a freshly zeroed slot, so it is
+// exact. The child-side idiom is set_priority_band (sst.emp), clear-then-set;
+// a child WITHOUT its own band call now renders at its parent's band instead
+// of band 0.
+const CHILD_INHERITED_FLAGS = (1 << RF_COORDMODE) | RF_PRIORITY_MASK
 
 // SpawnDesc — the shared 4-byte spawn descriptor record that CreateChild_Normal
 // and CreateEffect_Normal both walk. The seam reads these records until a zero
@@ -416,12 +426,13 @@ pub proc CreateChild_FlipAware (a0: *Sst, a1: *u8) clobbers(d0-d4/a1-a2) {
 // -----------------------------------------------
 // CreateChild_Linked — spawn a chain of identical children
 //
-// CONSTRAINT: the parent must be CHILDLESS. This creator APPENDS, so it
-// overwrites the parent's chain head with its first child; any children the
-// parent already had are orphaned — they stay allocated and running, and
-// NOTHING ever frees them: entity-window despawn calls DeleteObject on the
-// parent alone, and it skips SLOT_TAG_UNTAGGED slots, which is exactly what
-// every child is. The leak is permanent for the level. Asserted in DEBUG.
+// A pre-existing chain is SPLICED, not orphaned (C1d, 2026-08-05): the old
+// head is parked at entry and the appended run's tail points at it on every
+// exit, so the parent's chain reads first-appended .. last-appended ..
+// old-chain. The old CONSTRAINT ("the parent must be CHILDLESS") and its
+// DEBUG assert are gone — the splice covers both the repeat-call case and the
+// mid-run alloc-fail case (which used to lose the head even for a childless
+// parent). The parent-may-not-be-a-child rail remains.
 //
 // In:  a0 = parent SST
 //      d0.w = child code_addr (objroutine value)
@@ -436,19 +447,21 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: i8, d3: i8) 
         if DEBUG == 1 {
         move.w  Sst.parent_ptr(a0), d4
         assert.w d4, eq, #0             // chain contract: a parent may not itself be
-                                        // a linked child. The sibling_ptr test below
-                                        // does NOT imply this one — the TAIL child of
-                                        // a grandparent has sibling_ptr == 0 and would
-                                        // pass it while splicing its children into the
-                                        // grandparent's chain.
-        move.w  Sst.sibling_ptr(a0), d4
-        assert.w d4, eq, #0             // this creator APPENDS over the chain head:
-                                        // a pre-existing chain would be orphaned
+                                        // a linked child — a linked child's
+                                        // sibling_ptr is its next-sibling link, and
+                                        // parking it as "the old head" below would
+                                        // splice this run into the grandparent's
+                                        // chain. (The old childless-parent assert is
+                                        // GONE — C1d: a pre-existing chain is now
+                                        // spliced, not orphaned.)
         }
         subq.w  #1, d1                  // adjust for dbf
         bmi     .done
         move.w  d0, d4                  // d4 = code_addr, parked (d0 is the alloc's scratch)
-        move.w  d1, d5                  // d5 = dbf counter
+        move.w  Sst.sibling_ptr(a0), d5 // old chain head, parked in d5's HIGH word —
+        swap    d5                      //   the appended run's tail splices onto it
+                                        //   at exit (dbf touches only the low word)
+        move.w  d1, d5                  // d5.w = dbf counter
         moveq   #0, d1                  // d1 = previous child addr
 
         // Start position = parent position
@@ -509,17 +522,28 @@ pub proc CreateChild_Linked (a0: *Sst, d0: ObjRoutine, d1: u16, d2: i8, d3: i8) 
         jbsr    PopulateSpawnedPieceCount
 
         dbf     d5, .spawn_loop
+    .link_fail:                         // full run falls in; a mid-run alloc fail
+                                        //   branches here — both exits splice
         addq.w  #8, sp                  // clean running position from stack
+        swap    d5                      // recover the parked old head
+        tst.w   d1                      // nothing spawned -> head never overwritten,
+        beq     .done                   //   old chain intact (first-alloc-fail path)
+        movea.w d1, a1                  // a1 = last appended child (the run's tail)
+        move.w  d5, Sst.sibling_ptr(a1) // splice: tail -> old head. Childless parent:
+                                        //   rewrites the 0 already there. This also
+                                        //   fixes the PARTIAL-RUN orphan the old code
+                                        //   had even under its childless constraint —
+                                        //   a mid-run alloc fail used to lose the head
     .done:
-        rts
-
-    .link_fail:
-        addq.w  #8, sp                  // clean running position
         rts
 }
 
 // -----------------------------------------------
 // DeleteChildren — walk sibling chain from parent and delete each child
+//
+// SOLE CALLER: DeleteObject's cascade front-guard (C1b mechanism). Kept a
+// separate proc, not folded in, because DeleteObject parks d2 around exactly
+// this call to keep its own license at d0-d1/a1.
 //
 // In:  a0 = parent SST
 // Out: parent's sibling_ptr cleared; each child's slot released whole (its

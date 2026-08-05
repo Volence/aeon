@@ -3159,7 +3159,8 @@ The existing refusal is sound *for the current idiom* (`CHILD_INHERITED_FLAGS` c
 therefore not "add the band to the inherit mask" — it is a **clear-then-set** idiom: mask
 the band bits out of the child's render flags, then OR the parent's band in. This is a
 convention change affecting every child-creation site, so it lands as a single templated
-change rather than nine hand-edits. Tracked in the defect batch.
+change rather than nine hand-edits. **EXECUTED 2026-08-05** (`parcel/defect-batch-8`):
+`set_priority_band` comptime template in sst.emp + CHILD_INHERITED_FLAGS gains the band.
 
 ### Object-test scene — GATE DEBUG-ONLY
 
@@ -3188,3 +3189,40 @@ covered by the replay net, so the payload is ready and tested. What is missing i
 to *enter* a code: classic codes live on a title or level-select screen, and screens are
 design #7 (banked, unexecuted). Inventing an in-gameplay button sequence now would be
 throwaway work replaced when #7 lands. Pick this up as part of #7.
+
+---
+
+## Ledgered by the 2026-08-05 defect batch (`parcel/defect-batch-8`)
+
+### `vdp_stride80` declared context — DEFERRED, with the dead ends pinned
+
+Defect NEW-1 (VInt_Lag trusting the unasserted "autoinc = $02 on exit" ambient) was closed
+with the unconditional runtime re-assert (`move.w #$8F02, VDP_CTRL` at the Critical drain
+head — 8 bytes, 20 cycles, lag frames only). The STRUCTURAL close — a declared context whose
+release half restores `$8F02` — was evaluated and rejected as disproportionate. Pin the
+reasons so the next session does not re-walk them:
+
+- Contexts prove bracket PAIRING, not register VALUES. VDP control-port write-sequence
+  tracking is an explicit spec exclusion (sigil contract-unification spec §3/§9, the S2-D7
+  exclusion). Nothing forces a raw `#$8F80` write into a bracket — there is no inferred VDP
+  net analogous to the Z80 `[bus.*]` tier.
+- An IRQ is not a CFG edge: a correctly bracketed writer running UNMASKED in the main loop
+  when VInt_Lag fires is the real residual failure mode, and `requires(...)` (proc-level,
+  conjunctive) cannot spell "only under ints_off OR vblank" at bracket granularity.
+- Full closure needs two sigil checker extensions (context-level any-of requires; an
+  immediate-$8F-outside-bracket lint) — both emission-neutral, but two new checker semantics
+  plus a byte-changing hot-loop adoption to protect one 8-byte invariant.
+
+REVISIT only if a second stride-switching writer ever appears outside the current three
+files (plane_buffer / bg / section — full 9-site inventory in the defect-batch scoping
+notes). The runtime re-assert stays correct regardless.
+
+### `Palette_Dirty` drop-retained analog — RECORDED, not fixed
+
+The NEW-3 class (a Critical-queue drop retains a dirty flag; IRQ6 then ships a stale
+snapshot against a mid-write buffer) exists in principle for `Palette_Dirty` + the palette
+buffer: a drop-retained line bit + IRQ6 landing mid-palette-buffer-write ships a torn line.
+Narrower than the sprite case (per-line bits, 32-byte lines, no length field to skew, and
+palette writers are fade steps — not a per-frame emit loop), so it was left out of the
+sprite fix deliberately. If palette corruption during a fade under heavy Critical-queue
+pressure is ever reported, this is the mechanism; the fix shape is the same emit bracket.

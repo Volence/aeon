@@ -199,7 +199,9 @@ pub proc AnimateSprite (a0: *Sst) clobbers(d0-d2/a1-a2) {
         rts
 
     .cc_delete:
-        jbra    DeleteObject            // static tail-call — jmp stays reserved for computed targets
+        jbra    DeleteObject            // static tail-call — jmp stays reserved for computed
+                                        // targets. A scripted parent's chain is safe: the
+                                        // cascade lives inside DeleteObject (C1b mechanism)
 
     // --- Animation event handlers ---
 

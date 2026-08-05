@@ -1,6 +1,7 @@
 // VBlank handler with function pointer dispatch and lag detection (§1.2)
 module engine.vblank in vblank
 
+use engine.constants.{VDP_CTRL}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
 use engine.structs.{DMAEntry}
@@ -213,7 +214,11 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // (nametable corruption, e.g. Plane B fills with ROM/cache bytes) and then
             // resets Plane_Buffer_Ptr=0 under the main loop's feet, cascading into more
             // lag and more torn drains. The palette/sprite enqueues above ARE safe:
-            // they are dirty-FLAG gated (the flag is set only after a complete write).
+            // they are dirty-FLAG gated (the flag is set only after a complete
+            // write), and the sprite ship is additionally Sprite_Emit_Active-gated
+            // (NEW-3) — a DROP-RETAINED dirty flag from a full Critical queue is
+            // set-but-stale, and without the emit bracket this IRQ could ship the
+            // previous length against a mid-emit buffer.
             // The HScroll enqueue is NOT flag-gated (it fires every VBlank) — it is
             // safe by a different, weaker mechanism: the static entry's destination
             // and length are pre-built, so a lag-frame tear corrupts scroll VALUES
@@ -221,6 +226,19 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // never the VDP destination — the garbage-destination write is what makes
             // the Ptr-gated plane buffer dangerous. The plane drain defers to the
             // next complete frame (VInt_Level, VBlank_Ready=1).
+            //
+            // Re-assert autoinc = $02 (NEW-1, 2026-08-05). On a complete frame
+            // VInt_DrawLevel exits $8F02 unconditionally one call before the
+            // drain; on a LAG frame it is skipped (above), so the drain used to
+            // REST on the ambient invariant that every $8F80 writer restores
+            // before yielding — unasserted, and a future writer that returns
+            // without restoring would break Critical DMA on lag frames only, a
+            // nearly untestable failure mode. 20 cycles on lag frames buys the
+            // invariant back unconditionally (declared-contexts can prove
+            // bracket PAIRING but not register VALUES, and an IRQ is not a CFG
+            // edge — the structural close was evaluated and ledgered, see
+            // DEFERRED_WORK).
+            move.w  #$8F02, VDP_CTRL
             jbsr    Process_DMA_Critical
             jbsr    Vscroll_Write           // §4.6 — after Critical DMA
         }

@@ -360,15 +360,18 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
 //      a0   = section def pointer (uses Sec_sec_bg_layout, Act fallback if NULL)
 // Out: none (silently drops if buffer full)
 // Clobbers: d0–d3, a1–a2
-// Note: plane B is 64×32 tiles. Strip = 32 words; header = $8000 | (32-1) = $801F.
-//       Source layout is COLUMN-MAJOR 64×64 — for col N, the 32 words for rows
-//       0..31 are contiguous at byte offset N*128 (column stride = 64 rows *
-//       2 B = 128), so the gather is a sequential move.l run, not a strided read.
+// Note: plane B is 64×64 tiles; the strip covers ALL 64 rows (NEW-5,
+//       2026-08-05 — 32-row strips silently half-reverted BG art above row 31).
+//       Strip = 64 words; header = $8000 | (64-1) = $803F. Source layout is
+//       COLUMN-MAJOR 64×64 — col N's 64 row words are contiguous at byte offset
+//       N*128, so the gather is a sequential move.l run, not a strided read.
+//       ZERO CALLERS TODAY (2026-06-23 audit) — widened so it is correct when
+//       the deferred per-section-BG-swap work wires it.
 // -----------------------------------------------
 pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
-        // -- overflow check (entry size = 4 + 32*2 = 68 bytes) --
+        // -- overflow check (entry size = 4 + 64*2 = 132 bytes) --
         move.w  Plane_Buffer_Ptr, d2
-        addi.w  #4 + 32*2, d2
+        addi.w  #4 + 64*2, d2
         cmpi.w  #PLANE_BUFFER_SIZE - 2, d2
         bhi     .done
 
@@ -393,12 +396,12 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         add.w   d0, d0
         addi.w  #VRAM_PLANE_B_BYTES & $FFFF, d0
         move.w  d0, (a2)+
-        move.w  #PLANE_ENTRY_COL_FLAG | (32 - 1), (a2)+   // column write, 32 words - 1
+        move.w  #PLANE_ENTRY_COL_FLAG | (64 - 1), (a2)+   // column write, 64 words - 1
 
-        // -- copy 32 words (rows 0..31), column-contiguous, paired as move.l:
-        //    16 longwords = 32 words. Source and dest are word-even (even layout
+        // -- copy 64 words (rows 0..63), column-contiguous, paired as move.l:
+        //    32 longwords = 64 words. Source and dest are word-even (even layout
         //    base + 128-byte column stride; even buffer) — all move.l needs. --
-        moveq   #16-1, d3
+        moveq   #32-1, d3
     .copy:
         move.l  (a1)+, (a2)+
         dbf     d3, .copy
@@ -406,7 +409,7 @@ pub proc Draw_BG_TileColumn (d0: u16, d1: u16, a0: *Sec) clobbers(d0-d3/a1-a2) {
         // -- zero terminator + buffer pointer update --
         move.w  #0, (a2)
         move.w  Plane_Buffer_Ptr, d2
-        addi.w  #4 + 32*2, d2
+        addi.w  #4 + 64*2, d2
         move.w  d2, Plane_Buffer_Ptr
 
     .done:
@@ -427,6 +430,11 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
         // reg $0F=$02 (default autoincrement) postcondition: a column entry leaves
         // reg $0F=$80, and a caller (or a prior VBlank step) may leave it non-$02,
         // so the empty path must restore it too — not just the drain path's .done.
+        // The postcondition is engine-wide: every $8F80 writer restores $8F02
+        // before yielding. It is BELT-AND-BRACES since NEW-1 (2026-08-05) —
+        // VInt_Lag re-asserts $8F02 at its Critical drain head, so a lag frame
+        // no longer rests on this convention alone — but keep honoring it; the
+        // complete-frame path (VInt_Level) still does.
         lea     VDP_DATA, a6
         lea     VDP_CTRL_OFF(a6), a5               // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
         tst.w   Plane_Buffer_Ptr
