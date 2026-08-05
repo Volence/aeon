@@ -31,7 +31,7 @@
 // not round-trip declares the SR HALVES instead of the bare token:
 // `preserves(sr.mask)` beside its flag result (the DMA-queue core) or beside
 // `clobbers(sr.ccr)` (Sound_DrainSfxRing's empty fast path) — the partition
-// check then reads the split the prose used to carry alone.
+// check reads the split from the signature.
 //
 // Consumers `use engine.irq.{ints_off}` / `use engine.irq.{vblank}`.
 //
