@@ -24,21 +24,15 @@
 // run. The row-major intermediate ojz_strip_gen.py emits is ALWAYS overwritten
 // by the injector, so it never reaches the engine.
 //
-// RUNTIME 32-ROW LIMIT — do NOT trust the 512px headroom the shape advertises.
-// BG_Init below is the ONLY writer that fills all 64 nametable rows. Every
-// runtime maintainer of Plane B tops out at 32:
-//   * Section_RedrawPlanes (section.emp) — Plane B blit writes rows 0..31 of
-//     all 64 columns (16 move.l per column, autoinc $80), skipping each
-//     column's rows 32..63.
-//   * Draw_BG_TileColumn (plane_buffer.emp) — 32-word column strips
-//     (header $8000|31), reading the first 32 of the column's 64 contiguous rows.
-// So rows 32-63 are INIT-ONLY: whatever BG_Init lays down there is never
-// refreshed, and a per-section redraw or a streamed column silently reverts
-// the top 32 rows to a 32-row world while the bottom 32 keep stale init
-// content. That is invisible today only because the injector zero-pads to
-// 64 rows (rows 32-63 are blank, so "stale" == "blank"). Any BG art that
-// actually uses rows 32-63 needs the runtime maintainers widened to 64
-// rows FIRST — the 512px vertical headroom is not live yet.
+// ALL 64 ROWS ARE LIVE (NEW-5 close, 2026-08-05). Both runtime maintainers
+// of Plane B now cover the full plane — Section_RedrawPlanes blits 32 move.l
+// per column (rows 0..63) and Draw_BG_TileColumn emits 64-word strips
+// (header $8000|63) — matching BG_Init below. The old 32-row maintainer limit
+// silently half-reverted any BG art above row 31 on a redraw; that was NOT
+// hypothetical: the shipped OJZ override carries real art in rows 32-63, and
+// the full-plane vscroll wrap (v_factor_bg with a 512px plane) puts those
+// rows on screen, including at spawn. The 512px vertical headroom the shape
+// advertises is therefore real, in every writer.
 // Tile-blob shape: 2-byte big-endian length header + raw deduped tile bytes
 //   (mirrors S4LZ blob shape so engine can read length without a separate field).
 // Decision rationale: docs/research/per-section-background.md (Q4 + Q5).
