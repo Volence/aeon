@@ -423,11 +423,11 @@ section sound_psg (cpu: z80) {
     // In: ix = PSG tone channel, d = div hi, e = div lo.
     // Falls into Psg_EmitDivisorTo (tail; c = latch base, de = divisor).
     // ------------------------------------------------------------------
-    // Contract: clobbers a, c, f (latch scratch); preserves b, de, hl (de is
-    // push/pop-bracketed across Psg_ChBase, hl via ChBase's contract, b untouched)
-    // + ix (inherited). The `af, bc, de` header over-claims — de and b survive.
+    // Contract: clobbers a, c, f (latch scratch) + b (the tail's data-byte split
+    // writes it, `ld b, a` in Psg_EmitDivisorTo); preserves de (push/pop-bracketed
+    // across Psg_ChBase) + hl (via ChBase's contract) + ix (inherited).
     // falls_into Psg_EmitDivisorTo.
-    pub proc Psg_EmitDivisor () clobbers(a, c, f) preserves(b, de, hl) falls_into Psg_EmitDivisorTo {
+    pub proc Psg_EmitDivisor () clobbers(a, b, c, f) preserves(de, hl) falls_into Psg_EmitDivisorTo {
         push    de                     // save divisor across Psg_ChBase
         call    Psg_ChBase             // a = ch<<5 ($00/$20/$40)
         or      SND_PSG_TONE_LATCH     // a = $80 | (ch<<5)

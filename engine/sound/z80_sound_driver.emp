@@ -730,10 +730,10 @@ section z80_sound_driver (cpu: z80) {
     // DacSample_len = 9, computed as index*8 + index.) DacSampleTable is BANKED:
     // hl is a WINDOW address — pure pointer math here (no ROM read), dereferenceable
     // only while the window holds the engine-table bank (the caller's contract).
-    // INBOUND TRUST CONVERSION: sound_sequencer.emp:101 declares
-    // `Snd_DacLookup () out(hl, carry: ok) preserves(ix)` — a conservative subset
-    // of this real closure (it omits the bc,iy preserves), so the conversion is SAFE.
-    pub proc Snd_DacLookup () out(hl, carry: ok) preserves(bc, ix, iy) {
+    // Clobbers a + de (the index/offset math) + f (the id-validity flags and the
+    // final `add hl` carry); hl carries the descriptor pointer result; bc, ix, iy
+    // are untouched.
+    pub proc Snd_DacLookup () out(hl, carry: ok) clobbers(a, de, f) preserves(bc, ix, iy) {
         or      a
         scf
         ret     z                       // id 0 -> bad (carry set)
