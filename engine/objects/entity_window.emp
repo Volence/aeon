@@ -33,6 +33,13 @@ use engine.coords.{abs_w}
 const COLLECTED_PARK_SLOTS      = 4
 const COLLECTED_PARK_ENTRY_SIZE = 1 + 2*COLLECTED_MASK_BYTES
 
+// The section-mask register d5 is carried across calls that DECLARE clobbers(d5)
+// and restore only its low word (TrySpawnRing's DEBUG no-dup scan, and the three
+// procs it reaches). Every reader tests it with `btst d6, d5`, which on a data
+// register selects bit (d6 mod 32) of the whole LONG — so the half-width restore
+// covers the read only while the bit index stays inside the restored 16 bits.
+ensure(MAX_TRACKED_SECTIONS <= 16, "MAX_TRACKED_SECTIONS > 16 puts `btst d6, d5` past bit 15, into the half of d5 that the DEBUG no-dup scan's move.w restore does not return — widen that save/restore pair to .l before raising this")
+
 // EntityScanState — one scan-state record per tracked section (4 entries in
 // Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
 // gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
@@ -307,9 +314,11 @@ proc Collected_ClaimSlot () clobbers(d1, a1) out(a0) {
 //
 // In:  a0 = window slot being evicted (id byte still stamped)
 // Out: none
-// Clobbers: d0-d1, a1
+// Clobbers: d0-d2, a1 (d2 by the DEBUG duplicate-id scan, which saves and
+//           restores only d2's low word — the declaration charges the whole
+//           register, so callers holding d2.l across the call must save it)
 // -----------------------------------------------
-proc Collected_ParkSlot () clobbers(d0-d1, a1) preserves(a0) {
+proc Collected_ParkSlot () clobbers(d0-d2, a1) preserves(a0) {
         move.l  COLLECTED_BITMASK_OFFSET(a0), d0
         or.l    COLLECTED_BITMASK_OFFSET+4(a0), d0
         or.l    COLLECTED_BITMASK_OFFSET+8(a0), d0
@@ -490,7 +499,10 @@ proc Collected_UpdateCenter () clobbers(d0-d5, a0-a1) {
         bls     .slot_next
 
     .evict:
-        jbsr    Collected_ParkSlot      // preserves a0/d2-d5; clobbers d0-d1/a1 (dead here)
+        jbsr    Collected_ParkSlot      // preserves a0/d3-d5; clobbers d0-d2/a1 —
+                                        // d0-d1 are dead here, and d2 (center_x) is read
+                                        // only through .w ops below, which the DEBUG arm's
+                                        // low-word restore covers
         move.b  #COLLECTED_EMPTY_TAG, (a0)
         clear_slot_bitmasks()
 
@@ -887,7 +899,9 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
         // Trigger-cache gate: each walker cached the engine-X of the next entity
         // entering from the right (or $FFFF at the list end). Skip the call while
         // the right load edge d7 has not reached that X — nothing new can enter.
-        // d7 < cached => skip. ScanRingsRight preserves a1 for the object gate.
+        // d7 < cached => skip. ScanRingsRight preserves a1 for the object gate; it
+        // declares d5 clobbered but restores d5's low word, which is all the
+        // Entity_Window_Active mask tested above needs.
         move.w  EntityScanState.ess_ring_next_x(a1), d0
         cmp.w   d0, d7
         blo     .skip_rings
@@ -923,9 +937,15 @@ pub proc EntityWindow_Scan () clobbers(d0-d7, a0-a4) {
 //      a1 = EntityScanState pointer
 //      d4.w = list index
 // Out: none
-// Clobbers: d0-d2 (d3-d7/a0-a6 preserved; d3/d4/a0 saved internally)
+// Clobbers: d0-d2, d5, a0
+//   d3/d4 are saved internally and contractually preserved; d6/d7 and a1-a6 are
+//   untouched. a0 is restored by the same internal movem but stays DECLARED
+//   clobbered — no caller relies on it, and the wider declaration is the safe
+//   polarity. d5 is written by the DEBUG no-dup scan, whose move.w save/restore
+//   pair round-trips only its LOW WORD, so the declaration charges the whole
+//   register.
 // -----------------------------------------------
-proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4) {
+proc EntityWindow_TrySpawnRing () clobbers(d0-d2, d5, a0) preserves(d3, d4) {
         // Y load band: camY-LOAD_Y .. camY+SCREEN_HEIGHT+LOAD_Y
         move.w  2(a0), d1
         add.w   EntityScanState.ess_origin_y(a1), d1    // engine Y
@@ -972,7 +992,10 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4) {
             // loaded bit would have gated it. This is the shared add site for the
             // X scan, the vertical re-scan AND PopulateSectionRings, so it guards
             // every spawn path. d4/a0 are clobberable (RingBuffer_Add clobbers
-            // both); d5 must survive — push it.
+            // both). d5 is the scan counter here; the move.w save/restore pair
+            // round-trips only its LOW WORD, which is all the callers that read it
+            // as a byte mask need — and why d5 is declared clobbered rather than
+            // preserved.
             move.w  d5, -(sp)
             moveq   #0, d4
             move.b  d2, d4
@@ -1019,9 +1042,9 @@ proc EntityWindow_TrySpawnRing () clobbers(d0-d2, a0) preserves(d3, d4) {
 // In:  a1 = EntityScanState pointer
 //      d7.w = right edge (Camera_X + SCREEN_WIDTH + ENTITY_LOAD_BUFFER)
 // Out: none
-// Clobbers: d0-d4, a0
+// Clobbers: d0-d5, a0 (d5 transitively, via TrySpawnRing's DEBUG no-dup scan)
 // -----------------------------------------------
-proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
+proc EntityWindow_ScanRingsRight () clobbers(d0-d5, a0) {
         move.w  EntityScanState.ess_ring_right_idx(a1), d4
         move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .at_terminator          // null list: no rings ever enter (ratchet unchanged)
@@ -1076,9 +1099,9 @@ proc EntityWindow_ScanRingsRight () clobbers(d0-d4, a0) {
 //
 // In:  a1 = EntityScanState pointer (fully initialized)
 // Out: ring_right_idx set
-// Clobbers: d0-d4, a0, a2
+// Clobbers: d0-d5, a0, a2 (d5 transitively, via TrySpawnRing's DEBUG no-dup scan)
 // -----------------------------------------------
-proc EntityWindow_PopulateSectionRings () clobbers(d0-d4, a0, a2) {
+proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
         move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .pdone
         movea.l d0, a2
@@ -1300,7 +1323,9 @@ proc EntityWindow_RescanY () clobbers(d0-d6, a0-a3) {
         btst    d6, d5
         beq     .entry_next
         lea     (a3), a1
-        jbsr    EntityWindow_RescanRings
+        jbsr    EntityWindow_RescanRings        // declares d5 clobbered; restores d5's
+                                                // low word, which is all the
+                                                // Entity_Window_Active mask needs
         lea     (a3), a1
         jbsr    EntityWindow_RescanObjects
     .entry_next:
@@ -1320,9 +1345,9 @@ proc EntityWindow_RescanY () clobbers(d0-d6, a0-a3) {
 //
 // In:  a1 = EntityScanState pointer
 // Out: none
-// Clobbers: d0-d4, a0
+// Clobbers: d0-d5, a0 (d5 transitively, via TrySpawnRing's DEBUG no-dup scan)
 // -----------------------------------------------
-proc EntityWindow_RescanRings () clobbers(d0-d4, a0) {
+proc EntityWindow_RescanRings () clobbers(d0-d5, a0) {
         move.l  EntityScanState.ess_rom_ring_ptr(a1), d0
         beq     .done
         movea.l d0, a0
@@ -1694,7 +1719,7 @@ proc EntityWindow_Slide () clobbers(d0-d7, a0-a4) {
         dbeq    d1, .old_id_scan
         beq     .populate_next          // id survived the slide — nothing new
         lea     (a3), a1
-        jbsr    EntityWindow_PopulateSectionRings       // clobbers d0-d4/a0/a2 — d6/a3 safe
+        jbsr    EntityWindow_PopulateSectionRings       // clobbers d0-d5/a0/a2 — d6/a3 safe
     .populate_next:
         lea     sizeof(EntityScanState)(a3), a3
         addq.w  #1, d6

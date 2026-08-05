@@ -83,7 +83,7 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.b   Player_JumpBuffer
         addi.w  #SPINDASH_CHARGE_STEP, PlayerV.spindash_charge(a0)
         if SOUND_DRIVER_ENABLED == 1 {
-                move.b  #SFXID_SPINDASH, d0
+                move.b  #SFXID_SPINDASH, d0 as SfxId
                 jbsr    Sound_PlaySFX
         }
         cmpi.w  #SPINDASH_CHARGE_MAX, PlayerV.spindash_charge(a0)
@@ -125,7 +125,7 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #PSTATE_ROLL, d0
         if SOUND_DRIVER_ENABLED == 1 {
                 movem.l d0, -(sp)
-                move.b  #SFXID_DASH, d0
+                move.b  #SFXID_DASH, d0 as SfxId
                 jbsr    Sound_PlaySFX
                 movem.l (sp)+, d0
         }
