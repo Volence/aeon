@@ -18,9 +18,9 @@
 // used as a per-frame cycle proxy).
 module games.sonic4.object_test_state in object_test_state
 
-use engine.objects.sst.{Sst}
-use engine.objects.objdef.{vram_bytes}
-use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS, VDP_HV_COUNTER}
+use engine.objects.sst.{Sst, ObjDef}
+use engine.objects.objdef.{vram_bytes, objdef, vram_art}
+use engine.constants.{NUM_DYNAMIC, NUM_EFFECTS, VDP_HV_COUNTER, COLLISION_HURT}
 use engine.vdp.{VDP_MODE2_OFF}
 use engine.types.{VramTile}
 use engine.coords.{pixels_to_coord}
@@ -28,6 +28,7 @@ use engine.coords.{pixels_to_coord}
 // VRAM_TEST_OBJ — tile 992, test object art (8 tiles). Sole authority is
 // games.sonic4.constants (config/constants.emp).
 use games.sonic4.constants.{VRAM_TEST_OBJ}
+use games.sonic4.ojz_scroll_test.{TEST_ART_LEN}
 
 // STUB_FLOOR_Y — the test player/objects rest height (px). Owned here now (the AS
 // test_player.asm header that once defined it is deleted); this module is its sole
@@ -39,17 +40,11 @@ const STUB_FLOOR_Y = 192
 // engine.constants twin (`use`d above); the comptime const value resolves the
 // absolute EA at .l width.
 
-// The ring blob (512 B) that tails the two 128-byte colour squares in TestArt.
-const RingArt = embed("games/sonic4/test/ring_art.bin")
-const RING_ART_LEN = 512
-// Drift guard on the embedded blob's size (an `ensure` evaluates the embed in a
-// sandbox-rooted context; a proc-body immediate does not, so TEST_ART_LEN below
-// must stay pure-int). RING_ART_LEN feeds the DMA length.
-ensure(RingArt.len == RING_ART_LEN, "games/sonic4/test/ring_art.bin size drifted from RING_ART_LEN")
-// TestArt_End - TestArt = the two 128-byte squares + the ring blob (the DMA
-// length). A pure-int comptime const (link-time immediate arithmetic on a label
-// pair is not an expressible EA).
-const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
+// TestArt + TEST_ART_LEN are ojz_scroll_test-owned since the objtest-gate
+// parcel (2026-08-05): the blob ships in plain (OJZ init DMA + the release
+// debug-fly marker), while THIS module is DEBUG-only — so the DEBUG-only side
+// imports from the always-shipped side, never the reverse. The TestArt label
+// itself resolves cross-module at link.
 
 // -----------------------------------------------
 // GameState_ObjectTest_Init — one-shot setup
@@ -373,40 +368,24 @@ data TestObjectList: [ObjSpawn; 25] = [
 data TestObjectList_Term: u32 = 0
 
 // -----------------------------------------------
-// Test art — two 16x16 colored squares (4 tiles each = 128 bytes each) then the
-// ring blob. TestArt is the DMA source; TestArt_End - TestArt = TEST_ART_LEN.
-// -----------------------------------------------
-// Square 1 — palette 0, color index 1 (solid fill)
-pub data TestArt: [u32; 32] = [
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-        $11111111, $11111111, $11111111, $11111111,
-]
-// Square 2 — palette 0, color index 2
-data TestArt_Square2: [u32; 32] = [
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-        $22222222, $22222222, $22222222, $22222222,
-]
-// Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
-// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
-// (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
-// F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
-// line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
-// DrawRings picks a frame with base + Ring_Anim_Frame×4.
-data TestArt_Ring = RingArt
-
-// -----------------------------------------------
 // Test palette — 16 colors for CRAM line 0. TestArt_End lands here.
 // -----------------------------------------------
 pub data TestPalette: [u8; 32] = embed("art/palettes/sonic.bin")
+
+// -----------------------------------------------
+// Scene-only object definitions (objtest-gate, 2026-08-05: moved here from
+// data/objdefs/test_objects.emp — this scene is their sole consumer, and it is
+// DEBUG-only now; Static/Solid stay in the objdefs module because the shipped
+// OJZ entity data places them). NOTE for level authors: ojz_entity_gen.py maps
+// editor type "enemy" -> ObjDef_Enemy; placing an enemy in shipped level data
+// will fail the PLAIN link against this DEBUG-only record — that failure is
+// the prompt to give enemies a real, shipping objdef.
+// -----------------------------------------------
+const ENEMY_PATROL_SPEED = $100         // patrol x_vel (8.8: 1.0 px/frame) — sole consumer
+
+pub data ObjDef_Enemy: ObjDef = objdef(
+    code: "TestEnemy_Init", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ),
+    priority: 4, x_vel: ENEMY_PATROL_SPEED, width: 16, height: 16, collision: COLLISION_HURT)
+
+pub data ObjDef_Parent: ObjDef = objdef(
+    code: "TestParent", map: "Map_TestObj", art: vram_art(VRAM_TEST_OBJ), priority: 3)
