@@ -5,6 +5,58 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## 🚨 TRIAGE TRAP — A RED SCREEN NO LONGER MEANS BUG-001 — 2026-08-05
+
+**Read this before diagnosing any red-screen report.** `engine/system/release_fault.emp:73`
+writes `move.w #$000E, VDP_DATA` into CRAM[0] and forces the display OFF (`$8134`) before
+halting in `.halt: bra .halt`. `$000E` is **the exact value BUG-001's frozen 2026-06-21
+capture recorded** as its "pure RED backdrop" evidence — and BUG-001's own recommended-next-step
+block said "Watch CRAM line-0 index-0 for the `$000E` write" as its third triage target. That
+recipe is now struck out at the source (see BUG-001 below), but anyone working from the
+screenshot or from memory will still reach for it.
+
+At HEAD, a red screen means **a fatal fault halt in the lean release shape** — a bus/address
+error or an unhandled exception — **not** streaming corruption. The two are trivially told
+apart: the fault halt has the display OFF (whole raster is backdrop, no planes, no sprites,
+frozen), while the BUG-001 symptom kept rendering garbage plane tiles and an INTACT Sonic
+sprite over the red field.
+
+Scope note: `ReleaseFault` is the **lean-profile** path (introduced by `parcel/item29-mddbg-strip`,
+provenance chain 39). The default release shape and every DEBUG build show the MD Debugger
+crash screen instead, so the red halt is specifically a lean-build signature.
+
+---
+
+## BY DESIGN (recorded) — release builds drop an SFX SILENTLY on ring overflow — 2026-08-05
+
+**Not a regression, but it is the one remaining SFX-loss path, and `BUGS.md` still named the
+retired 1-byte mailbox as the loss mechanism.** `sound_api.emp:305-313`: `Sound_PlaySFX`
+computes `nextWr` and, if `nextWr == Rd` (ring full — more than 7 DISTINCT pending ids
+enqueued in one frame before `Sound_DrainSfxRing` runs), branches to `.ps_drop` and **loses
+the newest id**. The `raise_error "Sound_PlaySFX: SFX ring full (>7 in one frame)"` that
+catches it sits inside `if DEBUG == 1`, placed BEFORE the shared drop branch so the plain
+shape stays byte-identical — which means **release loses the SFX with no signal at all**.
+
+Deliberate and documented at the site (a >7-distinct-ids frame is treated as a content bug,
+not a runtime condition). Recorded here so that a future "an SFX didn't play" report is
+triaged against THIS path, not against the mailbox collision that was fixed in 2026-06.
+
+---
+
+## BY DESIGN (recorded) — same-id, same-frame SFX requests COLLAPSE — 2026-08-05
+
+`sound_api.emp:295-297`: before enqueueing, `Sound_PlaySFX` compares the incoming id against
+the **most recent pending entry** (`(Wr-1)&MASK`) and skips on a match ("same id already
+pending -> skip (no double-fire)"). Intentional per the in-code comment, and the right default
+for the spam case. But it means a **legitimate rapid double-fire of one id inside a single
+frame is merged into one**.
+
+Recorded because it presents **identically to BUG-002's "no follow-up noises" symptom class** —
+a user reporting "the second one didn't play" could be hitting this dedup, the release-side
+ring-full drop above, or a genuine defect, and the three are indistinguishable by ear.
+
+---
+
 ## FIXED — odd Z80 blob → boot ADDRESS ERROR — 2026-08-03
 
 **Caused and fixed by the same parcel** (`parcel/wave4-z80-sound-reclaim`), and the most
@@ -33,6 +85,13 @@ it. See the corresponding correction in the review's STATUS section.
 **Fix (`5526113`):** `align 2` inside the `Z80_Sound_Start`/`Z80_Sound_End` brackets plus
 `ensure((Z80_SOUND_SIZE & 1) == 0)` — the padding makes it right and the ensure makes it
 stay right, independent of any future diagnostics tier.
+
+> **⚠️ THE `align 2` IS LOAD-BEARING RIGHT NOW — DO NOT "SIMPLIFY" IT AWAY.** The blobs at
+> HEAD are STILL ODD: `engine/sound/generated/z80_sound_blob.bin` = **5933 bytes**,
+> `z80_sound_blob_debug.bin` = **6059 bytes**. The padding byte is what keeps `a5` aligned
+> into `boot_tail`; remove it and the boot ADDRESS ERROR returns immediately, in both
+> shapes. This is not a historical precaution against a hypothetical future odd blob — the
+> blob is odd today and every day since `5526113`.
 
 **Two false leads recorded so they are not re-walked:** `pins.rs` was stale (regenerated
 with `repin`) but is a gate/record, NOT a placement input — ROM CRCs were byte-identical
@@ -221,6 +280,151 @@ cell names predate the engine/game split — see the dated annotation). If the s
 ever reappears, the replay harness is the capture tool: record at the deterministic
 anchor and the corrupting timeline becomes replayable.
 
+> **⚠️ Single-entry note (2026-08-05):** BUG-001 previously appeared TWICE in this file —
+> this banner, and a second `## BUG-001` heading further down whose status line still read
+> `**Status:** OPEN. **Severity:** high`. That contradiction is resolved: **this banner is
+> the status**, and the 2026-06-21 write-up is folded in below it as history.
+
+> **⚠️ The EMPIRICAL half of this reclassification predates the BG column-major rewrite
+> (2026-08-05).** The 2026-08-02 replay-harness soak ran against the ROW-major BG layout;
+> `7b6f55b` (`parcel/item28-bg-transpose`) then rewrote **the exact plane-write path this
+> bug described** — BG layout to column-major, `Draw_BG_TileColumn` to sequential `move.l`,
+> per-column autoinc-`$80` blits. The **structural** half is unaffected (all three suspects
+> are retired by architecture the transpose did not touch), and the transpose itself was
+> verified framebuffer-byte-identical over 900 frames including max diagonal scroll. But the
+> soak evidence is **as-of the old path**: if this ever needs re-affirming empirically, the
+> stress rounds must be re-run on the current layout, not cited from 2026-08-02.
+
+### Historical record — the original 2026-06-21 write-up (STATUS SUPERSEDED BY THE BANNER ABOVE)
+
+Kept verbatim except where annotated, because the frozen-frame capture is unrepeatable (a
+restart lost it) and because knowing *what was believed and why* is the point of keeping it.
+**Its "Status: OPEN / Severity: high" line is void** — see the disposition above.
+
+**Was:** BUG-001 — Section-streaming rendering corruption (background → garbage tiles + red field)
+
+**Original status line (VOID):** ~~**Status:** OPEN. **Severity:** high (game becomes unplayable in that area).~~
+**Reproducibility:** INTERMITTENT
+— happens "every now and then," often (but not always) right after a spindash. The user could NOT reliably
+re-trigger it, so the live evidence below was captured from a single frozen occurrence (2026-06-21) and is the
+primary record — a restart loses it.
+
+**Screenshot:** `docs/research/bug_streaming_corruption_2026-06-21.png` — the whole background is a RED field
+filled with a repeating grid of garbage tiles; the Sonic **sprite is intact**; the DEBUG HUD reads
+`COL: need layout co…`.
+
+> **Doc note (2026-08-05) — the `COL: need layout co…` HUD indicator NO LONGER EXISTS.** That
+> string appears nowhere in `engine/`, `games/` or `tools/` at HEAD. It was a capture-era debug
+> overlay and is gone; do not go looking for it, and do not treat its absence in a future
+> report as evidence of anything. Read it here purely as 2026-06-21 evidence that the engine
+> of that era self-detected a missing collision layout.
+
+#### Symptom
+The BACKGROUND planes render garbage tiles over a red backdrop. Sprites (player) are unaffected.
+
+> **⚠️ 2026-08-05: "red backdrop" is no longer diagnostic of this bug at all.** See the
+> **TRIAGE TRAP** entry at the top of this file — `ReleaseFault` deliberately paints CRAM[0]
+> `$000E` (the very value captured below) and halts with the display off.
+
+#### NOT a crash, NOT sound
+- 68k `PC = 0x1DD4` — the normal main-loop wait (`Process_DMA_Critical` region). CPU running fine; SR=$2600.
+- The player sprite renders correctly → sprite VRAM + sprite palette are intact. This is a **plane / level-art /
+  backdrop** corruption only.
+- Unrelated to the sound work in this session.
+
+#### Live-emulator evidence (frozen frame, 2026-06-21)
+- **Player** (object list): x=1301 (`$0515`), y=694 (`$02B6`). **Vel 0,0** (stopped). In section **(0,0)**.
+- **Camera_X = `$04770000`, Camera_Y = `$02420000`** (16.16). Cam X=1143 — still inside section 0
+  (`SECTION_SIZE = $0800` = 2048px), so `Sec (0,0)` is CORRECT; this is NOT a section-index mismatch.
+- **`Section_Stream_State` ($FFA8EC): section 0 = `$02` (SS_RESIDENT), section 1 = `$02`, rest `$00` (IDLE).**
+  → the engine believes section 0 (the player's section) is fully loaded.
+- **`Slot_Section_Map` ($FFA8E0): slot0=(0,0) slot1=(1,0) slot2=(0,0) slot3=(0,0).**
+
+> **Doc note (2026-08-02):** the cell names `Section_Stream_State` ($FFA8EC) and `Slot_Section_Map`
+> ($FFA8E0) cited in the two bullets above no longer exist in `engine/ram.emp` — the A.4 art-stream
+> state machine was never landed under those labels (this is confirmed in-code by the comment in
+> `engine/system/replay.emp`). The evidence is left verbatim as the original 2026-06-21 frozen-frame
+> record; the equivalent current section-streaming state lives in the `Section_*` cells
+> (`Section_Plane_Dirty`, `Section_Top_Row_Written` / `Section_Bottom_Row_Written`,
+> `Section_Left_Col_Written` / `Section_Right_Col_Written`, `Section_Fwd_Neighbor_Data` /
+> `Section_Bwd_Neighbor_Data`). Read the two addresses above as "whatever streaming-progress cell
+> occupied that offset at capture time," not as live symbol names. The same reading applies to the
+> rest of this frozen record: capture-era paths (`ram.asm:28` — today `engine/ram.emp`) and the
+> in-record suspect annotations are historical. In particular the `Decomp_Buffer`-aliases-cache
+> "Strong suspect" bullets are SUPERSEDED by the reclassification banner above — the alias is
+> `Art_Staging_Buffer: alias(Tile_Cache_Nametable)` today, init-only/display-off, structurally
+> retired as a suspect.
+>
+> **Extended 2026-08-05:** the same reading now also applies to `Section_Teleport_Guard`
+> ($FFA8E9) in the bullet list below — that symbol is **gone from the tree** along with the rest
+> of the leapfrog subsystem (deleted by continuous scroll, 2026-06-22/23). The 2026-08-02 note
+> above did not reach that far down the list.
+
+- **`Tile_Cache_Nametable` (RAM $FF0000): BLANK — uniform tile-0 entries (`1000 0000` repeating).** The RAM-side
+  section nametable cache holds no real art. (NOTE: `Decomp_Buffer` *aliases* `Tile_Cache_Nametable`,
+  ram.asm:28 — a decompress firing during a streaming event would clobber this cache. Strong suspect.)
+- **VRAM level-art region ($0000+): sparse / incomplete** — mostly zeros with a few stray bytes per tile;
+  the section art is not actually resident in VRAM.
+- **VRAM plane nametable (~$C000): GARBAGE** — random tile indices (`43BE 43F7 B8A7 33BF…`) mixed with
+  repeating blank-tile entries (`00000001`, `00000004`). (Note: VRAM garbage ≠ the RAM cache's uniform blank,
+  so the VRAM may be STALE pre-corruption content the DMA never overwrote — worth confirming the plane base.)
+- **CRAM palette line 0 index 0 = `$000E` (pure RED, R7G0B0); lines 1-3 index 0 = `$0000` (black).** The
+  backdrop entry alone is red → the red field. (Determine: is this a DELIBERATE debug "missing-layout" warning
+  the engine paints, or palette corruption? Lines 1-3 being correct suggests a targeted write, i.e. likely a
+  debug indicator paired with the `COL: need layout` HUD.)
+- **No fill stuck:** `Cache_Fill_Resume_Col` = `$FFFF`, `Cache_Fill_RowResume_Row` = `$FFFF` (both "none
+  pending"). So it is NOT a half-finished/interrupted tile-cache fill.
+- `Section_Plane_Dirty` ($FFA8EA) = `$00` (no full redraw pending). `Section_Teleport_Guard` ($FFA8E9) = `$00`
+  (**symbol no longer exists — see the extended doc note above**).
+- `Section_Top_Row_Written` = `$0002`, `Section_Bottom_Row_Written` = `$003B`. `Lag_Frame_Count` = `$28` (40).
+- HUD overlay: `COL: need layout co…` — the engine itself flagged that the **collision layout for the player's
+  position is not loaded.** (**Indicator removed — see the doc note under Screenshot.**)
+
+#### Diagnosis (as reasoned in 2026-06-21 — superseded, retained for the reasoning)
+**Section-streaming state↔data DESYNC: section 0 is flagged `SS_RESIDENT`, but its art (VRAM tiles + RAM
+nametable cache) and collision LAYOUT are not actually loaded.** The engine even self-detects the missing
+collision (`COL: need layout`). So a streaming event marked the section resident WITHOUT (re)loading its
+art/collision, and the fill/DMA then drew the empty/blank cache → garbage tiles over the red backdrop.
+
+#### Leading suspects (unconfirmed at the time — ALL THREE STRUCTURALLY RETIRED, see the banner)
+1. **Teleport/rebase "pure rebase, no redraw" path** treating the section as already-resident and SKIPPING the
+   art/collision (re)load in an edge case where the data wasn't actually present. (See `engine/level/section.emp`
+   teleport/rebase; memory `project_teleport_rebase` — "teleports are pure rebases, reinit/redraw removed".)
+2. **`Decomp_Buffer` aliases `Tile_Cache_Nametable`** (ram.asm:28). A decompress during the streaming event
+   would overwrite the nametable cache → blank/garbage cache → blank/garbage VRAM after the next fill/DMA.
+3. **Race/timing edge case** — the intermittency + the spindash trigger (fast camera jump stressing the
+   streamer) point to a timing window, not a deterministic path.
+
+#### ~~Recommended next step (its own focused session)~~ — **NEUTRALISED 2026-08-05: DO NOT FOLLOW THIS RECIPE**
+
+> **All three watchpoint targets are dead or actively misleading at HEAD.** This block is kept
+> only so nobody re-derives it from the evidence above and walks the same dead ends:
+>
+> 1. ~~Watch `Section_Stream_State + 0` for a write to `$02`~~ — **the symbol does not exist**
+>    anywhere in the tree. Neither does `Section_Teleport_Guard`. Both belonged to the leapfrog
+>    subsystem, deleted by continuous scroll (2026-06-22/23). There is nothing to set a
+>    watchpoint on.
+> 2. Watch the `Tile_Cache_Nametable` region for a blanking write — **the suspect it was aimed
+>    at is retired**: the alias is `Art_Staging_Buffer: alias(Tile_Cache_Nametable)`, init-only
+>    and display-off. A watchpoint here now traps normal init traffic.
+> 3. ~~Watch CRAM line-0 index-0 for the `$000E` write~~ — **ACTIVELY MISLEADING.** At HEAD the
+>    engine itself writes `$000E` to CRAM[0] deliberately, from `release_fault.emp:73`, as the
+>    fatal-fault backdrop. This watchpoint will fire on the fault halt and tell you nothing about
+>    streaming. See the TRIAGE TRAP entry at the top of this file.
+>
+> **If the symptom ever reappears, the capture tool is the replay harness** (banner above):
+> record at the deterministic anchor and the corrupting timeline becomes replayable — a strictly
+> better instrument than any of the three watchpoints, and the reason this recipe was not
+> rewritten rather than retired.
+
+**Original text (historical):** Reproduce with a **watchpoint** to trap the corrupting moment:
+Watch `Section_Stream_State + 0` (section 0's state byte) for a write to `$02` (resident) and check, at that
+instant, whether the art-load / collision-load actually ran. OR watch the `Tile_Cache_Nametable` region for the
+write that blanks it (catch the aliased decomp clobber). OR watch CRAM line-0 index-0 for the `$000E` write
+(find whether it's the debug warning or corruption). Then trace backward from the trigger (spindash launch →
+camera jump → which section routine fires). This is an **engine/section-streaming** bug — separate from sound.
+Do NOT guess a fix; trace the corrupting write.
+
 ---
 
 ## ✅ RESOLVED — BUG-004 — window-despawned parent leaks its children (gap-ledger row 1599) — FIXED 2026-08-02
@@ -246,8 +450,25 @@ gets weird at the end; spindash press-once-and-release-quick does no follow-up n
 sounds; sometimes random things trigger sounds when they shouldn't — e.g. Sonic in the air triggers the
 jump noise without jumping; a few others I can't reliably trigger."
 
-### Common systemic thread — the 1-byte SFX mailbox (deferred A2)
-The 68k posts SFX to a SINGLE byte (`SND_REQ_SFX` $1F03). **Two SFX in one frame → the second clobbers the
+### ~~Common systemic thread — the 1-byte SFX mailbox (deferred A2)~~ — **SUPERSEDED, FIXED 2026-06-22**
+
+> **⚠️ THIS THREAD IS DEAD. Do not attribute new SFX-loss reports to it.** The 1-byte mailbox
+> was replaced by an **8-deep ring buffer** in `98798d1` (2026-06-22): `engine/ram.emp:460-462`
+> declares `Sfx_Ring_Buf: [u8; 8]` + `Sfx_Ring_Wr` / `Sfx_Ring_Rd`, with
+> `SFX_RING_DEPTH = 8` at `engine/sound/sound_constants.emp:452`. `Sound_PlaySFX` now only
+> ENQUEUES (`sound_api.emp:283-329`); the **sole** writer of `SND_REQ_SFX` is
+> `Sound_DrainSfxRing` (:357/:361, inside one `z80_stopped` hold), which posts at most one id
+> per frame and only when the Z80 has cleared the previous — called once per frame from
+> `game_loop.emp:32`. `DEFERRED_WORK.md:1396` records the A2 runtime verification as
+> **DISCHARGED**.
+>
+> **Date caution:** every sub-item filed under this thread below is dated 2026-06-21 and
+> therefore **predates the fix by one day**. Their root-cause analyses stand on their own
+> evidence; only the "…and the mailbox collision dropped one" *contributing* clause is now
+> void. Today's SFX-loss paths are the two BY-DESIGN entries at the top of this file
+> (release-side ring-full drop, and same-id same-frame dedup).
+
+**Original text (historical):** The 68k posts SFX to a SINGLE byte (`SND_REQ_SFX` $1F03). **Two SFX in one frame → the second clobbers the
 first → one is dropped.** This is the deferred A2 item (DEFERRED_WORK.md). Several symptoms below are this
 collision surfacing in real play. A small ring-buffer mailbox (A2) is the systemic fix; the per-bug fixes
 below remove specific collisions at the source.
@@ -261,7 +482,11 @@ right after the launch + the player roll-jumps without an intentional press; AND
 `$B6` and the spurious jump `$62` both hit the 1-byte mailbox → one drops → "no follow-up noise" on a quick
 spindash. **Fix:** `clr.b (Player_JumpBuffer).w` at the spindash launch (player_spindash.asm `.launch`,
 before `jmp PState_Roll`) — drops the stale charge press; a FRESH press after launch still roll-jumps.
-**Verify when emulator reloaded:** spindash + mash jump + release → no airborne jump chirp; the dash plays.
+~~**Verify when emulator reloaded:**~~ **STALE TO-DO (noted 2026-08-05)** — this line was never struck
+after the fact. Later follow-ups in this same cluster (Items 1+3 follow-up, follow-up #2, follow-up #3,
+BUG-003) are all marked **hardware-verified** on ROMs built after this fix, and the spindash-release path
+was exercised throughout those captures. Repro if you want it: spindash + mash jump + release → no
+airborne jump chirp; the dash plays.
 
 ### Item 1 — roll SFX "lasts too long and gets weird at the end" — **FIXED 2026-06-21**
 **Ruled out** re-trigger-per-frame (roll/skid each fire ONCE). A 73-agent + adversarial-verify root-cause
@@ -310,8 +535,12 @@ as "a second more faint spin noise" on the momentum roll. **Fix:** `Seq_Op_ModSe
 HELD note's `$A4/$A0` with NO `$28` key-on (the vibrato path) — so when the sweep modSet turns off the tail
 snaps to base with no re-key; the transcoder then holds ALL tail passes (dropped `_emit_notedur`'s
 first-after-modSet exception). The +18 Z80 bytes were reclaimed by folding 6 more inline channel-class tests
-into `Snd_ChanClass` (`Z80_SOUND_SIZE` back to `$16EE`, 2 free — *at this fix; post music-expr Task 0 banking +
-Phase 1/3 the live value is now $1618 / 216 B free*). **Verified on hardware:** roll & spindash
+into `Snd_ChanClass` (`Z80_SOUND_SIZE` back to `$16EE`, 2 free — *at this fix. The follow-on
+"$1618 / 216 B free" figure this parenthetical used to carry is STALE (noted 2026-08-05): the
+resident ceiling is `SND_STATE_BASE = $18F0` (`engine/sound/sound_constants.emp:88`), and after
+the wave-4 reclaim the blobs are 5933 / 6059 bytes, i.e. roughly **450 B free plain / 324 B free
+debug**. Treat every size figure in this cluster as as-of-its-own-date; measure the blob, don't
+quote the doc.*). **Verified on hardware:** roll & spindash
 KEY-ON **2→1**, fades still `5→53`/`0→54`, tails held at base — and a regression sweep confirmed skid/ring/
 jump/dash all still sound (no fallout from the PSG-path conversions). The roll/spindash tails are now a single
 clean attack fading smoothly to silence — fully S&K-faithful (one key-on, like S&K).
@@ -328,8 +557,9 @@ carrier. Latent until now because one-shot SFX have constant volume; the fade fi
 `Fm_PatchPtr` returns `sx_patch_base` for SFX channels (`engine/sound_fm.asm`); `Sfx_Restore` passes the
 MUSIC channel so its path is unaffected. The Z80 was at its $16F0 ceiling, so the bytes were reclaimed by
 merging the two SFX gates in `Fm_NoteOnFreq` + factoring the 12-site `push ix/pop hl/ld a,h/cp` channel-class
-test into `Snd_ChanClass` (5 sites converted; `Z80_SOUND_SIZE` now `$16EE`, 2 free — *at this fix; live value
-post music-expr Task 0 banking + Phase 1/3 is $1618 / 216 B free, see DEFERRED_WORK F1/F5*). **Rendered-audio
+test into `Snd_ChanClass` (5 sites converted; `Z80_SOUND_SIZE` now `$16EE`, 2 free — *at this fix; the
+"$1618 / 216 B free" follow-on figure is STALE, see the correction in follow-up #3 above: ceiling is
+`SND_STATE_BASE = $18F0`, post-wave-4 blobs are 5933 / 6059, ≈450 B free plain / 324 B debug*). **Rendered-audio
 verified:** both carriers (`$48`+`$4C` roll, `$49`+`$4D` spindash) now fade `5→53` / `0→54`, and the audio
 RMS decays to `0.02` (fades to silence) — no plateau, no distortion. The roll/spindash tails are now a clean
 held note fading smoothly to silence (S&K-faithful). LESSON: the `$28` count was a proxy; only the rendered
@@ -351,93 +581,13 @@ frequency as the noise clock (or a tone-clock + noise channel split). The fixed-
 *character*; the pitch sweep is the remaining nuance.
 
 ### "A few others" (user can't reliably trigger)
-Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
-ring + skid, jump + ring). Tracked under A2 in DEFERRED_WORK.md; the ring-buffer mailbox resolves the class.
+~~Most likely further instances of the 1-byte-mailbox collision (A2) — any frame that fires two SFX (e.g.
+ring + skid, jump + ring). Tracked under A2 in DEFERRED_WORK.md; the ring-buffer mailbox resolves the class.~~
 
----
-
-## BUG-001 — Section-streaming rendering corruption (background → garbage tiles + red field)
-
-**Status:** OPEN. **Severity:** high (game becomes unplayable in that area). **Reproducibility:** INTERMITTENT
-— happens "every now and then," often (but not always) right after a spindash. The user could NOT reliably
-re-trigger it, so the live evidence below was captured from a single frozen occurrence (2026-06-21) and is the
-primary record — a restart loses it.
-
-**Screenshot:** `docs/research/bug_streaming_corruption_2026-06-21.png` — the whole background is a RED field
-filled with a repeating grid of garbage tiles; the Sonic **sprite is intact**; the DEBUG HUD reads
-`COL: need layout co…`.
-
-### Symptom
-The BACKGROUND planes render garbage tiles over a red backdrop. Sprites (player) are unaffected.
-
-### NOT a crash, NOT sound
-- 68k `PC = 0x1DD4` — the normal main-loop wait (`Process_DMA_Critical` region). CPU running fine; SR=$2600.
-- The player sprite renders correctly → sprite VRAM + sprite palette are intact. This is a **plane / level-art /
-  backdrop** corruption only.
-- Unrelated to the sound work in this session.
-
-### Live-emulator evidence (frozen frame, 2026-06-21)
-- **Player** (object list): x=1301 (`$0515`), y=694 (`$02B6`). **Vel 0,0** (stopped). In section **(0,0)**.
-- **Camera_X = `$04770000`, Camera_Y = `$02420000`** (16.16). Cam X=1143 — still inside section 0
-  (`SECTION_SIZE = $0800` = 2048px), so `Sec (0,0)` is CORRECT; this is NOT a section-index mismatch.
-- **`Section_Stream_State` ($FFA8EC): section 0 = `$02` (SS_RESIDENT), section 1 = `$02`, rest `$00` (IDLE).**
-  → the engine believes section 0 (the player's section) is fully loaded.
-- **`Slot_Section_Map` ($FFA8E0): slot0=(0,0) slot1=(1,0) slot2=(0,0) slot3=(0,0).**
-
-> **Doc note (2026-08-02):** the cell names `Section_Stream_State` ($FFA8EC) and `Slot_Section_Map`
-> ($FFA8E0) cited in the two bullets above no longer exist in `engine/ram.emp` — the A.4 art-stream
-> state machine was never landed under those labels (this is confirmed in-code by the comment in
-> `engine/system/replay.emp`). The evidence is left verbatim as the original 2026-06-21 frozen-frame
-> record; the equivalent current section-streaming state lives in the `Section_*` cells
-> (`Section_Plane_Dirty`, `Section_Top_Row_Written` / `Section_Bottom_Row_Written`,
-> `Section_Left_Col_Written` / `Section_Right_Col_Written`, `Section_Fwd_Neighbor_Data` /
-> `Section_Bwd_Neighbor_Data`). Read the two addresses above as "whatever streaming-progress cell
-> occupied that offset at capture time," not as live symbol names. The same reading applies to the
-> rest of this frozen record: capture-era paths (`ram.asm:28` — today `engine/ram.emp`) and the
-> in-record suspect annotations are historical. In particular the `Decomp_Buffer`-aliases-cache
-> "Strong suspect" bullets are SUPERSEDED by the reclassification banner above — the alias is
-> `Art_Staging_Buffer: alias(Tile_Cache_Nametable)` today, init-only/display-off, structurally
-> retired as a suspect.
-
-- **`Tile_Cache_Nametable` (RAM $FF0000): BLANK — uniform tile-0 entries (`1000 0000` repeating).** The RAM-side
-  section nametable cache holds no real art. (NOTE: `Decomp_Buffer` *aliases* `Tile_Cache_Nametable`,
-  ram.asm:28 — a decompress firing during a streaming event would clobber this cache. Strong suspect.)
-- **VRAM level-art region ($0000+): sparse / incomplete** — mostly zeros with a few stray bytes per tile;
-  the section art is not actually resident in VRAM.
-- **VRAM plane nametable (~$C000): GARBAGE** — random tile indices (`43BE 43F7 B8A7 33BF…`) mixed with
-  repeating blank-tile entries (`00000001`, `00000004`). (Note: VRAM garbage ≠ the RAM cache's uniform blank,
-  so the VRAM may be STALE pre-corruption content the DMA never overwrote — worth confirming the plane base.)
-- **CRAM palette line 0 index 0 = `$000E` (pure RED, R7G0B0); lines 1-3 index 0 = `$0000` (black).** The
-  backdrop entry alone is red → the red field. (Determine: is this a DELIBERATE debug "missing-layout" warning
-  the engine paints, or palette corruption? Lines 1-3 being correct suggests a targeted write, i.e. likely a
-  debug indicator paired with the `COL: need layout` HUD.)
-- **No fill stuck:** `Cache_Fill_Resume_Col` = `$FFFF`, `Cache_Fill_RowResume_Row` = `$FFFF` (both "none
-  pending"). So it is NOT a half-finished/interrupted tile-cache fill.
-- `Section_Plane_Dirty` ($FFA8EA) = `$00` (no full redraw pending). `Section_Teleport_Guard` ($FFA8E9) = `$00`.
-- `Section_Top_Row_Written` = `$0002`, `Section_Bottom_Row_Written` = `$003B`. `Lag_Frame_Count` = `$28` (40).
-- HUD overlay: `COL: need layout co…` — the engine itself flagged that the **collision layout for the player's
-  position is not loaded.**
-
-### Diagnosis
-**Section-streaming state↔data DESYNC: section 0 is flagged `SS_RESIDENT`, but its art (VRAM tiles + RAM
-nametable cache) and collision LAYOUT are not actually loaded.** The engine even self-detects the missing
-collision (`COL: need layout`). So a streaming event marked the section resident WITHOUT (re)loading its
-art/collision, and the fill/DMA then drew the empty/blank cache → garbage tiles over the red backdrop.
-
-### Leading suspects (unconfirmed)
-1. **Teleport/rebase "pure rebase, no redraw" path** treating the section as already-resident and SKIPPING the
-   art/collision (re)load in an edge case where the data wasn't actually present. (See `engine/level/section.emp`
-   teleport/rebase; memory `project_teleport_rebase` — "teleports are pure rebases, reinit/redraw removed".)
-2. **`Decomp_Buffer` aliases `Tile_Cache_Nametable`** (ram.asm:28). A decompress during the streaming event
-   would overwrite the nametable cache → blank/garbage cache → blank/garbage VRAM after the next fill/DMA.
-3. **Race/timing edge case** — the intermittency + the spindash trigger (fast camera jump stressing the
-   streamer) point to a timing window, not a deterministic path.
-
-### Recommended next step (its own focused session)
-Reproduce with a **watchpoint** to trap the corrupting moment:
-- Watch `Section_Stream_State + 0` (section 0's state byte) for a write to `$02` (resident) and check, at that
-  instant, whether the art-load / collision-load actually ran. OR
-- Watch the `Tile_Cache_Nametable` region for the write that blanks it (catch the aliased decomp clobber). OR
-- Watch CRAM line-0 index-0 for the `$000E` write (find whether it's the debug warning or corruption).
-Then trace backward from the trigger (spindash launch → camera jump → which section routine fires).
-This is an **engine/section-streaming** bug — separate from sound. Do NOT guess a fix; trace the corrupting write.
+**SUPERSEDED 2026-08-05.** That attribution is void: the ring-buffer mailbox SHIPPED (`98798d1`,
+2026-06-22, 8 deep) and A2's runtime verification is DISCHARGED (`DEFERRED_WORK.md:1396`) — a frame
+firing two SFX (ring + skid, jump + ring) is exactly what the ring handles, and those pairings were
+exercised throughout the phase's captures. If "a few others" ever becomes reproducible, triage it
+against the paths that are actually live today: the **release-side ring-full drop** (>7 distinct ids
+in one frame, silent outside DEBUG) and the **same-id same-frame dedup** — both recorded as BY-DESIGN
+entries at the top of this file.
