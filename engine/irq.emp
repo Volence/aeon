@@ -27,7 +27,11 @@
 // (Section_RedrawPlanes, BG_Init, Sound_DrainSfxRing). STRUCTURAL exclusion: any
 // bracket with a CCR out-contract can NEVER adopt — the full-SR restore
 // overwrites CCR, so those sites pin their carry AFTER the restore (the
-// DMA-queue core's andi/ori-to-ccr ordering).
+// DMA-queue core's andi/ori-to-ccr ordering). A hand-spelled site whose CCR does
+// not round-trip declares the SR HALVES instead of the bare token:
+// `preserves(sr.mask)` beside its flag result (the DMA-queue core) or beside
+// `clobbers(sr.ccr)` (Sound_DrainSfxRing's empty fast path) — the partition
+// check reads the split from the signature.
 //
 // Consumers `use engine.irq.{ints_off}` / `use engine.irq.{vblank}`.
 //
