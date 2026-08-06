@@ -89,7 +89,7 @@ pub proc Init_DMA_Queue () clobbers(d0-d1/a0) {
 //      QueueDMA_Deferrable's body carries the save/restore the checker verifies;
 //      the two sibling entry points reach the same core through an unconditional
 //      tail transfer, and the mask claim is credited THROUGH that tail (both the
-//      clobbers and the preserves analyses now discharge the shared-core tail).
+//      clobbers and the preserves analyses discharge the shared-core tail).
 // -----------------------------------------------
 pub proc QueueDMA_Critical (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) out(carry: dropped) preserves(sr.mask) {
         lea     DMA_Critical_Slot, a2           // (DMA_Critical_Slot).w

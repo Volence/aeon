@@ -374,12 +374,11 @@ pub proc Sound_DrainSfxRing () clobbers(d0-d1/a0/sr.ccr) preserves(sr.mask) {
 // ----------------------------------------------------------------------
 // Sound_PlayRing — collect-ring SFX with internal L/R alternation. Toggles
 // Ring_Sfx_Speaker each call, posting SFXID_RING_RIGHT or _LEFT.
-// In: none. Clobbers: d0 (tightened from d0/a0). `preserves(a0)` is CHECKED
-//   through the tail: the body never touches a0, and the Sound_PlaySFX
-//   tail-callee preserves it, so a0 holds its entry value on return — the
-//   register credit discharges the tail edge. (d1 is preserved through the
-//   identical argument; left off the contract until a caller needs it.) SR
-//   restored.
+// In: none. Clobbers: d0. `preserves(a0)` is CHECKED through the tail: the
+//   body never touches a0, and the Sound_PlaySFX tail-callee preserves it, so
+//   a0 holds its entry value on return — the register credit discharges the
+//   tail edge. (d1 is preserved through the identical argument; left off the
+//   contract until a caller needs it.)
 // ----------------------------------------------------------------------
 pub proc Sound_PlayRing () clobbers(d0) preserves(a0) {
         move.b  Ring_Sfx_Speaker, d0
