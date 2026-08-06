@@ -68,8 +68,9 @@ comptime fn decompose_block(col: Reg, row: Reg) -> Code {
 // via `mul_const.w #80`. Names the ×80 idiom used by GetTile and FillRow's
 // cache_row_offset (the "form (a)" sites that need a separate scratch reg;
 // CopyBlockColumn's "form (b)" single-temp variant stays inline). Collision lookup
-// carries its own inline copy (engine.collision_lookup). The comptime guard makes a
-// stride drift unrepresentable.
+// spells the same `mul_const.w #80` inline under its own stride guard
+// (engine.collision_lookup) rather than importing this fn. The comptime guard makes
+// a stride drift unrepresentable.
 // dst ends = dst*stride; scratch is trashed.
 comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
     ensure(TILE_CACHE_STRIDE == 80, "mul_cache_stride multiplies by #80; keep TILE_CACHE_STRIDE=80 or the row stride is wrong")
