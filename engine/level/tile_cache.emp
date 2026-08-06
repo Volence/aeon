@@ -64,18 +64,18 @@ comptime fn decompose_block(col: Reg, row: Reg) -> Code {
     }
 }
 
-// mul_cache_stride — multiply a cache row by TILE_CACHE_STRIDE (the row width) via
-// `mul_const.w`. Names the stride idiom used by GetTile and FillRow's
+// mul_cache_stride — multiply a cache row by TILE_CACHE_STRIDE = 80 (the row width)
+// via `mul_const.w #80`. Names the ×80 idiom used by GetTile and FillRow's
 // cache_row_offset (the "form (a)" sites that need a separate scratch reg;
 // CopyBlockColumn's "form (b)" single-temp variant stays inline). Collision lookup
-// spells the same construct inline (engine.collision_lookup) rather than importing
-// this fn. The immediate is the stride CONSTANT, not a literal restating it, so a
-// stride change re-derives the multiply instead of silently disagreeing with it —
-// the failure mode a hand shift chain has no defence against.
+// spells the same `mul_const.w #80` inline under its own stride guard
+// (engine.collision_lookup) rather than importing this fn. The comptime guard makes
+// a stride drift unrepresentable.
 // dst ends = dst*stride; scratch is trashed.
 comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
+    ensure(TILE_CACHE_STRIDE == 80, "mul_cache_stride multiplies by #80; keep TILE_CACHE_STRIDE=80 or the row stride is wrong")
     return asm {
-        mul_const.w {dst}, #TILE_CACHE_STRIDE, {scratch}   // scratch trashed
+        mul_const.w {dst}, #80, {scratch}         // dst × 80 (= TILE_CACHE_STRIDE); scratch trashed
     }
 }
 
