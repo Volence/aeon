@@ -323,7 +323,8 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
         // dest: Tile_Cache_Nametable + (phys_row * stride + cache_col) * 2
         // ×80 = ((x<<2)+x)<<4 — single temp. Stays hand-written: d2 is live
-        // afterwards (:373, :393) and mul_const.w multiplies IN PLACE, so every
+        // afterwards (the wrap-split arithmetic at :341/:352, then the collision
+        // halving at :377) and mul_const.w multiplies IN PLACE, so every
         // construct spelling costs a preload this form does not need.
         move.w  d2, d5
         lsl.w   #2, d5
@@ -373,7 +374,7 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
         // dest plane A: Tile_Cache_Collision + (phys_row/2)*80 + cache_col
         // ×80 stays hand-written for the same reason as the nametable site
-        // above: d2 is live at :393 and the construct multiplies in place.
+        // above: d2 is live at :397/:409 and the construct multiplies in place.
         lsr.w   #1, d2                         // d2 = physical collision row (halved)
         move.w  d2, d5
         lsl.w   #2, d5

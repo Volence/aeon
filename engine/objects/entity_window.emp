@@ -45,7 +45,7 @@ const COLLECTED_PARK_ENTRY_SIZE = 1 + 2*COLLECTED_MASK_BYTES
 ensure(MAX_TRACKED_SECTIONS <= 16, "MAX_TRACKED_SECTIONS > 16 puts `btst d6, d5` past bit 15, into the half of d5 that the DEBUG no-dup scan's move.w restore does not return — widen that save/restore pair to .l before raising this")
 
 // EntityScanState — one scan-state record per tracked section (4 entries in
-// Entity_Scan_State, $16 bytes each). TYPE-ONLY twin: emits zero bytes and
+// Entity_Scan_State, $1A bytes each). TYPE-ONLY twin: emits zero bytes and
 // gives typed `EntityScanState.ess_*(aN)` field access plus `sizeof`/`offsetof`
 // in place of hand-carried displacement consts. This struct is the sole author
 // of its layout: every field carries an `@` literal offset and the struct a
@@ -1614,7 +1614,23 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
 proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
         moveq   #0, d3                  // d3 = new entry index
     .new_loop:
-        // d2.b = new entry d3's section id (entry stride $16: ×22 = ×16+×4+×2)
+        // KNOWN BUG — the stride below is WRONG and this proc mis-migrates.
+        // The chain computes ×22, but sizeof(EntityScanState) is $1A = 26, so
+        // entries 1-3 read section ids at offsets 40/62/84 instead of 44/70/96
+        // — ROM-pointer bytes inside ess_rom_type_tbl_ptr / ess_rom_obj_ptr /
+        // ess_rom_ring_ptr. Reads stay inside the 104-byte array (no crash), and
+        // the byte gate cannot see it because golden and fresh build agree.
+        // Do not "explain" the ×22 as intentional; it was correct only while
+        // the struct was $16. Consequences, both live: an entry whose section
+        // CHANGED had its mask zeroed by EntityWindow_InitSection and then fails
+        // the identity match on a garbage id, so already-spawned entities are
+        // re-treated as unloaded (duplicate spawns); an entry that KEPT its
+        // section can chance-match a garbage byte against an old snapshot id
+        // and have a FOREIGN mask copied over its correct one.
+        // Fix, its A/B and its panel belong to a behaviour parcel of their own —
+        // see the "MigrateMasks strides Entity_Scan_State by 22 where the struct
+        // is 26" row in sigil docs/superpowers/notes/campaign-gap-ledger.md.
+        // d2.b = new entry d3's section id (×22 chain = ×16+×4+×2)
         move.w  d3, d0
         lsl.w   #4, d0
         move.w  d3, d1
