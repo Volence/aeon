@@ -53,6 +53,7 @@ section release_fault (cpu: m68000) {
     // Terminal fault handler — a hardware/vector entry that never returns (see
     // the clobber note above). `sr` is a clobber and never a preserve: the mask
     // is permanent by design, so nothing restores it.
+    @noreturn
     pub proc ReleaseFault () clobbers(d0/sr) {
         move.w  #$2700, sr                  // terminal: mask every interrupt level
         move.w  VDP_CTRL, d0                // read: reset the VDP command state
