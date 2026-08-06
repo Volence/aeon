@@ -25,7 +25,6 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
 //           convention above — set it before every call).
 // -----------------------------------------------
 pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0) {
-        ensure(TILE_CACHE_STRIDE == 80, "Collision_GetType multiplies by #80; keep TILE_CACHE_STRIDE=80 or the collision row stride is wrong")
         lsr.w   #3, d0                      // X pixels → world tile col
         move.w  Cache_Left_Col, d2          // read once: bounds compare + cache-relative
         cmp.w   d2, d0
@@ -59,7 +58,7 @@ pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0)
         subi.w  #TILE_CACHE_COLL_ROWS, d1
     .row_nowrap:
 
-        mul_const.w d1, #80, d2             // d1 = coll_row × TILE_CACHE_STRIDE; d2 trashed
+        mul_const.w d1, #TILE_CACHE_STRIDE, d2   // d1 = coll_row × stride; d2 trashed
         add.w   d0, d1
         // layer plane select: layer B shifts the byte index into the 2nd plane
         tst.b   d3
