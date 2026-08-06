@@ -41,8 +41,10 @@ const DEBUG_FLY_SPEED_FAST = 16         // = base speed for now (camera clamp); 
 // -----------------------------------------------
 // TestPlayer — init routine
 // In:  a0 = SST pointer (slot already allocated)
-// Clobbers: d0-d7, a1-a3 — falls into TestPlayer_Main (its whole set; a0
-//   preserved per the RunObjects loop contract, see TestPlayer_Main).
+// Clobbers: d0-d7, a1-a3 — falls into TestPlayer_Main, whose set this covers. The
+//   extra d7 is the conservative-v1 fact: TestPlayer_Main preserves only d7's LOW
+//   word (`preserves(d7.w)`), and a word-preserving successor is a full clobber to
+//   whoever falls into it, so this proc charges the whole register.
 // -----------------------------------------------
 pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main {
         move.l  #Map_Sonic, mappings(a0)
