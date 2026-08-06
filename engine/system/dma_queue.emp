@@ -249,6 +249,15 @@ ensure(sizeof(DMAEntry) == 14, "the jump-table slot stride is spelled as 14 fixe
 // 576 for all 8 drain groups; ~670 whole-proc worst case with dispatch,
 // slot-var reset, and rts (68000 table timing — VDP FIFO waits can only
 // add to this, never subtract).
+//   @budget(cycles: 670) is the MACHINE-CHECKED ceiling, and the three numbers
+//   MEET: prose ~670 / B′-3b table 670 / walk 670. The `targets(...)` clause
+//   names the PHYSICAL landing labels (.slot_0..8), so the walk charges each
+//   slot's dispatch body before following into its drain. The dearest is slot 8:
+//   movea.w 16 + suba.w 12 + jmp 10 + lea VDP_CTRL 12 + lea DMA_Critical 12 +
+//   drain_8's 576 + slot reset 16 + rts 16 = 670 — the two slot-8 leas the
+//   drain-label spelling would have skipped are now ON the charged path. (Every
+//   relaxable operand is charged its abs.l ceiling; the linker's abs.w widths
+//   for the RAM slot vars make the true worst 662 — @budget holds either way.)
 // In:  none
 // Out: none
 // Clobbers: a1, a5
@@ -257,21 +266,37 @@ ensure(sizeof(DMAEntry) == 14, "the jump-table slot stride is spelled as 14 fixe
 // register write and desync the whole stream (every VInt writer issues
 // paired words; single-word register writes like $8F02 cannot strand it).
 // -----------------------------------------------
+@budget(cycles: 670)
 pub proc Process_DMA_Critical () clobbers(a1/a5) requires(vblank) {
         movea.w DMA_Critical_Slot, a1           // (DMA_Critical_Slot).w
         suba.w  #DMA_Critical, a1               // a1 = byte offset into queue
-        jmp     .jump_table(a1)
+        jmp     .jump_table(a1) targets(.slot_0, .slot_1, .slot_2, .slot_3, .slot_4, .slot_5, .slot_6, .slot_7, .slot_8)
 
+    // The `targets(...)` set names the PHYSICAL landing points — each `.slot_k`
+    // sits at exactly .jump_table + k*sizeof(DMAEntry), the byte the computed jmp
+    // actually reaches — so the cycle walk charges each slot's own dispatch body
+    // (the lea/lea/bra.w, or slot 8's lea/lea fall-in) BEFORE it follows into the
+    // drain. Labels emit zero bytes; the ensure-pinned stride and this label set
+    // say the same thing.
     .jump_table:
+    .slot_0:
         bra.w   .done                           // STRUCTURAL bra.w: slot 0 (queue empty) — the 4-byte head of the sizeof(DMAEntry)-wide slot
         jt_filler()
+    .slot_1:
         jt_slot(.drain_1)                       // 1 entry queued
+    .slot_2:
         jt_slot(.drain_2)
+    .slot_3:
         jt_slot(.drain_3)
+    .slot_4:
         jt_slot(.drain_4)
+    .slot_5:
         jt_slot(.drain_5)
+    .slot_6:
         jt_slot(.drain_6)
+    .slot_7:
         jt_slot(.drain_7)
+    .slot_8:
         lea     VDP_CTRL, a5                    // slot 8 (queue full) falls through into the full drain
         lea     DMA_Critical, a1
     .drain_8:
