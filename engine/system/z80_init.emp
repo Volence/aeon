@@ -55,6 +55,7 @@ section z80_idle (cpu: z80, vma: $0) {
     // and this proc in fact clobbers nearly every Z80 register. An empty
     // `clobbers()` would falsely claim it touches nothing; omitting the clause
     // declares no contract, honest until the rung-2 Z80 model checks it.
+    @noreturn
     pub proc Z80_IdleProgram () {
         xor     a
         ld      bc, Z80_RAM_SIZE - .code_end - 1

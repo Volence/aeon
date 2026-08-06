@@ -131,6 +131,7 @@ section z80_sound_driver (cpu: z80) {
     // two address spaces and collide at the native link. Reached by the Z80 reset,
     // never by symbol. Non-returning: `jp SndDrv_Init` runs the whole driver, so it
     // clobbers everything transitively (the contract is vacuous — no caller returns).
+    @noreturn
     proc Z80_Sound_Entry () clobbers(af, bc, de, hl, ix, iy) {
         jp      SndDrv_Init             // $0000-$0002
     }
@@ -157,6 +158,7 @@ section z80_sound_driver (cpu: z80) {
     // the producer's DRAIN path (gated on the 68k's SND_CTRL_DMA_ACTIVE flag), not
     // the ISR's job. `ei` is issued only AFTER the ring is primed. Falls into the
     // IDLE loop.
+    @noreturn
     pub proc SndDrv_Init () clobbers(af, bc, de, hl, ix, iy) falls_into SndDrv_Idle {
         di
         im      1                       // VBlank /INT -> RST 38h -> $0038
@@ -288,6 +290,7 @@ section z80_sound_driver (cpu: z80) {
     // the SEQUENCER ticks while the DAC is silent (a song whose first DAC trigger
     // is its $E2 needs a tick to run before the DAC starts). On overflow: rearm +
     // tick, then re-check DAC_ACTIVE to enter the streaming loop.
+    @noreturn
     pub proc SndDrv_Idle () clobbers(af, bc, de, hl, ix, iy) {
         di
         ld      a, (SND_STAT_DAC_ACTIVE)
@@ -339,6 +342,7 @@ section z80_sound_driver (cpu: z80) {
     // end to end and the VBlank ISR does not fire during streaming — only the
     // Timer-A tick interrupts it, and that tick spills/reloads these registers
     // itself around Sequencer_Frame. Non-returning loop entry; clobbers broadly.
+    @noreturn
     pub proc SndDrv_Sample () clobbers(af, bc, de, hl, ix, iy) {
         // ENTRY (from SndDrv_Idle once a sample is armed): load the streaming
         // state into REGISTERS, held across every pass. Register map (held all

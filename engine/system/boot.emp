@@ -34,6 +34,7 @@ const PSG_DATA_OFF = PSG_PORT - VDP_DATA
 // NOT make a software re-entry safe on its own; it only removes the second
 // failure mode (see the comment on the lea).
 // -----------------------------------------------
+@noreturn
 pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         // Reload the stack pointer (S2/S3K both do this). On a hardware reset
         // the 68000 has already loaded sp from vector $000, so this is

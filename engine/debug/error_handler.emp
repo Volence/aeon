@@ -127,50 +127,62 @@ pub equ MDDBG__ErrorHandler_ExtraDebuggerList = extern("ErrorHandlerBlob") + $E6
 pub equ MDDBG__Debugger_AddressRegisters = extern("ErrorHandlerBlob") + $E6C
 pub equ MDDBG__Debugger_Backtrace = extern("ErrorHandlerBlob") + $EB8
 
+@noreturn
 pub proc BusError () clobbers() {
     raise_exception "BUS ERROR", address_error
 }
 
+@noreturn
 pub proc AddressError () clobbers() {
     raise_exception "ADDRESS ERROR", address_error
 }
 
+@noreturn
 pub proc IllegalInstr () clobbers() {
     raise_exception "ILLEGAL INSTRUCTION"
 }
 
+@noreturn
 pub proc ZeroDivide () clobbers() {
     raise_exception "ZERO DIVIDE"
 }
 
+@noreturn
 pub proc ChkInstr () clobbers() {
     raise_exception "CHK INSTRUCTION"
 }
 
+@noreturn
 pub proc TrapvInstr () clobbers() {
     raise_exception "TRAPV INSTRUCTION"
 }
 
+@noreturn
 pub proc PrivilegeViol () clobbers() {
     raise_exception "PRIVILEGE VIOLATION"
 }
 
+@noreturn
 pub proc Trace () clobbers() {
     raise_exception "TRACE"
 }
 
+@noreturn
 pub proc Line1010Emu () clobbers() {
     raise_exception "LINE 1010 EMULATOR"
 }
 
+@noreturn
 pub proc Line1111Emu () clobbers() {
     raise_exception "LINE 1111 EMULATOR"
 }
 
+@noreturn
 pub proc ErrorExcept () clobbers() {
     raise_exception "ERROR EXCEPTION"
 }
 
+@noreturn
 pub proc ErrorTrap () clobbers() {
     raise_exception "ERROR TRAP"
 }
@@ -183,6 +195,7 @@ pub proc ErrorTrap () clobbers() {
 // the numeric `ErrorHandler` equ (engine.inc gate-ON arm) that the MDDBG__ table
 // derives off; a same-named .emp export would collide at link. The blob is
 // reached only via the AS-resolved MDDBG__ErrorHandler equ (= this address).
+@noreturn
 pub proc ErrorHandlerBlob () clobbers() {
     dc.l    $46FC2700, $4FEFFFF0, $48E7FFFE, $4EBA0242, $49EF004C, $4E682F08, $47EF0040, $4EBA0124
     dc.l    $41FA02C4, $4EBA0B6C, $225C45D4, $4EBA0C2A, $4EBA0AF2, $49D21C19, $6A025249, $47D10806
