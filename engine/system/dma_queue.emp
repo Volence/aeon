@@ -236,7 +236,7 @@ comptime fn dma_send_entry() -> Code {
 
 // The slot list and drain run below are hand-spelled 8-wide; pin the count so
 // a queue-geometry change fails loud here instead of drifting past the table.
-ensure(DMA_CRITICAL_SLOTS == 8, "Process_DMA_Critical's jump table is spelled for 8 slots — re-derive .jump_table/.drain_* for {DMA_CRITICAL_SLOTS}")
+ensure(DMA_CRITICAL_SLOTS == 8, "Process_DMA_Critical's jump table is spelled for 8 slots — re-derive .jump_table/.drain_* AND the .slot_0..8 landing labels + the jmp's targets(...) list for {DMA_CRITICAL_SLOTS}")
 // jt_slot emits a PHYSICALLY FIXED 14-byte slot (lea.l 6 + lea.w 4 + bra.w 4)
 // while the dispatch index scales with sizeof(DMAEntry) — pin the equality so
 // an entry-layout change cannot silently desync the jmp indexing from the
@@ -254,10 +254,11 @@ ensure(sizeof(DMAEntry) == 14, "the jump-table slot stride is spelled as 14 fixe
 //   names the PHYSICAL landing labels (.slot_0..8), so the walk charges each
 //   slot's dispatch body before following into its drain. The dearest is slot 8:
 //   movea.w 16 + suba.w 12 + jmp 10 + lea VDP_CTRL 12 + lea DMA_Critical 12 +
-//   drain_8's 576 + slot reset 16 + rts 16 = 670 — the two slot-8 leas the
-//   drain-label spelling would have skipped are now ON the charged path. (Every
-//   relaxable operand is charged its abs.l ceiling; the linker's abs.w widths
-//   for the RAM slot vars make the true worst 662 — @budget holds either way.)
+//   drain_8's 576 + slot reset 16 + rts 16 = 670. A downstream-label enumeration
+//   would skip the two slot-8 leas; naming the physical landing labels keeps them
+//   charged. (Every relaxable operand is charged its abs.l ceiling; the linker's
+//   abs.w widths for the RAM slot vars make the true worst 662 — @budget holds
+//   either way.)
 // In:  none
 // Out: none
 // Clobbers: a1, a5
