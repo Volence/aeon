@@ -5,7 +5,7 @@
 
 module engine.section in section
 
-use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES}
+use engine.constants.{SECTION_SIZE_SHIFT, PLANE_H_CELLS, VRAM_PLANE_B_BYTES, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
 use engine.constants.{VRAM_PLANE_A, PLANE_V_CELLS, PLANE_BUFFER_SIZE, VDP_DATA, VDP_CTRL}
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
@@ -120,11 +120,10 @@ pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: Sec
 // In:  d2 = sec_x (GridX), d3 = sec_y (GridY), a2 = Act ptr
 // Out: a0 = Sec ptr; d0 = found flag (Z clear if found, Z set if out of range,
 //      a0 = 0) — a boolean, NOT a SectionId, so d0 is untyped here.
-// Clobbers: d1, d2     (d2 is reused as the multiply counter — sec_x is
-//      stack-saved and restored, so its VALUE survives, but the declared
-//      contract is d2-clobbered: the conditional individual save/restore is not
-//      verifier-recognized as a preserve. Consequence: a caller cannot carry a
-//      typed GridX in d2 across this call — see Section_FlatIDXY's d2.)
+// Clobbers: d1, d2     (the body preserves d2 — sec_x rides through it and the
+//      bounded multiply needs no loop counter — but the declared contract keeps
+//      d2 clobbered so a caller cannot carry a typed GridX in d2 across this
+//      call; the declaration stays uniform with Section_FlatIDXY's d2.)
 // -----------------------------------------------
 pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) out(d0, a0, zero: none) {
         cmp.b   Act_grid_w_lo(a2), d2
@@ -132,22 +131,16 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
         cmp.b   Act_grid_h_lo(a2), d3
         bcc     .out_of_range                   // sec_y >= grid_h (unsigned)
 
-        // flat_id = sec_y * grid_w + sec_x (repeated-add, no multiply)
+        // flat_id = sec_y * grid_w + sec_x. grid_w is bounded by MAX_ACT_SECTIONS
+        // (the build asserts grid_w*grid_h <= it), so the bounded multiply prices
+        // mulu the winner (the hand loop was cheaper only for tiny sec_y; the
+        // construct budgets the worst case).
         moveq   #0, d0
         move.b  d3, d0                          // d0 = sec_y
-        beq     .gxy_add_x
-        move.w  d2, -(sp)                       // save sec_x input
         move.w  Act.grid_w(a2), d1              // d1 = grid_w
-        move.w  d0, d2                          // d2 = sec_y counter
-        moveq   #0, d0                          // d0 = accumulator
-        subq.w  #1, d2
-    .gxy_mul:
-        add.w   d1, d0
-        dbf     d2, .gxy_mul
-        move.w  (sp)+, d2                       // restore sec_x
-    .gxy_add_x:
+        mul_bounded.w d0, d1, #MAX_ACT_SECTIONS // d0 = sec_y * grid_w
         moveq   #0, d1
-        move.b  d2, d1
+        move.b  d2, d1                          // d1 = sec_x (d2 = sec_x input, preserved)
         add.w   d1, d0                          // d0 = flat section index
 
         movea.l Act.sec_grid_ptr(a2), a0
@@ -277,10 +270,7 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5, d7) pre
         .col_nowrap:
             add.w   d0, d0                          // byte offset = col × 2
             move.w  Cache_Origin_Row, d1
-            move.w  d1, d2
-            lsl.w   #7, d1                          // × 128
-            lsl.w   #5, d2                          // × 32
-            add.w   d2, d1                          // origin_row × 160 (stride bytes)
+            mul_const.w d1, #160, d2                // origin_row × 160 (stride bytes; d2 = scratch)
             add.w   d1, d0
             lea     Tile_Cache_Nametable, a1
             adda.w  d0, a1                          // a1 = cache[logical row 0][col]

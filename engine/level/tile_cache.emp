@@ -7,7 +7,7 @@
 module engine.tile_cache in tile_cache
 
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
-use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
@@ -220,15 +220,11 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         cmp.w   Act.grid_h(a0), d1
         bhs     .empty_block
 
-        // sec_id = sec_y * grid_w + sec_x (add loop, cold path)
-        move.w  Act.grid_w(a0), d4             // d4 = grid_w
-        moveq   #0, d3                         // accumulator
-        move.w  d1, d5                         // d5 = sec_y counter
-        jbra    .mul_test
-    .mul_loop:
-        add.w   d4, d3
-    .mul_test:
-        dbf     d5, .mul_loop
+        // sec_id = sec_y * grid_w + sec_x. grid_w and sec_y are bounded by
+        // MAX_ACT_SECTIONS (build-asserted grid_w*grid_h <= it), so the bounded
+        // multiply prices mulu the winner over the cold-path add loop.
+        move.w  Act.grid_w(a0), d3             // d3 = grid_w
+        mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id
         mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
@@ -1353,11 +1349,7 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         beq     .fr_no_coll
         move.w  d2, d3
         lsr.w   #1, d3                         // physical collision row
-        move.w  d3, d4
-        lsl.w   #2, d4
-        add.w   d3, d4
-        lsl.w   #4, d4                         // * 80
-        move.w  d4, d3
+        mul_const.w d3, #80, d4               // collision_row × 80 (d4 = multiply scratch)
     .fr_no_coll:
         move.w  d3, -(sp)                      // 2(sp) = collision row offset
 
