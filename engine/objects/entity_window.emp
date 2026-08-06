@@ -9,7 +9,7 @@
 
 module engine.objects.entity_window in entity_window
 
-use engine.constants.{SLOT_TAG_UNTAGGED, SCREEN_WIDTH, SCREEN_HEIGHT}
+use engine.constants.{SCREEN_WIDTH, SCREEN_HEIGHT}
 use engine.constants.{SECTION_SIZE, SECTION_SIZE_SHIFT, SEC_VOID}
 use engine.constants.{MAX_TRACKED_SECTIONS, MAX_LIST_ENTRIES, ENTITY_LOAD_BUFFER, ENTITY_DESPAWN_BUFFER}
 use engine.constants.{ENTITY_LOAD_BUFFER_Y, ENTITY_DESPAWN_BUFFER_Y, ENTITY_LOADED_SLOT_SIZE, ENTITY_LOADED_OBJ_OFFSET}
@@ -17,17 +17,10 @@ use engine.constants.{ENTITY_RESCAN_COARSE_MASK, ENTITY_RESCAN_ROW_SIZE, COLLECT
 use engine.constants.{COLLECTED_EMPTY_TAG, COLLECTED_MASK_BYTES, OEF_TYPE_SHIFT, OEF_TYPE_MASK, OBJ_ENTRY_SIZE}
 use engine.constants.{COLLECTED_SLOT_SIZE, RING_BUFFER_ENTRY_SIZE}
 use engine.objects.sst.{Sst}
-use engine.types.{TagRef}
+use engine.types.{SlotTag, TagRef, EntryIndex, EntryRef}
 use engine.structs.{Sec, Act_grid_w_lo}
 use engine.coords.{abs_w}
 
-// The entry-index niche-option (niche-option spec §1/§2): a tracked section maps
-// to an entry index 0-3; an untracked section returns the `-1` niche.
-// EntityWindow_EntryForSection hands its caller an `EntryRef`, guarded by the
-// `tst.w/bmi` sign test (a trusted C1 guard); `assume_some! d0, EntryIndex` on
-// the tracked path extracts the payload for EntityLoaded_Clear's typed slot.
-pub newtype EntryIndex = i16 where 0..3
-pub newtype EntryRef = EntryIndex ? -1
 
 // GAME-config input (truth: games/<game>/config/constants.emp).
 // COLLECTED_WINDOW_SLOTS VARIES per game (sonic4: 9; demo: 4), so the engine
@@ -572,7 +565,9 @@ pub proc EntityLoaded_Set () clobbers(d0, d2, a0) {
 }
 
 // -----------------------------------------------
-// EntityLoaded_Clear — clear a loaded bit (same inputs as Test)
+// EntityLoaded_Clear — clear a loaded bit
+// In:  d0.w = EntryIndex (the extracted entry index, 0-3)
+//      d1.w = list index, d2.w = bit-group offset
 // Clobbers: d0, d2, a0
 // -----------------------------------------------
 pub proc EntityLoaded_Clear (d0: EntryIndex) clobbers(d0, d2, a0) {
@@ -591,7 +586,8 @@ pub proc EntityLoaded_Clear (d0: EntryIndex) clobbers(d0, d2, a0) {
 // EntityWindow_EntryForSection — map section_id → entry index
 // In:  d0.b = section_id (a real id from a live entity — never SEC_VOID,
 //      so void entries can't false-match)
-// Out: d0.w = entry index 0-3, or -1 if untracked
+// Out: d0.w = EntryRef — an EntryIndex (0-3), or EntryRef.none (-1) when
+//      the section is untracked
 // Clobbers: d1, a0
 // -----------------------------------------------
 pub proc EntityWindow_EntryForSection () clobbers(d1, a0) out(d0: EntryRef) {
@@ -1163,7 +1159,8 @@ proc EntityWindow_PopulateSectionRings () clobbers(d0-d5, a0, a2) {
 //   +4 dc.w  flags|type|subtype  (OEF_* bits; flows to Load_Object in d2)
 // Gates: ANY_Y/Y load band → killed bit → loaded bit. On Load_Object
 // success: SST_slot_tag = entry index | ANY_Y<<7 (never collides with
-// SLOT_TAG_UNTAGGED=$FF), section id + list index stored, loaded bit set.
+// TagRef.none=$FF, the carved niche), section id + list index stored,
+// loaded bit set.
 // Alloc failure leaves the bit clear — a later re-scan retries.
 // X-edge filtering is the WALKERS' job — no Camera_X reads here.
 //

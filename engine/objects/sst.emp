@@ -20,7 +20,8 @@
 // (Coord vs Velocity vs a raw counter) and the fixed<I,F> scales.
 module engine.objects.sst
 
-use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame, TagRef}
+use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame}
+use engine.types.{SlotTag, TagRef}
 
 pub struct Sst (size: $50) {
     // --- dispatch + position ------------------------------------------------

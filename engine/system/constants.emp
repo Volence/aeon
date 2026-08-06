@@ -90,7 +90,6 @@ pub const NUM_TOTAL_SLOTS = NUM_PLAYERS + NUM_DYNAMIC + NUM_SYSTEM + NUM_EFFECTS
 pub const NUM_DYNAMIC_PENDING = 8
 pub const CULL_DISTANCE_X = $300      // 768px — skip dynamic objects beyond this
 pub const CULL_DISTANCE_Y = $200      // 512px
-pub const SLOT_TAG_UNTAGGED = $FF     // AllocDynamic tags a fresh slot untagged
 
 // Collision response types — the full TouchResponse dispatch family (index
 // into the branch table; COLLISION_NONE = air, COLLISION_TOUCH = dispatch

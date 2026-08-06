@@ -9,7 +9,7 @@
 module engine.objects.rings in rings
 
 use engine.objects.sst.{Sst}
-use engine.objects.entity_window.{EntryIndex}
+use engine.types.{EntryIndex}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
