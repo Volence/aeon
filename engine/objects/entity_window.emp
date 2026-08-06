@@ -1621,7 +1621,7 @@ proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
         // wrong index reads ROM-pointer bytes as section ids, stays inside the
         // array (no crash), and the byte gate cannot see it.
         move.w  d3, d0
-        mul_const.w d0, #sizeof(EntityScanState), d1     // d0 = entry × $1A; d1 trashed
+        mul_const.w d0, #sizeof(EntityScanState), d1     // d0 = entry × sizeof(EntityScanState); d1 trashed
         lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
         move.b  (a0, d0.w), d2
         cmpi.b  #SEC_VOID, d2
