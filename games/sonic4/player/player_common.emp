@@ -244,15 +244,15 @@ pub proc Player_RefreshPhysics () clobbers(a1-a2) {
 // Player_Main — per-frame player update (RunObjects entry)
 // In:  a0 = player SST
 // Out: none
-// Clobbers: d0-d7, a1-a4 (a0 preserved — RunObjects loop contract). The state
-//   dispatch clobbers d7 (Player_SensorFloor inside the handlers), bracketed by a
-//   `move.w d7,-(sp)` / `move.w (sp)+,d7` save that preserves the LOW WORD (the
-//   RunObjects slot counter is a word). The full-register contract can't express
-//   partial-width preservation — the .w restore round-trips only 16 bits (a .l
-//   restore is what the verifier credits, preserves.rs:470) — so d7 is declared
-//   clobbered: RunObjects reads d7 only as the word this bracket preserves.
+// Clobbers: d0-d6, a1-a4 (a0 preserved — RunObjects loop contract).
+// Preserves: d7.w — the RunObjects slot counter is a word, and the state dispatch
+//   brackets Player_SensorFloor (which clobbers the full d7) with a
+//   `move.w d7,-(sp)` / `move.w (sp)+,d7` save that round-trips d7's LOW WORD.
+//   The upper word is unspecified (the `.w` facet licenses clobbering it); every
+//   other d7-crossing call (DebugEnter/Exit/Move, LevelBound) and the fall into
+//   Player_Display preserve d7, so the low word reaches RunObjects intact.
 // -----------------------------------------------
-pub proc Player_Main (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into Player_Display {
+pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into Player_Display {
         // press bits read ONCE for the frame — d6 survives the debug toggle
         // calls (DebugEnter clobbers d2/a1, DebugExit d0-d2/a1-a2) and feeds both
         // the B-toggle and the jump-buffer latch
