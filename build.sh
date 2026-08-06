@@ -21,11 +21,13 @@ set -euo pipefail
 #   sigil build --aeon . --native --lean -o lean.bin
 # Lean routes every fault vector at ReleaseFault (mask, red backdrop, freeze) instead.
 #
-# ARTIFACT LEDGER (post-flip): the assembled anchors are the PRIMARY values and are
-# UNCHANGED (the prefix [0,EndOfRom) stays byte-for-byte the asl-witnessed
-# e5765873/dab4f06c, header-neutral); the full-file CRCs move on every golden re-freeze
-# and live in sigil-harness golden/provenance.toml, not here. See golden/PROVENANCE.md
-# and the native_full_rom / native_offcanonical_full gates.
+# ARTIFACT LEDGER (post-flip): the assembled anchor — the header-neutral prefix
+# [0,EndOfRom) — is the PRIMARY value, and both it and the full-file CRC move on
+# every golden re-freeze that changes emitted bytes. The asl-witnessed anchors
+# e5765873/dab4f06c are the CONVERSION provenance, not a standing bar; deliberate
+# optimization parcels have moved the anchors since. Current values live in
+# sigil-harness golden/provenance.toml, not here. See golden/PROVENANCE.md and the
+# native_full_rom / native_offcanonical_full gates.
 
 GAME="${1:-sonic4}"
 # sonic4 keeps the historical ROM name s4.bin (game content); other games use their own name.

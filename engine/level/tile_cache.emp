@@ -68,8 +68,9 @@ comptime fn decompose_block(col: Reg, row: Reg) -> Code {
 // via `mul_const.w #80`. Names the ×80 idiom used by GetTile and FillRow's
 // cache_row_offset (the "form (a)" sites that need a separate scratch reg;
 // CopyBlockColumn's "form (b)" single-temp variant stays inline). Collision lookup
-// carries its own inline copy (engine.collision_lookup). The comptime guard makes a
-// stride drift unrepresentable.
+// spells the same `mul_const.w #80` inline under its own stride guard
+// (engine.collision_lookup) rather than importing this fn. The comptime guard makes
+// a stride drift unrepresentable.
 // dst ends = dst*stride; scratch is trashed.
 comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
     ensure(TILE_CACHE_STRIDE == 80, "mul_cache_stride multiplies by #80; keep TILE_CACHE_STRIDE=80 or the row stride is wrong")
@@ -322,7 +323,8 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
         // dest: Tile_Cache_Nametable + (phys_row * stride + cache_col) * 2
         // ×80 = ((x<<2)+x)<<4 — single temp. Stays hand-written: d2 is live
-        // afterwards (:373, :393) and mul_const.w multiplies IN PLACE, so every
+        // afterwards (the wrap-split arithmetic at :341/:352, then the collision
+        // halving at :377) and mul_const.w multiplies IN PLACE, so every
         // construct spelling costs a preload this form does not need.
         move.w  d2, d5
         lsl.w   #2, d5
@@ -372,7 +374,7 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
         // dest plane A: Tile_Cache_Collision + (phys_row/2)*80 + cache_col
         // ×80 stays hand-written for the same reason as the nametable site
-        // above: d2 is live at :393 and the construct multiplies in place.
+        // above: d2 is live at :397/:409 and the construct multiplies in place.
         lsr.w   #1, d2                         // d2 = physical collision row (halved)
         move.w  d2, d5
         lsl.w   #2, d5
