@@ -7,7 +7,7 @@
 module engine.tile_cache in tile_cache
 
 use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
-use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE}
+use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
@@ -220,15 +220,14 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         cmp.w   Act.grid_h(a0), d1
         bhs     .empty_block
 
-        // sec_id = sec_y * grid_w + sec_x (add loop, cold path)
-        move.w  Act.grid_w(a0), d4             // d4 = grid_w
-        moveq   #0, d3                         // accumulator
-        move.w  d1, d5                         // d5 = sec_y counter
-        jbra    .mul_test
-    .mul_loop:
-        add.w   d4, d3
-    .mul_test:
-        dbf     d5, .mul_loop
+        // sec_id = sec_y * grid_w + sec_x. sec_y is bounded by MAX_ACT_SECTIONS
+        // (the build asserts grid_w*grid_h <= it), and the bounded multiply
+        // prices the WORST case: mulu's flat 70 beats a repeated-add loop's
+        // 24 + 14*sec_y from sec_y = 4 up. A small sec_y still runs cheaper as a
+        // loop; worst-case cost is what the construct budgets, and this is a
+        // cold path, so the ceiling is the number that matters.
+        move.w  Act.grid_w(a0), d3             // d3 = grid_w
+        mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id
         mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
@@ -322,7 +321,9 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         adda.w  d5, a0                         // a0 = first tile word in run
 
         // dest: Tile_Cache_Nametable + (phys_row * stride + cache_col) * 2
-        // ×80 = ((x<<2)+x)<<4 — single temp
+        // ×80 = ((x<<2)+x)<<4 — single temp. Stays hand-written: d2 is live
+        // afterwards (:373, :393) and mul_const.w multiplies IN PLACE, so every
+        // construct spelling costs a preload this form does not need.
         move.w  d2, d5
         lsl.w   #2, d5
         add.w   d2, d5
@@ -370,6 +371,8 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         adda.w  d0, a0                         // + col (bytes, not words)
 
         // dest plane A: Tile_Cache_Collision + (phys_row/2)*80 + cache_col
+        // ×80 stays hand-written for the same reason as the nametable site
+        // above: d2 is live at :393 and the construct multiplies in place.
         lsr.w   #1, d2                         // d2 = physical collision row (halved)
         move.w  d2, d5
         lsl.w   #2, d5
@@ -1353,11 +1356,7 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         beq     .fr_no_coll
         move.w  d2, d3
         lsr.w   #1, d3                         // physical collision row
-        move.w  d3, d4
-        lsl.w   #2, d4
-        add.w   d3, d4
-        lsl.w   #4, d4                         // * 80
-        move.w  d4, d3
+        mul_const.w d3, #80, d4               // collision_row × 80 (d4 = multiply scratch)
     .fr_no_coll:
         move.w  d3, -(sp)                      // 2(sp) = collision row offset
 

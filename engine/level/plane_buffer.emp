@@ -241,11 +241,7 @@ pub proc Draw_TileRow_FromCache (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         blt     .row_nowrap
         subi.w  #TILE_CACHE_ROWS, d0
     .row_nowrap:
-        // row × 80 via shift-add
-        move.w  d0, d3
-        lsl.w   #6, d0
-        lsl.w   #4, d3
-        add.w   d3, d0
+        mul_const.w d0, #80, d3               // row × 80 stride (d3 = multiply scratch)
         add.w   d0, d0                         // byte offset (words → bytes)
         lea     Tile_Cache_Nametable, a0
         adda.w  d0, a0                         // a0 = cache row base (physical col 0)
