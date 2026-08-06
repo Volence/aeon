@@ -1614,31 +1614,14 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
 proc EntityWindow_MigrateMasks () clobbers(d0-d3, a0-a1) {
         moveq   #0, d3                  // d3 = new entry index
     .new_loop:
-        // KNOWN BUG — the stride below is WRONG and this proc mis-migrates.
-        // The chain computes ×22, but sizeof(EntityScanState) is $1A = 26, so
-        // entries 1-3 read section ids at offsets 40/62/84 instead of 44/70/96
-        // — ROM-pointer bytes inside ess_rom_type_tbl_ptr / ess_rom_obj_ptr /
-        // ess_rom_ring_ptr. Reads stay inside the 104-byte array (no crash), and
-        // the byte gate cannot see it because golden and fresh build agree.
-        // Do not "explain" the ×22 as intentional; it was correct only while
-        // the struct was $16. Consequences, both live: an entry whose section
-        // CHANGED had its mask zeroed by EntityWindow_InitSection and then fails
-        // the identity match on a garbage id, so already-spawned entities are
-        // re-treated as unloaded (duplicate spawns); an entry that KEPT its
-        // section can chance-match a garbage byte against an old snapshot id
-        // and have a FOREIGN mask copied over its correct one.
-        // Fix, its A/B and its panel belong to a behaviour parcel of their own —
-        // see the "MigrateMasks strides Entity_Scan_State by 22 where the struct
-        // is 26" row in sigil docs/superpowers/notes/campaign-gap-ledger.md.
-        // d2.b = new entry d3's section id (×22 chain = ×16+×4+×2)
+        // d2.b = new entry d3's section id. The entry stride DERIVES from the
+        // struct rather than restating it, so a field added to or removed from
+        // EntityScanState moves this index with it. A stride that restates the
+        // size is a silent mis-migration waiting on the next layout change: a
+        // wrong index reads ROM-pointer bytes as section ids, stays inside the
+        // array (no crash), and the byte gate cannot see it.
         move.w  d3, d0
-        lsl.w   #4, d0
-        move.w  d3, d1
-        lsl.w   #2, d1
-        add.w   d1, d0
-        move.w  d3, d1
-        add.w   d1, d1
-        add.w   d1, d0
+        mul_const.w d0, #sizeof(EntityScanState), d1     // d0 = entry × $1A; d1 trashed
         lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
         move.b  (a0, d0.w), d2
         cmpi.b  #SEC_VOID, d2
