@@ -32,6 +32,6 @@ pub proc TestSolid_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestSolid_Main 
 //   the signature under-declared (nothing) while
 //   tail-calling Draw_Sprite — the dangerous direction under exhaustive-license.
 // -----------------------------------------------
-pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc TestSolid_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         jbra    Draw_Sprite
 }

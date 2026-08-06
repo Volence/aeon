@@ -38,7 +38,7 @@ pub proc TestEnemy_Init (a0: *Sst) clobbers(d0-d3/a1) falls_into TestEnemy_Main 
 // In:  a0 = SST pointer
 // Clobbers: d0-d3, a1 — the callee union ObjectMoveX(d0) ∪ Draw_Sprite(d0-d3/a1).
 // -----------------------------------------------
-pub proc TestEnemy_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc TestEnemy_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         jbsr    ObjectMoveX
 
         // Decrement steps counter. One step = one pixel (speed $100 = 1 px/frame).

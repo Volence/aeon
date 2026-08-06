@@ -34,7 +34,7 @@ pub proc TestStressEmitter (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestStres
 // In:  a0 = SST pointer
 // Clobbers: d0-d3, a1-a2 — CreateEffect_Normal(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1).
 // -----------------------------------------------
-pub proc TestStressEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
+pub proc TestStressEmitter_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
         subq.w  #1, EmitterV.timer(a0)
         bne     .draw
         move.w  #STRESS_EMITTER_INTERVAL, EmitterV.timer(a0)

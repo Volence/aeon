@@ -42,7 +42,7 @@ pub proc TestParticle (a0: *Sst) clobbers(d0-d3/a1-a2) falls_into TestParticle_M
 //   ObjectMove(d0) ∪ AnimateSprite(d0-d2/a1-a2) ∪ Draw_Sprite(d0-d3/a1). The old
 //   d0-d4/a1-a3 over-declared d4/a3 while claiming to be the union.
 // -----------------------------------------------
-pub proc TestParticle_Main (a0: *Sst) clobbers(d0-d3/a1-a2) {
+pub proc TestParticle_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
         // Apply gravity (read-modify-write — no register round-trip)
         addi.w  #PARTICLE_GRAVITY, y_vel(a0)
 

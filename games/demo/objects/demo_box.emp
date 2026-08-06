@@ -12,6 +12,6 @@ use engine.objects.sst.{Sst}
 // Clobbers: d0-d3, a1 — Draw_Sprite's set (the exhaustive-license contract for a
 //   proc that tail-jumps into Draw_Sprite).
 // -----------------------------------------------
-pub proc DemoBox_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc DemoBox_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         jbra    Draw_Sprite
 }

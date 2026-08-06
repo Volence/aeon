@@ -98,7 +98,7 @@ pub proc TestChildPart (a0: *Sst) clobbers(d0-d3/a1) falls_into TestChildPart_Ma
 // Clobbers: d0-d3, a1 — the tail Draw_Sprite set (d0-d3/a1); the orphan path is
 //   DeleteObject (d0-d1). GetSineCosine preserves everything but its d0/d1 out.
 // -----------------------------------------------
-pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc TestChildPart_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         movea.w parent_ptr(a0), a1
         move.l  a1, d0
         beq     .orphan_delete
@@ -179,7 +179,7 @@ data child_desc_term: u16 = 0
 // Clobbers: d0-d3, a1 — Draw_Sprite(d0-d3/a1) ∪ the DeleteObject delete tail
 //   (d0-d1/a1). (a2 is never touched here.)
 // -----------------------------------------------
-pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc TestParent_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         subq.w  #1, TParentV.life_timer(a0)
         bne     .move
 
