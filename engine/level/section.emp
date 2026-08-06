@@ -93,11 +93,11 @@ pub proc Section_FillInitial () clobbers(d0) {
 // Clobbers: d1     (d2/d3/a2 preserved)
 // NOTE: d2 (sec_x) is left u8, NOT GridX. At the 3×3-window build site
 // (EntityWindow_BuildEntries) this is called immediately after
-// Section_GetSecPtrXY, which clobbers d2 as its multiply scratch — so a typed
-// GridX in d2 cannot be proven to survive that call byte-neutrally. The GridY
-// axis DOES survive (GetSecPtrXY preserves d3), so d3 carries the axis-split
-// swap guard here; typing d2 GridX is BANKED until GetSecPtrXY's d2 preserve is
-// verifier-recognized (or it stops reusing d2 as scratch).
+// Section_GetSecPtrXY, whose body no longer touches d2 at all but whose
+// contract still DECLARES d2 clobbered — so a typed GridX in d2 still cannot be
+// proven to survive that call. The GridY axis DOES survive (GetSecPtrXY
+// preserves d3), so d3 carries the axis-split swap guard here; typing d2 GridX
+// is BANKED until GetSecPtrXY's declaration narrows to match its body.
 // -----------------------------------------------
 pub proc Section_FlatIDXY (d2: u8, d3: GridY, a2: *Act) clobbers(d1) out(d0: SectionId) {
         moveq   #0, d0
@@ -131,11 +131,14 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
         cmp.b   Act_grid_h_lo(a2), d3
         bcc     .out_of_range                   // sec_y >= grid_h (unsigned)
 
-        // flat_id = sec_y * grid_w + sec_x. sec_y is bounded by MAX_ACT_SECTIONS
-        // (the build asserts grid_w*grid_h <= it), and the bounded multiply
-        // prices the WORST case: mulu's flat 70 beats a repeated-add loop's
-        // 24 + 14*sec_y from sec_y = 4 up. A small sec_y still runs cheaper as a
-        // loop; worst-case cost is what the construct budgets.
+        // flat_id = sec_y * grid_w + sec_x. The bound constrains the COUNTER
+        // operand, which here is d1 = grid_w: the range checks above passed, so
+        // grid_h >= 1 and therefore grid_w <= grid_w*grid_h <= MAX_ACT_SECTIONS.
+        // The bounded multiply prices the WORST case, so mulu's flat 70 beats a
+        // repeated-add loop's 24 + 14*grid_w from grid_w = 4 up; a small grid_w
+        // would still run cheaper as a loop, and worst-case cost is what the
+        // construct budgets. This is not a hot path — one call per section
+        // lookup, off the per-frame streaming path.
         moveq   #0, d0
         move.b  d3, d0                          // d0 = sec_y
         move.w  Act.grid_w(a2), d1              // d1 = grid_w
