@@ -73,10 +73,7 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
     .col_nowrap:
         add.w   d0, d0
         move.w  Cache_Origin_Row, d1
-        move.w  d1, d2
-        lsl.w   #7, d1                         // × 128
-        lsl.w   #5, d2                         // × 32
-        add.w   d2, d1                         // origin_row × 160 (stride bytes)
+        mul_const.w d1, #160, d2               // origin_row × 160 stride bytes (d2 = multiply scratch)
         add.w   d1, d0
         lea     Tile_Cache_Nametable, a0
         adda.w  d0, a0                         // a0 = cache source
