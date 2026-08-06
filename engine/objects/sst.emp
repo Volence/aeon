@@ -20,7 +20,7 @@
 // (Coord vs Velocity vs a raw counter) and the fixed<I,F> scales.
 module engine.objects.sst
 
-use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame}
+use engine.types.{Coord, Velocity, Angle, ObjRoutine, HitboxDim, VramArtTile, AnimId, AnimFrame, MappingFrame, TagRef}
 
 pub struct Sst (size: $50) {
     // --- dispatch + position ------------------------------------------------
@@ -61,7 +61,7 @@ pub struct Sst (size: $50) {
                                   //   sibling chain (all CreateChild_* do) — DeleteObject's
                                   //   C1b cascade walk is complete only while that holds
     sibling_ptr: u16 @ $28,       // $28 — sibling link (multi-part objects)
-    slot_tag: u8 @ $2A,           // $2A — entity window quadrant entry index 0-3 ($FF = untagged)
+    slot_tag: TagRef @ $2A,       // $2A — entity window quadrant entry ($FF = untagged, the TagRef niche)
     entity_section_id: u8 @ $2B,  // $2B — spawning section's flat id (despawn bookkeeping)
     entity_list_index: u8 @ $2C,  // $2C — index in section's ROM object list (killed bitmask)
     layer: u8 @ $2D,              // $2D — collision layer select (0 = path A, 1 = path B)

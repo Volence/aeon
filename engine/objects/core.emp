@@ -9,6 +9,7 @@ module engine.objects.core in core
 
 use engine.coords.{abs_w}
 use engine.objects.sst.{Sst}
+use engine.types.{TagRef}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_DYNAMIC_PENDING,
                       NUM_SYSTEM, NUM_EFFECTS,
                       OBJ_CODE_BANK, CULL_DISTANCE_X,
@@ -126,7 +127,7 @@ pub proc AllocDynamic () clobbers(d0/a1) out(a1 if eq) preserves(a0) {
         movea.w Dynamic_Free_SP, a1
         subq.w  #2, Dynamic_Free_SP
         movea.w -(a1), a1
-        move.b  #SLOT_TAG_UNTAGGED, Sst.slot_tag(a1)
+        move.b  #TagRef.none, Sst.slot_tag(a1)
         // Spawn-order occupancy: append the popped slot to the live list
         // (Dynamic_Live[Count++] = a1), UNIQUE by construction — DeleteObject
         // zeroed any prior entry for this slot, so a LIFO recycle can't

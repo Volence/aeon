@@ -17,8 +17,17 @@ use engine.constants.{ENTITY_RESCAN_COARSE_MASK, ENTITY_RESCAN_ROW_SIZE, COLLECT
 use engine.constants.{COLLECTED_EMPTY_TAG, COLLECTED_MASK_BYTES, OEF_TYPE_SHIFT, OEF_TYPE_MASK, OBJ_ENTRY_SIZE}
 use engine.constants.{COLLECTED_SLOT_SIZE, RING_BUFFER_ENTRY_SIZE}
 use engine.objects.sst.{Sst}
+use engine.types.{TagRef}
 use engine.structs.{Sec, Act_grid_w_lo}
 use engine.coords.{abs_w}
+
+// The entry-index niche-option (niche-option spec §1/§2): a tracked section maps
+// to an entry index 0-3; an untracked section returns the `-1` niche.
+// EntityWindow_EntryForSection hands its caller an `EntryRef`, guarded by the
+// `tst.w/bmi` sign test (a trusted C1 guard); `assume_some! d0, EntryIndex` on
+// the tracked path extracts the payload for EntityLoaded_Clear's typed slot.
+pub newtype EntryIndex = i16 where 0..3
+pub newtype EntryRef = EntryIndex ? -1
 
 // GAME-config input (truth: games/<game>/config/constants.emp).
 // COLLECTED_WINDOW_SLOTS VARIES per game (sonic4: 9; demo: 4), so the engine
@@ -264,6 +273,7 @@ pub proc Killed_MarkObject () clobbers(d0-d3, a0) {
         jbsr    EntityWindow_EntryForSection
         tst.w   d0
         bmi     .markdone               // section untracked — no loaded bits
+        assume_some! d0, EntryIndex     // tracked: d0 is a real entry index
         move.w  d2, d1                  // list_index (d2 untouched by EntryForSection)
         moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
         jbsr    EntityLoaded_Clear
@@ -565,7 +575,7 @@ pub proc EntityLoaded_Set () clobbers(d0, d2, a0) {
 // EntityLoaded_Clear — clear a loaded bit (same inputs as Test)
 // Clobbers: d0, d2, a0
 // -----------------------------------------------
-pub proc EntityLoaded_Clear () clobbers(d0, d2, a0) {
+pub proc EntityLoaded_Clear (d0: EntryIndex) clobbers(d0, d2, a0) {
         assert.w d1, lo, #MAX_LIST_ENTRIES
         lsl.w   #5, d0
         add.w   d0, d2
@@ -584,7 +594,7 @@ pub proc EntityLoaded_Clear () clobbers(d0, d2, a0) {
 // Out: d0.w = entry index 0-3, or -1 if untracked
 // Clobbers: d1, a0
 // -----------------------------------------------
-pub proc EntityWindow_EntryForSection () clobbers(d1, a0) out(d0) {
+pub proc EntityWindow_EntryForSection () clobbers(d1, a0) out(d0: EntryRef) {
         lea     Entity_Scan_State+offsetof(EntityScanState, ess_section_id), a0
         moveq   #0, d1
     .efs_loop:
@@ -1460,6 +1470,7 @@ proc EntityWindow_DespawnRings () clobbers(d0-d7, a0-a1) {
         jbsr    EntityWindow_EntryForSection
         tst.w   d0
         bmi     .clr_ring_skip          // section untracked — no loaded bits
+        assume_some! d0, EntryIndex     // tracked: d0 is a real entry index
         move.w  d3, d1
         moveq   #0, d2                  // ring bits
         jbsr    EntityLoaded_Clear
@@ -1519,7 +1530,7 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         tst.w   Sst.code_addr(a0)       // truth guard: dead-but-uncompacted slot
         beq     .next
 
-        cmpi.b  #SLOT_TAG_UNTAGGED, Sst.slot_tag(a0)
+        cmpi.b  #TagRef.none, Sst.slot_tag(a0)
         beq     .next
 
     .check_active:
@@ -1557,6 +1568,7 @@ proc EntityWindow_DespawnObjects () clobbers(d0-d7, a0-a3) {
         jbsr    EntityWindow_EntryForSection
         tst.w   d0
         bmi     .clr_obj_skip           // section untracked — no loaded bits
+        assume_some! d0, EntryIndex     // tracked: d0 is a real entry index
         move.w  d3, d1
         moveq   #ENTITY_LOADED_OBJ_OFFSET, d2
         jbsr    EntityLoaded_Clear

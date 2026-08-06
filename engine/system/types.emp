@@ -19,6 +19,15 @@ module engine.types
 // the space.
 pub newtype Coord = fixed<16,16>
 
+// The Sst.slot_tag niche-option (niche-option spec §1): a live tag is any
+// non-$FF byte (an entity-window entry index, optionally with the ANY_Y bit-7
+// flag — not a contiguous range, so the payload is "any byte but the niche");
+// `$FF` = untagged is the carved niche. Writers spell the untagged value
+// `#TagRef.none`; a raw `#$FF` into a `TagRef` position is `[option.raw-sentinel]`.
+// It lives here (not in engine.objects.sst) so every Sst importer resolves the
+// field type, exactly like the coordinate/velocity field types above.
+pub newtype TagRef = u8 where 0..$FE ? $FF
+
 // An 8.8 signed velocity: $100 = 1 px/frame. Covers x_vel/y_vel AND the
 // player's ground_speed (inertia) — the along-ground velocity is the same
 // domain, not a separate one. Signed and directed, hence Velocity (a

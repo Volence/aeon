@@ -9,6 +9,7 @@
 module engine.objects.rings in rings
 
 use engine.objects.sst.{Sst}
+use engine.objects.entity_window.{EntryIndex}
 use engine.objects.aabb.{aabb_axis_test}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS, RING_HEIGHT, RING_ANIM_FRAMES, RING_ANIM_SPEED,
@@ -314,6 +315,7 @@ pub proc RingCollision () clobbers(d0-d7/a0-a3) {
         jbsr    EntityWindow_EntryForSection
         tst.w   d0
         bmi     .no_loaded_bit          // section untracked — no loaded bits
+        assume_some! d0, EntryIndex     // tracked: d0 is a real entry index
         moveq   #0, d1
         move.b  d3, d1                  // list_index
         moveq   #0, d2                  // ring bits
