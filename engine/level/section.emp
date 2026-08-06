@@ -22,9 +22,9 @@ use engine.z80_bus.{z80_stopped}
 // Sec-Act layout all come from the shared engine.constants + engine.structs
 // modules (`use`d above), which carry the drift locks. ----
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
-// Section_GetSecPtrXY multiplies the flat id by sizeof(Sec) via `mul_const.w #66`
-// (the compiler emits the ×66 shift-add chain); the `ensure` keeps 66 the stride.
-ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY multiplies by #66 (mul_const.w) — keep sizeof(Sec)=66 or the stride is wrong")
+// Section_GetSecPtrXY multiplies the flat id by sizeof(Sec) = 66; the `ensure`
+// keeps 66 the real stride.
+ensure(sizeof(Sec) == 66, "Section_GetSecPtrXY multiplies by #66 — keep sizeof(Sec)=66 or the stride is wrong")
 // Section_GetSecPtrXY's `adda.w d0, a0` (d0 = flat × 66) sign-extends the word
 // offset: once flat × 66 crosses $7FFF the pointer wraps negative, capping an act
 // at $7FFF / 66 = 496 sections. That MAX_ACT_SECTIONS ≤ 496 ceiling is asserted at
@@ -150,9 +150,8 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
         move.b  d2, d1
         add.w   d1, d0                          // d0 = flat section index
 
-        // d0 × sizeof(Sec) (66) — mul_const.w emits the ×66 shift-add chain
         movea.l Act.sec_grid_ptr(a2), a0
-        mul_const.w d0, #66, d1                  // flat × 66 (d1 = multiply scratch) [stride guard: module ensure]
+        mul_const.w d0, #66, d1                  // d0 = flat × sizeof(Sec) = 66 (d1 = multiply scratch)
         adda.w  d0, a0                          // sign-extends d0 → ≤496 sections (module ensure guards it)
 
         tst.l   (a0)
