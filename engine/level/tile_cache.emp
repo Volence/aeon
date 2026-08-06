@@ -220,9 +220,12 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         cmp.w   Act.grid_h(a0), d1
         bhs     .empty_block
 
-        // sec_id = sec_y * grid_w + sec_x. grid_w and sec_y are bounded by
-        // MAX_ACT_SECTIONS (build-asserted grid_w*grid_h <= it), so the bounded
-        // multiply prices mulu the winner over the cold-path add loop.
+        // sec_id = sec_y * grid_w + sec_x. sec_y is bounded by MAX_ACT_SECTIONS
+        // (the build asserts grid_w*grid_h <= it), and the bounded multiply
+        // prices the WORST case: mulu's flat 70 beats a repeated-add loop's
+        // 24 + 14*sec_y from sec_y = 4 up. A small sec_y still runs cheaper as a
+        // loop; worst-case cost is what the construct budgets, and this is a
+        // cold path, so the ceiling is the number that matters.
         move.w  Act.grid_w(a0), d3             // d3 = grid_w
         mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id

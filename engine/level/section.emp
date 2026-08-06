@@ -131,10 +131,11 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
         cmp.b   Act_grid_h_lo(a2), d3
         bcc     .out_of_range                   // sec_y >= grid_h (unsigned)
 
-        // flat_id = sec_y * grid_w + sec_x. grid_w is bounded by MAX_ACT_SECTIONS
-        // (the build asserts grid_w*grid_h <= it), so the bounded multiply prices
-        // mulu the winner (the hand loop was cheaper only for tiny sec_y; the
-        // construct budgets the worst case).
+        // flat_id = sec_y * grid_w + sec_x. sec_y is bounded by MAX_ACT_SECTIONS
+        // (the build asserts grid_w*grid_h <= it), and the bounded multiply
+        // prices the WORST case: mulu's flat 70 beats a repeated-add loop's
+        // 24 + 14*sec_y from sec_y = 4 up. A small sec_y still runs cheaper as a
+        // loop; worst-case cost is what the construct budgets.
         moveq   #0, d0
         move.b  d3, d0                          // d0 = sec_y
         move.w  Act.grid_w(a2), d1              // d1 = grid_w
