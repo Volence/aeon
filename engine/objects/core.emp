@@ -9,10 +9,11 @@ module engine.objects.core in core
 
 use engine.coords.{abs_w}
 use engine.objects.sst.{Sst}
+use engine.types.{SlotTag, TagRef}
 use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_DYNAMIC_PENDING,
                       NUM_SYSTEM, NUM_EFFECTS,
                       OBJ_CODE_BANK, CULL_DISTANCE_X,
-                      CULL_DISTANCE_Y, SLOT_TAG_UNTAGGED}
+                      CULL_DISTANCE_Y}
 
 // Contract type (contract-grammar v2 §4) — the object-dispatch bound. Every
 // object's code routine is entered with a0 = SST pointer and MUST preserve
@@ -101,7 +102,7 @@ pub proc InitObjectRAM () clobbers(d0-d1/a0-a1) {
 // In:  none
 // Out: a1 = SST address of allocated slot (d0=0/Z set on success)
 //      d0=1/Z clear if pool exhausted
-//      Slot is tagged SLOT_TAG_UNTAGGED on return.
+//      Slot is tagged TagRef.none (untagged) on return.
 // Clobbers: d0, a1
 // CALLER INVARIANT: the caller MUST write the returned slot's
 // code_addr before the NEXT AllocDynamic. The append-on-full guard runs
@@ -126,7 +127,7 @@ pub proc AllocDynamic () clobbers(d0/a1) out(a1 if eq) preserves(a0) {
         movea.w Dynamic_Free_SP, a1
         subq.w  #2, Dynamic_Free_SP
         movea.w -(a1), a1
-        move.b  #SLOT_TAG_UNTAGGED, Sst.slot_tag(a1)
+        move.b  #TagRef.none, Sst.slot_tag(a1)
         // Spawn-order occupancy: append the popped slot to the live list
         // (Dynamic_Live[Count++] = a1), UNIQUE by construction — DeleteObject
         // zeroed any prior entry for this slot, so a LIFO recycle can't

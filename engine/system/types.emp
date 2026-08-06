@@ -19,6 +19,28 @@ module engine.types
 // the space.
 pub newtype Coord = fixed<16,16>
 
+// The Sst.slot_tag niche-option (niche-option spec §1). A live tag is an
+// entity-window entry index, optionally carrying the ANY_Y flag in bit 7 — any
+// byte but the niche; `$FF` = untagged is the carved niche. Writers spell the
+// untagged value `#TagRef.none`; a raw `#$FF` into a `TagRef` position is
+// `[option.raw-sentinel]`. Spelled as the payload/option PAIR (not the inline
+// `u8 where .. ? ..` form) so the payload is a named type: that is what lets
+// `[option.unguarded-use]` see a `TagRef` reaching a `SlotTag` position.
+//
+// These live here rather than beside their consumers so every importer of the
+// struct/proc that carries them resolves the type, exactly like the
+// coordinate/velocity field types above.
+pub newtype SlotTag = u8 where 0..$FE
+pub newtype TagRef = SlotTag ? $FF
+
+// The entity-window entry-index niche-option: a tracked section maps to an
+// entry index 0-3, and an untracked one to the `-1` niche.
+// EntityWindow_EntryForSection returns an `EntryRef`; a caller that has ruled
+// the sentinel out extracts the payload with `assume_some! d0, EntryIndex`
+// before EntityLoaded_Clear's `EntryIndex` slot.
+pub newtype EntryIndex = i16 where 0..3
+pub newtype EntryRef = EntryIndex ? -1
+
 // An 8.8 signed velocity: $100 = 1 px/frame. Covers x_vel/y_vel AND the
 // player's ground_speed (inertia) — the along-ground velocity is the same
 // domain, not a separate one. Signed and directed, hence Velocity (a
