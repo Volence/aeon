@@ -885,7 +885,7 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // D-pad free flight at PLAYER_DEBUG_FLY_SPEED px/frame (camera Y clamp caps
 // effective follow speed), draw only.
 // In:  a0 = player SST.  Clobbers: d0-d3, a1 (a0/d7 preserved)
-pub proc Player_DebugMove (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc Player_DebugMove (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         move.b  Ctrl_1_Held, d0
         moveq   #PLAYER_DEBUG_FLY_SPEED, d1
         swap    d1                              // px → 16.16

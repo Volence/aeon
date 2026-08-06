@@ -43,7 +43,7 @@ pub proc TestAnimated (a0: *Sst) clobbers(d0-d4/a1-a3) falls_into TestAnimated_M
 // In:  a0 = SST pointer
 // Clobbers: d0-d4, a1-a3
 // -----------------------------------------------
-pub proc TestAnimated_Main (a0: *Sst) clobbers(d0-d4/a1-a3) {
+pub proc TestAnimated_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         jbsr    AnimateSprite
 
         movea.l DplcV.dplc_ptr(a0), a2

@@ -97,7 +97,7 @@ pub proc PathSwap_Init (a0: *Sst) clobbers(d0-d2/a1) {
 // Clobbers: d0-d3, a1 — plain path is d0-d2/a1; the DEBUG shape tail-calls
 //   Draw_Sprite (d0-d3/a1) as a visible test marker, so d3 rides the superset.
 // -----------------------------------------------
-pub proc PathSwap_Main (a0: *Sst) clobbers(d0-d3/a1) {
+pub proc PathSwap_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
         lea     Player_1, a1
         move.w  Sst.x_pos(a1), d0
         cmp.w   x_pos(a0), d0
