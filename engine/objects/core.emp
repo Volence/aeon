@@ -16,11 +16,15 @@ use engine.constants.{NUM_PLAYERS, NUM_DYNAMIC, NUM_DYNAMIC_PENDING,
                       CULL_DISTANCE_Y}
 
 // Contract type (contract-grammar v2 §4) — the object-dispatch bound. Every
-// object's code routine is entered with a0 = SST pointer and MUST preserve
-// a0 and d7 (the loop count); everything else is clobberable. Enforced in
-// debug by Debug_AssertObjLoop, now bounded at compile time. Referenced by the
+// object's code routine is entered with a0 = SST pointer and MUST preserve a0 and
+// d7's LOW WORD; everything else is clobberable. The loop counter IS that low word
+// (`move.w #N, d7` … `dbf d7`), and the routines that bracket a full-width d7
+// clobber guarantee exactly the word (`Player_Main` / `TestPlayer_Main` declare
+// `preserves(d7.w)`) — so `d7.w` is the claim both sides can honour, where a bare
+// `d7` would promise callers an upper word no implementation restores. Enforced in
+// debug by Debug_AssertObjLoop, and bounded at compile time here. Referenced by the
 // object-dispatch `jsr (a1) as ObjRoutine` here and animate.emp's callback.
-pub type ObjRoutine = proc (a0: *Sst) preserves(a0, d7)
+pub type ObjRoutine = proc (a0: *Sst) preserves(a0, d7.w)
 
 // Link-time drift-lock: RunObjects_Frozen's merged
 // System+Effect sweep (`lea System_Slots, a0` + `move.w #NUM_SYSTEM+NUM_EFFECTS-1`)
