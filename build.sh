@@ -150,13 +150,13 @@ fi
 # convsym deb2 appendix; release ships the assembled image alone (item 29).
 NATIVE_FLAGS="--game ${GAME}"
 if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
-# CONTRACT CLOSURE GATE — default ON (owner ruling, 2026-08-07).
+# CONTRACT CLOSURE GATE — default ON.
 #
-# The whole-corpus contract closure used to run only in Sigil's CI and the strict
-# gates: it stopped MERGES, never builds. So an engine author could add a loose
-# `out()` contract, get a working ROM, and hear about it a day later from a gate
-# they do not run. `sigil build` now runs the closure before it links, and a
-# firing that is not in the frozen baseline fails the build with the list.
+# `sigil build` runs the whole-corpus contract closure before it links. The
+# closure needs the whole call graph, so it cannot be a per-file check; this is
+# where it gates. A firing outside the frozen baseline fails the build with the
+# list, and so does a baseline row that STOPS firing — a silently narrowing
+# analysis is the destructive direction, not a free pass.
 #
 # CONTRACTS=0 is the EMERGENCY OPT-OUT, not a normal knob. It exists so a
 # contract-checker defect cannot block shipping a ROM; using it means the build
