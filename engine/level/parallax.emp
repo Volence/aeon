@@ -53,6 +53,26 @@ pub struct band_entry {
 // sugar does not compose in displacement arithmetic (row 1068), so a named const.
 const band_top_cell_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
 
+// copy_band_entry — the Step-4a shadow-view entry copy, sized BY the struct:
+// the widest-first move run whose total advance is exactly sizeof(band_entry).
+// Both pointers post-increment, and the rebase immediately after reads the
+// copied top back through -sizeof(band_entry)(dst), so the run's advance and
+// that displacement are ONE fact rather than two numbers that must agree. A
+// field added to band_entry lengthens the run instead of truncating the copy.
+comptime fn copy_band_entry(src: Reg, dst: Reg) -> Code {
+    let longs = 0..(sizeof(band_entry) / 4) |> fold(asm {}, |acc, _i| acc ++ asm {
+        move.l  ({src})+, ({dst})+
+    })
+    let rem = sizeof(band_entry) % 4
+    if rem == 0 { return longs }
+    if rem == 1 { return longs ++ asm { move.b  ({src})+, ({dst})+ } }
+    if rem == 2 { return longs ++ asm { move.w  ({src})+, ({dst})+ } }
+    return longs ++ asm {
+        move.w  ({src})+, ({dst})+
+        move.b  ({src})+, ({dst})+
+    }
+}
+
 // ----------------------------------------------------------------------
 // Parallax_Init — wipe Parallax_State and seed current_config
 // In:  a0 = parallax_config* (NULL = inert; pipeline will skip)
@@ -581,17 +601,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d1, d2                      // d2 = source band index (starts at k)
         moveq   #0, d4                      // first-entry flag
     .copy_band:
-        // source entry = config bands + d2*band_entry_len (10 bytes)
+        // source entry = config bands + d2 × sizeof(band_entry)
         move.w  d2, d3
-        lsl.w   #3, d3
-        move.w  d2, d5
-        add.w   d5, d5
-        add.w   d5, d3                      // d3 = d2*10
+        mul_const.w d3, #sizeof(band_entry), d5  // d5 = scratch, trashed
         lea     sizeof(parallax_config)(a0), a1
         adda.w  d3, a1
-        move.l  (a1)+, (a4)+
-        move.l  (a1)+, (a4)+
-        move.w  (a1)+, (a4)+
+        copy_band_entry(a1, a4)
         // rebase the copied entry's top to screen cells
         moveq   #0, d3
         move.b  -sizeof(band_entry)(a4), d3       // -band_entry_len(a4)
