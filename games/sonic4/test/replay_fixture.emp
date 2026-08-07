@@ -15,3 +15,20 @@
 module games.sonic4.replay_fixture in replay_fixture
 
 pub data Replay_OJZ_Fixture (align: 2) = embed("games/sonic4/data/replays/ojz_fixture.bin")
+
+// OJZ SLIDE fixture — the entity-window coverage the standing fixture does not
+// have. Recorded 2026-08-07 (1051 ticks, 17 checkpoints, 176 bytes): run right
+// across the section-1 boundary collecting its rings, run left back across it,
+// then right again. The shipped `Replay_OJZ_Fixture` never leaves section 0 —
+// measured, both carts, in the migmask A/B — so `EntityWindow_Slide`,
+// `MigrateMasks`, `PopulateSectionRings` and `InitSection`'s compare-clear had
+// ZERO automated behavioural coverage. This stream exercises all of them, and
+// the leftward crossing is the one direction that seats a populated surviving
+// section on a MISREAD entry.
+//
+// Proven to FAIL on a cart built with the old x22 stride: the engine's own
+// duplicate tripwire fires at `EntityWindow_TrySpawnRing` with the key word
+// $0100 (section $01, list index $00) at Logic_Tick 391, and the same stream
+// completes clean with Replay_Done=$FF on the fixed cart. A regression net that
+// passes on the broken build tests nothing; this one does not.
+pub data Replay_OJZ_Slide_Fixture (align: 2) = embed("games/sonic4/data/replays/ojz_slide_fixture.bin")
