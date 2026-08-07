@@ -15,7 +15,7 @@ const VDP_REG_STEP = $0100
 // exactly 32 dirty bits and the signed-byte counter caps at 32; a table grown
 // past that would need more than 32 mask bits. Compile error instead.
 // VDP_Shadow_len is an imported const, so ensure sees it at comptime.
-ensure(VDP_Shadow_len <= 32, "engine/constants.asm VDP_Shadow_len > 32 — Flush_VDP_Shadow's .l dirty mask holds only 32 bits; the lsr walk cannot index past that")
+ensure(VDP_Shadow_len <= 32, "engine.constants VDP_Shadow_len > 32 — Flush_VDP_Shadow's .l dirty mask holds only 32 bits; the lsr walk cannot index past that")
 
 // -----------------------------------------------
 // VDP_Shadow_Init — copy boot VDP register values into shadow table

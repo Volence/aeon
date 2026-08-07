@@ -439,6 +439,11 @@ pub const TILE_CACHE_MARGIN_V    = 16                                     // ver
 // Raw block layout: [512B nametable][128B collision plane A][128B collision plane B].
 pub const BLOCK_TILE_SIZE       = 16    // 16x16 tiles per block
 pub const BLOCK_TILE_SHIFT      = 4     // lsr #4 = / 16
+// The size and the shift are one fact written twice, and roughly ten sites
+// consume the shift rather than the size. Changing the block geometry without
+// moving both would divide by the wrong power of two everywhere at once.
+ensure(1 << BLOCK_TILE_SHIFT == BLOCK_TILE_SIZE,
+       "BLOCK_TILE_SHIFT and BLOCK_TILE_SIZE disagree — every `lsr #BLOCK_TILE_SHIFT` divides by the wrong power of two")
 pub const BLOCK_NT_SIZE         = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2   // 512 bytes
 pub const BLOCK_COLL_ROWS       = BLOCK_TILE_SIZE / 2                     // 8 collision rows per block
 pub const BLOCK_COLL_COLS       = BLOCK_TILE_SIZE                         // 16 collision cells per row

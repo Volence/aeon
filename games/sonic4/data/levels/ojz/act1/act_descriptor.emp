@@ -69,9 +69,10 @@ ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
 // Section_GetSecPtrXY (engine/level/section.emp) indexes the Sec grid with
 // `adda.w d0, a0`, d0 = flat_id × sizeof(Sec)=66; adda.w SIGN-EXTENDS the word, so
 // an act above $7FFF / 66 = 496 flat sections wraps the pointer. MAX_ACT_SECTIONS
-// is the flat-section ceiling — keep it under 496. (66 = sizeof(Sec), guarded by
-// section.emp's `ensure(sizeof(Sec) == 66)`.)
-ensure(MAX_ACT_SECTIONS * 66 <= $7FFF,
+// is the flat-section ceiling — keep it under 496. The stride derives from the
+// struct here, so a field added to Sec lowers the ceiling instead of leaving
+// this guard checking a number the engine no longer uses.
+ensure(MAX_ACT_SECTIONS * sizeof(Sec) <= $7FFF,
        "MAX_ACT_SECTIONS > 496: Section_GetSecPtrXY adda.w sign-extends and wraps — widen the adda or pre-multiply flat_id as a long")
 
 pub data OJZ_Act1_Descriptor: Act = Act{
