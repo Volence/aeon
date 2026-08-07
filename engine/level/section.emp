@@ -148,7 +148,7 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
         add.w   d1, d0                          // d0 = flat section index
 
         movea.l Act.sec_grid_ptr(a2), a0
-        mul_const.w d0, #66, d1                  // d0 = flat × sizeof(Sec) = 66 (d1 = multiply scratch)
+        mul_const.w d0, #sizeof(Sec), d1         // d0 = flat × the Sec stride (d1 = multiply scratch)
         adda.w  d0, a0                          // sign-extends d0 → ≤496 sections (module ensure guards it)
 
         tst.l   (a0)
