@@ -150,6 +150,22 @@ fi
 # convsym deb2 appendix; release ships the assembled image alone (item 29).
 NATIVE_FLAGS="--game ${GAME}"
 if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+# CONTRACT CLOSURE GATE — default ON.
+#
+# `sigil build` runs the whole-corpus contract closure before it links. The
+# closure needs the whole call graph, so it cannot be a per-file check; this is
+# where it gates. A firing outside the frozen baseline fails the build with the
+# list, and so does a baseline row that STOPS firing — a silently narrowing
+# analysis is the destructive direction, not a free pass.
+#
+# CONTRACTS=0 is the EMERGENCY OPT-OUT, not a normal knob. It exists so a
+# contract-checker defect cannot block shipping a ROM; using it means the build
+# is not contract-checked, and the skip says so on stderr. Reach for it only when
+# the gate itself is wrong, and open a ledger row when you do.
+if [[ "${CONTRACTS:-1}" == "0" ]]; then
+    export SIGIL_CONTRACTS=0
+fi
+
 echo "Building ${MAIN_ASM} (sigil)..."
 "${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} \
     -o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"
