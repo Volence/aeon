@@ -20,7 +20,9 @@ const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
 
 // StartTransition writes VDP register $0B (Mode Set 3) through the shadow +
 // dirty mask; VDP_MODE3_OFF comes from the shared engine.vdp shadow-offset
-// block (drift-locked there against structs.asm).
+// block. Nothing relates that block to VdpShadow's field offsets — engine.vdp
+// says so itself: a wrong offset there changes the emitted displacement, so the
+// seven-target byte identity is the only check.
 
 // Parallax_State clear span in longwords — a NAMED comptime mirror for the
 // Init moveq, drift-locked to the ram.asm layout. (moveq link-deferral exists
@@ -52,6 +54,46 @@ pub struct band_entry {
 // Displacement to the NEXT band's band_top_cell (peek-ahead) — the .field-in-disp
 // sugar does not compose in displacement arithmetic (row 1068), so a named const.
 const band_top_cell_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
+
+// copy_band_entry — the Step-4a shadow-view entry copy, sized BY the struct:
+// the widest-first move run whose total advance is exactly sizeof(band_entry).
+// Both cursors post-increment, and the rebase immediately after reads the copied
+// top back through -sizeof(band_entry)(a4), so the run's advance and that
+// displacement are ONE fact rather than two numbers that must agree. A field
+// added to band_entry lengthens the run instead of truncating the copy.
+//
+// The cursors are the Step-4a loop's own registers, baked here the way
+// core.clear_longs bakes d0/a0: the rebase below hardcodes a4, so a dst
+// parameter would be a promise the call site cannot keep.
+//
+// In:  a1 = source entry, a4 = shadow-view cursor
+// Out: both advanced by sizeof(band_entry); no data register touched
+//
+// SIBLING, still hand-written: engine.buffers' `queue_static_dma` spells the
+// same shape as a literal 3L+1W run under
+// `ensure(sizeof(DMAEntry) == 14, "… re-derive the copy")`. One shared generator
+// over both is its own byte-proving parcel (gap-ledger row).
+comptime fn copy_band_entry() -> Code {
+    // An ODD entry size is unrepresentable here, and the reason is a crash, not
+    // a truncation: with an odd stride the k-th entry starts at base + k*size,
+    // whose parity ALTERNATES, so the run's leading `move.l` lands on an odd
+    // address for every odd k — a 68000 address error (CODING_CONVENTIONS §6.1,
+    // "Word-align ALL word and long data"). No ordering of the run fixes it.
+    // The stride is only half of it: the run's FIRST address must be even too,
+    // and the band array's base is the config header, so the header carries the
+    // same obligation. Both bases are even today only by layout accident.
+    // Pinning a divisibility assumption rather than letting it hold by accident
+    // is the core.clear_longs precedent.
+    ensure(sizeof(band_entry) % 2 == 0,
+           "sizeof(band_entry) is odd — copy_band_entry's move.l run would address-error on every odd-indexed entry; keep the entry size even")
+    ensure(sizeof(parallax_config) % 2 == 0,
+           "sizeof(parallax_config) is odd — it is the band array's base offset, so copy_band_entry's move.l run would start on an odd address")
+    let longs = 0..(sizeof(band_entry) / 4) |> fold(asm {}, |acc, _i| acc ++ asm {
+        move.l  (a1)+, (a4)+
+    })
+    if sizeof(band_entry) % 4 == 0 { return longs }
+    return longs ++ asm { move.w  (a1)+, (a4)+ }
+}
 
 // ----------------------------------------------------------------------
 // Parallax_Init — wipe Parallax_State and seed current_config
@@ -581,20 +623,14 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d1, d2                      // d2 = source band index (starts at k)
         moveq   #0, d4                      // first-entry flag
     .copy_band:
-        // source entry = config bands + d2*band_entry_len (10 bytes)
         move.w  d2, d3
-        lsl.w   #3, d3
-        move.w  d2, d5
-        add.w   d5, d5
-        add.w   d5, d3                      // d3 = d2*10
+        mul_const.w d3, #sizeof(band_entry), d5  // d3 = d2 × sizeof(band_entry); d5 trashed
         lea     sizeof(parallax_config)(a0), a1
         adda.w  d3, a1
-        move.l  (a1)+, (a4)+
-        move.l  (a1)+, (a4)+
-        move.w  (a1)+, (a4)+
+        copy_band_entry()
         // rebase the copied entry's top to screen cells
         moveq   #0, d3
-        move.b  -sizeof(band_entry)(a4), d3       // -band_entry_len(a4)
+        move.b  -sizeof(band_entry)(a4), d3
         sub.w   d0, d3
         tst.w   d4
         bne     .not_first
@@ -610,7 +646,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         ble     .write_top
         moveq   #28, d3                     // off-screen — zero-length fill
     .write_top:
-        move.b  d3, -sizeof(band_entry)(a4)       // -band_entry_len(a4)
+        move.b  d3, -sizeof(band_entry)(a4)
         // reorder the matching scroll words
         move.w  d2, d3
         add.w   d3, d3

@@ -36,6 +36,7 @@ module engine.boot_data
 
 use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL}
 use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt}
+use engine.sound_constants.{SND_STATE_BASE}
 
 // The resident sound driver blob (seam-1 emit). Direct-embed consts (the
 // mt_bank pattern) so the data item
@@ -62,6 +63,13 @@ pub equ Z80_SOUND_SIZE = extern("Z80_Sound_End") - extern("Z80_Sound_Start")
 // Cheap to state, and the failure it replaces is invisible until you boot.
 ensure((Z80_SOUND_SIZE & 1) == 0,
        "Z80_SOUND_SIZE ({Z80_SOUND_SIZE}) is ODD — boot.emp walks a5 through the blob into boot_tail's word-wide VDP commands, so an odd blob address-errors at boot")
+
+// The resident CODE blob grows up from Z80 $0000 and the playback STATE block
+// starts at SND_STATE_BASE. Nothing related them: the blob grows every time an
+// opcode is added to the driver, and an overrun would silently overwrite the
+// state block — no crash, no golden byte, audible only as corruption.
+ensure(Z80_SOUND_SIZE <= SND_STATE_BASE,
+       "Z80_SOUND_SIZE ({Z80_SOUND_SIZE}) has grown past SND_STATE_BASE ({SND_STATE_BASE}) — the resident driver code would overwrite the playback state block")
 
 // Z80_IDLE_SIZE: the no-sound idle program's
 // byte count, read by boot.emp's idle copy loop AND cross-checked by

@@ -81,8 +81,8 @@ pub const SND_SAMPLE_TEST         = 1                      // (unused)
 
 // --- DAC playback state (Z80 RAM; state region, all reads/writes bank-free) ---
 // SND_STATE_BASE is ALSO the resident-code ceiling: the driver CODE blob grows up
-// from $0000 and must stay below it (the build asserts Z80_SOUND_SIZE <=
-// SND_STATE_BASE). The block occupies $18F0..$18FC ($0D bytes), just below the
+// from $0000 and must stay below it. engine.boot_data asserts
+// `Z80_SOUND_SIZE <= SND_STATE_BASE` beside its blob-parity guard. The block occupies $18F0..$18FC ($0D bytes), just below the
 // page-aligned DAC ring at SND_RING_BASE ($1900). The word fields
 // (SND_ROM_PTR/LEN/FM6_CHAN_PTR) sit at EVEN absolute offsets off an even base.
 pub const SND_STATE_BASE          = $18F0
@@ -821,7 +821,9 @@ ensure(SCF_ACTIVE == 1<<SCF_ACTIVE_B && SCF_KEYED == 1<<SCF_KEYED_B && SCF_IS_FM
 // Directly ABOVE the 1B DAC ring: code $0000..<SND_STATE_BASE, state $18F0-$18FC,
 // DAC ring $1900-$19FF, sequencer $1A00.., then the derived scratch/param/trace/
 // expression tail, then the page-aligned SFX region, mailbox/status $1F00-$1F14
-// (FROZEN 68k contract), stack top $1FFE (grows down). Every seam is asserted below.
+// (FROZEN 68k contract), stack top $1FFE (grows down). Every seam from the state
+// block up is asserted below; the code -> state seam is asserted in
+// engine.boot_data, where the blob's link-derived size folds.
 pub const SND_SEQ_BASE       = $1A00     // sequencer state region (block above the DAC ring)
 
 // the DAC ring must end at/below the sequencer region.

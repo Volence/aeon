@@ -62,11 +62,11 @@ comptime fn perform_dplc(queue: Label) -> Code {
         addq.w  #1, d3                           // d3 = tile_count
 
         andi.l  #$0FFF, d0                       // tile_start_index
-        lsl.l   #5, d0                           // byte offset
+        lsl.l   #5, d0                           // byte offset (x32 = engine.constants.TILE_SIZE, forced by the 8x8 4bpp tile format)
         move.l  a3, d1                           // art base
         add.l   d0, d1                           // d1.l = source address
 
-        lsl.w   #5, d3                           // d3.w = length (bytes)
+        lsl.w   #5, d3                           // d3.w = length (x32 = engine.constants.TILE_SIZE, forced by the 8x8 4bpp tile format)
 
         movem.l d2-d4/a2, -(sp)                  // a3 is live across the call but QueueDMA preserves it
         jbsr    {queue}                          // carry SET = dropped (queue full)
