@@ -41,14 +41,15 @@ ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from
 
 // The VDP shadow table has TWO authorities for one number and nothing related
 // them. This module reserves the buffer as `[u8; sizeof(VdpShadow)]` (derived),
-// while engine.vdp_init bounds BOTH flush loops with the separately-declared
-// `VDP_Shadow_len` const — which the constant harvest deliberately excludes from
-// the struct-offset injector, so the two are independent by construction. Add a
-// 20th shadowed register and the buffer grows while the loops still stop at 19:
-// that register silently never reaches the hardware, with no crash and no byte
-// the golden could disagree about. vdp_init's own `<= 32` guard is a ceiling and
-// passes for both 19 and 20; only an equality catches it. This is the one place
-// both authorities are already in scope.
+// while engine.vdp_init bounds BOTH its init copy loop and its flush walk with
+// the separately-declared `VDP_Shadow_len` const — which the constant harvest
+// deliberately excludes from the struct-offset injector, so the two are
+// independent by construction. Equality is the right relation because BOTH
+// directions are live: too small and a shadowed register silently never reaches
+// the hardware (no crash, no golden byte); too large and the init copy walks
+// past the buffer's pad into VDP_Dirty_Mask, a live RAM stomp. vdp_init's own
+// `<= 32` guard is a ceiling and passes for 19 and 20 alike. This is the one
+// place both authorities are already in scope.
 ensure(VDP_Shadow_len == sizeof(VdpShadow),
        "VDP_Shadow_len ({VDP_Shadow_len}) and sizeof(VdpShadow) disagree — the shadow buffer and the flush-loop bound would cover different register counts")
 

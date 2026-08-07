@@ -13,8 +13,10 @@ module engine.hblank in hblank
 
 use engine.vdp.{VDP_MODE1_OFF, VDP_HINT_OFF}
 
-// VDP shadow register-slot offsets come from the shared engine.vdp twin
-// (drift-locked there against the structs.asm VDP_Shadow struct).
+// VDP shadow register-slot offsets come from the shared engine.vdp block.
+// Nothing relates that block to VdpShadow's field offsets — engine.vdp says so
+// itself: a wrong offset changes the emitted VDP_Shadow_Table displacement, so
+// the seven-target byte identity is the only check.
 
 // VDP reg $00 bit 4 = IE1 (H-interrupt enable). Install sets it, uninstall clears
 // it — always through the VDP shadow so a later Flush_VDP_Shadow never reverts it.

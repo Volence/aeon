@@ -103,3 +103,72 @@ reader auditing stride restatements greps for `ensure`, finds the comment, reads
 that would have found the gap. That is strictly worse than silence, and it is
 worth a standing rule: **a comment may not name a guard; it may only state a
 fact.** Every "guarded by X" comment in the corpus is a claim nothing checks.
+
+---
+
+## Panel round (2026-08-07)
+
+The lens read the whole corpus for the defect class this lane is about and found
+**four surviving false guard-claims the lane's own sweep missed**, one of them
+materially worse than either it fixed. All are now closed.
+
+**Rank-1, and the guard LANDED rather than being downgraded to a comment.**
+`sound_constants.emp` claimed "the build asserts `Z80_SOUND_SIZE <=
+SND_STATE_BASE`". No such assertion existed. Unlike `TILE_SIZE`, this number
+genuinely drifts — the Z80 driver blob grows whenever an opcode is added — and
+the failure is the code blob silently overwriting the playback state block: no
+crash, no golden byte, audible only as corruption. The lane's own doctrine says
+guard-if-the-harness-allows, comment-if-not, so the harness question was
+MEASURED rather than assumed: the `ensure` went into `boot_data.emp` beside its
+existing blob-parity guard (where `Z80_SOUND_SIZE` already folds), and **full
+strict passed 3511/0/4 = 3515**. No standalone harness compiles that module
+without `engine.sound_constants` in reach, so the guard stands.
+
+Also closed: `sound_constants.emp`'s "Every seam is asserted below" (false for
+the first seam it listed), and `hblank.emp` + `parallax.emp`'s "drift-locked
+against structs.asm" claims about the VDP shadow-offset block — nothing relates
+that block to `VdpShadow`'s field offsets, and `engine.vdp` says so itself. The
+`parallax.emp` one is fixed in lane A, which already owns that file.
+
+**The `BLOCK_TILE_SHIFT` guard covered 8 of its 10 consumers, not 10.**
+`tile_cache.emp:534,537` divide a *block* count by *blocks-per-section*, which is
+`BLOCKS_PER_SECTION_AXIS` — a separate constant that merely equals
+`BLOCK_TILE_SIZE` today. The new guard would have passed while those two divided
+by the wrong power of two. Closed properly rather than ledgered: a named
+`BLOCKS_PER_SECTION_SHIFT` with its own equality `ensure`, and the two sites
+respelled. Byte-identical (both shifts are 4).
+
+**Three free derivations the lane skipped while writing three costed comments**
+— `ART_STAGING_BUFFER_SIZE`, `BG_TILE_BASE_SLOT`-adjacent and
+`load_art.emp`'s `ART_POOL_PAGE_BYTES` all multiplied by a literal 32 with
+`TILE_SIZE` in scope and no import needed. Now derived.
+
+**Corrections to this packet's own claims**, both found by the lens:
+
+* The commit and this packet enumerated FIVE changed files; the diff touched
+  SIX. `vdp_init.emp`'s `ensure` message text also changed
+  (`engine/constants.asm` → `engine.constants`, correct — there is no `.asm`
+  authority any more) and went undisclosed.
+* The stated rationale for the `act_descriptor` change was wrong. "A field added
+  to `Sec` lowers the ceiling instead of leaving this guard checking a number the
+  engine no longer uses" cannot happen: the consumers still spell the stride as a
+  literal under `section.emp`'s `ensure(sizeof(Sec) == 66)`, so a `Sec` change
+  trips THAT first and this guard never observes it. The edit is still right — the
+  ceiling now moves with the struct and the message reports both operands instead
+  of a baked 496 — but it is the ceiling's own net, not the stride's. The comment
+  now says so, and the accurate "guarded by `section.emp`" cross-reference the
+  first draft DELETED is restored: in a lane about false guard claims, removing
+  the true one while keeping three stale literals was backwards.
+
+**Negative probes, both new guards, both fired:** `SND_STATE_BASE` lowered below
+the blob size fails with "would overwrite the playback state block";
+`BLOCKS_PER_SECTION_SHIFT` 4 → 5 fails with "divides by the wrong power of two".
+Reverted by string-replace (never `git checkout` — that trap fired twice this
+session), and the rebuild is byte-identical.
+
+**Still ledgered, not fixed:** `engine/vdp.emp` hand-restates four `VdpShadow`
+field offsets — the second authority for the struct whose LENGTH this lane
+guarded. Closing it needs `vdp.emp` to import `VdpShadow`, which is exactly the
+standalone-harness cost this lane measured elsewhere, so it is ranked next rather
+than taken blind. Also ledgered: the act ceiling is an engine invariant living in
+the tree's only game act file.

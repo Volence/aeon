@@ -225,7 +225,7 @@ pub proc S4LZ_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
 // Clobbers: d0-d1, a0-a1
 // -----------------------------------------------
 proc TileDelta_Undo (a0: *u8, d0: u16) clobbers(d0-d1/a0-a1) {
-        lsr.w   #5, d0                          // d0 = tile count (bytes/TILE_SIZE; 32 = 1<<5, fixed by the 8x8 4bpp tile format)
+        lsr.w   #5, d0                          // d0 = tile count (bytes/TILE_SIZE; 32 = 1<<5, forced by the 8x8 4bpp tile format)
         subq.w  #1, d0                          // subtract 1 for first tile (unchanged)
         ble     .done                           // 0 or 1 tiles -> nothing to do
         subq.w  #1, d0                          // adjust for dbf

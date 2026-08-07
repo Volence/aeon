@@ -6,12 +6,12 @@
 module engine.load_art in load_art
 
 use engine.structs.{Act}
-use engine.constants.{ART_POOL_PAGE_TILES, ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0}
+use engine.constants.{ART_POOL_PAGE_TILES, ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0, TILE_SIZE}
 
 // One decompressed pool page in bytes (ART_POOL_PAGE_TILES tiles x 32 B) —
 // the VRAM page stride and the Art_Staging_Buffer capacity are the same
 // quantity (the buffer holds exactly one page).
-const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * 32
+const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * TILE_SIZE
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // S4LZ_Decompress / ZX0_Decompress (engine.s4lz / engine.zx0),

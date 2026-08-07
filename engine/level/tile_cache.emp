@@ -10,6 +10,7 @@ use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
+use engine.constants.{BLOCKS_PER_SECTION_SHIFT}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
@@ -531,10 +532,10 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
     .block_col_loop:
         // decompose world block coords into section + intra-block
         move.w  d6, d0
-        lsr.w   #BLOCK_TILE_SHIFT, d0          // sec_x = world_block_col / 16
+        lsr.w   #BLOCKS_PER_SECTION_SHIFT, d0  // sec_x = world_block_col / blocks-per-section
         move.w  2(sp), d7
         move.w  d7, d1
-        lsr.w   #BLOCK_TILE_SHIFT, d1          // sec_y = world_block_row / 16
+        lsr.w   #BLOCKS_PER_SECTION_SHIFT, d1  // sec_y = world_block_row / blocks-per-section
         move.w  d6, d2
         andi.w  #$F, d2                        // intra_block_x
         move.w  d7, d3
