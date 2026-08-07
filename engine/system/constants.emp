@@ -379,7 +379,7 @@ pub const DMA_BUDGET_PAL  = 11648
 // Decompression / art staging.
 // -----------------------------------------------
 pub const TILE_SIZE = 32                          // bytes per 8x8 4bpp tile
-pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * 32   // 8192 — one decompressed pool page
+pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * TILE_SIZE   // 8192 — one decompressed pool page
 
 // -----------------------------------------------
 // SST layout constants (the ObjDef-copied template block + custom span).
@@ -439,6 +439,11 @@ pub const TILE_CACHE_MARGIN_V    = 16                                     // ver
 // Raw block layout: [512B nametable][128B collision plane A][128B collision plane B].
 pub const BLOCK_TILE_SIZE       = 16    // 16x16 tiles per block
 pub const BLOCK_TILE_SHIFT      = 4     // lsr #4 = / 16
+// The size and the shift are one fact written twice, and roughly ten sites
+// consume the shift rather than the size. Changing the block geometry without
+// moving both would divide by the wrong power of two everywhere at once.
+ensure(1 << BLOCK_TILE_SHIFT == BLOCK_TILE_SIZE,
+       "BLOCK_TILE_SHIFT and BLOCK_TILE_SIZE disagree — every `lsr #BLOCK_TILE_SHIFT` divides by the wrong power of two")
 pub const BLOCK_NT_SIZE         = BLOCK_TILE_SIZE * BLOCK_TILE_SIZE * 2   // 512 bytes
 pub const BLOCK_COLL_ROWS       = BLOCK_TILE_SIZE / 2                     // 8 collision rows per block
 pub const BLOCK_COLL_COLS       = BLOCK_TILE_SIZE                         // 16 collision cells per row
@@ -458,6 +463,11 @@ pub const BLOCK_DECOMP_BUDGET   = 6     // max block decompresses per frame (col
 pub const VFILL_ROWS_PER_FRAME  = 2
 pub const H_PFX_HYST            = 16    // net opposite-motion px before the horizontal prefetch latch flips
 pub const BLOCKS_PER_SECTION_AXIS = 16  // 16 blocks across, 16 down
+pub const BLOCKS_PER_SECTION_SHIFT = 4  // lsr #4 = / BLOCKS_PER_SECTION_AXIS
+// Blocks-per-section is a DIFFERENT quantity from tiles-per-block; they are both
+// 16 today, so a site that divides a block count by the wrong one is invisible.
+ensure(1 << BLOCKS_PER_SECTION_SHIFT == BLOCKS_PER_SECTION_AXIS,
+       "BLOCKS_PER_SECTION_SHIFT and BLOCKS_PER_SECTION_AXIS disagree — the world-block to section decompose divides by the wrong power of two")
 pub const BLOCK_INDEX_ENTRIES   = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  // 256
 pub const BLOCK_INDEX_SIZE      = BLOCK_INDEX_ENTRIES * 4                 // 1024 bytes (ROM)
 
