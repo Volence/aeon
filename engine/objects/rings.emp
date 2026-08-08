@@ -153,16 +153,16 @@ pub proc RingBuffer_Clear () clobbers() {
 //
 // In:  a4 = SAT buffer write pointer (from Render_Sprites)
 //      d5.w = current VDP sprite count (from Render_Sprites)
-// Out: a4 advanced past emitted ring sprites; d5 incremented per ring sprite
-//        emitted. Both are in-out cursors threaded from Render_Sprites, and
-//        neither is produced on any path that emits nothing — an empty buffer,
-//        the sprite cap already reached at entry, or every ring culled (the
-//        cull arms reach .done through .skip_ring, which advances only a0) —
-//        so both carry standing [proc.out-unverified] rows. When d5 IS produced,
-//        the increment is word-wide, matching the out(d5: u16) contract.
+// In-out: a4 advanced past emitted ring sprites; d5 incremented per ring sprite
+//        emitted. Both are threaded cursors — the caller (Render_Sprites) provides
+//        them live and reads them after. Pass-through is valid: an empty buffer,
+//        the sprite cap already reached at entry, or every ring culled (the cull
+//        arms reach .done through .skip_ring, advancing only a0) hands the entry
+//        cursors straight back unchanged. Where d5 IS written the increment is
+//        word-wide, matching the inout(d5: u16) claim.
 // Clobbers: d0-d4, d6-d7, a0
 // -----------------------------------------------
-pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) out(d5: u16, a4) {
+pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) inout(d5: u16, a4: *u8) {
         // --- Animation timer ---
         move.b  Ring_Anim_Timer, d0
         subq.b  #1, d0
