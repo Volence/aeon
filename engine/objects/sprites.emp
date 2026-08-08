@@ -742,16 +742,15 @@ proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5:
 //
 // In:  a4 = SAT buffer write pointer (current position)
 //      d5 = current VDP sprite index
-// Out: a4 = advanced past mask entries
-//      d5 = updated sprite index
-//      Both are in-out cursors threaded from Render_Sprites, and neither is
-//      produced on a path that emits nothing — a non-positive height, or the
-//      sprite cap already reached — so both carry standing
-//      [proc.out-unverified] rows. When d5 IS produced, the increment is
-//      word-wide, matching the out(d5: u16) contract. Same shape as DrawRings.
+// In-out: a4 = advanced past mask entries; d5 = updated sprite index. Both are
+//      threaded cursors — Render_Sprites provides them live and reads them after.
+//      Pass-through is valid: a non-positive height or the sprite cap already
+//      reached writes neither and hands the entry cursors straight back. Where d5
+//      IS written the increment is word-wide, matching inout(d5: u16). Same shape
+//      as DrawRings.
 // Clobbers: d0-d1
 // -----------------------------------------------
-proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) out(d5: u16, a4) {
+proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) inout(d5: u16, a4: *u8) {
         move.w  SpriteMask_Y, d0        // d0 = VDP Y start position
         move.w  SpriteMask_Height, d1        // d1 = remaining scanlines to cover
         ble   .masks_done
