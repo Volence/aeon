@@ -24,7 +24,7 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
 // Clobbers: d1-d2/a0 (d3 read-only but declared clobbered per the sensor
 //           convention above — set it before every call).
 // -----------------------------------------------
-pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0) {
+pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0: u8) {
         ensure(TILE_CACHE_STRIDE == 80, "Collision_GetType multiplies by #80; keep TILE_CACHE_STRIDE=80 or the collision row stride is wrong")
         lsr.w   #3, d0                      // X pixels → world tile col
         move.w  Cache_Left_Col, d2          // read once: bounds compare + cache-relative
