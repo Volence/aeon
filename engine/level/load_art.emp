@@ -100,16 +100,24 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         move.w  DMA_Budget_Default, d7              // save the active-display budget
         move.w  #DMA_BUDGET_BLANKED_INIT, DMA_Budget_Default
 
-        // Enqueue every page as a request (PAGEIN_QUEUE_SLOTS >> pool pages, so the
-        // enqueue never drops here — @discards documents the intentional ignore).
-        subq.w  #1, d6                              // d6 = count-1 (dbf counter)
-        moveq   #0, d5                              // d5 = page_id
+        // Enqueue every page as a request, INCREMENTALLY (tripwire 1): at the
+        // 64-tile cutover a pool is ~10+ pages > PAGEIN_QUEUE_SLOTS(8), so a
+        // blind up-front enqueue would drop pages. Enqueue one page at a time; on a
+        // full queue, spin a VSync_Wait to drain a slot, then retry the SAME page.
+        // Nothing is dropped, at any page count.
+        moveq   #0, d5                              // d5 = next page_id to enqueue
     .enq_loop:
+        cmp.w   d6, d5                              // all pages enqueued?
+        bge     .drain_wait
         move.w  d5, d0
         moveq   #0, d1                              // flags 0 = bulk load (not a demand miss)
-        jbsr    PageIn_Enqueue @discards(dropped)
+        jbsr    PageIn_Enqueue                      // carry SET = queue full
+        bcc     .enq_next
+        jbsr    VSync_Wait                          // queue full -> drain a frame, retry same page
+        jbra    .enq_loop
+    .enq_next:
         addq.w  #1, d5
-        dbf     d6, .enq_loop
+        jbra    .enq_loop
 
         // Drive the streaming path to completion. VSync_Wait runs PageIn_Process
         // each frame (decode slice + landing); the trailing VBlank drains

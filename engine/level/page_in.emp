@@ -63,8 +63,9 @@
 // rule; repin's page_in region spans [PageIn_Process, BG_Init)).
 module engine.page_in in page_in
 
-use engine.structs.{PageInReq}
+use engine.structs.{PageInReq, PageManifest}
 use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
+use engine.constants.{ART_POOL_PAGE_BYTES_SHIFT, ART_PAGE_FORM_ZX0, TILE_SIZE}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // ZX0R_Decompress (engine.zx0_resume), QueueDMA_Important (engine.dma_queue).
@@ -102,25 +103,41 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
 
         jbsr    .dequeue                         // d0.w = page_id (Count>0 guaranteed); PageIn_Cur_Flags set
 
-        // --- resolve page_id -> source wrapper ptr + dest VRAM + length ---
-        movea.l PageIn_Pool_Table, a1           // act page-address table (longword ptrs)
+        // --- resolve page_id -> manifest v2 entry {source, tiles, form, flags} ---
+        // Act.act_art_pool_table now points at [PageManifest;N] (stride 8), NOT a
+        // longword ptr table. Stride the table, read source/tiles/form.
+        movea.l PageIn_Pool_Table, a1           // manifest v2 table [PageManifest; act_art_pool_pages]
         move.w  d0, d1
-        lsl.w   #2, d1                           // page_id * 4
-        movea.l (a1,d1.w), a0                   // a0 = page wrapper ptr
+        lsl.w   #3, d1                           // page_id * sizeof(PageManifest)=8
+        lea     (a1,d1.w), a1                    // a1 = &manifest[page_id]
+        movea.l PageManifest.pm_source(a1), a0  // a0 = page blob ptr
         move.w  d0, PageIn_Cur_Page              // stash for the raw-form retry
-        move.w  (a0), d1                         // d1.w = uncompressed size (BE) = landing DMA length
+
+        move.w  PageManifest.pm_tiles(a1), d1    // d1.w = decompressed tile count
+        beq     .idle                            // tripwire 3: size-0 page -> skip (no 0-length decode)
+        lsl.w   #5, d1                            // landing DMA length = tiles * TILE_SIZE(32)
         move.w  d1, PageIn_Cur_Bytes
+
+        // dest VRAM byte = page_id << ART_POOL_PAGE_BYTES_SHIFT (== page_id *
+        // ART_POOL_PAGE_BYTES); the shift is ensure-tied to the byte size (tripwire 2).
         moveq   #0, d2
         move.w  d0, d2
+        // page_id << ART_POOL_PAGE_BYTES_SHIFT, split 8 + rest for the 68k lsl<=8
+        // immediate cap (page sizes 32/64/128 tiles => shift 10/11/12 => rest 2/3/4).
         lsl.l   #8, d2
-        lsl.l   #5, d2                           // d2 = page_id * ART_POOL_PAGE_BYTES (8192); fits u16 for every valid slot
+        lsl.l   #(ART_POOL_PAGE_BYTES_SHIFT - 8), d2   // d2 = page_id * ART_POOL_PAGE_BYTES
         move.w  d2, PageIn_Cur_Dest
 
-        // --- form election: ZX0 (production) vs raw (dormant in v1) ---
-        cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
+        // --- form dispatch: MANIFEST-driven (pm_form), not wrapper-version ---
+        move.b  PageManifest.pm_form(a1), d2
+        cmpi.b  #ART_PAGE_FORM_ZX0, d2
         bne     .raw
 
         // ZX0 form: slice-decode the wrapped stream into staging; land on .after.
+    if DEBUG == 1 {
+        move.b  ART_HDR_VERSION(a0), d2          // manifest says ZX0 -> the wrapper must agree
+        assert.b d2, eq, #ART_VER_ZX0
+    }
         lea     ART_HDR_SIZE(a0), a0            // a0 = ZX0 stream past the 4-byte wrapper
         lea     Art_Staging_Buffer, a1         // a1 = staging dest
         lea     .after, a3                     // a3 = completion continuation
@@ -128,12 +145,12 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         jbra    ZX0R_Decompress                 // FALL INTO the decoder (NO net push)
 
     .raw:
-        // Raw form: no staging, no decode — one direct ROM->VRAM DMA of the
-        // payload. v1 ships only ZX0 pages, so this arm is dormant; it is wired
-        // for the Task-5 manifest-v2 form byte. Resident the instant the DMA
-        // lands (no staging buffer to protect -> no Staging_Busy handshake).
-        move.l  a0, d1
-        addi.l  #ART_HDR_SIZE, d1               // source = payload past the wrapper
+        // Raw form (manifest pm_form == ART_PAGE_FORM_RAW): no staging, no decode —
+        // one direct ROM->VRAM DMA. The .raw page blob is the uncompressed payload
+        // with NO wrapper (the manifest carries size + form), so pm_source (a0) is
+        // the DMA source directly. Resident the instant the DMA lands (no staging
+        // buffer to protect -> no Staging_Busy handshake).
+        move.l  a0, d1                          // source = raw payload (pm_source, no wrapper)
         jbsr    PageIn_EnqueueLanding           // Important ROM->VRAM DMA; carry = dropped
         bcc     .idle                           // enqueued -> page resident
         // Queue full -> re-enqueue the request (B&R rollback: retry next frame).

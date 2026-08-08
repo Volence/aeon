@@ -36,10 +36,24 @@ pub struct Act {
     act_bg_layout:       *u8,           // $0E — zone-wide Plane B layout (T1 default)
     act_bg_tiles:        *u8,           // $12 — zone-wide Plane B tile blob
     act_parallax_config: *u8,           // $16 — default parallax config
-    act_art_pool_table:  *u8,           // $1A — page-address table (generated)
+    act_art_pool_table:  *u8,           // $1A — manifest v2 table: [PageManifest; act_art_pool_pages] (generated)
     act_art_pool_pages:  u16,           // $1E — pool page count (generated)
     edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
-    pad_21:              u8 = 0,        // $21 — reserved word pad (anonymous in structs.asm)
+    pad_21:              u8 = 0,        // $21 — reserved byte pad (anonymous in structs.asm)
+    act_sec_local_maps:  *u8,           // $22 — [*u8; grid_w*grid_h] per-section local->global tables (P2b, generated)
+}
+
+// -----------------------------------------------
+// Page manifest entry (Art-streaming P2b, manifest v2) — 8 bytes.
+// Act.act_art_pool_table points at [PageManifest; act_art_pool_pages].
+// PageIn_Process strides this table by sizeof(PageManifest) and dispatches on
+// pm_form (ART_PAGE_FORM_*); pm_flags carries ART_PAGE_FLAG_PINNED (residency).
+// -----------------------------------------------
+pub struct PageManifest {
+    pm_source:           *u8,           // $00 — page blob ptr (ZX0 wrapper, or raw payload)
+    pm_tiles:            u16,           // $04 — decompressed tile count (landing DMA length = *32)
+    pm_form:             u8,            // $06 — ART_PAGE_FORM_ZX0 / ART_PAGE_FORM_RAW
+    pm_flags:            u8,            // $07 — ART_PAGE_FLAG_PINNED bit0
 }
 
 // Low-byte views of the word grid dims — safe: grid_w, grid_h ≤

@@ -89,10 +89,11 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     act_bg_layout:       OJZ_Act1_BG_Layout,             // §2 A.5 T1 zone-wide BG
     act_bg_tiles:        OJZ_Act1_BG_Tiles,
     act_parallax_config: ParallaxConfig_OJZ_Default,     // fallback for NULL sections
-    act_art_pool_table:  OJZ_Act_Pool_PageTable,         // generated include, AS side
+    act_art_pool_table:  OJZ_Act_Pool_PageTable,         // manifest v2 table [PageManifest;N] (generated)
     act_art_pool_pages:  OJZ_ACT_POOL_PAGES,             // generated manifest const
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
     pad_21:              default,
+    act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
 }
 
 // -----------------------------------------------

@@ -71,8 +71,8 @@ pub region upper_ram @ $FFFF8000 .. SYSTEM_STACK, w_addressable
 
 // -----------------------------------------------
 // Lower RAM — 2D tile cache, block staging, streaming buffers (§4.7).
-// Art_Staging_Buffer reuses the tile-cache nametable RAM during display-off level
-// init to stage decompressed art pages before DMA.
+// Art_Staging_Buffer is a dedicated 2048-byte buffer (P2b): steady-state page-in
+// stages a decompressed art page here before its DMA lands.
 // -----------------------------------------------
 pub vars lower_ram {
     // 2D tile cache — world-space sliding window (replaces 1D strip cache)
@@ -95,16 +95,15 @@ pub vars lower_ram {
     // + collision plane B (128 B). Keys live in upper RAM (Block_Stage_Keys).
     Block_Stage_Buffers:    [u8; BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS],       // BLOCK_STAGE_SLOTS × BLOCK_RAW_SIZE = 16 × 768 = 12288 bytes
 
-    // Art staging — decompress one art-pool page here at level init (display off),
-    // then DMA it to VRAM. Reuses the tile-cache nametable RAM, which is NOT yet
-    // populated during display-off level init. INIT-ONLY; never used after the
-    // cache goes live.
-    Art_Staging_Buffer: alias(Tile_Cache_Nametable),
+    // Art staging — one ZX0-form art page decodes here before its staging->VRAM
+    // DMA lands (P2b). DEDICATED buffer (2048 B): steady-state page-in streams
+    // during gameplay, so it can no longer overlay live tile-cache RAM the way the
+    // init-only alias did. A single staging slot (the landing handshake serialises
+    // decode vs DMA — see engine/level/page_in.emp).
+    Art_Staging_Buffer: [u8; ART_STAGING_BUFFER_SIZE],                      // 2048 bytes (64-tile page)
 
     mark Lower_RAM_End,
 }
-
-ensure(ART_STAGING_BUFFER_SIZE <= TILE_CACHE_NT_SIZE, "Art staging buffer exceeds tile-cache RAM")
 
 // -----------------------------------------------
 // Upper RAM — hot data (.w addressing)

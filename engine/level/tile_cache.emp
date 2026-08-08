@@ -231,6 +231,19 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.w  Act.grid_w(a0), d3             // d3 = grid_w
         mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id
+
+        // -- P2b: stash this section's local->global table ptr for post-decode
+        //    translation. Block nametable words carry per-section LOCAL indices;
+        //    the staged slot is patched local->global before any copy loop reads
+        //    it. d7 survives S4LZ_DecompressDict (its license preserves d4-d7), so
+        //    the ptr rides across the decode. Act.act_sec_local_maps is the
+        //    [*u8;N] table indexed by the SAME flat section id. --
+        move.w  d3, d5                         // d5 = flat id (the #66 multiply clobbers d3)
+        movea.l Act.act_sec_local_maps(a0), a2 // a2 = [*u8;N] local-map pointer table
+        add.w   d5, d5
+        add.w   d5, d5                         // flat id * 4
+        move.l  (a2, d5.w), d7                 // d7 = this section's local->global table
+
         mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
 
@@ -253,6 +266,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.l  a3, -(sp)                      // decompress clobbers both a3 and a1
         jbsr    S4LZ_DecompressDict            // engine.s4lz (module-to-module)
         movea.l (sp)+, a1                      // a1 = slot base
+        jbsr    .translate_slot                // P2b: local->global nametable patch
         rts
 
     .raw_direct:
@@ -264,12 +278,39 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
             assert.w d3, eq                    // raw offset must be word-even
         }
         lea     (a2, d0.l), a0                 // a0 = raw 768-byte block (ROM, slot layout)
-        // point the slot straight at the uncompressed ROM block — no copy. The
-        // ROM block is BLOCK_RAW_SIZE in slot layout (nametable + collision) exactly
-        // as a decompressed slot, and consumers only read through the pointer.
-        lea     Block_Stage_Ptrs, a1
-        move.l  a0, (a1, d6.w)
-        movea.l a0, a1                         // a1 = raw ROM block
+        // P2b: raw-direct can no longer zero-copy the ROM block — its nametable
+        // words are per-section LOCAL and must be patched local->global. Copy the
+        // block ROM->slot (the default staged pointer is already the RAM slot a3),
+        // then translate. (Cold path; OJZ ships no raw-direct blocks today.)
+        movea.l a3, a1                         // a1 = dest RAM slot
+        move.w  #(BLOCK_RAW_SIZE/4)-1, d3
+    .rd_copy:
+        move.l  (a0)+, (a1)+
+        dbf     d3, .rd_copy
+        movea.l a3, a1                         // a1 = slot base (OUT + translate target)
+        jbsr    .translate_slot                // P2b: local->global nametable patch
+        rts
+
+    .translate_slot:
+        // Patch the staged block's nametable words local->global in place (P2b).
+        // In:  a1 = slot base (nametable), d7 = section's local->global table (u16[]).
+        // Each word: keep pal/pri/flip (bits 11-15), replace the 11-bit index with
+        // map[local]. Collision (past BLOCK_NT_SIZE) is untouched. a1 preserved
+        // (walk via a0). Clobbers d0-d3/a0/a2 — all within DecompressBlock's license.
+        movea.l a1, a0                         // walk cursor (keep a1 = OUT)
+        movea.l d7, a2                         // a2 = local->global table
+        move.w  #(BLOCK_NT_SIZE/2)-1, d3       // BLOCK_NT_SIZE/2 nametable words
+    .ts_loop:
+        move.w  (a0), d0                       // local word
+        move.w  d0, d1
+        andi.w  #$07FF, d1                     // local index
+        add.w   d1, d1                         // u16 table stride
+        move.w  (a2, d1.w), d2                 // global slot
+        andi.w  #$F800, d0                     // keep palette / priority / flip
+        andi.w  #$07FF, d2                     // global fits the 11-bit field
+        or.w    d2, d0
+        move.w  d0, (a0)+
+        dbf     d3, .ts_loop
         rts
 
     .empty_block:

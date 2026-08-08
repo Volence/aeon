@@ -224,11 +224,20 @@ pub const DMA_TOTAL_SLOTS      = DMA_CRITICAL_SLOTS + DMA_IMPORTANT_SLOTS + DMA_
 
 // Act art-pool paging + compressed-art wrapper. Every compressed art blob starts
 // with the 4-byte wrapper [u16 BE uncompressed size][u8 flags][u8 version].
-pub const ART_POOL_PAGE_TILES = 256         // tiles per pool page (matches build tool + ojz_strip_gen)
+pub const ART_POOL_PAGE_TILES = 64          // tiles per pool page (P2b cutover 256->64; matches ojz_strip_gen)
 pub const ART_HDR_VERSION     = 3           // byte offset of version within wrapper
 pub const ART_HDR_SIZE        = 4           // wrapper bytes ahead of the stream
 pub const ART_VER_S4LZ        = 1           // S4LZ v3 token stream (runtime tier)
 pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-time tier)
+
+// Manifest v2 (P2b): the act's page-address table (Act.act_art_pool_table) is now
+// a stride-`sizeof(PageManifest)` array of {source.l, tiles.w, form.b, flags.b}.
+// PageIn_Process strides it and dispatches on the form byte (not the wrapper
+// version). pm_form values / pm_flags bits:
+pub const ART_PAGE_FORM_ZX0    = 0          // ZX0 stream (wrapper + salvador bitstream, staged decode)
+pub const ART_PAGE_FORM_RAW    = 1          // raw-direct (uncompressed payload, DMA straight from ROM)
+pub const ART_PAGE_FLAG_PINNED = 1 << 0     // never-evict act-common page (P2b residency cache)
+pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (matches ojz_strip_gen)
 
 // Page-in request FIFO (Art-streaming P2a, engine.page_in). The dispatcher pops
 // one request per idle slice, resolving page_id -> source/dest via the act's
@@ -386,17 +395,23 @@ pub const DMA_BUDGET_PAL  = 11648
 // Decompression / art staging.
 // -----------------------------------------------
 pub const TILE_SIZE = 32                          // bytes per 8x8 4bpp tile
-pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * TILE_SIZE   // 8192 — one decompressed pool page
+pub const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * TILE_SIZE       // 2048 — one page's VRAM bytes
+pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_BYTES              // 2048 — one decompressed pool page
+// PageIn_Process derives a page's VRAM dest as page_id << ART_POOL_PAGE_BYTES_SHIFT
+// (== page_id * ART_POOL_PAGE_BYTES) — the ensure keeps the shift honest against
+// the byte size so a page-size change can't leave the shift stale (tripwire 2).
+pub const ART_POOL_PAGE_BYTES_SHIFT = 11
+ensure((1 << ART_POOL_PAGE_BYTES_SHIFT) == ART_POOL_PAGE_BYTES,
+       "ART_POOL_PAGE_BYTES_SHIFT must equal log2(ART_POOL_PAGE_BYTES)")
 
-// Blanked-init page-load DMA window (Art-streaming P2a). Level init streams the
-// act pool through the SAME page-in path gameplay uses, landing each decoded
-// page via an Important-priority staging->VRAM DMA. A 256-tile page is 8192 B —
-// larger than the active-display window budget (DMA_BUDGET_NTSC 6144), so a
-// budgeted Important drain would never move a whole page. Level_LoadArt runs
+// Blanked-init page-load DMA window (Art-streaming P2a/P2b). Level init streams
+// the act pool through the SAME page-in path gameplay uses, landing each decoded
+// page via an Important-priority staging->VRAM DMA. A 64-tile page is 2048 B, so
+// several pages' landings can drain per display-off frame; Level_LoadArt runs
 // display-OFF, where DMA runs at the full per-line rate on every line, so it
-// raises the window budget to this value for the bulk load (one full page + a
-// normal frame's other charges) and restores the active-display budget before
-// display-on.
+// raises the window budget to this value for the bulk load (headroom for several
+// page landings + a normal frame's other charges) and restores the active-display
+// budget before display-on.
 pub const DMA_BUDGET_BLANKED_INIT = ART_STAGING_BUFFER_SIZE + DMA_BUDGET_NTSC   // 14336
 
 // -----------------------------------------------
