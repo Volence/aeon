@@ -250,7 +250,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.w  Sec.sec_block_dict_len(a1), d4 // d4 = dict bytes (0 = none)
         movea.l Sec.sec_block_dict(a1), a4     // a4 = raw dict base (ROM)
         movea.l a3, a1
-        move.l  a3, -(sp)                      // decompress clobbers a3, advances a1
+        move.l  a3, -(sp)                      // decompress clobbers both a3 and a1
         jbsr    S4LZ_DecompressDict            // engine.s4lz (module-to-module)
         movea.l (sp)+, a1                      // a1 = slot base
         rts

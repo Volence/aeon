@@ -155,8 +155,9 @@ pub proc RingBuffer_Clear () clobbers() {
 //      d5.w = current VDP sprite count (from Render_Sprites)
 // Out: a4 advanced past emitted ring sprites; d5 incremented per ring sprite
 //        emitted. Both are in-out cursors threaded from Render_Sprites, and
-//        neither is produced on the empty-buffer path — Ring_Count = 0 returns
-//        before any write — so both carry standing [proc.out-unverified] rows.
+//        neither is produced on a path that emits nothing — an empty buffer,
+//        or the sprite cap already reached at entry, each returning before any
+//        write — so both carry standing [proc.out-unverified] rows.
 //        d5's increment is additionally byte-wide under a 32-bit claim.
 // Clobbers: d0-d4, d6-d7, a0
 // -----------------------------------------------
