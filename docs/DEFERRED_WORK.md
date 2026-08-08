@@ -3250,14 +3250,16 @@ golden vectors (fully game-agnostic). Either removes the `HAS_ACT_ART_POOL` defi
 port-test carrier injection. Low urgency — the current form is correct and cheaply
 reversible.
 
-### Equivalence walk does not assert `form == ZX0` — REVISIT at Task 5
+### Equivalence walk does not assert `form == ZX0` — RESOLVED by Task 5
 
-The self-test feeds each act-pool page to both decoders assuming the page is a ZX0 (version
-2) stream past the 4-byte wrapper. That holds today (every OJZ pool page is `.zx0`), so the
-missing `ART_HDR_VERSION == ART_VER_ZX0` check is harmless for the equivalence property. It
-becomes wrong the moment raw-form pages exist. Task 5 (P2b format cutover) introduces
-`.raw` pages (manifest v2 `form` byte); when it lands, either skip non-ZX0 pages in this
-walk or assert the form before decoding. Tie this cleanup to the Task 5 manifest work.
+The self-test fed each act-pool page to both decoders assuming the page is a ZX0 (version
+2) stream past the 4-byte wrapper. **FIXED in Task 5 (P2b format cutover, 2026-08-08):** the
+`.eq_page` walk now strides the manifest v2 `PageManifest` records (stride 8), reads the
+source from `pm_source` and length from `pm_tiles`, SKIPS `pm_tiles==0` pages, and
+equivalence-tests ONLY `pm_form == ART_PAGE_FORM_ZX0` pages — a raw-direct page is skipped
+(ZX0-vs-ZX0R equivalence is meaningless there). This was also the crash fix: the old
+stride-4 longword walk dereferenced garbage once the table became stride-8 v2 records
+(ADDRESS ERROR at `CompressionSelfTest.eq_page`).
 
 ## Ledgered by the 2026-08-08 art-streaming Phase 2 Task 3 review (`feat/art-streaming-p2`)
 
