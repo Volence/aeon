@@ -242,14 +242,14 @@ pub proc Player_SensorPair () clobbers(d0-d5/a1) {
         movem.w d3-d5, -(sp)           // layer + B coords across probe A
         jsr     (a2) as SensorProbe
         movem.w (sp)+, d3-d5
-        move.w  d0, -(sp)              // A dist
-        move.w  d1, -(sp)              // A angle
-        move.w  d2, -(sp)              // A attr
+        move.w  d0, -(sp)              // A dist (word: read at .w below)
+        move.b  d1, -(sp)              // A angle (byte result; low byte -> slot high byte)
+        move.b  d2, -(sp)              // A attr  (byte result; matched by the .b pop)
         move.w  d4, d0
         move.w  d5, d1
         jsr     (a2) as SensorProbe    // B result in d0/d1/d2
-        move.w  (sp)+, d3              // A attr
-        move.w  (sp)+, d4              // A angle
+        move.b  (sp)+, d3              // A attr  (only d3.b is read, at .b_wins)
+        move.b  (sp)+, d4              // A angle (only d4.b is read, at .b_wins)
         move.w  (sp)+, d5              // A dist
         cmp.w   d0, d5                 // A − B
         bgt     .b_wins
