@@ -46,7 +46,7 @@ use engine.coords.{abs_w}
 // SensorProbe — the stamped-probe-core routine type Player_SensorPair dispatches
 // through `jsr (a2)`. In: d0/d1 engine X/Y, d3.b layer, d6.b class mask; Out:
 // d0.w dist, d1.b raw angle, d2.b attr. d6 reused by the caller for sensor B.
-type SensorProbe = proc (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2)
+type SensorProbe = proc (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0: i16, d1, d2)
 
 // -----------------------------------------------
 // probe_sub — load the probe-axis sub-coordinate (0-15) into pdst
@@ -218,16 +218,16 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
 // The four stamped cores
 //          name                table          col axis step neg    flip
 // -----------------------------------------------
-pub proc Collision_ProbeDown (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
+pub proc Collision_ProbeDown (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0: i16, d1, d2) preserves(a0) {
         probe_core(HeightMaps,    d4, d5,  16, false, false)
 }
-pub proc Collision_ProbeUp (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
+pub proc Collision_ProbeUp (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0: i16, d1, d2) preserves(a0) {
         probe_core(HeightMaps,    d4, d5, -16, true,  true)
 }
-pub proc Collision_ProbeRight (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
+pub proc Collision_ProbeRight (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0: i16, d1, d2) preserves(a0) {
         probe_core(HeightMapsRot, d5, d4,  16, true,  false)
 }
-pub proc Collision_ProbeLeft (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0, d1, d2) preserves(a0) {
+pub proc Collision_ProbeLeft (d0: i16, d1: i16, d3: u8, d6: u8) clobbers(d3-d5/a1) out(d0: i16, d1, d2) preserves(a0) {
         probe_core(HeightMapsRot, d5, d4, -16, false, true)
 }
 

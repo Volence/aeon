@@ -86,7 +86,7 @@ comptime fn mul_cache_stride(dst: Reg, scratch: Reg) -> Code {
 // Out: d2.w = nametable word
 // Clobbers: d0-d2, a0
 // -----------------------------------------------
-pub proc Tile_Cache_GetTile (d0: u16, d1: u16) clobbers(d0-d1/a0) out(d2) {
+pub proc Tile_Cache_GetTile (d0: u16, d1: u16) clobbers(d0-d1/a0) out(d2: u16) {
         sub.w   Cache_Left_Col, d0
         add.w   Cache_Origin_Col, d0
         cmpi.w  #TILE_CACHE_COLS, d0

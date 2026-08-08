@@ -684,7 +684,7 @@ proc EntityWindow_InitSection () clobbers(d3, a2) {
 //      d5.w = sec_y0 (word)
 // Clobbers: d0
 // -----------------------------------------------
-proc EntityWindow_DeriveWindow () clobbers(d0) out(d2-d5) {
+proc EntityWindow_DeriveWindow () clobbers(d0) out(d2: u8, d3: u8, d4: i16, d5: i16) {
         move.w  Camera_X, d4            // world X px (16.16 high word)
         subi.w  #ENTITY_DESPAWN_BUFFER, d4
         moveq   #SECTION_SIZE_SHIFT, d0

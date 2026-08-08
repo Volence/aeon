@@ -205,7 +205,7 @@ pub proc Section_GetSecPtrXY (d2: GridX, d3: GridY, a2: *Act) clobbers(d1-d2) ou
 //   (the tail clamp's flags escape) — the QueueDMA_Deferrable / Sound_DrainSfxRing
 //   split.
 // -----------------------------------------------
-pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5, d7) preserves(sr.mask) {
+pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5, d7: u16) preserves(sr.mask) {
         lea     VDP_CTRL, a5                    // (VDP_CTRL).l — engine.vdp const; abs.l by the width rule
         lea     VDP_DATA, a6
         move.w  sr, -(sp)
