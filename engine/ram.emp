@@ -22,7 +22,7 @@ module engine.ram
 // — the glob brings the whole invariant set (the game-VARYING sizes still arrive
 // as -D defines: MAX_RING_BUFFER, COLLECTED_WINDOW_SLOTS, DEBUG).
 use engine.constants.*
-use engine.structs.{DMAEntry, VdpShadow, PageInReq}
+use engine.structs.{DMAEntry, VdpShadow, PageInReq, PageFrame}
 use engine.objects.sst.{Sst}
 // Sst's fields carry the engine.types domain vocabulary (Coord/Velocity/… — all
 // erase to raw widths); computing sizeof(Sst)/[Sst; N] here resolves those field
@@ -101,6 +101,15 @@ pub vars lower_ram {
     // init-only alias did. A single staging slot (the landing handshake serialises
     // decode vs DMA — see engine/level/page_in.emp).
     Art_Staging_Buffer: [u8; ART_STAGING_BUFFER_SIZE],                      // 2048 bytes (64-tile page)
+
+    // -- Residency cache tables (P2b Task 6, engine.page_cache) --
+    // lower_ram (not the tight upper .w window): both are indexed base+offset
+    // arrays (the hot copy-loop patch leas a base register regardless of region,
+    // so .w-addressability buys nothing) and together they are ~408 B. The hot
+    // scalars (LRU/free heads, stall flag) live in upper_ram instead — see there.
+    Page_Table:     [u8; PAGE_TABLE_MAX],                                   // 256 bytes — page id -> frame idx / PAGE_NOT_RESIDENT
+    Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 15 × sizeof(PageFrame)=8 = 120 bytes
+    Page_Queued_Bits: [u8; PAGE_TABLE_MAX / 8],                             // 32 bytes — "page already in the request FIFO" bitset (PageCache_Request dedupe)
 
     mark Lower_RAM_End,
 }
@@ -287,6 +296,11 @@ pub vars upper_ram {
         Dbg_PageIn_Preempts:    u16,    // bookmark redirects (decode sliced by a VBlank)
         Dbg_PageIn_Flushes:     u16,    // PageIn_Flush cancellations
         Dbg_PageIn_Resumes:     u16,    // suspended-decode re-entries
+
+        // --- Residency-cache instrumentation + audit (P2b Task 6) ---
+        Dbg_PageCache_Demands:  u16,    // PageCache_Request(demand) enqueues (0 in Task 6 — pool resident)
+        Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
+        Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
     }
 
     // --- Object System (§3) ---
@@ -379,6 +393,19 @@ pub vars upper_ram {
     Cache_Fill_Last_Frame:  u16,        // Frame_Counter of last fill (cascade prevention)
     Cache_Fill_Resume_Col:  u16,        // partial FillColumn resume column ($FFFF = none pending)
     Cache_Fill_Resume_Row:  u16,        // partial FillColumn resume row (valid when Resume_Col set)
+    // Residency-cache demand stall (P2b Task 6): a copy-site word whose page is
+    // NOT resident sets this (and enqueues a PageCache_Request(demand)); the fill
+    // then returns partial exactly like a budget-out and resumes the same
+    // column/row next frame. Cleared at Tile_Cache_Fill entry. Dormant while the
+    // whole pool is resident (Task 6); Task 7 eviction exercises it.
+    Cache_Art_Stall:        u16,        // nonzero = a fill stalled this frame on a non-resident page
+
+    // --- Residency-cache hot scalars (P2b Task 6) — upper .w window for the
+    //     per-word Ref/Unref LRU surgery; the big tables sit in lower_ram. ---
+    Page_LRU_Head:          u8,         // MRU-recent end unused; head of the evictable (refcount 0, !pinned) list / $FF
+    Page_LRU_Tail:          u8,         // tail = insertion point on Unref 1->0; AllocFrame's victim end
+    Page_Free_Head:         u8,         // head of the never-assigned free-frame list / $FF
+    pad(1),                             // keep the region word-aligned
     Cache_Fill_Budget:      u16,        // per-frame block decompress allowance (shared: columns + rows)
     Cache_Fill_RowResume_Row: u16,      // partial FillRow resume world row ($FFFF = none)
     Cache_Fill_RowResume_Col: u16,      // partial FillRow resume col cursor
@@ -603,6 +630,8 @@ pub vars upper_ram {
     PageIn_Cur_Dest:        u16,        // in-flight page VRAM byte dest (read by the landing DMA)
     PageIn_Cur_Bytes:       u16,        // in-flight page uncompressed byte length (landing DMA length)
     PageIn_Cur_Page:        u16,        // in-flight page id (raw-form retry)
+    PageIn_Cur_Frame:       u8,         // frame allocated for the in-flight page (P2b Task 6; published at land)
+    pad(1),                             // keep the region word-aligned
     PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---

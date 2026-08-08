@@ -77,6 +77,22 @@ pub struct PageInReq {
 }
 
 // -----------------------------------------------
+// Page frame (§5) — one 64-tile VRAM art slot in the residency cache
+// (engine.page_cache). Page_Frames[i] describes frame i; frame*64 is its base
+// tile index in the FG art window. pf_lru_prev/next thread the eviction LRU list
+// AND the free list (a frame is in at most one list); PAGE_NOT_RESIDENT($FF)
+// terminates a link. 8 bytes — sizeof is compiler truth (no manual _len).
+// -----------------------------------------------
+pub struct PageFrame {
+    pf_page:             u16,           // $00 — resident page id, or $FFFF when free/unassigned
+    pf_refcount:         u16,           // $02 — cache nametable words referencing this frame
+    pf_lru_prev:         u8,            // $04 — LRU/free doubly-linked prev (frame idx / $FF)
+    pf_lru_next:         u8,            // $05 — LRU/free next (frame idx / $FF)
+    pf_flags:            u8,            // $06 — PF_PINNED / PF_IN_LRU bits
+    pf_pad:              u8 = 0,        // $07 — reserved (keeps the struct even, 8-byte stride = <<3)
+}
+
+// -----------------------------------------------
 // Section Definition (§4) — 66 bytes ($42), ROM table
 // All fields: 0 = keep current / no change
 // -----------------------------------------------

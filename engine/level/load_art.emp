@@ -86,8 +86,12 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         movea.l a0, a4                              // a4 = act ptr (kept live to BG_Init)
 
-        // Clean page-in state at the act transition, before the pool is (re)loaded.
-        jbsr    PageIn_Flush
+        // Reset the residency cache at the act transition, before the pool is
+        // (re)loaded (P2b Task 6). PageCache_Init flushes pending page-in work
+        // (subsuming the old PageIn_Flush), clears Page_Table, and threads the frame
+        // free list — so the streaming load below allocates frames per page and
+        // page-in's completion (PageCache_Publish) marks each page resident.
+        jbsr    PageCache_Init
 
         move.w  Act.act_art_pool_pages(a4), d6      // d6.w = page count
         beq     .bg                                 // empty pool -> straight to BG

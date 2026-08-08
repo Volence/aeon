@@ -239,6 +239,35 @@ pub const ART_PAGE_FORM_RAW    = 1          // raw-direct (uncompressed payload,
 pub const ART_PAGE_FLAG_PINNED = 1 << 0     // never-evict act-common page (P2b residency cache)
 pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (matches ojz_strip_gen)
 
+// Residency cache (P2b Task 6, engine.page_cache). The FG VRAM art region is
+// carved into PAGE_FRAMES fixed 64-tile frames; the page table maps a global
+// page id -> the frame holding it (or PAGE_NOT_RESIDENT). POOL_TILE_CEILING(960)
+// / ART_POOL_PAGE_TILES(64) = 15 frames span the whole FG art window.
+pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 15
+ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
+       "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
+pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + LRU/free link terminator
+// pf_flags bits (engine.structs PageFrame):
+pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)
+pub const PF_IN_LRU_BIT      = 1           // frame is currently linked in the eviction LRU list
+pub const PF_PINNED          = 1 << PF_PINNED_BIT
+pub const PF_IN_LRU          = 1 << PF_IN_LRU_BIT
+// The tile-index field of a nametable word (bits 0-10); bits 11-15 are pal/pri/flip.
+pub const NT_TILE_MASK       = $07FF
+pub const NT_ATTR_MASK       = $F800
+// A resident physical tile index >> PAGE_FRAME_TILE_SHIFT yields its frame id;
+// (index & PAGE_FRAME_TILE_MASK) is the intra-frame tile (0..63). 64 = 2^6.
+pub const PAGE_FRAME_TILE_SHIFT = 6
+pub const PAGE_FRAME_TILE_MASK  = ART_POOL_PAGE_TILES - 1                // 63
+ensure((1 << PAGE_FRAME_TILE_SHIFT) == ART_POOL_PAGE_TILES,
+       "PAGE_FRAME_TILE_SHIFT must equal log2(ART_POOL_PAGE_TILES)")
+// DEBUG residency audit cadence: recompute per-frame refcounts from the whole
+// Tile_Cache_Nametable every PAGECACHE_AUDIT_INTERVAL frames during play. Chosen
+// large enough that the ~4800-word walk's one-frame cost is a rare, identifiable
+// spike (it perturbs ONLY the DEBUG shape's Lag_Frame_Count — measure lag on the
+// non-audit frames). The audit also runs unconditionally at level init.
+pub const PAGECACHE_AUDIT_INTERVAL = 128
+
 // Page-in request FIFO (Art-streaming P2a, engine.page_in). The dispatcher pops
 // one request per idle slice, resolving page_id -> source/dest via the act's
 // page-address table. Demand requests dequeue before prefetch (two-pass scan).

@@ -66,6 +66,7 @@ module engine.page_in in page_in
 use engine.structs.{PageInReq, PageManifest}
 use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
 use engine.constants.{ART_POOL_PAGE_BYTES_SHIFT, ART_PAGE_FORM_ZX0, TILE_SIZE}
+use engine.constants.{PAGE_NOT_RESIDENT}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // ZX0R_Decompress (engine.zx0_resume), QueueDMA_Important (engine.dma_queue).
@@ -102,30 +103,38 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         beq     .idle                           // no requests -> nothing to do
 
         jbsr    .dequeue                         // d0.w = page_id (Count>0 guaranteed); PageIn_Cur_Flags set
+        move.w  d0, PageIn_Cur_Page              // stash (survives AllocFrame's clobber + raw-form retry)
+
+        // --- residency cache (P2b Task 6): allocate a VRAM frame for this page.
+        //     The page's dest is its FRAME's slot, not the identity page_id slot.
+        //     AllocFrame clobbers d0-d3/a3-a4 (a0/a1 untouched). ---
+        jbsr    PageCache_AllocFrame            // d0.b = frame (or PAGE_NOT_RESIDENT on thrash in release)
+        cmpi.b  #PAGE_NOT_RESIDENT, d0
+        beq     .alloc_fail                     // (DEBUG raise_errors before here; release safety net)
+        move.b  d0, PageIn_Cur_Frame
 
         // --- resolve page_id -> manifest v2 entry {source, tiles, form, flags} ---
         // Act.act_art_pool_table now points at [PageManifest;N] (stride 8), NOT a
         // longword ptr table. Stride the table, read source/tiles/form.
         movea.l PageIn_Pool_Table, a1           // manifest v2 table [PageManifest; act_art_pool_pages]
-        move.w  d0, d1
+        move.w  PageIn_Cur_Page, d1
         lsl.w   #3, d1                           // page_id * sizeof(PageManifest)=8
         lea     (a1,d1.w), a1                    // a1 = &manifest[page_id]
         movea.l PageManifest.pm_source(a1), a0  // a0 = page blob ptr
-        move.w  d0, PageIn_Cur_Page              // stash for the raw-form retry
 
         move.w  PageManifest.pm_tiles(a1), d1    // d1.w = decompressed tile count
         beq     .idle                            // tripwire 3: size-0 page -> skip (no 0-length decode)
         lsl.w   #5, d1                            // landing DMA length = tiles * TILE_SIZE(32)
         move.w  d1, PageIn_Cur_Bytes
 
-        // dest VRAM byte = page_id << ART_POOL_PAGE_BYTES_SHIFT (== page_id *
+        // dest VRAM byte = frame << ART_POOL_PAGE_BYTES_SHIFT (== frame *
         // ART_POOL_PAGE_BYTES); the shift is ensure-tied to the byte size (tripwire 2).
         moveq   #0, d2
-        move.w  d0, d2
-        // page_id << ART_POOL_PAGE_BYTES_SHIFT, split 8 + rest for the 68k lsl<=8
+        move.b  PageIn_Cur_Frame, d2
+        // frame << ART_POOL_PAGE_BYTES_SHIFT, split 8 + rest for the 68k lsl<=8
         // immediate cap (page sizes 32/64/128 tiles => shift 10/11/12 => rest 2/3/4).
         lsl.l   #8, d2
-        lsl.l   #(ART_POOL_PAGE_BYTES_SHIFT - 8), d2   // d2 = page_id * ART_POOL_PAGE_BYTES
+        lsl.l   #(ART_POOL_PAGE_BYTES_SHIFT - 8), d2   // d2 = frame * ART_POOL_PAGE_BYTES
         move.w  d2, PageIn_Cur_Dest
 
         // --- form dispatch: MANIFEST-driven (pm_form), not wrapper-version ---
@@ -152,9 +161,23 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         // buffer to protect -> no Staging_Busy handshake).
         move.l  a0, d1                          // source = raw payload (pm_source, no wrapper)
         jbsr    PageIn_EnqueueLanding           // Important ROM->VRAM DMA; carry = dropped
-        bcc     .idle                           // enqueued -> page resident
+        bcc     .raw_published                  // enqueued -> page resident
         // Queue full -> re-enqueue the request (B&R rollback: retry next frame).
         // A slot is guaranteed free (we just dequeued one), so this cannot drop.
+        move.w  PageIn_Cur_Page, d0
+        move.b  PageIn_Cur_Flags, d1
+        jbsr    PageIn_Enqueue @discards(dropped)
+        rts
+    .raw_published:
+        // ROM->VRAM DMA queued -> mark the page resident in its frame (P2b Task 6).
+        move.w  PageIn_Cur_Page, d0
+        move.b  PageIn_Cur_Frame, d1
+        jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + LRU
+
+    .alloc_fail:
+        // No frame available (thrash). DEBUG raise_errored inside AllocFrame; in
+        // release re-queue this page and retry next frame (a frame may free). A slot
+        // is free (we just dequeued), so this cannot drop.
         move.w  PageIn_Cur_Page, d0
         move.b  PageIn_Cur_Flags, d1
         jbsr    PageIn_Enqueue @discards(dropped)
@@ -173,7 +196,10 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         jbsr    PageIn_EnqueueLanding           // Important staging->VRAM DMA; carry = dropped
         bcs     .land_full
         st.b    PageIn_Staging_Busy             // landing queued -> hold the staging slot until VInt_Level drains it
-        rts
+        // staging->VRAM DMA queued -> mark the page resident in its frame (P2b Task 6).
+        move.w  PageIn_Cur_Page, d0
+        move.b  PageIn_Cur_Frame, d1
+        jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + LRU
     .land_full:
         // Queue full -> retry the landing next frame; staging still holds the page.
         st.b    PageIn_Land_Pending
