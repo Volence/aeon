@@ -1,0 +1,893 @@
+{
+  "character": "tails",
+  "source": "General/Sprites/Tails/Anim - Tails.asm",
+  "format": "s3k-raw",
+  "note": "Raw S3K animation scripts. Mapping to Aeon's 11 universal ANIM_* ids + new ability anims (FLY/GLIDE/etc.) is a character-plan authoring decision \u2014 DEFERRED. See README.",
+  "anim_control_codes": {
+    "AF_SET_FIELD": "0xF7",
+    "AF_COLLISION": "0xF8",
+    "AF_SOUND": "0xF9",
+    "AF_CALLBACK": "0xFA",
+    "AF_DELETE": "0xFB",
+    "AF_ROUTINE": "0xFC",
+    "AF_CHANGE": "0xFD",
+    "AF_BACK": "0xFE",
+    "AF_END": "0xFF"
+  },
+  "anim_count": 42,
+  "animations": [
+    {
+      "index": 0,
+      "s3k_label": "AniTails00",
+      "duration": 255,
+      "duration_note": "DUR_DYNAMIC (speed-scaled)",
+      "frames": [
+        7,
+        8,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "ff0708010203040506ff"
+    },
+    {
+      "index": 1,
+      "s3k_label": "AniTails01",
+      "duration": 255,
+      "duration_note": "DUR_DYNAMIC (speed-scaled)",
+      "frames": [
+        33,
+        34,
+        35,
+        36
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "ff21222324ffffffffff",
+      "trailing_bytes": [
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "index": 2,
+      "s3k_label": "AniTails02",
+      "duration": 1,
+      "duration_note": null,
+      "frames": [
+        150,
+        151,
+        152
+      ],
+      "frame_count": 3,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "01969798ff"
+    },
+    {
+      "index": 3,
+      "s3k_label": "AniTails03",
+      "duration": 0,
+      "duration_note": null,
+      "frames": [
+        150,
+        151,
+        152
+      ],
+      "frame_count": 3,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "00969798ff"
+    },
+    {
+      "index": 4,
+      "s3k_label": "AniTails04",
+      "duration": 253,
+      "duration_note": null,
+      "frames": [
+        169,
+        170,
+        171,
+        172
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "fda9aaabacffffffffff",
+      "trailing_bytes": [
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "index": 5,
+      "s3k_label": "AniTails05",
+      "duration": 7,
+      "duration_note": null,
+      "frames": [
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        175,
+        174,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        175,
+        174,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        173,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        177,
+        178,
+        179,
+        180,
+        179,
+        180,
+        179,
+        180,
+        179,
+        180,
+        179,
+        180,
+        178
+      ],
+      "frame_count": 59,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          28
+        ]
+      },
+      "raw_hex": "07adadadadadadadadadadafaeadadadadadadadadafaeadadadadadadadadadb1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b2b3b4b3b4b3b4b3b4b3b4b2fe1c"
+    },
+    {
+      "index": 6,
+      "s3k_label": "AniTails06",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        154,
+        154,
+        155,
+        155,
+        154,
+        154,
+        155,
+        155,
+        154,
+        154,
+        155,
+        155,
+        154,
+        154,
+        155,
+        155,
+        154,
+        154,
+        155,
+        155,
+        154,
+        155
+      ],
+      "frame_count": 22,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "099a9a9b9b9a9a9b9b9a9a9b9b9a9a9b9b9a9a9b9b9a9bff"
+    },
+    {
+      "index": 7,
+      "s3k_label": "AniTails07",
+      "duration": 63,
+      "duration_note": null,
+      "frames": [
+        176
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "3fb0ff"
+    },
+    {
+      "index": 8,
+      "s3k_label": "AniTails08",
+      "duration": 63,
+      "duration_note": null,
+      "frames": [
+        153
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "3f99ff"
+    },
+    {
+      "index": 9,
+      "s3k_label": "AniTails09",
+      "duration": 0,
+      "duration_note": null,
+      "frames": [
+        134,
+        135,
+        136
+      ],
+      "frame_count": 3,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "00868788ff"
+    },
+    {
+      "index": 10,
+      "s3k_label": "AniTails0A",
+      "duration": 63,
+      "duration_note": null,
+      "frames": [
+        130
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "3f82ff"
+    },
+    {
+      "index": 11,
+      "s3k_label": "AniTails0B",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        141
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "0f8dff"
+    },
+    {
+      "index": 12,
+      "s3k_label": "AniTails0C",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        164,
+        155
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "09a49bff"
+    },
+    {
+      "index": 13,
+      "s3k_label": "AniTails0D",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        142,
+        143,
+        142,
+        143
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "038e8f8e8ffd00"
+    },
+    {
+      "index": 14,
+      "s3k_label": "AniTails0E",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        181
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "09b5ff"
+    },
+    {
+      "index": 15,
+      "s3k_label": "AniTails0F",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        181,
+        182,
+        183,
+        184,
+        185,
+        186,
+        187,
+        188
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "09b5b6b7b8b9babbbcff"
+    },
+    {
+      "index": 16,
+      "s3k_label": "AniTails10",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        139,
+        140,
+        139,
+        140,
+        139,
+        140,
+        139,
+        140,
+        139,
+        140,
+        139,
+        140
+      ],
+      "frame_count": 12,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "038b8c8b8c8b8c8b8c8b8c8b8cfd00"
+    },
+    {
+      "index": 17,
+      "s3k_label": "AniTails11",
+      "duration": 1,
+      "duration_note": null,
+      "frames": [
+        157,
+        158
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "019d9eff"
+    },
+    {
+      "index": 18,
+      "s3k_label": "AniTails12",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        1,
+        2,
+        3
+      ],
+      "frame_count": 3,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "0f010203fe01"
+    },
+    {
+      "index": 19,
+      "s3k_label": "AniTails13",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        165,
+        166
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "0fa5a6fe01"
+    },
+    {
+      "index": 20,
+      "s3k_label": "AniTails14",
+      "duration": 19,
+      "duration_note": null,
+      "frames": [
+        145
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1391ff"
+    },
+    {
+      "index": 21,
+      "s3k_label": "AniTails15",
+      "duration": 11,
+      "duration_note": null,
+      "frames": [
+        159,
+        159,
+        3,
+        4
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "0b9f9f0304fd00"
+    },
+    {
+      "index": 22,
+      "s3k_label": "AniTails16",
+      "duration": 32,
+      "duration_note": null,
+      "frames": [
+        156
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "209cff"
+    },
+    {
+      "index": 23,
+      "s3k_label": "AniTails17",
+      "duration": 47,
+      "duration_note": null,
+      "frames": [
+        156
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "2f9cff"
+    },
+    {
+      "index": 24,
+      "s3k_label": "AniTails18",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        156
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "039cff"
+    },
+    {
+      "index": 25,
+      "s3k_label": "AniTails19",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        203,
+        204
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "09cbccff"
+    },
+    {
+      "index": 26,
+      "s3k_label": "AniTails1A",
+      "duration": 64,
+      "duration_note": null,
+      "frames": [
+        138
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "408aff"
+    },
+    {
+      "index": 27,
+      "s3k_label": "AniTails1B",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        137,
+        138
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "09898aff"
+    },
+    {
+      "index": 28,
+      "s3k_label": "AniTails1C",
+      "duration": 119,
+      "duration_note": null,
+      "frames": [
+        0
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "7700ff"
+    },
+    {
+      "index": 29,
+      "s3k_label": "AniTails1D",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "030102030405060708ff"
+    },
+    {
+      "index": 30,
+      "s3k_label": "AniTails1E",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "030102030405060708ff"
+    },
+    {
+      "index": 31,
+      "s3k_label": "AniTails1F",
+      "duration": 255,
+      "duration_note": "DUR_DYNAMIC (speed-scaled)",
+      "frames": [
+        195,
+        196
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "ffc3c4ffffffffffffff",
+      "trailing_bytes": [
+        255,
+        255,
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "index": 32,
+      "s3k_label": "AniTails20",
+      "duration": 31,
+      "duration_note": null,
+      "frames": [
+        160
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1fa0ff"
+    },
+    {
+      "index": 33,
+      "s3k_label": "AniTails21",
+      "duration": 31,
+      "duration_note": null,
+      "frames": [
+        160
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1fa0ff"
+    },
+    {
+      "index": 34,
+      "s3k_label": "AniTails22",
+      "duration": 31,
+      "duration_note": null,
+      "frames": [
+        162
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1fa2ff"
+    },
+    {
+      "index": 35,
+      "s3k_label": "AniTails23",
+      "duration": 31,
+      "duration_note": null,
+      "frames": [
+        161
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1fa1ff"
+    },
+    {
+      "index": 36,
+      "s3k_label": "AniTails24",
+      "duration": 11,
+      "duration_note": null,
+      "frames": [
+        163,
+        164
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "0ba3a4ff"
+    },
+    {
+      "index": 37,
+      "s3k_label": "AniTails25",
+      "duration": 7,
+      "duration_note": null,
+      "frames": [
+        189,
+        190,
+        191,
+        192,
+        193
+      ],
+      "frame_count": 5,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "07bdbebfc0c1ff"
+    },
+    {
+      "index": 38,
+      "s3k_label": "AniTails26",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        189,
+        190,
+        191,
+        192,
+        193
+      ],
+      "frame_count": 5,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "03bdbebfc0c1ff"
+    },
+    {
+      "index": 39,
+      "s3k_label": "AniTails27",
+      "duration": 4,
+      "duration_note": null,
+      "frames": [
+        207,
+        208
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "04cfd0ff"
+    },
+    {
+      "index": 40,
+      "s3k_label": "AniTails28",
+      "duration": 11,
+      "duration_note": null,
+      "frames": [
+        194,
+        205,
+        206
+      ],
+      "frame_count": 3,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "0bc2cdceff"
+    },
+    {
+      "index": 41,
+      "s3k_label": "AniTails29",
+      "duration": 2,
+      "duration_note": null,
+      "frames": [
+        235,
+        235,
+        236,
+        237,
+        236,
+        237,
+        236,
+        237,
+        236,
+        237,
+        236,
+        237
+      ],
+      "frame_count": 12,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "02ebebecedecedecedecedecedfd00"
+    }
+  ]
+}
