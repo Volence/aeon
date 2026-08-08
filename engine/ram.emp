@@ -288,6 +288,13 @@ pub vars upper_ram {
         Dbg_PageIn_Preempts:    u16,    // bookmark redirects (decode sliced by a VBlank)
         Dbg_PageIn_Flushes:     u16,    // PageIn_Flush cancellations
         Dbg_PageIn_Resumes:     u16,    // suspended-decode re-entries
+
+        // Task-3 self-test scaffold (page_in.emp) — DELETED IN TASK 4. Controller
+        // writes Dbg_PageIn_Test_Cycles = N (with the scene frozen) to slice the
+        // largest act-pool page through the preemption path N times + verify each;
+        // Dbg_PageIn_Test_Done goes nonzero when all N cycles pass.
+        Dbg_PageIn_Test_Cycles: u8,
+        Dbg_PageIn_Test_Done:   u8,
     }
 
     // --- Object System (§3) ---
@@ -567,6 +574,29 @@ pub vars upper_ram {
     // (nametable + collision), word-even, in the boot-cleared 64KB Work RAM; never
     // written after boot (the staged-pointer read-only contract keeps it zero).
     Block_Stage_ZeroPage:   [u8; BLOCK_RAW_SIZE],       // 768 bytes — read-only zero staged block
+
+    // --- Art-streaming P2a page-in bookmark record (survey §1) ---
+    // Engine-owned, RELEASE (all shapes): the VBlank bookmark banks the resumable
+    // decoder's ENTIRE live register set + CCR here at preemption, and
+    // PageIn_Process resumes from it. 7 longs (d0-d2/a0-a3) + PC long + SR word =
+    // 34 bytes, plus two byte flags. Banked/restored via individual moves (NOT
+    // movem-to-absolute: that addressing mode has no assembler support and would
+    // otherwise need a scratch pointer register the bank stub cannot spare — every
+    // register is either decoder state or live main-loop state). NO hand
+    // VBH_STACKED_PC constant anywhere — the hook uses the Sigil irq_frame.pc
+    // accessor. Placed at the RAM TAIL: the addition ripples ZERO existing RAM
+    // addresses (only Engine_RAM_End + the game RAM chained after it shift).
+    PageIn_Saved_D0:        u32,        // d0-d2/a0-a3 banked at preemption
+    PageIn_Saved_D1:        u32,
+    PageIn_Saved_D2:        u32,
+    PageIn_Saved_A0:        u32,
+    PageIn_Saved_A1:        u32,
+    PageIn_Saved_A2:        u32,
+    PageIn_Saved_A3:        u32,
+    PageIn_Saved_PC:        u32,        // interrupted decoder PC (banked by the hook)
+    PageIn_Saved_SR:        u16,        // decoder CCR/SR at preemption
+    PageIn_InFlight:        u8,         // nonzero while ZX0R may be on the resumable path (hook arm)
+    PageIn_Suspended:       u8,         // nonzero = banked context awaits resume
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed

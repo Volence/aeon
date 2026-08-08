@@ -68,7 +68,10 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 //      Callee licenses folded in: Art_Decompress d0-d3/a1-a3 (its S4LZ tail
 //      call is d0-d3/a1-a3, its ZX0 tail call d0-d1 plus the a1 cursor, both
 //      covered),
-//      QueueDMA_Critical d0-d4/a1-a2, VSync_Wait d0, BG_Init d0-d1/a1-a2.
+//      QueueDMA_Critical d0-d4/a1-a2, VSync_Wait d0-d2/a0-a3 (widened by the
+//      Art-streaming P2a idle-decode slice — Task 3 Step 6; still fully covered
+//      here, and this proc keeps only a4-a6/d6/d7 live across VSync_Wait),
+//      BG_Init d0-d1/a1-a2.
 //      Union minus the movem set = d0-d4/d7/a0-a3. a3 enters via
 //      Art_Decompress (NOT via BG_Init, which explicitly preserves a3).
 //      d5 is written by no instruction here and by no callee license, so it
@@ -91,7 +94,7 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 // Loop-live registers chosen to survive BOTH callees:
 //   Art_Decompress    clobbers d0-d3, a1-a3 (a4/d4 preserved)
 //   QueueDMA_Critical clobbers d0-d4, a1-a2
-//   VSync_Wait        clobbers d0
+//   VSync_Wait        clobbers d0-d2/a0-a3 (P2a-widened; a4-a6/d6/d7 untouched)
 // -> a4 (act ptr), a5 (page table cursor), a6 (VRAM dest), d6 (page count-1)
 //   are all untouched across the calls. d7 carries the page's byte length across
 //   the queue attempt (QueueDMA_Critical clobbers d4, so a drop-retry can't

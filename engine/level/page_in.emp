@@ -1,0 +1,216 @@
+// engine/level/page_in.emp — Art-streaming Phase 2 (P2a): the VBlank-bookmark
+// page-in dispatcher SKELETON.
+//
+// Task 3 lands the mechanism (preempt / bank / resume) plus a single hardwired
+// self-test request. The request FIFO, cancel/flush, and init-path routing are
+// Task 4; the self-test scaffold below is DELETED there.
+//
+// THE MECHANISM (RELEASE — present in every shape, dormant until Task 4 wires
+// real requests):
+//   PageIn_Process  — called once per frame from VSync_Wait's idle site
+//                     (after the ints_off flag/Ready bracket). Fresh path FALLS
+//                     into the resumable decoder ZX0R_Decompress; suspended path
+//                     tail-jmps PageIn_Resume. It declares NO preserves() and
+//                     pushes NOTHING before the decoder fall-through — a prologue
+//                     movem would be popped as a return address by
+//                     PageIn_BankRegs's rts (survey §3 rts-corruption trap).
+//   PageIn_BankRegs — @continuation, entered BY the hijacked VBlank rte with the
+//                     decoder's live registers (movem-restored) + CCR. Banks
+//                     d0-d2/a0-a3 + SR, sets Suspended, and rts (SP sits at
+//                     PageIn_Process depth, so control returns into VSync_Wait,
+//                     whose .wait spin falls through — VInt_Level already set
+//                     VBlank_Flag). Stack-balanced; the attribute documents the
+//                     rte entry.
+//   PageIn_Resume   — @continuation, jmp-entered from PageIn_Process. Restores
+//                     the banked registers, manufactures the group-1 exception
+//                     frame (push PC, push SR), and rte straight back into the
+//                     ZX0R loop.
+//
+// The VBlank hook (engine/system/vblank.emp) is the fourth piece: after its
+// full-save movem it range-checks the interrupted PC against
+// [ZX0R_Decompress, ZX0R_Decompress.__end) and, when a decode was live
+// (PageIn_InFlight), rewrites the stacked return PC to PageIn_BankRegs. The
+// redirect fires at the handler's rte — after VInt_Level's whole pipeline — so
+// "the bookmark is the V-int's final act" holds (survey §2). Nested HInt is safe
+// by contract: engine/system/hblank.emp is interrupt-transparent + rte-terminated.
+//
+// Resume == spawn == one code path (survey §2): a3 (the completion continuation)
+// is part of the banked register set, so a suspended decode resumes and completes
+// through the same jmp (a3) a fresh one does.
+
+module engine.page_in in page_in
+
+use engine.structs.{Act}
+use engine.constants.{ART_HDR_SIZE}
+
+// Every callee is .emp-owned and resolves at link — no boundary decls:
+// ZX0R_Decompress (engine.zx0_resume), ZX0_Decompress (engine.zx0, self-test
+// oracle). RAM (PageIn_*/Dbg_*) and OJZ_Act1_Descriptor resolve bare.
+
+// -----------------------------------------------
+// PageIn_Process — the once-per-frame idle-time decode slice.
+//
+// In:  none
+// Out: none
+// Clobbers: d0-d2/a0-a3 — the decoder union. The resume tail (jbra PageIn_Resume)
+//      and the decoder fall-through (jbra ZX0R_Decompress) both write this set;
+//      VSync_Wait folds it into its own license (contract surgery, Task 3 Step 6).
+//      NO preserves() — a preserves-movem prologue would push registers the
+//      decoder fall-through never pops, and PageIn_BankRegs's rts would then pop
+//      a saved register as a return address (survey §3 trap).
+// -----------------------------------------------
+pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
+        tst.b   PageIn_Suspended
+        bne     .resume                         // banked context awaits -> resume it
+
+    if DEBUG == 1 && HAS_ACT_ART_POOL == 1 {
+        // === TASK-3 SELF-TEST SCAFFOLD — DELETED IN TASK 4 =================
+        // The single hardwired request: slice the LARGEST act-pool page through
+        // the preemption path into buffer B, one slice per frame, then verify.
+        // The controller writes Dbg_PageIn_Test_Cycles = N and FREEZES the scene
+        // (Debug_Scene_Freeze) so nothing re-targets Art_Staging_Buffer (buffer A)
+        // or Block_Stage_Buffers (buffer B) between slices; Dbg_PageIn_Test_Done
+        // goes nonzero when all N cycles pass. See .find_largest / .verify below.
+        tst.b   Dbg_PageIn_Test_Cycles
+        beq     .idle                           // no test armed -> nothing to do
+        jbsr    .find_largest                   // -> a2 = wrapper ptr, d2 = size
+        move.l  a2, d0
+        beq     .idle                           // empty pool -> nothing to test
+        lea     ART_HDR_SIZE(a2), a0            // a0 = ZX0 stream past the wrapper
+        lea     Block_Stage_Buffers, a1         // a1 = buffer B (sliced ZX0R output)
+        lea     .after, a3                      // a3 = completion continuation
+        st.b    PageIn_InFlight                 // arm the VBlank bookmark hook
+        jbra    ZX0R_Decompress                 // FALL INTO the decoder (NO push!)
+        // ==================================================================
+    }
+
+    .idle:
+        rts
+
+    .resume:
+        jbra    PageIn_Resume                   // tail into the manufactured-frame resume
+
+    if DEBUG == 1 && HAS_ACT_ART_POOL == 1 {
+    // === TASK-3 SELF-TEST SCAFFOLD (cont.) — DELETED IN TASK 4 ============
+    .after:                                     // ZX0R jmp (a3) lands here on completion
+        clr.b   PageIn_InFlight
+        jbsr    .verify                         // blocking ZX0 vs buffer B + Preempts > 0
+        subq.b  #1, Dbg_PageIn_Test_Cycles      // one cycle done
+        bne     .after_done                     // more cycles -> next frame restarts
+        st.b    Dbg_PageIn_Test_Done            // all cycles passed
+    .after_done:
+        rts
+
+    .find_largest:
+        // Out: a2 = wrapper ptr of the largest act-pool page (0 if pool empty),
+        //      d2 = its uncompressed size (BE word). Clobbers d0/d1/a0/a1.
+        lea     OJZ_Act1_Descriptor, a0
+        move.w  Act.act_art_pool_pages(a0), d0
+        movea.l Act.act_art_pool_table(a0), a1
+        suba.l  a2, a2                          // best ptr = 0
+        moveq   #0, d2                          // best size = 0
+        tst.w   d0
+        beq     .fl_done                        // empty pool
+        subq.w  #1, d0                          // dbf counter
+    .fl_loop:
+        movea.l (a1)+, a0                       // next page wrapper ptr
+        move.w  (a0), d1                        // uncompressed size (BE)
+        cmp.w   d2, d1
+        bls     .fl_next                        // not larger -> keep current best
+        move.w  d1, d2                          // new max size
+        movea.l a0, a2                          // new best ptr
+    .fl_next:
+        dbf     d0, .fl_loop
+    .fl_done:
+        rts
+
+    .verify:
+        // Blocking ZX0 of the same page -> buffer A (Art_Staging_Buffer), then a
+        // word compare against buffer B (Block_Stage_Buffers, the sliced ZX0R
+        // output), then Preempts > 0. raise_error on any divergence. ZX0_Decompress
+        // preserves d2/a2, so the size + ptr survive the reference decode.
+        // Clobbers d0/d1 (+ d2/a2 via .find_largest before the preserved decode).
+        jbsr    .find_largest                   // a2 = ptr, d2 = size
+        lea     ART_HDR_SIZE(a2), a0
+        lea     Art_Staging_Buffer, a1          // buffer A (blocking reference)
+        jbsr    ZX0_Decompress                  // d2/a2 preserved across this
+        lea     Art_Staging_Buffer, a0
+        lea     Block_Stage_Buffers, a1
+        move.w  d2, d0
+        lsr.w   #1, d0                          // page bytes (tiles*32, even) -> words
+        subq.w  #1, d0
+    .vf_cmp:
+        cmpm.w  (a0)+, (a1)+
+        bne     .vf_bad
+        dbf     d0, .vf_cmp
+        tst.w   Dbg_PageIn_Preempts             // the bookmark must have fired at least once
+        bne     .vf_done                        // (an 8 KB page cannot decode in one frame's idle)
+    .vf_bad:
+        raise_error "PageIn self-test: sliced ZX0R diverges from blocking ZX0, or the bookmark never fired"
+    .vf_done:
+        rts
+    // ==================================================================
+    }
+}
+
+// -----------------------------------------------
+// PageIn_BankRegs — the banking stub (survey §2).
+//
+// Entered BY the hijacked VBlank rte (never called): the VBlank hook rewrote the
+// stacked return PC to here, so this runs with the decoder's registers
+// re-materialised (VBlank_Handler's movem restore) and the decoder's SR/CCR
+// (the rte popped it). Its FIRST instruction must touch nothing before capturing
+// SR. The bare rts returns into VSync_Wait (SP sits at PageIn_Process's caller
+// depth), whose .wait spin falls through immediately.
+//
+// @continuation: entered by a manufactured/hardware transfer, not a call (ask 4).
+// The body is in fact stack-balanced (register-bank stores + rts); the attribute
+// documents the rte entry and licenses the frame discipline.
+// Clobbers: none — every write lands in RAM (register->memory stores); d3-d7/a4-a6
+//   still hold live main-loop state (untouched, so the main loop resumes cleanly
+//   after the rts). Individual moves, not movem-to-absolute (see the RAM note).
+// -----------------------------------------------
+@continuation
+pub proc PageIn_BankRegs () clobbers() {
+        move.w  sr, PageIn_Saved_SR             // FIRST — capture CCR before anything perturbs it
+        move.l  d0, PageIn_Saved_D0             // bank the decoder's live register set
+        move.l  d1, PageIn_Saved_D1
+        move.l  d2, PageIn_Saved_D2
+        move.l  a0, PageIn_Saved_A0
+        move.l  a1, PageIn_Saved_A1
+        move.l  a2, PageIn_Saved_A2
+        move.l  a3, PageIn_Saved_A3
+        st.b    PageIn_Suspended                // banked context awaits PageIn_Process
+        rts                                     // SP at PageIn_Process depth -> returns into VSync_Wait
+}
+
+// -----------------------------------------------
+// PageIn_Resume — the manufactured-frame resume (survey §2, ask 4).
+//
+// jmp-entered from PageIn_Process's suspended path. Re-materialises the banked
+// registers, then manufactures a group-1 exception frame (SR at (sp), PC at
+// (sp+2) — so PC is pushed first, SR last) and rte's straight back into the ZX0R
+// loop at the banked PC with the banked CCR.
+//
+// @continuation: the manufactured rte consumes a 6-byte frame the stack model
+// never saw pushed, which is [stack.unbalanced] on an ordinary proc — the
+// attribute is the stack-balance exemption (ask 4). The clobber lint still runs:
+// the register->memory LOADs write d0-d2/a0-a3.
+// -----------------------------------------------
+@continuation
+pub proc PageIn_Resume () clobbers(d0-d2/a0-a3) {
+    if DEBUG == 1 {
+        addq.w  #1, Dbg_PageIn_Resumes          // CCR clobber is fine — rte restores it from Saved_SR
+    }
+        clr.b   PageIn_Suspended
+        move.l  PageIn_Saved_D0, d0             // re-materialise the decoder's registers
+        move.l  PageIn_Saved_D1, d1
+        move.l  PageIn_Saved_D2, d2
+        move.l  PageIn_Saved_A0, a0
+        move.l  PageIn_Saved_A1, a1
+        move.l  PageIn_Saved_A2, a2
+        move.l  PageIn_Saved_A3, a3
+        move.l  PageIn_Saved_PC, -(sp)          // PC first  -> lands at (sp+2)
+        move.w  PageIn_Saved_SR, -(sp)          // SR second -> lands at (sp), where rte reads it
+        rte                                     // straight back into the ZX0R loop
+}

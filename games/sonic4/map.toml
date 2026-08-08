@@ -50,7 +50,7 @@ order = [
   "Collected_Init", "PopulateSpawnedPieceCount", "Load_Object", "Plane_Buffer_Reset",
   "Tile_Cache_GetTile", "Collision_GetType", "Collision_ProbeDown", "Debug_MusicToggle",
   "Section_Init", "Camera_Init", "Parallax_Init", "Art_Decompress",
-  "BG_Init", "BgAnim_Init", "CompressionSelfTest", "Sound_PostByte",
+  "PageIn_Process", "BG_Init", "BgAnim_Init", "CompressionSelfTest", "Sound_PostByte",
   "Sound_DebugMirror", "ObjCodeBase", "Player_Init", "PState_Ground",
   "PState_Air", "PState_Spindash", "Sonic_InitAssets", "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",

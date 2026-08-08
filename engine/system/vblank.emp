@@ -5,6 +5,9 @@ use engine.constants.{VDP_CTRL}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
 use engine.structs.{DMAEntry}
+// Art-streaming P2a: the resumable decoder's toolchain extent symbols
+// (ZX0R_Decompress / ZX0R_Decompress.__end) — the VBlank bookmark's PC range.
+use engine.zx0_resume.{ZX0R_Decompress}
 
 use engine.sound_constants.*
 
@@ -39,6 +42,31 @@ type VBlankHandler = proc () clobbers(d0-d7/a0-a6)
 // -----------------------------------------------
 pub proc VBlank_Handler () clobbers() preserves(d0-d7/a0-a6) grants(vblank) {
         movem.l d0-a6, -(sp)
+        // --- Art-streaming P2a VBlank bookmark (survey §2) ---
+        // If a resumable art decode (ZX0R) was interrupted, redirect this rte to
+        // PageIn_BankRegs so it banks the decoder's live registers + CCR and yields
+        // to the main loop. The PC is read/rewritten via the Sigil irq_frame.pc
+        // accessor (toolchain-derived (disp,sp) off the movem above — no hand
+        // VBH_STACKED_PC constant), range-checked against the decoder's extent
+        // symbols. The redirect takes effect at THIS handler's rte, AFTER
+        // VInt_Level's whole pipeline + the movem restore, so the bookmark stays the
+        // V-int's final act even though the check runs at entry. A SUSPENDED decode
+        // (InFlight=1 but PC is main-loop code, outside the range) is never
+        // bookmarked, and PageIn_BankRegs / PageIn_Resume both sit outside the range,
+        // so a VBlank landing mid-bank/mid-resume stays transparent.
+        tst.b   PageIn_InFlight                 // art decode possibly interrupted?
+        beq     .no_bookmark
+        move.l  irq_frame.pc, d0                // the PC the rte will return to
+        cmpi.l  #ZX0R_Decompress, d0
+        bcs     .no_bookmark                    // PC < decoder start -> not in range
+        cmpi.l  #ZX0R_Decompress.__end, d0
+        bcc     .no_bookmark                    // PC >= decoder end   -> not in range
+        move.l  d0, PageIn_Saved_PC             // bank the interrupted decoder PC
+        move.l  #PageIn_BankRegs, irq_frame.pc  // redirect the rte to the banking stub
+        if DEBUG == 1 {
+            addq.w  #1, Dbg_PageIn_Preempts      // bookmark redirects (decode sliced by a VBlank)
+        }
+    .no_bookmark:
         tst.b   VBlank_Ready                    // (VBlank_Ready).w
         beq     .lag
         movea.l VInt_Ptr, a0                    // (VInt_Ptr).w
@@ -265,13 +293,21 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
 // VSync_Wait — block until VBlank fires (§1.2.5)
 // In:  none
 // Out: none
-// Clobbers: d0
+// Clobbers: d0-d2/a0-a3 — d0 is VSync_Wait's own, the rest is the PageIn/decoder
+//   union folded in from the idle-time PageIn_Process slice below (Art-streaming
+//   P2a, Task 3 Step 6). PageIn_Process adds nothing beyond this set and pushes
+//   nothing before falling into the decoder. Every caller was re-verified against
+//   the widening: GameLoop already clobbers everything; Level_LoadArt keeps only
+//   a4-a6/d6/d7 live across its VSync_Wait calls (all outside this set).
 // PRECONDITION: the caller runs below IPL 6 — preserves(sr.mask) faithfully
 // re-masks, so a caller already at IPL >= 6 spins forever (no in-tree caller
-// does). The CCR is NOT the caller's at return: the post-bracket wait loop and
-// flag clear write flags after the restore.
+// does). preserves(sr.mask) is intact across the PageIn slice: the mask
+// round-trip is the `with ints_off` bracket's, and a mid-body jbsr does not touch
+// the mask (the decode runs at the caller's IPL and bank/resume preserve SR). The
+// CCR is NOT the caller's at return: the post-bracket wait loop and flag clear
+// write flags after the restore.
 // -----------------------------------------------
-pub proc VSync_Wait () clobbers(d0) preserves(sr.mask) {
+pub proc VSync_Wait () clobbers(d0-d2/a0-a3) preserves(sr.mask) {
         // Clear any STALE VBlank_Flag first — VInt_Lag (which fires when
         // VBlank_Ready=0) sets VBlank_Flag, so a long pre-Wait operation
         // (e.g., S4LZ_Decompress) can leave the flag set from a previous
@@ -291,6 +327,16 @@ pub proc VSync_Wait () clobbers(d0) preserves(sr.mask) {
             move.b  d0, VBlank_Flag
             move.b  #1, VBlank_Ready
         }
+        // Idle-time art-decode slice (Art-streaming P2a). STRICTLY after the
+        // atomic flag-clear/Ready-set bracket: decode is only ever live once
+        // VBlank_Ready = 1, which is what makes a mid-decode VBlank always dispatch
+        // VInt_Level (never VInt_Lag) — the lag-path bookmark impossibility proof
+        // (survey §2). PageIn_Process either finishes/suspends the current slice
+        // and returns here, or (fresh/resume) runs the decoder until a VBlank
+        // banks it and PageIn_BankRegs's rts returns here.
+        jbsr    PageIn_Process
+        moveq   #0, d0                          // re-establish d0=0: PageIn_Process clobbers it,
+                                                // and the .wait flag-clear below reuses it
     .wait:
         tst.b   VBlank_Flag
         beq     .wait
