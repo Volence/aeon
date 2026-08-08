@@ -1,5 +1,17 @@
 # §2 A.5 Research — Per-section background art
 
+> **⚠ CORRECTIONS (2026-08-08)** — a re-verification pass
+> (`2026-08-08-bg-seam-streaming.md` §1) falsified three cites below and one
+> decision input: (1) the **Alien Soldier "closest precedent" claim is a misread**
+> — the cited "6-byte section headers" are Z80 sound-mailbox writes in a
+> mis-decoded data region, and the "$80D4 plane-size" cite is DMA-destination
+> extraction; (2) **sonic_hack's Plane B is at $E000, not $6000** (the $6000 is a
+> VDP-command high word — no "different VRAM split"); (3) the Gunstar cites fall
+> in a mis-decoded data region; (4) **Q4's 64×32/4096-byte layout decision is
+> superseded** — the shipped engine uses full 64×64/8192-byte layouts (NEW-5,
+> 2026-08-05), and Q5's 256-tile region figure is stale (real ceiling: 448 tiles
+> at $8000-$B7FF). Historical text below is unmodified.
+
 Settles four open questions for A.5 (per-section BG art) by surveying 7 reference disasms + online sources per CLAUDE.md research checklist.
 
 ## TL;DR — decisions

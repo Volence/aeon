@@ -565,6 +565,8 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 **Surfaced during:** continuous-scroll Phase 2 Task 6 diagonal stress (PRE-EXISTING — master shows the same lag).
 **Status (UPDATED 2026-07-16 — unified prefetch shipped):** Sustained MAX diagonal now runs **~42% lag** (oracle, 8/19 frames), down from the ~76% below. The unified direction-aware prefetch (H1 column scan + H2 corner + H3 hysteresis + H4 trailing-lag gate + H5 16 slots + H6 base-lea hoist, `feat/unified-prefetch`) removed the cold-crossing DECOMPRESS spike (A/B: sustained-max-horizontal 44→27 lag, ~40% cut). **The residual is now COPY/DRAW-bound, not decompress** — `TileCache_FillColumn`'s per-cell copy + `Draw_TileColumn`'s nametable draw at 16px/f (2 cols/frame) exceed budget regardless of decompress. That is the "horizontal Wave-1 that never happened" (the FillColumn/Draw_TileColumn hoist+SR, domain-split in campaign-gap-ledger). The pre-prefetch analysis below stands as the decomposition of the remaining fill cost.
 
+**Ruling (owner, 2026-08-05): MARK AND REVISIT — stays OPEN.** Neither accept the dip (A) nor spend on it yet; do **not** silently take (A) despite the recommendation below. Revisit alongside art-streaming Phase 2 (whose budget model touches the same frame window) or when a level actually plays at sustained max diagonal. Full ruling text: "Owner rulings, 2026-08-05" near the bottom of this file.
+
 **Original (pre-prefetch) status:** Sustained MAX diagonal scroll (both axes at CAM_MAX=16px/frame) runs ~76% lag frames (genuine fill cost, not corruption — that's fixed). Profiler: Tile_Cache_Fill ~25% (FillRow+FillColumn+Decompress) + HInt ~24% + Process_DMA_Deferrable ~18% + parallax ~14%. The zero-slack contract `CAM_MAX_Y_STEP == VFILL_ROWS_PER_FRAME*8` was sized for SINGLE-axis motion; diagonal runs BOTH column-fill and row-fill against the shared `BLOCK_DECOMP_BUDGET=6`, roughly halving the effective per-axis budget.
 **What:** Investigated 2026-06-23 (read-only profiler + code analysis). The cost is dominated by ESSENTIAL work with no significant redundancy — there is NO clean safe fix:
 - `Tile_Cache_Fill` ~25% — column-fill (X) + row-fill (Y) both run, sharing `BLOCK_DECOMP_BUDGET=6`. Corner cells are NOT double-decompressed (`TileCache_FindStagedBlock` hits the staging slot). Clean.
@@ -1496,6 +1498,15 @@ non-zero; intermittently they read zero.
 **Post-fix verification:** chunk 0x3f now references blocks 272-302 (all 4/4 non-zero, real ground data). Block count: 374 (was 2002 garbage). Tile art: 919 tiles (was 322 truncated). 141 unique source tile indices in OJZ act 1 sec0 strips (was 14). With this fix + a related palette-line-1 offset fix in the test state (sonic_hack's `palptr Pal_OJZ, 1` means OJZ palette occupies CRAM lines 1-3, not 0-2), the OJZ scroll test now renders actual OJZ art with correct green palette. Verified via Exodus Plane A viewer.
 **Bonus learning:** Investigation revealed I had been over-confidently calling sparse-pixel screenshots "clean rendering" through A.1-A.3 verification. Honest visual ground truth (level editor screenshots from the user) was what surfaced the bug. Process lesson saved as a memory.
 
+## From §7 — Visual Effects (design-stage)
+
+### Palette transition on section crossing (§4.8 / §7.1) — NOT IMPLEMENTED — recorded 2026-08-08
+**Surfaced during:** 2026-07-15 alignment audit (ENGINE_ARCHITECTURE.md presented palette-transition-on-crossing as if shipped; zero implementation existed). The doc claims were re-marked honestly (§7 banner, §7.1 shipped-vs-planned split, §4.2 `sec_pal` "descriptor field only", §4.8 blend-sections status) — this entry is the backlog row those pointers land on.
+**What:** No section-crossing palette code exists in `engine/level/` (verified 2026-08-08: no palette/CRAM/fade references there at all). `sec_pal` and `sec_pal_cycle` are reserved descriptor fields with no runtime consumer. The shipped palette path is game-poked only: game code writes `Palette_Buffer` + `Palette_Dirty` bits and `Enqueue_Dirty_Buffers` DMAs dirty lines to CRAM (§7.1). The planned design — descriptor-driven palette load on crossing, instant or ~16-frame RGB-lerp cross-fade, per-section cycling, blend cells (§4.8) — is future §7 work.
+**Blocked by:** §7 Visual Effects execution (palette-system design phase); nothing technical. The Deep-Forest-BG entry's "per-section palette variants" (below) is the cheap first step and depends on the same mechanism.
+
+---
+
 ## From §4.6 — Parallax (post-T17 backlog)
 
 ### Per-block linear interpolation deformation format
@@ -1570,6 +1581,17 @@ BG needs a non-blocking streaming mechanism, not a synchronous blit.
 ## From Deep Forest BG Work (2026-06-12)
 
 ### SPEC: Per-section background grid with seam streaming
+> **Update (2026-08-08):** a full research pass
+> (`docs/research/2026-08-08-bg-seam-streaming.md`) corrected four of this
+> sketch's assumptions before design: layouts are **64×64/8192 B** (not 64×32 —
+> re-derive all byte math); the transport should be the **`Plane_Buffer`** path
+> (the purpose-built zero-caller `Draw_BG_TileColumn` already exists there —
+> not `QueueDMA_Deferrable` as written below); horizontally there is **no single
+> BG camera** (per-band `Parallax_Current_Scroll_B` — the uniform "camX/8 margin"
+> math below only holds vertically, which locks in the vertical-first order); and
+> the tile ceiling is 448 (the two-half-pool idea stands). That doc carries the
+> revised build order + the open user rulings; this sketch remains the component
+> inventory.
 **Goal:** each section (or section row/column) gets its own background from
 the editor's per-section BG assignment, and the engine stitches them into
 one continuous world as the player travels — no visible swap, both axes.
