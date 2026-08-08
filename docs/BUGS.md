@@ -244,7 +244,7 @@ pose transition. Both would extend the chain into stale entries for exactly one 
 — matching the observed single-frame ghost. Concrete probe target: the band-cap path
 (`sprites.emp` `.band_limit_pop`, ~line 463) reaches `.done` SKIPPING the `DrawRings`
 call the normal band-exit runs — the one named site where the `a4`/`d5` provenance at
-`.done` differs from the common path (`DrawRings` is contracted `out(d5, a4)`, so a
+`.done` differs from the common path (`DrawRings` is contracted `out(d5: u16, a4)`, so a
 skew there requires an internal bug — but this is where to look first).
 
 **Live net (2026-08-02, DEBUG builds only):** the chain-walk assert is now in place
