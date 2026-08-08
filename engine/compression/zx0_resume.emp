@@ -1,0 +1,133 @@
+// ZX0R — resumable stack-flat ZX0 decompressor (art-streaming Phase 2, P2a)
+
+module engine.zx0_resume in zx0_resume
+
+// -----------------------------------------------
+// ZX0R_Decompress — resumable, stack-flat ZX0 stream decompressor.
+//
+// The supervisor-bookmark twin of engine.zx0's ZX0_Decompress. Same modern
+// (V2) ZX0 bitstream (salvador default mode), same output, but restructured so
+// an interrupt can snapshot its ENTIRE live state (registers + CCR), rewrite
+// the return PC to a banking stub, and resume it later from any interrupt
+// depth. That is only sound if the body touches sp NOWHERE — no call, no push,
+// no frame, no rts-family return. The `@resumable` attribute makes that a
+// build-checked property (any sp-touching op or rts-family return is
+// build-fatal); the exported extent symbol `ZX0R_Decompress.__end` gives the
+// VBlank bookmark a toolchain-symbolic [start, end) PC range (Task 3).
+//
+// Two structural differences from the blocking ZX0_Decompress:
+//   1. The internal `.get_elias`/`.elias_loop`/`.elias_bt` subroutine (reached
+//      by three `jbsr` sites) is INLINED at every call site — no stack. The
+//      `.len_elias` tail is the `.elias_bt` case (one data-bit read, THEN the
+//      control-bit loop).
+//   2. Exit is `jmp (a3)` to a caller-loaded continuation, NEVER `rts` — so an
+//      abort is just "don't resume", and resume works from any interrupt depth.
+//
+// Register-resident state at EVERY instruction (the bookmark banks exactly this
+// set): a0 (src), a1 (dst), d0 (elias accumulator), d1 (bit queue), d2
+// (rep-offset), a2 (backref cursor), plus CCR carry/X live BETWEEN instructions
+// (the elias loops feed `add.b d1,d1` into `addx`). a3 (continuation) is never
+// touched by the body. No VDP / Z80 / shared-RAM access: writes land in the
+// caller's staging buffer only; publication is the dispatcher's act.
+//
+// Elias values accumulate in d0.l but both copy loops count with `dbf` (word):
+// safe by construction — our u16 wrapper caps the uncompressed size at 65535,
+// so no run length exceeds a word (upstream-exact; do not "fix").
+//
+// In:  a0 = compressed ZX0 stream (PAST the 4-byte wrapper)
+//      a1 = destination (staging buffer)
+//      a3 = continuation — jumped to on completion (NOT a return address)
+// Out: a0 = past end of compressed data
+//      a1 = past end of decompressed data
+// Clobbers: d0-d2, a2 (NOT movem-preserved — the resumable contract forbids the
+//      stack save; the caller owns these registers)
+//
+// Algorithm from unzx0_68000.S (Emmanuel Marty), restructured for the resumable
+// contract; ZX0 compression (c) 2021 Einar Saukas. See engine/compression/zx0.emp
+// for the full upstream attribution and license.
+// -----------------------------------------------
+@resumable
+pub proc ZX0R_Decompress (a0: *u8, a1: *u8, a3: *u8) clobbers(d0-d2/a2) out(a0, a1) {
+        moveq   #-128, d1               // empty bit queue + roll-in bit
+        moveq   #-1, d2                 // rep-offset = -1
+
+    .literals:
+        moveq   #1, d0                  // --- inlined elias: literal count ---
+    .lit_elias:
+        add.b   d1, d1
+        bne     .lit_got
+        move.b  (a0)+, d1
+        addx.b  d1, d1
+    .lit_got:
+        bcs     .lit_done
+        add.b   d1, d1
+        addx.l  d0, d0
+        jbra    .lit_elias
+    .lit_done:
+        subq.l  #1, d0                  // dbf loops until d0 is -1, not 0
+    .copy_lits:
+        move.b  (a0)+, (a1)+
+        dbf     d0, .copy_lits
+        add.b   d1, d1                  // match or rep-match?
+        bcs     .get_offset
+
+    .rep_match:
+        moveq   #1, d0                  // --- inlined elias: rep-match length ---
+    .rep_elias:
+        add.b   d1, d1
+        bne     .rep_got
+        move.b  (a0)+, d1
+        addx.b  d1, d1
+    .rep_got:
+        bcs     .do_copy
+        add.b   d1, d1
+        addx.l  d0, d0
+        jbra    .rep_elias
+    .do_copy:
+        subq.l  #1, d0
+    .do_copy_offs:
+        movea.l a1, a2                  // backref address = dest + negative offset
+        adda.l  d2, a2
+    .copy_match:
+        move.b  (a2)+, (a1)+
+        dbf     d0, .copy_match
+        add.b   d1, d1                  // literal or match?
+        bcc     .literals
+
+    .get_offset:
+        moveq   #-2, d0                 // --- inlined elias: offset high (pre-seeded $fe) ---
+    .off_elias:
+        add.b   d1, d1
+        bne     .off_got
+        move.b  (a0)+, d1
+        addx.b  d1, d1
+    .off_got:
+        bcs     .off_done
+        add.b   d1, d1
+        addx.l  d0, d0
+        jbra    .off_elias
+    .off_done:
+        addq.b  #1, d0                  // negative offset high byte
+        beq     .done                   // EOD marker
+        move.w  d0, d2
+        lsl.w   #8, d2
+        moveq   #1, d0                  // length starts at 1
+        move.b  (a0)+, d2               // low byte of offset + 1 bit of length
+        asr.l   #1, d2                  // shift length bit into carry, offset in place
+        bcs     .do_copy_offs           // length bit set -> no more length bits
+
+    .len_elias:                         // --- inlined elias tail: rest of match length ---
+        add.b   d1, d1                  // .elias_bt: one data bit
+        addx.l  d0, d0
+    .len_loop:                          // .elias_loop: control bit
+        add.b   d1, d1
+        bne     .len_got
+        move.b  (a0)+, d1
+        addx.b  d1, d1
+    .len_got:
+        bcc     .len_elias              // control bit 0 -> another data bit
+        jbra    .do_copy_offs           // control bit 1 -> copy the match
+
+    .done:
+        jmp     (a3)                    // continuation — never rts
+}

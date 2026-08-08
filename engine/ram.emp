@@ -281,6 +281,13 @@ pub vars upper_ram {
         // scene survives (R-A1 ring-cull boundary verification).
         Debug_Scene_Freeze:     u8,     // 0 = normal, nonzero = pin OJZScroll scene
         pad(1),                         // pad to even (keep the DEBUG block word-aligned)
+
+        // --- Art-streaming P2a page-in instrumentation (survey §5) ---
+        // Defined here in Task 2; the VBlank bookmark (Task 3) bumps Preempts, the
+        // request queue + cancel/flush (Task 4) bump Flushes/Resumes.
+        Dbg_PageIn_Preempts:    u16,    // bookmark redirects (decode sliced by a VBlank)
+        Dbg_PageIn_Flushes:     u16,    // PageIn_Flush cancellations
+        Dbg_PageIn_Resumes:     u16,    // suspended-decode re-entries
     }
 
     // --- Object System (§3) ---
