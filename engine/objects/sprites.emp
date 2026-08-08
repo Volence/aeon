@@ -580,13 +580,13 @@ comptime fn size_link(yflip: int) -> Code {
         return asm {
             move.b  (a3)+, (a4)+           // SAT +2: size code
             addq.w  #1, a3                  // skip padding byte
-            addq.b  #1, d5
+            addq.w  #1, d5
             move.b  d5, (a4)+              // SAT +3: link
         }
     }
     return asm {
         move.w  (a3)+, d1               // size<<8 | pad
-        addq.b  #1, d5
+        addq.w  #1, d5
         move.b  d5, d1                  // pad byte -> link
         move.w  d1, (a4)+              // SAT +2: size, +3: link
     }
@@ -706,7 +706,7 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
 //   the consumed pieces)
 // Preserves: d2, d3, d6, d7, a1, a6 (freed by the H2 stream-order restructure)
 // -----------------------------------------------
-proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5: u16, d6: u16) clobbers(d0-d1/d4/a0/a3) out(d5, a4) {
+proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5: u16, d6: u16) clobbers(d0-d1/d4/a0/a3) out(d5: u16, a4) {
         lea     CellOffsets_XFlip(pc), a0  // a0 = flip-table base for variants
         tst.b   d0
         beq   .pieces_unflipped
@@ -747,11 +747,11 @@ proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5:
 //      Both are in-out cursors threaded from Render_Sprites, and neither is
 //      produced on a path that emits nothing — a non-positive height, or the
 //      sprite cap already reached — so both carry standing
-//      [proc.out-unverified] rows. d5's increment is additionally byte-wide
-//      under a 32-bit claim. Same shape as DrawRings.
+//      [proc.out-unverified] rows. When d5 IS produced, the increment is
+//      word-wide, matching the out(d5: u16) contract. Same shape as DrawRings.
 // Clobbers: d0-d1
 // -----------------------------------------------
-proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) out(d5, a4) {
+proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) out(d5: u16, a4) {
         move.w  SpriteMask_Y, d0        // d0 = VDP Y start position
         move.w  SpriteMask_Height, d1        // d1 = remaining scanlines to cover
         ble   .masks_done
@@ -762,7 +762,7 @@ proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) out(d5, a4) {
 
         move.w  d0, (a4)+                 // SAT +0: Y position
         move.b  #SPRITE_MASK_SIZE, (a4)+  // SAT +2: size (1×4 = 8×32px)
-        addq.b  #1, d5
+        addq.w  #1, d5
         move.b  d5, (a4)+                 // SAT +3: link to next sprite
         move.w  #0, (a4)+                 // SAT +4: tile 0 (transparent)
         move.w  #0, (a4)+                 // SAT +6: X = 0 (triggers masking)
