@@ -105,3 +105,9 @@ tools/.cache/
 # reference disassembly blobs + captures are research artifacts, not build output
 !docs/research/z80_blobs/**
 !docs/research/reference_captures/*.vgm
+
+# Third-party reference repos cloned for research (upstream, not vendored)
+docs/research/external/
+
+# staged S3K character extraction (design #3 prep) — data, not build output
+!games/sonic4/data/characters_staging/**/*.bin
