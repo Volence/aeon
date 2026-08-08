@@ -38,6 +38,11 @@
 // is part of the banked register set, so a suspended decode resumes and completes
 // through the same jmp (a3) a fresh one does.
 
+// PLACEMENT NOTE: this module's three procs (PageIn_Process, PageIn_BankRegs,
+// PageIn_Resume) emit as ONE contiguous section — map.toml's `order` carries a
+// single entry, the module head-label `PageIn_Process`; BankRegs/Resume ride
+// behind it (the one-section-per-module rule; repin's PAGE_IN region spans all
+// three).
 module engine.page_in in page_in
 
 use engine.structs.{Act}
@@ -52,9 +57,11 @@ use engine.constants.{ART_HDR_SIZE}
 //
 // In:  none
 // Out: none
-// Clobbers: d0-d2/a0-a3 — the decoder union. The resume tail (jbra PageIn_Resume)
-//      and the decoder fall-through (jbra ZX0R_Decompress) both write this set;
-//      VSync_Wait folds it into its own license (contract surgery, Task 3 Step 6).
+// Clobbers: d0-d2/a0-a3 — the decoder union, and the DECLARED Task-4 FORWARD UNION
+//      (the real request-FIFO dispatch Task 4 adds stays within this set, so
+//      VSync_Wait's widened license does not move again). The resume tail (jbra
+//      PageIn_Resume) and the decoder fall-through (jbra ZX0R_Decompress) both write
+//      this set; VSync_Wait folds it into its own license (contract surgery, Task 3 Step 6).
 //      NO preserves() — a preserves-movem prologue would push registers the
 //      decoder fall-through never pops, and PageIn_BankRegs's rts would then pop
 //      a saved register as a return address (survey §3 trap).

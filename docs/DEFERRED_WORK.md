@@ -3258,3 +3258,24 @@ missing `ART_HDR_VERSION == ART_VER_ZX0` check is harmless for the equivalence p
 becomes wrong the moment raw-form pages exist. Task 5 (P2b format cutover) introduces
 `.raw` pages (manifest v2 `form` byte); when it lands, either skip non-ZX0 pages in this
 walk or assert the form before decoding. Tie this cleanup to the Task 5 manifest work.
+
+## Ledgered by the 2026-08-08 art-streaming Phase 2 Task 3 review (`feat/art-streaming-p2`)
+
+### Bookmark straddle → rare benign single lag frame — KNOWN RESIDUAL, corrected lemma
+
+The sketch §2 lag-impossibility lemma ("the lag path can never bank") is OVER-STATED. The
+VBlank hook runs BEFORE the Ready/dispatch split, so it banks the decode on WHICHEVER path
+dispatches. Counterexample (reviewer-proven): after `VBlank_Ready := 1`, if the first VBlank
+lands during the pre-decoder setup window — the ~150-cycle `PageIn_Resume` restore/push, or
+the DEBUG scaffold's page scan — it correctly does NOT bank (PC outside `[ZX0R_Decompress,
+.__end)`), runs `VInt_Level`, and clears `Ready`. The decode then runs to the NEXT VBlank
+with `Ready = 0`, which dispatches `VInt_Lag` and banks the decode there. This is SAFE (the
+main loop is parked in the decoder, so `Plane_Buffer` is already drained and `VInt_Lag`'s
+skipped plane drain is a no-op; the banked context survives either path via the movem
+round-trip), but it costs one benign lag frame at roughly per-resume probability. The true
+invariant is "the bank is safe on whichever path dispatches," not "the lag path can never
+bank." The `vblank.emp` hook comment now states the corrected form.
+
+**Task-12 action:** the ARCH §9.7 rewrite (D4, landing `2026-08-06-arch-97-rewrite-proposal.md`)
+must carry the CORRECTED lemma, not the sketch's original "lag path can never bank" wording.
+Sweep the proposal text for that phrasing before landing it.

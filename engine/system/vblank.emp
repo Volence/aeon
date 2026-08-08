@@ -50,8 +50,19 @@ pub proc VBlank_Handler () clobbers() preserves(d0-d7/a0-a6) grants(vblank) {
         // VBH_STACKED_PC constant), range-checked against the decoder's extent
         // symbols. The redirect takes effect at THIS handler's rte, AFTER
         // VInt_Level's whole pipeline + the movem restore, so the bookmark stays the
-        // V-int's final act even though the check runs at entry. A SUSPENDED decode
-        // (InFlight=1 but PC is main-loop code, outside the range) is never
+        // V-int's final act even though the check runs at entry. The check runs
+        // BEFORE the Ready/dispatch split, so it banks on WHICHEVER path dispatches.
+        // The corrected invariant is "the bank is safe on whichever path dispatches",
+        // NOT the sketch §2 "the lag path can never bank" (that lemma is over-stated):
+        // if a VBlank straddles the pre-decoder setup window (PageIn_Resume's
+        // restore/push, or the scaffold's page scan) it correctly does NOT bank (PC
+        // outside the range), runs VInt_Level, and clears Ready — so the decode can
+        // then run to the NEXT VBlank with Ready=0 and get banked on the VInt_Lag
+        // dispatch. That straddle path is SAFE: the main loop is parked in the decoder,
+        // so Plane_Buffer is already drained and VInt_Lag's skipped drain is a no-op,
+        // and the banked context survives either path via the movem round-trip (the
+        // rare cost is a single benign lag frame — see DEFERRED_WORK). A SUSPENDED
+        // decode (InFlight=1 but PC is main-loop code, outside the range) is never
         // bookmarked, and PageIn_BankRegs / PageIn_Resume both sit outside the range,
         // so a VBlank landing mid-bank/mid-resume stays transparent.
         tst.b   PageIn_InFlight                 // art decode possibly interrupted?
