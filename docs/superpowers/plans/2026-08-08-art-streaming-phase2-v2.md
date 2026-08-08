@@ -282,7 +282,7 @@ VSync_Wait:
 **⚠ ASK THE USER before starting — this task edits `tools/ojz_strip_gen.py` (daemon-watched). Never `--amend` near it.**
 
 **Files:**
-- Modify: `tools/ojz_strip_gen.py` (Pass 5 remap :1313, Pass 6 page emission :1352, **Pass 6b BG blob :1360 sits between**, manifest **Pass 7** :1396-1406 — emits an `.emp` module; `remap_nametable_word` lives in `tools/tile_dedupe.py`, called at :1325 and tile_dedupe :371-389), `build.sh` (per-page compression + form election — build.sh is 186 lines now; salvador vendored-build + page-blob handling + the one-invocation sigil build — **re-read at execution** and place raw-election beside the salvador step).
+- Modify: `tools/ojz_strip_gen.py` (Pass 5 remap :1313, Pass 6 page emission :1352, **Pass 6b BG blob :1360 sits between**, manifest **Pass 7** :1396-1406 — emits an `.emp` module; `remap_nametable_word` def at `tools/tile_dedupe.py:148`, called at `ojz_strip_gen.py:1325` and :371-389), `build.sh` (per-page compression + form election — build.sh is 186 lines now; salvador vendored-build + page-blob handling + the one-invocation sigil build — **re-read at execution** and place raw-election beside the salvador step).
 - Modify: `engine/level/load_art.emp`, `engine/level/page_in.emp`, `engine/system/constants.emp` (`ART_POOL_PAGE_TILES` :227).
 - Modify: `engine/level/tile_cache.emp` (translation at block decode — Step 4).
 - Test: inline pytest in `ojz_strip_gen.py` (`def test_*` :641-901; runner `python3 -m pytest tools/ -q`).
@@ -390,6 +390,7 @@ Page_Frames:    ds.b PAGE_FRAMES*sizeof(PageFrame)
   - zero visible pop-in / wrong tiles (screenshots during motion at fixed intervals);
   - `Lag_Frame_Count` per run recorded; diagonal target: no worse than the Task 1 baseline (the 2026-08-05 **33.2% diagonal window**) — art streaming must not measurably deepen it (compare, record numbers);
   - `Dbg_Cam_Clamp_Frames` bounded (record; expect brief engagements at worst seams only);
+  - **idle-minima floor (survey §5): log the `VSync_Wait`-entry-to-VBlank per-frame cycle FLOOR over each stress window via DEBUG state counters (NOT the per-frame profiler — averages hide minima). Record the floor alongside `Lag_Frame_Count`;**
   - refcount audit assert clean after every run.
 - [ ] **Step 4: Page-size sweep (D1 — a P2c TUNING KNOB, not a task).** Because the fixture + ROM report exist, sweeping `ART_POOL_PAGE_TILES` (32/64/128) is now a ~10-minute experiment: rebuild at each size, re-run the diagonal acceptance run, record lag + ROM ratio. This is optional tuning to pick the final page size; the bookmark already closed the latency question (D1 rationale), so there is no gate here — just record the numbers and pick the density/manifest sweet spot.
 - [ ] **Step 5: Commit.** Verify branch. `feat(tools): stress-uniquify fixture; Phase 2 acceptance matrix passed (P2c)` — include the numbers table (+ any page-size sweep results) in the commit message.
