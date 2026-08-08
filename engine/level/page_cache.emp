@@ -175,7 +175,7 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
 // clears the departing page's Page_Table entry + queued bit.
 // In: none   Out: d0.b = frame (or PAGE_NOT_RESIDENT)   Clobbers: d0-d2/a3
 // -----------------------------------------------
-pub proc PageCache_AllocFrame () clobbers(d0-d2/a3) out(d0: u8) {
+pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         moveq   #0, d0
         move.b  Page_Free_Head, d0
         cmpi.b  #PAGE_NOT_RESIDENT, d0
@@ -228,7 +228,7 @@ pub proc PageCache_AllocFrame () clobbers(d0-d2/a3) out(d0: u8) {
     if DEBUG == 1 {
         raise_error "PageCache_AllocFrame: no free/evictable frame (thrash bug)"
     }
-        moveq   #PAGE_NOT_RESIDENT, d0
+        move.b  #PAGE_NOT_RESIDENT, d0          // $FF sentinel (moveq can't hold 255)
         rts
 }
 
