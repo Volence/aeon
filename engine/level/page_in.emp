@@ -1,19 +1,22 @@
 // engine/level/page_in.emp — Art-streaming Phase 2 (P2a): the VBlank-bookmark
-// page-in dispatcher SKELETON.
+// page-in dispatcher.
 //
-// Task 3 lands the mechanism (preempt / bank / resume) plus a single hardwired
-// self-test request. The request FIFO, cancel/flush, and init-path routing are
-// Task 4; the self-test scaffold below is DELETED there.
+// A page-in request FIFO feeds the once-per-frame idle-time decode slice. Level
+// init drives the pool load through this same path (engine/level/load_art.emp),
+// so the streaming machinery is exercised end to end. Steady-state streaming
+// (residency cache) rides on top in P2b/P2c.
 //
-// THE MECHANISM (RELEASE — present in every shape, dormant until Task 4 wires
-// real requests):
-//   PageIn_Process  — called once per frame from VSync_Wait's idle site
-//                     (after the ints_off flag/Ready bracket). Fresh path FALLS
-//                     into the resumable decoder ZX0R_Decompress; suspended path
-//                     tail-jmps PageIn_Resume. It declares NO preserves() and
-//                     pushes NOTHING before the decoder fall-through — a prologue
+// THE MECHANISM (RELEASE — present in every shape):
+//   PageIn_Process  — called once per frame from VSync_Wait's idle site (after
+//                     the ints_off flag/Ready bracket). Suspended path tail-jmps
+//                     PageIn_Resume; otherwise it pops the next request, resolves
+//                     it, and either FALLS into the resumable decoder
+//                     ZX0R_Decompress (ZX0 form) or enqueues a direct ROM->VRAM
+//                     DMA (raw form). It declares NO preserves() and pushes
+//                     NOTHING (net) before the decoder fall-through — a prologue
 //                     movem would be popped as a return address by
-//                     PageIn_BankRegs's rts (survey §3 rts-corruption trap).
+//                     PageIn_BankRegs's rts (survey §3 rts-corruption trap); a
+//                     BALANCED jbsr (the request pop) is fine.
 //   PageIn_BankRegs — @continuation, entered BY the hijacked VBlank rte with the
 //                     decoder's live registers (movem-restored) + CCR. Banks
 //                     d0-d2/a0-a3 + SR, sets Suspended, and rts (SP sits at
@@ -37,59 +40,107 @@
 // Resume == spawn == one code path (survey §2): a3 (the completion continuation)
 // is part of the banked register set, so a suspended decode resumes and completes
 // through the same jmp (a3) a fresh one does.
+//
+// LANDING HANDSHAKE (single staging slot). A ZX0-form decode writes into the
+// staging buffer; on completion (.after) the dispatcher queues an Important
+// staging->VRAM DMA and raises PageIn_Staging_Busy. No new decode starts while
+// Staging_Busy is set — the single staging buffer must not be overwritten before
+// the DMA lands. VInt_Level clears Staging_Busy right after the Important drain,
+// once the Important queue has emptied (the page has landed). If the Important
+// enqueue is full, PageIn_Land_Pending defers the landing to the next frame (the
+// staged bytes are still valid) — the B&R carry-on-full rollback idiom.
+//
+// CANCEL/FLUSH. PageIn_Flush (main-loop context only) clears the suspended/
+// in-flight state and empties the FIFO, but LEAVES Staging_Busy — an already
+// PUBLISHED page's landing DMA targets a valid destination and is allowed to
+// land. Callers flush at an act/level transition before the cache is (re)built;
+// a pure section rebase does NOT flush (page identity is position-independent).
 
-// PLACEMENT NOTE: this module's three procs (PageIn_Process, PageIn_BankRegs,
-// PageIn_Resume) emit as ONE contiguous section — map.toml's `order` carries a
-// single entry, the module head-label `PageIn_Process`; BankRegs/Resume ride
-// behind it (the one-section-per-module rule; repin's PAGE_IN region spans all
-// three).
+// PLACEMENT NOTE: this module's procs (PageIn_Process, PageIn_BankRegs,
+// PageIn_Resume, PageIn_EnqueueLanding, PageIn_Enqueue, PageIn_Flush) emit as ONE
+// contiguous section — map.toml's `order` carries a single entry, the module
+// head-label `PageIn_Process`; the rest ride behind it (the one-section-per-module
+// rule; repin's page_in region spans [PageIn_Process, BG_Init)).
 module engine.page_in in page_in
 
-use engine.structs.{Act}
-use engine.constants.{ART_HDR_SIZE}
+use engine.structs.{PageInReq}
+use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
-// ZX0R_Decompress (engine.zx0_resume), ZX0_Decompress (engine.zx0, self-test
-// oracle). RAM (PageIn_*/Dbg_*) and OJZ_Act1_Descriptor resolve bare.
+// ZX0R_Decompress (engine.zx0_resume), QueueDMA_Important (engine.dma_queue).
+// RAM (PageIn_*/Art_Staging_Buffer) resolves bare.
 
 // -----------------------------------------------
 // PageIn_Process — the once-per-frame idle-time decode slice.
 //
 // In:  none
 // Out: none
-// Clobbers: d0-d2/a0-a3 — the decoder union, and the DECLARED Task-4 FORWARD UNION
-//      (the real request-FIFO dispatch Task 4 adds stays within this set, so
-//      VSync_Wait's widened license does not move again). The resume tail (jbra
-//      PageIn_Resume) and the decoder fall-through (jbra ZX0R_Decompress) both write
-//      this set; VSync_Wait folds it into its own license (contract surgery, Task 3 Step 6).
+// Clobbers: d0-d2/a0-a3 — the decoder union, and the DECLARED forward union that
+//      VSync_Wait folds into its own license (contract surgery, Task 3 Step 6);
+//      the FIFO dispatch + landing stay WITHIN this set so VSync_Wait's license
+//      does not move again. The landing's QueueDMA_Important call clobbers d0-d4/
+//      a1-a2 — d3/d4 sit OUTSIDE this set, so it is reached only through
+//      PageIn_EnqueueLanding, which brackets the call and preserves d3/d4.
 //      NO preserves() — a preserves-movem prologue would push registers the
 //      decoder fall-through never pops, and PageIn_BankRegs's rts would then pop
-//      a saved register as a return address (survey §3 trap).
+//      a saved register as a return address (survey §3 trap). The request pop
+//      (jbsr .dequeue) is balanced, so it leaves the stack at PageIn_Process
+//      depth for the fall-through.
 // -----------------------------------------------
 pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         tst.b   PageIn_Suspended
         bne     .resume                         // banked context awaits -> resume it
 
-    if DEBUG == 1 && HAS_ACT_ART_POOL == 1 {
-        // === TASK-3 SELF-TEST SCAFFOLD — DELETED IN TASK 4 =================
-        // The single hardwired request: slice the LARGEST act-pool page through
-        // the preemption path into buffer B, one slice per frame, then verify.
-        // The controller writes Dbg_PageIn_Test_Cycles = N and FREEZES the scene
-        // (Debug_Scene_Freeze) so nothing re-targets Art_Staging_Buffer (buffer A)
-        // or Block_Stage_Buffers (buffer B) between slices; Dbg_PageIn_Test_Done
-        // goes nonzero when all N cycles pass. See .find_largest / .verify below.
-        tst.b   Dbg_PageIn_Test_Cycles
-        beq     .idle                           // no test armed -> nothing to do
-        jbsr    .find_largest                   // -> a2 = wrapper ptr, d2 = size
-        move.l  a2, d0
-        beq     .idle                           // empty pool -> nothing to test
-        lea     ART_HDR_SIZE(a2), a0            // a0 = ZX0 stream past the wrapper
-        lea     Block_Stage_Buffers, a1         // a1 = buffer B (sliced ZX0R output)
-        lea     .after, a3                      // a3 = completion continuation
+        tst.b   PageIn_Land_Pending
+        bne     .land                           // a decoded page still needs its landing DMA queued
+
+        tst.b   PageIn_Staging_Busy
+        bne     .idle                           // a page's landing DMA is in flight -> hold the staging slot
+
+        tst.b   PageIn_Queue_Count
+        beq     .idle                           // no requests -> nothing to do
+
+        jbsr    .dequeue                         // d0.w = page_id (Count>0 guaranteed); PageIn_Cur_Flags set
+
+        // --- resolve page_id -> source wrapper ptr + dest VRAM + length ---
+        movea.l PageIn_Pool_Table, a1           // act page-address table (longword ptrs)
+        move.w  d0, d1
+        lsl.w   #2, d1                           // page_id * 4
+        movea.l (a1,d1.w), a0                   // a0 = page wrapper ptr
+        move.w  d0, PageIn_Cur_Page              // stash for the raw-form retry
+        move.w  (a0), d1                         // d1.w = uncompressed size (BE) = landing DMA length
+        move.w  d1, PageIn_Cur_Bytes
+        moveq   #0, d2
+        move.w  d0, d2
+        lsl.l   #8, d2
+        lsl.l   #5, d2                           // d2 = page_id * ART_POOL_PAGE_BYTES (8192); fits u16 for every valid slot
+        move.w  d2, PageIn_Cur_Dest
+
+        // --- form election: ZX0 (production) vs raw (dormant in v1) ---
+        cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
+        bne     .raw
+
+        // ZX0 form: slice-decode the wrapped stream into staging; land on .after.
+        lea     ART_HDR_SIZE(a0), a0            // a0 = ZX0 stream past the 4-byte wrapper
+        lea     Art_Staging_Buffer, a1         // a1 = staging dest
+        lea     .after, a3                     // a3 = completion continuation
         st.b    PageIn_InFlight                 // arm the VBlank bookmark hook
-        jbra    ZX0R_Decompress                 // FALL INTO the decoder (NO push!)
-        // ==================================================================
-    }
+        jbra    ZX0R_Decompress                 // FALL INTO the decoder (NO net push)
+
+    .raw:
+        // Raw form: no staging, no decode — one direct ROM->VRAM DMA of the
+        // payload. v1 ships only ZX0 pages, so this arm is dormant; it is wired
+        // for the Task-5 manifest-v2 form byte. Resident the instant the DMA
+        // lands (no staging buffer to protect -> no Staging_Busy handshake).
+        move.l  a0, d1
+        addi.l  #ART_HDR_SIZE, d1               // source = payload past the wrapper
+        jbsr    PageIn_EnqueueLanding           // Important ROM->VRAM DMA; carry = dropped
+        bcc     .idle                           // enqueued -> page resident
+        // Queue full -> re-enqueue the request (B&R rollback: retry next frame).
+        // A slot is guaranteed free (we just dequeued one), so this cannot drop.
+        move.w  PageIn_Cur_Page, d0
+        move.b  PageIn_Cur_Flags, d1
+        jbsr    PageIn_Enqueue @discards(dropped)
 
     .idle:
         rts
@@ -97,67 +148,57 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
     .resume:
         jbra    PageIn_Resume                   // tail into the manufactured-frame resume
 
-    if DEBUG == 1 && HAS_ACT_ART_POOL == 1 {
-    // === TASK-3 SELF-TEST SCAFFOLD (cont.) — DELETED IN TASK 4 ============
     .after:                                     // ZX0R jmp (a3) lands here on completion
         clr.b   PageIn_InFlight
-        jbsr    .verify                         // blocking ZX0 vs buffer B + Preempts > 0
-        subq.b  #1, Dbg_PageIn_Test_Cycles      // one cycle done
-        bne     .after_done                     // more cycles -> next frame restarts
-        st.b    Dbg_PageIn_Test_Done            // all cycles passed
-    .after_done:
+    .land:                                      // also re-entered from the top when Land_Pending
+        clr.b   PageIn_Land_Pending
+        move.l  #Art_Staging_Buffer, d1         // landing DMA source (RAM staging)
+        jbsr    PageIn_EnqueueLanding           // Important staging->VRAM DMA; carry = dropped
+        bcs     .land_full
+        st.b    PageIn_Staging_Busy             // landing queued -> hold the staging slot until VInt_Level drains it
+        rts
+    .land_full:
+        // Queue full -> retry the landing next frame; staging still holds the page.
+        st.b    PageIn_Land_Pending
         rts
 
-    .find_largest:
-        // Out: a2 = wrapper ptr of the largest act-pool page (0 if pool empty),
-        //      d2 = its uncompressed size (BE word). Clobbers d0/d1/a0/a1.
-        lea     OJZ_Act1_Descriptor, a0
-        move.w  Act.act_art_pool_pages(a0), d0
-        movea.l Act.act_art_pool_table(a0), a1
-        suba.l  a2, a2                          // best ptr = 0
-        moveq   #0, d2                          // best size = 0
-        tst.w   d0
-        beq     .fl_done                        // empty pool
-        subq.w  #1, d0                          // dbf counter
-    .fl_loop:
-        movea.l (a1)+, a0                       // next page wrapper ptr
-        move.w  (a0), d1                        // uncompressed size (BE)
-        cmp.w   d2, d1
-        bls     .fl_next                        // not larger -> keep current best
-        move.w  d1, d2                          // new max size
-        movea.l a0, a2                          // new best ptr
-    .fl_next:
-        dbf     d0, .fl_loop
-    .fl_done:
+    .dequeue:
+        // Pop the next request (demand before prefetch). Precondition:
+        // PageIn_Queue_Count >= 1. Two-pass scan: pass 1 finds the oldest DEMAND
+        // entry; if none, take the head (oldest of any priority). The chosen entry
+        // is removed and the front-packed array compacted down.
+        // Out: d0.w = page_id; PageIn_Cur_Flags = the chosen request's flags.
+        // Clobbers: d0-d2/a0-a1 (within PageIn_Process's license).
+        moveq   #0, d1
+        move.b  PageIn_Queue_Count, d1          // d1 = count (>= 1)
+        lea     PageIn_Queue, a0
+        moveq   #0, d2                          // d2 = scan index
+    .dq_scan:
+        move.b  PageInReq.pr_flags(a0), d0
+        btst    #PGRQ_DEMAND_BIT, d0
+        bne     .dq_found                       // demand entry at index d2 (a0)
+        addq.w  #1, d2
+        lea     sizeof(PageInReq)(a0), a0
+        cmp.w   d1, d2
+        blt     .dq_scan
+        // no demand entry -> take the head (index 0)
+        lea     PageIn_Queue, a0
+        moveq   #0, d2
+    .dq_found:
+        move.b  PageInReq.pr_flags(a0), d0
+        move.b  d0, PageIn_Cur_Flags
+        move.w  PageInReq.pr_page_id(a0), d0    // d0.w = chosen page_id (survives compaction)
+        sub.w   d2, d1                          // d1 = count - index
+        subq.w  #1, d1                          // d1 = entries after the chosen one
+        beq     .dq_done                        // removed the last -> nothing to shift
+        lea     sizeof(PageInReq)(a0), a1       // a1 = &entry[index+1] (src)
+        subq.w  #1, d1                          // dbf counter
+    .dq_shift:
+        move.l  (a1)+, (a0)+                    // copy one 4-byte request down
+        dbf     d1, .dq_shift
+    .dq_done:
+        subq.b  #1, PageIn_Queue_Count
         rts
-
-    .verify:
-        // Blocking ZX0 of the same page -> buffer A (Art_Staging_Buffer), then a
-        // word compare against buffer B (Block_Stage_Buffers, the sliced ZX0R
-        // output), then Preempts > 0. raise_error on any divergence. ZX0_Decompress
-        // preserves d2/a2, so the size + ptr survive the reference decode.
-        // Clobbers d0/d1 (+ d2/a2 via .find_largest before the preserved decode).
-        jbsr    .find_largest                   // a2 = ptr, d2 = size
-        lea     ART_HDR_SIZE(a2), a0
-        lea     Art_Staging_Buffer, a1          // buffer A (blocking reference)
-        jbsr    ZX0_Decompress                  // d2/a2 preserved across this
-        lea     Art_Staging_Buffer, a0
-        lea     Block_Stage_Buffers, a1
-        move.w  d2, d0
-        lsr.w   #1, d0                          // page bytes (tiles*32, even) -> words
-        subq.w  #1, d0
-    .vf_cmp:
-        cmpm.w  (a0)+, (a1)+
-        bne     .vf_bad
-        dbf     d0, .vf_cmp
-        tst.w   Dbg_PageIn_Preempts             // the bookmark must have fired at least once
-        bne     .vf_done                        // (an 8 KB page cannot decode in one frame's idle)
-    .vf_bad:
-        raise_error "PageIn self-test: sliced ZX0R diverges from blocking ZX0, or the bookmark never fired"
-    .vf_done:
-        rts
-    // ==================================================================
-    }
 }
 
 // -----------------------------------------------
@@ -220,4 +261,90 @@ pub proc PageIn_Resume () clobbers(d0-d2/a0-a3) {
         move.l  PageIn_Saved_PC, -(sp)          // PC first  -> lands at (sp+2)
         move.w  PageIn_Saved_SR, -(sp)          // SR second -> lands at (sp), where rte reads it
         rte                                     // straight back into the ZX0R loop
+}
+
+// -----------------------------------------------
+// PageIn_EnqueueLanding — bracketed Important DMA enqueue.
+//
+// QueueDMA_Important clobbers d0-d4/a1-a2; d3/d4 sit OUTSIDE PageIn_Process's
+// declared d0-d2/a0-a3 license. This wrapper preserves them across the call so the
+// dispatcher's clobber set (and hence VSync_Wait's folded license) never widens.
+// It reads the landing dest + length from the in-flight page's RAM fields itself,
+// so the caller supplies only the source — the caller never touches d3.
+// MOVEM leaves CCR untouched, so the dropped-carry result survives the restore.
+//
+// In:  d1.l = DMA source (staging buffer, or ROM payload for the raw form)
+// Out: carry SET = request dropped (queue full); carry CLEAR = enqueued.
+// Clobbers: d0-d2/a1-a2 (QueueDMA's set minus the preserved d3/d4).
+// -----------------------------------------------
+proc PageIn_EnqueueLanding (d1: u32) clobbers(d0-d2/a1-a2) preserves(d3-d4) out(carry: dropped) {
+        movem.l d3-d4, -(sp)                     // preserve out-of-license regs across QueueDMA_Important
+        move.w  PageIn_Cur_Dest, d2              // d2 = VRAM byte dest
+        move.w  PageIn_Cur_Bytes, d3             // d3 = length (bytes)
+        jbsr    QueueDMA_Important               // d1=src, d2=dest, d3=len -> carry = dropped
+        movem.l (sp)+, d3-d4                     // MOVEM does not touch CCR -> the dropped carry survives
+        bcs     .dropped                         // CONSUME QueueDMA's carry, then re-produce our own out
+        andi.b  #$FE, ccr                        // carry CLEAR = enqueued
+        rts
+    .dropped:
+        ori.b   #1, ccr                          // carry SET = dropped (queue full)
+        rts
+}
+
+// -----------------------------------------------
+// PageIn_Enqueue — append a page-in request to the FIFO.
+//
+// The B&R carry-on-full idiom: a full queue returns carry SET and the caller
+// retries next frame. Demand vs prefetch is carried in the flags byte; dequeue
+// order (PageIn_Process .dequeue) honours it.
+//
+// In:  d0.w = page_id, d1.b = flags (PGRQ_DEMAND bit)
+// Out: carry SET = dropped (queue full); carry CLEAR = enqueued.
+// Clobbers: d2, a0.
+// -----------------------------------------------
+pub proc PageIn_Enqueue (d0: u16, d1: u8) clobbers(d2/a0) out(carry: dropped) {
+        moveq   #0, d2
+        move.b  PageIn_Queue_Count, d2
+        cmpi.b  #PAGEIN_QUEUE_SLOTS, d2
+        bhs     .full
+        lea     PageIn_Queue, a0
+        lsl.w   #2, d2                           // count * sizeof(PageInReq) (=4)
+        lea     (a0,d2.w), a0                    // a0 = &PageIn_Queue[count]
+        move.w  d0, PageInReq.pr_page_id(a0)
+        move.b  d1, PageInReq.pr_flags(a0)
+        clr.b   PageInReq.pr_pad(a0)
+        addq.b  #1, PageIn_Queue_Count
+        andi.b  #$FE, ccr                        // carry CLEAR = enqueued (pinned after the count store)
+        rts
+    .full:
+        ori.b   #1, ccr                          // carry SET = dropped (queue full)
+        rts
+}
+
+// -----------------------------------------------
+// PageIn_Flush — cancel all pending page-in work (survey §4).
+//
+// MAIN-LOOP CONTEXT ONLY — never from interrupt context. Clears the suspended/
+// in-flight decode state and empties the request FIFO. LEAVES PageIn_Staging_Busy
+// alone: a page whose staging->VRAM DMA is already queued is PUBLISHED — its
+// destination is valid and the DMA is allowed to land (every flush caller either
+// resets the page cache or keeps that landing valid). NO mid-DMA-queue surgery.
+//
+// Callers: an act/level transition, before the (future) PageCache_Init rebuilds
+// residency. A pure section rebase does NOT flush — page identity is
+// position-independent (spec §5), so the in-flight page is still the right page.
+//
+// In:  none
+// Out: none
+// Clobbers: none (RAM writes only).
+// -----------------------------------------------
+pub proc PageIn_Flush () clobbers() {
+        clr.b   PageIn_Suspended
+        clr.b   PageIn_InFlight
+        clr.b   PageIn_Land_Pending
+        clr.b   PageIn_Queue_Count
+    if DEBUG == 1 {
+        addq.w  #1, Dbg_PageIn_Flushes
+    }
+        rts
 }

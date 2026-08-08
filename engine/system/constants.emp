@@ -230,6 +230,13 @@ pub const ART_HDR_SIZE        = 4           // wrapper bytes ahead of the stream
 pub const ART_VER_S4LZ        = 1           // S4LZ v3 token stream (runtime tier)
 pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-time tier)
 
+// Page-in request FIFO (Art-streaming P2a, engine.page_in). The dispatcher pops
+// one request per idle slice, resolving page_id -> source/dest via the act's
+// page-address table. Demand requests dequeue before prefetch (two-pass scan).
+pub const PAGEIN_QUEUE_SLOTS  = 8           // request FIFO depth (S3K ~4-deep + headroom)
+pub const PGRQ_DEMAND_BIT     = 0           // request flags: bit set = demand (dequeue first)
+pub const PGRQ_DEMAND         = 1 << PGRQ_DEMAND_BIT
+
 // VRAM fixed-region byte addresses + plane geometry.
 pub const VRAM_SPRITE_TABLE = $B800         // relocated from $D800 to free plane rows 48-63
 pub const VRAM_HSCROLL_TABLE = $BC00        // relocated from $DC00 (was inside Plane A 64x64 nametable)
@@ -380,6 +387,17 @@ pub const DMA_BUDGET_PAL  = 11648
 // -----------------------------------------------
 pub const TILE_SIZE = 32                          // bytes per 8x8 4bpp tile
 pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * TILE_SIZE   // 8192 — one decompressed pool page
+
+// Blanked-init page-load DMA window (Art-streaming P2a). Level init streams the
+// act pool through the SAME page-in path gameplay uses, landing each decoded
+// page via an Important-priority staging->VRAM DMA. A 256-tile page is 8192 B —
+// larger than the active-display window budget (DMA_BUDGET_NTSC 6144), so a
+// budgeted Important drain would never move a whole page. Level_LoadArt runs
+// display-OFF, where DMA runs at the full per-line rate on every line, so it
+// raises the window budget to this value for the bulk load (one full page + a
+// normal frame's other charges) and restores the active-display budget before
+// display-on.
+pub const DMA_BUDGET_BLANKED_INIT = ART_STAGING_BUFFER_SIZE + DMA_BUDGET_NTSC   // 14336
 
 // -----------------------------------------------
 // SST layout constants (the ObjDef-copied template block + custom span).

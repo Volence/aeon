@@ -52,6 +52,17 @@ pub const Act_grid_w_lo = offsetof(Act, grid_w) + 1
 pub const Act_grid_h_lo = offsetof(Act, grid_h) + 1
 
 // -----------------------------------------------
+// Page-in request (§9.7) — 4 bytes, one FIFO slot (engine.page_in).
+// The dispatcher's request queue holds these; page_id indexes the act's
+// page-address table, pr_flags carries the PGRQ_DEMAND priority bit.
+// -----------------------------------------------
+pub struct PageInReq {
+    pr_page_id:          u16,           // $00 — pool page index (into act_art_pool_table)
+    pr_flags:            u8,            // $02 — PGRQ_DEMAND bit0 (demand vs prefetch)
+    pr_pad:              u8 = 0,        // $03 — reserved
+}
+
+// -----------------------------------------------
 // Section Definition (§4) — 66 bytes ($42), ROM table
 // All fields: 0 = keep current / no change
 // -----------------------------------------------

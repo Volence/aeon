@@ -22,7 +22,7 @@ module engine.ram
 // — the glob brings the whole invariant set (the game-VARYING sizes still arrive
 // as -D defines: MAX_RING_BUFFER, COLLECTED_WINDOW_SLOTS, DEBUG).
 use engine.constants.*
-use engine.structs.{DMAEntry, VdpShadow}
+use engine.structs.{DMAEntry, VdpShadow, PageInReq}
 use engine.objects.sst.{Sst}
 // Sst's fields carry the engine.types domain vocabulary (Coord/Velocity/… — all
 // erase to raw widths); computing sizeof(Sst)/[Sst; N] here resolves those field
@@ -283,18 +283,11 @@ pub vars upper_ram {
         pad(1),                         // pad to even (keep the DEBUG block word-aligned)
 
         // --- Art-streaming P2a page-in instrumentation (survey §5) ---
-        // Defined here in Task 2; the VBlank bookmark (Task 3) bumps Preempts, the
-        // request queue + cancel/flush (Task 4) bump Flushes/Resumes.
+        // Defined in Task 2; the VBlank bookmark bumps Preempts, PageIn_Flush bumps
+        // Flushes, a suspended-decode re-entry bumps Resumes.
         Dbg_PageIn_Preempts:    u16,    // bookmark redirects (decode sliced by a VBlank)
         Dbg_PageIn_Flushes:     u16,    // PageIn_Flush cancellations
         Dbg_PageIn_Resumes:     u16,    // suspended-decode re-entries
-
-        // Task-3 self-test scaffold (page_in.emp) — DELETED IN TASK 4. Controller
-        // writes Dbg_PageIn_Test_Cycles = N (with the scene frozen) to slice the
-        // largest act-pool page through the preemption path N times + verify each;
-        // Dbg_PageIn_Test_Done goes nonzero when all N cycles pass.
-        Dbg_PageIn_Test_Cycles: u8,
-        Dbg_PageIn_Test_Done:   u8,
     }
 
     // --- Object System (§3) ---
@@ -597,6 +590,21 @@ pub vars upper_ram {
     PageIn_Saved_SR:        u16,        // decoder CCR/SR at preemption
     PageIn_InFlight:        u8,         // nonzero while ZX0R may be on the resumable path (hook arm)
     PageIn_Suspended:       u8,         // nonzero = banked context awaits resume
+
+    // --- Art-streaming P2a page-in request FIFO + landing state (Task 4) ---
+    // The dispatcher's demand-before-prefetch request queue (front-packed) plus the
+    // single-page landing handshake. All RELEASE (the streaming path is present in
+    // every shape). Placed with the bookmark record at the RAM tail so the addition
+    // ripples only Engine_RAM_End + the game RAM chained after it.
+    PageIn_Staging_Busy:    u8,         // nonzero = a published page's staging->VRAM DMA is in flight (blocks a new decode)
+    PageIn_Land_Pending:    u8,         // nonzero = a decoded page in staging awaits its landing DMA (Important queue was full)
+    PageIn_Queue_Count:     u8,         // front-packed FIFO occupancy (0..PAGEIN_QUEUE_SLOTS)
+    PageIn_Cur_Flags:       u8,         // in-flight request flags (raw-form retry preserves priority)
+    PageIn_Queue:           [PageInReq; PAGEIN_QUEUE_SLOTS],   // 8 x 4 = 32 bytes
+    PageIn_Cur_Dest:        u16,        // in-flight page VRAM byte dest (read by the landing DMA)
+    PageIn_Cur_Bytes:       u16,        // in-flight page uncompressed byte length (landing DMA length)
+    PageIn_Cur_Page:        u16,        // in-flight page id (raw-form retry)
+    PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed
