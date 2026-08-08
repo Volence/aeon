@@ -1870,7 +1870,7 @@ S.C.E. has 12 child creation routines, all driven by descriptor tables. Distille
 | **CreateChild_Linked** | code_addr (repeated, doubly-linked chain) | Snake segments, train cars |
 | **CreateChild_FlipAware** | Same as Complex, negates X when parent flipped | Directional boss weapons |
 
-All use the free slot stack for allocation. All auto-set `parent_ptr`/`sibling_ptr`. Children inherit `mappings` and `art_tile` from parent (no separate VRAM allocation for shared art).
+All use the free slot stack for allocation. All auto-set `parent_ptr`/`sibling_ptr`. Children inherit `mappings` and `art_tile` from parent (no separate VRAM allocation for shared art), plus the render flags in `CHILD_INHERITED_FLAGS` — coordinate mode and, since the C1c ruling (2026-08-05), the parent's 3-bit priority band via the clear-then-set `set_priority_band` idiom (`engine/objects/sst.emp`; a plain `or` of band *values* could yield a third band, so the band bits are masked out before the parent's are OR'd in).
 
 **Cleanup chain:** On parent death, walk sibling_ptr chain and delete all children. Children also check parent — if parent's code_addr is zero, self-delete. S.C.E.'s `Child_Draw_Sprite` auto-delete behavior is ported into the render path.
 
@@ -2003,7 +2003,7 @@ Objects that currently do "check timer → spawn thing" delete that logic entire
 
 ### 3.7 Object Loading — Archetype Templates (objects-v2)
 
-Each object type is a 26-byte ObjDef archetype: a verbatim ROM image of SST $00 (code_addr) plus the $0A-$21 template block, emitted by the `objdef` macro (macros.asm):
+Each object type is a 26-byte ObjDef archetype: a verbatim ROM image of SST $00 (code_addr) plus the $0A-$21 template block, emitted by the `objdef` comptime fn (`engine/objects/objdef.emp`):
 
 ```
 ; ObjDef layout (26 bytes — exact SST image, zero field reordering):
@@ -2312,9 +2312,9 @@ The dispatch lives in `Player_LevelBound` (bottom guard); `EDGE_CLAMP` is byte-f
 
 **ROM cost per section:** 28-byte `parallax_config` header + 10-byte `band_entry` per band. 5-band default = 78 B per section. Deform tables (256 B each) are shared across sections that use the same wave shape.
 
-**Effects library at `games/sonic4/data/parallax/effects/`:** reusable single-effect building blocks. `shimmer.asm` (subtle H-wobble, plane-agnostic), `haze.asm` (graduated H-wobble — heaviest at bottom, plane-agnostic with optional uniform mode), `rocking.asm` (per-column V-scroll rocking). Each file exposes a parameterised `<effect>_config` macro plus pre-named `_Slow / default / _Fast` variants.
+**Effects library (`games/sonic4/data/parallax/configs.emp` — the single file that replaced the old `effects/` + `scenes/` dirs):** reusable single-effect building blocks as parameterised comptime constructors — `shimmer_bg` (subtle H-wobble), `haze_fg` (graduated H-wobble — heaviest at bottom, with optional uniform mode), `rocking` (per-column V-scroll rocking), `perspective` — each with pre-named `_Slow / default / _Fast` (etc.) `ParallaxConfig_*` variants. The generic constructors (`band`, deform-table generators) live engine-side in `engine/level/parallax_dsl.emp`.
 
-**Composite scenes at `games/sonic4/data/parallax/scenes/`:** hand-authored configs that mix multiple effects with custom per-band gradients. `windy_haze.asm` (windy gradient BG + uniform FG haze), `sky_haze.asm` (split-screen via `parallax_combine_split` — windy top, haze bottom), `caves.asm` (slow BG factor gradient), `locked_clouds.asm` (layer-mask demo).
+**Composite scenes (same file):** hand-authored configs that mix multiple effects with custom per-band gradients. `ParallaxConfig_WindyHaze` (windy gradient BG + uniform FG haze), `ParallaxConfig_SkyHaze` (split-screen — windy top, haze bottom), `ParallaxConfig_OJZ_Caves` (slow BG factor gradient), `ParallaxConfig_OJZ_LockedClouds` (layer-mask demo).
 
 **Composition macros in `parallax_macros.inc`:**
 - `parallax_section` — workhorse, emits a complete config record from named keyword params.
@@ -2389,14 +2389,14 @@ Continuous scrolling makes "streaming" a steady per-frame edge process rather th
 - Different sections in the same zone can have different parallax (outdoor → cave → underwater)
 - Layer enable mask disables unused layers per section (saves cycles + DMA)
 
-**Animated Terrain Per-Section (NOVEL):**
-Each section can define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice. The animation system cycles frames and DMAs current tiles via the DMA queue (Priority 1). When the camera crosses a section boundary, the entered section's animated set starts and the exited one's stops. Each section becomes visually distinct not just in static art but in dynamic terrain behavior.
+**Animated Terrain Per-Section (NOVEL — PLANNED, not implemented):**
+Each section could define its own animated tile set via `sec_anim_blocks` — conveyor belts, pulsing lava, swaying grass, shimmering ice — cycled and DMA'd via the DMA queue (Priority 1), with the entered section's set starting and the exited one's stopping at each boundary crossing. **Status:** `sec_anim_blocks` is a reserved descriptor field with no runtime consumer (see the §7 banner). What ships today is *act-level* BG tile-band animation — `BgAnim` (`engine/level/bg_anim.emp`), driven by the act-wide `BgAnim_Table`, not per-section scripts. See DEFERRED_WORK.md "Animated Tile DMA Scripts" for the design backlog entry.
 
 **Section State Preservation via Visibility Window:**
 The visibility-derived window preserves entity state for sections inside the 2×2 tracked window naturally — mask bits carry over by section identity at every slide. Collected rings stay collected, destroyed objects stay gone, as long as the section remains tracked. Once a section leaves the window, revisiting loads from ROM defaults — matching classic Sonic behavior where distant areas respawn. The 3×3 rolling collected bitmask (4.9.5), keyed by section_id, extends this to ±1 section of backtrack regardless of where the camera is in world space.
 
-**Transition / Blend Sections (NOVEL):**
-Transition cells in the grid interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event.
+**Transition / Blend Sections (NOVEL — PLANNED, not implemented):**
+Transition cells in the grid would interpolate between adjacent sections' palettes, parallax, and physics across the cell's width. Jungle gradually darkens into cave, water tint deepens as you descend, wind picks up as you climb. Creates seamless geographic flow instead of hard boundaries — the continuous camera makes the blend a function of world position within the cell rather than a discrete event. **Status:** only the parallax leg exists (per-section `sec_parallax_config` with the 16-frame lerp, above). No palette-transition code ships — `sec_pal` has no runtime consumer and palette cross-fade is design-stage (§7.1 and the §7 banner; see also DEFERRED_WORK.md "Palette transition on section crossing"); the physics leg is the deferred modifier half of §5.2 (DEFERRED_WORK.md §5).
 
 **Streaming During Cutscenes:**
 During boss deaths, story sequences, or triggered animations the camera is usually still, so the edge streamer is idle and the DMA queue has spare capacity. There is no per-section art preload to run (art is resident); cutscene time is instead free budget for effects and audio work.
@@ -2434,7 +2434,7 @@ Object entries in ROM use full-resolution section-local coordinates with a local
 ;              bits 7-0  = subtype (OEF_SUBTYPE_MASK)
 ```
 
-Hand-authored lists use the `objentry`/`objend` macros (macros.asm), which build-fail on non-monotonic X, out-of-range coordinates, type/subtype overflow, and lists exceeding `MAX_LIST_ENTRIES` (128 — the killed-bitmask capacity):
+Hand-authored lists use the `objentry`/`objend` helpers (`engine/structs.emp`), which build-fail on non-monotonic X, out-of-range coordinates, type/subtype overflow, and lists exceeding `MAX_LIST_ENTRIES` (128 — the killed-bitmask capacity):
 
 ```
 OJZ_Sec2_Objects:
@@ -2526,7 +2526,7 @@ After all entries:
      (clearLoadedObj) before DeleteObject
 ```
 
-**Y band + hysteresis:** entities load inside `[camY − ENTITY_LOAD_BUFFER_Y, camY + SCREEN_HEIGHT + ENTITY_LOAD_BUFFER_Y]` ($100) and despawn outside `[camY − ENTITY_DESPAWN_BUFFER_Y, camY + SCREEN_HEIGHT + ENTITY_DESPAWN_BUFFER_Y]` ($180). This mirrors the X hysteresis (load $180 / despawn $200 past the screen edge): the gap prevents load/despawn oscillation at band edges. Two build-time guards in constants.asm enforce the band invariants:
+**Y band + hysteresis:** entities load inside `[camY − ENTITY_LOAD_BUFFER_Y, camY + SCREEN_HEIGHT + ENTITY_LOAD_BUFFER_Y]` ($100) and despawn outside `[camY − ENTITY_DESPAWN_BUFFER_Y, camY + SCREEN_HEIGHT + ENTITY_DESPAWN_BUFFER_Y]` ($180). This mirrors the X hysteresis (load $180 / despawn $200 past the screen edge): the gap prevents load/despawn oscillation at band edges. Two build-time `ensure()` guards in `engine/objects/entity_window.emp` enforce the band invariants (the constants themselves live in `engine/system/constants.emp`):
 
 ```
 (ENTITY_DESPAWN_BUFFER_Y - ENTITY_LOAD_BUFFER_Y) >= coarse row size (128)
@@ -2705,7 +2705,7 @@ It is invisible because everything moves by the same delta in one frame — ever
 
 ## 5. Player / Character System
 
-Three playable characters (Sonic, Tails, Knuckles) with shared physics via `Player_Common.asm`, per-character abilities, and a unified shield system. The key innovations: per-section terrain physics (novel — generalizes underwater physics to any terrain type), configurable physics tables that separate character identity from terrain modifiers, and preserving Sonic's classic flat-acceleration feel while enabling per-character tuning.
+Three playable characters (Sonic, Tails, Knuckles) with shared physics via `games/sonic4/player/player_common.emp`, per-character abilities, and a unified shield system. The key innovations: per-section terrain physics (novel — generalizes underwater physics to any terrain type), configurable physics tables that separate character identity from terrain modifiers, and preserving Sonic's classic flat-acceleration feel while enabling per-character tuning.
 
 ### 5.1 6-Button Controller Support
 
@@ -2713,7 +2713,7 @@ Three playable characters (Sonic, Tails, Knuckles) with shared physics via `Play
 
 ### 5.2 Per-Section Terrain Physics (NOVEL)
 
-**Status (§5 shipped 2026-06-14): plumbing SHIPPED, modifier system deferred.** Movement code never reads `PHYS_*` constants directly — it reads an *effective physics table in RAM* (`Player_Phys` in `ram.asm`: accel, decel, friction, top speed, gravity, jump force, air accel, release cap) through the a4-register convention (`lea (Player_Phys).w, a4` at the top of `Player_Main`; handlers use `PPHYS_*` offsets). `Player_RefreshPhysics` recomputes that table and is called on section change / status events, NEVER per-frame. **Day one the modifier is identity** — `Player_RefreshPhysics` is a straight 16-byte copy of `PhysTable_Sonic` (the character base row) into `Player_Phys`, so behavior is pure classic. The modifier/Lerp system itself (per-section terrain multipliers, boundary interpolation) is the deferred half: it slots into `Player_RefreshPhysics` later as one `dc.w` table + a section reference, with zero changes to movement code. See `DEFERRED_WORK.md` §5.
+**Status (§5 shipped 2026-06-14): plumbing SHIPPED, modifier system deferred.** Movement code never reads `PHYS_*` constants directly — it reads an *effective physics table in RAM* (`Player_Phys` in `games/sonic4/config/ram.emp`: accel, decel, friction, top speed, gravity, jump force, air accel, release cap) through the a4-register convention (`lea (Player_Phys).w, a4` at the top of `Player_Main`; handlers use `PPHYS_*` offsets). `Player_RefreshPhysics` recomputes that table and is called on section change / status events, NEVER per-frame. **Day one the modifier is identity** — `Player_RefreshPhysics` is a straight 16-byte copy of `PhysTable_Sonic` (the character base row) into `Player_Phys`, so behavior is pure classic. The modifier/Lerp system itself (per-section terrain multipliers, boundary interpolation) is the deferred half: it slots into `Player_RefreshPhysics` later as one `dc.w` table + a section reference, with zero changes to movement code. See `DEFERRED_WORK.md` §5.
 
 The intended modifier design (deferred):
 
@@ -2771,7 +2771,7 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 **Files as shipped (§5, Sonic only):**
 - `games/sonic4/player/player_common.emp` — owns the player frame: the `PlayerV` SST overlay (13 of 34 `sst_custom` bytes used), `Player_Init`, `Player_RefreshPhysics`, `Player_Main` (frame skeleton + state dispatch), `Player_SetState` + the enter/exit hook tables, `Player_Display` tail (now just `bsr Player_Animate` / `jsr AnimateSprite` / `jmp Sonic_LoadArt`), `Player_LevelBound`, debug-fly suspend, and shared helpers (`Player_SnapToSurface`, sizing macros, `PSTATE_COUNT` lockstep asserts). Also owns `Player_Animate` (see §5.6).
 - `games/sonic4/player/player_ground.emp` — grounded state bodies: `PState_Ground`, `PState_Roll`, the shared `Ground_Move` tail (cap → projection → wall probe → integrate → floor pair → `Player_SlopeRepel`), and `Player_Jump`.
-- `games/sonic4/player/player_spindash.emp` — `PState_Spindash` (relocated from `sonic.asm` into shared player code — pure move, logic identical). Resolves ANIM_SPINDASH per-character via the shared `ANIM_*` contract.
+- `games/sonic4/player/player_spindash.emp` — `PState_Spindash` (relocated from `sonic.emp` into shared player code — pure move, logic identical). Resolves ANIM_SPINDASH per-character via the shared `ANIM_*` contract.
 - `games/sonic4/player/player_air.emp` — the one shared air body (`PState_Air`/`PState_Jump`/`PState_RollJump`/`PState_AirBall`, flagged per state via d6), landing banding, `Air_LandState`.
 - `games/sonic4/player/player_sensors.emp` — the four macro-stamped directional cores (`Collision_ProbeDown/Up/Right/Left`), the floor/ceiling pair wrappers and wall single-probe (`Player_SensorWallDir`), `Player_AtLedgeEdge` (balance probe — see §5.6), and a DEBUG boot self-check (`PlayerSensors_SelfCheck` column path + `PlayerSensors_SelfCheck_RowFill` exercising the row-fill collision path) that asserts the asm sensors agree with `collision_pipeline.py`.
 - `games/sonic4/player/sonic.emp` — Sonic's physics base row (`PhysTable_Sonic`), `Sonic_InitAssets`, `Sonic_LoadArt`. Spindash moved to `player_spindash.emp`. Tails/Knuckles will add sibling files with zero changes to common.
@@ -2780,7 +2780,7 @@ Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, pro
 
 ### 5.6 Animation Classifier and Speed-Scaled Timing (Shipped — feat/sonic-animations)
 
-**Shared `ANIM_*` id contract** (`constants.asm`): eleven named ids form the cross-character animation contract:
+**Shared `ANIM_*` id contract** (`games/sonic4/config/constants.emp`): eleven named ids form the cross-character animation contract:
 
 | Id | Constant | Notes |
 |---|---|---|
@@ -2799,7 +2799,7 @@ Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, pro
 
 Each character's `Ani_<char>` table is ordered by these ids. A build-time `assert` keeps `Ani_Sonic`'s entry count == `ANIM_COUNT` so adding a new id without updating the table is a build error.
 
-**`Player_Animate` — character-agnostic read-only classifier** (`player_common.asm`): called from `Player_Display`; classifies the current frame's animation id into `SST_anim` and computes a speed-scaled hold into `d3` without touching any PSTATE or persistent status bits. Priority order (highest to lowest):
+**`Player_Animate` — character-agnostic read-only classifier** (`games/sonic4/player/player_common.emp`): called from `Player_Display`; classifies the current frame's animation id into `SST_anim` and computes a speed-scaled hold into `d3` without touching any PSTATE or persistent status bits. Priority order (highest to lowest):
 
 1. spindash (`PState_Spindash` active)
 2. ball / roll / jump-ball / airball
@@ -2817,7 +2817,7 @@ Each character's `Ani_<char>` table is ordered by these ids. A build-time `asser
 
 **`_pl_look_offset` seam:** Duck/look-up camera-pan is NOT implemented this pass. A zero-valued field `_pl_look_offset` is reserved in the `PlayerV` SST overlay as a deliberate hook for the future pass that implements it.
 
-**DEBUG anim viewer** (`player_common.asm`, `ifdef __DEBUG__` only): START toggles a frozen viewer sub-mode; Up/Down step through every `ANIM_*` id with a fixed injected gsp so speed-scaled animations animate visibly. Release builds exclude it entirely.
+**DEBUG anim viewer** (`games/sonic4/player/player_common.emp`, DEBUG shape only): START toggles a frozen viewer sub-mode; Up/Down step through every `ANIM_*` id with a fixed injected gsp so speed-scaled animations animate visibly. Release builds exclude it entirely.
 
 **State entry/exit hooks (shipped):** Every state has an enter and exit hook; ALL transitions route through a single `Player_SetState` (old exit → write state byte → new enter). Hooks are the only writers of height/width (= ball/standing radii), the ±5px curl/uncurl y-shift, `ST_ROLLING`, and anim selects — so the roll-jump 5px size bug (#5) is structurally impossible (radii change only in hooks; JUMP/ROLLJUMP/AIRBALL all use ball radii).
 
@@ -2906,7 +2906,7 @@ soundscapes (the latter is deferred to Phase 5).
   full 2026-07-02** by the budget phase's A.3 repack: code ceiling `$16F0`→`$18F0` (+512),
   ring page `$19` (`$1900`), sequencer state `$1A00`, derived page-aligned `SND_SFX_BASE`,
   `$1F00+` mailbox/status FROZEN as the external contract. The spec carries the full map,
-  invariants, and assert inventory; `sound_constants.asm` stays the authoritative values.
+  invariants, and assert inventory; `engine/sound/sound_constants.emp` stays the authoritative values.
 - **1B DMA-survival single-channel DAC** — a free-running, every-path-equal-cost streaming
   loop (MegaPCM-2 model): a 256-byte page-aligned read-ahead ring (page `$19`/`$1900` since
   the 2026-07-02 RAM repack; originally `$1700`), FILL/SKIP/DRAIN
@@ -3025,7 +3025,7 @@ soundscapes (the latter is deferred to Phase 5).
   sequencer-driven hardware LFO (`MEV_LFO` $F4), the global tempo scalar (`MEV_TEMPO` $F3, per-channel
   tempo accumulator), master fade-in/out (`Sound_FadeOut`/`Sound_FadeIn` over `SND_REQ_FADE`), and
   **per-note portamento** (`MEV_PORTA` $F5 → persistent `sc_porta_incr` glide rate; `Porta_Apply`
-  RESIDENT in `sound_sequencer.asm`, FM glides block-correct via the shared `Fm_FnumApplyDelta`,
+  RESIDENT in `engine/sound/sound_sequencer.emp`, FM glides block-correct via the shared `Fm_FnumApplyDelta`,
   PSG linear-in-divisor; glide owns the pitch, vibrato resumes at target; oracle soak/glide capture
   per the phase verification process).
 
@@ -3060,7 +3060,7 @@ soundscapes (the latter is deferred to Phase 5).
 only DATA may live in the Z80 `$8000` bank window. CODE fetched through the window corrupts under
 68k bus contention (DMA/BUSREQ; `di` does not help) → wild PC → Z80 self-reinit. ALL in-frame code
 must be RESIDENT. `engine/sound/sound_banked_z80.asm` was deleted (2026-07-01) when its last banked
-routine, `Fm_FnumApplyDelta`, moved resident into `sound_fm.asm` — the portamento history is the
+routine, `Fm_FnumApplyDelta`, moved resident into `sound_fm.asm` (today `engine/sound/sound_fm.emp`) — the portamento history is the
 cautionary tale (the original banked `Porta_Apply` caused Z80 self-reinits and porta only shipped
 once fully resident). The 2026-07-02 budget phase reaffirmed the invariant: its banking work (T3)
 moved DATA tables only, portamento landed resident (T10), and T10's 3000+-frame soak sampled the
@@ -3609,7 +3609,7 @@ Two complementary profiling approaches, both debug-only:
 
 ### 8.6 RAM Layout Documentation (NOVEL)
 
-Build-time script that parses `S4.constants.asm` and outputs a visual RAM map showing all regions, sizes, and remaining free space. Flags overlapping regions, warns if any region exceeds its budget. Prevents the silent RAM collisions that plague Genesis development.
+Build-time script that parses the RAM region declarations (`engine/ram.emp` + `games/<game>/config/ram.emp`) and outputs a visual RAM map showing all regions, sizes, and remaining free space. Flags overlapping regions, warns if any region exceeds its budget. (The hard-overflow half is already covered: `.emp` region declarations are compiler-checked by sigil.) Prevents the silent RAM collisions that plague Genesis development.
 
 **Cross-reference:** S.C.E.'s `Variables.asm` uses `phase`/`dsset` directives with a compile-time overflow check: `if * > 0; fatal "RAM declarations too large by $\{*} bytes."; endif`. Our script goes further — it generates a visual map and warns about near-misses, not just hard overflows.
 

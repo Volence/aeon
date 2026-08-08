@@ -2,17 +2,26 @@
 
 ## Overview
 
-Fresh Sega Genesis engine for Sonic 4, built from scratch using the AS Macro Assembler. This is NOT a disassembly mod — every line of code is written intentionally following modern design principles adapted for 68000 hardware.
+Fresh Sega Genesis engine for Sonic 4, built from scratch and assembled by **sigil**, the suite's from-scratch Rust toolchain (`.emp` source language). This is NOT a disassembly mod — every line of code is written intentionally following modern design principles adapted for 68000 hardware.
 
 All game DATA (art, music, physics values, palette files) will be migrated from the sonic_hack/ project. All CODE is new.
 
 ## Build
 
 ```bash
-./build.sh          # Build s4.bin ROM
+./build.sh          # Build s4.bin ROM (release shape)
+DEBUG=1 ./build.sh  # Build s4.debug.bin (debug shape — suffixed artifacts)
 ```
 
-Assembler: AS Macro Assembler (native `tools/asl`). Mixed 68000 + Z80 assembly in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`; `demo` → `demo.bin`, sound off via its `build.conf`). `SOUND_DRIVER_ENABLED` defaults **ON** — a plain `./build.sh` builds with sound; `DEBUG` and `SOUND_DEBUG_HOTKEYS` are the debug axes, independent of whether sound is compiled in.
+Assembler: **sigil** — `sigil build` IS the build (Spec-5 Stage 2 flip). The AS Macro Assembler (`asl`) + `p2bin` + `fixheader` have left the pipeline; one sigil invocation assembles every `.emp` module natively (plus the residual `.asm` via sigil-frontend-as), links in declared order (`games/<game>/map.toml`), folds the header checksum, emits the `.lst`, and appends the deb2 symbol table via the surviving `convsym`.
+
+**Required env vars** (build.sh hard-errors without them — no asl fallback):
+- `SIGIL_BUILD` — path to the sigil repo's release `sigil` binary
+- `SIGIL_EMIT` — path to the sigil repo's release `emit_sound_blob` binary (needed for any sound-ON game, i.e. every sonic4 build)
+
+Source is `.emp` — the `.asm` CODE twins are deleted. The only surviving `.asm` files are the per-game residual root `games/<game>/game_root.asm` (defines/externs only, emits no bytes) and the vendored MD Debugger (`engine/debug/debugger.asm`). Mixed 68000 + Z80 in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`; `demo` → `demo.bin`, sound off via its `build.conf`).
+
+Shapes: build.sh ships the two canonical shapes only — plain (release) and `DEBUG=1` — and both carry the MD Debugger island + deb2 symbols (crash-report ruling 2026-08-04). A plain `./build.sh` builds with sound (`SOUND_DRIVER_ENABLED` defaults ON); non-canonical sonic4 sound shapes (silent, `SOUND_DEBUG_HOTKEYS`, `SOUND_DBG_MIRROR`) and `CRASH_REPORT=0` are **refused** by build.sh — they are named off-canonical sigil profiles (`sigil build --native --config-a/--config-b/--lean`) gated by their own goldens. `CONTRACTS=0` is the emergency opt-out for the contract-closure gate, not a normal knob.
 
 ## Repository Layout
 
@@ -25,9 +34,9 @@ Aeon draws a hard **engine / game** wall (restructure 2026-06-28; agnostic engin
   - `objects/` — object system (core, sprites, animate, DPLC, collision, children, load)
   - `sound/` — Z80 driver + FM/PSG/sequencer/SFX
   - `debug/` — debugger, error handler, self-tests
-  - `constants.asm`, `sound_constants.asm`, `structs.asm`, `macros.asm`, `ram.asm` — engine-owned defs (moved from repo root); `ram.asm` ends at the `Engine_RAM_End` seam a game's RAM continues from
-  - `engine.inc` — the single entry point; owns the entire ROM layout (org-0 vectors/header, engine code block, object code bank, data region, sound-data region, epilogue). See `docs/ENGINE_ARCHITECTURE.md`, "Engine/game contract" section, for the full manifest/contract reference
-- `games/sonic4/` — the Sonic 4 game built on Aeon: `player/` (all player code incl. `sonic.asm`), `objects/`, `config/` (`constants.asm`, `sound_ids.asm`, `game.asm`, `ram.asm` — the game-side def/RAM slices + contract declarations), `data/` (levels, art, sound, parallax, mappings, collision, editor), `test/` (game state test scaffolding, moved from repo-root `test/`), and `main.asm` (now a thin manifest: seven `{GLOBALSYMBOLS}` macros + `include "engine/engine.inc"`).
+  - `structs.emp`, `ram.emp`, `coords.emp`, `vdp.emp`, `irq.emp`, `z80_bus.emp` — engine-owned defs at the engine root (constants live in `engine/system/constants.emp`, sound constants in `engine/sound/sound_constants.emp`); `ram.emp` ends at the `Engine_RAM_End` seam a game's RAM continues from
+  - the ROM layout is no longer an include-file manifest: `main.asm` + `engine/engine.inc` are DELETED. Placement is the declared sigil map (`games/<game>/map.toml`) consumed by the sigil chainer. See `docs/ENGINE_ARCHITECTURE.md`, "Engine/game contract" section, for the full manifest/contract reference
+- `games/sonic4/` — the Sonic 4 game built on Aeon: `player/` (all player code incl. `sonic.emp`), `objects/`, `config/` (`constants.emp`, `sound_ids.emp`, `game.emp`, `ram.emp`, `header.emp` — the game-side def/RAM slices + contract declarations, incl. the `Game` interface binding in `game.emp`), `data/` (levels, art, sound, parallax, mappings, collision, editor), `test/` (game state test scaffolding), `map.toml` (the declared ROM placement contract), and `game_root.asm` (the minimal AS residual root — defines/externs only, emits no bytes).
 - `games/demo/` — the minimal starter game: boots to a white 16×16 box on a dark-blue backdrop, zero Sonic code. Both the "start here" template for a new game and the permanent proof the engine is actually game-agnostic (`DEBUG=1 ./build.sh demo`).
 - `tools/` build generators · `docs/` design + specs.
 
