@@ -153,12 +153,11 @@ pub proc RingBuffer_Clear () clobbers() {
 //
 // In:  a4 = SAT buffer write pointer (from Render_Sprites)
 //      d5.w = current VDP sprite count (from Render_Sprites)
-// Out: a4 advanced past emitted ring sprites (in-out; declared out below
-//        ONLY once the write-analysis models (a4)+ — see gap-ledger, the
-//        auto-inc/dec write-detection gap; declaring out(a4) today
-//        false-positives [proc.out-unwritten] because a4 is written only
-//        via (a4)+, which the heuristic misses)
-//      d5 incremented per ring sprite emitted (bare write → out)
+// Out: a4 advanced past emitted ring sprites; d5 incremented per ring sprite
+//        emitted. Both are in-out cursors threaded from Render_Sprites, and
+//        neither is produced on the empty-buffer path — Ring_Count = 0 returns
+//        before any write — so both carry standing [proc.out-unverified] rows.
+//        d5's increment is additionally byte-wide under a 32-bit claim.
 // Clobbers: d0-d4, d6-d7, a0
 // -----------------------------------------------
 pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) out(d5, a4) {
