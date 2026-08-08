@@ -95,8 +95,9 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         // Point the dispatcher at this act's page-address table (FIFO resolution base).
         move.l  Act.act_art_pool_table(a4), PageIn_Pool_Table
 
-        // Raise the DMA window budget for the display-off bulk load: a 256-tile
-        // page's Important landing DMA (8192 B) exceeds the active-display window.
+        // Raise the DMA window budget for the display-off bulk load: several
+        // 64-tile pages' Important landing DMAs (2048 B each) drain per blanked
+        // frame under the raised window (headroom above the active-display budget).
         move.w  DMA_Budget_Default, d7              // save the active-display budget
         move.w  #DMA_BUDGET_BLANKED_INIT, DMA_Budget_Default
 

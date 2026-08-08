@@ -302,8 +302,11 @@ def main():
 
     check_corruption_detected(plain, payload, checksum)
 
-    # Each vector decompresses into Decomp_Buffer (9,600 B) at boot.
-    assert len(payload) <= 9600
+    # Each vector decompresses into Art_Staging_Buffer (ART_STAGING_BUFFER_SIZE =
+    # 2048 B, a dedicated buffer since the P2b cutover — no longer the 9,600-B
+    # tile-cache alias). compression_selftest.emp backs this with a compile-time
+    # ensure(CSELF_PAYLOAD_SIZE <= ART_STAGING_BUFFER_SIZE).
+    assert len(payload) <= 2048
 
     # --- Emit blobs ---
     blobs = {

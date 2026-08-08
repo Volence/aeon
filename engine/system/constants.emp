@@ -412,7 +412,7 @@ ensure((1 << ART_POOL_PAGE_BYTES_SHIFT) == ART_POOL_PAGE_BYTES,
 // raises the window budget to this value for the bulk load (headroom for several
 // page landings + a normal frame's other charges) and restores the active-display
 // budget before display-on.
-pub const DMA_BUDGET_BLANKED_INIT = ART_STAGING_BUFFER_SIZE + DMA_BUDGET_NTSC   // 14336
+pub const DMA_BUDGET_BLANKED_INIT = ART_STAGING_BUFFER_SIZE + DMA_BUDGET_NTSC   // 8192 (2048 page + 6144 NTSC window)
 
 // -----------------------------------------------
 // SST layout constants (the ObjDef-copied template block + custom span).

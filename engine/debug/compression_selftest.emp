@@ -21,6 +21,12 @@ use engine.constants.{ART_HDR_SIZE, ART_STAGING_BUFFER_SIZE, BLOCK_RAW_SIZE, BLO
 ensure(BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS >= ART_STAGING_BUFFER_SIZE,
        "CompressionSelfTest: Block_Stage_Buffers (equivalence buffer B) is smaller than the largest act-pool page")
 
+// The three golden vectors decode into Art_Staging_Buffer (buffer A); the payload
+// must fit the DEDICATED staging buffer (2048 B since the P2b cutover, no longer
+// the 9,600-B tile-cache alias). Mirrors tools/gen_compression_vectors.py's bound.
+ensure(CSELF_PAYLOAD_SIZE <= ART_STAGING_BUFFER_SIZE,
+       "CompressionSelfTest: golden payload exceeds Art_Staging_Buffer (2048 B)")
+
 // Addressing modes: every CSelf_*/Art_Staging_Buffer operand is spelled BARE
 // and the width rule picks the mode per shape — Art_Staging_Buffer at
 // $FFFF0000 is always abs.l; the CSelf_* ROM labels sat below $8000 (abs.w)
