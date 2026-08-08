@@ -82,3 +82,24 @@ happen without the flag (and vice-versa):
   still writes PF_PINNED; AllocFrame's `.detach` still clears flags on alloc.
 Byte-changing on all four shapes (RELEASE mechanism). Full mini-ritual: repin +
 refreeze --ab (chain 62).
+
+## Follow-up: CopyBlockColumn a1-preservation regression + audit bijectivity (chain 63, 2026-08-08)
+
+Oracle boot passed the audit but rendered ONE coherent-but-wrong art band (rest
+correct). Root cause: Task 6 repurposed CopyBlockColumn's `a1` (the staged block
+base, a PRESERVED param) as the nametable dest cursor and left it clobbered.
+`TileCache_FillAll` reuses that same `a1` across all 16 intra-block columns WITHOUT
+reloading it (confirmed in source + lowered `FillAll`), so columns 1-15 read a
+garbage source (the spent dest cursor pointing into the nametable) — coherent-but-
+wrong tiles. The page-frame mapping itself is a correct identity bijection (traced
+on paper + verified PageCache_Init free-list threading and AllocFrame pop in the
+binary); the corruption was purely the clobbered staged base.
+- Fix: CopyBlockColumn saves `a1` on the stack at entry and pops it at the single
+  exit (the closure-recognised preserve idiom); `a4` mirrors it for the collision
+  copy. `preserves(a1)` re-declared. RELEASE mechanism -> all four shapes byte-change.
+- Audit blind-spot closed (required): PageCache_Audit now cross-checks mapping
+  BIJECTIVITY — every assigned frame's pf_page round-trips through Page_Table, and
+  every resident Page_Table entry's frame carries that page id. DEBUG-only. (A
+  consistent-but-wrong mapping would red-screen at init; this particular bug was a
+  copy-src regression, not a mapping break, so bijectivity stays clean here.)
+Full mini-ritual: repin + refreeze --ab (chain 63).

@@ -545,6 +545,49 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         move.b  PF_NEXT(a3), d0                 // advance
         bra     .lru
     .lru_done:
+
+        // --- MAPPING BIJECTIVITY (Task-6 review): the residency map must be a
+        //     bijection between resident pages and assigned frames. A consistent-
+        //     but-WRONG mapping (page art landing at frame X while Page_Table says
+        //     frame Y) passes the refcount/LRU checks but renders wrong art; this
+        //     cross-check red-screens it at init. ---
+        // (1) every assigned frame round-trips: Page_Table[frame.pf_page] == frame.
+        lea     Page_Frames, a1
+        lea     Page_Table, a2
+        moveq   #0, d0                          // frame index
+    .bij_frame:
+        move.w  d0, d1
+        lsl.w   #3, d1
+        move.w  PF_PAGE(a1, d1.w), d2           // pf_page
+        cmpi.w  #$FFFF, d2
+        beq     .bij_frame_next                 // unassigned frame -> skip
+        move.b  (a2, d2.w), d3                  // Page_Table[pf_page] (frame idx)
+        andi.w  #$00FF, d3
+        cmp.w   d0, d3
+        beq     .bij_frame_next
+        raise_error "PageCache_Audit: frame.pf_page does not round-trip via Page_Table (wrong mapping)"
+    .bij_frame_next:
+        addq.w  #1, d0
+        cmpi.w  #PAGE_FRAMES, d0
+        blt     .bij_frame
+        // (2) every resident page round-trips: Page_Frames[Page_Table[page]].pf_page == page.
+        lea     Page_Table, a1
+        lea     Page_Frames, a2
+        moveq   #0, d0                          // page index
+    .bij_page:
+        move.b  (a1, d0.w), d1                  // Page_Table[page] (frame idx)
+        andi.w  #$00FF, d1
+        cmpi.w  #PAGE_NOT_RESIDENT, d1
+        beq     .bij_page_next                  // not resident -> skip
+        lsl.w   #3, d1                           // frame offset
+        move.w  PF_PAGE(a2, d1.w), d2           // frame.pf_page
+        cmp.w   d0, d2
+        beq     .bij_page_next
+        raise_error "PageCache_Audit: Page_Table entry's frame carries a different page id (wrong mapping)"
+    .bij_page_next:
+        addq.w  #1, d0
+        cmpi.w  #PAGE_TABLE_MAX, d0
+        blt     .bij_page
     }
         rts
 }

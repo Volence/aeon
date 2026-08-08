@@ -342,7 +342,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
 //       Cache_Origin_Row is also kept even, so the physical row keeps the
 //       logical row's parity and physical_row/2 = physical collision row.
 // -----------------------------------------------
-pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16, a1: *u8, a5: *u8, a6: *u8) clobbers(d0-d3/d5/a0-a4) {
+pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16, a1: *u8, a5: *u8, a6: *u8) clobbers(d0-d3/d5/a0/a2-a4) preserves(a1) {
         // wrap d1 (logical cache col) to physical column via circular origin
         add.w   Cache_Origin_Col, d1
         cmpi.w  #TILE_CACHE_COLS, d1
@@ -366,11 +366,13 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
 
         // P2b Task 6: the staged words are GLOBAL; each is patched global->physical
         // (frame) + ref/unref by PageCache_PatchWord as it lands in the nametable.
-        // PatchWord writes through a1, so move the staged base into a4 (PatchWord
-        // never touches a4) for the rest of the proc — a1 becomes the nametable dest
-        // cursor (and is now a declared clobber); the collision copy reads the staged
-        // base from a4.
-        movea.l a1, a4                         // staged base -> a4 (survives PatchWord + the copy loops)
+        // PatchWord writes through a1, so a1 becomes the nametable dest cursor here.
+        // a1 (the staged base) is a PRESERVED param — FillAll reuses it across 16
+        // columns — so SAVE it on the stack (the closure-recognised preserve idiom)
+        // and pop it at the single exit; a4 mirrors it for the collision copy
+        // (PatchWord never touches a4).
+        move.l  a1, -(sp)                      // preserve staged base (restored at .done_coll)
+        movea.l a1, a4                         // staged base -> a4 (collision copy source)
 
         // dest: Tile_Cache_Nametable + (phys_row * stride + cache_col) * 2
         // ×80 = ((x<<2)+x)<<4 — single temp. Stays hand-written: d2 is live
@@ -475,6 +477,13 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         lea     TILE_CACHE_STRIDE(a2), a2
         dbf     d5, .coll_run2_loop
     .done_coll:
+        // P2b Task 6 REGRESSION FIX: the original CopyBlockColumn PRESERVED a1 (the
+        // staged base) — FillAll reuses it across all 16 intra-block columns without
+        // reloading (tile_cache.emp FillAll copy loop). Task 6 repurposed a1 as the
+        // nametable dest cursor, silently breaking that contract (cols 1-15 of every
+        // block read a garbage src -> wrong art). Restore the saved staged base so
+        // the proc preserves a1 exactly as before (single exit).
+        movea.l (sp)+, a1
         rts
 }
 
