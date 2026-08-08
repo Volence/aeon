@@ -3226,3 +3226,35 @@ Narrower than the sprite case (per-line bits, 32-byte lines, no length field to 
 palette writers are fade steps — not a per-frame emit loop), so it was left out of the
 sprite fix deliberately. If palette corruption during a fade under heavy Critical-queue
 pressure is ever reported, this is the mechanism; the fix shape is the same emit bracket.
+
+---
+
+## Ledgered by the 2026-08-08 art-streaming Phase 2 Task 2 review (`feat/art-streaming-p2`)
+
+### `compression_selftest` engine-agnosticism smell — RECORDED, not fixed
+
+The DEBUG boot equivalence walk (`engine/debug/compression_selftest.emp`) proves
+`ZX0R_Decompress` byte-identical to `ZX0_Decompress` over every act-pool page. To reach the
+pool it hardcodes the game-specific symbol `OJZ_Act1_Descriptor`, behind a
+`HAS_ACT_ART_POOL` comptime define (sonic4 family = 1, demo = 0) so the block is discarded
+in the game-agnostic demo build. It works and keeps demo green, but it plants a
+`games.sonic4.*` reference inside a shared `engine.*` module — the exact engine/game-wall
+crossing the restructure exists to prevent. It also forces the engine module's isolation
+port test (`compression_selftest_port.rs`) to inject a game symbol as a cross-seam carrier.
+
+**Cleaner shapes when revisited:** (a) bind the current act descriptor through the Game
+contract (an engine-visible hook the game supplies), so the self-test walks "the game's act
+pool" without naming a sonic4 symbol; or (b) move the act-pool equivalence walk into
+`games/sonic4` test scaffolding, leaving `compression_selftest.emp` testing only the engine
+golden vectors (fully game-agnostic). Either removes the `HAS_ACT_ART_POOL` define and the
+port-test carrier injection. Low urgency — the current form is correct and cheaply
+reversible.
+
+### Equivalence walk does not assert `form == ZX0` — REVISIT at Task 5
+
+The self-test feeds each act-pool page to both decoders assuming the page is a ZX0 (version
+2) stream past the 4-byte wrapper. That holds today (every OJZ pool page is `.zx0`), so the
+missing `ART_HDR_VERSION == ART_VER_ZX0` check is harmless for the equivalence property. It
+becomes wrong the moment raw-form pages exist. Task 5 (P2b format cutover) introduces
+`.raw` pages (manifest v2 `form` byte); when it lands, either skip non-ZX0 pages in this
+walk or assert the form before decoding. Tie this cleanup to the Task 5 manifest work.

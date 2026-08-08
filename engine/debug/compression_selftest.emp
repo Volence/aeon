@@ -12,7 +12,14 @@ module engine.compression_selftest in compression_selftest
 
 use engine.compression_vectors.{CSELF_PAYLOAD_SIZE, CSELF_PAYLOAD_SUM, CSELF_DICT_LEN}
 use engine.structs.{Act}
-use engine.constants.{ART_HDR_SIZE}
+use engine.constants.{ART_HDR_SIZE, ART_STAGING_BUFFER_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS}
+
+// Equivalence-walk buffer sizing (comptime, zero bytes): the largest act-pool page
+// is ART_STAGING_BUFFER_SIZE (= one decompressed pool page). Buffer A =
+// Art_Staging_Buffer is sized to it by construction; buffer B = Block_Stage_Buffers
+// must be at least as large, or the largest page's ZX0R output would overrun it.
+ensure(BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS >= ART_STAGING_BUFFER_SIZE,
+       "CompressionSelfTest: Block_Stage_Buffers (equivalence buffer B) is smaller than the largest act-pool page")
 
 // Addressing modes: every CSelf_*/Art_Staging_Buffer operand is spelled BARE
 // and the width rule picks the mode per shape — Art_Staging_Buffer at
