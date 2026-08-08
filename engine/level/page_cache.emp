@@ -273,9 +273,12 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         move.b  #PF_PINNED, PF_FLAGS(a3, d2.w)  // pinned: never in the LRU list
         rts
     .not_pinned:
-        move.b  #PF_IN_LRU, PF_FLAGS(a3, d2.w)  // evictable, refcount 0
+        // evictable, refcount 0. Flags are already 0 (AllocFrame .detach cleared
+        // them); LruLinkTail OWNS setting PF_IN_LRU as it links — never set it here
+        // (that split ownership was the Task-6 boot audit failure).
+        clr.b   PF_FLAGS(a3, d2.w)             // defensive: guarantee no stale PF_PINNED
         move.b  d1, d0                          // LruLinkTail takes frame in d0
-        jbra    PageCache_LruLinkTail
+        jbra    PageCache_LruLinkTail          // links + sets PF_IN_LRU atomically
 }
 
 // -----------------------------------------------
@@ -291,9 +294,11 @@ pub proc PageCache_Ref (d0: u8) clobbers(d0-d2/a3) {
         addq.w  #1, PF_RC(a3, d1.w)
         cmpi.w  #1, PF_RC(a3, d1.w)
         bne     .done                           // already referenced -> no list change
-        bclr    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)
-        beq     .done                           // was not in the LRU list
-        jbsr    PageCache_LruUnlink             // d0 = frame (preserved)
+        // 0->1: if it is in the LRU, LruUnlink removes it AND clears PF_IN_LRU
+        // (single owner). btst only TESTS — never clear the flag here.
+        btst    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)
+        beq     .done                           // not in the LRU list -> nothing to do
+        jbsr    PageCache_LruUnlink             // unlink + clear flag; d0 = frame (preserved)
     .done:
         rts
 }
@@ -317,8 +322,8 @@ pub proc PageCache_Unref (d0: u8) clobbers(d0-d2/a3) {
         bne     .done                           // still referenced
         btst    #PF_PINNED_BIT, PF_FLAGS(a3, d1.w)
         bne     .done                           // pinned frames never enter the LRU list
-        bset    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)
-        jbsr    PageCache_LruLinkTail           // d0 = frame
+        // 1->0: LruLinkTail links AND sets PF_IN_LRU (single owner) — never set it here.
+        jbsr    PageCache_LruLinkTail           // link + set flag; d0 = frame
     .done:
         rts
 }
@@ -401,10 +406,12 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
 }
 
 // -----------------------------------------------
-// PageCache_LruUnlink — remove a frame from the evictable LRU doubly-linked list.
-// (private) In: d0.b = frame (preserved). Clobbers d1-d2/a3.
-// d1 holds the constant cur byte-offset; every neighbour link is read/written via
-// base(a3)+offset — no per-frame pointer register (the d0-d2/a0-a3 budget).
+// PageCache_LruUnlink — remove a frame from the evictable LRU doubly-linked list
+// AND clear its PF_IN_LRU flag. (private) In: d0.b = frame (preserved). Clobbers
+// d1-d2/a3. d1 holds the constant cur byte-offset; every neighbour link is
+// read/written via base(a3)+offset — no per-frame pointer register (the d0-d2/a0-a3
+// budget). SINGLE OWNER: the flag and the links move together here, so a frame can
+// never be off-list yet flagged (invariant enforced by the primitive, not callers).
 // -----------------------------------------------
 proc PageCache_LruUnlink (d0: u8) clobbers(d1-d2/a3) {
         lea     Page_Frames, a3
@@ -427,21 +434,25 @@ proc PageCache_LruUnlink (d0: u8) clobbers(d1-d2/a3) {
         cmpi.w  #PAGE_NOT_RESIDENT, d2
         bne     .set_nextprev
         move.b  PF_PREV(a3, d1.w), Page_LRU_Tail
-        rts
+        bra     .clear_flag
     .set_nextprev:
         lsl.w   #3, d2                           // next offset
         move.b  PF_PREV(a3, d1.w), PF_PREV(a3, d2.w)   // frame[next].prev = cur.prev
+    .clear_flag:
+        bclr    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)   // OWN the flag (d1 still = cur offset)
         rts
 }
 
 // -----------------------------------------------
-// PageCache_LruLinkTail — append a frame at the LRU tail (newest evictable end).
-// (private) In: d0.b = frame (preserved). Clobbers d1-d2/a3.
+// PageCache_LruLinkTail — append a frame at the LRU tail (newest evictable end)
+// AND set its PF_IN_LRU flag. (private) In: d0.b = frame (preserved). Clobbers
+// d1-d2/a3. SINGLE OWNER: linking and flagging happen together, so a frame can
+// never be on-list yet unflagged — which is exactly the invariant the audit checks.
 // -----------------------------------------------
 proc PageCache_LruLinkTail (d0: u8) clobbers(d1-d2/a3) {
         lea     Page_Frames, a3
         move.w  d0, d1
-        lsl.w   #3, d1                           // cur offset
+        lsl.w   #3, d1                           // cur offset (constant throughout)
         move.b  #PAGE_NOT_RESIDENT, PF_NEXT(a3, d1.w)   // cur.next = FF
         moveq   #0, d2
         move.b  Page_LRU_Tail, d2               // old tail
@@ -455,6 +466,7 @@ proc PageCache_LruLinkTail (d0: u8) clobbers(d1-d2/a3) {
         move.b  d0, PF_NEXT(a3, d2.w)           // oldtail.next = cur
     .set_tail:
         move.b  d0, Page_LRU_Tail
+        bset    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)   // OWN the flag (d1 still = cur offset)
         rts
 }
 

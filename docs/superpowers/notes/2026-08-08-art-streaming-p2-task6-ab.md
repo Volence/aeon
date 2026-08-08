@@ -64,3 +64,21 @@ markers, +0x670) were transiently shifted so the walk reaches its fixpoint, then
 - Build-side proof: all four shapes green; contract closure 0 firings; the strict
   suite (repin_pins + native_full_rom + the touched port anchors) + pins_rs_is_
   current + refreeze --check. Controller's oracle pass is the runtime proof.
+
+## Follow-up: LRU flag/link single-owner fix (chain 62, 2026-08-08)
+
+Oracle boot red-screened at the init audit — `PageCache_Audit: LRU member missing
+PF_IN_LRU` (frame 2, rc=0, reachable in the chain but PF_IN_LRU clear). The audit
+did its job: a frame was on the LRU list without its flag, i.e. the flag and the
+links had diverged. Root fix per the ownership principle: make the Lru* PRIMITIVES
+the single owner of BOTH the links AND the PF_IN_LRU flag, so a link can never
+happen without the flag (and vice-versa):
+- `PageCache_LruLinkTail` now `bset`s PF_IN_LRU as it links (single exit).
+- `PageCache_LruUnlink` now `bclr`s PF_IN_LRU as it unlinks (restructured to a
+  single exit).
+- Callers stop touching the flag: Publish `.not_pinned` drops its `move.b
+  #PF_IN_LRU` (LruLinkTail sets it); Ref uses `btst` (not `bclr`) to decide, letting
+  LruUnlink clear; Unref drops its `bset` (LruLinkTail sets it). Publish pinned
+  still writes PF_PINNED; AllocFrame's `.detach` still clears flags on alloc.
+Byte-changing on all four shapes (RELEASE mechanism). Full mini-ritual: repin +
+refreeze --ab (chain 62).
