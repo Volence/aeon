@@ -104,6 +104,12 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   #7 tasks 1-5 unblock #4 fully; #9 depends softly on #4 (Touch_Enemy split)
   and #7 (BCD helpers); #8 depends softly on #7 (fade engine). All soft deps
   have tagged fallback seams in their plans.
+- 2026-08-08 — **design #1 EXECUTION OPENED.** D1–D4 ruled (all per the
+  2026-08-06 decision memo's recommendations: bookmark-first / no arbiter /
+  H4 gate on speculative starts only / two-layer §9.7 title). Plan being
+  re-anchored into `plans/2026-08-08-art-streaming-phase2-v2.md` (folds the
+  2026-08-06 addendum + rulings); sigil asks 1–2 (`@resumable` + extent
+  symbols) started as the gating lane. Branch: `feat/art-streaming-p2`.
 - 2026-07-07/08 — **design #5 EXECUTED.** All 9 tasks of
   `plans/2026-07-07-engine-game-split-execution.md` complete: `engine/engine.inc` +
   seven-macro game manifest, `gameHeader`/parameterized boot, `soundBankHead` contract,

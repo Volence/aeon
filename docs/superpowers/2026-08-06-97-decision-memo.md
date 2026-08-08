@@ -1,7 +1,20 @@
 # §9.7 — Decision memo for the four open points (2026-08-06, overnight prep)
 
+**RULED 2026-08-08 (Volence, all four per recommendation):**
+- **D1 = A** — bookmark-first, banked plan order kept; page-size sweep demoted
+  to the P2c tuning knob. Sigil asks (sketch §6) filed at ruling time.
+- **D2 = C** — no unified arbiter; each tier keeps its own governor; §7.2
+  adoption seam stays named-and-documented only.
+- **D3** = H4-pattern trailing-lag gate on **speculative starts only** (own
+  latch in page_in, ≤1 consecutive skip); demand decodes never gated.
+- **D4 = A** — "§9.7 Idle-Time Deferred Work — Pre-Chunked Pages + Supervisor
+  Bookmark"; the arch-97-rewrite-proposal draft is ratified as the replacement
+  text.
+
+Execution opened same day: plan re-anchor rewrite + sigil asks 1–2 lane.
+
 **Status: options + evidence + recommendation per point. NO ruling made — all
-four are reserved for Volence.** Sources: the research corpus
+four are reserved for Volence.** *(superseded by the ruling block above)* Sources: the research corpus
 (`2026-08-05-deferred-work-research.md`, incl. the fresh idle table), the
 Phase-2 spec (`specs/2026-07-02-art-streaming-phase2-design.md`), the
 unified-prefetch note (sigil `7199792a`, §7 + §10), and the read-only code
