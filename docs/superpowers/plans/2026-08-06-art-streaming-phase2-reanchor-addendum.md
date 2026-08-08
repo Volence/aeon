@@ -1,5 +1,7 @@
 # Re-anchor addendum — `2026-07-02-art-streaming-phase2.md` (2026-08-06)
 
+> **SUPERSEDED 2026-08-08** by 2026-08-08-art-streaming-phase2-v2.md (rulings + re-anchor folded in). Kept for provenance.
+
 **Status: addendum only — the plan file is deliberately untouched** (rewrite
 happens after the morning §9.7 rulings, so it re-anchors once, not twice). The
 plan predates the Sigil flip and the engine/game split; every path and most

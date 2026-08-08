@@ -1,5 +1,7 @@
 # Art Streaming Phase 2 Implementation Plan
 
+> **SUPERSEDED 2026-08-08** by 2026-08-08-art-streaming-phase2-v2.md (rulings + re-anchor folded in). Kept for provenance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Turn the fully-resident act art pool into a VRAM residency cache streaming small ZX0/raw pages in main-loop idle time via a supervisor-bookmark resumable decoder — level art capped by ROM, not VRAM.
