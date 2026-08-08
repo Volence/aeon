@@ -38,12 +38,16 @@ const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * TILE_SIZE
 // In:  a0 = source ROM pointer (wrapper at start, word-aligned)
 //      a1 = destination buffer
 // Out: a0 = past end of compressed data
-//      a1 = past end of decompressed data (S4LZ: see its odd-size note)
-// Clobbers: d0-d3, a2-a3 (the S4LZ path; the ZX0 path touches only d0-d1) —
-//      the exhaustive license: a4/d4 are preserved on both paths and callers
-//      keep them live across the call.
+// Clobbers: d0-d3, a1-a3 (the S4LZ path; of these the ZX0 path touches only
+//      d0-d1 and the a1 cursor) — the exhaustive license: a4/d4 are preserved
+//      on both paths and callers keep them live across the call.
+//      a1 is the destination write cursor and is left wherever writing
+//      stopped — not an output. The two arms do not agree on it: ZX0 always
+//      produces it, but an S4LZ stream that decompresses to zero bytes never
+//      writes it, leaving the caller's own dest start. The wrapper's size word
+//      is the authoritative extent.
 // -----------------------------------------------
-pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a2-a3) out(a0, a1) {
+pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
         cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
         bne     .s4lz                           // rare arm out of line (§2.2)
         addq.l  #ART_HDR_SIZE, a0               // ZX0 stream starts past wrapper
