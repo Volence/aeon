@@ -762,16 +762,45 @@ section z80_sound_driver (cpu: z80) {
         ret
     }
 
-    // --- Snd_FadeCommand — a = SND_FADE_CMD_OUT (1) or SND_FADE_CMD_IN (2). OUT:
-    // ramp the scalar UP to silence. IN: snap to silence, ramp DOWN to full. Seeds
-    // the step-delay counter so Fade_Ramp steps next frame. RESIDENT (RAM only).
-    // Clobbers af.
-    pub proc Snd_FadeCommand () clobbers(af) preserves(bc, de, hl, ix, iy) {
+    // --- Snd_FadeCommand — a = (rate << 4) | cmd (the R4 encoding; authority
+    // doc at sound_constants.emp's fade block). cmd: 1 = OUT (ramp to silence),
+    // 2 = IN (snap silent, ramp to full), 3 = OUT+STOP, 4 = OUT+PAUSE — the
+    // composed terminals (pkg 1 §6): the terminal code is stashed in
+    // SND_FADE_TERM and consumed once by Fade_Ramp when the ramp lands. A plain
+    // OUT/IN clears any stale armed terminal. rate (bits 6..4, 0..7) indexes
+    // FadeRateTable; the pattern is latched into SND_FADE_PATTERN and rotated
+    // once per frame by Fade_Ramp (carry-out gates each ±1 step). Unknown cmds
+    // land on the OUT family (permissive, as before). RESIDENT (RAM + resident
+    // table only; bank-safe). Clobbers af, bc, hl.
+    pub proc Snd_FadeCommand () clobbers(af, bc, hl) preserves(de, ix, iy) {
+        ld      b, a                    // b = raw (rate<<4)|cmd
+        // rate nibble -> spread pattern (FadeRateTable[rate]).
+        rrca
+        rrca
+        rrca
+        rrca
+        and     $07                     // a = rate index 0..7
+        ld      hl, FadeRateTable
+        add     a, l
+        ld      l, a
+        jr      nc, .no_carry
+        inc     h                       // carry into the table ptr high byte
+    .no_carry:
+        ld      a, (hl)
+        ld      (SND_FADE_PATTERN), a   // latched; Fade_Ramp rotates it
+        ld      a, b
+        and     $0F                     // a = cmd nibble
         cp      SND_FADE_CMD_IN
         jr      z, .fade_in
+        // OUT family (1/3/4): terminal = 0 (plain) / 1 (stop) / 2 (pause).
+        sub     SND_FADE_CMD_OUT_STOP - 1 // cmd 1 -> borrow, 3 -> 1, 4 -> 2
+        jr      nc, .have_term
+        xor     a                       // plain OUT -> no terminal (cancels a stale one)
+    .have_term:
+        ld      (SND_FADE_TERM), a
         ld      a, SND_FADE_SILENCE     // fade out: target = silent
         ld      (SND_FADE_TARGET), a
-        jr      .seed
+        ret
     .fade_in:
         ld      a, SND_FADE_SILENCE
         ld      (SND_MASTER_FADE), a    // start silent
@@ -779,10 +808,16 @@ section z80_sound_driver (cpu: z80) {
                                         // volumes at the snapped level THIS frame
         xor     a
         ld      (SND_FADE_TARGET), a    // target = full volume
-    .seed:
-        ld      a, SND_FADE_DELAY
-        ld      (SND_FADE_DELAY_CTR), a
+        ld      (SND_FADE_TERM), a      // IN carries no terminal (cancel a stale one)
         ret
+    }
+
+    // The 8 spread-bit fade-rate patterns (R4, MDSDRV model): Fade_Ramp rotates
+    // the latched pattern right once per frame; the bit rotated out gates one
+    // ±1 TL step. Index = the fade command's rate nibble. Rate 7 steps every
+    // frame (full $7F fade ~2.1 s); rate 0 every 8th frame (~17 s).
+    proc FadeRateTable () clobbers() {
+        dc.b    $01, $11, $25, $55, $5B, $77, $7F, $FF
     }
 
     // --- Snd_CtrlCommand — transport control (pkg 1 §4). a = SND_CTRL_*:

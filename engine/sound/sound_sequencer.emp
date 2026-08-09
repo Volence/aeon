@@ -114,7 +114,7 @@ use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteO
     Fm_RegDelta, Fm_YmWrite, Snd_ChanClass}
 use engine.sound_psg.{Psg_SetVolume, Psg_NoteOn, Psg_NoteOff, Psg_Noise, Psg_ApplyMod,
     Psg_EmitDivisor, Psg_SilenceAll, PsgVolEnv_Resolve, FmVolEnv_Resolve}
-use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup, Snd_ParkDac}
+use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup, Snd_ParkDac, Snd_PauseMusic}
 
 section sound_sequencer (cpu: z80) {
 
@@ -140,6 +140,14 @@ section sound_sequencer (cpu: z80) {
         ld      a, (SND_STAT_TICK)
         inc     a
         ld      (SND_STAT_TICK), a
+
+        // --- game-feel status mirrors (pkg 1 §6): refreshed every frame, song
+        // or not, BEFORE any gate — the 68k's song-finished floor and jingle
+        // poll must track reality even while paused/idle. ---
+        ld      a, (SND_SEQ_ACTIVE)
+        ld      (SND_STAT_SEQ_ACTIVE), a // song-finished floor: the 68k polls this
+        ld      a, (SND_JINGLE_ACTIVE)
+        ld      (SND_STAT_JINGLE), a
 
         ld      a, (SND_SEQ_ACTIVE)
         or      a
@@ -170,10 +178,12 @@ section sound_sequencer (cpu: z80) {
         jr      nz, .run_sfx            // terminal PAUSE landed this frame
         ld      a, (SND_SEQ_CHCOUNT)    // (the ramps clobbered a)
         ld      b, a                    // b = channel count (djnz bound)
+        ld      c, 0                    // c = any-channel-still-active tracker (pkg 1 §6)
         ld      ix, SND_SEQ_CHANNELS    // ix = first SeqChannel
     .chan_loop:
         bit     SCF_ACTIVE_B, (ix+sc_flags) // SCF_ACTIVE?
         jr      z, .next_chan           // inactive -> skip this channel
+        ld      c, 1                    // a live channel -> the song is not finished
         push    bc                      // preserve channel-loop counter (b) across
                                         //   the calls (which clobber b)
 
@@ -206,6 +216,15 @@ section sound_sequencer (cpu: z80) {
         djnz    .chan_loop
         xor     a
         ld      (SND_FADE_DIRTY), a     // consume the fade re-assert flag (channel pass done)
+        // --- song-finished floor (pkg 1 §6): every channel has hit MEV_END ->
+        // the song is OVER; drop SND_SEQ_ACTIVE so the 68k floor
+        // (Sound_IsMusicPlaying via next frame's mirror) reads finished.
+        // Nothing cleared it on a natural end before pkg 1 (only StopMusic /
+        // a new load did); looping songs never reach this (their loop channels
+        // stay SCF_ACTIVE forever). a is already 0.
+        or      c
+        jr      nz, .run_sfx            // a live channel remains -> still playing
+        ld      (SND_SEQ_ACTIVE), a     // all ended -> song finished (a = 0)
     .run_sfx:
         // pause-all (pkg 1 §4): SFX frozen too (the chip is already muted). The
         // mailbox keeps polling, so the unpause command still gets through.
@@ -268,42 +287,60 @@ section sound_sequencer (cpu: z80) {
     }
 
     // ----------------------------------------------------------------------
-    // Fade_Ramp — ramp SND_MASTER_FADE toward SND_FADE_TARGET by SND_FADE_STEP, gated
-    // by SND_FADE_DELAY_CTR. On a frame where the level CHANGES, set SND_FADE_DIRTY so
-    // ModUpdate re-asserts held-note volumes (the scalar is folded in Fm_SetVolume/
-    // Psg_SetVolume). Steady state (cur==target) = no step, no dirty. Called once/frame
-    // from the Sequencer_Frame preamble before the channel loop. Clobbers af,b.
-    // Preserves ix. RESIDENT (all in-frame code is).
+    // Fade_Ramp — ramp SND_MASTER_FADE toward SND_FADE_TARGET, ±1 TL unit per
+    // gated frame (R4 rate model, MDSDRV spread-bit): SND_FADE_PATTERN rotates
+    // right once per frame and the bit rotated out gates this frame's step, so
+    // the 8 authored FadeRateTable patterns give 1..8 steps per 8 frames. The
+    // step is BRANCHLESS: sign-select ±1 from the cur-vs-target compare — a ±1
+    // step cannot overshoot (the equality test at the head ends the ramp), so
+    // the old SND_FADE_STEP clamp ladder is gone with the delay counter.
+    // Mirrors SND_STAT_FADE_BUSY (1 while off-target). At target: consume
+    // SND_FADE_TERM exactly once — 1 = fade-out-and-STOP (Sequencer_StopAll),
+    // 2 = fade-out-and-PAUSE (Snd_PauseMusic); pkg 1 §6 composed terminals.
+    // On a stepped frame set SND_FADE_DIRTY (ModUpdate re-asserts held-note
+    // volumes; the scalar is folded in Fm_SetVolume/Psg_SetVolume). Called
+    // once/frame from the Sequencer_Frame preamble, whose terminal re-check
+    // handles a terminal landing mid-preamble. Clobbers af,bc + hl via the
+    // terminal tail-calls. Preserves de, ix. RESIDENT (all in-frame code is).
     // ----------------------------------------------------------------------
-    pub proc Fade_Ramp () clobbers(af, b) preserves(c, de, hl, ix) {
+    pub proc Fade_Ramp () clobbers(af, bc, hl) preserves(de, ix) {
         ld      a, (SND_FADE_TARGET)
-        ld      b, a                    // b = target (preserved below)
+        ld      b, a                    // b = target
         ld      a, (SND_MASTER_FADE)
         cp      b
-        ret     z                       // at target -> steady, no work
-        // fade active: gate the step on the delay counter
-        ld      a, (SND_FADE_DELAY_CTR)
-        dec     a
-        ld      (SND_FADE_DELAY_CTR), a
-        ret     nz                      // not this frame
-        ld      a, SND_FADE_DELAY
-        ld      (SND_FADE_DELAY_CTR), a // reload the step delay
-        ld      a, (SND_MASTER_FADE)
-        cp      b                       // cur vs target (b)
-        jr      nc, .down               // cur >= target -> ramp down
-        add     a, SND_FADE_STEP        // ramp up toward target
-        cp      b
-        jr      c, .store
-        ld      a, b                    // clamp to target (no overshoot)
-        jr      .store
-    .down:
-        sub     SND_FADE_STEP
-        jr      c, .clamp_t             // underflow past 0 -> clamp to target
-        cp      b
-        jr      nc, .store
-    .clamp_t:
+        jr      nz, .active
+        // steady at target
+        xor     a
+        ld      (SND_STAT_FADE_BUSY), a
+        // consume a pending composed terminal exactly once (nonzero only right
+        // after the ramp lands; both actions are idempotent anyway)
+        ld      a, (SND_FADE_TERM)
+        or      a
+        ret     z                       // no terminal armed -> done
+        ld      b, a                    // b = terminal code (the target copy is dead)
+        xor     a
+        ld      (SND_FADE_TERM), a      // one-shot
         ld      a, b
-    .store:
+        dec     a
+        jp      z, Sequencer_StopAll    // term 1: fade-out-and-STOP
+        jp      Snd_PauseMusic          // term 2: fade-out-and-PAUSE (music scope)
+    .active:
+        ld      a, 1
+        ld      (SND_STAT_FADE_BUSY), a
+        // rate gate: rotate the spread-bit pattern; the carry-out bit says
+        // whether this frame steps.
+        ld      a, (SND_FADE_PATTERN)
+        rrca
+        ld      (SND_FADE_PATTERN), a
+        ret     nc                      // no step this frame
+        // branchless ±1 toward target: CF(target < cur) -> -1 else +1.
+        ld      a, (SND_MASTER_FADE)
+        ld      c, a                    // c = cur
+        ld      a, b                    // a = target
+        cp      c                       // CF = target < cur -> step DOWN
+        sbc     a, a                    // a = $FF (step down) / $00 (step up)
+        or      1                       // a = -1 / +1 (the signed step)
+        add     a, c                    // cur ± 1
         ld      (SND_MASTER_FADE), a
         ld      a, 1
         ld      (SND_FADE_DIRTY), a     // level changed -> ModUpdate re-asserts
