@@ -107,6 +107,9 @@ const SND_Z80_YM_A3        = SND_Z80_YM_A0 + 3        // $4003: data part II
 // $B4 (L/R|AMS|FMS) is not in this module's seam list either — a hardware-
 // fixed YM register number, mirrored as a literal (authority: SND_REG_LR_AMS_FMS).
 const SND_REG_LR_AMS_FMS   = $B4
+// The MEV_EXT prefix opcode (authority: sound_constants.emp, where it is
+// pinned inside the $E0-$FF coordination block; sub-op 0 = COMM).
+const MEV_EXT              = $FA
 
 use engine.sound_sfx.{Sfx_Frame}
 use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteOn,
@@ -1100,6 +1103,13 @@ section sound_sequencer (cpu: z80) {
     // engine-table bank in the window. The fetched handler address is a RESIDENT blob
     // address (code is never banked).
     .coord:
+        // $FA MEV_EXT intercept (pkg 1 §6): dispatched BEFORE the banked table
+        // because the seam-1 HANDLER_SYMBOLS contract (the fixed list of
+        // resident handler names the table's cells may reference) cannot grow
+        // without a toolchain change. Module-internal branch — resolves inside
+        // the blob. Costs one compare per COORDINATION opcode only.
+        cp      MEV_EXT
+        jp      z, Seq_Op_Ext
         sub     MEV_VOL                 // a = 0..31 (index into SeqOpcodeTable)
         ld      c, a
         ld      b, 0
@@ -1229,6 +1239,22 @@ section sound_sequencer (cpu: z80) {
         inc     hl                      // consume operand (signed detune)
         ld      (ix+sc_detune), a
         jp      Sequencer_NextOpcode.fetch
+    }
+
+    // $FA MEV_EXT + sub-op ... : the extension prefix (pkg 1 §6 — first tenant).
+    // Sub-op 0 = COMM: next byte -> SND_STAT_COMM (the score-authored cue byte,
+    // 68k-visible via Sound_GetComm). Zero-tick, any route. Unknown sub-op ->
+    // Seq_BadOpcode: a NEW sub-op requires a driver update by construction —
+    // payload lengths are unknown, so skipping silently would desync the stream.
+    pub proc Seq_Op_Ext () clobbers(af) {
+        ld      a, (hl)
+        inc     hl                      // consume the sub-op byte
+        or      a
+        jp      nz, Seq_BadOpcode       // unknown sub-op -> stop this channel loudly
+        ld      a, (hl)
+        inc     hl                      // consume the comm value
+        ld      (SND_STAT_COMM), a      // 68k-visible score cue
+        jp      Sequencer_NextOpcode.fetch // zero tick
     }
 
     // $F5 MEV_PORTA + dd : set the persistent portamento glide-rate magnitude (the
