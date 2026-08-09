@@ -1753,6 +1753,27 @@ def generate(stress_uniquify=0):
         print(f"STRESS-UNIQUIFY: inflated act pool to {len(pool_order)} tiles "
               f"({len(stress_redirect)} parent-matched clone references re-pointed)")
 
+    # F-3 interim guard (engine 11-bit staged-word ceiling): the engine masks
+    # staged global indices with NT_TILE_MASK ($07FF), so a pool past 2048 tiles
+    # renders wrong pages SILENTLY. Refuse to bake one for the real tree; the
+    # stress fixture deliberately crosses the line (its >32-page axis is
+    # known-invalid until F-3's merge-translation parcel lands) — allowed, loudly.
+    ENGINE_STAGED_INDEX_CEILING = 2048
+    if len(pool_order) > ENGINE_STAGED_INDEX_CEILING:
+        if stress_uniquify:
+            print(f"WARNING: pool {len(pool_order)} tiles exceeds the engine's "
+                  f"{ENGINE_STAGED_INDEX_CEILING}-tile staged-word ceiling (F-3): "
+                  f"block references to slots >= {ENGINE_STAGED_INDEX_CEILING} "
+                  "TRUNCATE at decode — the fixture's >32-page axis is not "
+                  "visually valid until merge-translation lands")
+        else:
+            raise SystemExit(
+                f"ojz_strip_gen: act pool is {len(pool_order)} deduped tiles > "
+                f"{ENGINE_STAGED_INDEX_CEILING} — the engine's 11-bit staged "
+                "nametable field truncates globals past 2048 (adjudication F-3; "
+                "ruled: merge-translation, parcel pending). Refusing to bake a "
+                "silently-truncating act.")
+
     pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
     # P2b cutover: the pool ceiling is now the RESIDENCY page-table cap, not a
     # VRAM-tile ceiling — pages land in ALLOCATED frames (dest = frame base, not

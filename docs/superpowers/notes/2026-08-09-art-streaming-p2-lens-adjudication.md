@@ -289,5 +289,27 @@ stress visual re-verification.
 F-1 (one-line flip) → F-2 (raw cluster) → F-5 (tripwires) → F-6 (dead code) →
 F-4 (gates) → M-5/M-1/M-2 measurement session (one oracle sitting) → F-3 per
 ruling (+ C4-3 stamp rework if ruled) → F-7 (comment/doc sweep) → M-3/M-4/M-6
-as measured. **Rulings wanted: F-3 direction (merge-translation vs
-scope-and-guard), F-6 release retention, F-1 shape (flip vs stamp rework).**
+as measured.
+
+## RULINGS (closed 2026-08-09)
+
+- **F-3: option (i), merge-translation** — user-ruled ("let the mega-act
+  live"). The against-case is sequencing, not design: +1 u16 read per patched
+  word in the hot loop (more than repaid by deleting the 256-word per-block
+  translate pass), invariant-comment churn, and the loop being M-1's
+  measurement target. INTERIM (landed same day): ojz_strip_gen refuses to bake
+  a non-stress act past 2048 deduped tiles; the stress fixture bakes with a
+  loud known-invalid warning on its >32-page axis.
+- **F-6: DEBUG-gate the pair** (overseer-ruled per §1.7). Implementation
+  reality: Art_Decompress is load_art's SECTION HEAD-LABEL in the map's union
+  order, so the clean gate is a byte-shifting parcel with the sigil
+  repin/refreeze ritual — folded into the wave below rather than paid alone.
+- **F-1: stamp rework YES** (overseer-ruled, clean-not-bolted-on) — replace
+  the linked LRU with pf_unref_stamp + O(PAGE_FRAMES) eviction scan; deletes
+  LruUnlink/LruLinkTail/PF_IN_LRU/audit-arm and makes the policy structural.
+
+**Execution shape: ONE parcel wave** — M-1/M-5 measurement session first (one
+oracle sitting, constructed worst frames + stress visual), then
+F-3 merge-translation + F-1 stamp rework + F-6 gating together (same files,
+one byte-shifting repin/refreeze ritual, one stress re-verification), then
+M-3/M-4/M-6 as the measurements direct.
