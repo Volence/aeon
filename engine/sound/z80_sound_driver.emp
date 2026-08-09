@@ -667,6 +667,15 @@ section z80_sound_driver (cpu: z80) {
         ld      hl, SND_REQ_CTRL
         call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_ctrl:
+        // jingle push? (SFX id: pause the music, dispatch the id as an SFX,
+        // auto-pop + resume when its last instance ends — pkg 1 §5).
+        ld      a, (SND_REQ_JINGLE)
+        or      a
+        jr      z, .no_jingle
+        call    Snd_JinglePush
+        ld      hl, SND_REQ_JINGLE
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
+    .no_jingle:
         // sample request? (id -> DacSampleTable[id-1] -> Snd_StartSample).
         ld      a, (SND_REQ_SAMPLE)
         or      a
@@ -812,6 +821,50 @@ section z80_sound_driver (cpu: z80) {
         ret
     }
 
+    // --- Snd_JinglePush — a = the jingle's SFX id (pkg 1 §5). If a song is
+    // active: freeze it in place (Snd_PauseMusic — the jingle then owns the
+    // chip via the normal SFX steal path) and mark the jingle live; the id is
+    // recorded so the auto-pop scan (Sfx_JinglePopCheck, end of Sfx_Frame) can
+    // recognize its instances. No song: play as a plain SFX — nothing to
+    // freeze, and the pop's SND_SEQ_ACTIVE gate skips the resume. Double-push
+    // (jingle while jingle): the id re-records and the SFX path retriggers per
+    // its instance-cap rules; the frozen music state is RAM no jingle touches —
+    // structurally safe. Dispatches through the NORMAL SFX path (priority /
+    // steal / queue as-is): SfxDispatch ENQUEUES; Sfx_Frame's drain begins it
+    // next frame.
+    pub proc Snd_JinglePush () clobbers(af, bc, de, hl, ix, iy) {
+        ld      (SND_JINGLE_ID), a      // the pop scan's key
+        push    af                      // keep the id across the pause
+        ld      a, (SND_SEQ_ACTIVE)
+        or      a
+        jr      z, .dispatch            // no song -> plain SFX, no pause, no pop arm
+        call    Snd_PauseMusic          // freeze + chip mute (fade state freezes too)
+        ld      a, 1
+        ld      (SND_JINGLE_ACTIVE), a
+    .dispatch:
+        pop     af                      // a = the jingle SFX id
+        jp      SfxDispatch             // normal SFX path (tail-call; enqueue)
+    }
+
+    // --- Snd_JingleResume — the jingle auto-pop's resume tail (called by
+    // Sfx_JinglePopCheck once no live or queued instance of the jingle
+    // remains, with SND_SEQ_ACTIVE verified). Un-pause + re-upload the FM
+    // music voices (the jingle stole voices and rewrote their patches), then
+    // re-enter under a short fade-in: MASTER_FADE starts at JINGLE_RESUME_FADE
+    // and Fade_Ramp walks it to 0 at the default rate — the frozen song
+    // returns gently instead of at a hard step.
+    pub proc Snd_JingleResume () clobbers(af, bc, de, hl, ix, iy) {
+        call    Snd_ResumeMusic         // SND_PAUSED = 0 + voice re-upload + $B6 seed
+        ld      a, JINGLE_RESUME_FADE
+        ld      (SND_MASTER_FADE), a    // start quiet...
+        ld      a, SND_FADE_PAT_DEFAULT
+        ld      (SND_FADE_PATTERN), a   // ...at the default (fastest) rate...
+        xor     a
+        ld      (SND_FADE_TARGET), a    // ...ramp to full (Fade_Ramp)
+        ld      (SND_FADE_TERM), a      // defensive: a resume fade carries no terminal
+        ret
+    }
+
     // The 8 spread-bit fade-rate patterns (R4, MDSDRV model): Fade_Ramp rotates
     // the latched pattern right once per frame; the bit rotated out gates one
     // ±1 TL step. Index = the fade command's rate nibble. Rate 7 steps every
@@ -829,19 +882,19 @@ section z80_sound_driver (cpu: z80) {
     // RESIDENT; RAM + chip + (on resume) banked patch reads via the wrapper's
     // bank discipline. Clobbers af,bc,de,hl,ix,iy (folds the resume restore).
     pub proc Snd_CtrlCommand () clobbers(af, bc, de, hl, ix, iy) {
-        cp      SND_CTRL_PAUSE_MUSIC
-        jr      z, Snd_PauseMusic
-        cp      SND_CTRL_PAUSE_ALL
-        jr      z, .pause_all
-        cp      SND_CTRL_UNPAUSE_MUSIC
-        jr      z, .unpause
-        cp      SND_CTRL_UNPAUSE_ALL
-        ret     nz                      // unknown code -> ignore
+        // Arithmetic decode (the SND_CTRL_* numbering is load-bearing): codes
+        // 1/3 are the pauses (bit 0 SET), 2/4 the unpauses (bit 0 clear), and
+        // the rotated pause code maps straight onto the SND_PAUSED_* scope:
+        // rrca(1)=$80, rrca(3)=$81 -> (and 1)+1 = 1 (music) / 2 (all).
+        cp      SND_CTRL_UNPAUSE_ALL+1
+        ret     nc                      // unknown code (>4) -> ignore (0 never posts)
+        rrca                            // CF = bit 0: pause family?
+        jr      nc, .unpause
+        and     1
+        inc     a                       // a = SND_PAUSED_MUSIC (1) / SND_PAUSED_ALL (2)
+        jr      Snd_PauseMusic.pause_common
     .unpause:                           // codes 2 and 4 share the resume path
         jp      Snd_ResumeMusic
-    .pause_all:
-        ld      a, SND_PAUSED_ALL
-        jr      Snd_PauseMusic.pause_common
     }
 
     // --- Snd_PauseMusic — pause-music entry (also the fade-terminal-2 target

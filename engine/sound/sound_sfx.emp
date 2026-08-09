@@ -69,7 +69,22 @@ module engine.sound_sfx (cpu: z80)
 use engine.sound_sequencer.{ModUpdate, Sequencer_Channel}
 use engine.sound_fm.{Fm_PatchLoad, Fm_NoteOff, Fm_SetVolume, Fm_PatchPtr, Fm_NoteOnFreqExact}
 use engine.sound_psg.{Psg_NoteOff, Psg_SetVolume, Psg_NoteOn, Psg_Noise}
-use engine.z80_sound_driver.{SndDrv_SetBank, Snd_RouteClassFlags}
+use engine.z80_sound_driver.{SndDrv_SetBank, Snd_RouteClassFlags, Snd_JingleResume}
+
+// --- Game-feel seam mirrors (pkg 1). The seam-1 const list is FIXED (see the
+// driver's file header): a NEW sound_constants.emp name is invisible here, so
+// the game-feel addresses are module-local consts derived from the injected
+// Snd_SpindashRev anchor by the SAME chain the authority uses:
+//   SND_MUSIC_PARAM  = Snd_SpindashRev + 1     (6-byte param block)
+//   SND_SEQ_TRACE    = SND_MUSIC_PARAM + 6     (32-byte trace ring)
+//   SND_GLOBAL_EXPR  = SND_SEQ_TRACE + 32      (7-byte expression block)
+//   SND_GAMEFEEL     = SND_GLOBAL_EXPR + 7     (pkg-1 state)
+// The authority pins SND_PAUSED == $1CD3; the ensure keeps this chain honest.
+const SND_PAUSED         = Snd_SpindashRev + 1 + 6 + 32 + 7   // $1CD3
+const SND_JINGLE_ACTIVE  = SND_PAUSED + 1                     // $1CD4
+const SND_JINGLE_ID      = SND_PAUSED + 2                     // $1CD5
+ensure(SND_PAUSED == $1CD3,
+       "game-feel seam mirrors drifted off the pinned authority addresses")
 
 section sound_sfx (cpu: z80) {
 
@@ -291,7 +306,58 @@ section sound_sfx (cpu: z80) {
         ld      de, SfxChannel_len       // size added directly (no multiply)
         add     ix, de
         djnz    .slot_loop
-        ret
+        // --- jingle auto-pop (pkg 1 §5): checked ONCE PER FRAME, HERE — after
+        // the drain placed any queued jingle instance and the slot walk retired
+        // ended ones. A per-Sfx_Restore check (the banked plan's placement) has
+        // a double-push race: Sfx_BeginSound's instance-cap kill restores the
+        // OLD instance before the NEW one is placed, and would unpause mid-push.
+        // At the frame boundary the new instance is always visible first.
+        ld      a, (SND_JINGLE_ACTIVE)
+        or      a
+        ret     z                        // no jingle pushed -> done
+        jp      Sfx_JinglePopCheck       // tail: scan slots + queue; resume on all-idle
+    }
+
+    // ----------------------------------------------------------------------
+    // Sfx_JinglePopCheck — the jingle auto-pop scan (pkg 1 §5; reached from
+    // Sfx_Frame's tail iff SND_JINGLE_ACTIVE). The jingle is still IN FLIGHT if
+    // any ACTIVE SfxChannel slot's id-table entry matches SND_JINGLE_ID (dead
+    // slots' entries are stale — same gate as the cap/reping scans), or if ANY
+    // SFX is still queued (a queued jingle instance is not visible in the slots
+    // yet; the cheap whole-queue gate defers the pop a frame at most). Once no
+    // instance remains: clear SND_JINGLE_ACTIVE and, if a song is loaded
+    // (SND_SEQ_ACTIVE — a jingle over stopped/finished music has nothing to
+    // resume), pop: Snd_JingleResume un-pauses, re-uploads the stolen voices,
+    // and resumes under a short fade-in.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix,iy (the resume tail folds Snd_JingleResume).
+    pub proc Sfx_JinglePopCheck () clobbers(af, bc, de, hl, ix, iy) {
+        ld      a, (SND_SFX_QUEUE_CNT)
+        or      a
+        ret     nz                       // anything queued -> defer (a frame at most)
+        ld      a, (SND_JINGLE_ID)
+        ld      c, a                     // c = the pushed jingle's id
+        ld      iy, SND_SFX_CHANNELS
+        ld      hl, SND_SFX_ID_TAB
+        ld      de, SfxChannel_len
+        ld      b, SFX_VOICE_COUNT
+    .slot_scan:
+        bit     SCF_ACTIVE_B, (iy+sc_flags)
+        jr      z, .slot_next            // dead slot -> its id entry is stale
+        ld      a, (hl)
+        cp      c
+        ret     z                        // a jingle slot still live -> not yet
+    .slot_next:
+        inc     hl
+        add     iy, de
+        djnz    .slot_scan
+        // no live or queued instance -> pop.
+        xor     a
+        ld      (SND_JINGLE_ACTIVE), a
+        ld      a, (SND_SEQ_ACTIVE)
+        or      a
+        ret     z                        // jingle-over-stopped: nothing to resume
+        jp      Snd_JingleResume         // unpause + voice re-upload + resume fade-in
     }
 
     // ----------------------------------------------------------------------
@@ -1151,6 +1217,17 @@ section sound_sfx (cpu: z80) {
 
         // (2) un-mute: clear the override so its chip-write sites fire again.
         res     SCF_SFX_OVERRIDE_B, (iy+sc_flags)
+
+        // (2b) PAUSED gate (pkg 1 §5): while the song is frozen (a pushed
+        // jingle or an explicit pause) never re-key or re-upload into the muted
+        // music — the resume restore (Sfx_UnpauseRestore) re-derives every
+        // voice, and the next musical event re-keys. The override was cleared
+        // ABOVE (mandatory — a skipped clear would leave the music channel
+        // ModUpdate-muted forever after resume); just silence the SFX's own
+        // voice and deactivate, exactly the music-less path.
+        ld      a, (SND_PAUSED)
+        or      a
+        jp      nz, .no_music
 
         // (3) dispatch by the owned voice kind (read from the SFX slot via ix).
         ld      a, (ix+sx_kind)
