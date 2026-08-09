@@ -1,8 +1,11 @@
 // Level art loader
-// The act uses a single act-wide paged art pool that is fully resident in VRAM
-// for the life of the act (loaded once at init). Level_LoadArt drives that load
-// through the Art-streaming page-in path (engine.page_in) so init exercises the
-// same decode + landing machinery gameplay uses.
+// The act uses a single act-wide paged art pool held as a VRAM residency cache
+// (§9.7): pages occupy allocated frames and stream in/out on demand. Level_LoadArt
+// drives the init bulk load through the Art-streaming page-in path (engine.page_in)
+// so init exercises the same decode + landing machinery gameplay uses. When the
+// pool fits PAGE_FRAMES_CLAMP the cache degenerates to fully resident for the
+// life of the act; a larger pool ends the bulk load with only the last-loaded
+// pages resident and gameplay pages the rest in as needed.
 //
 // Art_Decompress is the version-dispatched BLOCKING decompressor, kept for the
 // DEBUG compression self-test (engine.debug.compression_selftest); Level_LoadArt
@@ -66,20 +69,24 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 //      count, d7 saved budget) plus the callee licenses folded in: PageIn_Flush
 //      (none), PageIn_Enqueue d2/a0, VSync_Wait d0-d2/a0-a3 (its P2a idle-decode
 //      slice preserves d3-d4 via PageIn_EnqueueLanding), BG_Init d0-d1/a1-a2.
-//      a4/d7 are the only registers kept live across VSync_Wait, and both sit
+//      a4/d5-d7 are the only registers kept live across VSync_Wait, and all sit
 //      OUTSIDE VSync_Wait's d0-d2/a0-a3 set, so no movem is needed. a5-a6/d3-d4
 //      are untouched (preserved by not-touching).
 //
-// The act ships one paged art pool: a longword page-address table + wrapped
-// ZX0/raw page blobs. Each page's index is enqueued as a page-in request; the
-// dispatcher (PageIn_Process, run once per frame by VSync_Wait) resolves it,
-// decodes/lands it, and marks it resident. We spin VSync_Wait until every page
-// has landed. The whole pool is then resident for the life of the act, so
-// section streaming/teleport never reloads tile art.
+// The act ships one paged art pool: a stride-8 manifest v2 [PageManifest;N]
+// table {source, tiles, form, flags} + per-page blobs — ZX0 blobs carry the
+// 4-byte wrapper, raw blobs carry NO wrapper. Each page's index is enqueued as
+// a page-in request; the dispatcher (PageIn_Process, run once per frame by
+// VSync_Wait) resolves it, decodes/lands it, and marks it resident. We spin
+// VSync_Wait until every page has landed. When the pool fits PAGE_FRAMES_CLAMP
+// the whole pool is then resident for the life of the act (the degenerate
+// fully-resident regime) and section streaming/teleport never reloads tile
+// art; a larger pool leaves the last-loaded pages resident and streams the
+// rest on demand.
 //
 // Runs at init with the display blanked OFF (caller's responsibility): with the
 // display off, DMA runs at the full per-line rate on EVERY line, so the raised
-// window budget (DMA_BUDGET_BLANKED_INIT) lets a whole 256-tile page's Important
+// window budget (DMA_BUDGET_BLANKED_INIT) lets a whole 64-tile (2048 B) page's Important
 // landing DMA drain inside one VSync. The active-display budget is restored
 // before the loop returns (and before the caller enables the display).
 // -----------------------------------------------

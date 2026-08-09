@@ -22,7 +22,7 @@
 //
 // REGISTER BUDGET (contract-critical): PageCache_AllocFrame + PageCache_Publish are
 // reached from PageIn_Process, whose license is VSync_Wait's decoder union
-// d0-d2/a0-a3 — and Level_LoadArt keeps a4/d3-d4/d7 LIVE across VSync_Wait. So the
+// d0-d2/a0-a3 — and Level_LoadArt keeps a4/d5-d7 LIVE across VSync_Wait. So the
 // procs on that path (AllocFrame, Publish, and their callee Lru*) clobber ONLY
 // d0-d2/a0-a3: they address Page_Frames as base(a3)+offset(dn) with an offsetof
 // field displacement, never a per-frame pointer in a4. Ref/Unref/PatchWord are
@@ -658,8 +658,9 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         // Scan a staged block's BLOCK_NT_SIZE/2 GLOBAL nametable words; for each
         // non-blank word whose page is a REAL pool page and not resident,
         // PageCache_Request(prefetch) and decrement Page_Pfx_Budget. Stops at budget 0.
-        // a2 (cursor) + d4 (counter) + a3 (act ptr) survive PageCache_Request (it
-        // clobbers d0-d3/a0-a1). a1 = slot base (in).
+        // a2 (cursor) + d4 (counter) survive PageCache_Request (it clobbers
+        // d0-d3/a0-a1). Nothing act-related is live here — the pool bound is
+        // read from PageIn_Pool_Pages. a1 = slot base (in).
         movea.l a1, a2                            // a2 = scan cursor
         move.w  #(BLOCK_NT_SIZE/2)-1, d4          // word count - 1
     .sb_loop:
@@ -674,7 +675,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         cmpi.b  #PAGE_NOT_RESIDENT, d1
         bne     .sb_next                          // resident -> nothing to prefetch
         move.w  #PGRQ_PREFETCH, d1               // non-resident -> request (Request dedups queued)
-        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1; a2/d4/a3 survive
+        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1; a2/d4 survive
     if DEBUG == 1 {
         addq.w  #1, Dbg_PageCache_Prefetches
     }

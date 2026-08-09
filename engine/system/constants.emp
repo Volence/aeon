@@ -288,7 +288,7 @@ pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted p
 // STRESS_EVICT forced-eviction dev fixture (Task 7). The build define STRESS_EVICT
 // (0 in every shipped shape; 1 only in the off-canonical `stress_evict` dev profile)
 // clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (4
-// pinned pages 0/1/8/9 + 4 dynamic frames), forcing continuous evict/reload traffic
+// pinned pages 0/1/8/9 + 5 dynamic frames), forcing continuous evict/reload traffic
 // through every path. PageCache_Init threads only PAGE_FRAMES_CLAMP frames into the
 // free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
 // but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).

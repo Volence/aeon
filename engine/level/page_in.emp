@@ -509,7 +509,7 @@ proc PageIn_EnqueueLanding (d1: u32) clobbers(d0-d2/a1-a2) preserves(d3-d4) out(
         // Charged only on a SUCCESSFUL enqueue below. Checked BEFORE the movem so the
         // deferral is push/pop-free. Steady-state governor; init bulk-load lands <=1
         // page/frame under the budget, so it never throttles the display-off load
-        // (VInt_Level reloads Art_Budget_Remaining each frame). NOT a unified arbiter (D2).
+        // (PageIn_Process's per-physical-frame tick reloads Art_Budget_Remaining). NOT a unified arbiter (D2).
         move.w  Art_Budget_Remaining, d0
         cmp.w   PageIn_Cur_Bytes, d0
         blo     .art_deferred                   // remaining < bytes -> defer this frame

@@ -639,9 +639,11 @@ pub vars upper_ram {
     // decoder's ENTIRE live register set + CCR here at preemption, and
     // PageIn_Process resumes from it. 7 longs (d0-d2/a0-a3) + PC long + SR word =
     // 34 bytes, plus two byte flags. Banked/restored via individual moves (NOT
-    // movem-to-absolute: that addressing mode has no assembler support and would
-    // otherwise need a scratch pointer register the bank stub cannot spare — every
-    // register is either decoder state or live main-loop state). NO hand
+    // movem-to-absolute: the 68000 supports movem to/from absolute-long with no
+    // pointer register, but sigil cannot yet emit movem to a symbolic absolute
+    // operand — the same lowering gap as abs-sym + second extension-word operand.
+    // When it can, the 7-move bank/resume pairs in page_in should become movem,
+    // ~92 cycles saved per preempt+resume). NO hand
     // VBH_STACKED_PC constant anywhere — the hook uses the Sigil irq_frame.pc
     // accessor. Placed at the RAM TAIL: the addition ripples ZERO existing RAM
     // addresses (only Engine_RAM_End + the game RAM chained after it shift).

@@ -59,8 +59,8 @@ fi
 # (ojz_act_pool_manifest.json) carrying per-page {tiles, pinned}. Here we ELECT a
 # storage form per page:
 #   ZX0 (form 0): [u16 BE uncompressed size][u8 flags=0][u8 version=2] wrapper +
-#                 salvador (modern/V2) stream — staged decode. Kept only when it
-#                 saves >= RAW_ELECT_MIN vs raw.
+#                 salvador (modern/V2) stream — staged decode. Kept only when
+#                 zx0*RAW_ELECT_DEN <= raw*RAW_ELECT_NUM (>= 10% saving vs raw).
 #   raw (form 1): the uncompressed payload, NO wrapper — DMA straight from ROM.
 # The loader dispatches on the manifest form byte (not the wrapper version).
 #

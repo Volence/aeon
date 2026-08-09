@@ -175,7 +175,7 @@ pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1
         move.w  a1, d3
         subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
         lea     Block_Stage_Ptrs, a1
-        movea.l (a1, d3.w), a1                 // a1 = staged data pointer (RAM slot / raw ROM block / zero page)
+        movea.l (a1, d3.w), a1                 // a1 = staged data pointer (RAM slot / zero page; nametable words always translated-GLOBAL)
         moveq   #0, d3                         // Z set (hit)
         rts
     .miss:

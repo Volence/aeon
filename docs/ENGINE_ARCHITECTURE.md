@@ -1496,10 +1496,10 @@ UFTC was originally planned for random-access sprite decompression, but measured
 **Purpose:** Assign VRAM tile addresses with no runtime bookkeeping. Tile addresses are fixed at build time, so the engine never tracks "what's in VRAM" at runtime.
 
 **How it works:**
-- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool that is loaded once at level init (§2.3, §2.5) and stays resident in VRAM for the life of the act. Section nametables reference fixed global pool indices computed by the build tool — there is no per-section VRAM allocation and no per-section art swap.
+- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool run as a VRAM residency cache (§9.7): bulk-loaded at level init (§2.3, §2.5), pages living in allocated frames, degenerating to fully resident when the pool fits the frame budget. Section nametables reference per-section LOCAL indices translated to global at block decode (§2.3) — there is no per-section VRAM allocation and no per-section art swap.
 - **Object/permanent art** (HUD, rings, monitors, characters) uses VRAM addresses baked into archetype templates via the `vram_art()` macro at build time. The address is a static immediate; objects spawn with it directly (§3.9). No allocation step runs when an object spawns.
 
-Because every tile address is decided at build time and the whole act's art is resident, there is no fragmentation, no refcounting, and no compaction to manage. Tile overflow is caught at build time: the build tool dedupes the pool and asserts it fits the FG VRAM capacity (`REGION1_TILE_CAPACITY` = 1,472 tiles), so the console never sees an overflow.
+Because every object/permanent tile address is decided at build time and act FG art rides the §9.7 residency cache, there is no fragmentation, no compaction, and no allocator beyond the cache's own frame/refcount machinery. The act pool is capped by ROM budget, not VRAM: `tools/art_rom_report.py` gates the per-act ROM footprint at build time, and the cache degenerates to fully resident for acts whose pool fits the frame budget.
 
 **Future enhancement (DEFERRED_WORK):** A dynamic per-object VRAM allocator with refcount-based caching and lazy reclaim — for on-demand boss/effect art. This would add `AllocVRAM`/`FreeVRAM`-style lifecycle on top of the same residency cache. It is not part of the shipped engine; today's model is static assignment plus the streamed act-pool residency cache (§9.7). The "levels whose art exceeds the resident pool" case is already handled — that is exactly what the residency cache streams (level art is capped by ROM, not VRAM); this future item is only about per-object/effect art on top.
 
@@ -1513,7 +1513,7 @@ Because every tile address is decided at build time and the whole act's art is r
 VRAM (64KB = 2048 tiles)
 ┌───────────────┬─────────────────────────────────────────────────────┐
 │ $000-$5BF     │ UNIFIED ART POOL (1,472 tiles)                      │
-│ (1472 tiles)  │   Act FG tiles — paged pool, build-time pool indices │
+│ (1472 tiles)  │   Act FG tiles — paged residency cache (§9.7)       │
 │               │   Object tiles — static vram_art() addresses (2.2)  │
 │               │   Permanent tiles — HUD, rings, monitors            │
 │               │   Character DPLC art — DMA'd per frame (tile $3C0)   │
@@ -1536,7 +1536,7 @@ Plane A nametable base: VDP reg $02 → $C000
 Plane B nametable base: VDP reg $04 → $E000
 ```
 
-**Why unified pool:** Fragmented VRAM layouts (separate regions for level art, permanent objects, zone pools) waste tiles at region boundaries — a region with 5 free tiles and a neighbor with 0 free tiles can't share. The unified pool makes all 1,472 tiles available to the build tool. Tile overflow is caught at build time — the deduped act pool plus permanent allocations must fit $000-$5BF, asserted by the build.
+**Why unified pool:** Fragmented VRAM layouts (separate regions for level art, permanent objects, zone pools) waste tiles at region boundaries — a region with 5 free tiles and a neighbor with 0 free tiles can't share. The unified pool makes all 1,472 tiles available to the build tool. Act FG art streams through the §9.7 residency cache, so pool size is capped by ROM budget (`tools/art_rom_report.py`), not by the FG VRAM region; permanent allocations are still asserted to fit at build time.
 
 **Why 64×64 scroll planes ($9011):**
 
@@ -1559,13 +1559,13 @@ With 64×32, fast vertical scrolling constantly hammers nametable updates with o
 
 **Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` = 64 tiles each, `split_pool_into_pages`), and each tile receives a permanent global pool index. Section nametables reference **per-section LOCAL indices** (bits 0-10, ≤2047 distinct tiles per section) translated to global via a per-section local→global table at block-decode time (art-streaming Phase 2 cutover, 2026-08-08) — the extra indirection is what lets a page live in any VRAM frame rather than at a fixed slot, which is the precondition for the residency cache (§9.7). Palette/priority/flip bits are untouched by the translation.
 
-Result: section transitions require zero tile DMA — the whole act's art is resident, and nametable entries already point to the correct, fixed pool indices. There is no graph coloring and no per-section index reuse: every unique tile in the act has one permanent address, and the pool fits VRAM because global deduplication shrinks the act's total tile footprint.
+Result: section transitions perform no per-section art swap — a global index names one deduped tile for the whole act, and the §9.7 residency cache keeps referenced pages resident (fully resident when the pool fits the frame budget; streamed on demand + prefetch past it). There is no graph coloring and no per-section index reuse: every unique tile in the act has one permanent global index, and the cache maps that index's page to a VRAM frame at runtime.
 
 **Section VRAM lifecycle:**
-1. **Build time:** Global deduplication (canonical form) + spatial ordering assign each unique tile a permanent global pool index; the pool is split into 256-tile pages.
-2. **Level load:** `Level_LoadArt` decompresses every page (ZX0/S4LZ) and DMAs it to its fixed VRAM slot; permanent tiles (HUD, rings) load alongside.
-3. **Resident model:** The whole act's tile art fits the VRAM pool, so every section's tiles are loaded once at level load and stay resident — continuous scrolling and teleports never swap section art. The footprint fits because global deduplication ensures each unique tile appears once in the pool regardless of how many sections use it.
-4. **Future >VRAM levels (deferred, DEFERRED_WORK):** when an act's art exceeds the pool, a windowed art-residency streamer would stream a section's unique tiles at the leading edge as the camera approaches (Deferrable DMA spread across the many frames the continuous camera takes to cross), marking departed sections' unique tiles reclaimable (lazy reclaim — short backtracks reuse cached art). This builds on the continuous-scroll resident model; it does not reintroduce slots or teleports.
+1. **Build time:** Global deduplication (canonical form) + spatial ordering assign each unique tile a permanent global pool index; the pool is split into 64-tile pages with a stride-8 manifest v2 entry each.
+2. **Level load:** `Level_LoadArt` bulk-loads every page through the page-in path (ZX0R resumable decode via the 2048 B `Art_Staging_Buffer`, or raw direct from ROM) into cache-allocated frames; permanent tiles (HUD, rings) load alongside.
+3. **Resident model (degenerate case):** When the deduped pool fits the frame budget, every page stays resident after the bulk load — continuous scrolling and teleports never swap section art. The footprint fits because global deduplication ensures each unique tile appears once in the pool regardless of how many sections use it.
+4. **>frame-budget acts:** the §9.7 residency cache streams pages on demand + prefetch at the leading edge (idle-time decode, Important-queue landings), evicting LRU unpinned pages as the camera moves — capped by ROM budget, not VRAM. Short backtracks reuse still-resident pages; no slots or teleports are reintroduced.
 
 **Auto-calculated addresses:** Permanent-category objects (HUD, rings, monitors, springs, etc.) are defined sequentially in `VRAM_Layout.asm` with tile counts. The assembler computes addresses automatically — adding/removing an object shifts everything after it. Compile-time overflow check ensures permanent allocations don't exceed the pool budget.
 
@@ -1600,14 +1600,15 @@ T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer
 
 **Engine cost:** T1 = one 4 KB nametable blit + one BG-tile-blob DMA at level init, zero per-frame. T2 = same load cost; a differing per-section BG layout would cost one 4 KB nametable blit when the camera crosses into that section (~0.6 ms blocking via VDP DATA port) — the deferred per-section BG swap above. T3 = nametable blit at init; its BG tiles ride the resident act art pool, so there is no per-section tile load. Deferrable-DMA optimisation tracked in DEFERRED_WORK.
 
-**Pool integration:** T3 BG tiles are part of the section's contribution to the global act art pool, so the build tool dedupes and pages them identically to FG tiles. The build asserts FG + BG combined fits the FG VRAM capacity (`REGION1_TILE_CAPACITY`); overflow fails the build, not the console. The shared BG tile region (T1/T2) is a single permanent allocation at $8000 — loaded once, never freed.
+**Pool integration:** T3 BG tiles are part of the section's contribution to the global act art pool, so the build tool dedupes and pages them identically to FG tiles, and they ride the §9.7 residency cache with the FG pool — the combined pool is capped by ROM budget (`tools/art_rom_report.py`), not the FG VRAM region. The shared BG tile region (T1/T2) is a single permanent allocation at $8000 — loaded once, never freed.
 
 **VRAM map summary (post-§2 A.5):**
 ```
-$0000-$B7FF  UNIFIED ART POOL (tiles $000-$5BF, 1,472 tiles). Resident: loaded
-             once at level load as a globally-deduped, paged act pool — the whole
-             act fits, so continuous scroll never swaps section art (§2.3).
-               · FG act tile art (paged pool, fixed global pool indices)
+$0000-$B7FF  UNIFIED ART POOL (tiles $000-$5BF, 1,472 tiles). Globally-deduped,
+             paged act pool run as the §9.7 residency cache — fully resident when
+             the pool fits the frame budget, streamed on demand past it; continuous
+             scroll performs no per-section art swap (§2.3).
+               · FG act tile art (paged residency cache, frame-allocated)
                · shared BG tile region (base $8000 / tile $400; T1/T2, loaded once)
                · character DPLC window ($7800 / tile $3C0, DMA'd per frame)
                · permanent tiles — HUD, rings, monitors
@@ -1622,12 +1623,17 @@ $E000-$FFFF  Plane B nametable (64×64; all 64 rows — no "Region 2" spill)
 ```
 Level_LoadArt(act descriptor)              ; engine/level/load_art.emp
   → For each page of the act's paged art pool (one page = ART_POOL_PAGE_TILES = 64 tiles):
-      → Art_Decompress the wrapped ZX0/S4LZ page → Art_Staging_Buffer (8 KB, init-only)
-      → QueueDMA_Critical: staging buffer → fixed VRAM slot (page_index << 13)
-      → VSync_Wait so the Critical DMA drains during the blanked VBlank
+      → PageIn_Enqueue(page, PGRQ_BULK) — the page-in path resolves the manifest
+        entry and decodes it: ZX0R resumable decoder → Art_Staging_Buffer
+        (dedicated 2048 B, one page), or raw direct from ROM
+      → QueueDMA_Important: staging buffer (or ROM) → allocated frame << 11
+      → VSync_Wait spins until the page lands (display off — Important DMA
+        drains at the full blanked rate)
   → BG_Init: blit the zone-wide BG to Plane B (T1; §2.4)
-The whole act art pool is resident in VRAM for the life of the act. Section
-streaming and teleport never reload tile art — there is no per-section art swap.
+When the pool fits the frame budget the whole act art pool is then resident for
+the life of the act (the degenerate regime); a larger pool keeps streaming
+through the §9.7 residency cache during play. Section streaming and teleport
+never perform a per-section art swap.
 ```
 
 **Section transition (continuous scroll — current, resident art):**
@@ -1645,16 +1651,15 @@ Camera scrolls toward a section boundary
     just keeps moving; the section is "entered" purely by world position
 ```
 
-**Section transition (future >VRAM levels — DEFERRED windowed streamer):**
+**Section transition (>frame-budget acts — SHIPPED as the §9.7 residency cache):**
 ```
-As the camera approaches a section whose unique tiles are not resident
-  → reserve those tiles' fixed pool addresses (already cached → reuse)
-  → decompress + stream them to their pool addresses, Deferrable priority,
-    spread across the many frames the continuous camera takes to cross
-  → lazily mark the departed section's unique tiles reclaimable as it scrolls off
+As the camera approaches blocks referencing non-resident pages
+  → page prefetch collects the ahead-strip's referenced pages and requests them
+  → idle-time decode (ZX0R / raw direct) + Important-queue landing into an
+    ALLOCATED frame — pages are frame-relocatable, not fixed-address
+  → departed pages are evicted LRU when unpinned and refcount-free
 ```
-This is the §2.2 deferred dynamic-allocator design — not part of the shipped
-engine, which keeps the whole act pool resident.
+See §9.7 for the full design (frame allocator, refcounts, prefetch, eviction).
 
 **Emergency spawn (mid-gameplay — DEFERRED, needs the §2.2 allocator):**
 ```
@@ -1683,13 +1688,13 @@ AnimateSprite
 
 **Art-pool load — RAM footprint:**
 ```
-Art_Staging_Buffer: $2000 (8,192 bytes) — one decompressed pool page
-  (256 tiles × 32 bytes). Init-only: an alias over the tile-cache RAM,
-  free before the cache is populated. Reused page-by-page during the
-  display-off level load; not held after init.
+Art_Staging_Buffer: $800 (2,048 bytes) — one decompressed pool page
+  (64 tiles × 32 bytes). Dedicated (engine/ram.emp): the steady-state
+  page-in path stages every ZX0 page decode here, during init bulk-load
+  and during play alike.
 
 No chunk tables, block tables, level layout arrays, or UFTC tile buffers in RAM.
-The act art pool is resident in VRAM after init; nothing re-decompresses to RAM during play.
+ZX0 pages decode through the staging buffer; raw pages DMA straight from ROM.
 Sprite art DMA'd directly from ROM — no RAM buffer needed.
 ```
 
@@ -1713,7 +1718,7 @@ The engine uses two compression formats (ZX0 for load-time bulk, S4LZ for the ru
 ```
 Two-Tier Compression (2.1)
   → ZX0 pages handle the load-time act FG art pool
-    → Blocking decompress at init (display off), Critical DMA per page
+    → ZX0R resumable decode (init bulk-load + idle-time streaming), Important DMA per page
     → ~zlib-class ratio (0.605 on tile art)
   → S4LZ v3 handles the runtime block stream
     → Per-section block dictionary, ~510-640 KB/s, 6 blocks/frame budget
@@ -1728,20 +1733,22 @@ Static VRAM Assignment (2.2)
   → Act FG tiles get fixed global pool indices at build time
   → Object/permanent art gets static vram_art() addresses at build time
     → No runtime allocator, no refcount, no compaction
-  → Build asserts the deduped pool fits FG VRAM capacity (1,472 tiles)
-    → Tile overflow caught at build, never on the console
-  → (DEFERRED: dynamic per-object allocator for >VRAM levels — DEFERRED_WORK)
+  → Act pool capped by ROM budget (tools/art_rom_report.py), not VRAM
+    → §9.7 residency cache streams pools past the frame budget
+  → (DEFERRED: dynamic per-object allocator for on-demand boss/effect art — DEFERRED_WORK)
 
 Paged Act Art Pool (2.5)
   → Whole-act FG art is globally deduped, spatially ordered, and paged
-    → ZX0/S4LZ pages decompressed once at init via Art_Staging_Buffer (8 KB)
-    → Critical DMA to fixed VRAM slots (page_index << 13)
-    → Resident for the life of the act — no per-section swap, no preload window
+    → ZX0R resumable decode via Art_Staging_Buffer (2048 B); raw pages DMA
+      straight from ROM
+    → Important-queue DMA to the ALLOCATED frame (frame << 11)
+    → §9.7 residency cache — fully resident when the pool fits the frame
+      budget; no per-section swap, no preload window
   → No chunk/block tables in RAM
     → Pre-computed block data from build tool, zero runtime conversion
       → Zero per-frame cost for level rendering (tile cache → plane buffer → VDP)
-  → Tile overflow caught at build time
-    → Pool deduped, build asserts pool ≤ FG VRAM capacity ($000-$5BF)
+  → Pool budget gated at build time
+    → Pool deduped; ROM budget gate (tools/art_rom_report.py) caps the act pool
 
 Object Art Integration (3.7)
   → Archetype templates carry static vram_art() addresses
@@ -1749,10 +1756,10 @@ Object Art Integration (3.7)
       → Adding new objects = add to layout + assign pool/permanent tiles, done
 
 Edge-Driven Spawning (4.8)
-  → Whole-act art resident in the paged pool → no per-section art swap
+  → Act art paged in the §9.7 residency cache → no per-section art swap
     → Objects spawn at the camera edge with their static art_tile
       → Zero visible loading: section is "entered" by world position, not an event
-        → (Future >VRAM levels: deferred windowed streamer — 4.11/2.5/2.2)
+        → (>frame-budget acts: §9.7 streams pages at the leading edge)
 
 Build Pipeline (8.1)
   → tile_dedupe: global dedupe + spatial order + page the act art pool → ZX0
@@ -3510,7 +3517,7 @@ The authoring pipeline decouples the level editor's creative tools from the runt
 4. **Generate nametable strips:** Output raw VDP nametable words (tile index + palette + priority + flip bits) per column per section. Stored in ROM, ready for direct DMA to VDP scroll planes.
 5. **Embed collision in strips:** Append 24 collision bytes + 8 padding to each 96-byte nametable column, producing 128-byte wide strips. Collision derived from tile→collision assignments (one type per 16×16 cell).
 6. **Compress art and blocks:** ZX0-compress each act art pool page (load-time tier); S4LZ-compress the per-section block stream with its block dictionary (runtime tier). Both carry the 4-byte version wrapper for `Art_Decompress`.
-7. **Report:** Total ROM size per section and per zone. Act art pool tile count vs FG VRAM capacity (`REGION1_TILE_CAPACITY` = 1,472). Build error if the deduped pool exceeds capacity.
+7. **Report:** Total ROM size per section and per zone. Act art pool page count vs the residency page table (`PAGE_TABLE_MAX`) and the per-act ROM budget (`tools/art_rom_report.py`). Build error if either is exceeded.
 
 **Cross-reference:** Batman & Robin stores level nametable data at `$100000+` in raw VDP format — 16-bit nametable words encoding tile index + palette + flip bits, ready for DMA straight from ROM to VRAM scroll planes. Zero runtime conversion. Our tool does the same thing, but for the section streaming system's per-column strips rather than full-screen pages.
 
@@ -3824,7 +3831,7 @@ is why Layer 2 exists.
 straight-line supervisor-mode loop in the idle spin. If VBlank fires mid-decode,
 `VBlank_Handler` — immediately after its register save, before the `VBlank_Ready` test —
 checks the interrupted PC (read from the known stacked-frame offset behind exported
-symbols) against the resumable range `[ZX0R_Start, ZX0R_Decompress__end)`; on a hit it
+symbols) against the resumable range `[ZX0R_Decompress, ZX0R_Decompress.__end)`; on a hit it
 records the PC and redirects the handler's `rte` into `PageIn_BankRegs`, which banks the
 decoder's registers + SR to RAM and returns to the main loop. Next frame, the dispatcher
 manufactures the frame back (push SR, push PC, `rte`) and the decode continues
@@ -3909,11 +3916,15 @@ invariants rather than trusted:
 cache window references only a fraction of the pool at once, so the resident set churns as
 the camera moves. Below that threshold the cache **correctly degenerates to fully
 resident**: on a small deduped act (OJZ, 10 pages) the 80×60 cache window references ~every
-page, so the working set == the pool and every page pins. This is not a limitation to fix —
+page, so the working set == the pool — 4 of the 10 pages are build-pinned (`pm_flags`
+`ART_PAGE_FLAG_PINNED`), and the rest are held resident by refcounts. This is not a limitation to fix —
 `AllocFrame` correctly refuses to evict displayed art (loud thrash assert, zero silent
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages vs 15 frames) is the
 regime where streaming actually earns its keep and where the acceptance matrix was proven.
+Known ceiling (open F-3): staged nametable words carry the global tile index in an 11-bit
+field, so a deduped pool past 2048 tiles is not yet representable (ruling pending:
+merge-translation vs scope-and-guard).
 
 **Cancel/flush.** Speculative state needs an explicit invalidation path: `PageIn_Flush`
 empties the FIFO and drops any suspended decode (main-loop context only). Called at
