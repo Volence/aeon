@@ -61,6 +61,11 @@ equ MUSIC_SLOT        = SND_Z80_BASE + SND_REQ_MUSIC
 equ SFX_SLOT          = SND_Z80_BASE + SND_REQ_SFX
 equ TEMPO_SLOT        = SND_Z80_BASE + SND_REQ_TEMPO
 equ FADE_SLOT         = SND_Z80_BASE + SND_REQ_FADE
+equ CTRL_SLOT         = SND_Z80_BASE + SND_REQ_CTRL
+equ JINGLE_SLOT       = SND_Z80_BASE + SND_REQ_JINGLE
+equ STAT_SEQ_ACTIVE   = SND_Z80_BASE + SND_STAT_SEQ_ACTIVE
+equ STAT_FADE_BUSY    = SND_Z80_BASE + SND_STAT_FADE_BUSY
+equ STAT_COMM         = SND_Z80_BASE + SND_STAT_COMM
 equ PARAM_BANK        = SND_Z80_BASE + SND_MUSIC_PARAM_BANK
 equ PARAM_PTR_LO      = SND_Z80_BASE + SND_MUSIC_PARAM_PTR
 equ PARAM_PTR_HI      = PARAM_PTR_LO + 1
@@ -454,4 +459,100 @@ pub proc Sound_FadeIn () clobbers(d0, a0) preserves(sr.mask) {
 pub proc Sound_FadeCmd (d0: u16) clobbers(a0) preserves(sr.mask) {
         lea     FADE_SLOT, a0
         jbra    Sound_PostByte
+}
+
+// ----------------------------------------------------------------------
+// Game-feel transport (pkg 1 §8, spec 2026-07-03-sound-game-feel-moments).
+// One transport op per frame is the 68k-side contract (music/jingle posts in
+// the same frame race on which the driver consumes first — don't).
+// ----------------------------------------------------------------------
+pub proc Sound_Pause () clobbers(d0, a0) preserves(sr.mask) {   // music freezes in place; SFX alive
+        moveq   #SND_CTRL_PAUSE_MUSIC, d0
+        lea     CTRL_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+pub proc Sound_Unpause () clobbers(d0, a0) preserves(sr.mask) { // resume at position
+        moveq   #SND_CTRL_UNPAUSE_MUSIC, d0
+        lea     CTRL_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+pub proc Sound_PauseAll () clobbers(d0, a0) preserves(sr.mask) { // Start menu: whole soundscape
+        moveq   #SND_CTRL_PAUSE_ALL, d0
+        lea     CTRL_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+pub proc Sound_UnpauseAll () clobbers(d0, a0) preserves(sr.mask) {
+        moveq   #SND_CTRL_UNPAUSE_ALL, d0
+        lea     CTRL_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+// ----------------------------------------------------------------------
+// Sound_PlayJingle — d0.b = the jingle's SFX id. The driver pauses the music
+// in place, plays the id through the normal SFX path, and auto-resumes
+// (under a short fade-in) when the jingle's last instance ends. No song
+// playing -> plain SFX. Poll Sound_IsMusicPlaying/SND_STAT_JINGLE for state.
+// ----------------------------------------------------------------------
+pub proc Sound_PlayJingle (d0: SfxId) clobbers(a0) preserves(sr.mask) {
+        lea     JINGLE_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+// ----------------------------------------------------------------------
+// Composed fade terminals (pkg 1 §6) at the default rate: the driver fades
+// to silence, then StopMusic / pause-music by itself — no 68k polling loop.
+// ----------------------------------------------------------------------
+pub proc Sound_FadeOutStop () clobbers(d0, a0) preserves(sr.mask) {  // silent -> StopMusic
+        move.b  #(SND_FADE_RATE_DEFAULT<<SND_FADE_RATE_SHIFT)|SND_FADE_CMD_OUT_STOP, d0
+        lea     FADE_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+pub proc Sound_FadeOutPause () clobbers(d0, a0) preserves(sr.mask) { // silent -> paused
+        move.b  #(SND_FADE_RATE_DEFAULT<<SND_FADE_RATE_SHIFT)|SND_FADE_CMD_OUT_PAUSE, d0
+        lea     FADE_SLOT, a0
+        jbra    Sound_PostByte
+}
+
+// ----------------------------------------------------------------------
+// Sound_ReadStat — d0.b = the status byte at (a0) (a SND_STAT_* 68k address),
+// captured under the same masked-interrupt bus hold as Sound_PostByte (the
+// only way the 68k reads Z80 RAM reliably; see the file header). The capture
+// lands in d0 and the caller tests it AFTER this returns — the bracket's
+// bus-release write clobbers the CCR, so no flag survives (same finding as
+// Sound_Init's marker capture).
+// In:  a0 = 68k address of the status byte. Out: d0.b = the byte.
+// ----------------------------------------------------------------------
+pub proc Sound_ReadStat (a0: *u8) out(d0: u8) clobbers() preserves(sr.mask) {
+        with ints_off {
+            with z80_stopped {
+                move.b  (a0), d0            // capture under the hold
+            }
+        }
+        rts
+}
+
+// ----------------------------------------------------------------------
+// Game-feel status readers (pkg 1 §8) — thin entries over Sound_ReadStat.
+// Each RETURNS its byte in d0.b (declared a clobber, not an out: the write
+// happens in the tail callee, which the out-credit cannot follow).
+// Mirrors are refreshed by the Z80 once per frame (Sequencer_Frame), so a
+// value read here is at most one driver frame (~17 ms) old.
+// ----------------------------------------------------------------------
+pub proc Sound_IsMusicPlaying () clobbers(d0, a0) preserves(sr.mask) { // RESULT d0.b: nonzero = playing
+        lea     STAT_SEQ_ACTIVE, a0
+        jbra    Sound_ReadStat
+}
+
+pub proc Sound_IsFading () clobbers(d0, a0) preserves(sr.mask) {       // RESULT d0.b: nonzero = ramp off-target
+        lea     STAT_FADE_BUSY, a0
+        jbra    Sound_ReadStat
+}
+
+pub proc Sound_GetComm () clobbers(d0, a0) preserves(sr.mask) {        // RESULT d0.b: the score-authored cue byte
+        lea     STAT_COMM, a0
+        jbra    Sound_ReadStat
 }
