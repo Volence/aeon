@@ -19,14 +19,14 @@ use engine.structs.{Act, Sec}
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
 // the u8 field directly (a link-folded extern could not — the old mirror note).
-use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TILE_CEILING, ART_POOL_PAGE_BYTES}
+use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, PAGE_TABLE_MAX, ART_POOL_PAGE_BYTES}
 
 // Generated interior-island manifests: the art-pool page count/tile
 // total and the per-section block-dict lengths are `.emp` const modules the
 // generators emit (tools/ojz_strip_gen.py / ojz_block_gen.py) — comptime ints
 // consumed directly (they range-prove into the u16 fields; a link-folded extern
 // could not, and the pool-tile ceiling proof below now fails at COMPTIME).
-use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES, OJZ_ACT_POOL_TILES}
+use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES}
 use games.sonic4.ojz_block_dicts_act1.{
     OJZ_SEC0_BLOCK_DICT_LEN,
     OJZ_SEC1_BLOCK_DICT_LEN,
@@ -39,13 +39,18 @@ use games.sonic4.ojz_block_dicts_act1.{
     OJZ_SEC8_BLOCK_DICT_LEN,
 }
 
-// The art pool DMAs to VRAM tiles 0..N-1 with no runtime bounds check — a pool
-// past POOL_TILE_CEILING (960) would overwrite the character DPLC region at tile
-// 960. Was the AS `if OJZ_ACT_POOL_TILES > POOL_TILE_CEILING / error` in
-// act_descriptor.asm; now a comptime fact that fails HERE, not at link (mirrors
-// the ojz_strip_gen.py generate-time guard).
-ensure(OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING,
-       "OJZ act 1 art pool {OJZ_ACT_POOL_TILES} tiles exceeds POOL_TILE_CEILING — would DMA over the character region at tile 960")
+// P2b residency cutover (plan Task 5 §2e): the pool is no longer VRAM-tile-bounded.
+// The residency cache streams pages through PAGE_FRAMES fixed 64-tile frames and
+// page-in DMAs to an ALLOCATED frame (frame*64*32), never to tile page_id*64 — so
+// the resident VRAM footprint is bounded to the FG art window by the frame
+// allocator REGARDLESS of pool size. The real ceiling is therefore the residency
+// page table's capacity, not POOL_TILE_CEILING. (The old
+// `OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING` identity-residency guard — "would DMA
+// over the character region at tile 960" — is obsolete under frame allocation; it
+// mirrors the generator's `pages <= PAGE_TABLE_MAX` assert, which the Task-5
+// cutover already switched to.)
+ensure(OJZ_ACT_POOL_PAGES <= PAGE_TABLE_MAX,
+       "OJZ act 1 art pool {OJZ_ACT_POOL_PAGES} pages exceeds PAGE_TABLE_MAX residency page-table capacity")
 
 // ---- the act's shape, written once ----
 const GRID_W = 3

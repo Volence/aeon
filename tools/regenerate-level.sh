@@ -34,8 +34,18 @@ fi
 echo "Importing Sonic & Knuckles collision shape set (fixed 252-shape vocabulary)..."
 python3 "${TOOLS}/import_sk_collision.py"
 
-echo "Generating OJZ section data..."
-python3 "${TOOLS}/ojz_strip_gen.py" generate
+# STRESS_UNIQUIFY (P2c Task 11 stress fixture — set by build.sh's STRESS_ART path):
+# inflate the act art pool to N distinct tiles via deterministic tile clones with
+# re-pointed block references (see ojz_strip_gen.stress_uniquify_pool). This is a
+# THROWAWAY re-bake — build.sh restores the committed tree from git afterward, so
+# the uniquified pool never reaches a commit. When unset, the real pool is baked.
+if [[ -n "${STRESS_UNIQUIFY:-}" ]]; then
+    echo "Generating OJZ section data (STRESS uniquify N=${STRESS_UNIQUIFY})..."
+    python3 "${TOOLS}/ojz_strip_gen.py" generate --stress-uniquify "${STRESS_UNIQUIFY}"
+else
+    echo "Generating OJZ section data..."
+    python3 "${TOOLS}/ojz_strip_gen.py" generate
+fi
 
 # Editor-authored BG override (level editor art) — replaces the generated
 # zone BG when games/sonic4/data/editor_bg_override.json exists.

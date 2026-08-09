@@ -126,6 +126,11 @@ ART_POOL_PAGE_TILES = 64              # tiles per independently-decodable act ar
 PAGE_TABLE_MAX = 256                  # residency page-table ceiling (replaces POOL_TILE_CEILING as the hard cap)
 SECTION_LOCAL_INDEX_MAX = 2047        # 11-bit nametable field: a section's local palette must fit
 PIN_SECTION_FRACTION = 0.75           # a page is pinned if >= this fraction of sections reference it (page 0 always)
+# --stress-uniquify N default (Art-streaming P2c Task 11 stress fixture): crosses
+# the 2048 index line (>32 pages) AND exceeds 15 PAGE_FRAMES by ~4x (>40 pages),
+# so the residency cache is forced into continuous evict/reload traffic on OJZ.
+STRESS_UNIQUIFY_DEFAULT = 2600
+STRESS_XOR_FALLBACK = 0xA5            # nonzero perturbation when the per-clone counter byte is 0
 # (block/chunk geometry constants imported from ojz_common above)
 TILES_PER_CHUNK_ROW = TILES_PER_BLOCK_ROW * BLOCKS_PER_CHUNK_ROW   # 16
 TILES_PER_CHUNK_COL = TILES_PER_BLOCK_COL * BLOCKS_PER_CHUNK_COL   # 16
@@ -658,6 +663,69 @@ def mark_pinned_pages(pages, per_section_global_sets) -> list[bool]:
     return pinned
 
 
+def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
+                         per_section_strips, sec_ids_in_order):
+    """Art-streaming P2c Task 11 stress fixture (post-dedup pool inflation).
+
+    Clone existing pool tiles with a DETERMINISTIC per-clone pixel perturbation
+    and re-point a spread of block references at the clones, until the pool holds
+    exactly `target_tiles` distinct tiles. NO RNG — every choice is seeded by an
+    integer index, so two runs are byte-identical.
+
+    Mutates `unique`/`pool_order`/`canon_to_pool` in place (clones are APPENDED —
+    the real pool + blank tile 0 are untouched, so page 0 stays pinned/blank).
+    Returns a redirect dict {(section_index, col, row): global_pool_slot} the
+    caller applies in Pass 5 (the local-index word rewrite) and folds into
+    per_section_global_sets so each section's local map covers its clones.
+
+    The fixture exists to overwhelm the residency cache: `target_tiles` well above
+    PAGE_FRAMES*ART_POOL_PAGE_TILES forces continuous eviction/reload.
+    """
+    base_pool_len = len(pool_order)
+    if target_tiles <= base_pool_len:
+        raise ValueError(
+            f"--stress-uniquify {target_tiles} <= deduped pool size {base_pool_len}: "
+            f"nothing to stress (pick N well above the real pool, e.g. "
+            f"{STRESS_UNIQUIFY_DEFAULT})")
+    n_clones = target_tiles - base_pool_len
+    rows_per_tile = tile_dedupe.TILE_SIZE // 4          # 8 rows of 4 bytes (4bpp, 8px)
+
+    # 1. Clone tiles. Clone j copies base pool slot (j % base_pool_len) and XORs a
+    #    per-clone counter into one row byte, guaranteeing byte-distinctness from
+    #    its base (the row/counter spread also separates sibling clones).
+    clone_slots = []
+    for j in range(n_clones):
+        base_canon = pool_order[j % base_pool_len]
+        tile = bytearray(unique[base_canon])
+        row = j % rows_per_tile
+        xor = (j & 0xFF) or STRESS_XOR_FALLBACK
+        tile[row * 4] ^= xor
+        new_canon = len(unique)
+        unique.append(bytes(tile))
+        pool_order.append(new_canon)
+        canon_to_pool[new_canon] = len(pool_order) - 1
+        clone_slots.append(len(pool_order) - 1)
+
+    # 2. Re-point a spread of block references at the clones. Enumerate every
+    #    non-blank word position in fixed (section, col, row) order and hand each
+    #    clone one position, evenly strided so the churn spreads across sections.
+    positions = []
+    for s_idx, sec_id in enumerate(sec_ids_in_order):
+        for col_i, col in enumerate(per_section_strips[sec_id]):
+            for row_i, word in enumerate(col):
+                if word & tile_dedupe.NAMETABLE_TILE_MASK:   # skip blank tile 0 refs
+                    positions.append((s_idx, col_i, row_i))
+    if len(positions) < n_clones:
+        raise ValueError(
+            f"stress-uniquify: {len(positions)} re-pointable block references < "
+            f"{n_clones} clones — pool target {target_tiles} too high for this act")
+    step = len(positions) // n_clones                  # >= 1 (checked above)
+    redirect = {}
+    for j, slot in enumerate(clone_slots):
+        redirect[positions[j * step]] = slot           # strided => distinct positions
+    return redirect
+
+
 # Repo-relative path the generated `.emp` embed()s reference (matches
 # ojz_block_gen's sec_block_blobs.emp convention). OUTPUT_DIR == this in
 # production; tests point OUTPUT_DIR at a tempdir and don't build the .emp.
@@ -1108,6 +1176,108 @@ def test_mark_pinned_pages():
     print("  PASS: page pin heuristic")
 
 
+def _fabricate_stress_inputs(base_pool=600, cols=48, rows=64, n_sections=9):
+    """Fabricate deduped-pool + per-section strips shaped like generate()'s
+    Pass-4 outputs, donor-free, for the stress-uniquify unit tests. Words carry
+    a tile index in 1..base_pool-1 (blank slot 0 never referenced) with the high
+    pal/pri/flip bits zero; src == canon == pool slot for the fabricated data."""
+    unique = [bytes([i & 0xFF, (i >> 8) & 0xFF]) + bytes(tile_dedupe.TILE_SIZE - 2)
+              for i in range(base_pool)]
+    unique[0] = tile_dedupe.BLANK_TILE                     # slot 0 = blank
+    pool_order = list(range(base_pool))
+    canon_to_pool = {c: i for i, c in enumerate(pool_order)}
+    sec_ids = [str(s) for s in range(n_sections)]
+    per_section_strips = {}
+    for s in range(n_sections):
+        cols_list = []
+        for c in range(cols):
+            col = [1 + ((s * 131 + c * 17 + r * 7) % (base_pool - 1))
+                   for r in range(rows)]
+            cols_list.append(col)
+        per_section_strips[str(s)] = cols_list
+    return unique, pool_order, canon_to_pool, per_section_strips, sec_ids
+
+
+def test_stress_uniquify_generation_and_pages():
+    """N=2600 stress inflation succeeds, produces >40 pages, and every clone is
+    referenced by exactly one re-pointed block position (byte-distinct from base)."""
+    N = STRESS_UNIQUIFY_DEFAULT
+    unique, pool_order, canon_to_pool, strips, sec_ids = _fabricate_stress_inputs()
+    base_len = len(pool_order)
+    redirect = stress_uniquify_pool(N, unique, pool_order, canon_to_pool, strips, sec_ids)
+
+    assert len(pool_order) == N, f"pool inflated to {len(pool_order)}, expected {N}"
+    assert unique[pool_order[0]] == tile_dedupe.BLANK_TILE, "blank slot 0 must be untouched"
+    pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
+    assert len(pages) > 40, f"expected >40 pages for N={N}, got {len(pages)}"
+    assert len(pages) <= PAGE_TABLE_MAX
+
+    n_clones = N - base_len
+    clone_slots = set(range(base_len, N))                 # clones appended contiguously
+    assert set(redirect.values()) == clone_slots, "every clone must be referenced once"
+    assert len(redirect) == n_clones, "one re-pointed position per clone (no collisions)"
+    # perturbation actually changed bytes: each clone differs from its base tile
+    for j in range(0, n_clones, 137):                     # sample
+        base_canon = pool_order[j % base_len]
+        clone_canon = pool_order[base_len + j]
+        assert unique[clone_canon] != unique[base_canon], f"clone {j} not perturbed"
+    print(f"  PASS: stress-uniquify N={N} -> {len(pages)} pages, {n_clones} clones")
+
+
+def test_stress_uniquify_local_tables_valid():
+    """After inflation + redirect fold-in, every section's local→global map fits
+    the 11-bit field and each re-pointed clone slot round-trips local→global."""
+    N = STRESS_UNIQUIFY_DEFAULT
+    unique, pool_order, canon_to_pool, strips, sec_ids = _fabricate_stress_inputs()
+    redirect = stress_uniquify_pool(N, unique, pool_order, canon_to_pool, strips, sec_ids)
+
+    # Rebuild per-section global sets the way generate() Pass 4/5 does, folding in
+    # the redirect clones, then build + validate each section's local map.
+    per_section_globals = []
+    for s_idx, sec_id in enumerate(sec_ids):
+        gs = set()
+        for col in strips[sec_id]:
+            for word in col:
+                gs.add(canon_to_pool[word & tile_dedupe.NAMETABLE_TILE_MASK])
+        per_section_globals.append(gs)
+    for (s_idx, _c, _r), slot in redirect.items():
+        per_section_globals[s_idx].add(slot)
+
+    for s_idx, gs in enumerate(per_section_globals):
+        l2g = build_section_local_map(gs)                 # raises if > 2047 distinct
+        g2l = {g: i for i, g in enumerate(l2g)}
+        assert len(l2g) - 1 <= SECTION_LOCAL_INDEX_MAX
+        # each clone re-pointed into this section must resolve local->global
+        for (rs, _c, _r), slot in redirect.items():
+            if rs == s_idx:
+                assert g2l[slot] < len(l2g) and l2g[g2l[slot]] == slot
+    print("  PASS: stress-uniquify local tables valid")
+
+
+def test_stress_uniquify_deterministic():
+    """Two independent runs are byte-identical (seeded by index, no RNG)."""
+    N = STRESS_UNIQUIFY_DEFAULT
+    u1, p1, c1, s1, ids1 = _fabricate_stress_inputs()
+    r1 = stress_uniquify_pool(N, u1, p1, c1, s1, ids1)
+    u2, p2, c2, s2, ids2 = _fabricate_stress_inputs()
+    r2 = stress_uniquify_pool(N, u2, p2, c2, s2, ids2)
+    assert r1 == r2, "redirect map differs between runs"
+    assert u1 == u2, "cloned tile bytes differ between runs"
+    assert p1 == p2, "pool order differs between runs"
+    print("  PASS: stress-uniquify deterministic across runs")
+
+
+def test_stress_uniquify_rejects_small_target():
+    """N below the deduped pool size fails loudly (nothing to stress)."""
+    unique, pool_order, canon_to_pool, strips, sec_ids = _fabricate_stress_inputs(base_pool=600)
+    try:
+        stress_uniquify_pool(500, unique, pool_order, canon_to_pool, strips, sec_ids)
+    except ValueError:
+        print("  PASS: stress-uniquify rejects N <= pool size")
+        return
+    raise AssertionError("expected ValueError for N <= deduped pool size")
+
+
 def run_tests():
     """Run all self-tests."""
     print("Running ojz_strip_gen tests...")
@@ -1336,8 +1506,14 @@ def require_donor():
             "(committed for the shipped act) or point the editor at real data.")
 
 
-def generate():
-    """Generate strip data for all OJZ sections."""
+def generate(stress_uniquify=0):
+    """Generate strip data for all OJZ sections.
+
+    stress_uniquify > 0 activates the P2c Task 11 stress fixture: post-dedup, the
+    act art pool is inflated to that many distinct tiles via deterministic tile
+    clones with re-pointed block references (see stress_uniquify_pool). Used only
+    by the STRESS_ART build shape; the real committed tree is generated with 0.
+    """
     require_donor()
     out_dir = os.path.normpath(OUTPUT_DIR)
     os.makedirs(out_dir, exist_ok=True)
@@ -1485,6 +1661,20 @@ def generate():
     pool_order = tile_dedupe.pin_blank_tile_first(pool_order, unique)
     assert unique[pool_order[0]] == tile_dedupe.BLANK_TILE
     canon_to_pool = {cid: idx for idx, cid in enumerate(pool_order)}  # canon ID -> pool index (== VRAM global slot)
+
+    # ---- Pass 4b (P2c Task 11): optional stress-uniquify pool inflation ----
+    # Clones are APPENDED to pool_order (after the blank-pinned slot 0), so the
+    # split/pin/manifest passes below see the inflated pool transparently. The
+    # returned redirect re-points a spread of block references at the clones; it
+    # is applied in Pass 5 and folded into per_section_global_sets.
+    stress_redirect = None
+    if stress_uniquify:
+        stress_redirect = stress_uniquify_pool(
+            stress_uniquify, unique, pool_order, canon_to_pool,
+            per_section_strips, sec_ids_in_order)
+        print(f"STRESS-UNIQUIFY: inflated act pool to {len(pool_order)} tiles "
+              f"({len(stress_redirect)} clone references re-pointed)")
+
     pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
     # P2b cutover: the pool ceiling is now the RESIDENCY page-table cap, not a
     # VRAM-tile ceiling — logical (local) indices decouple pool size from the
@@ -1502,6 +1692,11 @@ def generate():
         set(canon_to_pool[c] for c in sec_canons)
         for sec_canons in per_section_canon_tiles
     ]
+    # Fold stress clones into each section's global set so its local→global map
+    # (Pass 5) and the pin heuristic (Pass 7) cover the re-pointed references.
+    if stress_redirect is not None:
+        for (s_idx, _col, _row), slot in stress_redirect.items():
+            per_section_global_sets[s_idx].add(slot)
 
     # ---- Pass 5: rewrite each section's strips to LOCAL indices + emit local→global tables ----
     # The block nametable words the engine bakes carry per-section LOCAL indices
@@ -1519,12 +1714,17 @@ def generate():
         section_local_maps.append((sec_id, local_to_global))
 
         remapped_strips = []
-        for col in per_section_strips[sec_id]:
+        for col_i, col in enumerate(per_section_strips[sec_id]):
             remapped_col = []
-            for word in col:
+            for row_i, word in enumerate(col):
                 src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
                 canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
                 vram_slot = canon_to_pool[canon_idx]         # global pool slot
+                if stress_redirect is not None:
+                    r = stress_redirect.get((s_idx, col_i, row_i))
+                    if r is not None:
+                        vram_slot = r                        # re-point at a clone
+                        flip_bits = 0                        # clone is a fresh tile
                 local_idx = global_to_local[vram_slot]       # section-local index
                 remapped_col.append(
                     tile_dedupe.remap_nametable_word(word, local_idx, flip_bits)
@@ -1693,15 +1893,35 @@ def generate():
 # ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in ("test", "generate"):
-        print(f"Usage: {sys.argv[0]} test|generate")
+    args = sys.argv[1:]
+    mode = args[0] if args else None
+    if mode not in ("test", "generate"):
+        print(f"Usage: {sys.argv[0]} test | generate [--stress-uniquify N]")
         sys.exit(1)
 
-    if sys.argv[1] == "test":
+    if mode == "test":
         run_tests()
         return
 
-    generate()
+    stress_uniquify = 0
+    rest = args[1:]
+    i = 0
+    while i < len(rest):
+        if rest[i] == "--stress-uniquify":
+            if i + 1 >= len(rest):
+                print("ERROR: --stress-uniquify needs an integer N")
+                sys.exit(1)
+            try:
+                stress_uniquify = int(rest[i + 1])
+            except ValueError:
+                print(f"ERROR: --stress-uniquify N must be an integer, got {rest[i + 1]!r}")
+                sys.exit(1)
+            i += 2
+        else:
+            print(f"ERROR: unknown argument {rest[i]!r}")
+            sys.exit(1)
+
+    generate(stress_uniquify=stress_uniquify)
 
 
 if __name__ == "__main__":

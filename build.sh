@@ -49,6 +49,33 @@ if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
     fi
     ROM_NAME="s4.stress"
 fi
+
+# STRESS_ART=1 (Art-streaming P2c Task 11 stress fixture): the sonic4 DEBUG shape
+# built against a UNIQUIFIED act art pool (ojz_strip_gen --stress-uniquify N,
+# default 2600 tiles / >40 pages) that overwhelms the 15-frame residency cache with
+# continuous evict/reload traffic. Like STRESS_EVICT it is an off-canonical DEV
+# shape: UNFROZEN, no golden, a DISTINCT artifact (s4.stressart.bin/.lst), and it
+# fixes the whole shape (sonic4 DEBUG), ignoring DEBUG/GAME overrides.
+#
+# ISOLATION — the committed real act data is NEVER overwritten. sigil places the
+# act-pool .emp module by a FIXED registry PATH (not a tree walk), so a parallel
+# generated dir cannot be linked without a sigil registry/path change. Instead the
+# stress pool is a THROWAWAY in-place re-bake (regenerate-level.sh with
+# STRESS_UNIQUIFY set) guarded by an EXIT trap that restores the generated tree +
+# collision from git and cleans stress-only files (see below) — so `git status` is
+# left clean of real-data changes, no sigil-side change needed.
+if [[ "${STRESS_ART:-0}" == "1" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: STRESS_ART=1 is a sonic4-only fixture (the OJZ act pool is the target)."
+        exit 1
+    fi
+    if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+        echo "ERROR: STRESS_ART and STRESS_EVICT are mutually exclusive shapes."
+        exit 1
+    fi
+    DEBUG=1                      # the fixture needs asserts + the refcount/orphan audit
+    ROM_NAME="s4.stressart"
+fi
 MAIN_ASM="games/${GAME}/game_root.asm"
 TOOLS="${TOOLS:-tools}"
 
@@ -147,6 +174,30 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
         echo "Lint errors found — fix before assembling."
         exit 1
     fi
+fi
+
+# STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an
+# EXIT trap that restores the committed tree from git (covers success AND set -e
+# failures). Requires donors (like regenerate-level.sh). verify_level_bin below then
+# runs against the stress tree (it stays internally consistent), and the sigil build
+# links the uniquified pool into s4.stressart.bin.
+if [[ "${STRESS_ART:-0}" == "1" ]]; then
+    STRESS_GEN_TREE="games/sonic4/data/generated/ojz/act1"
+    STRESS_COLL_TREE="games/sonic4/data/collision"
+    if [[ -n "$(git status --porcelain -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE")" ]]; then
+        echo "ERROR: STRESS_ART needs a clean generated tree, but git status shows changes"
+        echo "  under $STRESS_GEN_TREE or $STRESS_COLL_TREE. Commit or stash them first —"
+        echo "  the stress re-bake restores from git and would discard uncommitted changes."
+        exit 1
+    fi
+    _restore_stress_tree() {
+        echo "STRESS_ART: restoring the committed level tree from git..."
+        git checkout -q -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE" 2>/dev/null || true
+        git clean -fdq -- "$STRESS_GEN_TREE" 2>/dev/null || true
+    }
+    trap _restore_stress_tree EXIT
+    echo "STRESS_ART: throwaway re-bake with uniquified act pool (N=${STRESS_ART_N:-2600})..."
+    STRESS_UNIQUIFY="${STRESS_ART_N:-2600}" "${TOOLS}/regenerate-level.sh"
 fi
 
 # The committed OJZ level tree is consumed directly (its generators need

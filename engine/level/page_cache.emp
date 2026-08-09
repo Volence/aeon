@@ -839,6 +839,39 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         addq.w  #1, d0
         cmpi.w  #PAGE_TABLE_MAX, d0
         blt     .bij_page
+
+        // --- ORPHAN FRAME (T7 review NIT-2): a frame that is ASSIGNED (pf_page !=
+        //     $FFFF) yet sits in NO reclaim list — refcount 0, not in the LRU, not
+        //     pinned, and not the live page-in handoff frame — has LEAKED: neither the
+        //     free list nor the LRU can ever hand it back to AllocFrame, so its VRAM is
+        //     lost until the next act reset (a class the refcount/LRU/bijectivity
+        //     checks above all pass). The in-flight DECODE frame is UNASSIGNED
+        //     (pf_page $FFFF, soak-fix chain 72), so the pf_page skip already covers
+        //     it; the one legitimate assigned/rc0/detached transient — a demand page
+        //     published but not yet Ref'd by its resuming fill — is PageIn_Cur_Frame,
+        //     excluded explicitly (NIT-2's "not the in-flight frame"). ---
+        lea     Page_Frames, a1
+        moveq   #0, d1
+        move.b  PageIn_Cur_Frame, d1            // the live page-in handoff frame (exclude)
+        moveq   #0, d0                          // frame index
+    .orphan:
+        move.w  d0, d2
+        lsl.w   #3, d2
+        lea     (a1, d2.w), a3                  // &frame[d0]
+        cmpi.w  #$FFFF, PF_PAGE(a3)
+        beq     .orphan_next                    // unassigned (free / in-flight decode) -> ok
+        tst.w   PF_RC(a3)
+        bne     .orphan_next                    // referenced -> reachable via a cache word
+        move.b  PF_FLAGS(a3), d3
+        andi.b  #PF_IN_LRU | PF_PINNED, d3
+        bne     .orphan_next                    // in the LRU or pinned -> reclaimable / held
+        cmp.b   d1, d0
+        beq     .orphan_next                    // the demand-published-awaiting-Ref frame -> ok
+        raise_error "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)"
+    .orphan_next:
+        addq.w  #1, d0
+        cmpi.w  #PAGE_FRAMES, d0
+        blt     .orphan
     }
         rts
 }
