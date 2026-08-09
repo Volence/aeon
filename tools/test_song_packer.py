@@ -74,6 +74,30 @@ class TestEventEncoding(unittest.TestCase):
         self.assertEqual(OpBias(2, 0x30).encode(), bytes([MEV_OPBIAS, 0x02, 0x30]))
         self.assertEqual(MEV_OPBIAS, 0xE9)
 
+    def test_comm_encode(self):
+        # MEV_EXT ($FA) sub-op 0 = COMM: score-authored cue byte -> SND_STAT_COMM.
+        from song_packer import Comm, MEV_EXT
+        self.assertEqual(MEV_EXT, 0xFA)
+        self.assertEqual(Comm(7).encode(), bytes([MEV_EXT, 0x00, 0x07]))
+        self.assertEqual(Comm(0xFF).encode(), bytes([MEV_EXT, 0x00, 0xFF]))
+
+    def test_comm_range(self):
+        from song_packer import Comm
+        Comm(0).validate(CHROUTE_FM1)      # route-legal everywhere
+        Comm(255).validate(CHROUTE_PSGN)
+        with self.assertRaises(PackError):
+            Comm(256).validate(CHROUTE_FM1)
+        with self.assertRaises(PackError):
+            Comm(-1).validate(CHROUTE_FM1)
+
+    def test_comm_event_packs_ext_prefix(self):
+        from song_packer import Comm, MEV_EXT
+        ch = ChannelDesc(CHROUTE_FM1,
+                         [Patch(0), Vol(100), Comm(7), Note(10), End()])
+        blob = pack_song(SongDesc(tempo=0x80, channels=[ch],
+                                  flags=SH_F_STREAM, tempo_mod=0))
+        self.assertIn(bytes([MEV_EXT, 0x00, 0x07]), blob)
+
     def test_opbias_signed_encode(self):
         # val is signed -128..127, encoded as a two's-complement byte.
         self.assertEqual(OpBias(0, -16).encode(), bytes([MEV_OPBIAS, 0x00, 0xF0]))
@@ -739,14 +763,16 @@ class TestConstantsSync(unittest.TestCase):
 
     @staticmethod
     def _parse_asm_equates():
-        # sound_constants.asm sits under engine/; tests live in <repo>/tools/.
+        # The authority is engine/sound/sound_constants.emp (`pub const NAME = $NN`
+        # form) — the .asm twin this parser originally read was deleted in the
+        # sigil flip; tests live in <repo>/tools/.
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        asm_path = os.path.join(repo_root, "engine", "sound_constants.asm")
+        asm_path = os.path.join(repo_root, "engine", "sound", "sound_constants.emp")
         mev, chroute, tag = {}, {}, {}
-        # e.g. "MEV_REST        = $80    ; comment"  /  "CHROUTE_FM1 = 0"  /  "TAG_MAC_NEXT = $E0"
-        mev_re = re.compile(r"^\s*(MEV_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
-        chr_re = re.compile(r"^\s*(CHROUTE_[A-Z0-9_]+)\s*=\s*(\d+)")
-        tag_re = re.compile(r"^\s*(TAG_MAC_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
+        # e.g. "pub const MEV_REST  = $80  // comment" / "pub const CHROUTE_FM1 = 0"
+        mev_re = re.compile(r"^\s*(?:pub\s+const\s+)?(MEV_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
+        chr_re = re.compile(r"^\s*(?:pub\s+const\s+)?(CHROUTE_[A-Z0-9_]+)\s*=\s*(\d+)")
+        tag_re = re.compile(r"^\s*(?:pub\s+const\s+)?(TAG_MAC_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)")
         with open(asm_path) as f:
             for line in f:
                 m = mev_re.match(line)
