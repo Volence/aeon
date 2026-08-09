@@ -303,7 +303,7 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         // ROM->VRAM DMA queued -> mark the page resident in its frame (P2b Task 6).
         move.w  PageIn_Cur_Page, d0
         move.b  PageIn_Cur_Frame, d1
-        jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + LRU
+        jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + candidacy
 
     .alloc_fail:
         // No frame available (thrash). DEBUG raise_errored inside AllocFrame; in
@@ -354,7 +354,7 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         // staging->VRAM DMA queued -> mark the page resident in its frame (P2b Task 6).
         move.w  PageIn_Cur_Page, d0
         move.b  PageIn_Cur_Frame, d1
-        jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + LRU
+        jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + candidacy
     .land_full:
         // Queue full -> retry the landing next frame; staging still holds the page.
         st.b    PageIn_Land_Pending

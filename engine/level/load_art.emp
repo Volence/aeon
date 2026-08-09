@@ -15,7 +15,7 @@ use engine.structs.{Act}
 use engine.constants.{DMA_BUDGET_BLANKED_INIT, PGRQ_BULK, PAGE_FRAMES_CLAMP}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
-// PageIn_Flush / PageIn_Enqueue (engine.page_in), BG_Init (engine.bg),
+// PageCache_Init (engine.page_cache) / PageIn_Enqueue (engine.page_in), BG_Init (engine.bg),
 // VSync_Wait (engine.vblank).
 
 // -----------------------------------------------

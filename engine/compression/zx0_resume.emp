@@ -5,7 +5,8 @@ module engine.zx0_resume in zx0_resume
 // -----------------------------------------------
 // ZX0R_Decompress — resumable, stack-flat ZX0 stream decompressor.
 //
-// The supervisor-bookmark twin of engine.zx0's ZX0_Decompress. Same modern
+// The supervisor-bookmark twin of the blocking ZX0_Decompress (which lives
+// with its sole consumer, engine.compression_selftest — F-6). Same modern
 // (V2) ZX0 bitstream (salvador default mode), same output, but restructured so
 // an interrupt can snapshot its ENTIRE live state (registers + CCR), rewrite
 // the return PC to a banking stub, and resume it later from any interrupt
@@ -43,8 +44,27 @@ module engine.zx0_resume in zx0_resume
 //      stack save; the caller owns these registers)
 //
 // Algorithm from unzx0_68000.S (Emmanuel Marty), restructured for the resumable
-// contract; ZX0 compression (c) 2021 Einar Saukas. See engine/compression/zx0.emp
-// for the full upstream attribution and license.
+// contract.
+//
+// Derived from unzx0_68000.S (88-byte V2 depacker) by Emmanuel Marty:
+//   https://github.com/emmanuel-marty/unzx0_68000
+// (restructured stack-flat + elias-inlined for resumability; algorithm
+// semantics unchanged). ZX0 compression (c) 2021 Einar Saukas,
+// https://github.com/einar-saukas/ZX0
+//
+// Copyright (C) 2021 Emmanuel Marty
+// This software is provided 'as-is', without any express or implied warranty.
+// In no event will the authors be held liable for any damages arising from
+// the use of this software. Permission is granted to anyone to use this
+// software for any purpose, including commercial applications, and to alter
+// it and redistribute it freely, subject to the following restrictions:
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software in
+//    a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+// 3. This notice may not be removed or altered from any source distribution.
 // -----------------------------------------------
 @resumable
 pub proc ZX0R_Decompress (a0: *u8, a1: *u8, a3: *u8) clobbers(d0-d2/a2) out(a0, a1) {

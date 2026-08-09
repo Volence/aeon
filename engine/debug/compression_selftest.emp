@@ -253,7 +253,7 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 // The build wraps every compressed art blob in a 4-byte header
 // [u16 BE uncompressed size][u8 flags][u8 version=2]. That wrapper is
 // OURS, not ZX0's — the caller peeks size/version and passes a0 already
-// advanced past it (see Art_Decompress in engine/level/load_art.emp).
+// advanced past it (see Art_Decompress above in this module).
 //
 // In:  a0 = compressed ZX0 stream (PAST the 4-byte wrapper)
 //      a1 = destination buffer

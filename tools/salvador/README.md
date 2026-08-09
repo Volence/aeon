@@ -14,7 +14,7 @@ Licenses (all retained in this directory):
 - `src/libdivsufsort/`: MIT (`src/libdivsufsort/LICENSE`)
 
 The engine uses the default **modern (V2)** ZX0 format — it matches the
-vendored 68000 decompressor (`engine/compression/zx0.emp`, adapted from
+vendored 68000 decompressor (`engine/compression/zx0_resume.emp (streaming) + the blocking twin in engine/debug/compression_selftest.emp`, adapted from
 unzx0_68000.S in this same project). Do not pass `-classic`.
 
 build.sh compiles this once into `tools/bin/salvador` if the binary is
