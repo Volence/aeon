@@ -251,47 +251,31 @@ section z80_sound_driver (cpu: z80) {
         ld      a, $80
         ld      (de), a                 // $4001 = $80 -> prime latch to DC center
 
-        // clear request slots + status region.
-        xor     a
-        ld      (SND_REQ_PING), a
-        ld      (SND_REQ_SAMPLE), a
-        ld      (SND_REQ_MUSIC), a
-        ld      (SND_REQ_SFX), a
-        ld      (SND_REQ_FADE), a       // master-fade request slot
-        ld      (SND_REQ_TEMPO), a      // tempo request slot
-        ld      (SND_REQ_CTRL), a       // transport ctrl slot (pkg 1)
-        ld      (SND_REQ_JINGLE), a     // jingle push slot (pkg 1)
-        ld      (SND_CTRL_DMA_ACTIVE), a // flag bracket clear (no DMA in progress)
-        ld      (SND_DAC_PHASE), a      // PHASE = idle (0) — two-stage stop SM
-        ld      (SND_SONG_BANK), a      // B1 bracket reads this on pre-song idle ticks
-        ld      (SND_ROM_BANK), a       // (Snd_LoadSong sets both to the real song bank)
-        ld      (SND_FM6_ADAPTIVE), a   // non-adaptive until a song sets it
-        ld      (SND_FM6_CHAN_PTR), a   // null the FM6 channel ptr (set per load)
-        ld      (SND_FM6_CHAN_PTR+1), a
-        ld      (SND_STAT_PING_ECHO), a
-        ld      (SND_STAT_ACK_COUNT), a
-        ld      (SND_STAT_TICK), a
-        ld      (SND_STAT_SEQ_ACTIVE), a // game-feel status mirrors (pkg 1)
-        ld      (SND_STAT_COMM), a
-        ld      (SND_STAT_JINGLE), a
-        ld      (SND_STAT_FADE_BUSY), a
-        ld      (SND_SEQ_ACTIVE), a     // sequencer idle until a song loads
-        ld      (SND_SEQ_CHCOUNT), a    // no channels until a song loads
+        // Clear the driver's RAM contract regions — four rolled Snd_ZeroBlock
+        // sweeps (pkg-1 reclaim: replaces ~30 individual stores):
+        //   $18F0-$18FC  DAC/bank/ring state (phase, banks, RD/WR ptrs, FM6;
+        //                SND_CUR_BANK is re-seeded $FF below)
+        //   $1F00-$1F08  request slots + the SND_CTRL_DMA_ACTIVE flag bracket
+        //   $1F10-$1F18  status region (STAT_ALIVE re-written at the end of init)
+        //   $1CCC-$1CD6  fade/tempo globals + game-feel state (pkg 1)
         // (SND_SFX_QUEUE_CNT is cleared by the Sfx_StopAll call above, along with
         // the SfxChannel array and both duck bytes — see the B1 note.)
+        ld      hl, SND_DAC_PHASE       // $18F0: the DAC/bank state block
+        ld      b, SND_FM6_ADAPTIVE - SND_DAC_PHASE + 1
+        call    Snd_ZeroBlock
+        ld      hl, SND_REQ_PING        // $1F00: request slots + DMA flag
+        ld      b, SND_REQ_JINGLE - SND_REQ_PING + 1
+        call    Snd_ZeroBlock
+        ld      hl, SND_STAT_ALIVE      // $1F10: status region
+        ld      b, SND_STAT_FADE_BUSY - SND_STAT_ALIVE + 1
+        call    Snd_ZeroBlock
+        ld      hl, SND_MASTER_FADE     // $1CCC: expression globals + game-feel
+        ld      b, SND_FADE_TERM - SND_MASTER_FADE + 1
+        call    Snd_ZeroBlock
+        xor     a
+        ld      (SND_SEQ_ACTIVE), a     // sequencer idle until a song loads
+        ld      (SND_SEQ_CHCOUNT), a    // no channels until a song loads
         ld      (Snd_SpindashRev), a    // spindash rev escalation starts at 0
-        // fade = full volume (0), idle; tempo mod = 0 (full speed). a is still 0.
-        ld      (SND_MASTER_FADE), a
-        ld      (SND_FADE_TARGET), a
-        ld      (SND_FADE_DIRTY), a
-        ld      (SND_TEMPO_CUR), a
-        ld      (SND_TEMPO_TARGET), a
-        ld      (SND_TEMPO_BASE), a
-        // game-feel state (pkg 1): running, no jingle, no armed fade terminal.
-        ld      (SND_PAUSED), a
-        ld      (SND_JINGLE_ACTIVE), a
-        ld      (SND_JINGLE_ID), a
-        ld      (SND_FADE_TERM), a
         // R4: the fade rate pattern is ALWAYS a valid spread byte (never 0 — a
         // zero pattern would never step). Seed the default; Snd_FadeCommand
         // re-latches it per command.
@@ -299,7 +283,8 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_FADE_PATTERN), a
 
         // PRE-FILL the whole 256-byte ring with $80 so the idle/lead-in output is
-        // DC-center silence (no click, no garbage).
+        // DC-center silence (no click, no garbage). (The ring RD/WR pointers and
+        // SND_STAT_DAC_ACTIVE were zeroed by the state-block sweep above.)
         ld      hl, SND_RING_BASE
         ld      b, 0                    // 256 bytes (b=0 -> djnz runs 256x)
         ld      a, $80
@@ -307,12 +292,6 @@ section z80_sound_driver (cpu: z80) {
         ld      (hl), a
         inc     hl
         djnz    .fill_ring
-
-        // ring pointers idle at 0; no sample active yet.
-        xor     a
-        ld      (SND_RING_RD), a
-        ld      (SND_RING_WR), a
-        ld      (SND_STAT_DAC_ACTIVE), a // DAC inactive until a play request
 
         // Seed the SetBank cache with an impossible bank id ($FF) so the first
         // play's SetBank always switches (the cached-no-op check never matches).
@@ -729,6 +708,19 @@ section z80_sound_driver (cpu: z80) {
         ld      a, (SND_STAT_ACK_COUNT)
         inc     a
         ld      (SND_STAT_ACK_COUNT), a
+        ret
+    }
+
+    // --- Snd_ZeroBlock — zero `b` bytes at (hl). The init/arm RAM-clear
+    // workhorse (pkg-1 reclaim: four rolled sweeps replace ~30 individual
+    // `ld (nn), a` stores in SndDrv_Init + Snd_LoadSong's .arm). Touches RAM
+    // only; flag-transparent (ld/inc16/djnz write no flags), so callers may
+    // carry live flags across it. In: hl = base, b = count (1..255).
+    pub proc Snd_ZeroBlock () clobbers(b, hl) preserves(a, c, de, ix, iy) {
+    .z:
+        ld      (hl), 0
+        inc     hl
+        djnz    .z
         ret
     }
 
@@ -1405,25 +1397,14 @@ section z80_sound_driver (cpu: z80) {
         // set-default-duration opcode reloads sc_dur_count from this. At 0 the next
         // `dec (ix+sc_dur_count)` wraps 0->255 = a multi-second stuck note.
         ld      (ix+sc_dur_default), 1
-        // PSG vol-env starts disabled (id 0); cursor/out cleared so a no-env PSG
-        // channel folds a 0 delta. .chan_init sets fields individually (no bulk
-        // clear), so these MUST be cleared here or a stale env id would spuriously
-        // shape a music PSG channel.
-        ld      (ix+sc_psgenv), 0
-        ld      (ix+sc_psgenv_cur), 0
-        ld      (ix+sc_psgenv_out), 0
-        ld      (ix+sc_noise_mode), 0   // noise mode unset until MEV_PSGNOISE
-        // pitch-mod block: zero ONLY the gate field — sc_mod_ctrl==0 keeps every
-        // Mod_* path inert.
-        ld      (ix+sc_mod_ctrl), 0
-        ld      (ix+sc_detune), 0       // fine-detune neutral (reserved)
-        // portamento OFF for a fresh song (sc_porta_incr = the persistent glide rate;
-        // nonzero = armed). sc_porta_accum is seeded by the first note-on, but zero it
-        // for cleanliness/determinism.
-        ld      (ix+sc_porta_incr), 0
-        ld      (ix+(sc_porta_incr+1)), 0
-        ld      (ix+sc_porta_accum), 0
-        ld      (ix+(sc_porta_accum+1)), 0
+        // ZERO-DEFAULT FIELDS COME FREE (pkg-1 reclaim): the .seq_clr LDIR wipe
+        // above zeroed the WHOLE channel block ($1A00..SND_SEQ_END), so every
+        // field whose fresh-song value is 0 — the PSG vol-env id/cursor/out
+        // (disabled), sc_noise_mode (unset until MEV_PSGNOISE), sc_mod_ctrl
+        // (every Mod_* path inert), sc_detune (neutral), and the portamento
+        // rate/accumulator (off) — is ALREADY correct here. The ten per-field
+        // `ld (ix+d), 0` stores this loop used to carry (~40 resident bytes)
+        // predated that wipe; only NONZERO seeds are written below.
         // tempo gate: mod from the header (SH_TEMPO_MOD), accumulator SEEDED = mod —
         // mirroring S3K's song init EXACTLY (zTempoAccumulator = zCurrentTempo =
         // header tempo). For mod < $80 frame 0 adds mod+mod with no carry -> the
@@ -1470,18 +1451,18 @@ section z80_sound_driver (cpu: z80) {
         // song after a fade-out would play SILENT). Tempo globals -> the song's
         // AUTHORED header mod (so a stale Sound_SetTempo ramp can't leak in and a $FF
         // "restore" request returns to THIS song's authored rate).
+        // One rolled sweep zeroes the whole expression + game-feel block
+        // ($1CCC-$1CD6): fade -> full volume/idle, tempo globals (re-seeded from
+        // the header just below), and the pkg-1 game-feel resets — a NEW song
+        // always starts RUNNING and clean. A stale armed terminal would
+        // stop/pause the new song the moment the (already-at-target) ramp is
+        // next polled; a stale pause would freeze it on frame one; a stale
+        // jingle flag would phantom-pop over it. The comm cue byte is per-song
+        // score state (separate store — it lives in the status region).
+        ld      hl, SND_MASTER_FADE
+        ld      b, SND_FADE_TERM - SND_MASTER_FADE + 1
+        call    Snd_ZeroBlock
         xor     a
-        ld      (SND_MASTER_FADE), a
-        ld      (SND_FADE_TARGET), a
-        ld      (SND_FADE_DIRTY), a
-        // game-feel resets (pkg 1): a NEW song always starts RUNNING and clean.
-        // A stale armed terminal would stop/pause the new song the moment the
-        // (already-at-target) ramp is next polled; a stale pause would freeze it
-        // on frame one; a stale jingle flag would phantom-pop over it; the comm
-        // cue byte is per-song score state.
-        ld      (SND_FADE_TERM), a
-        ld      (SND_PAUSED), a
-        ld      (SND_JINGLE_ACTIVE), a
         ld      (SND_STAT_COMM), a
         // R4: keep the fade rate pattern valid (default rate) for the new song.
         ld      a, SND_FADE_PAT_DEFAULT
