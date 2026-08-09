@@ -292,6 +292,32 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
 }
 
 // -----------------------------------------------
+// PageCache_FreeFrame — B&R rollback twin of AllocFrame: return a DETACHED frame
+// (pf_page $FFFF, in no reclaim list) to the free list. A dispatch that
+// allocated but could not start/queue its page-in MUST hand the frame back —
+// a detached frame is unreachable from both reclaim lists AND exempt from the
+// orphan audit (its $FFFF skip covers the in-flight frame), so a leak here is
+// permanent and invisible until PageCache_Init.
+// In: d0.b = frame (preserved)   Out: none   Clobbers: d1-d2/a3
+// -----------------------------------------------
+pub proc PageCache_FreeFrame (d0: u8) clobbers(d1-d2/a3) {
+        lea     Page_Frames, a3
+        moveq   #0, d1
+        move.b  d0, d1
+        lsl.w   #3, d1                           // frame byte offset
+    if DEBUG == 1 {
+        cmpi.w  #$FFFF, PF_PAGE(a3, d1.w)       // only a DETACHED frame may be freed
+        beq     .detached_ok
+        raise_error "PageCache_FreeFrame: frame not detached (pf_page != $FFFF)"
+    .detached_ok:
+    }
+        move.b  Page_Free_Head, d2                  // (via d2: abs+indexed in one op is a sigil gap)
+        move.b  d2, PF_NEXT(a3, d1.w)               // frame.next = old free head
+        move.b  d0, Page_Free_Head                  // free head = frame
+        rts
+}
+
+// -----------------------------------------------
 // PageCache_Publish — mark a just-landed page resident in its frame. Called by
 // engine.page_in the instant a page's VRAM landing DMA is enqueued. Fills
 // Page_Table, stamps the frame's page id, applies the manifest's pinned flag, links
@@ -531,6 +557,15 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
 // In: none   Out: none   Clobbers: () — preserves d0-d7/a0-a6
 // -----------------------------------------------
 pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
+        // FULLY-RESIDENT degenerate path (§9.7): when the whole pool fits the
+        // frame clamp (latched by Level_LoadArt), the bulk load ends with every
+        // page permanently resident — nothing this scan could ever find is
+        // non-resident, so the entire ahead-strip word walk (up to ~6 blocks x
+        // 256 words per moving frame) is pure waste. One tst deletes it for
+        // every act that fits, i.e. all shipped content; streaming acts fall
+        // through.
+        tst.b   PageIn_Fully_Resident
+        bne     .ret
         // DEMAND-FIRST discipline (chain 74): while the fill has an unresolved demand
         // stall, speculative prefetch must NOT enqueue — it would compete for the scarce
         // dynamic frames the demand needs and churn pointless decode/evict cycles. One

@@ -679,7 +679,11 @@ pub vars upper_ram {
     PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)
     PageIn_Pool_Pages:      u16,        // current act's pool page count (set by Level_LoadArt) — dispatch page-id bound;
                                         // resolve-context source that does NOT depend on the flaky Current_Act_Ptr
-    pad(2),                             // keep the u32s below long-aligned
+    PageIn_Fully_Resident:  u8,         // nonzero = pool_pages <= PAGE_FRAMES_CLAMP (latched by Level_LoadArt):
+                                        // the whole pool is permanently resident after the bulk load, so
+                                        // PageCache_Prefetch early-outs — its ahead-strip scan can never find a
+                                        // non-resident page (§9.7 degenerate path, all shipped content)
+    pad(1),                             // keep the u16s below even-aligned (consumes half the former pad)
 
     // --- Art-streaming P2b Task 7: page prefetch + D3 trailing-lag admission gate ---
     // RELEASE (the streaming path is present in every shape). The D3 gate gates

@@ -68,11 +68,10 @@ pub proc Init_DMA_Queue () clobbers(d0-d1/a0) {
 //      The carry is pinned AFTER the caller's SR is restored — the restore
 //      would otherwise overwrite it and every carry-checking caller would
 //      read garbage (see the andi/ori-to-ccr sites in the core).
-//      Known remaining edge: a 128KB split with only one free slot enqueues
-//      the first half and returns carry CLEAR — atomic split rollback is the
-//      art-streaming plan's rollback work, out of scope here (ledgered).
-//      Vanishingly rare for dplc (a small source can still straddle a 128KB
-//      boundary), not impossible.
+//      A 128KB split needs TWO free slots: with only one, the whole transfer
+//      is rejected (carry SET, byte charge rolled back — .split_reject).
+//      Enqueueing just the first half with carry CLEAR would publish
+//      half-landed data (page_in marks pages RESIDENT on carry-clear).
 // Clobbers: d0-d4, a1-a2 — the exhaustive license; everything outside it is
 //      contractually preserved. Callers rely on exactly this set (dplc's
 //      Perform_DPLC* skip saving a3 across the call), so widening it means
@@ -196,7 +195,7 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         // Need two free slots — check room for second entry
         subi.w  #sizeof(DMAEntry), d4           // d4 = start of last slot
         cmpa.w  d4, a1
-        bhs     .finish_entry                   // only one slot — finish first part
+        bhs     .split_reject                   // only one slot — reject BOTH halves
 
         // Second part parameters
         sub.w   d0, d3                          // d3 = second part length (words)
@@ -220,6 +219,23 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
 
         move.w  (sp)+, sr
         andi.b  #$FE, ccr                       // carry CLEAR = both split entries enqueued OK
+        rts
+
+    .split_reject:
+        // ONE free slot cannot hold a boundary-crossing transfer. Enqueueing just
+        // the first half with carry CLEAR published half-landed data — carry-clear
+        // means "the WHOLE transfer is queued" (page_in marks a page RESIDENT on
+        // it; the tail of the frame kept the evicted page's art, silently). The
+        // slot's partial field writes are harmless without the cursor advance.
+        // Roll back the committed byte charge and reject like a full queue; every
+        // caller's carry path retries next frame.
+        add.w   d3, d3                          // length words -> bytes (whole transfer)
+        sub.w   d3, DMA_Enq_Bytes_Frame         // roll back the byte-cap charge
+        if DEBUG == 1 {
+            addq.w  #1, DMA_Overflow_Count
+        }
+        move.w  (sp)+, sr
+        ori.b   #1, ccr                         // carry SET = request dropped (split needs 2 slots)
         rts
 }
 

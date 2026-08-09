@@ -11,7 +11,7 @@
 module engine.load_art in load_art
 
 use engine.structs.{Act}
-use engine.constants.{ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0, DMA_BUDGET_BLANKED_INIT, PGRQ_BULK}
+use engine.constants.{ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0, DMA_BUDGET_BLANKED_INIT, PGRQ_BULK, PAGE_FRAMES_CLAMP}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // S4LZ_Decompress / ZX0_Decompress (engine.s4lz / engine.zx0),
@@ -114,6 +114,16 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         move.w  Act.act_art_pool_pages(a4), d6      // d6.w = page count
         move.w  d6, PageIn_Pool_Pages               // store the page count: dispatch page-id bound
                                                     // (resolve-context source independent of Current_Act_Ptr)
+        // Latch the §9.7 degenerate-path flag: pool fits the frame clamp ->
+        // permanently fully resident after this bulk load -> PageCache_Prefetch
+        // early-outs its ahead-strip scan for the whole act (nothing it could
+        // find is ever non-resident). Streaming acts (pool > clamp) leave it 0.
+        clr.b   PageIn_Fully_Resident
+        cmpi.w  #PAGE_FRAMES_CLAMP, d6
+        bhi     .streaming_pool
+        st.b    PageIn_Fully_Resident
+    .streaming_pool:
+        tst.w   d6
         beq     .bg                                 // empty pool -> straight to BG
 
         // Point the dispatcher at this act's page-address table (FIFO resolution base).
