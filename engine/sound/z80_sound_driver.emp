@@ -147,8 +147,8 @@ const SND_FADE_PAT_DEFAULT   = $FF                    // rate 7: step every fram
 // starting at this attenuation (ramps to 0 at the default rate).
 const JINGLE_RESUME_FADE     = $28
 
-use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll}
-use engine.sound_sfx.{Sfx_StopAll, SfxDispatch}
+use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll, Seq_SilenceMusicVoices}
+use engine.sound_sfx.{Sfx_StopAll, SfxDispatch, Sfx_UnpauseRestore}
 
 section z80_sound_driver (cpu: z80) {
 
@@ -636,6 +636,13 @@ section z80_sound_driver (cpu: z80) {
     .music_stop:
         // Timer A stays RUNNING: it is the whole-driver frame clock, not the music
         // clock. An idle tick with SND_SEQ_ACTIVE=0 is a cheap early-out.
+        // STOP WINS (pkg 1 spec §4 edge): a stop while paused clears the pause
+        // (and any jingle/terminal bookkeeping) — otherwise the next song would
+        // start frozen, or a dead jingle would phantom-pop over silence.
+        xor     a
+        ld      (SND_PAUSED), a
+        ld      (SND_JINGLE_ACTIVE), a
+        ld      (SND_FADE_TERM), a
         call    Sequencer_StopAll       // key-off FM + silence PSG + clear active flag
         call    Sfx_StopAll             // clear overrides + kill SfxChannels + queue/duck
         ld      hl, SND_REQ_MUSIC
@@ -673,6 +680,14 @@ section z80_sound_driver (cpu: z80) {
         ld      hl, SND_REQ_TEMPO
         call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
     .no_tempo:
+        // transport ctrl? (1 pause-music / 2 unpause / 3 pause-all / 4 unpause-all).
+        ld      a, (SND_REQ_CTRL)
+        or      a
+        jr      z, .no_ctrl
+        call    Snd_CtrlCommand         // pause/unpause (RAM + chip; bank-safe)
+        ld      hl, SND_REQ_CTRL
+        call    Snd_AckSlot             // clear slot (consumed) + bump ACK_COUNT
+    .no_ctrl:
         // sample request? (id -> DacSampleTable[id-1] -> Snd_StartSample).
         ld      a, (SND_REQ_SAMPLE)
         or      a
@@ -776,6 +791,70 @@ section z80_sound_driver (cpu: z80) {
         ld      a, SND_FADE_DELAY
         ld      (SND_FADE_DELAY_CTR), a
         ret
+    }
+
+    // --- Snd_CtrlCommand — transport control (pkg 1 §4). a = SND_CTRL_*:
+    // 1 pause-music / 2 unpause-music / 3 pause-all / 4 unpause-all; unknown
+    // codes are ignored. Idempotent by construction: the state writes are
+    // absolute, the mute sweep and the resume restore are both safe to repeat.
+    // Codes 2 and 4 share one resume path (the SFX side has no state to
+    // restore — the pause-all freeze simply stops calling Sfx_Frame).
+    // RESIDENT; RAM + chip + (on resume) banked patch reads via the wrapper's
+    // bank discipline. Clobbers af,bc,de,hl,ix,iy (folds the resume restore).
+    pub proc Snd_CtrlCommand () clobbers(af, bc, de, hl, ix, iy) {
+        cp      SND_CTRL_PAUSE_MUSIC
+        jr      z, Snd_PauseMusic
+        cp      SND_CTRL_PAUSE_ALL
+        jr      z, .pause_all
+        cp      SND_CTRL_UNPAUSE_MUSIC
+        jr      z, .unpause
+        cp      SND_CTRL_UNPAUSE_ALL
+        ret     nz                      // unknown code -> ignore
+    .unpause:                           // codes 2 and 4 share the resume path
+        jp      Snd_ResumeMusic
+    .pause_all:
+        ld      a, SND_PAUSED_ALL
+        jr      Snd_PauseMusic.pause_common
+    }
+
+    // --- Snd_PauseMusic — pause-music entry (also the fade-terminal-2 target
+    // and the jingle-push freeze). Freeze-in-place: set SND_PAUSED, then mute
+    // the chip (key-offs + pan gates + PSG attenuation) WITHOUT touching any
+    // SeqChannel state — the streams resume exactly where they froze.
+    // Clobbers af,bc,hl (= the mute sweep's set).
+    pub proc Snd_PauseMusic () clobbers(af, bc, hl) preserves(de, ix, iy) {
+        ld      a, SND_PAUSED_MUSIC
+    export .pause_common:               // entry with a = the SND_PAUSED_* scope
+        ld      (SND_PAUSED), a
+        jp      Seq_SilenceMusicVoices  // chip mute; sequencer state untouched
+    }
+
+    // --- Snd_ResumeMusic — shared unpause tail (pkg 1 §4; also the jingle
+    // pop's resume). SND_PAUSED = 0, then repair what the mute sweep closed:
+    // re-seed the dedicate DAC pan ($B6 = $C0, Snd_LoadSong's seed repeated —
+    // an ADAPTIVE song's FM6 is a music channel whose patch re-upload below
+    // re-derives $B6 instead), and re-upload the FM music voices + pan shadows
+    // (Sfx_UnpauseRestore). Held notes stay silent until their next musical
+    // event (spec §4 honest-resume; SCF_KEYED untouched).
+    pub proc Snd_ResumeMusic () clobbers(af, bc, de, hl, ix, iy) {
+        xor     a
+        ld      (SND_PAUSED), a
+        ld      a, (SND_FM6_ADAPTIVE)
+        or      a
+        jr      nz, .fm6_owned          // adaptive -> FM6's own patch re-derives $B6
+        ld      a, SND_REG_LR_AMS_FMS+2 // $B6 (ch6 L/R/AMS/FMS), part II
+    .b6_addr:
+        ld      (SND_Z80_YM_A2), a      // $4002 = reg select (part II)
+        nop                             // inter-write delay (no busy-poll), as Fm_YmWrite
+        ld      a, $C0                  // L+R on, AMS=FMS=0 -> the dedicate default
+    .b6_data:
+        ld      (SND_Z80_YM_A3), a      // $4003 = data
+    .fm6_owned:
+        jp      Sfx_UnpauseRestore      // FM voice re-upload + shadow zero (tail-call)
+
+        // YM address->data spacing, machine-checked (the direct part-II pair).
+        ensure(cycles(.b6_addr, .b6_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Snd_ResumeMusic $B6 re-seed: address->data gap is under the YM2612 floor")
     }
 
     // --- Snd_DacLookup — map a 1-based DAC sample id (in `a`) to its descriptor

@@ -1406,6 +1406,57 @@ section sound_sfx (cpu: z80) {
         ret
     }
 
+    // ----------------------------------------------------------------------
+    // Sfx_UnpauseRestore — resume-side voice restore (pkg 1 §4/§5). The pause
+    // mute (Seq_SilenceMusicVoices) keyed every FM voice off and CLOSED the six
+    // $B4 pan gates, and nothing re-opens a gate on its own: pan renders
+    // write-on-change (sc_pan vs sc_last_pan — both 0 on a never-panned
+    // channel), and an FM note-on does not re-derive $B4. So on unpause, for
+    // every ACTIVE, non-overridden FM MUSIC channel: re-upload its voice
+    // (Fm_PatchPtr + Fm_PatchLoad — re-opens the patch's own $B4 incl. AMS/FMS),
+    // zero the pan shadow (a song-commanded MEV_PAN re-asserts next ModUpdate
+    // frame — the Sfx_Restore idiom), and re-apply its volume. Held notes are
+    // NOT re-keyed (spec §4 honest-resume: silent until their next musical
+    // event). PSG needs no restore (the next note-on re-writes tone +
+    // attenuation). Overridden voices belong to a live SFX; Sfx_Restore
+    // re-uploads them when that SFX ends.
+    // BANK: patch reads go through the $8000 window — bank SFX_BLOB_BANK in
+    // (co-located with the song/patch bank; the Sfx_Frame precedent). Reached
+    // from the mailbox context, whose banked wrapper re-latches the resumed
+    // context's bank on exit.
+    // ----------------------------------------------------------------------
+    // Contract: clobbers af,bc,de,hl,ix (the Fm_* callees preserve ix; the
+    // walker itself re-points it).
+    pub proc Sfx_UnpauseRestore () clobbers(af, bc, de, hl, ix) {
+        ld      a, SFX_BLOB_BANK
+        call    SndDrv_SetBank          // window -> patch bank (cached no-op if current)
+        ld      a, (SND_SEQ_CHCOUNT)
+        or      a
+        ret     z                       // no channels loaded -> nothing to restore
+        ld      b, a
+        ld      ix, SND_SEQ_CHANNELS
+    .chan:
+        bit     SCF_ACTIVE_B, (ix+sc_flags)
+        jr      z, .next
+        bit     SCF_SFX_OVERRIDE_B, (ix+sc_flags)
+        jr      nz, .next               // a live SFX owns this voice -> its Restore re-uploads
+        bit     SCF_IS_FM_B, (ix+sc_flags)
+        jr      z, .next                // PSG/DAC: the next note-on re-writes everything
+        push    bc                      // the Fm_* callees clobber bc
+        call    Fm_PatchPtr             // hl = FmPatch ptr (SND_SEQ_PATCHTAB, window)
+        call    Fm_PatchLoad            // re-upload the voice (re-opens the patch $B4 gate)
+        xor     a
+        ld      (ix+sc_last_pan), a     // MEV_PAN re-asserts next frame (write-on-change)
+        ld      a, (ix+sc_volume)
+        call    Fm_SetVolume            // carrier TLs back at the channel's loudness
+        pop     bc
+    .next:
+        ld      de, SeqChannel_len
+        add     ix, de
+        djnz    .chan
+        ret
+    }
+
     // ======================================================================
     // THE SFX VOICE MAP — authored ONCE as two comptime arrays, emitted FOUR ways.
     //
