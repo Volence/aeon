@@ -13,6 +13,7 @@ use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_CO
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL, STALL_WATCHDOG_FRAMES}
+use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
 // decl; its contract (a4=dict base, d4.w=dict len preserved, clobbers
@@ -63,6 +64,33 @@ comptime fn decompose_block(col: Reg, row: Reg) -> Code {
         lsl.w   #4, d3
         add.w   d2, d3
         move.w  d3, d2                         // block_index = block_y*16 + block_x
+    }
+}
+
+// art_hold_edge_check — the P2c Task 10 camera soft-clamp signal. Called at a
+// demand-stall exit (Cache_Art_Stall known set) with d5 = the stalled cell (the
+// world tile COLUMN at .fc_budget_out / ROW at .fr_budget_out). Derives the axis'
+// visible leading cell from {cam} (16.16 world coord: swap→pixels, >>3→tiles) and
+// sets {hold_bit} in Camera_Art_Hold iff the stalled cell sits within
+// CLAMP_MARGIN_TILES of the visible window on that axis — i.e. the not-yet-resident
+// art is close enough to become visible (the fill frontier runs up to
+// TILE_CACHE_MARGIN_H/V tiles ahead, so a stall deep in that margin has slack and
+// does NOT hold). Symmetric across leading/trailing edges (relative cell in
+// [-MARGIN, screen_tiles+MARGIN]). Clobbers d0/d1; reads d5; preserves everything
+// else — the two callers set d0=1 for the partial return AFTER this. File-local.
+comptime fn art_hold_edge_check(cam: Label, screen_tiles: int, hold_bit: int) -> Code {
+    return asm {
+        move.l  {cam}, d0
+        swap    d0
+        lsr.w   #3, d0                          // d0.w = camera leading cell (tile)
+        move.w  d5, d1
+        sub.w   d0, d1                          // d1 = stalled cell - camera lead (relative tile)
+        cmpi.w  #-CLAMP_MARGIN_TILES, d1
+        blt     .no_hold                        // stall trails the window by > margin — slack
+        cmpi.w  #{screen_tiles + CLAMP_MARGIN_TILES}, d1
+        bgt     .no_hold                        // stall leads the window by > margin — slack
+        ori.b   #{1 << hold_bit}, Camera_Art_Hold
+    .no_hold:
     }
 }
 
@@ -796,6 +824,12 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // P2b Task 6: a fresh demand-stall flag each fill pass (a copy-site
         // non-resident page sets it; the fills consume it as a partial return).
         clr.w   Cache_Art_Stall
+        // P2c Task 10: the camera soft-clamp hold is re-derived from scratch every
+        // fill pass. Clear here (after the same-frame early-out at .fill_return, so a
+        // re-entry never wipes a valid hold); the stall sites re-set per-axis bits
+        // below. A pass that resolves the stall leaves the word 0 -> the camera moves
+        // again next frame (the "cleared the frame the stall resolves" contract).
+        clr.b   Camera_Art_Hold
     if DEBUG == 1 {
         // Periodic residency audit — recompute every frame's refcount from the
         // whole nametable and compare (PAGECACHE_AUDIT_INTERVAL = 128 frames; a
@@ -1434,6 +1468,13 @@ pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
     .fc_budget_out:
         move.w  d5, Cache_Fill_Resume_Col
         move.w  d7, Cache_Fill_Resume_Row
+        // P2c Task 10: this exit is reached on BOTH a plain budget-out (:beq above)
+        // and a demand stall (:bne on Cache_Art_Stall). Only a stall near the X edge
+        // holds the camera. d5 = the stalled column.
+        tst.w   Cache_Art_Stall
+        beq     .fc_no_xhold
+        art_hold_edge_check(Camera_X, SCREEN_TILES_W, ART_HOLD_X_BIT)
+    .fc_no_xhold:
         moveq   #1, d0
         rts
 
@@ -1761,6 +1802,12 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         addq.l  #4, sp
         move.w  d5, Cache_Fill_RowResume_Row
         move.w  d7, Cache_Fill_RowResume_Col
+        // P2c Task 10: reached on plain budget-out AND demand stall; only a stall
+        // near the Y edge holds the camera. d5 = the stalled row.
+        tst.w   Cache_Art_Stall
+        beq     .fr_no_yhold
+        art_hold_edge_check(Camera_Y, SCREEN_TILES_H, ART_HOLD_Y_BIT)
+    .fr_no_yhold:
         moveq   #1, d0
         rts
 

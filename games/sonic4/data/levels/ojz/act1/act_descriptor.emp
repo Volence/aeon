@@ -19,7 +19,7 @@ use engine.structs.{Act, Sec}
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
 // the u8 field directly (a link-folded extern could not — the old mirror note).
-use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TILE_CEILING}
+use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TILE_CEILING, ART_POOL_PAGE_BYTES}
 
 // Generated interior-island manifests: the art-pool page count/tile
 // total and the per-section block-dict lengths are `.emp` const modules the
@@ -78,6 +78,16 @@ ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
 ensure(MAX_ACT_SECTIONS * sizeof(Sec) <= $7FFF,
        "MAX_ACT_SECTIONS ({MAX_ACT_SECTIONS}) x sizeof(Sec) ({sizeof(Sec)}) exceeds $7FFF: Section_GetSecPtrXY adda.w sign-extends and wraps — widen the adda or pre-multiply flat_id as a long")
 
+// P2c Task 10 RIDER — sub-page-budget init deadlock guard. Level init bulk-loads
+// the pool at <=1 page/frame while page_in charges each landing against this
+// per-act byte budget; a budget below one page (ART_POOL_PAGE_BYTES) can never
+// admit even a single page, so the display-off load loop would defer forever and
+// never reach gameplay. Written once as a comptime fact so a mis-set descriptor
+// fails HERE, not as a silent boot hang. (2 pages/frame ceiling = 2×2048.)
+const ACT_ART_BUDGET = 4096
+ensure(ACT_ART_BUDGET >= ART_POOL_PAGE_BYTES,
+       "OJZ act 1 art budget {ACT_ART_BUDGET} < one page ({ART_POOL_PAGE_BYTES}) — init page-load would defer forever (deadlock)")
+
 pub data OJZ_Act1_Descriptor: Act = Act{
     sec_grid_ptr:        OJZ_Act1_Sections,
     grid_w:              GRID_W,
@@ -94,7 +104,7 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
     pad_21:              default,
     act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
-    act_art_budget:      4096,                           // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling
+    act_art_budget:      ACT_ART_BUDGET,                  // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling; guarded above
 }
 
 // -----------------------------------------------

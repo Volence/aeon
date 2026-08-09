@@ -317,6 +317,7 @@ pub vars upper_ram {
         Dbg_PageCache_Prefetches: u16,  // PageCache_Request(prefetch) enqueues (page prefetch warms the ahead strip)
         Dbg_PageIn_PfxSkips:    u16,    // speculative decode STARTS skipped by the D3 trailing-lag gate
         Dbg_PageIn_Deferred:    u16,    // page landings deferred by the per-act art budget (P2c Task 9); 0 in normal play
+        Dbg_Cam_Clamp_Frames:   u16,    // frames the camera soft-clamp held an axis (P2c Task 10); 0 in normal play
         // Chain-70 soak diagnostic: dispatch found PageIn_Pool_Table != the immutable act
         // descriptor's base -> a stray write corrupted the cached base. Nonzero CONFIRMS
         // the root cause (the resolve now derives the base from ROM, so gameplay is
@@ -415,7 +416,12 @@ pub vars upper_ram {
     Camera_Hold_Frames:     u8,         // frames the camera holds position (game code sets it;
                                         // Camera_Update tests it each frame to suppress movement,
                                         // then decrements)
-    pad(1),
+    Camera_Art_Hold:        u8,         // art-streaming soft-clamp bits (P2c Task 10): bit
+                                        // ART_HOLD_X_BIT / ART_HOLD_Y_BIT held while a demand-stalled
+                                        // fill leaves not-yet-resident art near the visible edge on
+                                        // that axis. tile_cache sets (per axis) at its stall sites and
+                                        // clears the whole word each fill pass; Camera_Update zeroes a
+                                        // held axis' step. 0 in normal play (OJZ working set == pool).
 
     // --- 2D Tile Cache metadata (§4.7 — .w addressable) ---
     Cache_Left_Col:         u16,        // world tile col of leftmost valid column

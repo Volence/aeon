@@ -360,6 +360,24 @@ pub const SCREEN_HEIGHT = 224
 pub const CAM_SCREEN_HALF_W = 160
 pub const CAM_SCREEN_HALF_H = 112
 
+// Visible screen extent in 8px tiles (camera/tile-cache edge math).
+pub const SCREEN_TILES_W = SCREEN_WIDTH >> 3    // 40
+pub const SCREEN_TILES_H = SCREEN_HEIGHT >> 3   // 28
+
+// --- Art-streaming camera soft-clamp (P2c Task 10) ---
+// When a demand-stalled tile-cache fill leaves not-yet-resident art within
+// CLAMP_MARGIN_TILES tiles of the visible screen edge on an axis, that axis is
+// HELD (max step 0) until the stall resolves — the honorable S3K-gate
+// degradation (the camera waits; player logic runs untouched). tile_cache.emp
+// sets the per-axis bits at its two demand-stall sites, camera.emp consumes them,
+// and the fill re-derives the whole word fresh each pass so it clears the frame
+// the stall resolves. On OJZ the demand-stall path fires only transiently (the
+// cache working set == the pool), so in normal play the word stays 0 and the
+// camera never holds; the fixture (STRESS_EVICT/STRESS_ART) is where it engages.
+pub const CLAMP_MARGIN_TILES = 4                // edge slack (tiles) before a hold engages
+pub const ART_HOLD_X_BIT     = 0                // Camera_Art_Hold: X axis held
+pub const ART_HOLD_Y_BIT     = 1                // Camera_Art_Hold: Y axis held
+
 // Sprite-frame precomputed bbox byte offsets + first-piece offset (mirror
 // engine/constants.asm; FRAME_PIECE_COUNT above completes the header layout).
 pub const FRAME_BBOX_X_MIN = 0              // signed byte — leftmost piece pixel
