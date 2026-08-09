@@ -1183,10 +1183,24 @@ section z80_sound_driver (cpu: z80) {
         ld      h, SND_RING_PAGE        // restore h = $19 (frame clobbered it)
         ld      de, SND_Z80_YM_A1       // restore de = $4001
         // 4. BULK-REFILL: top the lead up to SND_RING_LEAD_TARGET every frame, then
-        // stop at sample end. Does NOT defer on an active 68k DMA — filling THROUGH
-        // the DMA recovers the lead every frame and prevents the underrun (the read
-        // still returns correct data; the DAC is already holding here). Window on
-        // the sample bank (B1 tail); reads via ix.
+        // stop at sample end. Window on the sample bank (B1 tail); reads via ix.
+        // DMA GUARD (user-ruled 2026-08-09, confidence-class exception): banked
+        // ROM reads DURING an active 68k DMA are an address-line-glitch hazard
+        // on real hardware (MDSDRV doc/dma.md documents the failure) — the Z80's
+        // asserted address can tear against the 68k's DMA fetch and return wrong
+        // bytes. Unverifiable in oracle (no cartridge-bus contention model), so
+        // this is accepted on reasoning + MDSDRV's documentation. FAIL-CLOSED:
+        // if the 68k's DMA flag is up, SKIP the whole refill this tick and retry
+        // next tick — the ring lead (SND_RING_LEAD_TARGET ≈ 11 ms) absorbs a
+        // skipped frame with a wide margin, exactly as it absorbs DRAIN. The
+        // same flag the DRAIN path polls per pass (.dma_check above); checked
+        // ONCE per tick here (the ruling's "skip the refill for this tick").
+        // Residual exposure: a DMA that BEGINS mid-refill (sub-frame window) is
+        // unchanged from the pre-fix behavior. Zero cost on the balanced hot
+        // loop; +24 T per tick when no DMA is active.
+        ld      a, (SND_CTRL_DMA_ACTIVE)
+        or      a
+        jr      nz, .refillDone         // 68k DMA in flight -> no ROM reads this tick
     .refill:
         ld      a, b
         sub     c                       // lead = WR - RD
