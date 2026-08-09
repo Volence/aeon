@@ -906,6 +906,14 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         moveq   #0, d1
         move.b  band_entry.band_phase_offset(a1), d1
         add.w   d1, d6
+        // LAYER-anchor the sample index (Harmony study defect #2): fold the FG
+        // plane's vscroll (= camY, Step 5) into the base so the wave rides the
+        // ART, not the screen — without this a vertical scroll slides the art
+        // under a screen-fixed wave. Index math is mod-256 (the &$FF in the
+        // loops), so the fold is phase-safe.
+        move.l  Camera_Y, d1                        // (Camera_Y).w
+        swap    d1
+        add.w   d1, d6
         // BG active too?
         cmpa.w  #0, a6
         beq     .band_fg_only
@@ -918,6 +926,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         moveq   #0, d2
         move.b  band_entry.band_phase_offset(a1), d2
         add.w   Parallax_Deform_Phase_BG, d2        // (Parallax_Deform_Phase_BG).w — d2 = BG phase base
+        add.w   Parallax_Current_Vscroll_BG, d2     // layer-anchor: BG plane vscroll (defect #2)
         swap    d3                                  // d3.w = shift_a, hi = shift_b
         jbra    .lp_both
     .fg_inactive:
@@ -933,6 +942,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         moveq   #0, d2
         move.b  band_entry.band_phase_offset(a1), d2
         add.w   Parallax_Deform_Phase_BG, d2        // (Parallax_Deform_Phase_BG).w
+        add.w   Parallax_Current_Vscroll_BG, d2     // layer-anchor: BG plane vscroll (defect #2)
         jbra    .lp_bg
 
 // --- BOTH: FG and BG sampled per line ---

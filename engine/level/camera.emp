@@ -8,7 +8,7 @@
 module engine.camera in camera
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
-use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
+use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT, ST_ROLLING, CURL_Y_SHIFT}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 use engine.coords.{pixels_to_coord}
@@ -317,6 +317,14 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
 
         move.l  Sst.y_pos(a0), d0
         swap    d0                                 // d0.w = player engine Y
+        // S3K parity (MoveCameraY `subq #5` on Status_Roll): the curl hook drops
+        // y_pos by CURL_Y_SHIFT, so track the STANDING center — otherwise the
+        // camera target steps 5px on every curl/uncurl. Engine-generic: a game
+        // that never sets ST_ROLLING pays one btst.
+        btst    #ST_ROLLING, Sst.status(a0)
+        beq     .no_curl_comp
+        subq.w  #CURL_Y_SHIFT, d0
+    .no_curl_comp:
         move.l  Camera_Y, d1                       // (Camera_Y).w
         swap    d1                                 // d1.w = camera Y pixels
         addi.w  #CAM_SCREEN_HALF_H, d1             // d1 = camera center Y
