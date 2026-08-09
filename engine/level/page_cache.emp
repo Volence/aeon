@@ -482,6 +482,27 @@ proc PageCache_LruLinkTail (d0: u8) clobbers(d1-d2/a3) {
 // -----------------------------------------------
 pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
     if DEBUG == 1 {
+        // Ground-truth snapshot of the residency map (Task-6 mapping-bug debug): a
+        // red-screen freezes this readable copy of the free-list + Page_Table + per-
+        // frame pf_page/pf_lru_next, so the exact corruption is visible in RAM.
+        lea     Page_Audit_Snapshot, a0
+        move.b  Page_Free_Head, (a0)+           // [0]
+        move.b  Page_LRU_Head, (a0)+            // [1]
+        move.b  Page_LRU_Tail, (a0)+            // [2]
+        clr.b   (a0)+                           // [3] pad
+        lea     Page_Table, a1                  // [4..20) = Page_Table[0..15]
+        moveq   #16-1, d0
+    .snap_tab:
+        move.b  (a1)+, (a0)+
+        dbf     d0, .snap_tab
+        lea     Page_Frames, a1                 // [20..50) = per frame: pf_page.lo, pf_lru_next
+        moveq   #PAGE_FRAMES-1, d0
+    .snap_frame:
+        move.b  PF_PAGE+1(a1), (a0)+           // pf_page low byte (page id / $FF when unassigned)
+        move.b  PF_NEXT(a1), (a0)+             // free/LRU forward link
+        lea     sizeof(PageFrame)(a1), a1
+        dbf     d0, .snap_frame
+
         lea     Page_Audit_Scratch, a0          // zero the per-frame scratch counters
         move.w  #PAGE_FRAMES-1, d0
     .zero:

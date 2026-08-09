@@ -103,3 +103,24 @@ binary); the corruption was purely the clobbered staged base.
   consistent-but-wrong mapping would red-screen at init; this particular bug was a
   copy-src regression, not a mapping break, so bijectivity stays clean here.)
 Full mini-ritual: repin + refreeze --ab (chain 63).
+
+## Follow-up: staging-buffer isolation + audit ground-truth snapshot (chain 64, 2026-08-08)
+
+The chain-63 bijectivity check fired at boot: Page_Table[9]=frame 12 while
+pf_page[12]!=9 (page 9 is pinned; pages 0-8 map correctly). The check's field
+arithmetic was disassembled and PROVEN correct against structs.emp (a1=Page_Table
+byte-indexed; frame*8 via lsl#3; pf_page word @ offset 0) — so it is a REAL mapping
+divergence, not a check misread. An exhaustive paper trace + binary verification of
+PageCache_Init's free-list threading (frame i -> pf_lru_next=i+1) and AllocFrame's
+pop say the load is a sequential identity (page 9 -> frame 9); the runtime diverges
+via a corruption not reproducible by static analysis.
+- DEFENSIVE FIX: Art_Staging_Buffer moved LAST in lower_ram. It sat immediately
+  before Page_Table (buffer end == Page_Table base), and the corrupted cells sit
+  right past the buffer; the SLICED bookmark-preempted decode can write past the
+  2048 boundary where the BLOCKING self-test never does. With staging last, any
+  such over-decode lands in the unused Lower_RAM_End..region-end gap, not the tables.
+- GROUND-TRUTH SNAPSHOT (DEBUG): PageCache_Audit now copies Page_Free_Head +
+  Page_LRU_Head/Tail + Page_Table[0..15] + per-frame {pf_page.lo, pf_lru_next} into
+  Page_Audit_Snapshot at entry, so a red-screen freezes the exact residency state
+  for direct reading.
+Full mini-ritual: repin (127 RAM pins moved) + refreeze --ab (chain 64).

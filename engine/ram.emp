@@ -100,16 +100,23 @@ pub vars lower_ram {
     // during gameplay, so it can no longer overlay live tile-cache RAM the way the
     // init-only alias did. A single staging slot (the landing handshake serialises
     // decode vs DMA — see engine/level/page_in.emp).
-    Art_Staging_Buffer: [u8; ART_STAGING_BUFFER_SIZE],                      // 2048 bytes (64-tile page)
-
     // -- Residency cache tables (P2b Task 6, engine.page_cache) --
     // lower_ram (not the tight upper .w window): both are indexed base+offset
     // arrays (the hot copy-loop patch leas a base register regardless of region,
     // so .w-addressability buys nothing) and together they are ~408 B. The hot
     // scalars (LRU/free heads, stall flag) live in upper_ram instead — see there.
+    // PLACED BEFORE Art_Staging_Buffer (Task-6 boot fix): the staging buffer is the
+    // decode target, and the SLICED (bookmark-preempted) decode path can write a
+    // few bytes past the 2048 boundary on a resume where the blocking self-test
+    // never does. With staging LAST in the region, that overrun lands in the unused
+    // Lower_RAM_End..region-end gap instead of corrupting Page_Table's low entries.
     Page_Table:     [u8; PAGE_TABLE_MAX],                                   // 256 bytes — page id -> frame idx / PAGE_NOT_RESIDENT
     Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 15 × sizeof(PageFrame)=8 = 120 bytes
     Page_Queued_Bits: [u8; PAGE_TABLE_MAX / 8],                             // 32 bytes — "page already in the request FIFO" bitset (PageCache_Request dedupe)
+
+    // Art staging LAST in lower_ram: an over-decode spills into the free gap after
+    // Lower_RAM_End, never into the residency tables above.
+    Art_Staging_Buffer: [u8; ART_STAGING_BUFFER_SIZE],                      // 2048 bytes (64-tile page)
 
     mark Lower_RAM_End,
 }
@@ -301,6 +308,12 @@ pub vars upper_ram {
         Dbg_PageCache_Demands:  u16,    // PageCache_Request(demand) enqueues (0 in Task 6 — pool resident)
         Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
         Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
+        // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
+        // compact readable copy of the residency map (Task-6 mapping-bug debug):
+        //   [0]=Page_Free_Head [1]=Page_LRU_Head [2]=Page_LRU_Tail [3]=pad
+        //   [4..4+16)   = Page_Table[0..15]           (page -> frame)
+        //   [20..20+30) = per frame 0..14: pf_page.lo, pf_lru_next  (2 bytes each)
+        Page_Audit_Snapshot:    [u8; 52],
     }
 
     // --- Object System (§3) ---
