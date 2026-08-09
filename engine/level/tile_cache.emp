@@ -12,7 +12,7 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COL
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
-use engine.constants.{PAGECACHE_AUDIT_INTERVAL}
+use engine.constants.{PAGECACHE_AUDIT_INTERVAL, STALL_WATCHDOG_FRAMES}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
 // decl; its contract (a4=dict base, d4.w=dict len preserved, clobbers
@@ -774,6 +774,24 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         clr.w   Cache_Pfx_Lag_Flag
     .fg_lag_done:
         move.w  d0, Cache_Fill_Last_Frame
+
+    if DEBUG == 1 {
+        // DEMAND-STALL WATCHDOG (chain 74). Cache_Art_Stall still set here => the
+        // PREVIOUS frame's fill demand-stalled and did not resolve. Count consecutive
+        // stalled frames; if the fill can never make progress (working set exceeds the
+        // dynamic frames) raise LOUD rather than hang on a silent black screen (the
+        // soak gate requires "no deadlock in the demand-stall path").
+        tst.w   Cache_Art_Stall
+        bne     .stall_wd_count
+        clr.w   Cache_Stall_Watchdog            // fill did not stall last frame -> reset
+        bra     .stall_wd_done
+    .stall_wd_count:
+        addq.w  #1, Cache_Stall_Watchdog
+        cmpi.w  #STALL_WATCHDOG_FRAMES, Cache_Stall_Watchdog
+        blo     .stall_wd_done
+        raise_error "demand stall unresolved > watchdog frames - working set exceeds dynamic frames?"
+    .stall_wd_done:
+    }
 
         // P2b Task 6: a fresh demand-stall flag each fill pass (a copy-site
         // non-resident page sets it; the fills consume it as a partial return).

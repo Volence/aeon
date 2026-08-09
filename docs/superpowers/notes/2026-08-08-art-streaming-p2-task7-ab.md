@@ -192,3 +192,32 @@ the first frame — fatal for a pinned page.
 
 Rebuilt green: `s4.bin` crc=bcabfac7 (414162 B), `s4.debug.bin` crc=eda7fcdd (427534 B),
 `s4.stress.bin` crc=06c0c12f (427534 B).
+
+## Chain 74 — clamp too tight: black-screen livelock (chain-68 concern #1 realized)
+
+Chain-73 soak: BLACK-SCREEN livelock at init, no assert, counters climbing without bound
+(Preempts 682->1736, Prefetches 1366->3474 seconds apart; Demands=0, Lag=0). This is the
+chain-68 report's predicted concern #1 — as a LIVELOCK, not a red screen. Clamp 6 =
+4 pinned + 2 dynamic frames; the init fill's working set needs >2 dynamic pages
+simultaneously, so pages thrash through the two dynamic frames and the fill never
+completes (display never enables). The thrash assert only fires on AllocFrame's empty-LRU
+path, not the churn-with-a-victim path, so it stayed silent.
+
+**Three fixes (all in scope):**
+1. **Recalibrate the fixture** (the knob predicted in the chain-68 report): `STRESS_EVICT_FRAMES`
+   6 -> 8 (4 pinned + 4 dynamic). Still forces continuous eviction on OJZ's 10 pages, but
+   leaves the fill a workable dynamic set. Fixture still isolates to 2 bytes (clamp +
+   checksum).
+2. **Loud livelock** (DEBUG stall watchdog): `Tile_Cache_Fill` counts consecutive frames
+   `Cache_Art_Stall` stays set (`Cache_Stall_Watchdog` @FFFF8A32) and raise_errors at
+   `STALL_WATCHDOG_FRAMES` (300, ~5 s) - "demand stall unresolved > watchdog frames -
+   working set exceeds dynamic frames?". A silent black hang is the worst failure mode;
+   the soak gate requires "no deadlock in the demand-stall path", so the engine self-reports.
+3. **Demand-first discipline**: `PageCache_Prefetch` returns immediately when
+   `Cache_Art_Stall` is set (verified: `tst.w $a8e6; bne .ret` @0x7BBE) - speculative
+   prefetch must not compete for the scarce dynamic frames a pending demand needs, nor
+   churn pointless decode/evict cycles. One flag test; per-tier priority, not an arbiter
+   (D2 honored).
+
+Rebuilt green: `s4.bin` crc=e677f7c5 (414162 B), `s4.debug.bin` crc=ec1039e6 (427611 B),
+`s4.stress.bin` crc=49af46bb (427611 B).
