@@ -134,6 +134,10 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // run, so the Important/Deferrable drain sees the true blanking-window
             // headroom left — not the whole window as if nothing had run.
             move.w  (DMA_Budget_Default).w, (DMA_Budget_Remaining).w    // widths pinned: mem-to-mem two-symbolic operands need both widths spelled
+            // Vectorman dual cap (P2c Task 8): clear the frame's enqueue-side running
+            // byte total. Every QueueDMA_* enqueue charges it; over DMA_ENQ_BYTE_CAP the
+            // enqueue is rejected like a full queue. Reset here beside the drain-window budget.
+            clr.w   (DMA_Enq_Bytes_Frame).w
 
             jbsr    Flush_VDP_Shadow
 

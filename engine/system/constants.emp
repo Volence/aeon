@@ -456,6 +456,20 @@ pub const DMA_BUDGET_NTSC = 6144
 pub const DMA_BUDGET_PAL  = 11648
 
 // -----------------------------------------------
+// Enqueue-side DMA byte cap (Vectorman dual cap, Art-streaming P2c Task 8). The
+// three QueueDMA_* classes share a per-frame running byte total
+// (DMA_Enq_Bytes_Frame, reset in VInt_Level beside DMA_Budget_Remaining); an
+// enqueue whose bytes would push the total over this cap is REJECTED exactly like
+// a full queue (carry set — callers already retry next frame). Set ABOVE the drain
+// window budgets so it only catches a runaway enqueue STORM (a producer flooding
+// the queue faster than the window can drain), never normal traffic. The entry-
+// count cap (the queue slots) is the first half of the dual cap; this is the byte
+// half. A per-tier admission cap on ONE resource (DMA bytes), NOT a unified arbiter
+// (D2) — it builds no shared cost ledger.
+// -----------------------------------------------
+pub const DMA_ENQ_BYTE_CAP = 12288
+
+// -----------------------------------------------
 // Decompression / art staging.
 // -----------------------------------------------
 pub const TILE_SIZE = 32                          // bytes per 8x8 4bpp tile

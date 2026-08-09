@@ -213,6 +213,10 @@ pub vars upper_ram {
 
     DMA_Budget_Default:     u16,        // per-frame byte budget (set at boot)
     DMA_Budget_Remaining:   u16,        // remaining bytes this frame
+    DMA_Enq_Bytes_Frame:    u16,        // Vectorman dual cap (P2c Task 8): running enqueue-side byte
+                                        // total this frame, reset in VInt_Level beside
+                                        // DMA_Budget_Remaining. Every QueueDMA_* enqueue charges it;
+                                        // over DMA_ENQ_BYTE_CAP -> enqueue rejected (carry) like a full queue.
 
     // --- RAM Buffers and Dirty Flags (§1.3) ---
     Palette_Buffer:         [u8; 128],  // 4 lines × 32 bytes
@@ -280,6 +284,7 @@ pub vars upper_ram {
         DMA_Peak_Important:     u16,
         DMA_Peak_Deferrable:    u16,
         DMA_Overflow_Count:     u16,
+        Dbg_DMA_Enq_Capped:     u16,    // enqueues rejected by the byte cap (P2c Task 8); 0 in normal play
         Lag_Frame_Count:        u32,
 
         Prof_RunObjects:        u16,    // V counter lines spent in RunObjects

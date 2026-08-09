@@ -7,7 +7,7 @@
 module engine.dma_queue in dma_queue
 
 use engine.structs.{DMAEntry}
-use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL}
+use engine.constants.{DMA_CRITICAL_SLOTS, DMA_TOTAL_SLOTS, VDP_CTRL, DMA_ENQ_BYTE_CAP}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm_reg}
 use engine.irq.{vblank}
 
@@ -121,6 +121,21 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         cmpa.w  d4, a1
         beq     .full
 
+        // Vectorman byte cap (P2c Task 8): charge this transfer's bytes against the
+        // frame's running enqueue total. d3 is STILL the byte length here (converted to
+        // words below). Compute-then-commit = an atomic charge for the WHOLE transfer,
+        // so a 128KB split (one transfer, two entries) charges/rejects both halves
+        // together. Over the cap -> reject exactly like a full queue (carry set; the
+        // caller retries next frame). bcs catches a word-overflow add: the committed
+        // total can never exceed the cap, so only a pathological single transfer
+        // overflows the word — treat that as over cap too.
+        move.w  DMA_Enq_Bytes_Frame, d0
+        add.w   d3, d0
+        bcs     .byte_capped
+        cmpi.w  #DMA_ENQ_BYTE_CAP, d0
+        bhi     .byte_capped
+        move.w  d0, DMA_Enq_Bytes_Frame         // commit the byte charge (rolled back = never committed on reject)
+
         lsr.l   #1, d1                          // source to words
         bclr.l  #23, d1                         // defensive: word-address bit 23 = reg $17 bit 7 (DMD1) — force 0 = 68k-memory->VRAM (a real 24-bit pointer already has it clear)
         movep.l d1, DMAEntry.SizeL(a1)          // source -> offsets 3,5,7,9
@@ -157,6 +172,18 @@ pub proc QueueDMA_Deferrable (d1: u32, d2: u16, d3: u16) clobbers(d0-d4/a1-a2) o
         }
         move.w  (sp)+, sr
         ori.b   #1, ccr                         // carry SET = request dropped (queue full; pinned after the SR restore)
+        rts
+
+    .byte_capped:
+        // Vectorman byte-half of the dual cap (P2c Task 8): the transfer's bytes would
+        // push the frame's enqueue total over DMA_ENQ_BYTE_CAP. Nothing was committed
+        // (the total is written only on the admit path above), so this is the "roll
+        // back the size add" the plan asks for. Reject like a full queue.
+        if DEBUG == 1 {
+            addq.w  #1, Dbg_DMA_Enq_Capped      // (P2c Task 8) enqueues rejected by the byte cap; 0 in normal play
+        }
+        move.w  (sp)+, sr
+        ori.b   #1, ccr                         // carry SET = request rejected (byte cap; pinned after the SR restore)
         rts
 
         // --- 128KB boundary split ---
