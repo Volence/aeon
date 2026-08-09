@@ -46,6 +46,12 @@ pub const SND_REQ_SFX             = SND_REQ_BASE+$03       // SFX command (0 idl
 pub const SND_CTRL_DMA_ACTIVE     = SND_REQ_BASE+$04       // $1F04: 1 = 68k DMA in progress (no ROM reads)
 pub const SND_REQ_FADE            = SND_REQ_BASE+$05       // master-fade cmd (0 idle / 1 out / 2 in)
 pub const SND_REQ_TEMPO           = SND_REQ_BASE+$06       // tempo cmd (0 idle / 1..$FE target mod / $FF restore)
+pub const SND_REQ_CTRL            = SND_REQ_BASE+$07       // transport ctrl (0 idle / SND_CTRL_*: 1 pause-music /
+                                                           //   2 unpause-music / 3 pause-all / 4 unpause-all)
+pub const SND_REQ_JINGLE          = SND_REQ_BASE+$08       // jingle push (0 idle / SFX id: pause music, play the
+                                                           //   id as an SFX, auto-resume when it ends)
+// Mailbox reserve: SND_REQ_BASE+$09..+$0F are FREE (the published slot budget —
+// the status block starts at SND_STAT_BASE = SND_REQ_BASE+$10).
 pub const SND_MUSIC_STOP          = $FF                    // SND_REQ_MUSIC stop sentinel
 
 // --- Status / ack region (Z80 writes, 68k reads) ---
@@ -55,10 +61,23 @@ pub const SND_STAT_PING_ECHO      = SND_STAT_BASE+$01
 pub const SND_STAT_ACK_COUNT      = SND_STAT_BASE+$02      // +1 per consumed request
 pub const SND_STAT_TICK           = SND_STAT_BASE+$03      // scheduler tick counter
 pub const SND_STAT_DAC_ACTIVE     = SND_STAT_BASE+$04      // 1 while a sample plays
+// Game-feel status mirrors (pkg 1 §6/§8). Written by the Z80 once per frame
+// (Sequencer_Frame) / at the owning event; the 68k reads them under a bus hold
+// (Sound_ReadStat). NOTE: the resident Z80 modules mirror these addresses as
+// module-local consts (the seam-1 const list is FIXED) — the absolute pins below
+// keep the mirrors honest.
+pub const SND_STAT_SEQ_ACTIVE     = SND_STAT_BASE+$05      // mirror of SND_SEQ_ACTIVE (song-finished floor)
+pub const SND_STAT_COMM           = SND_STAT_BASE+$06      // score-authored cue byte (MEV_EXT sub-op 0)
+pub const SND_STAT_JINGLE         = SND_STAT_BASE+$07      // mirror of SND_JINGLE_ACTIVE
+pub const SND_STAT_FADE_BUSY      = SND_STAT_BASE+$08      // 1 while the master-fade ramp is off-target
 
-// SND_REQ_FADE/TEMPO ($1F05/$1F06) must stay below the status block.
-ensure(SND_REQ_TEMPO < SND_STAT_BASE,
-       "SND_REQ_FADE/TEMPO ({SND_REQ_TEMPO}) collide with the status block at {SND_STAT_BASE}")
+// The request slots (now through SND_REQ_JINGLE at +$08) must stay below the
+// status block.
+ensure(SND_REQ_JINGLE < SND_STAT_BASE,
+       "SND_REQ_CTRL/JINGLE ({SND_REQ_JINGLE}) collide with the status block at {SND_STAT_BASE}")
+// The Z80-side seam mirrors anchor on SND_STAT_DAC_ACTIVE (+1..+4); pin the base.
+ensure(SND_STAT_SEQ_ACTIVE == $1F15,
+       "SND_STAT_SEQ_ACTIVE ({SND_STAT_SEQ_ACTIVE}) moved off $1F15 — update the resident modules' seam mirrors")
 
 pub const SND_ALIVE_MARKER        = $5A
 
@@ -458,12 +477,46 @@ pub const SFX_DUCK_PSG_DEPTH = 3   // PSG linear-volume drop applied while ducke
 pub const SFX_DUCK_RAMP_STEP = 4   // duck-level change per frame (linear ramp up/down)
 
 // --- Phase 2: master fade + global tempo (music expression engine) ---
+// SND_REQ_FADE command byte = (rate << 4) | cmd  (pkg 1 + ride-along R4):
+//   cmd  (low nibble, nonzero — 0 is the idle-slot value):
+//     1 = OUT        : ramp the scalar UP to silence
+//     2 = IN         : snap silent, ramp DOWN to full
+//     3 = OUT + STOP : composed terminal — on landing, Sequencer_StopAll
+//     4 = OUT + PAUSE: composed terminal — on landing, Snd_PauseMusic
+//   rate (bits 6..4, 0..7): index into the driver's 8-entry spread-bit
+//     FadeRateTable (MDSDRV model). The pattern byte is rotated right once per
+//     frame; the bit rotated out gates one ±1 TL step, so rate 7 ($FF) steps
+//     every frame (full $7F fade ~2.1 s) down to rate 0 ($01) every 8th (~17 s).
+//     A rate nibble of 0 is a VALID authored choice (slowest); the canned 68k
+//     wrappers pass SND_FADE_RATE_DEFAULT.
 pub const SND_FADE_CMD_OUT       = 1           // SND_REQ_FADE: ramp the scalar UP to silence
 pub const SND_FADE_CMD_IN        = 2           // SND_REQ_FADE: snap silent, ramp DOWN to full
+pub const SND_FADE_CMD_OUT_STOP  = 3           // composed: fade out, then StopMusic (pkg 1 §6)
+pub const SND_FADE_CMD_OUT_PAUSE = 4           // composed: fade out, then pause-music (pkg 1 §6)
+pub const SND_FADE_RATE_SHIFT    = 4           // rate nibble position in the command byte
+pub const SND_FADE_RATE_DEFAULT  = 7           // fastest spread pattern ($FF: step every frame)
 pub const SND_FADE_SILENCE       = SND_FM_TL_MAX // $7F = full master-fade attenuation
-pub const SND_FADE_STEP          = 2           // fade change per applied step (TL units)
-pub const SND_FADE_DELAY         = 1           // frames between fade steps (1 = every frame)
+// SND_FADE_STEP/SND_FADE_DELAY are LEGACY (R4 replaced the fixed step/delay pair
+// with the spread-bit rate table + branchless ±1 step). The names stay defined
+// because the seam-1 emit binary resolves its FIXED per-module const lists from
+// this authority — deleting either name breaks the resident-blob emit.
+pub const SND_FADE_STEP          = 2           // LEGACY (unread) — see the R4 note above
+pub const SND_FADE_DELAY         = 1           // LEGACY (unread) — see the R4 note above
+// SND_FADE_TERM values (armed by Snd_FadeCommand, consumed once by Fade_Ramp
+// when the ramp lands on target).
+pub const SND_FADE_TERM_NONE     = 0
+pub const SND_FADE_TERM_STOP     = 1           // fade-out-and-STOP (Sequencer_StopAll)
+pub const SND_FADE_TERM_PAUSE    = 2           // fade-out-and-PAUSE (Snd_PauseMusic)
 pub const SND_TEMPO_RESTORE      = $FF         // SND_REQ_TEMPO sentinel: ramp back to the authored base
+
+// --- Game-feel transport (pkg 1 §4/§8): SND_REQ_CTRL codes + SND_PAUSED states ---
+pub const SND_CTRL_PAUSE_MUSIC   = 1           // music freezes in place; SFX stay alive
+pub const SND_CTRL_UNPAUSE_MUSIC = 2           // resume music at position
+pub const SND_CTRL_PAUSE_ALL     = 3           // whole soundscape frozen (Start menu)
+pub const SND_CTRL_UNPAUSE_ALL   = 4           // resume everything
+pub const SND_PAUSED_RUN         = 0           // SND_PAUSED: running
+pub const SND_PAUSED_MUSIC       = 1           // SND_PAUSED: music frozen, SFX alive
+pub const SND_PAUSED_ALL         = 2           // SND_PAUSED: music + SFX frozen
 
 // --- FmPatch struct (the YM record) ---
 // 2 channel regs + 6×4 per-op regs + 4 SSG-EG regs + 2 pad = 32 bytes. Per-op
@@ -873,12 +926,32 @@ pub const SND_SEQ_TRACE      = SND_MUSIC_PARAM + SND_MUSIC_PARAM_LEN
 pub const SND_GLOBAL_EXPR     = SND_SEQ_TRACE + SND_SEQ_TRACE_LEN
 pub const SND_MASTER_FADE     = SND_GLOBAL_EXPR+$00   // current fade atten (0 full .. $7F silent)
 pub const SND_FADE_TARGET     = SND_GLOBAL_EXPR+$01   // fade ramp target
-pub const SND_FADE_DELAY_CTR  = SND_GLOBAL_EXPR+$02   // frames-until-next-step countdown
+// SND_FADE_DELAY_CTR is REPURPOSED by R4: it now holds the fade's ROTATING
+// spread-bit rate pattern (latched from FadeRateTable by Snd_FadeCommand,
+// rotated right once per frame by Fade_Ramp; carry-out gates one ±1 step).
+// The NAME is frozen by the seam-1 fixed const lists; the resident modules
+// alias it as SND_FADE_PATTERN.
+pub const SND_FADE_DELAY_CTR  = SND_GLOBAL_EXPR+$02   // R4: the rotating fade rate pattern
 pub const SND_FADE_DIRTY      = SND_GLOBAL_EXPR+$03   // 1 = fade stepped this frame
 pub const SND_TEMPO_CUR       = SND_GLOBAL_EXPR+$04   // current tempo mod (0=full speed, bigger=slower)
 pub const SND_TEMPO_TARGET    = SND_GLOBAL_EXPR+$05   // tempo ramp target (mod units)
 pub const SND_TEMPO_BASE      = SND_GLOBAL_EXPR+$06   // authored mod (restore reference)
 pub const SND_GLOBAL_EXPR_LEN = 7
+
+// --- Game-feel state (pkg 1 §4/§5) — chained directly after the Phase-2
+// globals, riding the alignment slack below the page-aligned SFX base. The
+// resident Z80 modules mirror these as module-local consts anchored on
+// SND_TEMPO_BASE (+1..+4) — the seam-1 const list is FIXED, so a new authority
+// name is invisible there; the absolute pin below keeps the mirrors honest.
+pub const SND_GAMEFEEL_BASE   = SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN
+pub const SND_PAUSED          = SND_GAMEFEEL_BASE+$00 // SND_PAUSED_* (0 run / 1 music / 2 all)
+pub const SND_JINGLE_ACTIVE   = SND_GAMEFEEL_BASE+$01 // nonzero while a pushed jingle plays
+pub const SND_JINGLE_ID       = SND_GAMEFEEL_BASE+$02 // the pushed jingle's SFX id
+pub const SND_FADE_TERM       = SND_GAMEFEEL_BASE+$03 // SND_FADE_TERM_* (composed fade terminal)
+pub const SND_GAMEFEEL_END    = SND_GAMEFEEL_BASE+$04
+
+ensure(SND_PAUSED == $1CD3,
+       "SND_PAUSED ({SND_PAUSED}) moved off $1CD3 — update the resident modules' seam mirrors")
 
 // Phase 3 RAM-budget assert: the seq block (header + all CHROUTE_COUNT slots) must
 // fit between SND_SEQ_BASE and the mailbox base.
@@ -899,7 +972,7 @@ ensure((SND_SEQ_TRACE + SND_SEQ_TRACE_LEN) <= SND_GLOBAL_EXPR,
 // Snd_ChanClass classifies music-vs-SFX channels by comparing the HIGH BYTE of ix
 // against SND_SFX_BASE>>8 — every music SeqChannel sits below this page boundary,
 // every SfxChannel slot at/above it, so the one-byte compare is exact.
-pub const SND_SFX_BASE       = (SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN + $FF) & $FF00
+pub const SND_SFX_BASE       = (SND_GAMEFEEL_END + $FF) & $FF00
 pub const SND_SFX_CHANNELS   = SND_SFX_BASE                        // the 7-slot SfxChannel array
 pub const SND_SFX_CHAN_END   = SND_SFX_CHANNELS + (SFX_VOICE_COUNT * SfxChannel_len)
 // SFX request queue: a small priority-gated ring. 3 entries * 2 bytes + head/tail/count.
@@ -916,8 +989,8 @@ pub const SND_SFX_RAM_END    = SND_SFX_DUCK_TARGET + 1
 
 ensure(SND_SFX_RAM_END <= SND_REQ_BASE,
        "SFX RAM ({SND_SFX_RAM_END}) overruns the mailbox at {SND_REQ_BASE}")
-ensure((SND_GLOBAL_EXPR + SND_GLOBAL_EXPR_LEN) <= SND_SFX_BASE,
-       "Phase-2 globals ({SND_GLOBAL_EXPR}+{SND_GLOBAL_EXPR_LEN}) run into the SFX region at {SND_SFX_BASE}")
+ensure(SND_GAMEFEEL_END <= SND_SFX_BASE,
+       "game-feel state (ends {SND_GAMEFEEL_END}) runs into the SFX region at {SND_SFX_BASE}")
 // Snd_ChanClass page-compare contract: the SFX base must be 256-aligned and every
 // music SeqChannel byte must sit strictly below it.
 ensure((SND_SFX_BASE & $FF) == 0,

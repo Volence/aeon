@@ -112,6 +112,41 @@ module engine.z80_sound_driver (cpu: z80)
 // modules), and a `use` clause imports procs, not consts.
 const YM_ADDR_TO_DATA_MIN_T = 8
 
+// --- Game-feel seam mirrors (pkg 1). The seam-1 const list is FIXED (see the
+// file header): a NEW sound_constants.emp name is invisible here, so each new
+// contract address/value is a module-local const derived from an INJECTED
+// anchor by the same chain the authority uses. sound_constants.emp pins the
+// absolute values (SND_PAUSED == $1CD3, SND_STAT_SEQ_ACTIVE == $1F15), so an
+// authority layout move fails THERE, loudly, before these could drift.
+const SND_REQ_CTRL         = SND_REQ_PING + $07       // $1F07: transport ctrl slot
+const SND_REQ_JINGLE       = SND_REQ_PING + $08       // $1F08: jingle push slot
+const SND_STAT_SEQ_ACTIVE  = SND_STAT_DAC_ACTIVE + 1  // $1F15: SND_SEQ_ACTIVE mirror
+const SND_STAT_COMM        = SND_STAT_DAC_ACTIVE + 2  // $1F16: score-authored cue byte
+const SND_STAT_JINGLE      = SND_STAT_DAC_ACTIVE + 3  // $1F17: SND_JINGLE_ACTIVE mirror
+const SND_STAT_FADE_BUSY   = SND_STAT_DAC_ACTIVE + 4  // $1F18: fade-ramp off-target flag
+const SND_PAUSED           = SND_TEMPO_BASE + 1       // $1CD3: 0 run / 1 music / 2 all
+const SND_JINGLE_ACTIVE    = SND_TEMPO_BASE + 2       // $1CD4: nonzero while a jingle plays
+const SND_JINGLE_ID        = SND_TEMPO_BASE + 3       // $1CD5: the pushed jingle's SFX id
+const SND_FADE_TERM        = SND_TEMPO_BASE + 4       // $1CD6: composed fade terminal (0/1/2)
+ensure(SND_PAUSED == $1CD3 && SND_STAT_SEQ_ACTIVE == $1F15,
+       "game-feel seam mirrors drifted off the pinned authority addresses")
+// Transport / fade command values (authority: sound_constants.emp, same fixed-
+// list constraint). SND_FADE_CMD_IN is injected; its siblings are mirrored.
+const SND_CTRL_PAUSE_MUSIC   = 1
+const SND_CTRL_UNPAUSE_MUSIC = 2
+const SND_CTRL_PAUSE_ALL     = 3
+const SND_CTRL_UNPAUSE_ALL   = 4
+const SND_PAUSED_MUSIC       = 1
+const SND_PAUSED_ALL         = 2
+const SND_FADE_CMD_OUT_STOP  = 3                      // composed: out + StopMusic
+// R4 fade-rate model: SND_FADE_DELAY_CTR is repurposed as the ROTATING
+// spread-bit rate pattern (the authority documents this at its definition).
+const SND_FADE_PATTERN       = SND_FADE_DELAY_CTR
+const SND_FADE_PAT_DEFAULT   = $FF                    // rate 7: step every frame
+// Jingle auto-pop resume: the frozen song re-enters under a short fade-in
+// starting at this attenuation (ramps to 0 at the default rate).
+const JINGLE_RESUME_FADE     = $28
+
 use engine.sound_sequencer.{Sequencer_Frame, Sequencer_StopAll}
 use engine.sound_sfx.{Sfx_StopAll, SfxDispatch}
 
@@ -224,6 +259,8 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_REQ_SFX), a
         ld      (SND_REQ_FADE), a       // master-fade request slot
         ld      (SND_REQ_TEMPO), a      // tempo request slot
+        ld      (SND_REQ_CTRL), a       // transport ctrl slot (pkg 1)
+        ld      (SND_REQ_JINGLE), a     // jingle push slot (pkg 1)
         ld      (SND_CTRL_DMA_ACTIVE), a // flag bracket clear (no DMA in progress)
         ld      (SND_DAC_PHASE), a      // PHASE = idle (0) — two-stage stop SM
         ld      (SND_SONG_BANK), a      // B1 bracket reads this on pre-song idle ticks
@@ -234,6 +271,10 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_STAT_PING_ECHO), a
         ld      (SND_STAT_ACK_COUNT), a
         ld      (SND_STAT_TICK), a
+        ld      (SND_STAT_SEQ_ACTIVE), a // game-feel status mirrors (pkg 1)
+        ld      (SND_STAT_COMM), a
+        ld      (SND_STAT_JINGLE), a
+        ld      (SND_STAT_FADE_BUSY), a
         ld      (SND_SEQ_ACTIVE), a     // sequencer idle until a song loads
         ld      (SND_SEQ_CHCOUNT), a    // no channels until a song loads
         // (SND_SFX_QUEUE_CNT is cleared by the Sfx_StopAll call above, along with
@@ -243,10 +284,19 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_MASTER_FADE), a
         ld      (SND_FADE_TARGET), a
         ld      (SND_FADE_DIRTY), a
-        ld      (SND_FADE_DELAY_CTR), a
         ld      (SND_TEMPO_CUR), a
         ld      (SND_TEMPO_TARGET), a
         ld      (SND_TEMPO_BASE), a
+        // game-feel state (pkg 1): running, no jingle, no armed fade terminal.
+        ld      (SND_PAUSED), a
+        ld      (SND_JINGLE_ACTIVE), a
+        ld      (SND_JINGLE_ID), a
+        ld      (SND_FADE_TERM), a
+        // R4: the fade rate pattern is ALWAYS a valid spread byte (never 0 — a
+        // zero pattern would never step). Seed the default; Snd_FadeCommand
+        // re-latches it per command.
+        ld      a, SND_FADE_PAT_DEFAULT
+        ld      (SND_FADE_PATTERN), a
 
         // PRE-FILL the whole 256-byte ring with $80 so the idle/lead-in output is
         // DC-center silence (no click, no garbage).
@@ -1345,7 +1395,18 @@ section z80_sound_driver (cpu: z80) {
         ld      (SND_MASTER_FADE), a
         ld      (SND_FADE_TARGET), a
         ld      (SND_FADE_DIRTY), a
-        ld      (SND_FADE_DELAY_CTR), a
+        // game-feel resets (pkg 1): a NEW song always starts RUNNING and clean.
+        // A stale armed terminal would stop/pause the new song the moment the
+        // (already-at-target) ramp is next polled; a stale pause would freeze it
+        // on frame one; a stale jingle flag would phantom-pop over it; the comm
+        // cue byte is per-song score state.
+        ld      (SND_FADE_TERM), a
+        ld      (SND_PAUSED), a
+        ld      (SND_JINGLE_ACTIVE), a
+        ld      (SND_STAT_COMM), a
+        // R4: keep the fade rate pattern valid (default rate) for the new song.
+        ld      a, SND_FADE_PAT_DEFAULT
+        ld      (SND_FADE_PATTERN), a
         ld      a, (SND_SEQ_TEMPO_MOD)  // authored header mod (cached above)
         ld      (SND_TEMPO_CUR), a
         ld      (SND_TEMPO_TARGET), a
