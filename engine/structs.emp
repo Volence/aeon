@@ -86,8 +86,8 @@ pub struct PageInReq {
 // -----------------------------------------------
 // Page frame (§5) — one 64-tile VRAM art slot in the residency cache
 // (engine.page_cache). Page_Frames[i] describes frame i; frame*64 is its base
-// tile index in the FG art window. pf_next threads the FREE list; eviction order
-// is the pf_stamp age (F-1 stamp eviction) — the LRU linked list is gone
+// tile index in the FG art window. pf_next threads the FREE list (the only
+// list left); eviction order is the pf_stamp age (F-1 stamp eviction)
 // AND the free list (a frame is in at most one list); PAGE_NOT_RESIDENT($FF)
 // terminates a link. 8 bytes — sizeof is compiler truth (no manual _len).
 // -----------------------------------------------

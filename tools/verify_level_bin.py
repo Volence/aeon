@@ -186,6 +186,16 @@ def verify_local_maps():
     if os.path.isfile(dicts):
         dlen = {int(n): int(v) for n, v in
                 re.findall(r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", open(dicts).read())}
+    # Pool-tile bound for map VALUES (panel V-1b/B-3): every local->global entry
+    # must name a real pool tile — the engine's PatchWord indexes Page_Table by
+    # global>>6 with only a DEBUG assert, so out-of-pool values in a committed
+    # map must die HERE. Bound = sum of manifest pm_tiles (the last page may be
+    # partial, so pages*64 would over-admit).
+    pool_tiles = 0
+    pool = os.path.join(GEN, "ojz_act_pool.emp")
+    if os.path.isfile(pool):
+        pool_tiles = sum(int(t) for t in
+                         re.findall(r"pm_tiles:\s*(\d+)", open(pool).read()))
     for n in range(NUM_SECTIONS):
         mpath = os.path.join(GEN, f"sec{n}_local_map.bin")
         bpath = os.path.join(GEN, f"sec{n}_blocks.bin")
@@ -205,6 +215,12 @@ def verify_local_maps():
         # as blank through ANY section's map only because of this.
         check(struct.unpack(">H", m[0:2])[0] == 0,
               f"local maps: sec{n}_local_map.bin map[0] != 0 (blank-first invariant broken)")
+        if pool_tiles:
+            vals = struct.unpack(f">{count}H", m)
+            bad = [v for v in vals if v >= pool_tiles]
+            check(not bad,
+                  f"local maps: sec{n}_local_map.bin has {len(bad)} entries >= pool tiles "
+                  f"({pool_tiles}) — out-of-pool globals (max {max(bad) if bad else 0})")
         if not os.path.isfile(bpath) or n not in dlen:
             continue
         blob = read(bpath)

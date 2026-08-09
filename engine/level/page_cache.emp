@@ -235,7 +235,9 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         // unsigned (Frame_Counter - pf_stamp) among PF_EVICTABLE frames. An
         // O(PAGE_FRAMES) scan, paid only at eviction; it replaces the linked
         // list whose end-choice WAS the MRU bug (the policy is now structural).
-        // >= keeps the first-seen candidate on age ties (incl. all-age-0).
+        // blo-skip means age TIES replace the best — the LAST-seen (lowest
+        // frame index; the scan descends) wins, deterministically; all-age-0
+        // still selects a candidate.
         // Stamp wrap at 65536 frames (~18 min) can only mis-age a candidate —
         // every candidate is still refcount-0/unpinned, so safety never moves.
         lea     Page_Frames, a3
@@ -497,6 +499,11 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a2-a3
         // (frame<<6 | intra <= 959), which always fits. map[0] == 0 (blank) is
         // generator-guaranteed, so the zero page's $0000 words land in
         // .new_blank through any section's map.
+        // Blank early-out BEFORE the map read (panel C1-2): map[0]==0 is
+        // generator-guaranteed, so local 0 == global 0 == blank — blanks skip
+        // the ~34-cycle translation entirely (the post-map beq stays as the
+        // backstop for maps that alias other locals to global 0).
+        beq     .new_blank
         movea.l Cache_Cur_LocalMap, a2
         add.w   d1, d1                          // u16 table stride
         move.w  (a2, d1.w), d1                  // d1 = GLOBAL slot (full u16)
@@ -504,6 +511,16 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a2-a3
 
         move.w  d1, d2                          // page = global >> 6 (u16-wide: up to 1023,
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d2      //   generator ensures < PAGE_TABLE_MAX)
+    if DEBUG == 1 {
+        // Pool bound (panel-convergent): F-3 removed the 11-bit structural cap,
+        // so a corrupt/stale map could index past the PAGE_TABLE_MAX-byte table
+        // (OOB read, then an OOB refcount WRITE). The prefetch scan carries the
+        // same bound in release; here DEBUG raises loud at the source.
+        cmp.w   PageIn_Pool_Pages, d2
+        blo     .page_ok
+        raise_error "PageCache_PatchWord: mapped page >= pool pages (corrupt/stale local map)"
+    .page_ok:
+    }
         lea     Page_Table, a3
         move.b  (a3, d2.w), d2                  // frame (or NOT_RESIDENT)
         cmpi.b  #PAGE_NOT_RESIDENT, d2
@@ -609,7 +626,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         // BULK-FIRST discipline (chain 78, mirror of the demand-first gate above): while
         // Level_LoadArt's init bulk pool load + drain-wait is active, speculative prefetch
         // must NOT enqueue. The drain spins on queue-empty + idle; with 41 pages vs 15
-        // frames a prefetch landing evicts an LRU page whose ahead-strip refs get re-scanned
+        // frames a prefetch landing evicts a resident page whose ahead-strip refs get re-scanned
         // and re-requested — a prefetch<->evict cycle that never drains (black-screen
         // livelock, Preempts/Resumes climbing ~1/frame with Demands stuck at 0). The bulk
         // drain has no Cache_Art_Stall, so the demand-first gate does not cover it; this
@@ -701,6 +718,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
     .sb_loop:
         move.w  (a2)+, d0
         andi.w  #NT_TILE_MASK, d0                 // LOCAL tile index
+        beq     .sb_next                          // local 0 = blank (map[0]==0) — skip the map read
         add.w   d0, d0                            // u16 table stride
         move.w  (a3, d0.w), d0                    // d0 = GLOBAL slot (full u16)
         beq     .sb_next                          // global 0 = blank -> no page
@@ -738,7 +756,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
 pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
     if DEBUG == 1 {
         // Ground-truth snapshot of the residency map (Task-6 mapping-bug debug): a
-        // red-screen freezes this readable copy of the free-list + Page_Table + per-
+        // red-screen freezes this readable copy of the free head + Page_Table + per-
         // frame pf_page/flags, so the exact corruption is visible in RAM.
         lea     Page_Audit_Snapshot, a0
         move.b  Page_Free_Head, (a0)+           // [0]
@@ -754,7 +772,7 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         moveq   #PAGE_FRAMES-1, d0
     .snap_frame:
         move.b  PF_PAGE+1(a1), (a0)+           // pf_page low byte (page id / $FF when unassigned)
-        move.b  PF_FLAGS(a1), (a0)+            // PINNED/EVICTABLE flags (free link is derivable)
+        move.b  PF_FLAGS(a1), (a0)+            // PINNED/EVICTABLE flags (free-list MEMBERSHIP is derivable via pf_page.lo==$FF; link order is not captured)
         lea     sizeof(PageFrame)(a1), a1
         dbf     d0, .snap_frame
 
@@ -818,7 +836,7 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         // --- MAPPING BIJECTIVITY (Task-6 review): the residency map must be a
         //     bijection between resident pages and assigned frames. A consistent-
         //     but-WRONG mapping (page art landing at frame X while Page_Table says
-        //     frame Y) passes the refcount/LRU checks but renders wrong art; this
+        //     frame Y) passes the refcount/flag checks but renders wrong art; this
         //     cross-check red-screens it at init. ---
         // (1) every assigned frame round-trips: Page_Table[frame.pf_page] == frame.
         lea     Page_Frames, a1

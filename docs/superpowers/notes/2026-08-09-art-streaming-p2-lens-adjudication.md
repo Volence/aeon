@@ -313,3 +313,68 @@ oracle sitting, constructed worst frames + stress visual), then
 F-3 merge-translation + F-1 stamp rework + F-6 gating together (same files,
 one byte-shifting repin/refreeze ritual, one stress re-verification), then
 M-3/M-4/M-6 as the measurements direct.
+
+
+## WAVE + FINAL PANEL (2026-08-09, second sitting)
+
+**Wave executed and merged** (aeon `3e7a1c7`, sigil `75c6f979`): F-3
+merge-translation (2048-tile ceiling GONE — 2600-tile STRESS_ART fixture
+oracle-verified rendering correct art under churn: 2 demands / 18 prefetches /
+evictions live / lag 0 / audits silent), F-1 stamp eviction (list machinery
+deleted, policy structural), F-6 (blocking decompressors live with their DEBUG
+consumer; release: real code −144 B, deb2 appendix −436 B). M-1 MEASURED with
+the oracle profiler: PatchWord ~162 self / ~235 inclusive cycles per word —
+the review's ~500 estimate was 2x pessimistic; max-diagonal fill ≈ half a
+frame, consistent with recorded lag=0. Cross-repo ritual end-to-end (roster,
+repin.toml, seed tables, repin, refreeze entries `wave-f3-f1-f6` +
+`wave-panel-closing`); full sigil suite 318 suites / 3,667 tests green.
+
+**Pre-existing discoveries en route (A/B-proven, not wave regressions):**
+- **P-2** — the standing replay fixture DESYNCS on post-P2 master (identical
+  hash/tick on pre-wave build). The regression net needs re-recording.
+- **P-3** — sigil port-test seam-rot family: the P2c Task-8 byte-cap cell was
+  never seamed into ANY dma_queue/vblank-lowering composition, and
+  load_art_port's chain-71/P2c rows were missing — masked by the tests'
+  ROM-presence skip (baseline preS+preA FAILED). Remediated (rows + repin
+  symbols + two stale baselines); the STRUCTURAL hole remains: 57 skip sites
+  across 45 port tests, and CI runs without an aeon checkout so every strict
+  gate skips there by design.
+
+**Final nine-seat panel over the wave diff — verdict: sound, one convergent
+latent defect, closed same sitting.** Six seats (A/A2/B/C2/C3/C4)
+independently found the out-of-grid `.empty_block` map-publish gap +
+uninitialized map cells (NULL map -> ROM addr 0 read -> global $FFFF -> OOB
+Page_Table/refcount). CLOSED in `4b2110c`: Blank_Local_Map constant published
+unconditionally on the empty arm + parked into every map cell at
+InvalidateStaging — the invariant is total by construction. Also closed:
+PatchWord DEBUG pool-bounds assert (the 11-bit structural cap F-3 removed had
+no replacement on the patch path), verify_level_bin map-VALUE bounds
+(mutation-tested), C1-2 blank early-outs (~34 cyc/blank word, endorsed by two
+seats), the zx0_resume zlib attribution (dangled at the deleted file for a
+release-shipped decoder), and ~20 stale comments/doc sites. Panel
+endorsements: merge-translation is amortized CHEAPER than the deleted pass
+(crossover 1.52x re-patch), stamp eviction repays in <10 transitions,
+probe->copy adjacency airtight at every fill site, footprint reconciles
+(+66 B RAM net, VRAM/Z80 untouched; before-sizes recorded here: pre-fixup
+414,341/427,926 golden; pre-wave f54b1ce local 414,473/428,134; post-wave
+413,905/427,844; post-closing 413,953/427,926).
+
+**Named open debts (ranked):**
+1. **Eviction liveness witness** (panel V-3): canonical shapes never evict
+   (10 pages <= 15 frames) — eviction correctness has NO automated witness;
+   STRESS shapes are hand-run. Candidate: a STRESS_EVICT soak leg in the
+   acceptance ritual, or a CI-runnable fixture.
+2. **P-2 fixture re-record** (restores the whole replay regression net).
+3. **CI strict-gate hole** (V-4): give sigil CI an aeon checkout or a
+   fail-not-skip mode for the 57 ROM-presence sites.
+4. **C4-4** PF_PROTECTED inversion (derive candidacy, flag only the
+   demand-protection window) — makes the flag/rc disagreement class
+   unwritable.
+5. **B-2** shared comptime template for the two local->global read sites.
+6. **C2-6 / first-panel C5** stall-strand frame leak (pre-existing, DEBUG
+   audit catches it; release leaks one frame until act reset) — fold into the
+   streaming-act hardening pass.
+7. **Frame_Counter hoist in the eviction scan** (C3-2/C1-5c — 1-frame age
+   skew, safety-neutral; needs a register the license doesn't have).
+8. M-3 ZX0R copy unroll, M-4 pinned-class election split, C1-3 prefetch
+   page-set bitmask — measure-first when the first streaming act ships.

@@ -1770,9 +1770,6 @@ def generate(stress_uniquify=0):
     # page_id*64), so there is no per-act VRAM fit to guard. act_descriptor.emp
     # guards only OJZ_ACT_POOL_PAGES <= PAGE_TABLE_MAX at comptime; the old
     # identity-residency guard (OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING) is retired.
-    # KNOWN CEILING (open F-3): staged nametable words carry the GLOBAL index in
-    # an 11-bit field, so globals >= 2048 are TRUNCATED by the engine — the
-    # generator's >2048-tile support is ahead of the engine.
     assert len(pages) <= PAGE_TABLE_MAX, (
         f"act art pool split into {len(pages)} pages > PAGE_TABLE_MAX {PAGE_TABLE_MAX} "
         f"(residency page table is a byte per page)")
@@ -1793,10 +1790,11 @@ def generate(stress_uniquify=0):
     # The block nametable words the engine bakes carry per-section LOCAL indices
     # (bits 0-10); palette/priority/flip (bits 11-15) are untouched. Each section
     # emits a local→global table (u16 per local index -> global VRAM slot); the
-    # engine translates local→global at block decode (TileCache_DecompressBlock).
-    # Staged words stay translated-GLOBAL; the residency cache (engine page_cache)
-    # rewrites the page bits to the page's ALLOCATED frame when words are baked to
-    # VRAM, so a global index is a cache key, not a fixed VRAM slot.
+    # engine maps local→global PER WORD at the patch/scan consumers (F-3
+    # merge-translation — staged words stay LOCAL; the full-width global lives
+    # only in a register). The residency cache (engine page_cache) writes the
+    # PHYSICAL index (allocated frame) into the tile cache, so a global index
+    # is a cache key, not a fixed VRAM slot.
     total_strips = 0
     first_strips = None
     section_local_maps: list[tuple[str, list[int]]] = []   # (sec_id, local_to_global)

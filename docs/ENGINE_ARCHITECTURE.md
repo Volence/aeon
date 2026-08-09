@@ -1412,8 +1412,10 @@ The art pipeline handles getting graphical data from ROM into VRAM — compresse
 survive contact with shipped data (see `docs/research/compression-audit-2026-06-11.md`,
 the audit that produced this design, and `compression-audit-landscape.md` for the
 external survey). All compressed art carries a 4-byte wrapper: [u16 BE uncompressed
-size][u8 flags][u8 version: 1 = S4LZ v3, 2 = ZX0]; `Art_Decompress` dispatches on the
-version byte.
+size][u8 flags][u8 version: 1 = S4LZ v3, 2 = ZX0]; the manifest's `pm_form` drives the
+runtime dispatch (the blocking `Art_Decompress` version dispatcher is DEBUG selftest
+equipment now — F-6); the wrapper version byte remains the baked on-disk truth,
+DEBUG-asserted against the manifest at dispatch.
 
 | Tier | Format | Measured speed | Measured ratio | Use Case |
 |------|--------|-------|-------|----------|
@@ -1432,7 +1434,7 @@ version byte.
 - Decompressor: `engine/compression/s4lz.emp`, ~300 B, measured ~510-640 KB/s realistic mix. Micro-optimizations (move.l copy tables, extended-loop unroll, 256-entry token jump table → ~770+ KB/s) are documented in the audit and DEFERRED — current block budgets fit (6 blocks/frame ≈ half a frame; vertical scroll protocol unchanged at +4/512px with dicts on)
 
 **ZX0 (load-time bulk):**
-- Einar Saukas' ZX0 v2 format; compressed by vendored salvador (`tools/salvador/`, zlib/CC0/MIT licenses), decoded by vendored unzx0_68000 (`engine/compression/zx0.emp`, zlib license, adaptation = mnemonic spelling only — algorithm byte-identical to upstream)
+- Einar Saukas' ZX0 v2 format; compressed by vendored salvador (`tools/salvador/`, zlib/CC0/MIT licenses), decoded by the vendored unzx0_68000 derivatives (streaming: `engine/compression/zx0_resume.emp`; blocking twin with its DEBUG selftest consumer: `engine/debug/compression_selftest.emp` — both zlib-licensed, attribution in each file)
 - Measured 0.605 on section tile art vs 0.85 for the best word-aligned S4LZ — bitstream rep-offset + elias-gamma + byte-granular matching, ~zlib-class ratio without entropy tables
 - **~76 KB/s (blocking ZX0) — init/preload tier.** The blocking `ZX0_Decompress` runs at level init and now survives only as the DEBUG self-test oracle. Mid-gameplay art pages instead ride the resumable `ZX0R_Decompress` sliced by the §9.7 pages+bookmark idle-time path — never a synchronous blocking decode. Small (64-tile) pages, demand/prefetch FIFO, VRAM residency cache
 - Clobbers d0-d1/a0-a2 only (narrower than S4LZ)
@@ -1565,7 +1567,7 @@ Result: section transitions perform no per-section art swap — a global index n
 1. **Build time:** Global deduplication (canonical form) + spatial ordering assign each unique tile a permanent global pool index; the pool is split into 64-tile pages with a stride-8 manifest v2 entry each.
 2. **Level load:** `Level_LoadArt` bulk-loads every page through the page-in path (ZX0R resumable decode via the 2048 B `Art_Staging_Buffer`, or raw direct from ROM) into cache-allocated frames; permanent tiles (HUD, rings) load alongside.
 3. **Resident model (degenerate case):** When the deduped pool fits the frame budget, every page stays resident after the bulk load — continuous scrolling and teleports never swap section art. The footprint fits because global deduplication ensures each unique tile appears once in the pool regardless of how many sections use it.
-4. **>frame-budget acts:** the §9.7 residency cache streams pages on demand + prefetch at the leading edge (idle-time decode, Important-queue landings), evicting LRU unpinned pages as the camera moves — capped by ROM budget, not VRAM. Short backtracks reuse still-resident pages; no slots or teleports are reintroduced.
+4. **>frame-budget acts:** the §9.7 residency cache streams pages on demand + prefetch at the leading edge (idle-time decode, Important-queue landings), evicting the oldest-released unpinned pages (stamp eviction) as the camera moves — capped by ROM budget, not VRAM. Short backtracks reuse still-resident pages; no slots or teleports are reintroduced.
 
 **Auto-calculated addresses:** Permanent-category objects (HUD, rings, monitors, springs, etc.) are defined sequentially in `VRAM_Layout.asm` with tile counts. The assembler computes addresses automatically — adding/removing an object shifts everything after it. Compile-time overflow check ensures permanent allocations don't exceed the pool budget.
 
@@ -1657,7 +1659,7 @@ As the camera approaches blocks referencing non-resident pages
   → page prefetch collects the ahead-strip's referenced pages and requests them
   → idle-time decode (ZX0R / raw direct) + Important-queue landing into an
     ALLOCATED frame — pages are frame-relocatable, not fixed-address
-  → departed pages are evicted LRU when unpinned and refcount-free
+  → departed pages are evicted oldest-released-first when unpinned and refcount-free
 ```
 See §9.7 for the full design (frame allocator, refcounts, prefetch, eviction).
 
@@ -1700,7 +1702,7 @@ Sprite art DMA'd directly from ROM — no RAM buffer needed.
 
 ### 2.6 Data Format Summary
 
-The engine uses two compression formats (ZX0 for load-time bulk, S4LZ for the runtime block stream — both dispatched by `Art_Decompress` on the wrapper version byte), one random-access format (uncompressed + DPLC), and raw tilemaps. No other decompressors exist in the codebase.
+The engine uses two compression formats (ZX0 for load-time bulk, S4LZ for the runtime block stream — runtime-dispatched by the manifest's `pm_form`; the wrapper version byte is the baked truth), one random-access format (uncompressed + DPLC), and raw tilemaps. No other decompressors exist in the codebase.
 
 | Data Class | Format | Build Tool | ROM Label Convention |
 |---|---|---|---|
@@ -1722,7 +1724,7 @@ Two-Tier Compression (2.1)
     → ~zlib-class ratio (0.605 on tile art)
   → S4LZ v3 handles the runtime block stream
     → Per-section block dictionary, ~510-640 KB/s, 6 blocks/frame budget
-  → Art_Decompress dispatches both on the wrapper version byte
+  → runtime dispatch is manifest-form-driven; the DEBUG selftest's Art_Decompress exercises the wrapper-byte path
   → Uncompressed sprite art + DPLC/DMA — zero CPU decode cost
     → Build-time contiguous layout: 1 DMA per animation frame change
     → DMA from ROM on VDP clock — CPU free for game logic
@@ -3516,7 +3518,7 @@ The authoring pipeline decouples the level editor's creative tools from the runt
 3. **Spatially order and page the global pool (2.3):** Order the deduped tiles by first occurrence in grid-traversal order (`order_pool_spatially`) so spatially-near tiles land at nearby pool indices, then split the pool into fixed-size pages (64 tiles each, `split_pool_into_pages`) plus a manifest v2 record per page (`{source, tiles, form, flags}`). Each tile gets a permanent global pool index; section nametables carry per-section LOCAL indices translated to global at block-decode time (so a page can reside in any VRAM frame — the §9.7 residency cache precondition). No adjacency graph or per-section index reuse.
 4. **Generate nametable strips:** Output raw VDP nametable words (tile index + palette + priority + flip bits) per column per section. Stored in ROM, ready for direct DMA to VDP scroll planes.
 5. **Embed collision in strips:** Append 24 collision bytes + 8 padding to each 96-byte nametable column, producing 128-byte wide strips. Collision derived from tile→collision assignments (one type per 16×16 cell).
-6. **Compress art and blocks:** ZX0-compress each act art pool page (load-time tier); S4LZ-compress the per-section block stream with its block dictionary (runtime tier). Both carry the 4-byte version wrapper for `Art_Decompress`.
+6. **Compress art and blocks:** ZX0-compress each act art pool page (load-time tier); S4LZ-compress the per-section block stream with its block dictionary (runtime tier). Both carry the 4-byte version wrapper (verified at bake + by the DEBUG selftest).
 7. **Report:** Total ROM size per section and per zone. Act art pool page count vs the residency page table (`PAGE_TABLE_MAX`) and the per-act ROM budget (`tools/art_rom_report.py`). Build error if either is exceeded.
 
 **Cross-reference:** Batman & Robin stores level nametable data at `$100000+` in raw VDP format — 16-bit nametable words encoding tile index + palette + flip bits, ready for DMA straight from ROM to VRAM scroll planes. Zero runtime conversion. Our tool does the same thing, but for the section streaming system's per-column strips rather than full-screen pages.

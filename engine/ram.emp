@@ -104,7 +104,7 @@ pub vars lower_ram {
     // lower_ram (not the tight upper .w window): both are indexed base+offset
     // arrays (the hot copy-loop patch leas a base register regardless of region,
     // so .w-addressability buys nothing) and together they are ~408 B. The hot
-    // scalars (LRU/free heads, stall flag) live in upper_ram instead — see there.
+    // scalars (free head, stall flag) live in upper_ram instead — see there.
     // Residency tables PLACED BEFORE Art_Staging_Buffer (defense-in-depth): the
     // staging buffer is the decode target. No decode path is known to write past the
     // 2048 boundary — the chain-65 corruption was PageCache_Publish's stale-offset

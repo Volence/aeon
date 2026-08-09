@@ -247,7 +247,7 @@ pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (mat
 pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 15
 ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
        "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
-pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + LRU/free link terminator
+pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + free-link terminator
 // pf_flags bits (engine.structs PageFrame):
 pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)
 pub const PF_EVICTABLE_BIT   = 1            // frame is an eviction candidate (assigned, refcount 0,
@@ -277,13 +277,13 @@ pub const PAGECACHE_AUDIT_INTERVAL = 128
 pub const PAGEIN_QUEUE_SLOTS  = 8           // request FIFO depth (S3K ~4-deep + headroom)
 pub const PGRQ_DEMAND_BIT     = 0           // request flags: bit set = demand (dequeue first)
 pub const PGRQ_DEMAND         = 1 << PGRQ_DEMAND_BIT
-pub const PGRQ_BULK_BIT       = 1           // init bulk load: non-speculative (D3-gate-exempt) but still LRU-evictable
+pub const PGRQ_BULK_BIT       = 1           // init bulk load: non-speculative (D3-gate-exempt) but still evictable (stamp-scanned)
 pub const PGRQ_BULK           = 1 << PGRQ_BULK_BIT
 pub const PGRQ_PREFETCH       = 0           // speculative: NO flag bits (dequeues after demand; the ONLY gated class)
 
 // Page prefetch (Art-streaming P2b Task 7). When the tile-cache fill's leading edge
 // advances, the page prefetch collects the ahead-strip's referenced pages (via the
-// staged-block global words = the same local->global path) and Requests non-resident
+// staged-block LOCAL words map through the same per-word local->global path) and Requests non-resident
 // ones. Bounded per frame so a burst never floods the DMA window.
 pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted per frame
 

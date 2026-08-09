@@ -198,6 +198,18 @@ pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
     .inv:
         move.l  #-1, (a0)+
         dbf     d0, .inv
+        // Park every map cell on the blank map (see Blank_Local_Map): after any
+        // invalidate — including the act-init one — no probe/copy can ever see
+        // a NULL or cross-act-stale map pointer.
+        lea     Blank_Local_Map, a0
+        move.l  a0, Cache_Cur_LocalMap
+        move.l  a0, -(sp)                       // map ptr as data (d0/a0 stay the loop pair)
+        lea     Block_Stage_Maps, a0
+        moveq   #BLOCK_STAGE_SLOTS-1, d0
+    .inv_maps:
+        move.l  (sp), (a0)+
+        dbf     d0, .inv_maps
+        addq.l  #4, sp
         clr.w   Block_Stage_Next
         addq.w  #1, Block_Stage_Gen            // staging emptied — every warm-line memo now stale
         move.w  #$FFFF, Pfx_Memo_Gen           // sentinel: the next frame's scans re-probe in full
@@ -334,12 +346,30 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         // point the slot at the shared read-only zero page — no 768-byte zero-fill.
         // The page is boot-cleared and never written (the staged-pointer read-only
         // contract), so it stays zero for the life of the ROM.
+        // Panel-convergent fix (6 seats): publish the 1-entry BLANK map for this
+        // slot too. The world-edge arm reaches here BEFORE the section-map
+        // publish above (out-of-grid blocks have no section), and a boot-virgin
+        // slot's Maps entry would otherwise be 0 — a later FindStagedBlock hit
+        // republished NULL into Cache_Cur_LocalMap and PatchWord read "map[0]"
+        // from ROM address 0. The blank map is CORRECT for the zero page in
+        // every case (its $0000 words = local 0 -> global 0 = blank), so the
+        // store is unconditional — in-grid empties just get a tighter map.
+        lea     Blank_Local_Map, a0
+        lea     Block_Stage_Maps, a1
+        move.l  a0, (a1, d6.w)
+        move.l  a0, Cache_Cur_LocalMap
         lea     Block_Stage_ZeroPage, a0
         lea     Block_Stage_Ptrs, a1
         move.l  a0, (a1, d6.w)
         movea.l a0, a1                         // a1 = zero page
         rts
 }
+
+// The 1-entry blank local->global map: local 0 -> global 0 (the blank tile).
+// The permanent parking value for Cache_Cur_LocalMap and every Block_Stage_Maps
+// entry that has no section map (boot, staging invalidate, out-of-grid blocks)
+// — makes "any consumed map is valid with map[0]==0" true by construction.
+data Blank_Local_Map (align: 2): [u16; 1] = comptime for i in 0..1 { 0 }
 
 // -----------------------------------------------
 // TileCache_CopyBlockColumn — copy a vertical run of one block column into cache
