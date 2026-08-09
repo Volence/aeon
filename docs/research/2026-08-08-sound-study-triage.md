@@ -257,6 +257,29 @@ L = its own planned parcel.
 These are taste/scope/confidence-class calls, not defects with obvious fixes. None
 should be executed on assistant discretion.
 
+**RULINGS (closed 2026-08-09):**
+
+1. **Timer-A/DMA: fix TAKEN** (user-ruled). Accepted explicitly on
+   reasoning + MDSDRV's documentation rather than in-loop verification — a
+   recorded confidence-class exception to the verify-real-output practice,
+   justified by the 6 B cost and the real-hardware failure mode. Rides
+   package 1's session.
+2. **Multi-tick tempo: ADOPTED as a strict superset** (user delegated to the
+   top-of-the-line bar; shape is the assistant's call). S3K-range tempo values
+   stay bit-exact — the multi-tick loop engages only above the old 1-tick/frame
+   cap, so the S3K-exact contract is preserved for all existing content. Loop
+   is bounded (fixing the hazard MDSDRV itself carries). Lands TOGETHER with
+   the item-25 H1 mid-frame `$F3` broadcast correction as one tempo-contract
+   parcel (do not split), with the `Sequencer_Frame` vs DAC-ring-lead profiler
+   check as the acceptance gate.
+3. **68k SFX policy layer: RULED IN as a future design task** (user-ruled) —
+   frame-level policy on the 68k, live-state mechanism stays on the Z80.
+   Queued after the banked packages (1→3→4→5→6); design session, not a parcel.
+4. **R9 30 T: BANKED for polyphonic PCM** (user-ruled after briefing) — not
+   spent on DAC rate. The headroom is earmarked for the two-voice DAC gap
+   named by the driver comparison; rate spend would re-pitch the
+   fidelity-matched kit for a modest gain and narrow the polyphony budget.
+
 1. **Timer-A refill through an active DMA (the hardware-only fix).** Our
    `SndDrv_TimerATick` bulk-refills from banked ROM without checking
    `SND_CTRL_DMA_ACTIVE`; Timer A (60.05 Hz) free-runs against VBlank (59.92 Hz), so
