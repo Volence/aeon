@@ -119,6 +119,13 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         // Point the dispatcher at this act's page-address table (FIFO resolution base).
         move.l  Act.act_art_pool_table(a4), PageIn_Pool_Table
 
+        // BULK-FIRST discipline (chain 78): suppress speculative prefetch for the whole
+        // bulk load + drain-wait below. Otherwise, with the pool > PAGE_FRAMES, each
+        // VSync_Wait's PageCache_Prefetch refills the FIFO from ahead-strip evictions and
+        // the drain never reaches quiescence (black-screen init livelock). Cleared once the
+        // drain completes, before the display comes on.
+        st.b    PageIn_Bulk_Drain
+
         // Raise the DMA window budget for the display-off bulk load: several
         // 64-tile pages' Important landing DMAs (2048 B each) drain per blanked
         // frame under the raised window (headroom above the active-display budget).
@@ -163,6 +170,7 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         bne     .drain_wait
 
         move.w  d7, DMA_Budget_Default              // restore the active-display budget
+        clr.b   PageIn_Bulk_Drain                  // bulk drain reached quiescence — prefetch may resume
 
     .bg:
         // -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --

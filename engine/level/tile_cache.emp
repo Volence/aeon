@@ -553,6 +553,14 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         clr.w   Cache_H_Pfx_Accum
         clr.w   Cache_Pfx_Skip_Armed
         clr.w   Cache_Pfx_Lag_Flag             // trailing-lag gate baseline (no false skip on frame 1)
+        // Prefetch ahead-targets baseline (chain 78): the per-frame Tile_Cache_Fill scan
+        // sets these, but PageCache_Prefetch (run from VSync_Wait at frame top) can fire on
+        // the FIRST gameplay frame BEFORE that scan has run this act. Seed the $FFFF
+        // "axis-inactive" sentinel here — in FillAll's section reset, before the display
+        // comes on — so a pre-first-fill prefetch reads "no target" and skips, rather than
+        // scanning a RAM-init 0 as a live block coordinate.
+        move.w  #$FFFF, Cache_Pfx_Row_Target
+        move.w  #$FFFF, Cache_Pfx_Col_Target
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl     .top_ok
         moveq   #0, d0

@@ -77,6 +77,8 @@ const PF_FLAGS = offsetof(PageFrame, pf_flags)
 // -----------------------------------------------
 pub proc PageCache_Init () clobbers(d0-d1/a0) {
         jbsr    PageIn_Flush                    // cancel any in-flight/queued page-in work first
+        clr.b   PageIn_Bulk_Drain               // defensive: no bulk drain in progress across an act reset
+                                                // (Level_LoadArt re-arms it around its own load below)
 
         lea     Page_Table, a0                  // Page_Table[..] = PAGE_NOT_RESIDENT
         move.w  #PAGE_TABLE_MAX-1, d0
@@ -532,6 +534,16 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         // page, so it spans the whole demand lifecycle until the page publishes. (This is
         // per-tier priority discipline, not a shared arbiter — D2 stays honored.)
         tst.w   Cache_Art_Stall
+        bne     .ret
+        // BULK-FIRST discipline (chain 78, mirror of the demand-first gate above): while
+        // Level_LoadArt's init bulk pool load + drain-wait is active, speculative prefetch
+        // must NOT enqueue. The drain spins on queue-empty + idle; with 41 pages vs 15
+        // frames a prefetch landing evicts an LRU page whose ahead-strip refs get re-scanned
+        // and re-requested — a prefetch<->evict cycle that never drains (black-screen
+        // livelock, Preempts/Resumes climbing ~1/frame with Demands stuck at 0). The bulk
+        // drain has no Cache_Art_Stall, so the demand-first gate does not cover it; this
+        // flag does. (Also covers act-transition reloads — it spans the whole bulk load.)
+        tst.b   PageIn_Bulk_Drain
         bne     .ret
         tst.w   Page_Pfx_Budget
         beq     .ret                            // no budget left this frame — cheap exit
