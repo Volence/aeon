@@ -283,6 +283,7 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         // them); LruLinkTail OWNS setting PF_IN_LRU as it links — never set it here
         // (that split ownership was the Task-6 boot audit failure).
         clr.b   PF_FLAGS(a3, d2.w)             // defensive: guarantee no stale PF_PINNED
+        moveq   #0, d0                          // zero-extend: d1's upper byte is stale (see above)
         move.b  d1, d0                          // LruLinkTail takes frame in d0
         jbra    PageCache_LruLinkTail          // links + sets PF_IN_LRU atomically
 }

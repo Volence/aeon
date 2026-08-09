@@ -386,6 +386,19 @@ pub proc PageIn_Flush () clobbers() {
         clr.b   PageIn_InFlight
         clr.b   PageIn_Land_Pending
         clr.b   PageIn_Queue_Count
+        // Clear the request-FIFO dedupe bitset: a flush cancels the queue, so a
+        // stale queued bit would block a later re-request of that page. Done here
+        // (not just in PageCache_Init) because Task-4 callers issue bare flushes.
+        // Register-free absolute clears keep this proc's clobbers() == none.
+        // Page_Queued_Bits is PAGE_TABLE_MAX/8 = 32 bytes (8 longs), long-aligned.
+        clr.l   Page_Queued_Bits
+        clr.l   Page_Queued_Bits+4
+        clr.l   Page_Queued_Bits+8
+        clr.l   Page_Queued_Bits+12
+        clr.l   Page_Queued_Bits+16
+        clr.l   Page_Queued_Bits+20
+        clr.l   Page_Queued_Bits+24
+        clr.l   Page_Queued_Bits+28
     if DEBUG == 1 {
         addq.w  #1, Dbg_PageIn_Flushes
     }
