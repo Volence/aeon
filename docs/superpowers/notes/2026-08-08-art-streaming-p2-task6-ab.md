@@ -124,3 +124,24 @@ via a corruption not reproducible by static analysis.
   Page_Audit_Snapshot at entry, so a red-screen freezes the exact residency state
   for direct reading.
 Full mini-ritual: repin (127 RAM pins moved) + refreeze --ab (chain 64).
+
+## ROOT CAUSE + fix: Publish frame-offset used a stale-upper-byte d1 (chain 65, 2026-08-08)
+
+Controller ground truth (chain-64 red-screen): Page_Table correct identity, LRU
+list correct, free list intact, BUT pf_page == $FFFF on EVERY frame and the pinned
+frames' flags == 0. The frame-record half of Publish never lands; the Page_Table
+half does. Disassembling the CURRENT Publish: `move.w d0, PF_PAGE(a3, d2.w)` has the
+right base (a3 = Page_Frames), but d2 (the frame*8 offset) was `move.w d1, d2; lsl
+#3` — and the caller (page_in .land / .raw_published) sets d1 via
+`move.b PageIn_Cur_Frame, d1`, leaving d1's UPPER BYTE stale (from the staging-buffer
+address / EnqueueLanding clobber). So `move.w d1,d2` folded that garbage into the
+offset -> frame*8 became a wild address, and EVERY frame-record store (pf_page,
+clr refcount, PF_PINNED/clr flags) missed its record. Page_Table (via `move.b d1`)
+and LruLinkTail (via a clean d0 = page's low word) were unaffected — exactly the
+observed dump. The chain-63 "frame 12" was mid-loop register garbage reading against
+the all-$FFFF pf_page column, not a real mapping.
+- FIX: Publish computes the frame offset with `moveq #0,d2; move.b d1,d2; lsl #3` —
+  zero-extending the byte frame id so the stale upper byte can't corrupt it. Verified
+  in the binary. RELEASE mechanism -> all shapes byte-change (chain 65).
+The chain-64 staging isolation + DEBUG snapshot are kept (harmless; the snapshot is
+the tool that produced this ground truth).

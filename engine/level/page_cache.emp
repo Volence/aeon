@@ -262,8 +262,14 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         lea     (a0, d2.w), a0
 
         lea     Page_Frames, a3                 // frame fields via base+offset
-        move.w  d1, d2
-        lsl.w   #3, d2
+        // frame*8 offset: ZERO-EXTEND d1 first. The caller (page_in) sets d1 via
+        // `move.b PageIn_Cur_Frame, d1`, so d1's upper byte is STALE; a `move.w d1,d2`
+        // would fold that garbage into the offset (frame*8 -> wild address), and every
+        // frame-record write (pf_page, refcount, flags) would miss its record — the
+        // Task-6 boot bug (pf_page $FFFF everywhere, pinned flags never set).
+        moveq   #0, d2
+        move.b  d1, d2                          // d2 = frame (0..14), clean
+        lsl.w   #3, d2                           // d2 = frame * sizeof(PageFrame)=8
         move.w  d0, PF_PAGE(a3, d2.w)           // pf_page = page (d0 still = page)
         clr.w   PF_RC(a3, d2.w)
 
