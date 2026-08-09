@@ -60,13 +60,20 @@
 // PageIn_Resume, PageIn_EnqueueLanding, PageIn_Enqueue, PageIn_Flush) emit as ONE
 // contiguous section — map.toml's `order` carries a single entry, the module
 // head-label `PageIn_Process`; the rest ride behind it (the one-section-per-module
-// rule; repin's page_in region spans [PageIn_Process, BG_Init)).
+// rule; repin's page_in region spans [PageIn_Process, PageCache_Init)).
 module engine.page_in in page_in
 
 use engine.structs.{PageInReq, PageManifest, Act}
 use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
 use engine.constants.{ART_POOL_PAGE_BYTES_SHIFT, ART_PAGE_FORM_ZX0, TILE_SIZE}
-use engine.constants.{PAGE_NOT_RESIDENT, PAGE_PREFETCH_MAX}
+use engine.constants.{PAGE_NOT_RESIDENT, PAGE_PREFETCH_MAX, PAGE_TABLE_MAX}
+
+// The dispatch strides these structs with literal shifts (`lsl #3` at the
+// manifest walk, `lsl #2` + a single `move.l` at the FIFO compaction) — sound
+// only while the sizes hold. Same pattern as PageFrame's ensure in page_cache.
+ensure(sizeof(PageManifest) == 8, "PageManifest must be 8 bytes so `page*sizeof` is `lsl #3`")
+ensure(sizeof(PageInReq) == 4, "PageInReq must be 4 bytes so `count*sizeof` is `lsl #2` and the compaction copy is one move.l")
+ensure(PAGE_TABLE_MAX / 8 == 32, "PageIn_Flush hand-clears exactly 32 bytes (8 clr.l) — re-derive that unroll if PAGE_TABLE_MAX moves")
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // ZX0R_Decompress (engine.zx0_resume), QueueDMA_Important (engine.dma_queue),
@@ -188,18 +195,17 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
     if DEBUG == 1 {
         raise_error "PageIn dispatch: page_id >= pool pages (corrupt id)"
     }
-        rts                                     // release: drop the page-in (never off-manifest)
+        // release: drop the page-in AND release its queued-bit claim — publish
+        // never runs for a dropped id, and a stale claim permanently blocks any
+        // re-request of that page (the enqueue dedupe reads it).
+        bra     .release_claim
     .page_id_ok:
 
-        // --- residency cache (P2b Task 6): allocate a VRAM frame for this page.
-        //     The page's dest is its FRAME's slot, not the identity page_id slot.
-        //     AllocFrame clobbers d0-d3/a3-a4 (a0/a1 untouched). ---
-        jbsr    PageCache_AllocFrame            // d0.b = frame (or PAGE_NOT_RESIDENT on thrash in release)
-        cmpi.b  #PAGE_NOT_RESIDENT, d0
-        beq     .alloc_fail                     // (DEBUG raise_errors before here; release safety net)
-        move.b  d0, PageIn_Cur_Frame
-
-        // --- resolve page_id -> manifest v2 entry {source, tiles, form, flags} ---
+        // --- resolve page_id -> manifest v2 entry {source, tiles, form, flags},
+        //     BEFORE the frame alloc: a degenerate (size-0) entry must be dropped
+        //     while NO frame is held — dropping after allocation leaks the
+        //     detached frame (pf_page $FFFF: unreachable from both reclaim lists
+        //     AND skipped by the orphan audit's in-flight exemption). ---
         // Base = PageIn_Pool_Table (set by Level_LoadArt from Act.act_art_pool_table).
         // The coordinator's LIVE READ confirmed it is CORRECT/uncorrupted, so read it
         // straight through the symbol — NO Current_Act_Ptr dependency (it reads null at
@@ -224,9 +230,18 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         movea.l PageManifest.pm_source(a1), a0  // a0 = page blob ptr
 
         move.w  PageManifest.pm_tiles(a1), d1    // d1.w = decompressed tile count
-        beq     .idle                            // tripwire 3: size-0 page -> skip (no 0-length decode)
+        beq     .drop_degenerate                 // tripwire 3: size-0 page — no frame held yet
         lsl.w   #5, d1                            // landing DMA length = tiles * TILE_SIZE(32)
         move.w  d1, PageIn_Cur_Bytes
+
+        // --- residency cache (P2b Task 6): allocate a VRAM frame for this page.
+        //     The page's dest is its FRAME's slot, not the identity page_id slot.
+        //     a0/a1 SURVIVE: AllocFrame's declared contract is clobbers(d1-d2/a3)
+        //     out(d0) — nothing wider. ---
+        jbsr    PageCache_AllocFrame            // d0.b = frame (or PAGE_NOT_RESIDENT on thrash in release)
+        cmpi.b  #PAGE_NOT_RESIDENT, d0
+        beq     .alloc_fail                     // (DEBUG raise_errors before here; release safety net)
+        move.b  d0, PageIn_Cur_Frame
 
         // dest VRAM byte = frame << ART_POOL_PAGE_BYTES_SHIFT (== frame *
         // ART_POOL_PAGE_BYTES); the shift is ensure-tied to the byte size (tripwire 2).
@@ -261,10 +276,25 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         // the DMA source directly. Resident the instant the DMA lands (no staging
         // buffer to protect -> no Staging_Busy handshake).
         move.l  a0, d1                          // source = raw payload (pm_source, no wrapper)
+    if DEBUG == 1 {
+        // The queue's `lsr.l #1` word-source conversion silently DROPS bit 0 —
+        // an odd generator pointer would DMA the whole page from source-1.
+        btst    #0, d1
+        beq     .raw_src_even
+        raise_error "PageIn: raw pm_source is odd (DMA would read from source-1)"
+    .raw_src_even:
+    }
         jbsr    PageIn_EnqueueLanding           // Important ROM->VRAM DMA; carry = dropped
         bcc     .raw_published                  // enqueued -> page resident
-        // Queue full -> re-enqueue the request (B&R rollback: retry next frame).
-        // A slot is guaranteed free (we just dequeued one), so this cannot drop.
+        // Queue-full/budget deferral -> B&R rollback: hand the allocated frame
+        // BACK before re-enqueueing the request (the retry re-allocates fresh).
+        // Without the free the detached frame leaks invisibly — pf_page $FFFF is
+        // exempt from the orphan audit — and repeated deferrals starve AllocFrame
+        // into .thrash. (The ZX0 path instead RETAINS its frame across .land_full
+        // because the staging buffer still holds the decoded page.)
+        moveq   #0, d0
+        move.b  PageIn_Cur_Frame, d0
+        jbsr    PageCache_FreeFrame
         move.w  PageIn_Cur_Page, d0
         move.b  PageIn_Cur_Flags, d1
         jbsr    PageIn_Enqueue @discards(dropped)
@@ -284,6 +314,30 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         jbsr    PageIn_Enqueue @discards(dropped)
 
     .idle:
+        rts
+
+    .drop_degenerate:
+        // size-0 manifest entry (corrupt: verify_level_bin enforces nonzero
+        // tiles at bake time). No frame is held — the manifest resolve precedes
+        // AllocFrame for exactly this reason. Release the queued-bit claim:
+        // publish never runs for a dropped id, and a stale claim permanently
+        // blocks re-requesting the page (the enqueue dedupe reads it).
+    if DEBUG == 1 {
+        raise_error "PageIn dispatch: size-0 page (corrupt manifest)"
+    }
+        move.w  PageIn_Cur_Page, d0
+        // fall through: d0.w = page id
+    .release_claim:
+        // Bitset-bounds guard: the corrupt-id drop path can carry an id past
+        // PAGE_TABLE_MAX — never index beyond the PAGE_TABLE_MAX/8-byte bitset.
+        cmpi.w  #PAGE_TABLE_MAX, d0
+        bhs     .claim_done
+        move.w  d0, d1
+        lsr.w   #3, d1                          // byte offset
+        lea     Page_Queued_Bits, a0
+        andi.w  #7, d0                          // bit index (page&7)
+        bclr    d0, (a0, d1.w)
+    .claim_done:
         rts
 
     .resume:
@@ -455,7 +509,7 @@ proc PageIn_EnqueueLanding (d1: u32) clobbers(d0-d2/a1-a2) preserves(d3-d4) out(
         // Charged only on a SUCCESSFUL enqueue below. Checked BEFORE the movem so the
         // deferral is push/pop-free. Steady-state governor; init bulk-load lands <=1
         // page/frame under the budget, so it never throttles the display-off load
-        // (VInt_Level reloads Art_Budget_Remaining each frame). NOT a unified arbiter (D2).
+        // (PageIn_Process's per-physical-frame tick reloads Art_Budget_Remaining). NOT a unified arbiter (D2).
         move.w  Art_Budget_Remaining, d0
         cmp.w   PageIn_Cur_Bytes, d0
         blo     .art_deferred                   // remaining < bytes -> defer this frame
@@ -552,7 +606,11 @@ pub proc PageIn_Flush () clobbers() {
         // stale queued bit would block a later re-request of that page. Done here
         // (not just in PageCache_Init) because Task-4 callers issue bare flushes.
         // Register-free absolute clears keep this proc's clobbers() == none.
-        // Page_Queued_Bits is PAGE_TABLE_MAX/8 = 32 bytes (8 longs), long-aligned.
+        // Page_Queued_Bits is PAGE_TABLE_MAX/8 bytes, even-aligned (clr.l needs
+        // only even on 68000). The 8-long unroll is pinned to the constant by the
+        // module-level ensure — growing PAGE_TABLE_MAX without re-deriving it
+        // would leave stale claims beyond the cleared span (a stale bit
+        // permanently blocks that page's re-request).
         clr.l   Page_Queued_Bits
         clr.l   Page_Queued_Bits+4
         clr.l   Page_Queued_Bits+8

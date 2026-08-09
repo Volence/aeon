@@ -53,7 +53,7 @@ by leverage, not by section. Each links back to its full entry below; read the e
 correction) before planning — several carry caveats that shrink the win.
 
 ### 1. §9.7 idle-time deferred work / resumable decode — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
-**Done (`feat/art-streaming-p2`, chains 55→78; merge pending a final oracle spot-check).** §9.7
+**Done (`feat/art-streaming-p2`, chains 55→78; merged to master `2f047e3`).** §9.7
 shipped as the pre-chunked-pages + VBlank-supervisor-bookmark idle-time path (the user-mode variant
 was rejected). The resumable `ZX0R_Decompress` decoder is sliced across idle by a VBlank
 register-bank/resume, feeding a VRAM page residency cache. All three items this gated are
@@ -737,7 +737,7 @@ enemies, etc. Premature without that signal.
 **When ready:** When HScroll partial updates become a measurable DMA budget issue.
 
 ### Background Work / Cooperative Multitasking (§1.5 → §9.7) — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
-> **RESOLVED 2026-08-09 (`feat/art-streaming-p2`, chains 55→78; merge pending a final oracle spot-check).**
+> **RESOLVED 2026-08-09 (`feat/art-streaming-p2`, chains 55→78; merged to master `2f047e3`).**
 > §9.7 was designed AND SHIPPED — not as the user-mode cooperative-multitasking split this entry
 > named, but as its ratified replacement: the **pre-chunked pages + VBlank supervisor bookmark**
 > idle-time path (ARCH §9.7 rewritten in place, D4=A). A resumable stack-flat ZX0 decoder
@@ -778,7 +778,7 @@ enemies, etc. Premature without that signal.
 ## From §2 — Art & Compression Pipeline
 
 ### Art-streaming Phase 2 — binding amendments from the 2026-07-01 loading audit — **✅ RESOLVED (EXECUTED 2026-08-09)**
-> **RESOLVED 2026-08-09 (`feat/art-streaming-p2`, chains 55→78; merge pending a final oracle spot-check).**
+> **RESOLVED 2026-08-09 (`feat/art-streaming-p2`, chains 55→78; merged to master `2f047e3`).**
 > Phase 2 shipped and every binding amendment below is discharged or superseded, as executed:
 > (1) resumable decode is a requirement and shipped format-independent as `ZX0R_Decompress` — pages
 > are ZX0 + raw-direct hybrid, 64 tiles; the S4LZ-page format half was already superseded 2026-07-02.
@@ -3424,5 +3424,5 @@ hanging the controller's confidence sweep (abandoned; the matrix evidence was al
 This is an emulator-side/MCP-arbiter fault, NOT an Aeon-engine issue — the ROM was fine and the
 matrix passed. Pattern to watch: long-duration `press` on a freshly-launched instance can wedge the
 arbiter; the workaround was to abandon and rely on the completed evidence. Recorded for the **oracle
-backlog** (oracle-repo work, not Aeon). Consequence for Aeon: the T12 merge is gated on ONE final
-oracle spot-check when the emulator recovers — the controller performs it before merging.
+backlog** (oracle-repo work, not Aeon). Consequence for Aeon: none remaining — the final oracle
+spot-check passed and the T12 merge landed on master (`2f047e3`).

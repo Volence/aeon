@@ -639,9 +639,11 @@ pub vars upper_ram {
     // decoder's ENTIRE live register set + CCR here at preemption, and
     // PageIn_Process resumes from it. 7 longs (d0-d2/a0-a3) + PC long + SR word =
     // 34 bytes, plus two byte flags. Banked/restored via individual moves (NOT
-    // movem-to-absolute: that addressing mode has no assembler support and would
-    // otherwise need a scratch pointer register the bank stub cannot spare — every
-    // register is either decoder state or live main-loop state). NO hand
+    // movem-to-absolute: the 68000 supports movem to/from absolute-long with no
+    // pointer register, but sigil cannot yet emit movem to a symbolic absolute
+    // operand — the same lowering gap as abs-sym + second extension-word operand.
+    // When it can, the 7-move bank/resume pairs in page_in should become movem,
+    // ~92 cycles saved per preempt+resume). NO hand
     // VBH_STACKED_PC constant anywhere — the hook uses the Sigil irq_frame.pc
     // accessor. Placed at the RAM TAIL: the addition ripples ZERO existing RAM
     // addresses (only Engine_RAM_End + the game RAM chained after it shift).
@@ -679,7 +681,11 @@ pub vars upper_ram {
     PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)
     PageIn_Pool_Pages:      u16,        // current act's pool page count (set by Level_LoadArt) — dispatch page-id bound;
                                         // resolve-context source that does NOT depend on the flaky Current_Act_Ptr
-    pad(2),                             // keep the u32s below long-aligned
+    PageIn_Fully_Resident:  u8,         // nonzero = pool_pages <= PAGE_FRAMES_CLAMP (latched by Level_LoadArt):
+                                        // the whole pool is permanently resident after the bulk load, so
+                                        // PageCache_Prefetch early-outs — its ahead-strip scan can never find a
+                                        // non-resident page (§9.7 degenerate path, all shipped content)
+    pad(1),                             // keep the u16s below even-aligned (consumes half the former pad)
 
     // --- Art-streaming P2b Task 7: page prefetch + D3 trailing-lag admission gate ---
     // RELEASE (the streaming path is present in every shape). The D3 gate gates

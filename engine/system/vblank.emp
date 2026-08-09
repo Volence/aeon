@@ -333,7 +333,7 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
 //   P2a, Task 3 Step 6). PageIn_Process adds nothing beyond this set and pushes
 //   nothing before falling into the decoder. Every caller was re-verified against
 //   the widening: GameLoop already clobbers everything; Level_LoadArt keeps only
-//   a4-a6/d6/d7 live across its VSync_Wait calls (all outside this set).
+//   a4/d5-d7 live across its VSync_Wait calls (all outside this set).
 // PRECONDITION: the caller runs below IPL 6 — preserves(sr.mask) faithfully
 // re-masks, so a caller already at IPL >= 6 spins forever (no in-tree caller
 // does). preserves(sr.mask) is intact across the PageIn slice: the mask

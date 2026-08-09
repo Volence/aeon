@@ -59,8 +59,8 @@ fi
 # (ojz_act_pool_manifest.json) carrying per-page {tiles, pinned}. Here we ELECT a
 # storage form per page:
 #   ZX0 (form 0): [u16 BE uncompressed size][u8 flags=0][u8 version=2] wrapper +
-#                 salvador (modern/V2) stream — staged decode. Kept only when it
-#                 saves >= RAW_ELECT_MIN vs raw.
+#                 salvador (modern/V2) stream — staged decode. Kept only when
+#                 zx0*RAW_ELECT_DEN <= raw*RAW_ELECT_NUM (>= 10% saving vs raw).
 #   raw (form 1): the uncompressed payload, NO wrapper — DMA straight from ROM.
 # The loader dispatches on the manifest form byte (not the wrapper version).
 #
@@ -149,6 +149,12 @@ POOL_EMP="${POOL_DIR}/ojz_act_pool.emp"
 echo "Generating OJZ block data..."
 python3 "${TOOLS}/ojz_block_gen.py" generate
 
-echo "Re-bake complete. Verify: tools/verify_level_bin.py, then ./build.sh both shapes."
+# The re-bake is the ONE moment the committed tree actually changes — run the
+# drift gate HERE, not just at the next build.sh. (set -euo pipefail above
+# makes a verify failure abort the script with its nonzero exit.)
+echo "Verifying the re-baked tree..."
+python3 "${TOOLS}/verify_level_bin.py"
+
+echo "Re-bake complete. Next: ./build.sh both shapes."
 echo "The committed level tree should be byte-identical unless the editor data or"
 echo "a donor project changed — review 'git status games/sonic4/data' before committing."

@@ -13,13 +13,17 @@ referential integrity + the .zx0 wrapper roundtrip, which need only the tree.
 
 Run from the repo root:  python3 tools/verify_level_bin.py
 """
+import json
 import os
 import re
 import struct
+import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN = os.path.join(ROOT, "games", "sonic4", "data", "generated", "ojz", "act1")
+SALVADOR = os.path.join(ROOT, "tools", "bin", "salvador")
 NUM_SECTIONS = 9            # 3x3 grid (project.json); sections 0..8
 ART_POOL_PAGE_BYTES = 2048  # ART_POOL_PAGE_TILES (64) * 32
 TILE_SIZE = 32
@@ -37,6 +41,27 @@ def check(cond, msg):
 def read(path):
     with open(path, "rb") as f:
         return f.read()
+
+
+def zx0_decode(payload):
+    """Decode a bare ZX0 stream via salvador -d (the same tool that packed it).
+    Returns the plaintext bytes, or None (with a recorded failure) if salvador
+    is unavailable — a missing decoder must FAIL the gate, never skip it:
+    silence is also what a checker that analyzed nothing produces."""
+    if not os.access(SALVADOR, os.X_OK):
+        check(False, f"act pool: salvador missing at {SALVADOR} — cannot "
+                     "content-verify .zx0 pages (build.sh builds it; run make -C tools/salvador)")
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, "in.zx0")
+        dst = os.path.join(td, "out.bin")
+        with open(src, "wb") as f:
+            f.write(payload)
+        r = subprocess.run([SALVADOR, "-d", src, dst],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if r.returncode != 0 or not os.path.isfile(dst):
+            return b""          # decode failure -> caller's compare fails loudly
+        return read(dst)
 
 
 def verify_act_pool():
@@ -97,16 +122,100 @@ def verify_act_pool():
                       f"act pool: page{k}.zx0 wrapper size {usize} != page{k}.bin size {len(raw)}")
                 check(w[2] == 0 and w[3] == 2,
                       f"act pool: page{k}.zx0 wrapper flags/version {w[2]},{w[3]} != 0,2")
+                # CONTENT check, not just the wrapper: decode the stream and
+                # byte-compare against the .bin. Every full page is exactly 2048
+                # bytes, so the size checks above have zero discriminating power
+                # against a stale .zx0 from a previous bake — which would ship
+                # wrong art through every other gate (this is THE drift gate for
+                # a tree the build cannot re-derive).
+                dec = zx0_decode(w[4:])
+                if dec is not None:
+                    check(dec == raw,
+                          f"act pool: page{k}.zx0 payload decodes to different bytes than page{k}.bin (stale/drifted stream)")
         elif form == 1:   # raw-direct
             check(ext == "raw", f"act pool: page{k} form 1 (raw) but embeds .{ext}")
             praw = os.path.join(GEN, f"act_pool_page{k}.raw")
             if not os.path.isfile(praw):
                 check(False, f"act pool: act_pool_page{k}.raw missing")
                 continue
-            check(len(read(praw)) == len(raw),
-                  f"act pool: page{k}.raw size != page{k}.bin size {len(raw)}")
+            # BYTE equality, not just size: full raw pages are all exactly 2048 B.
+            check(read(praw) == raw,
+                  f"act pool: page{k}.raw content != page{k}.bin (stale/drifted copy)")
         else:
             check(False, f"act pool: page{k} unknown form {form}")
+
+    # Sidecar cross-check: the machine-readable manifest JSON is the generator's
+    # own record of page geometry + the PINNED set. pm_flags bit0 is
+    # residency-safety-critical (a pin lost = evictable act-common page; a
+    # spurious pin = a permanently unreclaimable frame) and was previously
+    # captured and DISCARDED here — nothing tied the .emp flags to the sidecar.
+    sidecar = os.path.join(GEN, "ojz_act_pool_manifest.json")
+    if not os.path.isfile(sidecar):
+        check(False, "act pool: ojz_act_pool_manifest.json sidecar missing")
+        return
+    sc = json.load(open(sidecar))
+    check(sc.get("page_bytes") == ART_POOL_PAGE_BYTES,
+          f"act pool: sidecar page_bytes {sc.get('page_bytes')} != {ART_POOL_PAGE_BYTES}")
+    check(sc.get("page_tiles") * TILE_SIZE == ART_POOL_PAGE_BYTES,
+          f"act pool: sidecar page_tiles {sc.get('page_tiles')} * {TILE_SIZE} != page_bytes")
+    sc_pages = {p["index"]: p for p in sc.get("pages", [])}
+    check(sorted(sc_pages) == list(range(pages)),
+          f"act pool: sidecar page indices {sorted(sc_pages)} != 0..{pages-1}")
+    for e in entries:
+        k, tiles, _form, flags = int(e[0]), int(e[1]), int(e[2]), int(e[3])
+        p = sc_pages.get(k)
+        if p is None:
+            continue
+        check(p["tiles"] == tiles,
+              f"act pool: page{k} sidecar tiles {p['tiles']} != manifest tiles {tiles}")
+        check(bool(flags & 1) == bool(p["pinned"]),
+              f"act pool: page{k} pm_flags pinned bit {flags & 1} != sidecar pinned {p['pinned']}")
+
+
+def verify_local_maps():
+    """Per-section local->global map consistency (P2b): each committed
+    secN_local_map.bin must be well-formed (u16 BE entries, count <= 2048), and
+    every local index used by that section's DICT-region raw blocks must fall
+    inside the map. Catches the partial-commit drift where a re-baked
+    secN_blocks.bin is committed without its secN_local_map.bin (or vice versa)
+    — previously only the files' EXISTENCE was checked, and a mismatch renders
+    garbage global slots with every gate green. (S4LZ-streamed blocks are not
+    decoded here; the dict region covers the section's most-referenced blocks.)"""
+    dicts = os.path.join(GEN, "sec_block_dicts.emp")
+    dlen = {}
+    if os.path.isfile(dicts):
+        dlen = {int(n): int(v) for n, v in
+                re.findall(r"OJZ_SEC(\d+)_BLOCK_DICT_LEN\s*=\s*(\d+)", open(dicts).read())}
+    for n in range(NUM_SECTIONS):
+        mpath = os.path.join(GEN, f"sec{n}_local_map.bin")
+        bpath = os.path.join(GEN, f"sec{n}_blocks.bin")
+        if not os.path.isfile(mpath):
+            # sections may alias another's blocks; a missing map is only fatal
+            # when the section has its own block blob
+            check(not os.path.isfile(bpath),
+                  f"local maps: sec{n}_blocks.bin present but sec{n}_local_map.bin missing")
+            continue
+        m = read(mpath)
+        check(len(m) % 2 == 0, f"local maps: sec{n}_local_map.bin has odd size {len(m)}")
+        count = len(m) // 2
+        check(0 < count <= 2048,
+              f"local maps: sec{n}_local_map.bin entry count {count} not in 1..2048")
+        if not os.path.isfile(bpath) or n not in dlen:
+            continue
+        blob = read(bpath)
+        dict_end = BLOCK_INDEX_BYTES + dlen[n]
+        max_local = -1
+        for off in range(BLOCK_INDEX_BYTES, min(dict_end, len(blob)), BLOCK_RAW_SIZE):
+            block = blob[off:off + BLOCK_RAW_SIZE]
+            # first 512 bytes of a raw block = 256 BE nametable words; local
+            # index = low 11 bits
+            for i in range(0, min(512, len(block)), 2):
+                idx = ((block[i] << 8) | block[i + 1]) & 0x07FF
+                if idx > max_local:
+                    max_local = idx
+        check(max_local < count,
+              f"local maps: sec{n} dict blocks reference local index {max_local} "
+              f">= map entry count {count} (blocks/map drift — partial commit?)")
 
 
 def verify_block_blobs():
@@ -161,9 +270,10 @@ def verify_bininclude_targets():
 
 def main():
     verify_act_pool()
+    verify_local_maps()
     verify_block_blobs()
     verify_bininclude_targets()
-    checks_run = "act-pool / block-blobs / bininclude-targets"
+    checks_run = "act-pool+content+sidecar / local-maps / block-blobs / bininclude-targets"
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:

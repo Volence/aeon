@@ -237,6 +237,7 @@ pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-tim
 pub const ART_PAGE_FORM_ZX0    = 0          // ZX0 stream (wrapper + salvador bitstream, staged decode)
 pub const ART_PAGE_FORM_RAW    = 1          // raw-direct (uncompressed payload, DMA straight from ROM)
 pub const ART_PAGE_FLAG_PINNED = 1 << 0     // never-evict act-common page (P2b residency cache)
+pub const ART_PAGE_FLAG_PINNED_BIT = 0      // btst-form twin (house mask+_BIT pattern, cf. PF_PINNED_BIT)
 pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (matches ojz_strip_gen)
 
 // Residency cache (P2b Task 6, engine.page_cache). The FG VRAM art region is
@@ -287,7 +288,7 @@ pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted p
 // STRESS_EVICT forced-eviction dev fixture (Task 7). The build define STRESS_EVICT
 // (0 in every shipped shape; 1 only in the off-canonical `stress_evict` dev profile)
 // clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (4
-// pinned pages 0/1/8/9 + 4 dynamic frames), forcing continuous evict/reload traffic
+// pinned pages 0/1/8/9 + 5 dynamic frames), forcing continuous evict/reload traffic
 // through every path. PageCache_Init threads only PAGE_FRAMES_CLAMP frames into the
 // free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
 // but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).
