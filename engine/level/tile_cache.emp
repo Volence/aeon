@@ -175,7 +175,7 @@ pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1
         move.w  a1, d3
         subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
         // F-3: republish this block's local->global map for the consumers that
-        // read staged words (PageCache_PatchWord at the copy sites, the prefetch
+        // read staged words (the PageCache patch runs at the copy sites, the prefetch
         // scan) — staged nametable words are LOCAL; the map applies per word.
         lea     Block_Stage_Maps, a1
         move.l  (a1, d3.w), Cache_Cur_LocalMap
@@ -279,7 +279,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         add.w   d0, d3                         // d3 = flat section id
 
         // -- F-3 merge-translation: staged nametable words stay LOCAL; the
-        //    local->global map is applied per word inside PageCache_PatchWord
+        //    local->global map is applied per word inside the PageCache patch runs
         //    (and the prefetch scan), where the full-width global lives only in
         //    a register — the 11-bit nametable field then only ever carries the
         //    PHYSICAL index (<= 959), so the pool has no 2048-tile ceiling.
@@ -297,7 +297,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.l  (a2, d5.w), d7                 // d7 = this section's local->global table
         lea     Block_Stage_Maps, a2
         move.l  d7, (a2, d6.w)                 // per-slot map (FindStagedBlock republishes it)
-        move.l  d7, Cache_Cur_LocalMap         // current-block map (PatchWord reads this)
+        move.l  d7, Cache_Cur_LocalMap         // current-block map (the patch runs read this)
 
         mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
@@ -350,7 +350,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         // slot too. The world-edge arm reaches here BEFORE the section-map
         // publish above (out-of-grid blocks have no section), and a boot-virgin
         // slot's Maps entry would otherwise be 0 — a later FindStagedBlock hit
-        // republished NULL into Cache_Cur_LocalMap and PatchWord read "map[0]"
+        // republished NULL into Cache_Cur_LocalMap and the patch run read "map[0]"
         // from ROM address 0. The blank map is CORRECT for the zero page in
         // every case (its $0000 words = local 0 -> global 0 = blank), so the
         // store is unconditional — in-grid empties just get a tighter map.
@@ -410,14 +410,14 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         add.w   d5, d5                         // col * 2
         adda.w  d5, a0                         // a0 = first tile word in run
 
-        // F-3: the staged words are LOCAL; PageCache_PatchWord maps each
+        // F-3: the staged words are LOCAL; PageCache_PatchRun_Col maps each
         // local->global (Cache_Cur_LocalMap, published when this block was
         // located/staged) then global->physical (frame) + ref/unref as it lands.
-        // PatchWord writes through a1, so a1 becomes the nametable dest cursor here.
-        // a1 (the staged base) is a PRESERVED param — FillAll reuses it across 16
-        // columns — so SAVE it on the stack (the closure-recognised preserve idiom)
-        // and pop it at the single exit; a4 mirrors it for the collision copy
-        // (PatchWord never touches a4).
+        // The patch run writes through a1, so a1 becomes the nametable dest cursor
+        // here. a1 (the staged base) is a PRESERVED param — FillAll reuses it across
+        // 16 columns — so SAVE it on the stack (the closure-recognised preserve
+        // idiom) and pop it at the single exit; a4 mirrors it for the collision copy
+        // (PatchRun banks + restores a4, so the mirror survives the runs).
         move.l  a1, -(sp)                      // preserve staged base (restored at .done_coll)
         movea.l a1, a4                         // staged base -> a4 (collision copy source)
 
@@ -436,34 +436,30 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         adda.w  d5, a1                        // a1 = nametable dest cursor (was a2 pre-Task6)
 
         // wrap-split: the vertical run (≤16 rows) crosses the cache row-59→0
-        // boundary at most once, so emit ≤2 straight copies split there instead
+        // boundary at most once, so emit ≤2 straight runs split there instead
         // of a per-row sentinel test — byte-identical dest, no per-row wrap branch.
-        // The per-word copy is now PageCache_PatchWord (global->physical + refcount);
-        // it advances neither cursor, so the lea strides are unchanged.
+        // The per-word patch is PageCache_PatchRun_Col (global->physical +
+        // refcount, banked once per run); it returns a0/a1 advanced one stride
+        // past the run, so run 2 continues from them. d0 (intra-block col) is
+        // consumed by the collision phase below and PatchRun clobbers it — stack
+        // it across the runs.
+        move.w  d0, -(sp)                      // preserve col for the collision src calc
         move.w  #TILE_CACHE_ROWS, d5
         sub.w   d2, d5                         // d5 = rows until the dest column wraps
         cmp.w   d3, d5
         bge     .nt_one_run                    // whole run fits before the wrap
-        subq.w  #1, d5
-    .nt_run1:
-        jbsr    PageCache_PatchWord            // reads (a0), patches into (a1); preserves every GP register
-        lea     BLOCK_TILE_SIZE*2(a0), a0      // next block row (32 bytes)
-        lea     TILE_CACHE_STRIDE*2(a1), a1    // next cache row (160 bytes)
-        dbf     d5, .nt_run1
+        move.w  d5, d0                         // run 1 = rows until the wrap
+        jbsr    PageCache_PatchRun_Col
         suba.w  #TILE_CACHE_NT_SIZE, a1        // dest wraps row 59 → 0, keeping cache_col
-        move.w  d3, d5
-        add.w   d2, d5
-        subi.w  #TILE_CACHE_ROWS, d5           // d5 = rows after the wrap
+        move.w  d3, d0
+        add.w   d2, d0
+        subi.w  #TILE_CACHE_ROWS, d0           // run 2 = rows after the wrap
         jbra    .nt_run2
     .nt_one_run:
-        move.w  d3, d5
+        move.w  d3, d0                         // whole run fits before the wrap
     .nt_run2:
-        subq.w  #1, d5
-    .nt_run2_loop:
-        jbsr    PageCache_PatchWord
-        lea     BLOCK_TILE_SIZE*2(a0), a0
-        lea     TILE_CACHE_STRIDE*2(a1), a1
-        dbf     d5, .nt_run2_loop
+        jbsr    PageCache_PatchRun_Col
+        move.w  (sp)+, d0                      // restore col (collision src calc below)
 
         // collision plane A: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
         // src_row (d4) is even here, but use the parity-safe macro anyway so this
@@ -605,7 +601,7 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
 // TileCache_FillAll — fill entire cache from block data
 // Called once at init (from Tile_Cache_Init, display OFF).
 // PRECONDITION: requires all resident pf_refcount == 0 — guaranteed by
-// PageCache_Init at boot. The `.zero_nt` bulk-zero here bypasses PatchWord's
+// PageCache_Init at boot. The `.zero_nt` bulk-zero here bypasses the patch runs'
 // per-word unref, so a future WARM-cache refill must first reset refcounts and
 // rebuild the LRU before calling this, or residency accounting double-counts.
 // In:  none (reads Cache_Left_Col/Head_Col/Top_Row/Bottom_Row)
@@ -1481,7 +1477,7 @@ pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
 
         // P2b Task 6: a non-resident page in this block set Cache_Art_Stall. Treat it
         // exactly like a budget-out — resume this column at this block top next frame
-        // (d7 not yet advanced). Re-copy is refcount-neutral (PatchWord pairs
+        // (d7 not yet advanced). Re-copy is refcount-neutral (the patch run pairs
         // unref-old with ref-new), so blocks already copied this pass stay correct.
         // DORMANT in Task 6 (whole pool resident); Task 7 eviction exercises it.
         tst.w   Cache_Art_Stall
@@ -1692,37 +1688,27 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         blt     .fr_nt_emit                   // n1 = cols_before_wrap (< n_total)
         move.w  d1, d0                         // n1 = n_total (whole run fits pre-wrap)
     .fr_nt_emit:
-        // F-3: each staged word is LOCAL; PageCache_PatchWord maps it
-        // local->global (Cache_Cur_LocalMap) then
-        // global->physical (frame) + ref/unref as it lands. The patch is inherently
-        // per-word, so the move.l word-pair copies become per-word patch loops (the
-        // block-walk / resume / budget structure is unchanged). PatchWord preserves
-        // every GP register, so d0/d3 (counters), d4/a4 (run-2 dest inputs), and the
-        // a0/a1 cursors all survive across it.
+        // F-3: each staged word is LOCAL; PageCache_PatchRun_Seq maps each
+        // local->global (Cache_Cur_LocalMap) then global->physical (frame) +
+        // ref/unref as it lands — banked once per RUN (the per-word PatchWord
+        // bracket was ~19% of the frame at terminal fall). The block-walk /
+        // resume / budget structure is unchanged. PatchRun preserves d1-d7/a2-a6
+        // and returns a0 advanced past the run, so d3 (n2), d4/a4 (run-2 dest
+        // inputs) and the src cursor all carry into run 2.
         move.w  d1, d3
         sub.w   d0, d3                         // d3 = n2 = n_total - n1   (d0 = n1)
         move.w  d4, d1
         add.w   d2, d1
         add.w   d1, d1                         // (row_off + phys_start) * 2
         lea     (a4, d1.w), a1                 // run-1 dest
-        subq.w  #1, d0                          // n1 words (n1 >= 1)
-    .fr_nt_run1:
-        jbsr    PageCache_PatchWord            // reads (a0), patches into (a1)
-        lea     2(a0), a0
-        lea     2(a1), a1
-        dbf     d0, .fr_nt_run1
-    .fr_nt_run1_done:
+        jbsr    PageCache_PatchRun_Seq         // d0 = n1 words (n1 >= 1)
         tst.w   d3
         beq     .fr_nt_empty
         move.w  d4, d1
         add.w   d1, d1                         // wrap dest starts at phys 0
         lea     (a4, d1.w), a1                 // run-2 dest
-        subq.w  #1, d3                          // n2 words
-    .fr_nt_run2:
-        jbsr    PageCache_PatchWord
-        lea     2(a0), a0
-        lea     2(a1), a1
-        dbf     d3, .fr_nt_run2
+        move.w  d3, d0                         // n2 words
+        jbsr    PageCache_PatchRun_Seq
 
     .fr_nt_empty:
         // === phase 2: collision planes A and B (cell-completing rows only) ===
@@ -1815,7 +1801,7 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         // P2b Task 6: a non-resident page (set during the nametable patch above)
         // stalls this row at the current column — treat like a budget-out (resume
         // keyed to d7, the current col). Re-copy on resume is refcount-neutral
-        // (PatchWord pairs unref-old with ref-new). DORMANT in Task 6.
+        // (the patch run pairs unref-old with ref-new). DORMANT in Task 6.
         tst.w   Cache_Art_Stall
         bne     .fr_budget_out
         move.w  d7, d0
