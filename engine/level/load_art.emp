@@ -6,58 +6,17 @@
 // pool fits PAGE_FRAMES_CLAMP the cache degenerates to fully resident for the
 // life of the act; a larger pool ends the bulk load with only the last-loaded
 // pages resident and gameplay pages the rest in as needed.
-//
-// Art_Decompress is the version-dispatched BLOCKING decompressor, kept for the
-// DEBUG compression self-test (engine.debug.compression_selftest); Level_LoadArt
-// no longer calls it — the streaming decoder ZX0R_Decompress does the work.
+// (The blocking Art_Decompress/ZX0_Decompress pair lives with its sole consumer,
+// the DEBUG compression self-test — F-6: release ships no unreachable equipment.)
 
 module engine.load_art in load_art
 
 use engine.structs.{Act}
-use engine.constants.{ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0, DMA_BUDGET_BLANKED_INIT, PGRQ_BULK, PAGE_FRAMES_CLAMP}
+use engine.constants.{DMA_BUDGET_BLANKED_INIT, PGRQ_BULK, PAGE_FRAMES_CLAMP}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
-// S4LZ_Decompress / ZX0_Decompress (engine.s4lz / engine.zx0),
 // PageIn_Flush / PageIn_Enqueue (engine.page_in), BG_Init (engine.bg),
 // VSync_Wait (engine.vblank).
-
-// -----------------------------------------------
-// Art_Decompress — version-dispatched blocking art decompressor.
-//
-// Every compressed art blob starts with the 4-byte wrapper
-// [u16 BE uncompressed size][u8 flags][u8 version]:
-//   version 1 (ART_VER_S4LZ) -> S4LZ_Decompress (parses the wrapper itself)
-//   version 2 (ART_VER_ZX0)  -> ZX0_Decompress (wrapper skipped here)
-// Callers must skip size-0 blobs BEFORE calling (empty stubs carry no
-// decodable stream).
-//
-// Dispatch order (§2.2 — common case falls through): ZX0 is the common case
-// on every production path. The two-tier split puts ZX0 on the load-time art
-// tier, and every act-pool page the engine ships is a .zx0 blob
-// (games/sonic4/data/generated/**/act_pool_page*.zx0); the S4LZ arm is
-// reached only from the DEBUG compression self-test, which exercises both
-// arms deliberately. So the ZX0 test is the not-taken branch.
-//
-// In:  a0 = source ROM pointer (wrapper at start, word-aligned)
-//      a1 = destination buffer
-// Out: a0 = past end of compressed data
-// Clobbers: d0-d3, a1-a3 (the S4LZ path; of these the ZX0 path touches only
-//      d0-d1 and the a1 cursor) — the exhaustive license: a4/d4 are preserved
-//      on both paths and callers keep them live across the call.
-//      a1 is the destination write cursor and is left wherever writing
-//      stopped — not an output. The two arms do not agree on it: ZX0 always
-//      produces it, but an S4LZ stream that decompresses to zero bytes never
-//      writes it, leaving the caller's own dest start. The wrapper's size word
-//      is the authoritative extent.
-// -----------------------------------------------
-pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
-        cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
-        bne     .s4lz                           // rare arm out of line (§2.2)
-        addq.l  #ART_HDR_SIZE, a0               // ZX0 stream starts past wrapper
-        jbra    ZX0_Decompress
-    .s4lz:
-        jbra    S4LZ_Decompress                 // S4LZ_Decompress reads its own wrapper
-}
 
 // -----------------------------------------------
 // Level_LoadArt — load the WHOLE act art pool to VRAM via the page-in path,

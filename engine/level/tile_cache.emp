@@ -174,8 +174,13 @@ pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1
         // slot index × 4 = (a1 - 4) - Block_Stage_Keys
         move.w  a1, d3
         subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
+        // F-3: republish this block's local->global map for the consumers that
+        // read staged words (PageCache_PatchWord at the copy sites, the prefetch
+        // scan) — staged nametable words are LOCAL; the map applies per word.
+        lea     Block_Stage_Maps, a1
+        move.l  (a1, d3.w), Cache_Cur_LocalMap
         lea     Block_Stage_Ptrs, a1
-        movea.l (a1, d3.w), a1                 // a1 = staged data pointer (RAM slot / zero page; nametable words always translated-GLOBAL)
+        movea.l (a1, d3.w), a1                 // a1 = staged data pointer (RAM slot / ROM raw block / zero page; words LOCAL)
         moveq   #0, d3                         // Z set (hit)
         rts
     .miss:
@@ -261,17 +266,26 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id
 
-        // -- P2b: stash this section's local->global table ptr for post-decode
-        //    translation. Block nametable words carry per-section LOCAL indices;
-        //    the staged slot is patched local->global before any copy loop reads
-        //    it. d7 survives S4LZ_DecompressDict (its license preserves d4-d7), so
-        //    the ptr rides across the decode. Act.act_sec_local_maps is the
-        //    [*u8;N] table indexed by the SAME flat section id. --
+        // -- F-3 merge-translation: staged nametable words stay LOCAL; the
+        //    local->global map is applied per word inside PageCache_PatchWord
+        //    (and the prefetch scan), where the full-width global lives only in
+        //    a register — the 11-bit nametable field then only ever carries the
+        //    PHYSICAL index (<= 959), so the pool has no 2048-tile ceiling.
+        //    Publish this block's map for those consumers: the per-slot array
+        //    (read by FindStagedBlock hits) + the current-block cell (this
+        //    block may be copied immediately, with no probe in between).
+        //    Act.act_sec_local_maps is the [*u8;N] table indexed by the SAME
+        //    flat section id. Every map's [0] entry is the blank tile (global
+        //    0) — generator-guaranteed + verify-gated — so the shared zero
+        //    page's $0000 words read as blank through ANY section's map. --
         move.w  d3, d5                         // d5 = flat id (the #66 multiply clobbers d3)
         movea.l Act.act_sec_local_maps(a0), a2 // a2 = [*u8;N] local-map pointer table
         add.w   d5, d5
         add.w   d5, d5                         // flat id * 4
         move.l  (a2, d5.w), d7                 // d7 = this section's local->global table
+        lea     Block_Stage_Maps, a2
+        move.l  d7, (a2, d6.w)                 // per-slot map (FindStagedBlock republishes it)
+        move.l  d7, Cache_Cur_LocalMap         // current-block map (PatchWord reads this)
 
         mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
@@ -294,8 +308,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         movea.l a3, a1
         move.l  a3, -(sp)                      // decompress clobbers both a3 and a1
         jbsr    S4LZ_DecompressDict            // engine.s4lz (module-to-module)
-        movea.l (sp)+, a1                      // a1 = slot base
-        jbsr    .translate_slot                // P2b: local->global nametable patch
+        movea.l (sp)+, a1                      // a1 = slot base (words stay LOCAL — F-3)
         rts
 
     .raw_direct:
@@ -306,46 +319,15 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
             andi.w  #1, d3
             assert.w d3, eq                    // raw offset must be word-even
         }
+        // F-3: zero-copy is BACK — staged words stay LOCAL in every form, so the
+        // ROM block needs no patching and the staged pointer can be the ROM block
+        // itself (the copy that existed here was purely the translate workaround).
+        // The claimed slot's RAM stays unused for this block; the pointer store
+        // mirrors .empty_block's.
         lea     (a2, d0.l), a0                 // a0 = raw 768-byte block (ROM, slot layout)
-        // P2b: raw-direct can no longer zero-copy the ROM block — its nametable
-        // words are per-section LOCAL and must be patched local->global. Copy the
-        // block ROM->slot (the default staged pointer is already the RAM slot a3),
-        // then translate. (Cold path; OJZ ships no raw-direct blocks today.)
-        movea.l a3, a1                         // a1 = dest RAM slot
-        move.w  #(BLOCK_RAW_SIZE/4)-1, d3
-    .rd_copy:
-        move.l  (a0)+, (a1)+
-        dbf     d3, .rd_copy
-        movea.l a3, a1                         // a1 = slot base (OUT + translate target)
-        jbsr    .translate_slot                // P2b: local->global nametable patch
-        rts
-
-    .translate_slot:
-        // Patch the staged block's nametable words local->global in place (P2b).
-        // In:  a1 = slot base (nametable), d7 = section's local->global table (u16[]).
-        // Each word: keep pal/pri/flip (bits 11-15), replace the 11-bit index with
-        // map[local]. Collision (past BLOCK_NT_SIZE) is untouched. a1 preserved
-        // (walk via a0). Clobbers d0-d3/a0/a2 — all within DecompressBlock's license.
-        movea.l a1, a0                         // walk cursor (keep a1 = OUT)
-        movea.l d7, a2                         // a2 = local->global table
-        move.w  #(BLOCK_NT_SIZE/2)-1, d3       // BLOCK_NT_SIZE/2 nametable words
-    .ts_loop:
-        move.w  (a0), d0                       // local word
-        move.w  d0, d1
-        andi.w  #NT_TILE_MASK, d1              // local index
-        add.w   d1, d1                         // u16 table stride
-        move.w  (a2, d1.w), d2                 // global slot
-        andi.w  #NT_ATTR_MASK, d0              // keep palette / priority / flip
-        // KNOWN CEILING (adjudication F-3, ruling open): this mask TRUNCATES
-        // globals >= 2048 — the generator contract only bounds the LOCAL index;
-        // a deduped pool past 2048 tiles (32 pages) renders wrong pages through
-        // this field, silently. NOTHING guards it yet (the act_descriptor ensure
-        // stops at PAGE_TABLE_MAX=256): do not ship an act past 2048 deduped
-        // tiles until F-3 lands (merge-translation or a loud <=2048 gate).
-        andi.w  #NT_TILE_MASK, d2              // global must fit the 11-bit field
-        or.w    d2, d0
-        move.w  d0, (a0)+
-        dbf     d3, .ts_loop
+        lea     Block_Stage_Ptrs, a1
+        move.l  a0, (a1, d6.w)                 // staged pointer = ROM block (zero-copy)
+        movea.l a0, a1                         // a1 = block base (OUT)
         rts
 
     .empty_block:
@@ -398,8 +380,9 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         add.w   d5, d5                         // col * 2
         adda.w  d5, a0                         // a0 = first tile word in run
 
-        // P2b Task 6: the staged words are GLOBAL; each is patched global->physical
-        // (frame) + ref/unref by PageCache_PatchWord as it lands in the nametable.
+        // F-3: the staged words are LOCAL; PageCache_PatchWord maps each
+        // local->global (Cache_Cur_LocalMap, published when this block was
+        // located/staged) then global->physical (frame) + ref/unref as it lands.
         // PatchWord writes through a1, so a1 becomes the nametable dest cursor here.
         // a1 (the staged base) is a PRESERVED param — FillAll reuses it across 16
         // columns — so SAVE it on the stack (the closure-recognised preserve idiom)
@@ -1679,7 +1662,8 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         blt     .fr_nt_emit                   // n1 = cols_before_wrap (< n_total)
         move.w  d1, d0                         // n1 = n_total (whole run fits pre-wrap)
     .fr_nt_emit:
-        // P2b Task 6: each staged word is GLOBAL; PageCache_PatchWord translates it
+        // F-3: each staged word is LOCAL; PageCache_PatchWord maps it
+        // local->global (Cache_Cur_LocalMap) then
         // global->physical (frame) + ref/unref as it lands. The patch is inherently
         // per-word, so the move.l word-pair copies become per-word patch loops (the
         // block-walk / resume / budget structure is unchanged). PatchWord preserves

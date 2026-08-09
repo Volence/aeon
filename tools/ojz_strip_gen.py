@@ -620,20 +620,26 @@ def build_section_local_map(section_globals) -> list[int]:
 
     Returns local_to_global: a list where local_to_global[local_index] = global
     VRAM slot. Globals are sorted ascending for determinism (build-reproducible).
-    The engine translates each block nametable word's 11-bit index through this
-    table (local → global) at block decode.
+    The engine maps each block nametable word's 11-bit LOCAL index through this
+    table per word at the patch/scan consumers (F-3 merge-translation) — the
+    full-width global lives only in a register, so the pool is unbounded.
+
+    INVARIANT map[0] == 0: global slot 0 (the blank tile) is force-included in
+    every section's palette, so local index 0 always means blank — this is what
+    lets the engine's shared all-zero staged block (its words are $0000 = local
+    0) read as blank through ANY section's map. Cost: at most one map slot.
 
     Raises ValueError if the palette exceeds the 11-bit nametable field
-    (SECTION_LOCAL_INDEX_MAX + 1 = 2048 distinct tiles). This is the unbounded-
-    pool guard: the GLOBAL pool may exceed 2047 tiles, but any single section's
-    LOCAL palette must fit the nametable index field.
+    (SECTION_LOCAL_INDEX_MAX + 1 = 2048 distinct tiles). The GLOBAL pool may
+    exceed 2047 tiles; only the section-LOCAL palette must fit the field.
     """
-    ordered = sorted(set(section_globals))
+    ordered = sorted(set(section_globals) | {0})
     if len(ordered) > SECTION_LOCAL_INDEX_MAX + 1:
         raise ValueError(
             f"section references {len(ordered)} distinct tiles > "
             f"{SECTION_LOCAL_INDEX_MAX + 1}: exceeds the 11-bit local index field"
         )
+    assert ordered[0] == 0, "blank-first invariant: map[0] must be global 0"
     return ordered
 
 
@@ -1753,26 +1759,10 @@ def generate(stress_uniquify=0):
         print(f"STRESS-UNIQUIFY: inflated act pool to {len(pool_order)} tiles "
               f"({len(stress_redirect)} parent-matched clone references re-pointed)")
 
-    # F-3 interim guard (engine 11-bit staged-word ceiling): the engine masks
-    # staged global indices with NT_TILE_MASK ($07FF), so a pool past 2048 tiles
-    # renders wrong pages SILENTLY. Refuse to bake one for the real tree; the
-    # stress fixture deliberately crosses the line (its >32-page axis is
-    # known-invalid until F-3's merge-translation parcel lands) — allowed, loudly.
-    ENGINE_STAGED_INDEX_CEILING = 2048
-    if len(pool_order) > ENGINE_STAGED_INDEX_CEILING:
-        if stress_uniquify:
-            print(f"WARNING: pool {len(pool_order)} tiles exceeds the engine's "
-                  f"{ENGINE_STAGED_INDEX_CEILING}-tile staged-word ceiling (F-3): "
-                  f"block references to slots >= {ENGINE_STAGED_INDEX_CEILING} "
-                  "TRUNCATE at decode — the fixture's >32-page axis is not "
-                  "visually valid until merge-translation lands")
-        else:
-            raise SystemExit(
-                f"ojz_strip_gen: act pool is {len(pool_order)} deduped tiles > "
-                f"{ENGINE_STAGED_INDEX_CEILING} — the engine's 11-bit staged "
-                "nametable field truncates globals past 2048 (adjudication F-3; "
-                "ruled: merge-translation, parcel pending). Refusing to bake a "
-                "silently-truncating act.")
+    # F-3 merge-translation LANDED: staged nametable words stay section-LOCAL and
+    # the engine maps local->global per word at full u16 width, so there is NO
+    # 2048-tile pool ceiling — the pool is bounded only by PAGE_TABLE_MAX pages
+    # (asserted below) and the ROM budget gate.
 
     pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
     # P2b cutover: the pool ceiling is now the RESIDENCY page-table cap, not a

@@ -7,8 +7,9 @@
 // runtime residency question. Blocks entering the 80x60 tile cache are patched
 // logical(global)->physical(frame) at the copy sites (engine.tile_cache) and their
 // pages ref-counted; a page whose refcount is 0 and is not pinned is an eviction
-// candidate (van Waveren SVT free/LRU/locked tri-list adapted: a frame is in the
-// FREE list, the evictable LRU list, or neither — referenced/pinned).
+// candidate (van Waveren SVT free/evictable/locked states adapted: a frame is
+// FREE-listed, PF_EVICTABLE (stamped, age-scanned at eviction), or neither —
+// referenced/pinned/detached). Eviction order is the pf_stamp age, not a list.
 //
 // SAFETY INVARIANT (spec §5): pf_refcount counts nametable words currently in the
 // tile cache that reference the frame. Eviction only of refcount-0 unpinned frames
@@ -16,14 +17,10 @@
 // (PageCache_Audit, DEBUG) recomputes every frame's refcount from the whole
 // nametable and compares — the machine check on that invariant.
 //
-// TASK 6 SCOPE: OJZ's 10 pages <= 15 frames, so the free list never empties and
-// nothing evicts yet. AllocFrame's LRU-victim arm + the demand-stall path in
-// PatchWord are built correctly but DORMANT until Task 7's clamp forces eviction.
-//
 // REGISTER BUDGET (contract-critical): PageCache_AllocFrame + PageCache_Publish are
 // reached from PageIn_Process, whose license is VSync_Wait's decoder union
 // d0-d2/a0-a3 — and Level_LoadArt keeps a4/d5-d7 LIVE across VSync_Wait. So the
-// procs on that path (AllocFrame, Publish, and their callee Lru*) clobber ONLY
+// procs on that path (AllocFrame, Publish) clobber ONLY
 // d0-d2/a0-a3: they address Page_Frames as base(a3)+offset(dn) with an offsetof
 // field displacement, never a per-frame pointer in a4. Ref/Unref/PatchWord are
 // reached only from the copy sites (PatchWord movem-banks its own working set), so
@@ -41,7 +38,7 @@ module engine.page_cache in page_cache
 
 use engine.structs.{PageManifest, PageFrame}
 use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
-use engine.constants.{PF_PINNED_BIT, PF_IN_LRU_BIT, PF_PINNED, PF_IN_LRU, ART_PAGE_FLAG_PINNED_BIT}
+use engine.constants.{PF_PINNED_BIT, PF_EVICTABLE_BIT, PF_PINNED, PF_EVICTABLE, ART_PAGE_FLAG_PINNED_BIT}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
 use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
 use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT}
@@ -49,7 +46,7 @@ use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT}
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // PageIn_Flush / PageIn_Enqueue (engine.page_in), TileCache_FindStagedBlock
 // (engine.tile_cache — the page prefetch probes the staged ahead-strip blocks). RAM
-// (Page_Table / Page_Frames / Page_Queued_Bits / Page_LRU_* / Page_Free_Head /
+// (Page_Table / Page_Frames / Page_Queued_Bits / Page_Free_Head /
 // PageIn_Pool_Table / PageIn_Cur_Flags / Page_Pfx_Budget / the Cache_Pfx_*_Target +
 // Cache_Left_Col/Head_Col/Top_Row/Bottom_Row prefetch signals) resolves bare.
 
@@ -70,8 +67,8 @@ ensure(4 + SNAP_TABLE_ENTRIES + 2 * PAGE_FRAMES <= 52, "Page_Audit_Snapshot[52] 
 // Field displacements for the base(a3)+offset(dn) addressing (never baked literals).
 const PF_PAGE  = offsetof(PageFrame, pf_page)
 const PF_RC    = offsetof(PageFrame, pf_refcount)
-const PF_PREV  = offsetof(PageFrame, pf_lru_prev)
-const PF_NEXT  = offsetof(PageFrame, pf_lru_next)
+const PF_STAMP = offsetof(PageFrame, pf_stamp)
+const PF_NEXT  = offsetof(PageFrame, pf_next)
 const PF_FLAGS = offsetof(PageFrame, pf_flags)
 
 // -----------------------------------------------
@@ -102,23 +99,23 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         clr.b   (a0)+
         dbf     d0, .clr_queued
 
-        move.b  #PAGE_NOT_RESIDENT, Page_LRU_Head   // LRU list empty
-        move.b  #PAGE_NOT_RESIDENT, Page_LRU_Tail
-
         // Frames: ALL PAGE_FRAMES records initialized (pf_page $FFFF, refcount 0,
-        // flags 0, prev FF), chained through pf_lru_next (0->1->...->N-1->FF). The
-        // free list is then TERMINATED at frame PAGE_FRAMES_CLAMP-1 (== PAGE_FRAMES-1
-        // in every shipped shape; the STRESS_EVICT dev fixture clamps it below that):
-        // frames [PAGE_FRAMES_CLAMP..PAGE_FRAMES) stay initialized (audit-clean,
-        // unassigned) but UNREACHABLE from Page_Free_Head, so AllocFrame can never hand
-        // out a clamped frame and the pool cannot be fully resident under the fixture.
+        // flags 0, stamp 0), chained through pf_next (0->1->...->N-1->FF) — the
+        // FREE list is the only list left (F-1 stamp eviction: eviction order is
+        // the pf_stamp age scan, not a linked list). The free list is TERMINATED
+        // at frame PAGE_FRAMES_CLAMP-1 (== PAGE_FRAMES-1 in every shipped shape;
+        // the STRESS_EVICT dev fixture clamps it below that): frames
+        // [PAGE_FRAMES_CLAMP..PAGE_FRAMES) stay initialized (audit-clean,
+        // unassigned) but UNREACHABLE from Page_Free_Head, so AllocFrame can never
+        // hand out a clamped frame and the pool cannot be fully resident under the
+        // fixture.
         lea     Page_Frames, a0
         moveq   #0, d1                          // running frame id (== next-link value)
         move.w  #PAGE_FRAMES-1, d0
     .init_frames:
         move.w  #$FFFF, PF_PAGE(a0)
         clr.w   PF_RC(a0)
-        move.b  #PAGE_NOT_RESIDENT, PF_PREV(a0)
+        clr.w   PF_STAMP(a0)
         addq.w  #1, d1                          // next frame id
         move.b  d1, PF_NEXT(a0)                 // free-list link -> next
         clr.b   PF_FLAGS(a0)
@@ -202,7 +199,8 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
 
 // -----------------------------------------------
 // PageCache_AllocFrame — hand out a frame to load a page into.
-//   free list first; else the LRU tail (refcount 0, !pinned by construction);
+//   free list first; else the oldest PF_EVICTABLE frame (refcount 0, !pinned
+//   by construction — the stamp age scan);
 //   else THRASH — DEBUG raise_error (a bug, not a policy); release returns
 //   PAGE_NOT_RESIDENT for the caller to re-queue.
 // The returned frame is DETACHED (out of every list), refcount 0, flags 0, and
@@ -227,33 +225,46 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
 
     .from_lru:
         // DEMAND-PROTECTION INVARIANT (Task 7): a demand-loaded page that has been
-        // Published but not yet Ref'd by the resuming fill is kept OUT of the LRU list
-        // (see PageCache_Publish), so it is NEVER a candidate here. That is what stops
-        // a second demand miss in the same frame from evicting the just-published page
-        // out from under the resuming fill (which would re-request the page it just
-        // evicted, forever). Every list member is refcount-0/unpinned — safe to evict.
-        // The victim is the HEAD: frames enter at the tail when they become evictable
-        // (Unref 1->0 / speculative publish), so the head is the LEAST recently
-        // released frame. Popping the tail would be MRU eviction — the just-published
-        // prefetch or just-scrolled-off page becomes the next victim, the exact
-        // camera-reversal / prefetch-churn pathology an LRU exists to prevent.
-        moveq   #0, d0
-        move.b  Page_LRU_Head, d0
-        cmpi.b  #PAGE_NOT_RESIDENT, d0
-        beq     .thrash
+        // Published but not yet Ref'd by the resuming fill is NOT flagged
+        // PF_EVICTABLE (see PageCache_Publish), so it is NEVER a candidate here.
+        // That is what stops a second demand miss in the same frame from evicting
+        // the just-published page out from under the resuming fill (which would
+        // re-request the page it just evicted, forever). Every candidate is
+        // refcount-0/unpinned — safe to evict.
+        // F-1 stamp eviction: victim = the OLDEST evictable frame — the max
+        // unsigned (Frame_Counter - pf_stamp) among PF_EVICTABLE frames. An
+        // O(PAGE_FRAMES) scan, paid only at eviction; it replaces the linked
+        // list whose end-choice WAS the MRU bug (the policy is now structural).
+        // >= keeps the first-seen candidate on age ties (incl. all-age-0).
+        // Stamp wrap at 65536 frames (~18 min) can only mis-age a candidate —
+        // every candidate is still refcount-0/unpinned, so safety never moves.
         lea     Page_Frames, a3
-        move.w  d0, d1
-        lsl.w   #3, d1
+        move.w  #$FFFF, d0                       // best offset (sentinel: none found)
+        clr.w   -(sp)                            // best age slot = 0
+        move.w  #(PAGE_FRAMES-1)*sizeof(PageFrame), d1
+    .ev_scan:
+        btst    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d1.w)
+        beq     .ev_next
+        move.w  Frame_Counter, d2
+        sub.w   PF_STAMP(a3, d1.w), d2           // d2 = unsigned age
+        cmp.w   (sp), d2
+        blo     .ev_next                         // strictly younger than best -> skip
+        move.w  d2, (sp)                         // new best age
+        move.w  d1, d0                           // new best offset
+    .ev_next:
+        subq.w  #sizeof(PageFrame), d1
+        bpl     .ev_scan
+        addq.l  #2, sp                           // drop the best-age slot
+        cmpi.w  #$FFFF, d0
+        beq     .thrash
+        move.w  d0, d1                           // d1 = victim byte offset
+        lsr.w   #3, d0                           // d0 = victim frame id (sizeof ensure'd 8)
     if DEBUG == 1 {
         tst.w   PF_RC(a3, d1.w)
         beq     .victim_ok
-        raise_error "PageCache_AllocFrame: LRU tail refcount>0 (list corruption)"
+        raise_error "PageCache_AllocFrame: evictable frame refcount>0 (flag corruption)"
     .victim_ok:
     }
-        jbsr    PageCache_LruUnlink             // unlink victim (d0 = frame, preserved)
-        lea     Page_Frames, a3                 // clear departing page's residency
-        move.w  d0, d1
-        lsl.w   #3, d1
         move.w  PF_PAGE(a3, d1.w), d2           // departing page id
         lea     Page_Table, a3
         move.b  #PAGE_NOT_RESIDENT, (a3, d2.w)  // Page_Table[page] = NOT_RESIDENT
@@ -277,10 +288,10 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         // OTHER direction, Page_Table[victim], above; this closes both directions here.)
         // Free-list allocs already carry $FFFF from Init — this is a no-op for them.
         move.w  #$FFFF, PF_PAGE(a3, d1.w)
-        move.b  #PAGE_NOT_RESIDENT, PF_PREV(a3, d1.w)
         move.b  #PAGE_NOT_RESIDENT, PF_NEXT(a3, d1.w)
+        clr.w   PF_STAMP(a3, d1.w)
         clr.w   PF_RC(a3, d1.w)
-        clr.b   PF_FLAGS(a3, d1.w)
+        clr.b   PF_FLAGS(a3, d1.w)              // clears PF_EVICTABLE: detached = not a candidate
         rts
 
     .thrash:
@@ -321,18 +332,19 @@ pub proc PageCache_FreeFrame (d0: u8) clobbers(d1-d2/a3) {
 // PageCache_Publish — mark a just-landed page resident in its frame. Called by
 // engine.page_in the instant a page's VRAM landing DMA is enqueued. Fills
 // Page_Table, stamps the frame's page id, applies the manifest's pinned flag, links
-// a non-pinned frame into the evictable LRU list, and clears the queued marker.
+// a non-pinned frame an eviction candidate (stamp + PF_EVICTABLE), and clears the
+// queued marker.
 // (On the PageIn_Process path -> d0-d2/a0-a3 only.)
 //
 // DEMAND-PROTECTION (Task 7, by construction): a SPECULATIVE (prefetch/bulk) page is
-// linked into the evictable LRU immediately — a cold prefetched page must be
+// flagged PF_EVICTABLE (+stamped) immediately — a cold prefetched page must be
 // reclaimable if it is never referenced. A DEMAND page (PageIn_Cur_Flags PGRQ_DEMAND)
-// is instead left DETACHED — out of every list, refcount 0, unflagged — until the
-// stalled fill's first PageCache_Ref lands. AllocFrame's LRU victim walk therefore
-// cannot evict it before the resuming fill references it (the deadlock the plan
-// flags). The first Ref (0->1) leaves it detached-but-referenced; a later full Unref
-// (1->0) links it into the LRU normally, so its lifecycle rejoins the speculative one
-// the moment nothing references it. (See the matching invariant note at AllocFrame's
+// is instead left UNFLAGGED — refcount 0, no candidate flag — until the stalled
+// fill's first PageCache_Ref lands. AllocFrame's candidate scan therefore cannot
+// evict it before the resuming fill references it (the deadlock the plan flags).
+// The first Ref (0->1) leaves it referenced; a later full Unref (1->0) stamps +
+// flags it normally, so its lifecycle rejoins the speculative one the moment
+// nothing references it. (See the matching invariant note at AllocFrame's
 // .from_lru arm.)
 // In: d0.w = page id, d1.b = frame idx   Out: none   Clobbers: d0-d2/a0/a3
 // -----------------------------------------------
@@ -378,29 +390,31 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         move.b  PageManifest.pm_flags(a0), d0   // pm_flags (page no longer needed)
         btst    #ART_PAGE_FLAG_PINNED_BIT, d0
         beq     .not_pinned
-        move.b  #PF_PINNED, PF_FLAGS(a3, d2.w)  // pinned: never in the LRU list
+        move.b  #PF_PINNED, PF_FLAGS(a3, d2.w)  // pinned: never an eviction candidate
         rts
     .not_pinned:
-        // evictable, refcount 0. Flags are already 0 (AllocFrame .detach cleared
-        // them); LruLinkTail OWNS setting PF_IN_LRU as it links — never set it here
-        // (that split ownership was the Task-6 boot audit failure).
+        // DEMAND-PROTECTION: a demand page stays UNFLAGGED (not PF_EVICTABLE)
+        // until the stalled fill's first Ref — so AllocFrame's candidate scan
+        // cannot evict it before it is referenced. Flags/refcount are already
+        // the detached state (0/0 from AllocFrame .detach).
         clr.b   PF_FLAGS(a3, d2.w)             // defensive: guarantee no stale PF_PINNED
-        // DEMAND-PROTECTION: a demand page stays DETACHED (not linked into the LRU)
-        // until the stalled fill's first Ref — so AllocFrame cannot evict it before it
-        // is referenced. Flags/refcount/prev-next are already the detached state
-        // (0/0/FF-FF from AllocFrame .detach), so we simply return without linking.
         btst    #PGRQ_DEMAND_BIT, PageIn_Cur_Flags
-        bne     .done                          // demand -> leave detached (protected)
-        moveq   #0, d0                          // zero-extend: d1's upper byte is stale (see above)
-        move.b  d1, d0                          // LruLinkTail takes frame in d0
-        jbra    PageCache_LruLinkTail          // links + sets PF_IN_LRU atomically
+        bne     .done                          // demand -> leave unflagged (protected)
+        // SPECULATIVE (prefetch/bulk): immediately an eviction candidate — a cold
+        // prefetched page must be reclaimable if it is never referenced. Flag +
+        // stamp NOW (F-1): the stamp makes it the NEWEST candidate, so it is
+        // evicted only after every older release — the prefetch-churn shape the
+        // old tail-pop had is structurally gone.
+        move.w  Frame_Counter, d0               // (via d0: abs-sym + indexed in one op is a sigil gap)
+        move.w  d0, PF_STAMP(a3, d2.w)
+        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d2.w)
     .done:
         rts
 }
 
 // -----------------------------------------------
 // PageCache_Ref — a cache word now references `frame`. refcount++, and on the 0->1
-// transition remove the frame from the eviction LRU list ("LRU touch").
+// transition clear PF_EVICTABLE (referenced frames are never candidates).
 // In: d0.b = frame   Out: none   Clobbers: d0-d2/a3   (d3+ untouched: PatchWord
 //   holds `old` in d3 across this call)
 // -----------------------------------------------
@@ -410,19 +424,17 @@ pub proc PageCache_Ref (d0: u8) clobbers(d0-d2/a3) {
         lsl.w   #3, d1
         addq.w  #1, PF_RC(a3, d1.w)
         cmpi.w  #1, PF_RC(a3, d1.w)
-        bne     .done                           // already referenced -> no list change
-        // 0->1: if it is in the LRU, LruUnlink removes it AND clears PF_IN_LRU
-        // (single owner). btst only TESTS — never clear the flag here.
-        btst    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)
-        beq     .done                           // not in the LRU list -> nothing to do
-        jbsr    PageCache_LruUnlink             // unlink + clear flag; d0 = frame (preserved)
+        bne     .done                           // already referenced -> no change
+        // 0->1: referenced frames are never eviction candidates (F-1 stamp
+        // eviction) — one bclr replaces the whole list unlink.
+        bclr    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d1.w)
     .done:
         rts
 }
 
 // -----------------------------------------------
 // PageCache_Unref — a cache word stopped referencing `frame`. refcount--, and on
-// the 1->0 transition link the frame at the LRU tail (evictable), unless pinned.
+// the 1->0 transition stamp the release time + set PF_EVICTABLE, unless pinned.
 // In: d0.b = frame   Out: none   Clobbers: d0-d2/a3
 // -----------------------------------------------
 pub proc PageCache_Unref (d0: u8) clobbers(d0-d2/a3) {
@@ -438,49 +450,68 @@ pub proc PageCache_Unref (d0: u8) clobbers(d0-d2/a3) {
         subq.w  #1, PF_RC(a3, d1.w)
         bne     .done                           // still referenced
         btst    #PF_PINNED_BIT, PF_FLAGS(a3, d1.w)
-        bne     .done                           // pinned frames never enter the LRU list
-        // 1->0: LruLinkTail links AND sets PF_IN_LRU (single owner) — never set it here.
-        jbsr    PageCache_LruLinkTail           // link + set flag; d0 = frame
+        bne     .done                           // pinned frames are never candidates
+        // 1->0: the frame becomes an eviction candidate NOW — stamp the release
+        // time and flag it (F-1 stamp eviction: age = Frame_Counter - stamp,
+        // oldest wins). Two ops replace the whole list link.
+        move.w  Frame_Counter, d2               // (via d2: abs-sym + indexed in one op is a sigil gap)
+        move.w  d2, PF_STAMP(a3, d1.w)
+        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d1.w)
     .done:
         rts
 }
 
 // -----------------------------------------------
-// PageCache_PatchWord — the copy-site primitive (spec §5). Reads the GLOBAL
-// nametable word at (a0), translates it logical->physical, writes the physical
-// word at (a1), and adjusts refcounts: Ref the new page, Unref the overwritten old
-// page. Blank (tile-index 0) words skip Ref/Unref on their respective side. Neither
-// a0 nor a1 is advanced — the caller's copy loop strides them.
+// PageCache_PatchWord — the copy-site primitive (spec §5). Reads the LOCAL
+// nametable word at (a0), maps it local->global through the staged block's
+// section map (Cache_Cur_LocalMap — F-3 merge-translation), translates
+// global->physical, writes the physical word at (a1), and adjusts refcounts:
+// Ref the new page, Unref the overwritten old page. Blank words (mapped global
+// 0) skip Ref/Unref on their respective side. Neither a0 nor a1 is advanced —
+// the caller's copy loop strides them. The full-width global exists only in a
+// register, so the pool is unbounded by the 11-bit nametable field.
 //
 // If the new word's page is NOT resident: enqueue a demand PageCache_Request, set
 // Cache_Art_Stall (the fill returns partial + resumes this column/row next frame),
 // and LEAVE the destination cell untouched (its old content + ref intact) — so
-// re-copy on resume is refcount-neutral for the cells already done. DORMANT in
-// Task 6 (whole pool resident).
+// re-copy on resume is refcount-neutral for the cells already done.
 //
-// Preserves EVERY register (movem-banks its d0-d4/a3 working set; the miss path
-// brackets a0/a1 across PageCache_Request; a4 is never touched) so it drops cleanly
-// into the register-saturated H6 fill loops.
-// In: a0 = source GLOBAL word ptr, a1 = destination nametable-cell ptr
-// Out: none   Clobbers: () — preserves d0-d4/a3 (a0/a1 read-only; a4 untouched)
+// Preserves EVERY register (movem-banks its d0-d4/a2-a3 working set; the miss
+// path brackets a0/a1 across PageCache_Request; a4 is never touched) so it drops
+// cleanly into the register-saturated H6 fill loops.
+// In: a0 = source LOCAL word ptr, a1 = destination nametable-cell ptr;
+//     Cache_Cur_LocalMap = the source block's local->global map (published by
+//     FindStagedBlock/DecompressBlock)
+// Out: none   Clobbers: () — preserves d0-d4/a2-a3 (a0/a1 read-only; a4 untouched)
 // -----------------------------------------------
-pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0-a1) {
-        movem.l d0-d4/a3, -(sp)
-        move.w  (a0), d0                        // new GLOBAL word
+pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a2-a3/a0-a1) {
+        movem.l d0-d4/a2-a3, -(sp)
+        move.w  (a0), d0                        // new LOCAL word (staged blocks stay local — F-3)
         move.w  d0, d1
-        andi.w  #NT_TILE_MASK, d1               // new tile index (0..2047)
-        beq     .new_blank                      // new is blank -> unref old, write 0, no ref
+        andi.w  #NT_TILE_MASK, d1               // local index (0..2047, generator-bounded)
+        // F-3 merge-translation: local -> FULL-WIDTH global via the staged
+        // block's section map (Cache_Cur_LocalMap, published by
+        // FindStagedBlock/DecompressBlock). The global lives ONLY in d1 at u16
+        // width — no 11-bit field ever carries it, so the act pool has no
+        // 2048-tile ceiling; the cache word below gets the PHYSICAL index
+        // (frame<<6 | intra <= 959), which always fits. map[0] == 0 (blank) is
+        // generator-guaranteed, so the zero page's $0000 words land in
+        // .new_blank through any section's map.
+        movea.l Cache_Cur_LocalMap, a2
+        add.w   d1, d1                          // u16 table stride
+        move.w  (a2, d1.w), d1                  // d1 = GLOBAL slot (full u16)
+        beq     .new_blank                      // global 0 = blank -> unref old, write 0, no ref
 
-        move.w  d1, d2                          // page = idx >> 6
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d2
+        move.w  d1, d2                          // page = global >> 6 (u16-wide: up to 1023,
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d2      //   generator ensures < PAGE_TABLE_MAX)
         lea     Page_Table, a3
         move.b  (a3, d2.w), d2                  // frame (or NOT_RESIDENT)
         cmpi.b  #PAGE_NOT_RESIDENT, d2
         beq     .miss
         andi.w  #$00FF, d2                      // zero-extend frame
 
-        move.w  d1, d3                          // physical = attrs | (frame<<6 | (idx&63))
-        andi.w  #PAGE_FRAME_TILE_MASK, d3       // intra-frame tile (idx & 63)
+        move.w  d1, d3                          // physical = attrs | (frame<<6 | (global&63))
+        andi.w  #PAGE_FRAME_TILE_MASK, d3       // intra-frame tile (global & 63)
         move.w  d2, d4
         lsl.w   #PAGE_FRAME_TILE_SHIFT, d4      // frame << 6
         or.w    d4, d3                          // physical tile index
@@ -498,7 +529,7 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
         move.w  d3, d0
         jbsr    PageCache_Unref
     .exit:
-        movem.l (sp)+, d0-d4/a3
+        movem.l (sp)+, d0-d4/a2-a3
         rts
 
     .new_blank:
@@ -531,11 +562,12 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
 // and PageCache_Request(prefetch)es the non-resident pages those blocks reference.
 // Bounded to PAGE_PREFETCH_MAX enqueues/frame (Page_Pfx_Budget, reset by the caller).
 //
-// "The same local->global path": a STAGED block's nametable words are ALREADY GLOBAL
-// (TileCache translate-at-decode patched them), so page = (word & NT_TILE_MASK) >>
-// PAGE_FRAME_TILE_SHIFT directly — no per-section table walk is needed here. A block
-// not yet staged is skipped (its pages are unknown until the block-tier prefetch
-// stages it a few frames ahead; the demand-stall path is the correctness backstop).
+// Local->global (F-3 merge-translation): a STAGED block's nametable words are
+// LOCAL; the scan maps each through the block's section map (Cache_Cur_LocalMap,
+// published by the FindStagedBlock probe that located the block) and derives
+// page = global >> PAGE_FRAME_TILE_SHIFT at full u16 width. A block not yet
+// staged is skipped (its pages are unknown until the block-tier prefetch stages
+// it a few frames ahead; the demand-stall path is the correctness backstop).
 //
 // D3: this is the ENQUEUE side (never gated — it only warms the FIFO, bounded). The
 // admission gate on speculative decode STARTS lives in PageIn_Process.
@@ -655,18 +687,23 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         rts
 
     .scan_block:
-        // Scan a staged block's BLOCK_NT_SIZE/2 GLOBAL nametable words; for each
-        // non-blank word whose page is a REAL pool page and not resident,
-        // PageCache_Request(prefetch) and decrement Page_Pfx_Budget. Stops at budget 0.
-        // a2 (cursor) + d4 (counter) survive PageCache_Request (it clobbers
-        // d0-d3/a0-a1). Nothing act-related is live here — the pool bound is
-        // read from PageIn_Pool_Pages. a1 = slot base (in).
+        // Scan a staged block's BLOCK_NT_SIZE/2 LOCAL nametable words; map each
+        // local->global (a3 = the block's section map, per-block via
+        // Cache_Cur_LocalMap); for each non-blank global whose page is a REAL
+        // pool page and not resident, PageCache_Request(prefetch) and decrement
+        // Page_Pfx_Budget. Stops at budget 0. a2 (cursor) + d4 (counter) + a3
+        // (map) survive PageCache_Request (it clobbers d0-d3/a0-a1). Nothing
+        // act-related is live here — the pool bound is read from
+        // PageIn_Pool_Pages. a1 = slot base (in).
         movea.l a1, a2                            // a2 = scan cursor
+        movea.l Cache_Cur_LocalMap, a3            // a3 = this block's local->global map
         move.w  #(BLOCK_NT_SIZE/2)-1, d4          // word count - 1
     .sb_loop:
         move.w  (a2)+, d0
-        andi.w  #NT_TILE_MASK, d0                 // global tile index
-        beq     .sb_next                          // blank -> no page
+        andi.w  #NT_TILE_MASK, d0                 // LOCAL tile index
+        add.w   d0, d0                            // u16 table stride
+        move.w  (a3, d0.w), d0                    // d0 = GLOBAL slot (full u16)
+        beq     .sb_next                          // global 0 = blank -> no page
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d0        // page id
         cmp.w   PageIn_Pool_Pages, d0             // pool-bounds invariant: a REAL pool page?
         bhs     .sb_next                          // page >= pages -> scan artifact, skip silently
@@ -687,76 +724,12 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         rts
 }
 
-// -----------------------------------------------
-// PageCache_LruUnlink — remove a frame from the evictable LRU doubly-linked list
-// AND clear its PF_IN_LRU flag. (private) In: d0.b = frame (preserved). Clobbers
-// d1-d2/a3. d1 holds the constant cur byte-offset; every neighbour link is
-// read/written via base(a3)+offset — no per-frame pointer register (the d0-d2/a0-a3
-// budget). SINGLE OWNER: the flag and the links move together here, so a frame can
-// never be off-list yet flagged (invariant enforced by the primitive, not callers).
-// -----------------------------------------------
-proc PageCache_LruUnlink (d0: u8) clobbers(d1-d2/a3) {
-        lea     Page_Frames, a3
-        move.w  d0, d1
-        lsl.w   #3, d1                           // cur offset (constant)
-        // --- (prev)->next : if prev==FF Head=next else frame[prev].next = cur.next ---
-        moveq   #0, d2
-        move.b  PF_PREV(a3, d1.w), d2           // prev
-        cmpi.w  #PAGE_NOT_RESIDENT, d2
-        bne     .set_prevnext
-        move.b  PF_NEXT(a3, d1.w), Page_LRU_Head
-        bra     .next_side
-    .set_prevnext:
-        lsl.w   #3, d2                           // prev offset
-        move.b  PF_NEXT(a3, d1.w), PF_NEXT(a3, d2.w)   // frame[prev].next = cur.next
-    .next_side:
-        // --- (next)<-prev : if next==FF Tail=prev else frame[next].prev = cur.prev ---
-        moveq   #0, d2
-        move.b  PF_NEXT(a3, d1.w), d2           // next
-        cmpi.w  #PAGE_NOT_RESIDENT, d2
-        bne     .set_nextprev
-        move.b  PF_PREV(a3, d1.w), Page_LRU_Tail
-        bra     .clear_flag
-    .set_nextprev:
-        lsl.w   #3, d2                           // next offset
-        move.b  PF_PREV(a3, d1.w), PF_PREV(a3, d2.w)   // frame[next].prev = cur.prev
-    .clear_flag:
-        bclr    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)   // OWN the flag (d1 still = cur offset)
-        rts
-}
-
-// -----------------------------------------------
-// PageCache_LruLinkTail — append a frame at the LRU tail (newest evictable end)
-// AND set its PF_IN_LRU flag. (private) In: d0.b = frame (preserved). Clobbers
-// d1-d2/a3. SINGLE OWNER: linking and flagging happen together, so a frame can
-// never be on-list yet unflagged — which is exactly the invariant the audit checks.
-// -----------------------------------------------
-proc PageCache_LruLinkTail (d0: u8) clobbers(d1-d2/a3) {
-        lea     Page_Frames, a3
-        move.w  d0, d1
-        lsl.w   #3, d1                           // cur offset (constant throughout)
-        move.b  #PAGE_NOT_RESIDENT, PF_NEXT(a3, d1.w)   // cur.next = FF
-        moveq   #0, d2
-        move.b  Page_LRU_Tail, d2               // old tail
-        move.b  d2, PF_PREV(a3, d1.w)           // cur.prev = old tail
-        cmpi.w  #PAGE_NOT_RESIDENT, d2
-        bne     .have_tail
-        move.b  d0, Page_LRU_Head               // list was empty -> head = cur
-        bra     .set_tail
-    .have_tail:
-        lsl.w   #3, d2                           // old tail offset
-        move.b  d0, PF_NEXT(a3, d2.w)           // oldtail.next = cur
-    .set_tail:
-        move.b  d0, Page_LRU_Tail
-        bset    #PF_IN_LRU_BIT, PF_FLAGS(a3, d1.w)   // OWN the flag (d1 still = cur offset)
-        rts
-}
 
 // -----------------------------------------------
 // PageCache_Audit — DEBUG residency invariant check (spec §5). Recomputes every
 // frame's refcount from the WHOLE tile-cache nametable and compares to pf_refcount;
-// then walks the LRU list asserting each member is refcount-0, unpinned, and marked
-// PF_IN_LRU with no cycle. raise_error on any mismatch. Runs at init (after the
+// then asserts the PF_EVICTABLE invariant per frame (candidate => assigned +
+// refcount-0 + unpinned). raise_error on any mismatch. Runs at init (after the
 // first full cache fill) and every PAGECACHE_AUDIT_INTERVAL frames during play. The
 // ~4800-word walk is a rare, identifiable DEBUG-shape lag spike — measure
 // Lag_Frame_Count on the non-audit frames.
@@ -766,22 +739,22 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
     if DEBUG == 1 {
         // Ground-truth snapshot of the residency map (Task-6 mapping-bug debug): a
         // red-screen freezes this readable copy of the free-list + Page_Table + per-
-        // frame pf_page/pf_lru_next, so the exact corruption is visible in RAM.
+        // frame pf_page/flags, so the exact corruption is visible in RAM.
         lea     Page_Audit_Snapshot, a0
         move.b  Page_Free_Head, (a0)+           // [0]
-        move.b  Page_LRU_Head, (a0)+            // [1]
-        move.b  Page_LRU_Tail, (a0)+            // [2]
+        move.b  #$FF, (a0)+                     // [1] reserved (was LRU head — stamp eviction has no list)
+        move.b  #$FF, (a0)+                     // [2] reserved (was LRU tail)
         clr.b   (a0)+                           // [3] pad
         lea     Page_Table, a1                  // [4..4+SNAP_TABLE_ENTRIES) = Page_Table head
         moveq   #SNAP_TABLE_ENTRIES-1, d0
     .snap_tab:
         move.b  (a1)+, (a0)+
         dbf     d0, .snap_tab
-        lea     Page_Frames, a1                 // [20..50) = per frame: pf_page.lo, pf_lru_next
+        lea     Page_Frames, a1                 // [20..50) = per frame: pf_page.lo, pf_flags
         moveq   #PAGE_FRAMES-1, d0
     .snap_frame:
         move.b  PF_PAGE+1(a1), (a0)+           // pf_page low byte (page id / $FF when unassigned)
-        move.b  PF_NEXT(a1), (a0)+             // free/LRU forward link
+        move.b  PF_FLAGS(a1), (a0)+            // PINNED/EVICTABLE flags (free link is derivable)
         lea     sizeof(PageFrame)(a1), a1
         dbf     d0, .snap_frame
 
@@ -816,38 +789,31 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         lea     sizeof(PageFrame)(a1), a1
         dbf     d0, .cmp
 
-        lea     Page_Frames, a1                 // LRU walk: refcount 0, !pinned, PF_IN_LRU, no cycle
-        moveq   #0, d0
-        move.b  Page_LRU_Head, d0               // cursor
-        moveq   #0, d2                          // visited count (cycle bound)
-    .lru:
-        cmpi.b  #PAGE_NOT_RESIDENT, d0
-        beq     .lru_done
-        addq.w  #1, d2
-        cmpi.w  #PAGE_FRAMES, d2
-        bls     .lru_ok_count
-        raise_error "PageCache_Audit: LRU list longer than PAGE_FRAMES (cycle)"
-    .lru_ok_count:
-        move.w  d0, d1
-        lsl.w   #3, d1
-        lea     (a1, d1.w), a3                  // &frame[cursor]
-        tst.w   PF_RC(a3)
-        beq     .lru_rc_ok
-        raise_error "PageCache_Audit: LRU member has refcount>0"
-    .lru_rc_ok:
-        move.b  PF_FLAGS(a3), d3
-        btst    #PF_IN_LRU_BIT, d3
-        bne     .lru_inlru_ok
-        raise_error "PageCache_Audit: LRU member missing PF_IN_LRU"
-    .lru_inlru_ok:
+        // Candidate-flag invariant (F-1 stamp eviction — replaces the LRU-list
+        // walk + cycle bound, which died with the list): PF_EVICTABLE implies
+        // assigned + refcount 0 + unpinned. The reverse direction is NOT an
+        // invariant (a demand-published frame is legitimately assigned/rc0/
+        // unpinned yet unflagged until its first Ref/Unref cycle).
+        lea     Page_Frames, a1
+        move.w  #(PAGE_FRAMES-1)*sizeof(PageFrame), d1
+    .evf:
+        move.b  PF_FLAGS(a1, d1.w), d3
+        btst    #PF_EVICTABLE_BIT, d3
+        beq     .evf_next
+        tst.w   PF_RC(a1, d1.w)
+        beq     .evf_rc_ok
+        raise_error "PageCache_Audit: PF_EVICTABLE frame has refcount>0"
+    .evf_rc_ok:
         btst    #PF_PINNED_BIT, d3
-        beq     .lru_pin_ok
-        raise_error "PageCache_Audit: pinned frame in the LRU list"
-    .lru_pin_ok:
-        moveq   #0, d0
-        move.b  PF_NEXT(a3), d0                 // advance
-        bra     .lru
-    .lru_done:
+        beq     .evf_pin_ok
+        raise_error "PageCache_Audit: pinned frame flagged PF_EVICTABLE"
+    .evf_pin_ok:
+        cmpi.w  #$FFFF, PF_PAGE(a1, d1.w)
+        bne     .evf_next
+        raise_error "PageCache_Audit: unassigned frame flagged PF_EVICTABLE"
+    .evf_next:
+        subq.w  #sizeof(PageFrame), d1
+        bpl     .evf
 
         // --- MAPPING BIJECTIVITY (Task-6 review): the residency map must be a
         //     bijection between resident pages and assigned frames. A consistent-
@@ -893,15 +859,16 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         blt     .bij_page
 
         // --- ORPHAN FRAME (T7 review NIT-2): a frame that is ASSIGNED (pf_page !=
-        //     $FFFF) yet sits in NO reclaim list — refcount 0, not in the LRU, not
-        //     pinned, and not the live page-in handoff frame — has LEAKED: neither the
-        //     free list nor the LRU can ever hand it back to AllocFrame, so its VRAM is
-        //     lost until the next act reset (a class the refcount/LRU/bijectivity
-        //     checks above all pass). The in-flight DECODE frame is UNASSIGNED
-        //     (pf_page $FFFF, soak-fix chain 72), so the pf_page skip already covers
-        //     it; the one legitimate assigned/rc0/detached transient — a demand page
-        //     published but not yet Ref'd by its resuming fill — is PageIn_Cur_Frame,
-        //     excluded explicitly (NIT-2's "not the in-flight frame"). ---
+        //     $FFFF) yet is unreachable by every reclaim mechanism — refcount 0,
+        //     not PF_EVICTABLE, not pinned, and not the live page-in handoff
+        //     frame — has LEAKED: neither the free list nor the candidate scan
+        //     can ever hand it back to AllocFrame, so its VRAM is lost until the
+        //     next act reset (a class the refcount/flag/bijectivity checks above
+        //     all pass). The in-flight DECODE frame is UNASSIGNED (pf_page
+        //     $FFFF, soak-fix chain 72), so the pf_page skip already covers it;
+        //     the one legitimate assigned/rc0/unflagged transient — a demand
+        //     page published but not yet Ref'd by its resuming fill — is
+        //     PageIn_Cur_Frame, excluded explicitly. ---
         lea     Page_Frames, a1
         moveq   #0, d1
         move.b  PageIn_Cur_Frame, d1            // the live page-in handoff frame (exclude)
@@ -915,8 +882,8 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         tst.w   PF_RC(a3)
         bne     .orphan_next                    // referenced -> reachable via a cache word
         move.b  PF_FLAGS(a3), d3
-        andi.b  #PF_IN_LRU | PF_PINNED, d3
-        bne     .orphan_next                    // in the LRU or pinned -> reclaimable / held
+        andi.b  #PF_EVICTABLE | PF_PINNED, d3
+        bne     .orphan_next                    // eviction candidate or pinned -> reclaimable / held
         cmp.b   d1, d0
         beq     .orphan_next                    // the demand-published-awaiting-Ref frame -> ok
         raise_error "PageCache_Audit: assigned frame in no reclaim list (leaked/orphan)"

@@ -200,6 +200,11 @@ def verify_local_maps():
         count = len(m) // 2
         check(0 < count <= 2048,
               f"local maps: sec{n}_local_map.bin entry count {count} not in 1..2048")
+        # Blank-first invariant (F-3 merge-translation): map[0] must be global 0
+        # — the engine's shared zero staged block ($0000 words = local 0) reads
+        # as blank through ANY section's map only because of this.
+        check(struct.unpack(">H", m[0:2])[0] == 0,
+              f"local maps: sec{n}_local_map.bin map[0] != 0 (blank-first invariant broken)")
         if not os.path.isfile(bpath) or n not in dlen:
             continue
         blob = read(bpath)
