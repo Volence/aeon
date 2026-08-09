@@ -105,17 +105,19 @@ pub vars lower_ram {
     // arrays (the hot copy-loop patch leas a base register regardless of region,
     // so .w-addressability buys nothing) and together they are ~408 B. The hot
     // scalars (LRU/free heads, stall flag) live in upper_ram instead — see there.
-    // PLACED BEFORE Art_Staging_Buffer (Task-6 boot fix): the staging buffer is the
-    // decode target, and the SLICED (bookmark-preempted) decode path can write a
-    // few bytes past the 2048 boundary on a resume where the blocking self-test
-    // never does. With staging LAST in the region, that overrun lands in the unused
+    // Residency tables PLACED BEFORE Art_Staging_Buffer (defense-in-depth): the
+    // staging buffer is the decode target. No decode path is known to write past the
+    // 2048 boundary — the chain-65 corruption was PageCache_Publish's stale-offset
+    // write, since fixed, not a sliced-path overrun — but keeping staging LAST in the
+    // region means any hypothetical over-decode spills into the unused
     // Lower_RAM_End..region-end gap instead of corrupting Page_Table's low entries.
     Page_Table:     [u8; PAGE_TABLE_MAX],                                   // 256 bytes — page id -> frame idx / PAGE_NOT_RESIDENT
     Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 15 × sizeof(PageFrame)=8 = 120 bytes
     Page_Queued_Bits: [u8; PAGE_TABLE_MAX / 8],                             // 32 bytes — "page already in the request FIFO" bitset (PageCache_Request dedupe)
 
-    // Art staging LAST in lower_ram: an over-decode spills into the free gap after
-    // Lower_RAM_End, never into the residency tables above.
+    // Art staging LAST in lower_ram (defense-in-depth): a hypothetical over-decode
+    // would spill into the free gap after Lower_RAM_End, never into the residency
+    // tables above.
     Art_Staging_Buffer: [u8; ART_STAGING_BUFFER_SIZE],                      // 2048 bytes (64-tile page)
 
     mark Lower_RAM_End,
