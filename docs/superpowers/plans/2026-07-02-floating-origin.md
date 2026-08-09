@@ -1,5 +1,7 @@
 # Floating Origin (Continuous-Scroll Phase 4) Implementation Plan
 
+> **SUPERSEDED 2026-08-09** by `2026-08-09-floating-origin-v2.md` (post-Phase-2 re-anchor: Sigil-flip + engine/game-split + art-streaming-Phase-2 streaming-state shift-list folded in; four SPEC-STALE findings + three user-ruling gates surfaced). Kept for provenance.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the ~16-section coordinate ceiling via an atomic floating-origin rebase — level size bounded by ROM only — plus the section_id byte→word widening.
