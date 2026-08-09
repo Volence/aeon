@@ -3925,7 +3925,8 @@ corruption), and the design simply reduces to Phase 1's fully-resident pool for 
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages vs 15 frames) is the
 regime where streaming actually earns its keep and where the acceptance matrix was proven.
 Staged nametable words stay section-LOCAL, and the local→global map is applied per word
-inside `PageCache_PatchWord` and the prefetch scan (F-3 merge-translation): the full-width
+inside the `PageCache_PatchRun_Seq`/`_Col` copy runs and the prefetch scan (F-3
+merge-translation): the full-width
 global exists only in a register, the 11-bit nametable field only ever carries the
 physical index (≤ 959), and the pool is bounded by `PAGE_TABLE_MAX` pages + the ROM
 budget — there is no 2048-tile ceiling. Every section map's entry 0 is the blank tile

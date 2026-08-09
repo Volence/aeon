@@ -22,9 +22,9 @@
 // d0-d2/a0-a3 — and Level_LoadArt keeps a4/d5-d7 LIVE across VSync_Wait. So the
 // procs on that path (AllocFrame, Publish) clobber ONLY
 // d0-d2/a0-a3: they address Page_Frames as base(a3)+offset(dn) with an offsetof
-// field displacement, never a per-frame pointer in a4. Ref/Unref/PatchWord are
-// reached only from the copy sites (PatchWord movem-banks its own working set), so
-// they are free of that constraint but still keep to d0-d2/a3 for consistency.
+// field displacement, never a per-frame pointer in a4. The patch-run primitives
+// (PatchRun_Seq/_Col) are reached only from the copy sites and movem-bank their
+// working set once per run, so they are free of that constraint.
 //
 // D2 (no unified arbiter): this tier owns its own residency governor; no shared
 // cost ledger. The §7.2 adoption seam is a DOCUMENTED comment in the
@@ -41,7 +41,7 @@ use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_R
 use engine.constants.{PF_PINNED_BIT, PF_EVICTABLE_BIT, PF_PINNED, PF_EVICTABLE, ART_PAGE_FLAG_PINNED_BIT}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
 use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
-use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT}
+use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, TILE_CACHE_STRIDE}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // PageIn_Flush / PageIn_Enqueue (engine.page_in), TileCache_FindStagedBlock
@@ -415,99 +415,77 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
 }
 
 // -----------------------------------------------
-// PageCache_Ref — a cache word now references `frame`. refcount++, and on the 0->1
-// transition clear PF_EVICTABLE (referenced frames are never candidates).
-// In: d0.b = frame   Out: none   Clobbers: d0-d2/a3   (d3+ untouched: PatchWord
-//   holds `old` in d3 across this call)
-// -----------------------------------------------
-pub proc PageCache_Ref (d0: u8) clobbers(d0-d2/a3) {
-        lea     Page_Frames, a3
-        move.w  d0, d1
-        lsl.w   #3, d1
-        addq.w  #1, PF_RC(a3, d1.w)
-        cmpi.w  #1, PF_RC(a3, d1.w)
-        bne     .done                           // already referenced -> no change
-        // 0->1: referenced frames are never eviction candidates (F-1 stamp
-        // eviction) — one bclr replaces the whole list unlink.
-        bclr    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d1.w)
-    .done:
-        rts
-}
-
-// -----------------------------------------------
-// PageCache_Unref — a cache word stopped referencing `frame`. refcount--, and on
-// the 1->0 transition stamp the release time + set PF_EVICTABLE, unless pinned.
-// In: d0.b = frame   Out: none   Clobbers: d0-d2/a3
-// -----------------------------------------------
-pub proc PageCache_Unref (d0: u8) clobbers(d0-d2/a3) {
-        lea     Page_Frames, a3
-        move.w  d0, d1
-        lsl.w   #3, d1
-    if DEBUG == 1 {
-        tst.w   PF_RC(a3, d1.w)
-        bne     .ok
-        raise_error "PageCache_Unref: refcount underflow (double-free of a cache word)"
-    .ok:
-    }
-        subq.w  #1, PF_RC(a3, d1.w)
-        bne     .done                           // still referenced
-        btst    #PF_PINNED_BIT, PF_FLAGS(a3, d1.w)
-        bne     .done                           // pinned frames are never candidates
-        // 1->0: the frame becomes an eviction candidate NOW — stamp the release
-        // time and flag it (F-1 stamp eviction: age = Frame_Counter - stamp,
-        // oldest wins). Two ops replace the whole list link.
-        move.w  Frame_Counter, d2               // (via d2: abs-sym + indexed in one op is a sigil gap)
-        move.w  d2, PF_STAMP(a3, d1.w)
-        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a3, d1.w)
-    .done:
-        rts
-}
-
-// -----------------------------------------------
-// PageCache_PatchWord — the copy-site primitive (spec §5). Reads the LOCAL
-// nametable word at (a0), maps it local->global through the staged block's
-// section map (Cache_Cur_LocalMap — F-3 merge-translation), translates
-// global->physical, writes the physical word at (a1), and adjusts refcounts:
-// Ref the new page, Unref the overwritten old page. Blank words (mapped global
-// 0) skip Ref/Unref on their respective side. Neither a0 nor a1 is advanced —
-// the caller's copy loop strides them. The full-width global exists only in a
-// register, so the pool is unbounded by the 11-bit nametable field.
+// The copy-site patch RUN primitives (spec §5). PageCache_PatchRun_Seq/_Col
+// replace the per-word PageCache_PatchWord: each patches a straight run of
+// cache words, banking the working set ONCE per run instead of once per word.
+// The old per-word movem+jsr/rts bracket (~166 cycles) was the single largest
+// line item of the fall/scroll fill cost (2026-08-09 profile: 160 words/frame
+// at terminal fall ≈ 19% of frame in bracket+call overhead alone). Per-word
+// SEMANTICS are unchanged — the loop body is the old PatchWord body with the
+// old jbsr'd PageCache_Ref/Unref bodies inlined (this file was their only
+// caller): read the LOCAL word at (a0), local->global through the staged
+// block's section map (Cache_Cur_LocalMap — F-3 merge-translation),
+// global->physical, capture-old-BEFORE-write at (a1), ref the new frame /
+// unref the overwritten one, in the same per-word order.
 //
-// If the new word's page is NOT resident: enqueue a demand PageCache_Request, set
-// Cache_Art_Stall (the fill returns partial + resumes this column/row next frame),
-// and LEAVE the destination cell untouched (its old content + ref intact) — so
+// Refcount transitions (single source of truth, was PageCache_Ref/Unref):
+//   ref   0->1: clear PF_EVICTABLE (referenced frames are never candidates —
+//               F-1 stamp eviction, one bclr replaces the old list unlink)
+//   unref 1->0: stamp Frame_Counter + set PF_EVICTABLE unless pinned
+//
+// Blank words (local 0 / mapped global 0) skip translation and ref on the new
+// side (panel C1-2 early-out: map[0]==0 is generator-guaranteed; the post-map
+// beq stays as the backstop for maps aliasing other locals to global 0).
+//
+// Non-resident page: enqueue a demand PageCache_Request, set Cache_Art_Stall
+// (the fill returns partial + resumes this column/row next frame), LEAVE the
+// destination cell untouched (old content + ref intact), and CONTINUE the run —
 // re-copy on resume is refcount-neutral for the cells already done.
 //
-// Preserves EVERY register (movem-banks its d0-d4/a2-a3 working set; the miss
-// path brackets a0/a1 across PageCache_Request; a4 is never touched) so it drops
-// cleanly into the register-saturated H6 fill loops.
-// In: a0 = source LOCAL word ptr, a1 = destination nametable-cell ptr;
-//     Cache_Cur_LocalMap = the source block's local->global map (published by
-//     FindStagedBlock/DecompressBlock)
-// Out: none   Clobbers: () — preserves d0-d4/a2-a3 (a0/a1 read-only; a4 untouched)
+// Run hoists (why the run form is cheap): Cache_Cur_LocalMap (a2), Page_Table
+// (a3) and Page_Frames (a4) load once per run — the per-word form reloaded the
+// map every word and the Ref/Unref calls re-lea'd Page_Frames per transition.
+// All three survive the miss path (PageCache_Request clobbers only d0-d3/a0-a1).
 // -----------------------------------------------
-pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a2-a3/a0-a1) {
-        movem.l d0-d4/a2-a3, -(sp)
+
+// The shared run loop, emitted per stride shape (src_step/dest_step in bytes).
+// Register file inside the loop (all banked by the wrapping proc):
+//   d0 = new word scratch   d1 = local->global->intra   d2 = page->frame
+//   d3 = old word / old frame   d4 = build/stamp temp   d5 = dbf counter
+//   a0/a1 = src/dest cursors (advance src_step/dest_step per word)
+//   a2 = Cache_Cur_LocalMap   a3 = Page_Table   a4 = Page_Frames
+comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
+    return asm {
+        subq.w  #1, d5                          // count >= 1 (callers guarantee)
+        jbra    .pw_word
+
+        // --- cold arms first: both rejoin .pw_next ---
+    .pw_new_blank:
+        move.w  (a1), d3                        // new is blank: unref old, write 0
+        clr.w   (a1)
+        andi.w  #NT_TILE_MASK, d3
+        bne     .pw_unref_old
+        jbra    .pw_next
+
+    .pw_miss:
+        move.w  d1, d0                          // page = global >> 6
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d0
+        move.w  #PGRQ_DEMAND, d1
+        movem.l a0/a1, -(sp)                    // Request clobbers d0-d3/a0-a1 (a2-a4 safe)
+        jbsr    PageCache_Request
+        movem.l (sp)+, a0/a1
+        move.w  #1, Cache_Art_Stall             // fill returns partial + resumes this col/row
+        jbra    .pw_next
+
+        // --- per-word body ---
+    .pw_word:
         move.w  (a0), d0                        // new LOCAL word (staged blocks stay local — F-3)
         move.w  d0, d1
         andi.w  #NT_TILE_MASK, d1               // local index (0..2047, generator-bounded)
-        // F-3 merge-translation: local -> FULL-WIDTH global via the staged
-        // block's section map (Cache_Cur_LocalMap, published by
-        // FindStagedBlock/DecompressBlock). The global lives ONLY in d1 at u16
-        // width — no 11-bit field ever carries it, so the act pool has no
-        // 2048-tile ceiling; the cache word below gets the PHYSICAL index
-        // (frame<<6 | intra <= 959), which always fits. map[0] == 0 (blank) is
-        // generator-guaranteed, so the zero page's $0000 words land in
-        // .new_blank through any section's map.
-        // Blank early-out BEFORE the map read (panel C1-2): map[0]==0 is
-        // generator-guaranteed, so local 0 == global 0 == blank — blanks skip
-        // the ~34-cycle translation entirely (the post-map beq stays as the
-        // backstop for maps that alias other locals to global 0).
-        beq     .new_blank
-        movea.l Cache_Cur_LocalMap, a2
+        beq     .pw_new_blank                   // C1-2 blank early-out before the map read
         add.w   d1, d1                          // u16 table stride
-        move.w  (a2, d1.w), d1                  // d1 = GLOBAL slot (full u16)
-        beq     .new_blank                      // global 0 = blank -> unref old, write 0, no ref
+        move.w  (a2, d1.w), d1                  // d1 = GLOBAL slot (full u16 — no 11-bit ceiling)
+        beq     .pw_new_blank                   // global 0 = blank -> unref old, write 0, no ref
 
         move.w  d1, d2                          // page = global >> 6 (u16-wide: up to 1023,
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d2      //   generator ensures < PAGE_TABLE_MAX)
@@ -517,57 +495,92 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a2-a3
         // (OOB read, then an OOB refcount WRITE). The prefetch scan carries the
         // same bound in release; here DEBUG raises loud at the source.
         cmp.w   PageIn_Pool_Pages, d2
-        blo     .page_ok
-        raise_error "PageCache_PatchWord: mapped page >= pool pages (corrupt/stale local map)"
-    .page_ok:
+        blo     .pw_page_ok
+        raise_error "PageCache patch run: mapped page >= pool pages (corrupt/stale local map)"
+    .pw_page_ok:
     }
-        lea     Page_Table, a3
         move.b  (a3, d2.w), d2                  // frame (or NOT_RESIDENT)
         cmpi.b  #PAGE_NOT_RESIDENT, d2
-        beq     .miss
+        beq     .pw_miss
         andi.w  #$00FF, d2                      // zero-extend frame
 
-        move.w  d1, d3                          // physical = attrs | (frame<<6 | (global&63))
-        andi.w  #PAGE_FRAME_TILE_MASK, d3       // intra-frame tile (global & 63)
+        andi.w  #PAGE_FRAME_TILE_MASK, d1       // physical = attrs | (frame<<6 | (global&63))
         move.w  d2, d4
         lsl.w   #PAGE_FRAME_TILE_SHIFT, d4      // frame << 6
-        or.w    d4, d3                          // physical tile index
+        or.w    d4, d1                          // physical tile index
         andi.w  #NT_ATTR_MASK, d0               // keep pal/pri/flip
-        or.w    d3, d0                          // physical nametable word
+        or.w    d1, d0                          // physical nametable word
 
         move.w  (a1), d3                        // capture OLD cell (unref) BEFORE overwrite
         move.w  d0, (a1)                        // write the patched word
 
-        move.w  d2, d0                          // Ref the new frame; d3(old)/d4 survive Ref
-        jbsr    PageCache_Ref
-        andi.w  #NT_TILE_MASK, d3               // Unref old frame (if old was not blank)
-        beq     .exit
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d3
-        move.w  d3, d0
-        jbsr    PageCache_Unref
-    .exit:
-        movem.l (sp)+, d0-d4/a2-a3
+        // inline ref of the new frame (d2): 0->1 clears PF_EVICTABLE
+        lsl.w   #3, d2                          // frame * sizeof(PageFrame)
+        addq.w  #1, PF_RC(a4, d2.w)
+        cmpi.w  #1, PF_RC(a4, d2.w)
+        bne     .pw_ref_done                    // already referenced -> no change
+        bclr    #PF_EVICTABLE_BIT, PF_FLAGS(a4, d2.w)
+    .pw_ref_done:
+        andi.w  #NT_TILE_MASK, d3               // old physical index; 0 = was blank
+        beq     .pw_next
+    .pw_unref_old:
+        // inline unref of the old frame (d3 = old physical index, nonzero)
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d3      // old frame
+        lsl.w   #3, d3                          // * sizeof(PageFrame)
+    if DEBUG == 1 {
+        tst.w   PF_RC(a4, d3.w)
+        bne     .pw_rc_ok
+        raise_error "PageCache patch run: refcount underflow (double-free of a cache word)"
+    .pw_rc_ok:
+    }
+        subq.w  #1, PF_RC(a4, d3.w)
+        bne     .pw_next                        // still referenced
+        btst    #PF_PINNED_BIT, PF_FLAGS(a4, d3.w)
+        bne     .pw_next                        // pinned frames are never candidates
+        // 1->0: eviction candidate NOW — stamp the release time (F-1: age =
+        // Frame_Counter - stamp, oldest wins)
+        move.w  Frame_Counter, d4               // (via d4: abs-sym + indexed in one op is a sigil gap)
+        move.w  d4, PF_STAMP(a4, d3.w)
+        bset    #PF_EVICTABLE_BIT, PF_FLAGS(a4, d3.w)
+    .pw_next:
+        lea     {src_step}(a0), a0
+        lea     {dest_step}(a1), a1
+        dbf     d5, .pw_word
+    }
+}
+
+// -----------------------------------------------
+// PageCache_PatchRun_Seq — patch a SEQUENTIAL run (FillRow: src and dest both
+// advance one word). PageCache_PatchRun_Col — patch a block-COLUMN run
+// (CopyBlockColumn: src advances one block row = 32 bytes, dest one cache row
+// = 160 bytes; the caller handles the cache row-59->0 wrap between runs).
+// In: a0 = source LOCAL word ptr, a1 = destination nametable-cell ptr,
+//     d0.w = run length (>= 1); Cache_Cur_LocalMap published by
+//     FindStagedBlock/DecompressBlock
+// Out: a0/a1 advanced one stride PAST the run (the callers continue run 2 from
+//     them). Everything else preserved — the run form drops into the
+//     register-saturated H6 fill loops with no caller-side banking.
+// -----------------------------------------------
+pub proc PageCache_PatchRun_Seq (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
+        movem.l d1-d5/a2-a4, -(sp)
+        move.w  d0, d5                          // run length
+        movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
+        lea     Page_Table, a3
+        lea     Page_Frames, a4
+        pc_patch_run_loop(2, 2)
+        movem.l (sp)+, d1-d5/a2-a4
         rts
+}
 
-    .new_blank:
-        move.w  (a1), d3                        // new is blank: unref old, then write 0
-        clr.w   (a1)
-        andi.w  #NT_TILE_MASK, d3
-        beq     .exit
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d3
-        move.w  d3, d0
-        jbsr    PageCache_Unref
-        bra     .exit
-
-    .miss:
-        move.w  d1, d0                          // page = idx >> 6
-        lsr.w   #PAGE_FRAME_TILE_SHIFT, d0
-        move.w  #PGRQ_DEMAND, d1
-        movem.l a0/a1, -(sp)                    // Request clobbers a0-a1
-        jbsr    PageCache_Request
-        movem.l (sp)+, a0/a1
-        move.w  #1, Cache_Art_Stall             // fill returns partial + resumes this col/row
-        bra     .exit
+pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
+        movem.l d1-d5/a2-a4, -(sp)
+        move.w  d0, d5                          // run length
+        movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
+        lea     Page_Table, a3
+        lea     Page_Frames, a4
+        pc_patch_run_loop(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
+        movem.l (sp)+, d1-d5/a2-a4
+        rts
 }
 
 // -----------------------------------------------

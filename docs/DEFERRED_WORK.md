@@ -586,6 +586,26 @@ These subsystems are fully designed in ENGINE_ARCHITECTURE.md §1 but require ot
 
 ### Diagonal streaming budget — ~76% lag at sustained MAX diagonal (§4.7 / §1.1) — 2026-06-23
 **Surfaced during:** continuous-scroll Phase 2 Task 6 diagonal stress (PRE-EXISTING — master shows the same lag).
+**Status (UPDATED 2026-08-09 — patch-run batching shipped, `perf/patchrun-batch`):** The
+per-word `PageCache_PatchWord` primitive (movem-bank + jsr/rts per WORD, ~166 cycles of
+bracket overhead before any work — 160 words/frame ≈ 19% of frame at terminal fall) was
+replaced by `PageCache_PatchRun_Seq`/`_Col`: one register bank per RUN, map/Page_Table/
+Page_Frames hoisted per run, the (only-caller) Ref/Unref bodies inlined per word. Identical
+per-word semantics (capture-old-before-write, ref-new-then-unref-old, miss = Request +
+stall + skip + continue); DEBUG per-frame refcount audit green through full-map churn.
+Measured A/B (oracle, deterministic input replay, OJZ act1):
+- **VERTICAL max fall (user-reported "BG slows where FG chunks draw"): FIXED.** Baseline
+  had clustered bursts on dense strips — worst 5 lag/30 frames (17%, camera dropped 80px of
+  travel that half-second). New: the same strip runs 0 lag at full 480px/chunk; whole-map
+  fall 7 scattered lag frames (~1.9%), worst chunk 2/30.
+- **Dense-region MAX diagonal (from spawn): improved, still saturating.** Position-matched
+  traverse to camera ~1100: 54 lag/120 frames (45%) → 29 lag/90 frames, traverse 25%
+  faster wall-clock. Worst dense strips still hit ~40-47% during their crossing.
+**The remaining diagonal residual is unchanged in kind** — `TileCache_FillColumn`'s
+per-cell copy + `Draw_TileColumn`'s nametable draw at 16px/f (2 cols/frame), plus the
+per-line HScroll + BgAnim flat taxes. That is the "horizontal Wave-1 that never happened"
+(the FillColumn/Draw_TileColumn hoist+SR, domain-split in campaign-gap-ledger) — now the
+top lever on this line item.
 **Status (UPDATED 2026-07-16 — unified prefetch shipped):** Sustained MAX diagonal now runs **~42% lag** (oracle, 8/19 frames), down from the ~76% below. The unified direction-aware prefetch (H1 column scan + H2 corner + H3 hysteresis + H4 trailing-lag gate + H5 16 slots + H6 base-lea hoist, `feat/unified-prefetch`) removed the cold-crossing DECOMPRESS spike (A/B: sustained-max-horizontal 44→27 lag, ~40% cut). **The residual is now COPY/DRAW-bound, not decompress** — `TileCache_FillColumn`'s per-cell copy + `Draw_TileColumn`'s nametable draw at 16px/f (2 cols/frame) exceed budget regardless of decompress. That is the "horizontal Wave-1 that never happened" (the FillColumn/Draw_TileColumn hoist+SR, domain-split in campaign-gap-ledger). The pre-prefetch analysis below stands as the decomposition of the remaining fill cost.
 
 **Ruling (owner, 2026-08-05): MARK AND REVISIT — stays OPEN.** Neither accept the dip (A) nor spend on it yet; do **not** silently take (A) despite the recommendation below. Revisit alongside art-streaming Phase 2 (whose budget model touches the same frame window) or when a level actually plays at sustained max diagonal. Full ruling text: "Owner rulings, 2026-08-05" near the bottom of this file.
@@ -605,13 +625,22 @@ Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is
 - **The real cause is band-boundary precision.** A BG parallax band's on-screen boundary = `band_top_plane_row*8 − BG_vertical_scroll`. With smooth per-pixel vertical parallax (`vFactorBg`), those boundaries land at ARBITRARY screen lines (measured the per-line table putting one at **line 22**). Per-cell mode can only change scroll at 8-px cell-rows (lines 0,8,16,24…), so it rounds line 22 → 16/24, misaligning each band by up to 7 px → the FG/BG **tears at every band boundary during scroll** (user-confirmed at Cam `$02D0,$019D`; reproduced in free-fly).
 **What:** Nothing — per-line (`DeformTable_Zero`) is mandatory for smooth banded vertical parallax and stays. The only way to use per-cell would be to give up smooth vertical scroll (chunky 8-px-stepped vscroll), which is not worth ~20%. Do NOT re-attempt the per-cell switch. Lesson: a settled/at-rest frame HIDES scroll-time tearing — verify under continuous motion ([[feedback_verify_during_motion]]), and read the actual VDP register before theorizing about propagation.
 
-### Parallax fill — computed-jump-table unroll (§4.6 perf) — 2026-07-14 — **UNBLOCKED / only lever left**
-> **2026-08-05 reconciliation:** still open and still correct. Flagged in the NOW UNBLOCKED list
-> because per-cell HScroll is **permanently CLOSED** (entry directly above), which makes this the
-> *only* remaining lever on the parallax fill cost. Nothing gates it.
+### ✅ STALE/CLOSED — Parallax fill — computed-jump-table unroll (§4.6 perf) — 2026-07-14 — **closed 2026-08-09: the unroll already shipped**
+> **2026-08-09 reconciliation:** the premise is stale — `Parallax_Fill_PerLine`'s flat
+> (constant-span) path is ALREADY 8×-unrolled (`.lp_flat`: span is always a multiple of 8
+> because band tops are cell rows ×8, so eight `move.l d0,(a4)+` per `dbf`). Measured
+> (oracle profiler, max fall): the whole per-line fill runs ~3.9k cycles ≈ 3.1% of frame —
+> which is exactly the all-flat cost, i.e. OJZ's zero-deform bands already take the cheap
+> path and the "224-iteration move.l/dbf with ~2,200 cycles of dbf overhead" this entry
+> targeted no longer exists. Remaining micro-levers, noted for completeness and NOT worth
+> their complexity today (~0.5% of frame): movem.l 8-register broadcast fill for flat bands
+> (Gunstar Heroes precedent, `disasm.asm:4268` — 32 bytes/instruction, ~9.3 c/long vs 12)
+> and Batman-style computed-entry unrolled deform bodies for the sampling paths (which OJZ
+> does not currently hit). Reference survey: 2026-08-09 fast-copy/fill research pass
+> (Batman/Gunstar/Alien Soldier/Ristar findings recorded in the git history of this entry's
+> closing commit).
 **Surfaced during:** TheBlad768 survey (S.C.E. updated `DeformScroll`, unreleased) — see `docs/research/2026-07-14-theblad768-survey.md`.
-**Status:** Idea banked, not started. `Parallax_Update`'s per-line fill (~7.4% of frame under max diagonal, per the diagonal-budget profile above) runs a 224-iteration `move.l/dbf` loop; the `dbf` alone is ~10 cycles/line ≈ ~2,200 cycles/frame of pure loop overhead. Per-line is mandatory (per-cell CLOSED above), so the fill itself is the only lever left on this line item.
-**What:** Replace the constant-span inner loop with a computed jump into an unrolled `move.l d1,(a2)+` run (`jmp table(pc,d0.w)`, entry offset `(224-N)*2`) — Duff's-device style, ~448 bytes ROM per body. Applies cleanly to the zero-deform/constant-span case (OJZ ships `DeformTable_Zero`); the deform-active path needs a second unrolled sample+write body or keeps the loop. Verify with the lag counter under sustained max-scroll, not the profiler ([[project_vertical_streaming]]).
+**Original text (historical):** `Parallax_Update`'s per-line fill (~7.4% of frame under max diagonal, per the diagonal-budget profile above) runs a 224-iteration `move.l/dbf` loop; the `dbf` alone is ~10 cycles/line ≈ ~2,200 cycles/frame of pure loop overhead. Replace the constant-span inner loop with a computed jump into an unrolled `move.l d1,(a2)+` run (`jmp table(pc,d0.w)`, entry offset `(224-N)*2`) — Duff's-device style, ~448 bytes ROM per body.
 
 ### ✅ RESOLVED — BG_TILE_CAPACITY reconciliation (512 → 448) + BG_Init guard (§2 A.5) — 2026-06-23
 **Surfaced during:** continuous-scroll Phase 2 Task 5 doc-sync (PRE-EXISTING cross-tool inconsistency the SAT relocation left behind).
