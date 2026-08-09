@@ -10,7 +10,7 @@ use engine.structs.{Act, Sec, Act_grid_w_lo, Act_grid_h_lo}
 use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_CACHE_NT_SIZE, MAX_ACT_SECTIONS}
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
-use engine.constants.{BLOCKS_PER_SECTION_SHIFT}
+use engine.constants.{BLOCKS_PER_SECTION_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL, STALL_WATCHDOG_FRAMES}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
@@ -332,11 +332,17 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
     .ts_loop:
         move.w  (a0), d0                       // local word
         move.w  d0, d1
-        andi.w  #$07FF, d1                     // local index
+        andi.w  #NT_TILE_MASK, d1              // local index
         add.w   d1, d1                         // u16 table stride
         move.w  (a2, d1.w), d2                 // global slot
-        andi.w  #$F800, d0                     // keep palette / priority / flip
-        andi.w  #$07FF, d2                     // global fits the 11-bit field
+        andi.w  #NT_ATTR_MASK, d0              // keep palette / priority / flip
+        // KNOWN CEILING (adjudication F-3, ruling open): this mask TRUNCATES
+        // globals >= 2048 — the generator contract only bounds the LOCAL index;
+        // a deduped pool past 2048 tiles (32 pages) renders wrong pages through
+        // this field, silently. NOTHING guards it yet (the act_descriptor ensure
+        // stops at PAGE_TABLE_MAX=256): do not ship an act past 2048 deduped
+        // tiles until F-3 lands (merge-translation or a loud <=2048 gate).
+        andi.w  #NT_TILE_MASK, d2              // global must fit the 11-bit field
         or.w    d2, d0
         move.w  d0, (a0)+
         dbf     d3, .ts_loop

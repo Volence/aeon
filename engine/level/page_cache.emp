@@ -41,7 +41,7 @@ module engine.page_cache in page_cache
 
 use engine.structs.{PageManifest, PageFrame}
 use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
-use engine.constants.{PF_PINNED_BIT, PF_IN_LRU_BIT, PF_PINNED, PF_IN_LRU}
+use engine.constants.{PF_PINNED_BIT, PF_IN_LRU_BIT, PF_PINNED, PF_IN_LRU, ART_PAGE_FLAG_PINNED_BIT}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
 use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
 use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT}
@@ -56,6 +56,16 @@ use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT}
 // sizeof(PageFrame) must stay the power-of-two 8 so a frame id scales to its
 // Page_Frames byte offset with a shift, not a multiply.
 ensure(sizeof(PageFrame) == 8, "PageFrame must be 8 bytes so `frame*sizeof` is `lsl #3`")
+// sizeof(PageManifest) has the twin ensure beside its other stride site
+// (engine.page_in); the Publish walk here strides it with the same `lsl #3`.
+ensure(sizeof(PageManifest) == 8, "PageManifest must be 8 bytes so `page*sizeof` is `lsl #3`")
+
+// DEBUG audit snapshot geometry: 4 header bytes + the first SNAP_TABLE_ENTRIES
+// Page_Table bytes + 2 bytes per frame must fit the Page_Audit_Snapshot array
+// (engine/ram.emp) — a PAGE_FRAMES bump past the buffer would silently overrun
+// the adjacent DEBUG vars in exactly the shape the snapshot exists to debug.
+const SNAP_TABLE_ENTRIES = 16
+ensure(4 + SNAP_TABLE_ENTRIES + 2 * PAGE_FRAMES <= 52, "Page_Audit_Snapshot[52] overflow — grow the ram.emp array with PAGE_FRAMES")
 
 // Field displacements for the base(a3)+offset(dn) addressing (never baked literals).
 const PF_PAGE  = offsetof(PageFrame, pf_page)
@@ -129,16 +139,6 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
 }
 
 // -----------------------------------------------
-// PageCache_Lookup — page id -> frame idx (or PAGE_NOT_RESIDENT). ~10 cyc.
-// In: d0.w = page id       Out: d1.b = frame idx / PAGE_NOT_RESIDENT   Clobbers: a0
-// -----------------------------------------------
-pub proc PageCache_Lookup (d0: u16) clobbers(a0) out(d1: u8) {
-        lea     Page_Table, a0
-        move.b  (a0, d0.w), d1
-        rts
-}
-
-// -----------------------------------------------
 // PageCache_Request — enqueue a demand/prefetch page-in IF the page is neither
 // resident nor already queued (the queued-marker bitset stops the FIFO being
 // double-filled). A full FIFO clears the marker so a later frame re-requests.
@@ -187,7 +187,7 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
         btst    d3, (a1, d2.w)
         bne     .done                           // already claimed -> dedup
     if DEBUG == 1 {
-        btst    #0, d1                          // PGRQ_DEMAND bit
+        btst    #PGRQ_DEMAND_BIT, d1
         beq     .no_dbg
         addq.w  #1, Dbg_PageCache_Demands
     .no_dbg:
@@ -231,10 +231,14 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         // (see PageCache_Publish), so it is NEVER a candidate here. That is what stops
         // a second demand miss in the same frame from evicting the just-published page
         // out from under the resuming fill (which would re-request the page it just
-        // evicted, forever). The LRU tail is therefore always a page nothing is mid-
-        // referencing — safe to evict.
+        // evicted, forever). Every list member is refcount-0/unpinned — safe to evict.
+        // The victim is the HEAD: frames enter at the tail when they become evictable
+        // (Unref 1->0 / speculative publish), so the head is the LEAST recently
+        // released frame. Popping the tail would be MRU eviction — the just-published
+        // prefetch or just-scrolled-off page becomes the next victim, the exact
+        // camera-reversal / prefetch-churn pathology an LRU exists to prevent.
         moveq   #0, d0
-        move.b  Page_LRU_Tail, d0
+        move.b  Page_LRU_Head, d0
         cmpi.b  #PAGE_NOT_RESIDENT, d0
         beq     .thrash
         lea     Page_Frames, a3
@@ -346,7 +350,7 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         clr.w   PF_RC(a3, d2.w)
 
         move.b  PageManifest.pm_flags(a0), d0   // pm_flags (page no longer needed)
-        btst    #0, d0                          // ART_PAGE_FLAG_PINNED (bit0)
+        btst    #ART_PAGE_FLAG_PINNED_BIT, d0
         beq     .not_pinned
         move.b  #PF_PINNED, PF_FLAGS(a3, d2.w)  // pinned: never in the LRU list
         rts
@@ -732,8 +736,8 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         move.b  Page_LRU_Head, (a0)+            // [1]
         move.b  Page_LRU_Tail, (a0)+            // [2]
         clr.b   (a0)+                           // [3] pad
-        lea     Page_Table, a1                  // [4..20) = Page_Table[0..15]
-        moveq   #16-1, d0
+        lea     Page_Table, a1                  // [4..4+SNAP_TABLE_ENTRIES) = Page_Table head
+        moveq   #SNAP_TABLE_ENTRIES-1, d0
     .snap_tab:
         move.b  (a1)+, (a0)+
         dbf     d0, .snap_tab

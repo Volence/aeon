@@ -237,6 +237,7 @@ pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-tim
 pub const ART_PAGE_FORM_ZX0    = 0          // ZX0 stream (wrapper + salvador bitstream, staged decode)
 pub const ART_PAGE_FORM_RAW    = 1          // raw-direct (uncompressed payload, DMA straight from ROM)
 pub const ART_PAGE_FLAG_PINNED = 1 << 0     // never-evict act-common page (P2b residency cache)
+pub const ART_PAGE_FLAG_PINNED_BIT = 0      // btst-form twin (house mask+_BIT pattern, cf. PF_PINNED_BIT)
 pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (matches ojz_strip_gen)
 
 // Residency cache (P2b Task 6, engine.page_cache). The FG VRAM art region is
