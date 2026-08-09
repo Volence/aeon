@@ -664,7 +664,7 @@ def mark_pinned_pages(pages, per_section_global_sets) -> list[bool]:
 
 
 def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
-                         per_section_strips, sec_ids_in_order):
+                         per_section_strips, sec_ids_in_order, src_to_canon):
     """Art-streaming P2c Task 11 stress fixture (post-dedup pool inflation).
 
     Clone existing pool tiles with a DETERMINISTIC per-clone pixel perturbation
@@ -672,11 +672,26 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
     exactly `target_tiles` distinct tiles. NO RNG — every choice is seeded by an
     integer index, so two runs are byte-identical.
 
+    PARENT-MATCHED (the visual-fidelity contract): a reference is only ever
+    re-pointed at a clone of ITS OWN parent tile. Each chosen position's clone is a
+    single-row perturbation of the exact tile that position currently renders, so
+    the fixture looks like clean OJZ with a faint scratch — a bark cell stays bark,
+    a vine-swag cell stays swag. (The earlier unconstrained version handed a
+    position an arbitrary clone, baking full texture swaps that made "wrong-looking"
+    indistinguishable from actually-wrong — defeating the zero-wrong-tiles gate.)
+    Popular tiles (referenced at many chosen positions) get many clones; the pool
+    still reaches N because one clone is minted per re-pointed position.
+
     Mutates `unique`/`pool_order`/`canon_to_pool` in place (clones are APPENDED —
     the real pool + blank tile 0 are untouched, so page 0 stays pinned/blank).
-    Returns a redirect dict {(section_index, col, row): global_pool_slot} the
-    caller applies in Pass 5 (the local-index word rewrite) and folds into
-    per_section_global_sets so each section's local map covers its clones.
+    Returns `(redirect, clone_parent)`:
+      redirect      {(section_index, col, row): clone_pool_slot} — applied in Pass 5
+                    (the local-index word rewrite; the original canon-flip is KEPT so
+                    the clone renders in the source orientation) and folded into
+                    per_section_global_sets so each section's local map covers its clones.
+      clone_parent  {clone_pool_slot: parent_pool_slot} — the parent each clone was
+                    minted from (the redirected position's own referenced tile); the
+                    parent-match invariant / pytest reads this.
 
     The fixture exists to overwhelm the residency cache: `target_tiles` well above
     PAGE_FRAMES*ART_POOL_PAGE_TILES forces continuous eviction/reload.
@@ -690,40 +705,47 @@ def stress_uniquify_pool(target_tiles, unique, pool_order, canon_to_pool,
     n_clones = target_tiles - base_pool_len
     rows_per_tile = tile_dedupe.TILE_SIZE // 4          # 8 rows of 4 bytes (4bpp, 8px)
 
-    # 1. Clone tiles. Clone j copies base pool slot (j % base_pool_len) and XORs a
-    #    per-clone counter into one row byte, guaranteeing byte-distinctness from
-    #    its base (the row/counter spread also separates sibling clones).
-    clone_slots = []
-    for j in range(n_clones):
-        base_canon = pool_order[j % base_pool_len]
-        tile = bytearray(unique[base_canon])
-        row = j % rows_per_tile
-        xor = (j & 0xFF) or STRESS_XOR_FALLBACK
-        tile[row * 4] ^= xor
-        new_canon = len(unique)
-        unique.append(bytes(tile))
-        pool_order.append(new_canon)
-        canon_to_pool[new_canon] = len(pool_order) - 1
-        clone_slots.append(len(pool_order) - 1)
-
-    # 2. Re-point a spread of block references at the clones. Enumerate every
-    #    non-blank word position in fixed (section, col, row) order and hand each
-    #    clone one position, evenly strided so the churn spreads across sections.
-    positions = []
+    # 1. Enumerate every re-pointable non-blank word position WITH the global pool
+    #    slot it currently renders (its PARENT). A word resolving to the blank canon
+    #    (pool slot 0) is skipped — the blank tile is pinned and never cloned.
+    positions = []          # (s_idx, col_i, row_i, parent_slot)
     for s_idx, sec_id in enumerate(sec_ids_in_order):
         for col_i, col in enumerate(per_section_strips[sec_id]):
             for row_i, word in enumerate(col):
-                if word & tile_dedupe.NAMETABLE_TILE_MASK:   # skip blank tile 0 refs
-                    positions.append((s_idx, col_i, row_i))
+                src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
+                if src_idx == 0:                         # blank source tile
+                    continue
+                canon_idx, _flip = src_to_canon.get(src_idx, (0, 0))
+                parent_slot = canon_to_pool[canon_idx]
+                if parent_slot == 0:                     # resolves to the blank canon
+                    continue
+                positions.append((s_idx, col_i, row_i, parent_slot))
     if len(positions) < n_clones:
         raise ValueError(
             f"stress-uniquify: {len(positions)} re-pointable block references < "
             f"{n_clones} clones — pool target {target_tiles} too high for this act")
+
+    # 2. Choose n_clones positions, evenly strided (deterministic, spreads across
+    #    sections). Each chosen position mints a PARENT-MATCHED clone — a single-row
+    #    perturbation of ITS OWN parent tile — and is re-pointed at it.
     step = len(positions) // n_clones                  # >= 1 (checked above)
     redirect = {}
-    for j, slot in enumerate(clone_slots):
-        redirect[positions[j * step]] = slot           # strided => distinct positions
-    return redirect
+    clone_parent = {}
+    for j in range(n_clones):
+        s_idx, col_i, row_i, parent_slot = positions[j * step]   # strided => distinct
+        parent_canon = pool_order[parent_slot]
+        tile = bytearray(unique[parent_canon])
+        row = j % rows_per_tile
+        xor = (j & 0xFF) or STRESS_XOR_FALLBACK
+        tile[row * 4] ^= xor                           # faint scratch, same tile
+        new_canon = len(unique)
+        unique.append(bytes(tile))
+        pool_order.append(new_canon)
+        clone_slot = len(pool_order) - 1
+        canon_to_pool[new_canon] = clone_slot
+        redirect[(s_idx, col_i, row_i)] = clone_slot
+        clone_parent[clone_slot] = parent_slot
+    return redirect, clone_parent
 
 
 # Repo-relative path the generated `.emp` embed()s reference (matches
@@ -1180,12 +1202,14 @@ def _fabricate_stress_inputs(base_pool=600, cols=48, rows=64, n_sections=9):
     """Fabricate deduped-pool + per-section strips shaped like generate()'s
     Pass-4 outputs, donor-free, for the stress-uniquify unit tests. Words carry
     a tile index in 1..base_pool-1 (blank slot 0 never referenced) with the high
-    pal/pri/flip bits zero; src == canon == pool slot for the fabricated data."""
+    pal/pri/flip bits zero; src == canon == pool slot for the fabricated data, so
+    src_to_canon is the identity {i: (i, 0)}."""
     unique = [bytes([i & 0xFF, (i >> 8) & 0xFF]) + bytes(tile_dedupe.TILE_SIZE - 2)
               for i in range(base_pool)]
     unique[0] = tile_dedupe.BLANK_TILE                     # slot 0 = blank
     pool_order = list(range(base_pool))
     canon_to_pool = {c: i for i, c in enumerate(pool_order)}
+    src_to_canon = {i: (i, 0) for i in range(base_pool)}   # identity (no flip)
     sec_ids = [str(s) for s in range(n_sections)]
     per_section_strips = {}
     for s in range(n_sections):
@@ -1195,16 +1219,25 @@ def _fabricate_stress_inputs(base_pool=600, cols=48, rows=64, n_sections=9):
                    for r in range(rows)]
             cols_list.append(col)
         per_section_strips[str(s)] = cols_list
-    return unique, pool_order, canon_to_pool, per_section_strips, sec_ids
+    return unique, pool_order, canon_to_pool, per_section_strips, sec_ids, src_to_canon
+
+
+def _ref_slot(strips, sec_ids, canon_to_pool, src_to_canon, s_idx, col_i, row_i):
+    """The pool slot a strip word actually renders (its parent), resolved the way
+    generate() Pass 5 does: word -> src -> canon -> global slot."""
+    word = strips[sec_ids[s_idx]][col_i][row_i]
+    canon_idx, _flip = src_to_canon[word & tile_dedupe.NAMETABLE_TILE_MASK]
+    return canon_to_pool[canon_idx]
 
 
 def test_stress_uniquify_generation_and_pages():
     """N=2600 stress inflation succeeds, produces >40 pages, and every clone is
-    referenced by exactly one re-pointed block position (byte-distinct from base)."""
+    referenced by exactly one re-pointed block position (byte-distinct from parent)."""
     N = STRESS_UNIQUIFY_DEFAULT
-    unique, pool_order, canon_to_pool, strips, sec_ids = _fabricate_stress_inputs()
+    unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs()
     base_len = len(pool_order)
-    redirect = stress_uniquify_pool(N, unique, pool_order, canon_to_pool, strips, sec_ids)
+    redirect, clone_parent = stress_uniquify_pool(
+        N, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
 
     assert len(pool_order) == N, f"pool inflated to {len(pool_order)}, expected {N}"
     assert unique[pool_order[0]] == tile_dedupe.BLANK_TILE, "blank slot 0 must be untouched"
@@ -1216,20 +1249,47 @@ def test_stress_uniquify_generation_and_pages():
     clone_slots = set(range(base_len, N))                 # clones appended contiguously
     assert set(redirect.values()) == clone_slots, "every clone must be referenced once"
     assert len(redirect) == n_clones, "one re-pointed position per clone (no collisions)"
-    # perturbation actually changed bytes: each clone differs from its base tile
-    for j in range(0, n_clones, 137):                     # sample
-        base_canon = pool_order[j % base_len]
-        clone_canon = pool_order[base_len + j]
-        assert unique[clone_canon] != unique[base_canon], f"clone {j} not perturbed"
+    # perturbation actually changed bytes: each clone differs from its OWN parent tile
+    for clone_slot in range(base_len, N, 137):            # sample
+        parent_slot = clone_parent[clone_slot]
+        assert unique[pool_order[clone_slot]] != unique[pool_order[parent_slot]], \
+            f"clone {clone_slot} not perturbed from parent {parent_slot}"
     print(f"  PASS: stress-uniquify N={N} -> {len(pages)} pages, {n_clones} clones")
+
+
+def test_stress_uniquify_parent_matched():
+    """VISUAL-FIDELITY CONTRACT: every re-pointed reference is re-pointed at a clone
+    of ITS OWN parent tile — a single-row scratch perturbation of the exact tile that
+    position originally rendered. No cross-texture swaps (a bark cell never lands on a
+    swag-clone)."""
+    N = STRESS_UNIQUIFY_DEFAULT
+    unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs()
+    redirect, clone_parent = stress_uniquify_pool(
+        N, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
+    tsz = tile_dedupe.TILE_SIZE
+    for (s_idx, col_i, row_i), clone_slot in redirect.items():
+        parent_slot = clone_parent[clone_slot]
+        ref_slot = _ref_slot(strips, sec_ids, canon_to_pool, s2c, s_idx, col_i, row_i)
+        assert parent_slot == ref_slot, (
+            f"clone {clone_slot} minted from parent {parent_slot} but the re-pointed "
+            f"position renders {ref_slot} — CROSS-TEXTURE SWAP")
+        parent_tile = unique[pool_order[parent_slot]]
+        clone_tile = unique[pool_order[clone_slot]]
+        assert clone_tile != parent_tile, "clone must be perturbed from its parent"
+        diff_rows = sum(1 for k in range(0, tsz, 4)
+                        if clone_tile[k:k + 4] != parent_tile[k:k + 4])
+        assert diff_rows == 1, \
+            f"clone {clone_slot} differs from parent in {diff_rows} rows, expected 1 (faint scratch)"
+    print("  PASS: stress-uniquify parent-matched (no cross-texture swaps)")
 
 
 def test_stress_uniquify_local_tables_valid():
     """After inflation + redirect fold-in, every section's local→global map fits
     the 11-bit field and each re-pointed clone slot round-trips local→global."""
     N = STRESS_UNIQUIFY_DEFAULT
-    unique, pool_order, canon_to_pool, strips, sec_ids = _fabricate_stress_inputs()
-    redirect = stress_uniquify_pool(N, unique, pool_order, canon_to_pool, strips, sec_ids)
+    unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs()
+    redirect, _clone_parent = stress_uniquify_pool(
+        N, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
 
     # Rebuild per-section global sets the way generate() Pass 4/5 does, folding in
     # the redirect clones, then build + validate each section's local map.
@@ -1257,11 +1317,12 @@ def test_stress_uniquify_local_tables_valid():
 def test_stress_uniquify_deterministic():
     """Two independent runs are byte-identical (seeded by index, no RNG)."""
     N = STRESS_UNIQUIFY_DEFAULT
-    u1, p1, c1, s1, ids1 = _fabricate_stress_inputs()
-    r1 = stress_uniquify_pool(N, u1, p1, c1, s1, ids1)
-    u2, p2, c2, s2, ids2 = _fabricate_stress_inputs()
-    r2 = stress_uniquify_pool(N, u2, p2, c2, s2, ids2)
+    u1, p1, c1, s1, ids1, s2c1 = _fabricate_stress_inputs()
+    r1, cp1 = stress_uniquify_pool(N, u1, p1, c1, s1, ids1, s2c1)
+    u2, p2, c2, s2, ids2, s2c2 = _fabricate_stress_inputs()
+    r2, cp2 = stress_uniquify_pool(N, u2, p2, c2, s2, ids2, s2c2)
     assert r1 == r2, "redirect map differs between runs"
+    assert cp1 == cp2, "clone-parent map differs between runs"
     assert u1 == u2, "cloned tile bytes differ between runs"
     assert p1 == p2, "pool order differs between runs"
     print("  PASS: stress-uniquify deterministic across runs")
@@ -1269,9 +1330,9 @@ def test_stress_uniquify_deterministic():
 
 def test_stress_uniquify_rejects_small_target():
     """N below the deduped pool size fails loudly (nothing to stress)."""
-    unique, pool_order, canon_to_pool, strips, sec_ids = _fabricate_stress_inputs(base_pool=600)
+    unique, pool_order, canon_to_pool, strips, sec_ids, s2c = _fabricate_stress_inputs(base_pool=600)
     try:
-        stress_uniquify_pool(500, unique, pool_order, canon_to_pool, strips, sec_ids)
+        stress_uniquify_pool(500, unique, pool_order, canon_to_pool, strips, sec_ids, s2c)
     except ValueError:
         print("  PASS: stress-uniquify rejects N <= pool size")
         return
@@ -1669,11 +1730,11 @@ def generate(stress_uniquify=0):
     # is applied in Pass 5 and folded into per_section_global_sets.
     stress_redirect = None
     if stress_uniquify:
-        stress_redirect = stress_uniquify_pool(
+        stress_redirect, _stress_clone_parent = stress_uniquify_pool(
             stress_uniquify, unique, pool_order, canon_to_pool,
-            per_section_strips, sec_ids_in_order)
+            per_section_strips, sec_ids_in_order, src_to_canon)
         print(f"STRESS-UNIQUIFY: inflated act pool to {len(pool_order)} tiles "
-              f"({len(stress_redirect)} clone references re-pointed)")
+              f"({len(stress_redirect)} parent-matched clone references re-pointed)")
 
     pages = tile_dedupe.split_pool_into_pages(pool_order, ART_POOL_PAGE_TILES)
     # P2b cutover: the pool ceiling is now the RESIDENCY page-table cap, not a
@@ -1723,8 +1784,10 @@ def generate(stress_uniquify=0):
                 if stress_redirect is not None:
                     r = stress_redirect.get((s_idx, col_i, row_i))
                     if r is not None:
-                        vram_slot = r                        # re-point at a clone
-                        flip_bits = 0                        # clone is a fresh tile
+                        # Re-point at a PARENT-MATCHED clone (a scratch-perturbed copy of
+                        # THIS word's own parent tile). KEEP the resolved canon-flip so the
+                        # clone renders in the source orientation — same tile, faint scratch.
+                        vram_slot = r
                 local_idx = global_to_local[vram_slot]       # section-local index
                 remapped_col.append(
                     tile_dedupe.remap_nametable_word(word, local_idx, flip_bits)

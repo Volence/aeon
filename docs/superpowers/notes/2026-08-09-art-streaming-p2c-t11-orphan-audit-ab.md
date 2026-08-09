@@ -74,6 +74,33 @@ org anchors HELD (ObjCodeBase $10000, Dac_Temp_Blip $48000, SoundTablesZ80 LMA $
 $7CABA / `EndOfRom` $7DA10 all after the relocated pool) — the MDDBG deb2 locator invariant
 holds in the fixture. Any real anchor overrun still fails loud at `resolve_layout`.
 
+## Fixture clones are PARENT-MATCHED — the visual gate is EXACT from this version on
+
+`--stress-uniquify`'s re-pointing is PARENT-MATCHED (fixed 2026-08-09 after a controller
+visual review caught full texture swaps): a block reference to tile T is only ever re-pointed
+at a clone OF T — a single-row scratch perturbation of the exact tile that position renders,
+with the source flip/pal/pri preserved. A bark cell stays bark, a vine-swag cell stays swag;
+the fixture looks like clean OJZ with faint scratches only. (The first cut assigned each
+position an arbitrary clone, baking cross-texture swaps that made "wrong-looking"
+indistinguishable from actually-wrong.)
+
+Verified end-to-end on REAL OJZ data (`scratchpad/verify_parent_match.py`): of 44,970 non-blank
+positions, 1,988 are re-pointed, **0 cross-texture swaps** (every re-pointed tile differs from
+its non-stress tile in exactly ONE 8px row) and **0 flip/pal/pri mismatches** — including the
+flip-canonicalized references the donor-free pytest can't exercise. The inline pytest
+`test_stress_uniquify_parent_matched` asserts the same invariant on fabricated data.
+
+**Gate consequence:** the acceptance matrix's zero-wrong-tiles visual gate is EXACT from this
+fixture version on — any full texture swap is a real bug forever after. Earlier acceptance
+runs' VISUAL evidence carries the parent-mismatch caveat (the swaps were data-faithful, not
+streaming bugs). The non-visual gates (lag / audits / counters / camera-clamp / idle-floor)
+were never affected by the mismatch.
+
+This is a generator+fixture change only (`tools/ojz_strip_gen.py`): NO engine bytes, so the
+canonical goldens are unchanged (`s4.bin` stays f8561c7c) and no parcel ritual applies; only
+the throwaway `s4.stressart.bin` moves (parent-matched data: md5 fd70a058, 41 pages, all
+placement invariants held).
+
 ## Verification
 
 - `python3 -m pytest tools/ -q` — the four `test_stress_uniquify_*` green (N=2600 →
