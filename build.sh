@@ -210,6 +210,20 @@ if ! python3 "${TOOLS}/verify_level_bin.py"; then
     exit 1
 fi
 
+# Art-pool ROM budget report + gate (art-streaming Phase 2). Level art is now
+# capped by ROM, not VRAM — a non-resident page streams in on demand — so the
+# pool's ROM footprint is the budget that matters. Report per act (raw bytes,
+# stored bytes per form, page count, ratio); warn above ART_ROM_SOFT_KB, fail
+# above ART_ROM_HARD_KB (per-act overridable: ART_ROM_{SOFT,HARD}_KB_<ACT>;
+# OJZ defaults 24/64 KB). Under STRESS_ART the pool is a throwaway uniquified
+# fixture that deliberately overwhelms the cache, so report-only (no gate).
+ART_ROM_REPORT_FLAGS=""
+if [[ "${STRESS_ART:-0}" == "1" ]]; then ART_ROM_REPORT_FLAGS="--no-fail"; fi
+if ! python3 "${TOOLS}/art_rom_report.py" . ${ART_ROM_REPORT_FLAGS}; then
+    echo "Art-pool ROM budget exceeded — see the per-act report above."
+    exit 1
+fi
+
 # THE BUILD: one sigil invocation — assemble -> declared-order link -> emit_rom
 # (checksum folded) -> sigil-canonical .lst -> ROM. DEBUG additionally gets the
 # convsym deb2 appendix; release ships the assembled image alone (item 29).

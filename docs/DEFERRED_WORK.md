@@ -52,18 +52,15 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
-### 1. §9.7 cooperative multitasking / resumable decode — **THE highest-leverage single unlock**
-Its blocker was "when §9.7 is designed and the S4LZ decompressor exists". **Both compressors now
-exist and ship** (`engine/compression/`). §9.7 is currently the sole gate on **three** separate
-backlog items that are otherwise ready:
-- **S4LZ Streaming Mode** (§2.1) — bookmark-based interruptible decompression.
-- **ZX0 budgeted decode** — required before *any* mid-gameplay ZX0 use (~76 KB/s = ~5 frames
-  synchronous for a 6.3 KB blob).
-- **Art-streaming Phase 2** — its binding amendment #1 makes resumable decode a *requirement*,
-  and the Phase-2 spec (`2026-07-02-art-streaming-phase2-design.md` §3) names the
-  supervisor-bookmark mechanism as the vehicle.
-Nothing else in this file unlocks three downstream items at once. If one thing is picked up from
-this list, pick this.
+### 1. §9.7 idle-time deferred work / resumable decode — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
+**Done (`feat/art-streaming-p2`, chains 55→78; merge pending a final oracle spot-check).** §9.7
+shipped as the pre-chunked-pages + VBlank-supervisor-bookmark idle-time path (the user-mode variant
+was rejected). The resumable `ZX0R_Decompress` decoder is sliced across idle by a VBlank
+register-bank/resume, feeding a VRAM page residency cache. All three items this gated are
+discharged: **Art-streaming Phase 2** (the driving consumer) is live; **ZX0 mid-gameplay decode**
+now rides the bookmark, never synchronous; **S4LZ Streaming Mode (§2.1)** inherits the identical
+pipeline (rescoped in its own entry below). ARCH §9.7 + §2 rewritten in place; see the resolved
+full entry below and `plans/2026-08-08-art-streaming-phase2-v2.md`.
 
 ### 2. The whole "Engine substrate gaps" gate is satisfied
 The stocktake's gate was "execute AFTER the Sigil port". **The port is done** — `build.sh:4`,
@@ -737,7 +734,18 @@ enemies, etc. Premature without that signal.
 **What:** Use Hscroll_Dirty_Start/End to DMA only the dirty scanline range instead of all 896 bytes.
 **When ready:** When HScroll partial updates become a measurable DMA budget issue.
 
-### Background Work / Cooperative Multitasking (§1.5 → §9.7) — **✅ UNBLOCKED — HIGHEST-LEVERAGE ITEM IN THIS FILE**
+### Background Work / Cooperative Multitasking (§1.5 → §9.7) — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
+> **RESOLVED 2026-08-09 (`feat/art-streaming-p2`, chains 55→78; merge pending a final oracle spot-check).**
+> §9.7 was designed AND SHIPPED — not as the user-mode cooperative-multitasking split this entry
+> named, but as its ratified replacement: the **pre-chunked pages + VBlank supervisor bookmark**
+> idle-time path (ARCH §9.7 rewritten in place, D4=A). A resumable stack-flat ZX0 decoder
+> (`ZX0R_Decompress`) is sliced across `VSync_Wait` idle by a VBlank register-bank/resume, feeding a
+> VRAM page residency cache. All three downstream items this entry gated are discharged: the
+> art-page consumer is live; ZX0 mid-gameplay decode rides the bookmark (never synchronous); S4LZ
+> streaming (§2.1) inherits the same pipeline (that entry rescoped below). The user-mode variant is
+> recorded as **rejected** in ARCH §9.7. Plan: `plans/2026-08-08-art-streaming-phase2-v2.md`.
+> **Original entry retained below for provenance.**
+>
 > **Blocker discharged 2026-08-05.** "When §9.7 is designed and the S4LZ decompressor exists" —
 > **both decompressors exist and ship** (`engine/compression/`, S4LZ + ZX0).
 >
@@ -767,7 +775,22 @@ enemies, etc. Premature without that signal.
 
 ## From §2 — Art & Compression Pipeline
 
-### Art-streaming Phase 2 — binding amendments from the 2026-07-01 loading audit
+### Art-streaming Phase 2 — binding amendments from the 2026-07-01 loading audit — **✅ RESOLVED (EXECUTED 2026-08-09)**
+> **RESOLVED 2026-08-09 (`feat/art-streaming-p2`, chains 55→78; merge pending a final oracle spot-check).**
+> Phase 2 shipped and every binding amendment below is discharged or superseded, as executed:
+> (1) resumable decode is a requirement and shipped format-independent as `ZX0R_Decompress` — pages
+> are ZX0 + raw-direct hybrid, 64 tiles; the S4LZ-page format half was already superseded 2026-07-02.
+> (2) the pool is now a VRAM residency cache capped by ROM not VRAM (`ART_POOL_PAGE_TILES = 64`,
+> manifest v2, per-section local→global indices) — the ~700-850-tile ceiling no longer bounds an act.
+> (3) stress-validated under sustained max-diagonal on the `--stress-uniquify` 2600-tile / 41-page
+> fixture (window ≪ pool): `Lag_Frame_Count = 0` across every leg, zero wrong-tile frames,
+> `Dbg_Cam_Clamp_Frames = 10` total; honorable degradation is the camera soft-clamp (Task 10).
+> (4) adopted verbatim — B&R per-act art budget word (Task 9), Vectorman dual cap entries+bytes
+> (Task 8). (5) the mega-act showcase depends on this plus floating-origin; its remaining blocker is
+> the pre-DAC ROM-layout hole (see the NOW-UNBLOCKED item 7 mega-act ROM-layout entry) — not a
+> streaming gap. Plan: `plans/2026-08-08-art-streaming-phase2-v2.md`; ARCH §9.7 + §2 rewritten.
+> **Original amendments retained below for provenance.**
+
 **Surfaced during:** the 3-agent post-leapfrog loading audit (2026-07-01; best-in-class comparison vs S2/S3K/S.C.E./B&R/Vectorman/Gunstar/Alien Soldier/TF4/Ristar + SGDK/Tanglewood/homebrew). The shipped Phase 1 (fully-resident deduped pool) was ratified correct and best-in-class; these bind the NOT-yet-built Phase 2 (residency cache / streams-past-VRAM) of `docs/superpowers/specs/2026-06-22-act-art-streaming-design.md`:
 1. **Mid-game page streaming MUST use small (~64-tile) S4LZ pages + resumable decode; ZX0 stays init-only.** → **FORMAT HALF SUPERSEDED 2026-07-02** by `docs/superpowers/specs/2026-07-02-art-streaming-phase2-design.md` §4: measured on the real deduped OJZ pool, S4LZ pages reach only 86% ratio (vs ZX0 57.8% — global dedup removes the redundancy S4LZ needs), and the supervisor-bookmark resumable decode (spec §3) removes the fits-per-frame premise this amendment was built on. Phase-2 pages are **ZX0 + raw-direct hybrid, small (~64-tile)**; the *resumable decode* requirement stands, now format-independent. Original rationale (for the record) — CPU is the binding constraint, not DMA: one 8KB ZX0 page ≈ ~620K cycles (~5 frames of total CPU) vs ~1 VBlank of DMA — physically impossible at 16px/frame scroll. S4LZ at the measured 510-640 KB/s closes the worst-case envelope at ~17-22% of a frame. Promote from spec-§8 tunable to requirement. Resumable = the S3K V-int bookmark pattern (ARCH §9.7 coop multitasking is the designed vehicle — make it the page-loader contract). Precedent: S2/Sonic 3D stored streamed art uncompressed; S3K time-sliced Kosinski.
 2. **Effective FG pool budget is ~700-850 tiles** after BG (448) + character DPLC + HUD/ring/monitor permanents — S3K-maximalist acts (1000-1500 tiles) will NOT fit fully resident. Phase 2 is core roadmap, not an "unlimited levels" garnish.
@@ -895,13 +918,17 @@ sonic_hack. No engine work to do.
 **What:** Deferrable-priority DMA streaming of next section's art based on camera velocity and direction.
 **When ready:** After §4 implements section transitions and camera system.
 
-### S4LZ Streaming Mode (§2.1) — **gated ONLY on §9.7, which is now unblocked**
-> **2026-08-05:** entry is accurate. Recorded here as one of the three items whose sole gate is
-> §9.7 cooperative multitasking — see the NOW UNBLOCKED list, item 1. The decompressor exists; the
-> bookmark/preemption mechanism is what is missing, and it is shared with the other two consumers.
-**Blocked by:** §9.7 Cooperative Multitasking (interruptible decompression with VBlank context switch)
-**What:** Bookmark-based interruptible decompression. VBlank preempts mid-decompress, resumes next frame.
-**When ready:** After §9.7 supervisor/user mode exists. Blocking mode handles all current use cases.
+### S4LZ Streaming Mode (§2.1) — **UNBLOCKED — the §9.7 mechanism now ships; adopt the shipped pipeline**
+> **RESCOPED 2026-08-09.** The gate (§9.7) is discharged — the pages+bookmark idle-time path shipped
+> with art-streaming Phase 2. S4LZ streaming is no longer *blocked*; it is now a straight adoption of
+> the shipped `ZX0R_Decompress`-style contract: make the S4LZ decompressor a `@resumable` stack-flat
+> proc in the same `[start, __end)` range shape, enqueue it through the same demand/prefetch FIFO,
+> and let the VBlank bookmark slice it. The pipeline (private staging buffer → dispatcher DMA enqueue
+> → VBlank transfer) is built and proven; only the S4LZ-specific resumable decoder body remains.
+> Do this when a payload larger than one block dictionary actually needs mid-gameplay streaming.
+**Was blocked by:** §9.7 (now shipped — pages + supervisor bookmark, ARCH §9.7).
+**What:** A `@resumable` S4LZ decoder body adopting the shipped bookmark contract + demand/prefetch FIFO.
+**When ready:** Now — do it when a larger-than-block payload needs mid-gameplay streaming. Blocking mode handles all current use cases.
 
 ---
 
@@ -1832,7 +1859,7 @@ above) — not worth a dedicated session.
 
 ### ZX0 needs budgeted decode before any mid-gameplay use
 **Surfaced during:** compression-two-tier T6 measurement 2026-06-11.
-**What:** ZX0 measured ~76 KB/s (5 frames synchronous for a 6.3 KB section blob). Today it runs only at level init (invisible). The §4.2 deferred cold-load design (mid-traversal FWD/BWD section art loads — currently stubbed) would freeze ~5-7 frames if it called `Art_Decompress` on a ZX0 blob synchronously. Before implementing deferred loads: either route them through §9.7 cooperative-multitasking budgeted decode, or keep gameplay-streamed art on the S4LZ tier (wrapper version byte already dispatches per blob — the pipeline can mix tiers freely).
+**What:** ZX0 measured ~76 KB/s (5 frames synchronous for a 6.3 KB section blob). Today it runs only at level init (invisible). The §4.2 deferred cold-load design (mid-traversal FWD/BWD section art loads — currently stubbed) would freeze ~5-7 frames if it called `Art_Decompress` on a ZX0 blob synchronously. Before implementing deferred loads: either route them through the §9.7 pages+bookmark idle-time path (now SHIPPED — the resumable `ZX0R_Decompress` sliced across idle, never a synchronous blocking decode), or keep gameplay-streamed art on the S4LZ tier (wrapper version byte already dispatches per blob — the pipeline can mix tiers freely).
 **When ready:** with §4.2 deferred cold-load implementation.
 
 ### Level editor exporter template is stale (dict fields, .zx0, blob aliases)
@@ -3343,6 +3370,37 @@ round-trip), but it costs one benign lag frame at roughly per-resume probability
 invariant is "the bank is safe on whichever path dispatches," not "the lag path can never
 bank." The `vblank.emp` hook comment now states the corrected form.
 
-**Task-12 action:** the ARCH §9.7 rewrite (D4, landing `2026-08-06-arch-97-rewrite-proposal.md`)
-must carry the CORRECTED lemma, not the sketch's original "lag path can never bank" wording.
-Sweep the proposal text for that phrasing before landing it.
+**Task-12 action — ✅ DONE (2026-08-09).** The ARCH §9.7 rewrite landed the CORRECTED lemma, NOT
+the draft's "lag path can never bank" phrasing. The draft (invariant 3) was swept and its stale
+"the lag path can never bookmark — a mid-decode VBlank always dispatches `VInt_Level`, structurally"
+claim was replaced verbatim by "the bank is safe on whichever path dispatches" + the benign single
+lag frame. Execution record won over the pre-execution draft, as flagged.
+
+## Ledgered by the 2026-08-09 art-streaming Phase 2 Task 12 closeout (`feat/art-streaming-p2`)
+
+### Sigil isolation-port systemic-inject — the `DMA_Enq_Bytes_Frame` class remains — SIGIL ASK, RECORDED
+The Sigil isolation port tests lower ONE engine module standalone against an EMPTY symbol table, so
+any cross-seam reference (an `engine.constants` immediate, or now a cross-module RAM word) must be
+either kept module-local or injected as a port-test carrier. Two instances of this pattern are now
+on the books and it is systemic, not one-off: (a) `bg_anim.emp` keeps a module-local
+`BGANIM_MAX_BANDS` mirror with a drift comment because re-homing it to `engine.constants` breaks
+`bg_anim_port`'s standalone link (item 30/F, reverted; `bg_anim.emp:40-47`); (b) the T2
+`compression_selftest_port.rs` injects a game symbol (`OJZ_Act1_Descriptor`) as a cross-seam carrier
+(T2 wall-smell entry above). The T8 dual-cap added `DMA_Enq_Bytes_Frame` (a RAM word charged from
+`dma_queue.emp`'s shared enqueue path and reset in `vblank.emp`) — the SAME class of cross-module
+reference that a `dma_queue`/`vblank` port test must carry. **Follow-through:** the real single-
+authority fix is a comptime path from `ram.emp`/`constants.emp` into a CODE module's consts that
+survives standalone lowering (does not exist today, per `bg_anim.emp:45-47`). Until it does, each new
+cross-seam RAM/const reference costs a port-test carrier injection or a module-local mirror. This is
+sigil-repo work (`/home/volence/sonic_hacks/sigil`), recorded here so the accumulating injections
+are seen as one systemic item, not filed one at a time.
+
+### Oracle MCP wedge on repeated long `press` — EMULATOR-SIDE, for the oracle backlog
+During the T11 acceptance-matrix bonus sweep (after the matrix itself completed clean), the oracle
+MCP wedged: **two consecutive `press` calls each timed out at 1800 s on fresh oracle instances**,
+hanging the controller's confidence sweep (abandoned; the matrix evidence was already complete).
+This is an emulator-side/MCP-arbiter fault, NOT an Aeon-engine issue — the ROM was fine and the
+matrix passed. Pattern to watch: long-duration `press` on a freshly-launched instance can wedge the
+arbiter; the workaround was to abandon and rely on the completed evidence. Recorded for the **oracle
+backlog** (oracle-repo work, not Aeon). Consequence for Aeon: the T12 merge is gated on ONE final
+oracle spot-check when the emulator recovers — the controller performs it before merging.
