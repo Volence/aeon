@@ -229,6 +229,61 @@ no mulu/divu; no branch-sizing debt (sigil auto-sizes); Z80 footprint zero
 right-sized; `art_rom_report` measures the right quantity at the right place
 (its liveness holes notwithstanding).
 
+## FIXUP ROUND (2026-08-09, branch fix/p2-lens-fixup)
+
+Shipped same-day, four commits, all shapes green (sonic4 debug+plain, demo,
+STRESS_EVICT):
+
+- **F-1** — evictor pops `Page_LRU_Head` (was tail = MRU). One-line shape;
+  the C4-3 stamp rework stays open as its own parcel.
+- **F-2** — raw cluster: `PageCache_FreeFrame` B&R rollback on the raw carry
+  path; dma_queue `.split_reject` (a one-slot 128KB split now rejects BOTH
+  halves, carry set, byte charge rolled back); dispatch resolves the manifest
+  BEFORE AllocFrame (size-0 drop holds no frame, releases its queued-bit
+  claim; corrupt-id drop releases too, bounds-guarded); DEBUG evenness assert
+  on raw `pm_source`.
+- **F-4** — verify_level_bin decodes every ZX0 page (salvador -d) and
+  byte-compares vs .bin, raw pages byte-compare, pinned bit cross-checked vs
+  the JSON sidecar, per-section local-map/dict-block consistency check; both
+  new checks MUTATION-TESTED (page5.zx0 byte-100 XOR → FAIL; sec1 map
+  truncated → FAIL; both restored). art_rom_report fails on zero
+  pools/zero-parsed pages, cross-checks the sidecar page count, counts local
+  maps + manifest into the budget (OJZ 11.8 → 15.0 KB), errors on malformed
+  env. ojz_strip_gen run_tests() now calls ALL 22 tests (12 were dead — more
+  than the panel found); regenerate-level.sh runs the verifier.
+- **F-5** — `sizeof` ensures for PageManifest (×2 sites) + PageInReq; flush
+  unroll pinned to PAGE_TABLE_MAX; audit snapshot geometry ensured vs
+  PAGE_FRAMES; named-constant swaps (NT masks, PGRQ_DEMAND_BIT, new
+  ART_PAGE_FLAG_PINNED_BIT).
+- **F-6** — `PageCache_Lookup` deleted. (Art_Decompress retention still open
+  for ruling.)
+- **F-7** — full comment/doc truth sweep applied, byte-neutral (debug crc
+  a93785aa unchanged before/after).
+- **M-2 Tier-1** — `PageIn_Fully_Resident` latch + Prefetch early-out
+  (verified live on hardware state: latch = $FF on OJZ, streaming clean).
+
+Oracle verification (fresh instance, ROM CRC-matched to the build each time):
+DEBUG boot selftest passes; at-rest + mid-motion renders clean across ~180
+frames of scroll into new terrain; `Lag_Frame_Count = 0`;
+`Dbg_PageCache_Demands = 0` on the canonical shape. STRESS_EVICT fixture
+boots + streams under the flipped evictor.
+
+**NEW FINDING P-1 (pre-existing, found by the fixup's A/B): STRESS_EVICT
+reference famine on reversal.** Input right×180 → left×120 from spawn drives
+the fixture into `AllocFrame .thrash` ("no free/evictable frame") — all 5
+dynamic frames simultaneously referenced/held at the reversal point. The
+IDENTICAL input thrashes the PRE-fix master build the same way (A/B verified,
+same raise, same call path) — a reachable famine state the recorded soaks
+never hit, NOT a fixup regression. In release this path degrades to
+requeue + camera hold; whether the hold can deadlock against refs the frozen
+fill never releases is exactly the C4-3/streaming-act question. Feeds the
+F-3/mega-act work: real streaming acts need a frames-vs-max-simultaneous-
+referenced-pages bound, or famine handling beyond the hold.
+
+Still open: F-3 (2048 ceiling — RULING), F-6 retention (RULING), F-1 stamp
+rework, F-4(e) ZX0R-walk liveness cross-gate, M-1/M-3/M-4 measurements, M-5
+stress visual re-verification.
+
 ## Recommended order
 
 F-1 (one-line flip) → F-2 (raw cluster) → F-5 (tripwires) → F-6 (dead code) →
