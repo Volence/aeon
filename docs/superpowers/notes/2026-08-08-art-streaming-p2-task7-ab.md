@@ -134,3 +134,33 @@ Live reads on the halted machine debunked ALL three "corruption" theories:
 
 Rebuilt green: `s4.bin` crc=0b8fa9ec (414138 B), `s4.debug.bin` crc=ca9bbd3f (427468 B),
 `s4.stress.bin` crc=c8493cbf (427468 B). Third soak expected to run.
+
+## Chain 72 — resolve FIXED; next layer: bijectivity audit under concurrent eviction
+
+Chain-71 soak: **the resolve chain is fixed** — no wrapper assert, real streaming work
+(Preempts=15, Resumes=15, Prefetches=32, Demands=0). New failure one layer deeper: the
+DEBUG bijectivity audit fired — "PageCache_Audit: frame pf_page does not round-trip via
+Page_Table (wrong mapping)".
+
+**Root cause (bookkeeping under concurrency):** `PageCache_AllocFrame`'s `.detach`
+cleared pf_lru_prev/next, pf_refcount, pf_flags — but NOT pf_page. So a frame allocated
+for an in-flight decode (detached by AllocFrame, not yet stamped by Publish) kept its
+PREVIOUS occupant's pf_page, while that page's `Page_Table` entry was correctly cleared
+at eviction. Whenever the audit ran during that in-flight window (32 prefetches → one
+mid-decode), the round-trip `frame -> pf_page -> Page_Table[that page]` failed on exactly
+that frame.
+
+**Fix (chain 72):** `.detach` now stamps `pf_page := $FFFF` (UNASSIGNED). A detached
+frame belongs to NO page until Publish stamps its new id, so the audit's existing
+`pf_page == $FFFF` skip covers the whole in-flight window — the bijectivity invariant is
+true at EVERY instant. Eviction already cleared the other direction (`Page_Table[victim]`);
+this closes both at the same site. Free-list allocs already carry `$FFFF` from Init (no-op).
+Verified in the binary (AllocFrame `.detach`): `move.w #$ffff, (a3,d1.w)` @0x78E0 (pf_page)
+alongside the existing PREV/NEXT/RC/FLAGS clears.
+
+The refcount-recompute side needs NO change: only refcount-0 frames are evicted
+(DEBUG-asserted "LRU tail refcount>0"), so no cache word references an evicted/in-flight
+frame, so its recomputed count stays 0 == pf_refcount.
+
+Rebuilt green: `s4.bin` crc=6c61b849 (414138 B), `s4.debug.bin` crc=b138ac86 (427468 B),
+`s4.stress.bin` crc=0006ef5a (427468 B).

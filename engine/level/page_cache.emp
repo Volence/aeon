@@ -197,9 +197,12 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
 //   free list first; else the LRU tail (refcount 0, !pinned by construction);
 //   else THRASH — DEBUG raise_error (a bug, not a policy); release returns
 //   PAGE_NOT_RESIDENT for the caller to re-queue.
-// The returned frame is DETACHED (out of every list), refcount 0, flags 0; the
-// caller publishes it once its VRAM landing DMA is enqueued. Evicting a victim
-// clears the departing page's Page_Table entry + queued bit.
+// The returned frame is DETACHED (out of every list), refcount 0, flags 0, and
+// pf_page = $FFFF (UNASSIGNED) — it belongs to no page until PageCache_Publish stamps
+// its new id, so the bijectivity audit's $FFFF-skip covers the whole in-flight decode
+// window (chain-72 fix). The caller publishes it once its VRAM landing DMA is enqueued.
+// Evicting a victim clears BOTH residency directions: the departing page's Page_Table
+// entry + queued bit, and the frame's pf_page (via .detach).
 // In: none   Out: d0.b = frame (or PAGE_NOT_RESIDENT)   Clobbers: d0-d2/a3
 // -----------------------------------------------
 pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
@@ -252,6 +255,16 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         lsl.w   #3, d1
 
     .detach:
+        // pf_page := $FFFF (UNASSIGNED) — soak fix chain 72. An allocated frame is
+        // detached here and stays so until PageCache_Publish stamps its new page id;
+        // during that in-flight window (decode across VBlanks) the frame belongs to NO
+        // page. Leaving the victim's STALE pf_page made the bijectivity audit fail
+        // (frame.pf_page -> Page_Table[that page] was cleared at eviction -> no round-
+        // trip). Sentinelling it makes the invariant true at EVERY instant: the audit's
+        // pf_page==$FFFF skip covers the in-flight frame. (Eviction already cleared the
+        // OTHER direction, Page_Table[victim], above; this closes both directions here.)
+        // Free-list allocs already carry $FFFF from Init — this is a no-op for them.
+        move.w  #$FFFF, PF_PAGE(a3, d1.w)
         move.b  #PAGE_NOT_RESIDENT, PF_PREV(a3, d1.w)
         move.b  #PAGE_NOT_RESIDENT, PF_NEXT(a3, d1.w)
         clr.w   PF_RC(a3, d1.w)
