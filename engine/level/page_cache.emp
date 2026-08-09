@@ -39,7 +39,7 @@
 // `order` carries the single entry PageCache_Init).
 module engine.page_cache in page_cache
 
-use engine.structs.{Act, PageManifest, PageFrame}
+use engine.structs.{PageManifest, PageFrame}
 use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
 use engine.constants.{PF_PINNED_BIT, PF_IN_LRU_BIT, PF_PINNED, PF_IN_LRU}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
@@ -151,9 +151,8 @@ pub proc PageCache_Lookup (d0: u16) clobbers(a0) out(d1: u8) {
 // In: d0.w = page id, d1.w = flags (PGRQ_DEMAND)   Out: none   Clobbers: d0-d3/a0-a1
 // -----------------------------------------------
 pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
-        movea.l Current_Act_Ptr, a0            // page id must index a real pool page
-        cmp.w   Act.act_art_pool_pages(a0), d0
-        blo     .in_range
+        cmp.w   PageIn_Pool_Pages, d0          // page id must index a real pool page (stored count,
+        blo     .in_range                      // not Current_Act_Ptr which read null at gameplay)
     if DEBUG == 1 {
         raise_error "PageCache_Request: page_id >= act_art_pool_pages (off-manifest)"
     }
@@ -298,18 +297,7 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         lea     Page_Table, a0                  // Page_Table[page] = frame
         move.b  d1, (a0, d0.w)
 
-        // manifest base: immutable act descriptor (Current_Act_Ptr) over the cached
-        // PageIn_Pool_Table (soak fix chain 70 — same rationale as the page_in resolve;
-        // a stray write can corrupt the cache). Init publishes (Current_Act_Ptr still
-        // null, set later by Section_Init) fall back to the freshly-set cache.
-        movea.l Current_Act_Ptr, a0
-        move.l  a0, d2
-        beq     .pub_base_cached
-        movea.l Act.act_art_pool_table(a0), a0  // &manifest[0] from ROM
-        bra     .pub_base_ok
-    .pub_base_cached:
-        movea.l PageIn_Pool_Table, a0
-    .pub_base_ok:
+        movea.l PageIn_Pool_Table, a0           // manifest base (set by Level_LoadArt; live-read-confirmed correct)
         move.w  d0, d2
         lsl.w   #3, d2                           // page * sizeof(PageManifest)=8
         lea     (a0, d2.w), a0                  // a0 = &manifest[page] (read pm_flags below)
@@ -496,14 +484,14 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
 // (global indices span exactly the pool), so any page >= pages is a SCAN ARTIFACT — a
 // word read from a staged slot that is not a live translated pool reference (an edge /
 // empty / stale-transient probe). Speculative prefetch must never turn an artifact into
-// an off-manifest page-in, so the scan SILENTLY skips it (a3 = Current_Act_Ptr holds the
-// live count across the loop). PageCache_Request carries the loud backstop for any other
-// caller (DEBUG raise / release skip).
+// an off-manifest page-in, so the scan SILENTLY skips it. The count comes from
+// PageIn_Pool_Pages (stored by Level_LoadArt) — NOT Current_Act_Ptr, which read null at
+// the gameplay dispatch (chain 71). PageCache_Request carries the loud backstop.
 //
 // Preserves EVERY register (movem-banks its whole working set) so PageIn_Process's
 // declared clobber set — and hence VSync_Wait's folded license — never widens. The
 // two loop bodies hold their invariants in d5-d7 (preserved across
-// TileCache_FindStagedBlock's d3-d4/a1 clobber) and the block scan holds a2/d4/a3
+// TileCache_FindStagedBlock's d3-d4/a1 clobber) and the block scan holds a2/d4
 // (preserved across PageCache_Request's d0-d3/a0-a1 clobber).
 // In: none   Out: none   Clobbers: () — preserves d0-d7/a0-a6
 // -----------------------------------------------
@@ -511,7 +499,6 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         tst.w   Page_Pfx_Budget
         beq     .ret                            // no budget left this frame — cheap exit
         movem.l d0-d7/a0-a6, -(sp)
-        movea.l Current_Act_Ptr, a3            // a3 = act ptr (pool-page-count base; survives both callees)
 
         // ---- ROW strip: ahead block-row across cache cols [Left..Head] ----
         move.w  Cache_Pfx_Row_Target, d6
@@ -592,7 +579,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         andi.w  #NT_TILE_MASK, d0                 // global tile index
         beq     .sb_next                          // blank -> no page
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d0        // page id
-        cmp.w   Act.act_art_pool_pages(a3), d0    // pool-bounds invariant: a REAL pool page?
+        cmp.w   PageIn_Pool_Pages, d0             // pool-bounds invariant: a REAL pool page?
         bhs     .sb_next                          // page >= pages -> scan artifact, skip silently
         lea     Page_Table, a0
         move.b  (a0, d0.w), d1

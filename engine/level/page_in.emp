@@ -159,6 +159,19 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         jbsr    .dequeue                         // d0.w = page_id (Count>0 guaranteed); PageIn_Cur_Flags set
         move.w  d0, PageIn_Cur_Page              // stash (survives AllocFrame's clobber + raw-form retry)
 
+        // Dispatch page-id bound (soak fix chain 71): a corrupt page id must never
+        // stride off the manifest (the ZX0-form version assert was the far-downstream
+        // symptom). PageIn_Pool_Pages is stored by Level_LoadArt — a resolve-context
+        // source INDEPENDENT of Current_Act_Ptr (which read null at the gameplay
+        // dispatch). Guard BEFORE AllocFrame so a bad id never allocates a frame.
+        cmp.w   PageIn_Pool_Pages, d0
+        blo     .page_id_ok
+    if DEBUG == 1 {
+        raise_error "PageIn dispatch: page_id >= pool pages (corrupt id)"
+    }
+        rts                                     // release: drop the page-in (never off-manifest)
+    .page_id_ok:
+
         // --- residency cache (P2b Task 6): allocate a VRAM frame for this page.
         //     The page's dest is its FRAME's slot, not the identity page_id slot.
         //     AllocFrame clobbers d0-d3/a3-a4 (a0/a1 untouched). ---
@@ -168,44 +181,24 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         move.b  d0, PageIn_Cur_Frame
 
         // --- resolve page_id -> manifest v2 entry {source, tiles, form, flags} ---
-        // Act.act_art_pool_table points at [PageManifest;N] (stride 8). SOAK FIX (chain
-        // 70): the manifest BASE is taken from the IMMUTABLE act descriptor
-        // (Current_Act_Ptr), NOT the cached PageIn_Pool_Table RAM var — a stray write
-        // corrupted the cache, so gameplay dispatch strided a garbage base off the
-        // manifest (init worked because its base was freshly set). Current_Act_Ptr is
-        // set by Section_Init, AFTER Level_LoadArt, so the init BULK load (when it is
-        // still null) falls back to the freshly-written PageIn_Pool_Table; steady-state
-        // gameplay always derives the base from ROM, which nothing can corrupt.
+        // Base = PageIn_Pool_Table (set by Level_LoadArt from Act.act_art_pool_table).
+        // The coordinator's LIVE READ confirmed it is CORRECT/uncorrupted, so read it
+        // straight through the symbol — NO Current_Act_Ptr dependency (it reads null at
+        // gameplay in this scene), NO hand offset into the PageIn block.
+    if DEBUG == 1 {
+        // integrity monitor (counter, not a halt): the cached base should equal the live
+        // act's base whenever Current_Act_Ptr is bound (Level_LoadArt binds it now). A
+        // mismatch flags a genuine stray write; Dbg_PageIn_BaseCorrupt runs on the real path.
         movea.l Current_Act_Ptr, a1
         move.l  a1, d1
-        beq     .base_from_cache                // init: act ptr not set yet -> cached base
-        // gameplay: page_id must index a real pool page (a corrupt Cur_Page must never
-        // stride off the manifest — the ZX0-form version assert was the far-downstream
-        // symptom). DEBUG raises loud; release skips the page-in.
-        move.w  PageIn_Cur_Page, d2
-        cmp.w   Act.act_art_pool_pages(a1), d2
-        blo     .base_index_ok
-    if DEBUG == 1 {
-        raise_error "PageIn dispatch: PageIn_Cur_Page >= act_art_pool_pages (corrupt page id)"
-    }
-        rts                                     // release: drop this page-in (never off-manifest)
-    .base_index_ok:
-    if DEBUG == 1 {
-        // proximate diagnostic (counter, NOT a halt): does the cached base still equal
-        // the descriptor's? A mismatch means a stray write corrupted PageIn_Pool_Table.
-        // Counting (not raising) keeps the soak running on the robust descriptor base
-        // while Dbg_PageIn_BaseCorrupt confirms the root cause for the corruptor hunt.
-        move.l  Act.act_art_pool_table(a1), d2
-        cmp.l   PageIn_Pool_Table, d2
-        beq     .base_cache_agrees
+        beq     .no_base_check                  // act ptr not bound yet (should not happen post-init)
+        move.l  Act.act_art_pool_table(a1), d1
+        cmp.l   PageIn_Pool_Table, d1
+        beq     .no_base_check
         addq.w  #1, Dbg_PageIn_BaseCorrupt
-    .base_cache_agrees:
+    .no_base_check:
     }
-        movea.l Act.act_art_pool_table(a1), a1  // base from the immutable descriptor
-        bra     .have_base
-    .base_from_cache:
-        movea.l PageIn_Pool_Table, a1           // manifest v2 table [PageManifest; act_art_pool_pages]
-    .have_base:
+        movea.l PageIn_Pool_Table, a1           // manifest v2 table base (correct; symbol read)
         move.w  PageIn_Cur_Page, d1
         lsl.w   #3, d1                           // page_id * sizeof(PageManifest)=8
         lea     (a1,d1.w), a1                    // a1 = &manifest[page_id]

@@ -105,3 +105,32 @@ the cache IS being corrupted (confirmed) and the writer still needs hunting — 
 `PageIn_Cur_Page >= pages` DEBUG assert fires instead, the corrupt target is the id, not
 the base. Rebuilt green: `s4.bin` crc=6eca5ade (414219 B), `s4.debug.bin` crc=6fb633ff
 (427549 B), `s4.stress.bin` crc=8c9e791f (427549 B).
+
+## Chain 71 — CASE CLOSED by the controller's live reads: two plain bugs, no corruption
+
+Live reads on the halted machine debunked ALL three "corruption" theories:
+1. **`Current_Act_Ptr` = 0 during gameplay.** My assumption that `Section_Init` sets it
+   for the dispatch was false in this scene (it read null), so the chain-70 descriptor
+   path never ran (`Dbg_PageIn_BaseCorrupt`=0) — the fallback was taken every dispatch.
+2. **`PageIn_Pool_Table` = 0x14FAC — CORRECT, uncorrupted.** The garbage base came from a
+   resolve reading off the wrong context (null act ptr → fallback), not a stray write.
+   `d1=0x3B80`/`pm_tiles`=476 etc. were fields read from the wrong base — noise.
+
+**Fix (chain 71) — remove the whole flaky vector:**
+- **`Level_LoadArt` binds the act context at the START of level init:** sets
+  `Current_Act_Ptr` (before any page-in, not deferred to `Section_Init`) AND stores the
+  pool page count in a new RAM word `PageIn_Pool_Pages` (@FFFFB4C0).
+- **The entire streaming hot path now reads the STORED, correct values** —
+  `PageIn_Pool_Table` (base) + `PageIn_Pool_Pages` (id bound) — with **zero
+  `Current_Act_Ptr` dependency**: the page-in resolve, its page-id guard, the page
+  prefetch's pool-bounds skip, and `PageCache_Request`'s backstop all switched from
+  `Act.act_art_pool_pages(Current_Act_Ptr)` to `PageIn_Pool_Pages`. The chain-70
+  descriptor-derivation + fallback in the resolve/Publish is deleted; both read
+  `PageIn_Pool_Table` straight through the symbol (verified in the binary: resolve reads
+  `$b4bc`, guard `$b4c0`, prefetch/Request `$b4c0`).
+- The dispatch page-id guard now runs BEFORE `AllocFrame` (no frame leak on a bad id);
+  DEBUG raises, release drops. `Dbg_PageIn_BaseCorrupt` kept as a DEBUG integrity monitor
+  (Pool_Table vs the now-bound Current_Act_Ptr base) — should stay 0.
+
+Rebuilt green: `s4.bin` crc=0b8fa9ec (414138 B), `s4.debug.bin` crc=ca9bbd3f (427468 B),
+`s4.stress.bin` crc=c8493cbf (427468 B). Third soak expected to run.

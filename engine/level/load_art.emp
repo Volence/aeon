@@ -86,6 +86,12 @@ pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
 pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         movea.l a0, a4                              // a4 = act ptr (kept live to BG_Init)
 
+        // Bind the live act context at the START of level init (soak fix chain 71):
+        // Section_Init sets Current_Act_Ptr too, but LATER (and it read null at the
+        // gameplay page-in dispatch), so the page prefetch's pool-bound check and any
+        // Current_Act_Ptr reader had a stale/null base. Set it here, before any page-in.
+        move.l  a0, Current_Act_Ptr
+
         // Reset the residency cache at the act transition, before the pool is
         // (re)loaded (P2b Task 6). PageCache_Init flushes pending page-in work
         // (subsuming the old PageIn_Flush), clears Page_Table, and threads the frame
@@ -94,6 +100,8 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         jbsr    PageCache_Init
 
         move.w  Act.act_art_pool_pages(a4), d6      // d6.w = page count
+        move.w  d6, PageIn_Pool_Pages               // store the page count: dispatch page-id bound
+                                                    // (resolve-context source independent of Current_Act_Ptr)
         beq     .bg                                 // empty pool -> straight to BG
 
         // Point the dispatcher at this act's page-address table (FIFO resolution base).

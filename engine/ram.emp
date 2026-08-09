@@ -656,6 +656,9 @@ pub vars upper_ram {
     PageIn_Cur_Frame:       u8,         // frame allocated for the in-flight page (P2b Task 6; published at land)
     pad(1),                             // keep the region word-aligned
     PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)
+    PageIn_Pool_Pages:      u16,        // current act's pool page count (set by Level_LoadArt) — dispatch page-id bound;
+                                        // resolve-context source that does NOT depend on the flaky Current_Act_Ptr
+    pad(2),                             // keep the u32s below long-aligned
 
     // --- Art-streaming P2b Task 7: page prefetch + D3 trailing-lag admission gate ---
     // RELEASE (the streaming path is present in every shape). The D3 gate gates
