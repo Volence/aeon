@@ -1,0 +1,58 @@
+{
+  "page_bytes": 2048,
+  "page_tiles": 64,
+  "pages": [
+    {
+      "index": 0,
+      "pinned": true,
+      "tiles": 64
+    },
+    {
+      "index": 1,
+      "pinned": true,
+      "tiles": 64
+    },
+    {
+      "index": 2,
+      "pinned": false,
+      "tiles": 64
+    },
+    {
+      "index": 3,
+      "pinned": false,
+      "tiles": 64
+    },
+    {
+      "index": 4,
+      "pinned": false,
+      "tiles": 64
+    },
+    {
+      "index": 5,
+      "pinned": false,
+      "tiles": 64
+    },
+    {
+      "index": 6,
+      "pinned": false,
+      "tiles": 64
+    },
+    {
+      "index": 7,
+      "pinned": false,
+      "tiles": 64
+    },
+    {
+      "index": 8,
+      "pinned": true,
+      "tiles": 64
+    },
+    {
+      "index": 9,
+      "pinned": true,
+      "tiles": 36
+    }
+  ],
+  "pool_tiles": 612,
+  "version": 2
+}

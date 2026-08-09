@@ -19,14 +19,14 @@ use engine.structs.{Act, Sec}
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
 // the u8 field directly (a link-folded extern could not — the old mirror note).
-use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, POOL_TILE_CEILING}
+use engine.constants.{SECTION_SIZE_SHIFT, EDGE_CLAMP, MAX_ACT_SECTIONS, PAGE_TABLE_MAX, ART_POOL_PAGE_BYTES}
 
 // Generated interior-island manifests: the art-pool page count/tile
 // total and the per-section block-dict lengths are `.emp` const modules the
 // generators emit (tools/ojz_strip_gen.py / ojz_block_gen.py) — comptime ints
 // consumed directly (they range-prove into the u16 fields; a link-folded extern
 // could not, and the pool-tile ceiling proof below now fails at COMPTIME).
-use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES, OJZ_ACT_POOL_TILES}
+use games.sonic4.ojz_act_pool_manifest_act1.{OJZ_ACT_POOL_PAGES}
 use games.sonic4.ojz_block_dicts_act1.{
     OJZ_SEC0_BLOCK_DICT_LEN,
     OJZ_SEC1_BLOCK_DICT_LEN,
@@ -39,13 +39,18 @@ use games.sonic4.ojz_block_dicts_act1.{
     OJZ_SEC8_BLOCK_DICT_LEN,
 }
 
-// The art pool DMAs to VRAM tiles 0..N-1 with no runtime bounds check — a pool
-// past POOL_TILE_CEILING (960) would overwrite the character DPLC region at tile
-// 960. Was the AS `if OJZ_ACT_POOL_TILES > POOL_TILE_CEILING / error` in
-// act_descriptor.asm; now a comptime fact that fails HERE, not at link (mirrors
-// the ojz_strip_gen.py generate-time guard).
-ensure(OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING,
-       "OJZ act 1 art pool {OJZ_ACT_POOL_TILES} tiles exceeds POOL_TILE_CEILING — would DMA over the character region at tile 960")
+// P2b residency cutover (plan Task 5 §2e): the pool is no longer VRAM-tile-bounded.
+// The residency cache streams pages through PAGE_FRAMES fixed 64-tile frames and
+// page-in DMAs to an ALLOCATED frame (frame*64*32), never to tile page_id*64 — so
+// the resident VRAM footprint is bounded to the FG art window by the frame
+// allocator REGARDLESS of pool size. The real ceiling is therefore the residency
+// page table's capacity, not POOL_TILE_CEILING. (The old
+// `OJZ_ACT_POOL_TILES <= POOL_TILE_CEILING` identity-residency guard — "would DMA
+// over the character region at tile 960" — is obsolete under frame allocation; it
+// mirrors the generator's `pages <= PAGE_TABLE_MAX` assert, which the Task-5
+// cutover already switched to.)
+ensure(OJZ_ACT_POOL_PAGES <= PAGE_TABLE_MAX,
+       "OJZ act 1 art pool {OJZ_ACT_POOL_PAGES} pages exceeds PAGE_TABLE_MAX residency page-table capacity")
 
 // ---- the act's shape, written once ----
 const GRID_W = 3
@@ -78,6 +83,16 @@ ensure((GRID_H << SECTION_SIZE_SHIFT) <= $8000,
 ensure(MAX_ACT_SECTIONS * sizeof(Sec) <= $7FFF,
        "MAX_ACT_SECTIONS ({MAX_ACT_SECTIONS}) x sizeof(Sec) ({sizeof(Sec)}) exceeds $7FFF: Section_GetSecPtrXY adda.w sign-extends and wraps — widen the adda or pre-multiply flat_id as a long")
 
+// P2c Task 10 RIDER — sub-page-budget init deadlock guard. Level init bulk-loads
+// the pool at <=1 page/frame while page_in charges each landing against this
+// per-act byte budget; a budget below one page (ART_POOL_PAGE_BYTES) can never
+// admit even a single page, so the display-off load loop would defer forever and
+// never reach gameplay. Written once as a comptime fact so a mis-set descriptor
+// fails HERE, not as a silent boot hang. (2 pages/frame ceiling = 2×2048.)
+const ACT_ART_BUDGET = 4096
+ensure(ACT_ART_BUDGET >= ART_POOL_PAGE_BYTES,
+       "OJZ act 1 art budget {ACT_ART_BUDGET} < one page ({ART_POOL_PAGE_BYTES}) — init page-load would defer forever (deadlock)")
+
 pub data OJZ_Act1_Descriptor: Act = Act{
     sec_grid_ptr:        OJZ_Act1_Sections,
     grid_w:              GRID_W,
@@ -89,10 +104,12 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     act_bg_layout:       OJZ_Act1_BG_Layout,             // §2 A.5 T1 zone-wide BG
     act_bg_tiles:        OJZ_Act1_BG_Tiles,
     act_parallax_config: ParallaxConfig_OJZ_Default,     // fallback for NULL sections
-    act_art_pool_table:  OJZ_Act_Pool_PageTable,         // generated include, AS side
+    act_art_pool_table:  OJZ_Act_Pool_PageTable,         // manifest v2 table [PageManifest;N] (generated)
     act_art_pool_pages:  OJZ_ACT_POOL_PAGES,             // generated manifest const
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
     pad_21:              default,
+    act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
+    act_art_budget:      ACT_ART_BUDGET,                  // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling; guarded above
 }
 
 // -----------------------------------------------

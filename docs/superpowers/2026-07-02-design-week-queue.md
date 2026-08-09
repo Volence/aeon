@@ -110,6 +110,30 @@ physics modifiers; suite work (Sigil, oracle-next, Aurora export drift).
   re-anchored into `plans/2026-08-08-art-streaming-phase2-v2.md` (folds the
   2026-08-06 addendum + rulings); sigil asks 1–2 (`@resumable` + extent
   symbols) started as the gating lane. Branch: `feat/art-streaming-p2`.
+- 2026-08-09 — **design #1 EXECUTED.** All 12 tasks of
+  `plans/2026-08-08-art-streaming-phase2-v2.md` complete on `feat/art-streaming-p2`
+  (43 commits, overseer chains 55→78; **merge to master PENDING a final oracle
+  spot-check** — the controller merges when the emulator recovers). Shipped: the
+  resumable stack-flat ZX0 decoder `ZX0R_Decompress` (sigil `@resumable` + exported
+  extent symbols); the VBlank supervisor bookmark (preempt→bank→resume, one code
+  path, spawn/resume unified); the page-in demand/prefetch FIFO with cancel/flush;
+  the 64-tile ZX0/raw format cutover (manifest v2, per-section local→global indices);
+  the VRAM page residency cache (table, refcount, LRU, patch-at-entry); LRU eviction +
+  trailing-lag-gated prefetch; Vectorman dual-cap DMA (entries+bytes); the B&R per-act
+  art budget word; camera soft-clamp degradation; the `--stress-uniquify` acceptance
+  fixture; and the build.sh art-pool ROM budget gate. §9.7 was executed as the
+  **pre-chunked-pages + supervisor-bookmark** path (the user-mode variant rejected in
+  ARCH §9.7). Acceptance matrix (stress fixture 2600 tiles / 41 pages vs 15 frames, ~2.7×):
+  every leg (H/V/diagonal, both directions, 600+f) rendered clean with `Lag_Frame_Count = 0`,
+  zero wrong-tile frames, `Dbg_Cam_Clamp_Frames = 10` total (brief seam holds, released),
+  refcount/orphan audits clean throughout. Structural findings folded into the docs: the
+  **operating regime is windows ≪ pool** (small deduped acts like OJZ correctly degenerate
+  to fully-resident — the cache-window working set == the pool; the STRESS_EVICT fixture is
+  a loud thrash-canary, not a churn generator); and the **corrected lag lemma** ("the bank
+  is safe on whichever path dispatches", not "the lag path can never bank" — a rare benign
+  single lag frame at per-resume probability). ARCH §9.7 + §2 rewritten in place; DEFERRED_WORK
+  §9.7/amendments/§2.1 rows closed; DEFERRED_WORK gained the sigil isolation-port systemic-inject
+  follow-up + the oracle-MCP long-`press` wedge note.
 - 2026-07-07/08 — **design #5 EXECUTED.** All 9 tasks of
   `plans/2026-07-07-engine-game-split-execution.md` complete: `engine/engine.inc` +
   seven-macro game manifest, `gameHeader`/parameterized boot, `soundBankHead` contract,

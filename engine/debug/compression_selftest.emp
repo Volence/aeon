@@ -11,6 +11,21 @@
 module engine.compression_selftest in compression_selftest
 
 use engine.compression_vectors.{CSELF_PAYLOAD_SIZE, CSELF_PAYLOAD_SUM, CSELF_DICT_LEN}
+use engine.structs.{Act, PageManifest}
+use engine.constants.{ART_HDR_SIZE, ART_STAGING_BUFFER_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, ART_PAGE_FORM_ZX0}
+
+// Equivalence-walk buffer sizing (comptime, zero bytes): the largest act-pool page
+// is ART_STAGING_BUFFER_SIZE (= one decompressed pool page). Buffer A =
+// Art_Staging_Buffer is sized to it by construction; buffer B = Block_Stage_Buffers
+// must be at least as large, or the largest page's ZX0R output would overrun it.
+ensure(BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS >= ART_STAGING_BUFFER_SIZE,
+       "CompressionSelfTest: Block_Stage_Buffers (equivalence buffer B) is smaller than the largest act-pool page")
+
+// The three golden vectors decode into Art_Staging_Buffer (buffer A); the payload
+// must fit the DEDICATED staging buffer (2048 B since the P2b cutover, no longer
+// the 9,600-B tile-cache alias). Mirrors tools/gen_compression_vectors.py's bound.
+ensure(CSELF_PAYLOAD_SIZE <= ART_STAGING_BUFFER_SIZE,
+       "CompressionSelfTest: golden payload exceeds Art_Staging_Buffer (2048 B)")
 
 // Addressing modes: every CSelf_*/Art_Staging_Buffer operand is spelled BARE
 // and the width rule picks the mode per shape — Art_Staging_Buffer at
@@ -69,6 +84,76 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
         jbsr    .checksum
         assert.w d0, eq, #CSELF_PAYLOAD_SUM
         jbsr    .byte_compare
+
+        // --- ZX0R resumable-decoder equivalence over the act art pool (P2a) ---
+        // Proves the resumable stack-flat decoder (ZX0R_Decompress) produces output
+        // byte-identical to the blocking ZX0_Decompress on every real act-pool page.
+        // Decodes each page twice: blocking ZX0 -> Art_Staging_Buffer (buffer A),
+        // resumable ZX0R -> Block_Stage_Buffers (buffer B), then asserts both produce
+        // the wrapper's uncompressed length AND identical bytes. Runs at cold boot,
+        // interrupts off (blocking use — preemption is Task 3's test), before the tile
+        // cache goes live, so both buffers are free scratch and never overlap.
+        // Only the sonic4 game ships an act art pool; demo defines HAS_ACT_ART_POOL 0
+        // and this walk is comptime-discarded there (this engine module is demo-shared).
+        //
+        // MANIFEST V2 (P2b): act_art_pool_table is now a stride-sizeof(PageManifest)=8
+        // array of {pm_source.l, pm_tiles.w, pm_form.b, pm_flags.b}. We stride 8, take
+        // the source from pm_source, the uncompressed length from pm_tiles*TILE_SIZE,
+        // SKIP pm_tiles==0 pages (mirrors page_in's size-0 guard), and equivalence-test
+        // ONLY pm_form==ART_PAGE_FORM_ZX0 pages — ZX0-vs-ZX0R equivalence is meaningless
+        // on a raw-direct page (ZX0R would misparse raw payload bytes). ZX0 pages still
+        // carry the 4-byte wrapper, so both decoders take a0 PAST it.
+    if HAS_ACT_ART_POOL == 1 {
+        lea     OJZ_Act1_Descriptor, a0
+        move.w  Act.act_art_pool_pages(a0), d4     // d4 = page count
+        beq     .eq_done                            // empty pool -> nothing to check
+        subq.w  #1, d4                              // d4 = count-1 (dbf counter)
+        movea.l Act.act_art_pool_table(a0), a4      // a4 = PageManifest table cursor (stride 8)
+    .eq_page:
+        move.w  PageManifest.pm_tiles(a4), d3       // d3 = decompressed tile count
+        beq     .eq_next                            // size-0 page -> skip (page_in guard mirror)
+        cmpi.b  #ART_PAGE_FORM_ZX0, PageManifest.pm_form(a4)
+        bne     .eq_next                            // raw form -> ZX0R equivalence N/A, skip
+        lsl.w   #5, d3                              // d3 = uncompressed bytes = tiles * TILE_SIZE(32)
+        movea.l PageManifest.pm_source(a4), a3      // a3 = ZX0 page wrapper ptr
+
+        lea     ART_HDR_SIZE(a3), a0               // a0 = ZX0 stream past the wrapper
+        lea     Art_Staging_Buffer, a1
+        jbsr    ZX0_Decompress                     // buffer A; d3/d4/a4 preserved
+        move.l  a1, d0
+        sub.l   #Art_Staging_Buffer, d0            // d0 = bytes A produced
+        cmp.w   d3, d0
+        bne     .eq_bad                             // A length != tiles*32
+
+        lea     ART_HDR_SIZE(a3), a0               // (a3 still = wrapper ptr here)
+        lea     Block_Stage_Buffers, a1
+        lea     .eq_resume, a3                      // a3 = continuation (ZX0R jmp target)
+        jbra    ZX0R_Decompress                    // buffer B; exits jmp (a3)
+    .eq_resume:
+        move.l  a1, d0
+        sub.l   #Block_Stage_Buffers, d0           // d0 = bytes B produced
+        cmp.w   d3, d0
+        bne     .eq_bad                             // B length != tiles*32
+
+        lea     Art_Staging_Buffer, a0
+        lea     Block_Stage_Buffers, a1
+        move.w  d3, d0
+        lsr.w   #1, d0                              // page bytes = tiles*32 -> even -> words
+        subq.w  #1, d0
+    .eq_cmp:
+        cmpm.w  (a0)+, (a1)+
+        bne     .eq_bad
+        dbf     d0, .eq_cmp
+    .eq_next:
+        lea     sizeof(PageManifest)(a4), a4       // advance to the next v2 record (stride 8)
+        dbf     d4, .eq_page
+        jbra    .eq_done                            // all pages matched -> skip the raise
+    .eq_bad:
+        if DEBUG == 1 {
+            raise_error "CompressionSelfTest: ZX0R decode diverges from ZX0 on an act-pool page"
+        }
+    .eq_done:
+    }
         rts
 
     .poison:

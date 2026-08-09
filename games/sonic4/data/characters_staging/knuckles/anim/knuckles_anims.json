@@ -1,0 +1,984 @@
+{
+  "character": "knuckles",
+  "source": "General/Sprites/Knuckles/Anim - Knuckles.asm",
+  "format": "s3k-raw",
+  "note": "Raw S3K animation scripts. Mapping to Aeon's 11 universal ANIM_* ids + new ability anims (FLY/GLIDE/etc.) is a character-plan authoring decision \u2014 DEFERRED. See README.",
+  "anim_control_codes": {
+    "AF_SET_FIELD": "0xF7",
+    "AF_COLLISION": "0xF8",
+    "AF_SOUND": "0xF9",
+    "AF_CALLBACK": "0xFA",
+    "AF_DELETE": "0xFB",
+    "AF_ROUTINE": "0xFC",
+    "AF_CHANGE": "0xFD",
+    "AF_BACK": "0xFE",
+    "AF_END": "0xFF"
+  },
+  "anim_count": 37,
+  "animations": [
+    {
+      "index": 0,
+      "s3k_label": "AniKnuckles00",
+      "duration": 255,
+      "duration_note": "DUR_DYNAMIC (speed-scaled)",
+      "frames": [
+        7,
+        8,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "ff0708010203040506ff"
+    },
+    {
+      "index": 1,
+      "s3k_label": "AniKnuckles01",
+      "duration": 255,
+      "duration_note": "DUR_DYNAMIC (speed-scaled)",
+      "frames": [
+        33,
+        34,
+        35,
+        36
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "ff21222324ffffffffff",
+      "trailing_bytes": [
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "index": 2,
+      "s3k_label": "AniKnuckles02",
+      "duration": 254,
+      "duration_note": null,
+      "frames": [
+        154,
+        150,
+        154,
+        151,
+        154,
+        152,
+        154,
+        153
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "fe9a969a979a989a99ff"
+    },
+    {
+      "index": 3,
+      "s3k_label": "AniKnuckles03",
+      "duration": 254,
+      "duration_note": null,
+      "frames": [
+        154,
+        150,
+        154,
+        151,
+        154,
+        152,
+        154,
+        153
+      ],
+      "frame_count": 8,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "fe9a969a979a989a99ff"
+    },
+    {
+      "index": 4,
+      "s3k_label": "AniKnuckles04",
+      "duration": 253,
+      "duration_note": null,
+      "frames": [
+        206,
+        207,
+        208,
+        209
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "fdcecfd0d1ffffffffff",
+      "trailing_bytes": [
+        255,
+        255,
+        255,
+        255
+      ]
+    },
+    {
+      "index": 5,
+      "s3k_label": "AniKnuckles05",
+      "duration": 5,
+      "duration_note": null,
+      "frames": [
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        86,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        210,
+        210,
+        210,
+        211,
+        211,
+        211,
+        212,
+        212,
+        212,
+        212,
+        212,
+        215,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        216,
+        217,
+        218,
+        219,
+        220,
+        221,
+        220,
+        221,
+        222,
+        222,
+        216,
+        215
+      ],
+      "frame_count": 150,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "055656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656565656d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d2d2d2d3d3d3d4d4d4d4d4d7d8d9dadbd8d9dadbd8d9dadbd8d9dadbd8d9dadbd8d9dadbd8d9dadbd8d9dadbdcdddcdddeded8d7ff"
+    },
+    {
+      "index": 6,
+      "s3k_label": "AniKnuckles06",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        159,
+        159,
+        160,
+        160,
+        161,
+        161,
+        162,
+        162,
+        163,
+        163,
+        164,
+        164,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        166,
+        166,
+        166,
+        167,
+        167,
+        167,
+        168,
+        168,
+        169,
+        169,
+        170,
+        170
+      ],
+      "frame_count": 39,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          6
+        ]
+      },
+      "raw_hex": "039f9fa0a0a1a1a2a2a3a3a4a4a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a6a6a6a7a7a7a8a8a9a9aaaafe06"
+    },
+    {
+      "index": 7,
+      "s3k_label": "AniKnuckles07",
+      "duration": 5,
+      "duration_note": null,
+      "frames": [
+        213,
+        214
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "05d5d6fe01"
+    },
+    {
+      "index": 8,
+      "s3k_label": "AniKnuckles08",
+      "duration": 5,
+      "duration_note": null,
+      "frames": [
+        155,
+        156
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "059b9cfe01"
+    },
+    {
+      "index": 9,
+      "s3k_label": "AniKnuckles09",
+      "duration": 0,
+      "duration_note": null,
+      "frames": [
+        134,
+        135,
+        134,
+        136,
+        134,
+        137,
+        134,
+        138,
+        134,
+        139
+      ],
+      "frame_count": 10,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "00868786888689868a868bff"
+    },
+    {
+      "index": 10,
+      "s3k_label": "AniKnuckles0A",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        186,
+        197,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199,
+        199
+      ],
+      "frame_count": 20,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "09bac5c6c6c6c6c6c6c7c7c7c7c7c7c7c7c7c7c7c7fd00"
+    },
+    {
+      "index": 11,
+      "s3k_label": "AniKnuckles0B",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        143
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "0f8fff"
+    },
+    {
+      "index": 12,
+      "s3k_label": "AniKnuckles0C",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        161,
+        161,
+        162,
+        162,
+        163,
+        163,
+        164,
+        164,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        165,
+        166,
+        166,
+        166,
+        167,
+        167,
+        167,
+        168,
+        168,
+        169,
+        169,
+        170,
+        170
+      ],
+      "frame_count": 35,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          6
+        ]
+      },
+      "raw_hex": "03a1a1a2a2a3a3a4a4a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a6a6a6a7a7a7a8a8a9a9aaaafe06"
+    },
+    {
+      "index": 13,
+      "s3k_label": "AniKnuckles0D",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        157,
+        158,
+        159,
+        160
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "039d9e9fa0fd00"
+    },
+    {
+      "index": 14,
+      "s3k_label": "AniKnuckles0E",
+      "duration": 7,
+      "duration_note": null,
+      "frames": [
+        192
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "07c0ff"
+    },
+    {
+      "index": 15,
+      "s3k_label": "AniKnuckles0F",
+      "duration": 5,
+      "duration_note": null,
+      "frames": [
+        192,
+        193,
+        194,
+        195,
+        196,
+        197,
+        198,
+        199,
+        200,
+        201
+      ],
+      "frame_count": 10,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "05c0c1c2c3c4c5c6c7c8c9ff"
+    },
+    {
+      "index": 16,
+      "s3k_label": "AniKnuckles10",
+      "duration": 47,
+      "duration_note": null,
+      "frames": [
+        142
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "2f8efd00"
+    },
+    {
+      "index": 17,
+      "s3k_label": "AniKnuckles11",
+      "duration": 1,
+      "duration_note": null,
+      "frames": [
+        174,
+        175
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "01aeafff"
+    },
+    {
+      "index": 18,
+      "s3k_label": "AniKnuckles12",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        67,
+        67,
+        67
+      ],
+      "frame_count": 3,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "0f434343fe01"
+    },
+    {
+      "index": 19,
+      "s3k_label": "AniKnuckles13",
+      "duration": 5,
+      "duration_note": null,
+      "frames": [
+        177,
+        178,
+        178,
+        178,
+        179,
+        180
+      ],
+      "frame_count": 6,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "05b1b2b2b2b3b4fe01"
+    },
+    {
+      "index": 20,
+      "s3k_label": "AniKnuckles14",
+      "duration": 19,
+      "duration_note": null,
+      "frames": [
+        145
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1391ff"
+    },
+    {
+      "index": 21,
+      "s3k_label": "AniKnuckles15",
+      "duration": 11,
+      "duration_note": null,
+      "frames": [
+        176,
+        176,
+        3,
+        4
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "0bb0b00304fd00"
+    },
+    {
+      "index": 22,
+      "s3k_label": "AniKnuckles16",
+      "duration": 32,
+      "duration_note": null,
+      "frames": [
+        172
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "20acff"
+    },
+    {
+      "index": 23,
+      "s3k_label": "AniKnuckles17",
+      "duration": 32,
+      "duration_note": null,
+      "frames": [
+        173
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "20adff"
+    },
+    {
+      "index": 24,
+      "s3k_label": "AniKnuckles18",
+      "duration": 32,
+      "duration_note": null,
+      "frames": [
+        171
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "20abff"
+    },
+    {
+      "index": 25,
+      "s3k_label": "AniKnuckles19",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        140
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "098cff"
+    },
+    {
+      "index": 26,
+      "s3k_label": "AniKnuckles1A",
+      "duration": 64,
+      "duration_note": null,
+      "frames": [
+        141
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "408dff"
+    },
+    {
+      "index": 27,
+      "s3k_label": "AniKnuckles1B",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        140
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "098cff"
+    },
+    {
+      "index": 28,
+      "s3k_label": "AniKnuckles1C",
+      "duration": 119,
+      "duration_note": null,
+      "frames": [
+        0
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "7700ff"
+    },
+    {
+      "index": 29,
+      "s3k_label": "AniKnuckles1D",
+      "duration": 19,
+      "duration_note": null,
+      "frames": [
+        208,
+        209
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "13d0d1ff"
+    },
+    {
+      "index": 30,
+      "s3k_label": "AniKnuckles1E",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        207,
+        200,
+        201,
+        202,
+        203
+      ],
+      "frame_count": 5,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          4
+        ]
+      },
+      "raw_hex": "03cfc8c9cacbfe04"
+    },
+    {
+      "index": 31,
+      "s3k_label": "AniKnuckles1F",
+      "duration": 2,
+      "duration_note": null,
+      "frames": [
+        235,
+        235,
+        236,
+        237,
+        236,
+        237,
+        236,
+        237,
+        236,
+        237,
+        236,
+        237
+      ],
+      "frame_count": 12,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "02ebebecedecedecedecedecedfd00"
+    },
+    {
+      "index": 32,
+      "s3k_label": "AniKnuckles20",
+      "duration": 31,
+      "duration_note": null,
+      "frames": [
+        192
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "1fc0ff"
+    },
+    {
+      "index": 33,
+      "s3k_label": "AniKnuckles21",
+      "duration": 7,
+      "duration_note": null,
+      "frames": [
+        202,
+        203
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "07cacbfe01"
+    },
+    {
+      "index": 34,
+      "s3k_label": "AniKnuckles22",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        205
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "0fcdfd00"
+    },
+    {
+      "index": 35,
+      "s3k_label": "AniKnuckles23",
+      "duration": 15,
+      "duration_note": null,
+      "frames": [
+        156
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          0
+        ]
+      },
+      "raw_hex": "0f9cfd00"
+    },
+    {
+      "index": 36,
+      "s3k_label": "AniKnuckles24",
+      "duration": 7,
+      "duration_note": null,
+      "frames": [
+        177,
+        179,
+        179,
+        179,
+        179,
+        179,
+        179,
+        178,
+        179,
+        180,
+        179
+      ],
+      "frame_count": 11,
+      "terminator": {
+        "code": "0xFE",
+        "name": "AF_BACK",
+        "operands": [
+          4
+        ]
+      },
+      "raw_hex": "07b1b3b3b3b3b3b3b2b3b4b3fe04"
+    }
+  ]
+}

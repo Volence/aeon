@@ -14,14 +14,14 @@ This is the **design bible**. This document describes the engine we're building 
 |---|--------|---------------|
 | 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, soft-reset detection + DMA-safe warm path (warm boot falls through to full init; nothing is preserved by design — §0.11), region detection with region-adaptive DMA budget (NTSC-only), 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
-| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. The FG act art pool ships as ZX0 pages; S4LZ remains the runtime block-stream format. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile deduplication + spatial pool ordering + paging** (globally-deduped, spatially-ordered, paged act art pool — no per-section allocation), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Whole-act paged art pool (fully resident, loaded once at init — no per-section art swap), per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
+| 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. The FG act art pool ships as ZX0 pages; S4LZ remains the runtime block-stream format. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile deduplication + spatial pool ordering + paging** (globally-deduped, spatially-ordered, paged act art pool — no per-section allocation), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Whole-act paged art pool as a **VRAM residency cache** (§9.7): small 64-tile ZX0/raw pages streamed in on demand + prefetch via the supervisor-bookmark idle-time decoder, capped by ROM not VRAM — degenerates to fully-resident for acts whose window fits the pool (e.g. OJZ). Per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
 | 4 | Level / World | 2D section grid with signed Y (novel), **continuous world-space camera over a 64×64 wrapping VDP plane (classic S2/S3K — no slots, no teleport, no rebase)**, full-height vertical streaming with a grid-derived camera clamp, **per-act vertical `edge_mode` (CLAMP shipped / WRAP_V + KILL deferred hooks)**, edge streaming into the wrapping plane (always-on "see into the next section"), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), per-section everything (snapped on section-boundary crossing), **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, **section-local entity ROM data (positions relative to section, respawn/kill memory keyed by section_id — coordinate-invariant)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)**, floating-origin rebase as the future unbounded-level path (coarse/invisible/atomic — replaces the deleted leapfrog) |
 | 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.emp, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
 | 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.06 Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **ALSO SHIPPED (DAC-drum revision + SFX engine + music-expression spine, through 2026-06-27):** one-shot PCM drums with adaptive FM6 time-share; the **SFX engine** (steal/priority/ducking, `Sound_PlaySFX`); and the **music-expression spine** — software vibrato/`MEV_MODSET` for music, per-frame FM-TL volume envelope (`MEV_FMENV`), inline raw-register write (`MEV_REGWRITE`, $2A/$2B-guarded), SSG-EG load-time per-op patch (`FmPatch` $90 group), dual-stream macro automation (`MEV_MACRO`/`MacroTick` on `sc_mod_ptr` slot[1]), PSG volume envelopes. **ALSO SHIPPED (music-expression Phase 2 + sound-perf phase, through 2026-07-02):** per-note portamento (`MEV_PORTA`, resident) + detune/fine-pitch, global fade (`SND_REQ_FADE`) + S3K-exact tempo (`MEV_TEMPO` accumulator+skip) + hardware-LFO opcode (`MEV_LFO`), measured 59.9227 Hz frame-clock pin, envelope write-on-change. **DEFERRED:** ~~N-channel DAC mixer~~ (REJECTED — single-voice + pre-mixed composites RATIFIED by user 2026-07-03, see §6.2); runtime SSG-EG 7th-RegDelta-group, Ch3 special/CSM, detune-unison (Ph3b residuals); Phase-4 richer content-adaptive FM6/DAC modes (basic dedicate/adaptive Echo toggle already SHIPPED); **game-feel moments — pause/unpause, jingle push/pop + mid-song resume, song-finished contract (the current sound priority, spec in the 2026-07-03 banking queue)**; section-aware banking (§6.4); continuous SFX (→ SFX Stage C, §6.7); distance attenuation DEMOTED (§6.5); procedural ambient CUT (§6.6); MegaDAW compiler/export (Ph6, blocked on content sourcing). See §6 body + the 2026-06-16 master sound spec. |
 | 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
 | 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, spatially-order and page the global act art pool, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
-| 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset detection + DMA-safe warm path (persistence RULED OUT 2026-08-05 — SRAM is the mechanism, §9.5/§9.6)**, SRAM save system (Sonic 3 dual-copy checksums), **cooperative multitasking (NOVEL — supervisor/user mode context switching, background S4LZ decompression)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
+| 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset detection + DMA-safe warm path (persistence RULED OUT 2026-08-05 — SRAM is the mechanism, §9.5/§9.6)**, SRAM save system (Sonic 3 dual-copy checksums), **idle-time deferred work (§9.7 — pre-chunked pages + VBlank supervisor bookmark, resumable ZX0 art-page decode; SHIPPED)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
 
 ---
 
@@ -1309,7 +1309,7 @@ Note the ordering relative to earlier drafts of this doc: the window budget is *
 
 ### 1.5 Background Work During Idle Time
 
-**Superseded by §9.7 (Cooperative Multitasking).** The supervisor/user mode context switching system automatically gives background tasks (S4LZ decompression, section preloading, palette computation) whatever CPU time remains after the foreground game loop completes each frame. No manual chunking, no bookmark systems, no polling — VBlank preempts the background task and context-switches back to the foreground automatically. See §9.7 for the full design.
+**See §9.7 (Idle-Time Deferred Work — Pre-Chunked Pages + Supervisor Bookmark).** Deferred CPU work (mid-game art-page decode, oversized decompression) runs in the `VSync_Wait` idle spin, pre-chunked at build time into small units and sliced across frames by a VBlank supervisor bookmark that banks a resumable decoder's registers when VBlank fires mid-decode and resumes it next frame. See §9.7 for the full design as shipped.
 
 ---
 
@@ -1387,7 +1387,7 @@ Sprite Dirty Flag + Static DMA + Variable Hscroll
     → More budget available for art streaming
       → Faster S4LZ decompression throughput
 
-Background Task (§9.7) + DPLC Lookahead
+Idle-time work (§9.7) + DPLC Lookahead
   → Free S4LZ decompression in leftover CPU time
     → Art pre-loaded before section boundary reached
       → Zero visible loading artifacts
@@ -1434,7 +1434,7 @@ version byte.
 **ZX0 (load-time bulk):**
 - Einar Saukas' ZX0 v2 format; compressed by vendored salvador (`tools/salvador/`, zlib/CC0/MIT licenses), decoded by vendored unzx0_68000 (`engine/compression/zx0.emp`, zlib license, adaptation = mnemonic spelling only — algorithm byte-identical to upstream)
 - Measured 0.605 on section tile art vs 0.85 for the best word-aligned S4LZ — bitstream rep-offset + elias-gamma + byte-granular matching, ~zlib-class ratio without entropy tables
-- **~76 KB/s — init/preload tier ONLY.** Used today at level init (the act FG art pool pages decompress here, ~5 frames per page, display blanked). Any future mid-gameplay deferred art load must NOT call it synchronously — that's the §9.7 cooperative-multitasking budgeted-decode design (DEFERRED_WORK)
+- **~76 KB/s (blocking ZX0) — init/preload tier.** The blocking `ZX0_Decompress` runs at level init and now survives only as the DEBUG self-test oracle. Mid-gameplay art pages instead ride the resumable `ZX0R_Decompress` sliced by the §9.7 pages+bookmark idle-time path — never a synchronous blocking decode. Small (64-tile) pages, demand/prefetch FIFO, VRAM residency cache
 - Clobbers d0-d1/a0-a2 only (narrower than S4LZ)
 
 **Pipeline guarantees:**
@@ -1501,7 +1501,7 @@ UFTC was originally planned for random-access sprite decompression, but measured
 
 Because every tile address is decided at build time and the whole act's art is resident, there is no fragmentation, no refcounting, and no compaction to manage. Tile overflow is caught at build time: the build tool dedupes the pool and asserts it fits the FG VRAM capacity (`REGION1_TILE_CAPACITY` = 1,472 tiles), so the console never sees an overflow.
 
-**Future enhancement (DEFERRED_WORK):** A dynamic per-object VRAM allocator with refcount-based caching and lazy reclaim — for levels whose art exceeds the resident pool, or for on-demand boss/effect art. This would add `AllocVRAM`/`FreeVRAM`-style lifecycle on top of the same residency cache. It is not part of the shipped engine; today's model is static assignment plus a fully-resident act pool.
+**Future enhancement (DEFERRED_WORK):** A dynamic per-object VRAM allocator with refcount-based caching and lazy reclaim — for on-demand boss/effect art. This would add `AllocVRAM`/`FreeVRAM`-style lifecycle on top of the same residency cache. It is not part of the shipped engine; today's model is static assignment plus the streamed act-pool residency cache (§9.7). The "levels whose art exceeds the resident pool" case is already handled — that is exactly what the residency cache streams (level art is capped by ROM, not VRAM); this future item is only about per-object/effect art on top.
 
 **Cross-references:** §2.1 (S4LZ + ZX0 + uncompressed/DPLC formats), §2.3 (VRAM layout), §2.5 (art loading flow), §3.9 (static object art).
 
@@ -1557,7 +1557,7 @@ With 64×32, fast vertical scrolling constantly hammers nametable updates with o
 
 **Character sprite budget:** Up to 128 tiles for the current animation frame, DMA'd every frame into the pool's character DPLC window (tile $3C0). If strictly one character at a time (no AI follower), this can shrink to 64 tiles.
 
-**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` = 256 tiles each, `split_pool_into_pages`), and each tile receives a permanent global pool index. Section nametables reference these fixed indices directly.
+**Build-time tile deduplication + spatial ordering + paging:** The build tool deduplicates tiles globally across all sections of the act using canonical forms (so a tile and its H/V flips collapse to one entry), then orders the unique tiles spatially — by first occurrence in grid-traversal order, so tiles that are spatially near each other land at nearby pool indices for cache locality (`tools/tile_dedupe.py`: `dedupe_tiles` + `order_pool_spatially`). The deduped, spatially-ordered pool is split into fixed-size pages (`ART_POOL_PAGE_TILES` = 64 tiles each, `split_pool_into_pages`), and each tile receives a permanent global pool index. Section nametables reference **per-section LOCAL indices** (bits 0-10, ≤2047 distinct tiles per section) translated to global via a per-section local→global table at block-decode time (art-streaming Phase 2 cutover, 2026-08-08) — the extra indirection is what lets a page live in any VRAM frame rather than at a fixed slot, which is the precondition for the residency cache (§9.7). Palette/priority/flip bits are untouched by the translation.
 
 Result: section transitions require zero tile DMA — the whole act's art is resident, and nametable entries already point to the correct, fixed pool indices. There is no graph coloring and no per-section index reuse: every unique tile in the act has one permanent address, and the pool fits VRAM because global deduplication shrinks the act's total tile footprint.
 
@@ -1621,7 +1621,7 @@ $E000-$FFFF  Plane B nametable (64×64; all 64 rows — no "Region 2" spill)
 **Level load (blocking):**
 ```
 Level_LoadArt(act descriptor)              ; engine/level/load_art.emp
-  → For each page of the act's paged art pool (one page = ART_POOL_PAGE_TILES = 256 tiles):
+  → For each page of the act's paged art pool (one page = ART_POOL_PAGE_TILES = 64 tiles):
       → Art_Decompress the wrapped ZX0/S4LZ page → Art_Staging_Buffer (8 KB, init-only)
       → QueueDMA_Critical: staging buffer → fixed VRAM slot (page_index << 13)
       → VSync_Wait so the Critical DMA drains during the blanked VBlank
@@ -2360,7 +2360,7 @@ The linear layout enables direct 2D indexing: `cache[col + row * 80]` with both 
 - **Angle arrays:** Pre-computed terrain angles indexed by collision ID
 - **Height map indexing:** `(collision_type × 16) + (x_pixel & 0xF)` — single-cycle lookup
 
-**Build tool embeds collision in blocks:** The build tool generates 16×16 blocks with nametable words and collision bytes derived from tile placement. As of §5 Task 2 the bytes are REAL attr-set indices: `tools/collision_pipeline.py` bakes sonic_hack's per-placement collision (height profile + xflip/yflip + per-path solidity) into deduplicated one-byte indices (`ojz_strip_gen.build_section_collision`), and the matching ROM tables (`HeightMaps`/`HeightMapsRot`/`AngleTable`/`SolidityTable`, BINCLUDEd from `games/sonic4/data/collision/`) are emitted from the same attr-set. The old VDP-priority-bit placeholder (priority=1 → type 1) is retired; it survives only as a fallback when the sonic_hack collision sources are missing. Editor FG tile edits do not yet feed collision — collision derives from the sonic_hack layout files (editor collision authoring is deferred).
+**Build tool embeds collision in blocks — fresh-start, editor-authoritative (current, since the 2026-07-02 editor-collision-authoring design):** Level collision starts from an **all-air baseline** and is **overlaid entirely by the editor**, not derived from sonic_hack's donor layout. `tools/ojz_strip_gen.py`'s `generate()` seeds every section's collision grids to air (`air_col`), then `apply_editor_collision_overlay` reads Aurora's `games/sonic4/data/editor/ojz/act1/section_N.collattr.bin` (path A) / `.collattrb.bin` (path B) — 16-bit big-endian cell words, one per 8px tile column × 16px collision row, WYSIWYG with what the editor shows — and bakes each painted cell via `collision_pipeline.bake_plane_cell` against the imported **S&K shape/height/angle vocabulary** (`data/collision/base/`, written by `tools/import_sk_collision.py`) into a shared **sparse interned attr-set** (one byte per unique shape+flip+solidity combo actually painted — 13/255 slots used today, ~242 headroom). The matching ROM tables (`HeightMaps`/`HeightMapsRot`/`AngleTable`/`SolidityTable`, BINCLUDEd from `games/sonic4/data/collision/`) are emitted from that same attr-set, so only combos the level author actually placed reach the ROM. A section with no `.collattr.bin` keeps its air baseline; there is no silent fallback to legacy donor data — `require_donor()`/`editor_data_available()` fail the build loudly instead (the "row-178 hole" postmortem). The older sonic_hack-donor bake (`ojz_strip_gen.build_section_collision` / `collision_pipeline.bake_cell`, driven by `PATH_A_SOL_SHIFT`/`PATH_B_SOL_SHIFT` chunk-entry bits and the VDP-priority-bit placeholder) still exists in the tree but only as a test/fallback path (`test_section_collision_sec0`), not the live production pipeline. Aurora's chunks/stamps/map-clipboard (design #6, 2026-08-08) author both collision planes directly and travel with reused content atomically — editor FG art and editor collision are both first-class, editor-authored inputs now (see `docs/DEFERRED_WORK.md` "Path-B collision content" for the full history).
 
 **Why embedded over separate maps:** S.C.E./S3K embed collision indices directly in their block mapping words. Our block format adapts this by storing collision bytes alongside nametable words in the tile cache. Benefits: no separate per-section collision files, no collision map RAM, no separate collision decompression step (collision streams alongside nametable data at the edge), collision is inherently tied to position (same visual tile can have different collision in different placements). The collision array adds ~4.8 KB RAM but eliminates all runtime collision map management.
 
@@ -3506,7 +3506,7 @@ The authoring pipeline decouples the level editor's creative tools from the runt
 
 1. **Flatten:** Convert each section's layout from chunks/blocks into a flat grid of 8×8 tile references.
 2. **Deduplicate tiles:** Identify identical tiles across all sections of the act (including flip variants, via canonical form). Build one master tile set per act (`tools/tile_dedupe.py: dedupe_tiles`).
-3. **Spatially order and page the global pool (2.3):** Order the deduped tiles by first occurrence in grid-traversal order (`order_pool_spatially`) so spatially-near tiles land at nearby pool indices, then split the pool into fixed-size pages (256 tiles each, `split_pool_into_pages`). Each tile gets a permanent global pool index; section nametables reference these directly. No adjacency graph or per-section index reuse.
+3. **Spatially order and page the global pool (2.3):** Order the deduped tiles by first occurrence in grid-traversal order (`order_pool_spatially`) so spatially-near tiles land at nearby pool indices, then split the pool into fixed-size pages (64 tiles each, `split_pool_into_pages`) plus a manifest v2 record per page (`{source, tiles, form, flags}`). Each tile gets a permanent global pool index; section nametables carry per-section LOCAL indices translated to global at block-decode time (so a page can reside in any VRAM frame — the §9.7 residency cache precondition). No adjacency graph or per-section index reuse.
 4. **Generate nametable strips:** Output raw VDP nametable words (tile index + palette + priority + flip bits) per column per section. Stored in ROM, ready for direct DMA to VDP scroll planes.
 5. **Embed collision in strips:** Append 24 collision bytes + 8 padding to each 96-byte nametable column, producing 128-byte wide strips. Collision derived from tile→collision assignments (one type per 16×16 cell).
 6. **Compress art and blocks:** ZX0-compress each act art pool page (load-time tier); S4LZ-compress the per-section block stream with its block dictionary (runtime tier). Both carry the 4-byte version wrapper for `Art_Decompress`.
@@ -3797,42 +3797,147 @@ home for saves, best times and unlocks. See §0.11 for the full reasoning.
 
 **ROM banking interaction:** For ROMs >2MB that also need SRAM, a mapper switches the `$200000-$3FFFFF` range between upper ROM banks and SRAM. Sound data and frequently-accessed code should live in bank 0 (`$000000-$07FFFF`, fixed) to avoid switching conflicts.
 
-### 9.7 Background Task System — Cooperative Multitasking (from plutiedev, NOVEL for Sonic engines)
+### 9.7 Idle-Time Deferred Work — Pre-Chunked Pages + Supervisor Bookmark
 
-> **Status: PLANNED design — not implemented (verified 2026-08-04).** No task system, context switch or user-mode path exists in the tree. Read the drift flag below before treating this as the adopted design.
+> **Status: SHIPPED (art-streaming Phase 2, `feat/art-streaming-p2`, 2026-08-09).** The
+> driving consumer — mid-game act art-page decode — is live: a resumable stack-flat ZX0
+> decoder (`ZX0R_Decompress`) sliced across idle time by a VBlank supervisor bookmark,
+> feeding a VRAM page residency cache. This section is the design AS BUILT; the earlier
+> user-mode/supervisor cooperative-multitasking proposal it replaced is recorded as
+> **rejected** at the end.
 
-> **DRIFT FLAG (2026-07-16, not fixed here):** this user-mode/supervisor design was
-> superseded — the Phase-2 streaming spec (2026-07-02 §3) rewrites deferred decode to
-> the KosM-style pre-chunked / bookmark model, and the unified-prefetch note's Phase-2
-> contract (§7) confirms it. The rewrite never landed in this doc, so §9.7 still reads
-> as the adopted design. Reconcile at the Phase-2 art-streaming implementation. (Also
-> relevant: the trailing-lag constraint — any deferred-work gate must use a trailing
-> indicator, not the beam, since the fill runs in VBlank; see §4.7 + campaign-gap-ledger.)
+Deferred CPU work (mid-game art-page decode, any future oversized decompression) runs
+in main-loop idle time — the `VSync_Wait` spin — structured in two layers. This is the
+mechanism three shipped Genesis codebases independently converged on (S3K
+`Set_Kos_Bookmark`, Ristar's `$FFE5BC` yield protocol, S.C.E. KosPlusM), hardened with
+contract enforcement they didn't have.
 
-The 68000's supervisor/user mode distinction enables a two-task system where background work (decompression, art preloading) runs automatically in leftover CPU time without manual chunking or bookmark systems.
+**Layer 1 — granularity (pre-chunking).** Work arrives pre-cut at build time into units
+sized for the common idle window: act art pools are split into pages (64 tiles = 2048 B
+raw, KosM's $1000-granule precedent; page size is a build knob, swept on the stress
+fixture). Small units mean the *scheduler* needs no time model — most units simply fit.
+Pre-chunking alone is not sufficient at the measured worst windows (a 2 KB page ≈ 45 K
+cycles vs ~42.5 K average idle in a diagonal-fall window, 2026-08-05 measurement), which
+is why Layer 2 exists.
 
-**Architecture:**
-- **Foreground task** (supervisor mode): Main game loop. Runs to completion every frame, guaranteed 60fps execution. Uses the supervisor stack pointer (SSP).
-- **Background task** (user mode): S4LZ decompression, section art preloading, or any work that can tolerate interruption. Uses the user stack pointer (USP). Runs in whatever CPU time remains after the foreground finishes.
+**Layer 2 — preemption (the supervisor bookmark).** The unit decoder runs as a
+straight-line supervisor-mode loop in the idle spin. If VBlank fires mid-decode,
+`VBlank_Handler` — immediately after its register save, before the `VBlank_Ready` test —
+checks the interrupted PC (read from the known stacked-frame offset behind exported
+symbols) against the resumable range `[ZX0R_Start, ZX0R_Decompress__end)`; on a hit it
+records the PC and redirects the handler's `rte` into `PageIn_BankRegs`, which banks the
+decoder's registers + SR to RAM and returns to the main loop. Next frame, the dispatcher
+manufactures the frame back (push SR, push PC, `rte`) and the decode continues
+mid-instruction-stream. Spawn, resume, and preempt-resume are one code path (Ristar's
+manufactured-bookmark trick). Cost: ~300-400 cycles per preempted frame (~0.3%) — decode
+consumes ALL idle with near-zero overshoot, and unit size becomes a density/manifest
+tradeoff, not a latency constraint.
 
-**Context switching:** Two switches per frame, ~80-120 cycles total overhead:
-1. Foreground finishes → `YieldToBgTask`: push SR to stack (so VBlank's `rte` returns to foreground), restore background registers from RAM via `MOVEM.L`, push background's saved PC and SR, execute `rte` to jump to background task in user mode.
-2. VBlank fires → `TaskSwitchIrq`: test bit 5 of stacked SR (supervisor flag). If clear, background was running — save its d0-d7/a0-a6 to RAM, extract its SR/PC from interrupt stack frame, then `rte` to foreground using its saved context.
+**The resumable-region contract** (compiler-enforced by the Sigil `@resumable`
+attribute; the three invariants every shipped bookmark traces to):
+1. **Stack-neutral:** no push/call anywhere in the range — abort is "don't resume", and
+   resume works from any stack depth. The resumable ZX0 variant inlines its elias reads
+   and takes caller-owned registers.
+2. **Register-resident state:** all decoder state in d0-d2/a0-a2 + CCR at every
+   instruction (the banked SR word carries the live carry/X flags); the bookmark record
+   is 34 bytes (d0-d2/a0-a3 + PC long + SR word).
+3. **One contiguous PC range, symbol-exported**, checked only in the VBlank handler. The
+   bookmark is the V-int's **final act** — the check runs at handler entry but the
+   redirect fires at `rte`, after `VInt_Level`'s whole pipeline. The correct lag lemma
+   (**corrected in execution — the drafts overstated it**): the bank is SAFE on
+   *whichever* path dispatches, NOT "the lag path can never bank." Because the hook runs
+   before the Ready/dispatch split, it banks the decode on either path. Counterexample
+   (reviewer-proven): after `VBlank_Ready := 1`, a VBlank landing during the ~150-cycle
+   pre-decoder setup window (the resume restore/push) correctly does NOT bank (PC outside
+   the range), runs `VInt_Level`, and clears `Ready`; the decode then runs to the NEXT
+   VBlank with `Ready = 0`, which dispatches `VInt_Lag` and banks there. Safe either way
+   (the main loop is parked in the decoder, so `Plane_Buffer` is already drained and
+   `VInt_Lag`'s skipped drain is a no-op; the banked context survives via the movem
+   round-trip), but it costs **one benign lag frame at roughly per-resume probability** —
+   a known, characterized residual, not a defect.
 
-**Why cooperative multitasking over manual chunking:**
-- S4LZ decompressor runs straight through — no need to chunk into "process N bytes, check VBlank, stop." The VBlank interrupt preempts it automatically and the context switch saves all register state.
-- No bookmark system needed — the context switch natively saves and restores all decompression state.
-- Background task automatically adapts: heavy foreground frames give it less time, light frames give it more. Self-tuning throughput without explicit budget management.
-- Simpler code — no "check if VBlank is coming" polling loops in decompression routines.
+Additionally: no VDP, no Z80, no shared-RAM writes from inside the range — decode targets
+a private staging buffer; publication is the dispatcher's single aligned write + DMA
+enqueue after completion (atomic wrt interrupts, no critical sections).
 
-**Constraints:**
-- Background task runs in user mode — cannot access privileged operations (interrupt masking, VDP registers). All hardware access stays in the foreground.
-- USP is consumed (no longer available as scratch register — rarely used anyway).
-- Background task must not assume it gets any minimum amount of time per frame. On lag frames, it gets nothing.
+**Admission & gating (per-tier priority disciplines).** Requests queue in a small
+two-priority FIFO: demand (a fill is stalled) ahead of prefetch (leading-edge
+speculation). Demand decodes and resumes are **never gated** — a stalled fill is the
+highest-priority deferred work, and a suspended decode holds the single staging slot, so
+finishing it is always better than freezing it. The disciplines layered on top, learned
+in the soak:
+- **Demand-first prefetch yield:** speculative prefetch returns immediately while a
+  demand stall is pending (`Cache_Art_Stall` set), so it never competes for the scarce
+  dynamic frames the demand needs.
+- **Bulk-first drain:** the init bulk-load path drains queued page-ins before enqueuing
+  new prefetch, or a many-page fixture livelocks its own init queue (prefetch refilling
+  it perpetually).
+- **Trailing-lag speculative gate (the shipped block-prefetch H4 pattern, verbatim):**
+  a speculative *start* is skipped if the previous frame lagged, via a `page_in`-owned
+  `Frame_Counter`-delta latch (NOT the fill-owned `Cache_Pfx_Lag_Flag`), bounded to ≤1
+  consecutive skip so sustained lag can't cascade into cold pages. A completing
+  speculative page still adds DMA-window pressure and occupies the staging slot during
+  exactly the frames already tight; a demand page never is gated.
+Gates use trailing indicators only, never VDP beam position: deferred work runs at fixed
+points in the frame, so the beam cannot gauge load (measured lesson, 2026-07-16). There
+is **no unified cost arbiter** (D2 = C): under the bookmark, deferred CPU is structurally
+free (it can only consume idle), and the truly contended resources — DMA bytes, the
+single staging slot — are governed by the per-act art budget word, the dual-cap DMA
+admission (entries + bytes, Vectorman), and single-flight staging, each its own governor.
+The block tier's budget seam in `Tile_Cache_Fill` remains the named adoption point if a
+future consumer ever needs cost-denominated arbitration — a comment + this prose, built
+nowhere.
 
-**Primary use case:** S4LZ streaming decompression. The background task runs the S4LZ decompressor continuously. Each frame, it decompresses as many bytes as the leftover CPU time allows. Completed 4KB chunks are queued for DMA to VRAM via the Deferrable DMA queue (§1.1). On light frames (standing still, few objects), decompression runs fast. On heavy frames (boss fights, many objects), it naturally throttles. No tuning required.
+**Correctness invariants (DEBUG-audited).** The residency cache is small, concurrent, and
+publishes from an interrupt-sliced decoder, so its bookkeeping is guarded by named
+invariants rather than trusted:
+- **Claim continuity (enqueue-to-publish):** `PageIn_Enqueue` is the SOLE claim site —
+  every enqueue path (bulk / demand / prefetch / retry) sets the page's queued bit; the
+  claim holds until `PageCache_Publish` clears it (or eviction / flush). This closes the
+  page double-load gap (a bulk/in-flight page re-requested and published twice, orphaning
+  the first frame). `PageCache_Publish` DEBUG-asserts the page's table entry is
+  `NOT_RESIDENT` before stamping — the duplicate-publish catcher, kept permanently.
+- **Instantaneous bijectivity:** `AllocFrame`'s `.detach` stamps `pf_page := $FFFF`
+  (UNASSIGNED) so a detached, not-yet-published frame belongs to no page; the audit's
+  `pf_page == $FFFF` skip then makes `frame → pf_page → Page_Table` round-trip true at
+  *every* instant, including the mid-decode in-flight window.
+- **Orphan / refcount audit:** a DEBUG routine walks the whole `Tile_Cache_Nametable`,
+  recomputes per-frame refcounts from scratch, and `raise_error`s on any mismatch or
+  orphaned frame; run after init and periodically during play.
 
-**Secondary use cases:** Section ring/object pre-scanning (pre-building the ring and object buffers for upcoming sections before the player reaches them), palette blend computation (computing fade/blend palettes in background rather than blocking the main loop).
+**Operating regime.** Streaming's regime is **windows ≪ pool** — an act whose multi-screen
+cache window references only a fraction of the pool at once, so the resident set churns as
+the camera moves. Below that threshold the cache **correctly degenerates to fully
+resident**: on a small deduped act (OJZ, 10 pages) the 80×60 cache window references ~every
+page, so the working set == the pool and every page pins. This is not a limitation to fix —
+`AllocFrame` correctly refuses to evict displayed art (loud thrash assert, zero silent
+corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
+fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages vs 15 frames) is the
+regime where streaming actually earns its keep and where the acceptance matrix was proven.
+
+**Cancel/flush.** Speculative state needs an explicit invalidation path: `PageIn_Flush`
+empties the FIFO and drops any suspended decode (main-loop context only). Called at
+cache-invalidating transitions (act/zone change); NOT at pure teleport rebases — page
+identity is position-independent, so in-flight work stays valid. A published page's DMA
+is always allowed to land.
+
+**Consumers:** ZX0 art-page decode (art-streaming Phase 2 — the driving consumer, shipped);
+S4LZ streaming for any larger-than-block payloads (§2.1); palette blend during transitions
+(~3.8 K cyc/frame — a fixed idle-slot call, no preemption machinery needed). Ring/object
+pre-scan was satisfied by the §4.9 entity window and is a non-consumer.
+
+**Rejected: user-mode cooperative multitasking** (this section's previous design, from
+plutiedev — a supervisor/user two-task split with SR bit-13 context switches). Zero
+shipped adopters in ~15 years across every examined commercial engine (six disassemblies
+grepped exhaustively — no SR write ever clears bit 13; B&R uses USP as a 16th scratch
+register); TAS is broken as a lock primitive on MD1/MD2; critical sections would need
+`trap` syscalls; and it installs a permanent debugging tax — two register contexts,
+preemption at any instruction — in an engine whose worst historical bugs were
+preemption-window bugs. The bookmark delivers user-mode's two real advantages
+(straight-line decoder, all idle consumed) with none of this. Its previously claimed
+"~80-120 cycles" switch cost was unsupported; real 68000 timings give ~300-400 cycles for
+a full two-way switch in either design — negligible either way, and not why the decision
+goes the way it goes.
 
 ### 9.8 ROM Banking Awareness
 
@@ -3841,7 +3946,7 @@ The 68000's supervisor/user mode distinction enables a two-task system where bac
 **Design constraints:**
 - Sound data and Z80 driver must live in bank 0 (Z80 accesses ROM through the 68000 bus — bank switches during Z80 ROM access would read wrong data)
 - Code must live in bank 0 or handle bank switching transparently
-- S4LZ decompression from banked ROM requires the correct bank to be mapped before starting decompression — the background task (9.7) must coordinate with the bank register
+- Decompression from banked ROM requires the correct bank to be mapped before *starting or resuming* a unit — the §9.7 idle-time decoder must map the bank at each start/resume, and a preempted decode's mapped bank must be part of the bookmark record IF banked art ever ships. Today the act art pool lives in a fixed (unbanked) region, so no action is needed; this is the constraint to honor when art moves to a higher bank (see the mega-act ROM-layout note in DEFERRED_WORK)
 - DMA from banked ROM works correctly as long as the source bank is mapped when DMA is enqueued (not when it executes — the DMA source address in the queue entry is already physical)
 
 **Implementation:** Only add banking if ROM exceeds 4MB. Track via build-time ROM size checkpoint. If banking is needed, add a `SetROMBank` helper that writes the page number and records the current mapping for restoration.
@@ -3882,7 +3987,7 @@ All macros handle odd start addresses (emit a `move.b` first) and leftover bytes
 
 **Level database → every level-indexed system:** Unified descriptors eliminate scattered zone-indexed tables. Every system that needs level-specific data (art loading, collision, music, water, parallax, events) reads from the loaded level descriptor in RAM. One copy at level load, zero per-frame lookups.
 
-**Background task → decompression throughput:** The multitasking system (9.7) enables S4LZ to run continuously in spare CPU time. Combined with the priority DMA queue (§1.1), this creates a pipeline: background decompresses to RAM buffer → main loop enqueues DMA → VBlank transfers to VRAM. Each stage runs independently at its own pace. S4LZ's 700-1100 KB/s throughput means per-section tile art can decompress in 1-2 frames of background time even on busy scenes.
+**Idle-time decode → decompression throughput:** The §9.7 pages+bookmark path slices a resumable decoder across spare CPU time. Combined with the priority DMA queue (§1.1), this creates a pipeline: the bookmarked decode fills a private staging buffer → the dispatcher enqueues the completed page's DMA → VBlank transfers to VRAM. Each stage runs independently at its own pace, and under the bookmark the decode consumes ALL idle with near-zero overshoot, so a page decodes across as many frames as the idle window needs without stalling the foreground. The same pipeline extends to S4LZ for any larger-than-block payload (§2.1).
 
 **SRAM → player experience:** SRAM (§9.6) provides permanent saves across power cycles, and is the SOLE persistence mechanism — soft-reset persistence was ruled out (§9.5), so a RESET press is a clean restart and progress granularity is whatever SRAM was last written at (checkpoint/star-post granularity).
 

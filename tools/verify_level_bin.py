@@ -21,7 +21,8 @@ import sys
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN = os.path.join(ROOT, "games", "sonic4", "data", "generated", "ojz", "act1")
 NUM_SECTIONS = 9            # 3x3 grid (project.json); sections 0..8
-ART_POOL_PAGE_BYTES = 8192  # ART_POOL_PAGE_TILES (256) * 32
+ART_POOL_PAGE_BYTES = 2048  # ART_POOL_PAGE_TILES (64) * 32
+TILE_SIZE = 32
 BLOCK_INDEX_BYTES = 1024   # 256 * 4-byte block index table (ojz_block_gen)
 BLOCK_RAW_SIZE = 768       # one raw 16x16 block (dict region is a multiple)
 
@@ -39,10 +40,10 @@ def read(path):
 
 
 def verify_act_pool():
-    """Manifest page count == the pages the pool include references == the .zx0
-    files present; each .zx0 wrapper's uncompressed-size header == its .bin."""
-    # Both the manifest (const module) and the pool (native section: page embeds
-    # + the OJZ_Act_Pool_PageTable) are generated `.emp` modules (Parcel K3).
+    """Manifest v2 (P2b): the const manifest page count == the pool's page embeds
+    == the [PageManifest;N] table entries == the per-page blob files present. Each
+    page's manifest form matches its blob extension; pm_tiles*32 == the .bin size;
+    a ZX0 page's wrapper round-trips (size header == .bin, flags/version 0,2)."""
     manifest = os.path.join(GEN, "ojz_act_pool_manifest.emp")
     pool = os.path.join(GEN, "ojz_act_pool.emp")
     if not (os.path.isfile(manifest) and os.path.isfile(pool)):
@@ -55,32 +56,57 @@ def verify_act_pool():
         return
     pages = int(m.group(1))
     pool_txt = open(pool).read()
-    binc = re.findall(r'OJZ_Act_Pool_Page(\d+)\s*=\s*embed\("[^"]*/act_pool_page\d+\.zx0"\)', pool_txt)
-    dcl = re.findall(r"OJZ_Act_Pool_Page(\d+)", re.search(r'OJZ_Act_Pool_PageTable[^\]]*\]', pool_txt).group(0)) if 'OJZ_Act_Pool_PageTable' in pool_txt else []
-    check([int(x) for x in binc] == list(range(pages)),
-          f"act pool: ojz_act_pool.emp embeds {binc}, expected pages 0..{pages-1}")
-    check([int(x) for x in dcl] == list(range(pages)),
-          f"act pool: ojz_act_pool.emp page table {dcl}, expected 0..{pages-1}")
-    for k in range(pages):
+    # page blob embeds — .zx0 or .raw, symbol index must equal file index
+    binc = re.findall(
+        r'OJZ_Act_Pool_Page(\d+)\s*=\s*embed\("[^"]*/act_pool_page(\d+)\.(zx0|raw)"\)',
+        pool_txt)
+    embed_ext = {int(sym): ext for sym, fidx, ext in binc if sym == fidx}
+    check([int(sym) for sym, fidx, ext in binc if sym == fidx] == list(range(pages)),
+          f"act pool: ojz_act_pool.emp embeds {[b[0] for b in binc]}, expected pages 0..{pages-1}")
+    # manifest v2 table entries: {source page idx, tiles, form, flags}
+    tbl = re.search(r'OJZ_Act_Pool_PageTable[^\[]*\[(.*)\]', pool_txt, re.S)
+    entries = re.findall(
+        r'pm_source:\s*extern\("OJZ_Act_Pool_Page(\d+)"\)\s*,\s*'
+        r'pm_tiles:\s*(\d+)\s*,\s*pm_form:\s*(\d+)\s*,\s*pm_flags:\s*(\d+)',
+        tbl.group(1) if tbl else "")
+    check([int(e[0]) for e in entries] == list(range(pages)),
+          f"act pool: PageManifest table indices {[e[0] for e in entries]}, expected 0..{pages-1}")
+    for e in entries:
+        k, tiles, form, _flags = int(e[0]), int(e[1]), int(e[2]), int(e[3])
         pbin = os.path.join(GEN, f"act_pool_page{k}.bin")
-        pzx0 = os.path.join(GEN, f"act_pool_page{k}.zx0")
         if not os.path.isfile(pbin):
             check(False, f"act pool: act_pool_page{k}.bin missing")
-            continue
-        if not os.path.isfile(pzx0):
-            check(False, f"act pool: act_pool_page{k}.zx0 missing")
             continue
         raw = read(pbin)
         check(len(raw) <= ART_POOL_PAGE_BYTES,
               f"act pool: page{k}.bin is {len(raw)}B > one page ({ART_POOL_PAGE_BYTES})")
-        w = read(pzx0)
-        check(len(w) >= 4, f"act pool: page{k}.zx0 shorter than its 4-byte wrapper")
-        if len(w) >= 4:
-            usize = struct.unpack(">H", w[0:2])[0]
-            check(usize == len(raw),
-                  f"act pool: page{k}.zx0 wrapper size {usize} != page{k}.bin size {len(raw)}")
-            check(w[2] == 0 and w[3] == 2,
-                  f"act pool: page{k}.zx0 wrapper flags/version {w[2]},{w[3]} != 0,2")
+        check(tiles * TILE_SIZE == len(raw),
+              f"act pool: page{k} manifest tiles {tiles} (*32={tiles*32}) != .bin size {len(raw)}")
+        ext = embed_ext.get(k)
+        if form == 0:   # ZX0
+            check(ext == "zx0", f"act pool: page{k} form 0 (ZX0) but embeds .{ext}")
+            pzx0 = os.path.join(GEN, f"act_pool_page{k}.zx0")
+            if not os.path.isfile(pzx0):
+                check(False, f"act pool: act_pool_page{k}.zx0 missing")
+                continue
+            w = read(pzx0)
+            check(len(w) >= 4, f"act pool: page{k}.zx0 shorter than its 4-byte wrapper")
+            if len(w) >= 4:
+                usize = struct.unpack(">H", w[0:2])[0]
+                check(usize == len(raw),
+                      f"act pool: page{k}.zx0 wrapper size {usize} != page{k}.bin size {len(raw)}")
+                check(w[2] == 0 and w[3] == 2,
+                      f"act pool: page{k}.zx0 wrapper flags/version {w[2]},{w[3]} != 0,2")
+        elif form == 1:   # raw-direct
+            check(ext == "raw", f"act pool: page{k} form 1 (raw) but embeds .{ext}")
+            praw = os.path.join(GEN, f"act_pool_page{k}.raw")
+            if not os.path.isfile(praw):
+                check(False, f"act pool: act_pool_page{k}.raw missing")
+                continue
+            check(len(read(praw)) == len(raw),
+                  f"act pool: page{k}.raw size != page{k}.bin size {len(raw)}")
+        else:
+            check(False, f"act pool: page{k} unknown form {form}")
 
 
 def verify_block_blobs():
@@ -124,7 +150,7 @@ def verify_block_blobs():
 def verify_bininclude_targets():
     """Every BINCLUDE / embed() in the committed generated heads resolves to a
     present file (catches a renamed/removed blob a hand-edit left dangling)."""
-    for head in ("ojz_act_pool.emp", "sec_block_blobs.emp", "bg_anim.emp"):
+    for head in ("ojz_act_pool.emp", "sec_block_blobs.emp", "sec_local_maps.emp", "bg_anim.emp"):
         hp = os.path.join(GEN, head)
         if not os.path.isfile(hp):
             continue

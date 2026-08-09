@@ -35,6 +35,47 @@ if [[ "$GAME" == "sonic4" ]]; then ROM_NAME="s4"; else ROM_NAME="$GAME"; fi
 # DEBUG builds emit SUFFIXED artifacts (s4.debug.bin/.lst), so the two shapes never
 # overwrite each other. ROM_NAME threads through -o/--emit-lst and s4budget below.
 if [[ "${DEBUG:-0}" == "1" ]]; then ROM_NAME="${ROM_NAME}.debug"; fi
+
+# STRESS_EVICT=1 (Art-streaming P2b Task 7 forced-eviction fixture): an off-canonical
+# DEV shape — sonic4 DEBUG with the STRESS_EVICT comptime define flipped on (clamps the
+# residency cache below the pool size, forcing continuous evict/reload). UNFROZEN: no
+# golden, not a refreeze target — built on demand for the controller's soak. It emits a
+# DISTINCT artifact (s4.stress.bin/.lst) so it never collides with the canonical shapes,
+# and it fixes the whole shape (sonic4 debug), so it ignores DEBUG/GAME overrides.
+if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: STRESS_EVICT=1 is a sonic4-only fixture (the OJZ act pool is the target)."
+        exit 1
+    fi
+    ROM_NAME="s4.stress"
+fi
+
+# STRESS_ART=1 (Art-streaming P2c Task 11 stress fixture): the sonic4 DEBUG shape
+# built against a UNIQUIFIED act art pool (ojz_strip_gen --stress-uniquify N,
+# default 2600 tiles / >40 pages) that overwhelms the 15-frame residency cache with
+# continuous evict/reload traffic. Like STRESS_EVICT it is an off-canonical DEV
+# shape: UNFROZEN, no golden, a DISTINCT artifact (s4.stressart.bin/.lst), and it
+# fixes the whole shape (sonic4 DEBUG), ignoring DEBUG/GAME overrides.
+#
+# ISOLATION — the committed real act data is NEVER overwritten. sigil places the
+# act-pool .emp module by a FIXED registry PATH (not a tree walk), so a parallel
+# generated dir cannot be linked without a sigil registry/path change. Instead the
+# stress pool is a THROWAWAY in-place re-bake (regenerate-level.sh with
+# STRESS_UNIQUIFY set) guarded by an EXIT trap that restores the generated tree +
+# collision from git and cleans stress-only files (see below) — so `git status` is
+# left clean of real-data changes, no sigil-side change needed.
+if [[ "${STRESS_ART:-0}" == "1" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: STRESS_ART=1 is a sonic4-only fixture (the OJZ act pool is the target)."
+        exit 1
+    fi
+    if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+        echo "ERROR: STRESS_ART and STRESS_EVICT are mutually exclusive shapes."
+        exit 1
+    fi
+    DEBUG=1                      # the fixture needs asserts + the refcount/orphan audit
+    ROM_NAME="s4.stressart"
+fi
 MAIN_ASM="games/${GAME}/game_root.asm"
 TOOLS="${TOOLS:-tools}"
 
@@ -135,6 +176,30 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     fi
 fi
 
+# STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an
+# EXIT trap that restores the committed tree from git (covers success AND set -e
+# failures). Requires donors (like regenerate-level.sh). verify_level_bin below then
+# runs against the stress tree (it stays internally consistent), and the sigil build
+# links the uniquified pool into s4.stressart.bin.
+if [[ "${STRESS_ART:-0}" == "1" ]]; then
+    STRESS_GEN_TREE="games/sonic4/data/generated/ojz/act1"
+    STRESS_COLL_TREE="games/sonic4/data/collision"
+    if [[ -n "$(git status --porcelain -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE")" ]]; then
+        echo "ERROR: STRESS_ART needs a clean generated tree, but git status shows changes"
+        echo "  under $STRESS_GEN_TREE or $STRESS_COLL_TREE. Commit or stash them first —"
+        echo "  the stress re-bake restores from git and would discard uncommitted changes."
+        exit 1
+    fi
+    _restore_stress_tree() {
+        echo "STRESS_ART: restoring the committed level tree from git..."
+        git checkout -q -- "$STRESS_GEN_TREE" "$STRESS_COLL_TREE" 2>/dev/null || true
+        git clean -fdq -- "$STRESS_GEN_TREE" 2>/dev/null || true
+    }
+    trap _restore_stress_tree EXIT
+    echo "STRESS_ART: throwaway re-bake with uniquified act pool (N=${STRESS_ART_N:-2600})..."
+    STRESS_UNIQUIFY="${STRESS_ART_N:-2600}" "${TOOLS}/regenerate-level.sh"
+fi
+
 # The committed OJZ level tree is consumed directly (its generators need
 # out-of-repo donors — tools/regenerate-level.sh). Fail LOUDLY on internal
 # drift (hand-edited head, missing blob, stale .zx0) the whole-ROM gate would
@@ -145,11 +210,37 @@ if ! python3 "${TOOLS}/verify_level_bin.py"; then
     exit 1
 fi
 
+# Art-pool ROM budget report + gate (art-streaming Phase 2). Level art is now
+# capped by ROM, not VRAM — a non-resident page streams in on demand — so the
+# pool's ROM footprint is the budget that matters. Report per act (raw bytes,
+# stored bytes per form, page count, ratio); warn above ART_ROM_SOFT_KB, fail
+# above ART_ROM_HARD_KB (per-act overridable: ART_ROM_{SOFT,HARD}_KB_<ACT>;
+# OJZ defaults 24/64 KB). Under STRESS_ART the pool is a throwaway uniquified
+# fixture that deliberately overwhelms the cache, so report-only (no gate).
+ART_ROM_REPORT_FLAGS=""
+if [[ "${STRESS_ART:-0}" == "1" ]]; then ART_ROM_REPORT_FLAGS="--no-fail"; fi
+if ! python3 "${TOOLS}/art_rom_report.py" . ${ART_ROM_REPORT_FLAGS}; then
+    echo "Art-pool ROM budget exceeded — see the per-act report above."
+    exit 1
+fi
+
 # THE BUILD: one sigil invocation — assemble -> declared-order link -> emit_rom
 # (checksum folded) -> sigil-canonical .lst -> ROM. DEBUG additionally gets the
 # convsym deb2 appendix; release ships the assembled image alone (item 29).
-NATIVE_FLAGS="--game ${GAME}"
-if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+    # The stress fixture fixes the shape (sonic4 debug + STRESS_EVICT define); it does
+    # NOT combine with --game/--debug (the CLI rejects that).
+    NATIVE_FLAGS="--stress-evict"
+elif [[ "${STRESS_ART:-0}" == "1" ]]; then
+    # The stress-art fixture fixes the shape (sonic4 debug + fixture placement) against
+    # the uniquified pool re-baked above; --stress-art selects the fixture-scoped derived
+    # placement (greedy pack from measured sizes, org anchors held). It does NOT combine
+    # with --game/--debug (the CLI rejects that).
+    NATIVE_FLAGS="--stress-art"
+else
+    NATIVE_FLAGS="--game ${GAME}"
+    if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+fi
 # CONTRACT CLOSURE GATE — default ON.
 #
 # `sigil build` runs the whole-corpus contract closure before it links. The

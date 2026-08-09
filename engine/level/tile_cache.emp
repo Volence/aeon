@@ -12,6 +12,8 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COL
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
+use engine.constants.{PAGECACHE_AUDIT_INTERVAL, STALL_WATCHDOG_FRAMES}
+use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
 // decl; its contract (a4=dict base, d4.w=dict len preserved, clobbers
@@ -62,6 +64,33 @@ comptime fn decompose_block(col: Reg, row: Reg) -> Code {
         lsl.w   #4, d3
         add.w   d2, d3
         move.w  d3, d2                         // block_index = block_y*16 + block_x
+    }
+}
+
+// art_hold_edge_check — the P2c Task 10 camera soft-clamp signal. Called at a
+// demand-stall exit (Cache_Art_Stall known set) with d5 = the stalled cell (the
+// world tile COLUMN at .fc_budget_out / ROW at .fr_budget_out). Derives the axis'
+// visible leading cell from {cam} (16.16 world coord: swap→pixels, >>3→tiles) and
+// sets {hold_bit} in Camera_Art_Hold iff the stalled cell sits within
+// CLAMP_MARGIN_TILES of the visible window on that axis — i.e. the not-yet-resident
+// art is close enough to become visible (the fill frontier runs up to
+// TILE_CACHE_MARGIN_H/V tiles ahead, so a stall deep in that margin has slack and
+// does NOT hold). Symmetric across leading/trailing edges (relative cell in
+// [-MARGIN, screen_tiles+MARGIN]). Clobbers d0/d1; reads d5; preserves everything
+// else — the two callers set d0=1 for the partial return AFTER this. File-local.
+comptime fn art_hold_edge_check(cam: Label, screen_tiles: int, hold_bit: int) -> Code {
+    return asm {
+        move.l  {cam}, d0
+        swap    d0
+        lsr.w   #3, d0                          // d0.w = camera leading cell (tile)
+        move.w  d5, d1
+        sub.w   d0, d1                          // d1 = stalled cell - camera lead (relative tile)
+        cmpi.w  #-CLAMP_MARGIN_TILES, d1
+        blt     .no_hold                        // stall trails the window by > margin — slack
+        cmpi.w  #{screen_tiles + CLAMP_MARGIN_TILES}, d1
+        bgt     .no_hold                        // stall leads the window by > margin — slack
+        ori.b   #{1 << hold_bit}, Camera_Art_Hold
+    .no_hold:
     }
 }
 
@@ -231,6 +260,19 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.w  Act.grid_w(a0), d3             // d3 = grid_w
         mul_bounded.w d3, d1, #MAX_ACT_SECTIONS // d3 = grid_w * sec_y
         add.w   d0, d3                         // d3 = flat section id
+
+        // -- P2b: stash this section's local->global table ptr for post-decode
+        //    translation. Block nametable words carry per-section LOCAL indices;
+        //    the staged slot is patched local->global before any copy loop reads
+        //    it. d7 survives S4LZ_DecompressDict (its license preserves d4-d7), so
+        //    the ptr rides across the decode. Act.act_sec_local_maps is the
+        //    [*u8;N] table indexed by the SAME flat section id. --
+        move.w  d3, d5                         // d5 = flat id (the #66 multiply clobbers d3)
+        movea.l Act.act_sec_local_maps(a0), a2 // a2 = [*u8;N] local-map pointer table
+        add.w   d5, d5
+        add.w   d5, d5                         // flat id * 4
+        move.l  (a2, d5.w), d7                 // d7 = this section's local->global table
+
         mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
 
@@ -253,6 +295,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.l  a3, -(sp)                      // decompress clobbers both a3 and a1
         jbsr    S4LZ_DecompressDict            // engine.s4lz (module-to-module)
         movea.l (sp)+, a1                      // a1 = slot base
+        jbsr    .translate_slot                // P2b: local->global nametable patch
         rts
 
     .raw_direct:
@@ -264,12 +307,39 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
             assert.w d3, eq                    // raw offset must be word-even
         }
         lea     (a2, d0.l), a0                 // a0 = raw 768-byte block (ROM, slot layout)
-        // point the slot straight at the uncompressed ROM block — no copy. The
-        // ROM block is BLOCK_RAW_SIZE in slot layout (nametable + collision) exactly
-        // as a decompressed slot, and consumers only read through the pointer.
-        lea     Block_Stage_Ptrs, a1
-        move.l  a0, (a1, d6.w)
-        movea.l a0, a1                         // a1 = raw ROM block
+        // P2b: raw-direct can no longer zero-copy the ROM block — its nametable
+        // words are per-section LOCAL and must be patched local->global. Copy the
+        // block ROM->slot (the default staged pointer is already the RAM slot a3),
+        // then translate. (Cold path; OJZ ships no raw-direct blocks today.)
+        movea.l a3, a1                         // a1 = dest RAM slot
+        move.w  #(BLOCK_RAW_SIZE/4)-1, d3
+    .rd_copy:
+        move.l  (a0)+, (a1)+
+        dbf     d3, .rd_copy
+        movea.l a3, a1                         // a1 = slot base (OUT + translate target)
+        jbsr    .translate_slot                // P2b: local->global nametable patch
+        rts
+
+    .translate_slot:
+        // Patch the staged block's nametable words local->global in place (P2b).
+        // In:  a1 = slot base (nametable), d7 = section's local->global table (u16[]).
+        // Each word: keep pal/pri/flip (bits 11-15), replace the 11-bit index with
+        // map[local]. Collision (past BLOCK_NT_SIZE) is untouched. a1 preserved
+        // (walk via a0). Clobbers d0-d3/a0/a2 — all within DecompressBlock's license.
+        movea.l a1, a0                         // walk cursor (keep a1 = OUT)
+        movea.l d7, a2                         // a2 = local->global table
+        move.w  #(BLOCK_NT_SIZE/2)-1, d3       // BLOCK_NT_SIZE/2 nametable words
+    .ts_loop:
+        move.w  (a0), d0                       // local word
+        move.w  d0, d1
+        andi.w  #$07FF, d1                     // local index
+        add.w   d1, d1                         // u16 table stride
+        move.w  (a2, d1.w), d2                 // global slot
+        andi.w  #$F800, d0                     // keep palette / priority / flip
+        andi.w  #$07FF, d2                     // global fits the 11-bit field
+        or.w    d2, d0
+        move.w  d0, (a0)+
+        dbf     d3, .ts_loop
         rts
 
     .empty_block:
@@ -300,7 +370,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
 //       Cache_Origin_Row is also kept even, so the physical row keeps the
 //       logical row's parity and physical_row/2 = physical collision row.
 // -----------------------------------------------
-pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16, a1: *u8, a5: *u8, a6: *u8) clobbers(d0-d3/d5/a0/a2-a3) {
+pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16, a1: *u8, a5: *u8, a6: *u8) clobbers(d0-d3/d5/a0/a2-a4) preserves(a1) {
         // wrap d1 (logical cache col) to physical column via circular origin
         add.w   Cache_Origin_Col, d1
         cmpi.w  #TILE_CACHE_COLS, d1
@@ -322,6 +392,16 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         add.w   d5, d5                         // col * 2
         adda.w  d5, a0                         // a0 = first tile word in run
 
+        // P2b Task 6: the staged words are GLOBAL; each is patched global->physical
+        // (frame) + ref/unref by PageCache_PatchWord as it lands in the nametable.
+        // PatchWord writes through a1, so a1 becomes the nametable dest cursor here.
+        // a1 (the staged base) is a PRESERVED param — FillAll reuses it across 16
+        // columns — so SAVE it on the stack (the closure-recognised preserve idiom)
+        // and pop it at the single exit; a4 mirrors it for the collision copy
+        // (PatchWord never touches a4).
+        move.l  a1, -(sp)                      // preserve staged base (restored at .done_coll)
+        movea.l a1, a4                         // staged base -> a4 (collision copy source)
+
         // dest: Tile_Cache_Nametable + (phys_row * stride + cache_col) * 2
         // ×80 = ((x<<2)+x)<<4 — single temp. Stays hand-written: d2 is live
         // afterwards (the wrap-split arithmetic at :341/:352, then the collision
@@ -333,23 +413,25 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         lsl.w   #4, d5                         // d5 = phys_row * 80
         add.w   d1, d5                         // + cache_col
         add.w   d5, d5                         // byte offset
-        movea.l a5, a2                        // H6: hoisted NT base (a5, set by the caller — survives DecompressBlock)
-        adda.w  d5, a2
+        movea.l a5, a1                        // H6: hoisted NT base (a5, survives DecompressBlock)
+        adda.w  d5, a1                        // a1 = nametable dest cursor (was a2 pre-Task6)
 
         // wrap-split: the vertical run (≤16 rows) crosses the cache row-59→0
         // boundary at most once, so emit ≤2 straight copies split there instead
         // of a per-row sentinel test — byte-identical dest, no per-row wrap branch.
+        // The per-word copy is now PageCache_PatchWord (global->physical + refcount);
+        // it advances neither cursor, so the lea strides are unchanged.
         move.w  #TILE_CACHE_ROWS, d5
         sub.w   d2, d5                         // d5 = rows until the dest column wraps
         cmp.w   d3, d5
         bge     .nt_one_run                    // whole run fits before the wrap
         subq.w  #1, d5
     .nt_run1:
-        move.w  (a0), (a2)
+        jbsr    PageCache_PatchWord            // reads (a0), patches into (a1); preserves every GP register
         lea     BLOCK_TILE_SIZE*2(a0), a0      // next block row (32 bytes)
-        lea     TILE_CACHE_STRIDE*2(a2), a2    // next cache row (160 bytes)
+        lea     TILE_CACHE_STRIDE*2(a1), a1    // next cache row (160 bytes)
         dbf     d5, .nt_run1
-        suba.w  #TILE_CACHE_NT_SIZE, a2        // dest wraps row 59 → 0, keeping cache_col
+        suba.w  #TILE_CACHE_NT_SIZE, a1        // dest wraps row 59 → 0, keeping cache_col
         move.w  d3, d5
         add.w   d2, d5
         subi.w  #TILE_CACHE_ROWS, d5           // d5 = rows after the wrap
@@ -359,15 +441,16 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
     .nt_run2:
         subq.w  #1, d5
     .nt_run2_loop:
-        move.w  (a0), (a2)
+        jbsr    PageCache_PatchWord
         lea     BLOCK_TILE_SIZE*2(a0), a0
-        lea     TILE_CACHE_STRIDE*2(a2), a2
+        lea     TILE_CACHE_STRIDE*2(a1), a1
         dbf     d5, .nt_run2_loop
 
         // collision plane A: src = slot base + BLOCK_NT_SIZE + (src_row/2)*16 + col
         // src_row (d4) is even here, but use the parity-safe macro anyway so this
-        // site cannot drift into the FillRow odd-row trap class (§5).
-        lea     BLOCK_NT_SIZE(a1), a0
+        // site cannot drift into the FillRow odd-row trap class (§5). Staged base is
+        // in a4 (a1 is now the spent nametable dest cursor).
+        lea     BLOCK_NT_SIZE(a4), a0
         move.w  d4, d5
         coll_src_row_base(d5)                  // (src_row/2) * BLOCK_COLL_COLS
         adda.w  d5, a0
@@ -422,6 +505,13 @@ pub proc TileCache_CopyBlockColumn (d0: u16, d1: u16, d2: u16, d3: u16, d4: u16,
         lea     TILE_CACHE_STRIDE(a2), a2
         dbf     d5, .coll_run2_loop
     .done_coll:
+        // P2b Task 6 REGRESSION FIX: the original CopyBlockColumn PRESERVED a1 (the
+        // staged base) — FillAll reuses it across all 16 intra-block columns without
+        // reloading (tile_cache.emp FillAll copy loop). Task 6 repurposed a1 as the
+        // nametable dest cursor, silently breaking that contract (cols 1-15 of every
+        // block read a garbage src -> wrong art). Restore the saved staged base so
+        // the proc preserves a1 exactly as before (single exit).
+        movea.l (sp)+, a1
         rts
 }
 
@@ -463,6 +553,14 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         clr.w   Cache_H_Pfx_Accum
         clr.w   Cache_Pfx_Skip_Armed
         clr.w   Cache_Pfx_Lag_Flag             // trailing-lag gate baseline (no false skip on frame 1)
+        // Prefetch ahead-targets baseline (chain 78): the per-frame Tile_Cache_Fill scan
+        // sets these, but PageCache_Prefetch (run from VSync_Wait at frame top) can fire on
+        // the FIRST gameplay frame BEFORE that scan has run this act. Seed the $FFFF
+        // "axis-inactive" sentinel here — in FillAll's section reset, before the display
+        // comes on — so a pre-first-fill prefetch reads "no target" and skips, rather than
+        // scanning a RAM-init 0 as a live block coordinate.
+        move.w  #$FFFF, Cache_Pfx_Row_Target
+        move.w  #$FFFF, Cache_Pfx_Col_Target
         subi.w  #TILE_CACHE_MARGIN_V, d0
         bpl     .top_ok
         moveq   #0, d0
@@ -476,12 +574,21 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
 
         jbsr    TileCache_FillAll
         jbsr    TileCache_WarmupBelowRow       // cold-start warmup: pre-stage the below-row
+    if DEBUG == 1 {
+        // P2b Task 6: the first full fill populated every refcount — audit the
+        // residency invariant before the display comes on.
+        jbsr    PageCache_Audit
+    }
         rts
 }
 
 // -----------------------------------------------
 // TileCache_FillAll — fill entire cache from block data
-// Called at init and after full reinit.
+// Called once at init (from Tile_Cache_Init, display OFF).
+// PRECONDITION: requires all resident pf_refcount == 0 — guaranteed by
+// PageCache_Init at boot. The `.zero_nt` bulk-zero here bypasses PatchWord's
+// per-word unref, so a future WARM-cache refill must first reset refcounts and
+// rebuild the LRU before calling this, or residency accounting double-counts.
 // In:  none (reads Cache_Left_Col/Head_Col/Top_Row/Bottom_Row)
 // Out: none
 // Clobbers: d0-d7, a0-a6
@@ -626,8 +733,9 @@ pub proc TileCache_FillAll () clobbers(d0-d7/a0-a6) {
 // assumption (the common level-entry direction); an up-scroll from spawn simply
 // doesn't benefit — no correctness cost either way (staging is a decompress
 // cache; unused pre-staged blocks evict harmlessly as scroll proceeds).
-// Init-only by design: Reinit is mid-play recovery where the scroll direction
-// is unknown, so the down assumption doesn't hold there.
+// Init-only by design: the down-scroll assumption only holds at level entry.
+// There is no mid-play recovery caller; a hypothetical one (unknown scroll
+// direction) could not rely on the down assumption anyway.
 // In:  none (reads Cache_Bottom_Row/Left_Col/Head_Col, Current_Act_Ptr)
 // Out: none
 // Clobbers: d0-d7, a0-a4 (DecompressBlock's set + scan temps; a5/a6 preserved)
@@ -703,9 +811,58 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .fg_lag_done:
         move.w  d0, Cache_Fill_Last_Frame
 
+    if DEBUG == 1 {
+        // DEMAND-STALL WATCHDOG (chain 74). Cache_Art_Stall still set here => the
+        // PREVIOUS frame's fill demand-stalled and did not resolve. Count consecutive
+        // stalled frames; if the fill can never make progress (working set exceeds the
+        // dynamic frames) raise LOUD rather than hang on a silent black screen (the
+        // soak gate requires "no deadlock in the demand-stall path").
+        tst.w   Cache_Art_Stall
+        bne     .stall_wd_count
+        clr.w   Cache_Stall_Watchdog            // fill did not stall last frame -> reset
+        bra     .stall_wd_done
+    .stall_wd_count:
+        addq.w  #1, Cache_Stall_Watchdog
+        cmpi.w  #STALL_WATCHDOG_FRAMES, Cache_Stall_Watchdog
+        blo     .stall_wd_done
+        raise_error "demand stall unresolved > watchdog frames - working set exceeds dynamic frames?"
+    .stall_wd_done:
+    }
+
+        // P2b Task 6: a fresh demand-stall flag each fill pass (a copy-site
+        // non-resident page sets it; the fills consume it as a partial return).
+        clr.w   Cache_Art_Stall
+        // P2c Task 10: the camera soft-clamp hold is re-derived from scratch every
+        // fill pass. Clear here (after the same-frame early-out at .fill_return, so a
+        // re-entry never wipes a valid hold); the stall sites re-set per-axis bits
+        // below. A pass that resolves the stall leaves the word 0 -> the camera moves
+        // again next frame (the "cleared the frame the stall resolves" contract).
+        clr.b   Camera_Art_Hold
+    if DEBUG == 1 {
+        // Periodic residency audit — recompute every frame's refcount from the
+        // whole nametable and compare (PAGECACHE_AUDIT_INTERVAL = 128 frames; a
+        // rare, identifiable DEBUG-shape lag spike — measure lag off audit frames).
+        addq.w  #1, Page_Audit_Ticks
+        cmpi.w  #PAGECACHE_AUDIT_INTERVAL, Page_Audit_Ticks
+        blo     .no_audit
+        clr.w   Page_Audit_Ticks
+        jbsr    PageCache_Audit
+    .no_audit:
+    }
+
         // --- reset per-frame decompress budget + rows-this-frame cap ---
         //     BEFORE the preambles: the column-partial bypass path jumps
         //     straight to .v_section, which must see a fresh rows cap.
+        //
+        // D2 §7.2 ADOPTION SEAM (documented, NOT built — spec ruling D2 = C, no
+        //     unified arbiter). This per-frame block-decompress budget is THIS
+        //     tier's own governor. If a future THIRD deferred-work consumer with a
+        //     real non-preemptible per-frame cost ever needs to trade budget
+        //     against the block fill and the page-in tier, a cost-denominated
+        //     arbiter would plug in HERE — replacing this fixed reset with an
+        //     arbiter-apportioned allowance. Until such a consumer exists, each tier
+        //     keeps its own budget (block fill here, DMA bytes in dma_queue, art
+        //     bytes in page_in). See ENGINE_ARCHITECTURE.md §9.7 (Task 12).
         move.w  #BLOCK_DECOMP_BUDGET, Cache_Fill_Budget
         move.w  #VFILL_ROWS_PER_FRAME, Cache_Fill_Rows_Left
 
@@ -1303,6 +1460,14 @@ pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         jbsr    TileCache_CopyBlockColumn
         movem.l (sp)+, d5
 
+        // P2b Task 6: a non-resident page in this block set Cache_Art_Stall. Treat it
+        // exactly like a budget-out — resume this column at this block top next frame
+        // (d7 not yet advanced). Re-copy is refcount-neutral (PatchWord pairs
+        // unref-old with ref-new), so blocks already copied this pass stay correct.
+        // DORMANT in Task 6 (whole pool resident); Task 7 eviction exercises it.
+        tst.w   Cache_Art_Stall
+        bne     .fc_budget_out
+
         // advance cursor to next block top
         andi.w  #$FFF0, d7
         addi.w  #BLOCK_TILE_SIZE, d7
@@ -1311,6 +1476,13 @@ pub proc TileCache_FillColumn (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
     .fc_budget_out:
         move.w  d5, Cache_Fill_Resume_Col
         move.w  d7, Cache_Fill_Resume_Row
+        // P2c Task 10: this exit is reached on BOTH a plain budget-out (:beq above)
+        // and a demand stall (:bne on Cache_Art_Stall). Only a stall near the X edge
+        // holds the camera. d5 = the stalled column.
+        tst.w   Cache_Art_Stall
+        beq     .fc_no_xhold
+        art_hold_edge_check(Camera_X, SCREEN_TILES_W, ART_HOLD_X_BIT)
+    .fc_no_xhold:
         moveq   #1, d0
         rts
 
@@ -1501,40 +1673,36 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         blt     .fr_nt_emit                   // n1 = cols_before_wrap (< n_total)
         move.w  d1, d0                         // n1 = n_total (whole run fits pre-wrap)
     .fr_nt_emit:
+        // P2b Task 6: each staged word is GLOBAL; PageCache_PatchWord translates it
+        // global->physical (frame) + ref/unref as it lands. The patch is inherently
+        // per-word, so the move.l word-pair copies become per-word patch loops (the
+        // block-walk / resume / budget structure is unchanged). PatchWord preserves
+        // every GP register, so d0/d3 (counters), d4/a4 (run-2 dest inputs), and the
+        // a0/a1 cursors all survive across it.
         move.w  d1, d3
-        sub.w   d0, d3                         // d3 = n2 = n_total - n1
+        sub.w   d0, d3                         // d3 = n2 = n_total - n1   (d0 = n1)
         move.w  d4, d1
         add.w   d2, d1
         add.w   d1, d1                         // (row_off + phys_start) * 2
         lea     (a4, d1.w), a1                 // run-1 dest
-        move.w  d0, d1                         // save n1 for the odd-word tail
-        lsr.w   #1, d0                         // n1 / 2 long copies
-        beq     .fr_nt_run1_tail              // n1 == 1: tail word only
-        subq.w  #1, d0
+        subq.w  #1, d0                          // n1 words (n1 >= 1)
     .fr_nt_run1:
-        move.l  (a0)+, (a1)+
+        jbsr    PageCache_PatchWord            // reads (a0), patches into (a1)
+        lea     2(a0), a0
+        lea     2(a1), a1
         dbf     d0, .fr_nt_run1
-    .fr_nt_run1_tail:
-        btst    #0, d1                         // odd run-1: trailing word
-        beq     .fr_nt_run1_done
-        move.w  (a0)+, (a1)+
     .fr_nt_run1_done:
         tst.w   d3
         beq     .fr_nt_empty
         move.w  d4, d1
         add.w   d1, d1                         // wrap dest starts at phys 0
         lea     (a4, d1.w), a1                 // run-2 dest
-        move.w  d3, d1                         // save n2 for the odd-word tail
-        lsr.w   #1, d3                         // n2 / 2 long copies
-        beq     .fr_nt_run2_tail              // n2 == 1: tail word only
-        subq.w  #1, d3
+        subq.w  #1, d3                          // n2 words
     .fr_nt_run2:
-        move.l  (a0)+, (a1)+
+        jbsr    PageCache_PatchWord
+        lea     2(a0), a0
+        lea     2(a1), a1
         dbf     d3, .fr_nt_run2
-    .fr_nt_run2_tail:
-        btst    #0, d1                         // odd run-2: trailing word
-        beq     .fr_nt_empty
-        move.w  (a0)+, (a1)+
 
     .fr_nt_empty:
         // === phase 2: collision planes A and B (cell-completing rows only) ===
@@ -1624,6 +1792,12 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         dbf     d3, .fr_ci_run2
 
     .fr_next_block:
+        // P2b Task 6: a non-resident page (set during the nametable patch above)
+        // stalls this row at the current column — treat like a budget-out (resume
+        // keyed to d7, the current col). Re-copy on resume is refcount-neutral
+        // (PatchWord pairs unref-old with ref-new). DORMANT in Task 6.
+        tst.w   Cache_Art_Stall
+        bne     .fr_budget_out
         move.w  d7, d0
         andi.w  #$FFF0, d0
         addi.w  #BLOCK_TILE_SIZE, d0
@@ -1636,6 +1810,12 @@ pub proc TileCache_FillRow (d5: u16) clobbers(d1-d7/a0-a6) out(d0) {
         addq.l  #4, sp
         move.w  d5, Cache_Fill_RowResume_Row
         move.w  d7, Cache_Fill_RowResume_Col
+        // P2c Task 10: reached on plain budget-out AND demand stall; only a stall
+        // near the Y edge holds the camera. d5 = the stalled row.
+        tst.w   Cache_Art_Stall
+        beq     .fr_no_yhold
+        art_hold_edge_check(Camera_Y, SCREEN_TILES_H, ART_HOLD_Y_BIT)
+    .fr_no_yhold:
         moveq   #1, d0
         rts
 
@@ -1714,61 +1894,5 @@ pub proc TileCache_VSlideUp (d0: u16) clobbers(d0-d1) {
     .vsu_nowrap:
         move.w  d1, Cache_Origin_Row
     .vsu_done:
-        rts
-}
-
-// -----------------------------------------------
-// TileCache_Reinit — full cache re-center + refill (recovery path)
-// Costs ~10 frames synchronously (full FillAll) — recovery only, never
-// on a hot path. Currently no callers; retained as the documented
-// recovery mechanism for future cache-miss / debug-warp handling.
-// In:  none
-// Out: none
-// Clobbers: d0-d7, a0-a6
-// -----------------------------------------------
-pub proc TileCache_Reinit () clobbers(d0-d7/a0-a6) {
-        // recompute cache bounds centered on camera
-        move.l  Camera_X, d0
-        swap    d0
-        lsr.w   #3, d0                         // camera world tile col
-        subi.w  #TILE_CACHE_MARGIN_H, d0
-        bpl     .ri_left_ok
-        moveq   #0, d0
-    .ri_left_ok:
-        move.w  d0, Cache_Left_Col
-        addi.w  #TILE_CACHE_COLS-1, d0
-        move.w  d0, Cache_Head_Col
-        clr.w   Cache_Origin_Col
-        clr.w   Cache_Origin_Row
-        move.w  #$FFFF, Cache_Fill_Resume_Col
-        move.w  #$FFFF, Cache_Fill_RowResume_Row
-
-        move.l  Camera_Y, d0
-        swap    d0
-        lsr.w   #3, d0                         // camera world tile row
-        move.w  d0, Cache_Prev_Cam_Row     // reset vertical prefetch baseline on reinit
-        move.l  Camera_X, d1
-        swap    d1
-        move.w  d1, Cache_Prev_Cam_X       // reset horizontal prefetch baseline
-        clr.w   Cache_H_Pfx_Dir
-        clr.w   Cache_H_Pfx_Accum
-        clr.w   Cache_Pfx_Skip_Armed
-        clr.w   Cache_Pfx_Lag_Flag             // trailing-lag gate baseline
-        subi.w  #TILE_CACHE_MARGIN_V, d0
-        bpl     .ri_top_ok
-        moveq   #0, d0
-    .ri_top_ok:
-        andi.w  #$FFFE, d0                     // keep Cache_Top_Row even (collision cell alignment)
-        move.w  d0, Cache_Top_Row
-        addi.w  #TILE_CACHE_ROWS-1, d0
-        move.w  d0, Cache_Bottom_Row
-
-        jbsr    TileCache_InvalidateStaging
-
-        // refill
-        jbsr    TileCache_FillAll
-
-        // mark plane dirty for full redraw
-        st.b    Section_Plane_Dirty
         rts
 }

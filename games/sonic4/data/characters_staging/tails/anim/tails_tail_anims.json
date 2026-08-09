@@ -1,0 +1,264 @@
+{
+  "character": "tails_tail",
+  "source": "General/Sprites/Tails/Anim - Tails Tail.asm",
+  "format": "s3k-raw",
+  "note": "Raw S3K animation scripts. Mapping to Aeon's 11 universal ANIM_* ids + new ability anims (FLY/GLIDE/etc.) is a character-plan authoring decision \u2014 DEFERRED. See README.",
+  "anim_control_codes": {
+    "AF_SET_FIELD": "0xF7",
+    "AF_COLLISION": "0xF8",
+    "AF_SOUND": "0xF9",
+    "AF_CALLBACK": "0xFA",
+    "AF_DELETE": "0xFB",
+    "AF_ROUTINE": "0xFC",
+    "AF_CHANGE": "0xFD",
+    "AF_BACK": "0xFE",
+    "AF_END": "0xFF"
+  },
+  "anim_count": 13,
+  "animations": [
+    {
+      "index": 0,
+      "s3k_label": "AniTails_Tail00",
+      "duration": 32,
+      "duration_note": null,
+      "frames": [
+        0
+      ],
+      "frame_count": 1,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "2000ff"
+    },
+    {
+      "index": 1,
+      "s3k_label": "AniTails_Tail01",
+      "duration": 7,
+      "duration_note": null,
+      "frames": [
+        34,
+        35,
+        36,
+        37,
+        38
+      ],
+      "frame_count": 5,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "072223242526ff"
+    },
+    {
+      "index": 2,
+      "s3k_label": "AniTails_Tail02",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        34,
+        35,
+        36,
+        37,
+        38
+      ],
+      "frame_count": 5,
+      "terminator": {
+        "code": "0xFD",
+        "name": "AF_CHANGE",
+        "operands": [
+          1
+        ]
+      },
+      "raw_hex": "032223242526fd01"
+    },
+    {
+      "index": 3,
+      "s3k_label": "AniTails_Tail03",
+      "duration": 252,
+      "duration_note": null,
+      "frames": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "fc05060708ff"
+    },
+    {
+      "index": 4,
+      "s3k_label": "AniTails_Tail04",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        9,
+        10,
+        11,
+        12
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "03090a0b0cff"
+    },
+    {
+      "index": 5,
+      "s3k_label": "AniTails_Tail05",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        13,
+        14,
+        15,
+        16
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "030d0e0f10ff"
+    },
+    {
+      "index": 6,
+      "s3k_label": "AniTails_Tail06",
+      "duration": 3,
+      "duration_note": null,
+      "frames": [
+        17,
+        18,
+        19,
+        20
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "0311121314ff"
+    },
+    {
+      "index": 7,
+      "s3k_label": "AniTails_Tail07",
+      "duration": 2,
+      "duration_note": null,
+      "frames": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "0201020304ff"
+    },
+    {
+      "index": 8,
+      "s3k_label": "AniTails_Tail08",
+      "duration": 2,
+      "duration_note": null,
+      "frames": [
+        26,
+        27,
+        28,
+        29
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "021a1b1c1dff"
+    },
+    {
+      "index": 9,
+      "s3k_label": "AniTails_Tail09",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        30,
+        31,
+        32,
+        33
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "091e1f2021ff"
+    },
+    {
+      "index": 10,
+      "s3k_label": "AniTails_Tail0A",
+      "duration": 9,
+      "duration_note": null,
+      "frames": [
+        41,
+        42,
+        43,
+        44
+      ],
+      "frame_count": 4,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "09292a2b2cff"
+    },
+    {
+      "index": 11,
+      "s3k_label": "AniTails_Tail0B",
+      "duration": 1,
+      "duration_note": null,
+      "frames": [
+        39,
+        40
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "012728ff"
+    },
+    {
+      "index": 12,
+      "s3k_label": "AniTails_Tail0C",
+      "duration": 0,
+      "duration_note": null,
+      "frames": [
+        39,
+        40
+      ],
+      "frame_count": 2,
+      "terminator": {
+        "code": "0xFF",
+        "name": "AF_END",
+        "operands": []
+      },
+      "raw_hex": "002728ff"
+    }
+  ]
+}

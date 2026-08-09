@@ -126,10 +126,10 @@ When researching how to implement a system, check these in order:
 ## What This Engine Is
 
 A section-streaming Sonic engine with:
-- Unified VRAM art pool — globally-deduped, spatially-ordered, paged act tileset (fully resident, loaded once at init)
+- Unified VRAM art pool — globally-deduped, spatially-ordered, paged act tileset as a VRAM residency cache: small 64-tile pages streamed in on demand + prefetch via a VBlank supervisor-bookmark idle-time decoder, capped by ROM not VRAM (degenerates to fully-resident for acts whose window fits the pool). See ARCH §9.7.
 - 64×64 scroll planes for vertical transitions and VSRAM effects
 - Per-section collision maps (shift-based lookup, no multiply)
 - VDP-order sprite mappings (zero field reordering)
-- Two-tier compression — ZX0 for the act art-pool pages (load-time tile art), S4LZ v3 for the runtime block stream (per-section block dictionaries); uncompressed sprite art + improved DPLC/DMA. Enigma/Nemesis/Kosinski/UFTC all removed
+- Two-tier compression — ZX0/raw-direct 64-tile pages for the act art pool (per-page form election; the resumable ZX0R decoder sliced across idle time, §9.7), S4LZ v3 for the runtime block stream (per-section block dictionaries); uncompressed sprite art + improved DPLC/DMA. Enigma/Nemesis/Kosinski/UFTC all removed
 - From-scratch custom Z80-autonomous sound driver — FM/PSG music sequencer + DMA-survival DAC drums (Flamedriver-informed, not Flamedriver)
 - Build tool pipeline: editor stamps → flatten → deduplicate → spatial-order → page → generate

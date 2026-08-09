@@ -8,6 +8,7 @@
 module engine.camera in camera
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
+use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 use engine.coords.{pixels_to_coord}
@@ -203,6 +204,14 @@ pub proc Camera_Init (a0: *Act) clobbers(d0-d1) {
 //                        consumed at .y_track — see the reservation note there)
 // -----------------------------------------------
 pub proc Camera_Update () clobbers(d0-d4/a0) {
+    if DEBUG == 1 {
+        // P2c Task 10: count frames the art soft-clamp held an axis (0 in normal
+        // play — the OJZ cache working set == the pool, so no sustained stalls).
+        tst.b   Camera_Art_Hold
+        beq     .no_clamp_count
+        addq.w  #1, Dbg_Cam_Clamp_Frames
+    .no_clamp_count:
+    }
         // -- spindash launch freeze --
         //    Camera_Hold_Frames is set =16 on spindash release.
         //    While nonzero, hold the camera still (skip BOTH X and Y follow)
@@ -225,6 +234,15 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         jbra    .x_done                             // X-clamp only; .y_track
                                                     // tests d4 and skips Y follow
     .no_freeze:
+        // -- art-streaming soft-clamp, X axis (P2c Task 10) --
+        //    A demand-stalled fill that left not-yet-resident art within
+        //    CLAMP_MARGIN_TILES of the visible X edge set ART_HOLD_X_BIT. Hold X
+        //    (max step 0 = the .x_done no-apply path: clamp the memory value, no
+        //    step) so the camera can't outrun the art. Player logic is untouched;
+        //    d4 is 0 here, so Y still follows normally unless it is held too. The
+        //    fill clears the bit the frame the stall resolves.
+        btst    #ART_HOLD_X_BIT, Camera_Art_Hold
+        bne     .x_done
         lea     Player_1, a0                        // (Player_1).w
 
         // -- X tracking: classic S3K fixed deadzone (screen-x 144..160) --
@@ -287,6 +305,12 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         clamp_camera_axis_reg(Camera_X, Camera_X_Max)
 
     .y_track:
+        // -- art-streaming soft-clamp, Y axis (P2c Task 10) --
+        //    Symmetric with the X hold above: a Y-edge demand stall set
+        //    ART_HOLD_Y_BIT -> hold Y (the .clamp_y no-apply path). Independent of
+        //    the X hold and the spindash freeze below.
+        btst    #ART_HOLD_Y_BIT, Camera_Art_Hold
+        bne     .clamp_y
         tst.b   d4                                  // spindash freeze active?
         bne     .clamp_y                            // yes → hold Y, clamp only
         lea     Player_1, a0                        // (Player_1).w

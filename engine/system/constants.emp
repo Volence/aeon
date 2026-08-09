@@ -224,11 +224,115 @@ pub const DMA_TOTAL_SLOTS      = DMA_CRITICAL_SLOTS + DMA_IMPORTANT_SLOTS + DMA_
 
 // Act art-pool paging + compressed-art wrapper. Every compressed art blob starts
 // with the 4-byte wrapper [u16 BE uncompressed size][u8 flags][u8 version].
-pub const ART_POOL_PAGE_TILES = 256         // tiles per pool page (matches build tool + ojz_strip_gen)
+pub const ART_POOL_PAGE_TILES = 64          // tiles per pool page (P2b cutover 256->64; matches ojz_strip_gen)
 pub const ART_HDR_VERSION     = 3           // byte offset of version within wrapper
 pub const ART_HDR_SIZE        = 4           // wrapper bytes ahead of the stream
 pub const ART_VER_S4LZ        = 1           // S4LZ v3 token stream (runtime tier)
 pub const ART_VER_ZX0         = 2           // ZX0 modern/V2 bitstream (load-time tier)
+
+// Manifest v2 (P2b): the act's page-address table (Act.act_art_pool_table) is now
+// a stride-`sizeof(PageManifest)` array of {source.l, tiles.w, form.b, flags.b}.
+// PageIn_Process strides it and dispatches on the form byte (not the wrapper
+// version). pm_form values / pm_flags bits:
+pub const ART_PAGE_FORM_ZX0    = 0          // ZX0 stream (wrapper + salvador bitstream, staged decode)
+pub const ART_PAGE_FORM_RAW    = 1          // raw-direct (uncompressed payload, DMA straight from ROM)
+pub const ART_PAGE_FLAG_PINNED = 1 << 0     // never-evict act-common page (P2b residency cache)
+pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (matches ojz_strip_gen)
+
+// Residency cache (P2b Task 6, engine.page_cache). The FG VRAM art region is
+// carved into PAGE_FRAMES fixed 64-tile frames; the page table maps a global
+// page id -> the frame holding it (or PAGE_NOT_RESIDENT). POOL_TILE_CEILING(960)
+// / ART_POOL_PAGE_TILES(64) = 15 frames span the whole FG art window.
+pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 15
+ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
+       "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
+pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + LRU/free link terminator
+// pf_flags bits (engine.structs PageFrame):
+pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)
+pub const PF_IN_LRU_BIT      = 1           // frame is currently linked in the eviction LRU list
+pub const PF_PINNED          = 1 << PF_PINNED_BIT
+pub const PF_IN_LRU          = 1 << PF_IN_LRU_BIT
+// The tile-index field of a nametable word (bits 0-10); bits 11-15 are pal/pri/flip.
+pub const NT_TILE_MASK       = $07FF
+pub const NT_ATTR_MASK       = $F800
+// A resident physical tile index >> PAGE_FRAME_TILE_SHIFT yields its frame id;
+// (index & PAGE_FRAME_TILE_MASK) is the intra-frame tile (0..63). 64 = 2^6.
+pub const PAGE_FRAME_TILE_SHIFT = 6
+pub const PAGE_FRAME_TILE_MASK  = ART_POOL_PAGE_TILES - 1                // 63
+ensure((1 << PAGE_FRAME_TILE_SHIFT) == ART_POOL_PAGE_TILES,
+       "PAGE_FRAME_TILE_SHIFT must equal log2(ART_POOL_PAGE_TILES)")
+// DEBUG residency audit cadence: recompute per-frame refcounts from the whole
+// Tile_Cache_Nametable every PAGECACHE_AUDIT_INTERVAL frames during play. Chosen
+// large enough that the ~4800-word walk's one-frame cost is a rare, identifiable
+// spike (it perturbs ONLY the DEBUG shape's Lag_Frame_Count — measure lag on the
+// non-audit frames). The audit also runs unconditionally at level init.
+pub const PAGECACHE_AUDIT_INTERVAL = 128
+
+// Page-in request FIFO (Art-streaming P2a, engine.page_in). The dispatcher pops
+// one request per idle slice, resolving page_id -> source/dest via the act's
+// page-address table. Demand requests dequeue before prefetch (two-pass scan).
+pub const PAGEIN_QUEUE_SLOTS  = 8           // request FIFO depth (S3K ~4-deep + headroom)
+pub const PGRQ_DEMAND_BIT     = 0           // request flags: bit set = demand (dequeue first)
+pub const PGRQ_DEMAND         = 1 << PGRQ_DEMAND_BIT
+pub const PGRQ_BULK_BIT       = 1           // init bulk load: non-speculative (D3-gate-exempt) but still LRU-evictable
+pub const PGRQ_BULK           = 1 << PGRQ_BULK_BIT
+pub const PGRQ_PREFETCH       = 0           // speculative: NO flag bits (dequeues after demand; the ONLY gated class)
+
+// Page prefetch (Art-streaming P2b Task 7). When the tile-cache fill's leading edge
+// advances, the page prefetch collects the ahead-strip's referenced pages (via the
+// staged-block global words = the same local->global path) and Requests non-resident
+// ones. Bounded per frame so a burst never floods the DMA window.
+pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted per frame
+
+// STRESS_EVICT forced-eviction dev fixture (Task 7). The build define STRESS_EVICT
+// (0 in every shipped shape; 1 only in the off-canonical `stress_evict` dev profile)
+// clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (4
+// pinned pages 0/1/8/9 + 4 dynamic frames), forcing continuous evict/reload traffic
+// through every path. PageCache_Init threads only PAGE_FRAMES_CLAMP frames into the
+// free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
+// but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).
+//
+// CALIBRATION HISTORY (the fixture floor for OJZ is 9; overseer ruling, chain 78).
+// OJZ is a hard case for a forced-eviction fixture: dedup makes the working set
+// ~= the pool (T7's established conclusion — there is no stable *sustained-churn*
+// regime on OJZ; genuine churn coverage comes from Task 11's stress-uniquify
+// fixture, which manufactures a working set larger than the frame count). So the
+// clamp is a calibration against OJZ's marginal boundary, not a churn generator:
+//   6 (4 pinned + 2 dynamic): livelocked at init pre-watchdog — the fill needs >2
+//       dynamic pages at once, so pages thrashed through 2 frames, fill never
+//       completed (black screen). Retired.
+//   7 (+ 3 dynamic): deterministic, LOUD thrash — used as the working-set-violation
+//       probe (the stall watchdog / AllocFrame assert NAMES it instead of hanging).
+//   8 (+ 4 dynamic): MARGINAL — sits exactly on OJZ's working-set boundary, so it
+//       tips into AllocFrame thrash under small prefetch-timing shifts (e.g. NIT-1's
+//       skip-arm un-suppression raised speculative traffic just enough). Not a
+//       defect: boundary marginality, correctly detected loudly.
+//   9 (+ 5 dynamic): kept as the fixture floor, but NOT a stable churn regime —
+//       clamp 9 still thrashed the diagonal seam. STRUCTURAL finding (overseer,
+//       final): the refcount source is the whole 80x60 Tile_Cache_Nametable window
+//       (multi-screen), and on OJZ's deduped 10-page pool any window references
+//       ~every page, so the cache-window working set == the pool. Refcount-based
+//       eviction therefore cannot sustain churn at ANY clamp < PAGE_FRAMES on a small
+//       deduped act (chain-74's clean run at 8 was traversal luck). The audits stay
+//       clean through every thrash (recount == stored), proving the refs are genuine
+//       window references, not leaks — the AllocFrame assert correctly REFUSES to
+//       evict displayed art. This is the design being right: streaming exists for acts
+//       whose windows CAN'T span the pool; OJZ is not one. So on OJZ this fixture
+//       serves as a loud thrash-CANARY (zero silent corruption), not a churn generator.
+//       Sustained-churn coverage = Task 11's stress-uniquify fixture (window << pool).
+// If a working set ever exceeds the dynamic frames, the stall watchdog
+// (Tile_Cache_Fill, DEBUG) NAMES it instead of hanging.
+pub const STRESS_EVICT_FRAMES = 9
+pub const PAGE_FRAMES_CLAMP   = PAGE_FRAMES - STRESS_EVICT * (PAGE_FRAMES - STRESS_EVICT_FRAMES)
+ensure(PAGE_FRAMES_CLAMP >= 1 && PAGE_FRAMES_CLAMP <= PAGE_FRAMES,
+       "PAGE_FRAMES_CLAMP must be in [1, PAGE_FRAMES] (check STRESS_EVICT_FRAMES)")
+
+// Demand-stall watchdog (Task 7, DEBUG). If the tile-cache fill's demand stall
+// (Cache_Art_Stall) persists unresolved for this many consecutive frames, the engine
+// raise_errors instead of hanging on a silent black screen — a livelock where the
+// working set exceeds the available dynamic frames must be LOUD (the plan's soak gate
+// requires "no deadlock in the demand-stall path"). ~5 seconds at 60 Hz.
+pub const STALL_WATCHDOG_FRAMES = 300
 
 // VRAM fixed-region byte addresses + plane geometry.
 pub const VRAM_SPRITE_TABLE = $B800         // relocated from $D800 to free plane rows 48-63
@@ -255,6 +359,24 @@ pub const SCREEN_HEIGHT = 224
 // camera + ojz_scroll_test). = SCREEN_WIDTH/2 and (SCREEN_HEIGHT-visible-strip)/2.
 pub const CAM_SCREEN_HALF_W = 160
 pub const CAM_SCREEN_HALF_H = 112
+
+// Visible screen extent in 8px tiles (camera/tile-cache edge math).
+pub const SCREEN_TILES_W = SCREEN_WIDTH >> 3    // 40
+pub const SCREEN_TILES_H = SCREEN_HEIGHT >> 3   // 28
+
+// --- Art-streaming camera soft-clamp (P2c Task 10) ---
+// When a demand-stalled tile-cache fill leaves not-yet-resident art within
+// CLAMP_MARGIN_TILES tiles of the visible screen edge on an axis, that axis is
+// HELD (max step 0) until the stall resolves — the honorable S3K-gate
+// degradation (the camera waits; player logic runs untouched). tile_cache.emp
+// sets the per-axis bits at its two demand-stall sites, camera.emp consumes them,
+// and the fill re-derives the whole word fresh each pass so it clears the frame
+// the stall resolves. On OJZ the demand-stall path fires only transiently (the
+// cache working set == the pool), so in normal play the word stays 0 and the
+// camera never holds; the fixture (STRESS_EVICT/STRESS_ART) is where it engages.
+pub const CLAMP_MARGIN_TILES = 4                // edge slack (tiles) before a hold engages
+pub const ART_HOLD_X_BIT     = 0                // Camera_Art_Hold: X axis held
+pub const ART_HOLD_Y_BIT     = 1                // Camera_Art_Hold: Y axis held
 
 // Sprite-frame precomputed bbox byte offsets + first-piece offset (mirror
 // engine/constants.asm; FRAME_PIECE_COUNT above completes the header layout).
@@ -376,10 +498,41 @@ pub const DMA_BUDGET_NTSC = 6144
 pub const DMA_BUDGET_PAL  = 11648
 
 // -----------------------------------------------
+// Enqueue-side DMA byte cap (Vectorman dual cap, Art-streaming P2c Task 8). The
+// three QueueDMA_* classes share a per-frame running byte total
+// (DMA_Enq_Bytes_Frame, reset in VInt_Level beside DMA_Budget_Remaining); an
+// enqueue whose bytes would push the total over this cap is REJECTED exactly like
+// a full queue (carry set — callers already retry next frame). Set ABOVE the drain
+// window budgets so it only catches a runaway enqueue STORM (a producer flooding
+// the queue faster than the window can drain), never normal traffic. The entry-
+// count cap (the queue slots) is the first half of the dual cap; this is the byte
+// half. A per-tier admission cap on ONE resource (DMA bytes), NOT a unified arbiter
+// (D2) — it builds no shared cost ledger.
+// -----------------------------------------------
+pub const DMA_ENQ_BYTE_CAP = 12288
+
+// -----------------------------------------------
 // Decompression / art staging.
 // -----------------------------------------------
 pub const TILE_SIZE = 32                          // bytes per 8x8 4bpp tile
-pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_TILES * TILE_SIZE   // 8192 — one decompressed pool page
+pub const ART_POOL_PAGE_BYTES = ART_POOL_PAGE_TILES * TILE_SIZE       // 2048 — one page's VRAM bytes
+pub const ART_STAGING_BUFFER_SIZE = ART_POOL_PAGE_BYTES              // 2048 — one decompressed pool page
+// PageIn_Process derives a page's VRAM dest as page_id << ART_POOL_PAGE_BYTES_SHIFT
+// (== page_id * ART_POOL_PAGE_BYTES) — the ensure keeps the shift honest against
+// the byte size so a page-size change can't leave the shift stale (tripwire 2).
+pub const ART_POOL_PAGE_BYTES_SHIFT = 11
+ensure((1 << ART_POOL_PAGE_BYTES_SHIFT) == ART_POOL_PAGE_BYTES,
+       "ART_POOL_PAGE_BYTES_SHIFT must equal log2(ART_POOL_PAGE_BYTES)")
+
+// Blanked-init page-load DMA window (Art-streaming P2a/P2b). Level init streams
+// the act pool through the SAME page-in path gameplay uses, landing each decoded
+// page via an Important-priority staging->VRAM DMA. A 64-tile page is 2048 B, so
+// several pages' landings can drain per display-off frame; Level_LoadArt runs
+// display-OFF, where DMA runs at the full per-line rate on every line, so it
+// raises the window budget to this value for the bulk load (headroom for several
+// page landings + a normal frame's other charges) and restores the active-display
+// budget before display-on.
+pub const DMA_BUDGET_BLANKED_INIT = ART_STAGING_BUFFER_SIZE + DMA_BUDGET_NTSC   // 8192 (2048 page + 6144 NTSC window)
 
 // -----------------------------------------------
 // SST layout constants (the ObjDef-copied template block + custom span).

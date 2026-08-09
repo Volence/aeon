@@ -23,7 +23,7 @@
 module engine.structs
 
 // -----------------------------------------------
-// Act Descriptor (§4) — 34 bytes ($22), ROM table
+// Act Descriptor (§4) — 40 bytes ($28), ROM table (sizeof is the truth; no _len const)
 // -----------------------------------------------
 pub struct Act {
     sec_grid_ptr:        *u8,           // $00 — section definition array
@@ -36,10 +36,30 @@ pub struct Act {
     act_bg_layout:       *u8,           // $0E — zone-wide Plane B layout (T1 default)
     act_bg_tiles:        *u8,           // $12 — zone-wide Plane B tile blob
     act_parallax_config: *u8,           // $16 — default parallax config
-    act_art_pool_table:  *u8,           // $1A — page-address table (generated)
+    act_art_pool_table:  *u8,           // $1A — manifest v2 table: [PageManifest; act_art_pool_pages] (generated)
     act_art_pool_pages:  u16,           // $1E — pool page count (generated)
     edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
-    pad_21:              u8 = 0,        // $21 — reserved word pad (anonymous in structs.asm)
+    pad_21:              u8 = 0,        // $21 — reserved byte pad (anonymous in structs.asm)
+    act_sec_local_maps:  *u8,           // $22 — [*u8; grid_w*grid_h] per-section local->global tables (P2b, generated)
+    act_art_budget:      u16,           // $26 — per-act steady-state art-streaming byte budget (B&R
+                                        //       pattern, P2c Task 9): VInt_Level reloads
+                                        //       Art_Budget_Remaining from it each frame; page_in charges
+                                        //       each landing's DMA bytes and defers when exhausted.
+                                        //       Steady-state governor (init bulk-load runs <=1 page/frame,
+                                        //       under the budget, so it never throttles the display-off load).
+}
+
+// -----------------------------------------------
+// Page manifest entry (Art-streaming P2b, manifest v2) — 8 bytes.
+// Act.act_art_pool_table points at [PageManifest; act_art_pool_pages].
+// PageIn_Process strides this table by sizeof(PageManifest) and dispatches on
+// pm_form (ART_PAGE_FORM_*); pm_flags carries ART_PAGE_FLAG_PINNED (residency).
+// -----------------------------------------------
+pub struct PageManifest {
+    pm_source:           *u8,           // $00 — page blob ptr (ZX0 wrapper, or raw payload)
+    pm_tiles:            u16,           // $04 — decompressed tile count (landing DMA length = *32)
+    pm_form:             u8,            // $06 — ART_PAGE_FORM_ZX0 / ART_PAGE_FORM_RAW
+    pm_flags:            u8,            // $07 — ART_PAGE_FLAG_PINNED bit0
 }
 
 // Low-byte views of the word grid dims — safe: grid_w, grid_h ≤
@@ -50,6 +70,33 @@ pub struct Act {
 // consumer-specific detail (rule-1 amendment).
 pub const Act_grid_w_lo = offsetof(Act, grid_w) + 1
 pub const Act_grid_h_lo = offsetof(Act, grid_h) + 1
+
+// -----------------------------------------------
+// Page-in request (§9.7) — 4 bytes, one FIFO slot (engine.page_in).
+// The dispatcher's request queue holds these; page_id indexes the act's
+// page-address table, pr_flags carries the PGRQ_DEMAND priority bit.
+// -----------------------------------------------
+pub struct PageInReq {
+    pr_page_id:          u16,           // $00 — pool page index (into act_art_pool_table)
+    pr_flags:            u8,            // $02 — PGRQ_DEMAND bit0 (demand vs prefetch)
+    pr_pad:              u8 = 0,        // $03 — reserved
+}
+
+// -----------------------------------------------
+// Page frame (§5) — one 64-tile VRAM art slot in the residency cache
+// (engine.page_cache). Page_Frames[i] describes frame i; frame*64 is its base
+// tile index in the FG art window. pf_lru_prev/next thread the eviction LRU list
+// AND the free list (a frame is in at most one list); PAGE_NOT_RESIDENT($FF)
+// terminates a link. 8 bytes — sizeof is compiler truth (no manual _len).
+// -----------------------------------------------
+pub struct PageFrame {
+    pf_page:             u16,           // $00 — resident page id, or $FFFF when free/unassigned
+    pf_refcount:         u16,           // $02 — cache nametable words referencing this frame
+    pf_lru_prev:         u8,            // $04 — LRU/free doubly-linked prev (frame idx / $FF)
+    pf_lru_next:         u8,            // $05 — LRU/free next (frame idx / $FF)
+    pf_flags:            u8,            // $06 — PF_PINNED / PF_IN_LRU bits
+    pf_pad:              u8 = 0,        // $07 — reserved (keeps the struct even, 8-byte stride = <<3)
+}
 
 // -----------------------------------------------
 // Section Definition (§4) — 66 bytes ($42), ROM table
