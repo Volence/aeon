@@ -1352,6 +1352,23 @@ def run_tests():
     test_explicit_truncation()
     test_binary_round_trip()
     test_full_pipeline_runs()
+    # This list is the ONLY automated invocation of these tests: the file is
+    # not collectible by pytest (not test_*.py, no conftest anywhere), so a
+    # test function not listed here runs NOWHERE. The stress-uniquify family
+    # guards the parent-match re-pointing fix (no cross-texture swaps); the
+    # pool/section tests guard the unbounded-pool -> 2047-local contract.
+    test_section_collision_sec0()
+    test_collision_emit_identity()
+    test_section_local_map_round_trip()
+    test_page_split_covers_pool_exactly()
+    test_unbounded_pool_over_2048_tiles()
+    test_section_over_2047_tiles_fails()
+    test_mark_pinned_pages()
+    test_stress_uniquify_generation_and_pages()
+    test_stress_uniquify_parent_matched()
+    test_stress_uniquify_local_tables_valid()
+    test_stress_uniquify_deterministic()
+    test_stress_uniquify_rejects_small_target()
     print("All tests passed")
 
 

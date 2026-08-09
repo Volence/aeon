@@ -10,10 +10,16 @@ The residency cache means level art is capped by ROM, not VRAM (a page not
 resident is streamed in on demand), so the ROM footprint of the pool is the
 budget that matters now. This report is that budget's watchdog.
 
-Data sources (no ROM parse needed — the pool's ROM cost is exactly the sum of
-the embedded page blobs):
-  - <act>/ojz_act_pool.emp          -> per-page embed() path + PageManifest form/tiles
-  - <act>/ojz_act_pool_manifest.json -> page_tiles / pool_tiles cross-check
+Data sources (no ROM parse needed — the pool's streaming ROM cost is the sum of
+the embedded page blobs + the per-section local->global maps + the manifest
+table):
+  - <act>/ojz_act_pool.emp           -> per-page embed() path + PageManifest form/tiles
+  - <act>/ojz_act_pool_manifest.json -> page count / page_tiles cross-check
+  - <act>/sec*_local_map.bin         -> local-map bytes (counted into the budget)
+
+Liveness: an act pool that parses to ZERO pages, a page-count mismatch against
+the JSON sidecar, or zero pools found repo-wide is a FAILURE, not a clean pass —
+a grammar/glob drift must never silently disarm the watchdog.
 
 Thresholds (KB of STORED pool bytes), per act, overridable by env:
   ART_ROM_SOFT_KB / ART_ROM_HARD_KB          -> all acts
@@ -77,14 +83,34 @@ def env_kb(name, act, default):
             try:
                 return float(os.environ[key])
             except ValueError:
-                pass
+                raise SystemExit(f"art_rom_report: {key}={os.environ[key]!r} is not a number")
     return default
 
 
 def report_act(act, act_dir, emp_path, no_fail):
     pages = parse_pool(act_dir, emp_path)
+    # LIVENESS: a pool file that exists but parses to zero pages means the
+    # emitted grammar drifted away from MANIFEST_RE — "0 pages, 0.0 KB -> ok"
+    # is a disarmed watchdog, not a result.
+    if not pages:
+        raise SystemExit(f"art_rom_report: {emp_path} exists but ZERO manifest "
+                         f"entries parsed — grammar drift? (MANIFEST_RE no longer matches)")
+    # Sidecar cross-check: the generator's own JSON records the page count.
+    sidecar = os.path.join(act_dir, "ojz_act_pool_manifest.json")
+    if os.path.isfile(sidecar):
+        sc = json.load(open(sidecar))
+        sc_n = len(sc.get("pages", []))
+        if sc_n != len(pages):
+            raise SystemExit(f"art_rom_report: {act}: parsed {len(pages)} pages "
+                             f"but sidecar records {sc_n} — parse or tree drift")
     raw = sum(p["raw"] for p in pages)
     stored = sum(p["stored"] for p in pages)
+    # Streaming-ROM ride-alongs that scale with act size: per-section local
+    # maps + the manifest table (8 B/page). Previously uncounted — on OJZ they
+    # are already ~27% of the blob bytes.
+    local_maps = sum(os.path.getsize(p) for p in
+                     glob.glob(os.path.join(act_dir, "sec*_local_map.bin")))
+    stored += local_maps + 8 * len(pages)
     by_form = {}
     for p in pages:
         f = FORM_NAMES.get(p["form"], f"form{p['form']}")
@@ -99,7 +125,8 @@ def report_act(act, act_dir, emp_path, no_fail):
     ratio = (stored / raw * 100.0) if raw else 0.0
 
     print(f"  {act}: {len(pages)} pages, raw {raw/1024:.1f} KB -> "
-          f"stored {stored_kb:.1f} KB ({ratio:.1f}%)")
+          f"stored {stored_kb:.1f} KB ({ratio:.1f}%) "
+          f"[incl. local maps {local_maps/1024:.1f} KB + manifest {8*len(pages)} B]")
     for f in sorted(by_form):
         d = by_form[f]
         fr = (d["stored"] / d["raw"] * 100.0) if d["raw"] else 0.0
@@ -127,8 +154,15 @@ def main(argv):
             root = a
     acts = list(find_act_pools(root))
     if not acts:
-        print("art_rom_report: no act art pools found (nothing to report)")
-        return 0
+        # LIVENESS: silence is what a checker that analyzed nothing produces.
+        # A glob/layout drift must never quietly disarm the budget gate — the
+        # one repo state with legitimately zero pools is a tree with no
+        # generated act data at all, which the level-tree verifier would
+        # already be failing.
+        print("art_rom_report: FAIL — no act art pools found "
+              "(games/*/data/generated/*/act*/ojz_act_pool.emp matched nothing; "
+              "directory layout drift?)", file=sys.stderr)
+        return 2 if not no_fail else 0
     print("Art-pool ROM budget:")
     worst = "ok"
     for act, act_dir, emp in acts:
