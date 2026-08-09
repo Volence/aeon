@@ -160,7 +160,7 @@ Each section is a **16×16 grid of blocks**. Each block covers **16×16 tiles = 
 |-----------|-------------|------|--------|
 | Nametable | 0 | 512 bytes | 16 rows × 16 cols × 2 bytes/word. Row-major. |
 | Collision plane A | 512 | 128 bytes | 8 rows × 16 cols × 1 byte/cell. Half vertical resolution (16px cells). Row-major. Path A (default surface). |
-| Collision plane B | 640 | 128 bytes | 8 rows × 16 cols × 1 byte/cell. Same layout as plane A. Path B (inner loop surface). OJZ ships B = copy of A until real secondary data is authored. |
+| Collision plane B | 640 | 128 bytes | 8 rows × 16 cols × 1 byte/cell. Same layout as plane A. Path B (inner loop surface), editor-authored via `section_N.collattrb.bin` — Aurora's chunk/stamp/clipboard tools (design #6, 2026-08-08) author it directly, distinct from plane A. Mirrors plane A only when a section has no `.collattrb.bin` (unauthored fallback). |
 
 ### Nametable word format (standard Genesis VDP)
 

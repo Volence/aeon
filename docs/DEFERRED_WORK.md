@@ -104,6 +104,14 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   prerequisite, the In:/Out: contract grammar, **has landed and is still growing** (HEAD `fa0ae0b`
   made the Z80 bus and the interrupt mask declared contexts). The cheap half of a
   design-for-it-now item is now the only half left.
+- **SIGIL ASK (not aeon work) — promote declared-`preserves()` violations to a build-fatal
+  dataflow check.** From the T6 art-streaming review. Today `[call.live-clobbered]` is a
+  *non-fatal* diagnostic, and that leniency is exactly how the chain-63 `CopyBlockColumn` `a1`
+  regression shipped: a coherent-but-wrong render that a fatal check would have caught at build
+  time. Ask: sigil should verify, per proc, that the value of each declared-preserved register at
+  every `rts` equals its value at entry (dataflow equality across the whole body incl. call
+  clobbers), and make a violation **build-fatal** — not a warning. This lives in the sigil repo
+  (`/home/volence/sonic_hacks/sigil`), not here; recorded so the ask isn't lost.
 
 ### 6. Sound package 4 — genuinely open and independent
 **D1, D4, D5, D6, D7** and **E5's 7th RegDelta group** are open, verified against the tree, and do
@@ -972,7 +980,46 @@ objects), alongside the §3 SST field audit.
 
 ## From §4 Phase 1 — Level/World System
 
-### ~~Path-B collision content — wire the secondary index through the strip generator (§4.7)~~ — **✅ DONE (both halves) — verified 2026-08-05**
+### ~~Path-B collision content — wire the secondary index through the strip generator (§4.7)~~ — **✅ FULLY CLOSED — design #6 closeout, verified 2026-08-08**
+> **⚠ CORRECTED 2026-08-08 — path B is editor-authorable now, and "remaining = path-swapper
+> objects" (the assumption the 2026-07-02 editor-collision-authoring-design spec carried into
+> this entry) was already stale when that spec was written: `path_swap.emp` shipped
+> 2026-06-12, three weeks before the spec's 2026-07-02 date.**
+>
+> **Production collision has moved off the sonic_hack-donor secondary index entirely.** The
+> 2026-08-05 correction below (kept for provenance) describes wiring the real `"OJZ secondary
+> 16x16 collision index.bin"` through `bake_cell`/`PATH_A_SOL_SHIFT`/`PATH_B_SOL_SHIFT` — that
+> path (`ojz_strip_gen.build_section_collision`) still exists in the tree but is now
+> legacy/test-fallback only (see `test_section_collision_sec0`, explicitly commented
+> "fallback-mode data"). The LIVE production path (`ojz_strip_gen.generate()`, the "FRESH
+> START + flag-based authoring" block) is: **all-air baseline** (`per_section_coll` seeded
+> from `air_col`) **+ Aurora's editor overlay** (`apply_editor_collision_overlay`, reading
+> `games/sonic4/data/editor/ojz/act1/section_N.collattr.bin` / `.collattrb.bin` — 16-bit
+> big-endian cell words, one plane per file) **baked via `collision_pipeline.bake_plane_cell`
+> against the imported S&K shape/height/angle bank** (`data/collision/base/`, written by
+> `import_sk_collision.py`) **into a shared, sparse interned attr-set** (13/255 combos used
+> today, ~242 slots headroom) — only combos actually painted reach the ROM tables.
+>
+> aeon's half of this (consumption) has needed **zero code changes** since 2026-07-02 (per
+> `docs/superpowers/specs/2026-07-02-editor-collision-authoring-design.md` §3). Today's
+> design #6 (Aurora, `aurora/docs/plans/2026-08-08-chunk-collision-and-map-clipboard.md`)
+> closes the AUTHORING half instead: `ChunkDef.collisionA`/`collisionB` (16-bit cell words,
+> same encoding as the section edit planes) now travel with stamps atomically, a map clipboard
+> copies/pastes regions with both collision planes, paint defaults to "just here" instead of
+> art-identity propagation, and the legacy per-tile nibble plane + `.coll.bin` export + 2-bit
+> `ChunkDef.collision` are all deleted. Path B is no longer "copy of A until real secondary
+> data is authored" — Aurora authors it directly now (`docs/LEVEL_EDITOR_SPEC.md` corrected
+> alongside this entry).
+>
+> **Path-swapper objects were never the actual gap.** `games/sonic4/objects/path_swap.emp`
+> (`PathSwap_Init`/`PathSwap_Main`, writes `Sst.layer` on line-crossing — the collision-layer
+> select `engine/level/collision_lookup.emp` reads into `d3.b`) shipped 2026-06-12 ("path-swap
+> line object — OJZ loop wired for two-path traversal") and was ported to `.emp` 2026-07-29; a
+> real two-path loop is placed in level data (`OJZ_Sec1_Objects`, `entity_data.emp:41`, type 1
+> = `ObjDef_PathSwap`, two instances). **No collision-content work remains deferred here** —
+> author → bake → consume → runtime swap is closed end-to-end.
+>
+> Older correction, kept for provenance:
 > **⚠ CORRECTED 2026-08-05 — this entry asked for two things and BOTH shipped.**
 > 1. **The real secondary index is loaded and baked.** `tools/collision_pipeline.py:301` loads
 >    `"OJZ secondary 16x16 collision index.bin"` alongside the primary, and `:172-189`
