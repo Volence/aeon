@@ -292,13 +292,37 @@ pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted p
 // free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
 // but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).
 //
-// Recalibrated 6->8 (chain 74): clamp 6 (4 pinned + 2 dynamic) livelocked at init —
-// the fill's working set needs >2 dynamic pages simultaneously, so pages thrash through
-// the two dynamic frames without the fill ever completing (black screen). 8 (4 pinned +
-// 4 dynamic) still forces continuous eviction on OJZ's 10 pages but leaves the fill a
-// workable dynamic set. If a working set ever exceeds 4 dynamic pages, the stall
-// watchdog (Tile_Cache_Fill, DEBUG) NAMES it instead of hanging.
-pub const STRESS_EVICT_FRAMES = 8
+// CALIBRATION HISTORY (the fixture floor for OJZ is 9; overseer ruling, chain 78).
+// OJZ is a hard case for a forced-eviction fixture: dedup makes the working set
+// ~= the pool (T7's established conclusion — there is no stable *sustained-churn*
+// regime on OJZ; genuine churn coverage comes from Task 11's stress-uniquify
+// fixture, which manufactures a working set larger than the frame count). So the
+// clamp is a calibration against OJZ's marginal boundary, not a churn generator:
+//   6 (4 pinned + 2 dynamic): livelocked at init pre-watchdog — the fill needs >2
+//       dynamic pages at once, so pages thrashed through 2 frames, fill never
+//       completed (black screen). Retired.
+//   7 (+ 3 dynamic): deterministic, LOUD thrash — used as the working-set-violation
+//       probe (the stall watchdog / AllocFrame assert NAMES it instead of hanging).
+//   8 (+ 4 dynamic): MARGINAL — sits exactly on OJZ's working-set boundary, so it
+//       tips into AllocFrame thrash under small prefetch-timing shifts (e.g. NIT-1's
+//       skip-arm un-suppression raised speculative traffic just enough). Not a
+//       defect: boundary marginality, correctly detected loudly.
+//   9 (+ 5 dynamic): kept as the fixture floor, but NOT a stable churn regime —
+//       clamp 9 still thrashed the diagonal seam. STRUCTURAL finding (overseer,
+//       final): the refcount source is the whole 80x60 Tile_Cache_Nametable window
+//       (multi-screen), and on OJZ's deduped 10-page pool any window references
+//       ~every page, so the cache-window working set == the pool. Refcount-based
+//       eviction therefore cannot sustain churn at ANY clamp < PAGE_FRAMES on a small
+//       deduped act (chain-74's clean run at 8 was traversal luck). The audits stay
+//       clean through every thrash (recount == stored), proving the refs are genuine
+//       window references, not leaks — the AllocFrame assert correctly REFUSES to
+//       evict displayed art. This is the design being right: streaming exists for acts
+//       whose windows CAN'T span the pool; OJZ is not one. So on OJZ this fixture
+//       serves as a loud thrash-CANARY (zero silent corruption), not a churn generator.
+//       Sustained-churn coverage = Task 11's stress-uniquify fixture (window << pool).
+// If a working set ever exceeds the dynamic frames, the stall watchdog
+// (Tile_Cache_Fill, DEBUG) NAMES it instead of hanging.
+pub const STRESS_EVICT_FRAMES = 9
 pub const PAGE_FRAMES_CLAMP   = PAGE_FRAMES - STRESS_EVICT * (PAGE_FRAMES - STRESS_EVICT_FRAMES)
 ensure(PAGE_FRAMES_CLAMP >= 1 && PAGE_FRAMES_CLAMP <= PAGE_FRAMES,
        "PAGE_FRAMES_CLAMP must be in [1, PAGE_FRAMES] (check STRESS_EVICT_FRAMES)")
