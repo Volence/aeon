@@ -23,7 +23,7 @@
 module engine.structs
 
 // -----------------------------------------------
-// Act Descriptor (§4) — 34 bytes ($22), ROM table
+// Act Descriptor (§4) — 40 bytes ($28), ROM table (sizeof is the truth; no _len const)
 // -----------------------------------------------
 pub struct Act {
     sec_grid_ptr:        *u8,           // $00 — section definition array
@@ -41,6 +41,12 @@ pub struct Act {
     edge_mode:           u8,            // $20 — vertical edge behavior (EDGE_*)
     pad_21:              u8 = 0,        // $21 — reserved byte pad (anonymous in structs.asm)
     act_sec_local_maps:  *u8,           // $22 — [*u8; grid_w*grid_h] per-section local->global tables (P2b, generated)
+    act_art_budget:      u16,           // $26 — per-act steady-state art-streaming byte budget (B&R
+                                        //       pattern, P2c Task 9): VInt_Level reloads
+                                        //       Art_Budget_Remaining from it each frame; page_in charges
+                                        //       each landing's DMA bytes and defers when exhausted.
+                                        //       Steady-state governor (init bulk-load runs <=1 page/frame,
+                                        //       under the budget, so it never throttles the display-off load).
 }
 
 // -----------------------------------------------

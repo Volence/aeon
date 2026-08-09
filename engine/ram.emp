@@ -316,6 +316,7 @@ pub vars upper_ram {
         // --- Prefetch + D3-gate instrumentation (P2b Task 7) ---
         Dbg_PageCache_Prefetches: u16,  // PageCache_Request(prefetch) enqueues (page prefetch warms the ahead strip)
         Dbg_PageIn_PfxSkips:    u16,    // speculative decode STARTS skipped by the D3 trailing-lag gate
+        Dbg_PageIn_Deferred:    u16,    // page landings deferred by the per-act art budget (P2c Task 9); 0 in normal play
         // Chain-70 soak diagnostic: dispatch found PageIn_Pool_Table != the immutable act
         // descriptor's base -> a stray write corrupted the cached base. Nonzero CONFIRMS
         // the root cause (the resolve now derives the base from ROM, so gameplay is
@@ -679,6 +680,15 @@ pub vars upper_ram {
     PageIn_Prev_Lagged:     u16,        // 1 = the previous frame lagged (Frame_Counter advanced >1)
     PageIn_Pfx_Skip_Armed:  u16,        // 1 = a speculative start was skipped last frame (bound: <=1 running)
     Page_Pfx_Budget:        u16,        // per-frame page-prefetch enqueue budget (reset PAGE_PREFETCH_MAX)
+
+    // --- Art-streaming P2c Task 9: per-act art-streaming byte budget (B&R pattern) ---
+    // RELEASE (present in every shape). Act_Art_Budget is copied from the act
+    // descriptor at level init; VInt_Level reloads Art_Budget_Remaining from it each
+    // frame. page_in charges each page landing's DMA bytes against Art_Budget_Remaining
+    // and DEFERS further page-ins (request stays queued) when a frame is exhausted.
+    // Steady-state governor, NOT a unified arbiter (D2) — per-tier byte budget only.
+    Act_Art_Budget:         u16,        // per-act steady-state art-DMA byte budget (from Act.act_art_budget)
+    Art_Budget_Remaining:   u16,        // remaining art-DMA bytes this frame (reloaded in VInt_Level)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed

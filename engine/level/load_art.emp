@@ -92,6 +92,17 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         // Current_Act_Ptr reader had a stale/null base. Set it here, before any page-in.
         move.l  a0, Current_Act_Ptr
 
+        // Seed the per-act art-streaming budget (P2c Task 9, B&R pattern): copy the
+        // descriptor's steady-state byte budget to RAM and seed the current-frame
+        // remaining so the very first landing (before the first VInt_Level reload) sees
+        // a valid budget. VInt_Level reloads Art_Budget_Remaining from Act_Art_Budget
+        // each frame thereafter. The display-off bulk load lands <=1 page/frame (2048 B)
+        // under the budget (4096), so the governor never throttles init — it is a
+        // steady-state cap on gameplay bursts, not init bulk (see the reload note).
+        move.w  Act.act_art_budget(a0), d0
+        move.w  d0, Act_Art_Budget
+        move.w  d0, Art_Budget_Remaining
+
         // Reset the residency cache at the act transition, before the pool is
         // (re)loaded (P2b Task 6). PageCache_Init flushes pending page-in work
         // (subsuming the old PageIn_Flush), clears Page_Table, and threads the frame

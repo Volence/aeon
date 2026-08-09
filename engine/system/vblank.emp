@@ -138,6 +138,11 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // byte total. Every QueueDMA_* enqueue charges it; over DMA_ENQ_BYTE_CAP the
             // enqueue is rejected like a full queue. Reset here beside the drain-window budget.
             clr.w   (DMA_Enq_Bytes_Frame).w
+            // Per-act art-streaming budget reload (P2c Task 9, B&R pattern): refresh the
+            // frame's art-DMA byte allowance from the act word. page_in charges each page
+            // landing against it and defers further page-ins when a frame is exhausted
+            // (steady-state governor). Two-symbolic mem-to-mem -> both widths spelled.
+            move.w  (Act_Art_Budget).w, (Art_Budget_Remaining).w
 
             jbsr    Flush_VDP_Shadow
 

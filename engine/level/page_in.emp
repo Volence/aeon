@@ -116,6 +116,13 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         bra     .frame_ticked
     .lag_ontime:
         clr.w   PageIn_Prev_Lagged
+        clr.w   PageIn_Pfx_Skip_Armed           // NIT-1 (T7 review): disarm the skip latch on ANY on-time
+                                                // frame, uniformly on the tick path. The non-spec .start
+                                                // path (demand/bulk) jumps ahead of .gate_reset, so a stale
+                                                // arm could otherwise suppress a later episode's first
+                                                // legitimate skip. Only an on-time frame disarms here, so
+                                                // the <=1-consecutive-skip bound holds (consecutive lagged
+                                                // frames keep the arm; .gate_reset's clear is now redundant-safe).
     .frame_ticked:
 
         tst.b   PageIn_Suspended
@@ -421,17 +428,40 @@ pub proc PageIn_Resume () clobbers(d0-d2/a0-a3) {
 // MOVEM leaves CCR untouched, so the dropped-carry result survives the restore.
 //
 // In:  d1.l = DMA source (staging buffer, or ROM payload for the raw form)
-// Out: carry SET = request dropped (queue full); carry CLEAR = enqueued.
-// Clobbers: d0-d2/a1-a2 (QueueDMA's set minus the preserved d3/d4).
+// Out: carry SET = request dropped (queue full) OR deferred (art budget exhausted);
+//      carry CLEAR = enqueued (and the landing's bytes charged to Art_Budget_Remaining).
+//      Both carry-set reasons flow through the caller's existing retry/hold paths.
+// Clobbers: d0-d2/a1-a2 (QueueDMA's set minus the preserved d3/d4; d0 also carries the
+//      budget check/charge, already in the set).
 // -----------------------------------------------
 proc PageIn_EnqueueLanding (d1: u32) clobbers(d0-d2/a1-a2) preserves(d3-d4) out(carry: dropped) {
+        // Art budget gate (P2c Task 9, B&R per-act word): if this landing's DMA bytes
+        // exceed the frame's remaining art budget, DEFER — return "dropped" (carry set)
+        // WITHOUT enqueueing or charging. The caller treats it exactly like a full DMA
+        // queue: the ZX0 path holds PageIn_Land_Pending (staging stays valid + retries),
+        // the raw path re-queues the request — the request stays queued, nothing dropped.
+        // Charged only on a SUCCESSFUL enqueue below. Checked BEFORE the movem so the
+        // deferral is push/pop-free. Steady-state governor; init bulk-load lands <=1
+        // page/frame under the budget, so it never throttles the display-off load
+        // (VInt_Level reloads Art_Budget_Remaining each frame). NOT a unified arbiter (D2).
+        move.w  Art_Budget_Remaining, d0
+        cmp.w   PageIn_Cur_Bytes, d0
+        blo     .art_deferred                   // remaining < bytes -> defer this frame
         movem.l d3-d4, -(sp)                     // preserve out-of-license regs across QueueDMA_Important
         move.w  PageIn_Cur_Dest, d2              // d2 = VRAM byte dest
         move.w  PageIn_Cur_Bytes, d3             // d3 = length (bytes)
         jbsr    QueueDMA_Important               // d1=src, d2=dest, d3=len -> carry = dropped
         movem.l (sp)+, d3-d4                     // MOVEM does not touch CCR -> the dropped carry survives
         bcs     .dropped                         // CONSUME QueueDMA's carry, then re-produce our own out
+        move.w  PageIn_Cur_Bytes, d0             // enqueued OK -> charge the landing's bytes
+        sub.w   d0, Art_Budget_Remaining         // against the frame's art budget
         andi.b  #$FE, ccr                        // carry CLEAR = enqueued
+        rts
+    .art_deferred:
+    if DEBUG == 1 {
+        addq.w  #1, Dbg_PageIn_Deferred          // (P2c Task 9) landing deferred by the art budget
+    }
+        ori.b   #1, ccr                          // carry SET = deferred (budget); caller re-queues / holds
         rts
     .dropped:
         ori.b   #1, ccr                          // carry SET = dropped (queue full)

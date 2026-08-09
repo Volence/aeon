@@ -94,6 +94,7 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
     pad_21:              default,
     act_sec_local_maps:  OJZ_Sec_LocalMaps,              // P2b per-section local->global tables (generated)
+    act_art_budget:      4096,                           // P2c Task 9: 2 pages/frame (2×2048) steady-state ceiling
 }
 
 // -----------------------------------------------
