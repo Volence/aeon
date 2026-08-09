@@ -118,6 +118,24 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
 **not** depend on the unexecuted packages 1/3/5/6. (**D2 is DONE** — corrected below.) This is the
 largest cluster of small, well-specified, independent sound work in the file.
 
+### 7. Mega-act ROM layout — OJZ's pre-DAC hole caps in-order act data at ~21 KB slack — 2026-08-09
+**Discovered building the P2c Task 11 stress-art fixture.** OJZ's map order places ALL act data
+(art pool, block blobs, local maps, the 116 KB `collision_data`/heightmaps) BEFORE the HARD DAC
+sample-bank anchor at `$48000` (a Z80 `SetBank` latch — cannot move). `collision_data` alone ends
+at `$42D90` canonically, so the in-order act data has only **~21 KB of slack** before the anchor.
+A real act whose art/block data exceeds that overruns the anchor and will not link in order.
+
+The stress fixture works around this with **fixture-only relocation** (the growable OJZ sections
+move past the sound banks, extending the ROM tail — see `native.rs::relocate_fixture_pool`, gated
+by `fixture_placement`). That is fine for an unfrozen throwaway, but the **mega-act's real acts
+WILL exceed the hole** and need a real answer, one of:
+- **post-sound act-data placement** (make the fixture's relocation a first-class layout for real
+  acts — the act data region lives after the sound banks, before the fault island); or
+- **a ROM layout rethink** (move the sound/DAC banks higher, or bank the act data) so the pre-DAC
+  hole stops being the ceiling.
+This is a genuine mega-act blocker, not a fixture quirk — record it now so it is not rediscovered
+under the mega-act itself.
+
 ---
 
 ## CANNOT BE SETTLED STATICALLY — needs an emulator run or an owner ruling
