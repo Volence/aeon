@@ -217,6 +217,12 @@ if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
     # The stress fixture fixes the shape (sonic4 debug + STRESS_EVICT define); it does
     # NOT combine with --game/--debug (the CLI rejects that).
     NATIVE_FLAGS="--stress-evict"
+elif [[ "${STRESS_ART:-0}" == "1" ]]; then
+    # The stress-art fixture fixes the shape (sonic4 debug + fixture placement) against
+    # the uniquified pool re-baked above; --stress-art selects the fixture-scoped derived
+    # placement (greedy pack from measured sizes, org anchors held). It does NOT combine
+    # with --game/--debug (the CLI rejects that).
+    NATIVE_FLAGS="--stress-art"
 else
     NATIVE_FLAGS="--game ${GAME}"
     if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
