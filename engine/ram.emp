@@ -332,9 +332,9 @@ pub vars upper_ram {
         Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
         // compact readable copy of the residency map (Task-6 mapping-bug debug):
-        //   [0]=Page_Free_Head [1]=Page_LRU_Head [2]=Page_LRU_Tail [3]=pad
+        //   [0]=Page_Free_Head [1]=[2]=$FF reserved (dead LRU heads) [3]=pad
         //   [4..4+16)   = Page_Table[0..15]           (page -> frame)
-        //   [20..20+30) = per frame 0..14: pf_page.lo, pf_lru_next  (2 bytes each)
+        //   [20..20+30) = per frame 0..14: pf_page.lo, pf_flags  (2 bytes each)
         Page_Audit_Snapshot:    [u8; 52],
     }
 
@@ -440,10 +440,9 @@ pub vars upper_ram {
     // whole pool is resident (Task 6); Task 7 eviction exercises it.
     Cache_Art_Stall:        u16,        // nonzero = a fill stalled this frame on a non-resident page
 
-    // --- Residency-cache hot scalars (P2b Task 6) — upper .w window for the
-    //     per-word Ref/Unref LRU surgery; the big tables sit in lower_ram. ---
-    Page_LRU_Head:          u8,         // MRU-recent end unused; head of the evictable (refcount 0, !pinned) list / $FF
-    Page_LRU_Tail:          u8,         // tail = insertion point on Unref 1->0; AllocFrame's victim end
+    // --- Residency-cache hot scalar (P2b Task 6) — upper .w window; the big
+    //     tables sit in lower_ram. (The LRU head/tail cells died with the
+    //     linked list — F-1 stamp eviction orders candidates by pf_stamp.) ---
     Page_Free_Head:         u8,         // head of the never-assigned free-frame list / $FF
     pad(1),                             // keep the region word-aligned
     Cache_Fill_Budget:      u16,        // per-frame block decompress allowance (shared: columns + rows)
@@ -627,6 +626,17 @@ pub vars upper_ram {
     // block points at the shared zero page below. Consumers only READ through the
     // pointer, so ROM / zero-page targets are safe. Placed at the RAM TAIL.
     Block_Stage_Ptrs:       [u32; BLOCK_STAGE_SLOTS],   // 64 bytes — per-slot staged data pointer
+
+    // F-3 merge-translation: per-slot local->global map pointer, parallel to
+    // Block_Stage_Ptrs (staged nametable words are LOCAL; the map is applied per
+    // word at the patch/scan consumers). Written by DecompressBlock at claim
+    // time; FindStagedBlock republishes the hit slot's entry into
+    // Cache_Cur_LocalMap, the "current block" cell PageCache_PatchWord and the
+    // prefetch scan read. Every map's [0] entry is global 0 (blank) —
+    // generator-guaranteed — so the shared zero page reads as blank through any
+    // section's map.
+    Block_Stage_Maps:       [u32; BLOCK_STAGE_SLOTS],   // 64 bytes — per-slot local->global map ptr
+    Cache_Cur_LocalMap:     u32,                        // current staged block's map (PatchWord/scan input)
 
     // Shared all-zero staged block — every empty (blank / out-of-grid) block points
     // here instead of paying a 768-byte zero-fill. BLOCK_RAW_SIZE bytes

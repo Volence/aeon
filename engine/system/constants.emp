@@ -250,9 +250,11 @@ ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
 pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + LRU/free link terminator
 // pf_flags bits (engine.structs PageFrame):
 pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)
-pub const PF_IN_LRU_BIT      = 1           // frame is currently linked in the eviction LRU list
+pub const PF_EVICTABLE_BIT   = 1            // frame is an eviction candidate (assigned, refcount 0,
+                                            // unpinned, stamped) — F-1 stamp eviction; set on
+                                            // Unref 1->0 + speculative publish, cleared on Ref 0->1
 pub const PF_PINNED          = 1 << PF_PINNED_BIT
-pub const PF_IN_LRU          = 1 << PF_IN_LRU_BIT
+pub const PF_EVICTABLE       = 1 << PF_EVICTABLE_BIT
 // The tile-index field of a nametable word (bits 0-10); bits 11-15 are pal/pri/flip.
 pub const NT_TILE_MASK       = $07FF
 pub const NT_ATTR_MASK       = $F800

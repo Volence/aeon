@@ -12,7 +12,7 @@ module engine.compression_selftest in compression_selftest
 
 use engine.compression_vectors.{CSELF_PAYLOAD_SIZE, CSELF_PAYLOAD_SUM, CSELF_DICT_LEN}
 use engine.structs.{Act, PageManifest}
-use engine.constants.{ART_HDR_SIZE, ART_STAGING_BUFFER_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, ART_PAGE_FORM_ZX0}
+use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, ART_STAGING_BUFFER_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, ART_PAGE_FORM_ZX0}
 
 // Equivalence-walk buffer sizing (comptime, zero bytes): the largest act-pool page
 // is ART_STAGING_BUFFER_SIZE (= one decompressed pool page). Buffer A =
@@ -192,6 +192,174 @@ pub proc CompressionSelfTest () clobbers(d0-d4/a0-a4) {
         dbf     d1, .cmp_loop
         assert.w d0, eq, #0
         rts
+}
+
+// -----------------------------------------------
+// The blocking decompressors — DEBUG equipment owned by their SOLE consumer
+// (F-6 ruling): release ships the streaming decoders only (ZX0R_Decompress /
+// S4LZ_DecompressDict); the blocking pair below exists to give this self-test
+// its version-dispatch and A/B-decode arms. Moving them here (from
+// engine/level/load_art.emp + engine/compression/zx0.emp, both deleted paths)
+// removed the last unreachable equipment bytes from release ROMs.
+// -----------------------------------------------
+
+// -----------------------------------------------
+// Art_Decompress — version-dispatched blocking art decompressor.
+//
+// Every compressed art blob starts with the 4-byte wrapper
+// [u16 BE uncompressed size][u8 flags][u8 version]:
+//   version 1 (ART_VER_S4LZ) -> S4LZ_Decompress (parses the wrapper itself)
+//   version 2 (ART_VER_ZX0)  -> ZX0_Decompress (wrapper skipped here)
+// Callers must skip size-0 blobs BEFORE calling (empty stubs carry no
+// decodable stream).
+//
+// Dispatch order (§2.2 — common case falls through): ZX0 is the common case
+// on every production path. The two-tier split puts ZX0 on the load-time art
+// tier, and every act-pool page the engine ships is a .zx0 blob
+// (games/sonic4/data/generated/**/act_pool_page*.zx0); the S4LZ arm is
+// reached only from the DEBUG compression self-test, which exercises both
+// arms deliberately. So the ZX0 test is the not-taken branch.
+//
+// In:  a0 = source ROM pointer (wrapper at start, word-aligned)
+//      a1 = destination buffer
+// Out: a0 = past end of compressed data
+// Clobbers: d0-d3, a1-a3 (the S4LZ path; of these the ZX0 path touches only
+//      d0-d1 and the a1 cursor) — the exhaustive license: a4/d4 are preserved
+//      on both paths and callers keep them live across the call.
+//      a1 is the destination write cursor and is left wherever writing
+//      stopped — not an output. The two arms do not agree on it: ZX0 always
+//      produces it, but an S4LZ stream that decompresses to zero bytes never
+//      writes it, leaving the caller's own dest start. The wrapper's size word
+//      is the authoritative extent.
+// -----------------------------------------------
+pub proc Art_Decompress (a0: *u8, a1: *u8) clobbers(d0-d3/a1-a3) out(a0) {
+        cmpi.b  #ART_VER_ZX0, ART_HDR_VERSION(a0)
+        bne     .s4lz                           // rare arm out of line (§2.2)
+        addq.l  #ART_HDR_SIZE, a0               // ZX0 stream starts past wrapper
+        jbra    ZX0_Decompress
+    .s4lz:
+        jbra    S4LZ_Decompress                 // S4LZ_Decompress reads its own wrapper
+}
+
+// -----------------------------------------------
+// ZX0_Decompress — blocking ZX0 stream decompressor
+//
+// Decodes the modern (V2) ZX0 format as emitted by salvador's default
+// mode (tools/salvador — do NOT pass -classic). Bitstream decoder:
+// byte-granular output, interlaced elias-gamma lengths — Kosinski-class
+// speed. Budgeted ONLY for load-time paths (section preload window,
+// level init); never call this per-frame.
+//
+// The build wraps every compressed art blob in a 4-byte header
+// [u16 BE uncompressed size][u8 flags][u8 version=2]. That wrapper is
+// OURS, not ZX0's — the caller peeks size/version and passes a0 already
+// advanced past it (see Art_Decompress in engine/level/load_art.emp).
+//
+// In:  a0 = compressed ZX0 stream (PAST the 4-byte wrapper)
+//      a1 = destination buffer
+// Out: a0 = past end of compressed data
+//      a1 = past end of decompressed data
+// Clobbers: d0-d1 (d2/a2 used but saved/restored)
+//
+// Adapted from unzx0_68000.S (88-byte V2 depacker) by Emmanuel Marty:
+//   https://github.com/emmanuel-marty/unzx0_68000
+// Changes from the original: movea.l/adda.l mnemonics for address-register
+// moves, house header. Algorithm untouched.
+//
+// ZX0 compression (c) 2021 Einar Saukas, https://github.com/einar-saukas/ZX0
+//
+// Copyright (C) 2021 Emmanuel Marty
+//
+// This software is provided 'as-is', without any express or implied
+// warranty.  In no event will the authors be held liable for any damages
+// arising from the use of this software.
+//
+// Permission is granted to anyone to use this software for any purpose,
+// including commercial applications, and to alter it and redistribute it
+// freely, subject to the following restrictions:
+//
+// 1. The origin of this software must not be misrepresented; you must not
+//    claim that you wrote the original software. If you use this software
+//    in a product, an acknowledgment in the product documentation would be
+//    appreciated but is not required.
+// 2. Altered source versions must be plainly marked as such, and must not be
+//    misrepresented as being the original software.
+// 3. This notice may not be removed or altered from any source distribution.
+// -----------------------------------------------
+// d2 (rep-offset) and a2 (backreference cursor) are scratch INSIDE the call
+// but movem-preserved for the caller — `preserves(d2/a2)` is the enforced
+// spelling (§5-verified). The single rts at `.got_elias` serves BOTH the
+// internal `.get_elias` subroutine returns and, via `.done`'s restore, the
+// proc exit — the only true exit path is the EOD branch through `.done`.
+// Elias values accumulate in d0.l but both copy loops count with dbf (word):
+// safe by construction — our u16 wrapper caps the uncompressed size at 65535,
+// so no run length can exceed a word (upstream-exact; do not "fix").
+pub proc ZX0_Decompress (a0: *u8, a1: *u8) clobbers(d0-d1) out(a0, a1) preserves(d2/a2) {
+        movem.l a2/d2, -(sp)            // preserve registers
+        moveq   #-128, d1               // initialize empty bit queue
+                                        // plus bit to roll into carry
+        moveq   #-1, d2                 // initialize rep-offset to 1
+
+    .literals:
+        jbsr    .get_elias              // read number of literals to copy
+        subq.l  #1, d0                  // dbf will loop until d0 is -1, not 0
+    .copy_lits:
+        move.b  (a0)+, (a1)+            // copy literal byte
+        dbf     d0, .copy_lits          // loop for all literal bytes
+
+        add.b   d1, d1                  // read 'match or rep-match' bit
+        bcs     .get_offset             // if 1: read offset, if 0: rep-match
+
+    .rep_match:
+        jbsr    .get_elias              // read match length (starts at 1)
+    .do_copy:
+        subq.l  #1, d0                  // dbf will loop until d0 is -1, not 0
+    .do_copy_offs:
+        movea.l a1, a2                  // calculate backreference address
+        adda.l  d2, a2                  // (dest + negative match offset)
+    .copy_match:
+        move.b  (a2)+, (a1)+            // copy matched byte
+        dbf     d0, .copy_match         // loop for all matched bytes
+
+        add.b   d1, d1                  // read 'literal or match' bit
+        bcc     .literals               // if 0: go copy literals
+
+    .get_offset:
+        moveq   #-2, d0                 // initialize value to $fe
+        jbsr    .elias_loop             // read high byte of match offset
+        addq.b  #1, d0                  // obtain negative offset high byte
+        beq     .done                   // exit if EOD marker
+        move.w  d0, d2                  // transfer negative high byte into d2
+        lsl.w   #8, d2                  // shift it to make room for low byte
+
+        moveq   #1, d0                  // initialize length value to 1
+        move.b  (a0)+, d2               // read low byte of offset + 1 bit of len
+        asr.l   #1, d2                  // shift len bit into carry/offset in place
+        bcs     .do_copy_offs           // if len bit is set, no need for more
+        jbsr    .elias_bt               // read rest of elias-encoded match length
+        jbra    .do_copy_offs           // go copy match
+
+    .get_elias:
+        moveq   #1, d0                  // initialize value to 1
+    .elias_loop:
+        add.b   d1, d1                  // shift bit queue, high bit into carry
+        bne     .got_bit                // queue not empty, bits remain
+        move.b  (a0)+, d1               // read 8 new bits
+        addx.b  d1, d1                  // shift bit queue, high bit into carry
+                                        // and shift 1 from carry into bit queue
+
+    .got_bit:
+        bcs     .got_elias              // done if control bit is 1
+    .elias_bt:
+        add.b   d1, d1                  // read data bit
+        addx.l  d0, d0                  // shift data bit into value in d0
+        jbra    .elias_loop             // keep reading
+
+    .done:
+        movem.l (sp)+, a2/d2            // restore preserved registers, fall into the shared rts
+    .got_elias:
+        rts                             // BOTH the .get_elias subroutine return (bcs lands here,
+                                        // skipping the restore) AND the proc exit via .done
 }
 
 // -----------------------------------------------

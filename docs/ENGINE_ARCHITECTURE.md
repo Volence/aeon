@@ -3922,9 +3922,14 @@ page, so the working set == the pool — 4 of the 10 pages are build-pinned (`pm
 corruption), and the design simply reduces to Phase 1's fully-resident pool for acts that
 fit. The stress fixture (`--stress-uniquify`, 2600 tiles / 41 pages vs 15 frames) is the
 regime where streaming actually earns its keep and where the acceptance matrix was proven.
-Known ceiling (open F-3): staged nametable words carry the global tile index in an 11-bit
-field, so a deduped pool past 2048 tiles is not yet representable (ruling pending:
-merge-translation vs scope-and-guard).
+Staged nametable words stay section-LOCAL, and the local→global map is applied per word
+inside `PageCache_PatchWord` and the prefetch scan (F-3 merge-translation): the full-width
+global exists only in a register, the 11-bit nametable field only ever carries the
+physical index (≤ 959), and the pool is bounded by `PAGE_TABLE_MAX` pages + the ROM
+budget — there is no 2048-tile ceiling. Every section map's entry 0 is the blank tile
+(generator-guaranteed, verify-gated), so the shared zero staged block reads as blank
+through any map. Eviction order is a per-frame release stamp (`pf_stamp`) scanned at
+eviction — oldest evictable frame wins, by construction (F-1).
 
 **Cancel/flush.** Speculative state needs an explicit invalidation path: `PageIn_Flush`
 empties the FIFO and drops any suspended decode (main-loop context only). Called at
