@@ -138,11 +138,15 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // byte total. Every QueueDMA_* enqueue charges it; over DMA_ENQ_BYTE_CAP the
             // enqueue is rejected like a full queue. Reset here beside the drain-window budget.
             clr.w   (DMA_Enq_Bytes_Frame).w
-            // Per-act art-streaming budget reload (P2c Task 9, B&R pattern): refresh the
-            // frame's art-DMA byte allowance from the act word. page_in charges each page
-            // landing against it and defers further page-ins when a frame is exhausted
-            // (steady-state governor). Two-symbolic mem-to-mem -> both widths spelled.
-            move.w  (Act_Art_Budget).w, (Art_Budget_Remaining).w
+            // NOTE: the per-act ART budget (P2c Task 9) is reloaded in PageIn_Process's
+            // own once-per-physical-frame tick, NOT here — it is charged in the main loop
+            // every frame, so it must be reloaded in the same context (Frame_Counter tick,
+            // which advances on both the VInt_Level and VInt_Lag paths) to stay in-phase.
+            // A VInt_Level-only reload was skipped on VInt_Lag frames -> spurious deferral
+            // -> held-frame famine -> STRESS clamp thrash (chain-77 soak fix). The DMA
+            // enqueue byte cap above is charged by many enqueuers with no main-loop tick,
+            // so it stays here (frame boundary, matches DMA_Budget_Remaining); its 12288
+            // ceiling is coarse enough that a rare straddle accumulation is benign.
 
             jbsr    Flush_VDP_Shadow
 

@@ -110,6 +110,18 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         sub.w   PageIn_Last_Frame, d1           // frames elapsed since our last tick
         move.w  d0, PageIn_Last_Frame
         move.w  #PAGE_PREFETCH_MAX, Page_Pfx_Budget   // fresh page-prefetch enqueue budget
+        // Per-act art-streaming budget reload (P2c Task 9, B&R pattern). Reloaded HERE —
+        // co-located with the charge (this proc) and gated on the SAME once-per-PHYSICAL-
+        // frame Frame_Counter tick, which advances on BOTH the VInt_Level and VInt_Lag
+        // paths. A VInt_Level-only reload (the first cut) was skipped on any frame whose
+        // VBlank dispatched VInt_Lag while the main loop kept charging every frame ->
+        // the budget depleted into a SPURIOUS deferral, and a deferred landing parks its
+        // allocated frame across the retry -> transient frame famine tipped the STRESS
+        // clamp into AllocFrame thrash (chain-77 soak fix). Reloading in the tick keeps
+        // reload and charge always in-phase and correctly accumulates every landing's
+        // bytes WITHIN one physical frame (the real per-frame ceiling). Two-symbolic
+        // mem-to-mem -> both widths spelled.
+        move.w  (Act_Art_Budget).w, (Art_Budget_Remaining).w
         subq.w  #1, d1                           // 0 = on time, >0 = a frame lagged
         beq     .lag_ontime
         move.w  #1, PageIn_Prev_Lagged

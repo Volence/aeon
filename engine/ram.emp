@@ -683,12 +683,13 @@ pub vars upper_ram {
 
     // --- Art-streaming P2c Task 9: per-act art-streaming byte budget (B&R pattern) ---
     // RELEASE (present in every shape). Act_Art_Budget is copied from the act
-    // descriptor at level init; VInt_Level reloads Art_Budget_Remaining from it each
-    // frame. page_in charges each page landing's DMA bytes against Art_Budget_Remaining
-    // and DEFERS further page-ins (request stays queued) when a frame is exhausted.
-    // Steady-state governor, NOT a unified arbiter (D2) — per-tier byte budget only.
+    // descriptor at level init; PageIn_Process reloads Art_Budget_Remaining from it in
+    // its once-per-physical-frame tick (co-located with the charge, in-phase across the
+    // VInt_Level/VInt_Lag paths — chain-77). page_in charges each page landing's DMA
+    // bytes against Art_Budget_Remaining and DEFERS further page-ins (request stays
+    // queued) when a frame is exhausted. Steady-state governor, NOT an arbiter (D2).
     Act_Art_Budget:         u16,        // per-act steady-state art-DMA byte budget (from Act.act_art_budget)
-    Art_Budget_Remaining:   u16,        // remaining art-DMA bytes this frame (reloaded in VInt_Level)
+    Art_Budget_Remaining:   u16,        // remaining art-DMA bytes this frame (reloaded in PageIn_Process's tick)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed
