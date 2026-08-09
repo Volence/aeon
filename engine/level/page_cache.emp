@@ -163,31 +163,37 @@ pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
         cmpi.b  #PAGE_NOT_RESIDENT, d2
         bne     .done
 
-        move.w  d0, d2                          // already queued? test the dedupe bit
+        // in-flight already? (chain-73 belt-and-braces). The single decode slot's page,
+        // while its decode/landing has not published yet (Page_Table above still says
+        // NOT_RESIDENT). The continuous queued-bit claim already covers this; this is
+        // the cheap explicit guard the double-load post-mortem asked for.
+        cmp.w   PageIn_Cur_Page, d0
+        bne     .not_inflight
+        tst.b   PageIn_InFlight
+        bne     .done
+        tst.b   PageIn_Staging_Busy
+        bne     .done
+        tst.b   PageIn_Land_Pending
+        bne     .done
+    .not_inflight:
+
+        move.w  d0, d2                          // already CLAIMED (in the FIFO / in-flight)?
         lsr.w   #3, d2                          // byte index (page/8)
         lea     Page_Queued_Bits, a1
-        lea     (a1, d2.w), a1
         move.w  d0, d3
         andi.w  #7, d3                          // bit index (page&7)
-        btst    d3, (a1)
-        bne     .done                           // already in the FIFO
-
-        bset    d3, (a1)                        // mark queued
+        btst    d3, (a1, d2.w)
+        bne     .done                           // already claimed -> dedup
     if DEBUG == 1 {
         btst    #0, d1                          // PGRQ_DEMAND bit
         beq     .no_dbg
         addq.w  #1, Dbg_PageCache_Demands
     .no_dbg:
     }
-        jbsr    PageIn_Enqueue                  // (d0=page, d1.b=flags) -> carry = full
-        bcc     .done
-        move.w  d0, d2                          // full -> unmark so a later frame retries
-        lsr.w   #3, d2
-        lea     Page_Queued_Bits, a1
-        lea     (a1, d2.w), a1
-        move.w  d0, d3
-        andi.w  #7, d3
-        bclr    d3, (a1)
+        // PageIn_Enqueue SETS the queued bit on success (the sole claim site, chain 73):
+        // the claim is continuous from here to Publish, so no re-request double-loads.
+        // On a full FIFO it leaves the page unclaimed, so a later frame re-requests.
+        jbra    PageIn_Enqueue                  // tail (carry = dropped, ignored by callers)
     .done:
         rts
 }
@@ -308,6 +314,16 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         bclr    d2, (a0)
 
         lea     Page_Table, a0                  // Page_Table[page] = frame
+    if DEBUG == 1 {
+        // DUPLICATE-PUBLISH catcher (chain 73): a page must be published exactly once
+        // per load — its Page_Table entry must be NOT_RESIDENT here. A second publish
+        // (the dedupe claim-gap bug) would overwrite the entry and orphan the first
+        // frame (fatal for a PINNED page). This raise_error names the bug at its site.
+        cmpi.b  #PAGE_NOT_RESIDENT, (a0, d0.w)
+        beq     .pub_not_resident
+        raise_error "PageCache_Publish: page already resident (duplicate publish / dedupe gap)"
+    .pub_not_resident:
+    }
         move.b  d1, (a0, d0.w)
 
         movea.l PageIn_Pool_Table, a0           // manifest base (set by Level_LoadArt; live-read-confirmed correct)

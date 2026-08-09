@@ -164,3 +164,31 @@ frame, so its recomputed count stays 0 == pf_refcount.
 
 Rebuilt green: `s4.bin` crc=6c61b849 (414138 B), `s4.debug.bin` crc=b138ac86 (427468 B),
 `s4.stress.bin` crc=0006ef5a (427468 B).
+
+## Chain 73 — the last dedupe seam: page double-load (claim gap)
+
+Chain-72 post-mortem tables named it exactly: page 8 was resident TWICE — F3 (Page_Table[8]=3)
+and F5 (orphaned, pf_page=8, PINNED so unevictable forever). The bijectivity audit failed on
+F5. Root cause: the queued-bit CLAIM was not continuous. It was set only in
+`PageCache_Request` and cleared at Publish — but **`Level_LoadArt`'s bulk load and the
+alloc/raw retries enqueue via `PageIn_Enqueue` DIRECTLY, which never set the bit**. So a
+bulk/in-flight page (bit clear, `Page_Table` still NOT_RESIDENT until Publish) could be
+re-requested and published a second time; the later publish overwrote `Page_Table`, orphaning
+the first frame — fatal for a pinned page.
+
+**Fix (chain 73) — claim continuous from enqueue to publish, at the single chokepoint:**
+1. `PageIn_Enqueue` is now the SOLE claim site: on success it `bset`s the page's
+   `Page_Queued_Bits` bit (verified: `bset.b d0,(a0,d2.w)` @0x769A). EVERY enqueue path
+   (bulk / PageCache_Request / retries) claims the page; the claim holds until
+   `PageCache_Publish` clears it (or eviction / Flush). `PageCache_Request` drops its own
+   redundant bset + full-unmark (the enqueue owns it; a full FIFO leaves the page unclaimed
+   so it is legitimately re-requested later).
+2. `PageCache_Request` also gains a cheap in-flight belt-and-braces check (page ==
+   `PageIn_Cur_Page` while InFlight/Staging_Busy/Land_Pending → skip).
+3. `PageCache_Publish` DEBUG-asserts `Page_Table[page] == NOT_RESIDENT` before stamping —
+   the duplicate-publish catcher, named at its site, kept permanently.
+4. Demand path swept: PatchWord's `.miss` re-Requests every stall-retry frame, but the
+   continuous claim now dedups it (bit set from the first enqueue) — no code change, verified.
+
+Rebuilt green: `s4.bin` crc=bcabfac7 (414162 B), `s4.debug.bin` crc=eda7fcdd (427534 B),
+`s4.stress.bin` crc=06c0c12f (427534 B).

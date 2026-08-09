@@ -439,11 +439,17 @@ proc PageIn_EnqueueLanding (d1: u32) clobbers(d0-d2/a1-a2) preserves(d3-d4) out(
 }
 
 // -----------------------------------------------
-// PageIn_Enqueue — append a page-in request to the FIFO.
+// PageIn_Enqueue — append a page-in request to the FIFO + claim it in the dedupe bitset.
 //
 // The B&R carry-on-full idiom: a full queue returns carry SET and the caller
 // retries next frame. Demand vs prefetch is carried in the flags byte; dequeue
 // order (PageIn_Process .dequeue) honours it.
+//
+// SOLE CLAIM SITE (chain 73): on success it sets the page's Page_Queued_Bits bit, so
+// EVERY enqueue path (bulk / PageCache_Request / alloc-fail + raw retries) claims the
+// page. The claim is continuous from here until PageCache_Publish clears it (or
+// eviction / PageIn_Flush) — closing the double-load gap. On a full FIFO the page is
+// left UNCLAIMED (not enqueued), so a later frame legitimately re-requests it.
 //
 // In:  d0.w = page_id, d1.b = flags (PGRQ_DEMAND bit)
 // Out: carry SET = dropped (queue full); carry CLEAR = enqueued.
@@ -461,6 +467,16 @@ pub proc PageIn_Enqueue (d0: u16, d1: u8) clobbers(d2/a0) out(carry: dropped) {
         move.b  d1, PageInReq.pr_flags(a0)
         clr.b   PageInReq.pr_pad(a0)
         addq.b  #1, PageIn_Queue_Count
+        // CLAIM the page in the queued bitset (chain 73 dedupe fix). The claim is now
+        // CONTINUOUS from enqueue to publish for EVERY caller — bulk (Level_LoadArt),
+        // demand/prefetch (PageCache_Request), and the alloc/raw retries — closing the
+        // double-load gap where a bulk page in-flight (bit never set) got re-requested
+        // and published twice (orphaning a frame, fatal for a PINNED page). Set ONLY on
+        // success; cleared at PageCache_Publish / eviction / PageIn_Flush.
+        move.w  d0, d2
+        lsr.w   #3, d2                           // page/8 (byte index)
+        lea     Page_Queued_Bits, a0
+        bset    d0, (a0, d2.w)                   // bit page&7 (bset uses d0 mod 8 on a byte operand)
         andi.b  #$FE, ccr                        // carry CLEAR = enqueued (pinned after the count store)
         rts
     .full:
