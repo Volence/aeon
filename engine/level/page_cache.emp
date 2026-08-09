@@ -141,9 +141,24 @@ pub proc PageCache_Lookup (d0: u16) clobbers(a0) out(d1: u8) {
 // resident nor already queued (the queued-marker bitset stops the FIFO being
 // double-filled). A full FIFO clears the marker so a later frame re-requests.
 // NOT on the PageIn_Process path (called from the copy-site miss + Task-7 prefetch).
+//
+// POOL-BOUNDS GUARD (soak backstop, chain 69): a page id past the act's pool must
+// never reach the FIFO — the manifest stride (page*sizeof(PageManifest)) would walk
+// off the act_art_pool_pages-entry table into adjacent ROM (garbage pm_source ->
+// wrapper version 0, caught by the ZX0-form assert). A REAL reference can only yield
+// page < pages, so an id >= pages is a bug in the caller. DEBUG raises loud; release
+// silently skips (a prefetch/demand can never off-manifest the dispatcher).
 // In: d0.w = page id, d1.w = flags (PGRQ_DEMAND)   Out: none   Clobbers: d0-d3/a0-a1
 // -----------------------------------------------
 pub proc PageCache_Request (d0: u16, d1: u16) clobbers(d0-d3/a0-a1) {
+        movea.l Current_Act_Ptr, a0            // page id must index a real pool page
+        cmp.w   Act.act_art_pool_pages(a0), d0
+        blo     .in_range
+    if DEBUG == 1 {
+        raise_error "PageCache_Request: page_id >= act_art_pool_pages (off-manifest)"
+    }
+        rts                                     // release: silent no-op (never off-manifest)
+    .in_range:
         lea     Page_Table, a0                  // resident already? -> nothing to do
         move.b  (a0, d0.w), d2
         cmpi.b  #PAGE_NOT_RESIDENT, d2
@@ -465,10 +480,19 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
 // D3: this is the ENQUEUE side (never gated — it only warms the FIFO, bounded). The
 // admission gate on speculative decode STARTS lives in PageIn_Process.
 //
+// POOL-BOUNDS INVARIANT (soak fix, chain 69): a derived page is Requested ONLY when
+// page < act_art_pool_pages. A valid translated pool word can only yield page 0..pages-1
+// (global indices span exactly the pool), so any page >= pages is a SCAN ARTIFACT — a
+// word read from a staged slot that is not a live translated pool reference (an edge /
+// empty / stale-transient probe). Speculative prefetch must never turn an artifact into
+// an off-manifest page-in, so the scan SILENTLY skips it (a3 = Current_Act_Ptr holds the
+// live count across the loop). PageCache_Request carries the loud backstop for any other
+// caller (DEBUG raise / release skip).
+//
 // Preserves EVERY register (movem-banks its whole working set) so PageIn_Process's
 // declared clobber set — and hence VSync_Wait's folded license — never widens. The
 // two loop bodies hold their invariants in d5-d7 (preserved across
-// TileCache_FindStagedBlock's d3-d4/a1 clobber) and the block scan holds a2/d4
+// TileCache_FindStagedBlock's d3-d4/a1 clobber) and the block scan holds a2/d4/a3
 // (preserved across PageCache_Request's d0-d3/a0-a1 clobber).
 // In: none   Out: none   Clobbers: () — preserves d0-d7/a0-a6
 // -----------------------------------------------
@@ -476,6 +500,7 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         tst.w   Page_Pfx_Budget
         beq     .ret                            // no budget left this frame — cheap exit
         movem.l d0-d7/a0-a6, -(sp)
+        movea.l Current_Act_Ptr, a3            // a3 = act ptr (pool-page-count base; survives both callees)
 
         // ---- ROW strip: ahead block-row across cache cols [Left..Head] ----
         move.w  Cache_Pfx_Row_Target, d6
@@ -545,9 +570,10 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
 
     .scan_block:
         // Scan a staged block's BLOCK_NT_SIZE/2 GLOBAL nametable words; for each
-        // non-blank word whose page is not resident, PageCache_Request(prefetch) and
-        // decrement Page_Pfx_Budget. Stops at budget 0. a2 (cursor) + d4 (counter)
-        // survive PageCache_Request (it clobbers d0-d3/a0-a1). a1 = slot base (in).
+        // non-blank word whose page is a REAL pool page and not resident,
+        // PageCache_Request(prefetch) and decrement Page_Pfx_Budget. Stops at budget 0.
+        // a2 (cursor) + d4 (counter) + a3 (act ptr) survive PageCache_Request (it
+        // clobbers d0-d3/a0-a1). a1 = slot base (in).
         movea.l a1, a2                            // a2 = scan cursor
         move.w  #(BLOCK_NT_SIZE/2)-1, d4          // word count - 1
     .sb_loop:
@@ -555,12 +581,14 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         andi.w  #NT_TILE_MASK, d0                 // global tile index
         beq     .sb_next                          // blank -> no page
         lsr.w   #PAGE_FRAME_TILE_SHIFT, d0        // page id
+        cmp.w   Act.act_art_pool_pages(a3), d0    // pool-bounds invariant: a REAL pool page?
+        bhs     .sb_next                          // page >= pages -> scan artifact, skip silently
         lea     Page_Table, a0
         move.b  (a0, d0.w), d1
         cmpi.b  #PAGE_NOT_RESIDENT, d1
         bne     .sb_next                          // resident -> nothing to prefetch
         move.w  #PGRQ_PREFETCH, d1               // non-resident -> request (Request dedups queued)
-        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1; a2/d4 survive
+        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1; a2/d4/a3 survive
     if DEBUG == 1 {
         addq.w  #1, Dbg_PageCache_Prefetches
     }

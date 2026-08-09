@@ -43,3 +43,30 @@ assert clean throughout, no deadlock in the demand-stall path, `Dbg_PageIn_Preem
 climbing, lag bounded (clamp-frame counts recorded, not gated until Task 10's camera
 gate). The demand-page eviction protection is designed in (a demand page stays out of
 the LRU until its first `Ref`), not relied upon to surface in the soak.
+
+## Chain 69 — soak-found prefetch defect + fix
+
+**Symptom (controller soak, first seconds of gameplay):** DEBUG assert
+`assert.b d2 eq #ART_VER_ZX0, Got 00` at the ZX0-form dispatch — a prefetch-requested
+`page_id` strided off the 10-entry manifest (`pm_source` garbage → wrapper version 0).
+Counters at halt: `Dbg_PageCache_Prefetches=22`, `Dbg_PageCache_Demands=0`.
+
+**Root cause (candidate d, confirmed by data):** the OJZ per-section local→global maps
+top out at global index 611 (page 9), so a valid translated pool word can only yield
+page 0..9 — Task 6 rendering proves every *displayed* block is valid. `PageCache_Prefetch`
+derives page ids from *speculatively-probed* staged-slot words (ahead-strip blocks, some
+never displayed) **without validating them against the live pool**, so a word that is not
+a real translated pool reference produced page ≥ `act_art_pool_pages`; `PageCache_Request`
+then strided `page*sizeof(PageManifest)` past the table into adjacent ROM.
+
+**Fix (both, page_cache.emp):**
+1. `PageCache_Prefetch.scan_block` enforces the pool-bounds invariant — `page >=
+   act_art_pool_pages` is a scan artifact and is **silently skipped** (`a3 =
+   Current_Act_Ptr` carries the count across the loop). Speculation must never off-manifest.
+2. `PageCache_Request` gains the loud backstop: a page id ≥ `act_art_pool_pages`
+   **DEBUG-raises** (`raise_error`, a real bug for any non-speculative caller) and
+   **release-skips** (silent no-op). A prefetch/demand can no longer walk off the manifest.
+
+Rebuilt green: `s4.bin` crc=e3ed767b (414103 B), `s4.debug.bin` crc=81977270 (427376 B),
+`s4.stress.bin` crc=1d76f638 (427376 B). Fixture isolation intact (debug↔stress differ
+only in the clamp byte @0x76E3 + the checksum word). Re-soak pending.
