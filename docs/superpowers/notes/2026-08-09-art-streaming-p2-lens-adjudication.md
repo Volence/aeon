@@ -360,10 +360,25 @@ probe->copy adjacency airtight at every fill site, footprint reconciles
 413,905/427,844; post-closing 413,953/427,926).
 
 **Named open debts (ranked):**
-1. **Eviction liveness witness** (panel V-3): canonical shapes never evict
-   (10 pages <= 15 frames) — eviction correctness has NO automated witness;
-   STRESS shapes are hand-run. Candidate: a STRESS_EVICT soak leg in the
-   acceptance ritual, or a CI-runnable fixture.
+1. **Eviction liveness witness** (panel V-3) — CLOSED 2026-08-09:
+   `tools/evict_witness.py` (aether-bus harness vs live oracle, STRESS_EVICT
+   shape). Phase 1 proves eviction famine-free during the init load itself
+   (10 pages through 9 frames; pigeonhole via distinct-resident sampling +
+   the page-2 eviction directly observed); Phase 2 scroll-burst is
+   famine-triaged. Repeatable PASS ×2. Runbook: `STRESS_EVICT=1 ./build.sh`
+   then `python3 tools/evict_witness.py`.
+   **NEW FAMINE INTEL (P-1 class, WORSE than ledgered):** on 2026-08-09
+   master the AllocFrame famine fires on SUSTAINED RIGHT scroll alone —
+   full-speed right×900 from settle, burst-paced right×90×5, and even a
+   single first right×90 burst have all raised it (knife-edge race; camera
+   in this scene is input-driven at ~8 px/frame). Counters at raise: 2
+   demands / 8 prefetches / stall-watchdog 6 — famine hits EARLY, not after
+   runaway thrash. An A/B against pre-batching 517bf4 was CONFOUNDED: on
+   that build the same scene never progresses under input (camera parked at
+   96px, zero streaming counters, player suspended) — cause unknown; the
+   batching-regression question is OPEN, not answered. Needs its own
+   root-cause session (scene drive semantics first), folded into the C4-3 /
+   famine-handling design (debt 6 below).
 2. **P-2 fixture re-record** — CLOSED 2026-08-09 (merge 0aac1c2, sigil chain
    81): both fixtures re-recorded, determinism ×2 each, all four slide
    crossings re-proven, release pass. En route: the patchrun-batch parcel's
