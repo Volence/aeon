@@ -69,7 +69,13 @@ section seq_opcode_tab (cpu: z80, vma: $8000) {
                                     //   picks FmVolEnv vs PsgVolEnv by SCF_IS_FM_B)
         dc.w    Seq_Op_RegWrite     // $F8 MEV_REGWRITE (raw YM2612 register write)
         dc.w    Seq_Op_Macro        // $F9 MEV_MACRO (arm slot[1])
-        dc.w    Seq_BadOpcode       // $FA reserved
+        dc.w    Seq_BadOpcode       // $FA MEV_EXT — dispatched BEFORE this table
+                                    //   (Sequencer_NextOpcode's .coord intercept ->
+                                    //   Seq_Op_Ext): the seam-1 HANDLER_SYMBOLS
+                                    //   contract is a FIXED list, so a new handler
+                                    //   name cannot enter these cells without a
+                                    //   toolchain change. This cell is defense-in-
+                                    //   depth only (unreachable).
         dc.w    Seq_BadOpcode       // $FB reserved
         dc.w    Seq_BadOpcode       // $FC reserved
         dc.w    Seq_BadOpcode       // $FD reserved

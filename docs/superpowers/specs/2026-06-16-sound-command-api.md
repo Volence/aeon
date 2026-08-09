@@ -1,7 +1,16 @@
 # Sub-Design — 68k↔Z80 Sound Command API Contract (Phase 1)
 
+> **SUPERSEDED (2026-08-09, game-feel package 1).** The live command-API surface is
+> **API v2**: the game-feel spec `2026-07-03-sound-game-feel-moments-design.md` §8 +
+> the implementation (`engine/sound/sound_api.emp` — transport/jingle/fade wrappers
+> and the `Sound_ReadStat` status readers; `engine/sound/sound_constants.emp` — the
+> mailbox slots through `SND_REQ_JINGLE` and the status block through
+> `SND_STAT_FADE_BUSY`, plus the R4 `(rate<<4)|cmd` fade encoding). This document
+> remains the Phase-1 handoff-mechanism record (the mechanism itself is unchanged);
+> its slot/status ROSTER is historical.
+
 **Date:** 2026-06-16
-**Status:** Contract approved for Phase 1 — defines the interface every later sound task depends on
+**Status:** SUPERSEDED — see the banner above (was: contract approved for Phase 1)
 **Branch:** `design/sound-driver`
 **Parent spec:** `docs/superpowers/specs/2026-06-16-sound-driver-design.md` (§4.1 Z80 autonomy & 68k handoff, §12.x #1 command-API sub-design)
 **Consumed by:** Task 3 transcribes the constants below into `sound_constants.asm`. The offsets/IDs here are the agreed Phase-1 targets — validated against research, unchanged.

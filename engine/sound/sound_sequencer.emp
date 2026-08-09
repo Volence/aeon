@@ -81,13 +81,43 @@ module engine.sound_sequencer (cpu: z80)
 // a `use` clause imports procs, not consts.
 const YM_ADDR_TO_DATA_MIN_T = 8
 
+// --- Game-feel seam mirrors (pkg 1). The seam-1 const list is FIXED (see the
+// driver's file header): a NEW sound_constants.emp name is invisible here, so
+// each new contract address/value is a module-local const derived from an
+// INJECTED anchor by the same chain the authority uses. The authority pins the
+// absolute values (SND_PAUSED == $1CD3, SND_STAT_SEQ_ACTIVE == $1F15); the
+// ensure below keeps these mirrors in lockstep with those pins.
+const SND_PAUSED           = SND_TEMPO_BASE + 1       // $1CD3: 0 run / 1 music / 2 all
+const SND_JINGLE_ACTIVE    = SND_TEMPO_BASE + 2       // $1CD4: nonzero while a jingle plays
+const SND_FADE_TERM        = SND_TEMPO_BASE + 4       // $1CD6: composed fade terminal (0/1/2)
+const SND_STAT_SEQ_ACTIVE  = SND_STAT_TICK + 2        // $1F15: SND_SEQ_ACTIVE mirror
+const SND_STAT_COMM        = SND_STAT_TICK + 3        // $1F16: score-authored cue byte
+const SND_STAT_JINGLE      = SND_STAT_TICK + 4        // $1F17: SND_JINGLE_ACTIVE mirror
+const SND_STAT_FADE_BUSY   = SND_STAT_TICK + 5        // $1F18: fade-ramp off-target flag
+ensure(SND_PAUSED == $1CD3 && SND_STAT_SEQ_ACTIVE == $1F15,
+       "game-feel seam mirrors drifted off the pinned authority addresses")
+const SND_PAUSED_ALL       = 2                        // SND_PAUSED: music + SFX frozen
+// R4: SND_FADE_DELAY_CTR is repurposed as the ROTATING spread-bit fade rate
+// pattern (authority documents this at its definition).
+const SND_FADE_PATTERN     = SND_FADE_DELAY_CTR
+// Part-II YM ports (the pan-gate sweep writes $B4..$B6 on both parts). The
+// seam list injects only A0/A1 here; A2/A3 are the fixed +2/+3 siblings.
+const SND_Z80_YM_A2        = SND_Z80_YM_A0 + 2        // $4002: addr part II
+const SND_Z80_YM_A3        = SND_Z80_YM_A0 + 3        // $4003: data part II
+// $B4 (L/R|AMS|FMS) is not in this module's seam list either — a hardware-
+// fixed YM register number, mirrored as a literal (authority: SND_REG_LR_AMS_FMS).
+const SND_REG_LR_AMS_FMS   = $B4
+// The MEV_EXT prefix opcode (authority: sound_constants.emp, where it is
+// pinned inside the $E0-$FF coordination block; sub-op 0 = COMM).
+const MEV_EXT              = $FA
+
 use engine.sound_sfx.{Sfx_Frame}
 use engine.sound_fm.{Fm_FnumApplyDelta, Fm_WriteFreq, Fm_NoteFromTable, Fm_NoteOn,
     Fm_NoteOnFreq, Fm_NoteOff, Fm_SetVolume, Fm_SetPan, Fm_PatchPtr, Fm_PatchLoad,
     Fm_RegDelta, Fm_YmWrite, Snd_ChanClass}
 use engine.sound_psg.{Psg_SetVolume, Psg_NoteOn, Psg_NoteOff, Psg_Noise, Psg_ApplyMod,
     Psg_EmitDivisor, Psg_SilenceAll, PsgVolEnv_Resolve, FmVolEnv_Resolve}
-use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup, Snd_ParkDac}
+use engine.z80_sound_driver.{Snd_StartSample, Snd_DacLookup, Snd_ParkDac, Snd_PauseMusic}
 
 section sound_sequencer (cpu: z80) {
 
@@ -114,21 +144,49 @@ section sound_sequencer (cpu: z80) {
         inc     a
         ld      (SND_STAT_TICK), a
 
+        // --- game-feel status mirrors (pkg 1 §6): refreshed every frame, song
+        // or not, BEFORE any gate — the 68k's song-finished floor and jingle
+        // poll must track reality even while paused/idle. ---
+        ld      a, (SND_SEQ_ACTIVE)
+        ld      (SND_STAT_SEQ_ACTIVE), a // song-finished floor: the 68k polls this
+        ld      a, (SND_JINGLE_ACTIVE)
+        ld      (SND_STAT_JINGLE), a
+
         ld      a, (SND_SEQ_ACTIVE)
         or      a
         jr      z, .run_sfx              // no song -> still run SFX (own the chip)
+
+        // --- pause gate (pkg 1 §4): any paused scope freezes the music IN PLACE
+        // — no ramps, no channel pass, no stream advance, no chip writes. The
+        // SFX tail applies its own pause-all gate at .run_sfx.
+        ld      a, (SND_PAUSED)
+        or      a
+        jr      nz, .run_sfx
 
         ld      a, (SND_SEQ_CHCOUNT)
         or      a
         jr      z, .run_sfx             // no channels -> still run SFX
         call    Tempo_Ramp              // ramp the global tempo mod (resident; preamble-called)
         call    Fade_Ramp               // ramp the master fade; sets SND_FADE_DIRTY on a step
+        // --- composed-terminal re-check (pkg 1 §6): Fade_Ramp may JUST have
+        // consumed a fade terminal — StopAll (clears SND_SEQ_ACTIVE) or pause
+        // (sets SND_PAUSED). Neither clears the per-channel SCF flags, so the
+        // channel pass below would still run THIS frame and key notes back on
+        // over the freshly muted chip. Re-check both gates.
+        ld      a, (SND_SEQ_ACTIVE)
+        or      a
+        jr      z, .run_sfx             // terminal STOP landed this frame
+        ld      a, (SND_PAUSED)
+        or      a
+        jr      nz, .run_sfx            // terminal PAUSE landed this frame
         ld      a, (SND_SEQ_CHCOUNT)    // (the ramps clobbered a)
         ld      b, a                    // b = channel count (djnz bound)
+        ld      c, 0                    // c = any-channel-still-active tracker (pkg 1 §6)
         ld      ix, SND_SEQ_CHANNELS    // ix = first SeqChannel
     .chan_loop:
         bit     SCF_ACTIVE_B, (ix+sc_flags) // SCF_ACTIVE?
         jr      z, .next_chan           // inactive -> skip this channel
+        ld      c, 1                    // a live channel -> the song is not finished
         push    bc                      // preserve channel-loop counter (b) across
                                         //   the calls (which clobber b)
 
@@ -161,7 +219,21 @@ section sound_sequencer (cpu: z80) {
         djnz    .chan_loop
         xor     a
         ld      (SND_FADE_DIRTY), a     // consume the fade re-assert flag (channel pass done)
+        // --- song-finished floor (pkg 1 §6): every channel has hit MEV_END ->
+        // the song is OVER; drop SND_SEQ_ACTIVE so the 68k floor
+        // (Sound_IsMusicPlaying via next frame's mirror) reads finished.
+        // Nothing cleared it on a natural end before pkg 1 (only StopMusic /
+        // a new load did); looping songs never reach this (their loop channels
+        // stay SCF_ACTIVE forever). a is already 0.
+        or      c
+        jr      nz, .run_sfx            // a live channel remains -> still playing
+        ld      (SND_SEQ_ACTIVE), a     // all ended -> song finished (a = 0)
     .run_sfx:
+        // pause-all (pkg 1 §4): SFX frozen too (the chip is already muted). The
+        // mailbox keeps polling, so the unpause command still gets through.
+        ld      a, (SND_PAUSED)
+        cp      SND_PAUSED_ALL
+        ret     z
         jp      Sfx_Frame               // tail-call: SFX writes land AFTER music
     }
 
@@ -218,42 +290,60 @@ section sound_sequencer (cpu: z80) {
     }
 
     // ----------------------------------------------------------------------
-    // Fade_Ramp — ramp SND_MASTER_FADE toward SND_FADE_TARGET by SND_FADE_STEP, gated
-    // by SND_FADE_DELAY_CTR. On a frame where the level CHANGES, set SND_FADE_DIRTY so
-    // ModUpdate re-asserts held-note volumes (the scalar is folded in Fm_SetVolume/
-    // Psg_SetVolume). Steady state (cur==target) = no step, no dirty. Called once/frame
-    // from the Sequencer_Frame preamble before the channel loop. Clobbers af,b.
-    // Preserves ix. RESIDENT (all in-frame code is).
+    // Fade_Ramp — ramp SND_MASTER_FADE toward SND_FADE_TARGET, ±1 TL unit per
+    // gated frame (R4 rate model, MDSDRV spread-bit): SND_FADE_PATTERN rotates
+    // right once per frame and the bit rotated out gates this frame's step, so
+    // the 8 authored FadeRateTable patterns give 1..8 steps per 8 frames. The
+    // step is BRANCHLESS: sign-select ±1 from the cur-vs-target compare — a ±1
+    // step cannot overshoot (the equality test at the head ends the ramp), so
+    // the old SND_FADE_STEP clamp ladder is gone with the delay counter.
+    // Mirrors SND_STAT_FADE_BUSY (1 while off-target). At target: consume
+    // SND_FADE_TERM exactly once — 1 = fade-out-and-STOP (Sequencer_StopAll),
+    // 2 = fade-out-and-PAUSE (Snd_PauseMusic); pkg 1 §6 composed terminals.
+    // On a stepped frame set SND_FADE_DIRTY (ModUpdate re-asserts held-note
+    // volumes; the scalar is folded in Fm_SetVolume/Psg_SetVolume). Called
+    // once/frame from the Sequencer_Frame preamble, whose terminal re-check
+    // handles a terminal landing mid-preamble. Clobbers af,bc + hl via the
+    // terminal tail-calls. Preserves de, ix. RESIDENT (all in-frame code is).
     // ----------------------------------------------------------------------
-    pub proc Fade_Ramp () clobbers(af, b) preserves(c, de, hl, ix) {
+    pub proc Fade_Ramp () clobbers(af, bc, hl) preserves(de, ix) {
         ld      a, (SND_FADE_TARGET)
-        ld      b, a                    // b = target (preserved below)
+        ld      b, a                    // b = target
         ld      a, (SND_MASTER_FADE)
         cp      b
-        ret     z                       // at target -> steady, no work
-        // fade active: gate the step on the delay counter
-        ld      a, (SND_FADE_DELAY_CTR)
-        dec     a
-        ld      (SND_FADE_DELAY_CTR), a
-        ret     nz                      // not this frame
-        ld      a, SND_FADE_DELAY
-        ld      (SND_FADE_DELAY_CTR), a // reload the step delay
-        ld      a, (SND_MASTER_FADE)
-        cp      b                       // cur vs target (b)
-        jr      nc, .down               // cur >= target -> ramp down
-        add     a, SND_FADE_STEP        // ramp up toward target
-        cp      b
-        jr      c, .store
-        ld      a, b                    // clamp to target (no overshoot)
-        jr      .store
-    .down:
-        sub     SND_FADE_STEP
-        jr      c, .clamp_t             // underflow past 0 -> clamp to target
-        cp      b
-        jr      nc, .store
-    .clamp_t:
+        jr      nz, .active
+        // steady at target
+        xor     a
+        ld      (SND_STAT_FADE_BUSY), a
+        // consume a pending composed terminal exactly once (nonzero only right
+        // after the ramp lands; both actions are idempotent anyway)
+        ld      a, (SND_FADE_TERM)
+        or      a
+        ret     z                       // no terminal armed -> done
+        ld      b, a                    // b = terminal code (the target copy is dead)
+        xor     a
+        ld      (SND_FADE_TERM), a      // one-shot
         ld      a, b
-    .store:
+        dec     a
+        jp      z, Sequencer_StopAll    // term 1: fade-out-and-STOP
+        jp      Snd_PauseMusic          // term 2: fade-out-and-PAUSE (music scope)
+    .active:
+        ld      a, 1
+        ld      (SND_STAT_FADE_BUSY), a
+        // rate gate: rotate the spread-bit pattern; the carry-out bit says
+        // whether this frame steps.
+        ld      a, (SND_FADE_PATTERN)
+        rrca
+        ld      (SND_FADE_PATTERN), a
+        ret     nc                      // no step this frame
+        // branchless ±1 toward target: CF(target < cur) -> -1 else +1.
+        ld      a, (SND_MASTER_FADE)
+        ld      c, a                    // c = cur
+        ld      a, b                    // a = target
+        cp      c                       // CF = target < cur -> step DOWN
+        sbc     a, a                    // a = $FF (step down) / $00 (step up)
+        or      1                       // a = -1 / +1 (the signed step)
+        add     a, c                    // cur ± 1
         ld      (SND_MASTER_FADE), a
         ld      a, 1
         ld      (SND_FADE_DIRTY), a     // level changed -> ModUpdate re-asserts
@@ -1013,6 +1103,13 @@ section sound_sequencer (cpu: z80) {
     // engine-table bank in the window. The fetched handler address is a RESIDENT blob
     // address (code is never banked).
     .coord:
+        // $FA MEV_EXT intercept (pkg 1 §6): dispatched BEFORE the banked table
+        // because the seam-1 HANDLER_SYMBOLS contract (the fixed list of
+        // resident handler names the table's cells may reference) cannot grow
+        // without a toolchain change. Module-internal branch — resolves inside
+        // the blob. Costs one compare per COORDINATION opcode only.
+        cp      MEV_EXT
+        jp      z, Seq_Op_Ext
         sub     MEV_VOL                 // a = 0..31 (index into SeqOpcodeTable)
         ld      c, a
         ld      b, 0
@@ -1142,6 +1239,22 @@ section sound_sequencer (cpu: z80) {
         inc     hl                      // consume operand (signed detune)
         ld      (ix+sc_detune), a
         jp      Sequencer_NextOpcode.fetch
+    }
+
+    // $FA MEV_EXT + sub-op ... : the extension prefix (pkg 1 §6 — first tenant).
+    // Sub-op 0 = COMM: next byte -> SND_STAT_COMM (the score-authored cue byte,
+    // 68k-visible via Sound_GetComm). Zero-tick, any route. Unknown sub-op ->
+    // Seq_BadOpcode: a NEW sub-op requires a driver update by construction —
+    // payload lengths are unknown, so skipping silently would desync the stream.
+    pub proc Seq_Op_Ext () clobbers(af) {
+        ld      a, (hl)
+        inc     hl                      // consume the sub-op byte
+        or      a
+        jp      nz, Seq_BadOpcode       // unknown sub-op -> stop this channel loudly
+        ld      a, (hl)
+        inc     hl                      // consume the comm value
+        ld      (SND_STAT_COMM), a      // 68k-visible score cue
+        jp      Sequencer_NextOpcode.fetch // zero tick
     }
 
     // $F5 MEV_PORTA + dd : set the persistent portamento glide-rate magnitude (the
@@ -1839,9 +1952,11 @@ section sound_sequencer (cpu: z80) {
     }
 
     // ======================================================================
-    // Sequencer_StopAll — the StopMusic primitive. Key-off every FM channel + silence
-    // all PSG channels, then clear the active flag. Direct hardware silencing (decision
-    // 4): unconditional, cannot leave a note hanging. Does NOT touch $2B (DAC enable).
+    // Sequencer_StopAll — the StopMusic primitive. Key-off every FM channel, close
+    // the FM pan gates, silence all PSG channels (the shared Seq_SilenceMusicVoices
+    // sweep — pkg 1 factored it out for Snd_PauseMusic), then clear the active
+    // flag. Direct hardware silencing (decision 4): unconditional, cannot leave a
+    // note hanging. Does NOT touch $2B (DAC enable).
     // Clobbers af, bc, hl. Preserves de (the DAC loop's $4001), ix.
     //
     // --- CONTRACT: THE PER-CHANNEL FLAGS GO STALE (Task 9.5) ----------------
@@ -1870,6 +1985,31 @@ section sound_sequencer (cpu: z80) {
     // to rediscover it by ear.
     // ======================================================================
     pub proc Sequencer_StopAll () clobbers(af, bc, hl) preserves(de, ix) {
+        // chip mute: FM key-offs + $B4 pan-gate clears + PSG silence (factored —
+        // Snd_PauseMusic shares the identical sweep; pkg 1 §4).
+        call    Seq_SilenceMusicVoices
+        // --- stop the sequencer. ---
+        xor     a
+        ld      (SND_SEQ_ACTIVE), a
+        ret
+    }
+
+    // ----------------------------------------------------------------------
+    // Seq_SilenceMusicVoices — key-off all six FM channels ($28, op-mask 0),
+    // CLOSE all six FM pan gates ($B4..$B6 = 0 on both parts: L/R off is a
+    // pop-free HARD output mute that holds through the EG release tail), and
+    // max-attenuate all four PSG channels. Touches the CHIP only — no
+    // SeqChannel state (SCF_KEYED deliberately left set; the restore/unpause
+    // paths gate on it). Shared by Sequencer_StopAll (StopMusic) and
+    // Snd_PauseMusic (the pkg-1 pause). The closed pan gates are re-derived on
+    // resume: unpause re-uploads each FM music voice (Sfx_UnpauseRestore), and
+    // a song load re-writes $B4 per patch — nothing re-opens a gate by itself,
+    // so every silence consumer MUST pair with one of those restores.
+    // The $B4 clear is NEW relative to the pre-pkg-1 StopMusic (spec §4): the
+    // old stop could leave a keyed voice's release tail audible for a beat.
+    // Clobbers af, bc, hl. Preserves de (the DAC loop's $4001), ix.
+    // ----------------------------------------------------------------------
+    pub proc Seq_SilenceMusicVoices () clobbers(af, bc, hl) preserves(de, ix) {
         // --- FM: key-off all six FM channels (op-mask 0) via $28 on part I. ---
         ld      hl, Seq_FmKeyoffChsels  // the six chsel nibbles
         ld      b, 6
@@ -1883,25 +2023,44 @@ section sound_sequencer (cpu: z80) {
         ld      (SND_Z80_YM_A1), a      // $4001 = $28 data
         inc     hl
         djnz    .fm_keyoff
+        // --- FM pan gates: $B4/$B5/$B6 = 0 on BOTH parts (L/R off = output
+        // mute, silencing even the key-off release tails — spec §4 pop-free).
+        ld      b, 3
+        ld      c, SND_REG_LR_AMS_FMS   // c walks $B4/$B5/$B6
+    .pan_mute:
+        ld      a, c
+    .pan1_addr:
+        ld      (SND_Z80_YM_A0), a      // part I: select $B4+i
+        nop                             // inter-write delay (no busy-poll)
+        xor     a
+    .pan1_data:
+        ld      (SND_Z80_YM_A1), a      // gate closed (FM1-3)
+        ld      a, c
+    .pan2_addr:
+        ld      (SND_Z80_YM_A2), a      // part II: select $B4+i
+        nop                             // inter-write delay (no busy-poll)
+        xor     a
+    .pan2_data:
+        ld      (SND_Z80_YM_A3), a      // gate closed (FM4-6)
+        inc     c
+        djnz    .pan_mute
         // re-park reg $2A on the part-I addr port for the DAC consumer.
         ld      a, SND_REG_DAC_DATA     // $2A
         ld      (SND_Z80_YM_A0), a
+        // --- PSG: max attenuation on all four channels (tail-call; its ret is ours).
+        jp      Psg_SilenceAll
 
-        // --- PSG: max attenuation on all four channels. ---
-        call    Psg_SilenceAll
-
-        // --- stop the sequencer. ---
-        xor     a
-        ld      (SND_SEQ_ACTIVE), a
-        ret
-
-        // YM address->data spacing, machine-checked (Task 9.2). This key-off loop
-        // writes the YM DIRECTLY, not through Fm_YmWrite, so the funnel's ensures
-        // do not cover it. The span is the loop BODY only — it stops before the
-        // `djnz`, whose taken/not-taken costs differ and which would otherwise
-        // fire [cycles.ambiguous-branch].
+        // YM address->data spacing, machine-checked (Task 9.2). These loops
+        // write the YM DIRECTLY, not through Fm_YmWrite, so the funnel's ensures
+        // do not cover them. Each span is the loop BODY only — it stops before
+        // the `djnz`, whose taken/not-taken costs differ and which would
+        // otherwise fire [cycles.ambiguous-branch].
         ensure(cycles(.keyoff_addr, .keyoff_data) >= YM_ADDR_TO_DATA_MIN_T,
-               "Sequencer_StopAll $28 key-off: address->data gap is under the YM2612 floor")
+               "Seq_SilenceMusicVoices $28 key-off: address->data gap is under the YM2612 floor")
+        ensure(cycles(.pan1_addr, .pan1_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Seq_SilenceMusicVoices $B4 part-I clear: address->data gap is under the YM2612 floor")
+        ensure(cycles(.pan2_addr, .pan2_data) >= YM_ADDR_TO_DATA_MIN_T,
+               "Seq_SilenceMusicVoices $B4 part-II clear: address->data gap is under the YM2612 floor")
     }
 
     // The six FM channel-select nibbles ($28 data bytes with op-mask 0 -> key off):

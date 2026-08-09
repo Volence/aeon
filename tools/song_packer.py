@@ -81,9 +81,14 @@ MEV_LFO = 0xF4             # + value: write YM2612 $22 (bit3 enable | bits0-2 ra
 MEV_PORTA = 0xF5           # + dd: set the persistent portamento glide rate (fnum/divisor units
                            # per frame; 0 = off -> notes snap)
 MEV_DETUNE = 0xF6          # + dd (signed): set the channel's fine-pitch detune (applied at note-on)
-MEV_EXT = 0xFA             # RESERVED extension prefix ($FA + sub-opcode = 256 more
-                           # event kinds, zero format break). No handler, no event
-                           # class — reserving the number is the whole feature.
+MEV_EXT = 0xFA             # extension prefix ($FA + sub-opcode = 256 more event
+                           # kinds, zero format break). Sub-op 0 = COMM (the Comm
+                           # event: score-authored cue byte -> SND_STAT_COMM);
+                           # sub-ops 1-255 remain free. An unknown sub-op is a
+                           # pack error AND an engine trap (Seq_BadOpcode) — a
+                           # new sub-op requires a driver update by construction,
+                           # because payload lengths are unknown to a skipper.
+MEV_EXT_COMM = 0x00        # MEV_EXT sub-op 0: + value -> SND_STAT_COMM
 
 MAX_PITCH = MEV_NOTE_MAX - MEV_NOTE_BASE   # = 0x5E
 MAX_DUR = 0x7F                              # SetDur range $00..$7F
@@ -120,7 +125,7 @@ _PSG_ROUTES = {CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN}
 _MUSIC_ILLEGAL_OPCODES = frozenset({MEV_SPINREV_RESET})
 _MUSIC_LEGAL_EXPRESSION_OPCODES = frozenset({
     MEV_PSGENV, MEV_FMENV, MEV_REGWRITE, MEV_MACRO, MEV_DETUNE, MEV_LFO, MEV_TEMPO,
-    MEV_PORTA})
+    MEV_PORTA, MEV_EXT})
 
 # SongHeader flags byte (SH_FLAGS) — MIRROR of sound_constants.asm SH_F_*.
 SH_F_FM6_FM = 1 << 0     # FM6 is a 6th FM sequencer voice (DAC mode OFF)
@@ -483,6 +488,22 @@ class Detune(Event):
     def validate(self, route):
         if not (-128 <= self.detune <= 127):
             raise PackError(f"Detune {self.detune} out of signed byte range -128..127")
+
+
+class Comm(Event):
+    """MEV_EXT sub-op 0: write the operand to SND_STAT_COMM (the score-authored
+    cue byte, 68k-visible via Sound_GetComm). Lets the score signal the game at
+    musically-authored moments (loop points, stingers, beat marks). Zero-tick.
+    Any route. The first MEV_EXT tenant."""
+    def __init__(self, val: int):
+        self.val = val
+
+    def encode(self) -> bytes:
+        return bytes([MEV_EXT, MEV_EXT_COMM, self.val & 0xFF])
+
+    def validate(self, route):
+        if not (0 <= self.val <= 255):
+            raise PackError(f"Comm val {self.val} out of byte range 0..255")
 
 
 class Porta(Event):

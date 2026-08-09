@@ -1967,7 +1967,7 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 > - SFX Stage B/C + continuous SFX → **package 2** (`plans/2026-07-03-sfx-fidelity-stage-bc.md`)
 > - deep-audit survivors D1/D4/D6/D7/B3/B5/E5-runtime → **package 4** (`plans/2026-07-03-sound-correctness-batch.md`)
 > - DAC descriptor insurance + Bank-D hook + drum authoring → **package 3** (`plans/2026-07-03-dac-drum-library-readiness.md`)
-> - game-feel gaps (pause/jingle/song-finished/API v2) → **package 1** (`plans/2026-07-03-sound-game-feel-moments.md`)
+> - game-feel gaps (pause/jingle/song-finished/API v2) → **package 1** (`plans/2026-07-03-sound-game-feel-moments.md`) — **EXECUTED 2026-08-09** (`sound-pkg1`; see the closing entry at the end of this file)
 > - detune-unison + production features → **package 5** (`plans/2026-07-03-sound-production-suite.md`)
 > - GATE articulation, opbias test, $28 guard, cold-boot pan seed, FM env seam, HCZ2 loop
 >   residual, bank-latch hunt, boundary-tick check, comment rot, + ALL formal closures
@@ -3472,3 +3472,36 @@ matrix passed. Pattern to watch: long-duration `press` on a freshly-launched ins
 arbiter; the workaround was to abandon and rely on the completed evidence. Recorded for the **oracle
 backlog** (oracle-repo work, not Aeon). Consequence for Aeon: none remaining — the final oracle
 spot-check passed and the T12 merge landed on master (`2f047e3`).
+
+## Ledgered by the 2026-08-09 sound game-feel package 1 execution (`sound-pkg1`)
+
+Package 1 (`plans/2026-07-03-sound-game-feel-moments.md`) EXECUTED: pause/unpause
+(music + all scopes, freeze-in-place, pop-free $B4 mute + resume voice re-upload),
+jingle push/pop (frozen mid-song resume under a fade-in), the song-finished/comm
+status contract (`SND_STAT_SEQ_ACTIVE/COMM/JINGLE/FADE_BUSY`; natural song end now
+drops `SND_SEQ_ACTIVE`), composed fade terminals (out+stop / out+pause), the R4
+spread-bit fade-rate table (8 speeds from the command byte's rate nibble), the
+TimerA-DMA refill guard (user-ruled), and the 68k API v2 wrappers/readers.
+`zFadeToPrev`-style fade-to-previous is COVERED by the jingle push/pop model.
+
+Open items this execution creates or leaves:
+
+- **Game-side game-feel flows (spec §7 cookbook)** — act-clear sequencing,
+  drowning panic tempo, 1-up jingle wiring, Start-menu pause-all: documented API
+  flows consumed by game features (the screens/HUD package, design-week #7).
+  Engine work is DONE; these are game-side callers. Owner: the screens/HUD
+  package when it executes. Reference: the game-feel spec §7 + `sound_api.emp`'s
+  transport/reader block.
+- **Spec §6.4 DEBUG transport-exclusivity assert OMITTED (resident ceiling).**
+  The both-slots-nonzero (`SND_REQ_MUSIC` + `SND_REQ_JINGLE` in one poll) DEBUG
+  assert costs ~20 resident bytes; the debug blob ended 3 B under the `$18F0`
+  ceiling. The 68k-side contract ("one transport op per frame") is documented at
+  the wrappers. Revisit if a Z80 reclaim opens headroom.
+- **Z80 resident headroom is nearly EXHAUSTED** — debug blob 6381/6384 after this
+  package (plain 6255/6384). The next resident addition needs its own reclaim
+  first (candidates: further init rolling, shared scan helpers). The R9 30 T-state
+  bank is a TIME budget, untouched (banked for polyphonic PCM).
+- **Fade default duration changed** (R4): the fastest rate is ±1 TL/frame → a
+  full $7F fade is ~2.1 s (was ~1.07 s at the old STEP=2). All 8 authored speeds
+  are slower-or-equal; if a sub-2s fade is ever needed the step magnitude (not
+  the pattern) is the knob.
