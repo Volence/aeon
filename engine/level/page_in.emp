@@ -66,11 +66,12 @@ module engine.page_in in page_in
 use engine.structs.{PageInReq, PageManifest}
 use engine.constants.{ART_HDR_SIZE, ART_HDR_VERSION, ART_VER_ZX0, PAGEIN_QUEUE_SLOTS, PGRQ_DEMAND_BIT}
 use engine.constants.{ART_POOL_PAGE_BYTES_SHIFT, ART_PAGE_FORM_ZX0, TILE_SIZE}
-use engine.constants.{PAGE_NOT_RESIDENT}
+use engine.constants.{PAGE_NOT_RESIDENT, PAGE_PREFETCH_MAX}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
-// ZX0R_Decompress (engine.zx0_resume), QueueDMA_Important (engine.dma_queue).
-// RAM (PageIn_*/Art_Staging_Buffer) resolves bare.
+// ZX0R_Decompress (engine.zx0_resume), QueueDMA_Important (engine.dma_queue),
+// PageCache_Prefetch (engine.page_cache — the ahead-strip page prefetch).
+// RAM (PageIn_*/Art_Staging_Buffer/Page_Pfx_Budget/Frame_Counter) resolves bare.
 
 // -----------------------------------------------
 // PageIn_Process — the once-per-frame idle-time decode slice.
@@ -88,10 +89,37 @@ use engine.constants.{PAGE_NOT_RESIDENT}
 //      a saved register as a return address (survey §3 trap). The request pop
 //      (jbsr .dequeue) is balanced, so it leaves the stack at PageIn_Process
 //      depth for the fall-through.
+//      TASK 7 additions all stay within this contract: the once-per-frame lag latch
+//      + the D3 gate use only d0-d2/a0; PageCache_Prefetch (the ahead-strip enqueue)
+//      and .queue_has_nonspec are BALANCED jbsrs (Prefetch preserves every register),
+//      so neither the clobber set nor the stack depth at the fall-through moves.
 // -----------------------------------------------
 pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
+        // --- D3 own trailing-lag latch + per-frame prefetch budget: once per physical
+        //     frame. Frame_Counter ticks once per VBlank on BOTH the normal (VInt_Level)
+        //     and lag (VInt_Lag) paths, so it advancing by >1 since our last tick means
+        //     a frame lagged in between. This is PageIn's OWN latch — NOT the fill-owned
+        //     Cache_Pfx_Lag_Flag (only as fresh as the last Tile_Cache_Fill call). Gated
+        //     on a Frame_Counter CHANGE so a second call in the same frame (the init
+        //     VSync_Wait spin) does not double-tick. Runs before the suspended check so
+        //     the latch tracks lag even across resume frames. ---
+        move.w  Frame_Counter, d0
+        cmp.w   PageIn_Last_Frame, d0
+        beq     .frame_ticked
+        move.w  d0, d1
+        sub.w   PageIn_Last_Frame, d1           // frames elapsed since our last tick
+        move.w  d0, PageIn_Last_Frame
+        move.w  #PAGE_PREFETCH_MAX, Page_Pfx_Budget   // fresh page-prefetch enqueue budget
+        subq.w  #1, d1                           // 0 = on time, >0 = a frame lagged
+        beq     .lag_ontime
+        move.w  #1, PageIn_Prev_Lagged
+        bra     .frame_ticked
+    .lag_ontime:
+        clr.w   PageIn_Prev_Lagged
+    .frame_ticked:
+
         tst.b   PageIn_Suspended
-        bne     .resume                         // banked context awaits -> resume it
+        bne     .resume                         // banked context awaits -> resume it (NEVER gated)
 
         tst.b   PageIn_Land_Pending
         bne     .land                           // a decoded page still needs its landing DMA queued
@@ -99,9 +127,35 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         tst.b   PageIn_Staging_Busy
         bne     .idle                           // a page's landing DMA is in flight -> hold the staging slot
 
+        // Page prefetch (Task 7): warm the ahead strip's non-resident pages into the
+        // FIFO (bounded PAGE_PREFETCH_MAX/frame). Preserves every register, so this
+        // proc's clobber set — and VSync_Wait's folded license — does NOT widen.
+        jbsr    PageCache_Prefetch
+
         tst.b   PageIn_Queue_Count
         beq     .idle                           // no requests -> nothing to do
 
+        // --- D3 admission gate: SPECULATIVE (pure-prefetch, flags == 0) decode STARTS
+        //     only. If a demand OR bulk request is queued (any flag bit set = non-
+        //     speculative) -> start ungated. Else all-prefetch: if the previous frame
+        //     lagged, skip starting one this frame — bounded to <=1 consecutive skip
+        //     (a second lagged frame proceeds, so sustained lag can't starve prefetch
+        //     into a cold-page cascade). Demand decodes + resumes are NEVER gated. ---
+        jbsr    .queue_has_nonspec              // Z clear (bne) if a non-speculative entry exists
+        bne     .start                          // demand/bulk present -> start ungated
+        tst.w   PageIn_Prev_Lagged
+        beq     .gate_reset                     // no recent lag -> proceed and disarm
+        tst.w   PageIn_Pfx_Skip_Armed
+        bne     .start                          // already skipped once -> run anyway (no cascade)
+        move.w  #1, PageIn_Pfx_Skip_Armed       // arm: skip this frame's speculative start
+    if DEBUG == 1 {
+        addq.w  #1, Dbg_PageIn_PfxSkips
+    }
+        bra     .idle                           // leave the prefetch request queued for a later frame
+    .gate_reset:
+        clr.w   PageIn_Pfx_Skip_Armed
+
+    .start:
         jbsr    .dequeue                         // d0.w = page_id (Count>0 guaranteed); PageIn_Cur_Flags set
         move.w  d0, PageIn_Cur_Page              // stash (survives AllocFrame's clobber + raw-form retry)
 
@@ -203,6 +257,28 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
     .land_full:
         // Queue full -> retry the landing next frame; staging still holds the page.
         st.b    PageIn_Land_Pending
+        rts
+
+    .queue_has_nonspec:
+        // Z clear (bne) if any queued request has flags != 0 (demand or bulk — a non-
+        // speculative page-in the D3 gate must never throttle). Z set if every queued
+        // request is pure prefetch (flags == 0). Precondition: PageIn_Queue_Count >= 1.
+        // Clobbers d0-d2/a0 (within PageIn_Process's license).
+        moveq   #0, d1
+        move.b  PageIn_Queue_Count, d1
+        lea     PageIn_Queue, a0
+        moveq   #0, d2                          // scan index
+    .qn_scan:
+        move.b  PageInReq.pr_flags(a0), d0
+        bne     .qn_found                        // non-speculative entry present
+        lea     sizeof(PageInReq)(a0), a0
+        addq.w  #1, d2
+        cmp.w   d1, d2
+        blt     .qn_scan
+        moveq   #0, d0                           // none found -> Z set (all pure prefetch)
+        rts
+    .qn_found:
+        moveq   #1, d0                           // Z clear -> non-speculative present
         rts
 
     .dequeue:

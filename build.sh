@@ -35,6 +35,20 @@ if [[ "$GAME" == "sonic4" ]]; then ROM_NAME="s4"; else ROM_NAME="$GAME"; fi
 # DEBUG builds emit SUFFIXED artifacts (s4.debug.bin/.lst), so the two shapes never
 # overwrite each other. ROM_NAME threads through -o/--emit-lst and s4budget below.
 if [[ "${DEBUG:-0}" == "1" ]]; then ROM_NAME="${ROM_NAME}.debug"; fi
+
+# STRESS_EVICT=1 (Art-streaming P2b Task 7 forced-eviction fixture): an off-canonical
+# DEV shape — sonic4 DEBUG with the STRESS_EVICT comptime define flipped on (clamps the
+# residency cache below the pool size, forcing continuous evict/reload). UNFROZEN: no
+# golden, not a refreeze target — built on demand for the controller's soak. It emits a
+# DISTINCT artifact (s4.stress.bin/.lst) so it never collides with the canonical shapes,
+# and it fixes the whole shape (sonic4 debug), so it ignores DEBUG/GAME overrides.
+if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: STRESS_EVICT=1 is a sonic4-only fixture (the OJZ act pool is the target)."
+        exit 1
+    fi
+    ROM_NAME="s4.stress"
+fi
 MAIN_ASM="games/${GAME}/game_root.asm"
 TOOLS="${TOOLS:-tools}"
 
@@ -148,8 +162,14 @@ fi
 # THE BUILD: one sigil invocation — assemble -> declared-order link -> emit_rom
 # (checksum folded) -> sigil-canonical .lst -> ROM. DEBUG additionally gets the
 # convsym deb2 appendix; release ships the assembled image alone (item 29).
-NATIVE_FLAGS="--game ${GAME}"
-if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+    # The stress fixture fixes the shape (sonic4 debug + STRESS_EVICT define); it does
+    # NOT combine with --game/--debug (the CLI rejects that).
+    NATIVE_FLAGS="--stress-evict"
+else
+    NATIVE_FLAGS="--game ${GAME}"
+    if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+fi
 # CONTRACT CLOSURE GATE — default ON.
 #
 # `sigil build` runs the whole-corpus contract closure before it links. The

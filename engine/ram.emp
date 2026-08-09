@@ -308,6 +308,9 @@ pub vars upper_ram {
 
         // --- Residency-cache instrumentation + audit (P2b Task 6) ---
         Dbg_PageCache_Demands:  u16,    // PageCache_Request(demand) enqueues (0 in Task 6 — pool resident)
+        // --- Prefetch + D3-gate instrumentation (P2b Task 7) ---
+        Dbg_PageCache_Prefetches: u16,  // PageCache_Request(prefetch) enqueues (page prefetch warms the ahead strip)
+        Dbg_PageIn_PfxSkips:    u16,    // speculative decode STARTS skipped by the D3 trailing-lag gate
         Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
         Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
@@ -648,6 +651,16 @@ pub vars upper_ram {
     PageIn_Cur_Frame:       u8,         // frame allocated for the in-flight page (P2b Task 6; published at land)
     pad(1),                             // keep the region word-aligned
     PageIn_Pool_Table:      u32,        // current act's page-address table (FIFO resolution base; set by Level_LoadArt)
+
+    // --- Art-streaming P2b Task 7: page prefetch + D3 trailing-lag admission gate ---
+    // RELEASE (the streaming path is present in every shape). The D3 gate gates
+    // SPECULATIVE (prefetch) decode STARTS only (demand + resumes are NEVER gated),
+    // via PageIn's OWN Frame_Counter-delta latch — NOT the fill-owned
+    // Cache_Pfx_Lag_Flag (which is only as fresh as the last Tile_Cache_Fill call).
+    PageIn_Last_Frame:      u16,        // Frame_Counter at the last once-per-frame PageIn tick
+    PageIn_Prev_Lagged:     u16,        // 1 = the previous frame lagged (Frame_Counter advanced >1)
+    PageIn_Pfx_Skip_Armed:  u16,        // 1 = a speculative start was skipped last frame (bound: <=1 running)
+    Page_Pfx_Budget:        u16,        // per-frame page-prefetch enqueue budget (reset PAGE_PREFETCH_MAX)
 
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed

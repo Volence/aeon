@@ -274,6 +274,27 @@ pub const PAGECACHE_AUDIT_INTERVAL = 128
 pub const PAGEIN_QUEUE_SLOTS  = 8           // request FIFO depth (S3K ~4-deep + headroom)
 pub const PGRQ_DEMAND_BIT     = 0           // request flags: bit set = demand (dequeue first)
 pub const PGRQ_DEMAND         = 1 << PGRQ_DEMAND_BIT
+pub const PGRQ_BULK_BIT       = 1           // init bulk load: non-speculative (D3-gate-exempt) but still LRU-evictable
+pub const PGRQ_BULK           = 1 << PGRQ_BULK_BIT
+pub const PGRQ_PREFETCH       = 0           // speculative: NO flag bits (dequeues after demand; the ONLY gated class)
+
+// Page prefetch (Art-streaming P2b Task 7). When the tile-cache fill's leading edge
+// advances, the page prefetch collects the ahead-strip's referenced pages (via the
+// staged-block global words = the same local->global path) and Requests non-resident
+// ones. Bounded per frame so a burst never floods the DMA window.
+pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted per frame
+
+// STRESS_EVICT forced-eviction dev fixture (Task 7). The build define STRESS_EVICT
+// (0 in every shipped shape; 1 only in the off-canonical `stress_evict` dev profile)
+// clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (4
+// pinned pages 0/1/8/9 + 2 dynamic frames), forcing continuous evict/reload traffic
+// through every path. PageCache_Init threads only PAGE_FRAMES_CLAMP frames into the
+// free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
+// but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).
+pub const STRESS_EVICT_FRAMES = 6
+pub const PAGE_FRAMES_CLAMP   = PAGE_FRAMES - STRESS_EVICT * (PAGE_FRAMES - STRESS_EVICT_FRAMES)
+ensure(PAGE_FRAMES_CLAMP >= 1 && PAGE_FRAMES_CLAMP <= PAGE_FRAMES,
+       "PAGE_FRAMES_CLAMP must be in [1, PAGE_FRAMES] (check STRESS_EVICT_FRAMES)")
 
 // VRAM fixed-region byte addresses + plane geometry.
 pub const VRAM_SPRITE_TABLE = $B800         // relocated from $D800 to free plane rows 48-63

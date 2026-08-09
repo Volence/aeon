@@ -11,7 +11,7 @@
 module engine.load_art in load_art
 
 use engine.structs.{Act}
-use engine.constants.{ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0, DMA_BUDGET_BLANKED_INIT}
+use engine.constants.{ART_HDR_VERSION, ART_HDR_SIZE, ART_VER_ZX0, DMA_BUDGET_BLANKED_INIT, PGRQ_BULK}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
 // S4LZ_Decompress / ZX0_Decompress (engine.s4lz / engine.zx0),
@@ -115,7 +115,7 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         cmp.w   d6, d5                              // all pages enqueued?
         bge     .drain_wait
         move.w  d5, d0
-        moveq   #0, d1                              // flags 0 = bulk load (not a demand miss)
+        moveq   #PGRQ_BULK, d1                      // bulk load: non-speculative (D3-gate-exempt), still evictable
         jbsr    PageIn_Enqueue                      // carry SET = queue full
         bcc     .enq_next
         jbsr    VSync_Wait                          // queue full -> drain a frame, retry same page

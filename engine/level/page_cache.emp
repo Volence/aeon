@@ -40,14 +40,18 @@
 module engine.page_cache in page_cache
 
 use engine.structs.{Act, PageManifest, PageFrame}
-use engine.constants.{PAGE_FRAMES, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
+use engine.constants.{PAGE_FRAMES, PAGE_FRAMES_CLAMP, PAGE_TABLE_MAX, PAGE_NOT_RESIDENT}
 use engine.constants.{PF_PINNED_BIT, PF_IN_LRU_BIT, PF_PINNED, PF_IN_LRU}
 use engine.constants.{NT_TILE_MASK, NT_ATTR_MASK, PAGE_FRAME_TILE_SHIFT, PAGE_FRAME_TILE_MASK}
-use engine.constants.{PGRQ_DEMAND, TILE_CACHE_NT_SIZE}
+use engine.constants.{PGRQ_DEMAND, PGRQ_DEMAND_BIT, PGRQ_PREFETCH, PAGE_PREFETCH_MAX, TILE_CACHE_NT_SIZE}
+use engine.constants.{BLOCK_NT_SIZE, BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT}
 
 // Every callee is .emp-owned and resolves at link — no boundary decls:
-// PageIn_Flush / PageIn_Enqueue (engine.page_in). RAM (Page_Table / Page_Frames /
-// Page_Queued_Bits / Page_LRU_* / Page_Free_Head / PageIn_Pool_Table) resolves bare.
+// PageIn_Flush / PageIn_Enqueue (engine.page_in), TileCache_FindStagedBlock
+// (engine.tile_cache — the page prefetch probes the staged ahead-strip blocks). RAM
+// (Page_Table / Page_Frames / Page_Queued_Bits / Page_LRU_* / Page_Free_Head /
+// PageIn_Pool_Table / PageIn_Cur_Flags / Page_Pfx_Budget / the Cache_Pfx_*_Target +
+// Cache_Left_Col/Head_Col/Top_Row/Bottom_Row prefetch signals) resolves bare.
 
 // sizeof(PageFrame) must stay the power-of-two 8 so a frame id scales to its
 // Page_Frames byte offset with a shift, not a multiply.
@@ -89,8 +93,13 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         move.b  #PAGE_NOT_RESIDENT, Page_LRU_Head   // LRU list empty
         move.b  #PAGE_NOT_RESIDENT, Page_LRU_Tail
 
-        // Frames: all free, chained through pf_lru_next (0->1->...->N-1->FF),
-        // pf_page = $FFFF, refcount 0, flags 0, prev = FF.
+        // Frames: ALL PAGE_FRAMES records initialized (pf_page $FFFF, refcount 0,
+        // flags 0, prev FF), chained through pf_lru_next (0->1->...->N-1->FF). The
+        // free list is then TERMINATED at frame PAGE_FRAMES_CLAMP-1 (== PAGE_FRAMES-1
+        // in every shipped shape; the STRESS_EVICT dev fixture clamps it below that):
+        // frames [PAGE_FRAMES_CLAMP..PAGE_FRAMES) stay initialized (audit-clean,
+        // unassigned) but UNREACHABLE from Page_Free_Head, so AllocFrame can never hand
+        // out a clamped frame and the pool cannot be fully resident under the fixture.
         lea     Page_Frames, a0
         moveq   #0, d1                          // running frame id (== next-link value)
         move.w  #PAGE_FRAMES-1, d0
@@ -103,8 +112,12 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         clr.b   PF_FLAGS(a0)
         lea     sizeof(PageFrame)(a0), a0
         dbf     d0, .init_frames
-        // the last frame's next link must terminate the free list
-        move.b  #PAGE_NOT_RESIDENT, PF_NEXT-sizeof(PageFrame)(a0)
+        // terminate the free list at the last USABLE frame (PAGE_FRAMES_CLAMP-1); the
+        // clamped tail's own links are left dangling but are never reached. a0 sits at
+        // Page_Frames + PAGE_FRAMES*sizeof(PageFrame) here, so the terminator is at
+        // displacement PF_NEXT + (CLAMP-1-PAGE_FRAMES)*sizeof (== PF_NEXT-sizeof at
+        // CLAMP==PAGE_FRAMES, the unclamped case).
+        move.b  #PAGE_NOT_RESIDENT, PF_NEXT + (PAGE_FRAMES_CLAMP-1-PAGE_FRAMES)*sizeof(PageFrame)(a0)
         move.b  #0, Page_Free_Head              // free list head = frame 0
 
     if DEBUG == 1 {
@@ -188,6 +201,13 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
         bra     .detach
 
     .from_lru:
+        // DEMAND-PROTECTION INVARIANT (Task 7): a demand-loaded page that has been
+        // Published but not yet Ref'd by the resuming fill is kept OUT of the LRU list
+        // (see PageCache_Publish), so it is NEVER a candidate here. That is what stops
+        // a second demand miss in the same frame from evicting the just-published page
+        // out from under the resuming fill (which would re-request the page it just
+        // evicted, forever). The LRU tail is therefore always a page nothing is mid-
+        // referencing — safe to evict.
         moveq   #0, d0
         move.b  Page_LRU_Tail, d0
         cmpi.b  #PAGE_NOT_RESIDENT, d0
@@ -239,9 +259,16 @@ pub proc PageCache_AllocFrame () clobbers(d1-d2/a3) out(d0: u8) {
 // a non-pinned frame into the evictable LRU list, and clears the queued marker.
 // (On the PageIn_Process path -> d0-d2/a0-a3 only.)
 //
-// TASK 7 NOTE: a demand-loaded page is added to the LRU here like a speculative one
-// — safe in Task 6 (nothing evicts). Task 7 adds demand-protection (keep a demand
-// page out of the LRU until the stalled fill refs it).
+// DEMAND-PROTECTION (Task 7, by construction): a SPECULATIVE (prefetch/bulk) page is
+// linked into the evictable LRU immediately — a cold prefetched page must be
+// reclaimable if it is never referenced. A DEMAND page (PageIn_Cur_Flags PGRQ_DEMAND)
+// is instead left DETACHED — out of every list, refcount 0, unflagged — until the
+// stalled fill's first PageCache_Ref lands. AllocFrame's LRU victim walk therefore
+// cannot evict it before the resuming fill references it (the deadlock the plan
+// flags). The first Ref (0->1) leaves it detached-but-referenced; a later full Unref
+// (1->0) links it into the LRU normally, so its lifecycle rejoins the speculative one
+// the moment nothing references it. (See the matching invariant note at AllocFrame's
+// .from_lru arm.)
 // In: d0.w = page id, d1.b = frame idx   Out: none   Clobbers: d0-d2/a0/a3
 // -----------------------------------------------
 pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
@@ -283,9 +310,17 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         // them); LruLinkTail OWNS setting PF_IN_LRU as it links — never set it here
         // (that split ownership was the Task-6 boot audit failure).
         clr.b   PF_FLAGS(a3, d2.w)             // defensive: guarantee no stale PF_PINNED
+        // DEMAND-PROTECTION: a demand page stays DETACHED (not linked into the LRU)
+        // until the stalled fill's first Ref — so AllocFrame cannot evict it before it
+        // is referenced. Flags/refcount/prev-next are already the detached state
+        // (0/0/FF-FF from AllocFrame .detach), so we simply return without linking.
+        btst    #PGRQ_DEMAND_BIT, PageIn_Cur_Flags
+        bne     .done                          // demand -> leave detached (protected)
         moveq   #0, d0                          // zero-extend: d1's upper byte is stale (see above)
         move.b  d1, d0                          // LruLinkTail takes frame in d0
         jbra    PageCache_LruLinkTail          // links + sets PF_IN_LRU atomically
+    .done:
+        rts
 }
 
 // -----------------------------------------------
@@ -410,6 +445,131 @@ pub proc PageCache_PatchWord (a0: *u8, a1: *u8) clobbers() preserves(d0-d4/a3/a0
         movem.l (sp)+, a0/a1
         move.w  #1, Cache_Art_Stall             // fill returns partial + resumes this col/row
         bra     .exit
+}
+
+// -----------------------------------------------
+// PageCache_Prefetch — page-tier speculative prefetch (Task 7, spec §5). Called once
+// per frame from PageIn_Process's idle site. Reads the tile-cache leading-edge signals
+// Cache_Pfx_Row_Target / Cache_Pfx_Col_Target (the block-tier ahead targets set by
+// Tile_Cache_Fill's unified prefetch; one frame stale here — PageIn_Process runs at
+// frame top, before Tile_Cache_Fill), probes each ahead-strip block's staging slot,
+// and PageCache_Request(prefetch)es the non-resident pages those blocks reference.
+// Bounded to PAGE_PREFETCH_MAX enqueues/frame (Page_Pfx_Budget, reset by the caller).
+//
+// "The same local->global path": a STAGED block's nametable words are ALREADY GLOBAL
+// (TileCache translate-at-decode patched them), so page = (word & NT_TILE_MASK) >>
+// PAGE_FRAME_TILE_SHIFT directly — no per-section table walk is needed here. A block
+// not yet staged is skipped (its pages are unknown until the block-tier prefetch
+// stages it a few frames ahead; the demand-stall path is the correctness backstop).
+//
+// D3: this is the ENQUEUE side (never gated — it only warms the FIFO, bounded). The
+// admission gate on speculative decode STARTS lives in PageIn_Process.
+//
+// Preserves EVERY register (movem-banks its whole working set) so PageIn_Process's
+// declared clobber set — and hence VSync_Wait's folded license — never widens. The
+// two loop bodies hold their invariants in d5-d7 (preserved across
+// TileCache_FindStagedBlock's d3-d4/a1 clobber) and the block scan holds a2/d4
+// (preserved across PageCache_Request's d0-d3/a0-a1 clobber).
+// In: none   Out: none   Clobbers: () — preserves d0-d7/a0-a6
+// -----------------------------------------------
+pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
+        tst.w   Page_Pfx_Budget
+        beq     .ret                            // no budget left this frame — cheap exit
+        movem.l d0-d7/a0-a6, -(sp)
+
+        // ---- ROW strip: ahead block-row across cache cols [Left..Head] ----
+        move.w  Cache_Pfx_Row_Target, d6
+        cmpi.w  #$FFFF, d6
+        beq     .col_strip                       // no vertical target this frame
+        move.w  d6, d5
+        lsr.w   #8, d5                            // d5 = sec_y (fixed for the row)
+        lsr.w   #BLOCK_TILE_SHIFT, d6
+        andi.w  #$F, d6
+        lsl.w   #4, d6                            // d6 = block_y*16 (add block_x per col)
+        move.w  Cache_Left_Col, d7
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7         // align to block col
+    .row_scan:
+        tst.w   Page_Pfx_Budget
+        beq     .strips_done
+        cmp.w   Cache_Head_Col, d7
+        bhi     .col_strip                       // past the cache head — row strip done
+        move.w  d7, d0
+        lsr.w   #8, d0                            // sec_x
+        move.w  d5, d1                            // sec_y
+        move.w  d7, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2                           // block_x
+        add.w   d6, d2                            // block_index = block_y*16 + block_x
+        jbsr    TileCache_FindStagedBlock         // Z on hit, a1 = slot; d0-d2 preserved
+        bne     .row_next                         // not staged -> pages unknown, skip
+        jbsr    .scan_block                       // a1 = slot base
+    .row_next:
+        addi.w  #BLOCK_TILE_SIZE, d7
+        jbra    .row_scan
+
+        // ---- COL strip: ahead block-col across cache rows [Top..Bottom] ----
+    .col_strip:
+        move.w  Cache_Pfx_Col_Target, d6
+        cmpi.w  #$FFFF, d6
+        beq     .strips_done                      // no horizontal target this frame
+        move.w  d6, d5
+        lsr.w   #8, d5                            // d5 = sec_x (fixed for the col)
+        lsr.w   #BLOCK_TILE_SHIFT, d6
+        andi.w  #$F, d6                           // d6 = block_x (fixed)
+        move.w  Cache_Top_Row, d7
+        andi.w  #~(BLOCK_TILE_SIZE-1), d7          // align to block row
+    .col_scan:
+        tst.w   Page_Pfx_Budget
+        beq     .strips_done
+        cmp.w   Cache_Bottom_Row, d7
+        bhi     .strips_done                      // past the cache bottom — col strip done
+        move.w  d5, d0                            // sec_x
+        move.w  d7, d1
+        lsr.w   #8, d1                            // sec_y
+        move.w  d7, d2
+        lsr.w   #BLOCK_TILE_SHIFT, d2
+        andi.w  #$F, d2                           // block_y
+        lsl.w   #4, d2
+        add.w   d6, d2                            // block_index = block_y*16 + block_x
+        jbsr    TileCache_FindStagedBlock
+        bne     .col_next
+        jbsr    .scan_block
+    .col_next:
+        addi.w  #BLOCK_TILE_SIZE, d7
+        jbra    .col_scan
+
+    .strips_done:
+        movem.l (sp)+, d0-d7/a0-a6
+    .ret:
+        rts
+
+    .scan_block:
+        // Scan a staged block's BLOCK_NT_SIZE/2 GLOBAL nametable words; for each
+        // non-blank word whose page is not resident, PageCache_Request(prefetch) and
+        // decrement Page_Pfx_Budget. Stops at budget 0. a2 (cursor) + d4 (counter)
+        // survive PageCache_Request (it clobbers d0-d3/a0-a1). a1 = slot base (in).
+        movea.l a1, a2                            // a2 = scan cursor
+        move.w  #(BLOCK_NT_SIZE/2)-1, d4          // word count - 1
+    .sb_loop:
+        move.w  (a2)+, d0
+        andi.w  #NT_TILE_MASK, d0                 // global tile index
+        beq     .sb_next                          // blank -> no page
+        lsr.w   #PAGE_FRAME_TILE_SHIFT, d0        // page id
+        lea     Page_Table, a0
+        move.b  (a0, d0.w), d1
+        cmpi.b  #PAGE_NOT_RESIDENT, d1
+        bne     .sb_next                          // resident -> nothing to prefetch
+        move.w  #PGRQ_PREFETCH, d1               // non-resident -> request (Request dedups queued)
+        jbsr    PageCache_Request                 // clobbers d0-d3/a0-a1; a2/d4 survive
+    if DEBUG == 1 {
+        addq.w  #1, Dbg_PageCache_Prefetches
+    }
+        subq.w  #1, Page_Pfx_Budget
+        beq     .sb_done                          // budget exhausted this frame
+    .sb_next:
+        dbf     d4, .sb_loop
+    .sb_done:
+        rts
 }
 
 // -----------------------------------------------
