@@ -10,17 +10,18 @@ docs); this doc only sequences it.*
 
 ---
 
-## Now (in flight, 2026-08-08)
+## Now (updated 2026-08-09)
 
-1. **Art-streaming Phase 2** — branch `feat/art-streaming-p2`, plan
-   `docs/superpowers/plans/2026-08-08-art-streaming-phase2-v2.md`. P2a (resumable
-   ZX0 decoder + VBlank bookmark + page-in dispatcher) landed 2026-08-08; P2b
-   (format cutover + residency cache) and P2c (dual-cap DMA, budget word,
-   stress/acceptance) remain. Co-evolves with sigil (cross-seam pins) — **until it
-   merges, master does not build with sigil HEAD**, so no other engine code work
-   should start.
-2. **Character dispatch v2** — staged S3K Tails/Knuckles assets + the re-anchored
-   plan ride the same branch; follows P2 in that lane.
+1. **Art-streaming Phase 2 — MERGED** (2f047e3 + lens saga through the
+   wave/final-panel closings + patch-run batching, all on master 2026-08-09).
+   The replay regression net is re-recorded and live; the eviction-liveness
+   witness (`tools/evict_witness.py`) closed panel debt V-3. Open from this
+   lane: the STRESS_EVICT sustained-scroll famine root-cause session (ledgered
+   in the adjudication note — feeds the C4-3 famine-handling design) and the
+   FillColumn/Draw_TileColumn hoist (measured 2026-08-09, scoped in
+   DEFERRED_WORK, next perf parcel).
+2. **Character dispatch v2** — staged S3K Tails/Knuckles assets + the
+   re-anchored plan; next in the level-code lane.
 
 ## Next (ranked, post-P2-merge)
 
@@ -32,19 +33,20 @@ docs); this doc only sequences it.*
    the main engine gap the 2026-07-15 alignment audit named, and the hard
    dependency of the mega-act goal.
 4. **Sound driver completion** — two tracks, one queue:
-   - the banked packages, order **1 → 3 → 4 → 5 → 6** (package 2 shipped
-     2026-07-07);
+   - the banked packages, order **3 → 4 → 5 → 6** (package 2 shipped
+     2026-07-07; **package 1 shipped 2026-08-09** with R4 + the TimerA-DMA
+     ruling — debug blob headroom is now 3 B, reclaim before any resident
+     addition);
    - the 2026-08-08 MDSDRV triage (`docs/research/2026-08-08-sound-study-triage.md`):
      R1 (drain underrun guard) + R5-trace ride package 4's session, R4 rides
      package 1, R2 (observability cluster) rides package 6; **R3 log-domain pitch**
      and **R6 format revision v1** are the two new scoped plans (R6 after
      package 4). Four user rulings queued (TimerA-DMA first among them).
-5. **Player-facing polish debts** (Harmony study, 2026-08-07 — confirmed in our
-   code, all small): the roll-animation half-speed defect (`.ball` path,
-   `player_common.emp`); the deform-phase layer anchoring; the
-   camera-vs-`CURL_Y_SHIFT` question (resolve against skdisasm before touching);
-   then the structural takes (capability flags, post-dispatch condition block,
-   shield descriptor record) as the player matures.
+5. **Player-facing polish debts** — the confirmed trio **shipped 2026-08-09**
+   (roll anim S3K-exact, camera curl compensation per skdisasm MoveCameraY,
+   layer-anchored deform phase — evidence note 2026-08-09-player-polish-trio-ab).
+   Remaining: the structural takes (capability flags, post-dispatch condition
+   block, shield descriptor record) as the player matures.
 6. **Game-shell gaps** (also Harmony-exposed, confirmed): no fade of any kind, no
    title card, no act transition, no screen shake / look-up-down / camera limits;
    `HBlank_Install` has zero consumers (§7.2 raster table unbuilt). These block
