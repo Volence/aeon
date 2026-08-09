@@ -364,7 +364,11 @@ probe->copy adjacency airtight at every fill site, footprint reconciles
    (10 pages <= 15 frames) — eviction correctness has NO automated witness;
    STRESS shapes are hand-run. Candidate: a STRESS_EVICT soak leg in the
    acceptance ritual, or a CI-runnable fixture.
-2. **P-2 fixture re-record** (restores the whole replay regression net).
+2. **P-2 fixture re-record** — CLOSED 2026-08-09 (merge 0aac1c2, sigil chain
+   81): both fixtures re-recorded, determinism ×2 each, all four slide
+   crossings re-proven, release pass. En route: the patchrun-batch parcel's
+   skipped sigil ritual (stale roster/pins/port seams) was found and paid.
+   Evidence: `2026-08-09-replay-net-rerecord-ab.md`.
 3. **CI strict-gate hole** (V-4): give sigil CI an aeon checkout or a
    fail-not-skip mode for the 57 ROM-presence sites.
 4. **C4-4** PF_PROTECTED inversion (derive candidacy, flag only the
