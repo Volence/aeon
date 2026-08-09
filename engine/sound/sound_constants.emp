@@ -300,10 +300,12 @@ pub const MEV_FMENV       = $F7    // + env_id : set the channel's FM TL vol-env
 pub const MEV_REGWRITE    = $F8    // + part + reg + val : raw YM2612 register write (part-explicit)
 pub const MEV_MACRO       = $F9    // + dw blob_offset (BE) : (re)arm the channel's slot[1] macro stream
 pub const MEV_EXT         = $FA    // extension prefix: + sub-op byte selects the event.
-                                   // Sub-op 0 = COMM (+ value -> SND_STAT_COMM, the
-                                   // score-authored 68k-visible cue byte; zero-tick,
-                                   // any route — pkg 1's first tenant). Sub-ops 1-255
-                                   // FREE. Unknown sub-op = pack error AND engine trap
+                                   // SUB-OP REGISTRY: 0 = COMM (+ value ->
+                                   // SND_STAT_COMM, the score-authored 68k-visible cue
+                                   // byte; zero-tick, any route — pkg 1's first tenant);
+                                   // 1 = PUMPSET and 2 = GHOSTSET are RESERVED for the
+                                   // banked production-suite package 5; 3-255 FREE.
+                                   // Unknown sub-op = pack error AND engine trap
                                    // (Seq_BadOpcode): payload lengths are unknown, so
                                    // a new sub-op requires a driver update by construction.
 pub const MEV_EXT_COMM    = $00    // MEV_EXT sub-op 0 (the packer's Comm event)
