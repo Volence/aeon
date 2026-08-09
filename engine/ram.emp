@@ -311,6 +311,11 @@ pub vars upper_ram {
         // --- Prefetch + D3-gate instrumentation (P2b Task 7) ---
         Dbg_PageCache_Prefetches: u16,  // PageCache_Request(prefetch) enqueues (page prefetch warms the ahead strip)
         Dbg_PageIn_PfxSkips:    u16,    // speculative decode STARTS skipped by the D3 trailing-lag gate
+        // Chain-70 soak diagnostic: dispatch found PageIn_Pool_Table != the immutable act
+        // descriptor's base -> a stray write corrupted the cached base. Nonzero CONFIRMS
+        // the root cause (the resolve now derives the base from ROM, so gameplay is
+        // unaffected; this counts how often the cache was found stale).
+        Dbg_PageIn_BaseCorrupt: u16,
         Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
         Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a

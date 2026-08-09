@@ -69,4 +69,39 @@ then strided `page*sizeof(PageManifest)` past the table into adjacent ROM.
 
 Rebuilt green: `s4.bin` crc=e3ed767b (414103 B), `s4.debug.bin` crc=81977270 (427376 B),
 `s4.stress.bin` crc=1d76f638 (427376 B). Fixture isolation intact (debug↔stress differ
-only in the clamp byte @0x76E3 + the checksum word). Re-soak pending.
+only in the clamp byte @0x76E3 + the checksum word).
+
+## Chain 70 — soak crash #2: corrupt manifest base at the gameplay dequeue
+
+**Re-soak (chain 69):** crash reproduced identically — a valid page id (< 10, passed both
+bounds guards) resolved to a garbage `pm_source` (wrapper version 0). Falsifies the
+scan-artifact theory: the defect is the RESOLUTION CONTEXT, not the id.
+
+**Analysis (static, via capstone disasm of the whole residency cache):** every routine
+(dequeue, AllocFrame, LRU link/unlink, Ref/Unref, Publish, Prefetch) is individually
+correct. The act descriptor is intact (`act_art_pool_table`=0x14FAC, `pages`=10); the
+manifest ends exactly where the descriptor begins. The crashed `pm_tiles`=476 (from
+`d1=0x3B80=476<<5`) is NOT anywhere in the ROM manifest region for any small page —
+so `PageIn_Pool_Table` (the cached manifest base) was corrupted to a RAM value at
+gameplay. **Init works because init dispatch runs BEFORE `Current_Act_Ptr` is set and
+uses the freshly-written cache; gameplay is the first dispatch after a stray write
+corrupts the cache.** Task 6 never ran the gameplay dequeue at all (pool fully resident,
+no page-in), so the latent corruption was invisible until STRESS_EVICT forced eviction.
+
+**Fix (robust, chain 70):** the dispatch (page_in resolve) and `PageCache_Publish` now
+derive the manifest base from the IMMUTABLE act descriptor (`Current_Act_Ptr ->
+act_art_pool_table`), NOT the corruptible cached `PageIn_Pool_Table`. The init bulk load
+(when `Current_Act_Ptr` is still null) falls back to the freshly-set cache. Added: a
+DEBUG resolve guard `PageIn_Cur_Page < act_art_pool_pages` (raise + release-skip), and a
+DEBUG counter `Dbg_PageIn_BaseCorrupt` (@FFFF8A30) that increments when the cached base
+disagrees with the descriptor — confirms whether the cache is being corrupted (root-cause
+locator for the stray-writer hunt) while the soak runs on the robust base.
+
+**CAVEAT for the controller:** this eliminates the cached-base corruption VECTOR (the
+evidence-consistent cause), but the stray WRITER itself was not pinned statically (no
+live-RAM access here). On the re-soak, read `Dbg_PageIn_BaseCorrupt` (@FFFF8A30): if >0,
+the cache IS being corrupted (confirmed) and the writer still needs hunting — read
+`PageIn_Pool_Table` (@FFFFB4BA) vs the descriptor base (0x14FAC) at that point. If the
+`PageIn_Cur_Page >= pages` DEBUG assert fires instead, the corrupt target is the id, not
+the base. Rebuilt green: `s4.bin` crc=6eca5ade (414219 B), `s4.debug.bin` crc=6fb633ff
+(427549 B), `s4.stress.bin` crc=8c9e791f (427549 B).

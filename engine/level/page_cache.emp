@@ -298,10 +298,21 @@ pub proc PageCache_Publish (d0: u16, d1: u8) clobbers(d0-d2/a0/a3) {
         lea     Page_Table, a0                  // Page_Table[page] = frame
         move.b  d1, (a0, d0.w)
 
-        movea.l PageIn_Pool_Table, a0           // &manifest[page] (read pm_flags below)
+        // manifest base: immutable act descriptor (Current_Act_Ptr) over the cached
+        // PageIn_Pool_Table (soak fix chain 70 — same rationale as the page_in resolve;
+        // a stray write can corrupt the cache). Init publishes (Current_Act_Ptr still
+        // null, set later by Section_Init) fall back to the freshly-set cache.
+        movea.l Current_Act_Ptr, a0
+        move.l  a0, d2
+        beq     .pub_base_cached
+        movea.l Act.act_art_pool_table(a0), a0  // &manifest[0] from ROM
+        bra     .pub_base_ok
+    .pub_base_cached:
+        movea.l PageIn_Pool_Table, a0
+    .pub_base_ok:
         move.w  d0, d2
         lsl.w   #3, d2                           // page * sizeof(PageManifest)=8
-        lea     (a0, d2.w), a0
+        lea     (a0, d2.w), a0                  // a0 = &manifest[page] (read pm_flags below)
 
         lea     Page_Frames, a3                 // frame fields via base+offset
         // frame*8 offset: ZERO-EXTEND d1 first. The caller (page_in) sets d1 via
