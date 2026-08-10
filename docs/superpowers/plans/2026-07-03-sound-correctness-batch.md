@@ -113,7 +113,7 @@ git commit -m "fix(tools): reject ModSet on noise route in both producers (D1, z
 - Modify: `engine/sound/sound_sequencer.asm:~1678-1687` (`Seq_Op_RepeatStart`)
 - Test: `tools/test_song_packer.py`
 
-- [ ] **Step 1: Failing test — LoopPoint inside a repeat span**
+- [x] **Step 1: Failing test — LoopPoint inside a repeat span**
 
 ```python
 def test_looppoint_inside_repeat_span_rejected():
@@ -124,9 +124,9 @@ def test_looppoint_inside_repeat_span_rejected():
         pack_song(make_song([ch]))
 ```
 
-- [ ] **Step 2: Run to fail**, then implement: during the existing repeat scan, record `in_repeat` state; a `LoopPoint` while `in_repeat` raises `PackError("LoopPoint inside a repeat span — the song-loop Jump would re-enter with stale sc_repeat_count (D6)")`. (The Jump target IS the LoopPoint, so gating LoopPoint placement is the complete rule.)
+- [x] **Step 2: Run to fail**, then implement: during the existing repeat scan, record `in_repeat` state; a `LoopPoint` while `in_repeat` raises `PackError("LoopPoint inside a repeat span — the song-loop Jump would re-enter with stale sc_repeat_count (D6)")`. (The Jump target IS the LoopPoint, so gating LoopPoint placement is the complete rule.)
 
-- [ ] **Step 3: Engine defense (2 bytes):** in `Seq_Op_RepeatStart` (sound_sequencer.asm:1678-1687), before storing the body pointer, add:
+- [x] **Step 3: Engine defense (4 bytes — `ld (ix+d),n` is 4 B on Z80, not 2):** in `Seq_Op_RepeatStart` (sound_sequencer.asm:1678-1687), before storing the body pointer, add:
 
 ```asm
         ld      (ix+sc_repeat_count), 0  ; D6 defense: fresh block always re-seeds
@@ -134,7 +134,7 @@ def test_looppoint_inside_repeat_span_rejected():
 
 (Verify against the current handler: if it already unconditionally re-seeds count at `RepeatEnd` first-touch — the `.have_count` path seeds from the operand only when count==0 — then a stale nonzero count from a crossed loop WOULD be consumed; this zero at `RepeatStart` makes every textual block fresh. Sequential-repeat behavior is unchanged: count is already 0 after a completed block, test `test_song_packer.py:817` still passes.)
 
-- [ ] **Step 4: Full gates** — `python3 -m pytest tools/ -q` green; build green; budget growth ≤ 4 B. Update validity-rules §(c) with the new LoopPoint rule. Commit:
+- [x] **Step 4: Full gates** — `python3 -m pytest tools/ -q` green; build green; budget growth ≤ 4 B. Update validity-rules §(c) with the new LoopPoint rule. Commit:
 
 ```bash
 git add tools/song_packer.py tools/test_song_packer.py engine/sound/sound_sequencer.asm docs/superpowers/specs/2026-06-23-music-expression-engine-design.md

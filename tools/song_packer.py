@@ -930,6 +930,17 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
                         "PSG channel keys a note before a Vol ($E0) — would "
                         "play at undefined attenuation")
         if isinstance(ev, LoopPoint):
+            # D6: the song-loop Jump target IS this LoopPoint, so a LoopPoint inside
+            # a RepeatStart..RepeatEnd span makes the loop re-ENTER the span mid-body.
+            # Seq_Op_RepeatStart never runs again on that path, so sc_repeat_count is
+            # not re-seeded and the RepeatEnd consumes whatever the previous pass left
+            # (0 -> a full nn-pass replay; nonzero -> a short one). Gating LoopPoint
+            # placement is the COMPLETE rule — the Jump can target nothing else.
+            if repeat_depth > 0:
+                raise PackError(
+                    "LoopPoint inside a repeat span — the song-loop Jump would "
+                    "re-enter the RepeatStart..RepeatEnd body without re-seeding "
+                    "sc_repeat_count (D6); place the LoopPoint outside the span")
             saw_loop = True
             loop_advances_time = False
         if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)):

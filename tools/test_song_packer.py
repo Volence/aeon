@@ -867,6 +867,33 @@ class TestPackerSafetyGates(unittest.TestCase):
             RepeatStart(), Note(1), RepeatEnd(3)))
         pack_song(self._song([ch]))   # must not raise
 
+    # ── D6: the song loop must not re-enter a repeat span ──
+
+    def test_looppoint_inside_repeat_span_rejected(self):
+        # The Jump target IS the LoopPoint, so a LoopPoint between RepeatStart and
+        # RepeatEnd makes the song loop re-enter the span mid-body. sc_repeat_count
+        # is NOT re-seeded on that path (Seq_Op_RepeatStart never runs again), so
+        # the RepeatEnd consumes whatever count the previous pass left.
+        ch = ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(64), RepeatStart(), LoopPoint(), Note(10), RepeatEnd(2),
+            Note(12), Jump()])
+        with self.assertRaisesRegex(PackError, "LoopPoint inside a repeat span"):
+            pack_song(self._song([ch]))
+
+    def test_looppoint_before_repeat_span_still_packs(self):
+        # The normal shape — LoopPoint outside, the whole span inside the loop —
+        # stays legal: the Jump lands on the RepeatStart, which re-saves the body
+        # pointer (and, since this parcel, re-seeds the count).
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(
+            RepeatStart(), Note(0), RepeatEnd(2)))
+        pack_song(self._song([ch]))   # must not raise
+
+    def test_looppoint_after_repeat_span_still_packs(self):
+        ch = ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(64), RepeatStart(), Note(0), RepeatEnd(2),
+            LoopPoint(), Note(12), Jump()])
+        pack_song(self._song([ch]))   # must not raise
+
     # ── macro-body yield validation ──
 
     def test_mid_body_macloop_rejected(self):

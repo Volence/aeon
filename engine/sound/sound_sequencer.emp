@@ -1582,12 +1582,21 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $E5 MEV_REPEAT_START (no operand) : save the current (post-opcode) ptr as the
-    // body-start the matching $E6 jumps back to. Zero tick. Does NOT touch
-    // sc_repeat_count. Single-level (the transcoder emits FLAT repeats).
+    // body-start the matching $E6 jumps back to, and re-seed sc_repeat_count to 0 so
+    // every TEXTUAL block starts fresh. Zero tick. Single-level (the transcoder emits
+    // FLAT repeats).
     // Clobbers: af (DEBUG trace only). Manipulates: hl (kept live). Uses ix.
     pub proc Seq_Op_RepeatStart () clobbers(af) {
         ld      (ix+sc_repeat_ptr), l
         ld      (ix+(sc_repeat_ptr+1)), h // save body-start ptr (post-opcode)
+        // D6 defense (4 B): a fresh block must never inherit a count. The $E6
+        // handler treats sc_repeat_count as "0 = fresh-OR-done" and SEEDS from the
+        // operand only when it reads 0, so a stale nonzero count is CONSUMED instead
+        // of re-seeded. For a well-formed stream the count is always already 0 here
+        // (a completed block leaves it 0, and the packer forbids both nesting and a
+        // LoopPoint inside a span), so this is byte-inert on valid content — it is
+        // the backstop for a stream that re-enters a span some other way.
+        ld      (ix+sc_repeat_count), 0
         if DEBUG == 1 {
             push    hl
             ld      a, SEQEV_RPT_START
