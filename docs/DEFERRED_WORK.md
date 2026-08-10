@@ -3875,3 +3875,30 @@ would change how it behaves straddling a ledge edge.
 **Pick this up when:** Task 4's replay gate has passed and the byte-identity requirement is
 discharged. It is a mechanical change with a clear stopping point, and it is the last hidden global
 in the player sensor path.
+
+**MEASURED SCOPE (attempted and reverted 2026-08-10 — read this before estimating).** The obvious
+first move is to declare the dependency on the four procs that actually read the quadrant
+(`Player_SensorFloor`/`Ceiling`/`Surface` + `Player_SnapToSurface`), the way
+`Player_RefreshPhysics (a2: *u8)` does. That was tried. It does **not** build, and the reason is
+structural, not cosmetic: `[call.input-undefined]` fires **13 times**. a4 reaches the state machine
+*implicitly* — `Player_Main` establishes it, then dispatches through
+`jsr (a1,d1.w) as PlayerState`, and `type PlayerState` declares `clobbers(d0-d7, a1-a4)`. The
+closure therefore treats a4 as destroyed at the dispatch boundary and cannot carry the definition
+into any handler. The 13 firings:
+
+```
+Air_CeilingBump, Air_LandState, PState_AirShared,
+PState_Ground, PState_Roll (x2)          -> Player_SensorCeiling
+Air_FloorLandBanded, Air_FloorLandFlat,
+Ground_PostMove, PState_Spindash         -> Player_SensorFloor
+Air_TouchFloor, Ground_PostMove,
+PState_Spindash                          -> Player_SnapToSurface
+```
+
+So the real change is not four signatures — it is an `a4` in-param on roughly **nineteen** procs
+spanning `player_ground` / `player_air` / `player_spindash` **plus the `PlayerState` dispatch type
+itself**, whose clobber list `Player_Main` brackets. That is the whole player frame's register
+contract, which is exactly why it must not ride along underneath the Task 4 byte-identity gate: a
+change that broad makes any byte diff impossible to attribute. Budget it as its own parcel with its
+own gate. The partial form is not a valid halfway house — it does not compile, so there is no
+smaller increment to land first.
