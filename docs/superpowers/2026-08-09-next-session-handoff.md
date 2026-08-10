@@ -36,9 +36,13 @@ it). Everything below is user-approved to execute.
   killing anything. The DEBUG OJZ scene boots with debug-fly ACTIVE (a B tap
   toggles to normal play); the OJZ init swallows ~2,700 frames (~12 s wall)
   before logic ticks flow. NO emulator work from subagents — controller only.
-- HARD CONSTRAINT: the debug Z80 sound blob is 6381/6384 bytes — **3 bytes of
-  headroom**. Any resident Z80 addition needs a reclaim ride-along first
-  (candidates ledgered in DEFERRED_WORK). Blob-size changes need
+- ~~HARD CONSTRAINT: the debug Z80 sound blob is 6381/6384 bytes — **3 bytes of
+  headroom**.~~ **RETIRED 2026-08-10** — package 4's Task-0 item-25 reclaim returned
+  98 B against 11 spent, so the blob is now plain 6164 / debug 6294 of 6384 =
+  **90 B of headroom**. The reclaim-before-adding discipline below still applies,
+  but the ceiling is no longer the binding constraint. Still true regardless of
+  the number: any resident Z80 addition wants a reclaim identified first
+  (candidates ledgered in DEFERRED_WORK), and blob-size changes need
   `SIGIL_BLOB_LEN_DRIFT=warn` to build, then the BLOB_LEN_PLAIN/DEBUG +
   Z80_SOUND_SIZE (boot_port) + SOUND_API-literal repins (precedent: sigil
   `473969fb`).

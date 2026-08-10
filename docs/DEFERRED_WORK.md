@@ -110,7 +110,7 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   clobbers), and make a violation **build-fatal** — not a warning. This lives in the sigil repo
   (`/home/volence/sonic_hacks/sigil`), not here; recorded so the ask isn't lost.
 
-### 6. Sound package 4 — genuinely open and independent
+### 6. Sound package 4 — ✅ EXECUTED 2026-08-10 (historical text below)
 **D1, D4, D5, D6, D7** and **E5's 7th RegDelta group** are open, verified against the tree, and do
 **not** depend on the unexecuted packages 1/3/5/6. (**D2 is DONE** — corrected below.) This is the
 largest cluster of small, well-specified, independent sound work in the file.
@@ -2002,7 +2002,12 @@ warn on whole-act-empty dataPath misconfig, duplicate library-id check.
 >
 > **EXECUTION STATUS as of 2026-08-05 (reconciliation pass):**
 > - **Package 2** (SFX Stage B/C) — **EXECUTED + merged 2026-07-07**, annotated on its own entry.
-> - **Packages 1 / 3 / 4 / 5 / 6** — **still unexecuted.** Recommended order remains 1→3→4→5→6.
+> - **CORRECTED 2026-08-10:** packages **1 (2026-08-09), 3 and 4 (both 2026-08-10)** have
+>   all EXECUTED and merged. Only **5 and 6** remain of the banked set. The package-4
+>   paragraph below is historical — every item it lists as open has shipped. Note also
+>   that packages 5+6 no longer close the sound backlog: the 2026-08-08 triage adopted
+>   nine riders (R2, R3, R5-R11) and two ruled-in streams that postdate this banner and
+>   have no plans. See `docs/superpowers/2026-08-10-open-work-inventory.md`.
 > - **Package 4 has open work that does not need the others.** Verified against the tree:
 >   **D2 is DONE** (corrected on its own line below — do not re-plan it), while **D1, D4, D5, D6,
 >   D7 and E5's 7th RegDelta group are genuinely open** and are independent of packages 1/3/5/6.

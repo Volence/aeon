@@ -11,7 +11,10 @@ package plans/specs).
 respects: SFX priorities are 7-bit (bit 7 = non-latching flag); `SfxChannel` is 68 B
 with `sx_pad@+58` aliasing `sc_detune` (the SeqChannel↔SfxChannel shared prefix is
 load-bearing — **no proposal may grow the shared prefix**); Z80 resident-code headroom
-is ~316 B DEBUG after the wave-4 reclaim; `MEV_EXT` sub-ops 0/1/2 are claimed
+is **90 B DEBUG** (corrected 2026-08-10: was ~316 B when this was written, then
+3 B after packages 1-3, then 90 B after package 4's item-25 reclaim — every byte
+estimate below was costed against the ~316 B figure and must be re-checked);
+`MEV_EXT` sub-ops 0/1/2 are claimed
 (COMM/PUMPSET/GHOSTSET) — new tenants start at 3.
 
 **Judgment rule applied throughout:** MDSDRV is an input to weigh, not an authority.

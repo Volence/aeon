@@ -73,7 +73,17 @@ hangs afterward (Seraph/MegaDAW excluded — its own project):
 | 6 | **Closeout sweep** — GATE→NOTEFILL import translation, $28 guard + cold-boot pan seed + FM env seam (~25 B), coverage-debt tests, HCZ2 loop-residual audit, bank-latch corrupter hunt (bounded), boundary-tick audibility check, formal dispositions (§6.4 clarified-closed, Phase-4 closed, defensive-upload closed, H3 closed on user PASS, worst-tick ACCEPTED) | plan `plans/2026-07-03-sound-closeout-sweep.md` (no spec needed — dispositions embedded) | **BANKED** |
 
 Post-5+6 state: sound backlog EMPTY except content-gated (drum authoring via C's runbook,
-Seraph export retarget). Phase-4 question answered: adaptive FM6/DAC IS shipped
+Seraph export retarget).
+> **CORRECTION 2026-08-10 — this claim is NO LONGER TRUE.** It was written 2026-07-03
+> against a five-package world. The 2026-08-08 MDSDRV/Harmony triage
+> (`docs/research/2026-08-08-sound-study-triage.md`) adopted **nine riders**
+> (R2, R3, R5, R6, R7, R8, R9, R10, R11) and **two ruled-in work streams** (the
+> multi-tick-tempo + item-25-H1 parcel, and the 68k SFX policy design task), none of
+> which has a plan; B5 was also reopened with a costing on 2026-08-10. The triage doc
+> says so itself: *"Genuinely NEW (no DEFERRED_WORK entry, no package): R3, R4's rate
+> half, R6, R7, R8, R9, R10, R11, and the §3 rulings."* The Phase-4 half of the claim
+> below (adaptive FM6/DAC) DOES still hold. Full picture:
+> `docs/superpowers/2026-08-10-open-work-inventory.md`. Phase-4 question answered: adaptive FM6/DAC IS shipped
 (dedicate + drain-gated time-share); the "richer modes" remainder closes with it.
 
 **ALL FOUR PACKAGES BANKED 2026-07-03.** Execution order stands (1 -> 2 -> 3 -> 4, all

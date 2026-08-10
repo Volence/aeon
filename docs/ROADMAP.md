@@ -16,10 +16,14 @@ docs); this doc only sequences it.*
    wave/final-panel closings + patch-run batching, all on master 2026-08-09).
    The replay regression net is re-recorded and live; the eviction-liveness
    witness (`tools/evict_witness.py`) closed panel debt V-3. Open from this
-   lane: the STRESS_EVICT sustained-scroll famine root-cause session (ledgered
-   in the adjudication note — feeds the C4-3 famine-handling design) and the
-   FillColumn/Draw_TileColumn hoist (measured 2026-08-09, scoped in
-   DEFERRED_WORK, next perf parcel).
+   lane: the STRESS_EVICT famine — **root-caused 2026-08-10** as capacity
+   arithmetic (4 build-pinned pages + 6 concurrent transients vs 9 clamped
+   frames); no fix by ruling, folds into the C4-3 famine-handling design. The
+   FillColumn/Draw_TileColumn hoist was **built and measured 2026-08-10**: T1's
+   gather unroll shipped (`e1367aee`, −14% on that routine), T2-T5 parked on
+   `perf/fillcol-hoist` for no measurable lag win. The entry's premise — that
+   the copy chain is the top diagonal lever — is falsified; the residual is the
+   flat decompress/patch-run/HInt taxes.
 2. **Character dispatch v2** — staged S3K Tails/Knuckles assets + the
    re-anchored plan; next in the level-code lane.
 
@@ -64,15 +68,20 @@ docs); this doc only sequences it.*
 
 - **Collision**: object-vs-object (`DEFERRED_WORK` §3 — deliberately blocked until
   a gameplay object needs it); build-time collision validation; editor collision
-  authoring (spec exists). Core level + player collision is **done** — sensors,
+  authoring (**closed 2026-08-08** — the authoring half landed in Aurora and the
+  engine needed no changes). Core level + player collision is **done** — sensors,
   Path A/B, per-section maps all shipped and verified.
-- **Parallax fill jump-table unroll** — the one remaining §4.6 perf lever,
-  unblocked, banked.
 - **ComfyUI art pipeline M1** (spec approved 2026-07-12) — awaits its writing-plans
   pass; tooling lane, independent of the engine queue.
 - **Fonts** (HUD leaning Emerald; title font undecided) — content decisions,
   user's call.
-- The 3 conditional review rows from the 2026-08-05 backlog reconciliation.
+- ~~The 3 conditional review rows from the 2026-08-05 backlog reconciliation.~~
+  **CLOSED** — all three fixed 2026-08-05 by `parcel/defect-batch-8`; the
+  2026-07-16 review records every item closed.
+- **Full open-work inventory (sound + engine), 2026-08-10:**
+  `docs/superpowers/2026-08-10-open-work-inventory.md` — the authoritative
+  "what's left" record, including the nine unplanned sound riders that this
+  roadmap and the sound queue doc both predate.
 
 ## Standing constraints (why the order is what it is)
 
