@@ -1,7 +1,12 @@
 import os, subprocess, sys
 
 HERE = os.path.dirname(__file__)
-SK = os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm", "Levels", "Misc"))
+# Honor the same donor override the tool itself honors (worktree checkouts sit
+# under .claude/worktrees/, where the ../../skdisasm default resolves wrong).
+_SK_ROOT = os.environ.get(
+    "AEON_SKDISASM_DIR",
+    os.path.normpath(os.path.join(HERE, "..", "..", "skdisasm")))
+SK = os.path.join(_SK_ROOT, "Levels", "Misc")
 OUT = os.path.normpath(os.path.join(HERE, "..", "games", "sonic4", "data", "collision"))
 
 

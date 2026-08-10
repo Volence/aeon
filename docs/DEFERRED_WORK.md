@@ -2001,6 +2001,11 @@ renders == pre-banking baseline. Merged on `feat/sound-task0-recovery`. Two foll
   since the labels are defined once in MT's bank). The Phase-3 scratch COPY test songs (id 1–5)
   were dropped, so nothing needs this today. The banking model (tables at bank-start in whatever
   bank the window holds) is the general rule; this is just the COPY instance.
+  *(Generator twin LANDED `874b260` (package 3, 2026-08-10) — `gen_sound_tables.py::
+  emit_emp_z80_data_only()`, byte-equality tested (`TestEmpDataOnlyTwin`); written against the
+  CURRENT build-consumed `emit_emp_z80()` emitter, activation path re-anchored to seam-2/embed
+  mechanics (the `main.asm` phase-include named above is deleted — see the twin's docstring +
+  the DAC spec's authoring runbook step 6). ROM activation still rides the first COPY song.)*
 - ~~**Dead 68k table copies.**~~ **✅ DONE — deleted by `a3f2332`** (2026-07-01, "chore: tier-2
   mess cleanup — orphans deleted, references protected, handoff neutralized). Verified 2026-08-05:
   `data/sound/fm_patches.asm` and `data/sound/sound_tables.asm` are gone from
@@ -2242,6 +2247,10 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   design-banking session). The ratification-time ask — the cheap insurance this entry wanted (add
   `ds_vol` + reserved mix-cursor bytes, ~3 B/descriptor, zero code) — is a build item in the banked
   DAC drum-library-readiness package. See the 2026-07-01 spec review §4.)*
+  *(Descriptor insurance LANDED `a34c0e1` (package 3, 2026-08-10) — `ds_vol` + `ds_mix_rsvd`
+  shipped, 12-byte descriptor, appended so no existing offset moves; v1 engine reads none of the
+  new bytes and the resident Z80 blob is byte-count identical (the ×12 stride kept the 8-bit
+  Snd_DacLookup form's exact instruction count/length).)*
 - **E3 — round out the DAC format in that SAME revision:** loop point (= C2), priority, pan (via $B6),
   auto-bankswitch, `ds_rate` pitch, **+ 4-bit DPCM** (re-adopt our own S3K JMan2050 DPCM, `Flamedriver.asm`
   4321-4442 — halves ROM, producer-side so the 8948 Hz cadence is untouched), and route **sampled SFX** as
@@ -3506,7 +3515,7 @@ Open items this execution creates or leaves:
   are slower-or-equal; if a sub-2s fade is ever needed the step magnitude (not
   the pattern) is the knob.
 
-## Ledgered by the 2026-08-10 sound package 3 gate (`sound-pkg3`)
+## Ledgered by the 2026-08-10 DAC drum-library-readiness package 3 execution (`sound-pkg3`)
 
 - **`tools/test_import_sk_collision.py` regenerates committed collision bins
   IN-PLACE with bytes that differ from what is committed** (porter observation,
@@ -3517,3 +3526,39 @@ Open items this execution creates or leaves:
   onto a branch). Owner: a small tools session — diff regenerated-vs-committed,
   decide which is truth, and make the test write to a temp path instead of the
   committed location.
+- **Sigil table-fold vs placement divergence at unaligned bank-section base** —
+  exposed by sound-pkg3's head growth (DacSampleTable 9→12 B/descriptor shifted the
+  sound-bank tail parity): the placement chainer **8-aligns** the SFX block's
+  section base, but seam-2's sound_layout fold (which bakes the absolute
+  `SfxTable` pointer cells into `sfx_bank{,_debug}.bin` and the SfxBlobWinTab
+  window pointers) packs contiguously WITHOUT that align — every pointer came out
+  **-2** in the plain shape and SFX went totally silent (debug's base happened to
+  stay ≡ 0 mod 8, so only plain broke, and no build gate fired). The quantum was
+  pinned empirically: a mod-4-only pad still placed **-4** ($5BB0C fold vs $5BB10
+  placed), and the old working bases $5BAE8/$5D558 are ≡ 0 mod 8 but ≢ 0 mod 16.
+  Worked around by STRUCTURAL 8-alignment of the sfx_bank base via two
+  comptime-sized pads inside the seam-2-lowered artifacts (so the fold and the
+  chainer both count the bytes): the engine-table head is rounded to ≡ 0 mod 8 at
+  its tail (`engine/sound/dac_sample_tab.emp` `DacHeadPad_*`, sized off the
+  seeded DAC consts + the four fixed head sizes, walled in `soundbankhead.emp`
+  incl. a head-total `% 8 == 0` tripwire), and the MT bank tail is rounded to
+  ≡ 0 mod 8 (`games/sonic4/data/sound/mt_bank.emp` `_sfx_align_*`, sized off its
+  own blob lengths, before SongTable so the pad lands in the body split-bin) —
+  self-adjusting under head growth, song regen, and shape. Plus a link-time base
+  wall in `games/sonic4/data/sound/sfx_bank_blob.emp`
+  (`ensure((winptr(Sfx_33) & 7) == 0, …)` — placement-side only; the fold's base
+  is not expressible repo-side).
+  **Second finding, same session**: a source `align` CANNOT express this fix —
+  seam-2 lowers these modules at baseline-0/vma positions that differ from final
+  placement, so `align` computes the wrong pad count; its D2.29 link-time
+  congruence assert catches it loudly ("padding was computed against the
+  lowering-baseline address ... final address ..."), which is correct-and-loud
+  but means `align` is unusable in any seam-2-lowered module whose placed base
+  parity differs from its lowering baseline.
+  **Needs a sigil-side fix**: either the fold must model the same alignment the
+  chainer applies (and/or lower seam-2 modules at their true placed bases so
+  `align` works), or a fold-vs-placement base mismatch must be a BUILD ERROR —
+  never silent short pointers. The chainer's 8-quantum should also be stated
+  somewhere authoritative instead of reverse-engineered. (Class risk: any OTHER
+  seam-2 fold that bakes absolute addresses against a contiguous-pack model
+  diverges the same way if its section gains chainer alignment.)

@@ -364,51 +364,48 @@ def _flatten_tokens(lines):
 # S3K attenuation value to the v0 loudness index V, find V that minimises
 # abs(LogVolumeLutZ[V] - atten); on ties pick the LARGER V (louder).
 #
-# The table is PARSED from engine/sound/sound_tables_z80.asm at module load so the
+# The table is PARSED from engine/sound/sound_tables_z80.emp at module load so the
 # converter always tracks the engine's table (never a hardcoded copy).
 
 import re as _re_lut  # noqa: E402 (top-level import for module-init parse)
 
 def _parse_log_volume_lut() -> list:
-    """Parse LogVolumeLutZ from engine/sound/sound_tables_z80.asm.
+    """Parse LogVolumeLutZ from engine/sound/sound_tables_z80.emp.
 
-    Reads all db rows between the LogVolumeLutZ: and LogVolumeLutZ_End: labels,
-    parses NNh / $NN hex tokens into ints, and returns a flat list.  Raises
-    RuntimeError if the label or a parseable row is not found."""
-    asm_path = os.path.join(_HERE, "..", "engine", "sound", "sound_tables_z80.asm")
-    asm_path = os.path.normpath(asm_path)
+    The .asm twin was deleted in the seam-2 stage-3 flip; the committed generated
+    module is the sigil-native .emp (tools/gen_sound_tables.py emit_emp_z80).
+    Reads all dc.b rows between the `proc LogVolumeLutZ () clobbers() {` opener
+    and its closing `}`, parses $NN hex tokens into ints, and returns a flat
+    list.  Raises RuntimeError if the proc or a parseable row is not found."""
+    emp_path = os.path.join(_HERE, "..", "engine", "sound", "sound_tables_z80.emp")
+    emp_path = os.path.normpath(emp_path)
     try:
-        with open(asm_path) as _f:
+        with open(emp_path) as _f:
             _lines = _f.read().splitlines()
     except OSError as _e:
         raise RuntimeError(
-            "_parse_log_volume_lut: cannot open %s: %s" % (asm_path, _e))
+            "_parse_log_volume_lut: cannot open %s: %s" % (emp_path, _e))
 
     in_lut = False
     lut = []
     for _line in _lines:
         stripped = _line.strip()
-        if stripped == "LogVolumeLutZ:":
+        if _re_lut.match(r"(?:pub\s+)?proc\s+LogVolumeLutZ\b", stripped):
             in_lut = True
             continue
-        if stripped == "LogVolumeLutZ_End:":
-            break
         if not in_lut:
             continue
-        # Match a db row: "db NNh, NNh, ..." or "db $NN, $NN, ..."
-        m = _re_lut.match(r"\s*db\s+(.*)", _line, _re_lut.IGNORECASE)
+        if stripped == "}":
+            break
+        # Match a dc.b row: "dc.b $NN, $NN, ..."
+        m = _re_lut.match(r"\s*dc\.b\s+(.*)", _line, _re_lut.IGNORECASE)
         if not m:
             continue
         for tok in m.group(1).split(","):
-            tok = tok.split(";", 1)[0].strip()
+            tok = tok.split("//", 1)[0].strip()
             if not tok:
                 continue
-            # NNh suffix form
-            mh = _re_lut.fullmatch(r"([0-9A-Fa-f]+)[hH]", tok)
-            if mh:
-                lut.append(int(mh.group(1), 16))
-                continue
-            # $NN prefix form
+            # $NN prefix form (the emp emitter's literal form)
             if tok.startswith("$"):
                 lut.append(int(tok[1:], 16))
                 continue
@@ -418,7 +415,7 @@ def _parse_log_volume_lut() -> list:
     if not lut:
         raise RuntimeError(
             "_parse_log_volume_lut: LogVolumeLutZ not found or empty in %s"
-            % asm_path)
+            % emp_path)
     return lut
 
 
@@ -461,29 +458,37 @@ def _fm_atten_to_v0(atten: int) -> int:
 
 
 def _parse_psg_env_ids() -> set:
-    """Parse PsgVolEnv_Ids from engine/sound/sound_tables_z80.asm -> {int id}.
+    """Parse PsgVolEnv_Ids from engine/sound/sound_tables_z80.emp -> {int id}.
 
     These are the sTone ids that HAVE an imported PSG volume envelope in the
     engine. smpsPSGvoice maps sTone_NN -> PsgEnv(NN) only for these (else
     PsgEnv(0) + warn). Parsing the engine file (rather than hardcoding) means the
-    converter auto-tracks the table — exactly like _parse_log_volume_lut."""
-    path = os.path.normpath(os.path.join(_HERE, "..", "engine", "sound", "sound_tables_z80.asm"))
+    converter auto-tracks the table — exactly like _parse_log_volume_lut. (The
+    .asm twin was deleted in the seam-2 stage-3 flip; the committed generated
+    module is the sigil-native .emp: `proc PsgVolEnv_Ids () clobbers() {` wrapping
+    one `dc.b $NN, ...` row.)"""
+    path = os.path.normpath(os.path.join(_HERE, "..", "engine", "sound", "sound_tables_z80.emp"))
     ids = set()
+    in_proc = False
     with open(path) as f:
         for line in f:
-            m = re.match(r"\s*PsgVolEnv_Ids:\s*db\s+(.*)", line)
+            stripped = line.strip()
+            if re.match(r"(?:pub\s+)?proc\s+PsgVolEnv_Ids\b", stripped):
+                in_proc = True
+                continue
+            if not in_proc:
+                continue
+            if stripped == "}":
+                break
+            m = re.match(r"\s*dc\.b\s+(.*)", line)
             if not m:
                 continue
-            for tok in m.group(1).split(";", 1)[0].split(","):
+            for tok in m.group(1).split("//", 1)[0].split(","):
                 tok = tok.strip()
-                mh = re.fullmatch(r"([0-9A-Fa-f]+)[hH]", tok)
-                if mh:
-                    ids.add(int(mh.group(1), 16))
-                elif tok.startswith("$"):
+                if tok.startswith("$"):
                     ids.add(int(tok[1:], 16))
                 elif re.fullmatch(r"\d+", tok):
                     ids.add(int(tok))
-            break
     if not ids:
         raise RuntimeError("_parse_psg_env_ids: PsgVolEnv_Ids not found in %s" % path)
     return ids

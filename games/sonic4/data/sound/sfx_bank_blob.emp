@@ -10,7 +10,10 @@
 // those bytes natively instead of via AS BINCLUDE.
 //
 // SHAPE-INVARIANT SIZE (shape-DEPENDENT start): the block is 0x748 B both shapes,
-// but the MT body before it differs, so it starts at $5BAE8 plain / $5D53A debug.
+// but the MT body before it differs, so it starts at $5BB10 plain / $5D560 debug
+// (shifted when the head's DacSampleTable grew 9->12 B per descriptor; the
+// head-tail + MT-tail comptime pads keep this base ≡ 0 mod 8 — see the wall
+// below).
 // The embed content also differs per shape (the SfxTable pointer cells hold the
 // per-shape absolute Sfx_NN addresses), so the embed selects on DEBUG.
 //
@@ -35,3 +38,19 @@ const _sfx_debug = embed("engine/sound/generated/sfx_bank_debug.bin")
 // The whole SFX block (9 blobs + patch banks + the sparse SfxTable) — the head is
 // Sfx_33 (the first SFX, id $33).
 pub data Sfx_33 = if DEBUG == 1 { _sfx_debug } else { _sfx }
+
+// Base-alignment wall (package 3 fix, 2026-08-10): the embedded SfxTable pointer
+// cells + the head's SfxBlobWinTab window pointers were folded by seam-2 under a
+// CONTIGUOUS-pack model, while the chainer 8-aligns this section's base — at a
+// fold-base ≢ 0 (mod 8) the two diverge and every pointer lands short of the
+// placed blobs (plain SFX went silent at -2; a mod-4-only fix still placed -4,
+// pinning the quantum at 8). The structural fix is the comptime pad pair
+// (dac_sample_tab.emp head tail + mt_bank.emp MT tail). NOTE this wall checks
+// the PLACED base only (the fold's base is not expressible repo-side — the
+// fold-vs-placement equality gate is the sigil ask in DEFERRED_WORK); it still
+// catches any upstream size change that lands the chain on a misaligned base.
+// (Spelled through `winptr(...)` — a bare label as an `==`/`&` operand is
+// "unknown name" at comptime, the same bankid-label idiom mt_bank.emp uses;
+// winptr passes the low 15 address bits through, so the mod-8 parity is exact.)
+ensure((winptr(Sfx_33) & 7) == 0,
+       "SFX block base must be 8-aligned — seam-2's pointer folds pack contiguously, a misaligned base desyncs them from the chainer's 8-aligned placement (see the dac_sample_tab.emp/mt_bank.emp pads)")

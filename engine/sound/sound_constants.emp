@@ -223,7 +223,10 @@ pub const SND_DAC_RATE_HZ         = dac_rate_hz(SND_LOOP_CYC)  // = 18356 Hz (35
 ensure(SND_STATE_END <= SND_RING_BASE,
        "DAC state block (ends {SND_STATE_END}) runs into the DAC ring at {SND_RING_BASE}")
 
-// --- 9-byte ROM-resident sample descriptor (ds_codec selector at +2) ---
+// --- 12-byte ROM-resident sample descriptor (ds_codec selector at +2; grown
+// 9->12, ratification insurance 2026-07-03: ds_vol + mix-cursor reserve
+// appended so no existing offset moves; v1 engine IGNORES all three new
+// bytes — zero code reads them) ---
 pub struct DacSample {
     ds_bank:      u8,    // +0  sample bank id = (addr & $7F8000) >> 15
     ds_rate:      u8,    // +1  RESERVED forward-compat (per-sample rate); v1 ignores it
@@ -231,16 +234,20 @@ pub struct DacSample {
     ds_ptr:       u16,   // +3  Z80-window ptr (addr & $7FFF)|$8000, little-endian
     ds_length:    u16,   // +5  raw byte count = sample count; < $8000
     ds_loop_ofs:  u16,   // +7  RESERVED forward-compat (loop restart); v1 = 0, ignored
+    ds_vol:       u8,    // +9  RESERVED (per-voice volume for a future mixer); v1 = 0, ignored
+    ds_mix_rsvd:  u16,   // +10 RESERVED (mix-cursor pair for a future mixer); v1 = 0, ignored
 }
-pub const DacSample_len           = sizeof(DacSample)      // = 9
+pub const DacSample_len           = sizeof(DacSample)      // = 12
 pub const DacSample_ds_bank       = offsetof(DacSample, ds_bank)
 pub const DacSample_ds_rate       = offsetof(DacSample, ds_rate)
 pub const DacSample_ds_codec      = offsetof(DacSample, ds_codec)
 pub const DacSample_ds_ptr        = offsetof(DacSample, ds_ptr)
 pub const DacSample_ds_length     = offsetof(DacSample, ds_length)
 pub const DacSample_ds_loop_ofs   = offsetof(DacSample, ds_loop_ofs)
+pub const DacSample_ds_vol        = offsetof(DacSample, ds_vol)
+pub const DacSample_ds_mix_rsvd   = offsetof(DacSample, ds_mix_rsvd)
 
-ensure(DacSample_len == 9, "DacSample struct is {DacSample_len} bytes, expected 9")
+ensure(DacSample_len == 12, "DacSample struct is {DacSample_len} bytes, expected 12")
 
 // --- Z80 bank register (as seen from the Z80) ---
 pub const SND_Z80_BANKREG         = $6000
@@ -1051,6 +1058,6 @@ pub const SH_F_FM6_ADAPTIVE = 1<<SH_F_FM6_ADAPTIVE_B
 
 // --- DacSample id -> descriptor table sizing (Task 6 decision 3) ---
 // The $E2 operand (and SND_REQ_SAMPLE) is a 1-based sample id; the handler looks up
-// DacSampleTable[id-1] (each DacSample_len = 9 bytes). DAC_SAMPLE_COUNT is asserted
+// DacSampleTable[id-1] (each DacSample_len = 12 bytes). DAC_SAMPLE_COUNT is asserted
 // against the table size in dac_sample_tab.
 pub const DAC_SAMPLE_COUNT = 10

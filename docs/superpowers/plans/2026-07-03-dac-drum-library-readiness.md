@@ -1,6 +1,6 @@
 # DAC Drum-Library Readiness Implementation Plan (Banking Package 3)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Clear every blocker for authoring a real drum library against the RATIFIED single-voice DAC format — descriptor insurance bytes, the Bank-D table-twin generator, and the authoring runbook.
 
@@ -19,7 +19,7 @@
 **Files:**
 - Modify: `sound_constants.asm:259-272` (struct + assert)
 
-- [ ] **Step 1: Append the new fields to the struct**
+- [x] **Step 1: Append the new fields to the struct**
 
 In `sound_constants.asm`, replace the struct block (currently ending `DacSample endstruct ; = 9 bytes` with the `<> 9` assert) with:
 
@@ -43,7 +43,7 @@ DacSample endstruct             ; = 12 bytes
         endif
 ```
 
-- [ ] **Step 2: Build to see the EXPECTED failure (table-size assert fires)**
+- [x] **Step 2: Build to see the EXPECTED failure (table-size assert fires)**
 
 Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -20`
 Expected: FATAL `"DacSampleTable wrong size for DAC_SAMPLE_COUNT"` (dac_sample_tab.asm:~109). This proves the guard works; Tasks 2-3 fix the consumers.
@@ -53,7 +53,7 @@ Expected: FATAL `"DacSampleTable wrong size for DAC_SAMPLE_COUNT"` (dac_sample_t
 **Files:**
 - Modify: `engine/sound/z80_sound_driver.asm:696` (comment) and `:711-721` (math)
 
-- [ ] **Step 1: Replace the index×9 sequence with index×12**
+- [x] **Step 1: Replace the index×9 sequence with index×12**
 
 Current code (z80_sound_driver.asm:711-721):
 
@@ -93,7 +93,7 @@ Also update the routine-header comment at `:696` from
 `(Stride is DacSample_len = 9; index*9 computed as index*8 + index.)` to
 `(Stride is DacSample_len = 12; index*12 computed as (index*3)*4.)`
 
-- [ ] **Step 2: Commit (still red — table not grown yet; commit sequenced with Task 3)**
+- [x] **Step 2: Commit (still red — table not grown yet; commit sequenced with Task 3)**
 
 Hold the commit until Task 3 Step 3 (a red build must not land on the branch — CLAUDE.md never-leave-broken rule).
 
@@ -102,7 +102,7 @@ Hold the commit until Task 3 Step 3 (a red build must not land on the branch —
 **Files:**
 - Modify: `engine/sound/dac_sample_tab.asm:34-106` (all 10 entries)
 
-- [ ] **Step 1: Append the two reserved lines to every entry**
+- [x] **Step 1: Append the two reserved lines to every entry**
 
 Each of the 10 entries ends with `        dw      0                        ; ds_loop_ofs (reserved; 0 = one-shot)`. Append after EACH such line:
 
@@ -127,19 +127,19 @@ open(p, 'w').write(s)
 EOF
 ```
 
-- [ ] **Step 2: Build green**
+- [x] **Step 2: Build green**
 
 Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -8`
 Expected: `Build complete: s4.bin` and the Z80 budget message unchanged from baseline (this is data in the banked table, not resident code — resident free bytes must NOT change; record the number).
 
-- [ ] **Step 3: Commit Tasks 1-3 together**
+- [x] **Step 3: Commit Tasks 1-3 together**
 
 ```bash
 git add sound_constants.asm engine/sound/z80_sound_driver.asm engine/sound/dac_sample_tab.asm
 git commit -m "feat(sound): DacSample 9->12 — ds_vol + mix-cursor reserve appended (DAC ratification insurance, zero engine reads)"
 ```
 
-- [ ] **Step 4 (controller session only): oracle sanity — one drum trigger**
+- [ ] **Step 4 (controller session only): oracle sanity — one drum trigger** *(OPEN — owed to the controller; porter sessions never run emulators)*
 
 Foreground: load `s4.bin` in oracle, trigger a DAC sample (boot auto-plays MT which uses drums, or `Sound_PlaySample` via debug). Verify a drum sounds and `SND_STAT_DAC_ACTIVE` pulses (z80_read `0x1F14`). This pins the stride math against a live descriptor.
 
@@ -149,7 +149,7 @@ Foreground: load `s4.bin` in oracle, trigger a DAC sample (boot auto-plays MT wh
 - Modify: `tools/gen_sound_tables.py` (add `emit_asm_z80_data_only()` beside `emit_asm_z80()` ~line 260-307)
 - Test: `tools/test_gen_sound_tables.py` (create if absent; follow `tools/test_song_packer.py` pytest style)
 
-- [ ] **Step 1: Write the failing test (byte-equality, labels ignored)**
+- [x] **Step 1: Write the failing test (byte-equality, labels ignored)**
 
 ```python
 # tools/test_gen_sound_tables.py
@@ -181,12 +181,12 @@ def test_data_only_twin_defines_no_labels():
 
 (If `emit_asm_z80()` takes arguments or writes files instead of returning text, adapt BOTH the test and the new function to the existing signature — the invariant under test is unchanged: same payload tokens, zero label definitions.)
 
-- [ ] **Step 2: Run it to fail**
+- [x] **Step 2: Run it to fail**
 
 Run: `cd tools && python3 -m pytest test_gen_sound_tables.py -v`
 Expected: FAIL — `AttributeError: ... no attribute 'emit_asm_z80_data_only'`
 
-- [ ] **Step 3: Implement `emit_asm_z80_data_only()`**
+- [x] **Step 3: Implement `emit_asm_z80_data_only()`**
 
 The function reuses `emit_asm_z80()`'s payload emission verbatim and strips label lines. Cheapest correct implementation — derive, don't duplicate:
 
@@ -205,12 +205,12 @@ def emit_asm_z80_data_only():
     return re.sub(r'^\w+:\s*\n', '', labeled, flags=re.M)
 ```
 
-- [ ] **Step 4: Run tests to pass**
+- [x] **Step 4: Run tests to pass**
 
 Run: `cd tools && python3 -m pytest test_gen_sound_tables.py -v`
 Expected: 2 PASS. Also run the full tool suite: `python3 -m pytest tools/ -q` — no regressions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/gen_sound_tables.py tools/test_gen_sound_tables.py
@@ -222,7 +222,7 @@ git commit -m "feat(tools): data-only Z80 table twin emitter (Bank-D co-location
 **Files:**
 - Modify: `docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md` (append section)
 
-- [ ] **Step 1: Append the runbook section**
+- [x] **Step 1: Append the runbook section**
 
 ```markdown
 ## Drum-library authoring runbook (added 2026-07-03, package 3)
@@ -254,7 +254,7 @@ documented in its docstring). Steps for a future drum-kit session:
    against its source (feedback rule: rendered audio, not registers).
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md
@@ -267,9 +267,9 @@ git commit -m "docs(sound): DAC spec — drum-library authoring runbook (package
 - Modify: `docs/DEFERRED_WORK.md` (E2 ratification entry: insurance DONE; Bank-D entry: generator DONE, activation pending first drum song)
 - Modify: `docs/superpowers/2026-07-03-sound-banking-queue.md` (package 3 row → EXECUTED)
 
-- [ ] **Step 1: Annotate both docs** — in DEFERRED_WORK's E2 entry (~:1358) append `*(Descriptor insurance LANDED <commit> — ds_vol + ds_mix_rsvd shipped, 12-byte descriptor.)*`; in the Bank-D follow-up entry (~:1141) append `*(Generator twin LANDED <commit>, byte-equality tested; ROM activation still rides the first COPY song.)*`. Update the queue-doc package 3 row status.
+- [x] **Step 1: Annotate both docs** — in DEFERRED_WORK's E2 entry (~:1358) append `*(Descriptor insurance LANDED <commit> — ds_vol + ds_mix_rsvd shipped, 12-byte descriptor.)*`; in the Bank-D follow-up entry (~:1141) append `*(Generator twin LANDED <commit>, byte-equality tested; ROM activation still rides the first COPY song.)*`. Update the queue-doc package 3 row status.
 
-- [ ] **Step 2: Build one final time + commit**
+- [x] **Step 2: Build one final time + commit**
 
 Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | tail -4` → green.
 

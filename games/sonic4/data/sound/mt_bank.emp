@@ -2,8 +2,8 @@
 // data/sound/mt_bank.emp — the MT streaming-bank DATA (sound-migration T2)
 // ===========================================================================
 // This module carries the MT streaming-bank DATA: from `Song_MovingTrucks`
-// ($58607) through `SongPatchTable_End`. The engine-table head (`soundBankHead`,
-// the Z80 phase-0 blob at $58000..$58607, incl. `MovingTrucks_Bank_Start` and the
+// ($58628) through `SongPatchTable_End`. The engine-table head (`soundBankHead`,
+// the Z80 phase-0 blob at $58000..$58628, incl. `MovingTrucks_Bank_Start` and the
 // `SND_ENGINE_TABLE_BANK` equ) precedes it; this module picks up right after it,
 // in the SAME bank-aligned 32KB window.
 //
@@ -13,7 +13,7 @@
 // DEBUG-only ones' value
 // folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
 //
-// Placed at $58607: the map's sound_bank anchor ($58000) + contiguous pack
+// Placed at $58628: the map's sound_bank anchor ($58000) + contiguous pack
 // after the soundBankHead. Re-pin via the harness PROVENANCE flow on any
 // re-baseline.
 //
@@ -122,6 +122,19 @@ const MT_PITCHTAB_OFFSET = $30B1
 ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
     "MT pitch table not contiguous with the song: song len != header's pitchtable_ptr — a pad byte would detune the whole song")
 
+// --- SFX-base 8-alignment pad size (package 3 fix — see the _sfx_align_* items
+// in the section below for the full story). The running length of everything
+// this section emits BEFORE the two pointer tables, mirrored comptime: the
+// three always-on blobs + the DEBUG members + their two self-adjusting odd-length
+// align-2 pads ((len % 2) is exactly that conditional pad's size). The pad
+// rounds it to ≡ 0 (mod 8); with the section base ≡ 0 (mod 8) (head padded to 8
+// in dac_sample_tab.emp + the 8-aligned $58000 anchor) and the pointer tables
+// 8*SONG_COUNT B (≡ 0 mod 8), the section END — the SFX block's base — is then
+// ≡ 0 (mod 8) by construction, for any song regen or shape.
+const _MT_DEBUG_EXTRA = if DEBUG == 1 { DrumTestBlob.len + (DrumTestBlob.len % 2) + Hcz2Blob.len + (Hcz2Blob.len % 2) + Hcz2PatchBlob.len } else { 0 }
+const _MT_PRETABLE_LEN = SongBlob.len + PitchBlob.len + PatchesBlob.len + _MT_DEBUG_EXTRA
+const MT_TAIL_PAD = (8 - (_MT_PRETABLE_LEN % 8)) % 8
+
 // ONE bank: $8000 section = the .asm's `align $8000` (main.asm:129) + all
 // four straddle/window-top fatals (song_table.asm:91/99/110/128). Items emit
 // contiguously (§4.3 no-auto-pad) = the .asm's hand-maintained contiguity
@@ -165,6 +178,41 @@ section mt_bank (cpu: m68000, bank: $8000) {
     data _hcz2_align = if DEBUG == 1 && Hcz2Blob.len % 2 == 1 { byte(0) } else { Data.empty }
 
     data HCZ2_Patches  = if DEBUG == 1 { Hcz2PatchBlob } else { Data.empty }
+
+    // --- SFX-base 8-alignment (package 3 fix, 2026-08-10) ---
+    // The NEXT region in the sound bank (the SFX block, sfx_bank_blob.emp) must
+    // start ≡ 0 (mod 8): the placement chainer 8-aligns that section's base,
+    // while seam-2's sound_layout fold packs contiguously WITHOUT that align —
+    // at a misaligned tail the two models diverge and every SfxTable pointer
+    // cell + SfxBlobWinTab window pointer comes out short of the placed blobs
+    // (observed: -2 after the 12-byte DacSample head growth made the tail
+    // ≡ 2 mod 4 and plain SFX went silent; a mod-4-only pad still came out -4,
+    // pinning the chainer's quantum at EIGHT — old working bases $5BAE8/$5D558
+    // ≡ 0 mod 8 exclude 16). This pad closes the gap STRUCTURALLY: it is
+    // emitted bytes inside the seam-2-lowered module, so the fold and the
+    // chainer both count it, and the COMPTIME size (0-7 B, from this module's
+    // own blob lengths) self-adjusts under song regen or shape change. NOT a
+    // source `align`: seam-2 lowers this module at a baseline-0 section base,
+    // so `align`'s pad count is computed against the wrong address whenever
+    // the placed base is misaligned — its D2.29 congruence assert catches
+    // that loudly (how this was learned). Instead the base IS forced ≡ 0
+    // (mod 8) upstream (the dac_sample_tab.emp head-tail pad rounds the
+    // engine-table head to 8, and the sound_bank map anchor $58000 is
+    // 8-aligned), which ALSO makes the baseline-0 comptime arithmetic here
+    // exact. The pad sits BEFORE the two pointer tables so it lands in the
+    // BODY split-bin (the SONG_COUNT*4 table-size walls stay exact); the
+    // tables are 8*SONG_COUNT bytes (always ≡ 0 mod 8), so padding here
+    // 8-aligns the section END too. Today: plain pads 7 ($34D9 -> $34E0),
+    // debug pads 5 ($4F1B -> $4F20). Sigil-side fold/ensure fix tracked in
+    // DEFERRED_WORK ("table-fold vs placement divergence at unaligned
+    // bank-section base").
+    data _sfx_align_a = if MT_TAIL_PAD >= 1 { byte(0) } else { Data.empty }
+    data _sfx_align_b = if MT_TAIL_PAD >= 2 { byte(0) } else { Data.empty }
+    data _sfx_align_c = if MT_TAIL_PAD >= 3 { byte(0) } else { Data.empty }
+    data _sfx_align_d = if MT_TAIL_PAD >= 4 { byte(0) } else { Data.empty }
+    data _sfx_align_e = if MT_TAIL_PAD >= 5 { byte(0) } else { Data.empty }
+    data _sfx_align_f = if MT_TAIL_PAD >= 6 { byte(0) } else { Data.empty }
+    data _sfx_align_g = if MT_TAIL_PAD >= 7 { byte(0) } else { Data.empty }
 
     // song id -> SongHeader ptr, indexed SongTable[id-1]; id 0 reserved = stop.
     data SongTable: [*u8; SONG_COUNT] = if DEBUG == 1 {

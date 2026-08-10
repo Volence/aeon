@@ -477,3 +477,74 @@ decode). Live Z80 state probes via `emulator_z80_read`: `SND_ROM_PTR/LEN`, `SND_
 - `tools/dac_encode.py` (new), `tools/dac_verify.py` (new), a DEBUG drum-test song + trigger.
 - `docs/ENGINE_ARCHITECTURE.md` §6 — document the two DAC banking modes + the rate decision.
 ```
+
+---
+
+## Drum-library authoring runbook (added 2026-08-10, package 3)
+
+Prereqs now in place: 12-byte descriptor (`ds_vol`/`ds_mix_rsvd` reserved, appended
+2026-08-10 per the 2026-07-03 ratification insurance), Bank-D twin emitter tested
+(`tools/gen_sound_tables.py::emit_emp_z80_data_only`, activation documented in its
+docstring). Steps for a future drum-kit session (all paths verified against the
+post-engine/game-split, post-`.emp`-migration tree — the `main.asm`/`.asm` paths
+older sections of this spec cite are historical):
+
+1. **Prepare mono WAVs** — 16-bit signed or 8-bit unsigned (the only widths
+   `tools/import_s3k_dac.py::_read_wav_centered` accepts; must be mono).
+2. **Convert**: `tools/import_s3k_dac.py::wav_to_raw8(path, pitch_ratio=...)` —
+   resamples to the fixed engine loop rate (`ENGINE_DAC_HZ = 18356` Hz; the 1:1
+   FILL loop IS the sample clock, `ds_rate` is reserved/ignored) and BAKES pitch in
+   (`pitch_ratio > 1` = higher/shorter; the S3K tom set 1.0/0.80/0.67/0.58 in
+   `HCZ2_DRUMS` is the worked example). Output: raw 8-bit unsigned PCM, $80-centered.
+3. **Place + bind the payload**: drop the `.pcm` in `games/sonic4/data/sound/dac/`,
+   then in `games/sonic4/data/sound/dac_samples.emp`:
+   - bind it to a `const XxxBlob = embed("dac/xxx.pcm")` (the const both emits and
+     measures — `.len` is the comptime length),
+   - add the `ensure(0 < XxxBlob.len && XxxBlob.len < $8000, ...)` length guard,
+   - add a `data Dac_Xxx = XxxBlob` item to a bank section. The shared drum bank
+     (`section dac_shared_bank`, map-pinned at $50000 = Z80 bank $A) has room while
+     the kit total stays under $8000; the section's `bank: $8000` property is the
+     no-straddle wall (the old hand-written single-bank `fatal`s are subsumed by
+     it). If the kit outgrows one window, add ANOTHER `bank: $8000` section + a map
+     anchor in `games/sonic4/map.toml` (the per-sample `ds_bank` supports any bank;
+     the blip bank at $48000/bank $9 + drums at $50000/bank $A already prove the
+     two-bank shape),
+   - add the `equ SND_XXX_BANK/PTR/LEN = bankid(...)/winptr(...)/Blob.len` triple —
+     `engine/sound/dac_sample_tab.emp` folds these by name at the seam-2 co-link.
+4. **Add the descriptor**: append a 12-byte entry in
+   `engine/sound/dac_sample_tab.emp` (dc.b bank / dc.b 0 rate / dc.b 0 codec /
+   dc.w ptr / dc.w len / dc.w 0 loop / dc.b 0 vol / dc.w 0 mix_rsvd) and bump
+   `DAC_SAMPLE_COUNT` in `engine/sound/sound_constants.emp`. Two size walls
+   self-check: the `span(DacSampleTable) == DAC_SAMPLE_COUNT * DacSample_len`
+   ensure in `dac_sample_tab.emp`, and the `_dacsamp.len == $7B`-style wall in
+   `games/sonic4/data/sound/soundbankhead.emp` (update the latter's literal to
+   `DAC_SAMPLE_COUNT * 12` + the self-adjusting `DacHeadPad` 8-alignment pad at
+   the table tail — the head-total `% 8 == 0` wall in the same file tells you if
+   you got it wrong). New ids slot in AFTER id 10
+   (`tools/smps_import.py::HCZ2_DAC_REMAP` pins 5..10 to the S3K drums).
+5. **Overlapping drums** (kick+snare on one tick): author a pre-mixed composite
+   sample — the ratified single-voice model. The build-time mixer tool
+   (`tools/mix_dac_samples.py`: read N raw8 `.pcm` + per-source gain → clipped sum
+   → composite `.pcm`) is DEFERRED to the first song that needs a composite
+   (clean-not-bolted-on); the interface is sketched here so that session can build
+   it cold: `mix(sources: [(path, gain)], out_path)` — sum `(byte - 0x80) * gain`,
+   clip to [-128, 127], re-center at $80.
+6. **First COPY-class (FM6=DAC) song** additionally activates the Bank-D
+   co-location hook. Current mechanics (see the
+   `emit_emp_z80_data_only` docstring for the full statement): the labeled tables
+   are already lowered to `engine/sound/generated/sound_tables_z80.bin` by seam-2
+   (`sigil emit_sound_blob`), and a `.bin` embed is label-free — so the primary
+   activation is embedding that image as the FIRST data item of the COPY bank's
+   placement module (the `games/sonic4/data/sound/dac_banks.emp` pattern:
+   `const _t = embed(...)` + `pub data ... = _t` at the bank head, anchored in
+   `games/sonic4/map.toml`). The `emit_emp_z80_data_only()` source-level twin
+   (BankD_-renamed procs, zero pub symbols) exists for the variant that needs its
+   own labels; byte-equality is pinned by
+   `tools/test_gen_sound_tables.py::TestEmpDataOnlyTwin`. Until then nothing
+   includes either — no dead ROM.
+7. **Verify** (controller session, oracle foreground — never subagents): build
+   green (all four canonical shapes) → trigger each sample id, confirm the
+   `SND_STAT_DAC_ACTIVE` pulse (Z80 RAM `$1F14` = `SND_STAT_BASE+$04`,
+   `emulator_z80_read`) + a rendered capture (`emulator_vgm_start`/`vgm2wav`) per
+   drum; A/B the kit against its source material (house rule: rendered audio
+   energy+spectrum, not register streams).

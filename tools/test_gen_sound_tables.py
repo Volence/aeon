@@ -363,5 +363,64 @@ class TestFmVolEnvTable(unittest.TestCase):
         self.assertLess(a.index("PsgVolEnv_Ids:"), a.index("FmVolEnv_Ids:"))
 
 
+class TestEmpDataOnlyTwin(unittest.TestCase):
+    """Bank-D co-location hook (package 3, plans/2026-07-03-dac-drum-library-
+    readiness.md Task 4): `emit_emp_z80_data_only()` is the label-free twin of
+    the BUILD-CONSUMED emitter `emit_emp_z80()` (main() writes only the .emp;
+    the .asm emitter is legacy). Invariants: byte-identical payload, zero
+    conflicting symbol definitions (so the same tables can be replicated at the
+    head of the DAC sample bank without duplicate-label errors).
+
+    The twin renames its private proc wrappers with a `BankD_` prefix; that
+    rename is byte-preserving because the payload's only symbolic tokens are
+    intra-section label refs (the vol-env pointer tables) and same-valued
+    private consts — an identically laid-out section at vma $8000 folds the
+    renamed labels to the SAME $8000-window addresses."""
+
+    TWIN_PREFIX = "BankD_"
+
+    @classmethod
+    def _payload(cls, emp_text, strip_prefix=None):
+        """Collapse an emitted .emp module to its ordered (directive, tokens)
+        payload rows — dc.b/dc.w lines only; comments, blank lines, proc
+        wrappers, ensures, and consts are ignored. `strip_prefix` normalizes
+        the twin's renamed label tokens before comparison."""
+        rows = []
+        for line in emp_text.splitlines():
+            line = line.split("//", 1)[0].strip()
+            m = re.match(r"dc\.(b|w)\s+(.*)", line)
+            if not m:
+                continue
+            toks = [t.strip() for t in m.group(2).split(",")]
+            if strip_prefix:
+                toks = [t[len(strip_prefix):] if t.startswith(strip_prefix)
+                        else t for t in toks]
+            rows.append((m.group(1), toks))
+        return rows
+
+    def test_data_only_twin_is_byte_identical(self):
+        from gen_sound_tables import emit_emp_z80, emit_emp_z80_data_only
+        labeled = self._payload(emit_emp_z80())
+        twin = self._payload(emit_emp_z80_data_only(),
+                             strip_prefix=self.TWIN_PREFIX)
+        self.assertTrue(labeled, "labeled emitter produced no payload rows")
+        self.assertEqual(labeled, twin)
+
+    def test_data_only_twin_defines_no_labels(self):
+        from gen_sound_tables import emit_emp_z80, emit_emp_z80_data_only
+        labeled = emit_emp_z80()
+        twin = emit_emp_z80_data_only()
+        orig_defs = set(re.findall(r"^\s*(?:pub\s+)?proc\s+(\w+)", labeled,
+                                   re.M))
+        twin_defs = set(re.findall(r"^\s*(?:pub\s+)?proc\s+(\w+)", twin, re.M))
+        self.assertTrue(orig_defs, "labeled emitter defines no procs?")
+        # none of the labeled module's link symbols may be redefined ...
+        self.assertFalse(orig_defs & twin_defs,
+                         "twin redefines labeled symbols: %r"
+                         % sorted(orig_defs & twin_defs))
+        # ... and the twin exports NOTHING (no pub data/proc/const at all).
+        self.assertNotRegex(twin, re.compile(r"^\s*pub\s", re.M))
+
+
 if __name__ == "__main__":
     unittest.main()
