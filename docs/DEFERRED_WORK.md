@@ -623,6 +623,23 @@ same shape as patch-run: bank once per column/run, hoist the stage-slot resolve
 out of the per-cell path (`FindStagedBlock`'s 24 calls/frame include repeat hits
 on the same staged block), and fold the draw's nametable recompute. The P2-merge
 revisit condition of the 2026-08-05 owner ruling is now met.
+> **BUILT AND MEASURED 2026-08-10 — the premise above is WRONG.**
+> `perf/fillcol-hoist` (T1-T5) shipped every lever in that scope and produced
+> **NO measurable lag win** (3×90-frame diagonal: baseline 209 ticks/61 lag →
+> candidate 207 ticks/63 lag, same 15.9 px/tick) for **+430 B ROM / +138 B RAM**.
+> Correctness was clean (both replay fixtures hold with all checkpoint hashes
+> matching, refcount audit green, patch runs unchanged within noise), and two
+> attributable wins are real but ~1k/frame combined: `Draw_TileColumn` −14%
+> (T1's gather unroll) and `FindStagedBlock` 13→11 calls (T5's memo).
+> **So the copy chain's call/hoist overhead is NOT the top lever on this line
+> item** — the residual is the flat decompress + patch-run + HInt taxes the
+> parcel deliberately did not touch. The branch is UNMERGED pending an owner
+> ruling (T1-only cherry-pick `903bfde` / merge whole / re-measure with a
+> position-matched harness). Full evidence:
+> `docs/superpowers/notes/2026-08-10-fillcol-hoist-ab.md` (+ `-baseline.md`).
+> Method caveat for any re-measure: fixed-FRAME windows drift in content
+> (the candidate hit ~+3.1k more cold decompress), so drive to a fixed
+> camera-X and count frames instead.
 **Status (UPDATED 2026-07-16 — unified prefetch shipped):** Sustained MAX diagonal now runs **~42% lag** (oracle, 8/19 frames), down from the ~76% below. The unified direction-aware prefetch (H1 column scan + H2 corner + H3 hysteresis + H4 trailing-lag gate + H5 16 slots + H6 base-lea hoist, `feat/unified-prefetch`) removed the cold-crossing DECOMPRESS spike (A/B: sustained-max-horizontal 44→27 lag, ~40% cut). **The residual is now COPY/DRAW-bound, not decompress** — `TileCache_FillColumn`'s per-cell copy + `Draw_TileColumn`'s nametable draw at 16px/f (2 cols/frame) exceed budget regardless of decompress. That is the "horizontal Wave-1 that never happened" (the FillColumn/Draw_TileColumn hoist+SR, domain-split in campaign-gap-ledger). The pre-prefetch analysis below stands as the decomposition of the remaining fill cost.
 
 **Ruling (owner, 2026-08-05): MARK AND REVISIT — stays OPEN.** Neither accept the dip (A) nor spend on it yet; do **not** silently take (A) despite the recommendation below. Revisit alongside art-streaming Phase 2 (whose budget model touches the same frame window) or when a level actually plays at sustained max diagonal. Full ruling text: "Owner rulings, 2026-08-05" near the bottom of this file.
