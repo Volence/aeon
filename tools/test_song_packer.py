@@ -16,6 +16,7 @@ from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
     RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel, Detune, Porta, Tempo,
+    ModSet,
     pack_song, emit_asm, PackError,
     MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA, MEV_DETUNE, MEV_PORTA, MEV_TEMPO,
     RD_GROUP_TL, RD_GROUP_DT_MUL, RD_GROUP_D1L_RR, REGDELTA_GROUP_COUNT,
@@ -128,6 +129,25 @@ class TestEventEncoding(unittest.TestCase):
             Detune(200).validate(CHROUTE_FM1)
         with self.assertRaises(PackError):
             Detune(-200).validate(CHROUTE_FM1)
+
+    def test_modset_rejected_on_noise_route(self):
+        # D1: pitch modulation on the NOISE route would drive Psg_ApplyMod at a
+        # channel that has no tone divisor — the modulated word lands on the noise
+        # CONTROL register. Producer-side rule; zero Z80 bytes.
+        with self.assertRaises(PackError) as cm:
+            ModSet(4, 2, 8, 1).validate(CHROUTE_PSGN)
+        self.assertIn("noise route", str(cm.exception))
+
+    def test_modset_accepted_on_tone_and_fm_routes(self):
+        # The rule is route-scoped: FM and the three PSG TONE routes still take it.
+        ModSet(4, 2, 8, 1).validate(CHROUTE_FM1)
+        ModSet(4, 2, 8, 1).validate(CHROUTE_PSG1)
+
+    def test_modset_all_zero_still_rejected_on_noise_route(self):
+        # smpsModSet 0,0,0,0 is the "mod off" idiom, but it is still an opcode in
+        # the stream and the engine still latches it, so the route rule is absolute.
+        with self.assertRaises(PackError):
+            ModSet(0, 0, 0, 0).validate(CHROUTE_PSGN)
 
     def test_porta_encode(self):
         self.assertEqual(Porta(8).encode(), bytes([MEV_PORTA, 8]))

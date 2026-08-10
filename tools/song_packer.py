@@ -580,6 +580,17 @@ class ModSet(Event):
                       self.change & 0xFF, self.step & 0xFF])
 
     def validate(self, route):
+        # D1: the noise channel has no tone divisor. Psg_ApplyMod would sum the
+        # modulation accumulator onto sc_base_freq and re-emit it, so on the noise
+        # route the swept word lands on the SN76489 NOISE CONTROL register instead
+        # of a frequency latch — it re-triggers the LFSR and walks the mode/rate
+        # bits. The runtime gate for this was written and REVERTED for Z80 space
+        # (see the note in sound_sequencer.emp's MEV_MODSET handler); the
+        # producer-side rule closes the corruption path for all future content at
+        # zero Z80 bytes. Author MEV_PSGNOISE for noise mode/rate instead.
+        if route == CHROUTE_PSGN:
+            raise PackError("ModSet on noise route — pitch-mod corrupts the "
+                            "noise control register (D1); author PsgNoise instead")
         for name, v in (('wait', self.wait), ('speed', self.speed), ('step', self.step)):
             if not (0 <= v <= 0xFF):
                 raise PackError(f"ModSet {name} {v} out of byte range 0..255")

@@ -557,8 +557,10 @@ section sound_sequencer (cpu: z80) {
         call    nz, Psg_ApplyMod        // advance accum + re-latch tone divisor (no re-key)
         // NOTE: the noise-route gate (audit D1) was reverted — the Z80 blob is at its
         // HARD size limit and the gate cost ~9 bytes. The invariant "noise tracks never
-        // set sc_mod_ctrl" still holds (the transcoder never emits MEV_MODSET on a
-        // noise track). See DEFERRED_WORK D1/F5.
+        // set sc_mod_ctrl" is now ENFORCED PRODUCER-SIDE at zero Z80 bytes, so it is a
+        // checked rule rather than a convention: song_packer's ModSet.validate refuses
+        // the noise route outright, and sfx_transcode's _validate_no_modset_on_noise
+        // backstops every SFX channel at pack time. See DEFERRED_WORK D1/F5.
     .psg_env:
         // --- PSG VOLUME ENVELOPE (spec §4): advance the contour + re-emit the volume.
         ld      a, (ix+sc_psgenv)

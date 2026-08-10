@@ -31,6 +31,7 @@ from sfx_transcode import (
     _SFX_PRIORITY, _CORE_SFX_IDS, _sfx_label,
     _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
     _LOG_VOLUME_LUT, _vol_for_atten, _validate_sfx_repeat,
+    _validate_no_modset_on_noise,
     S3K_NOTE_BASE,
     CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -1381,6 +1382,40 @@ class TestRepeatBodyBackstop(unittest.TestCase):
         psg2 = chans[0]['events']
         self.assertTrue(any(isinstance(e, RepeatStart) for e in psg2),
                         "skid's note-bearing loop should stay a compact repeat")
+
+
+class TestModSetNoiseRouteBackstop(unittest.TestCase):
+    """D1 — pitch modulation must never reach a NOISE-routed SFX channel.
+
+    The parser already DROPS smpsModSet when it reroutes a channel to noise
+    (TestPSGFormNoiseReroute covers that), but that is a source-shaped transform,
+    not a guarantee. This is the pack-time backstop: whatever path built the event
+    list, a ModSet on the noise route is refused. Producer-side; zero Z80 bytes
+    (the runtime gate was implemented and reverted for space)."""
+
+    def test_modset_on_noise_route_rejected(self):
+        from song_packer import ModSet
+        events = [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x06, 4), End()]
+        with self.assertRaisesRegex(TranscodeError, "noise route"):
+            _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSGN)
+
+    def test_modset_on_tone_route_accepted(self):
+        from song_packer import ModSet
+        events = [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x46, 4), End()]
+        _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSG3)   # must not raise
+
+    def test_pack_sfx_refuses_noise_channel_carrying_modset(self):
+        # The backstop is wired into pack_sfx, not just available beside it.
+        from song_packer import ModSet
+        desc = {
+            'id': 0x99, 'flags': 0, 'voices': [],
+            'channels': [{
+                'route': CHROUTE_PSGN, 'kind': SFXEL_NOISE,
+                'events': [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x06, 4), End()],
+            }],
+        }
+        with self.assertRaisesRegex(TranscodeError, "noise route"):
+            pack_sfx(desc, SFXPRI_RING)
 
 
 class TestUnknownVoiceMacro(unittest.TestCase):

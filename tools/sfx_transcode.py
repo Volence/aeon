@@ -1454,6 +1454,33 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
                 f"grow a dedicated field first — do not relax this check.")
 
 
+def _validate_no_modset_on_noise(events, sfx_id=0, route=None):
+    """SFX D1 — reject MEV_MODSET on a NOISE-routed channel.
+
+    The noise channel has no tone divisor. Psg_ApplyMod sums the modulation
+    accumulator onto sc_base_freq and re-latches it, so on the noise route the
+    swept word lands on the SN76489 NOISE CONTROL register instead of a frequency
+    latch: it re-triggers the LFSR and walks the mode/rate bits. The runtime gate
+    was written and REVERTED for Z80 space (the note lives at the Psg_ApplyMod call
+    site in sound_sequencer.emp), which left the rule as a CONVENTION — "the
+    transcoder never emits MEV_MODSET on a noise track".
+
+    The parser does drop smpsModSet when it reroutes a channel to noise, but that
+    is a source-shaped transform on data we do not control, not a guarantee. This
+    is the pack-time backstop that makes the convention a checked rule, at zero Z80
+    bytes. The music half of the same rule lives in song_packer's ModSet.validate.
+    """
+    if route != CHROUTE_PSGN:
+        return
+    for ev in events:
+        if type(ev).__name__ == 'ModSet':
+            raise TranscodeError(
+                f"SFX ${sfx_id:02X} emits MEV_MODSET on the noise route — pitch "
+                f"modulation has no tone divisor to sweep there and the modulated "
+                f"word would corrupt the SN76489 noise control register (D1). Author "
+                f"the noise mode/rate with smpsPSGform instead.")
+
+
 def _validate_sfx_repeat(events, sfx_id=0):
     """Reject a REPEAT_START..REPEAT_END span containing no time-advancing event
     (Note/Rest/NoteDur). The Z80 replays such a body in a single fetch frame, so the
@@ -1521,6 +1548,7 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     for ch in channels:
         _validate_sfx_repeat(ch['events'], sfx_desc.get('id', 0))
         _validate_no_aliasing_ops(ch['events'], sfx_desc.get('id', 0), ch.get('route'))
+        _validate_no_modset_on_noise(ch['events'], sfx_desc.get('id', 0), ch.get('route'))
         s = b''.join(e.encode() for e in ch['events'])
         streams.append(s)
 
