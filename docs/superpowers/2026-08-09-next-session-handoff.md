@@ -122,7 +122,13 @@ ritual. Semantics must hold: capture-old-before-write, ref-new-then-unref-old,
 blank early-outs, miss = demand+stall+skip+continue (DEBUG refcount audit is
 the checker).
 
-## Workstream 5 — Silent-music question
+## Workstream 5 — Silent-music question — RESOLVED 2026-08-10
+
+ADJUDICATED (notes/2026-08-10-silent-music-adjudication.md): canonical playback
+is NOT broken — the raw mailbox poke was an unsupported entry (trigger without
+the 6-byte SND_MUSIC_PARAM block). Real-audio A/B vs config-a: band-energy
+cosine similarity 0.9999. No P1 bug; pkg 5 unblocked. Original question below
+for the record.
 
 Evidence in `project_sound_pkg1_done` memory: poking the Z80 mailbox
 (`SND_REQ_MUSIC` $1F02 = 1, via z80_write) on canonical DEBUG shapes produces
