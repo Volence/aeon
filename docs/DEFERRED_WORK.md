@@ -3873,8 +3873,11 @@ while the bare core is a single centre point — collapsing a 32px-wide box's tw
 would change how it behaves straddling a ledge edge.
 
 **Pick this up when:** Task 4's replay gate has passed and the byte-identity requirement is
-discharged. It is a mechanical change with a clear stopping point, and it is the last hidden global
-in the player sensor path.
+discharged. It closes the last hidden dependency in the player sensor path — post-C1 the quadrant is
+not a global any more, it is an *ambient register parameter*, which is why the compiler still cannot
+see it. **Do not size this from this paragraph** — it is mechanical but it is not small; the
+`MEASURED SCOPE` block immediately below is the estimate, and it concludes ~19 procs plus the
+dispatch type, i.e. its own parcel with its own gate.
 
 **MEASURED SCOPE (attempted and reverted 2026-08-10 — read this before estimating).** The obvious
 first move is to declare the dependency on the four procs that actually read the quadrant

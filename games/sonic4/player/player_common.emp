@@ -130,9 +130,18 @@ pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns 
 const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
 
 // player-block field offsets (a4-relative; the Player_Phys block displacements
-// past the 8-word physics row). File-local, like the PPHYS_* physics-row offsets
-// in player_ground/player_air and for the same reason: a divergent offset shows
-// up as a mismatched instruction byte in the region gate.
+// past the 8-word physics row). File-local to match the PPHYS_* physics-row
+// offsets in player_ground/player_air — but unlike those copies, THESE two are
+// bound to the layout by the ensures below, which catch a drifted offset at
+// build time rather than leaving it to surface as a mismatched instruction byte
+// in the region gate.
+//
+// PPHYS_JUMPBUF is deliberately NOT spelled PPHYS_JUMP_BUFFER, breaking the
+// otherwise-exact field-name mapping (PPHYS_TOP_SPEED <-> Phys_top_speed). The
+// engine constant PHYS_JUMP_BUFFER is one character away, and the two appear on
+// the SAME LINE in the latch below (`move.b #PHYS_JUMP_BUFFER, PPHYS_JUMPBUF(a4)`)
+// — near-identical names sitting adjacent is a misreading waiting to happen.
+// Keep the abbreviation.
 const PPHYS_QUADRANT = 16
 const PPHYS_JUMPBUF  = 17
 
@@ -153,6 +162,10 @@ const PPHYS_JUMPBUF  = 17
 // assumption about NUM_PLAYERS, so it is asserted at build time immediately
 // below rather than left to be discovered by a third slot silently reading slot
 // 1's block.
+// Hygienic `.blk_resolved` label per expansion (the mask_opposing_lr / abs_w
+// splice pattern), so the expansion sites don't collide. NOTE for consumers
+// outside this module: the body expands in the CALLER's scope, so the caller
+// must also `use games.sonic4.constants.{PLAYER_BLOCK_SIZE}` — test_player does.
 // In:  sst = register holding the player SST (preserved)
 // Out: dst = that slot's block base
 // Clobbers: CCR — the `cmpa.w` leaves the compare's flags, not the caller's.
