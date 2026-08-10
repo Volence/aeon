@@ -90,7 +90,7 @@ module engine.sound_psg (cpu: z80, invariant: preserves(ix))
 // contracts (including the project-wide ix preservation) are the definitions'.
 // Snd_ChanClass classifies the active channel (preserves bc/de, on which
 // Psg_SetVolume relies); Mod_ReArm re-arms pitch mod; Mod_Advance steps it.
-use engine.sound_fm.{Snd_ChanClass}
+use engine.sound_fm.{Snd_ChanClass, Fm_TransposeClampChrom}
 use engine.sound_sequencer.{Mod_ReArm, Mod_Advance}
 
 section sound_psg (cpu: z80) {
@@ -255,6 +255,8 @@ section sound_psg (cpu: z80) {
     // ------------------------------------------------------------------
     // Psg_NoteOn — key a tone note on a PSG tone channel.
     // In:  ix = SeqChannel (PSG1..3), a = pitch index (0..94).
+    // The index is first folded with the channel's signed sc_transpose and clamped
+    // to the table (D4) — see the Fm_TransposeClamp call below.
     // PsgDivisorTableZ[pitch] = 10-bit divisor (little-endian word). Emit:
     //   latch = $80 | (ch<<5) | (div & $0F)   then   data = (div >> 4) & $3F.
     // Then set the channel volume from sc_volume so the note is audible.
@@ -263,9 +265,18 @@ section sound_psg (cpu: z80) {
     // Contract: clobbers af, bc, de, hl; preserves ix (inherited — verified across
     // the calls + the `jp Psg_SetVolume` tail, each an ix-preserving callee).
     pub proc Psg_NoteOn () clobbers(af, bc, de, hl) {
+        // --- D4: fold the channel's signed sc_transpose into the pitch index and
+        // clamp it to the divisor table, exactly as the FM writer does (S3K applies
+        // transpose on PSG and FM identically — zKeyOn has no route split). Before
+        // this the PSG simply IGNORED sc_transpose, so a transposed pattern (and the
+        // spindash-rev SFX, whose escalation is authored as transpose) played its PSG
+        // component FLAT while the FM component rose. Fm_TransposeClampChrom clamps
+        // to the 95-entry chromatic domain PsgDivisorTableZ and FmPitchTableZ share,
+        // and returns the index in hl with h=0 — exactly the widened form the lookup
+        // below wants, so the fold REPLACES the `ld l,a / ld h,0` widen (byte-neutral)
+        // instead of adding to it. bc is free here (declared clobbered).
+        call    Fm_TransposeClampChrom // hl = clamp(pitch + sc_transpose, 0, max), h=0
         // hl = &PsgDivisorTableZ[pitch] = base + pitch*2
-        ld      l, a
-        ld      h, 0
         add     hl, hl                 // pitch*2 (word entries)
         ld      de, PsgDivisorTableZ   // banked table; label = its $8000-window ptr
         add     hl, de
