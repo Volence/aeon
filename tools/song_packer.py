@@ -722,7 +722,7 @@ class PitchEnv(Event):
 #       0=$30 DT/MUL, 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR.
 REGDELTA_OP_MASK = 0x03
 REGDELTA_GROUP_SHIFT = 2
-REGDELTA_GROUP_COUNT = 6
+REGDELTA_GROUP_COUNT = 7
 # group_code constants for callers (the TL group op0 = the canonical lead voice-step).
 RD_GROUP_DT_MUL = 0   # $30
 RD_GROUP_TL = 1       # $40 (TL — the rapid lead voice-step)
@@ -730,6 +730,7 @@ RD_GROUP_RS_AR = 2    # $50
 RD_GROUP_AM_D1R = 3   # $60
 RD_GROUP_D2R = 4      # $70
 RD_GROUP_D1L_RR = 5   # $80
+RD_GROUP_SSG_EG = 6   # $90 (E5: runtime SSG-EG sweeps — buzz/metallic timbres)
 
 
 def reg_sel(group_code: int, op: int) -> int:

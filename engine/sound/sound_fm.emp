@@ -757,9 +757,10 @@ section sound_fm (cpu: z80) {
         jp      Snd_ParkDac             // defensive re-park ($2A); preserves ix
     }
 
-    // RegDeltaGroupBase — group_code 0..5 -> the per-operator YM register-group base.
+    // RegDeltaGroupBase — group_code 0..6 -> the per-operator YM register-group base.
     // Order MATCHES the FmPatch group order + the SND_REG_OP_* equates: 0=$30 DT/MUL,
-    // 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR. Pure data table.
+    // 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR, 6=$90 SSG-EG.
+    // Pure data table.
     pub proc RegDeltaGroupBase () clobbers() {
         dc.b    SND_REG_OP_DT_MUL        // group 0 = $30
         dc.b    SND_REG_OP_TL            // group 1 = $40 (TL — the lead voice-step)
@@ -767,11 +768,17 @@ section sound_fm (cpu: z80) {
         dc.b    SND_REG_OP_AM_D1R        // group 3 = $60
         dc.b    SND_REG_OP_D2R           // group 4 = $70
         dc.b    SND_REG_OP_D1L_RR        // group 5 = $80
+        // E5 runtime half: SSG-EG ($90 + op*4 + ch; bit3 enable | bits0-2 mode).
+        // The LOAD-TIME half already ships — Fm_PatchLoad uploads fp_ssg_eg from the
+        // patch — so this row is the whole runtime feature: a stream can now SWEEP
+        // SSG-EG mid-note (the buzz/metallic AY-style timbres) through the existing
+        // MEV_REGDELTA machinery, with no new opcode and no new handler.
+        dc.b    SND_REG_OP_SSG_EG        // group 6 = $90 (SSG-EG)
     }
 
     // The table must hold exactly REGDELTA_GROUP_COUNT bases (RHS-only drift
     // guard, like dac_sample_tab).
-    ensure(6 == REGDELTA_GROUP_COUNT,
+    ensure(7 == REGDELTA_GROUP_COUNT,
            "RegDeltaGroupBase length must be REGDELTA_GROUP_COUNT")
 
     // ------------------------------------------------------------------

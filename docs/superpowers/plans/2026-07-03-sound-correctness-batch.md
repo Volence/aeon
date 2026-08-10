@@ -235,7 +235,7 @@ git commit -m "fix(sound): dash $E7 noise sweep tracks the tone channel (B5) —
 - Modify: `engine/sound/sound_fm.asm:591-606` (`RegDeltaGroupBase`), `sound_constants.asm:383-396` (`REGDELTA_GROUP_COUNT`), `tools/song_packer.py` (`RegDelta` group range ~:748-763)
 - Test: `tools/test_song_packer.py`
 
-- [ ] **Step 1: Failing packer test**
+- [x] **Step 1: Failing packer test**
 
 ```python
 def test_regdelta_group6_ssg_eg_accepted():
@@ -245,13 +245,13 @@ def test_regdelta_group6_ssg_eg_accepted():
 
 (Adapt the operand encoding to `RegDelta`'s actual constructor — read its class first; group_code and op may be separate fields.)
 
-- [ ] **Step 2: Run to fail** (group 6 currently rejected), then implement all three sides:
+- [x] **Step 2: Run to fail** (group 6 currently rejected), then implement all three sides:
 
 1. `sound_fm.asm:601` area — append to `RegDeltaGroupBase`: `db SND_REG_OP_SSG_EG    ; group 6 = $90 SSG-EG` (constant already exists — grep `SND_REG_OP_SSG_EG`, used by the load-time patch path at `sound_fm.asm:203`).
 2. `sound_constants.asm:391`: `REGDELTA_GROUP_COUNT = 7` (the range check at `sound_fm.asm:570` picks it up automatically).
 3. `song_packer.py` RegDelta validation: widen group range 0..5 → 0..6.
 
-- [ ] **Step 3: Gates** — pytest green; build green (budget +1 B table byte); update validity-rules §(d)1 RegDelta citation (group 0..6). **Controller session (optional showcase):** a scratch song with a `MEV_REGDELTA` group-6 sweep — verify `$90+op*4+ch` writes land (oracle YM trace) and the timbre audibly "buzzes" (SSG-EG loop) in a rendered capture.
+- [x] **Step 3: Gates** — pytest green; build green (budget +1 B table byte); update validity-rules §(d)1 RegDelta citation (group 0..6). **Controller session (optional showcase):** a scratch song with a `MEV_REGDELTA` group-6 sweep — verify `$90+op*4+ch` writes land (oracle YM trace) and the timbre audibly "buzzes" (SSG-EG loop) in a rendered capture.
 
 - [x] **Step 4: Commit**
 

@@ -209,6 +209,20 @@ class TestEventEncoding(unittest.TestCase):
         with self.assertRaises(PackError):
             RegDelta([(bad, 0x00)]).validate(CHROUTE_FM1)
 
+    def test_regdelta_group6_ssg_eg_accepted(self):
+        # E5 runtime half: group 6 = $90 SSG-EG. reg_sel = (6<<2)|op.
+        from song_packer import RD_GROUP_SSG_EG
+        self.assertEqual(RD_GROUP_SSG_EG, 6)
+        ev = RegDelta([(reg_sel(RD_GROUP_SSG_EG, 0), 0x08)])   # op0, SSG-EG mode $08
+        ev.validate(CHROUTE_FM1)                                # FM route — must not raise
+        self.assertEqual(ev.encode(), bytes([MEV_REGDELTA, 0x01, 0x18, 0x08]))
+        RegDelta([(reg_sel(RD_GROUP_SSG_EG, 3), 0x0E)]).validate(CHROUTE_FM1)
+
+    def test_regdelta_group7_still_rejected(self):
+        # The widening is exactly one group — 7 is still past the table.
+        with self.assertRaises(PackError):
+            reg_sel(7, 0)
+
     def test_regdelta_zero_tick_in_loop_body_still_needs_a_note(self):
         # RegDelta is zero-tick: a loop body of ONLY RegDeltas would spin forever,
         # so the packer must still require a time-advancing event (PitchEnv here).
