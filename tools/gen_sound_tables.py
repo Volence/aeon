@@ -663,6 +663,62 @@ def emit_emp_z80() -> str:
     return "\n".join(out) + "\n"
 
 
+def emit_emp_z80_data_only() -> str:
+    """Label-free twin of emit_emp_z80() for REPLICATE-PER-BANK Bank-D
+    co-location (DEFERRED_WORK 'Bank-D co-location hook'): identical payload
+    bytes, zero conflicting symbol definitions, so the same FM/PSG tables can
+    be emitted a second time at the head of the DAC sample bank without
+    duplicate-label errors. COPY-class (FM6=DAC-drum) songs stream samples
+    from the DAC bank with that bank latched in the $8000 window, so the
+    sequencer's window-relative table reads only work if the SAME tables sit
+    at the SAME window offsets in that bank too.
+
+    Derived, not duplicated: this transforms emit_emp_z80()'s output —
+    module/section renamed (engine.sound_tables_z80_bankd / section
+    sound_tables_z80_bankd, same vma $8000), every proc wrapper renamed with a
+    `BankD_` prefix (private, non-colliding), and the two trailing
+    `pub const *_COUNT` authority exports dropped (the labeled module stays
+    the single authority; the twin exports NOTHING). The rename is
+    byte-preserving: the payload's only symbolic tokens are intra-section
+    label refs (the vol-env pointer tables) and same-valued private consts,
+    and an identically laid-out section at vma $8000 folds the renamed labels
+    to the SAME $8000-window addresses. Byte-equality is pinned by
+    tools/test_gen_sound_tables.py::TestEmpDataOnlyTwin.
+
+    ACTIVATION (current include mechanics — sigil map + seam-2, NOT the old
+    main.asm `cpu z80`/`phase 08000h` include): nothing consumes this today
+    (no dead ROM). When the first COPY-class song ships, either
+      (a) PREFERRED — embed the already-emitted table image at the head of the
+          DAC bank: seam-2 (`sigil emit_sound_blob`) already lowers the labeled
+          module to `engine/sound/generated/sound_tables_z80.bin`, and a .bin
+          embed is inherently label-free. Add the embed as the FIRST data item
+          of the DAC-bank placement module (`games/sonic4/data/sound/
+          dac_banks.emp`, the `Dac_Temp_Blip` section at map anchor $48000 —
+          the sample payloads then shift up by the table span, and
+          `dac_samples.emp`'s winptr()-derived SND_*_PTR equs re-fold), or as
+          the head of a new dedicated COPY bank anchored in
+          `games/sonic4/map.toml`; or
+      (b) write THIS twin's text to a module file and let seam-2 lower it,
+          when the replica needs its own (BankD_-prefixed, private) labels.
+    Either way the byte-identity invariant this twin pins (same payload at the
+    same window offsets) is the correctness condition."""
+    labeled = emit_emp_z80()
+    proc_names = re.findall(r"^\s*(?:pub\s+)?proc\s+(\w+)", labeled, re.M)
+    text = labeled
+    text = text.replace("module engine.sound_tables_z80 (cpu: z80)",
+                        "module engine.sound_tables_z80_bankd (cpu: z80)")
+    text = text.replace("section sound_tables_z80 (cpu: z80, vma: $8000) {",
+                        "section sound_tables_z80_bankd (cpu: z80, vma: $8000) {")
+    # Drop the trailing authority exports — the twin defines NO pub symbols.
+    text = re.sub(r"^pub const (?:PSGVOLENV_COUNT|FMVOLENV_COUNT)\s*=.*\n", "",
+                  text, flags=re.M)
+    # Rename every proc definition and every reference to it (pointer-table
+    # cells, span() ensures) — private BankD_ names, no collisions.
+    for name in proc_names:
+        text = re.sub(r"\b%s\b" % re.escape(name), "BankD_" + name, text)
+    return text
+
+
 def _check_fmpitch_max_idx(here: str) -> None:
     """Assert the engine's FMPITCH_MAX_IDX matches this generator's table geometry.
 
