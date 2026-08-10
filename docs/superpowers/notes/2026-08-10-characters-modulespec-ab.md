@@ -39,12 +39,14 @@ hashes of a curated ADDRESS-FREE span of `Player_1`.
 The watchpoint breaks at **`Input_Tick+118` (`$2652`) on BOTH ROMs** — same
 instruction, same tick.
 
-| observation | OLD | NEW | verdict |
+| observation | OLD | FINAL (shipped) | verdict |
 |---|---|---|---|
 | break site | `Input_Tick+118` | `Input_Tick+118` | same |
-| `Player_1` SST, 80 B | see below | see below | **identical but `code_addr`** |
-| visible plane (PNG) | `OLD.anchor.png` | `NEW.anchor.png` | **byte-identical (`cmp`)** |
+| `Logic_Tick` | 1723 | 1723 | same |
+| `Camera_X` / `Camera_Y` | `$00FF` / `$01AD` | `$00FF` / `$01AD` | identical |
+| `Player_1` SST, 80 B | see below | see below | **identical but address fields** |
 | `Replay_Done` | `$FF` | `$FF` | fixture completed, no desync |
+| ~~visible plane (PNG)~~ | — | — | **WITHDRAWN — metric is invalid, see trap #4** |
 
 ```
 OLD 011C 019FCB00 023D9A00 05B4 0000 81 00 00028BC0 03C0 1327 00 00 0002694A ...
@@ -90,6 +92,34 @@ watchpoint BEFORE `reset` makes it fire inside the boot RAM clear and leaves
 oracle with `PC=SP=0xFFFFFFFF` and a frozen frame token; `breakpoint_clear` +
 `reset` do NOT recover it (watchpoints survive `breakpoint_clear`). Recovery is
 kill + relaunch. **Add the watchpoint AFTER the boot clear and after the poke.**
+
+**4. THE VISIBLE-PLANE `cmp` IS NOT A VALID METRIC IN THIS ENGINE — the protocol's
+PS bar cannot be met as written, and I twice mistook a coincidence for proof.**
+Measured, on the SAME `OLD.debug.bin`, at the SAME deterministic instruction
+anchor (`Input_Tick+118`, `Logic_Tick` 1723, identical camera and SST), across
+two oracle launches:
+
+```
+OLD vs NEW        IDENTICAL          <- ran in the same oracle session lineage
+OLD vs OLD_rerun  DIFFER 85352 bytes <- SAME ROM, fresh launch
+```
+
+The screen is not reproducible across launches. Near-certain cause: the §9.7
+art-streaming page decoder is an **idle-time** VBlank supervisor-bookmark
+decoder — it decodes as much as the frame's leftover CPU time allows, and
+leftover time in an emulator varies with host load. So VRAM residency at a given
+tick is host-timing dependent even though game LOGIC is fully deterministic.
+
+Both "identical" readings earlier in this parcel (the OLD-vs-OLD2 control at trap
+#1, and OLD-vs-NEW here) were **collisions, not determinism**. A control that
+passes proves nothing unless it is run across the same nuisance variable you are
+trying to rule out — here, a fresh process.
+
+**Rule going forward:** for any scene using art streaming, A/B on
+deterministic STATE only — SST spans, `Camera_*`, `Logic_Tick`, and the replay
+checkpoint net. Do NOT use screenshots or VRAM hashes as pass/fail evidence.
+The existing standing note that oracle screenshots drift was RIGHT and I used
+them anyway; this is the concrete measurement of why.
 
 ## Artifacts
 
