@@ -1,14 +1,17 @@
 // ===========================================================================
 // engine/sound/dac_sample_tab.emp — the DAC sample descriptor table
-// (1-based id → 9-byte DacSample descriptor).
+// (1-based id → 12-byte DacSample descriptor).
 // ===========================================================================
 // The .emp port of dac_sample_tab.asm (this directory). 10 descriptors: ids
 // 1=temp_blip 2=kick 3=snare 4=hat, then the 6 S3K HCZ2 drums (5=s3k_kick ..
-// 10=s3k_floortom, matching tools/smps_import.py HCZ2_DAC_REMAP). Each 9-byte
+// 10=s3k_floortom, matching tools/smps_import.py HCZ2_DAC_REMAP). Each 12-byte
 // descriptor is db ds_bank / db ds_rate / db ds_codec / dw ds_ptr / dw ds_length
-// / dw ds_loop_ofs (the DacSample struct in sound_constants.asm). rate/loop_ofs
-// are 0 (the 1B FILL loop drives the rate; one-shot). ds_codec = 0 (raw 8-bit
-// PCM; the reserved codec-selector slot).
+// / dw ds_loop_ofs / db ds_vol / dw ds_mix_rsvd (the DacSample struct in
+// sound_constants.emp; grown 9->12 by the 2026-07-03 ratification insurance —
+// ds_vol + mix-cursor reserve appended so no existing offset moves, v1 engine
+// ignores all three). rate/loop_ofs are 0 (the 1B FILL loop drives the rate;
+// one-shot). ds_codec = 0 (raw 8-bit PCM; the reserved codec-selector slot).
+// vol/mix_rsvd are 0 (reserved for a future mixer).
 //
 // All bank/ptr/len cells are the build-time SND_* constants from
 // data/sound/dac_samples.emp — COMPTIME values, read here as comptime ints. They
@@ -51,7 +54,7 @@ module engine.dac_sample_tab (cpu: z80)
 // the resident blob folds its consts through), so the guard folds at COMPTIME.
 use engine.sound_constants.{DAC_SAMPLE_COUNT, DacSample_len}
 
-// The table emits 10 descriptors of 9 bytes (db,db,db,dw,dw,dw) = 90 bytes.
+// The table emits 10 descriptors of 12 bytes (db,db,db,dw,dw,dw,db,dw) = 120 bytes.
 // `span(DacSampleTable)` folds the EMITTED byte span of the table body at
 // comptime, so this guard catches BOTH the engine's declared count × stride
 // drifting AND this body emitting the wrong NUMBER of descriptors — the LHS is a
@@ -71,6 +74,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_BLIP_PTR            // ds_ptr (little-endian dw)
         dc.w    SND_BLIP_LEN            // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 2 = kick
         dc.b    SND_KICK_BANK           // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -78,6 +83,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_KICK_PTR            // ds_ptr
         dc.w    SND_KICK_LEN            // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 3 = snare
         dc.b    SND_SNARE_BANK          // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -85,6 +92,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_SNARE_PTR           // ds_ptr
         dc.w    SND_SNARE_LEN           // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 4 = hat
         dc.b    SND_HAT_BANK            // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -92,6 +101,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_HAT_PTR             // ds_ptr
         dc.w    SND_HAT_LEN             // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // --- S3K HCZ2 drums (Phase 5; ids match tools/smps_import.py HCZ2_DAC_REMAP) ---
         // id 5 = s3k_kick
         dc.b    SND_S3K_KICK_BANK       // ds_bank
@@ -100,6 +111,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_S3K_KICK_PTR        // ds_ptr
         dc.w    SND_S3K_KICK_LEN        // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 6 = s3k_snare
         dc.b    SND_S3K_SNARE_BANK      // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -107,6 +120,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_S3K_SNARE_PTR       // ds_ptr
         dc.w    SND_S3K_SNARE_LEN       // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 7 = s3k_hitom
         dc.b    SND_S3K_HITOM_BANK      // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -114,6 +129,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_S3K_HITOM_PTR       // ds_ptr
         dc.w    SND_S3K_HITOM_LEN       // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 8 = s3k_midtom
         dc.b    SND_S3K_MIDTOM_BANK     // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -121,6 +138,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_S3K_MIDTOM_PTR      // ds_ptr
         dc.w    SND_S3K_MIDTOM_LEN      // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 9 = s3k_lowtom
         dc.b    SND_S3K_LOWTOM_BANK     // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -128,6 +147,8 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_S3K_LOWTOM_PTR      // ds_ptr
         dc.w    SND_S3K_LOWTOM_LEN      // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
         // id 10 = s3k_floortom
         dc.b    SND_S3K_FLOORTOM_BANK   // ds_bank
         dc.b    0                       // ds_rate (reserved)
@@ -135,5 +156,7 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
         dc.w    SND_S3K_FLOORTOM_PTR    // ds_ptr
         dc.w    SND_S3K_FLOORTOM_LEN    // ds_length
         dc.w    0                       // ds_loop_ofs (reserved; 0 = one-shot)
+        dc.b    0                       // ds_vol (reserved; v1 ignored)
+        dc.w    0                       // ds_mix_rsvd (reserved; v1 ignored)
     }
 }

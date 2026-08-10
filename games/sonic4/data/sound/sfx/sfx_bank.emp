@@ -6,7 +6,7 @@
 // `SfxTable`, as ONE `table` construct. The block CONTENT is byte-identical in
 // BOTH build shapes (no DEBUG members — the SFX set is the same plain and debug);
 // only the block's BASE address shifts, because it sits AFTER the shape-dependent
-// song tables (plain $5BAE8 / debug $5D53A). So this module needs NO `-D` define
+// song tables (plain $5BB06 / debug $5D558). So this module needs NO `-D` define
 // — see the harness PROVENANCE on any re-baseline for the per-shape map base.
 //
 // The win-tab (`sfx_blob_win_tab.emp`, the Z80 `phase 08000h` head BINCLUDE'd by
@@ -15,8 +15,9 @@
 // the `table` defines. The equ layer lives here, at the producer that owns the
 // blob placement (the DAC `SND_*_PTR` mechanism).
 //
-// Pinned at $5BAE8 (plain) / $5D53A (debug) by the map region `sfx_bank`, PER
-// SHAPE. Re-pin via the harness PROVENANCE flow on any re-baseline.
+// Placed at $5BB06 (plain) / $5D558 (debug): the sound_bank anchor + contiguous
+// pack after the MT bank region. Re-pin via the harness PROVENANCE flow on any
+// re-baseline.
 //
 // The `table` construct:
 //   * one `table` row per SFX id (ascending, contiguous). Adding an SFX = one row.

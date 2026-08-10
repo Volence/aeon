@@ -2,8 +2,8 @@
 // data/sound/mt_bank.emp — the MT streaming-bank DATA (sound-migration T2)
 // ===========================================================================
 // This module carries the MT streaming-bank DATA: from `Song_MovingTrucks`
-// ($58607) through `SongPatchTable_End`. The engine-table head (`soundBankHead`,
-// the Z80 phase-0 blob at $58000..$58607, incl. `MovingTrucks_Bank_Start` and the
+// ($58625) through `SongPatchTable_End`. The engine-table head (`soundBankHead`,
+// the Z80 phase-0 blob at $58000..$58625, incl. `MovingTrucks_Bank_Start` and the
 // `SND_ENGINE_TABLE_BANK` equ) precedes it; this module picks up right after it,
 // in the SAME bank-aligned 32KB window.
 //
@@ -13,7 +13,7 @@
 // DEBUG-only ones' value
 // folding to `Data.empty` (zero bytes, label still defined) when DEBUG=0.
 //
-// Placed at $58607: the map's sound_bank anchor ($58000) + contiguous pack
+// Placed at $58625: the map's sound_bank anchor ($58000) + contiguous pack
 // after the soundBankHead. Re-pin via the harness PROVENANCE flow on any
 // re-baseline.
 //

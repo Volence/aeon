@@ -940,7 +940,7 @@ section z80_sound_driver (cpu: z80) {
     // --- Snd_DacLookup — map a 1-based DAC sample id (in `a`) to its descriptor
     // ptr. Out: hl = &DacSampleTable[id-1], carry CLEAR on success; carry SET
     // (id 0 or id > DAC_SAMPLE_COUNT) on a bad id (hl undefined). (Stride
-    // DacSample_len = 9, computed as index*8 + index.) DacSampleTable is BANKED:
+    // DacSample_len = 12, computed as (index*3)*4.) DacSampleTable is BANKED:
     // hl is a WINDOW address — pure pointer math here (no ROM read), dereferenceable
     // only while the window holds the engine-table bank (the caller's contract).
     // Clobbers a + de (the index/offset math) + f (the id-validity flags and the
@@ -956,29 +956,31 @@ section z80_sound_driver (cpu: z80) {
         ret
     .valid:
         dec     a                       // index = id-1
-        // hl = DacSampleTable + index*DacSample_len (9). index*9 = index*8 + index,
-        // but computed in 8-BIT math instead of the old 16-bit shift chain: the
-        // widest value the chain reaches is (DAC_SAMPLE_COUNT-1)*9 = 81, so nothing
-        // can carry out of the byte. That deletes the `ld e,l / ld d,h` index save
-        // and the `add hl,de` that consumed it; only the final base add remains.
+        // hl = DacSampleTable + index*DacSample_len (12). index*12 = (index*3)*4,
+        // computed in 8-BIT math instead of a 16-bit shift chain: the widest value
+        // the chain reaches is (DAC_SAMPLE_COUNT-1)*12 = 108, so nothing can carry
+        // out of the byte. That deletes the `ld e,l / ld d,h` index save and the
+        // `add hl,de` that consumed it; only the final base add remains. (Same
+        // instruction count and byte length as the old ×9 = index*8 + index form —
+        // stride 9->12 cost ZERO resident bytes.)
         ld      l, a                    // keep index for the +index term
-        add     a, a
-        add     a, a
-        add     a, a                    // a = index*8
-        add     a, l                    // a = index*9 = the byte offset into the table
+        add     a, a                    // a = index*2
+        add     a, l                    // a = index*3
+        add     a, a                    // a = index*6
+        add     a, a                    // a = index*12 = the byte offset into the table
         ld      l, a
         ld      h, 0
         ld      de, DacSampleTable
         add     hl, de                  // hl = &DacSampleTable[index]
         or      a                       // clear carry (success — the add above sets it)
         ret
-        // The fact the 8-bit form rests on (zero emitted bytes). The stride literal 9
-        // is the SAME one the `*8 + *1` chain above encodes; the struct-side stride
+        // The fact the 8-bit form rests on (zero emitted bytes). The stride literal 12
+        // is the SAME one the `(*3)*4` chain above encodes; the struct-side stride
         // is pinned by the sizeof-guard in sound_constants.emp, the authority. (That
         // guard's symbol is not in this module's seam-1 const list, so it cannot be
         // named here directly.)
-        ensure(DAC_SAMPLE_COUNT * 9 <= 256,
-               "DacSampleTable ({DAC_SAMPLE_COUNT} x 9 B) must fit a byte offset for Snd_DacLookup's 8-bit index math")
+        ensure(DAC_SAMPLE_COUNT * 12 <= 256,
+               "DacSampleTable ({DAC_SAMPLE_COUNT} x 12 B) must fit a byte offset for Snd_DacLookup's 8-bit index math")
         // NOT TAKEN — the page-aligned form (h = DacSampleTable>>8, another -4 B):
         // `ensure((DacSampleTable & $FF) == 0)` FAILS. The table is NOT at the head
         // of the $8000 window; seam-2's sound_layout derivation places it at $85AD,
@@ -987,7 +989,7 @@ section z80_sound_driver (cpu: z80) {
     }
 
     // --- Snd_StartSample — start DAC playback from a DacSample descriptor at `hl`.
-    // Reads bank/ptr/len from the 9-byte descriptor (ds_bank +0, ds_ptr +3,
+    // Reads bank/ptr/len from the 12-byte descriptor (ds_bank +0, ds_ptr +3,
     // ds_length +5), re-asserts DAC mode WITHOUT toggling the $2B edge (no click),
     // resets the ring RD=0 + re-primes the $80 lead + WR=LEAD_PRIME, and sets
     // SND_STAT_DAC_ACTIVE=1. TWO CALL CONTEXTS: (a) mailbox SND_REQ_SAMPLE (VBlank

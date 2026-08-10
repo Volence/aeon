@@ -10,7 +10,8 @@
 // those bytes natively instead of via AS BINCLUDE.
 //
 // SHAPE-INVARIANT SIZE (shape-DEPENDENT start): the block is 0x748 B both shapes,
-// but the MT body before it differs, so it starts at $5BAE8 plain / $5D53A debug.
+// but the MT body before it differs, so it starts at $5BB06 plain / $5D558 debug
+// (shifted +$1E when the head's DacSampleTable grew 9->12 B per descriptor).
 // The embed content also differs per shape (the SfxTable pointer cells hold the
 // per-shape absolute Sfx_NN addresses), so the embed selects on DEBUG.
 //

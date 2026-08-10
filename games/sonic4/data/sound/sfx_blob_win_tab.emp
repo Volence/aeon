@@ -14,7 +14,7 @@
 // SND_*_PTR mechanism); a re-base of the SFX block re-folds every pointer.
 //
 // SHAPE-DEPENDENT CONTENT: the SFX blobs sit AFTER the shape-dependent song
-// tables (plain base $5BAE8 / debug $5D53A), so every SFX_WIN_NN — and thus
+// tables (plain base $5BB06 / debug $5D558), so every SFX_WIN_NN — and thus
 // every real cell here — shifts with the build shape, even though this table's
 // own bank-head position is fixed. The emitter co-links this head with
 // sfx_bank.emp PER SHAPE and emits sfx_blob_win_tab{,_debug}.bin.
