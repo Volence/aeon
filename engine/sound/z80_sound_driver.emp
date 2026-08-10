@@ -504,13 +504,56 @@ section z80_sound_driver (cpu: z80) {
     // pass (195) so the rate never jitters during a DMA; the lead burned here is
     // recovered by the Timer-A tick's bulk-refill. Pure nop pad (reg-safe).
     .drain:
+        // UNDERRUN GUARD (triage R1; z80-dma.md #2). DRAIN is the ONLY pass that
+        // consumes without producing, so it is the only way RD can catch WR. The
+        // loop top already did `inc c` unconditionally; if that advance made
+        // lead == 0, the NEXT pass would emit ring[WR] — a stale byte — and walk RD
+        // past WR. The ring then replays its previous 256 bytes as a ~72 Hz
+        // (18356/256) full-amplitude buzz, and it does NOT self-correct: the tick's
+        // refill test reads lead as (WR - RD) & $FF, which after a lap is a large
+        // number, so it concludes the ring is FULL and never tops up. One underrun
+        // latches the buzz for the rest of the sample.
+        //
+        // Fix: undo this pass's advance when lead hit 0, so RD pins to WR and the
+        // same (last valid) byte is re-emitted — a DC hold, which is what MDSDRV
+        // does by simply not emitting (mdssub.z80:299-310). Degradation becomes a
+        // held level instead of a buzz, and the tick sees a real lead of 0 and
+        // refills properly.
+        //
+        //   ld a,b / sub c   -> a = lead
+        //   cp e             -> CF = (lead < 1) = (lead == 0)
+        //   sbc a,a          -> a = -CF  ($FF when lead == 0, else $00)
+        //   add a,c / ld c,a -> c -= 1 iff lead == 0
+        //
+        // `cp e` is the whole trick, and it is not a coincidence: `e` is the LOW
+        // BYTE of the streaming loop's held de = SND_Z80_YM_A1 = $4001, so `e` is a
+        // hard 1 for the entire sample. Comparing against it costs 4 T where an
+        // immediate `cp 1` costs 7 — and 7 is precisely what this pass cannot
+        // afford, because the pad fills in 12 T (`jr`) and 4 T (`nop`) units and so
+        // can only absorb a guard whose cost is a multiple of 4. The ensure below
+        // pins the $4001 low byte so the trick cannot rot if the port constant moves.
+        //
+        // BRANCHLESS on purpose: the same 24 T on both paths, so the pass stays
+        // exactly 195 T and the balance ensure below re-derives unchanged (a `jr cc`
+        // here would also trip [cycles.ambiguous-branch]). It is paid ENTIRELY out
+        // of the existing DRAIN pad (76 -> 52 T), so the net cycle cost is ZERO;
+        // 6 bytes of pad turn into real work. `a` and the flags are dead at .drain
+        // (the DMA-flag test's value is consumed) and dead again at .loop.
+        ld      a, b                    // WR
+        sub     c                       // a = lead = (WR - RD) & $FF
+        cp      e                       // e == 1 ($4001 low byte) -> CF = (lead == 0)
+        sbc     a, a                    // a = $FF iff lead == 0, else $00
+        add     a, c
+        ld      c, a                    // RD -= 1 iff the ring just ran dry
+    .drain_pad:                         // cut label: guard|pad boundary for the derived pad
         // DERIVED timing pad -> DRAIN = 195 (== FILL). measured non-pad cost =
-        // prefix cycles(.loop,.fill_body)=109 + trailing jp .loop=10 = 119;
-        // pad = 195-119 = 76 T (the lead is recovered at the tick). DENSE:
-        // 76/12 = 6 unconditional `jr` (12 T in 2 B each) + 76%12/4 = 1 nop -> 13 B
-        // instead of 19 nops. Same T-total; the `.drain_end` ensure below re-measures
+        // prefix cycles(.loop,.fill_body)=109 + this body pre-pad
+        // cycles(.drain,.drain_pad)=32 + trailing jp .loop=10 = 151;
+        // pad = 195-151 = 44 T (the lead is recovered at the tick). DENSE:
+        // 44/12 = 3 unconditional `jr` (12 T in 2 B each) + 44%12/4 = 2 nops -> 8 B
+        // instead of 11 nops. Same T-total; the `.drain_end` ensure below re-measures
         // it. Reg-safe like the nop pad (a `jr` writes no register and no flag).
-        pad_to_cycles(195, cycles(.loop, .fill_body) + 10, dense: true)
+        pad_to_cycles(195, cycles(.loop, .fill_body) + cycles(.drain, .drain_pad) + 10, dense: true)
         jp      .loop
     .drain_end:                         // cycles() span cut label (zero bytes)
 
@@ -520,7 +563,13 @@ section z80_sound_driver (cpu: z80) {
         // makes every span a plain straight-line sum; a `jr cc`/`djnz` in any span
         // fires [cycles.ambiguous-branch] (the jp-not-jr hot-path pin).
         ensure(cycles(.loop, .exhaust) == 195, "FILL streaming pass must be 195 T-states (the sample clock)")
-        // DRAIN = prefix 109 (consumer+poll+phase+DMA-taken) + `rept 19/nop` body 86.
+        // DRAIN = prefix 109 (consumer+poll+phase+DMA-taken) + body 86 (the 24 T R1
+        // underrun guard + a 52 T dense pad + the 10 T `jp .loop`).
+        // The R1 guard's `cp e` reads `e` as the literal 1: it is the low byte of
+        // the held de = SND_Z80_YM_A1. Pin that, so moving the port constant fails
+        // the build here instead of silently turning the guard into a no-op.
+        ensure((SND_Z80_YM_A1 & $FF) == 1,
+               "the DRAIN underrun guard compares against `e` as the constant 1 — SND_Z80_YM_A1's low byte is no longer 1")
         ensure(cycles(.loop, .fill_body) + cycles(.drain, .drain_end) == 195, "DRAIN pass must equal FILL (195 T-states)")
         // DRAINING_TAIL = prefix 82 (consumer+poll+phase-taken) + tail body 112.
         ensure(cycles(.loop, .dma_check) + cycles(.draining, .stop) == 194, "DRAINING_TAIL pass must be 194 T-states (FILL - 1, tail-only)")
