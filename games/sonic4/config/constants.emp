@@ -65,7 +65,7 @@ ensure(PSTATE_AIRBALL == (PSTATE_COUNT - 1) * 2,
        "curled states must remain the last PSTATE_* entries (Player_Display ball test)")
 
 // Playable characters — the roster index (C1). These ARE the indices into
-// CharacterDefs (player_common.emp), so the order of that table is bound to this
+// CharacterDefs (characters.emp), so the order of that table is bound to this
 // ordering; append new characters at the end and raise CHAR_COUNT. Character_ID
 // (game RAM) holds one of these; Player_Init resolves it to a CharacterDef once.
 pub const CHAR_SONIC              = 0

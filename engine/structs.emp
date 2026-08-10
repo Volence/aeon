@@ -180,7 +180,7 @@ pub struct parallax_config {
 // -----------------------------------------------
 // Character Definition (§5) — 32 bytes ($20), ROM table (sizeof is the truth; no
 // _len const). ONE record per playable character; the game's roster index table
-// (`CharacterDefs`, games/sonic4/player/player_common.emp) is an array of
+// (`CharacterDefs`, games/sonic4/player/characters.emp) is an array of
 // pointers to these, indexed by CHAR_*.
 //
 // This is the data the player frame dispatches through instead of naming a

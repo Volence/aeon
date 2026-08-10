@@ -1,0 +1,100 @@
+// Character roster — the table the player frame dispatches through (§5).
+//
+// The roster is the seam between the SHARED player frame (player_common and the
+// state files) and the per-character RECORDS (sonic.emp, and the coming
+// tails.emp / knuckles.emp). It owns three things and nothing else:
+//
+//   CharacterDefs      — one CharacterDef pointer per CHAR_* id. Player_Init
+//                        indexes it once and caches the resolved record in
+//                        Player_Chardef; nothing else reads the table.
+//   the record readers — Player_InitAssets and Player_LoadArt, the two routines
+//                        that turn a cached record into SST asset fields and into
+//                        a DPLC stream. They are character-AGNOSTIC by
+//                        construction: every value they touch comes out of the
+//                        record, so a second character adds a record, never a
+//                        branch.
+//   AbilityHook        — the type of the per-character jump-press hook, plus
+//                        Ability_None, the do-nothing implementation Sonic points
+//                        at so cd_ability is never NULL.
+//
+// Why this is not player_common: player_common owns the shared FRAME (state
+// machine, dispatch, hooks, bounds, debug-fly). Putting the roster there would
+// make the frame know the cast. Keeping it here means Tails and Knuckles are
+// two more records plus two more roster rows — a data edit — and the frame is
+// untouched.
+//
+// Lives in the object code bank, right after `sonic` per map.toml `order`.
+module games.sonic4.characters in characters
+
+use engine.objects.sst.{Sst}
+use engine.structs.{CharacterDef}
+
+// Game-config constants — the sole authority is games.sonic4.constants. CHAR_COUNT
+// sizes the roster; the table's row order is bound to the CHAR_* ids there.
+use games.sonic4.constants.{CHAR_COUNT}
+
+// Perform_DPLC / Draw_Sprite (engine.objects) and Player_Chardef (the game RAM
+// cache written by Player_Init) resolve module-to-module as bare link refs.
+
+// -----------------------------------------------
+// AbilityHook — the per-character jump-press hook (CharacterDef.cd_ability): the
+// air state calls it when jump is pressed while already airborne, which is where
+// Tails' flight, Knuckles' glide and any double jump will live. Sonic's is
+// Ability_None (an rts). Contract mirrors PlayerHook's — the caller keeps the
+// player SST in a0 across it.
+// -----------------------------------------------
+type AbilityHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
+
+// -----------------------------------------------
+// CharacterDefs — THE roster: one CharacterDef pointer per CHAR_* id, in CHAR_*
+// order. Player_Init is the only reader (it caches the resolved record in
+// Player_Chardef); the entry size is a longword so the index scales by a shift.
+// -----------------------------------------------
+pub data CharacterDefs: [*u8; CHAR_COUNT] = [
+        extern("CharDef_Sonic"),        // CHAR_SONIC
+        extern("CharDef_Sonic"),        // CHAR_TAILS    — TEMP roster stub, replaced in C2/C4
+        extern("CharDef_Sonic"),        // CHAR_KNUCKLES — TEMP roster stub, replaced in C2/C4
+]
+
+// -----------------------------------------------
+// Player_InitAssets — point a player SST at the active character's art set.
+// The art word is the record's tile index verbatim: the player draws at palette
+// 0 / low priority, so vram_art(tile,0,0) == tile.
+// In:  a0 = player SST (Player_Chardef resolved)
+// Out: none
+// Clobbers: a1
+// -----------------------------------------------
+pub proc Player_InitAssets (a0: *Sst) clobbers(a1) {
+        movea.l Player_Chardef, a1
+        move.l  CharacterDef.cd_mappings(a1), mappings(a0)
+        move.w  CharacterDef.cd_vrambase(a1), art_tile(a0)
+        move.l  CharacterDef.cd_animtable(a1), anim_table(a0)
+        rts
+}
+
+// -----------------------------------------------
+// Player_LoadArt — DPLC stream + draw (the player display tail). The DPLC
+// table, art base and VRAM destination come from the active character's record,
+// not from code immediates, so the tail is character-agnostic.
+// In:  a0 = player SST (mapping_frame current, Player_Chardef resolved)
+// Out: none
+// Clobbers: d0-d4, a1-a3 (a0/d7 preserved)
+// -----------------------------------------------
+pub proc Player_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
+        movea.l Player_Chardef, a1
+        movea.l CharacterDef.cd_dplc(a1), a2
+        movea.l CharacterDef.cd_artbase(a1), a3
+        move.w  CharacterDef.cd_vrambase(a1), d1
+        lsl.w   #5, d1                          // vram_bytes: tile index -> byte addr
+        jbsr    Perform_DPLC
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// Ability_None — the AbilityHook for a character with no airborne ability
+// (Sonic). Named rather than NULL so cd_ability is never a special case the air
+// state has to test for.
+// -----------------------------------------------
+pub proc Ability_None () clobbers() {
+        rts
+}

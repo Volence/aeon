@@ -21,7 +21,7 @@ use games.sonic4.constants.{VRAM_TEST_SONIC}
 // above.
 
 // -----------------------------------------------
-// CharDef_Sonic — the record the roster (CharacterDefs, player_common.emp)
+// CharDef_Sonic — the record the roster (CharacterDefs, characters.emp)
 // points at for CHAR_SONIC.
 //
 // cd_stand_wh / cd_roll_wh carry the SAME full box dimensions the
