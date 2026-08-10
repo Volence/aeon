@@ -54,17 +54,28 @@ The DEFERRED_WORK diagonal entry has been corrected: the copy chain is NOT the
 top lever; the flat decompress/patch-run/HInt taxes are.
 → `notes/2026-08-10-fillcol-hoist-ab.md` + `-baseline.md`
 
+**Workstream 1 (pkg 4) — MERGED** (aeon `d9582b83`, sigil chain 86). D4 PSG
+transpose, D1/D6/D7 producer rules, B3 AM bit, E5 SSG-EG, and the R1 drain
+guard — all funded by Task 0's **-98 B item-25 reclaim**, so the blob came out
+SMALLER than it went in (plain 6255→6164, debug 6381→6294) and **debug headroom
+is 90 B, not 3 B**. The ceiling that shaped packages 1-3 is retired. H1 stays
+excluded for the tempo-contract parcel.
+
+D4's gate is worth reusing: shipped content has `sc_transpose` = 0 everywhere,
+so the fix is latent and whole-song A/B proves nothing. Poke `sc_transpose`=+12
+onto live PSG SeqChannels and compare **VGM divisor values** against the
+pre-package build — the control stays overlapping, package 4 moves disjointly
+an octave up (214 → exactly 107).
+
+Deferred out of the package with full costing: **B5** (dash noise sweep) needs
+an SFX noise-mode carrier that cannot live in the shared channel prefix.
+Also found: `pack_sfx` never calls `Event.validate`, so no song_packer rule
+reaches SFX streams (ledgered class risk), and F3/F4 are less closed than the
+plan claimed.
+
 ## In flight
 
-**Workstream 1 (pkg 4) — porter running** on `sound-pkg4` (worktree
-`.claude/worktrees/agent-a9f1ee9b108186e74`). Task 0 landed: `d69847cd`
-reclaimed **98 resident Z80 bytes** (debug blob 6381→6283), so the old 3-byte
-ceiling is no longer the binding constraint — ~101 B of headroom funds D4, R1,
-B5 and E5. Remaining: D4 PSG transpose, D1/D6/D7 packer rules, B3 AM bit, the
-R1 drain-underrun guard, B5, E5, tracking closure.
-Controller owes at its gate: oracle D4 check (spindash-rev PSG pitch tracking),
-R1 before/after, rendered-audio A/B on **both** shapes, blob-length repin
-(BLOB_LEN_* + `Z80_SOUND_SIZE` mirrors — the reclaim shrinks the blob), merge.
+Nothing. All spawned work is merged or explicitly parked.
 
 ## Not started
 
@@ -74,6 +85,9 @@ R1 before/after, rendered-audio A/B on **both** shapes, blob-length repin
   per-bank packing). Serialize AFTER pkg 4 — it grows `dac_sample_tab.emp` and
   the bank head, i.e. exactly the files pkg 4's ritual touches.
 - **Pkgs 5 → 6**, then the R6 format revision + tempo-contract plan-writing.
+  Package 5 is unblocked (the silent-music question that gated it is resolved),
+  and the 90 B of reclaimed headroom means neither package has to open with a
+  reclaim. Package 6 still carries the R2 observability rider.
 
 ## Ritual gotcha learned this session (cost two blocked agents)
 
