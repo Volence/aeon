@@ -13,9 +13,14 @@ trace.
 Canonical DEBUG on oracle. HCZ2 (song 3) started via the correct mailbox post
 (param block $1CA6 = `0B 32 BB 02 A2 D4`, trigger $1F02=3 — see
 notes/2026-08-10-silent-music-adjudication.md). 13 steal/restore cycles forced by
-posting FM SFX ids to `SND_REQ_SFX` $1F03 (jump $62 ×10, dash $B6 ×3) at ~0.8 s
+posting SFX ids to `SND_REQ_SFX` $1F03 (jump $62 ×10, dash $B6 ×3) at ~0.8 s
 spacing via the aether bus (`emulator/z80_write`); every post verified consumed
-within 1 frame. Two VGM captures: 18 s no-SFX control + 82 s with-SFX. Scanner:
+within 1 frame. **Route correction (post-trace blob audit):** jump $62 is
+PSG-ONLY (kind 2) — only dash $B6 carries an FM channel (kind 1, route 4), so
+the trace exercised **3 FM steal/restore cycles**, not 13 (the other 10 were
+PSG steals, which cannot arm the FM flam). The structural narrowing below is
+therefore the stronger half of this verdict; a future targeted repro should
+use dash $B6 or spindash $AB (both FM) against an FM pitch-env song. Two VGM captures: 18 s no-SFX control + 82 s with-SFX. Scanner:
 `tools/vgm_onsets.py` per-channel key-on timeline; flam = same-channel key-on
 pair ≤ 1.5 frames apart.
 
