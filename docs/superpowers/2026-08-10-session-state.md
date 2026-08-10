@@ -37,19 +37,23 @@ PSG-only, so only 3 of those were FM steals. The structural narrowing is the
 stronger result — the hazard needs `MEV_PITCHENV` on a stolen channel, which no
 shipped song has. → `notes/2026-08-10-r5-rekey-flam-trace.md`
 
-## Needs an owner ruling
+## Ruled and closed
 
-**Workstream 4 — diagonal hoist: BUILT, GATED, UNMERGED.**
+**Workstream 4 — diagonal hoist: T1 SHIPPED, T2-T5 PARKED** (ruling
+2026-08-10 — take the clean win, save the rest for a research day).
 `perf/fillcol-hoist` (T1-T5, tip `118c184a`). Correctness fully green — both
 replay fixtures hold with all checkpoint hashes matching, refcount audit clean,
 patch runs unchanged. But **no measurable lag win**: 61 → 63 lag per 270 frames
 for +430 B ROM / +138 B RAM. Two attributable wins are real but small
-(`Draw_TileColumn` −14%, `FindStagedBlock` 13→11 calls). **Pick one:**
-1. cherry-pick T1 only (`903bfde` — the one clean measured win, +42 B, no RAM),
-2. merge whole (savings real, below this measurement's noise floor),
-3. re-measure with a position-matched harness first (drive to a fixed camera-X,
-   count frames — fixed-frame windows drift in content by ~3.1k decompress
-   cycles, which swamps the signal).
+(`Draw_TileColumn` −14%, `FindStagedBlock` 13→11 calls). Shipped: T1's `Draw_TileColumn` gather unroll, cherry-picked to master as
+`e1367aee` (sigil chain 87) — the one unambiguous win (-14% on that routine,
++42 B, no RAM, no refcount surface), gated with both replay fixtures holding.
+Parked on branch `perf/fillcol-hoist` (tip `118c184a`, **do not delete**):
+T2-T5, all built/green/correctness-gated but not worth +388 B and +138 B RAM
+for no measurable lag movement. Pick-up notes, including the measurement fix
+any revival needs first:
+`docs/research/2026-08-10-diagonal-scroll-research-parked.md`.
+
 The DEFERRED_WORK diagonal entry has been corrected: the copy chain is NOT the
 top lever; the flat decompress/patch-run/HInt taxes are.
 → `notes/2026-08-10-fillcol-hoist-ab.md` + `-baseline.md`

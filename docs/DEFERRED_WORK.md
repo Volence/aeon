@@ -633,9 +633,16 @@ revisit condition of the 2026-08-05 owner ruling is now met.
 > (T1's gather unroll) and `FindStagedBlock` 13→11 calls (T5's memo).
 > **So the copy chain's call/hoist overhead is NOT the top lever on this line
 > item** — the residual is the flat decompress + patch-run + HInt taxes the
-> parcel deliberately did not touch. The branch is UNMERGED pending an owner
-> ruling (T1-only cherry-pick `903bfde` / merge whole / re-measure with a
-> position-matched harness). Full evidence:
+> parcel deliberately did not touch.
+> **OWNER RULING 2026-08-10: take the clean win, park the rest.** T1 (the
+> `Draw_TileColumn` gather unroll — the one unambiguous measured win, -14% on
+> that routine, +42 B, no RAM) is cherry-picked to master as `e1367aee`
+> (sigil chain 87), gated with both replay fixtures holding. T2-T5 stay on
+> branch `perf/fillcol-hoist` (tip `118c184a`) as parked research: built,
+> green and correctness-gated, but not worth +388 B / +138 B RAM for no
+> measurable lag movement. **Do not delete that branch.** Pick-up notes +
+> the re-measure prerequisite:
+> `docs/research/2026-08-10-diagonal-scroll-research-parked.md`. Full evidence:
 > `docs/superpowers/notes/2026-08-10-fillcol-hoist-ab.md` (+ `-baseline.md`).
 > Method caveat for any re-measure: fixed-FRAME windows drift in content
 > (the candidate hit ~+3.1k more cold decompress), so drive to a fixed
