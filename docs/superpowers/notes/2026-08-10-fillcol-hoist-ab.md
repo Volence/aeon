@@ -57,6 +57,17 @@ camera X, not a fixed frame count).
 
 ROM **+430 B** plain vs the merged base; RAM **+138 B** (the trace block).
 
+## If this branch IS merged: one sigil row must ride the lockstep
+
+T3's inlined body makes `TileCache_FillColumn` consume `FindStagedBlock`'s
+produced `a1` on the success edge — the same documented edge-blind D1c false
+positive already baselined for `TileCache_FillRow`. The merge lockstep must add
+`("TileCache_FillColumn", "TileCache_FindStagedBlock", "a1")` to `D1C_BASELINE`
+in `crates/sigil-harness/src/contract_baseline.rs`. It was briefly added to
+sigil master ahead of the merge and REVERTED (`3004aef9`) — a baseline is a
+multiset equality, so a row for an unmerged branch GONE-fires on master and
+blocks every other lane. Land it WITH the merge, not before.
+
 ## Recommendation: DO NOT MERGE on this evidence — owner ruling wanted
 
 The branch is correct, safe, and gated green; it just has no demonstrated
