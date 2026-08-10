@@ -339,7 +339,7 @@ pub vars upper_ram {
     }
 
     // --- Object System (§3) ---
-    // Object RAM — all slots contiguous, stride = sizeof(Sst) ($52). Reserved
+    // Object RAM — all slots contiguous, stride = sizeof(Sst) ($50). Reserved
     // tracked-entity slots — engine camera/rings/collision address slot 0/1
     // directly; the game's player code claims them at spawn.
     mark Object_RAM,

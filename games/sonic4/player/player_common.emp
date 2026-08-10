@@ -68,8 +68,10 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 18 of 34
-// bytes). This module owns the overlay outright (player_common.asm deleted); the
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 18 of 30
+// usable bytes — the sst_custom window is 32 bytes at $30 and its tail word
+// $4E-$4F is the engine-owned SST_interact).
+// This module owns the overlay outright (player_common.asm deleted); the
 // state files reach the fields through the imported PlayerV struct, so no `_pl_*`
 // mirror equate survives (only the link-exported `_pl_state` offset for camera).
 // The overlay's always-on window-overflow check subsumes the AS objvarsCheck /
