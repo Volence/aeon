@@ -18,7 +18,7 @@
 module games.sonic4.player_common in player_common
 
 use engine.objects.sst.{Sst, set_priority_band}
-use engine.structs.{Act}
+use engine.structs.{Act, CharacterDef}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
@@ -44,6 +44,13 @@ type PlayerState = proc (a0: *Sst) preserves(a0) clobbers(d0-d7, a1-a4)
 // the clobber set.
 type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 
+// AbilityHook — the per-character jump-press hook (CharacterDef.cd_ability): the
+// air state calls it when jump is pressed while already airborne, which is where
+// Tails' flight, Knuckles' glide and any double jump will live. Sonic's is
+// Ability_None (an rts). Contract mirrors PlayerHook's — the caller keeps the
+// player SST in a0 across it.
+type AbilityHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
+
 // Game-config constants — the sole authority is games.sonic4.constants
 // (config/constants.emp). VRAM_TEST_MARKER is the tile-1016 debug-fly marker.
 use games.sonic4.constants.{
@@ -51,7 +58,7 @@ use games.sonic4.constants.{
     PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
-    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -177,9 +184,13 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 // abs_w — the |v| in-place idiom (bpl/neg.w), a corpus-wide engine idiom
 // (engine.coords), not a game one. Consumed via `use engine.coords.{abs_w}` above.
 // -----------------------------------------------
-// Player_Init — set up a player slot as Sonic (called from level state init;
-// caller writes x_pos/y_pos first). Boots into DEBUG-FLY when CHEAT_DEBUG_FLY is
-// armed — the debug shape arms it at game init, so the streaming-test workflow
+// Player_Init — set up a player slot as the active CHARACTER (called from level
+// state init; caller writes x_pos/y_pos first). The roster lookup happens HERE
+// and only here: Character_ID selects a CharacterDef, the resolved record is
+// cached in Player_Chardef, and every later dispatch site reads that cache.
+//
+// Boots into DEBUG-FLY when CHEAT_DEBUG_FLY is armed — the debug shape arms it
+// at game init, so the streaming-test workflow
 // still starts in the yellow square and B drops into physics. With the cheat
 // clear (the release/lean default) the player boots as a PLAYER: this returns
 // normally with the slot in PSTATE_AIR, dropping to ground on frame 1. Gating
@@ -190,7 +201,16 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 // Clobbers: d0-d2, a1-a2 (d2 via Player_SetState's hook dispatch)
 // -----------------------------------------------
 pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
-        jbsr    Sonic_InitAssets
+        // roster resolve — the ONE place a character id becomes a record pointer
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.w  Character_ID, d0
+        assert.w d0, ls, #CHAR_COUNT-1          // id in roster range
+        lsl.w   #2, d0                          // × sizeof(pointer); no scaled
+                                                // indexing on the 68000
+        lea     CharacterDefs, a1
+        movea.l (a1,d0.w), a1
+        move.l  a1, Player_Chardef
+        jbsr    Player_InitAssets
         move.b  #ANIM_IDLE, anim(a0)            // Player_Display re-selects per frame
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
@@ -222,16 +242,34 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
 }
 
 // -----------------------------------------------
+// Player_InitAssets — point a player SST at the active character's art set.
+// The art word is the record's tile index verbatim: the player draws at palette
+// 0 / low priority, so vram_art(tile,0,0) == tile.
+// In:  a0 = player SST (Player_Chardef resolved)
+// Out: none
+// Clobbers: a1
+// -----------------------------------------------
+pub proc Player_InitAssets (a0: *Sst) clobbers(a1) {
+        movea.l Player_Chardef, a1
+        move.l  CharacterDef.cd_mappings(a1), mappings(a0)
+        move.w  CharacterDef.cd_vrambase(a1), art_tile(a0)
+        move.l  CharacterDef.cd_animtable(a1), anim_table(a0)
+        rts
+}
+
+// -----------------------------------------------
 // Player_RefreshPhysics — recompute the effective physics table in RAM.
-// Identity modifier today: straight copy of the character base row.
-// Section/water/speed-shoes modifiers compose HERE later — called on section
-// change and status events, NEVER per-frame (spec §3.4).
-// In:  none (character = Sonic until the roster exists)
+// Identity modifier today: straight copy of the active character's base row
+// (CharacterDef.cd_phys). Section/water/speed-shoes modifiers compose HERE
+// later — called on section change and status events, NEVER per-frame
+// (spec §3.4).
+// In:  none (reads Player_Chardef)
 // Out: none
 // Clobbers: a1-a2
 // -----------------------------------------------
 pub proc Player_RefreshPhysics () clobbers(a1-a2) {
-        lea     PhysTable_Sonic, a1             // (PhysTable_Sonic).l — ROM table, abs.l by the width rule
+        movea.l Player_Chardef, a1
+        movea.l CharacterDef.cd_phys(a1), a1
         lea     Player_Phys, a2
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
@@ -377,8 +415,34 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
 pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
         jbsr    Player_Animate                  // sets SST_anim + d3 (dyn hold)
         jbsr    AnimateSprite
-        jbra    Sonic_LoadArt                   // character dispatch (Tails/Knux
-                                                // replace via roster later)
+        jbra    Player_LoadArt
+}
+
+// -----------------------------------------------
+// Player_LoadArt — DPLC stream + draw (the player display tail). The DPLC
+// table, art base and VRAM destination come from the active character's record,
+// not from code immediates, so the tail is character-agnostic.
+// In:  a0 = player SST (mapping_frame current, Player_Chardef resolved)
+// Out: none
+// Clobbers: d0-d4, a1-a3 (a0/d7 preserved)
+// -----------------------------------------------
+pub proc Player_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
+        movea.l Player_Chardef, a1
+        movea.l CharacterDef.cd_dplc(a1), a2
+        movea.l CharacterDef.cd_artbase(a1), a3
+        move.w  CharacterDef.cd_vrambase(a1), d1
+        lsl.w   #5, d1                          // vram_bytes: tile index -> byte addr
+        jbsr    Perform_DPLC
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// Ability_None — the AbilityHook for a character with no airborne ability
+// (Sonic). Named rather than NULL so cd_ability is never a special case the air
+// state has to test for.
+// -----------------------------------------------
+pub proc Ability_None () clobbers() {
+        rts
 }
 
 // -----------------------------------------------
@@ -555,6 +619,17 @@ pub offsets Player_States {
         AirBall:  PState_AirBall,       // PSTATE_AIRBALL (player_air)
 }
 ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
+
+// -----------------------------------------------
+// CharacterDefs — THE roster: one CharacterDef pointer per CHAR_* id, in CHAR_*
+// order. Player_Init is the only reader (it caches the resolved record in
+// Player_Chardef); the entry size is a longword so the index scales by a shift.
+// -----------------------------------------------
+pub data CharacterDefs: [*u8; CHAR_COUNT] = [
+        extern("CharDef_Sonic"),        // CHAR_SONIC
+        extern("CharDef_Sonic"),        // CHAR_TAILS    — TEMP roster stub, replaced in C2/C4
+        extern("CharDef_Sonic"),        // CHAR_KNUCKLES — TEMP roster stub, replaced in C2/C4
+]
 
 // -----------------------------------------------
 // Player_SetState — THE one transition writer for player_state.
@@ -880,7 +955,7 @@ pub proc Player_DebugEnter (a0: *Sst) clobbers(d2/a1) {
 // In:  a0 = player SST.  Clobbers: d0-d2, a1-a2
 pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         sf      PlayerV.debug_flag(a0)
-        jbsr    Sonic_InitAssets
+        jbsr    Player_InitAssets
         // standing radii until the AIR frame lands and hooks take over
         set_standing_size(a0)
         clr.b   mapping_frame(a0)

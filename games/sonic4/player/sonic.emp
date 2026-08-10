@@ -1,11 +1,16 @@
-// Sonic — character data + per-character code (§5). Asset wiring, physics
-// base table, DPLC immediates.
+// Sonic — the character RECORD (§5). Pure data: the CharacterDef the shared
+// player frame dispatches through, plus the physics base row it points at.
+//
+// There is no Sonic CODE any more. Asset wiring (mappings / art word / anim
+// table), the DPLC + art immediates, and the physics source were the four places
+// the player frame named "Sonic"; all four now read this record through
+// Player_Chardef, so Tails and Knuckles are a second and third record here — not
+// a second and third branch in player_common.
 module games.sonic4.sonic in sonic
 
-use engine.objects.sst.{Sst}
-use engine.objects.objdef.{vram_art, vram_bytes}
-use engine.types.{VramTile}
+use engine.structs.{CharacterDef}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
+use engine.constants.{PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
 // VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
 // game-config value, imported from games.sonic4.constants below.
@@ -16,39 +21,34 @@ use games.sonic4.constants.{VRAM_TEST_SONIC}
 // above.
 
 // -----------------------------------------------
-// Sonic_InitAssets — point a player SST at Sonic's art set
-// In:  a0 = player SST
-// Out: none
-// Clobbers: none
+// CharDef_Sonic — the record the roster (CharacterDefs, player_common.emp)
+// points at for CHAR_SONIC.
+//
+// cd_stand_wh / cd_roll_wh carry the SAME full box dimensions the
+// set_standing_size / set_ball_size splices write (2r+1 from the shared
+// engine radii), derived from those constants rather than restated as
+// numbers. The enter hooks remain the one writer of the live SST fields; these
+// exist so a character whose boxes differ can declare them instead of forking
+// the hooks.
 // -----------------------------------------------
-pub proc Sonic_InitAssets (a0: *Sst) clobbers() {
-        move.l  #Map_Sonic, mappings(a0)
-        move.w  #vram_art(VRAM_TEST_SONIC, 0, 0), art_tile(a0)
-        move.l  #Ani_Sonic, anim_table(a0)
-        rts
-}
-
-// -----------------------------------------------
-// Sonic_LoadArt — DPLC stream + draw (the player display tail).
-// DPLC table / art base are per-character code immediates, NOT SST
-// fields (spec §3.2 — keeps 10 bytes of sst_custom headroom).
-// In:  a0 = player SST (mapping_frame current)
-// Out: none
-// Clobbers: d0-d4, a1-a3 (a0/d7 preserved)
-// -----------------------------------------------
-pub proc Sonic_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
-        lea     DPLC_Sonic, a2                 // (DPLC_Sonic).l — ROM addr, abs.l by the width rule
-        lea     Art_Sonic, a3                  // (Art_Sonic).l
-        move.w  #vram_bytes(VRAM_TEST_SONIC), d1
-        jbsr    Perform_DPLC
-        jbra    Draw_Sprite
+pub data CharDef_Sonic: CharacterDef = CharacterDef{
+    cd_phys:      PhysTable_Sonic,
+    cd_mappings:  extern("Map_Sonic"),
+    cd_dplc:      extern("DPLC_Sonic"),
+    cd_artbase:   extern("Art_Sonic"),
+    cd_animtable: extern("Ani_Sonic"),
+    cd_ability:   extern("Ability_None"),   // no double jump / glide / flight
+    cd_vrambase:  VRAM_TEST_SONIC,
+    cd_stand_wh:  ((PLAYER_X_RADIUS * 2 + 1) << 8) | (PLAYER_Y_RADIUS * 2 + 1),
+    cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
+    cd_flags:     0,
 }
 
 // -----------------------------------------------
 // Sonic's physics base table — block-copied into Player_Phys by
 // Player_RefreshPhysics (the per-CHARACTER base row; section modifiers
 // compose there later, NEVER per-frame). Field order is bound to the
-// Player_Phys RAM layout (ram.asm) — the ensure below enforces size.
+// Player_Phys RAM layout (config/ram.emp) — the ensure below enforces size.
 // SCOPE NOTE: ONLY these 8 fields are section-modifiable. The other
 // physics values (GSp/fall caps, slope factors, roll friction/decel,
 // slip params, spindash + roll thresholds) are direct PHYS_*/SPINDASH_*

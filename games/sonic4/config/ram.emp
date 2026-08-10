@@ -43,6 +43,24 @@ pub vars game_ram {
     // -----------------------------------------------
     // Player (§5)
     // -----------------------------------------------
+    // The active character (a CHAR_* id, config/constants.emp). Boot-cleared with
+    // all Work-RAM, so the default is CHAR_SONIC with no init write.
+    Character_ID:           u16,
+
+    // The RESOLVED CharacterDef pointer for the active character —
+    // `CharacterDefs[Character_ID]`, cached once by Player_Init so the per-frame
+    // dispatch sites cost one indirection instead of an index + table read.
+    //
+    // WHY IT LIVES IN GAME RAM AND NOT IN THE SST OVERLAY: engine/system/replay.emp
+    // hashes the whole PlayerV window ($30..$4D) as part of the recorded-input
+    // regression net, and its contract is that every field inside a hashed span is
+    // ADDRESS-FREE — the hash must be identical across two builds that differ only
+    // in where things landed. A ROM pointer in that window would make every
+    // recorded fixture build-address-dependent (and a DEBUG mismatch is a hard
+    // `raise_exception "REPLAY DESYNC"`, not a warning). Character state therefore
+    // stays outside the SST entirely.
+    Player_Chardef:         u32,
+
     // Effective physics table — recomputed by Player_RefreshPhysics on section
     // change / status events, NEVER per-frame. a4 points here during player
     // movement code (classic register convention). Field order must match the

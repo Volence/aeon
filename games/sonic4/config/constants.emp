@@ -64,6 +64,15 @@ pub const PSTATE_COUNT            = 7          // state/hook tables assert again
 ensure(PSTATE_AIRBALL == (PSTATE_COUNT - 1) * 2,
        "curled states must remain the last PSTATE_* entries (Player_Display ball test)")
 
+// Playable characters — the roster index (C1). These ARE the indices into
+// CharacterDefs (player_common.emp), so the order of that table is bound to this
+// ordering; append new characters at the end and raise CHAR_COUNT. Character_ID
+// (game RAM) holds one of these; Player_Init resolves it to a CharacterDef once.
+pub const CHAR_SONIC              = 0
+pub const CHAR_TAILS              = 1
+pub const CHAR_KNUCKLES           = 2
+pub const CHAR_COUNT              = 3
+
 // Player animation ids — SHARED CONTRACT across all characters. Each character's
 // Ani_<char> script table is ordered by these ids (sonic_anims.emp asserts its
 // entry count == ANIM_COUNT). Player_Animate only ever writes these ids; it never

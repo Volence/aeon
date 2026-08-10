@@ -178,6 +178,42 @@ pub struct parallax_config {
 }
 
 // -----------------------------------------------
+// Character Definition (§5) — 32 bytes ($20), ROM table (sizeof is the truth; no
+// _len const). ONE record per playable character; the game's roster index table
+// (`CharacterDefs`, games/sonic4/player/player_common.emp) is an array of
+// pointers to these, indexed by CHAR_*.
+//
+// This is the data the player frame dispatches through instead of naming a
+// character: `Player_Chardef` (game RAM) caches the resolved record for the
+// active slot, and Player_InitAssets / Player_RefreshPhysics / Player_LoadArt
+// read their asset + physics sources from it. Adding Tails or Knuckles is a new
+// record plus its art, NOT a new branch in the shared player code.
+//
+// All-primitive by design (like every other struct in this file): the pointer
+// fields are typed to MATCH their consumers — cd_mappings/cd_animtable feed the
+// `u32` Sst.mappings/anim_table fields, cd_dplc/cd_artbase/cd_phys/cd_ability
+// feed address registers.
+// -----------------------------------------------
+pub struct CharacterDef {
+    cd_phys:      *u8,           // $00 — 8-word physics base row (PhysTable shape;
+                                 //       block-copied into Player_Phys)
+    cd_mappings:  u32,           // $04 — sprite mapping index (-> Sst.mappings)
+    cd_dplc:      *u8,           // $08 — DPLC index (Perform_DPLC's a2)
+    cd_artbase:   *u8,           // $0C — uncompressed art base (Perform_DPLC's a3)
+    cd_animtable: u32,           // $10 — animation script index (-> Sst.anim_table)
+    cd_ability:   *u8,           // $14 — AbilityHook: the jump-press hook the air
+                                 //       state calls (Ability_None = no double jump)
+    cd_vrambase:  u16,           // $18 — character DPLC region base TILE INDEX. The
+                                 //       art word is vram_art(tile,0,0) == tile (the
+                                 //       player renders at palette 0, priority 0);
+                                 //       the DPLC destination is vram_bytes = tile<<5.
+    cd_stand_wh:  u16,           // $1A — standing collision box, W<<8|H (full dims,
+                                 //       2r+1 — the set_standing_size values)
+    cd_roll_wh:   u16,           // $1C — rolling collision box, W<<8|H (set_ball_size)
+    cd_flags:     u16,           // $1E — reserved capability bits (0 today)
+}
+
+// -----------------------------------------------
 // VDP Shadow Table (§0.4) — 19 bytes, RAM mirror of VDP registers $00-$12.
 // Registers $13-$17 (DMA) are NOT shadowed. VDP_Shadow_Init copies boot
 // register values in; Flush_VDP_Shadow write-backs only the dirty ones. The
