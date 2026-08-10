@@ -41,11 +41,13 @@ shipped song has. → `notes/2026-08-10-r5-rekey-flam-trace.md`
 
 **Workstream 4 — diagonal hoist: T1 SHIPPED, T2-T5 PARKED** (ruling
 2026-08-10 — take the clean win, save the rest for a research day).
-`perf/fillcol-hoist` (T1-T5, tip `118c184a`). Correctness fully green — both
-replay fixtures hold with all checkpoint hashes matching, refcount audit clean,
-patch runs unchanged. But **no measurable lag win**: 61 → 63 lag per 270 frames
-for +430 B ROM / +138 B RAM. Two attributable wins are real but small
-(`Draw_TileColumn` −14%, `FindStagedBlock` 13→11 calls). Shipped: T1's `Draw_TileColumn` gather unroll, cherry-picked to master as
+The whole parcel (T1-T5) was correctness-green — both replay fixtures hold with
+all checkpoint hashes matching, refcount audit clean, patch runs unchanged —
+but showed **no measurable lag win**: 61 → 63 lag per 270 frames for +430 B ROM
+and +138 B RAM. Only two wins were attributable, and only one was large enough
+to bank.
+
+Shipped: T1's `Draw_TileColumn` gather unroll, cherry-picked to master as
 `e1367aee` (sigil chain 87) — the one unambiguous win (-14% on that routine,
 +42 B, no RAM, no refcount surface), gated with both replay fixtures holding.
 Parked on branch `perf/fillcol-hoist` (tip `118c184a`, **do not delete**):
@@ -86,8 +88,11 @@ Nothing. All spawned work is merged or explicitly parked.
 - **S3K drum-kit content pass** — now unblocked (pkg 3 shipped the runbook).
   Survey done: `docs/research/2026-08-10-s3k-dac-kit-survey.md` (51 source WAVs,
   id→multiplier table, ~350-400 KB resampled, spans several Z80 banks, needs
-  per-bank packing). Serialize AFTER pkg 4 — it grows `dac_sample_tab.emp` and
-  the bank head, i.e. exactly the files pkg 4's ritual touches.
+  per-bank packing). Package 4 has since merged, so the serialization
+  constraint is lifted — this is now the next thing to pick up. Resample
+  fidelity is already measured and safe (zero aliasing; drum-class band-energy
+  cosine 0.9985 mean / 0.9872 worst against correctly-clocked S3K references),
+  so the remaining work is packing, descriptors and wiring, not signal risk.
 - **Pkgs 5 → 6**, then the R6 format revision + tempo-contract plan-writing.
   Package 5 is unblocked (the silent-music question that gated it is resolved),
   and the 90 B of reclaimed headroom means neither package has to open with a
