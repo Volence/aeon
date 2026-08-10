@@ -3745,3 +3745,88 @@ Open items this execution creates or leaves:
   undocumented and will surprise the next author. **Either document the per-module
   const seam in the engine/game contract reference, or make the lists derive from
   the modules' actual references.**
+
+---
+
+## Ledgered by the 2026-08-10 `characters.emp` module registration (`feat/character-dispatch`)
+
+### Adding a module should not require editing the toolchain — SIGIL ASK, RECORDED (owner-raised)
+
+**Raised by Volence 2026-08-10**, on discovering that moving the character roster into a new
+`.emp` module required a commit to the *sigil* repo. The observation, in his framing: adding a
+character "should really be as simple as making the new file and calling it where needed in the
+actual game code."
+
+**What it costs today.** Adding one module is three edits in two repos:
+
+| edit | repo | correct? |
+|---|---|---|
+| the `.emp` file itself | game | yes |
+| a row in `games/<game>/map.toml` `order` | game | **no** — ceremony |
+| a `ModuleSpec` in `crates/sigil-harness/src/native.rs` `registry()` | **assembler** | **no** — wrong repo |
+
+Pins and port tests are **not** in this path — verified this session: `characters` registered with
+`DUMMY_REGION` and both shapes built green, because every shipped profile is `SizeSource::Frozen`
+and `ModuleSpec.region` is read only from `emp_map_toml`, reachable only from `PinnedBaked`. So the
+friction is the registry + the order list, not the pin table.
+
+For a **brand-new game** it is worse: three *sigil* edits (a `GameProfile` literal, a registry
+function, and a frozen size table under `crates/sigil-harness/golden/offcanonical_sizes/`). A third
+party cannot build their own game on Aeon without committing to the assembler. That is backwards
+and it undercuts the engine/game wall the 2026-07-07 split exists to enforce.
+
+**The principle to design to: declare a placement REQUIREMENT, never a placement POSITION.**
+
+Auditing `map.toml`'s ~60-entry `order`, the genuine requirements are about eight facts — object
+code bank at `$10000`; the hard-org'd sound banks at `$8000`/`$58000` (the Z80 holds pointers in, so
+they never pack); DAC banks at `$48000`/`$50000`; `error_handler` must be the final byte-emitting
+section (MDDBG blob-end contract, `check_error_handler_is_last`); the OJZ act island runs stay
+contiguous; `Vectors` at 0 and the header at `$100`. Everything else is arbitrary-but-deterministic.
+Nothing breaks if `tails` lands before `sonic`; it only has to land *somewhere in the object bank*,
+reproducibly.
+
+**Sketch of the end state** — the file declares its own bucket:
+
+```
+module games.sonic4.tails in tails @ object_bank
+```
+
+sigil auto-places within the bucket in a stable order (sort by module id — stable across machines,
+unlike a filesystem walk). `map.toml` shrinks to the memory map: regions, anchors, and the few hard
+ordering contracts. You edit it when the *architecture* changes, not when content is added. Adding
+a character becomes: write the `.emp`, add the roster row, build.
+
+**Two dependencies that must land with it:**
+
+1. **Inclusion must follow from use.** It cannot today, and this is the hidden reason the registry
+   exists at all: cross-module calls resolve as **bare link refs**, so `player_common` calling
+   `Player_LoadArt` creates no module-graph edge to `characters`. With no dependency graph to walk,
+   `synthetic_entry_src` fabricates reachability by `use`-ing every registry row. Two ways out —
+   make bare cross-module refs create real edges (proper dead-code elimination, larger job), or
+   scope by directory (`engine/` + `games/<this game>/` are the link set), which is already the
+   de-facto rule, just expressed in Rust (`demo_registry`'s `module_id.starts_with("engine.")`).
+2. **Shape gating must move into the file.** Debug-only modules are excluded in Rust today, and
+   `CODING_CONVENTIONS.md` §"Whole-file gating" is explicit that this is a workaround, not a
+   preference: "a module-level comptime `if` wrapping items is not expressible in `.emp`, so the
+   file is the gated unit and the exclusion happens in the build registry." Fix the expressiveness
+   (`module … requires DEBUG`) and the last reason to open the Rust disappears.
+
+**Known costs, to be priced in the spec, not discovered later:**
+
+- Auto-placement can separate two hot mutually-calling modules far enough to widen branches. `jbsr`
+  handles it correctly but spends bytes and cycles. Bucket granularity bounds it; a `near:` hint
+  covers the rare case that matters.
+- The frozen size tables are a *this-repo* byte-exactness gate, not something a third-party game
+  wants. They should degrade gracefully: no frozen table means pure packed layout from the declared
+  buckets, and freezing becomes opt-in. Today they are mandatory because sizes are sourced from them.
+- One goldens refreeze when the placement algorithm lands. Not per content change — that is already
+  true today.
+
+**Treat as ONE design, not three.** The registry, the `order` list, and the frozen size tables are
+the same mistake wearing three hats: the toolchain storing positions that should be derived from
+declared requirements. K5 already did half of it (the map took `order` authority from the frozen
+table, which was explicitly demoted to a "measurement cache"); this is the other half of that
+migration, which was never finished.
+
+**Status: NOT STARTED.** Novel, cross-repo, hard to reverse — wants an explicit owner go-ahead and a
+written spec before any code. Parked 2026-08-10 at Volence's direction to keep C2/C4 moving.
