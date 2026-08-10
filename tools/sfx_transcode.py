@@ -422,11 +422,24 @@ class _SmpsVoiceBuilder:
         elif macro == 'smpsVcAttackRate':
             self._ar = [_parse_int(a) for a in args[:4]]
         elif macro == 'smpsVcAmpMod':
-            # S3K SMPS2ASM version 1 stores raw AM value shifted left by 7
-            # (smpsVcAmpMod with SourceSMPS2ASM==0 does <<5, ==1 does <<7).
-            # The SFX files use smpsHeaderStartSong 3 without a smps2asm version
-            # arg (implicit 0), so SourceSMPS2ASM==0 → am<<5.
-            self._am = [_parse_int(a) << 5 for a in args[:4]]
+            # B3: the operand is a per-operator AM-ENABLE FLAG; emit it as YM2612
+            # bit 7 of the $60 (AM/D1R) register.
+            #
+            # The two SMPS2ASM encodings disagree only about WHERE the flag sits in
+            # the reproduced ROM byte: SourceSMPS2ASM==0 shifts it <<5 (the ORIGINAL
+            # SMPS2ASM's erroneous "AM is bits 6-5" assumption) and ==1 shifts it <<7
+            # (`_smps2asm_inc.asm` smpsVcAmpMod, whose own comment records the
+            # correction: "According to several docs, however, it's actually the high
+            # bit"). Our SFX sources are the ==0 flavour, and we used to mirror that
+            # shift and then mask with & 0x80 — so the flag was dropped EVERY time and
+            # no transcoded voice could ever enable AM.
+            #
+            # We deliberately do NOT reproduce the <<5 byte. Bits 6-5 of $60 are
+            # don't-cares on the real chip, so ROM-byte parity there buys nothing,
+            # while bit 7 is the flag the voice author actually meant. Testing for
+            # NONZERO (rather than shifting) keeps it correct under either encoding
+            # and under the erroneous 2-bit values the old assumption could produce.
+            self._am = [0x80 if _parse_int(a) else 0 for a in args[:4]]
         elif macro == 'smpsVcDecayRate1':
             self._d1r = [_parse_int(a) for a in args[:4]]
         elif macro == 'smpsVcDecayRate2':
@@ -1454,6 +1467,33 @@ def _validate_no_aliasing_ops(events, sfx_id=0, route=None):
                 f"grow a dedicated field first — do not relax this check.")
 
 
+def _validate_no_modset_on_noise(events, sfx_id=0, route=None):
+    """SFX D1 — reject MEV_MODSET on a NOISE-routed channel.
+
+    The noise channel has no tone divisor. Psg_ApplyMod sums the modulation
+    accumulator onto sc_base_freq and re-latches it, so on the noise route the
+    swept word lands on the SN76489 NOISE CONTROL register instead of a frequency
+    latch: it re-triggers the LFSR and walks the mode/rate bits. The runtime gate
+    was written and REVERTED for Z80 space (the note lives at the Psg_ApplyMod call
+    site in sound_sequencer.emp), which left the rule as a CONVENTION — "the
+    transcoder never emits MEV_MODSET on a noise track".
+
+    The parser does drop smpsModSet when it reroutes a channel to noise, but that
+    is a source-shaped transform on data we do not control, not a guarantee. This
+    is the pack-time backstop that makes the convention a checked rule, at zero Z80
+    bytes. The music half of the same rule lives in song_packer's ModSet.validate.
+    """
+    if route != CHROUTE_PSGN:
+        return
+    for ev in events:
+        if type(ev).__name__ == 'ModSet':
+            raise TranscodeError(
+                f"SFX ${sfx_id:02X} emits MEV_MODSET on the noise route — pitch "
+                f"modulation has no tone divisor to sweep there and the modulated "
+                f"word would corrupt the SN76489 noise control register (D1). Author "
+                f"the noise mode/rate with smpsPSGform instead.")
+
+
 def _validate_sfx_repeat(events, sfx_id=0):
     """Reject a REPEAT_START..REPEAT_END span containing no time-advancing event
     (Note/Rest/NoteDur). The Z80 replays such a body in a single fetch frame, so the
@@ -1468,6 +1508,15 @@ def _validate_sfx_repeat(events, sfx_id=0):
         elif cn in _TIME_ADV and stack:
             stack = [True] * len(stack)
         elif cn == 'RepeatEnd':
+            # D7: pack_sfx encodes events directly and never calls Event.validate,
+            # so song_packer's RepeatEnd 1..255 rule does not reach SFX streams.
+            # Seq_Op_RepeatEnd decrements BEFORE testing, so operand 0 wraps to 255
+            # and the body plays 255 times with no runtime clamp.
+            if not (1 <= getattr(e, 'count', 1) <= 255):
+                raise TranscodeError(
+                    f"sfx ${sfx_id:02X}: RepeatEnd count {e.count} out of range "
+                    f"1..255 — the engine decrements before testing, so 0 wraps to "
+                    f"255 passes (D7)")
             if not stack:
                 raise TranscodeError(f"sfx ${sfx_id:02X}: RepeatEnd without RepeatStart")
             if not stack.pop():
@@ -1521,6 +1570,7 @@ def pack_sfx(sfx_desc: dict, priority: int) -> bytes:
     for ch in channels:
         _validate_sfx_repeat(ch['events'], sfx_desc.get('id', 0))
         _validate_no_aliasing_ops(ch['events'], sfx_desc.get('id', 0), ch.get('route'))
+        _validate_no_modset_on_noise(ch['events'], sfx_desc.get('id', 0), ch.get('route'))
         s = b''.join(e.encode() for e in ch['events'])
         streams.append(s)
 

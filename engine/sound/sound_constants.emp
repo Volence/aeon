@@ -337,7 +337,7 @@ ensure(TAG_MAC_NEXT == $E0 && TAG_MAC_REG == $E1 && TAG_MAC_LOOP == $E2 && TAG_M
 pub const REGDELTA_OP_MASK     = $03    // reg_sel bits 1-0 = op (0..3)
 pub const REGDELTA_GROUP_SHIFT = 2      // reg_sel >> this = group_code
 pub const REGDELTA_GROUP_MASK  = $0F    // group_code field width (bits 5-2 after the shift)
-pub const REGDELTA_GROUP_COUNT = 6      // $30,$40,$50,$60,$70,$80
+pub const REGDELTA_GROUP_COUNT = 7      // $30,$40,$50,$60,$70,$80,$90 (E5 SSG-EG)
 
 // --- opcode range + collision walls (the $E0-$FF coordination block) ---
 // The top note opcode is below the first command opcode, so the range dispatch is
@@ -434,6 +434,10 @@ ensure(PITCHTAB_MAX_IDX == $83, "PITCHTAB_MAX_IDX ({PITCHTAB_MAX_IDX}) must be $
 
 // The highest valid FmPitchTableZ index (chromatic note table holds 95 entries).
 pub const FMPITCH_MAX_IDX    = $5E              // = 94 (FmPitchTableZ has 95 entries)
+// It bounds the PSG divisor table too: PsgDivisorTableZ spans the SAME 95-entry
+// chromatic domain (sound_tables_z80.emp asserts BOTH extents at 190 B = 95 x 2 B),
+// so Psg_NoteOn's transpose clamp (D4) shares this bound via
+// Fm_TransposeClampChrom.
 
 // --- Block-boundary fnum window for the pitch-modulation octave correction.
 // Normalizing a modulated fnum into [FNUM_LO, FNUM_HI) keeps vibrato/glide

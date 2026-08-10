@@ -31,6 +31,7 @@ from sfx_transcode import (
     _SFX_PRIORITY, _CORE_SFX_IDS, _sfx_label,
     _smps_note_to_pitch, FM_SFX_OCTAVE_SHIFT, PSG_OCTAVE_FIXUP,
     _LOG_VOLUME_LUT, _vol_for_atten, _validate_sfx_repeat,
+    _validate_no_modset_on_noise,
     S3K_NOTE_BASE,
     CHROUTE_FM3, CHROUTE_FM4, CHROUTE_FM5,
     CHROUTE_PSG1, CHROUTE_PSG2, CHROUTE_PSG3, CHROUTE_PSGN,
@@ -1045,6 +1046,45 @@ class TestFmVoiceOperatorOrder(unittest.TestCase):
         self.assertNotEqual(_s3k_op_reorder([1, 2, 3, 4]), [4, 3, 2, 1])
         self.assertNotEqual(_s3k_op_reorder([1, 2, 3, 4]), [1, 2, 3, 4])
 
+    def test_am_enable_bit_roundtrips(self):
+        # B3: smpsVcAmpMod's per-operator flag must survive into the emitted
+        # $60-group ($60 AM/D1R) byte as YM2612 bit 7. It used to be shifted <<5
+        # (the ORIGINAL SMPS2ASM's erroneous "AM is bits 6-5" assumption, which
+        # _smps2asm_inc.asm's own comment corrects to "it's actually the high bit")
+        # and then masked with &0x80 — so the flag was silently dropped every time.
+        from sfx_transcode import _SmpsVoiceBuilder
+        b = _SmpsVoiceBuilder()
+        b.apply('smpsVcAlgorithm',  ['4'])
+        b.apply('smpsVcFeedback',   ['0'])
+        b.apply('smpsVcDetune',     ['0', '0', '0', '0'])
+        b.apply('smpsVcCoarseFreq', ['0', '0', '0', '0'])
+        b.apply('smpsVcRateScale',  ['0', '0', '0', '0'])
+        b.apply('smpsVcAttackRate', ['0', '0', '0', '0'])
+        b.apply('smpsVcAmpMod',     ['1', '0', '0', '0'])   # AM on op1 only
+        b.apply('smpsVcDecayRate1', ['5', '6', '7', '8'])
+        b.apply('smpsVcDecayRate2', ['0', '0', '0', '0'])
+        b.apply('smpsVcDecayLevel', ['0', '0', '0', '0'])
+        b.apply('smpsVcReleaseRate',['0', '0', '0', '0'])
+        b.apply('smpsVcTotalLevel', ['0', '0', '0', '0'])
+        out = b.build()
+        # am_d1r occupies out[14:18] in FmPatch physical order [op4,op2,op3,op1],
+        # so macro op1 lands LAST.
+        am_d1r = list(out[14:18])
+        self.assertEqual(am_d1r[3], 0x80 | 5, "AM-enable bit dropped for op1 (B3)")
+        self.assertEqual(am_d1r[:3], [8, 6, 7], "AM must not leak onto other operators")
+
+    def test_am_disabled_leaves_bit7_clear(self):
+        from sfx_transcode import _SmpsVoiceBuilder
+        b = _SmpsVoiceBuilder()
+        for m, a in (('smpsVcAlgorithm', ['0']), ('smpsVcFeedback', ['0']),
+                     ('smpsVcDetune', ['0'] * 4), ('smpsVcCoarseFreq', ['0'] * 4),
+                     ('smpsVcRateScale', ['0'] * 4), ('smpsVcAttackRate', ['0'] * 4),
+                     ('smpsVcAmpMod', ['0'] * 4), ('smpsVcDecayRate1', ['5'] * 4),
+                     ('smpsVcDecayRate2', ['0'] * 4), ('smpsVcDecayLevel', ['0'] * 4),
+                     ('smpsVcReleaseRate', ['0'] * 4), ('smpsVcTotalLevel', ['0'] * 4)):
+            b.apply(m, a)
+        self.assertEqual(list(b.build()[14:18]), [5, 5, 5, 5])
+
     def test_all_groups_reordered_uniformly(self):
         # Build a voice whose four operators carry DISTINCT marker values per group, so
         # the output byte order is an unambiguous witness of the permutation.
@@ -1370,6 +1410,14 @@ class TestRepeatBodyBackstop(unittest.TestCase):
         with self.assertRaises(TranscodeError):
             _validate_sfx_repeat(events, 0x99)
 
+    def test_repeat_end_zero_rejected(self):
+        # D7: pack_sfx encodes events directly and never calls Event.validate, so
+        # song_packer's 1..255 rule does NOT cover SFX. The engine decrements before
+        # testing, so operand 0 wraps to 255 passes.
+        events = [Vol(80), RepeatStart(), NoteDur(0x46, 1), RepeatEnd(0), End()]
+        with self.assertRaisesRegex(TranscodeError, "count 0"):
+            _validate_sfx_repeat(events, 0x99)
+
     def test_repeat_body_with_note_accepted(self):
         events = [Vol(80), RepeatStart(), NoteDur(0x46, 1), RepeatEnd(8), End()]
         _validate_sfx_repeat(events, 0x99)   # must not raise
@@ -1381,6 +1429,40 @@ class TestRepeatBodyBackstop(unittest.TestCase):
         psg2 = chans[0]['events']
         self.assertTrue(any(isinstance(e, RepeatStart) for e in psg2),
                         "skid's note-bearing loop should stay a compact repeat")
+
+
+class TestModSetNoiseRouteBackstop(unittest.TestCase):
+    """D1 — pitch modulation must never reach a NOISE-routed SFX channel.
+
+    The parser already DROPS smpsModSet when it reroutes a channel to noise
+    (TestPSGFormNoiseReroute covers that), but that is a source-shaped transform,
+    not a guarantee. This is the pack-time backstop: whatever path built the event
+    list, a ModSet on the noise route is refused. Producer-side; zero Z80 bytes
+    (the runtime gate was implemented and reverted for space)."""
+
+    def test_modset_on_noise_route_rejected(self):
+        from song_packer import ModSet
+        events = [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x06, 4), End()]
+        with self.assertRaisesRegex(TranscodeError, "noise route"):
+            _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSGN)
+
+    def test_modset_on_tone_route_accepted(self):
+        from song_packer import ModSet
+        events = [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x46, 4), End()]
+        _validate_no_modset_on_noise(events, 0x99, CHROUTE_PSG3)   # must not raise
+
+    def test_pack_sfx_refuses_noise_channel_carrying_modset(self):
+        # The backstop is wired into pack_sfx, not just available beside it.
+        from song_packer import ModSet
+        desc = {
+            'id': 0x99, 'flags': 0, 'voices': [],
+            'channels': [{
+                'route': CHROUTE_PSGN, 'kind': SFXEL_NOISE,
+                'events': [Vol(80), ModSet(4, 2, 8, 1), NoteDur(0x06, 4), End()],
+            }],
+        }
+        with self.assertRaisesRegex(TranscodeError, "noise route"):
+            pack_sfx(desc, SFXPRI_RING)
 
 
 class TestUnknownVoiceMacro(unittest.TestCase):

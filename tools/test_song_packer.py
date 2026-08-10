@@ -16,6 +16,7 @@ from song_packer import (
     SongDesc, ChannelDesc,
     SetDur, Rest, Note, Vol, Patch, Dac, NoteDur, LoopPoint, Jump, End,
     RepeatStart, RepeatEnd, Pan, OpBias, RegDelta, reg_sel, Detune, Porta, Tempo,
+    ModSet,
     pack_song, emit_asm, PackError,
     MEV_REPEAT_START, MEV_REPEAT_END, MEV_PAN, MEV_OPBIAS, MEV_REGDELTA, MEV_DETUNE, MEV_PORTA, MEV_TEMPO,
     RD_GROUP_TL, RD_GROUP_DT_MUL, RD_GROUP_D1L_RR, REGDELTA_GROUP_COUNT,
@@ -129,6 +130,25 @@ class TestEventEncoding(unittest.TestCase):
         with self.assertRaises(PackError):
             Detune(-200).validate(CHROUTE_FM1)
 
+    def test_modset_rejected_on_noise_route(self):
+        # D1: pitch modulation on the NOISE route would drive Psg_ApplyMod at a
+        # channel that has no tone divisor — the modulated word lands on the noise
+        # CONTROL register. Producer-side rule; zero Z80 bytes.
+        with self.assertRaises(PackError) as cm:
+            ModSet(4, 2, 8, 1).validate(CHROUTE_PSGN)
+        self.assertIn("noise route", str(cm.exception))
+
+    def test_modset_accepted_on_tone_and_fm_routes(self):
+        # The rule is route-scoped: FM and the three PSG TONE routes still take it.
+        ModSet(4, 2, 8, 1).validate(CHROUTE_FM1)
+        ModSet(4, 2, 8, 1).validate(CHROUTE_PSG1)
+
+    def test_modset_all_zero_still_rejected_on_noise_route(self):
+        # smpsModSet 0,0,0,0 is the "mod off" idiom, but it is still an opcode in
+        # the stream and the engine still latches it, so the route rule is absolute.
+        with self.assertRaises(PackError):
+            ModSet(0, 0, 0, 0).validate(CHROUTE_PSGN)
+
     def test_porta_encode(self):
         self.assertEqual(Porta(8).encode(), bytes([MEV_PORTA, 8]))
         self.assertEqual(Porta(0).encode(), bytes([MEV_PORTA, 0]))      # 0 = disarm (notes snap)
@@ -188,6 +208,20 @@ class TestEventEncoding(unittest.TestCase):
         bad = (REGDELTA_GROUP_COUNT << 2) | 0
         with self.assertRaises(PackError):
             RegDelta([(bad, 0x00)]).validate(CHROUTE_FM1)
+
+    def test_regdelta_group6_ssg_eg_accepted(self):
+        # E5 runtime half: group 6 = $90 SSG-EG. reg_sel = (6<<2)|op.
+        from song_packer import RD_GROUP_SSG_EG
+        self.assertEqual(RD_GROUP_SSG_EG, 6)
+        ev = RegDelta([(reg_sel(RD_GROUP_SSG_EG, 0), 0x08)])   # op0, SSG-EG mode $08
+        ev.validate(CHROUTE_FM1)                                # FM route — must not raise
+        self.assertEqual(ev.encode(), bytes([MEV_REGDELTA, 0x01, 0x18, 0x08]))
+        RegDelta([(reg_sel(RD_GROUP_SSG_EG, 3), 0x0E)]).validate(CHROUTE_FM1)
+
+    def test_regdelta_group7_still_rejected(self):
+        # The widening is exactly one group — 7 is still past the table.
+        with self.assertRaises(PackError):
+            reg_sel(7, 0)
 
     def test_regdelta_zero_tick_in_loop_body_still_needs_a_note(self):
         # RegDelta is zero-tick: a loop body of ONLY RegDeltas would spin forever,
@@ -418,6 +452,13 @@ class TestValidation(unittest.TestCase):
             self._pack([ChannelDesc(CHROUTE_FM1, [
                 Patch(0), Vol(64), LoopPoint(),
                 RepeatStart(), Note(0), RepeatEnd(0), Jump()])])
+
+    def test_repeat_end_zero_rejected_at_event_level(self):
+        # D7: pinned at the EVENT level too, not only through _validate_channel —
+        # the engine decrements before testing, so operand 0 wraps to 255 and runs
+        # 255 passes with no runtime clamp (a DEBUG-only trap catches it).
+        with self.assertRaises(PackError):
+            RepeatEnd(0).validate(CHROUTE_FM1)
 
     def test_repeat_count_too_high_rejected(self):
         with self.assertRaises(PackError):
@@ -845,6 +886,33 @@ class TestPackerSafetyGates(unittest.TestCase):
         ch = ChannelDesc(CHROUTE_FM1, self._fm_events(
             RepeatStart(), Note(0), RepeatEnd(2),
             RepeatStart(), Note(1), RepeatEnd(3)))
+        pack_song(self._song([ch]))   # must not raise
+
+    # ── D6: the song loop must not re-enter a repeat span ──
+
+    def test_looppoint_inside_repeat_span_rejected(self):
+        # The Jump target IS the LoopPoint, so a LoopPoint between RepeatStart and
+        # RepeatEnd makes the song loop re-enter the span mid-body. sc_repeat_count
+        # is NOT re-seeded on that path (Seq_Op_RepeatStart never runs again), so
+        # the RepeatEnd consumes whatever count the previous pass left.
+        ch = ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(64), RepeatStart(), LoopPoint(), Note(10), RepeatEnd(2),
+            Note(12), Jump()])
+        with self.assertRaisesRegex(PackError, "LoopPoint inside a repeat span"):
+            pack_song(self._song([ch]))
+
+    def test_looppoint_before_repeat_span_still_packs(self):
+        # The normal shape — LoopPoint outside, the whole span inside the loop —
+        # stays legal: the Jump lands on the RepeatStart, which re-saves the body
+        # pointer (and, since this parcel, re-seeds the count).
+        ch = ChannelDesc(CHROUTE_FM1, self._fm_events(
+            RepeatStart(), Note(0), RepeatEnd(2)))
+        pack_song(self._song([ch]))   # must not raise
+
+    def test_looppoint_after_repeat_span_still_packs(self):
+        ch = ChannelDesc(CHROUTE_FM1, [
+            Patch(0), Vol(64), RepeatStart(), Note(0), RepeatEnd(2),
+            LoopPoint(), Note(12), Jump()])
         pack_song(self._song([ch]))   # must not raise
 
     # ── macro-body yield validation ──

@@ -580,6 +580,17 @@ class ModSet(Event):
                       self.change & 0xFF, self.step & 0xFF])
 
     def validate(self, route):
+        # D1: the noise channel has no tone divisor. Psg_ApplyMod would sum the
+        # modulation accumulator onto sc_base_freq and re-emit it, so on the noise
+        # route the swept word lands on the SN76489 NOISE CONTROL register instead
+        # of a frequency latch — it re-triggers the LFSR and walks the mode/rate
+        # bits. The runtime gate for this was written and REVERTED for Z80 space
+        # (see the note in sound_sequencer.emp's MEV_MODSET handler); the
+        # producer-side rule closes the corruption path for all future content at
+        # zero Z80 bytes. Author MEV_PSGNOISE for noise mode/rate instead.
+        if route == CHROUTE_PSGN:
+            raise PackError("ModSet on noise route — pitch-mod corrupts the "
+                            "noise control register (D1); author PsgNoise instead")
         for name, v in (('wait', self.wait), ('speed', self.speed), ('step', self.step)):
             if not (0 <= v <= 0xFF):
                 raise PackError(f"ModSet {name} {v} out of byte range 0..255")
@@ -711,7 +722,7 @@ class PitchEnv(Event):
 #       0=$30 DT/MUL, 1=$40 TL, 2=$50 RS/AR, 3=$60 AM/D1R, 4=$70 D2R, 5=$80 D1L/RR.
 REGDELTA_OP_MASK = 0x03
 REGDELTA_GROUP_SHIFT = 2
-REGDELTA_GROUP_COUNT = 6
+REGDELTA_GROUP_COUNT = 7
 # group_code constants for callers (the TL group op0 = the canonical lead voice-step).
 RD_GROUP_DT_MUL = 0   # $30
 RD_GROUP_TL = 1       # $40 (TL — the rapid lead voice-step)
@@ -719,6 +730,7 @@ RD_GROUP_RS_AR = 2    # $50
 RD_GROUP_AM_D1R = 3   # $60
 RD_GROUP_D2R = 4      # $70
 RD_GROUP_D1L_RR = 5   # $80
+RD_GROUP_SSG_EG = 6   # $90 (E5: runtime SSG-EG sweeps — buzz/metallic timbres)
 
 
 def reg_sel(group_code: int, op: int) -> int:
@@ -919,6 +931,17 @@ def _validate_channel(ch: ChannelDesc) -> bytes:
                         "PSG channel keys a note before a Vol ($E0) — would "
                         "play at undefined attenuation")
         if isinstance(ev, LoopPoint):
+            # D6: the song-loop Jump target IS this LoopPoint, so a LoopPoint inside
+            # a RepeatStart..RepeatEnd span makes the loop re-ENTER the span mid-body.
+            # Seq_Op_RepeatStart never runs again on that path, so sc_repeat_count is
+            # not re-seeded and the RepeatEnd consumes whatever the previous pass left
+            # (0 -> a full nn-pass replay; nonzero -> a short one). Gating LoopPoint
+            # placement is the COMPLETE rule — the Jump can target nothing else.
+            if repeat_depth > 0:
+                raise PackError(
+                    "LoopPoint inside a repeat span — the song-loop Jump would "
+                    "re-enter the RepeatStart..RepeatEnd body without re-seeding "
+                    "sc_repeat_count (D6); place the LoopPoint outside the span")
             saw_loop = True
             loop_advances_time = False
         if saw_loop and isinstance(ev, (Note, Rest, NoteDur, NoteRaw, PitchEnv)):
