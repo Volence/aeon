@@ -783,7 +783,7 @@ from smps_import import _smps_header_vol_to_v0, _fm_atten_to_v0, _LOG_VOLUME_LUT
 # ── LogVolumeLutZ inverse sanity ─────────────────────────────────────────────
 
 def test_log_volume_lut_parsed():
-    # The table is parsed from engine/sound/sound_tables_z80.asm; verify invariants.
+    # The table is parsed from engine/sound/sound_tables_z80.emp; verify invariants.
     assert len(_LOG_VOLUME_LUT) >= 128, "LUT must have at least 128 entries"
     # First 128 entries must be non-increasing (monotone decreasing for loudness index).
     for i in range(127):

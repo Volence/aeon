@@ -1177,24 +1177,27 @@ class TestLogVolumeLut(unittest.TestCase):
                             for i in range(127)))
 
     def test_lut_matches_engine_table(self):
-        """Parse engine/sound/sound_tables_z80.asm LogVolumeLutZ and assert byte-equality —
-        catches any future drift between the engine table and the transcoder mirror."""
+        """Parse engine/sound/sound_tables_z80.emp LogVolumeLutZ and assert byte-equality —
+        catches any future drift between the engine table and the transcoder mirror.
+        (The .asm twin was deleted in the seam-2 stage-3 flip; the committed generated
+        module is the sigil-native .emp with `proc LogVolumeLutZ () clobbers() {`
+        wrapping dc.b $NN rows.)"""
         eng = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           'engine', 'sound', 'sound_tables_z80.asm')
+                           'engine', 'sound', 'sound_tables_z80.emp')
         with open(eng) as f:
             text = f.read()
-        start = text.index('LogVolumeLutZ:')
-        end = text.index('LogVolumeLutZ_End:')
+        start = text.index('proc LogVolumeLutZ')
+        end = text.index('}', start)
         body = text[start:end]
         vals = []
         for line in body.splitlines():
             line = line.strip()
-            if not line.startswith('db'):
+            if not line.startswith('dc.b'):
                 continue
-            for tok in line[2:].split(','):
+            for tok in line[len('dc.b'):].split(','):
                 tok = tok.strip()
-                if tok.endswith('h'):
-                    vals.append(int(tok[:-1], 16))
+                if tok.startswith('$'):
+                    vals.append(int(tok[1:], 16))
         self.assertEqual(vals[:128], _LOG_VOLUME_LUT,
                          "transcoder _LOG_VOLUME_LUT drifted from engine LogVolumeLutZ")
 
