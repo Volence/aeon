@@ -3505,3 +3505,15 @@ Open items this execution creates or leaves:
   full $7F fade is ~2.1 s (was ~1.07 s at the old STEP=2). All 8 authored speeds
   are slower-or-equal; if a sub-2s fade is ever needed the step magnitude (not
   the pattern) is the knob.
+
+## Ledgered by the 2026-08-10 sound package 3 gate (`sound-pkg3`)
+
+- **`tools/test_import_sk_collision.py` regenerates committed collision bins
+  IN-PLACE with bytes that differ from what is committed** (porter observation,
+  reproduced across runs; the porter restored the committed bytes each time and
+  committed nothing). Either the committed bake or the tool's default params
+  drifted. Until reconciled, running the tools suite dirties the tree — a
+  parallel-session hazard (auto-commit daemon could sweep the regenerated bins
+  onto a branch). Owner: a small tools session — diff regenerated-vs-committed,
+  decide which is truth, and make the test write to a temp path instead of the
+  committed location.
