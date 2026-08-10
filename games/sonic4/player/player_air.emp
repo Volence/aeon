@@ -152,14 +152,45 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         //     Player_Jump CONSUMES it (clr.b) on a successful launch. So at this
         //     point the buffer is 0 exactly on a launch frame and non-zero on a
         //     genuine airborne press — no new state, one test.
-        //   * That is the ONLY overlap: the other ground→air transitions
-        //     (Ground_DetachState, from Ground_PostMove and Player_SlopeRepel)
-        //     tail-jump Player_SetState and return to Player_Main's dispatch —
-        //     they never run the air body in the same frame.
+        //   * That is the ONLY overlap. The complete list of the OTHER ways a
+        //     frame can arrive in an air state is three, and every one of them
+        //     tail-jumps Player_SetState and returns to Player_Main's dispatch
+        //     rather than running the air body in the same frame:
+        //       - Ground_DetachState (player_ground, from Ground_PostMove and
+        //         Player_SlopeRepel) — walked/rolled off a ledge;
+        //       - PState_Spindash's `.floor_gone` (player_spindash) → AIRBALL —
+        //         the floor vanished under a charging spindash;
+        //       - Player_DebugExit (player_common) → AIR — leaving debug-fly.
+        //     Anything added as a FOURTH must either keep that shape or be
+        //     weighed against this gate: a path that reaches the air body
+        //     in-frame with the jump buffer still non-zero would fire the
+        //     ability on its own transition frame.
         //   * A held button cannot re-fire: a press bit lives exactly one tick.
         // The buffer is deliberately NOT consumed here. It must keep decaying to
         // the landing frame exactly as it does today (an airborne press already
         // buffers a landing jump), or wiring the hook would change Sonic.
+        //
+        // TWO CONSEQUENCES OF WHERE THIS GATE SITS, both deliberate:
+        //   * an ability press on an ON-OBJECT CONVERSION frame is silently
+        //     dropped — step 0 above returns through Player_SetState before
+        //     reaching here. Standing on a solid object is a landing, not a
+        //     flight frame, so losing the press there is the right reading of it.
+        //   * the hook DOES fire during ROLLJUMP, even though that state's whole
+        //     air-input block is locked out: the gate sits BEFORE the
+        //     AIRF_INPUT_LOCK test at step 2. The lockout is about steering a
+        //     rolljump, not about suppressing an ability the player asked for.
+        //
+        // FRAME SEMANTICS, deliberate and pending measurement: this hook sits
+        // MID-BODY, so when an ability transitions state the REST of this frame
+        // still runs under the OLD state's rules (air input, drag, gravity,
+        // ObjectMove, the sensor block below), and the new state's own body first
+        // runs next frame. Player_Jump chooses the opposite at the ground→air
+        // seam — it re-enters through the target state's preamble, so the new
+        // rules apply on the transition frame itself. The disagreement is
+        // unmeasurable today (Sonic's cd_ability is Ability_None, a bare rts) and
+        // is left standing rather than guessed at. WHOEVER IMPLEMENTS TAILS'
+        // FLIGHT must verify the first-flight-frame behavior against S3K before
+        // relying on either reading, and settle this comment with the answer.
         move.b  Ctrl_1_Press, d1
         andi.b  #BUTTON_JUMP_MASK, d1           // A|B|C — classic three-button jump
         beq     .no_ability
@@ -171,7 +202,12 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .press_ok:
         tst.b   PBLK_JUMPBUF(a4)                // spent => this IS the launch frame
         beq     .no_ability
-        jbsr    Player_Ability                  // preserves a0/d6; clobbers d1-d2/a1-a2
+        jbsr    Player_Ability                  // clobbers d1-d2/a1-a2, so a0, d6
+                                                // and a4 all survive it. a4 is the
+                                                // load-bearing one: every step
+                                                // below reads this slot's block
+                                                // through it (d6 carries the AIRF_*
+                                                // flags into steps 1-2)
 .no_ability:
 
         // --- 2. air input: x_vel directly — gsp is NOT authoritative

@@ -59,8 +59,8 @@ comptime fn pstate_rolljump_mirror_ok() -> bool {
     if !Game.CAMERA_JUMP_LOCK { return true }
     return extern("PSTATE_ROLLJUMP") == PSTATE_ROLLJUMP
 }
-ensure(pstate_jump_mirror_ok(), "games/sonic4/config/constants.asm and camera.emp disagree on PSTATE_JUMP — update the mirror")
-ensure(pstate_rolljump_mirror_ok(), "games/sonic4/config/constants.asm and camera.emp disagree on PSTATE_ROLLJUMP — update the mirror")
+ensure(pstate_jump_mirror_ok(), "games/sonic4/config/constants.emp and camera.emp disagree on PSTATE_JUMP — update the mirror")
+ensure(pstate_rolljump_mirror_ok(), "games/sonic4/config/constants.emp and camera.emp disagree on PSTATE_ROLLJUMP — update the mirror")
 
 // The player-state byte's SST-CUSTOM OFFSET — the game's `_pl_state` (declared
 // by games.sonic4.player_common as `offsetof(Sst, sst_custom) +

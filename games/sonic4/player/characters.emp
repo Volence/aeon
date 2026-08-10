@@ -95,7 +95,9 @@ pub proc Player_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
 // record reader, and the ONLY reader of cd_ability: the air state owns WHEN the
 // ability fires (a fresh jump press while already airborne —
 // player_air.PState_AirShared), this owns WHAT fires. Sonic's record points at
-// Ability_None, so for him the whole path is a jsr/jmp/rts and nothing else.
+// Ability_None, so for him the whole path past the gate is five instructions:
+// the caller's `jsr`, the two `movea.l`s below, the `jmp`, and Ability_None's
+// `rts`.
 //
 // The record read lives here rather than at the call site because AbilityHook is
 // a proc TYPE, and proc types are module-local (they are not among the item

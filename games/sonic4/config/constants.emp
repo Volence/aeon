@@ -56,12 +56,36 @@ pub const SPINDASH_CHARGE_MAX     = $800
 
 // Player states (jump-table byte offsets: index x 2)
 //
-// The values ARE indices into the three parallel tables in player_common.emp
-// (Player_States / PState_EnterHooks / PState_ExitHooks), pre-scaled by 2: each
-// state's row sits at its value/2, and PSTATE_COUNT sizes all three (their
-// `.count` ensures catch a table that drifts out of step). That is the whole
-// rule — a new state is a new value, a row in each of the three tables, and a
-// raised PSTATE_COUNT, and it may be appended anywhere.
+// THE RULE, exactly: each state's value IS 2 x its row index in ALL THREE of the
+// parallel tables in player_common.emp (Player_States / PState_EnterHooks /
+// PState_ExitHooks). The value is not a name for a row — it is the row's byte
+// displacement, fed straight to `move.w (a1,d0.w)` / `jsr (a1,d1.w)`. A row in
+// the wrong position therefore dispatches the wrong handler, and a value that
+// is not 2 x its index dispatches off the end of a 2*PSTATE_COUNT-byte table.
+//
+// What checks what. The three `.count == PSTATE_COUNT` ensures in
+// player_common.emp are CARDINALITY ONLY: they catch a table with the wrong
+// number of rows, and nothing else — not a row out of position, not a value
+// that skips or repeats. `pstate_values_ok` below the value list covers the
+// value half, with three rules over one list of the values:
+//
+//   * EVEN         — every value even (it is a byte offset, not an index)
+//   * IN RANGE     — every value < PSTATE_COUNT * 2 (inside the tables)
+//   * DISTINCT +   — the values cover every row 0..PSTATE_COUNT-1 exactly
+//     COMPLETE       once (a one-bit-per-row sum)
+//
+// Together with the `.count` ensures that is airtight: PSTATE_COUNT rows, and
+// PSTATE_COUNT distinct in-range even values that hit every one of them. The
+// DEBUG-shape `assert.w` at Player_Main's dispatch is the runtime backstop for
+// the one thing no comptime check can see — a stray WRITE putting an
+// out-of-range byte in player_state.
+//
+// ADDING A STATE is therefore four edits, all of which the guards police: a new
+// even value, a row appended to each of the three tables at that value/2, a
+// raised PSTATE_COUNT, and the new name added to the value list in
+// `pstate_values_ok`. Forgetting that last one does NOT quietly pass — the
+// coverage sum fails, because PSTATE_COUNT-1 values cannot fill PSTATE_COUNT
+// rows.
 //
 // There is deliberately NO ordering constraint on top of that any more. The
 // curled set used to have to sit last because Player_Animate's ball test was a
@@ -83,6 +107,33 @@ pub const PSTATE_JUMP             = 8          // airborne curled from jump — 
 pub const PSTATE_ROLLJUMP         = 10         // as JUMP + air control lockout
 pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
 pub const PSTATE_COUNT            = 7          // state/hook tables assert against this
+
+// -----------------------------------------------
+// The PSTATE_* value guards (see THE RULE above). ORDER-FREE by construction:
+// the fold is symmetric in its operands, so renumbering the set stays legal and
+// only breaking the value/row correspondence fails. The value list appears
+// exactly ONCE — every rule below reads it, so adding a state's name here is the
+// whole registration, and forgetting to is itself caught (see the return).
+// -----------------------------------------------
+comptime fn pstate_values_ok() -> bool {
+    comptime var cover = 0
+    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL] {
+        // EVEN — the value is a jump-table BYTE offset, not a row index.
+        ensure((v & 1) == 0, "PSTATE_* value {v} is ODD — a player-state value is a jump-table BYTE offset, i.e. 2 x its row index in Player_States / PState_EnterHooks / PState_ExitHooks")
+        // IN RANGE — all three tables are 2 * PSTATE_COUNT bytes long. Checked
+        // before the shift below, which is only meaningful for a real row.
+        ensure(v < PSTATE_COUNT * 2, "PSTATE_* value {v} is >= PSTATE_COUNT*2 — it indexes past the end of the state/hook tables, so the dispatch would jsr to whatever follows them (add the three table rows and raise PSTATE_COUNT)")
+        cover = cover + (1 << (v >> 1))
+    }
+    // DISTINCT + COMPLETE — one bit per row index. A sum of PSTATE_COUNT powers
+    // of two has popcount PSTATE_COUNT only if all of them differ, and the only
+    // such sum equal to (1 << PSTATE_COUNT) - 1 is the one using rows
+    // 0..PSTATE_COUNT-1 once each. So this single equality rejects a duplicate
+    // value, a gap in the numbering, AND a state left out of the list above
+    // (PSTATE_COUNT-1 values cannot fill PSTATE_COUNT rows).
+    return cover == (1 << PSTATE_COUNT) - 1
+}
+ensure(pstate_values_ok(), "the PSTATE_* values must be DISTINCT and cover rows 0..PSTATE_COUNT-1 exactly once — a duplicate value, a gap in the numbering, or a state missing from the list in pstate_values_ok breaks the value/row correspondence the dispatch relies on")
 
 // Playable characters — the roster index (C1). These ARE the indices into
 // CharacterDefs (characters.emp), so the order of that table is bound to this

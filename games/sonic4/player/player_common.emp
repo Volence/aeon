@@ -450,6 +450,11 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         lea     Player_States(pc), a1
         moveq   #0, d0
         move.b  PlayerV.player_state(a0), d0
+        // The value guards in config/constants.emp make every PSTATE_* a valid
+        // row at BUILD time; this is the runtime backstop for the byte itself
+        // being stomped, which no comptime check can see. Unsigned compare — the
+        // moveq above zero-extends the byte.
+        assert.w d0, ls, #(PSTATE_COUNT-1)*2    // state byte indexes a real row
         move.w  (a1,d0.w), d1
         jsr     (a1,d1.w) as PlayerState
         move.w  (sp)+, d7
@@ -543,8 +548,15 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         // UNCONDITIONALLY, outside their height-keyed guard), every state reaches
         // exactly one of them through PState_EnterHooks — Roll/Jump/RollJump/
         // AirBall → EnsureBall, Ground/Air/Spindash → EnsureStanding — and
-        // Player_SetState is the only writer of player_state, writing it and
-        // running the enter hook with nothing in between. So bit and state agree
+        // Player_SetState is the only TRANSITION writer of player_state, writing
+        // it and running the enter hook with nothing in between. The one other
+        // writer is Player_Init's boot `clr.b` (a defined start for SetState's
+        // exit lookup, which runs before any hook has), and it does not break the
+        // equivalence: the same init block clears `status` a few lines earlier —
+        // so ST_ROLLING is 0 — and the byte it writes is 0, which IS the uncurled
+        // PSTATE_GROUND, so the pair it leaves behind is exactly the one
+        // EnsureStanding would. Init then goes straight through Player_SetState
+        // for the real start state. So bit and state agree
         // at every point a frame can observe them, this one included: Player_Animate
         // runs in the display tail, after the dispatch has completed its transitions.
         // (SPINDASH never reaches here — priority 1 above returns — so the fact

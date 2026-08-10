@@ -425,6 +425,18 @@ pub vars upper_ram {
     // the same idiom Sprite_Bands and the free stacks already use for SST
     // addresses, and half the storage of a long.
     //
+    // That premise is STRUCTURALLY enforced, not assumed: the whole SST pool
+    // (Object_RAM .. Object_RAM_End above — Player_1/2, Dynamic, System, Effect)
+    // is a field run of THIS region, and the region carries `w_addressable`,
+    // which the compiler checks across its entire `[base, limit)` window
+    // ([region.not-w-addressable]). Moving the pool out of a `.w`-addressable
+    // region therefore fails the build before this read can go wrong; no
+    // separate `ensure` is needed here. (The game-side twin in
+    // games/sonic4/player_common.emp — `ensure((extern("Player_1") &
+    // $FFFF8000) == $FFFF8000)` for its `cmpa.w` sites — exists because a GAME
+    // module cannot see this region declaration, not because the property is
+    // unenforced.)
+    //
     // It is engine RAM (not game RAM) because engine.camera reads it
     // unconditionally, and engine.camera is compiled into EVERY game — including
     // `demo`, which defines no game-side player symbols at all (that is exactly
