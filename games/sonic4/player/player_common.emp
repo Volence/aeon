@@ -155,6 +155,10 @@ const PPHYS_JUMPBUF  = 17
 // 1's block.
 // In:  sst = register holding the player SST (preserved)
 // Out: dst = that slot's block base
+// Clobbers: CCR — the `cmpa.w` leaves the compare's flags, not the caller's.
+//      Both expansion sites are flag-independent at the splice, but this file
+//      deliberately carries flags across instruction boundaries elsewhere
+//      (player_ground's `btst` into a later `bpl`), so it is stated.
 // -----------------------------------------------
 pub comptime fn player_block(sst: Reg, dst: Reg) -> Code {
         return asm {
@@ -167,6 +171,16 @@ pub comptime fn player_block(sst: Reg, dst: Reg) -> Code {
 }
 ensure(NUM_PLAYERS == 2,
        "player_block's compare-against-Player_1 slot derivation assumes exactly two player slots")
+// Both `cmpa.w #Player_1` sites (the splice above and Player_Main's ring gate)
+// compare a SIGN-EXTENDED word against a full address register. That is correct
+// only while Player_1 lives in the w-addressable window, where bit 15 is set and
+// the extension reproduces $FFFFxxxx. Move Object_RAM down into lower_ram
+// ($FFFF0000..$FFFF8000, not w_addressable) and the `lea` would still lower to
+// abs.l while the compare tested a sign-CLEARED value — never equal. The failure
+// is silent and severe: every slot would resolve to block 1 (re-introducing the
+// exact single-block bug this parcel removes) and the ring gate would never fire.
+ensure((extern("Player_1") & $FFFF8000) == $FFFF8000,
+       "player_block + the ring gate use cmpa.w — Player_1 must sign-extend from a word, i.e. live in the w-addressable window ($FFFF8000+)")
 ensure(PLAYER_BLOCK_SIZE == extern("Player_Block_End") - extern("Player_Phys"),
        "PLAYER_BLOCK_SIZE out of sync with the Player_Phys block layout (config/ram.emp)")
 ensure(PPHYS_QUADRANT == extern("Player_Phys_End") - extern("Player_Phys"),
@@ -175,6 +189,13 @@ ensure(PPHYS_JUMPBUF == PPHYS_QUADRANT + 1,
        "PPHYS_JUMPBUF must follow the quadrant byte (config/ram.emp field order)")
 ensure(PLAYER_BLOCK_SIZE == PPHYS_JUMPBUF + 1,
        "PLAYER_BLOCK_SIZE must close the block right after the jump-buffer byte")
+// Link-time drift-lock (the RunObjects_Frozen System/Effect adjacency precedent,
+// engine/objects/core.emp): the sizes above are right but say nothing about
+// ADJACENCY. `player_block` reaches slot N by stepping PLAYER_BLOCK_SIZE off
+// Player_Phys, so the reserve run must begin exactly where slot 0's block ends —
+// a field inserted between them would silently land slot 1's block on top of it.
+ensure(extern("Player_Blocks_Tail") == extern("Player_Block_End"),
+       "config/ram.emp: Player_Blocks_Tail must immediately follow Player_Block_End — player_block strides the slots as one contiguous run")
 
 // -----------------------------------------------
 // set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
