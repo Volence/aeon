@@ -177,18 +177,20 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
     //    wrapping physical row 59 → 0 at most once. d2 = rows before the
     //    physical wrap (≥ 1 on entry, updated for the next call) — the split
     //    point is known from Cache_Origin_Row up front, so each run is a
-    //    check-free move.w/dbf (the per-iteration sentinel compare is gone).
+    //    check-free drain (the per-iteration sentinel compare is gone).
     //    Row count ≤ TILE_CACHE_ROWS, so run 2 never wraps again.
-    //    Clobbers d1-d2, a0. --
+    //    The drain is 4×-unrolled: quads gather through 16-bit source
+    //    displacements (cell k at TILE_CACHE_STRIDE*2*k) + ONE lea per four
+    //    cells (~19.5 cyc/cell vs 30 for the old per-cell body), remainder
+    //    (count & 3) drains through the per-cell body. The live wrap budget
+    //    rides d2's upper half across the drain (SWAP-as-free-register, §2.6)
+    //    so the helper needs no extra register and the contract is unchanged.
+    //    Clobbers d1-d2 (d2.w = updated wrap budget; upper half trashed), a0. --
     .copy_col_run:
         sub.w   d1, d2
-        bgt     .ccr_single                    // whole run before the wrap
+        bgt     .ccr_drain                     // whole run before the wrap — tail-drain d1 cells
         add.w   d2, d1                         // d1 = rows up to the wrap (≥ 1)
-        subq.w  #1, d1
-    .ccr_run1:
-        move.w  (a0), (a2)+
-        lea     TILE_CACHE_STRIDE*2(a0), a0
-        dbf     d1, .ccr_run1
+        jbsr    .ccr_drain                     // run 1 (d2.w rides the drain's swap stash)
         suba.w  #TILE_CACHE_NT_SIZE, a0        // physical row 59 → 0
         move.w  d2, d1
         neg.w   d1                             // d1 = rows after the wrap
@@ -196,12 +198,31 @@ pub proc Draw_TileColumn (d0: u16, d1: u16) clobbers(d0-d5/a0-a2) {
         sub.w   d1, d2                         // fresh wrap budget minus run 2
         tst.w   d1
         beq     .ccr_ret                       // the wrap landed at run end
-    .ccr_single:
+        // fall through: run 2 tail-drains the post-wrap rows
+    .ccr_drain:
+        swap    d2                             // stash the live wrap budget (§2.6)
+        move.w  d1, d2
+        andi.w  #3, d2                         // d2 = remainder cells (0-3)
+        lsr.w   #2, d1                         // d1 = quad count
+        beq     .ccr_rem_entry                 // 1-3 cells: remainder only
         subq.w  #1, d1
-    .ccr_run2:
+    .ccr_quad:
+        move.w  (a0), (a2)+
+        move.w  TILE_CACHE_STRIDE*2(a0), (a2)+
+        move.w  TILE_CACHE_STRIDE*4(a0), (a2)+
+        move.w  TILE_CACHE_STRIDE*6(a0), (a2)+
+        lea     TILE_CACHE_STRIDE*8(a0), a0
+        dbf     d1, .ccr_quad
+    .ccr_rem_entry:
+        move.w  d2, d1
+        beq     .ccr_drained
+        subq.w  #1, d1
+    .ccr_rem:
         move.w  (a0), (a2)+
         lea     TILE_CACHE_STRIDE*2(a0), a0
-        dbf     d1, .ccr_run2
+        dbf     d1, .ccr_rem
+    .ccr_drained:
+        swap    d2                             // restore the wrap budget
     .ccr_ret:
         rts
 }
