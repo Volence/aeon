@@ -2,7 +2,7 @@
 // games/sonic4/data/sound/mt_bank_blob.emp — the Moving-Trucks streaming bank,
 // native (song streams + the two pointer tables sound_api.emp reads cross-seam)
 // ===========================================================================
-// The Moving-Trucks song-stream bank sits inside the sound bank at $58625 (after
+// The Moving-Trucks song-stream bank sits inside the sound bank at $58628 (after
 // the phased soundBankHead). This module places it NATIVELY by embedding the
 // seam-2-emitted THREE-WAY SPLIT of the bank: the body (song streams + heads),
 // the SongTable pointer table, and the parallel SongPatchTable — three contiguous
@@ -10,11 +10,14 @@
 // emitted equ artifact. The emit-tool architecture is untouched (`ensure_generated`
 // still lowers mt_bank.emp → the .bin); this module just places those bytes.
 //
-// SHAPE-DEPENDENT SIZE (shape-INVARIANT start): the body always starts at $58625
-// (the soundBankHead above it is $625 bytes both shapes since the 12-byte
-// DacSample growth), but the debug build adds the DrumTest + HCZ2 songs, so plain
-// is 0x34E1 B (ends $5BB06) and debug is 0x4F33 B (ends $5D558). Each member
-// selects on DEBUG.
+// SHAPE-DEPENDENT SIZE (shape-INVARIANT start): the body always starts at $58628
+// (the soundBankHead above it is $628 bytes both shapes since the 12-byte
+// DacSample growth + its head-tail 4-pad), but the debug build adds the
+// DrumTest + HCZ2 songs, and the mt_bank.emp tail pad (the SFX-base alignment
+// fix) pads per shape — so plain is 0x34E8 B (7-byte pad, ends $5BB10) and
+// debug is 0x4F38 B (5-byte pad, ends $5D560). Each member selects on DEBUG.
+// The tail is ≡ 0 (mod 8) BY CONSTRUCTION so the SFX block after it starts
+// 8-aligned (see mt_bank.emp).
 //
 // NON-PHASED: the members' labels are plain LMA (68k reads SongTable/SongPatchTable
 // at their absolute ROM addresses; the Z80 reads the song streams via runtime-

@@ -3514,3 +3514,42 @@ Open items this execution creates or leaves:
   full $7F fade is ~2.1 s (was ~1.07 s at the old STEP=2). All 8 authored speeds
   are slower-or-equal; if a sub-2s fade is ever needed the step magnitude (not
   the pattern) is the knob.
+
+## Ledgered by the 2026-08-10 DAC drum-library-readiness package 3 execution (`sound-pkg3`)
+
+- **Sigil table-fold vs placement divergence at unaligned bank-section base** —
+  exposed by sound-pkg3's head growth (DacSampleTable 9→12 B/descriptor shifted the
+  sound-bank tail parity): the placement chainer **8-aligns** the SFX block's
+  section base, but seam-2's sound_layout fold (which bakes the absolute
+  `SfxTable` pointer cells into `sfx_bank{,_debug}.bin` and the SfxBlobWinTab
+  window pointers) packs contiguously WITHOUT that align — every pointer came out
+  **-2** in the plain shape and SFX went totally silent (debug's base happened to
+  stay ≡ 0 mod 8, so only plain broke, and no build gate fired). The quantum was
+  pinned empirically: a mod-4-only pad still placed **-4** ($5BB0C fold vs $5BB10
+  placed), and the old working bases $5BAE8/$5D558 are ≡ 0 mod 8 but ≢ 0 mod 16.
+  Worked around by STRUCTURAL 8-alignment of the sfx_bank base via two
+  comptime-sized pads inside the seam-2-lowered artifacts (so the fold and the
+  chainer both count the bytes): the engine-table head is rounded to ≡ 0 mod 8 at
+  its tail (`engine/sound/dac_sample_tab.emp` `DacHeadPad_*`, sized off the
+  seeded DAC consts + the four fixed head sizes, walled in `soundbankhead.emp`
+  incl. a head-total `% 8 == 0` tripwire), and the MT bank tail is rounded to
+  ≡ 0 mod 8 (`games/sonic4/data/sound/mt_bank.emp` `_sfx_align_*`, sized off its
+  own blob lengths, before SongTable so the pad lands in the body split-bin) —
+  self-adjusting under head growth, song regen, and shape. Plus a link-time base
+  wall in `games/sonic4/data/sound/sfx_bank_blob.emp`
+  (`ensure((winptr(Sfx_33) & 7) == 0, …)` — placement-side only; the fold's base
+  is not expressible repo-side).
+  **Second finding, same session**: a source `align` CANNOT express this fix —
+  seam-2 lowers these modules at baseline-0/vma positions that differ from final
+  placement, so `align` computes the wrong pad count; its D2.29 link-time
+  congruence assert catches it loudly ("padding was computed against the
+  lowering-baseline address ... final address ..."), which is correct-and-loud
+  but means `align` is unusable in any seam-2-lowered module whose placed base
+  parity differs from its lowering baseline.
+  **Needs a sigil-side fix**: either the fold must model the same alignment the
+  chainer applies (and/or lower seam-2 modules at their true placed bases so
+  `align` works), or a fold-vs-placement base mismatch must be a BUILD ERROR —
+  never silent short pointers. The chainer's 8-quantum should also be stated
+  somewhere authoritative instead of reverse-engineered. (Class risk: any OTHER
+  seam-2 fold that bakes absolute addresses against a contiguous-pack model
+  diverges the same way if its section gains chainer alignment.)

@@ -13,17 +13,18 @@
 // a HARD org — the resident Z80 driver holds banked carriers at these exact VMAs
 // ($8000/$8357/$845F/$856D/$85AD, seam-1 banked_carriers + the DacSampleTable -D),
 // so the head NEVER repacks. The 5 head spans are byte-exact and contiguous
-// ($8000..$8625 = $625 since the 12-byte DacSample growth; DacSampleTable is the
-// LAST head, so its growth moved no carrier VMA); a size drift would slide a
-// downstream head off its fixed carrier VMA and desync the Z80 blob — the
-// `ensure`s below catch it LOUD (the AS twin's `fatal` walls, now comptime facts).
+// ($8000..$8628 = $628 since the 12-byte DacSample growth + the 3-byte head-tail
+// 4-alignment pad; DacSampleTable is the LAST head, so its growth moved no
+// carrier VMA); a size drift would slide a downstream head off its fixed
+// carrier VMA and desync the Z80 blob — the `ensure`s below catch it LOUD (the
+// AS twin's `fatal` walls, now comptime facts).
 //
 // The head labels have NO whole-ROM-link consumer (the resident Z80 code that reads
 // them is the seam-1 BLOB, resolved separately via the banked carriers — this module
 // just re-homes the same labels the AS soundBankHead defined). SoundTablesZ80_Head is
 // already a frozen boundary key + the `sound_bank` map anchor.
 //
-// SHAPE-INVARIANT SIZE ($625 both), shape-DEPENDENT CONTENT: SfxBlobWinTab (the SFX
+// SHAPE-INVARIANT SIZE ($628 both), shape-DEPENDENT CONTENT: SfxBlobWinTab (the SFX
 // blob-window pointers, after the shape-dependent songs) and SeqOpcodeTable (the
 // coordination-opcode handlers, re-based after the debug sequencer growth) differ per
 // shape — the embed selects on DEBUG. The other three heads are shape-invariant.
@@ -67,4 +68,16 @@ ensure(_sound_tables.len == $357, "sound_tables_z80 head wrong size ($357=855 B)
 ensure(_pitchtab.len == $108, "MovingTrucks_PitchTable wrong size (must be 2*PITCHTAB_COUNT = $108)")
 ensure(_sfxwin.len == $10E, "SfxBlobWinTab wrong size (must be SFX_TABLE_LEN*2 = $10E)")
 ensure(_seqop.len == $40, "SeqOpcodeTable wrong size (must be 32 dw entries = $40)")
-ensure(_dacsamp.len == $78, "DacSampleTable wrong size (must be DAC_SAMPLE_COUNT*DacSample_len = 10*12 = $78)")
+ensure(_dacsamp.len == $7B, "DacSampleTable wrong size (must be DAC_SAMPLE_COUNT*DacSample_len = 10*12 = $78, + the 3-byte head-tail 4-alignment pad = $7B — see dac_sample_tab.emp DacHeadPad)")
+
+// The head-tail 8-alignment wall (package 3 fix): the MT bank after this head is
+// seam-2-lowered against a baseline-0 base and the SFX block's baked pointer
+// folds require its base ≡ 0 (mod 8) — the placement chainer 8-aligns that
+// section's base while the fold packs contiguously, so a misaligned base means
+// silent short pointers. Both hold ONLY if this head's total is ≡ 0 (mod 8)
+// (the sound_bank anchor $58000 is 8-aligned). The pad lives at the head tail
+// (dac_sample_tab.emp, comptime-sized off the four fixed head sizes + the table
+// span); THIS wall is the loud tripwire if any head resizes without
+// re-satisfying the invariant.
+ensure((_sound_tables.len + _pitchtab.len + _sfxwin.len + _seqop.len + _dacsamp.len) % 8 == 0,
+       "engine-table head must end 8-aligned — the MT bank's lowering baseline and the SFX pointer fold both assume it (see dac_sample_tab.emp DacHeadPad)")

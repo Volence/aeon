@@ -516,9 +516,11 @@ older sections of this spec cite are historical):
    dc.w ptr / dc.w len / dc.w 0 loop / dc.b 0 vol / dc.w 0 mix_rsvd) and bump
    `DAC_SAMPLE_COUNT` in `engine/sound/sound_constants.emp`. Two size walls
    self-check: the `span(DacSampleTable) == DAC_SAMPLE_COUNT * DacSample_len`
-   ensure in `dac_sample_tab.emp`, and the `_dacsamp.len == $78`-style wall in
-   `games/sonic4/data/sound/soundbankhead.emp` (update the latter's literal with
-   the new count: `DAC_SAMPLE_COUNT * 12`). New ids slot in AFTER id 10
+   ensure in `dac_sample_tab.emp`, and the `_dacsamp.len == $7B`-style wall in
+   `games/sonic4/data/sound/soundbankhead.emp` (update the latter's literal to
+   `DAC_SAMPLE_COUNT * 12` + the self-adjusting `DacHeadPad` 8-alignment pad at
+   the table tail — the head-total `% 8 == 0` wall in the same file tells you if
+   you got it wrong). New ids slot in AFTER id 10
    (`tools/smps_import.py::HCZ2_DAC_REMAP` pins 5..10 to the S3K drums).
 5. **Overlapping drums** (kick+snare on one tick): author a pre-mixed composite
    sample — the ratified single-voice model. The build-time mixer tool
