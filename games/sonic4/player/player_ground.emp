@@ -37,7 +37,9 @@ use games.sonic4.sound_ids.{SFXID_ROLL, SFXID_JUMP, SFXID_SPINDASH}
 // engine.constants via `use engine.constants.{...}` above. The shift-form
 // assumption ensures below stay (they guard THIS file's asr-shift slope math).
 
-// physics-table field offsets (a4-relative; the Player_Phys field displacements).
+// player-block field offsets (a4-relative; the Player_Phys block displacements).
+// a4 holds the CALLING SLOT's block, so these reach that slot's state and no
+// other — the quadrant and jump buffer are per-slot working state, not globals.
 // File-local; a divergent offset shows up as a mismatched instruction byte in the
 // region gate (player_common.asm's mirror equates + their drift guards are gone).
 const PPHYS_ACCEL      = 0
@@ -45,6 +47,8 @@ const PPHYS_DECEL      = 2
 const PPHYS_FRICTION   = 4
 const PPHYS_TOP_SPEED  = 6
 const PPHYS_JUMP_FORCE = 10
+const PPHYS_QUADRANT   = 16
+const PPHYS_JUMPBUF    = 17
 
 // Shift-form assumptions on the slope-factor constants (the slope math uses
 // asr shifts, not muls — see PState_Ground/.slope and PState_Roll/.slope).
@@ -58,7 +62,7 @@ ensure(PHYS_SLOPE_ROLL_UP == $14, "roll uphill factor (downhill asr 2) assumes P
 // input/projection/wall probe (Ground_Move) → roll start check →
 // integrate → floor pair snap → slip check (fall-through into
 // Player_SlopeRepel).
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_AIR/ROLL/SPINDASH or jump)
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
@@ -74,13 +78,13 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // not this (review S4, self-resolving).
         btst    #BUTTON_DOWN_BIT, Ctrl_1_Held
         beq     .no_spindash
-        tst.b   Player_JumpBuffer
+        tst.b   PPHYS_JUMPBUF(a4)
         beq     .no_spindash
         move.w  PlayerV.ground_speed(a0), d0
         abs_w(d0)
         cmpi.w  #PHYS_ROLL_START_MIN, d0
         bge     .no_spindash
-        clr.b   Player_JumpBuffer               // consume — this press is rev 0
+        clr.b   PPHYS_JUMPBUF(a4)               // consume — this press is rev 0
         if SOUND_DRIVER_ENABLED == 1 {
                 // The initiating press IS a rev (rev 0) and must play the rev SFX — classic
                 // spindash makes the sound on the FIRST press. Since we consumed the jump
@@ -97,11 +101,11 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
                                                 // (player_spindash). Subsequent rev SFX per-tap in player_spindash.emp
 .no_spindash:
         // --- jump check (classic order: after spindash, before slope/
-        // input). Player_JumpBuffer covers fresh press AND buffered —
+        // input). the jump buffer covers fresh press AND buffered —
         // latched on the press edge in Player_Main; consumed only on a
         // successful launch, so a headroom rejection leaves it live and
         // the classic retry happens next frame while the buffer lasts ---
-        tst.b   Player_JumpBuffer
+        tst.b   PPHYS_JUMPBUF(a4)
         beq     .no_jump
         jbsr    Player_SensorCeiling            // headroom: d0 = clearance
                                                 // (≥16 sentinel = open sky)
@@ -214,7 +218,7 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         // 14) — S2+ rule (research feel-modern §2): Y-probe modes
         // (quadrant 0/2) use x_vel, X-probe wall modes (1/3) use y_vel
         move.w  x_vel(a0), d2
-        btst    #0, Player_Quadrant             // sets Z only — N at
+        btst    #0, PPHYS_QUADRANT(a4)          // sets Z only — N at
         beq     .axis_sel                       // .axis_sel is still the
         move.w  y_vel(a0), d2                   // loaded value's sign on
 .axis_sel:                                      // both paths
@@ -353,7 +357,7 @@ proc Ground_DetachState (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // cap/projection/wall probe (Ground_Move_Cap) → shared movement tail
 // (Ground_PostMove: integrate → floor pair → SlopeRepel fall-through —
 // rolling slips and detaches by the same rules as walking).
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to GROUND/ROLLJUMP/AIRBALL — a roll-off or
 //      steep detach stays curled via Ground_DetachState)
 // Clobbers: d0-d7, a1-a2
@@ -363,7 +367,7 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // _pl_state and launches into ROLLJUMP from here (air-control
         // lockout); ball radii are KEPT by the hooks — structural,
         // no size pop on a roll-jump ---
-        tst.b   Player_JumpBuffer
+        tst.b   PPHYS_JUMPBUF(a4)
         beq     .no_jump
         jbsr    Player_SensorCeiling            // d0 = headroom
         cmpi.w  #PHYS_JUMP_HEADROOM, d0
@@ -499,7 +503,7 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // Ground_Move — input → ground_speed, projection, ground wall probe
 // Classic accel/decel/friction semantics with the S3K back-out top-speed
 // rule and the turnaround kick (research physics-classics §1).
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: none
 // Clobbers: d0-d7, a1
 // -----------------------------------------------
@@ -580,7 +584,7 @@ proc Ground_Move (a0: *Sst) clobbers(d0-d7/a1) falls_into Ground_Move_Cap {
 // Ground_Move falls into it. Everything from the cap through the wall
 // probe is shared between walking and rolling; do not reorder, and any
 // walk-only addition below must be gated on _pl_state.
-// In:  a0 = player SST, a4 = Player_Phys, d0.w = pre-cap gsp
+// In:  a0 = player SST, a4 = the slot's player block, d0.w = pre-cap gsp
 // Out: none
 // Clobbers: d0-d7, a1
 // -----------------------------------------------
@@ -656,7 +660,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         // cardinals (x_vel = cos·gsp, y_vel = sin·gsp): gsp>0 moves
         // right/down/left/up in quadrants 0/1/2/3; gsp<0 mirrors
         moveq   #0, d2
-        move.b  Player_Quadrant, d2
+        move.b  PPHYS_QUADRANT(a4), d2
         tst.w   d4
         bpl     .dir_fwd
         addq.w  #4, d2
@@ -772,7 +776,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
 // by the caller, buffer consumed here). Perpendicular ADD along the
 // surface normal, angle − $40 (research §3): running speed is preserved
 // — gsp is NOT zeroed, it's already projected into x_vel/y_vel.
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: DOES NOT return to the ground flow — transitions to PSTATE_JUMP
 //      (PSTATE_ROLLJUMP from a roll) and runs the air body THIS frame,
 //      returning to Player_Main's dispatch.
@@ -798,7 +802,7 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bne     .no_carry
         move.b  d0, PlayerV.jump_headroom(a0)
 .no_carry:
-        clr.b   Player_JumpBuffer               // consume the buffered press
+        clr.b   PPHYS_JUMPBUF(a4)               // consume the buffered press
         if SOUND_DRIVER_ENABLED == 1 {
                 moveq   #SFXID_JUMP, d0 as SfxId
                 jbsr    Sound_PlaySFX

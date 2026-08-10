@@ -3830,3 +3830,48 @@ migration, which was never finished.
 
 **Status: NOT STARTED.** Novel, cross-repo, hard to reverse — wants an explicit owner go-ahead and a
 written spec before any code. Parked 2026-08-10 at Volence's direction to keep C2/C4 moving.
+
+---
+
+## Ledgered by the 2026-08-10 per-slot player-state split (`feat/character-dispatch`)
+
+### Hoist `Player_Quadrant` out of the sensor stack into a parameter — RECORDED, not fixed
+
+**What:** `Player_SensorFloor` / `Player_SensorCeiling` / `Player_SensorSurface`
+(`games/sonic4/player/player_sensors.emp`) read the probe quadrant out of ambient state rather than
+taking it as an argument. Before C1 that was a global (`Player_Quadrant`); after C1 it is
+`PPHYS_QUADRANT(a4)`, the calling slot's player block. Either way the dependency is **hidden**: the
+wrapper's signature says `a0 = player SST` and nothing in the call expression says the caller must
+also have established a4. The fix is to pass the quadrant explicitly (a register argument, or the
+block pointer as a declared param) so the contract is on the signature where the compiler and the
+reader can both see it.
+
+**Why it is worth doing, beyond tidiness — the latent coupling it closes.** `TestPlayer`
+(`games/sonic4/objects/test_player.emp`, DEBUG shape only) borrows `Player_SensorFloor` for its
+floor probe. It is not a player, has its own overlay (`TPlayerV`), and wants plain quadrant-0
+downward probing — but it has no way to *say* so. Pre-C1 it silently inherited whatever the real
+player last wrote to the global, and got away with it only because the object-test scene never runs
+the real player, so the boot-zero global happened to mean "quadrant 0". Had the two ever run in the
+same scene, TestPlayer's floor probe would have rotated with the real player's terrain angle and
+nobody would have suspected the sensor call. With an explicit parameter, TestPlayer states
+quadrant 0 honestly and the coupling cannot exist.
+
+**Why it was deferred.** The hoist changes the register contract of three procs that every player
+frame runs through, at ~10 call sites in the hot path (`player_ground` ×3, `player_air` ×4,
+`player_spindash` ×1, `test_player` ×1, plus the `Player_SensorSurface` fall-through). C1 Task 4
+gates this refactor on the **real player being byte-identical under a recorded-input replay**, and a
+contract change across the shared sensor stack underneath that gate would make a byte diff
+impossible to attribute. Right idea, wrong moment — owner ruling, 2026-08-10.
+
+**What was done instead (option 1 of the two considered):** `TestPlayer_Main` loads slot 0's block
+into a4 before its `Player_SensorFloor` call, and says why at the `lea`. That is coherent rather
+than a patch — `object_test_state.emp` installs TestPlayer in the `Player_1` slot, so slot 0's block
+genuinely is its block. The alternative considered and **rejected** was having TestPlayer call
+`Collision_ProbeDown` directly (as `Player_AtLedgeEdge` does): that is *not* behavior-preserving,
+because `Player_SensorSurface` runs an **A/B sensor pair** at x±x_rad and keeps the closer hit,
+while the bare core is a single centre point — collapsing a 32px-wide box's two foot probes to one
+would change how it behaves straddling a ledge edge.
+
+**Pick this up when:** Task 4's replay gate has passed and the byte-identity requirement is
+discharged. It is a mechanical change with a clear stopping point, and it is the last hidden global
+in the player sensor path.

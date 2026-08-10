@@ -29,6 +29,13 @@ use games.sonic4.sound_ids.{SFXID_SPINDASH, SFXID_DASH}
 
 // ST_XFLIP is consumed from engine.constants via `use engine.constants` above.
 
+// player-block field offset (a4-relative; the Player_Phys block displacement).
+// a4 holds the CALLING SLOT's block, so this reaches that slot's jump buffer and
+// no other — it is per-slot working state, not a global. File-local, like the
+// PPHYS_* offsets in player_ground/player_air and for the same reason: a
+// divergent offset shows up as a mismatched instruction byte in the region gate.
+const PPHYS_JUMPBUF = 17
+
 // -----------------------------------------------
 // PState_Spindash — Sonic's spindash charge (a CHARACTER state BODY:
 // character-specific state bodies live in character files like this
@@ -56,7 +63,7 @@ use games.sonic4.sound_ids.{SFXID_SPINDASH, SFXID_DASH}
 // calls AnglePos and nothing else) so a floor yanked from under a
 // charging player drops them — AIRBALL's enter hook curls them on the
 // way out, charge discarded via the exit hook.
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: none (release → PSTATE_ROLL and the roll frame runs NOW — the
 //      classic launches on the release frame; floor loss → PSTATE_AIRBALL)
 // Clobbers: d0-d7, a1-a2
@@ -75,12 +82,12 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .rev:
         // --- rev: each buffered jump press adds $200, capped $800 (clamp
         // last, classic — mashing holds exactly $800 at frame boundaries).
-        // Consuming Player_JumpBuffer (latched on the press edge) is the
+        // Consuming the jump buffer (latched on the press edge) is the
         // press test — the trigger consumed the initiating press, so a
         // charge frame only sees fresh taps ---
-        tst.b   Player_JumpBuffer
+        tst.b   PPHYS_JUMPBUF(a4)
         beq     .floor
-        clr.b   Player_JumpBuffer
+        clr.b   PPHYS_JUMPBUF(a4)
         addi.w  #SPINDASH_CHARGE_STEP, PlayerV.spindash_charge(a0)
         if SOUND_DRIVER_ENABLED == 1 {
                 move.b  #SFXID_SPINDASH, d0 as SfxId
@@ -136,7 +143,7 @@ pub proc PState_Spindash (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // "in the air" right after launch AND collides with the dash SFX in
         // the 1-byte mailbox (the quick-spindash "no follow-up noise"). A
         // FRESH press after the launch still roll-jumps normally.
-        clr.b   Player_JumpBuffer
+        clr.b   PPHYS_JUMPBUF(a4)
         jbsr    Player_SetState
         jbra    PState_Roll                     // classic: the release frame
                                                 // runs the full roll movement

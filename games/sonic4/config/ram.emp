@@ -16,7 +16,8 @@
 
 module games.sonic4.ram
 
-use engine.constants.{SYSTEM_STACK}
+use engine.constants.{SYSTEM_STACK, NUM_PLAYERS}
+use games.sonic4.constants.{PLAYER_BLOCK_SIZE}
 
 pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable
 
@@ -61,10 +62,28 @@ pub vars game_ram {
     // stays outside the SST entirely.
     Player_Chardef:         u32,
 
-    // Effective physics table — recomputed by Player_RefreshPhysics on section
-    // change / status events, NEVER per-frame. a4 points here during player
-    // movement code (classic register convention). Field order must match the
-    // first eight PHYS_* constants (constants.asm).
+    // -----------------------------------------------
+    // Per-slot player working blocks — NUM_PLAYERS × PLAYER_BLOCK_SIZE
+    // -----------------------------------------------
+    // The player's mutable per-frame working state, one block per slot, so both
+    // slots can move independently (C1). a4 points at the CALLING SLOT's block
+    // for the whole player frame — established once in Player_Main by the
+    // `player_block` splice (player_common) — and every consumer addresses this
+    // state a4-relative. That is the entire per-slot mechanism: no slot index in
+    // a register, no arithmetic at the ~20 access sites.
+    //
+    // Slot 0's block carries the named fields below and is ALSO the block base
+    // (`Player_Phys`) that the splice starts from; the remaining slots have the
+    // identical layout and are reached ONLY through a4, so they are reserved as
+    // one sized run rather than restated field-by-field. PLAYER_BLOCK_SIZE
+    // (config/constants.emp) is the single authority for the stride; the ensure
+    // in player_common binds it to the marks below, so a field added here without
+    // raising it fails the build.
+    //
+    // Physics row: recomputed by Player_RefreshPhysics on section change /
+    // status events, NEVER per-frame. Field order must match the first eight
+    // PHYS_* constants (engine/system/constants.emp) — PhysTable_Sonic is
+    // block-copied over it and sonic.emp's ensure guards the size.
     mark Player_Phys,
     Phys_accel:         u16,
     Phys_decel:         u16,
@@ -75,9 +94,13 @@ pub vars game_ram {
     Phys_air_accel:     u16,
     Phys_release_cap:   u16,
     mark Player_Phys_End,
+    Phys_quadrant:      u8,         // (angle+$20)>>6 — derived once per frame
+    Phys_jump_buffer:   u8,         // frames remaining on buffered jump press
+    mark Player_Block_End,
+    // slots 1..NUM_PLAYERS-1 — same layout, addressed only through a4
+    Player_Blocks_Tail: [u8; (NUM_PLAYERS - 1) * PLAYER_BLOCK_SIZE],
 
-    Player_Quadrant:        u8,     // (angle+$20)>>6 — derived once per frame
-    Player_JumpBuffer:      u8,     // frames remaining on buffered jump press
+    // Death is a whole-run event, not per-slot working state — one flag.
     Player_Death_Pending:   u8,     // EDGE_KILL hook: set when the player crosses a
                                     // kill-edge; the death system consumes it.
                                     // Boot-cleared with all Work-RAM.
@@ -95,6 +118,11 @@ pub vars game_ram {
     // -----------------------------------------------
     // Position/stat history rings (future Tails follow + trails; recorded from day
     // one). 256-aligned: index wraps via low-byte increment.
+    //
+    // LEADER-ONLY BY CONTRACT: this is the LEADER's position history, the trail a
+    // follower reads to lag behind. Player_Main records it for slot 0 and no other
+    // — if every slot wrote here, the samples would interleave at the 4-byte
+    // stride and the ring would describe no player at all.
     Player_Pos_Ring:    [u8; 256] @align(256),  // 64 × (x.w, y.w)
     Player_Stat_Ring:   [u8; 256],              // 64 × (input.w, status.b, pad.b)
     Player_Ring_Index:  u16,                    // byte offset into both rings — word-sized for (an,dn.w) index

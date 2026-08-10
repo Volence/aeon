@@ -22,7 +22,8 @@ use engine.objects.sst.{Sst, set_priority_band}
 use engine.structs.{Act, CharacterDef}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
-use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
+use engine.constants.{NUM_PLAYERS,
+        RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS,
         CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
@@ -57,7 +58,8 @@ use games.sonic4.constants.{
     PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
-    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT,
+    PLAYER_BLOCK_SIZE
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -126,6 +128,53 @@ pub const BUTTON_JUMP_MASK      = BUTTON_A | BUTTON_B | BUTTON_C
 pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns B
 
 const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
+
+// player-block field offsets (a4-relative; the Player_Phys block displacements
+// past the 8-word physics row). File-local, like the PPHYS_* physics-row offsets
+// in player_ground/player_air and for the same reason: a divergent offset shows
+// up as a mismatched instruction byte in the region gate.
+const PPHYS_QUADRANT = 16
+const PPHYS_JUMPBUF  = 17
+
+// -----------------------------------------------
+// player_block — point a register at the CALLING SLOT's player working block
+// (config/ram.emp: the 8-word physics row + quadrant + jump buffer).
+//
+// THIS IS THE WHOLE PER-SLOT MECHANISM. Player_Main resolves the slot once per
+// frame into a4 and every downstream site — the state bodies, the sensor stack,
+// Player_SnapToSurface — addresses the block a4-relative. No slot index is
+// carried in a register and no access site does arithmetic; making the state
+// per-slot was an addressing-mode change at each site, not a logic change.
+//
+// WHY A COMPARE AND NOT AN INDEX: the slot index is (sst − Object_RAM) /
+// sizeof(Sst), and sizeof(Sst) is $50 — not a power of two — so that division
+// needs a `divu`, which the conventions forbid outright (§2.1). With two slots a
+// single compare against Player_1 is both exact and cheaper. That is an
+// assumption about NUM_PLAYERS, so it is asserted at build time immediately
+// below rather than left to be discovered by a third slot silently reading slot
+// 1's block.
+// In:  sst = register holding the player SST (preserved)
+// Out: dst = that slot's block base
+// -----------------------------------------------
+pub comptime fn player_block(sst: Reg, dst: Reg) -> Code {
+        return asm {
+                lea     Player_Phys, {dst}              // slot 0 (the leader)
+                cmpa.w  #Player_1, {sst}
+                beq     .blk_resolved
+                lea     PLAYER_BLOCK_SIZE({dst}), {dst}
+        .blk_resolved:
+        }
+}
+ensure(NUM_PLAYERS == 2,
+       "player_block's compare-against-Player_1 slot derivation assumes exactly two player slots")
+ensure(PLAYER_BLOCK_SIZE == extern("Player_Block_End") - extern("Player_Phys"),
+       "PLAYER_BLOCK_SIZE out of sync with the Player_Phys block layout (config/ram.emp)")
+ensure(PPHYS_QUADRANT == extern("Player_Phys_End") - extern("Player_Phys"),
+       "PPHYS_QUADRANT must be the first byte past the physics row")
+ensure(PPHYS_JUMPBUF == PPHYS_QUADRANT + 1,
+       "PPHYS_JUMPBUF must follow the quadrant byte (config/ram.emp field order)")
+ensure(PLAYER_BLOCK_SIZE == PPHYS_JUMPBUF + 1,
+       "PLAYER_BLOCK_SIZE must close the block right after the jump-buffer byte")
 
 // -----------------------------------------------
 // set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
@@ -232,6 +281,7 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         clr.b   PlayerV.player_state(a0)        // defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 // drop to ground on frame 1
         jbsr    Player_SetState
+        player_block(a0, a2)                    // this slot's block — Refresh writes its row
         jbsr    Player_RefreshPhysics
         move.w  #Player_Main - ObjCodeBase, code_addr(a0)
         // Boot-entry into debug-fly rides the SAME runtime cheat bit as the B
@@ -243,19 +293,22 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
 }
 
 // -----------------------------------------------
-// Player_RefreshPhysics — recompute the effective physics table in RAM.
+// Player_RefreshPhysics — recompute ONE slot's effective physics row in RAM.
 // Identity modifier today: straight copy of the active character's base row
 // (CharacterDef.cd_phys). Section/water/speed-shoes modifiers compose HERE
 // later — called on section change and status events, NEVER per-frame
 // (spec §3.4).
-// In:  none (reads Player_Chardef)
+//
+// Takes the slot's block pointer rather than re-deriving one: the row it writes
+// is per-slot (C1), and every caller already has the SST in hand, so `player_block`
+// at the call site keeps the derivation in one place instead of two.
+// In:  a2 = the slot's player block (player_block); reads Player_Chardef
 // Out: none
 // Clobbers: a1-a2
 // -----------------------------------------------
-pub proc Player_RefreshPhysics () clobbers(a1-a2) {
+pub proc Player_RefreshPhysics (a2: *u8) clobbers(a1-a2) {
         movea.l Player_Chardef, a1
         movea.l CharacterDef.cd_phys(a1), a1
-        lea     Player_Phys, a2
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
@@ -310,7 +363,10 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
                                                 // skips physics, dispatch,
                                                 // rings, and display tail
 
-        lea     Player_Phys, a4                 // physics table convention
+        player_block(a0, a4)                    // a4 = THIS SLOT's working block —
+                                                // resolved once, held for the whole
+                                                // frame (physics row + quadrant +
+                                                // jump buffer all ride it)
 
         // quadrant = (angle+$20)>>6 — first-class derived value; computed from
         // LAST frame's angle (classic: angle updates at the floor pair)
@@ -318,7 +374,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         addi.b  #$20, d0
         rol.b   #2, d0
         andi.b  #3, d0
-        move.b  d0, Player_Quadrant
+        move.b  d0, PPHYS_QUADRANT(a4)
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
@@ -350,12 +406,12 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         andi.b  #BUTTON_JUMP_MASK_NO_B, d6      // armed: B is the fly toggle, not a jump
         beq     .no_latch
 .latch:
-        move.b  #PHYS_JUMP_BUFFER, Player_JumpBuffer
+        move.b  #PHYS_JUMP_BUFFER, PPHYS_JUMPBUF(a4)
         jbra    .buffer_done
 .no_latch:
-        tst.b   Player_JumpBuffer
+        tst.b   PPHYS_JUMPBUF(a4)
         beq     .buffer_done
-        subq.b  #1, Player_JumpBuffer
+        subq.b  #1, PPHYS_JUMPBUF(a4)
 .buffer_done:
 
         // --- state dispatch. d7 saved across: Player_SensorFloor legitimately
@@ -375,8 +431,15 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
 
         jbsr    Player_LevelBound               // classic LevelBound, post-dispatch
 
-        // --- position history rings (recorded unconditionally — a "follower
-        // active?" branch costs more than the writes) ---
+        // --- position history rings — LEADER ONLY. This is the trail a follower
+        // reads to lag behind the leader, so exactly one slot may write it: two
+        // writers would interleave their samples at the 4-byte stride and the ring
+        // would describe no player at all. The gate is the same compare the block
+        // derivation makes (a4 is not a proxy for it — both slots hold a valid
+        // block), and it is one compare per player per frame. Non-leader slots
+        // fall straight through to the shared display tail. ---
+        cmpa.w  #Player_1, a0
+        bne     .rings_done
         move.w  Player_Ring_Index, d0
         lea     Player_Pos_Ring, a1
         move.w  x_pos(a0), (a1,d0.w)
@@ -389,6 +452,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         move.b  status(a0), 2(a1,d0.w)          // +pad byte left untouched
         addq.b  #4, Player_Ring_Index+1         // (Player_Ring_Index+1).w — low-byte
                                                 // wrap; rings are 256-aligned (ram.asm)
+.rings_done:
         // fall through to the shared display tail
 }
 
@@ -725,13 +789,14 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
 //   quadrant 1: Collision_ProbeLeft  → x_pos −= dist
 //   quadrant 2: Collision_ProbeUp    → y_pos −= dist
 //   quadrant 3: Collision_ProbeRight → x_pos += dist
-// In:  a0 = player SST, d0.w = signed surface distance (px)
+// In:  a0 = player SST, a4 = the slot's player block (the quadrant it reads is
+//      per-slot), d0.w = signed surface distance (px)
 // Out: none
 // Clobbers: d0, d2
 // -----------------------------------------------
 pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
         dist_to_fix(d0)
-        move.b  Player_Quadrant, d2
+        move.b  PPHYS_QUADRANT(a4), d2
         beq     .down                           // floor mode — common case
         subq.b  #2, d2
         bmi     .left                           // quadrant 1

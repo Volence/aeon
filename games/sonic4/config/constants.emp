@@ -44,6 +44,21 @@ pub const CHEAT_DEBUG_FLY         = 1 << 0    // bit 0 of Cheat_Flags — free-f
 // another symbolic operand is not supported ([lower.imm-link]). The moveq/and pair
 // keeps one symbolic operand per instruction and costs the same 6 bytes.
 
+// -----------------------------------------------
+// Per-slot player working block (config/ram.emp, Player_Phys)
+// -----------------------------------------------
+// One block per player slot: the 8-word physics row + the quadrant byte + the
+// jump-buffer byte. a4 points at the CALLING SLOT's block for the whole player
+// frame, so every consumer addresses this state a4-relative and no site computes
+// a slot index (player_common's `player_block` splice resolves it once per frame).
+// Declared here rather than file-local because two modules that cannot share a
+// file-local need it: config/ram.emp sizes the layout from it, and
+// player_common's splice steps a4 by it. The FIELD displacements inside the block
+// stay file-local per the a4-displacement convention (player_air.emp).
+// Even by construction — the following u16s must stay word-aligned in both slots.
+pub const PLAYER_BLOCK_SIZE       = 18
+ensure((PLAYER_BLOCK_SIZE & 1) == 0, "PLAYER_BLOCK_SIZE must be even — slot 1's physics words are word-aligned by it")
+
 pub const ANIM_RUN_THRESHOLD      = $600      // |gsp| at/above which walk -> run anim (S3K)
 pub const SPINDASH_BASE           = $800
 pub const SPINDASH_CHARGE_STEP    = $200

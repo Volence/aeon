@@ -29,13 +29,16 @@ use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL, CHEAT_DEBUG_FLY}
 // press latch must resolve to the same effective mask, so they cannot be
 // file-local copies (a latch-without-sustain gives B jumps a clipped arc).
 
-// physics-table field offsets (a4-relative displacements; the Player_Phys field
-// displacements). File-local; a divergent offset shows up as a mismatched
+// player-block field offsets (a4-relative displacements; the Player_Phys block
+// displacements). a4 holds the CALLING SLOT's block, so these reach that slot's
+// state and no other — the quadrant is per-slot working state, not a global.
+// File-local; a divergent offset shows up as a mismatched
 // instruction byte in the region gate (the mirror equates + guards are gone).
 const PPHYS_TOP_SPEED  = 6
 const PPHYS_GRAVITY    = 8
 const PPHYS_AIR_ACCEL  = 12
 const PPHYS_RELEASE_CAP = 14
+const PPHYS_QUADRANT   = 16
 
 // Air behavior flag bits, carried in d6.b through body steps 1-2 only —
 // the sensor layer clobbers d6, but nothing after the input block reads
@@ -51,7 +54,7 @@ const AIRF_INPUT_LOCK  = 1     // air-input block skipped (ROLLJUMP)
 //   ROLLJUMP as JUMP + the classic air-control lockout (research §5:
 //            the WHOLE input block is skipped — drag still runs)
 //   AIRBALL  curled, not from a jump (rolled off a ledge): no cap
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_GROUND)
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
@@ -217,7 +220,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // without this the floor pair (and the landing snap axis in
         // Air_TouchFloor) would probe sideways during those frames.
         // Grounded frames recompute the quadrant in Player_Main ---
-        clr.b   Player_Quadrant
+        clr.b   PPHYS_QUADRANT(a4)
         // |x_vel| vs |y_vel| compare + signs ≡ the classic
         // CalcAngle(x_vel,y_vel)−$20 & $C0 quadrant for non-boundary
         // vectors (each class spans the ±45° cone around its axis). On
@@ -421,7 +424,7 @@ proc Air_FloorLandFlat (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // -----------------------------------------------
 proc Air_TouchFloor (a0: *Sst) clobbers(d0/d2) {
         // quadrant invariant (no runtime branch needed): the air body
-        // forces Player_Quadrant = 0 before its sensor block (air
+        // forces the slot quadrant to 0 before its sensor block (air
         // sensors never rotate), so the helper's quadrant dispatch is
         // always the +Y snap here — classic landings snap on Y
         jbsr    Player_SnapToSurface
@@ -464,7 +467,7 @@ proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
 // hook, so JUMP/ROLLJUMP/AIRBALL) may only pick GROUND if the standing
 // head rise fits — same hazard class and same threshold expression as
 // PState_Roll's unroll guard (player_ground.emp). The caller has already
-// floor-snapped with Player_Quadrant = 0, so Player_SensorCeiling probes
+// floor-snapped with the slot quadrant at 0, so Player_SensorCeiling probes
 // the ball box upward at the landed position — identical geometry.
 // Blocked → PSTATE_ROLL (KEEP_ROLL owns the low-speed case next frame).
 // In:  a0 = player SST (_pl_gsp already converted by the caller)
