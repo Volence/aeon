@@ -39,6 +39,7 @@ const PBLK_GRAVITY    = 8
 const PBLK_AIR_ACCEL  = 12
 const PBLK_RELEASE_CAP = 14
 const PBLK_QUADRANT   = 16
+const PBLK_JUMPBUF    = 17
 
 // Air behavior flag bits, carried in d6.b through body steps 1-2 only —
 // the sensor layer clobbers d6, but nothing after the input block reads
@@ -127,6 +128,51 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .cut_arc:
         move.w  PBLK_RELEASE_CAP(a4), y_vel(a0)
 .no_cap:
+
+        // --- 1b. ability: a FRESH jump press while ALREADY airborne runs the
+        // active character's cd_ability hook (Tails' flight, Knuckles' glide, a
+        // double jump). Sonic's is Ability_None — an rts — so this is a no-op
+        // for him past the gate. Same two masks and the same cheat gate as the
+        // HELD check above and player_common's press latch: a button that starts
+        // a jump is a button that triggers the ability. ---
+        //
+        // PRESS-EDGE, verified against the ground→air seam (this is the whole
+        // reason for the buffer test below):
+        //   * Ctrl_1_Press is TICK-STABLE — VInt_Level latches the accumulated
+        //     edges into it once per tick (vblank.emp), so a press bit reads as
+        //     fresh for the WHOLE of that tick, to every consumer.
+        //   * Player_Jump runs the air body ON THE PRESS FRAME: after
+        //     Player_SetState it tail-jumps PState_Jump / PState_RollJump, which
+        //     land here. So the press that STARTED the jump reaches this point
+        //     with its bit still set, and an unguarded press test would fire the
+        //     ability on the launch frame — Tails would start flying out of the
+        //     same press that jumped.
+        //   * The jump BUFFER separates the two. Player_Main latches
+        //     PHYS_JUMP_BUFFER on every jump press edge BEFORE the dispatch, and
+        //     Player_Jump CONSUMES it (clr.b) on a successful launch. So at this
+        //     point the buffer is 0 exactly on a launch frame and non-zero on a
+        //     genuine airborne press — no new state, one test.
+        //   * That is the ONLY overlap: the other ground→air transitions
+        //     (Ground_DetachState, from Ground_PostMove and Player_SlopeRepel)
+        //     tail-jump Player_SetState and return to Player_Main's dispatch —
+        //     they never run the air body in the same frame.
+        //   * A held button cannot re-fire: a press bit lives exactly one tick.
+        // The buffer is deliberately NOT consumed here. It must keep decaying to
+        // the landing frame exactly as it does today (an airborne press already
+        // buffers a landing jump), or wiring the hook would change Sonic.
+        move.b  Ctrl_1_Press, d1
+        andi.b  #BUTTON_JUMP_MASK, d1           // A|B|C — classic three-button jump
+        beq     .no_ability
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .press_ok                       // cheat clear: B presses like A and C
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d1      // armed: B is the fly toggle, not a jump
+        beq     .no_ability
+.press_ok:
+        tst.b   PBLK_JUMPBUF(a4)                // spent => this IS the launch frame
+        beq     .no_ability
+        jbsr    Player_Ability                  // preserves a0/d6; clobbers d1-d2/a1-a2
+.no_ability:
 
         // --- 2. air input: x_vel directly — gsp is NOT authoritative
         // airborne. ROLLJUMP lockout skips the whole block (no accel,

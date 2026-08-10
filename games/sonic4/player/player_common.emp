@@ -535,12 +535,22 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         move.b  #ANIM_SPINDASH, anim(a0)
         rts
 .not_spindash:
-        // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL >= PSTATE_JUMP)
-        cmpi.b  #PSTATE_JUMP, d0
-        bhs     .ball
-        cmpi.b  #PSTATE_ROLL, d0
-        bne     .uncurled
-.ball:
+        // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL). ST_ROLLING IS
+        // "in ball form", so the test is the bit, not a state range — which is
+        // what retires the PSTATE_* ordering constraint (config/constants.emp).
+        // The equivalence is structural, not incidental: PHook_EnsureBall/
+        // EnsureStanding are the bit's ONLY writers (both set/clear it
+        // UNCONDITIONALLY, outside their height-keyed guard), every state reaches
+        // exactly one of them through PState_EnterHooks — Roll/Jump/RollJump/
+        // AirBall → EnsureBall, Ground/Air/Spindash → EnsureStanding — and
+        // Player_SetState is the only writer of player_state, writing it and
+        // running the enter hook with nothing in between. So bit and state agree
+        // at every point a frame can observe them, this one included: Player_Animate
+        // runs in the display tail, after the dispatch has completed its transitions.
+        // (SPINDASH never reaches here — priority 1 above returns — so the fact
+        // that it is standing-but-attacking costs nothing either way.)
+        btst    #ST_ROLLING, status(a0)
+        beq     .uncurled
         // S3K-exact roll hold: max(0,($400-|gsp|)>>8) — the prologue's $800
         // walk hold would spin the ball at HALF the classic rate (Harmony
         // study defect #1). ground_speed is the right input even airborne

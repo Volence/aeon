@@ -55,9 +55,26 @@ pub const SPINDASH_CHARGE_STEP    = $200
 pub const SPINDASH_CHARGE_MAX     = $800
 
 // Player states (jump-table byte offsets: index x 2)
-// ORDERING CONSTRAINT: the curled states (JUMP/ROLLJUMP/AIRBALL) must stay the
-// LAST entries — Player_Display's ball-anim test is `>= PSTATE_JUMP`. Append new
-// states BEFORE PSTATE_JUMP and renumber.
+//
+// The values ARE indices into the three parallel tables in player_common.emp
+// (Player_States / PState_EnterHooks / PState_ExitHooks), pre-scaled by 2: each
+// state's row sits at its value/2, and PSTATE_COUNT sizes all three (their
+// `.count` ensures catch a table that drifts out of step). That is the whole
+// rule — a new state is a new value, a row in each of the three tables, and a
+// raised PSTATE_COUNT, and it may be appended anywhere.
+//
+// There is deliberately NO ordering constraint on top of that any more. The
+// curled set used to have to sit last because Player_Animate's ball test was a
+// `>= PSTATE_JUMP` compare; it now reads the ST_ROLLING status bit, which the
+// enter hooks own, so the classification no longer rides the numbering. (C2/C4
+// append FLY/GLIDE/SLIDE/CLIMB/LEDGE, and glide/slide are attacking but NOT
+// curled — a range test could not have expressed that set at all.)
+//
+// One numbering coupling survives and is intentional: engine/level/camera.emp
+// mirrors PSTATE_JUMP / PSTATE_ROLLJUMP for its landing lock (the engine is
+// game-agnostic and cannot `use` this module) and cross-checks the mirror with
+// `ensure`. RENUMBERING either of those two fails the build with that message —
+// update the mirror in the same edit.
 pub const PSTATE_GROUND           = 0
 pub const PSTATE_ROLL             = 2
 pub const PSTATE_SPINDASH         = 4
@@ -66,8 +83,6 @@ pub const PSTATE_JUMP             = 8          // airborne curled from jump — 
 pub const PSTATE_ROLLJUMP         = 10         // as JUMP + air control lockout
 pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
 pub const PSTATE_COUNT            = 7          // state/hook tables assert against this
-ensure(PSTATE_AIRBALL == (PSTATE_COUNT - 1) * 2,
-       "curled states must remain the last PSTATE_* entries (Player_Display ball test)")
 
 // Playable characters — the roster index (C1). These ARE the indices into
 // CharacterDefs (characters.emp), so the order of that table is bound to this
