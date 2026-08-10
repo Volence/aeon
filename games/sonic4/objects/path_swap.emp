@@ -1,4 +1,5 @@
-// PathSwap — invisible vertical line that flips Player_1's collision layer.
+// PathSwap — invisible vertical line that flips the LEADER's collision layer.
+// The followed slot is Camera_Target (engine RAM), not a hardwired Player_1.
 //
 // Crossing the line writes layer (0 = path A / primary, 1 = path B /
 // secondary). Side tracking is UNCONDITIONAL (S.C.E. Path Swap arming
@@ -81,7 +82,7 @@ pub proc PathSwap_Init (a0: *Sst) clobbers(d0-d2/a1) {
 .have_hh:
         move.w  d0, PathSwapV.half_height(a0)
 
-        lea     Player_1, a1
+        movea.w Camera_Target, a1               // the leader — path swap follows it
         move.w  Sst.x_pos(a1), d0
         cmp.w   x_pos(a0), d0                   // signed — engine X can be negative
         sgt     d1
@@ -98,7 +99,7 @@ pub proc PathSwap_Init (a0: *Sst) clobbers(d0-d2/a1) {
 //   Draw_Sprite (d0-d3/a1) as a visible test marker, so d3 rides the superset.
 // -----------------------------------------------
 pub proc PathSwap_Main (a0: *Sst) clobbers(d0-d3/a1) preserves(a0) {
-        lea     Player_1, a1
+        movea.w Camera_Target, a1               // the leader — path swap follows it
         move.w  Sst.x_pos(a1), d0
         cmp.w   x_pos(a0), d0
         sgt     d1                              // d1 = $FF right of line, $00 left

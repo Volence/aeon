@@ -138,10 +138,28 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         clr.w   PLAYER_1_X_VEL                 // (Player_1+SST_x_vel).w
         clr.w   PLAYER_1_Y_VEL                 // (Player_1+SST_y_vel).w
 
+        // -- name slot 0 the LEADER: the slot the camera follows and that the
+        //    leader-following objects (path swap) track. Both read Camera_Target
+        //    rather than a hardwired Player_1, so a roster that leads with
+        //    another slot changes only this write. Stored off the `lea` because
+        //    a link-time immediate cannot combine with a symbolic destination in
+        //    one instruction.
+        //
+        //    ORDERING — the seed MUST precede the first read, and does by
+        //    construction: this is the one-shot boot init (Game.entry), while
+        //    BOTH readers live in the per-frame update state that only runs
+        //    after it returns (Camera_Update from GameState_OJZScroll_Update;
+        //    PathSwap_Init/_Main from RunObjects, their swappers spawned by
+        //    EntityWindow_Scan). Nothing in this init spawns an object or runs
+        //    the camera follow. Load-bearing, not tidiness: the cell boot-clears
+        //    to 0, a NULL SST pointer into the vector table — not a benign
+        //    "slot 0". --
+        lea     Player_1, a0                    // (Player_1).w
+        move.w  a0, Camera_Target               // (Camera_Target).w
+
         // -- set up Player_1 as the player (Sonic). Player_Init boots in
         //    debug-fly (yellow square) so the streaming-test workflow is
         //    unchanged — B drops into physics. --
-        lea     Player_1, a0                    // (Player_1).w
         jbsr    Player_Init
 
         // -- write 4 marker tiles to VRAM (16x16 sprite = 2x2 tiles) at

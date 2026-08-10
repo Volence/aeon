@@ -130,6 +130,7 @@ pub proc TouchResponse () clobbers(d0-d7/a0-a4) {
         // between the dispatch and the classifier, blinding the balance
         // check. SST_interact carries WHICH solid claimed us — the probe
         // reads it directly (no stale-bit slot scan).
+        // No P1-hardcode bug to hunt here: status is a per-SST byte written a2-relative, so this engine has no ST_P1_*/ST_P2_* globals to get wrong.
         bclr    #ST_ON_OBJECT, status(a2)
         clr.w   interact_off()(a2)
 

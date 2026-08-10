@@ -413,6 +413,29 @@ pub vars upper_ram {
     Camera_Pan_Offset:      u16,        // current extended lookahead pan
     Camera_X_Max:           u16,        // per-act clamp ceiling: (grid_w << SECTION_SIZE_SHIFT) - SCREEN_WIDTH
     Camera_Y_Max:           u16,        // per-act clamp ceiling: (grid_h << SECTION_SIZE_SHIFT) - SCREEN_HEIGHT
+
+    // The LEADER: a POINTER to the SST the camera follows (and that the game's
+    // other leader-following systems track — path swap today). One indirection
+    // replaces every hardwired `lea Player_1`, so a roster where slot 0 is not
+    // the followed character needs no engine change: the level init writes this
+    // cell and everything downstream agrees.
+    //
+    // A WORD, not a long: every SST lives in upper_ram ($FFFF8000+), so bit 15
+    // is set and `movea.w Camera_Target, aN` sign-extends to the right address —
+    // the same idiom Sprite_Bands and the free stacks already use for SST
+    // addresses, and half the storage of a long.
+    //
+    // It is engine RAM (not game RAM) because engine.camera reads it
+    // unconditionally, and engine.camera is compiled into EVERY game — including
+    // `demo`, which defines no game-side player symbols at all (that is exactly
+    // why the landing-lock probe below it is comptime-gated on
+    // Game.CAMERA_JUMP_LOCK). A game-RAM home fails the demo link outright.
+    //
+    // NOT boot-safe by default: Work-RAM boot-clears to 0, and 0 is not a valid
+    // SST — it is a null pointer into the vector table, not a benign "slot 0".
+    // Level init MUST seed it before the first Camera_Update.
+    Camera_Target:          u16,        // leader SST pointer (word, sign-extended)
+
     Camera_Hold_Frames:     u8,         // frames the camera holds position (game code sets it;
                                         // Camera_Update tests it each frame to suppress movement,
                                         // then decrements)
