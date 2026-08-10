@@ -12,7 +12,7 @@
 // SST_code_addr via a code_addr = label − ObjCodeBase store.
 //
 // This module OWNS the player frame outright — player_common.asm is deleted. The
-// PlayerV overlay, the PPHYS_* / BUTTON_JUMP_MASK / PLAYER_DEBUG_FLY_SPEED consts,
+// PlayerV overlay, the PBLK_* / BUTTON_JUMP_MASK / PLAYER_DEBUG_FLY_SPEED consts,
 // the four macro→comptime-fn templates, and the code span all live here; the state
 // files (player_ground/air/spindash) reach them by module `use`, and engine.camera
 // late-binds the one `_pl_state` offset through the link.
@@ -28,6 +28,10 @@ use engine.constants.{NUM_PLAYERS,
         CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
+
+// PlayerBlock — the per-slot player working block this module's a4 convention
+// addresses; config/ram.emp is its sole author.
+use games.sonic4.ram.{PlayerBlock}
 
 // Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
 // set = supported, d0=1/Z clear = teetering) — resolves module-to-module to
@@ -58,8 +62,7 @@ use games.sonic4.constants.{
     PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
-    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT,
-    PLAYER_BLOCK_SIZE
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -129,24 +132,22 @@ pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns 
 
 const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
 
-// player-block field offsets (a4-relative; the Player_Phys block displacements
-// past the 8-word physics row). File-local to match the PPHYS_* physics-row
-// offsets in player_ground/player_air — but unlike those copies, THESE two are
-// bound to the layout by the ensures below, which catch a drifted offset at
-// build time rather than leaving it to surface as a mismatched instruction byte
-// in the region gate.
+// player-block field displacements (a4-relative). File-local hand-typed literals,
+// matching the PBLK_* convention in player_ground/player_air; the ensures below
+// bind THESE two to the PlayerBlock layout, so a drifted offset fails the build
+// rather than surfacing as a mismatched instruction byte in the region gate.
 //
-// PPHYS_JUMPBUF is deliberately NOT spelled PPHYS_JUMP_BUFFER, breaking the
-// otherwise-exact field-name mapping (PPHYS_TOP_SPEED <-> Phys_top_speed). The
-// engine constant PHYS_JUMP_BUFFER is one character away, and the two appear on
-// the SAME LINE in the latch below (`move.b #PHYS_JUMP_BUFFER, PPHYS_JUMPBUF(a4)`)
+// PBLK_JUMPBUF is deliberately NOT spelled PBLK_JUMP_BUFFER, breaking the
+// otherwise-exact field-name mapping (PBLK_TOP_SPEED <-> PlayerBlock.top_speed).
+// The engine constant PHYS_JUMP_BUFFER is one character away, and the two appear
+// on the SAME LINE in the latch below (`move.b #PHYS_JUMP_BUFFER, PBLK_JUMPBUF(a4)`)
 // — near-identical names sitting adjacent is a misreading waiting to happen.
 // Keep the abbreviation.
-const PPHYS_QUADRANT = 16
-const PPHYS_JUMPBUF  = 17
+const PBLK_QUADRANT = 16
+const PBLK_JUMPBUF  = 17
 
 // -----------------------------------------------
-// player_block — point a register at the CALLING SLOT's player working block
+// player_block — point a register at the CALLING SLOT's PlayerBlock
 // (config/ram.emp: the 8-word physics row + quadrant + jump buffer).
 //
 // THIS IS THE WHOLE PER-SLOT MECHANISM. Player_Main resolves the slot once per
@@ -162,12 +163,17 @@ const PPHYS_JUMPBUF  = 17
 // assumption about NUM_PLAYERS, so it is asserted at build time immediately
 // below rather than left to be discovered by a third slot silently reading slot
 // 1's block.
+//
+// The stride is sizeof(PlayerBlock), so the slot arithmetic cannot disagree with
+// the RAM layout — there is no separate size constant to keep in sync, and no
+// adjacency to assert: `Player_Blocks` IS the contiguous run.
+//
 // Hygienic `.blk_resolved` label per expansion (the mask_opposing_lr / abs_w
 // splice pattern), so the expansion sites don't collide. NOTE for consumers
 // outside this module: the body expands in the CALLER's scope, so the caller
-// must also `use games.sonic4.constants.{PLAYER_BLOCK_SIZE}` — test_player does.
+// must also `use games.sonic4.ram.{PlayerBlock}` — test_player does.
 // In:  sst = register holding the player SST (preserved)
-// Out: dst = that slot's block base
+// Out: dst = that slot's PlayerBlock
 // Clobbers: CCR — the `cmpa.w` leaves the compare's flags, not the caller's.
 //      Both expansion sites are flag-independent at the splice, but this file
 //      deliberately carries flags across instruction boundaries elsewhere
@@ -175,10 +181,10 @@ const PPHYS_JUMPBUF  = 17
 // -----------------------------------------------
 pub comptime fn player_block(sst: Reg, dst: Reg) -> Code {
         return asm {
-                lea     Player_Phys, {dst}              // slot 0 (the leader)
+                lea     Player_Blocks, {dst}            // slot 0 (the leader)
                 cmpa.w  #Player_1, {sst}
                 beq     .blk_resolved
-                lea     PLAYER_BLOCK_SIZE({dst}), {dst}
+                lea     sizeof(PlayerBlock)({dst}), {dst}
         .blk_resolved:
         }
 }
@@ -194,21 +200,11 @@ ensure(NUM_PLAYERS == 2,
 // exact single-block bug this parcel removes) and the ring gate would never fire.
 ensure((extern("Player_1") & $FFFF8000) == $FFFF8000,
        "player_block + the ring gate use cmpa.w — Player_1 must sign-extend from a word, i.e. live in the w-addressable window ($FFFF8000+)")
-ensure(PLAYER_BLOCK_SIZE == extern("Player_Block_End") - extern("Player_Phys"),
-       "PLAYER_BLOCK_SIZE out of sync with the Player_Phys block layout (config/ram.emp)")
-ensure(PPHYS_QUADRANT == extern("Player_Phys_End") - extern("Player_Phys"),
-       "PPHYS_QUADRANT must be the first byte past the physics row")
-ensure(PPHYS_JUMPBUF == PPHYS_QUADRANT + 1,
-       "PPHYS_JUMPBUF must follow the quadrant byte (config/ram.emp field order)")
-ensure(PLAYER_BLOCK_SIZE == PPHYS_JUMPBUF + 1,
-       "PLAYER_BLOCK_SIZE must close the block right after the jump-buffer byte")
-// Link-time drift-lock (the RunObjects_Frozen System/Effect adjacency precedent,
-// engine/objects/core.emp): the sizes above are right but say nothing about
-// ADJACENCY. `player_block` reaches slot N by stepping PLAYER_BLOCK_SIZE off
-// Player_Phys, so the reserve run must begin exactly where slot 0's block ends —
-// a field inserted between them would silently land slot 1's block on top of it.
-ensure(extern("Player_Blocks_Tail") == extern("Player_Block_End"),
-       "config/ram.emp: Player_Blocks_Tail must immediately follow Player_Block_End — player_block strides the slots as one contiguous run")
+// The two hand-typed displacements above, bound to the type that owns the layout.
+ensure(PBLK_QUADRANT == offsetof(PlayerBlock, quadrant),
+       "PBLK_QUADRANT out of sync with PlayerBlock.quadrant (config/ram.emp)")
+ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
+       "PBLK_JUMPBUF out of sync with PlayerBlock.jump_buffer (config/ram.emp)")
 
 // -----------------------------------------------
 // set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
@@ -336,11 +332,11 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // Takes the slot's block pointer rather than re-deriving one: the row it writes
 // is per-slot (C1), and every caller already has the SST in hand, so `player_block`
 // at the call site keeps the derivation in one place instead of two.
-// In:  a2 = the slot's player block (player_block); reads Player_Chardef
+// In:  a2 = the slot's PlayerBlock (player_block); reads Player_Chardef
 // Out: none
 // Clobbers: a1-a2
 // -----------------------------------------------
-pub proc Player_RefreshPhysics (a2: *u8) clobbers(a1-a2) {
+pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(a1-a2) {
         movea.l Player_Chardef, a1
         movea.l CharacterDef.cd_phys(a1), a1
         move.l  (a1)+, (a2)+
@@ -408,7 +404,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         addi.b  #$20, d0
         rol.b   #2, d0
         andi.b  #3, d0
-        move.b  d0, PPHYS_QUADRANT(a4)
+        move.b  d0, PBLK_QUADRANT(a4)
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
@@ -440,12 +436,12 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         andi.b  #BUTTON_JUMP_MASK_NO_B, d6      // armed: B is the fly toggle, not a jump
         beq     .no_latch
 .latch:
-        move.b  #PHYS_JUMP_BUFFER, PPHYS_JUMPBUF(a4)
+        move.b  #PHYS_JUMP_BUFFER, PBLK_JUMPBUF(a4)
         jbra    .buffer_done
 .no_latch:
-        tst.b   PPHYS_JUMPBUF(a4)
+        tst.b   PBLK_JUMPBUF(a4)
         beq     .buffer_done
-        subq.b  #1, PPHYS_JUMPBUF(a4)
+        subq.b  #1, PBLK_JUMPBUF(a4)
 .buffer_done:
 
         // --- state dispatch. d7 saved across: Player_SensorFloor legitimately
@@ -830,7 +826,7 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
 // -----------------------------------------------
 pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
         dist_to_fix(d0)
-        move.b  PPHYS_QUADRANT(a4), d2
+        move.b  PBLK_QUADRANT(a4), d2
         beq     .down                           // floor mode — common case
         subq.b  #2, d2
         bmi     .left                           // quadrant 1

@@ -488,7 +488,7 @@ below remove specific collisions at the source.
 ### Item 4 + Item 2 — spurious roll-jump SFX after a spindash launch — **FIXED 2026-06-21**
 > **Symbol note (2026-08-10):** the narrative below names `Player_JumpBuffer`, a global that no
 > longer exists. The per-slot split (C1) folded it into the player working block, where it is now
-> `PPHYS_JUMPBUF(a4)`; the `.asm` files it cites are the `.emp` twins today
+> `PBLK_JUMPBUF(a4)`; the `.asm` files it cites are the `.emp` twins today
 > (`games/sonic4/player/player_spindash.emp`, `player_ground.emp`). The fix itself still stands at
 > `player_spindash.emp` `.launch`. History left as written.
 

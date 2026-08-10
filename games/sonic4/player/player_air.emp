@@ -29,16 +29,16 @@ use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL, CHEAT_DEBUG_FLY}
 // press latch must resolve to the same effective mask, so they cannot be
 // file-local copies (a latch-without-sustain gives B jumps a clipped arc).
 
-// player-block field offsets (a4-relative displacements; the Player_Phys block
+// player-block field offsets (a4-relative displacements; the PlayerBlock
 // displacements). a4 holds the CALLING SLOT's block, so these reach that slot's
 // state and no other — the quadrant is per-slot working state, not a global.
 // File-local; a divergent offset shows up as a mismatched
 // instruction byte in the region gate (the mirror equates + guards are gone).
-const PPHYS_TOP_SPEED  = 6
-const PPHYS_GRAVITY    = 8
-const PPHYS_AIR_ACCEL  = 12
-const PPHYS_RELEASE_CAP = 14
-const PPHYS_QUADRANT   = 16
+const PBLK_TOP_SPEED  = 6
+const PBLK_GRAVITY    = 8
+const PBLK_AIR_ACCEL  = 12
+const PBLK_RELEASE_CAP = 14
+const PBLK_QUADRANT   = 16
 
 // Air behavior flag bits, carried in d6.b through body steps 1-2 only —
 // the sensor layer clobbers d6, but nothing after the input block reads
@@ -104,7 +104,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         btst    #AIRF_RELEASE_CAP, d6
         beq     .no_cap
         move.w  y_vel(a0), d0
-        cmp.w   PPHYS_RELEASE_CAP(a4), d0
+        cmp.w   PBLK_RELEASE_CAP(a4), d0
         bge     .no_cap                         // not rising past the cap
         // B SUSTAINS a jump exactly when B could start one — same gate, same two
         // masks as player_common's press latch (which owns both). If B latched a
@@ -125,7 +125,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         andi.b  #BUTTON_JUMP_MASK_NO_B, d1      // armed: B is the fly toggle, not a jump
         bne     .no_cap                         // still held → full arc
 .cut_arc:
-        move.w  PPHYS_RELEASE_CAP(a4), y_vel(a0)
+        move.w  PBLK_RELEASE_CAP(a4), y_vel(a0)
 .no_cap:
 
         // --- 2. air input: x_vel directly — gsp is NOT authoritative
@@ -141,23 +141,23 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         btst    #BUTTON_RIGHT_BIT, d2
         beq     .input_done
         bclr    #ST_XFLIP, status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
+        move.w  PBLK_TOP_SPEED(a4), d1
         cmp.w   d1, d0
         bge     .input_done                     // S3K back-out: speed already
                                                 // at/above top is preserved —
                                                 // input never curtails it
-        add.w   PPHYS_AIR_ACCEL(a4), d0
+        add.w   PBLK_AIR_ACCEL(a4), d0
         cmp.w   d1, d0
         ble     .air_store
         move.w  d1, d0                          // crossed top this frame → clamp
         jbra    .air_store
 .air_left:
         bset    #ST_XFLIP, status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
+        move.w  PBLK_TOP_SPEED(a4), d1
         neg.w   d1
         cmp.w   d1, d0
         ble     .input_done                     // S3K back-out (mirror)
-        sub.w   PPHYS_AIR_ACCEL(a4), d0
+        sub.w   PBLK_AIR_ACCEL(a4), d0
         cmp.w   d1, d0
         bge     .air_store
         move.w  d1, d0
@@ -186,7 +186,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // old y_vel moves you this frame, gravity sets up the next) ---
         jbsr    ObjectMove
         move.w  y_vel(a0), d0
-        add.w   PPHYS_GRAVITY(a4), d0
+        add.w   PBLK_GRAVITY(a4), d0
         cmpi.w  #PHYS_FALL_CAP, d0
         ble     .fall_capped
         move.w  #PHYS_FALL_CAP, d0
@@ -220,7 +220,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // without this the floor pair (and the landing snap axis in
         // Air_TouchFloor) would probe sideways during those frames.
         // Grounded frames recompute the quadrant in Player_Main ---
-        clr.b   PPHYS_QUADRANT(a4)
+        clr.b   PBLK_QUADRANT(a4)
         // |x_vel| vs |y_vel| compare + signs ≡ the classic
         // CalcAngle(x_vel,y_vel)−$20 & $C0 quadrant for non-boundary
         // vectors (each class spans the ±45° cone around its axis). On

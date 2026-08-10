@@ -37,18 +37,18 @@ use games.sonic4.sound_ids.{SFXID_ROLL, SFXID_JUMP, SFXID_SPINDASH}
 // engine.constants via `use engine.constants.{...}` above. The shift-form
 // assumption ensures below stay (they guard THIS file's asr-shift slope math).
 
-// player-block field offsets (a4-relative; the Player_Phys block displacements).
+// player-block field offsets (a4-relative; the PlayerBlock displacements).
 // a4 holds the CALLING SLOT's block, so these reach that slot's state and no
 // other — the quadrant and jump buffer are per-slot working state, not globals.
 // File-local; a divergent offset shows up as a mismatched instruction byte in the
 // region gate (player_common.asm's mirror equates + their drift guards are gone).
-const PPHYS_ACCEL      = 0
-const PPHYS_DECEL      = 2
-const PPHYS_FRICTION   = 4
-const PPHYS_TOP_SPEED  = 6
-const PPHYS_JUMP_FORCE = 10
-const PPHYS_QUADRANT   = 16
-const PPHYS_JUMPBUF    = 17
+const PBLK_ACCEL      = 0
+const PBLK_DECEL      = 2
+const PBLK_FRICTION   = 4
+const PBLK_TOP_SPEED  = 6
+const PBLK_JUMP_FORCE = 10
+const PBLK_QUADRANT   = 16
+const PBLK_JUMPBUF    = 17
 
 // Shift-form assumptions on the slope-factor constants (the slope math uses
 // asr shifts, not muls — see PState_Ground/.slope and PState_Roll/.slope).
@@ -78,13 +78,13 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // not this (review S4, self-resolving).
         btst    #BUTTON_DOWN_BIT, Ctrl_1_Held
         beq     .no_spindash
-        tst.b   PPHYS_JUMPBUF(a4)
+        tst.b   PBLK_JUMPBUF(a4)
         beq     .no_spindash
         move.w  PlayerV.ground_speed(a0), d0
         abs_w(d0)
         cmpi.w  #PHYS_ROLL_START_MIN, d0
         bge     .no_spindash
-        clr.b   PPHYS_JUMPBUF(a4)               // consume — this press is rev 0
+        clr.b   PBLK_JUMPBUF(a4)               // consume — this press is rev 0
         if SOUND_DRIVER_ENABLED == 1 {
                 // The initiating press IS a rev (rev 0) and must play the rev SFX — classic
                 // spindash makes the sound on the FIRST press. Since we consumed the jump
@@ -105,7 +105,7 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         // latched on the press edge in Player_Main; consumed only on a
         // successful launch, so a headroom rejection leaves it live and
         // the classic retry happens next frame while the buffer lasts ---
-        tst.b   PPHYS_JUMPBUF(a4)
+        tst.b   PBLK_JUMPBUF(a4)
         beq     .no_jump
         jbsr    Player_SensorCeiling            // headroom: d0 = clearance
                                                 // (≥16 sentinel = open sky)
@@ -218,7 +218,7 @@ proc Ground_PostMove (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player_SlopeRep
         // 14) — S2+ rule (research feel-modern §2): Y-probe modes
         // (quadrant 0/2) use x_vel, X-probe wall modes (1/3) use y_vel
         move.w  x_vel(a0), d2
-        btst    #0, PPHYS_QUADRANT(a4)          // sets Z only — N at
+        btst    #0, PBLK_QUADRANT(a4)          // sets Z only — N at
         beq     .axis_sel                       // .axis_sel is still the
         move.w  y_vel(a0), d2                   // loaded value's sign on
 .axis_sel:                                      // both paths
@@ -367,7 +367,7 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // _pl_state and launches into ROLLJUMP from here (air-control
         // lockout); ball radii are KEPT by the hooks — structural,
         // no size pop on a roll-jump ---
-        tst.b   PPHYS_JUMPBUF(a4)
+        tst.b   PBLK_JUMPBUF(a4)
         beq     .no_jump
         jbsr    Player_SensorCeiling            // d0 = headroom
         cmpi.w  #PHYS_JUMP_HEADROOM, d0
@@ -445,7 +445,7 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bcc     .friction                       // carry = crossed zero
         move.w  #$80, d0                        // (+$80 exceeds moveq range)
 .friction:
-        move.w  PPHYS_FRICTION(a4), d1
+        move.w  PBLK_FRICTION(a4), d1
         asr.w   #1, d1                          // roll friction = friction/2
         tst.w   d0
         beq     .unroll_check
@@ -521,7 +521,7 @@ proc Ground_Move (a0: *Sst) clobbers(d0-d7/a1) falls_into Ground_Move_Cap {
         btst    #BUTTON_RIGHT_BIT, d2
         bne     .move_right
 .friction:
-        move.w  PPHYS_FRICTION(a4), d1
+        move.w  PBLK_FRICTION(a4), d1
         tst.w   d0
         beq     Ground_Move_Cap
         bmi     .friction_neg
@@ -539,20 +539,20 @@ proc Ground_Move (a0: *Sst) clobbers(d0-d7/a1) falls_into Ground_Move_Cap {
         tst.w   d0
         ble     .accel_left
         // decelerating against rightward motion
-        sub.w   PPHYS_DECEL(a4), d0
+        sub.w   PBLK_DECEL(a4), d0
         bcc     Ground_Move_Cap
         moveq   #-$80, d0                       // turnaround kick (.w use only)
         jbra    Ground_Move_Cap
 .accel_left:
         bset    #ST_XFLIP, status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
+        move.w  PBLK_TOP_SPEED(a4), d1
         neg.w   d1
         cmp.w   d1, d0
         ble     Ground_Move_Cap                 // at/beyond −top already:
                                                 // preserve (S3K back-out —
                                                 // input never curtails
                                                 // earned overspeed)
-        sub.w   PPHYS_ACCEL(a4), d0
+        sub.w   PBLK_ACCEL(a4), d0
         cmp.w   d1, d0
         bge     Ground_Move_Cap
         move.w  d1, d0                          // crossed top this frame → clamp
@@ -561,17 +561,17 @@ proc Ground_Move (a0: *Sst) clobbers(d0-d7/a1) falls_into Ground_Move_Cap {
 .move_right:
         tst.w   d0
         bge     .accel_right
-        add.w   PPHYS_DECEL(a4), d0
+        add.w   PBLK_DECEL(a4), d0
         bcc     Ground_Move_Cap
         move.w  #$80, d0                        // turnaround kick (+$80 exceeds
                                                 // moveq's signed-byte range)
         jbra    Ground_Move_Cap
 .accel_right:
         bclr    #ST_XFLIP, status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
+        move.w  PBLK_TOP_SPEED(a4), d1
         cmp.w   d1, d0
         bge     Ground_Move_Cap                 // S3K back-out (see .accel_left)
-        add.w   PPHYS_ACCEL(a4), d0
+        add.w   PBLK_ACCEL(a4), d0
         cmp.w   d1, d0
         ble     Ground_Move_Cap
         move.w  d1, d0
@@ -660,7 +660,7 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         // cardinals (x_vel = cos·gsp, y_vel = sin·gsp): gsp>0 moves
         // right/down/left/up in quadrants 0/1/2/3; gsp<0 mirrors
         moveq   #0, d2
-        move.b  PPHYS_QUADRANT(a4), d2
+        move.b  PBLK_QUADRANT(a4), d2
         tst.w   d4
         bpl     .dir_fwd
         addq.w  #4, d2
@@ -802,12 +802,12 @@ pub proc Player_Jump (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bne     .no_carry
         move.b  d0, PlayerV.jump_headroom(a0)
 .no_carry:
-        clr.b   PPHYS_JUMPBUF(a4)               // consume the buffered press
+        clr.b   PBLK_JUMPBUF(a4)               // consume the buffered press
         if SOUND_DRIVER_ENABLED == 1 {
                 moveq   #SFXID_JUMP, d0 as SfxId
                 jbsr    Sound_PlaySFX
         }
-        move.w  PPHYS_JUMP_FORCE(a4), d2
+        move.w  PBLK_JUMP_FORCE(a4), d2
         move.b  angle(a0), d0
         beq     .flat
         subi.b  #$40, d0 as Angle               // surface normal (GetSineCosine takes d0: Angle)

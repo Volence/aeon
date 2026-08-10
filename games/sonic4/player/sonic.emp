@@ -9,6 +9,7 @@
 module games.sonic4.sonic in sonic
 
 use engine.structs.{CharacterDef}
+use games.sonic4.ram.{PlayerBlock}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 use engine.constants.{PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
@@ -45,10 +46,10 @@ pub data CharDef_Sonic: CharacterDef = CharacterDef{
 }
 
 // -----------------------------------------------
-// Sonic's physics base table — block-copied into Player_Phys by
-// Player_RefreshPhysics (the per-CHARACTER base row; section modifiers
-// compose there later, NEVER per-frame). Field order is bound to the
-// Player_Phys RAM layout (config/ram.emp) — the ensure below enforces size.
+// Sonic's physics base table — block-copied into the calling slot's
+// PlayerBlock by Player_RefreshPhysics (the per-CHARACTER base row; section
+// modifiers compose there later, NEVER per-frame). Field order is bound to the
+// PlayerBlock physics row (config/ram.emp) — the ensure below enforces size.
 // SCOPE NOTE: ONLY these 8 fields are section-modifiable. The other
 // physics values (GSp/fall caps, slope factors, roll friction/decel,
 // slip params, spindash + roll thresholds) are direct PHYS_*/SPINDASH_*
@@ -65,4 +66,8 @@ pub data PhysTable_Sonic: [i16; 8] = [
         PHYS_AIR_ACCEL,
         PHYS_JUMP_RELEASE_CAP,
 ]
-ensure(8 * 2 == extern("Player_Phys_End") - extern("Player_Phys"), "PhysTable_Sonic out of sync with Player_Phys layout")
+// The physics row is the head of PlayerBlock, so its length is the offset of the
+// first non-physics field. Guards the same fact the retired mark-difference did:
+// this 8-word ROM row and the RAM row Player_RefreshPhysics block-copies it into
+// must be the same size.
+ensure(8 * 2 == offsetof(PlayerBlock, quadrant), "PhysTable_Sonic out of sync with the PlayerBlock physics row")

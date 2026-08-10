@@ -11,9 +11,11 @@ use engine.types.{VramTile}
 // VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
 // game-config value, imported from games.sonic4.constants below.
 // CHEAT_DEBUG_FLY — bit 0 of Cheat_Flags, the runtime gate on debug free-flight.
-// PLAYER_BLOCK_SIZE is the player_block splice's stride — the splice expands in
-// THIS module's scope, so the name has to resolve here (see the use below).
-use games.sonic4.constants.{VRAM_TEST_SONIC, CHEAT_DEBUG_FLY, PLAYER_BLOCK_SIZE}
+use games.sonic4.constants.{VRAM_TEST_SONIC, CHEAT_DEBUG_FLY}
+
+// PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock), and the
+// splice expands in THIS module's scope, so the type has to resolve here.
+use games.sonic4.ram.{PlayerBlock}
 
 // player_block — the per-slot player-block derivation splice. TestPlayer borrows
 // the player sensor wrappers, so it must establish a4 the same way the real

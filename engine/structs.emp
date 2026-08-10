@@ -196,7 +196,7 @@ pub struct parallax_config {
 // -----------------------------------------------
 pub struct CharacterDef {
     cd_phys:      *u8,           // $00 — 8-word physics base row (PhysTable shape;
-                                 //       block-copied into Player_Phys)
+                                 //       block-copied into the slot's PlayerBlock)
     cd_mappings:  u32,           // $04 — sprite mapping index (-> Sst.mappings)
     cd_dplc:      *u8,           // $08 — DPLC index (Perform_DPLC's a2)
     cd_artbase:   *u8,           // $0C — uncompressed art base (Perform_DPLC's a3)

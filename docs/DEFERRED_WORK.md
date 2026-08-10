@@ -3840,7 +3840,7 @@ written spec before any code. Parked 2026-08-10 at Volence's direction to keep C
 **What:** `Player_SensorFloor` / `Player_SensorCeiling` / `Player_SensorSurface`
 (`games/sonic4/player/player_sensors.emp`) read the probe quadrant out of ambient state rather than
 taking it as an argument. Before C1 that was a global (`Player_Quadrant`); after C1 it is
-`PPHYS_QUADRANT(a4)`, the calling slot's player block. Either way the dependency is **hidden**: the
+`PBLK_QUADRANT(a4)`, the calling slot's PlayerBlock. Either way the dependency is **hidden**: the
 wrapper's signature says `a0 = player SST` and nothing in the call expression says the caller must
 also have established a4. The fix is to pass the quadrant explicitly (a register argument, or the
 block pointer as a declared param) so the contract is on the signature where the compiler and the
