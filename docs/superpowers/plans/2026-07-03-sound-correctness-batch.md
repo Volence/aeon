@@ -41,7 +41,7 @@ If `PSG_DIVISOR_MAX_IDX` does not exist, define it in `sound_constants.asm` next
 Run: `SOUND_DRIVER_ENABLED=1 DEBUG=1 ./build.sh 2>&1 | grep -E "budget|complete"`
 Expected: build complete; resident growth ≤ 8 B vs the recorded baseline.
 
-- [ ] **Step 4 (controller session): oracle gate**
+- [ ] **Step 4 (controller session): oracle gate** — OWED, see the DEFERRED_WORK package-4 ledger entry
 
 Foreground: force the spindash-rev SFX (`Dbg_Sfx_Sel` at `$FF8A12`, B-cycle debug binding) after several rev pings — the rev escalation writes `sc_transpose` on its PSG channel; verify via `z80_read` of the PSG divisor writes (or vgm capture) that pitch now RISES with rev on the PSG component exactly as the FM component does. Before the fix the PSG component stays flat.
 
@@ -210,19 +210,27 @@ git commit -m "fix(tools): preserve FM AM-enable bit in SFX patches (B3, S3K byt
 - Possibly modify: `engine/sound/sound_psg.asm` (only if the noise-clock path is music-gated)
 - Test: `tools/test_sfx_transcode.py`
 
-- [ ] **Step 1: Establish whether the shipped mechanism reaches SFX**
+> **TASK 6 OUTCOME: N/A — Step 2B (the fallback) taken, 2026-08-10.** The mechanism is MUSIC-GATED
+> (`Psg_Noise` branches on `Snd_ChanClass`; the rate-3 `Psg_EmitNoiseClock` lives only on the music arm).
+> Un-gating costs far more than the 12 B ceiling — it needs an SFX-side noise-mode carrier that cannot live
+> in the shared prefix (`sc_noise_mode` +57 aliases `sx_priority`), AND a noise-route special case in
+> `Psg_ApplyMod` (whose `Psg_ChBase` math writes `$E0`, the noise CONTROL register — the very D1 corruption
+> this package closed), AND a carve-out in the new D1 rule. Estimated ≳ 40 B. Full costing recorded verbatim
+> on the DEFERRED_WORK B5 entry, with a recommendation to give B5 its own parcel sequenced after triage R3.
+
+- [x] **Step 1: Establish whether the shipped mechanism reaches SFX**
 
 The HCZ2 work shipped S3K-faithful tone-tracked noise for MUSIC: `MEV_PSGNOISE` + rate-3 noise clocked from the tone channel (grep `Psg_EmitNoiseClock` / `MEV_PSGNOISE` in `engine/sound/sound_psg.asm` + `sound_sequencer.asm`). Read the gate: is the tone-2-clocks-noise path conditioned on a music-only flag/route, or does any PSG3+noise pairing get it? Record the answer in the task log.
 
-- [ ] **Step 2A (mechanism reachable from SFX): transcoder reroute**
+- [ ] ~~**Step 2A (mechanism reachable from SFX): transcoder reroute**~~ — N/A, mechanism is music-gated
 
 Change the `$E7` handling at `sfx_transcode.py:1275-1287` from the fixed `$E6` approximation to: emit the dash's swept tone stream on the PSG3 route (silent volume) + `MEV_PSGNOISE` rate-3 control (`$E7` → noise clocked FROM tone-3) on the noise route — the S3K wiring. Add a transcoder test asserting the dash blob emits the paired channels and the `$E7`-class control byte.
 
-- [ ] **Step 2B (fallback — mechanism music-gated and un-gating costs > 12 B):** keep `$E6`, add the finding + cost to DEFERRED_WORK B5 entry verbatim, and mark this task N/A in the plan checklist. (Fallback is a legitimate outcome; do not force the feature over budget.)
+- [x] **Step 2B (fallback — mechanism music-gated and un-gating costs > 12 B):** keep `$E6`, add the finding + cost to DEFERRED_WORK B5 entry verbatim, and mark this task N/A in the plan checklist. (Fallback is a legitimate outcome; do not force the feature over budget.)
 
-- [ ] **Step 3 (if 2A): gates** — pytest green; rebuild blobs; build green. **Controller session:** rendered A/B — capture our dash vs S3K's dash (`skdisasm/sonic3k.bin` sound test), spectrogram both (`tools/vgm_onsets.py` + vgm2wav per the established pipeline); the descending "pshhew" sweep must now appear in ours.
+- [ ] ~~**Step 3 (if 2A): gates**~~ — N/A (2B taken) — pytest green; rebuild blobs; build green. **Controller session:** rendered A/B — capture our dash vs S3K's dash (`skdisasm/sonic3k.bin` sound test), spectrogram both (`tools/vgm_onsets.py` + vgm2wav per the established pipeline); the descending "pshhew" sweep must now appear in ours.
 
-- [x] **Step 4: Commit**
+- [ ] ~~**Step 4: Commit**~~ — N/A (2B taken; no code change)
 
 ```bash
 git add tools/sfx_transcode.py tools/test_sfx_transcode.py games/sonic4/data/sound/sfx/
@@ -265,9 +273,9 @@ git commit -m "feat(sound): MEV_REGDELTA group 6 — runtime SSG-EG sweeps ($90 
 **Files:**
 - Modify: `docs/DEFERRED_WORK.md` (audit section: strike D1/D4/D6/D7/B3/B5/E5 with outcomes; annotate D2/D3/D5/F3/F4 entries as verified-already-done 2026-07-03 where not already struck), `docs/superpowers/2026-07-03-sound-banking-queue.md` (package 4 row → EXECUTED), `docs/ENGINE_ARCHITECTURE.md` §6 index row only if E5/B5 change shipped-feature claims.
 
-- [ ] **Step 1: Annotate all entries** (strikethrough + `**DONE <date> (<commit>)**` per the file's established idiom).
-- [ ] **Step 2: Final full build + test sweep** — `python3 -m pytest tools/ -q` and DEBUG + release builds green; record final Z80 budget delta in the queue log (target ≤ 40 B total).
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Annotate all entries** (strikethrough + `**DONE <date> (<commit>)**` per the file's established idiom).
+- [x] **Step 2: Final full build + test sweep** — `python3 -m pytest tools/ -q` and DEBUG + release builds green; record final Z80 budget delta in the queue log (target ≤ 40 B total).
+- [x] **Step 3: Commit**
 
 ```bash
 git add docs/DEFERRED_WORK.md docs/superpowers/2026-07-03-sound-banking-queue.md docs/ENGINE_ARCHITECTURE.md

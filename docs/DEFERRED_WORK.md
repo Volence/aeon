@@ -2124,9 +2124,18 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
 - **B2 — by-ear FM octave / spindash-sweep "taste knobs" baked into committed SFX data** (`sfx_transcode.py`
   151-176; `_FM_SFX_OCTAVE`, `_SPINDASH_MOD_SCALE`). Unconverged WIP; likely *compensating* for B1.
   **After B1 lands + regen, re-evaluate — they may collapse toward 0/S3K-faithful.** (Paused 2026-06-21.)
-- **B3 — AM-enable bit dropped vs S3K byte** (`sfx_transcode.py` 330-336/390; `_am<<5 & 0x80` always 0).
+- ~~**B3 — AM-enable bit dropped vs S3K byte** (`sfx_transcode.py` 330-336/390; `_am<<5 & 0x80` always 0).
   Harmless on YM2612 (bit 5 of $60 is a don't-care) but a byte-fidelity divergence + a trap if a real
-  AM voice is ever transcoded. Doc or preserve the junk bits.
+  AM voice is ever transcoded. Doc or preserve the junk bits.~~
+  **DONE 2026-08-10 (package 4, `sound-pkg4`) — but NOT as "preserve the junk bits".** The entry's own
+  observation is the reason: bits 6-5 of `$60` are DON'T-CARES, so reproducing the `SourceSMPS2ASM==0` byte
+  buys nothing while losing the flag the voice author meant. `smpsVcAmpMod`'s operand is now treated as a
+  per-operator AM-ENABLE FLAG and lands on YM2612 **bit 7** — the placement `_smps2asm_inc.asm`'s own comment
+  records as correct ("According to several docs, however, it's actually the high bit"). Implemented as a
+  NONZERO TEST rather than a shift, so it is right under either SMPS2ASM encoding and under the 2-bit values
+  the erroneous assumption could produce. **Zero shipped-content movement:** all nine core SFX `.bin` payloads
+  regenerate byte-identical (of all S3K SFX only `9B - Thump Boss` authors AM, and it is not in
+  `_CORE_SFX_IDS`), and all four ROM CRCs were unchanged across the commit.
 - **B4 — looped-SFX fade tail (`smpsFMAlterVol`) + bare-duration replay — FIXED 2026-06-21** (see
   `docs/BUGS.md` BUG-002 items 1 & 3). The transcoder collapsed S&K's per-pass `smpsFMAlterVol` fade to one
   constant `MEV_VOL` (roll tail held flat then hard-cut) and dropped the SMPS bare-duration "replay previous
@@ -2164,6 +2173,34 @@ A1 (SFX steal silence-gap). Everything else below is the durable backlog so noth
   approximation. Note the MUSIC path has since shipped tone-tracked noise — `MEV_PSGNOISE` clocks rate-3
   noise from tone-2, S3K-faithful, HCZ2 hi-hats — so the engine mechanism for option (a) now part-exists.)*
 
+  > **STILL OPEN after package 4 (2026-08-10) — the plan's own Step-2B fallback was taken, deliberately.**
+  > Package 4's Task 6 required answering, first, whether the shipped music mechanism REACHES SFX. It does
+  > not: `Psg_Noise` branches on `Snd_ChanClass` and the rate-3 tone-2 clock (`Psg_EmitNoiseClock`) lives
+  > ONLY on the MUSIC arm; the SFX arm is the legacy `$E0 | (note & 7)` path with no `$C0` write. The plan
+  > sanctioned the fallback if un-gating cost more than ~12 B. Costed, it is far more than that — THREE
+  > coupled changes, not one:
+  >
+  > 1. **The SFX channel cannot carry a noise-mode byte.** S3K's `$E7` semantics need the note to be a
+  >    PITCH plus a cached mode/rate, but `sc_noise_mode` (+57) ALIASES `SfxChannel.sx_priority`, and
+  >    `_validate_no_aliasing_ops` rejects `MEV_PSGNOISE` on SFX for exactly that reason. The shared prefix
+  >    may not grow (standing sound-banking invariant), so the carrier would have to be a new `sx_kind`
+  >    value (+63, SFX-private) plus a tone-clock branch in `Psg_Noise`'s SFX arm — ~18 B before sharing,
+  >    ~11 B net if the `SCF_KEYED`/`Psg_EnvCursorReset` prologue is hoisted out of both arms first.
+  > 2. **The sweep itself is broken on the noise route.** The dash's descent is a `smpsModSet`, and
+  >    `Psg_ApplyMod` re-latches through `Psg_EmitDivisor` -> `Psg_ChBase`, which for `CHROUTE_PSGN`
+  >    computes latch `$80|$60` = `$E0` — the NOISE CONTROL register. That is precisely the **D1**
+  >    corruption this same package just closed producer-side. A tone-clocked noise SFX therefore ALSO
+  >    needs a noise-route special case in `Psg_ApplyMod` that writes tone-3's frequency latch (`$C0`),
+  >    plus a carve-out in the brand-new D1 rule so the sweep is legal on exactly that channel shape.
+  > 3. Only then does the transcoder change (drop the `$E6` approximation, emit pitch notes + the `$E7`
+  >    kind) become meaningful.
+  >
+  > Estimated ≳ 40 B resident plus a re-plumb of the D1 rule — well past the ceiling, and it re-opens a
+  > corruption path the same session closed. **Recommendation: give B5 its own scoped parcel** (it is a
+  > `Psg_Noise` + `Psg_ApplyMod` route-shape change, not a transcoder tweak), and sequence it AFTER any
+  > log-domain pitch work (triage R3), which changes how modulation reaches the divisor anyway. The
+  > fixed-rate `$E6` character remains correct; only the descending nuance is missing.
+
 #### C. DAC sample path — ✅ largely RESOLVED by the DAC-format revision (2026-06-25)
 *(The "ONE format revision" this block asked for SHIPPED as the DAC drum phase — see
 `docs/superpowers/specs/2026-06-24-dac-drum-format-revision-design.md` + its raw-8-bit amendment.
@@ -2185,8 +2222,16 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   shipped loop if a marathon DMA burst is ever added.
 
 #### D. Latent correctness (trust-the-packer / new-content surfaces)
-- **D1** PSG pitch-mod has no noise-route gate (`sound_sequencer.asm` 162; `sound_psg.asm` 239) — a noise
-  channel carrying `sc_mod_ctrl!=0` corrupts the noise control register. Gate on tone route + reject in transcoder.
+- ~~**D1** PSG pitch-mod has no noise-route gate (`sound_sequencer.asm` 162; `sound_psg.asm` 239) — a noise
+  channel carrying `sc_mod_ctrl!=0` corrupts the noise control register. Gate on tone route + reject in transcoder.~~
+  **DONE 2026-08-10 (package 4, `sound-pkg4`) — PRODUCER-SIDE, zero Z80 bytes.** The runtime gate stays
+  reverted (the note at the `Psg_ApplyMod` call site in `sound_sequencer.emp` now points here instead of
+  claiming a convention). Both producers enforce it: `song_packer.py` `ModSet.validate` refuses
+  `CHROUTE_PSGN` outright, and `sfx_transcode.py` `_validate_no_modset_on_noise` backstops every SFX
+  channel from `pack_sfx`. Rule is absolute, including the all-zero `smpsModSet 0,0,0,0` "mod off" idiom.
+  Spec: music-expr format-validity §(d)4. **Deliberately a BACKSTOP, not a re-shape, on the SFX side:** the
+  parser already DROPS `smpsModSet` when it reroutes a channel to noise and a shipped test pins that drop, so
+  erroring at the emission point would reject real S3K sources we do not control.
 - ~~**D2** note before any set-duration reloads from a zeroed `sc_dur_default` → 255-tick stuck note
   (`sound_sequencer.asm` 536; init `sc_dur_default` to 1).~~ **✅ DONE — verified 2026-08-05.**
   The seed-to-1 the entry prescribes is in place at **both** init sites:
@@ -2198,12 +2243,39 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   `zPrepareModulation` (`sound_sequencer.asm` 381; add `sc_mod_wait_raw`).~~ **DONE 2026-07-02
   (budget phase T6):** `sc_mod_wait_raw` + `sc_mod_delta_raw` latched at MODSET, reloaded every
   note-on — capture-verified at ref parity (`docs/research/phase_harness/t6_verification.md`).
-- **D4** `Psg_NoteOn` ignores `sc_transpose` (S3K applies it to PSG too) (`sound_psg.asm` 154).
-- **D5** PSG envelope attack uses a stale `sc_psgenv_out` / lands one frame late vs S3K (`sound_psg.asm`
-  106/184; zero `sc_psgenv_out` at cursor-reset).
-- **D6 (uncertain)** single-level repeat state may carry a stale `sc_repeat_count` across a song loop /
-  mid-flight jump (`sound_sequencer.asm` 1042). Watch; add a packer guard if it bites.
-- **D7** `MEV_REPEAT_END` operand 0 → 255-pass repeat, no runtime clamp (`sound_sequencer.asm` 1022; trust-packer).
+- ~~**D4** `Psg_NoteOn` ignores `sc_transpose` (S3K applies it to PSG too) (`sound_psg.asm` 154).~~
+  **DONE 2026-08-10 (package 4, `sound-pkg4`, commit `27b3b6a8`) — BYTE-NEUTRAL.** `Psg_NoteOn` now calls
+  the new `Fm_TransposeClampChrom` (seeds `FMPITCH_MAX_IDX`, falls into `Fm_TransposeClamp`), which also
+  replaced `Fm_NoteOn`'s own 2 B seed — so the 3 B `call` exactly funds itself against the `ld l,a / ld h,0`
+  widen it replaces. `FMPITCH_MAX_IDX` legitimately bounds BOTH tables: `FmPitchTableZ` and
+  `PsgDivisorTableZ` are one 95-entry note list and `sound_tables_z80.emp` already asserts both emitted
+  extents at 190 B. **The bound had to live on the FM side**: seam-1 resolves each resident module's
+  constants from a per-module name list baked into the sigil harness (`seam1.rs` `psg_const_names`), and no
+  pitch-domain constant is on `sound_psg.emp`'s list. The SFX PSG-tone RESTORE path now folds the MUSIC
+  channel's transpose on re-key, matching what the FM restore already did. **Oracle gate owed** (controller):
+  spindash-rev PSG pitch-tracking.
+- ~~**D5** PSG envelope attack uses a stale `sc_psgenv_out` / lands one frame late vs S3K (`sound_psg.asm`
+  106/184; zero `sc_psgenv_out` at cursor-reset).~~ **✅ ALREADY DONE — re-verified 2026-08-10 (package 4).**
+  `Psg_EnvCursorReset` (`engine/sound/sound_psg.emp`) zeroes BOTH `sc_psgenv_cur` and `sc_psgenv_out`, with
+  the rationale in the comment ("drop the previous note's env tail so the attack's volume emit … starts
+  clean, not one frame of the old note's stale attenuation delta"). **Package 4 planned no work here.**
+- ~~**D6 (uncertain)** single-level repeat state may carry a stale `sc_repeat_count` across a song loop /
+  mid-flight jump (`sound_sequencer.asm` 1042). Watch; add a packer guard if it bites.~~
+  **DONE 2026-08-10 (package 4, `sound-pkg4`) — CONFIRMED REAL, then closed from both ends.** The mechanism:
+  the song-loop `Jump` target IS the `LoopPoint`, so a `LoopPoint` inside a `RepeatStart..RepeatEnd` span makes
+  the loop re-enter the body mid-span; `Seq_Op_RepeatStart` never runs again, and `Seq_Op_RepeatEnd` seeds from
+  the operand ONLY when it reads 0, so a stale nonzero count is CONSUMED. Packer: a `LoopPoint` while a span is
+  open is a `PackError` (the COMPLETE rule — the `Jump` can target nothing else). Engine: `Seq_Op_RepeatStart`
+  re-seeds `sc_repeat_count` to 0 (**4 B**, not the plan's 2 — `ld (ix+d),n` is 4 B on Z80), byte-inert on
+  valid content. Spec: music-expr §(c)4.
+- ~~**D7** `MEV_REPEAT_END` operand 0 → 255-pass repeat, no runtime clamp (`sound_sequencer.asm` 1022; trust-packer).~~
+  **DONE 2026-08-10 (package 4, `sound-pkg4`) — 0 RELEASE BYTES (plain blob + plain ROM CRC unchanged across
+  the commit).** `Seq_Op_RepeatEnd` tests `a` at `.have_count` — where it is either an in-progress count
+  (nonzero by the preceding test) or the FRESH operand — so `a == 0` there is exactly "the stream authored 0",
+  trapped to `Seq_BadOpcode` under `DEBUG == 1` before the wrapping `dec`. **Found while pinning the producer
+  side: the rule did not cover SFX at all.** `pack_sfx` encodes events directly and never calls
+  `Event.validate`, so `song_packer`'s 1..255 range never reached an SFX stream; the count check now lives in
+  `_validate_sfx_repeat`, which `pack_sfx` does call. Spec: music-expr §(c)5.
 - ~~**D8** `song_packer.py` accepts expression opcodes the engine silently DROPS on a music route — add a build-time music-legal opcode gate~~ **DONE 2026-06-27 (music-expr merge)** — the packer now enforces a music-legal opcode gate (commits `60524f9` + `da9bb93`, "D8 review"): it errors at build time on any opcode the music route would silently drop, relaxed per-opcode as each un-gates. `MEV_MODSET` vibrato is now music-legal (Phase-1 un-gate); `MEV_PSGENV` since feat/hcz2-import. **STILL OPEN (separate, not the gate):** route PSG note-on through the multipoint `sc_points` arp path (today under `.is_fm` only) for single-channel PSG chords — pairs with D4 (PSG `sc_transpose`).
 
 #### E. Best-in-class — the honest gaps (cross-driver consensus)
@@ -2266,9 +2338,15 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
 - **E5 — SSG-EG per-operator looping ($90-$9E)** — cheap buzzy/metallic/AY timbre family. **Load-time half
   DONE 2026-06-27 (music-expr merge):** SSG-EG is now a real per-op patch field — `FmPatch` grew 26→32 bytes
   (`fp_ssg_eg ds.b 4`), loaded at note-on via `SND_REG_OP_SSG_EG` ($90) in `Fm_PatchLoad`; `$00` default = off, so
-  existing patches are byte-identical. **STILL OPEN — the runtime 7th-RegDelta-group half:** `MEV_REGDELTA` does
+  existing patches are byte-identical. ~~**STILL OPEN — the runtime 7th-RegDelta-group half:** `MEV_REGDELTA` does
   **not** reach $90 (`RegDeltaGroupBase` is groups 0..5 = $30-$80, `REGDELTA_GROUP_COUNT` = 6, `sound_fm.asm`). Add a
-  7th group to sweep SSG-EG per-frame (one reg write/op).
+  7th group to sweep SSG-EG per-frame (one reg write/op).~~ **DONE 2026-08-10 (package 4, `sound-pkg4`) —
+  E5 FULLY CLOSED, +1 B.** `RegDeltaGroupBase` gained `SND_REG_OP_SSG_EG` as group 6 and
+  `REGDELTA_GROUP_COUNT` went to 7; `Fm_RegDelta`'s range check and the RHS-only length ensure both read the
+  constant, so no handler changed. Producer: `song_packer`'s mirror -> 7 (build-checked by the existing
+  constant-parity test) + `RD_GROUP_SSG_EG = 6`; group 7 still rejected. Spec: music-expr §(d)1.
+  **Oracle showcase owed** (controller, optional): a scratch song sweeping group 6 — confirm the
+  `$90+op*4+ch` writes land and the timbre audibly buzzes in a rendered capture.
 
 **SKIP / DEFER (and why):**
 - **68k-resident sequencer (MDSDRV model)** — explicitly **skip**; our full-Z80 autonomy is the right call
@@ -2314,10 +2392,29 @@ The multi-sample descriptor table, per-sample banking, and the one-shot state ma
   > Whatever unfixed-rate twin existed in 2026-06 is gone; **do not purge the survivor.**
   > The other two thirds (`dc.l SfxTable`, duplicate `sfx_NN_patches` banks) were not re-verified
   > in this pass — treat them as unconfirmed rather than established.
+  > **2026-08-10 (package 4):** package 4's plan header listed F3 as "verified already fixed — SfxTable is
+  > LIVE". That is consistent with the 2026-08-05 correction only for the `Snd_TimerA_Program` third; the
+  > `dc.l SfxTable` / duplicate-patch-bank thirds remain UNCONFIRMED and package 4 did **no** work on them.
+  > Do not treat F3 as closed.
 - **F4** Stale/load-bearing-wrong comments: ISR "ix NOT touched" (it IS, via SfxDispatch — safe by
   construction, but the *reasoning* would license a future bug); `Sfx_Restore` "ret stub" (it's implemented);
   PSG header "never clobbers de" (it does; caller restores it); a0-clobber contracts on Sound_StopMusic/
   PlaySample/Ping/PlayRing (same class just fixed in Sound_PlaySFX — unify to all-preserve-a0).
+  > **RE-VERIFIED 2026-08-10 (package 4).** The plan carried F4 as "already fixed"; that is **three
+  > quarters true**, and the remaining quarter is not the bug this entry describes.
+  > * ISR — **FIXED.** `SndDrv_ISR`'s header now states the opposite of the stale claim ("It does NOT save
+  >   ix/iy, and PollMailbox DOES clobber them — SAFE for two reasons…") and the proc's machine-checked
+  >   contract is `clobbers(ix, iy)`.
+  > * `Sfx_Restore` "ret stub" — **FIXED**; the phrase no longer exists anywhere in `engine/sound/`.
+  > * PSG header — **FIXED**; `sound_psg.emp`'s header now reads "They DO clobber `de`, however … the
+  >   de=$4001 invariant is re-established by the Timer-A tick CALLER, NOT by PSG code preserving de."
+  > * **a0 unification — NOT done, and re-classified.** `Sound_Ping` / `Sound_PlaySample` /
+  >   `Sound_StopMusic` still declare `clobbers(a0)` while `Sound_PlayRing` declares `preserves(a0)`. But
+  >   these are no longer COMMENTS — they are machine-checked `.emp` contracts, and each is TRUE (every one
+  >   of the three does `lea <SLOT>, a0`). So there is nothing load-bearing-wrong left here: what remains is
+  >   an **API-ergonomics** choice (uniform preserve-a0 costs a push/pop or a scratch register per call
+  >   site), which belongs with the command-API work, not in a stale-comment sweep. **Reduce F4 to that one
+  >   ergonomics item.**
 - ~~**F5** Z80 blob space TIGHT: ~118 B code headroom… Plan a space recovery (bank FmPitchTableZ/LogVolumeLut/
   MovingTrucks_PitchTable into a $8000-window read)~~ **DONE (music-expr Task 0 banking, 2026-06-24):** the engine
   lookup tables were co-located at the start of Moving Trucks' streamed ROM bank (read with the song bank already
@@ -3562,3 +3659,60 @@ Open items this execution creates or leaves:
   somewhere authoritative instead of reverse-engineered. (Class risk: any OTHER
   seam-2 fold that bakes absolute addresses against a contiguous-pack model
   diverges the same way if its section gains chainer alignment.)
+
+---
+
+## Ledgered by the 2026-08-10 sound correctness-batch package 4 execution (`sound-pkg4`)
+
+Package 4 (`plans/2026-07-03-sound-correctness-batch.md`) EXECUTED. Closed:
+**D4** (PSG folds `sc_transpose` — the one live audible defect, byte-neutral),
+**D1** (ModSet-on-noise refused in both producers, zero Z80 bytes),
+**D6** (LoopPoint-in-repeat-span refused + a 4 B RepeatStart re-seed),
+**D7** (DEBUG operand-0 trap, 0 release bytes, plus the missing SFX half of the
+producer rule), **B3** (AM-enable bit lands on YM bit 7), **E5-runtime**
+(RegDelta group 6 = `$90` SSG-EG, +1 B). Ride-along: **triage R1**, the DAC DRAIN
+underrun guard (24 T / 6 B, zero net cycles). **B5 took the plan's own Step-2B
+fallback** — see the costed finding on the B5 entry itself. Verification pass on
+the plan's "already fixed" list: D2/D3/D5 confirmed done, F4 three-quarters done
+and re-classified, F3 NOT closed (two thirds still unconfirmed).
+
+Resident cost: plain 6157 -> 6164, debug 6283 -> 6294 of 6384 (headroom 101 ->
+90 B), funded by the Task-0 item-25 reclaim. pytest 897 -> 912 passed / 2 skipped.
+
+Open items this execution creates or leaves:
+
+- **Blob length re-pin owed (controller).** Every package-4 build ran with
+  `SIGIL_BLOB_LEN_DRIFT=warn`; `BLOB_LEN_PLAIN` / `BLOB_LEN_DEBUG` and the
+  `Z80_SOUND_SIZE` mirrors still expect the pre-Task-0 6255/6381.
+- **Oracle gates owed (controller, foreground).** (a) **D4** — force the
+  spindash-rev SFX after several rev pings and confirm the PSG component's divisor
+  writes now RISE with rev, as the FM component already did. (b) **R1** — if the
+  underrun is reproducible (a long 68k DMA burst against a streaming sample),
+  capture before/after: the ~72 Hz full-amplitude buzz should become a held level.
+  (c) **Rendered A/B on BOTH the plain and debug shapes** — plain-shape SFX
+  regressions have bitten this lane before, and D4 changes every PSG note-on.
+  (d) Optional: the E5 group-6 SSG-EG showcase sweep.
+- **`sfx_transcode._process_lines` is DEAD CODE.** Only `_process_lines_v2` is
+  ever called (`_process_lines`'s single call site at its own `smpsJump` handling
+  is a self-recursion). The two scans have already DIVERGED — v2 carries the
+  `noise_form is not None` ModSet drop and v1 does not — which is exactly the
+  hazard a dead twin creates. Package 4 did not delete it (out of scope) and
+  closed the risk with a pack-time backstop instead. **Delete the v1 scan** in the
+  next transcoder parcel; the divergence is evidence, not speculation.
+- **`pack_sfx` does not validate events.** D7 surfaced this: `pack_sfx` calls
+  `e.encode()` directly and never `e.validate(route)`, so EVERY `song_packer`
+  range/route rule is silently inapplicable to SFX streams. Package 4 patched the
+  two rules it owned (`_validate_sfx_repeat` count, `_validate_no_modset_on_noise`)
+  but the general hole stands. **Audit which other `Event.validate` rules SFX
+  streams need** and either route SFX through a validation pass or mirror the
+  needed rules into the `_validate_*` backstops. Class risk: any future packer
+  rule is assumed to cover both producers and does not.
+- **`Fm_TransposeClampChrom` exists partly to route around a sigil limitation.**
+  seam-1 resolves each resident module's constants from a per-module name list
+  baked into the harness (`seam1.rs` `psg_const_names` / `fm_const_names` / …), so
+  a `.emp` module cannot reference a `sound_constants.emp` constant that is not on
+  ITS list, even though every constant is `pub` and evaluated. The D4 fix turned
+  out better for it (byte-neutral, one shared clamp entry), but the constraint is
+  undocumented and will surprise the next author. **Either document the per-module
+  const seam in the engine/game contract reference, or make the lists derive from
+  the modules' actual references.**
