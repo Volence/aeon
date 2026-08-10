@@ -53,6 +53,34 @@ guards (extend the current single-bank guard per pkg-3 runbook step 3).
 ROM cost fine (ROM at ~10% of 4 MB). Table cost: ~60 new 12-byte descriptors,
 banked data (NOT resident Z80 — the 3-byte blob headroom is untouched).
 
+## Resample fidelity: MEASURED, and the R9 ruling is validated
+
+The open risk in "resample S3K down to OUR fixed rate" was aliasing:
+`wav_to_raw8` resamples with `np.interp` (linear, **no anti-alias filter**), so
+any source content above our new Nyquist (9178 Hz) would fold back as
+distortion. Measured across all 48 sources:
+
+- **Only 4 sources sit above 18356 Hz at all** (81/86/87 at 18790, 90-93 at
+  20166) — i.e. ≤9% downsample; every other source is UPsampled, which cannot
+  alias.
+- **Energy above the new Nyquist in those four: 0.00%.** These are 8-bit
+  Genesis drum samples; there is nothing up there to fold. Linear interpolation
+  is safe here — no filter needed.
+- Whole-kit band-energy cosine (6 bands, 0-9178 Hz, source vs resampled):
+  **median 0.9996, mean 0.9960, min 0.9706**; only 7 of 48 below 0.99, and all
+  seven are heavily-UPsampled sources where the loss is interpolation smoothing
+  (RMS 0.77-0.96), not aliasing.
+- **Drum class specifically, with the S3K pitch multipliers applied** (reference
+  = the same S3K bytes clocked at `src_hz × multiplier`, which is exactly what
+  S3K's `DAC_Setup` does): snare 0.9978, hi/mid/low/floor tom 1.0000 each, kick
+  1.0000, $8B 0.9872, $91 0.9998, $93 0.9999, $C4 1.0000 — **min 0.9872, mean
+  0.9985**. The multiplier-derived tom tuning reproduces exactly.
+
+**Conclusion: keeping our DAC rate and resampling S3K to it (the R9 ruling)
+costs essentially nothing in fidelity.** The rate headroom stays banked for
+polyphonic PCM as ruled. Reproduce with the sweep in this note's commit message
+or re-derive from `tools/import_s3k_dac.py::wav_to_raw8`.
+
 ## Verification plan (house rule: rendered audio, not registers)
 
 Per drum id: trigger via `Sound_PlaySample`, VGM capture → vgm2wav, compare
