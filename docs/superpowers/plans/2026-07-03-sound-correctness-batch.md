@@ -181,7 +181,7 @@ git commit -m "fix(sound): D7 — DEBUG trap on repeat operand-0 wrap (packer re
 - Modify: `tools/sfx_transcode.py:330-336` (FM patch AM handling)
 - Test: `tools/test_sfx_transcode.py`
 
-- [ ] **Step 1: Failing round-trip test**
+- [x] **Step 1: Failing round-trip test**
 
 ```python
 def test_am_enable_bit_roundtrips():
@@ -192,11 +192,11 @@ def test_am_enable_bit_roundtrips():
     assert patch.d1r_am[0] & 0x80, "AM-enable bit dropped (B3)"
 ```
 
-- [ ] **Step 2: Run to fail**, then fix the emission at `:330-336`: OR the source AM bit into the emitted `$60`-group byte (`(am << 7) | d1r`). YM2612 treats it as a don't-care unless LFO/AMS are armed — byte-fidelity is the point (S3K parity; future AM-using voices just work).
+- [x] **Step 2: Run to fail**, then fix the emission at `:330-336`: OR the source AM bit into the emitted `$60`-group byte (`(am << 7) | d1r`). YM2612 treats it as a don't-care unless LFO/AMS are armed — byte-fidelity is the point (S3K parity; future AM-using voices just work).
 
-- [ ] **Step 3: Regression guard** — rebuild all SFX blobs (`python3 tools/sfx_transcode.py` per its CLI) and diff: ONLY voices whose S3K source authored AM=1 may change. Run the full suite; build green; oracle jump/ring registers unchanged (foreground spot-check).
+- [x] **Step 3: Regression guard** — rebuild all SFX blobs (`python3 tools/sfx_transcode.py` per its CLI) and diff: ONLY voices whose S3K source authored AM=1 may change. Run the full suite; build green; oracle jump/ring registers unchanged (foreground spot-check).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tools/sfx_transcode.py tools/test_sfx_transcode.py games/sonic4/data/sound/sfx/
@@ -222,7 +222,7 @@ Change the `$E7` handling at `sfx_transcode.py:1275-1287` from the fixed `$E6` a
 
 - [ ] **Step 3 (if 2A): gates** — pytest green; rebuild blobs; build green. **Controller session:** rendered A/B — capture our dash vs S3K's dash (`skdisasm/sonic3k.bin` sound test), spectrogram both (`tools/vgm_onsets.py` + vgm2wav per the established pipeline); the descending "pshhew" sweep must now appear in ours.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tools/sfx_transcode.py tools/test_sfx_transcode.py games/sonic4/data/sound/sfx/
@@ -253,7 +253,7 @@ def test_regdelta_group6_ssg_eg_accepted():
 
 - [ ] **Step 3: Gates** — pytest green; build green (budget +1 B table byte); update validity-rules §(d)1 RegDelta citation (group 0..6). **Controller session (optional showcase):** a scratch song with a `MEV_REGDELTA` group-6 sweep — verify `$90+op*4+ch` writes land (oracle YM trace) and the timbre audibly "buzzes" (SSG-EG loop) in a rendered capture.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add engine/sound/sound_fm.asm sound_constants.asm tools/song_packer.py tools/test_song_packer.py docs/superpowers/specs/2026-06-23-music-expression-engine-design.md

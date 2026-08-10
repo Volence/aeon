@@ -1046,6 +1046,45 @@ class TestFmVoiceOperatorOrder(unittest.TestCase):
         self.assertNotEqual(_s3k_op_reorder([1, 2, 3, 4]), [4, 3, 2, 1])
         self.assertNotEqual(_s3k_op_reorder([1, 2, 3, 4]), [1, 2, 3, 4])
 
+    def test_am_enable_bit_roundtrips(self):
+        # B3: smpsVcAmpMod's per-operator flag must survive into the emitted
+        # $60-group ($60 AM/D1R) byte as YM2612 bit 7. It used to be shifted <<5
+        # (the ORIGINAL SMPS2ASM's erroneous "AM is bits 6-5" assumption, which
+        # _smps2asm_inc.asm's own comment corrects to "it's actually the high bit")
+        # and then masked with &0x80 — so the flag was silently dropped every time.
+        from sfx_transcode import _SmpsVoiceBuilder
+        b = _SmpsVoiceBuilder()
+        b.apply('smpsVcAlgorithm',  ['4'])
+        b.apply('smpsVcFeedback',   ['0'])
+        b.apply('smpsVcDetune',     ['0', '0', '0', '0'])
+        b.apply('smpsVcCoarseFreq', ['0', '0', '0', '0'])
+        b.apply('smpsVcRateScale',  ['0', '0', '0', '0'])
+        b.apply('smpsVcAttackRate', ['0', '0', '0', '0'])
+        b.apply('smpsVcAmpMod',     ['1', '0', '0', '0'])   # AM on op1 only
+        b.apply('smpsVcDecayRate1', ['5', '6', '7', '8'])
+        b.apply('smpsVcDecayRate2', ['0', '0', '0', '0'])
+        b.apply('smpsVcDecayLevel', ['0', '0', '0', '0'])
+        b.apply('smpsVcReleaseRate',['0', '0', '0', '0'])
+        b.apply('smpsVcTotalLevel', ['0', '0', '0', '0'])
+        out = b.build()
+        # am_d1r occupies out[14:18] in FmPatch physical order [op4,op2,op3,op1],
+        # so macro op1 lands LAST.
+        am_d1r = list(out[14:18])
+        self.assertEqual(am_d1r[3], 0x80 | 5, "AM-enable bit dropped for op1 (B3)")
+        self.assertEqual(am_d1r[:3], [8, 6, 7], "AM must not leak onto other operators")
+
+    def test_am_disabled_leaves_bit7_clear(self):
+        from sfx_transcode import _SmpsVoiceBuilder
+        b = _SmpsVoiceBuilder()
+        for m, a in (('smpsVcAlgorithm', ['0']), ('smpsVcFeedback', ['0']),
+                     ('smpsVcDetune', ['0'] * 4), ('smpsVcCoarseFreq', ['0'] * 4),
+                     ('smpsVcRateScale', ['0'] * 4), ('smpsVcAttackRate', ['0'] * 4),
+                     ('smpsVcAmpMod', ['0'] * 4), ('smpsVcDecayRate1', ['5'] * 4),
+                     ('smpsVcDecayRate2', ['0'] * 4), ('smpsVcDecayLevel', ['0'] * 4),
+                     ('smpsVcReleaseRate', ['0'] * 4), ('smpsVcTotalLevel', ['0'] * 4)):
+            b.apply(m, a)
+        self.assertEqual(list(b.build()[14:18]), [5, 5, 5, 5])
+
     def test_all_groups_reordered_uniformly(self):
         # Build a voice whose four operators carry DISTINCT marker values per group, so
         # the output byte order is an unambiguous witness of the permutation.

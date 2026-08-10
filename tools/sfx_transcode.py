@@ -422,11 +422,24 @@ class _SmpsVoiceBuilder:
         elif macro == 'smpsVcAttackRate':
             self._ar = [_parse_int(a) for a in args[:4]]
         elif macro == 'smpsVcAmpMod':
-            # S3K SMPS2ASM version 1 stores raw AM value shifted left by 7
-            # (smpsVcAmpMod with SourceSMPS2ASM==0 does <<5, ==1 does <<7).
-            # The SFX files use smpsHeaderStartSong 3 without a smps2asm version
-            # arg (implicit 0), so SourceSMPS2ASM==0 → am<<5.
-            self._am = [_parse_int(a) << 5 for a in args[:4]]
+            # B3: the operand is a per-operator AM-ENABLE FLAG; emit it as YM2612
+            # bit 7 of the $60 (AM/D1R) register.
+            #
+            # The two SMPS2ASM encodings disagree only about WHERE the flag sits in
+            # the reproduced ROM byte: SourceSMPS2ASM==0 shifts it <<5 (the ORIGINAL
+            # SMPS2ASM's erroneous "AM is bits 6-5" assumption) and ==1 shifts it <<7
+            # (`_smps2asm_inc.asm` smpsVcAmpMod, whose own comment records the
+            # correction: "According to several docs, however, it's actually the high
+            # bit"). Our SFX sources are the ==0 flavour, and we used to mirror that
+            # shift and then mask with & 0x80 — so the flag was dropped EVERY time and
+            # no transcoded voice could ever enable AM.
+            #
+            # We deliberately do NOT reproduce the <<5 byte. Bits 6-5 of $60 are
+            # don't-cares on the real chip, so ROM-byte parity there buys nothing,
+            # while bit 7 is the flag the voice author actually meant. Testing for
+            # NONZERO (rather than shifting) keeps it correct under either encoding
+            # and under the erroneous 2-bit values the old assumption could produce.
+            self._am = [0x80 if _parse_int(a) else 0 for a in args[:4]]
         elif macro == 'smpsVcDecayRate1':
             self._d1r = [_parse_int(a) for a in args[:4]]
         elif macro == 'smpsVcDecayRate2':
