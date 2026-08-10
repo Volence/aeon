@@ -1371,6 +1371,14 @@ class TestRepeatBodyBackstop(unittest.TestCase):
         with self.assertRaises(TranscodeError):
             _validate_sfx_repeat(events, 0x99)
 
+    def test_repeat_end_zero_rejected(self):
+        # D7: pack_sfx encodes events directly and never calls Event.validate, so
+        # song_packer's 1..255 rule does NOT cover SFX. The engine decrements before
+        # testing, so operand 0 wraps to 255 passes.
+        events = [Vol(80), RepeatStart(), NoteDur(0x46, 1), RepeatEnd(0), End()]
+        with self.assertRaisesRegex(TranscodeError, "count 0"):
+            _validate_sfx_repeat(events, 0x99)
+
     def test_repeat_body_with_note_accepted(self):
         events = [Vol(80), RepeatStart(), NoteDur(0x46, 1), RepeatEnd(8), End()]
         _validate_sfx_repeat(events, 0x99)   # must not raise

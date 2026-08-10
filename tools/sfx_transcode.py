@@ -1495,6 +1495,15 @@ def _validate_sfx_repeat(events, sfx_id=0):
         elif cn in _TIME_ADV and stack:
             stack = [True] * len(stack)
         elif cn == 'RepeatEnd':
+            # D7: pack_sfx encodes events directly and never calls Event.validate,
+            # so song_packer's RepeatEnd 1..255 rule does not reach SFX streams.
+            # Seq_Op_RepeatEnd decrements BEFORE testing, so operand 0 wraps to 255
+            # and the body plays 255 times with no runtime clamp.
+            if not (1 <= getattr(e, 'count', 1) <= 255):
+                raise TranscodeError(
+                    f"sfx ${sfx_id:02X}: RepeatEnd count {e.count} out of range "
+                    f"1..255 — the engine decrements before testing, so 0 wraps to "
+                    f"255 passes (D7)")
             if not stack:
                 raise TranscodeError(f"sfx ${sfx_id:02X}: RepeatEnd without RepeatStart")
             if not stack.pop():

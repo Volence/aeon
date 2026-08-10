@@ -1627,6 +1627,19 @@ section sound_sequencer (cpu: z80) {
         jr      nz, .have_count         // nonzero -> a repeat is in progress
         ld      a, b                    // fresh -> seed remaining = nn (total)
     .have_count:
+        if DEBUG == 1 {
+            // D7 trap (DEBUG only, 0 release bytes): `a` here is either an
+            // in-progress count (nonzero by the test above) or the FRESH operand nn,
+            // so a == 0 means the stream authored MEV_REPEAT_END 0. The `dec a`
+            // below would wrap it to 255 and replay the body 255 times — there is no
+            // runtime clamp. The packer forbids operand 0 upstream in BOTH producers
+            // (song_packer RepeatEnd.validate, sfx_transcode _validate_sfx_repeat),
+            // so reaching here means a hand-built or corrupt stream: stop the channel
+            // loudly instead of hanging the ear. The `or a` flags are dead — `dec a`
+            // re-derives them immediately.
+            or      a
+            jp      z, Seq_BadOpcode
+        }
         dec     a
         ld      (ix+sc_repeat_count), a // store decremented remaining
         jr      z, .done                // reached 0 -> body has played nn times

@@ -439,6 +439,13 @@ class TestValidation(unittest.TestCase):
                 Patch(0), Vol(64), LoopPoint(),
                 RepeatStart(), Note(0), RepeatEnd(0), Jump()])])
 
+    def test_repeat_end_zero_rejected_at_event_level(self):
+        # D7: pinned at the EVENT level too, not only through _validate_channel —
+        # the engine decrements before testing, so operand 0 wraps to 255 and runs
+        # 255 passes with no runtime clamp (a DEBUG-only trap catches it).
+        with self.assertRaises(PackError):
+            RepeatEnd(0).validate(CHROUTE_FM1)
+
     def test_repeat_count_too_high_rejected(self):
         with self.assertRaises(PackError):
             self._pack([ChannelDesc(CHROUTE_FM1, [

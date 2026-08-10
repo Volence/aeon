@@ -147,7 +147,7 @@ git commit -m "fix(sound): D6 — packer forbids LoopPoint inside repeat spans +
 - Modify: `engine/sound/sound_sequencer.asm:1726-1730` (`Seq_Op_RepeatEnd`)
 - Test: `tools/test_song_packer.py` (verify the existing rejection)
 
-- [ ] **Step 1: Pin the packer rejection with a test (may already exist — check first)**
+- [x] **Step 1: Pin the packer rejection with a test (may already exist — check first)**
 
 `grep -n "RepeatEnd(0)\|out of range" tools/test_song_packer.py` — if no test asserts `RepeatEnd(0)` raises, add:
 
@@ -157,7 +157,7 @@ def test_repeat_end_zero_rejected():
         RepeatEnd(0).validate(0)
 ```
 
-- [ ] **Step 2: DEBUG-only engine trap (0 release bytes)**
+- [x] **Step 2: DEBUG-only engine trap (0 release bytes)**
 
 In `Seq_Op_RepeatEnd` after the `dec a` (sound_sequencer.asm:~1728), inside the existing DEBUG conditional style used elsewhere in the file (`if SOUND_DEBUG` / the driver's error-code path — grep `Seq_BadOpcode` for the idiom):
 
@@ -168,7 +168,7 @@ In `Seq_Op_RepeatEnd` after the `dec a` (sound_sequencer.asm:~1728), inside the 
     endif
 ```
 
-- [ ] **Step 3: Gates + commit** — pytest green; DEBUG build green AND a plain `./build.sh` green (trap must vanish in release); budget unchanged in release.
+- [x] **Step 3: Gates + commit** — pytest green; DEBUG build green AND a plain `./build.sh` green (trap must vanish in release); budget unchanged in release.
 
 ```bash
 git add engine/sound/sound_sequencer.asm tools/test_song_packer.py
