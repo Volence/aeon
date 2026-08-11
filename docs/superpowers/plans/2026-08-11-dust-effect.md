@@ -66,7 +66,9 @@ export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
 | `sigil crates/sigil-harness/repin.toml` | `[[region]]` per new section |
 | `sigil crates/sigil-harness/src/native.rs` | `m!()` ModuleSpec per new module |
 
-**Why `gen_dust.py` duplicates ~60 lines of S3K-to-S4 conversion instead of sharing with `gen_characters.py`:** the shared-helper hoist would edit `games/sonic4/data/characters_staging/gen_characters.py`, which is load-bearing for Tails art on this branch and Knuckles art on `wip/knuckles-task9`. Coupling a dust parcel to a generator in flight on two branches is the worse trade. The hoist into a shared `tools/s3k_sprites.py` is ledgered as a rider (Task 6).
+**How `gen_dust.py` relates to `gen_characters.py`:** it **imports** that file's donor `.asm` parser (`frames_from_asm`) read-only via `importlib`, and implements only the dust-specific parts (the tile-span slice, the palette permutation, the S4 emitters). This is not optional cleverness — the donor pointer tables are *symbolic* (`dc.w word_18F1E-DPLC_DashSplashDrown_`, not hex literals) and the bodies mix `dc.b` with `dc.w`, so a naive word scanner fails outright; `gen_characters.py` already parses exactly this shape against exactly this donor tree.
+
+A read-only import cannot perturb the Tails art path on this branch or the Knuckles path on `wip/knuckles-task9`, whereas *refactoring* a shared module out of `gen_characters.py` would edit a generator in flight on two branches. That refactor is ledgered as a rider (Task 6) rather than done here.
 
 ---
 
@@ -236,7 +238,7 @@ Usage:
 """
 
 import argparse
-import re
+import importlib.util
 import struct
 from pathlib import Path
 
@@ -245,7 +247,6 @@ ART_FIRST, ART_LAST = 0x062, 0x0B9          # donor tile span we ship (inclusive
 CHARGE_FRAMES = range(0x0A, 0x11)           # $0A..$10, the charge cycle
 PUFF_FRAMES = range(0x11, 0x15)             # $11..$14, the puff cycle
 PUFF_LOADER_FRAME = 0x15                    # the frame whose DPLC loads the puff block
-S3K_MAP_PIECE = 6                           # S3K 1P piece: Y.b size.b tile.w X.w
 
 # The measured colour-lossless permutation into Aeon's SonicAndTails line 0.
 # Identity for every index the art does not touch.
@@ -253,71 +254,48 @@ REMAP = {1: 6, 12: 4, 13: 7}
 ART_ALLOWED_SRC = {0, 1, 12, 13}
 
 
-def parse_asm_words(path):
-    """Return the flat list of dc.w words in an S3K mapping/DPLC .asm file.
+def load_donor_parser():
+    """Borrow gen_characters.py's donor .asm parser — READ-ONLY reuse.
 
-    Handles `dc.w $XXXX, $YYYY`, label lines, and comments. Byte directives are
-    rejected loudly: these two donor files are word-only, and a silent skip
-    would shift every subsequent offset.
+    The donor pointer tables are SYMBOLIC (`dc.w word_18F1E-DPLC_DashSplashDrown_`,
+    not hex) and the bodies mix dc.b with dc.w, so a naive word scanner does not
+    work. gen_characters.py already parses exactly this shape against exactly this
+    donor tree, so we import its `frames_from_asm` rather than reimplement it.
+
+    Imported, not refactored into a shared module, deliberately: gen_characters.py
+    is load-bearing for Tails art on this branch and Knuckles art on
+    wip/knuckles-task9, and a read-only import cannot perturb either. The hoist
+    into a shared tools/s3k_sprites.py is ledgered as a rider. gen_characters.py
+    guards its entry point with `if __name__ == '__main__'`, so importing it runs
+    no work.
     """
-    words = []
-    for raw in Path(path).read_text().splitlines():
-        line = raw.split(';')[0].strip()
-        if not line:
-            continue
-        m = re.match(r'^(?:\S+:\s*)?dc\.(\w)\s+(.*)$', line)
-        if not m:
-            continue
-        if m.group(1) != 'w':
-            raise ValueError(f"{path}: unexpected dc.{m.group(1)} — parser assumes word-only")
-        for tok in m.group(2).split(','):
-            tok = tok.strip()
-            if tok.startswith('$'):
-                words.append(int(tok[1:], 16))
-            else:
-                raise ValueError(f"{path}: non-hex word {tok!r}")
-    return words
+    path = Path(__file__).resolve().parent.parent / 'characters_staging' / 'gen_characters.py'
+    spec = importlib.util.spec_from_file_location('gen_characters', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def split_frames(words):
-    """Split a donor word list into per-frame word lists via its offset table.
-
-    The head is one word per frame (byte offset from file start); frame count is
-    offsets[0] / 2. Returns a list of (byte_offset, words_from_there).
-    """
-    n_frames = words[0] // 2
-    offsets = words[:n_frames]
-    out = []
-    for i, off in enumerate(offsets):
-        end = min((o for o in offsets if o > off), default=len(words) * 2)
-        out.append((off, words[off // 2: end // 2]))
-    return out
-
-
-def build_dplc(donor_words):
+def build_dplc(dplc_frames):
     """Rebase the charge frames' DPLC into our 88-tile blob.
 
-    Donor entry = (count-1) << 12 | tile_start, absolute into Dash Dust.bin.
-    Ours is the same encoding with tile_start - ART_FIRST.
+    dplc_frames comes from frames_from_asm(..., 'dplc'): a list of frames, each a
+    list of (tile_start, tile_count) with tile_start absolute into Dash Dust.bin.
+    We re-encode as (count-1) << 12 | (tile_start - ART_FIRST).
     """
-    frames = split_frames(donor_words)
     bodies = []
     for fi in CHARGE_FRAMES:
-        _, fw = frames[fi]
-        n_entries = fw[0]
         entries = []
-        for e in range(n_entries):
-            word = fw[1 + e]
-            count = ((word >> 12) & 0xF) + 1
-            start = word & 0x0FFF
+        for (start, count) in dplc_frames[fi]:
             if not (ART_FIRST <= start and start + count - 1 <= ART_LAST):
-                raise ValueError(f"frame ${fi:02X} entry {e} leaves the shipped span")
+                raise ValueError(f"frame ${fi:02X} entry ({start:#x},{count}) leaves the shipped span")
+            if count > 16:
+                raise ValueError(f"frame ${fi:02X} entry count {count} exceeds the 4-bit field")
             entries.append(((count - 1) << 12) | (start - ART_FIRST))
         bodies.append(entries)
 
-    header = 2 * len(bodies)
     out = bytearray()
-    cursor = header
+    cursor = 2 * len(bodies)
     for entries in bodies:
         out += struct.pack('>H', cursor)
         cursor += 2 + 2 * len(entries)
@@ -332,30 +310,22 @@ def _cell_px(size_byte):
     return (((size_byte >> 2) & 3) + 1) * 8, ((size_byte & 3) + 1) * 8
 
 
-def build_mappings(donor_words, frame_ids, tile_rebase):
+def build_mappings(map_frames, frame_ids):
     """Convert donor frames to the S4 VDP-order mapping format.
 
-    tile_rebase(donor_tile) -> our tile index, relative to the frame's art_tile
-    base. Bboxes are flip-invariant (symmetrized), matching
-    tools/convert_s2_mappings.py.
+    map_frames comes from frames_from_asm(..., 'map'): a list of frames, each a
+    list of (y, size, tile, x) with y/x already signed. Tile fields are kept
+    as-is — they are relative to the frame's art_tile base in both formats (the
+    charge frames load at window+0 and the puff frames address 0/4/8/$C of their
+    resident window), and the tests assert exactly that.
+
+    Bboxes are flip-invariant (symmetrized), matching tools/convert_s2_mappings.py.
     """
-    frames = split_frames(donor_words)
     bodies = []
     for fi in frame_ids:
-        _, fw = frames[fi]
-        n_pieces = fw[0]
-        raw = bytearray()
-        for w in fw[1:]:
-            raw += struct.pack('>H', w)
-        pieces = []
-        for p in range(n_pieces):
-            base = p * S3K_MAP_PIECE
-            y = struct.unpack_from('>b', raw, base)[0]
-            size = raw[base + 1]
-            tile_attrs = struct.unpack_from('>H', raw, base + 2)[0]
-            x = struct.unpack_from('>h', raw, base + 4)[0]
-            tile = tile_rebase(tile_attrs & 0x07FF)
-            pieces.append((y, size, (tile_attrs & 0xF800) | tile, x))
+        pieces = [(y, size, tile, x) for (y, size, tile, x) in map_frames[fi]]
+        if not pieces:
+            raise ValueError(f"frame ${fi:02X} has no pieces — wrong frame id?")
 
         x_min = min(p[3] for p in pieces)
         x_max = max(p[3] + _cell_px(p[1])[0] for p in pieces)
@@ -407,6 +377,7 @@ def main():
     src = Path(args.skdisasm) / 'General' / 'Sprites' / 'Dash Dust'
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    gc = load_donor_parser()
 
     art = (src / 'Dash Dust.bin').read_bytes()
     expect = 186 * TILE_SIZE
@@ -416,25 +387,25 @@ def main():
     shipped = art[ART_FIRST * TILE_SIZE:(ART_LAST + 1) * TILE_SIZE]
     (out / 'art_dust.bin').write_bytes(remap_art(shipped))
 
-    dplc_words = parse_asm_words(src / 'DPLC - Dash Dust.asm')
-    (out / 'dplc_dust.bin').write_bytes(build_dplc(dplc_words))
+    dplc_frames = gc.frames_from_asm(src / 'DPLC - Dash Dust.asm', 'dplc')
+    (out / 'dplc_dust.bin').write_bytes(build_dplc(dplc_frames))
 
-    # Sanity-check the puff loader frame really loads the 16 tiles we ship.
-    loader = split_frames(dplc_words)[PUFF_LOADER_FRAME][1]
-    if loader[0] != 1:
-        raise ValueError(f"frame ${PUFF_LOADER_FRAME:02X} has {loader[0]} DPLC entries, expected 1")
-    lw = loader[1]
-    if (((lw >> 12) & 0xF) + 1, lw & 0x0FFF) != (16, ART_LAST - 15):
-        raise ValueError(f"frame ${PUFF_LOADER_FRAME:02X} entry ${lw:04X} is not the 16-tile puff block")
+    # The four puff frames must carry NO DPLC of their own — that is what lets
+    # concurrent puffs sit on different frames out of one resident block.
+    for fi in PUFF_FRAMES:
+        if dplc_frames[fi]:
+            raise ValueError(f"puff frame ${fi:02X} has a non-empty DPLC list; "
+                             f"the resident-block assumption is broken")
 
-    map_words = parse_asm_words(src / 'Map - Dash Dust.asm')
-    # Charge frames each load at window+0, so their pieces address 0..count-1
-    # already; rebase is identity. Puff pieces address 0/4/8/$C of their own
-    # resident window, also identity. Both are asserted by the tests.
-    (out / 'map_dust_spindash.bin').write_bytes(
-        build_mappings(map_words, CHARGE_FRAMES, lambda t: t))
-    (out / 'map_dust_puff.bin').write_bytes(
-        build_mappings(map_words, PUFF_FRAMES, lambda t: t))
+    # And the loader frame must be exactly the 16 tiles we ship as that block.
+    loader = dplc_frames[PUFF_LOADER_FRAME]
+    if loader != [(ART_LAST - 15, 16)]:
+        raise ValueError(f"frame ${PUFF_LOADER_FRAME:02X} DPLC is {loader}, "
+                         f"expected [({ART_LAST - 15:#x}, 16)] — the puff block moved")
+
+    map_frames = gc.frames_from_asm(src / 'Map - Dash Dust.asm', 'map')
+    (out / 'map_dust_spindash.bin').write_bytes(build_mappings(map_frames, CHARGE_FRAMES))
+    (out / 'map_dust_puff.bin').write_bytes(build_mappings(map_frames, PUFF_FRAMES))
 
 
 if __name__ == '__main__':
@@ -448,7 +419,9 @@ python3 -m pytest tools/test_gen_dust.py -q
 ```
 Expected: `6 passed`.
 
-If `test_puff_mappings_are_four_2x2_frames` fails on the tile assertion, the donor's puff pieces are not window-relative after all — read the four frames' raw tile words and make `tile_rebase` subtract the frame's own base. Do **not** weaken the assertion.
+If `test_puff_mappings_are_four_2x2_frames` fails on the tile assertion, the donor's puff pieces are not window-relative after all — print the four frames from `frames_from_asm(..., 'map')` and subtract the frame's own base in `build_mappings`. Do **not** weaken the assertion.
+
+Note `frames_from_asm` masks the size byte to its low nibble (`body[pos+1] & 0x0F`), which is what the S4 `size_code` wants, so no adjustment is needed — but it means a donor piece with high bits set would lose them silently. The puff assertion (`size == 0b0101`) is the guard.
 
 - [ ] **Step 5: Generate the committed data**
 
