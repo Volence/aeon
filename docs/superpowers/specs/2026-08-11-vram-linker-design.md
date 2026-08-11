@@ -155,8 +155,15 @@ name = "character_window"
 owner = "games.sonic4.player"
 kind = "window"
 tiles = 32
-base = 960                      # pinned this tier (art_tile words are recorded
-lifetime = "act"                # in fixtures; unpin when convenient)
+base = 960                      # PINNED, deliberately — the base is baked into
+lifetime = "act"                # the player's art_tile word, which the replay
+                                # hash covers, so MOVING it re-stamps both
+                                # fixtures. GROWING it is not moving it: a
+                                # bigger cast peak (Hyper forms etc.) raises
+                                # `tiles` with the base held, art_tile is
+                                # unchanged, and the floating neighbors above
+                                # re-solve for free. Grow in place; relocate
+                                # only as a deliberate parcel.
 
 [[region]]
 name = "sprite_table"
