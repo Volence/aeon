@@ -968,6 +968,42 @@ Expected: 0 FAILED (known exception: the 3 `seam2_*` targets under `SIGIL_STRICT
 
 ---
 
+## Review fix R1: authority cross-checks (spec §4/§5 promise, missed by the original Task 2 code)
+
+The spec promises the generated block cross-checks engine-owned constants
+("pinned entries whose values cross-check the engine constants"; "the generated
+block gains an `ensure` against the map's `fg_art_pool.tiles`"). The original
+generator emitted only adjacency walls. Fix, applied as a follow-up to Task 2
+and REQUIRED before Task 5 (which relies on a drift being loud):
+
+**TOML schema:** the `authority` field becomes `"<form>:<NAME>"`, with a
+string OR a list of such strings. Forms:
+- `engine-bytebase:NAME` — NAME is a VRAM **byte address**; ensure
+  `NAME == base * 32` (SAT, HScroll, planes, window).
+- `engine-tiles:NAME` — NAME equals the region's **tile count**
+  (`BG_TILE_CAPACITY`).
+- `engine-endtiles:NAME` — NAME equals **base + tiles**
+  (`POOL_TILE_CEILING`).
+- `sigil-D:NAME` — sigil-side define; documented in the map, no ensure
+  (T1 closes it).
+Unknown form = build-stopping generator error.
+
+**Entries updated:** sonic4 — `fg_art_pool` → `"engine-endtiles:POOL_TILE_CEILING"`;
+`bg_region` → `["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]`;
+`sprite_table`/`hscroll_table`/`plane_a`/`plane_b`/`window_plane` →
+`"engine-bytebase:<their existing NAME>"`. Demo: same seven. Ring entries keep
+`sigil-D:`.
+
+**Generator:** `emit_emp_block` emits, per engine-form authority, e.g.
+`ensure(POOL_TILE_CEILING == 960, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/<game>/vram.toml and regenerate")`
+(bytebase form compares against `$XXXX` = base*32 in hex). These land inside
+the marker block, so Task 3's imports note applies: any name the block
+references must be in the file's `use` list (hand edit above the markers).
+
+**Tests:** two additions — an authority on the GOOD map asserting the ensure
+line is emitted with the right relation, and an unknown-form TOML asserting a
+build-stopping error naming the form.
+
 ## Notes for whoever executes this
 
 - **Byte-identity failures in Tasks 3-4 are always a wrong VALUE, never a wrong mechanism** — the marker block emits constants with identical names/types/values; if bytes move, diff the block against git and fix the TOML.
