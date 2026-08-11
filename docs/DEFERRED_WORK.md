@@ -3965,7 +3965,56 @@ re-index Knuckles — see the comment at his `process_set` call.
 
 ## Ledgered by the 2026-08-11 Tails appendage object (`feat/character-dispatch`)
 
-### The appendage's angle-banked roll frames stay at bank 0 — BLOCKED on an engine arctan
+### ✅ RESOLVED 2026-08-11 — The appendage's angle-banked roll frames stay at bank 0 — BLOCKED on an engine arctan
+
+**RESOLVED 2026-08-11 (`feat/character-dispatch`).** `GetArcTan` + `ArcTan_Table` shipped in
+`engine/system/math.emp` (a faithful port of S3K `s3.asm:3174`, `preserves(d3-d4)`), and
+`TailsAppendage_Main` now banks `mapping_frame` and re-derives the flip pair between the
+`AnimateSprite` call and the DPLC. The four banks were confirmed present and distinct in the
+converted data before the code was written — mapping frames 5-8 / 9-$C / $D-$10 / $11-$14, all 16
+DPLC frames distinct, and the VDP size code changes $09 -> $06 between the horizontal and vertical
+pairs, so they are genuinely different orientations and not a duplicated cycle.
+
+**TWO CORRECTIONS TO THE ORIGINAL TEXT BELOW — it was wrong on the mechanism, and the error was
+load-bearing enough to send a reader down a dead end:**
+
+1. **"S3K's `GetArcTan` is a `$100`-byte table lookup" is FALSE.** It is a **257-entry ratio
+   table plus TWO `divu.w`s** (`s3.asm:3193` and `:3202`). `ArcTanTable` is not indexed by x and
+   y — it is indexed by the *quotient* `floor(min·256/max)`, so the table converts a ratio to an
+   angle and the divide is what produces the ratio. A table lookup therefore does NOT make the
+   routine division-free. The blob is 258 bytes: 257 entries (the index is an inclusive quotient —
+   equal magnitudes divide to exactly `$100`) plus one even-pad byte.
+2. **The rejection of the octant approximation was RIGHT, and now has a number behind it.** The
+   ledger rejected a `tan(22.5°) ≈ 7/16` threshold as "not S3K's rounding". Correct:
+   `tan(22.5°)·256 = 106.04`, but the table's own crossings are at **q = 103** (entry 15 -> 16) and
+   **q = 110** (16 -> 17). A trig-derived threshold of 106 sits between them and disagrees with S3K
+   on real inputs.
+
+**A PROVEN-EXACT SHORTCUT EXISTS AND WAS DELIBERATELY NOT TAKEN — do not "discover" it again
+without reading this.** The appendage keeps only bits 5-7 of the biased angle (`(a>>3)&$C` is bits
+5-6, and the `bpl` flip test is bit 7), i.e. a 45°-sector classifier with a 22.5° offset. Because
+`ArcTanTable` is monotonic, each sector boundary is exactly a threshold on the quotient, and
+`floor(min·256/max) >= k` is exactly `min·256 >= k·max` — a multiply, not a divide. Deriving the
+two `k` from the TABLE rather than from trigonometry makes the result bit-identical by
+construction. This was verified, not assumed: **3.77M inputs (all of `|x|,|y| <= 600`, 600K random
+full-int16 pairs, every quotient 0-256 at 14 scales, and the exact crossing rows ±1 at ~3000
+scales) produced ZERO disagreements** with the full S3K pipeline, filling all 32 classifier
+entries. The both-zero case does *not* fold in (it collides with the near-45° key and needs its own
+test, exactly as S3K's `GetArcTan_Zero` does).
+
+It was rejected on **measured cost**, not correctness. From the 68000 manual, over the code each
+form actually emits: faithful `GetArcTan` + transform = **498 cycles**; the classifier =
+**327** multiply-free, **291** with `mulu.w #k`. That is 1.5x, not the ~3x a bare `divu`-vs-`mulu`
+comparison suggests, because the classifier must reconstruct by hand all the sign and octant
+bookkeeping the fold does implicitly — a saving of **171-207 cycles, ~0.13-0.16% of one NTSC
+frame**, on a path that runs once per frame and only while Tails is rolling. Against that it costs
+two magic constants that encode the table's ROUNDING (silently wrong if the table is ever
+regenerated), a 32-entry classifier table of its own, and it still needs a `mulu` exception unless
+you pay 88 cycles for a shift/add chain — so it does not escape the convention question either.
+The full derivation, the 32-entry table, and the verifier are recoverable from this entry's
+description if the tradeoff is ever re-opened.
+
+**Original entry, preserved:**
 
 `games/sonic4/objects/tails_appendage.emp` ships S3K's tail behaviour with one frame-selection
 detail missing, and it is missing because a primitive does not exist yet — not because it was
@@ -3996,3 +4045,39 @@ appendage change is ~10 instructions in `TailsAppendage_Main` between the `Anima
 the DPLC: bank the mapping_frame and re-derive the flip pair. The flight ascend/descend hold, the
 OTHER thing tails_anims.emp assigned to this object, is already shipped (DUR_DYNAMIC + the parent's
 `y_vel` sign).
+
+### The `mulu`/`divu` convention text and the shipped code disagree — needs a ruling
+
+`CODING_CONVENTIONS.md:247` states the rule absolutely:
+
+> **Rule:** No `mulu`/`muls`/`divu`/`divs` in any code that runs per-frame. Use shifts, adds, or
+> lookup tables. The ONLY exception is code that runs once (level load, init).
+
+Two shipped sites are per-frame divides, and neither is "code that runs once":
+
+| Site | Instruction | Why it is there |
+|---|---|---|
+| `engine/level/parallax.emp:548` | `divs.w d4, d2` | ramp step = `(target − current) / frames_remaining`, so a band transition converges exactly on its last frame. Runs every frame a transition is active. |
+| `engine/system/math.emp` `GetArcTan` | `divu.w` ×2 | the arctan table is indexed by the RATIO, so the divide is what produces the index. Runs once per frame while Tails is rolling. |
+
+Both carry a block comment proving the divisor is never zero and the quotient cannot overflow, so
+the *practice* looks like **"not casually, and prove the invariants at the site"** rather than the
+blanket prohibition the text states. That is a real gap between the law and the code, and the two
+are not reconcilable by reading.
+
+**This is a decision for the user, and is deliberately NOT resolved here** — amending
+`CODING_CONVENTIONS.md` as a side effect of a feature parcel is exactly the kind of quiet
+law-change that should not happen. The options are:
+
+1. **Amend the text** to match practice: divides are permitted where an exact result requires one,
+   provided the site documents divisor-non-zero and no-overflow. Both sites already comply.
+2. **Keep the text absolute** and mark these two as named, listed exceptions (the text would need
+   an exceptions register, since "the ONLY exception is code that runs once" currently excludes
+   them).
+3. **Remove the divides.** Costed for `GetArcTan` in the entry above and rejected: the divide-free
+   form is provably exact but buys only ~0.13% of a frame while adding two rounding-derived magic
+   constants — and it needs a `mulu`, which the same rule forbids, so it does not even resolve the
+   discrepancy. Not costed for `parallax.emp`.
+
+Note that option 3 does not generally escape the rule: for both sites the divide-free alternative
+is a *multiply*, which sits under the same sentence.

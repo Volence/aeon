@@ -35,3 +35,117 @@ pub proc GetSineCosine (d0: Angle) clobbers() out(d0: fixed<8,8>, d1: fixed<8,8>
 // true length. Path is relative to engine/system/, hence the ../data/.
 // -----------------------------------------------
 pub data Sine_Table: [u8; $280] = embed("../data/sine.bin")
+
+// -----------------------------------------------
+// GetArcTan — the angle of the vector (x, y), i.e. atan2(y, x)
+//
+// A GENERAL primitive, not a caller-specific helper: any system that needs
+// "which way does this vector point" wants it — projectile aiming, objects
+// that face down a slope, and the classic `CalcAngle` the air-state quadrant
+// comment already name-checks. Its first consumer is the Tails appendage's
+// four-way roll bank, which uses only the top two bits of the result.
+//
+// In:  d1.w = x component (signed), d2.w = y component (signed)
+// Out: d0 = angle, $00-$FF = 0-360° in the 68k-native byte circle, measured
+//      the same direction the SST's `angle` runs. Only the low BYTE is the
+//      result — the quadrant fixups below leave the high word dirty, exactly
+//      as GetSineCosine leaves its own high word to the caller. Consumers
+//      read it with `move.b`/`lsr.b`.
+// Clobbers: nothing beyond d0 — d3/d4 are the working registers and are
+//      saved and restored, so this is safe to call from a register-tight site.
+//
+// DEGENERATE INPUT: x = y = 0 has no defined direction; it returns $40 (90°),
+// which is S3K's choice and keeps a stopped object pointing somewhere stable
+// rather than jittering as tiny velocities cross zero.
+//
+// THE TABLE IS INDEXED BY THE RATIO, NOT BY THE VECTOR. ArcTan_Table is a
+// one-dimensional atan(ratio) curve, so reaching it needs the ratio computed
+// first — that is what the divide below is for, and it is why a "table lookup"
+// does NOT make this division-free. Only the octant 0 <= |a|/|b| <= 1 is
+// tabulated; the other seven are reached by the fold and the sign fixups.
+//
+// ON THE `divu.w` (conventions §2.1 forbids divides on per-frame paths — this
+// is a deliberate, bounded exception in the same shape parallax.emp's per-frame
+// `divs.w` documents its own):
+//   * NEVER DIVIDES BY ZERO. The both-zero case exits at `.zero` before either
+//     divide. Past that, the divisor is max(|x|, |y|) and at least one of the
+//     two is non-zero, so the divisor is >= 1.
+//   * NEVER OVERFLOWS. `cmp/bcc` sends each case down the branch whose
+//     dividend is the SMALLER magnitude, so the quotient (dividend<<8)/divisor
+//     is always < $100 and cannot exceed the word `divu` returns. The
+//     `moveq #0` pair above is what makes the `lsl.l #8` a clean 32-bit
+//     dividend rather than shifting garbage out of a dirty high word.
+//   * COSTS ~140 CYCLES, once, on a path that is not a loop. Exactness is the
+//     reason it is here: the alternative octant approximation lands on a
+//     visibly different frame than the reference.
+// Ported from S3K (skdisasm/s3.asm:3174) instruction-for-instruction.
+// -----------------------------------------------
+pub proc GetArcTan (d1: i16, d2: i16) clobbers() preserves(d3-d4) out(d0: Angle) {
+        movem.l d3-d4, -(sp)
+        moveq   #0, d3
+        moveq   #0, d4
+        move.w  d1, d3
+        move.w  d2, d4
+        or.w    d3, d4
+        beq     .zero                   // both components zero — no direction
+        move.w  d2, d4
+
+        tst.w   d3                      // d3 = |x|, high word stays clear
+        bpl     .abs_x_ok
+        neg.w   d3
+    .abs_x_ok:
+        tst.w   d4                      // d4 = |y|, high word stays clear
+        bpl     .abs_y_ok
+        neg.w   d4
+    .abs_y_ok:
+        cmp.w   d3, d4
+        bcc     .fold                   // |y| >= |x| — fold into the other octant
+        lsl.l   #8, d4                  // |y|/|x| <= 1: index the curve directly
+        divu.w  d3, d4
+        moveq   #0, d0
+        move.b  ArcTan_Table(pc,d4.w), d0
+        jbra    .quadrant
+
+    .fold:
+        lsl.l   #8, d3                  // |x|/|y| <= 1, then atan(y/x) = 90° - atan(x/y)
+        divu.w  d4, d3
+        moveq   #$40, d0
+        sub.b   ArcTan_Table(pc,d3.w), d0
+
+    .quadrant:
+        tst.w   d1                      // mirror into the correct half by x's sign
+        bpl     .x_pos
+        neg.w   d0
+        addi.w  #$80, d0
+    .x_pos:
+        tst.w   d2                      // then into the correct quadrant by y's sign
+        bpl     .y_pos
+        neg.w   d0
+        addi.w  #$100, d0
+    .y_pos:
+        movem.l (sp)+, d3-d4
+        rts
+
+    .zero:
+        move.w  #$40, d0                // 90°
+        movem.l (sp)+, d3-d4
+        rts
+}
+
+// -----------------------------------------------
+// ArcTan_Table — 257 byte entries plus one pad byte ($102 total).
+//
+// entry[i] = round(atan(i/256) · 128/π), i.e. the first octant of the byte
+// circle sampled at 257 evenly-spaced RATIOS: entry[0] = 0 (0°) through
+// entry[$100] = $20 (45°). 257 and not 256 because the index is an INCLUSIVE
+// quotient — the equal-magnitude case |a| = |b| divides to exactly $100 — so a
+// 256-entry table would read one byte past its end on every perfect diagonal.
+// The odd length is then padded to keep whatever follows word-aligned, which is
+// why the typed size is $102 and not $101.
+//
+// Byte-identical to S3K's ArcTanTable (skdisasm Levels/Misc/arctan.bin);
+// verified entry-by-entry against the formula above rather than assumed from
+// the filename. The typed size doubles as a compile-time check against the
+// embedded blob's true length.
+// -----------------------------------------------
+pub data ArcTan_Table: [u8; $102] = embed("../data/arctan.bin")

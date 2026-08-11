@@ -44,8 +44,8 @@
 module games.sonic4.tails_appendage in tails_appendage
 
 use engine.objects.sst.{Sst}
-use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE}
-use games.sonic4.constants.{VRAM_TAILS_APPENDAGE}
+use engine.constants.{RF_PRIORITY_SHIFT, RF_XFLIP, RF_YFLIP, ST_XFLIP, TILE_SIZE}
+use games.sonic4.constants.{ANIM_ROLL, VRAM_TAILS_APPENDAGE}
 
 // Cross-seam link values. The sprite trio lives in games.sonic4.tails_data, the
 // script table in games.sonic4.tails_anims, and CharDef_Tails in games.sonic4.tails.
@@ -84,6 +84,15 @@ const APPENDAGE_RENDER_FLAGS = APPENDAGE_PRIORITY_BAND << RF_PRIORITY_SHIFT
 // tails_data.emp measures the peak DPLC frame out of the shipped blob and
 // fails the build if it ever overruns into the HScroll table.
 const APPENDAGE_VRAM_BYTES = VRAM_TAILS_APPENDAGE * TILE_SIZE
+
+// The flip PAIR, as a mask and its inverse. S3K spells these `3` and `$FC`
+// because its render_flags puts xflip/yflip in bits 0-1; ours are bits 1-2
+// (RF_XFLIP/RF_YFLIP are bit NUMBERS, and ST_XFLIP is bit-aligned with
+// RF_XFLIP so the facing bit needs no shifting between the two bytes). Derived
+// rather than written as $06/$F9 so a future bit reshuffle cannot leave a
+// stale literal behind.
+const APPENDAGE_FLIP_PAIR  = (1 << RF_XFLIP) | (1 << RF_YFLIP)
+const APPENDAGE_FLIP_CLEAR = $FF - APPENDAGE_FLIP_PAIR
 
 // -----------------------------------------------
 // TailsAppendage_Refresh — reconcile the appendage against the active character.
@@ -195,19 +204,17 @@ pub proc TailsAppendage_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
 // every field read here is the parent's FINAL value for this frame: position
 // after physics, `anim` after Player_Animate, `status` after the state hooks.
 //
-// S3K PARITY AND THE TWO DELIBERATE GAPS (both named in tails_anims.emp):
+// S3K PARITY — the two restorations tails_anims.emp assigns to this object, both
+// now shipped here because both are per-frame functions of the PARENT's motion
+// and so cannot live in a static script table:
 //   * FLIGHT ASCEND RATE — S3K carries two flight rows for the tails that differ
 //     only in hold ($B holds 1, $C holds 0, so the tails visibly spin up while
 //     climbing) and picks between them off the parent's flight direction. Our
 //     single ANIM_FLY id cannot carry both, so `Ani_TailsAppendage.Fly` is
-//     DUR_DYNAMIC and the hold is computed HERE from the parent's y_vel sign —
-//     which is the restoration tails_anims.emp assigns to this object.
-//   * ROLL DIRECTION BANK — S3K runs the ball-spin tails through four
-//     angle-banked mapping banks, selecting one with
-//     `GetArcTan(parent x_vel, y_vel)` and adding 0/4/8/$C to mapping_frame.
-//     The engine has no arctan (engine/system/math.emp is sine/cosine only), so
-//     the shipped table's bank 0 stands and the spin plays at the horizontal
-//     orientation. Deferred with its dependency named — docs/DEFERRED_WORK.md.
+//     DUR_DYNAMIC and the hold is computed HERE from the parent's y_vel sign.
+//   * ROLL DIRECTION BANK — the ball-spin tails are drawn at one of four
+//     orientations picked from the parent's direction of travel, via
+//     `GetArcTan(parent x_vel, y_vel)`. See the block in the body.
 //
 // In:  a0 = own SST
 // Out: none
@@ -253,6 +260,101 @@ pub proc TailsAppendage_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         moveq   #0, d3                  // y_vel < 0 = ascending
     .hold_ok:
         jbsr    AnimateSprite
+
+        // -----------------------------------------------
+        // ROLL DIRECTION BANK — S3K `loc_15A3C` (sonic3k.asm:29556).
+        //
+        // In ball form the tails are drawn at one of FOUR orientations, picked
+        // from the PARENT's direction of TRAVEL (not its facing): the shipped
+        // mapping set carries the same 4-frame spin cycle four times over, at
+        // frames 5-8 / 9-$C / $D-$10 / $11-$14, so the orientation is selected
+        // by ADDING 0/4/8/$C to whatever frame the script just stepped to. The
+        // remaining half-turn is covered by flipping both axes rather than by
+        // four more banks, which is what the `bpl` on the biased angle tests.
+        //
+        // Gated on ANIM_ROLL because that is the only script whose frames have
+        // banks behind them — every other row would index into an unrelated
+        // frame. S3K gates the same way, by reaching this code only from its
+        // ball-spin dispatch.
+        // -----------------------------------------------
+        cmpi.b  #ANIM_ROLL, Sst.anim(a0)
+        bne     .no_bank
+
+        // The angle of the parent's velocity vector. a1 is free again here —
+        // AnimateSprite clobbered the parent cursor, so it is re-read.
+        movea.w Sst.parent_ptr(a0), a1
+        move.w  Sst.x_vel(a1), d1 as i16
+        move.w  Sst.y_vel(a1), d2 as i16
+        jbsr    GetArcTan               // d0.b = direction of travel
+
+        // Mirror the angle on the facing bit, then bias by half a bank ($10)
+        // so the bank boundaries straddle the axes instead of landing on them.
+        moveq   #0, d1
+        move.b  Sst.status(a0), d2
+        andi.b  #1 << ST_XFLIP, d2
+        bne     .bank_facing_left
+        not.b   d0
+        jbra    .bank_bias
+    .bank_facing_left:
+        addi.b  #$80, d0
+    .bank_bias:
+        addi.b  #$10, d0
+        bpl     .bank_flip_ready
+        moveq   #APPENDAGE_FLIP_PAIR, d1   // upper half-turn: flip BOTH axes
+    .bank_flip_ready:
+
+        // Re-derive the flip pair. This OVERWRITES what AnimateSprite just
+        // propagated from `status`: for the ball the vertical flip is a
+        // function of the travel angle, and the horizontal one is the facing
+        // XORed with it, so plain facing is not the answer on this script.
+        andi.b  #APPENDAGE_FLIP_CLEAR, Sst.render_flags(a0)
+        eor.b   d1, d2
+        or.b    d2, Sst.render_flags(a0)
+
+        lsr.b   #3, d0
+        andi.b  #$C, d0                 // d0 = bank 0/4/8/$C (bits 5-6 of the angle)
+
+        // ADD THE BANK TO THE SCRIPT'S FRAME, RE-DERIVED RATHER THAN
+        // ACCUMULATED. S3K can `add.b d3,mapping_frame(a0)` because it reaches
+        // this code ONLY on the frames its timer expired on, so the addend
+        // lands exactly once per animation step. Our AnimateSprite is not a
+        // once-per-step call — it returns early on the 3 frames of 4 that do
+        // not advance, LEAVING mapping_frame carrying the bank it was given
+        // last time — so the same `add` here would compound the bank every
+        // frame and walk the frame index off the end of the set. Reading the
+        // script's own byte back gives the unbanked base on every frame,
+        // advancing or not, which makes this idempotent by construction.
+        //
+        // `anim_frame` indexes the byte AnimateSprite last resolved to a frame
+        // (it is post-incremented before the read, and the AF_END wrap clears
+        // it before re-reading), and that byte already passed AnimateSprite's
+        // control-code test — so it is always a real frame index, never a $F7+
+        // command.
+        //
+        // THIS ALSO KEEPS THE BANK AND THE FLIP PAIR ON THE SAME ANGLE SAMPLE.
+        // They encode one orientation between them, and the flip half MUST be
+        // rewritten every frame regardless (AnimateSprite reasserts it from
+        // `status` above), so sampling the bank on a different cadence than the
+        // flip would let the two disagree for up to 3 frames after a turn.
+        // Deviation from S3K, stated plainly: our orientation tracks the
+        // trajectory every frame instead of every 4th.
+        movea.l Sst.anim_table(a0), a1
+        moveq   #0, d1
+        move.b  Sst.anim(a0), d1
+        add.w   d1, d1
+        adda.w  (a1,d1.w), a1           // a1 = the running script
+        moveq   #0, d1
+        move.b  Sst.anim_frame(a0), d1
+        add.b   1(a1,d1.w), d0          // d0 = base frame + bank
+        move.b  d0, Sst.mapping_frame(a0)
+
+        // mapping_frame moved, so the H1 frame-data cache and the piece count
+        // must move with it (sst.emp: "MUST be refreshed on every
+        // mapping_frame/mappings write"). Without this the renderer would draw
+        // the PRE-bank frame from the stale offset and the DEBUG staleness
+        // assert in Render_Sprites would fire.
+        jbsr    RefreshSpritePieceCount
+    .no_bank:
 
         // Own DPLC stream into its own VRAM window. IMPORTANT priority, matching
         // the body's (Player_LoadArt): the two sprite sets are one character, and

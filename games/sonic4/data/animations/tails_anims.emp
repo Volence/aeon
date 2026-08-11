@@ -28,7 +28,13 @@
 //   3. S3K reads the appendage's angle-banked roll frames by ADDING a
 //      direction-derived offset to mapping_frame after running the script. That
 //      offset is the appendage OBJECT's job (it needs the parent's velocity
-//      angle); the table carries bank 0, so the object adds 0/4/8/$C to it.
+//      angle), so the table carries bank 0 and the object adds 0/4/8/$C.
+//      SHIPPED — `TailsAppendage_Main` (games/sonic4/objects/tails_appendage.emp)
+//      applies it between the AnimateSprite call and the DPLC, off
+//      `GetArcTan(parent x_vel, y_vel)`. This row is therefore the BASE of the
+//      four banks, not a lone orientation: keep its frames contiguous and keep
+//      the +4/+8/+$C copies behind them in the mapping set, or the object will
+//      index frames that are not rotations of these.
 //
 // The S3K id -> our id correspondence (established by Ani_Sonic, whose frame
 // lists match S3K's AniSonic rows one for one): walk 0, run 1, roll 2, push 4,
@@ -141,10 +147,11 @@ offsets Ani_TailsAppendage {
     Run:      [u8; 3] = [$20, 0, AF_END],
 
     // S3K app 03 — bank 0 of the four angle-banked spin banks (03/04/05/06 are
-    // the same 4-frame cycle at four directions). The appendage object adds the
-    // direction offset (0/4/8/$C) to mapping_frame after the step, exactly as
-    // S3K does; the $FC "duration" that encodes that dispatch in S3K becomes the
-    // static 3 S3K itself forces on the timer down that path (deviations 1 + 3).
+    // the same 4-frame cycle at four directions, mapping frames 5-8 / 9-$C /
+    // $D-$10 / $11-$14). The appendage object adds the direction offset
+    // (0/4/8/$C) to mapping_frame after the step, exactly as S3K does — see
+    // deviation 3; the $FC "duration" that encodes that dispatch in S3K becomes
+    // the static 3 S3K itself forces on the timer down that path (deviations 1 + 3).
     Roll:     [u8; 6] = [3, 5, 6, 7, 8, AF_END],
 
     // S3K app 07 / 09 / 01.
