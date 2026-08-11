@@ -176,13 +176,15 @@ offsets Ani_TailsAppendage {
     // frame), $C holds 0 (flip every frame, so the tails visibly spin up while
     // climbing).
     //
-    // Our ANIM contract has ONE flight id, so this row takes S3K's $B — the
-    // descending/neutral rate, and the one S3K also uses for tired. The ascend
-    // speed-up is the ONE thing the id merge costs, and it is the appendage
-    // OBJECT's to restore when it lands: that object already has to read the
-    // parent's velocity for the angle-banked roll frames (deviation 3 above), so
-    // a y_vel sign test picking hold 0 belongs there, not in a second anim id.
-    Fly:      [u8; 4] = [1, $27, $28, AF_END],
+    // Our ANIM contract has ONE flight id, so the ascend/descend split cannot be
+    // two rows here — and it is not lost either: Fly's duration is DUR_DYNAMIC,
+    // so the hold comes from the caller's d3, and TailsAppendage_Main computes it
+    // from the PARENT's y_vel sign (0 climbing = S3K's $C, 1 otherwise = S3K's
+    // $B). That is the restoration this table's earlier note assigned to the
+    // appendage object, and it is why the object reads the parent's velocity.
+    // FlyTired keeps the STATIC 1: S3K reaches tired through row $B, the
+    // descending rate, whichever way the tired Tails is drifting.
+    Fly:      [u8; 4] = [DUR_DYNAMIC, $27, $28, AF_END],
     FlyTired: [u8; 4] = [1, $27, $28, AF_END],
 }
 // The appendage bodies sum to an ODD length, so this pad is load-bearing for

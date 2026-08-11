@@ -3960,3 +3960,39 @@ Pick before writing code; all three are cheap up front and expensive to retrofit
 histograms on every run (`./gen_characters.py` from `games/sonic4/data/characters_staging/`), and
 hard-asserts that no art it re-indexes uses an unmappable index. It deliberately does **not**
 re-index Knuckles — see the comment at his `process_set` call.
+
+---
+
+## Ledgered by the 2026-08-11 Tails appendage object (`feat/character-dispatch`)
+
+### The appendage's angle-banked roll frames stay at bank 0 — BLOCKED on an engine arctan
+
+`games/sonic4/objects/tails_appendage.emp` ships S3K's tail behaviour with one frame-selection
+detail missing, and it is missing because a primitive does not exist yet — not because it was
+skipped.
+
+**What S3K does.** When Tails is in ball form his tails render from one of FOUR angle-banked mapping
+banks (`AniTails_Tail03`/`04`/`05`/`06` — the same 4-frame cycle drawn at four orientations). The
+selection is `sonic3k.asm:29556` (`loc_15A3C`): take the PARENT's `x_vel`/`y_vel`, run them through
+`GetArcTan`, mirror the result on the facing bit (`not.b d0` facing right, `+$80` facing left), bias
+by `+$10`, then `lsr.b #3` / `andi.b #$C` to get 0/4/8/$C and ADD that to `mapping_frame` after the
+script step. The same angle also drives a two-bit render_flags flip.
+
+**What we ship.** `Ani_TailsAppendage.Roll` carries bank 0 (tails_anims.emp deviation 3 says so
+explicitly and assigns the offset to the appendage object), and the object does not add anything, so
+a rolling Tails' tails spin at the horizontal orientation regardless of travel direction.
+
+**The blocking dependency.** `engine/system/math.emp` is sine/cosine only — there is no arctan
+anywhere in the engine (`GetSineCosine` + `Sine_Table` are the whole module). S3K's `GetArcTan` is a
+$100-byte table lookup. An APPROXIMATION is available (classify the octant from `|dx|` vs `|dy|`
+against a `tan(22.5°) ≈ 7/16` threshold, which is all `>>3 & $C` actually extracts) but it is NOT
+S3K's rounding, so it would ship a visible-frame difference against the reference we are measuring
+against, and it cannot be A/B'd against S3K without the real table.
+
+**What closing it looks like.** Add `GetArcTan` (table + lookup) to `engine/system/math.emp` as its
+own parcel — it is a general primitive several systems will want (projectile aiming, slope-facing
+objects, the classic `CalcAngle` the air-state quadrant comment already name-checks) — then the
+appendage change is ~10 instructions in `TailsAppendage_Main` between the `AnimateSprite` call and
+the DPLC: bank the mapping_frame and re-derive the flip pair. The flight ascend/descend hold, the
+OTHER thing tails_anims.emp assigned to this object, is already shipped (DUR_DYNAMIC + the parent's
+`y_vel` sign).
