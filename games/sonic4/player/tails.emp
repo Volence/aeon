@@ -1,0 +1,105 @@
+// Tails — the character RECORD (§5), the exact peer of sonic.emp. Pure data: the
+// CharacterDef the shared player frame dispatches through, plus the physics base
+// row it points at.
+//
+// There is no Tails CODE, and that is the point of the roster: the four places
+// the player frame used to name a character (asset wiring, the DPLC + art
+// immediates, the physics source, the airborne ability) all read this record
+// through Player_Chardef, so making Tails playable is a second record here plus
+// one roster row — not a second branch anywhere in player_common.
+//
+// FLIGHT IS NOT IN THIS RECORD YET. cd_ability points at Ability_None, the same
+// no-op Sonic uses; PSTATE_FLY, the flight state and the twin-tail appendage
+// child object are a separate task. Tails today is Sonic's movement wearing
+// Tails' art, animation scripts and collision box.
+module games.sonic4.tails in tails
+
+use engine.structs.{CharacterDef}
+use games.sonic4.ram.{PlayerBlock}
+use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
+use engine.constants.{PLAYER_X_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
+
+// VRAM_TEST_SONIC — tile 960, THE character DPLC window (32 tiles, 960 up to the
+// VRAM_TEST_OBJ wall at 992). Its name says Sonic; its role is the single
+// character window, and only ONE character is resident at a time, so Tails
+// streams into the same 32 tiles. The guard that this is safe is not a comment:
+// games/sonic4/data/characters/tails_data.emp carries
+// `ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_OBJ)`,
+// which measures Tails' worst DPLC frame out of the shipped blob (24 tiles of
+// the 32) and fails the build if a re-exported sheet ever outgrows the window.
+use games.sonic4.constants.{VRAM_TEST_SONIC}
+
+// -----------------------------------------------
+// TAILS_Y_RADIUS — Tails' standing height radius, the ONE box dimension that
+// differs from Sonic's. Stock S3K: `Tails_Init` writes y_radius $F / x_radius 9
+// where `Sonic_Init` writes $13 / 9 (skdisasm sonic3k.asm), i.e. Tails is four
+// pixels shorter and exactly as wide. Rolling, both characters use the shared
+// ball radii ($E / 7 — S3K's `Player_DoRoll` is one routine for both), so the
+// roll box below is built from the engine's BALL_* constants unchanged.
+//
+// A module-local const rather than an engine constant: engine/system/constants.emp
+// is game-agnostic and PLAYER_*_RADIUS is the engine's shared default. A per-
+// character deviation belongs to the character's record, which is this file.
+// -----------------------------------------------
+const TAILS_Y_RADIUS = 15
+
+// -----------------------------------------------
+// CharDef_Tails — the record the roster (CharacterDefs, characters.emp) points
+// at for CHAR_TAILS.
+//
+// cd_stand_wh / cd_roll_wh carry the FULL box dimensions (2r+1) the
+// set_standing_size / set_ball_size splices write, built from radii rather than
+// restated as numbers — the same construction CharDef_Sonic uses.
+//
+// THEY ARE INERT TODAY. Nothing reads cd_stand_wh / cd_roll_wh yet: the enter
+// hooks in player_common are still the one writer of the live SST width/height
+// fields and they splice the shared engine radii at comptime, so Tails currently
+// collides with Sonic's 39-pixel standing box, not the 31-pixel one below. The
+// S3K-correct values live here so that the day the sizing splices are taught to
+// consume the record, the character data is already right and no second edit is
+// needed. Wiring that consumption is deliberately NOT part of this task.
+// -----------------------------------------------
+pub data CharDef_Tails: CharacterDef = CharacterDef{
+    cd_phys:      PhysTable_Tails,
+    cd_mappings:  extern("Map_Tails"),
+    cd_dplc:      extern("DPLC_Tails"),
+    cd_artbase:   extern("Art_Tails"),
+    cd_animtable: extern("Ani_Tails"),
+    cd_ability:   extern("Ability_None"),   // flight is a later task — see the header
+    cd_vrambase:  VRAM_TEST_SONIC,          // the shared character window (one character resident)
+    cd_stand_wh:  ((PLAYER_X_RADIUS * 2 + 1) << 8) | (TAILS_Y_RADIUS * 2 + 1),
+    cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
+    cd_flags:     0,
+}
+
+// -----------------------------------------------
+// Tails' physics base table — SONIC'S ROW VERBATIM, and that is the correct
+// value, not a placeholder. Per the Sonic Physics Guide, S3K gives Tails the
+// same ground constants as Sonic across the board — acceleration, deceleration,
+// friction, top speed, gravity, jump force, air acceleration and the
+// jump-release cap are all identical; what makes Tails play differently is his
+// smaller collision box and his ability (flight), not his movement numbers.
+// Naming the row separately anyway is what lets a future tuning pass touch Tails
+// alone without editing Sonic's row.
+//
+// Same contract as PhysTable_Sonic: block-copied into the calling slot's
+// PlayerBlock by Player_RefreshPhysics (the per-CHARACTER base row; section
+// modifiers compose there later, NEVER per-frame). Field order is bound to the
+// PlayerBlock physics row (config/ram.emp) — the ensure below enforces size.
+// -----------------------------------------------
+pub data PhysTable_Tails: [i16; 8] = [
+        PHYS_ACCEL,
+        PHYS_DECEL,
+        PHYS_FRICTION,
+        PHYS_TOP_SPEED,
+        PHYS_GRAVITY,
+        PHYS_JUMP_FORCE,
+        PHYS_AIR_ACCEL,
+        PHYS_JUMP_RELEASE_CAP,
+]
+// The physics row is the head of PlayerBlock, so its length is the offset of the
+// first non-physics field: this 8-word ROM row and the RAM row
+// Player_RefreshPhysics block-copies it into must be the same size. Same guard
+// PhysTable_Sonic carries — every physics row the roster can point at needs it,
+// not just the first one.
+ensure(8 * 2 == offsetof(PlayerBlock, quadrant), "PhysTable_Tails out of sync with the PlayerBlock physics row")

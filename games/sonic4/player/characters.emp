@@ -1,12 +1,15 @@
 // Character roster — the table the player frame dispatches through (§5).
 //
 // The roster is the seam between the SHARED player frame (player_common and the
-// state files) and the per-character RECORDS (sonic.emp, and the coming
-// tails.emp / knuckles.emp). It owns three things and nothing else:
+// state files) and the per-character RECORDS (sonic.emp, tails.emp, and the
+// coming knuckles.emp). It owns three things and nothing else:
 //
 //   CharacterDefs      — one CharacterDef pointer per CHAR_* id. Player_Init
 //                        indexes it once and caches the resolved record in
-//                        Player_Chardef; nothing else reads the table.
+//                        Player_Chardef; nothing else reads the table in a
+//                        shipped shape (the Config-A character-cycle hotkey,
+//                        game_debug.emp, is the one other reader and exists only
+//                        there).
 //   the record readers — Player_InitAssets, Player_LoadArt and Player_Ability,
 //                        the three routines that turn a cached record into SST
 //                        asset fields, into a DPLC stream, and into an ability
@@ -21,9 +24,9 @@
 // machine, dispatch, hooks, bounds, debug-fly). Putting the roster there would
 // make the frame know the cast. Keeping it here means Tails and Knuckles are
 // two more records plus two more roster rows — a data edit — and the frame is
-// untouched.
+// untouched. Tails proved that: he cost one record file and one row below.
 //
-// Lives in the object code bank, right after `sonic` per map.toml `order`.
+// Lives in the object code bank, right after `sonic`/`tails` per map.toml `order`.
 module games.sonic4.characters in characters
 
 use engine.objects.sst.{Sst}
@@ -47,13 +50,19 @@ type AbilityHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 
 // -----------------------------------------------
 // CharacterDefs — THE roster: one CharacterDef pointer per CHAR_* id, in CHAR_*
-// order. Player_Init is the only reader (it caches the resolved record in
-// Player_Chardef); the entry size is a longword so the index scales by a shift.
+// order. Player_Init is the only reader in a shipped shape (it caches the
+// resolved record in Player_Chardef); the entry size is a longword so the index
+// scales by a shift.
 // -----------------------------------------------
 pub data CharacterDefs: [*u8; CHAR_COUNT] = [
         extern("CharDef_Sonic"),        // CHAR_SONIC
-        extern("CharDef_Sonic"),        // CHAR_TAILS    — TEMP roster stub, replaced in C2/C4
-        extern("CharDef_Sonic"),        // CHAR_KNUCKLES — TEMP roster stub, replaced in C2/C4
+        extern("CharDef_Tails"),        // CHAR_TAILS    — the real record (tails.emp)
+        // CHAR_KNUCKLES is still a TEMP stub aimed at the Sonic record, and that
+        // is what keeps the id space TOTAL: every CHAR_* value in 0..CHAR_COUNT-1
+        // resolves to a real, complete CharacterDef, so cycling the roster past
+        // Tails lands on a playable Sonic rather than a null pointer. Replaced by
+        // a CharDef_Knuckles when the Knuckles art + glide ability land.
+        extern("CharDef_Sonic"),        // CHAR_KNUCKLES — TEMP roster stub, plays as Sonic
 ]
 
 // -----------------------------------------------

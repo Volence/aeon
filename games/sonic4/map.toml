@@ -64,7 +64,7 @@ order = [
   "Section_Init", "Camera_Init", "Parallax_Init", "Level_LoadArt",
   "PageIn_Process", "PageCache_Init", "BG_Init", "BgAnim_Init", "CompressionSelfTest", "Sound_PostByte",
   "Sound_DebugMirror", "ObjCodeBase", "Player_Init", "PState_Ground",
-  "PState_Air", "PState_Spindash", "CharDef_Sonic", "CharacterDefs", "TestStatic_Main",
+  "PState_Air", "PState_Spindash", "CharDef_Sonic", "CharDef_Tails", "CharacterDefs", "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",
   "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "ObjDef_Static",
