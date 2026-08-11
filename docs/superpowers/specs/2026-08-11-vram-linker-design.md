@@ -384,6 +384,15 @@ The acceptance-baseline test (`repin_pins`) keeps its role unchanged.
 
 ## 12. Riders (ledgered, not this design)
 
+- **Normalize `art_tile` in the replay hash** (user question, 2026-08-11): the
+  player's art_tile word carries a VRAM tile index — a layout fact, the same
+  class as the free-stack cursors the prep parcel normalized. Fold it with the
+  tile bits masked (priority/palette/flip bits stay covered — they are real
+  gameplay state). Costs one fixture re-stamp (ritual documented); buys the
+  character window's pin becoming preference instead of protection, so T1 may
+  freely float it. Land as a small parcel AFTER T0 (not inside the carve task,
+  whose proof is "layout change with NO re-stamp").
+
 - T3: object/effect art as pinned pool pages (ARCH end-state; supersedes
   hand windows for object art).
 - Prefer-previous-assignment as a solver secondary objective (novel; unneeded
