@@ -112,7 +112,7 @@ pub vars lower_ram {
     // region means any hypothetical over-decode spills into the unused
     // Lower_RAM_End..region-end gap instead of corrupting Page_Table's low entries.
     Page_Table:     [u8; PAGE_TABLE_MAX],                                   // 256 bytes — page id -> frame idx / PAGE_NOT_RESIDENT
-    Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 14 × sizeof(PageFrame)=8 = 112 bytes
+    Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 15 × sizeof(PageFrame)=8 = 120 bytes
     Page_Queued_Bits: [u8; PAGE_TABLE_MAX / 8],                             // 32 bytes — "page already in the request FIFO" bitset (PageCache_Request dedupe)
 
     // Art staging LAST in lower_ram (defense-in-depth): a hypothetical over-decode
