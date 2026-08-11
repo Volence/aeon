@@ -277,6 +277,25 @@ def test_unknown_authority_form_is_an_error(tmp_path):
     assert "bogus" in r.stderr and "pool" in r.stderr
 
 
+def test_const_with_space_is_an_error(tmp_path):
+    # R3: const is emitted as a bare .emp identifier — the shared loose
+    # charset (spaces, dots, hyphens) would emit broken syntax
+    bad = GOOD.replace('const = "VRAM_WIN"', 'const = "VRAM WIN"')
+    r = run(tmp_path, bad)
+    assert r.returncode != 0
+    assert "const" in r.stderr and "win" in r.stderr
+
+
+def test_authority_target_with_space_is_an_error(tmp_path):
+    # R3: authority TARGET names are emitted as bare identifiers in ensures
+    bad = GOOD.replace(
+        'quantum = 64\nlifetime = "act"',
+        'quantum = 64\nlifetime = "act"\nauthority = "engine-tiles:POOL TILES"')
+    r = run(tmp_path, bad)
+    assert r.returncode != 0
+    assert "authority" in r.stderr and "pool" in r.stderr
+
+
 def test_real_sonic4_map_verifies_and_matches_reality(tmp_path):
     """The committed contract must verify AND reproduce today's constants."""
     import shutil

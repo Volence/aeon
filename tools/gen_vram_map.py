@@ -38,6 +38,9 @@ TOTAL_TILES = 2048
 # strings interpolated into emitted .emp source, ensure messages, and markdown
 # table cells must stay inside this charset (no quotes, no //, no |, no :)
 SAFE_TEXT = re.compile(r"^[A-Za-z0-9_. -]+$")
+# fields emitted as BARE .emp identifiers (const names, authority targets)
+# must actually be identifiers — the loose charset would emit broken syntax
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 MARK_BEGIN = "// >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<"
 MARK_END = "// <<< GENERATED: vram map END >>>"
 
@@ -103,15 +106,24 @@ def check_text(region_name, field, value):
              f"characters outside [A-Za-z0-9_. -]")
 
 
+def check_ident(region_name, field, value):
+    """R3: fields emitted as bare .emp identifiers must BE identifiers —
+    'VRAM WIN' or 'POOL TILES' would pass the loose charset yet emit
+    broken syntax into the generated block."""
+    if not isinstance(value, str) or not IDENT.match(value):
+        fail(f"region {region_name!r}: field {field!r} value {value!r} is not "
+             f"a valid identifier ([A-Za-z_][A-Za-z0-9_]*)")
+
+
 def verify(regions, frees):
     for r in regions:
         for field in ("name", "owner", "lifetime"):
             check_text(r["name"], field, r[field])
         if r.get("const"):
-            check_text(r["name"], "const", r["const"])
+            check_ident(r["name"], "const", r["const"])
         for auth in auth_list(r):
             auth_relation(r, auth)   # validates the form; result unused here
-            check_text(r["name"], "authority", auth.partition(":")[2])
+            check_ident(r["name"], "authority", auth.partition(":")[2])
         if not (0 <= r["base"] and r["base"] + r["tiles"] <= TOTAL_TILES):
             fail(f"region {r['name']!r} [{r['base']}..{r['base']+r['tiles']-1}] "
                  f"leaves 0..{TOTAL_TILES-1}")
