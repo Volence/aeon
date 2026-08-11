@@ -3905,3 +3905,53 @@ contract, which is exactly why it must not ride along underneath the Task 4 byte
 change that broad makes any byte diff impossible to attribute. Budget it as its own parcel with its
 own gate. The partial form is not a valid halfway house — it does not compile, so there is no
 smaller increment to land first.
+
+---
+
+## Ledgered by the 2026-08-10 Tails palette re-index (`feat/character-dispatch`)
+
+### Knuckles is NOT solvable by index permutation — he needs a real palette swap — RECORDED, not fixed
+
+**Read this before designing Knuckles' art path.** Tails' wrong colours were fixed by re-indexing
+his S3K art into our CRAM line 0 ordering at build time
+(`games/sonic4/data/characters_staging/gen_characters.py`, `remap_art_indices`). **That fix does not
+generalise to Knuckles, and reaching for it will silently corrupt his colours.**
+
+**The measurement.** Our player line is `art/palettes/SonicAndTails.bin`; S3K's is
+`skdisasm/General/Sprites/Sonic/Palettes/SonicAndTails.bin` line 0. The two hold the *same colour
+set in a different order* — 15 of 16 S3K indices match one of ours exactly. The exception is S3K
+index **5 = `$0080`** (dark green), which our line does not carry at any index.
+
+| art | S3K index-5 pixels | permutation lossless? |
+|---|---|---|
+| Tails body (`Tails.bin`) | **0** | yes — shipped |
+| Tails appendage (`Tails tails.bin`) | **0** | yes — shipped |
+| Knuckles (`Knuckles.bin`, contiguous `_opt`) | **3,450** | **no** |
+
+3,450 pixels have nowhere to go. Any permutation either drops them onto a wrong colour or needs a
+colour our line does not have — so the whole approach is off the table for him, whatever ordering is
+chosen. This is not a tuning problem; it is a set-membership one.
+
+**What Knuckles actually needs.** A genuine palette swap: S3K itself swaps `Pal_Knuckles` into
+CRAM line 0 when Knuckles is the active character. Both his lines are already staged —
+`games/sonic4/data/characters_staging/palettes/knuckles_main.bin` (gameplay) and
+`knuckles_ssz_end.bin` (ending) — so the asset side is done; the missing piece is the runtime
+decision about **who owns CRAM line 0** and when it is rewritten.
+
+**The consequence that must be designed for, not discovered.** Line 0 is a *shared* resource. Today
+it holds the Sonic+Tails colours and both characters render off it simultaneously, which is exactly
+what a follower / 2P mode will need. Swapping `Pal_Knuckles` in makes line 0 Knuckles-only: **Sonic
+and Knuckles cannot be on screen together on one line.** So the Knuckles design has to answer one of:
+- **swap on character select** (simplest; forecloses Sonic-and-Knuckles co-presence), or
+- **give Knuckles a second CRAM line** (costs a line the level art currently uses — measured: the
+  OJZ act draws its FG on lines 2/3 and its Plane B on lines 2/3, with line 1 the OJZ page-0 line, so
+  a fourth character line means taking one back from the level), or
+- **re-author Knuckles' art** against a line that unions with Sonic's (an art decision, not an
+  engineering one — it changes how he looks).
+
+Pick before writing code; all three are cheap up front and expensive to retrofit.
+
+**How to re-run the measurement.** The generator prints the derived permutation and per-set index
+histograms on every run (`./gen_characters.py` from `games/sonic4/data/characters_staging/`), and
+hard-asserts that no art it re-indexes uses an unmappable index. It deliberately does **not**
+re-index Knuckles — see the comment at his `process_set` call.

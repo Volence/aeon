@@ -19,8 +19,17 @@ Obj_Knuckles load exactly these — NOT the *_S3 / *2P / SStage variants):
   Tails appendage : Map_Tails_Tail_ / PLC_Tails_Tail_ / AniTails_Tail_ / ArtUnc_Tails_Tail
   Knuckles        : Map_Knuckles_ / DPLC(Knuckles) / AniKnuckles_ / ArtUnc_Knuckles
 
-Deterministic: no timestamps, no RNG; JSON is sorted & fixed-indent; art is a
-byte-for-byte copy. Running twice produces byte-identical output.
+Deterministic: no timestamps, no RNG; JSON is sorted & fixed-indent. Running
+twice produces byte-identical output.
+
+TAILS ART IS RE-INDEXED, NOT COPIED (2026-08-10). S3K's art indexes S3K's
+character palette; Aeon loads a *different ordering of the same colours* into
+CRAM line 0 (art/palettes/SonicAndTails.bin, the sonic_hack/S2-era order). Tails
+therefore rendered with a grey head and an orange body. The fix is a colour-
+lossless index permutation applied at build time — see `derive_palette_remap`
+and `remap_art_indices` below. Sonic's art is already in our order and is not
+produced here; Knuckles is NOT permutable (he uses an S3K colour our line lacks)
+and is deliberately left as a raw copy. See README.md "Palette re-indexing".
 
 Usage:
   ./gen_characters.py [skdisasm_root]
@@ -60,6 +69,127 @@ AF_NAME = {
 }
 
 DEFAULT_SK = Path("/home/volence/sonic_hacks/skdisasm")
+
+# aeon repo root — this file is at <root>/games/sonic4/data/characters_staging/.
+AEON_ROOT = Path(__file__).resolve().parents[4]
+
+# The two 16-colour CRAM lines the remap bridges (32 bytes = 16 big-endian words).
+AEON_PLAYER_PAL = "art/palettes/SonicAndTails.bin"          # relative to AEON_ROOT
+S3K_PLAYER_PAL = "General/Sprites/Sonic/Palettes/SonicAndTails.bin"  # rel. to skdisasm
+
+# Pinned expectation for the S3K -> Aeon index permutation. NOT the input: the
+# permutation is re-derived from the two palette files on every run and this
+# table is asserted against it, so a palette edit on either side fails the build
+# loudly instead of silently shifting Tails' colours.
+PALETTE_REMAP_EXPECTED = {
+    0: 0,  1: 6,  2: 5,  3: 3,
+    4: 2,  6: 12, 7: 13, 8: 14,
+    9: 15, 10: 10, 11: 11, 12: 4,
+    13: 7, 14: 8, 15: 1,
+}
+# S3K index 5 ($0080, dark green) has no counterpart in our line 0. Tails uses it
+# ZERO times, so the permutation is lossless for him; Knuckles uses it ~3,450
+# times, which is why he cannot be fixed this way (docs/DEFERRED_WORK.md).
+S3K_UNMAPPABLE_INDEX = 5
+
+
+# ---------------------------------------------------------------------------
+# Palette re-indexing  (S3K character-palette order -> Aeon CRAM line 0 order)
+# ---------------------------------------------------------------------------
+
+def _read_cram_line(path, line=0):
+    """Read one 16-entry CRAM line (32 bytes) as big-endian words."""
+    data = path.read_bytes()
+    off = line * 32
+    if len(data) < off + 32:
+        raise AssertionError(f"{path}: too short for CRAM line {line} "
+                             f"({len(data)} bytes)")
+    return [struct.unpack_from('>H', data, off + i * 2)[0] for i in range(16)]
+
+
+def derive_palette_remap(sk):
+    """Derive S3K-index -> Aeon-index by matching CRAM words, and verify the pin.
+
+    Returns (table, ours, s3k) where `table` maps every S3K index that HAS a
+    counterpart in our line 0; indices with no match are absent from the dict.
+    """
+    ours = _read_cram_line(AEON_ROOT / AEON_PLAYER_PAL)
+    s3k = _read_cram_line(sk / S3K_PLAYER_PAL)
+
+    # Our line must be unambiguous, or "the matching index" is not well defined.
+    dupes = {w for w in ours if ours.count(w) > 1}
+    if dupes:
+        raise AssertionError(
+            f"{AEON_PLAYER_PAL} has duplicate CRAM words {sorted(dupes)} — the "
+            "S3K->Aeon index match is ambiguous; the permutation cannot be derived")
+
+    table = {}
+    for si, word in enumerate(s3k):
+        if word in ours:
+            table[si] = ours.index(word)
+
+    if table != PALETTE_REMAP_EXPECTED:
+        raise AssertionError(
+            "Derived S3K->Aeon palette permutation does not match the pinned "
+            f"table.\n  derived : {dict(sorted(table.items()))}\n"
+            f"  pinned  : {dict(sorted(PALETTE_REMAP_EXPECTED.items()))}\n"
+            "One of the two palette files changed. Re-rule the mapping before "
+            "regenerating — do NOT just repin.")
+    if S3K_UNMAPPABLE_INDEX in table:
+        raise AssertionError(
+            f"S3K index {S3K_UNMAPPABLE_INDEX} now HAS a counterpart in our line 0 "
+            "— the Knuckles caveat in docs/DEFERRED_WORK.md is stale and this "
+            "generator's unmappable-index assert is meaningless. Re-rule.")
+    return table, ours, s3k
+
+
+def index_histogram(art):
+    """Count occurrences of each 4bpp index. Genesis packs 2 px/byte, high first."""
+    hist = [0] * 16
+    for b in art:
+        hist[b >> 4] += 1
+        hist[b & 0x0F] += 1
+    return hist
+
+
+def remap_art_indices(art, table, tag):
+    """Permute every 4bpp pixel index of `art` through `table`.
+
+    Genesis 4bpp art is 2 pixels per byte, HIGH NIBBLE FIRST, so both nibbles of
+    every byte are remapped independently. Pure permutation: output length ==
+    input length, so no ROM-size or placement delta.
+
+    HARD ASSERT: an index with no entry in `table` (i.e. a colour our CRAM line
+    does not carry) is a LOSSY remap. Refuse rather than silently paint it wrong.
+    """
+    before = index_histogram(art)
+    missing = [i for i, n in enumerate(before) if n and i not in table]
+    if missing:
+        raise AssertionError(
+            f"{tag}: art uses S3K palette index/indices {missing} which have no "
+            f"counterpart in {AEON_PLAYER_PAL} "
+            f"(counts: {{{', '.join(f'{i}: {before[i]}' for i in missing)}}}). "
+            "The permutation would be LOSSY — this art cannot be re-indexed and "
+            "needs a real palette swap instead.")
+
+    if len(set(table.values())) != len(table):
+        raise AssertionError(f"{tag}: remap table is not injective — two S3K "
+                             "colours would collapse onto one of ours")
+
+    # 256-entry byte LUT indexed by the packed pixel pair. Unmapped indices only
+    # ever reach here in byte positions the assert above proved do not occur.
+    nib = [table.get(i, 0) for i in range(16)]
+    out = art.translate(bytes((nib[hi] << 4) | nib[lo]
+                              for hi in range(16) for lo in range(16)))
+
+    after = index_histogram(out)
+    for si, ai in table.items():
+        if after[ai] != before[si]:
+            raise AssertionError(f"{tag}: remap lost pixels at index {si}->{ai} "
+                                 f"({before[si]} in, {after[ai]} out)")
+    if sum(after) != sum(before) or len(out) != len(art):
+        raise AssertionError(f"{tag}: remap changed the pixel/byte count")
+    return out, before, after
 
 
 # ---------------------------------------------------------------------------
@@ -379,10 +509,19 @@ def sha(b):
     return hashlib.sha256(b).hexdigest()[:16]
 
 
-def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report):
+def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
+                remap=None):
     art_path = sk / art_rel
     art = art_path.read_bytes()
     art_tiles = len(art) // TILE_SIZE
+    src_art_sha = sha(art)
+
+    # Palette re-index (Tails only — see module docstring). Applied to the RAW
+    # art before the DPLC rearrange, so the staged raw and _opt blobs live in the
+    # same colour space and either one can be re-optimised later.
+    hist_before = hist_after = None
+    if remap is not None:
+        art, hist_before, hist_after = remap_art_indices(art, remap, name)
 
     map_frames = frames_from_asm(sk / map_rel, 'map')
     dplc_frames = frames_from_asm(sk / dplc_rel, 'dplc')
@@ -426,10 +565,14 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report)
         "max_tiles_per_frame": max(tiles_per_frame) if tiles_per_frame else 0,
         "max_opt_dplc_entry_tiles": max_entry_opt,
         "map_bin_bytes": len(map_bin),
+        "src_art_sha": src_art_sha,
         "art_sha": sha(art),
         "opt_art_sha": sha(opt_art),
         "map_sha": sha(map_bin),
         "opt_dplc_sha": sha(opt_dplc),
+        "remapped": remap is not None,
+        "hist_before": hist_before,
+        "hist_after": hist_after,
     })
 
 
@@ -439,23 +582,30 @@ def main():
     S = "General/Sprites"
     report = []
 
-    # ---- Tails body ----
+    # ---- Palette permutation (derived + pin-asserted, see module docstring) ----
+    remap, ours_pal, s3k_pal = derive_palette_remap(sk)
+
+    # ---- Tails body — RE-INDEXED into our CRAM line 0 order ----
     process_set(
         sk, "tails",
         f"{S}/Tails/Art/Tails.bin",
         f"{S}/Tails/Map - Tails.asm",
         f"{S}/Tails/DPLC - Tails.asm",
         f"{S}/Tails/Anim - Tails.asm",
-        out / "tails", report)
+        out / "tails", report, remap=remap)
     # ---- Tails appendage (the separate tail sprites, own object/art) ----
+    #      Same palette line as the body, so the same re-index.
     process_set(
         sk, "tails_tail",
         f"{S}/Tails/Art/Tails tails.bin",
         f"{S}/Tails/Map - Tails tails.asm",
         f"{S}/Tails/DPLC - Tails tails.asm",
         f"{S}/Tails/Anim - Tails Tail.asm",
-        out / "tails", report)
-    # ---- Knuckles ----
+        out / "tails", report, remap=remap)
+    # ---- Knuckles — NOT re-indexed. He uses S3K index 5 ($0080), a colour our
+    #      line 0 does not carry at all, so no permutation is lossless for him;
+    #      he needs a genuine palette swap (S3K swaps Pal_Knuckles into line 0).
+    #      Staged raw, deliberately. See docs/DEFERRED_WORK.md. ----
     process_set(
         sk, "knuckles",
         f"{S}/Knuckles/Art/Knuckles.bin",
@@ -486,15 +636,58 @@ def main():
     (pal_out / "knuckles_ssz_end.bin").write_bytes(
         (sk / f"{S}/Knuckles/Palettes/SSZ End.bin").read_bytes())
 
+    # ---- Ship the build-consumed trio into the real data dirs ----
+    # These are the exact paths games/sonic4/data/characters/tails_data.emp
+    # embeds. Shipping from here (rather than a hand `cp` after the fact) is what
+    # makes this generator the single source of truth end to end: a regenerate
+    # that changes a staged blob can no longer leave the ROM's copy stale.
+    # Knuckles is absent on purpose — nothing embeds him yet.
+    ship = []
+    for src_rel, dst_rel in (
+            ("tails/mappings/tails.bin",      "games/sonic4/data/mappings/tails.bin"),
+            ("tails/dplc/tails_opt.bin",      "games/sonic4/data/dplc/optimized/tails.bin"),
+            ("tails/art/tails_opt.bin",       "art/optimized/characters/tails.bin"),
+            ("tails/mappings/tails_tail.bin", "games/sonic4/data/mappings/tails_tail.bin"),
+            ("tails/dplc/tails_tail_opt.bin", "games/sonic4/data/dplc/optimized/tails_tail.bin"),
+            ("tails/art/tails_tail_opt.bin",  "art/optimized/characters/tails_tail.bin")):
+        src = out / src_rel
+        dst = AEON_ROOT / dst_rel
+        data = src.read_bytes()
+        changed = (not dst.exists()) or dst.read_bytes() != data
+        if changed:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(data)
+        ship.append((dst_rel, len(data), changed))
+
     # ---- Summary report ----
     print("=" * 74)
     print("S3K Tails + Knuckles asset staging — summary")
     print("=" * 74)
+
+    print("\n[palette re-index]  S3K character line 0 -> Aeon CRAM line 0")
+    print(f"  ours: {AEON_PLAYER_PAL}")
+    print(f"  s3k : {S3K_PLAYER_PAL}")
+    print("  s3k  ->  aeon   (matched by CRAM word)")
+    for si in range(16):
+        tgt = f"{remap[si]:2d}  ${ours_pal[remap[si]]:04X}" if si in remap else \
+              "--  UNMAPPABLE (colour absent from our line)"
+        print(f"   {si:2d}  ${s3k_pal[si]:04X}  ->  {tgt}")
+
     for r in report:
         print(f"\n[{r['set']}]")
         print(f"  frames                 : {r['frames']}")
         print(f"  source art             : {r['src_art_tiles']} tiles "
-              f"({r['src_art_bytes']:,} bytes)  sha={r['art_sha']}")
+              f"({r['src_art_bytes']:,} bytes)  sha={r['src_art_sha']}")
+        if r['remapped']:
+            print(f"  re-indexed art         : sha={r['art_sha']} "
+                  f"(size unchanged — pure nibble permutation)")
+            print(f"    index hist before    : "
+                  f"{ {i: n for i, n in enumerate(r['hist_before']) if n} }")
+            print(f"    index hist after     : "
+                  f"{ {i: n for i, n in enumerate(r['hist_after']) if n} }")
+        else:
+            print(f"  art                    : raw S3K copy (NOT re-indexed)  "
+                  f"sha={r['art_sha']}")
         print(f"  contiguous (opt) art   : {r['opt_art_tiles']} tiles "
               f"({r['opt_art_bytes']:,} bytes)  sha={r['opt_art_sha']}")
         print(f"  max tiles / frame      : {r['max_tiles_per_frame']} "
@@ -507,7 +700,14 @@ def main():
         obj = json.loads(jpath.read_text())
         print(f"\n[{name} anims]  {obj['anim_count']} scripts -> "
               f"{jpath.relative_to(out)}")
-    print("\nDPLC <=16-tile invariant: PASS (asserted per set above)")
+    print("\n[shipped — build-consumed copies]")
+    for dst_rel, size, changed in ship:
+        print(f"  {'UPDATED' if changed else 'same   '}  {dst_rel}  ({size:,} B)")
+
+    print("\nDPLC <=16-tile invariant   : PASS (asserted per set above)")
+    print(f"Palette permutation pin    : PASS (derived == pinned, {len(remap)} indices)")
+    print(f"S3K index {S3K_UNMAPPABLE_INDEX} in Tails' art : 0 occurrences "
+          "(asserted — remap is lossless)")
     print("=" * 74)
 
 

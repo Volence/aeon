@@ -93,10 +93,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
         // -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
         // sonic_hack runtime layout: PalPtr_BGND -> line 0, PalPtr_OJZ -> line 1.
-        // The BGND palette is what gives OJZ's clouds + grass band their real
-        // (magenta/pink) colors — chunk-source nametable words use palette bits
-        // 0 to reference these entries. Without BGND loaded, palette-0 BG tiles
-        // render against an empty CRAM line 0 = black.
+        //
+        // Line 0 is the CHARACTER line, not a level line. It serves exactly
+        // three things: the player sprite (Player_InitAssets writes the art word
+        // as vram_art(tile,0,0) — palette 0 verbatim), the backdrop colour the
+        // VDP reads out of CRAM entry 0, and the DEBUG test squares/marker.
+        // Nothing in the act's own art is drawn on it — measured: every FG block
+        // nametable word carrying palette bits 0 references tile $000, the blank
+        // tile, and the Plane B nametable uses only lines 2 and 3 (the
+        // magenta/pink clouds are on line 3). So a missing BGND load costs the
+        // player and the backdrop, not the level.
         lea     BGND_Palette, a0
         lea     Palette_Buffer, a1                  // CRAM line 0 base — (Palette_Buffer).w
         moveq   #32/4 - 1, d0
@@ -534,7 +540,11 @@ data TestArt_Square2: [u32; 32] = [
 // Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
 // VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
 // (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
-// F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
-// line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
+// F3 narrower-mirrored, in VDP 2×2 column-major order per frame.
+// Rings draw on PALETTE LINE 1, not line 0: RING_ART_ATTR is
+// vram_art(VRAM_RING_PLACEHOLDER, 1, 1) (engine/objects/rings.emp) — line 1,
+// high priority — and line 1 holds OJZ palette page 0, not the character line.
+// The blob's pixels use colour indices 5/6/12/13 only, so it is line 1's
+// entries 5/6/12/13 that colour the ring.
 // DrawRings picks a frame with base + Ring_Anim_Frame×4.
 data TestArt_Ring = RingArt
