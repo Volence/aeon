@@ -10,7 +10,7 @@ base = 0
 tiles = 960
 quantum = 64
 lifetime = "act"
-authority = "engine:POOL_TILE_CEILING"
+authority = "engine-endtiles:POOL_TILE_CEILING"
 # demo ships HAS_ACT_ART_POOL=0 — the range exists, unpopulated.
 
 [[region]]
@@ -47,7 +47,7 @@ kind = "arena"
 base = 1024
 tiles = 448
 lifetime = "act"
-authority = "engine:BG_TILE_CAPACITY"
+authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
 
 [[region]]
 name = "sprite_table"
@@ -57,7 +57,7 @@ base = 1472
 tiles = 20
 lifetime = "boot"
 register = "vdp:0x05"
-authority = "engine:VRAM_SPRITE_TABLE"
+authority = "engine-bytebase:VRAM_SPRITE_TABLE"
 
 [[free]]
 base = 1492
@@ -71,7 +71,7 @@ base = 1504
 tiles = 28
 lifetime = "boot"
 register = "vdp:0x0D"
-authority = "engine:VRAM_HSCROLL_TABLE"
+authority = "engine-bytebase:VRAM_HSCROLL_TABLE"
 
 [[free]]
 base = 1532
@@ -85,7 +85,7 @@ base = 1536
 tiles = 256
 lifetime = "boot"
 register = "vdp:0x02"
-authority = "engine:VRAM_PLANE_A"
+authority = "engine-bytebase:VRAM_PLANE_A"
 
 [[region]]
 name = "plane_b"
@@ -95,7 +95,7 @@ base = 1792
 tiles = 256
 lifetime = "boot"
 register = "vdp:0x04"
-authority = "engine:VRAM_PLANE_B"
+authority = "engine-bytebase:VRAM_PLANE_B"
 
 [[region]]
 name = "window_plane"
@@ -106,4 +106,4 @@ tiles = 128
 lifetime = "boot"
 register = "vdp:0x03"
 overlay_with = ["plane_b"]
-authority = "engine:VRAM_WINDOW"
+authority = "engine-bytebase:VRAM_WINDOW"

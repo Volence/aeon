@@ -17,6 +17,12 @@ Checks (all build-stopping):
                  overlay_with (T0 accepts only statically-safe overlays; T2
                  adds lifetime checking)
   * quantum    — a region with quantum = N must have tiles % N == 0
+  * authority  — typed cross-check forms (R1): engine-bytebase:NAME (NAME is a
+                 VRAM byte address == base*32), engine-tiles:NAME (== tiles),
+                 engine-endtiles:NAME (== base+tiles) each emit a comptime
+                 ensure in the marker block; sigil-D:NAME is documented in the
+                 map only (T1 closes it). String or list of strings. Unknown
+                 form is a build-stopping error.
 
 Deterministic: no timestamps, sorted iteration; two runs are byte-identical.
 Region bases are REQUIRED at T0 (everything pinned); the T1 solver in sigil's
@@ -53,8 +59,36 @@ def load(toml_path):
     return regions, frees
 
 
+def auth_list(r):
+    """Normalize the optional authority field: string -> one-element list."""
+    a = r.get("authority")
+    if a is None:
+        return []
+    return a if isinstance(a, list) else [a]
+
+
+def auth_relation(r, auth):
+    """The ensure relation for an engine-form authority; None for sigil-D
+    (documented in the map, no ensure — T1 closes it). Unknown form is a
+    build-stopping error naming the form and the region."""
+    form, sep, name = auth.partition(":")
+    if not sep or not name:
+        fail(f"region {r['name']!r}: authority {auth!r} is not '<form>:<NAME>'")
+    if form == "sigil-D":
+        return None
+    if form == "engine-bytebase":
+        return f"{name} == ${r['base'] * 32:04X}"
+    if form == "engine-tiles":
+        return f"{name} == {r['tiles']}"
+    if form == "engine-endtiles":
+        return f"{name} == {r['base'] + r['tiles']}"
+    fail(f"region {r['name']!r}: unknown authority form {form!r} in {auth!r}")
+
+
 def verify(regions, frees):
     for r in regions:
+        for auth in auth_list(r):
+            auth_relation(r, auth)   # validates the form; result unused here
         if not (0 <= r["base"] and r["base"] + r["tiles"] <= TOTAL_TILES):
             fail(f"region {r['name']!r} [{r['base']}..{r['base']+r['tiles']-1}] "
                  f"leaves 0..{TOTAL_TILES-1}")
@@ -108,6 +142,21 @@ def emit_emp_block(regions, game):
                 f"pub const {c:<24}: VramTile = ${r['base']:04X}"
                 f"   // {r['name']}: tiles {r['base']}..{r['base']+r['tiles']-1}"
                 f" ({r['tiles']}), {r['lifetime']}, owner {r['owner']}")
+    # authority cross-checks (R1): one ensure per engine-form authority, so a
+    # vram.toml value drifting from its engine constant stops the build
+    checks = []
+    for r in sorted(regions, key=lambda r: (r["base"], r["name"])):
+        for auth in auth_list(r):
+            rel = auth_relation(r, auth)
+            if rel is None:
+                continue    # sigil-D: map-doc only
+            name = auth.partition(":")[2]
+            checks.append(
+                f"ensure({rel}, \"vram.toml {r['name']} drifted from engine "
+                f"{name} — edit games/{game}/vram.toml and regenerate\")")
+    if checks:
+        lines.append("// Authority cross-checks — the engine constant vs the declared map:")
+        lines += checks
     # walls: each const-emitting region must end at or before its successor
     lines.append("// Walls — regeneration re-checks every adjacency:")
     rs = sorted((r for r in regions if not r.get("overlay_with")),
@@ -136,7 +185,7 @@ def emit_map_doc(regions, frees, game, path):
     for r in regions:
         rows.append((r["base"], r["base"] + r["tiles"] - 1, r["name"],
                      r["kind"], r["lifetime"], r["owner"],
-                     r.get("const") or r.get("authority", ""),
+                     r.get("const") or ", ".join(auth_list(r)),
                      "overlay: " + ",".join(r["overlay_with"]) if r.get("overlay_with") else ""))
     for fr in frees:
         rows.append((fr["base"], fr["base"] + fr["tiles"] - 1, "FREE",

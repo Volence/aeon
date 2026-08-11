@@ -125,6 +125,33 @@ def test_py_mirror_emits_constants(tmp_path):
     assert ns["VRAM_WIN"] == 1984
 
 
+def test_authority_crosscheck_emits_ensure(tmp_path):
+    # R1: typed authority forms emit comptime ensures with the right relation
+    # and the region name in the message; a list declares several checks.
+    withauth = GOOD.replace(
+        'quantum = 64\nlifetime = "act"',
+        'quantum = 64\nlifetime = "act"\n'
+        'authority = ["engine-endtiles:POOL_TILE_CEILING", "engine-tiles:POOL_TILE_COUNT"]')
+    withauth = withauth.replace(
+        'const = "VRAM_WIN"',
+        'const = "VRAM_WIN"\nauthority = "engine-bytebase:VRAM_WIN_BYTES"')
+    r = run(tmp_path, withauth)
+    assert r.returncode == 0, r.stderr
+    emp = (tmp_path / "constants.emp").read_text()
+    assert "ensure(POOL_TILE_CEILING == 1984," in emp      # endtiles: base+tiles
+    assert "ensure(POOL_TILE_COUNT == 1984," in emp        # tiles
+    assert "ensure(VRAM_WIN_BYTES == $F800," in emp        # bytebase: 1984*32
+    assert "pool drifted" in emp and "win drifted" in emp
+
+
+def test_unknown_authority_form_is_an_error(tmp_path):
+    bad = GOOD.replace('quantum = 64\nlifetime = "act"',
+                       'quantum = 64\nlifetime = "act"\nauthority = "bogus:X"')
+    r = run(tmp_path, bad)
+    assert r.returncode != 0
+    assert "bogus" in r.stderr and "pool" in r.stderr
+
+
 def test_real_sonic4_map_verifies_and_matches_reality(tmp_path):
     """The committed contract must verify AND reproduce today's constants."""
     import shutil
