@@ -423,13 +423,21 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 // Player_LoadArt — the DPLC stream that actually re-DMAs the new character's
 // tiles. Nothing is left for this routine to do, so it does not do it.
 //
+// THE APPENDAGE IS THE ONE THING THE NARROW REFRESH CANNOT LEAVE TO THE EXIT.
+// Everything else that varies per character lives in the player's own SST, which
+// Player_DebugExit rebuilds; Tails' twin tails are a SEPARATE OBJECT, so a swap
+// away from him would leave it parented to a body that is no longer his. The
+// reconcile call at the tail below owns both directions.
+//
 // In:  none (reads/writes Character_ID)
-// Out: Character_ID advanced, Player_Chardef + the slot's physics row re-resolved
-// Clobbers: d0, a0-a2 — a1-a2 via Player_RefreshPhysics.
+// Out: Character_ID advanced, Player_Chardef + the slot's physics row re-resolved,
+//      the appendage object spawned/removed to match the new record
+// Clobbers: d0-d2, a0-a2 — a1-a2 via Player_RefreshPhysics; d1-d2 via
+//           TailsAppendage_Refresh (DeleteChildren's chain cursor).
 // -----------------------------------------------
 ensure(INPUT_LIVE == 0, "Debug_CharacterHotkey's live-only gate is a tst.b — INPUT_LIVE must be 0")
 
-proc Debug_CharacterHotkey () clobbers(d0/a0-a2) {
+proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
     if DEBUG == 1 {
         // Three gates, and nothing is written until all three pass — on any
         // other frame this routine is a few reads and a branch to the rts.
@@ -469,6 +477,20 @@ proc Debug_CharacterHotkey () clobbers(d0/a0-a2) {
 
         player_block(a0, a2)                    // this slot's block — Refresh writes its row
         jbsr    Player_RefreshPhysics
+
+        // THE APPENDAGE HALF OF THE SWAP, and it belongs to this routine rather
+        // than to Player_DebugExit's visual half because it is a two-DIRECTION
+        // reconcile: switching AWAY from Tails has to remove the tails, and
+        // Player_DebugExit runs on every character's way out of free flight with
+        // no knowledge of which record it left. TailsAppendage_Refresh is
+        // idempotent in both directions (spawn only on an empty chain, delete
+        // only on a non-empty one), so cycling Sonic -> Tails -> Knuckles ->
+        // Sonic can neither duplicate the tails nor strand a pair on Knuckles.
+        // a0 is still Player_1 — Player_RefreshPhysics preserves it. Tail call:
+        // its rts returns to this routine's caller (§2.8), which also keeps the
+        // growth this adds to a module that packs with zero slack as small as it
+        // can be.
+        jbra    TailsAppendage_Refresh
     .done:
         rts
     }
