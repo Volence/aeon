@@ -216,20 +216,52 @@ encoding of a fact the record already carries.
 
 ## 4. VRAM
 
-`BG_TILE_CAPACITY` 448 -> 420. Dust takes the 28 tiles this frees at the top of
-the shared BG tile region, ending exactly at the relocated sprite attribute
-table.
+`POOL_TILE_CEILING` 960 -> 896, i.e. `PAGE_FRAMES` 15 -> 14. Dust takes 28 of
+the 64 tiles this frees at the top of the FG art pool; the character DPLC window
+at 960 is unchanged.
 
 | Symbol | Tile | Tiles | Contents |
 |---|---|---|---|
-| `VRAM_DUST_PUFF` | 1444 | 16 | 4 puff frames, resident for the whole act |
-| `VRAM_DUST_SPINDASH` | 1460 | 12 | charge-dust DPLC target |
-| (`VRAM_SPRITE_TABLE`) | 1472 | — | wall |
+| (FG art pool) | 0-895 | 896 | 14 pages of 64 |
+| `VRAM_DUST_PUFF` | 896 | 16 | 4 puff frames, resident for the whole act |
+| `VRAM_DUST_SPINDASH` | 912 | 12 | charge-dust DPLC target |
+| (spare) | 924-959 | 36 | unallocated, available for future sprite art |
+| (`VRAM_TEST_SONIC`) | 960 | — | wall: the character DPLC window |
 
-Comptime `ensure`s: `dplc_peak_tiles(dust DPLC) <= 12`; the puff block is 16;
-the two blocks do not overlap; the pair ends at or below `VRAM_SPRITE_TABLE`.
-Derive the walls from the symbols, never restate the numbers, so relocating
-either re-checks the allocation (the `VRAM_TAILS_APPENDAGE` precedent).
+Comptime `ensure`s: `PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING`
+(already present, and 14 x 64 = 896 satisfies it); `dplc_peak_tiles(dust DPLC)
+<= 12`; the puff block is 16; the two blocks do not overlap; the pair ends at or
+below `VRAM_TEST_SONIC`. Derive the walls from the symbols, never restate the
+numbers, so relocating either re-checks the allocation (the
+`VRAM_TAILS_APPENDAGE` precedent).
+
+`tools/ojz_strip_gen.py`'s `POOL_TILE_CEILING = 960` must move to 896 in the
+same change; it carries a "keep in sync" comment and is the generator side of
+the same fact.
+
+**Cost, stated honestly:** the FG residency cache loses one frame, engine-wide
+and permanently. The OJZ act needs **10 pages (612 tiles)** against the
+remaining 14, so it stays fully resident and nothing changes today
+(`PageIn_Fully_Resident` still latches, since pool pages <= `PAGE_FRAMES_CLAMP`).
+The cost only bites an act wanting more than 896 tiles of resident FG art, and
+§9.7's design is that such an act streams gracefully rather than failing.
+
+### 4.0 Why NOT the BG region (a corrected recommendation)
+
+The design dialogue first chose the BG region (`BG_TILE_CAPACITY` 448 -> 420,
+dust at 1444-1471 ending at the SAT) on the assumption that the BG budget had
+headroom because the editor's *source* tilesets measure 468-510 tiles. **That was
+wrong and the assumption was never measured.** The generated blob
+`games/sonic4/data/generated/ojz/act1/bg_tiles.bin` is **14336 bytes = exactly
+448 tiles** — the cap is spent to the byte. Lowering it to 420 would trip
+`inject_editor_bg.py`'s assert on the next regeneration and, at runtime, make
+`BG_Init`'s length clamp silently truncate the copy, dropping the last 28 tiles
+of background art.
+
+The BG option therefore costs an **art regeneration** (re-export the background
+28 tiles smaller, i.e. visibly less detail), where the FG option costs **two
+numbers and no regenerated data**. Recorded here so nobody "restores" the BG
+plan later: the FG pool is over-provisioned by 5 pages, BG has zero slack.
 
 ### 4.1 Why 28 tiles, and why they are separate
 
@@ -265,19 +297,15 @@ The two alternatives were considered and rejected in the design dialogue:
   hits the cap, and the artifact is the kind of thing that gets filed as a bug
   later and paid for anyway.
 
-**The FG art pool is NOT a viable source, despite being the obvious one.**
-`POOL_TILE_CEILING` is pinned by
+The FG pool carve is quantised: `POOL_TILE_CEILING` is pinned by
 `ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING)` with 64-tile
-pages, so carving 28 tiles off it actually costs a whole 64-tile page and wastes
-36. The BG region has no alignment constraint and yields exactly 28.
+pages, so the 28-tile ask costs a whole page and leaves 36 tiles spare. That is
+not the objection it first appears to be (§4.0) — the pool has 5 pages of slack.
 
 The only other free gaps in the sprite-addressable range are 4 tiles at
 1020-1023 and 3 after the Tails appendage. Neither fits either half. (Note the
 "ring placeholder" is 16 tiles at 1000-1015, not 4 — the 960-1023 band is
 otherwise fully allocated.)
-
-`tools/inject_editor_bg.py`'s `BG_TILE_CAPACITY = 448` must move to 420 in the
-same change, and its assert is the gate.
 
 ---
 
@@ -459,7 +487,8 @@ world-space puffs with no velocity, one hardware sprite / 4 tiles per puff.
 | Risk | Mitigation |
 |---|---|
 | Palette re-index applied wrongly -> dust renders black/red | §5.3 gives the exact measured mapping; verify by eye on first boot, it is not subtle |
-| BG art already over the new 420 cap | `inject_editor_bg.py`'s assert is the gate; the editor tilesets dedup before the cap |
+| A future act wants >896 resident FG tiles | §9.7 streams rather than fails; the current act needs 612 of 896 |
+| `ojz_strip_gen.py` left at 960 while the engine says 896 | both are changed in one parcel; the generator's own manifest output is the cross-check |
 | Puff Y offset derivation wrong per character | compare Sonic and Tails directly; the offset is the only per-character term |
 | Follower survives a teardown path | §2.3's state poll is total by construction; verify with a character switch mid-charge |
 | Skid arm-edge fires more than once per skid | `skid_latch` is a latch; the cadence counter is the rate limiter |
