@@ -228,9 +228,11 @@ gate: **byte-identical goldens** when declaring today's map (a pure refactor),
 then one deliberate change (§8) with its ritual.
 
 Known seams accepted at T0, closed at T1: `VRAM_RING_PLACEHOLDER` is a
-sigil-side `-D` with no `.emp` authority — T0 documents it in the map and adds
-a `build.sh`-side check script; T1 makes the chainer feed the define from the
-map, deleting the copy. The six `boot_data.emp` register-byte literals are
+sigil-side `-D` with no `.emp` authority — T0 records it in the TOML as an
+`authority = "sigil-D:..."` annotation and surfaces it in the generated map
+(no check script: T1's define emission deletes the copy outright, and a
+cross-repo grep in the meantime would be fragility for a seam with weeks to
+live); T1 makes the chainer feed the define from the map. The six `boot_data.emp` register-byte literals are
 exempted from coverage complaints at T0 (annotated in the map as
 "register-coupled, unchecked") and become emitted values at T2.
 
@@ -341,9 +343,9 @@ The FG pool inverts from fixed wall to residual claimant:
    day of forensics as Task 2 becomes a TOML edit, a goldens re-capture, and
    a map diff that explains itself. **Dust Tasks 3-6 then resume on the
    registry**, spec §4 of the dust design amended to cite the map.
-3. Consumers repoint imports module-by-module (small commits, byte-identical
-   each); the Python tools swap their literals for `tools/vram_map.py`
-   imports.
+3. The Python tools swap their literals for `tools/vram_map.py` imports.
+   (`.emp` consumers need no repointing at all under the marker-block
+   refinement — their imports are unchanged.)
 4. Knuckles Task 9-11 resumes after dust, unchanged except reading its
    windows from the map.
 
