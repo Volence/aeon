@@ -122,6 +122,26 @@ is the same problem at 64KB scale, plus two wrinkles ROM does not have
   descriptor, which the engine already threads everywhere. "Pack as much as
   possible" then means: per act, not one worst-case layout for the whole game.
 
+**The elastic pool (user idea, 2026-08-11, adopted).** The FG art pool is
+already a residency cache (§9.7) — but its SIZE is a guess (960), not a
+measurement. Invert it: the pool becomes the one ELASTIC region. It declares a
+per-act **measured floor** — the worst-case page-granular working set over all
+reachable camera positions (pages touched by the viewport, not distinct tiles:
+a 64-tile page is resident if any tile in it is visible), plus the prefetch
+window (the lap-rate slot budget), plus famine headroom (the
+pinned+transients>clamp arithmetic), plus teleport-destination bursts — and
+then absorbs ALL remaining slack after every fixed-size region is placed.
+Adding an art-bearing object then never renegotiates anything: it shrinks the
+cache's slack silently until the measured floor, where the build fails naming
+the act and the shortfall. Today's act needs 10 pages against 15, so ~5 pages
+(~320 tiles) of real slack exist already with zero behaviour change; the
+measured-floor mode is also what makes the mega-act tech demo feasible (a
+seamless multi-zone act can never be fully resident, so its pool requirement
+must be its working set, not its tileset). Costs to state: smaller cache
+trades VRAM for DMA traffic and pop-in risk, and the floor is act- and
+path-dependent, so this lives in T2's per-act solving with a conservative
+reachability model.
+
 **Prior art, honestly:** Dragon's Castle allocates effect VRAM with assembler
 `rs` chains — build-time bump allocation, the primitive form (no lifetimes, no
 verification, no map). SGDK has a RUNTIME allocator whose fragmentation pain is
@@ -178,7 +198,16 @@ contract; T3 is a real engine parcel with its own design cycle.
    allocation, atlas-packing determinism, incremental-link stability, and the
    honest novelty assessment.
 
-## 8. Rulings wanted from the user (at spec time)
+## 8. Rulings wanted from the user (ANSWERED 2026-08-11)
+
+**Rulings received:** (1) spec T0-T2 as one design, implement T0+T1 first,
+T2 when a consumer needs it, T3 stays a banked follow-on; (2) the packer lives
+inside sigil's chainer; (3) both latent bugs land NOW as a prep parcel, with
+the proving step first — and approving the `PAGE_FRAMES_MAX` decouple is also
+the style ruling: capacity-vs-count separation is house-acceptable at 10 bytes
+of slack for permanent pin stability. (4) resolved by (3).
+
+Original questions kept below for the record.
 
 1. Which tier ships first (T0 alone is a small parcel; T0+T1 is the real fix;
    my lean: spec T0-T2 as one design, implement T0+T1 first, bank T2/T3).
