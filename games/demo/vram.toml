@@ -1,0 +1,109 @@
+# games/demo/vram.toml — the demo game's VRAM contract. The engine regions are
+# identical to sonic4's by construction (same engine); the game-side band
+# differs, ON PURPOSE now instead of by coincidence.
+
+[[region]]
+name = "fg_art_pool"
+owner = "engine.level.page_cache"
+kind = "arena"
+base = 0
+tiles = 960
+quantum = 64
+lifetime = "act"
+authority = "engine:POOL_TILE_CEILING"
+# demo ships HAS_ACT_ART_POOL=0 — the range exists, unpopulated.
+
+[[region]]
+name = "demo_obj"
+owner = "games.demo.demo_state"
+kind = "window"
+base = 992
+tiles = 4
+lifetime = "boot"
+const = "VRAM_DEMO_OBJ"
+
+[[region]]
+name = "ring_placeholder"
+owner = "engine.objects.rings"
+kind = "window"
+base = 996
+tiles = 1
+lifetime = "boot"
+authority = "sigil-D:VRAM_RING_PLACEHOLDER"
+
+[[free]]
+base = 997
+tiles = 27
+
+[[free]]
+base = 960
+tiles = 32
+# no character window in demo — the band sonic4 uses for the player is free here
+
+[[region]]
+name = "bg_region"
+owner = "engine.bg"
+kind = "arena"
+base = 1024
+tiles = 448
+lifetime = "act"
+authority = "engine:BG_TILE_CAPACITY"
+
+[[region]]
+name = "sprite_table"
+owner = "engine.system.buffers"
+kind = "table"
+base = 1472
+tiles = 20
+lifetime = "boot"
+register = "vdp:0x05"
+authority = "engine:VRAM_SPRITE_TABLE"
+
+[[free]]
+base = 1492
+tiles = 12
+
+[[region]]
+name = "hscroll_table"
+owner = "engine.system.buffers"
+kind = "table"
+base = 1504
+tiles = 28
+lifetime = "boot"
+register = "vdp:0x0D"
+authority = "engine:VRAM_HSCROLL_TABLE"
+
+[[free]]
+base = 1532
+tiles = 4
+
+[[region]]
+name = "plane_a"
+owner = "engine.system.boot"
+kind = "plane"
+base = 1536
+tiles = 256
+lifetime = "boot"
+register = "vdp:0x02"
+authority = "engine:VRAM_PLANE_A"
+
+[[region]]
+name = "plane_b"
+owner = "engine.system.boot"
+kind = "plane"
+base = 1792
+tiles = 256
+lifetime = "boot"
+register = "vdp:0x04"
+authority = "engine:VRAM_PLANE_B"
+
+[[region]]
+name = "window_plane"
+owner = "engine.system.boot"
+kind = "plane"
+base = 1920
+tiles = 128
+lifetime = "boot"
+register = "vdp:0x03"
+overlay_with = ["plane_b"]
+authority = "engine:VRAM_WINDOW"
