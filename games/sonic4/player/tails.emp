@@ -49,15 +49,14 @@ const TAILS_Y_RADIUS = 15
 //
 // cd_stand_wh / cd_roll_wh carry the FULL box dimensions (2r+1) the
 // set_standing_size / set_ball_size splices write, built from radii rather than
-// restated as numbers — the same construction CharDef_Sonic uses.
+// restated as numbers — the same construction CharDef_Sonic uses. They are LIVE:
+// the enter hooks store these words straight into the SST box, so Tails collides
+// with the 31-pixel standing box below and not Sonic's 39-pixel one.
 //
-// THEY ARE INERT TODAY. Nothing reads cd_stand_wh / cd_roll_wh yet: the enter
-// hooks in player_common are still the one writer of the live SST width/height
-// fields and they splice the shared engine radii at comptime, so Tails currently
-// collides with Sonic's 39-pixel standing box, not the 31-pixel one below. The
-// S3K-correct values live here so that the day the sizing splices are taught to
-// consume the record, the character data is already right and no second edit is
-// needed. Wiring that consumption is deliberately NOT part of this task.
+// The paired curl y-shift is NOT character-derived yet — the hooks still shift by
+// the engine-wide CURL_Y_SHIFT (Sonic's 19−14), where S3K computes
+// `y_radius − default_y_radius` per character (1 for Tails). Tails' airborne ball
+// therefore rides 4px low until that follows the boxes into the record.
 // -----------------------------------------------
 pub data CharDef_Tails: CharacterDef = CharacterDef{
     cd_phys:      PhysTable_Tails,

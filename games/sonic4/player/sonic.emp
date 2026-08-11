@@ -26,12 +26,11 @@ use games.sonic4.constants.{VRAM_TEST_SONIC}
 // CharDef_Sonic — the record the roster (CharacterDefs, characters.emp)
 // points at for CHAR_SONIC.
 //
-// cd_stand_wh / cd_roll_wh carry the SAME full box dimensions the
-// set_standing_size / set_ball_size splices write (2r+1 from the shared
-// engine radii), derived from those constants rather than restated as
-// numbers. The enter hooks remain the one writer of the live SST fields; these
-// exist so a character whose boxes differ can declare them instead of forking
-// the hooks.
+// cd_stand_wh / cd_roll_wh are the character's collision boxes as the packed
+// W<<8|H word the enter hooks store into the SST (2r+1 full dims, derived from
+// the shared engine radii rather than restated as numbers). The hooks remain the
+// one writer of the live SST fields — they just read the box from here, so a
+// character whose boxes differ declares them instead of forking the hooks.
 // -----------------------------------------------
 pub data CharDef_Sonic: CharacterDef = CharacterDef{
     cd_phys:      PhysTable_Sonic,

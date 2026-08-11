@@ -18,13 +18,13 @@
 // late-binds the one `_pl_state` offset through the link.
 module games.sonic4.player_common in player_common
 
-use engine.objects.sst.{Sst, set_priority_band}
+use engine.objects.sst.{Sst, set_priority_band, size_wh_off}
 use engine.structs.{Act, CharacterDef}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
         RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
-        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS,
+        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
         CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
@@ -207,23 +207,28 @@ ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
        "PBLK_JUMPBUF out of sync with PlayerBlock.jump_buffer (config/ram.emp)")
 
 // -----------------------------------------------
-// set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
-// sensors halve by lsr → standing 9/19, ball 7/14 — the exact classic radii).
+// set_standing_size / set_ball_size — the two collision boxes, taken from the
+// ACTIVE CHARACTER's record. cd_stand_wh / cd_roll_wh are packed W<<8|H exactly
+// so a box is one aligned word store over the adjacent width_pixels/
+// height_pixels pair (size_wh_off, engine.objects.sst) — a character's box is
+// data, never a constant, so a second character is a record and not a branch.
+// Sizes are FULL dims (2r+1); the sensors halve by lsr → Sonic stands 9/19 and
+// balls 7/14 (the classic radii), Tails stands 9/15 (S3K default_y_radius $F).
 // The enter hooks are the ONE writer of these fields and of the paired
 // ±CURL_Y_SHIFT y-shift (spec §3.3).
-// In: sst = player SST register
+// In: sst = player SST register, def = register already holding the resolved
+//     CharacterDef (Player_Chardef) — loaded at the call site so the hooks share
+//     the one load with their curled-test
 // -----------------------------------------------
-pub comptime fn set_standing_size(sst: Reg) -> Code {
+pub comptime fn set_standing_size(sst: Reg, def: Reg) -> Code {
         return asm {
-                move.b  #PLAYER_X_RADIUS*2+1, Sst.width_pixels({sst})
-                move.b  #PLAYER_Y_RADIUS*2+1, Sst.height_pixels({sst})
+                move.w  CharacterDef.cd_stand_wh({def}), size_wh_off()({sst})
         }
 }
 
-pub comptime fn set_ball_size(sst: Reg) -> Code {
+pub comptime fn set_ball_size(sst: Reg, def: Reg) -> Code {
         return asm {
-                move.b  #BALL_X_RADIUS*2+1, Sst.width_pixels({sst})
-                move.b  #BALL_Y_RADIUS*2+1, Sst.height_pixels({sst})
+                move.w  CharacterDef.cd_roll_wh({def}), size_wh_off()({sst})
         }
 }
 
@@ -290,12 +295,14 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         lea     CharacterDefs, a1
         movea.l (a1,d0.w), a1
         move.l  a1, Player_Chardef
+        set_standing_size(a0, a1)               // the box is part of the record —
+                                                // taken here, while the resolve
+                                                // still has it in hand
         jbsr    Player_InitAssets
         move.b  #ANIM_IDLE, anim(a0)            // Player_Display re-selects per frame
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
         set_priority_band(4)                    // C1c idiom: clear-then-set
-        set_standing_size(a0)
         move.b  #COLLISION_NONE, collision_resp(a0)
         clr.b   status(a0)
         clr.b   angle(a0)
@@ -754,7 +761,7 @@ pub proc PHook_Null () clobbers() {
         rts
 }
 
-pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
+pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1/a1) {
         jbsr    PHook_EnsureStanding            // uncurl (jump/ball landings;
                                                 // down-held landings go straight
                                                 // to ROLL via Air_LandState)
@@ -762,25 +769,25 @@ pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
         rts
 }
 
-pub proc PHook_AirEnter (a0: *Sst) clobbers() { // uncurled airborne
+pub proc PHook_AirEnter (a0: *Sst) clobbers(d1/a1) { // uncurled airborne
         jbsr    PHook_EnsureStanding
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
-pub proc PHook_AirBallEnter (a0: *Sst) clobbers() { // JUMP / ROLLJUMP / AIRBALL
+pub proc PHook_AirBallEnter (a0: *Sst) clobbers(d1/a1) { // JUMP / ROLLJUMP / AIRBALL
         jbsr    PHook_EnsureBall
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
-pub proc PHook_RollEnter (a0: *Sst) clobbers() { // grounded ball — entered from
+pub proc PHook_RollEnter (a0: *Sst) clobbers(d1/a1) { // grounded ball — entered from
         jbsr    PHook_EnsureBall                // GROUND (roll start), SPINDASH
         bclr    #ST_IN_AIR, status(a0)          // (release), or a curled/down-
         rts                                     // held landing (air → cleared)
 }
 
-pub proc PHook_SpindashEnter (a0: *Sst) clobbers() { // entered only from GROUND —
+pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1/a1) { // entered only from GROUND —
         jbsr    PHook_EnsureStanding            // the player is pinned charging
                                                 // at STANDING size (classic S2:
                                                 // curl + feet-planted shift
@@ -813,21 +820,31 @@ pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
 // guard — because the debug-fly art swap writes a third height (16) outside the
 // state machine: a debug round-trip re-enters via SetState and the hook must
 // repair the bit even when the height byte needs no curl work.
-pub proc PHook_EnsureStanding (a0: *Sst) clobbers() {
+// The curled test is the box word against the ACTIVE CHARACTER's cd_roll_wh, not
+// a constant height: the "am I curled" key has to move with the boxes it keys on,
+// or a character whose ball differs from Sonic's would read as permanently
+// curled/uncurled. Comparing the whole word (both dims) rather than the height
+// alone is the same test — no character's standing box shares its rolling box —
+// and it is one aligned read instead of two.
+pub proc PHook_EnsureStanding (a0: *Sst) clobbers(d1/a1) {
         bclr    #ST_ROLLING, status(a0)
-        cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
+        movea.l Player_Chardef, a1
+        move.w  size_wh_off()(a0), d1
+        cmp.w   CharacterDef.cd_roll_wh(a1), d1
         bne     .keep                           // not curled (incl. debug 16)
-        set_standing_size(a0)
+        set_standing_size(a0, a1)
         subi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
 .keep:
         rts
 }
 
-pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
+pub proc PHook_EnsureBall (a0: *Sst) clobbers(d1/a1) {
         bset    #ST_ROLLING, status(a0)
-        cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
+        movea.l Player_Chardef, a1
+        move.w  size_wh_off()(a0), d1
+        cmp.w   CharacterDef.cd_roll_wh(a1), d1
         beq     .keep                           // already curled
-        set_ball_size(a0)
+        set_ball_size(a0, a1)
         addi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
 .keep:
         rts
@@ -1021,7 +1038,8 @@ pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         sf      PlayerV.debug_flag(a0)
         jbsr    Player_InitAssets
         // standing radii until the AIR frame lands and hooks take over
-        set_standing_size(a0)
+        movea.l Player_Chardef, a1
+        set_standing_size(a0, a1)
         clr.b   mapping_frame(a0)
         jbsr    RefreshSpritePieceCount         // prev_anim=$FF forces a refresh NEXT
                                                 // frame, but a render can run before
