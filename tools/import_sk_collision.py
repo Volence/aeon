@@ -19,7 +19,7 @@ slot) stays air (solidity 0).
 
     python3 tools/import_sk_collision.py
 """
-import os
+import os, sys
 
 HERE = os.path.dirname(__file__)
 # skdisasm is an out-of-repo DONOR only this manual re-bake reads (the build
@@ -52,7 +52,18 @@ def _write_tables(out_dir, hm, hr, an, sol):
     open(os.path.join(out_dir, "solidity.bin"), "wb").write(bytes(sol))
 
 
-def build():
+def build(out=None):
+    """Import the S&K collision tables.
+
+    `out` defaults to the in-repo collision dir. It is a PARAMETER because the
+    runtime tables this writes are only DEFAULTS — gen_collision_data.generate()
+    overwrites them with the per-section bake, and the committed bytes are the
+    baked ones. So any caller that just wants to CHECK the importer (the test)
+    must redirect it, or it silently reverts the bake and leaves four tracked
+    build inputs dirty. That is exactly what test_import_sk_collision.py used to
+    do; a dirty tree there makes the ROM diverge from the frozen goldens.
+    """
+    out = OUT if out is None else out
     hm = _read("Height Maps.bin", SHAPES * ROW)
     hr = _read("Height Maps Rotated.bin", SHAPES * ROW)
     an = _read("angles.bin", SHAPES)
@@ -60,12 +71,13 @@ def build():
     for i in range(SHAPES):
         shape = hm[i * ROW:(i + 1) * ROW]
         sol[i] = 0 if (i == 0 or not any(shape)) else SOLID_ALL
-    base_dir = os.path.join(OUT, "base")
+    base_dir = os.path.join(out, "base")
     _write_tables(base_dir, hm, hr, an, sol)     # authoritative base bank (Aurora palette + bake source)
-    _write_tables(OUT, hm, hr, an, sol)          # default runtime tables (overwritten by generate())
+    _write_tables(out, hm, hr, an, sol)          # default runtime tables (overwritten by generate())
     n = sum(1 for i in range(SHAPES) if any(hm[i * ROW:(i + 1) * ROW]))
-    print(f"Imported {n} S&K collision shapes -> {base_dir} (base bank) + {OUT} (default; all solidity 'all')")
+    print(f"Imported {n} S&K collision shapes -> {base_dir} (base bank) + {out} (default; all solidity 'all')")
 
 
 if __name__ == "__main__":
-    build()
+    # Optional output dir, mirroring gen_collision_data.py's argv[1] convention.
+    build(sys.argv[1] if len(sys.argv) > 1 else None)
