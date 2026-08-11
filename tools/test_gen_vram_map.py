@@ -32,6 +32,9 @@ base = 2016
 tiles = 32
 """
 
+MB = "// >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<"
+ME = "// <<< GENERATED: vram map END >>>"
+
 EMP_WITH_MARKERS = textwrap.dedent("""\
     // hand content above
     // >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<
@@ -39,6 +42,39 @@ EMP_WITH_MARKERS = textwrap.dedent("""\
     // <<< GENERATED: vram map END >>>
     // hand content below
     """)
+
+# a map containing the two magic regions the --py mirror exports budgets from
+PY_GOOD = """
+[[region]]
+name = "fg_art_pool"
+owner = "engine.pool"
+kind = "arena"
+base = 0
+tiles = 960
+quantum = 64
+lifetime = "act"
+
+[[region]]
+name = "win"
+owner = "game.win"
+kind = "window"
+base = 960
+tiles = 64
+lifetime = "act"
+const = "VRAM_WIN"
+
+[[region]]
+name = "bg_region"
+owner = "engine.bg"
+kind = "arena"
+base = 1024
+tiles = 448
+lifetime = "act"
+
+[[free]]
+base = 1472
+tiles = 576
+"""
 
 
 def run(tmp, toml_text, emp_text=EMP_WITH_MARKERS, extra=None):
@@ -117,12 +153,101 @@ def test_deterministic(tmp_path):
 
 
 def test_py_mirror_emits_constants(tmp_path):
-    r = run(tmp_path, GOOD, extra=["--py", str(tmp_path / "vram_map.py")])
+    # R2/I5: the mirror requires the magic budget regions, so this map has them
+    r = run(tmp_path, PY_GOOD, extra=["--py", str(tmp_path / "vram_map.py")])
     assert r.returncode == 0, r.stderr
     ns = {}
     exec((tmp_path / "vram_map.py").read_text(), ns)
-    assert ns["REGIONS"]["win"]["base"] == 1984
-    assert ns["VRAM_WIN"] == 1984
+    assert ns["REGIONS"]["win"]["base"] == 960
+    assert ns["VRAM_WIN"] == 960
+    assert ns["POOL_TILE_CEILING"] == 960
+    assert ns["BG_TILE_CAPACITY"] == 448
+
+
+def test_py_missing_magic_regions_is_an_error(tmp_path):
+    # R2/I5: --py without fg_art_pool/bg_region must fail loudly, not emit a
+    # wrong mirror for the build tools to import
+    r = run(tmp_path, GOOD, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode != 0
+    assert "fg_art_pool" in r.stderr
+
+
+def test_end_before_begin_marker_is_an_error(tmp_path):
+    # R2/C1: reversed markers must not splice
+    r = run(tmp_path, GOOD, emp_text=ME + "\n// middle\n" + MB + "\n")
+    assert r.returncode != 0
+    assert "before" in r.stderr.lower()
+
+
+def test_duplicated_begin_marker_is_an_error(tmp_path):
+    # R2/C1: a duplicated marker must not silently duplicate content
+    r = run(tmp_path, GOOD, emp_text=MB + "\n" + MB + "\nold\n" + ME + "\n")
+    assert r.returncode != 0
+    assert "2" in r.stderr and "marker" in r.stderr.lower()
+
+
+def test_free_run_past_end_is_an_error(tmp_path):
+    # R2/C2: an overflowing free run is a guided error, not an IndexError
+    bad = GOOD.replace('base = 2016\ntiles = 32', 'base = 2016\ntiles = 40')
+    r = run(tmp_path, bad)
+    assert r.returncode != 0
+    assert "free" in r.stderr.lower() and "2016" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
+def test_free_negative_base_is_an_error(tmp_path):
+    # R2/C2: a negative base must not wrap via Python negative indexing —
+    # this variant WOULD silently satisfy coverage through the wraparound
+    bad = GOOD.replace('base = 2016\ntiles = 32', 'base = -32\ntiles = 32')
+    r = run(tmp_path, bad)
+    assert r.returncode != 0
+    assert "free" in r.stderr.lower() and "-32" in r.stderr
+
+
+def test_unsafe_region_text_is_an_error(tmp_path):
+    # R2/I3: strings interpolated into emitted source must be charset-safe
+    bad = GOOD.replace('name = "win"', 'name = "win\\" // evil"')
+    r = run(tmp_path, bad)
+    assert r.returncode != 0
+    assert "name" in r.stderr and "win" in r.stderr
+
+
+def test_missing_toml_is_a_guided_error(tmp_path):
+    # R2/I4: I/O errors follow the gen_vram_map: convention, no traceback
+    emp = tmp_path / "constants.emp"; emp.write_text(EMP_WITH_MARKERS)
+    r = subprocess.run([sys.executable, GEN, "--toml", str(tmp_path / "nope.toml"),
+                        "--emp", str(emp), "--map-doc", str(tmp_path / "map.md"),
+                        "--game", "testgame"], capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "gen_vram_map:" in r.stderr and "nope.toml" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
+def test_splice_preserves_hand_content_byte_for_byte(tmp_path):
+    # R2/M9a: everything outside the markers survives EXACTLY
+    prefix = "// alpha\n//   beta with trailing spaces   \n\n"
+    suffix = "// gamma\n\n\n// delta, no trailing newline"
+    emp_text = prefix + MB + "\nold stuff\n" + ME + "\n" + suffix
+    r = run(tmp_path, GOOD, emp_text=emp_text)
+    assert r.returncode == 0, r.stderr
+    out = (tmp_path / "constants.emp").read_text()
+    begin = out.index(MB)
+    assert out[:begin] == prefix
+    end_line = out.index("\n", out.index(ME)) + 1
+    assert out[end_line:] == suffix
+
+
+def test_resplice_is_idempotent(tmp_path):
+    # R2/M9b: regenerating over an already-spliced file changes nothing
+    r = run(tmp_path, GOOD)
+    assert r.returncode == 0, r.stderr
+    first = (tmp_path / "constants.emp").read_text()
+    args = [sys.executable, GEN, "--toml", str(tmp_path / "vram.toml"),
+            "--emp", str(tmp_path / "constants.emp"),
+            "--map-doc", str(tmp_path / "map.md"), "--game", "testgame"]
+    r2 = subprocess.run(args, capture_output=True, text=True)
+    assert r2.returncode == 0, r2.stderr
+    assert (tmp_path / "constants.emp").read_text() == first
 
 
 def test_authority_crosscheck_emits_ensure(tmp_path):
