@@ -196,5 +196,11 @@ section dac_sample_tab (cpu: z80, vma: $8000) {
 
 // The fixed-size head prefix before this table (soundbankhead.emp walls each
 // piece) + the pad formula: round the head total up to the next multiple of 8.
-const DAC_HEAD_PREFIX = $357 + $108 + $10E + $40   // = $5AD
+// NOTE the third term is the SfxBlobWinTab span, which is SFX_TABLE_LEN*2 and so
+// MOVES whenever the SFX id range grows. $10E -> $112 when $BA/$BB extended the
+// range to $BB (2 more cells = 4 bytes). It is spelled as a literal rather than
+// read from the win-tab because this is the DAC head's own arithmetic and the
+// soundbankhead walls cross-check every term; if the two ever disagree the
+// head-total %8 wall below fires loudly rather than silently mis-padding.
+const DAC_HEAD_PREFIX = $357 + $108 + $112 + $40   // = $5B1
 const DAC_HEAD_PAD = (8 - ((DAC_HEAD_PREFIX + DAC_SAMPLE_COUNT * DacSample_len) % 8)) % 8

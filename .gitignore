@@ -56,6 +56,10 @@ engine/sound/generated/
 !games/sonic4/data/sound/sfx/sfx_B6_patches.bin
 !games/sonic4/data/sound/sfx/sfx_B9.bin
 !games/sonic4/data/sound/sfx/sfx_B9_patches.bin
+!games/sonic4/data/sound/sfx/sfx_BA.bin
+!games/sonic4/data/sound/sfx/sfx_BA_patches.bin
+!games/sonic4/data/sound/sfx/sfx_BB.bin
+!games/sonic4/data/sound/sfx/sfx_BB_patches.bin
 
 # Vendored salvador (ZX0 packer) — keep sources, ignore build artifacts
 !tools/salvador/**/*.h

@@ -22,7 +22,8 @@
 module games.sonic4.player_fly in player_fly
 
 use engine.objects.sst.{Sst}
-use engine.constants.{PHYS_FALL_CAP, ST_ON_OBJECT, ST_PUSHING}
+use engine.constants.{PHYS_FALL_CAP, ST_ON_OBJECT, ST_PUSHING, RF_ONSCREEN}
+use games.sonic4.sound_ids.{SFXID_FLYING, SFXID_FLY_TIRED}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
 
 // Air_XInput / Air_XDrag / Air_Collide / Air_LandOnObject / Air_LandState resolve
@@ -106,6 +107,13 @@ pub proc PState_Fly (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // end flight — it only closes the re-flap gate in step 2b, which is the
         // whole of "tired". ---
         jbsr    Fly_TickFuel
+
+        // --- 1b. the flap SFX, on its own 16-frame cadence. Deliberately NOT
+        // folded into step 1: S3K spends fuel every other frame and retriggers
+        // the sound every sixteenth, and the two rates are independent — see
+        // Fly_TickSfx. d0 is dead across this call (the next reader is step 2a's
+        // `move.w y_vel(a0), d0`). ---
+        jbsr    Fly_TickSfx
 
         cmpi.b  #FLY_COAST, PlayerV.fly_thrust(a0)
         beq     .coast
@@ -325,11 +333,53 @@ ensure(FLY_RAMP_CAP > FLY_THRUST_FIRST && FLY_RAMP_CAP <= $FF,
 ensure(FLY_THRUST_FIRST == FLY_COAST + 1,
        "the flap ramp counts up from FLY_COAST — a gap would make fly_thrust values unreachable")
 
-// NO FLIGHT SFX, and it is an asset gap rather than an omission. S3K retriggers
-// sfx_Flying ($BA) — or sfx_FlyTired ($BB) once the fuel is out — every 16
-// frames while the player is on screen, on the frames where
-// `(frame_low + 8) & $F == 0` (sonic3k.asm:27669-27699). Neither sound is in our
-// bank: games/sonic4/data/sound/sfx/sfx_bank.emp imports 9 SFX over the id range
-// $33..$B9, which does not even reach $BA. Wiring it is two `Sound_PlaySFX`
-// calls behind that cadence test once the samples are imported and
-// games.sonic4.sound_ids grows the two ids; nothing else here has to change.
+// -----------------------------------------------
+// Fly_TickSfx — retrigger the flap sound on S3K's 16-frame cadence.
+//
+// S3K (sonic3k.asm:27669-27699) tests `(Level_frame_counter_low + 8) & $F == 0`
+// and plays sfx_Flying ($BA), or sfx_FlyTired ($BB) once the fuel is out, gated
+// on the player being on screen. All three parts are reproduced exactly:
+//
+//   * THE +8 IS NOT COSMETIC. It phase-shifts the retrigger off the frames where
+//     `frame_low & $F == 0`, which is where a good deal of the engine's other
+//     periodic work already lands. Dropping it would still give a 16-frame
+//     period, so nothing would sound wrong — it would just pile this SFX post
+//     onto an already-busy frame. Kept because it costs one addq.
+//   * THE ON-SCREEN GATE is S3K's `tst.b render_flags(a0) / bpl`, i.e. its
+//     render_flags bit 7. OURS IS BIT 0 — RF_ONSCREEN (engine/system/constants),
+//     set by Draw_Sprite — so this is a `btst`, not a `bpl`. Copying the branch
+//     form rather than the bit meaning is the obvious way to get this wrong.
+//   * TIRED IS READ OFF THE FUEL, not off a state. It is the same test the
+//     re-flap gate in PState_Fly step 2b makes, and for the same reason: "tired"
+//     has no state of its own in this engine (see that comment).
+//
+// Note the cadence drives the SFX ONLY. The tired ANIMATION is a plain 2-frame
+// loop at hold $B and is not synchronised to this at all — S3K keeps them
+// independent and so do we.
+//
+// The 16-frame period is why SFXPRI_FLY sits below every other tier
+// (sound_ids.emp): this is the one SFX that asks repeatedly for as long as a
+// state is held, so it must lose arbitration rather than win it by frequency.
+//
+// In:  a0 = player SST
+// Out: none
+// Clobbers: d0 (Sound_PlaySFX's whole contract)
+// -----------------------------------------------
+proc Fly_TickSfx (a0: *Sst) clobbers(d0) {
+    if SOUND_DRIVER_ENABLED == 1 {
+        btst    #RF_ONSCREEN, render_flags(a0)
+        beq     .done                           // off screen — S3K stays silent too
+        move.b  Frame_Counter+1, d0             // (Frame_Counter+1).w — the counter's low byte
+        addq.b  #8, d0                          // the phase offset; see above
+        andi.b  #$F, d0
+        bne     .done
+        move.b  #SFXID_FLYING, d0 as SfxId      // move.b, not moveq: $BA would sign-extend
+        tst.b   PlayerV.fly_fuel(a0)
+        bne     .play
+        move.b  #SFXID_FLY_TIRED, d0 as SfxId
+    .play:
+        jbra    Sound_PlaySFX                   // tail — it clobbers d0 and nothing else
+    }
+.done:
+        rts
+}

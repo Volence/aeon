@@ -70,7 +70,7 @@ section sfx_bank (cpu: m68000, bank: $8000) {
     // (body: before), then the sparse id->blob cell table (135 cells, holes 0).
     // Blob order == id order == ascending key order (the ascending-key rule), so
     // the payload stream is deterministic.
-    table SfxTable (cell: *u8, key: $33..=$B9, hole: 0, item_align: 2, body: before) {
+    table SfxTable (cell: *u8, key: $33..=$BB, hole: 0, item_align: 2, body: before) {
         $33: Sfx_33 = embed("sfx_33.bin"), Sfx_33_Patches = embed("sfx_33_patches.bin"),
         $34: Sfx_34 = embed("sfx_34.bin"), Sfx_34_Patches = embed("sfx_34_patches.bin"),
         $35: Sfx_35 = embed("sfx_35.bin"), Sfx_35_Patches = embed("sfx_35_patches.bin"),
@@ -80,6 +80,17 @@ section sfx_bank (cpu: m68000, bank: $8000) {
         $AB: Sfx_AB = embed("sfx_AB.bin"), Sfx_AB_Patches = embed("sfx_AB_patches.bin"),
         $B6: Sfx_B6 = embed("sfx_B6.bin"), Sfx_B6_Patches = embed("sfx_B6_patches.bin"),
         $B9: Sfx_B9 = embed("sfx_B9.bin"), Sfx_B9_Patches = embed("sfx_B9_patches.bin"),
+        // $BA/$BB extend the key range past its previous $B9 ceiling — the first
+        // time the SFX set has grown at its top end rather than filled a hole.
+        // They are kept at their S3K ids rather than moved down into the 126 free
+        // slots below because the id IS the S3K source filename (see the note at
+        // the head of sound_ids.emp); relocating them would buy two spare cells
+        // and plant a collision for whenever the real $37/$38 are imported.
+        // $BB carries no voice bank of its own in S3K — it names Sound_BA_BB_Voices,
+        // which lives in $BA's file — so the transcoder appends $BA's data section
+        // when packing it. Each still gets its own 32-byte patch bank here.
+        $BA: Sfx_BA = embed("sfx_BA.bin"), Sfx_BA_Patches = embed("sfx_BA_patches.bin"),
+        $BB: Sfx_BB = embed("sfx_BB.bin"), Sfx_BB_Patches = embed("sfx_BB_patches.bin"),
     }
 }
 
@@ -99,6 +110,8 @@ equ SFX_WIN_62 = winptr(Sfx_62)
 equ SFX_WIN_AB = winptr(Sfx_AB)
 equ SFX_WIN_B6 = winptr(Sfx_B6)
 equ SFX_WIN_B9 = winptr(Sfx_B9)
+equ SFX_WIN_BA = winptr(Sfx_BA)
+equ SFX_WIN_BB = winptr(Sfx_BB)
 
 // The engine-table-head co-residency rule — Sfx_Frame reads the FM-patch/pitch/
 // opcode tables window-relative from the bank head, so the SFX blobs MUST share
