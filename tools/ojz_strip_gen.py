@@ -120,14 +120,15 @@ STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
 # past 960 would pass a 1472-tile check and silently DMA over live art at
 # runtime. 1472 ($0000-$B7FF, SAT excluded) becomes the ceiling only when the
 # spec's Phase 3 unifies BG/characters into the residency pool. Mirrors
-# POOL_TILE_CEILING in constants.asm — keep in sync.
-POOL_TILE_CEILING = 960
+# POOL_TILE_CEILING in engine/system/constants.emp — keep in sync. 896 (14 pages
+# of 64), lowered from 960 when the dust windows took the top page.
+POOL_TILE_CEILING = 896
 ART_POOL_PAGE_TILES = 64              # tiles per independently-decodable act art page (P2b cutover: 256->64)
 PAGE_TABLE_MAX = 256                  # residency page-table ceiling (replaces POOL_TILE_CEILING as the hard cap)
 SECTION_LOCAL_INDEX_MAX = 2047        # 11-bit nametable field: a section's local palette must fit
 PIN_SECTION_FRACTION = 0.75           # a page is pinned if >= this fraction of sections reference it (page 0 always)
 # --stress-uniquify N default (Art-streaming P2c Task 11 stress fixture): crosses
-# the 2048 index line (>32 pages) AND exceeds 15 PAGE_FRAMES by ~4x (>40 pages),
+# the 2048 index line (>32 pages) AND exceeds 14 PAGE_FRAMES by ~4x (>40 pages),
 # so the residency cache is forced into continuous evict/reload traffic on OJZ.
 STRESS_UNIQUIFY_DEFAULT = 2600
 STRESS_XOR_FALLBACK = 0xA5            # nonzero perturbation when the per-clone counter byte is 0

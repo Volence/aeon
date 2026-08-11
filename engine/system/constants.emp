@@ -247,9 +247,9 @@ pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (mat
 
 // Residency cache (P2b Task 6, engine.page_cache). The FG VRAM art region is
 // carved into PAGE_FRAMES fixed 64-tile frames; the page table maps a global
-// page id -> the frame holding it (or PAGE_NOT_RESIDENT). POOL_TILE_CEILING(960)
-// / ART_POOL_PAGE_TILES(64) = 15 frames span the whole FG art window.
-pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 15
+// page id -> the frame holding it (or PAGE_NOT_RESIDENT). POOL_TILE_CEILING(896)
+// / ART_POOL_PAGE_TILES(64) = 14 frames span the whole FG art window.
+pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 14
 ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
        "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
 pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + free-link terminator
@@ -577,7 +577,17 @@ pub const PARALLAX_LERP_SHIFT   = 4
 // -----------------------------------------------
 // Act art-pool VRAM ceiling + per-act section grid cap.
 // -----------------------------------------------
-pub const POOL_TILE_CEILING = 960       // pool loads to tiles 0..N-1; DPLC region at tile 960
+// 896 = 14 pages of 64, NOT 960 (15). The top page was surrendered to the dust
+// windows below the character region (games/sonic4/config/constants.emp:
+// VRAM_DUST_PUFF / VRAM_DUST_SPINDASH). The carve is page-quantised because
+// PAGE_FRAMES*ART_POOL_PAGE_TILES == POOL_TILE_CEILING is enforced below, so 28
+// tiles of dust cost a whole 64-tile page and leave 36 spare at 924-959.
+// Affordable because the pool is over-provisioned: OJZ act 1 needs 10 pages
+// (612 tiles) of the remaining 14, so it stays fully resident
+// (PageIn_Fully_Resident still latches). An act wanting >896 resident FG tiles
+// streams per §9.7 rather than failing. LOCKSTEP: tools/ojz_strip_gen.py
+// carries the same constant and must move with it.
+pub const POOL_TILE_CEILING = 896       // pool loads to tiles 0..N-1; dust at 896, DPLC region at 960
 pub const MAX_ACT_SECTIONS  = 48        // flat id = sec_y*grid_w + sec_x; build asserts grid_w*grid_h <= this
 
 // -----------------------------------------------
