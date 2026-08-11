@@ -26,7 +26,12 @@ use engine.objects.sst.{Sst, interact_off}
 //                      entity_list_index, layer                      1 long
 //            $30..$4B  sst_custom — the PlayerV overlay              7 longs
 //            $4C..$4D  sst_custom tail — the window's last game word  word fold
-//            $4E..$4F  interact — the engine's TouchResponse claim    word fold
+//            $4E..$4F  interact — the engine's TouchResponse claim    word fold,
+//                      NORMALIZED: the raw cell holds the claiming solid's
+//                      ADDRESS (collision.emp writes `move.w a3, ...`), so the
+//                      fold subtracts Object_RAM first — a layout-proof byte
+//                      offset. 0 stays 0 (no claim; unambiguous — slot 0 is
+//                      Player_1, which can never be the claiming solid)
 //
 //   excluded $00 code_addr    ROM address (offset from ObjCodeBase — shifts with
 //                             the object-code bank's layout)
@@ -46,6 +51,17 @@ use engine.objects.sst.{Sst, interact_off}
 // below pin each excluded field's offset AND the total byte accounting, so any
 // reshuffle that would silently re-poison the hash fails the BUILD instead.
 // Fix the map (add a new span / a new fold); never widen a span over a pointer.
+//
+// THE SAME CONTRACT BINDS EVERY WORD-TAIL CELL in Replay_Hash, and it is NOT
+// build-checkable there — the ensures police the SST spans, but a `move.w
+// SomeCell, d1` fold takes whatever the cell holds. A cell whose VALUE is an
+// address must be NORMALIZED (subtract its base) at fold time. This is not
+// hypothetical: the 2026-08-11 pool-resize desync (REPLAY DESYNC at the first
+// checkpoint on a behaviour-identical build) came from folding the two raw
+// free-stack cursors, whose values are addresses into arrays that slid -2 when
+// a debug-only RAM array above them shrank. See .hash_wtail — the cursors now
+// fold as occupancy (cursor - base), and interact folds as an Object_RAM
+// offset. When adding a fold, ask: "is this cell's VALUE an address?"
 //
 // Span bases are link-time (the extern-equ-sum idiom); span lengths are comptime
 // and derived from the BOUNDING EXCLUDED field, so they track the struct.
@@ -247,17 +263,22 @@ pub proc Input_Tick () clobbers(d0-d3/a0-a1) {
 //   Logic_Tick (1) · Player_1's five address-free SST spans (15 longs) ·
 //   Camera_X + Camera_Y (2) ·
 //   Section streaming state (Top+Bottom · Right+Left · Fwd · Bwd) ·
-//   Player_1 render_flags+collision_resp / anim+subtype / interact (words) ·
-//   Dynamic_Live_Count / Dynamic_Free_SP / Effect_Free_SP (words) ·
-//   Section_Plane_Dirty (word).
+//   Player_1 render_flags+collision_resp / anim+subtype / interact-as-offset
+//   (words; interact is normalized: cell value minus Object_RAM, 0 kept) ·
+//   Dynamic_Live_Count / Dynamic + Effect free-stack OCCUPANCY (cursor minus
+//   stack base — the raw cursor cells hold ADDRESSES; folding them raw is the
+//   2026-08-11 desync) · Section_Plane_Dirty (word).
 // Excludes sound RAM, Ctrl_* cells, VDP staging, DEBUG-only cells — gameplay state
-// only. The Player_1 coverage is ADDRESS-FREE: every SST field holding a ROM or RAM
-// address is skipped (see the hash-map block at the top of this module for the
-// per-field map, the reasons, and the build-time ensures that keep it honest), so a
+// only. The WHOLE fold is ADDRESS-FREE: every SST field holding a ROM or RAM
+// address is skipped, and every word-tail cell whose value is an address is
+// normalized against its base at fold time (see the hash-map block at the top
+// of this module for the per-field map, the reasons, the build-time ensures on
+// the spans, and the un-checkable-by-build word-tail contract), so a
 // behaviour-neutral parcel that merely shifts addresses reproduces recorded
 // checkpoint hashes and the committed fixture stays a valid regression net.
-// WARNING: any field added to a hashed span MUST be address-free — a pointer
-// landing inside one silently re-poisons every recorded fixture.
+// WARNING: any field added to a hashed span MUST be address-free, and any cell
+// added to the word tail must be normalized if its value is an address — a
+// pointer folding raw silently re-poisons every recorded fixture.
 // The plan's Slot_Section_Map / Section_Stream_State names do NOT
 // exist in engine/ram.emp (the A.4 art-stream state machine was never landed under
 // those labels — they survive only in stale docs); the real section-streaming cells
@@ -295,19 +316,34 @@ pub proc Replay_Hash () clobbers(d0-d1/a0-a1) {
         rol.l   #1, d0                       //   window's non-long remainder, sst-fold)
         add.l   d1, d0
         moveq   #0, d1
-        move.w  HASH_P1_INTERACT, d1         // interact ($4E — sst.emp's interact_off())
+        move.w  HASH_P1_INTERACT, d1         // interact ($4E — sst.emp's interact_off()):
+        beq     .int_fold                    //   0 = no claim (kept — slot 0 is Player_1,
+                                             //   never the claiming solid, so 0 is
+                                             //   unambiguous); nonzero = the claiming
+                                             //   solid's SST ADDRESS (collision.emp) —
+        subi.w  #extern("Object_RAM"), d1    //   normalize to a byte offset into
+                                             //   Object_RAM: slot-stable, layout-proof
+    .int_fold:
         rol.l   #1, d0
         add.l   d1, d0
         moveq   #0, d1
         move.w  Dynamic_Live_Count, d1
         rol.l   #1, d0
         add.l   d1, d0
+        // The free-stack CURSORS are normalized to occupancy before folding.
+        // The raw cells hold ADDRESSES into the free-stack arrays; folding them
+        // raw made the hash layout-sensitive, and a debug-only RAM array
+        // shrinking above the stacks desynced every recorded fixture on a
+        // behaviour-identical build (2026-08-11). cursor - base = 2 x free
+        // slots: the same coverage (pool occupancy), address-free.
         moveq   #0, d1
         move.w  Dynamic_Free_SP, d1
+        subi.w  #extern("Dynamic_Free_Stack"), d1
         rol.l   #1, d0
         add.l   d1, d0
         moveq   #0, d1
         move.w  Effect_Free_SP, d1
+        subi.w  #extern("Effect_Free_Stack"), d1
         rol.l   #1, d0
         add.l   d1, d0
         moveq   #0, d1

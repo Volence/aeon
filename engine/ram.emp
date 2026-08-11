@@ -112,7 +112,10 @@ pub vars lower_ram {
     // region means any hypothetical over-decode spills into the unused
     // Lower_RAM_End..region-end gap instead of corrupting Page_Table's low entries.
     Page_Table:     [u8; PAGE_TABLE_MAX],                                   // 256 bytes — page id -> frame idx / PAGE_NOT_RESIDENT
-    Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 15 × sizeof(PageFrame)=8 = 120 bytes
+    Page_Frames:    [PageFrame; PAGE_FRAMES_MAX],                           // CAPACITY-sized (15 × 8 = 120 B), NOT count-sized:
+                                                                            // a pool resize must not move RAM (2026-08-11 ruling —
+                                                                            // see PAGE_FRAMES_MAX in engine/system/constants.emp).
+                                                                            // Runtime walks bound by PAGE_FRAMES; tail slots idle.
     Page_Queued_Bits: [u8; PAGE_TABLE_MAX / 8],                             // 32 bytes — "page already in the request FIFO" bitset (PageCache_Request dedupe)
 
     // Art staging LAST in lower_ram (defense-in-depth): a hypothetical over-decode
@@ -329,7 +332,11 @@ pub vars upper_ram {
         // not a silent black hang. Reset to 0 the first frame the fill does not stall.
         Cache_Stall_Watchdog:   u16,
         Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
-        Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
+        Page_Audit_Scratch:     [u16; PAGE_FRAMES_MAX],   // per-frame refcount recomputed from the nametable (audit).
+                                                          // CAPACITY-sized like Page_Frames — this array shrinking by
+                                                          // 2 B is exactly what slid every debug cell below it (incl.
+                                                          // the free stacks) by -2 and desynced the replay fixtures
+                                                          // on the 2026-08-11 pool resize.
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
         // compact readable copy of the residency map (Task-6 mapping-bug debug):
         //   [0]=Page_Free_Head [1]=[2]=$FF reserved (dead LRU heads) [3]=pad

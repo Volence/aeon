@@ -252,6 +252,21 @@ pub const PAGE_TABLE_MAX       = 256        // residency page-table ceiling (mat
 pub const PAGE_FRAMES        = POOL_TILE_CEILING / ART_POOL_PAGE_TILES   // 15
 ensure(PAGE_FRAMES * ART_POOL_PAGE_TILES == POOL_TILE_CEILING,
        "PAGE_FRAMES*ART_POOL_PAGE_TILES must tile the FG art window exactly")
+// CAPACITY, deliberately split from the COUNT above (user style ruling
+// 2026-08-11). PAGE_FRAMES sizes two RAM arrays (Page_Frames,
+// Page_Audit_Scratch — the latter debug-only), so before this split a pool
+// resize was secretly a RAM-LAYOUT change: 960->896 slid every debug cell
+// below the scratch array by -2, moved 126 pins, and desynced the replay
+// fixtures on a behaviour-identical build. The arrays are now sized by this
+// fixed capacity and PAGE_FRAMES is just the live count, so POOL_TILE_CEILING
+// is a genuinely VRAM-only knob. Cost: (PAGE_FRAMES_MAX - PAGE_FRAMES) slots
+// of RAM slack (10 bytes at 14/15) — bought deliberately, do not "reclaim" it.
+// Raising the capacity IS a RAM-layout change and owes the full pin/goldens
+// ritual; that is the point — you pay it when you CHOOSE to, not as a side
+// effect of a VRAM budget edit.
+pub const PAGE_FRAMES_MAX    = 15
+ensure(PAGE_FRAMES <= PAGE_FRAMES_MAX,
+       "PAGE_FRAMES exceeds PAGE_FRAMES_MAX — raise the capacity (a deliberate RAM-layout change owing the pin/goldens ritual), do not shrink the pool's count math")
 pub const PAGE_NOT_RESIDENT  = $FF          // Page_Table sentinel + free-link terminator
 // pf_flags bits (engine.structs PageFrame):
 pub const PF_PINNED_BIT      = 0            // never a victim (build-marked act-common page)
