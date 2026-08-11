@@ -415,6 +415,18 @@ def write_dplc(frames):
             assert 1 <= tcount <= MAX_TILES_PER_ENTRY, (
                 f"DPLC tile_count={tcount} out of range 1..{MAX_TILES_PER_ENTRY} "
                 f"(4-bit field wraps) at tile_start={tstart}")
+            # tile_start is a TWELVE-bit field. The `& 0xFFF` below is a mask, not
+            # a range check, so without this assert an art set larger than 4096
+            # tiles wraps SILENTLY and those frames DMA early-frame art instead.
+            # Knuckles is the first set to reach it: his contiguous ("_opt") art is
+            # 4383 tiles, and 25 entries across frames 234-250 wrapped — a defect
+            # invisible in the emitted file, since the wrap has already happened by
+            # the time anyone parses it. Caught 2026-08-11 by reconstructing each
+            # frame from both the raw and _opt pairs and diffing the results.
+            assert 0 <= tstart <= 0xFFF, (
+                f"DPLC tile_start={tstart} exceeds the 12-bit field (max 4095) — "
+                f"the art set is larger than a DPLC entry can address, so this "
+                f"entry would wrap to {tstart & 0xFFF} and load the wrong tiles")
             fb += struct.pack('>H', ((tcount - 1) & 0xF) << 12 | (tstart & 0xFFF))
         parts.append(fb)
         data_off += len(fb)
@@ -510,7 +522,7 @@ def sha(b):
 
 
 def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
-                remap=None):
+                remap=None, optimize=True):
     art_path = sk / art_rel
     art = art_path.read_bytes()
     art_tiles = len(art) // TILE_SIZE
@@ -535,10 +547,21 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
     raw_dplc = write_dplc(dplc_frames)
 
     # Contiguous art + one-entry-per-frame DPLC (split to <=16). Build-consumed.
-    opt_art, opt_single = build_contiguous_art(art, dplc_frames)
-    opt_frames = [split_contiguous_entries(s, c) if c else [] for s, c in opt_single]
-    assert_dplc_le16(opt_frames, name)
-    opt_dplc = write_dplc(opt_frames)
+    #
+    # `optimize=False` is for a set whose contiguous form does not FIT the format:
+    # the rearrange makes the art strictly larger (every frame's tiles are copied
+    # in full, duplicates and all), and once it passes 4096 tiles the 12-bit
+    # tile_start can no longer address it. That is not a tuning knob — write_dplc
+    # would refuse to emit it. Such a set ships its RAW pair, which is both correct
+    # and smaller; the only cost is more DPLC entries per frame. Knuckles is the
+    # first character to hit this (4383 contiguous tiles vs Tails' 3635).
+    opt_art = opt_dplc = None
+    opt_frames = []
+    if optimize:
+        opt_art, opt_single = build_contiguous_art(art, dplc_frames)
+        opt_frames = [split_contiguous_entries(s, c) if c else [] for s, c in opt_single]
+        assert_dplc_le16(opt_frames, name)
+        opt_dplc = write_dplc(opt_frames)
 
     # Aeon VDP-order mappings.
     map_bin = emit_mappings(map_frames)
@@ -548,10 +571,12 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
     (out_dir / "dplc").mkdir(parents=True, exist_ok=True)
 
     (out_dir / "art" / f"{name}.bin").write_bytes(art)                 # raw source art
-    (out_dir / "art" / f"{name}_opt.bin").write_bytes(opt_art)         # contiguous
+    if opt_art is not None:
+        (out_dir / "art" / f"{name}_opt.bin").write_bytes(opt_art)     # contiguous
     (out_dir / "mappings" / f"{name}.bin").write_bytes(map_bin)        # Aeon VDP-order
     (out_dir / "dplc" / f"{name}.bin").write_bytes(raw_dplc)           # S3K-format
-    (out_dir / "dplc" / f"{name}_opt.bin").write_bytes(opt_dplc)       # optimized <=16
+    if opt_dplc is not None:
+        (out_dir / "dplc" / f"{name}_opt.bin").write_bytes(opt_dplc)   # optimized <=16
 
     tiles_per_frame = [sum(c for _, c in f) for f in dplc_frames]
     max_entry_opt = max((c for f in opt_frames for _, c in f), default=0)
@@ -560,16 +585,17 @@ def process_set(sk, name, art_rel, map_rel, dplc_rel, anim_rel, out_dir, report,
         "frames": len(map_frames),
         "src_art_tiles": art_tiles,
         "src_art_bytes": len(art),
-        "opt_art_tiles": len(opt_art) // TILE_SIZE,
-        "opt_art_bytes": len(opt_art),
+        "opt_art_tiles": (len(opt_art) // TILE_SIZE) if opt_art is not None else None,
+        "opt_art_bytes": len(opt_art) if opt_art is not None else None,
         "max_tiles_per_frame": max(tiles_per_frame) if tiles_per_frame else 0,
         "max_opt_dplc_entry_tiles": max_entry_opt,
         "map_bin_bytes": len(map_bin),
         "src_art_sha": src_art_sha,
         "art_sha": sha(art),
-        "opt_art_sha": sha(opt_art),
+        "opt_art_sha": sha(opt_art) if opt_art is not None else None,
         "map_sha": sha(map_bin),
-        "opt_dplc_sha": sha(opt_dplc),
+        "opt_dplc_sha": sha(opt_dplc) if opt_dplc is not None else None,
+        "optimized": opt_art is not None,
         "remapped": remap is not None,
         "hist_before": hist_before,
         "hist_after": hist_after,
@@ -612,7 +638,7 @@ def main():
         f"{S}/Knuckles/Map - Knuckles.asm",
         f"{S}/Knuckles/DPLC - Knuckles.asm",
         f"{S}/Knuckles/Anim - Knuckles.asm",
-        out / "knuckles", report)
+        out / "knuckles", report, optimize=False)
 
     # ---- Animation intermediate JSON (deferred format decision) ----
     anim_specs = [
@@ -641,12 +667,22 @@ def main():
     # embeds. Shipping from here (rather than a hand `cp` after the fact) is what
     # makes this generator the single source of truth end to end: a regenerate
     # that changes a staged blob can no longer leave the ROM's copy stale.
-    # Knuckles is absent on purpose — nothing embeds him yet.
+    # Knuckles ships the RAW pair, NOT the `_opt` pair — the one place the two
+    # characters deliberately differ. His contiguous art is 4383 tiles, past what
+    # the DPLC's 12-bit tile_start can address, so `_opt` wrapped 25 entries across
+    # frames 234-250 (see write_dplc's assert, which now refuses to emit it). The
+    # raw pair addresses a max tile_start of 4070, is 8,702 bytes SMALLER, and its
+    # only cost is up to 5 DMA entries per frame instead of 2 — well inside
+    # DMA_IMPORTANT_SLOTS (12) and the same total 29 tiles either way.
     ship = []
     for src_rel, dst_rel in (
             ("tails/mappings/tails.bin",      "games/sonic4/data/mappings/tails.bin"),
             ("tails/dplc/tails_opt.bin",      "games/sonic4/data/dplc/optimized/tails.bin"),
             ("tails/art/tails_opt.bin",       "art/optimized/characters/tails.bin"),
+            ("knuckles/mappings/knuckles.bin", "games/sonic4/data/mappings/knuckles.bin"),
+            ("knuckles/dplc/knuckles.bin",     "games/sonic4/data/dplc/knuckles.bin"),
+            ("knuckles/art/knuckles.bin",      "art/optimized/characters/knuckles.bin"),
+            ("palettes/knuckles_main.bin",     "art/palettes/knuckles.bin"),
             ("tails/mappings/tails_tail.bin", "games/sonic4/data/mappings/tails_tail.bin"),
             ("tails/dplc/tails_tail_opt.bin", "games/sonic4/data/dplc/optimized/tails_tail.bin"),
             ("tails/art/tails_tail_opt.bin",  "art/optimized/characters/tails_tail.bin")):
@@ -688,12 +724,16 @@ def main():
         else:
             print(f"  art                    : raw S3K copy (NOT re-indexed)  "
                   f"sha={r['art_sha']}")
-        print(f"  contiguous (opt) art   : {r['opt_art_tiles']} tiles "
-              f"({r['opt_art_bytes']:,} bytes)  sha={r['opt_art_sha']}")
+        if r.get("optimized", True):
+            print(f"  contiguous (opt) art   : {r['opt_art_tiles']} tiles "
+                  f"({r['opt_art_bytes']:,} bytes)  sha={r['opt_art_sha']}")
+            print(f"  max opt DPLC entry     : {r['max_opt_dplc_entry_tiles']} tiles "
+                  f"(<= {MAX_TILES_PER_ENTRY} asserted)")
+        else:
+            print(f"  contiguous (opt) art   : NOT BUILT — the contiguous form "
+                  f"exceeds the DPLC's 12-bit tile_start; ships the RAW pair")
         print(f"  max tiles / frame      : {r['max_tiles_per_frame']} "
               f"(pre-split)")
-        print(f"  max opt DPLC entry     : {r['max_opt_dplc_entry_tiles']} tiles "
-              f"(<= {MAX_TILES_PER_ENTRY} asserted)")
         print(f"  Aeon mappings          : {r['map_bin_bytes']:,} bytes  "
               f"sha={r['map_sha']}")
     for name, jpath, _ in anim_specs:
