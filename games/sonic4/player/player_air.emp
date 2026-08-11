@@ -10,9 +10,9 @@ module games.sonic4.player_air in player_air
 use engine.objects.sst.{Sst}
 use engine.coords.{abs_w}
 use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PHYS_JUMP_SKIP_CLEARANCE, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
-        ST_ROLLING, PLAYER_Y_RADIUS, BALL_Y_RADIUS, CURL_Y_SHIFT,
+        ST_ROLLING,
         BUTTON_LEFT, BUTTON_RIGHT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix,
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix, curl_head_rise,
         BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
 
 // Player_SensorFloor/Ceiling/WallAt resolve module-to-module to player_sensors.emp
@@ -574,7 +574,9 @@ proc Air_LandState (a0: *Sst) clobbers(d1-d7/a1-a2) out(d0) {
         btst    #ST_ROLLING, status(a0)
         beq     .stand                          // landed uncurled: nothing to guard
         jbsr    Player_SensorCeiling            // d0 = head clearance (ball box)
-        cmpi.w  #(PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT, d0
+        movea.l Player_Chardef, a1
+        curl_head_rise(a1, d1)                  // d1.w = this character's rise
+        cmp.w   d1, d0
         blt     .stay_rolling
 .stand:
         moveq   #PSTATE_GROUND, d0

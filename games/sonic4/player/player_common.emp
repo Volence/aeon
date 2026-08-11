@@ -19,13 +19,13 @@
 module games.sonic4.player_common in player_common
 
 use engine.objects.sst.{Sst, set_priority_band, size_wh_off}
-use engine.structs.{Act, CharacterDef}
+use engine.structs.{Act, CharacterDef, cd_stand_h_off, cd_roll_h_off}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
         RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
-        CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
+        ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
 
@@ -215,7 +215,7 @@ ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
 // Sizes are FULL dims (2r+1); the sensors halve by lsr → Sonic stands 9/19 and
 // balls 7/14 (the classic radii), Tails stands 9/15 (S3K default_y_radius $F).
 // The enter hooks are the ONE writer of these fields and of the paired
-// ±CURL_Y_SHIFT y-shift (spec §3.3).
+// curl y-shift (spec §3.3).
 // In: sst = player SST register, def = register already holding the resolved
 //     CharacterDef (Player_Chardef) — loaded at the call site so the hooks share
 //     the one load with their curled-test
@@ -229,6 +229,50 @@ pub comptime fn set_standing_size(sst: Reg, def: Reg) -> Code {
 pub comptime fn set_ball_size(sst: Reg, def: Reg) -> Code {
         return asm {
                 move.w  CharacterDef.cd_roll_wh({def}), size_wh_off()({sst})
+        }
+}
+
+// -----------------------------------------------
+// curl_head_rise / curl_y_shift — the curl GEOMETRY, derived from the two boxes
+// in the active character's record for the same reason the boxes themselves are:
+// it is a property of the character, not of the engine. S3K computes exactly
+// this pair per character (`y_radius - default_y_radius`, sonic3k.asm) rather
+// than using a constant.
+//
+// Uncurling raises the head by the full height difference; the centre moves by
+// HALF of it, which is what keeps the feet planted. Sonic 10/5 (the values the
+// old engine-wide CURL_Y_SHIFT hardcoded), Tails 2/1.
+//
+// The subtraction cannot borrow — no character's ball is taller than its
+// standing box — so the byte result reaches the word/long users clean off the
+// `moveq`.
+// In:  def = register holding the resolved CharacterDef
+// Out: dest.w = full height difference (the standing head rise, px)
+// -----------------------------------------------
+pub comptime fn curl_head_rise(def: Reg, dest: Reg) -> Code {
+        return asm {
+                moveq   #0, {dest}
+                move.b  cd_stand_h_off()({def}), {dest}
+                sub.b   cd_roll_h_off()({def}), {dest}
+        }
+}
+
+// Out: dest.w = the curl y-shift in PIXELS (half the head rise) — what the
+//      rolling wall probe subtracts to get back to the standing centre height
+pub comptime fn curl_shift_px(def: Reg, dest: Reg) -> Code {
+        return asm {
+                curl_head_rise({def}, {dest})
+                lsr.b   #1, {dest}
+        }
+}
+
+// Out: dest.l = the curl y-shift as a 16.16 delta (shift<<16), ready to add to
+//      (curl) or subtract from (uncurl) y_pos
+pub comptime fn curl_y_shift(def: Reg, dest: Reg) -> Code {
+        return asm {
+                curl_shift_px({def}, {dest})
+                swap    {dest}                  // px -> 16.16 (low word is the
+                                                // moveq's zero)
         }
 }
 
@@ -810,8 +854,9 @@ pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
 }
 
 // bug #5 fix (structural): the collision box lives ONLY here — every curled
-// state gets ball radii with the symmetric ±CURL_Y_SHIFT feet-planted shift, so
-// the classic roll-jump 5px size mismatch cannot exist. Enter-hook-owns-it:
+// state gets ball radii with the symmetric feet-planted shift (curl_y_shift,
+// derived from the record), so the classic roll-jump 5px size mismatch cannot
+// exist. Enter-hook-owns-it:
 // each enter hook ENSURES its size, keyed on the current height byte —
 // idempotent and correct for every transition path.
 //
@@ -833,7 +878,8 @@ pub proc PHook_EnsureStanding (a0: *Sst) clobbers(d1/a1) {
         cmp.w   CharacterDef.cd_roll_wh(a1), d1
         bne     .keep                           // not curled (incl. debug 16)
         set_standing_size(a0, a1)
-        subi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
+        curl_y_shift(a1, d1)
+        sub.l   d1, y_pos(a0)
 .keep:
         rts
 }
@@ -845,7 +891,8 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers(d1/a1) {
         cmp.w   CharacterDef.cd_roll_wh(a1), d1
         beq     .keep                           // already curled
         set_ball_size(a0, a1)
-        addi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
+        curl_y_shift(a1, d1)
+        add.l   d1, y_pos(a0)
 .keep:
         rts
 }

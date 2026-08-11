@@ -18,9 +18,9 @@ use engine.coords.{abs_w}
 use engine.constants.{PHYS_SLOPE_WALK, PHYS_SLOPE_ROLL_DOWN, PHYS_SLOPE_ROLL_UP, PHYS_SLOPE_STAND_MIN,
         PHYS_ROLL_START_MIN, PHYS_JUMP_HEADROOM, PHYS_GSP_CAP, PHYS_ROLL_DECEL, PHYS_UNROLL_MAX, PHYS_KEEP_ROLL_MIN,
         PHYS_SLIP_SPEED, PHYS_SLIP_ANGLE, PHYS_FALL_ANGLE, PHYS_SLIP_NUDGE, PHYS_MOVE_LOCK_TIME,
-        PLAYER_Y_RADIUS, BALL_Y_RADIUS, CURL_Y_SHIFT, PUSH_RADIUS, BUTTON_LEFT, BUTTON_RIGHT,
+        PUSH_RADIUS, BUTTON_LEFT, BUTTON_RIGHT,
         BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr}
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, curl_head_rise, curl_shift_px}
 
 // Player_SensorFloor/Ceiling/WallDir resolve module-to-module to player_sensors.emp
 // (bare link) — the P4 close retired their extern-proc boundary decls (kill row 80).
@@ -460,10 +460,10 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #0, d0
 
 .unroll_check:
-        // --- unroll below |gsp| < $80 (S3K). The standing box is 5px
-        // taller per radius and uncurling lifts the center 5px, so the
-        // head rises (PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT = 10px
-        // — unrolling under a low ceiling would clip into it (spec §5
+        // --- unroll below |gsp| < $80 (S3K). Uncurling lifts the head by
+        // the full standing-minus-ball height difference (curl_head_rise,
+        // read from the active character's record — 10px for Sonic, 2 for
+        // Tails) — unrolling under a low ceiling would clip into it (spec §5
         // wall-clip class). Verify clearance first; blocked → KEEP
         // ROLLING at ±PHYS_KEEP_ROLL_MIN (classic Sonic_KeepRolling's
         // forced inertia = ±$400, the roll-tunnel rule reused for the
@@ -475,10 +475,12 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         cmpi.w  #PHYS_UNROLL_MAX, d1
         bge     .shared_move                    // d0 = gsp, still rolling
         jbsr    Player_SensorCeiling            // d0 = head clearance (ball box)
-        cmpi.w  #(PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT, d0
+        movea.l Player_Chardef, a1
+        curl_head_rise(a1, d1)                  // d1.w = this character's rise
+        cmp.w   d1, d0
         blt     .keep_rolling
         moveq   #PSTATE_GROUND, d0              // unroll — the hook restores
-        jbsr    Player_SetState                 // standing radii, −5px y-shift
+        jbsr    Player_SetState                 // standing radii, uncurl y-shift
         move.w  PlayerV.ground_speed(a0), d0
         jbra    .shared_move                    // frame completes as GROUND
                                                 // from the cap (wall probe
@@ -493,8 +495,8 @@ pub proc PState_Roll (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbsr    Ground_Move_Cap                 // shared cap → projection →
                                                 // wall probe (see the entry-
                                                 // point note at Ground_Move_Cap; the
-                                                // probe raises −5px while
-                                                // _pl_state == ROLL)
+                                                // probe undoes the curl
+                                                // shift while _pl_state == ROLL)
         jbra    Ground_PostMove                 // integrate → floor pair →
                                                 // SlopeRepel fall-through
 }
@@ -682,9 +684,12 @@ proc Ground_Move_Cap (a0: *Sst) clobbers(d0-d7/a1) {
         add.w   y_pos(a0), d1                   // projected engine Y
         cmpi.b  #PSTATE_ROLL, PlayerV.player_state(a0)
         bne     .not_rolling
-        subq.w  #5, d1                          // rolling: probe raised 5px —
-                                                // the curl shifted y_pos +5,
-                                                // so −5 restores the STANDING
+        movea.l Player_Chardef, a1              // (dir_table read is done with a1)
+        curl_shift_px(a1, d2)                   // d2 dead here until .probe_y_set
+        sub.w   d2, d1                          // rolling: the curl shifted y_pos
+                                                // down by this character's shift
+                                                // (5px Sonic, 1px Tails), so undo
+                                                // it to probe at the STANDING
                                                 // center height (SPG/spec §5;
                                                 // applies at every angle)
         jbra    .probe_y_set

@@ -53,10 +53,10 @@ const TAILS_Y_RADIUS = 15
 // the enter hooks store these words straight into the SST box, so Tails collides
 // with the 31-pixel standing box below and not Sonic's 39-pixel one.
 //
-// The paired curl y-shift is NOT character-derived yet — the hooks still shift by
-// the engine-wide CURL_Y_SHIFT (Sonic's 19−14), where S3K computes
-// `y_radius − default_y_radius` per character (1 for Tails). Tails' airborne ball
-// therefore rides 4px low until that follows the boxes into the record.
+// The paired curl geometry is derived from these same two words (curl_head_rise /
+// curl_y_shift, player_common) exactly as S3K derives it per character from
+// `y_radius − default_y_radius`: Tails' head rises 2px on uncurl and his centre
+// moves 1px, against Sonic's 10 and 5.
 // -----------------------------------------------
 pub data CharDef_Tails: CharacterDef = CharacterDef{
     cd_phys:      PhysTable_Tails,
@@ -70,6 +70,9 @@ pub data CharDef_Tails: CharacterDef = CharacterDef{
     cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
     cd_flags:     0,
 }
+// See CharDef_Sonic: curl_head_rise's `sub.b` of the two heights must not borrow.
+ensure(TAILS_Y_RADIUS >= BALL_Y_RADIUS,
+       "CharDef_Tails' ball is taller than its standing box — curl_head_rise's sub.b would borrow")
 
 // -----------------------------------------------
 // Tails' physics base table — SONIC'S ROW VERBATIM, and that is the correct

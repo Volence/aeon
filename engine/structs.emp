@@ -213,6 +213,24 @@ pub struct CharacterDef {
     cd_flags:     u16,           // $1E — reserved capability bits (0 today)
 }
 
+// The HEIGHT halves of the two packed boxes — blessed sub-field views (the
+// module boundary above admits these), because the curl geometry is a function
+// of the two heights alone and more than one consumer needs them: the player's
+// curl hooks derive the feet-planted y-shift, and the unroll ceiling probes in
+// player_ground / player_air derive the standing head rise. S3K computes the
+// same pair per character (`y_radius - default_y_radius`), which is why they are
+// data here and not an engine-wide constant.
+//
+// Spelled as comptime fns rather than `+ 1` at the use site because a field
+// reference does not compose with arithmetic in a displacement — the same reason
+// engine.objects.sst spells interact_off() and size_wh_off() this way.
+pub comptime fn cd_stand_h_off() -> int {
+    return offsetof(CharacterDef, cd_stand_wh) + 1
+}
+pub comptime fn cd_roll_h_off() -> int {
+    return offsetof(CharacterDef, cd_roll_wh) + 1
+}
+
 // -----------------------------------------------
 // VDP Shadow Table (§0.4) — 19 bytes, RAM mirror of VDP registers $00-$12.
 // Registers $13-$17 (DMA) are NOT shadowed. VDP_Shadow_Init copies boot

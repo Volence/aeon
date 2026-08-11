@@ -12,12 +12,15 @@
 // its entry:
 //
 //   1. S3K's DURATION byte doubles as a dispatch selector when negative ($FF
-//      walk/run, $FE roll, $FD push, $FC the appendage's angle-banked spin), and
-//      our AnimateSprite has exactly ONE sentinel — DUR_DYNAMIC ($FF), "take the
+//      walk/run, $FD push, $FC the appendage's angle-banked spin), and our
+//      AnimateSprite has exactly ONE sentinel — DUR_DYNAMIC ($FF), "take the
 //      hold from the caller's d3". Player_Animate computes that hold for the
-//      walk/run and roll cycles, so those become DUR_DYNAMIC; push and the
-//      appendage spin have no engine-computed hold and take a static one (the
-//      same translation Ani_Sonic already made for push).
+//      walk/run cycles, so those become DUR_DYNAMIC; push and the appendage spin
+//      have no engine-computed hold and take a static one (the same translation
+//      Ani_Sonic already made for push). The ROLL is where Tails and Sonic
+//      genuinely differ: S3K selects Sonic's roll duration through the $FE
+//      dispatch but hardcodes Tails' (rows 02/03), so Tails' roll keeps its
+//      static hold here and does NOT read across from Ani_Sonic.
 //   2. Where S3K ends a script by switching animations (AF_CHANGE), our player
 //      state machine owns the exit — Player_Animate re-classifies every frame and
 //      would overwrite the switch — so those scripts hold their last pose
@@ -48,12 +51,16 @@ offsets Ani_Tails {
     Walk:     [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     Run:      [u8; 6]  = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END],
 
-    // S3K AniTails02 — Tails' ball is a 3-frame spin, and S3K approximates
-    // speed-scaling by keeping TWO rows of it (02 at hold 1, 03 at hold 0) and
-    // picking between them. We have a real speed-scaled hold (Player_Animate
-    // derives d3 from |ground_speed| on the roll path), so the two rows collapse
-    // into one DUR_DYNAMIC entry — strictly finer-grained than the original.
-    Roll:     [u8; 5]  = [DUR_DYNAMIC, $96, $97, $98, AF_END],
+    // S3K AniTails02 — Tails' 3-frame ball spin, at S3K's own STATIC hold, and
+    // that asymmetry with Ani_Sonic.Roll is the point: S3K dispatch-selects
+    // SONIC's roll duration ($FE, speed-scaled) but HARDCODES Tails' (02 at hold
+    // 1, 03 at hold 0 — never slower than every other frame). Reading DUR_DYNAMIC
+    // across from Sonic flattened that: our ball hold is max(0,($400-|gsp|))>>8,
+    // which sits at 4 near rest, so each of the three frames held five frames and
+    // the ball — whose three mappings are identical, leaving the tile swap as the
+    // only cue — read as a frozen pose. Hold 1 is S3K's, and S3K is this
+    // project's baseline.
+    Roll:     [u8; 5]  = [1, $96, $97, $98, AF_END],
 
     // S3K AniTails09 — hold 0: advance every frame (the fast rev), as Sonic's.
     Spindash: [u8; 5]  = [0, $86, $87, $88, AF_END],

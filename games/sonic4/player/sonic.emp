@@ -44,6 +44,11 @@ pub data CharDef_Sonic: CharacterDef = CharacterDef{
     cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
     cd_flags:     0,
 }
+// curl_head_rise derives the curl geometry with a `sub.b` of the two box heights
+// and relies on it not borrowing. Nothing makes a character taller by curling,
+// but the derivation reads DATA, so the record states the invariant.
+ensure(PLAYER_Y_RADIUS >= BALL_Y_RADIUS,
+       "CharDef_Sonic's ball is taller than its standing box — curl_head_rise's sub.b would borrow")
 
 // -----------------------------------------------
 // Sonic's physics base table — block-copied into the calling slot's
