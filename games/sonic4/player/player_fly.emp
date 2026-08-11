@@ -1,0 +1,335 @@
+// Tails' flight — PSTATE_FLY and the ability hook that enters it.
+//
+// The first real consumer of the character-dispatch seam (C1): CharDef_Tails'
+// cd_ability points at Ability_TailsFlight, the air state calls it on a fresh
+// jump press while airborne, and everything below is reachable ONLY through that
+// pointer. No other character's record names it, so for Sonic and the Knuckles
+// stub this module is dead ROM — which is exactly the property the replay gate
+// depends on (see the ability-scratch block in player_common's PlayerV).
+//
+// SOURCE OF TRUTH: stock S3K, skdisasm `sonic3k.asm` —
+//   Tails_Test_For_Flight   :28627   entry gate + seeding
+//   Tails_FlyingSwimming    :27574   the per-frame call order
+//   Tails_Move_FlySwim      :27596   fuel / thrust / coast / top clamp
+//   Tails_DoLevelCollision  :28875   terrain (shared with the jump)
+//   Tails_TouchFloor        :29137   the one routine that ends flight
+// Every constant below is S3K's; the three deliberate deviations are each
+// flagged AT the code that makes them (the entry-curl reading, the coast fall
+// cap, and the unwired SFX).
+//
+// Lives in the object code bank, right after `player_spindash` per map.toml
+// `order`. Pure code.
+module games.sonic4.player_fly in player_fly
+
+use engine.objects.sst.{Sst}
+use engine.constants.{PHYS_FALL_CAP, ST_ON_OBJECT, ST_PUSHING}
+use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
+
+// Air_XInput / Air_XDrag / Air_Collide / Air_LandOnObject / Air_LandState resolve
+// module-to-module to player_air.emp (bare link refs). Flight SHARES them rather
+// than carrying its own copies because S3K shares them too: Tails_FlyingSwimming
+// calls the very same Tails_InputAcceleration_Freespace, Player_JumpAngle and
+// Tails_DoLevelCollision that the jumping mode handler calls.
+
+// Game-config constants — sole authority is games.sonic4.constants.
+use games.sonic4.constants.{PSTATE_FLY, CHEAT_DEBUG_FLY}
+
+// player-block field displacements (a4-relative). a4 holds the CALLING SLOT's
+// block, so these reach that slot's physics row and no other. File-local
+// literals, matching the PBLK_* convention in player_ground/player_air/
+// player_spindash.
+const PBLK_RELEASE_CAP = 14
+
+// -----------------------------------------------
+// The flight numbers, all S3K's (sonic3k.asm:27596-27647).
+// -----------------------------------------------
+// Fuel is counted in TICKS, not frames: one tick is spent every other frame, so
+// (8*60)/2 ticks is 480 frames — the eight seconds S3K gives Tails. S3K writes
+// the expression rather than $F0 for exactly this reason; kept.
+const FLY_FUEL_TICKS    = (8 * 60) / 2          // 240
+
+// FLY_COAST .. FLY_RAMP_CAP are the values of PlayerV.fly_thrust, which is one
+// byte carrying two facts that are really one: WHETHER this frame flaps, and HOW
+// MANY frames the current flap has run. S3K's double_jump_flag is the same byte
+// doing the same double duty, and the reason is that a flap IS its ramp — split
+// into two fields they would be free to disagree.
+const FLY_COAST         = 1                     // gliding: coast gravity applies
+const FLY_THRUST_FIRST  = 2                     // first frame of a flap
+const FLY_RAMP_CAP      = $20                   // 32 frames — the hard flap length
+
+const FLY_THRUST_STEP   = $20                   // y_vel per thrust frame (up)
+const FLY_RISE_LIMIT    = -$100                 // thrust stops once climbing this fast
+const FLY_COAST_GRAVITY = 8                     // vs PHYS_GRAVITY $38 — flight is 1/7 g
+const FLY_TOP_MARGIN    = $10                   // world Y the climb is cut off at
+
+// The camera minimum is a STRUCTURAL 0 in this engine — Camera_Update clamps the
+// axis at 0 (`clamp_camera_axis_reg`, engine/level/camera.emp) and there is no
+// per-act minimum cell — so S3K's `Camera_min_Y_pos + $10` reduces to the
+// constant above. If a dynamic camera floor is ever added, this clamp reads it.
+
+// -----------------------------------------------
+// PState_Fly — one frame of flight. Call order is S3K's Tails_FlyingSwimming
+// (sonic3k.asm:27574) step for step: fuel, vertical, top clamp, X control, move,
+// terrain.
+//
+// Note the vertical/move order is the OPPOSITE of the air body's. PState_Air
+// integrates and THEN applies gravity (the classic "old y_vel moves you this
+// frame" rule); S3K's flight updates y_vel FIRST and then calls
+// MoveSprite_TestGravity2 — a move with NO gravity of its own. Both are copied
+// faithfully; the difference is S3K's, not an oversight here.
+//
+// Flight ENDS by leaving the state, never by clearing a flag: landing
+// (Air_Collide -> Air_LandState -> Player_SetState) and standing on a solid
+// object (step 0) are the two exits, matching S3K, where Tails_TouchFloor is the
+// only routine that clears double_jump_flag.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_GROUND / PSTATE_ROLL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc PState_Fly (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // --- 0. on-object landing: a solid object caught us LAST tick. Same
+        // conversion the air body opens with, and it is NOT optional here: our
+        // solid-object handler clears ST_IN_AIR without touching the player
+        // state, so without this a flying Tails would sit on a platform still
+        // playing the flight pose and still burning fuel. (S3K has no equivalent
+        // because its solid objects drive the player state directly.) ---
+        btst    #ST_ON_OBJECT, status(a0)
+        beq     .not_on_obj
+        jbra    Air_LandOnObject                // tail — skips all flight physics
+.not_on_obj:
+
+        // --- 1. fuel: one tick every OTHER frame, so 240 ticks is 480 frames.
+        // S3K reads the low byte of Level_frame_counter and decrements on the
+        // ODD frames (sonic3k.asm:27597); Frame_Counter is our counterpart and
+        // its low byte is the +1 address. Spent BEFORE the mode split, as S3K
+        // does, so a flap costs fuel exactly like a coast. Running out does NOT
+        // end flight — it only closes the re-flap gate in step 2b, which is the
+        // whole of "tired". ---
+        jbsr    Fly_TickFuel
+
+        cmpi.b  #FLY_COAST, PlayerV.fly_thrust(a0)
+        beq     .coast
+
+        // --- 2a. THRUSTING: climb until either the rise limit or the ramp cap
+        // ends the flap. Both endings skip the coast gravity for that frame —
+        // S3K's `bra loc_14892` past the `addi.w #8`, and it matters: a flap
+        // ending at the top of its arc leaves y_vel exactly where the thrust put
+        // it rather than immediately dropping. ---
+        move.w  y_vel(a0), d0
+        cmpi.w  #FLY_RISE_LIMIT, d0
+        blt     .flap_end                       // already climbing at the limit
+        subi.w  #FLY_THRUST_STEP, d0
+        move.w  d0, y_vel(a0)
+        addq.b  #1, PlayerV.fly_thrust(a0)
+        cmpi.b  #FLY_RAMP_CAP, PlayerV.fly_thrust(a0)
+        bne     .vert_done
+.flap_end:
+        move.b  #FLY_COAST, PlayerV.fly_thrust(a0)
+        jbra    .vert_done
+
+        // --- 2b. COASTING: a fresh jump press starts the next flap, then the
+        // coast gravity runs REGARDLESS — including on the frame the flap is
+        // armed. So a flap's first upward step lands the frame AFTER its press,
+        // exactly as flight entry itself does (see Ability_TailsFlight). ---
+.coast:
+        move.b  Ctrl_1_Press, d1
+        andi.b  #BUTTON_JUMP_MASK, d1           // A|B|C — classic three-button jump
+        beq     .no_flap
+        // Same runtime cheat gate as the jump latch (player_common) and the
+        // ability gate (player_air): while CHEAT_DEBUG_FLY is armed B belongs to
+        // the free-flight toggle, so it neither starts a jump nor beats a wing.
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .flap_ok                        // cheat clear: B flaps like A and C
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d1      // armed: B is the fly toggle
+        beq     .no_flap
+.flap_ok:
+        tst.b   PlayerV.fly_fuel(a0)
+        beq     .no_flap                        // TIRED — the flap is the ONLY thing
+                                                // being disabled; physics below are
+                                                // untouched, which is why "tired" needs
+                                                // no state of its own
+        move.w  y_vel(a0), d0
+        cmpi.w  #FLY_RISE_LIMIT, d0
+        blt     .no_flap                        // already climbing at the limit
+        move.b  #FLY_THRUST_FIRST, PlayerV.fly_thrust(a0)
+.no_flap:
+        move.w  y_vel(a0), d0
+        addi.w  #FLY_COAST_GRAVITY, d0
+        // ENGINE SAFETY CLAMP — not S3K. S3K's flight is uncapped, which is
+        // survivable there because its acts are short; at +8/frame an
+        // uninterrupted coast passes the 16px/frame the 32px sensors can resolve
+        // after ~512 frames, and a tired Tails coasts until he lands. Capping at
+        // the shared PHYS_FALL_CAP costs nothing any real fall can observe (it
+        // needs ~4,000px of unbroken descent) and removes a tunnelling class the
+        // mega-act work would eventually find.
+        cmpi.w  #PHYS_FALL_CAP, d0
+        ble     .coast_store
+        move.w  #PHYS_FALL_CAP, d0
+.coast_store:
+        move.w  d0, y_vel(a0)
+.vert_done:
+
+        // --- 3. top clamp: the climb is cut off FLY_TOP_MARGIN below the camera
+        // minimum (sonic3k.asm:27640). This is one of the TWO places S3K strands
+        // its gravity flip — it zeroes y_vel and leaves the flap running, so a
+        // thrust that reaches the ceiling of the level pins Tails there for up to
+        // 30 frames with no gravity at all. Ending the flap here is the same fix
+        // the terrain-ceiling case gets in step 6; see that comment for the SPG
+        // citation. ---
+        cmpi.w  #FLY_TOP_MARGIN, y_pos(a0)
+        bgt     .top_ok
+        tst.w   y_vel(a0)
+        bpl     .top_ok
+        clr.w   y_vel(a0)
+        move.b  #FLY_COAST, PlayerV.fly_thrust(a0)
+.top_ok:
+
+        // --- 4. X control: the ORDINARY air control, shared with the air body.
+        // S3K routes flight through the same Tails_InputAcceleration_Freespace
+        // (sonic3k.asm:27576) the jump uses, so the acceleration, the top-speed
+        // back-out and the drag band are all the air state's, read per-slot out
+        // of the physics row through a4. One consequence worth knowing: because
+        // flight holds y_vel inside roughly [-$120, +…], the drag band
+        // (-$400 <= y_vel < 0) is satisfied for most of every climb, so air drag
+        // is far more visible in flight than in a jump. That is S3K's behaviour
+        // and not a side effect of sharing the code. ---
+        jbsr    Air_XInput
+        jbsr    Air_XDrag
+
+        // --- 5. move. No gravity here — step 2 already owns the vertical. ---
+        jbsr    ObjectMove
+
+        // --- 6. terrain, then the CEILING FIX.
+        //
+        // SPG "Tails' Flight" documents this S3K bug and we deliberately do NOT
+        // reproduce it: on ceiling contact S3K's Tails_DoLevelCollision ejects
+        // Tails downward and zeroes y_vel (sonic3k.asm:29028-29057, loc_1556C)
+        // but never touches double_jump_flag, so the flap is left running with
+        // its climb pinned at zero. It can then never reach the rise limit that
+        // would end it, gravity is skipped every frame because the thrust branch
+        // skips it, and Tails sticks to the ceiling until the $20 ramp cap
+        // expires. Resetting to coast puts the gravity back the same frame.
+        //
+        // The discriminator is exact rather than heuristic: only a ceiling (or
+        // the step-3 clamp) turns a NEGATIVE y_vel into exactly zero, so the
+        // pre-collision sample on the stack plus the post-collision zero
+        // identifies the contact and nothing else. Sampling on the stack rather
+        // than in a register because Air_Collide clobbers d0-d7, and on the
+        // stack rather than in a new PlayerV byte because a per-frame
+        // discriminator is not state. ---
+        move.w  y_vel(a0), -(sp)                // pre-collision climb sample
+        jbsr    Air_Collide
+        move.w  (sp)+, d0
+        cmpi.b  #FLY_COAST, PlayerV.fly_thrust(a0)
+        beq     .done                           // not flapping — nothing to strand
+        tst.w   d0
+        bpl     .done                           // was not climbing — no ceiling
+        tst.w   y_vel(a0)
+        bne     .done                           // still climbing — flap continues
+        move.b  #FLY_COAST, PlayerV.fly_thrust(a0)
+.done:
+        rts
+}
+
+// -----------------------------------------------
+// Fly_TickFuel — spend one fuel tick, on alternate frames only.
+// S3K: `move.b (Level_frame_counter+1).w,d0 / andi.b #1,d0 / beq` — the spend
+// happens on ODD frames, halving the rate so 240 ticks cover 480 frames.
+// Reaching zero is not an event: `tired` is simply the fuel test failing in
+// PState_Fly's re-flap gate.
+// In:  a0 = player SST
+// Out: none
+// Clobbers: none
+// -----------------------------------------------
+proc Fly_TickFuel (a0: *Sst) clobbers() {
+        btst    #0, Frame_Counter+1             // (Frame_Counter+1).w — the counter's low byte
+        beq     .done
+        tst.b   PlayerV.fly_fuel(a0)
+        beq     .done
+        subq.b  #1, PlayerV.fly_fuel(a0)
+.done:
+        rts
+}
+
+// -----------------------------------------------
+// Ability_TailsFlight — CharDef_Tails' cd_ability (the AbilityHook the air state
+// calls on a fresh jump press while already airborne). Seeds the flight scratch
+// and hands over to PSTATE_FLY; everything else flight does happens in
+// PState_Fly from the NEXT frame on.
+//
+// THE ENTRY GATE, and where it departs from the brief. S3K's
+// Tails_Test_For_Flight (sonic3k.asm:28627) gates on: not already flying,
+// A/B/C pressed, and — inherited from its caller Tails_JumpHeight
+// (sonic3k.asm:28596) — `y_vel >= -$400`. It does NOT require the player to be
+// uncurled. It requires the opposite in practice: it is reachable only from the
+// two airborne mode handlers, the commonest of which is the JUMPING one, and its
+// first act is to `bclr Status_Roll` and restore the standing radii with the
+// matching y_pos correction.
+//
+// So "engage only if not curled" cannot be a PRECONDITION here either. In this
+// engine a jump is PSTATE_JUMP with ST_ROLLING set, so a not-curled gate would
+// make flight unreachable from a jump — the only way in would be walking off a
+// ledge, and Tails' defining ability would be a curiosity. It is enforced as a
+// POST-condition instead, and for free: Player_SetState runs PSTATE_FLY's enter
+// hook, PHook_AirEnter, whose PHook_EnsureStanding performs exactly S3K's
+// uncurl — clear ST_ROLLING, restore the standing box from the character record,
+// lift y_pos by the derived curl shift. By the time PState_Fly's first frame
+// runs the player is uncurled, which is what the invariant is for.
+//
+// The two gates that ARE preconditions:
+//   * AIRBORNE — structural. This is only reachable through Player_Ability,
+//     which only PState_AirShared calls, and only from an air state. Note this
+//     is BROADER than S3K, whose `tst.b jumping(a0)` in Tails_JumpHeight admits
+//     only airborne frames that came from an actual jump — walking off a ledge
+//     there gets you no flight. We have no `jumping` bit (ST_ROLLING is close
+//     but marks a rolled-off-a-ledge AIRBALL too), and the broader rule is the
+//     forgiving direction, so it stands rather than being approximated.
+//   * y_vel >= the jump release cap — S3K's -$400, which is our per-character
+//     PHYS_JUMP_RELEASE_CAP read out of the slot's physics row. It is what stops
+//     a double-tap at launch from converting the whole jump into flight: the
+//     rise has to decay past the cap first (~11 frames at PHYS_JUMP_FORCE /
+//     PHYS_GRAVITY) before a press takes. S3K spends the same press on the
+//     variable-jump-height cut instead, which is what step 1 of the air body
+//     did with it moments earlier.
+//
+// FRAME SEMANTICS: entry does NOT thrust, and does not even arm a flap — S3K
+// seeds double_jump_flag to 1 (COAST), not 2. The press frame finishes under the
+// AIR state's rules (see the settled frame-semantics note at the hook site in
+// player_air.emp), the first flight frame is the next one, and it coasts. A
+// second press is what buys the first flap. That is S3K's feel: the ability
+// arrests a fall before it lifts.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (transitions to PSTATE_FLY)
+// Clobbers: d0-d2, a1-a2 — the AbilityHook contract
+// -----------------------------------------------
+pub proc Ability_TailsFlight (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
+        move.w  y_vel(a0), d1
+        cmp.w   PBLK_RELEASE_CAP(a4), d1
+        blt     .rising_too_fast
+        move.b  #FLY_FUEL_TICKS, PlayerV.fly_fuel(a0)
+        move.b  #FLY_COAST, PlayerV.fly_thrust(a0)
+        moveq   #PSTATE_FLY, d0
+        jbra    Player_SetState                 // tail — its enter hook uncurls
+.rising_too_fast:
+        rts
+}
+// The fuel seed is a byte, so the S3K expression has to fit one.
+ensure(FLY_FUEL_TICKS > 0 && FLY_FUEL_TICKS <= $FF,
+       "FLY_FUEL_TICKS must fit the PlayerV.fly_fuel byte")
+// The ramp counter shares fly_thrust with the mode, so the cap has to stay above
+// the two mode values and inside a byte, or `addq.b #1` would wrap into FLY_COAST
+// and silently end every flap on its 255th frame.
+ensure(FLY_RAMP_CAP > FLY_THRUST_FIRST && FLY_RAMP_CAP <= $FF,
+       "FLY_RAMP_CAP must exceed FLY_THRUST_FIRST and fit the fly_thrust byte")
+ensure(FLY_THRUST_FIRST == FLY_COAST + 1,
+       "the flap ramp counts up from FLY_COAST — a gap would make fly_thrust values unreachable")
+
+// NO FLIGHT SFX, and it is an asset gap rather than an omission. S3K retriggers
+// sfx_Flying ($BA) — or sfx_FlyTired ($BB) once the fuel is out — every 16
+// frames while the player is on screen, on the frames where
+// `(frame_low + 8) & $F == 0` (sonic3k.asm:27669-27699). Neither sound is in our
+// bank: games/sonic4/data/sound/sfx/sfx_bank.emp imports 9 SFX over the id range
+// $33..$B9, which does not even reach $BA. Wiring it is two `Sound_PlaySFX`
+// calls behind that cadence test once the samples are imported and
+// games.sonic4.sound_ids grows the two ids; nothing else here has to change.

@@ -109,7 +109,10 @@ pub const PSTATE_AIR              = 6          // airborne uncurled — no relea
 pub const PSTATE_JUMP             = 8          // airborne curled from jump — release cap active
 pub const PSTATE_ROLLJUMP         = 10         // as JUMP + air control lockout
 pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
-pub const PSTATE_COUNT            = 7          // state/hook tables assert against this
+pub const PSTATE_FLY              = 14         // Tails' flight (player_fly) — entered only
+                                               // from CharDef_Tails' cd_ability hook, so it
+                                               // is unreachable for every other character
+pub const PSTATE_COUNT            = 8          // state/hook tables assert against this
 
 // -----------------------------------------------
 // The PSTATE_* value guards (see THE RULE above). ORDER-FREE by construction:
@@ -120,7 +123,7 @@ pub const PSTATE_COUNT            = 7          // state/hook tables assert again
 // -----------------------------------------------
 comptime fn pstate_values_ok() -> bool {
     comptime var cover = 0
-    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL] {
+    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY] {
         // EVEN — the value is a jump-table BYTE offset, not a row index.
         ensure((v & 1) == 0, "PSTATE_* value {v} is ODD — a player-state value is a jump-table BYTE offset, i.e. 2 x its row index in Player_States / PState_EnterHooks / PState_ExitHooks")
         // IN RANGE — all three tables are 2 * PSTATE_COUNT bytes long. Checked
@@ -162,7 +165,14 @@ pub const ANIM_LOOKUP             = 7
 pub const ANIM_DUCK               = 8
 pub const ANIM_SKID               = 9
 pub const ANIM_GETUP              = 10
-pub const ANIM_COUNT              = 11         // sonic_anims.emp asserts entry count == this
+// Tails' flight poses. They are part of the SHARED contract like every other id
+// — the contract is "every character's table has a row for every id", not "every
+// character can reach every id" — so Sonic's table carries rows here too. Only
+// Player_Animate's FLY branch writes them, and that branch is gated on
+// PSTATE_FLY, which only Tails' ability can enter.
+pub const ANIM_FLY                = 11         // flapping (fuel remaining)
+pub const ANIM_FLY_TIRED          = 12         // out of fuel — the flap is disabled
+pub const ANIM_COUNT              = 13         // sonic_anims.emp asserts entry count == this
 
 // Game state ids (extend existing table)
 pub const GS_OJZ_SCROLL_TEST      = 3

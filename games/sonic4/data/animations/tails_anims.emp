@@ -101,6 +101,21 @@ offsets Ani_Tails {
 
     // S3K AniTails0B.
     GetUp:    [u8; 3]  = [$F, $8D, AF_END],
+
+    // S3K AniTails20/21 — the flight pose. S3K carries TWO rows, $20 (descending)
+    // and $21 (ascending), and they are byte-identical: `dc.b $1F, $A0, $FF`
+    // both. The body does not animate in flight at all — every visible flutter
+    // comes from the separate tail object, which is where S3K's ascend/descend
+    // split actually shows up (see Ani_TailsAppendage.Fly below). So one row here
+    // is not a merge that loses anything on the BODY; it is the same single frame
+    // S3K draws either way. AF_END re-runs frame 0, so the pose holds and the
+    // $1F duration is cosmetic (kept as S3K wrote it).
+    Fly:      [u8; 3]  = [$1F, $A0, AF_END],
+
+    // S3K AniTails24 — the out-of-fuel pose: a 2-frame loop at hold $B. Note
+    // "tired" is a POSE, not a cadence: S3K's 16-frame tired cadence drives the
+    // SFX retrigger only (sonic3k.asm:27669), never the animation.
+    FlyTired: [u8; 4]  = [$B, $A3, $A4, AF_END],
 }
 align 2
 
@@ -153,6 +168,22 @@ offsets Ani_TailsAppendage {
 
     // S3K app 00.
     GetUp:    [u8; 3] = [$20, 0, AF_END],
+
+    // S3K appendage rows $B / $C, reached through Obj_Tails_Tail_AniSelection
+    // (sonic3k.asm:30105-30108): parent $20 (fly descending) -> $B, parent $21
+    // (fly ascending) -> $C, parent $24 (tired) -> $B. Both rows run the SAME two
+    // frames $27/$28; they differ ONLY in hold — $B holds 1 (flip every other
+    // frame), $C holds 0 (flip every frame, so the tails visibly spin up while
+    // climbing).
+    //
+    // Our ANIM contract has ONE flight id, so this row takes S3K's $B — the
+    // descending/neutral rate, and the one S3K also uses for tired. The ascend
+    // speed-up is the ONE thing the id merge costs, and it is the appendage
+    // OBJECT's to restore when it lands: that object already has to read the
+    // parent's velocity for the angle-banked roll frames (deviation 3 above), so
+    // a y_vel sign test picking hold 0 belongs there, not in a second anim id.
+    Fly:      [u8; 4] = [1, $27, $28, AF_END],
+    FlyTired: [u8; 4] = [1, $27, $28, AF_END],
 }
 // The appendage bodies sum to an ODD length, so this pad is load-bearing for
 // whatever table the linker places next (offsets tables are word-read).
@@ -172,6 +203,8 @@ ensure(Ani_Tails.LookUp == extern("ANIM_LOOKUP"), "LookUp ordinal drifted from A
 ensure(Ani_Tails.Duck == extern("ANIM_DUCK"), "Duck ordinal drifted from ANIM_DUCK")
 ensure(Ani_Tails.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SKID")
 ensure(Ani_Tails.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_Tails.Fly == extern("ANIM_FLY"), "Fly ordinal drifted from ANIM_FLY")
+ensure(Ani_Tails.FlyTired == extern("ANIM_FLY_TIRED"), "FlyTired ordinal drifted from ANIM_FLY_TIRED")
 ensure(Ani_Tails.count == extern("ANIM_COUNT"), "Ani_Tails entry count drifted from ANIM_COUNT")
 
 ensure(Ani_TailsAppendage.Walk == extern("ANIM_WALK"), "appendage Walk ordinal drifted from ANIM_WALK")
@@ -185,4 +218,6 @@ ensure(Ani_TailsAppendage.LookUp == extern("ANIM_LOOKUP"), "appendage LookUp ord
 ensure(Ani_TailsAppendage.Duck == extern("ANIM_DUCK"), "appendage Duck ordinal drifted from ANIM_DUCK")
 ensure(Ani_TailsAppendage.Skid == extern("ANIM_SKID"), "appendage Skid ordinal drifted from ANIM_SKID")
 ensure(Ani_TailsAppendage.GetUp == extern("ANIM_GETUP"), "appendage GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_TailsAppendage.Fly == extern("ANIM_FLY"), "appendage Fly ordinal drifted from ANIM_FLY")
+ensure(Ani_TailsAppendage.FlyTired == extern("ANIM_FLY_TIRED"), "appendage FlyTired ordinal drifted from ANIM_FLY_TIRED")
 ensure(Ani_TailsAppendage.count == extern("ANIM_COUNT"), "Ani_TailsAppendage entry count drifted from ANIM_COUNT")

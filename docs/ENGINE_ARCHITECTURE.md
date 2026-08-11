@@ -2799,13 +2799,19 @@ Rejected alternative, recorded so it is not re-proposed: tracking the **feet** n
 
 `CharacterDefs` (player_common.emp) is the roster: one record pointer per `CHAR_*` id (`games/sonic4/config/constants.emp`), longword-strided so the index scales by `lsl.w #2` — the 68000 has no scaled indexing. `Player_Init` performs the ONE lookup (`Character_ID` → `CharacterDefs[id]`) and caches the record pointer in `Player_Chardef`; `Player_InitAssets`, `Player_RefreshPhysics`, `Player_LoadArt` and `Player_DebugExit` all read that cache.
 
-Both `Character_ID` and `Player_Chardef` live in GAME RAM, deliberately NOT in the `PlayerV` SST overlay: `engine/system/replay.emp` hashes the whole custom window as part of the recorded-input regression net, and every field inside a hashed span must be address-free or a behaviour-identical tick would hash differently between two builds whose layouts differ. The overlay is unchanged at 18 bytes.
+Both `Character_ID` and `Player_Chardef` live in GAME RAM, deliberately NOT in the `PlayerV` SST overlay: `engine/system/replay.emp` hashes the whole custom window as part of the recorded-input regression net, and every field inside a hashed span must be address-free or a behaviour-identical tick would hash differently between two builds whose layouts differ. The overlay is 20 of the window's 30 usable bytes since flight (below) claimed two for ability scratch.
+
+**Tails' flight (C2, shipped).** `games/sonic4/player/player_fly.emp` holds `PSTATE_FLY`'s body and `Ability_TailsFlight`, the `AbilityHook` `CharDef_Tails.cd_ability` points at — and that single pointer is the whole of what makes flight Tails-only. Numbers and call order are stock S3K (`skdisasm/sonic3k.asm`, `Tails_Test_For_Flight` / `Tails_Move_FlySwim` / `Tails_FlyingSwimming`): 240 fuel ticks spent on alternate frames (480 frames = 8 s), thrust `y_vel -= $20` while `y_vel >= -$100` capped at a 32-frame ramp, coast gravity `+8` against the normal `$38`, top clamp at camera-minimum `+ $10`, and "tired" being nothing but the re-flap gate closing when the fuel is out. It shares the air state's terrain and horizontal control outright — `Air_XInput`, `Air_XDrag`, `Air_Collide` and `Air_LandOnObject` were factored out of `PState_AirShared` for it — because S3K shares the identical routines between flight and jumping.
+
+Three deliberate departures, each commented at the code that makes it: the **SPG-documented S3K ceiling bug is fixed, not reproduced** (S3K zeroes `y_vel` on ceiling contact and leaves the gravity flip stranded, sticking Tails to the ceiling with no gravity until the ramp counter saturates — both stranding sites, terrain ceiling and top clamp, reset the flap here); the coast fall speed is clamped at the shared `PHYS_FALL_CAP` where S3K leaves it unbounded (a sensor-reach safety no real fall observes); and the flight SFX are unwired because S3K's `$BA`/`$BB` are outside the `$33..$B9` id range our SFX bank imports.
+
+The **frame semantics of the ability seam** are settled by this consumer, and the seam needed no change. The hook sits mid-body in `PState_AirShared`, so the press frame finishes under the AIR state's rules and the new state's body first runs the frame after. S3K does exactly that: its flight-entry check hangs off the *jumping* mode handler while the flight physics hang off a different branch of the same status dispatch, so the entry frame gets normal `$38` gravity and flight begins, coasting, the next frame. Entry seeds the **coast** state, not a thrust — the ability arrests a fall before it lifts, and it takes a second press to buy the first flap.
 
 Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, projection, sensing, display) lives in `player_common`/`player_ground`/`player_air`; characters contribute only data + ability states — inverting sonic_hack's failed split that shared helpers while duplicating control flow 3×. Deferred per-character behavior (instashield/dropdash/Super for Sonic, flight+AI for Tails, glide/climb for Knuckles) and the per-character dispatch-table indirection that Tails/Knuckles need are tracked in `DEFERRED_WORK.md` §5.
 
 ### 5.6 Animation Classifier and Speed-Scaled Timing (Shipped — feat/sonic-animations)
 
-**Shared `ANIM_*` id contract** (`games/sonic4/config/constants.emp`): eleven named ids form the cross-character animation contract:
+**Shared `ANIM_*` id contract** (`games/sonic4/config/constants.emp`): thirteen named ids form the cross-character animation contract:
 
 | Id | Constant | Notes |
 |---|---|---|
@@ -2820,13 +2826,16 @@ Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, pro
 | 8 | `ANIM_DUCK` | |
 | 9 | `ANIM_SKID` | |
 | 10 | `ANIM_GETUP` | |
-| — | `ANIM_COUNT = 11` | build-time assert: `Ani_Sonic` entry count must equal this |
+| 11 | `ANIM_FLY` | Tails' flight, fuel remaining |
+| 12 | `ANIM_FLY_TIRED` | Tails' flight, fuel spent |
+| — | `ANIM_COUNT = 13` | build-time assert: `Ani_Sonic` entry count must equal this |
 
-Each character's `Ani_<char>` table is ordered by these ids. A build-time `assert` keeps `Ani_Sonic`'s entry count == `ANIM_COUNT` so adding a new id without updating the table is a build error.
+Each character's `Ani_<char>` table is ordered by these ids, and the contract is "every table has a row for every id", NOT "every character can reach every id". The two flight ids are the worked example: `Player_Animate` writes them only from its `PSTATE_FLY` branch, which only Tails' ability can enter, so `Ani_Sonic`'s rows for them exist purely to keep the table total and carry his walk cycle as a deliberately-indistinguishable-from-correct fallback. A build-time `ensure` keeps every table's entry count == `ANIM_COUNT` (`Ani_Sonic`, `Ani_Tails`, `Ani_TailsAppendage`) plus one per ordinal, so adding an id without updating all three tables is a build error.
 
 **`Player_Animate` — character-agnostic read-only classifier** (`games/sonic4/player/player_common.emp`): called from `Player_Display`; classifies the current frame's animation id into `SST_anim` and computes a speed-scaled hold into `d3` without touching any PSTATE or persistent status bits. Priority order (highest to lowest):
 
 1. spindash (`PState_Spindash` active)
+1b. flight (`PState_Fly` active) — `ANIM_FLY` or, once the fuel byte reaches zero, `ANIM_FLY_TIRED`. It needs its own branch because flight is airborne AND uncurled, so without one it would fall through to the walk/run tail
 2. ball / roll / jump-ball / airball
 3. skid (see below)
 4. push (wall contact + opposing input)

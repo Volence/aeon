@@ -552,8 +552,13 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   flagged as tunable; the current value is a first estimate.
 - **Dropdash, instashield** — Sonic move-kit extensions.
 - **Super Sonic** — transformation, palette cycle, physics row.
-- **Tails** — CPU AI (4-state machine) + flight physics + position-history-buffer
-  following (the `Player_Pos_Ring`/`Player_Stat_Ring` are already recorded for this).
+- **Tails** — CPU AI (4-state machine) + position-history-buffer following (the
+  `Player_Pos_Ring`/`Player_Stat_Ring` are already recorded for this) + the
+  twin-tail appendage child object. **Flight physics are DONE** —
+  `games/sonic4/player/player_fly.emp` (`PSTATE_FLY` + `Ability_TailsFlight`,
+  S3K-exact bar three flagged deviations); until the appendage object lands, the
+  flight pose draws the body without its spinning tails, and the flight SFX are
+  unwired because S3K's `$BA`/`$BB` are outside the imported SFX id range.
 - **Knuckles** — gliding, climbing, wall detection.
 - **Per-character dispatch-table indirection** — the prerequisite refactor for
   Tails/Knuckles (today `Player_States` and `PhysTable_Sonic` are referenced

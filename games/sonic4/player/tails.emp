@@ -8,10 +8,12 @@
 // through Player_Chardef, so making Tails playable is a second record here plus
 // one roster row — not a second branch anywhere in player_common.
 //
-// FLIGHT IS NOT IN THIS RECORD YET. cd_ability points at Ability_None, the same
-// no-op Sonic uses; PSTATE_FLY, the flight state and the twin-tail appendage
-// child object are a separate task. Tails today is Sonic's movement wearing
-// Tails' art, animation scripts and collision box.
+// FLIGHT IS LIVE: cd_ability points at Ability_TailsFlight (player_fly.emp), so
+// a jump press while airborne puts Tails into PSTATE_FLY. That single pointer is
+// the whole of what makes flight Tails-only — nothing in the shared frame tests
+// for a character, and no other record names the hook. The twin-tail appendage
+// child object is still a separate task; until it lands the flight pose draws
+// the body without its spinning tails.
 module games.sonic4.tails in tails
 
 use engine.structs.{CharacterDef}
@@ -64,7 +66,7 @@ pub data CharDef_Tails: CharacterDef = CharacterDef{
     cd_dplc:      extern("DPLC_Tails"),
     cd_artbase:   extern("Art_Tails"),
     cd_animtable: extern("Ani_Tails"),
-    cd_ability:   extern("Ability_None"),   // flight is a later task — see the header
+    cd_ability:   extern("Ability_TailsFlight"),  // player_fly.emp — PSTATE_FLY
     cd_vrambase:  VRAM_TEST_SONIC,          // the shared character window (one character resident)
     cd_stand_wh:  ((PLAYER_X_RADIUS * 2 + 1) << 8) | (TAILS_Y_RADIUS * 2 + 1),
     cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),

@@ -43,10 +43,18 @@ use games.sonic4.constants.{CHAR_COUNT}
 // AbilityHook — the per-character jump-press hook (CharacterDef.cd_ability): the
 // air state calls it when jump is pressed while already airborne, which is where
 // Tails' flight, Knuckles' glide and any double jump will live. Sonic's is
-// Ability_None (an rts). Contract mirrors PlayerHook's — the caller keeps the
-// player SST in a0 across it.
+// Ability_None (an rts). The caller keeps the player SST in a0 across it, and a4
+// — the calling slot's player block — likewise survives, which is what lets an
+// ability read the ACTIVE CHARACTER's physics row (Tails' flight gates entry on
+// the jump release cap out of it).
+//
+// d0 IS in the clobber set, unlike PlayerHook's. An ability that changes state
+// has to reach Player_SetState, whose new-state argument is d0, so excluding it
+// would force every such hook to save and restore a register the caller has
+// already finished with: at the one call site (player_air step 1b) d0 last held
+// the cheat probe, and its next reader is Air_XInput, which loads it fresh.
 // -----------------------------------------------
-type AbilityHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
+type AbilityHook = proc (a0: *Sst) preserves(a0) clobbers(d0-d2, a1-a2)
 
 // -----------------------------------------------
 // CharacterDefs — THE roster: one CharacterDef pointer per CHAR_* id, in CHAR_*
@@ -115,10 +123,10 @@ pub proc Player_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
 // the roster is for anyway — the frame stays ignorant of the cast.
 // In:  a0 = player SST (Player_Chardef resolved)
 // Out: none
-// Clobbers: d1-d2, a1-a2 — the AbilityHook contract verbatim (a1 is also this
+// Clobbers: d0-d2, a1-a2 — the AbilityHook contract verbatim (a1 is also this
 //           routine's own scratch); a0 is preserved for the caller.
 // -----------------------------------------------
-pub proc Player_Ability (a0: *Sst) clobbers(d1-d2/a1-a2) preserves(a0) {
+pub proc Player_Ability (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
         movea.l Player_Chardef, a1
         movea.l CharacterDef.cd_ability(a1), a1
         jmp     (a1) as AbilityHook

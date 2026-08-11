@@ -59,9 +59,10 @@ type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 // (config/constants.emp). VRAM_TEST_MARKER is the tile-1016 debug-fly marker.
 use games.sonic4.constants.{
     PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP,
-    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
+    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
+    ANIM_FLY, ANIM_FLY_TIRED,
     ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
 }
 
@@ -73,7 +74,7 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 18 of 30
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 22 of 30
 // usable bytes — the sst_custom window is 32 bytes at $30 and its tail word
 // $4E-$4F is the engine-owned SST_interact).
 // This module owns the overlay outright (player_common.asm deleted); the
@@ -100,6 +101,33 @@ pub vars PlayerV: Sst.sst_custom {
                                         // the same tick's air body; MUST be zero at
                                         // tick end (replay-hash discipline)
         even_pad:         u8,           // pad — keeps the overlay even
+
+        // --- ABILITY SCRATCH: the per-character airborne-ability working set.
+        // These two bytes are a UNION, not Tails' private property: exactly one
+        // character is resident per slot (Player_Chardef is the single resolved
+        // record), so Knuckles' glide and any later ability re-use the same bytes
+        // under their own names rather than each claiming fresh ones. The window
+        // has 30 game-usable bytes and PlayerV now spends 20.
+        //
+        // REPLAY-HASH DISCIPLINE — read this before touching them. The custom
+        // window $30..$4D is hashed by engine/system/replay.emp, and the recorded
+        // fixtures were captured with SONIC, for whom every byte past the old
+        // 18-byte PlayerV hashed as boot-zero. So the contract on this block is
+        // stronger than the window's usual "address-free": it is address-free AND
+        // SONIC-UNREACHABLE. The only writers are player_fly.emp's
+        // Ability_TailsFlight (seeds both) and PState_Fly (steps them), and
+        // both are reachable only through CharDef_Tails.cd_ability / PSTATE_FLY.
+        // Player_Init deliberately does NOT clear them — a clear is a write, and
+        // the whole point is that Sonic's frame never touches these addresses.
+        // Seeding is complete at the flight-entry hook instead.
+        fly_fuel:         u8,           // flap fuel, ticked on alternate frames (240 at entry,
+                                        // 0 = tired). player_fly owns the semantics.
+        fly_thrust:       u8,           // flight mode AND the flap's ramp counter in one byte,
+                                        // exactly as S3K's double_jump_flag: FLY_COAST (1) =
+                                        // coasting, FLY_THRUST_FIRST (2) .. FLY_RAMP_CAP (32)
+                                        // = flapping, the value being the flap's frame count.
+                                        // One byte because the two facts are one fact — a flap
+                                        // IS its ramp — and two would be free to disagree.
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
@@ -607,6 +635,24 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         move.b  #ANIM_SPINDASH, anim(a0)
         rts
 .not_spindash:
+        // (1b) FLIGHT — the second state-keyed pose, and it needs its own branch
+        // for the same reason spindash does: flight is AIRBORNE and UNCURLED, so
+        // the classification below would fall through to .walk_or_run and animate
+        // a flying Tails with the run cycle. Which of the two flight poses plays
+        // is the fuel byte, not a separate state: `tired` is the same PSTATE_FLY
+        // with the flap disabled (player_fly).
+        // Unreachable for any character whose cd_ability cannot enter PSTATE_FLY,
+        // which today is everyone but Tails.
+        cmpi.b  #PSTATE_FLY, d0
+        bne     .not_fly
+        tst.b   PlayerV.fly_fuel(a0)
+        beq     .fly_tired
+        move.b  #ANIM_FLY, anim(a0)
+        rts
+.fly_tired:
+        move.b  #ANIM_FLY_TIRED, anim(a0)
+        rts
+.not_fly:
         // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL). ST_ROLLING IS
         // "in ball form", so the test is the bit, not a state range — which is
         // what retires the PSTATE_* ordering constraint (config/constants.emp).
@@ -758,6 +804,7 @@ pub offsets Player_States {
         Jump:     PState_Jump,          // PSTATE_JUMP (player_air)
         RollJump: PState_RollJump,      // PSTATE_ROLLJUMP (player_air)
         AirBall:  PState_AirBall,       // PSTATE_AIRBALL (player_air)
+        Fly:      PState_Fly,           // PSTATE_FLY (player_fly) — Tails only
 }
 ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
 
@@ -794,6 +841,11 @@ pub offsets PState_EnterHooks {
         Jump:     PHook_AirBallEnter,   // JUMP
         RollJump: PHook_AirBallEnter,   // ROLLJUMP
         AirBall:  PHook_AirBallEnter,   // AIRBALL
+        Fly:      PHook_AirEnter,       // FLY — uncurled airborne, exactly like AIR.
+                                        // The flight ENTRY gate refuses to engage while
+                                        // curled, so EnsureStanding is always a no-op
+                                        // here; it runs anyway because the hook's job is
+                                        // to make the invariant true, not to assume it.
 }
 ensure(PState_EnterHooks.count == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
 
@@ -809,6 +861,11 @@ pub offsets PState_ExitHooks {
         Jump:     PHook_Null,           // JUMP
         RollJump: PHook_Null,           // ROLLJUMP
         AirBall:  PHook_Null,           // AIRBALL
+        Fly:      PHook_Null,           // FLY — the flight scratch is seeded on ENTRY
+                                        // (Ability_TailsFlight), never on exit: an exit
+                                        // hook that cleared it would be a write on the
+                                        // path out of every state, and PHook_Null keeps
+                                        // this row off Sonic's reachable set entirely.
 }
 ensure(PState_ExitHooks.count == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
 
