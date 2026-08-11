@@ -202,10 +202,17 @@ A deterministic generator, `tools/gen_vram_map.py` (the `ojz_strip_gen`
 conventions: no timestamps, byte-identical reruns), consumes `vram.toml` and
 emits:
 
-1. **`games/<game>/config/vram_map.emp`** — the constants module (every
-   `VRAM_*` value, plus derived walls), carrying comptime `ensure`s for full
-   coverage, non-overlap, and quantum fit. Consumers repoint their imports
-   here module-by-module; `POOL_TILE_CEILING` stays engine-owned but gains an
+1. **A generated marker block inside `games/<game>/config/constants.emp`**
+   (`// >>> GENERATED … <<<`) carrying every game-side `VRAM_*` value plus the
+   coverage/overlap/quantum `ensure`s. NOT a new `vram_map.emp` module,
+   deliberately (plan-time refinement, 2026-08-11): const-only modules are not
+   `m!()`-placed — `games.sonic4.constants` reaches the build through the
+   special `game_constants_rel` harvest slot — so a new const module would be
+   the first of its kind and carries a discovery risk T0 does not need. The
+   marker block keeps the existing harvest path and every consumer import
+   unchanged, which also makes the byte-identity gate trivial. A standalone
+   module can be revisited at T1 when the chainer owns emission anyway.
+   `POOL_TILE_CEILING` stays engine-owned but the generated block gains an
    `ensure` against the map's `fg_art_pool.tiles`.
 2. **`tools/vram_map.py`** — the Python-side mirror, importable by
    `inject_editor_bg.py`, `ojz_strip_gen.py`, `png_to_bg_override.py`. **This
