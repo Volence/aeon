@@ -118,12 +118,17 @@ pub const ST_ON_OBJECT   = 5          // 1 = standing on a solid object
 pub const ST_PUSHING     = 6          // 1 = pushing against a wall
 pub const ST_UNDERWATER  = 7          // 1 = submerged
 
-// Player + ball collision radii and the curl y-shift.
+// Player + ball collision radii — the engine-wide DEFAULT box a game builds its
+// characters' records from. The curl y-shift that used to sit here is gone: it
+// is a function of a character's two boxes (stand height - ball height, halved),
+// so it is derived from the record at its four player-side sites
+// (curl_head_rise / curl_shift_px, games/sonic4/player/player_common.emp) and
+// published to the camera through Camera_Curl_Offset. A constant here could only
+// ever have been one character's.
 pub const PLAYER_X_RADIUS = 9
 pub const PLAYER_Y_RADIUS = 19
 pub const BALL_X_RADIUS   = 7
 pub const BALL_Y_RADIUS   = 14
-pub const CURL_Y_SHIFT    = 5         // y_pos raise on curl (radius delta 19-14=5)
 pub const PUSH_RADIUS     = 10        // wall-push sensor half-width
 
 // Level-edge behaviour codes (mirror engine/constants.asm).

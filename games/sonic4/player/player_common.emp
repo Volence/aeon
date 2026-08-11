@@ -241,7 +241,9 @@ pub comptime fn set_ball_size(sst: Reg, def: Reg) -> Code {
 //
 // Uncurling raises the head by the full height difference; the centre moves by
 // HALF of it, which is what keeps the feet planted. Sonic 10/5 (the values the
-// old engine-wide CURL_Y_SHIFT hardcoded), Tails 2/1.
+// retired engine-wide CURL_Y_SHIFT hardcoded), Tails 2/1. curl_shift_px is also
+// what Player_RefreshPhysics publishes to the camera (Camera_Curl_Offset), so
+// all five consumers share one formula.
 //
 // The subtraction cannot borrow — no character's ball is taller than its
 // standing box — so the byte result reaches the word/long users clean off the
@@ -383,12 +385,26 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
 // Takes the slot's block pointer rather than re-deriving one: the row it writes
 // is per-slot (C1), and every caller already has the SST in hand, so `player_block`
 // at the call site keeps the derivation in one place instead of two.
+//
+// ALSO the game's one write of the engine's Camera_Curl_Offset (engine/ram.emp),
+// and it lives here because this is the CHOKEPOINT for a character change:
+// Player_Chardef has exactly two writers — Player_Init's roster resolve and the
+// debug character hotkey — and both call this immediately after, while this is
+// called from nowhere else. So the cell cannot go stale behind a character swap,
+// which would hand the new character the old one's compensation: the same bug
+// the per-character curl derivation exists to kill. Unlike the physics row the
+// value is per-CHARACTER, not per-slot, which costs nothing while Player_Chardef
+// is itself one global — when characters go per-slot, the cell follows whichever
+// slot Camera_Target names, and both move together.
 // In:  a2 = the slot's PlayerBlock (player_block); reads Player_Chardef
 // Out: none
-// Clobbers: a1-a2
+// Clobbers: d0, a1-a2
 // -----------------------------------------------
-pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(a1-a2) {
+pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
         movea.l Player_Chardef, a1
+        curl_shift_px(a1, d0)                   // the camera's curl compensation:
+        move.w  d0, Camera_Curl_Offset          // one formula, shared with the
+                                                // hooks and the ceiling probes
         movea.l CharacterDef.cd_phys(a1), a1
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+

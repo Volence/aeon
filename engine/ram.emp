@@ -448,6 +448,32 @@ pub vars upper_ram {
     // Level init MUST seed it before the first Camera_Update.
     Camera_Target:          u16,        // leader SST pointer (word, sign-extended)
 
+    // How far Camera_Update lifts the tracked point while Camera_Target is
+    // CURLED (its ST_ROLLING bit set) — the pixels a game's curl displaces the
+    // SST origin by, so the camera keeps following the same body point across a
+    // curl instead of stepping by the difference.
+    //
+    // ENGINE OWNS THE CELL, THE GAME FILLS IT. The number is a property of the
+    // game's character (Sonic curls by 5px, Tails by 1 — S3K derives it per
+    // character as `y_radius - default_y_radius`), so the engine cannot compute
+    // it; but engine.camera reads it unconditionally and is compiled into EVERY
+    // game, so it cannot live in game RAM either. That is the same bind
+    // Camera_Target is in, and this is the same answer — which is deliberately
+    // NOT the answer the landing lock gives just below it: reaching into a game
+    // symbol behind a Game.* comptime gate works, but every such hole has to be
+    // gated again for `demo`'s sake, and a cell needs no gate at all.
+    //
+    // Sonic 4 writes it in Player_RefreshPhysics — the chokepoint every
+    // Player_Chardef write passes through — from the active record's two box
+    // heights, the same derivation its curl hooks and ceiling probes use.
+    //
+    // BOOT-SAFE, unlike Camera_Target: Work-RAM clears to 0 and 0 means "this
+    // game's tracked object does not curl", which is the correct answer for a
+    // game that never sets ST_ROLLING (`demo`) and unreachable for one that
+    // does — the bit is set by the player's own state machine, which cannot
+    // have run before the character was resolved.
+    Camera_Curl_Offset:     u16,        // px lifted while the target is curled (0 = no curl)
+
     Camera_Hold_Frames:     u8,         // frames the camera holds position (game code sets it;
                                         // Camera_Update tests it each frame to suppress movement,
                                         // then decrements)
