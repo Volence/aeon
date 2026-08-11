@@ -27,16 +27,23 @@ def test_art_is_88_tiles(tmp_path):
 
 
 def test_art_uses_only_remapped_indices(tmp_path):
-    """S3K indices 1/12/13 must become 6/4/7; nothing else may appear."""
+    """S3K indices 1/12/13 must become 6/4/7; nothing else may appear.
+
+    Asserts the exact per-index pixel histogram, not just the output set: a
+    transposition (e.g. swapping which source index maps to 4 vs 7) leaves the
+    set {0,4,6,7} unchanged but shows up immediately here. The four counts are
+    independently confirmed (see games/sonic4/data/dust_staging/README.md).
+    """
     run(tmp_path)
     data = open(os.path.join(tmp_path, "art_dust.bin"), "rb").read()
-    seen = set()
+    hist = {}
     for b in data:
-        seen.add(b >> 4)
-        seen.add(b & 0xF)
+        for nib in (b >> 4, b & 0xF):
+            hist[nib] = hist.get(nib, 0) + 1
+    seen = set(hist)
     assert seen <= {0, 6, 4, 7}, f"unexpected palette indices: {sorted(seen)}"
-    # and the three non-transparent ones must all be present
     assert {6, 4, 7} <= seen
+    assert hist == {0: 4286, 6: 1244, 4: 81, 7: 21}, hist
 
 
 def test_charge_dplc_frames_and_peak(tmp_path):
@@ -74,9 +81,48 @@ def test_puff_mappings_are_four_2x2_frames(tmp_path):
 
 
 def test_spindash_mappings_are_seven_frames(tmp_path):
+    """Every charge frame's mapping must exactly cover its own DPLC's tiles.
+
+    Expected per-frame footprints are derived from the sibling dplc_dust.bin
+    artifact rather than hardcoded, so a build_mappings regression that
+    corrupts charge frames (while leaving the already-checked puff frames
+    correct) is caught: it would either drop below the DPLC's tile count, spill
+    a piece past the 12-tile charge window, or leave a frame with no pieces.
+    """
     run(tmp_path)
-    d = open(os.path.join(tmp_path, "map_dust_spindash.bin"), "rb").read()
-    assert struct.unpack_from(">H", d, 0)[0] // 2 == 7
+    dm = open(os.path.join(tmp_path, "map_dust_spindash.bin"), "rb").read()
+    dd = open(os.path.join(tmp_path, "dplc_dust.bin"), "rb").read()
+
+    n_frames = struct.unpack_from(">H", dm, 0)[0] // 2
+    assert n_frames == 7
+    assert struct.unpack_from(">H", dd, 0)[0] // 2 == n_frames
+
+    for f in range(n_frames):
+        dplc_off = struct.unpack_from(">H", dd, f * 2)[0]
+        n_entries = struct.unpack_from(">H", dd, dplc_off)[0]
+        expected_tiles = sum(
+            ((struct.unpack_from(">H", dd, dplc_off + 2 + e * 2)[0] >> 12) & 0xF) + 1
+            for e in range(n_entries))
+
+        map_off = struct.unpack_from(">H", dm, f * 2)[0]
+        n_pieces = struct.unpack_from(">H", dm, map_off + 4)[0]
+        assert n_pieces >= 1, f"charge frame {f} has no pieces"
+
+        footprint = 0
+        for p in range(n_pieces):
+            piece_off = map_off + 6 + p * 8
+            size = dm[piece_off + 2]
+            w = ((size >> 2) & 3) + 1
+            h = (size & 3) + 1
+            tile = struct.unpack_from(">H", dm, piece_off + 4)[0] & 0x07FF
+            assert tile + w * h <= 12, (
+                f"charge frame {f} piece {p}: tile {tile} + {w}x{h} footprint "
+                "exceeds the 12-tile charge DPLC window (VRAM_DUST_SPINDASH)")
+            footprint += w * h
+
+        assert footprint == expected_tiles, (
+            f"charge frame {f}: mapping covers {footprint} tiles but the "
+            f"frame's own DPLC streams {expected_tiles}")
 
 
 def test_deterministic(tmp_path):

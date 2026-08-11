@@ -14,6 +14,12 @@ near-black here; 12 is $0ECC vs $000E red; 13 is $0CAA vs $0008 dark red). The
 colour-lossless permutation is 1->6, 12->4, 13->7, a strict subset of the remap
 table already pinned for Tails. See README.md.
 
+REMAP below is the DECLARED intent, but it is not trusted blind: `verify_remap`
+re-derives the S3K->Aeon permutation the same way gen_characters.py does (from
+the two palette files, via its `derive_palette_remap`) and asserts our three
+entries agree with it, so an edit to either palette file fails the build
+loudly instead of silently baking wrong-coloured dust.
+
 Deterministic: no timestamps, no RNG. Running twice is byte-identical.
 
 Usage:
@@ -57,6 +63,26 @@ def load_donor_parser():
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def verify_remap(gc, skdisasm_root):
+    """Cross-check the hardcoded REMAP against the DERIVED S3K->Aeon permutation.
+
+    gc.derive_palette_remap() re-derives the permutation from the two real
+    palette files (art/palettes/SonicAndTails.bin and skdisasm's own
+    SonicAndTails.bin) on every run — it is the source of truth, not the pin
+    table it also happens to assert against. We check our three dust entries
+    against THAT derived table, so a palette edit that changes what 1/12/13 map
+    to is caught here even if gen_characters.py's own pin were ever loosened.
+    """
+    derived, _ours, _s3k = gc.derive_palette_remap(Path(skdisasm_root))
+    for src, dst in REMAP.items():
+        if derived.get(src) != dst:
+            raise ValueError(
+                f"REMAP[{src}] = {dst} disagrees with the derived S3K->Aeon "
+                f"palette permutation, which maps {src} -> {derived.get(src)!r}. "
+                "One of art/palettes/SonicAndTails.bin or skdisasm's own copy "
+                "changed — re-measure REMAP before shipping, do not just repin.")
 
 
 def build_dplc(dplc_frames):
@@ -158,9 +184,16 @@ def main():
     args = ap.parse_args()
 
     src = Path(args.skdisasm) / 'General' / 'Sprites' / 'Dash Dust'
+    if not (src / 'Dash Dust.bin').is_file():
+        raise SystemExit(
+            f"gen_dust: donor art not found at {src / 'Dash Dust.bin'}. "
+            "Pass --skdisasm pointing at your skdisasm checkout root "
+            "(tools/test_gen_dust.py honors AEON_SKDISASM_DIR for the same purpose).")
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     gc = load_donor_parser()
+    verify_remap(gc, args.skdisasm)
 
     art = (src / 'Dash Dust.bin').read_bytes()
     expect = 186 * TILE_SIZE
