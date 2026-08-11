@@ -3,10 +3,9 @@
 // camera, Player_1, section streaming, parallax, then hands to a per-frame update
 // that drives the camera off Player_1 and streams the world.
 //
-// Canonical-emission: byte-identical to ojz_scroll_test.asm both shapes
-// (ojz_scroll_test window; shape-DEPENDENT — the two Debug_Scene_Freeze skip
-// blocks plus the DEBUG cheat-arm write grow the region +$12 in DEBUG). As the
-// boot state it is a LIVE oracle-A/B
+// Shape-DEPENDENT region: the two Debug_Scene_Freeze skip blocks, the DEBUG
+// cheat-arm write and Debug_CharacterHotkey (whole proc, rts included) all emit
+// only in the DEBUG shape. As the boot state it is a LIVE oracle-A/B
 // instrument: its two Debug_Scene_Freeze skips (camera + entity-scan) are the
 // deterministic-cache-fill / frame-lock hooks the A/B soak uses, so the port
 // keeps them bit-exact (any byte-gate-blind change names the oracle-A/B rider).
@@ -22,7 +21,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_EXT_MODE}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -31,8 +30,22 @@ use engine.coords.{pixels_to_coord}
 
 // VRAM_TEST_OBJ / VRAM_TEST_MARKER — sole authority is games.sonic4.constants
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
-// VRAM_TEST_OBJ+$18.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY}
+// VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
+// hotkey wraps at.
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT}
+
+// Sst — the character hotkey re-points the live player slot at the new record,
+// so it names the SST's asset/animation fields.
+use engine.objects.sst.{Sst}
+
+// PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock) and the
+// splice expands in THIS module's scope, so the type has to resolve here.
+use games.sonic4.ram.{PlayerBlock}
+
+// player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
+// player's SST overlay (the hotkey reads debug_flag off it). Both are
+// player_common's, imported the way the player state files import them.
+use games.sonic4.player_common.{PlayerV, player_block}
 
 // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
 // real home is engine/level/camera.asm (not exported by camera.emp), mirrored
@@ -245,6 +258,13 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 // GameState_OJZScroll_Update — per-frame update
 // -----------------------------------------------
 pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
+        // -- DEBUG character-cycle hotkey. Polled BEFORE RunObjects so a swap
+        //    lands in the same frame's Player_Display (the pass that re-streams
+        //    the new character's art). Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_CharacterHotkey
+        }
+
         // -- initialize sprite system for this frame --
         jbsr    InitSpriteSystem
 
@@ -337,6 +357,135 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         // -- camera-driven BG tile animation (trunk cores) --
         jbsr    BgAnim_Update
         rts
+}
+
+// -----------------------------------------------
+// Debug_CharacterHotkey — MODE cycles the active character (Sonic -> Tails ->
+// Knuckles -> Sonic) and re-dresses the live player immediately, mid-level.
+//
+// WHY IT LIVES IN THE LEVEL STATE. The canonical DEBUG shape binds NO game
+// debug_tick: config/game.emp binds the hook only under SOUND_DEBUG_HOTKEYS,
+// i.e. the off-canonical Config-A profile, so a hotkey hosted in game_debug.emp
+// would emit zero bytes in the ROM this is actually played in. This scene is the
+// de-facto game state and already carries DEBUG-gated work, so the affordance
+// sits with the thing it affords. Move it to a proper debug hook the day the
+// canonical debug shape binds one.
+//
+// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`,
+// so the whole proc emits ZERO bytes in the plain shape (the Debug_AssertObjLoop
+// idiom, engine/objects/core.emp).
+//
+// WHY MODE, AND WHY IT CANNOT COLLIDE
+// -----------------------------------
+// Pad 1's main byte is fully spoken for: A/B/C are the jump mask
+// (player_common BUTTON_JUMP_MASK), B doubles as the debug-fly toggle, the whole
+// D-pad is movement + duck/lookup/spindash, and START is the replay
+// exit-request. There is no free main bit and no free main COMBO — every pair of
+// face buttons is a legal thing to be holding while playing.
+//
+// The 6-button extension byte has four bits (MODE/X/Y/Z; engine.controllers
+// decodes them into Ctrl_1_Ext_Held / Ctrl_1_Ext_Press) and nothing else in
+// engine/ or games/ reads either cell. MODE is their first consumer.
+//
+// THE REPLAY NET IS WHY THIS MATTERS. engine/system/replay.emp's INPUT_PLAYBACK
+// arm overwrites exactly two cells — Ctrl_1_Held and Ctrl_1_Press — from the
+// recorded stream, and a fixture is raw Ctrl_1_Held bytes (Replay_Record_Buf).
+// The extension byte is neither written by playback nor representable in a
+// fixture, so a replayed stream CANNOT synthesize this press whatever it
+// contains. A main-button choice could only ever be improbable; this one is
+// structurally impossible. On a not-pressed frame the whole routine is a read,
+// a mask and a branch — it writes no RAM and touches no SST byte, so a playback
+// frame is bit-identical to one built without this code.
+//
+// IF YOU PRESS MODE AND NOTHING HAPPENS: check the pad type. `.read_pad_6`
+// (engine/system/controllers.emp) requires BOTH 6-button signatures; a pad that
+// fails either is classified PAD_3BTN and its extension nibble is forced to 0,
+// which leaves this hotkey permanently inert. Set the emulator's pad 1 to
+// 6-button.
+//
+// WHY A NARROW REFRESH AND NOT Player_Init
+// ----------------------------------------
+// Player_Init is the LEVEL-ENTRY initializer: it forces PSTATE_AIR, clears
+// ground speed / move lock / spindash charge / the whole status set, and —
+// decisively here — tail-calls Player_DebugEnter whenever CHEAT_DEBUG_FLY is
+// armed, which this state arms at boot in the DEBUG shape. Cycling would
+// therefore yank the player back into the yellow free-flight marker on every
+// press, hiding the one thing being looked at.
+//
+// So this refreshes exactly what VARIES PER CHARACTER and nothing else, leaving
+// position, velocity, angle, state and the state machine alone:
+//   * Player_Chardef        — the record every dispatch site reads
+//   * Player_RefreshPhysics — the slot's 8-word physics row (cd_phys)
+//   * Player_InitAssets     — mappings / art word / animation table
+//   * mapping_frame + RefreshSpritePieceCount — the new mappings' frame 0 and
+//     its cached piece count, re-derived before any render can run
+//   * prev_anim / prev_frame = $FF — forces Player_Display's next pass to
+//     re-select the animation and re-run Player_LoadArt, which is what actually
+//     re-DMAs the new character's tiles into the shared VRAM window (cd_dplc /
+//     cd_artbase / cd_vrambase all come off the record)
+// cd_ability needs no refresh: player_air reads it off Player_Chardef when it
+// fires.
+//
+// While debug-fly is ACTIVE the SST carries the marker square's art and
+// Player_DebugExit re-runs Player_InitAssets on the way out, so the asset half
+// is skipped there and picked up on exit — exactly like a character chosen
+// before the flight started. The record and the physics row still update at once.
+//
+// In:  none (reads/writes Character_ID)
+// Out: Character_ID advanced, Player_1 re-dressed
+// Clobbers: d0, d2, a0-a2 — d2/a1 via RefreshSpritePieceCount, a1-a2 via
+//           Player_RefreshPhysics, a1 via Player_InitAssets.
+// -----------------------------------------------
+proc Debug_CharacterHotkey () clobbers(d0/d2/a0-a2) {
+    if DEBUG == 1 {
+        move.b  Ctrl_1_Ext_Press, d0            // (Ctrl_1_Ext_Press).w — 0000MXYZ, edge-latched
+        andi.b  #BUTTON_EXT_MODE, d0
+        beq     .done                           // not pressed: nothing written, nothing perturbed
+
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.w  Character_ID, d0
+        addq.w  #1, d0
+        cmpi.w  #CHAR_COUNT, d0                 // the id only ever steps by one, so
+        bne     .no_wrap                        // equality is the whole wrap condition
+        moveq   #0, d0
+    .no_wrap:
+        assert.w d0, ls, #CHAR_COUNT-1          // id in roster range — Player_Init's guard,
+                                                // checked BEFORE the store so a bad value
+                                                // never reaches RAM
+        move.w  d0, Character_ID
+
+        // roster resolve — the same derivation Player_Init runs, repeated here
+        // rather than reached through Player_Init because calling Player_Init is
+        // the thing this routine exists to avoid (see the header). The
+        // CHAR_KNUCKLES row is still the Sonic record, so every id in
+        // 0..CHAR_COUNT-1 lands on a complete CharacterDef and cycling past
+        // Tails is safe.
+        lsl.w   #2, d0                          // × sizeof(pointer); no scaled
+                                                // indexing on the 68000
+        lea     CharacterDefs, a1
+        movea.l (a1,d0.w), a1
+        move.l  a1, Player_Chardef
+
+        lea     Player_1, a0                    // the leader slot — the only one this
+                                                // state spawns
+        player_block(a0, a2)                    // this slot's block — Refresh writes its row
+        jbsr    Player_RefreshPhysics
+
+        tst.b   PlayerV.debug_flag(a0)
+        bne     .done                           // in debug-fly: the marker art stays,
+                                                // Player_DebugExit picks the new record up
+        jbsr    Player_InitAssets
+        // Qualified `Sst.field(a0)` rather than the bare spelling the player code
+        // uses: bare field displacements resolve off a proc PARAM typed `*Sst`,
+        // and this routine takes none — a0 is loaded here, not passed in.
+        clr.b   Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount         // re-cache piece count + frame_off NOW; a
+                                                // render can run before the next display pass
+        move.b  #$FF, Sst.prev_anim(a0)
+        move.b  #$FF, Sst.prev_frame(a0)
+    .done:
+        rts
+    }
 }
 
 // -----------------------------------------------

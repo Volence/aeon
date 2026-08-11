@@ -25,26 +25,8 @@ use engine.types.{SongId, SfxId}
 
 // The controller button masks are engine constants — imported from their sole
 // author, engine.constants (the ownership flip; BUTTON_B/START joined at the
-// conv-b constants-tail flip). BUTTON_EXT_MODE is the 6-button extension bit the
-// character-cycle hotkey rides (Debug_CycleCharacter, below).
-use engine.constants.{BUTTON_UP, BUTTON_C, BUTTON_A, BUTTON_B, BUTTON_START, BUTTON_EXT_MODE}
-
-// Sst — the character-cycle hotkey re-points the live player slot at the new
-// record, so it touches the SST's asset/animation fields by name.
-use engine.objects.sst.{Sst}
-
-// CHAR_COUNT — the roster length the cycle wraps at. Sole authority is
-// games.sonic4.constants.
-use games.sonic4.constants.{CHAR_COUNT}
-
-// PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock) and the
-// splice expands in THIS module's scope, so the type has to resolve here.
-use games.sonic4.ram.{PlayerBlock}
-
-// player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
-// player's SST overlay (the cycle reads debug_flag off it). Both are
-// player_common's, imported the same way the player state files import them.
-use games.sonic4.player_common.{PlayerV, player_block}
+// conv-b constants-tail flip).
+use engine.constants.{BUTTON_UP, BUTTON_C, BUTTON_A, BUTTON_B, BUTTON_START}
 
 // Song + SFX ids — sole authority is games.sonic4.sound_ids. The DEBUG song
 // selector and the DEBUG SFX-trigger cycle read these; the typed slots (`as
@@ -60,32 +42,29 @@ use games.sonic4.sound_ids.{
 // is a §11-Q4 extern/proc collision).
 //
 // -----------------------------------------------
-// Debug_MusicToggle — the game's per-frame debug hook (Game.debug_tick): the
-// sound test-harness hotkeys (edge-detected on Ctrl_1_Press) plus the
-// character-cycle hotkey (edge-detected on Ctrl_1_Ext_Press). Key map:
-//   MODE  = cycle the active character (Sonic → Tails → Knuckles → Sonic)
+// Debug_MusicToggle — DEBUG sound test-harness hotkeys (edge-detected on
+// Ctrl_1_Press). Key map:
 //   A     = restart Moving Trucks from pattern 0 (logger-safe re-trigger)
 //   B     = fire the next test SFX in the cycle (Dbg_Sfx_Sel)
 //   UP    = play HCZ2 (S3K Hydrocity Zone Act 2 import, id 3)
 //   C     = play the DAC-drum-test song (id 2)
 //   START = toggle Moving Trucks play/stop
-// PRIORITY CHAIN, not six independent keys: the checks fall through in the
-// listed order (MODE → A → B → UP → C → START), each `beq.s .next` else `rts`,
-// so the FIRST matching button this frame wins and the rest are skipped (a
-// same-frame A+START restarts the song and never reaches the toggle). The button
-// masks are distinct single bits, so simultaneous presses are resolved by this
-// order. Also exercises Sound_StopMusic and the song-switch silence path (a
-// fresh PlayMusic).
+// PRIORITY CHAIN, not five independent keys: the checks fall through in the
+// listed order (A → B → UP → C → START), each `beq.s .next` else `rts`, so the
+// FIRST matching button this frame wins and the rest are skipped (a same-frame
+// A+START restarts the song and never reaches the toggle). The button masks are
+// distinct single bits, so simultaneous presses are resolved by this order.
+// Also exercises Sound_StopMusic and the song-switch silence path (a fresh
+// PlayMusic).
 //
-// CLOBBERS = the honest transitive closure d0-d4/a0-a2: the body writes
-// d0-d2/a1 directly, Sound_PlayMusic (sound_api.emp) clobbers d0-d4/a0-a1 — so
-// d3/d4/a0 leak in through that call — and Debug_CycleCharacter adds a2 (its
-// Player_RefreshPhysics call). The contract closure verifies against the real
-// callees. The harness relies on nothing across the calls (each is immediately
-// followed by an rts or a Dbg_Music_On store), so the wider closure is latent —
-// but the contract must be honest.
+// CLOBBERS = the honest transitive closure d0-d4/a0-a1: the body writes
+// d0-d2/a1 directly, and Sound_PlayMusic (sound_api.emp) clobbers d0-d4/a0-a1 —
+// so d3/d4/a0 leak in through that call. The contract closure verifies against
+// the real callee. The harness relies on nothing across the call (each Sound_*
+// is immediately followed by an rts or a Dbg_Music_On store), so the wider
+// closure is latent — but the contract must be honest.
 // -----------------------------------------------
-pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a2) {
+pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a1) {
         // STRUCTURAL WIDTH PIN (step-2 exception class — the trailing-`align`
         // dependency): the branches stay explicit `.s`/`bsr.w` and the RAM
         // operands stay explicit `(X).w` rather than going bare / `jbsr`. The
@@ -95,16 +74,6 @@ pub proc Debug_MusicToggle () clobbers(d0-d4/a0-a2) {
         // bare abs symbol (abs.w/.l by resolved value) all leave the align at a
         // provisional position → `[align.provisional]`. Byte-identical to the AS
         // twin regardless (it spells the same explicit widths).
-        // MODE = cycle the active character. FIRST in the chain, and on a DIFFERENT
-        // latch than every other hotkey here: this reads Ctrl_1_Ext_Press (the
-        // 6-button extension byte, 0000MXYZ), not Ctrl_1_Press. See
-        // Debug_CycleCharacter below for why that byte and not a main button.
-        move.b  (Ctrl_1_Ext_Press).w, d0
-        andi.b  #BUTTON_EXT_MODE, d0
-        beq.s   .check_music
-        bsr.w   Debug_CycleCharacter
-        rts
-    .check_music:
         // A button = RESTART the song from pattern 0 (re-trigger Sound_PlayMusic; NO
         // reboot, NO toggle). For clean from-the-very-top VGM capture during sound
         // debugging: the emulator's reset/reload either kills the VGM logger or doesn't
@@ -222,115 +191,3 @@ data Dbg_SfxIdTable: [u8; 8] = [
     SFXID_RINGLOSS,          // 7
 ]
 align 2
-
-// -----------------------------------------------
-// Debug_CycleCharacter — advance Character_ID to the next CHAR_* id and make the
-// live player wear that character IMMEDIATELY, mid-level.
-//
-// WHY THE MODE BUTTON, AND WHY IT CANNOT COLLIDE
-// ----------------------------------------------
-// Pad 1's main byte is fully spoken for in the DEBUG shape: A/B/C are the jump
-// mask (player_common BUTTON_JUMP_MASK), B doubles as the debug-fly toggle, the
-// whole D-pad is movement + duck/lookup/spindash, and this harness already owns
-// A/B/UP/C/START on Ctrl_1_Press. There is no free main bit and no free main
-// COMBO — every pair of face buttons is a legal thing to be holding while
-// playing.
-//
-// The 6-button extension byte has four bits (MODE/X/Y/Z, engine.controllers
-// decodes them into Ctrl_1_Ext_Held / Ctrl_1_Ext_Press) and, verified by grep
-// across engine/ and games/, NOTHING in either the engine or the game reads
-// Ctrl_1_Ext_Press or Ctrl_1_Ext_Held today. MODE is the first of them to get a
-// consumer.
-//
-// THE REPLAY NET IS WHY THIS MATTERS. engine/system/replay.emp's INPUT_PLAYBACK
-// arm overwrites exactly two cells — Ctrl_1_Held and Ctrl_1_Press — from the
-// recorded stream, and the recorded fixtures are raw Ctrl_1_Held bytes
-// (Replay_Record_Buf). The extension byte is neither written by playback nor
-// present in a fixture, so a replayed stream CANNOT synthesize this press, no
-// matter what it contains. Any main-button choice would only be
-// "improbable"; this one is structurally impossible.
-//
-// One honest limitation: on a 3-button pad `.read_pad_6` forces the extension
-// nibble to 0, so the hotkey is inert there. That is a property of the pad, not
-// a bug — set the emulator's pad 1 to 6-button.
-//
-// WHY A NARROW REFRESH AND NOT Player_Init
-// ----------------------------------------
-// Player_Init would be one `jbsr`, but it is the LEVEL-ENTRY initializer: it
-// forces PSTATE_AIR, clears ground speed / move lock / spindash charge / the
-// whole status set, and — decisively for this shape — tail-calls
-// Player_DebugEnter whenever CHEAT_DEBUG_FLY is armed, which the DEBUG shape
-// arms at game init. Cycling characters would therefore yank the player back
-// into the yellow free-flight marker every press, i.e. the one thing that makes
-// the swap invisible. A debug tool you cannot see the result of is not a tool.
-//
-// So this refreshes exactly what VARIES PER CHARACTER and nothing else, leaving
-// position, velocity, angle, state and the state machine alone:
-//   * Player_Chardef      — the resolved record every dispatch site reads
-//   * Player_RefreshPhysics — the slot's 8-word physics row (cd_phys)
-//   * Player_InitAssets   — mappings / art word / animation table
-//   * mapping_frame + RefreshSpritePieceCount — the new mappings' frame 0 and
-//     its cached piece count, re-derived before any render can run
-//   * prev_anim / prev_frame = $FF — forces Player_Display's next pass to
-//     re-select the animation and re-run Player_LoadArt, which is what actually
-//     re-DMAs the new character's tiles into the shared VRAM window (cd_dplc /
-//     cd_artbase / cd_vrambase all come off the record, so the DPLC stream
-//     follows the swap with no further work here)
-// cd_ability needs no refresh: player_air reads it off Player_Chardef at the
-// moment it fires.
-//
-// While debug-fly is ACTIVE the SST carries the marker square's art, and
-// Player_DebugExit re-runs Player_InitAssets on the way out — so the asset half
-// is skipped there and picked up on exit, exactly like a character chosen before
-// the flight started. The record and the physics row still update immediately.
-//
-// In:  none (reads/writes Character_ID)
-// Out: Character_ID advanced, Player_1 re-dressed
-// Clobbers: d0, d2, a0-a2 — d2/a1 via RefreshSpritePieceCount, a1-a2 via
-//           Player_RefreshPhysics, a1 via Player_InitAssets.
-// -----------------------------------------------
-proc Debug_CycleCharacter () clobbers(d0/d2/a0-a2) {
-        moveq   #0, d0                          // index-register hygiene (§2.5b)
-        move.w  Character_ID, d0
-        addq.w  #1, d0
-        cmpi.w  #CHAR_COUNT, d0                 // the id only ever steps by one, so
-        bne     .no_wrap                        // equality is the whole wrap condition
-        moveq   #0, d0
-    .no_wrap:
-        assert.w d0, ls, #CHAR_COUNT-1          // id in roster range — Player_Init's guard,
-                                                // checked BEFORE the store so a bad value
-                                                // never reaches RAM
-        move.w  d0, Character_ID
-
-        // roster resolve — the same derivation Player_Init runs. Repeated rather
-        // than reached through Player_Init because calling Player_Init is the
-        // thing this routine exists to avoid (see the header); the roster row
-        // for CHAR_KNUCKLES is still the Sonic record, so every id in
-        // 0..CHAR_COUNT-1 lands on a complete CharacterDef and cycling past
-        // Tails is safe.
-        lsl.w   #2, d0                          // × sizeof(pointer); no scaled
-                                                // indexing on the 68000
-        lea     CharacterDefs, a1
-        movea.l (a1,d0.w), a1
-        move.l  a1, Player_Chardef
-
-        lea     Player_1, a0                    // the leader slot — the only one the
-                                                // level test states spawn
-        player_block(a0, a2)                    // this slot's block — Refresh writes its row
-        jbsr    Player_RefreshPhysics
-
-        tst.b   PlayerV.debug_flag(a0)
-        bne     .done                           // in debug-fly: the marker art stays,
-                                                // Player_DebugExit picks the new record up
-        jbsr    Player_InitAssets
-        // Qualified `Sst.field(a0)` rather than the bare spelling the player code
-        // uses: bare field displacements resolve off a proc PARAM typed `*Sst`,
-        // and this routine takes none — a0 is loaded here, not passed in.
-        clr.b   Sst.mapping_frame(a0)
-        jbsr    RefreshSpritePieceCount         // re-cache piece count + frame_off NOW; a
-                                                // render can run before the next display pass
-        move.b  #$FF, Sst.prev_anim(a0)
-        move.b  #$FF, Sst.prev_frame(a0)
-    .done:
-        rts
-}
