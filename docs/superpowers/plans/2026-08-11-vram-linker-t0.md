@@ -82,7 +82,7 @@ export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
 git branch --show-current   # must be feat/character-dispatch, clean tree
 ./build.sh && DEBUG=1 ./build.sh && DEBUG=1 ./build.sh demo
 S=$(ls -d /tmp/claude-1000/*/*/scratchpad 2>/dev/null | head -1)
-for f in s4.bin s4.debug.bin demo.bin; do
+for f in s4.bin s4.debug.bin demo.debug.bin; do
   python3 -c "import zlib;print('$f', format(zlib.crc32(open('$f','rb').read()),'08x'))"
 done | tee "$S/vram-t0-baseline.txt"
 ```
@@ -809,7 +809,7 @@ Expected: both `OK`; the full pytest suite now 9/9 including the real-map test.
 ```bash
 ./build.sh && DEBUG=1 ./build.sh && DEBUG=1 ./build.sh demo
 S=$(ls -d /tmp/claude-1000/*/*/scratchpad 2>/dev/null | head -1)
-for f in s4.bin s4.debug.bin demo.bin; do
+for f in s4.bin s4.debug.bin demo.debug.bin; do
   python3 -c "import zlib;print('$f', format(zlib.crc32(open('$f','rb').read()),'08x'))"
 done | diff - "$S/vram-t0-baseline.txt" && echo "BYTE-IDENTICAL" || echo "MOVED — STOP"
 ```
