@@ -8,8 +8,9 @@ use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_XFLIP, ST_IN_AIR, 
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 
-// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
-// game-config value, imported from games.sonic4.constants below.
+// VRAM_TEST_SONIC — tile 960, the character DPLC window: 32 tiles, 960 up to
+// the VRAM_TEST_OBJ wall at 992 (Sonic's own art peaks at 29). A game-config
+// value, imported from games.sonic4.constants below.
 // CHEAT_DEBUG_FLY — bit 0 of Cheat_Flags, the runtime gate on debug free-flight.
 use games.sonic4.constants.{VRAM_TEST_SONIC, CHEAT_DEBUG_FLY}
 

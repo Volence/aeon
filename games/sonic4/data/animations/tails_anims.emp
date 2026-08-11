@@ -1,0 +1,181 @@
+// Tails animation scripts — the offsets tables ARE the animation indices,
+// ordered by the shared ANIM_* ids (games/sonic4/config/constants.emp), exactly
+// as sonic_anims.emp is. Two tables: the BODY (`Ani_Tails`) and the twin-tail
+// APPENDAGE (`Ani_TailsAppendage`), which is a separate object with its own
+// mappings/DPLC/VRAM window and therefore its own script table.
+//
+// SOURCE OF TRUTH: stock S3K, skdisasm `General/Sprites/Tails/Anim - Tails.asm`
+// and `Anim - Tails Tail.asm`. Anim scripts are NOT machine-convertible — S3K's
+// 42-entry table is in S3K's own id order and its scripts lean on S3K-specific
+// runtime machinery — so these are hand-authored: S3K's frame lists verbatim,
+// re-indexed onto our 11 ids, with three deliberate deviations, each flagged at
+// its entry:
+//
+//   1. S3K's DURATION byte doubles as a dispatch selector when negative ($FF
+//      walk/run, $FE roll, $FD push, $FC the appendage's angle-banked spin), and
+//      our AnimateSprite has exactly ONE sentinel — DUR_DYNAMIC ($FF), "take the
+//      hold from the caller's d3". Player_Animate computes that hold for the
+//      walk/run and roll cycles, so those become DUR_DYNAMIC; push and the
+//      appendage spin have no engine-computed hold and take a static one (the
+//      same translation Ani_Sonic already made for push).
+//   2. Where S3K ends a script by switching animations (AF_CHANGE), our player
+//      state machine owns the exit — Player_Animate re-classifies every frame and
+//      would overwrite the switch — so those scripts hold their last pose
+//      instead. Again the choice Ani_Sonic already made (its Skid).
+//   3. S3K reads the appendage's angle-banked roll frames by ADDING a
+//      direction-derived offset to mapping_frame after running the script. That
+//      offset is the appendage OBJECT's job (it needs the parent's velocity
+//      angle); the table carries bank 0, so the object adds 0/4/8/$C to it.
+//
+// The S3K id -> our id correspondence (established by Ani_Sonic, whose frame
+// lists match S3K's AniSonic rows one for one): walk 0, run 1, roll 2, push 4,
+// wait 5, balance 6, lookup 7, duck 8, spindash 9, getup $B, skid $D.
+//
+// NOTHING CONSUMES THESE YET — they land with the Tails art/mappings/DPLC and
+// wait for the roster row (characters.emp) to point CHAR_TAILS at a Tails record.
+module games.sonic4.tails_anims in tails_anims
+
+// Animation command bytes + the DUR_DYNAMIC sentinel come from engine.constants.
+use engine.constants.{AF_END, AF_BACK, DUR_DYNAMIC}
+
+offsets Ani_Tails {
+    // Declaration position IS the ANIM_* id (guards below). Bodies ride INLINE
+    // with no inter-body pads — AnimateSprite reads scripts BYTE-wise; only the
+    // offsets table itself needs to be even.
+
+    // S3K AniTails00/01 — byte-identical to Sonic's walk/run rows, including the
+    // $FF (= DUR_DYNAMIC) speed-scaled hold.
+    Walk:     [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Run:      [u8; 6]  = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END],
+
+    // S3K AniTails02 — Tails' ball is a 3-frame spin, and S3K approximates
+    // speed-scaling by keeping TWO rows of it (02 at hold 1, 03 at hold 0) and
+    // picking between them. We have a real speed-scaled hold (Player_Animate
+    // derives d3 from |ground_speed| on the roll path), so the two rows collapse
+    // into one DUR_DYNAMIC entry — strictly finer-grained than the original.
+    Roll:     [u8; 5]  = [DUR_DYNAMIC, $96, $97, $98, AF_END],
+
+    // S3K AniTails09 — hold 0: advance every frame (the fast rev), as Sonic's.
+    Spindash: [u8; 5]  = [0, $86, $87, $88, AF_END],
+
+    // S3K AniTails04 — its $FD duration is S3K's speed-scaled PUSH dispatch,
+    // which has no engine equivalent; static 6, matching Ani_Sonic.Push.
+    Push:     [u8; 6]  = [6, $A9, $AA, $AB, $AC, AF_END],
+
+    // S3K AniTails05, verbatim: stand with two blinks, then the impatient
+    // tail-fidget, then loop the last 28 frames ($B1 hold + the $B2-$B4 flick).
+    Wait:     [u8; 62] = [7,
+        $AD, $AD, $AD, $AD, $AD, $AD, $AD, $AD, $AD, $AD,   // stand
+        $AF, $AE,                                           // blink
+        $AD, $AD, $AD, $AD, $AD, $AD, $AD, $AD,
+        $AF, $AE,                                           // blink
+        $AD, $AD, $AD, $AD, $AD, $AD, $AD, $AD, $AD,
+        $B1, $B1, $B1, $B1, $B1, $B1, $B1, $B1,             // settle into the fidget
+        $B1, $B1, $B1, $B1, $B1, $B1, $B1, $B1,
+        $B2, $B3, $B4, $B3, $B4, $B3, $B4, $B3, $B4, $B3, $B4, $B2,
+        AF_BACK, 28],                                       // loop fidget + flick
+
+    // S3K AniTails06, verbatim — a 2-frame teeter, written out because S3K's row
+    // ends on a half-cycle ($9A, $9B) that a plain 4-frame loop would not.
+    Balance:  [u8; 24] = [9,
+        $9A, $9A, $9B, $9B, $9A, $9A, $9B, $9B,
+        $9A, $9A, $9B, $9B, $9A, $9A, $9B, $9B,
+        $9A, $9A, $9B, $9B, $9A, $9B, AF_END],
+
+    // S3K AniTails07/08 — single-frame poses; AF_END re-runs frame 0, so the
+    // pose simply holds and the duration is cosmetic (S3K's $3F kept).
+    LookUp:   [u8; 3]  = [$3F, $B0, AF_END],
+    Duck:     [u8; 3]  = [$3F, $99, AF_END],
+
+    // S3K AniTails0D — S3K alternates $8E/$8F twice then AF_CHANGEs to walk.
+    // Player_Animate's skid_latch owns the exit here, so the script holds the
+    // braced pose instead (deviation 2; Ani_Sonic.Skid does the same).
+    Skid:     [u8; 5]  = [3, $8E, $8F, AF_BACK, 1],
+
+    // S3K AniTails0B.
+    GetUp:    [u8; 3]  = [$F, $8D, AF_END],
+}
+align 2
+
+// -----------------------------------------------
+// Ani_TailsAppendage — the twin tails.
+//
+// S3K gives the appendage its OWN 13-entry id space plus a 42-byte parent-anim ->
+// appendage-anim lookup (`Obj_Tails_Tail_AniSelection`). We index it by the SAME
+// ANIM_* ids as the body instead, so the appendage object copies the parent's
+// anim byte and the lookup table disappears: one fewer table to keep in sync, and
+// a new character animation cannot silently fall off the end of a 42-byte map.
+// The S3K pairing is preserved exactly — each entry names the S3K appendage
+// script the selection table chose for that parent animation.
+//
+// Several ids legitimately share a script (S3K's own choice), so those bodies
+// repeat rather than alias; at 3 bytes each that is cheaper than an indirection
+// and keeps every entry independently editable.
+// -----------------------------------------------
+offsets Ani_TailsAppendage {
+    // S3K app 00 — the neutral trailing pose. Selected for walk, run, balance,
+    // and (via S3K's "Dummy2" row) get-up.
+    Walk:     [u8; 3] = [$20, 0, AF_END],
+    Run:      [u8; 3] = [$20, 0, AF_END],
+
+    // S3K app 03 — bank 0 of the four angle-banked spin banks (03/04/05/06 are
+    // the same 4-frame cycle at four directions). The appendage object adds the
+    // direction offset (0/4/8/$C) to mapping_frame after the step, exactly as
+    // S3K does; the $FC "duration" that encodes that dispatch in S3K becomes the
+    // static 3 S3K itself forces on the timer down that path (deviations 1 + 3).
+    Roll:     [u8; 6] = [3, 5, 6, 7, 8, AF_END],
+
+    // S3K app 07 / 09 / 01.
+    Spindash: [u8; 6] = [2, 1, 2, 3, 4, AF_END],
+    Push:     [u8; 6] = [9, $1E, $1F, $20, $21, AF_END],
+    Wait:     [u8; 7] = [7, $22, $23, $24, $25, $26, AF_END],
+
+    // S3K app 00 again.
+    Balance:  [u8; 3] = [$20, 0, AF_END],
+
+    // S3K app 02 — the FLICK: the same $22-$26 frames as the wait swish, run
+    // faster, and in S3K it AF_CHANGEs into the swish when it finishes. The
+    // appendage's anim is re-driven from the parent every frame, so that switch
+    // would be overwritten (deviation 2); looping the flick is the stable
+    // equivalent and reaches the same frames.
+    LookUp:   [u8; 7] = [3, $22, $23, $24, $25, $26, AF_END],
+
+    // S3K app 01 / 08.
+    Duck:     [u8; 7] = [7, $22, $23, $24, $25, $26, AF_END],
+    Skid:     [u8; 6] = [2, $1A, $1B, $1C, $1D, AF_END],
+
+    // S3K app 00.
+    GetUp:    [u8; 3] = [$20, 0, AF_END],
+}
+// The appendage bodies sum to an ODD length, so this pad is load-bearing for
+// whatever table the linker places next (offsets tables are word-read).
+align 2
+
+// The ordinal pairing as checked facts, not comments — same guards sonic_anims
+// carries, applied to BOTH tables, because the appendage sharing the body's id
+// space is the whole reason its lookup table could be deleted.
+ensure(Ani_Tails.Walk == extern("ANIM_WALK"), "Walk ordinal drifted from ANIM_WALK")
+ensure(Ani_Tails.Run == extern("ANIM_RUN"), "Run ordinal drifted from ANIM_RUN")
+ensure(Ani_Tails.Roll == extern("ANIM_ROLL"), "Roll ordinal drifted from ANIM_ROLL")
+ensure(Ani_Tails.Spindash == extern("ANIM_SPINDASH"), "Spindash ordinal drifted from ANIM_SPINDASH")
+ensure(Ani_Tails.Push == extern("ANIM_PUSH"), "Push ordinal drifted from ANIM_PUSH")
+ensure(Ani_Tails.Wait == extern("ANIM_IDLE"), "Wait ordinal drifted from ANIM_IDLE")
+ensure(Ani_Tails.Balance == extern("ANIM_BALANCE"), "Balance ordinal drifted from ANIM_BALANCE")
+ensure(Ani_Tails.LookUp == extern("ANIM_LOOKUP"), "LookUp ordinal drifted from ANIM_LOOKUP")
+ensure(Ani_Tails.Duck == extern("ANIM_DUCK"), "Duck ordinal drifted from ANIM_DUCK")
+ensure(Ani_Tails.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SKID")
+ensure(Ani_Tails.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_Tails.count == extern("ANIM_COUNT"), "Ani_Tails entry count drifted from ANIM_COUNT")
+
+ensure(Ani_TailsAppendage.Walk == extern("ANIM_WALK"), "appendage Walk ordinal drifted from ANIM_WALK")
+ensure(Ani_TailsAppendage.Run == extern("ANIM_RUN"), "appendage Run ordinal drifted from ANIM_RUN")
+ensure(Ani_TailsAppendage.Roll == extern("ANIM_ROLL"), "appendage Roll ordinal drifted from ANIM_ROLL")
+ensure(Ani_TailsAppendage.Spindash == extern("ANIM_SPINDASH"), "appendage Spindash ordinal drifted from ANIM_SPINDASH")
+ensure(Ani_TailsAppendage.Push == extern("ANIM_PUSH"), "appendage Push ordinal drifted from ANIM_PUSH")
+ensure(Ani_TailsAppendage.Wait == extern("ANIM_IDLE"), "appendage Wait ordinal drifted from ANIM_IDLE")
+ensure(Ani_TailsAppendage.Balance == extern("ANIM_BALANCE"), "appendage Balance ordinal drifted from ANIM_BALANCE")
+ensure(Ani_TailsAppendage.LookUp == extern("ANIM_LOOKUP"), "appendage LookUp ordinal drifted from ANIM_LOOKUP")
+ensure(Ani_TailsAppendage.Duck == extern("ANIM_DUCK"), "appendage Duck ordinal drifted from ANIM_DUCK")
+ensure(Ani_TailsAppendage.Skid == extern("ANIM_SKID"), "appendage Skid ordinal drifted from ANIM_SKID")
+ensure(Ani_TailsAppendage.GetUp == extern("ANIM_GETUP"), "appendage GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_TailsAppendage.count == extern("ANIM_COUNT"), "Ani_TailsAppendage entry count drifted from ANIM_COUNT")

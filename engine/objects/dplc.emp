@@ -27,6 +27,46 @@ use engine.objects.sst.{Sst}
 // fires.
 
 // -----------------------------------------------
+// dplc_peak_tiles — COMPTIME: the largest per-frame tile total in a DPLC table,
+// read straight out of the embedded blob. This is the number that decides how
+// wide a character's VRAM DPLC window has to be, and until now it lived only in
+// a comment (`up to N tiles`) that no build step checked — an art re-export that
+// grew one frame would have silently DMA'd past the window into whatever was
+// allocated next. A caller pairs this with its window base to make the wall a
+// comptime fact:
+//
+//     ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ, "...")
+//
+// It parses the same format the runtime loop above walks — the format doc at the
+// top of this file IS the spec, which is why the parser lives here and not in a
+// game data module: a format change has to move both readers, and they are now
+// adjacent. Frame count comes from the first offset word (the pointer table
+// occupies exactly `frames * 2` bytes, so `table[0] / 2` is the count).
+//
+// A single ENTRY cannot exceed 16 tiles (the 4-bit count field) — the build tool
+// splits longer runs — but a FRAME is the sum of its entries and has no such cap,
+// so the sum is what this returns.
+// -----------------------------------------------
+// (The big-endian word reads are spelled out rather than factored into a helper:
+// a private comptime fn is not visible at the CALLER's expansion site, and
+// exporting a `be16` from the DPLC module would be a worse trade than three
+// repetitions.)
+pub comptime fn dplc_peak_tiles(d: Data) -> int {
+    comptime var peak = 0
+    for f in 0..(((d[0] << 8) | d[1]) >> 1) {                  // frames = table[0] / 2
+        comptime var fo = (d[f << 1] << 8) | d[(f << 1) + 1]   // frame block offset
+        comptime var total = 0
+        for e in 0..(((d[fo] << 8) | d[fo + 1])) {             // that frame's entry count
+            comptime var eo = fo + 2 + (e << 1)
+            // entry word: bits 15-12 = tile_count-1, bits 11-0 = tile_start
+            total = total + ((((d[eo] << 8) | d[eo + 1]) >> 12) & $F) + 1
+        }
+        if total > peak { peak = total }
+    }
+    return peak
+}
+
+// -----------------------------------------------
 // perform_dplc — the shared DPLC body (single-sourced; the Important and
 // Deferrable procs differ ONLY in which QueueDMA priority they call, so the
 // 30-line load loop lives here once). `queue` selects the DMA queue proc.

@@ -22,7 +22,10 @@
 module games.sonic4.constants
 
 use engine.types.{VramTile}
-use engine.constants.{COLLECTED_MASK_BYTES}
+use engine.constants.{COLLECTED_MASK_BYTES, TILE_SIZE}
+// The two fixed VDP tables the character/appendage VRAM allocations below are
+// walled against — read from the engine, never restated as literals here.
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, MAX_VDP_SPRITES}
 
 // Game state ids
 pub const GS_OBJECT_TEST          = 2
@@ -192,8 +195,10 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // -----------------------------------------------
 // Test VRAM allocation
 // -----------------------------------------------
-// tile 992 — test object art (8 tiles) in the free gap between the character DPLC
-// region end (985) and the BG shared region base (1024).
+// tile 992 — test object art (8 tiles) at the end of the character DPLC window
+// (960..991) and below the BG shared region base (1024). This address IS the
+// character window's hard wall: tails_data.emp / collision_data.emp `ensure` each
+// character's measured peak DPLC frame stays under it.
 pub const VRAM_TEST_OBJ           : VramTile = $03E0
 // VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the S3K ring-art base:
 // a GAME->ENGINE `-D` interface value (DrawRings, rings.emp, renders every ring
@@ -204,7 +209,31 @@ pub const VRAM_TEST_OBJ           : VramTile = $03E0
 // act art pool (every pool slot is referenced FG art — see POOL_TILE_CEILING) nor in
 // the ring sprite's 1000-1003 span.
 pub const VRAM_TEST_MARKER        : VramTile = VRAM_TEST_OBJ + $18
-// tile 960 — character DPLC region (up to 25 tiles). MUST stay clear of: the act
-// art pool (tiles 0..POOL_TILE_CEILING-1), the test-obj/ring/marker span
-// (992-1007), BG region (1024+), SAT/HScroll/planes.
+// tile 960 — THE character DPLC window: 32 tiles, 960 up to the VRAM_TEST_OBJ
+// wall at 992. Every playable character streams his current frame's art here, so
+// it is sized by the LARGEST peak frame across the cast, not by any one of them
+// (Sonic peaks at 29 tiles, ending 989; Tails at 24). Only one character is
+// resident at a time, so they share it rather than each taking a window.
+// MUST stay clear of: the act art pool (tiles 0..POOL_TILE_CEILING-1), the
+// test-obj/ring/marker span (992-1007), BG region (1024+), SAT/HScroll/planes.
+// The peak-vs-wall check is a comptime `ensure` per character data module
+// (collision_data.emp for Sonic, tails_data.emp for Tails), derived from the
+// DPLC blob itself — it was only ever a comment here, and a comment does not
+// catch an art re-export that grew.
 pub const VRAM_TEST_SONIC         : VramTile = $03C0
+
+// tile 1492 — the Tails twin-tail APPENDAGE's own DPLC window (9 tiles needed),
+// in the 12-tile gap between the sprite attribute table and the HScroll table.
+// It needs its own window because the appendage is a SECOND simultaneously
+// resident sprite: body + tails are both on screen every frame, so they cannot
+// take turns in the character window above.
+// Clear of: the SAT, which ends at VRAM_SPRITE_TABLE + MAX_VDP_SPRITES*8 =
+// $BA80 = tile 1492 (80 sprites x 8 bytes = 640 is the whole table — the
+// per-frame SAT DMA only ever shortens it, never extends past 640); and the
+// HScroll table at $BC00 = tile 1504. Both walls are checked below rather than
+// restated as numbers, so relocating either one re-checks this allocation.
+pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4
+ensure(VRAM_TAILS_APPENDAGE * TILE_SIZE >= VRAM_SPRITE_TABLE + MAX_VDP_SPRITES * 8,
+       "VRAM_TAILS_APPENDAGE overlaps the sprite attribute table")
+ensure(VRAM_TAILS_APPENDAGE * TILE_SIZE < VRAM_HSCROLL_TABLE,
+       "VRAM_TAILS_APPENDAGE starts at or past the HScroll table")

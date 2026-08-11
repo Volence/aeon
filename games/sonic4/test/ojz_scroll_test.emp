@@ -107,8 +107,9 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
         jbsr    Level_LoadArt
 
-        // -- test object + ring placeholder art (9 tiles at VRAM_TEST_OBJ;
-        //    the last tile is VRAM_RING_PLACEHOLDER for DrawRings) --
+        // -- test object + ring placeholder art (TEST_ART_LEN = 768 B = 24 tiles
+        //    at VRAM_TEST_OBJ: two 4-tile colour squares then the 16-tile ring
+        //    blob, whose base is VRAM_RING_PLACEHOLDER = VRAM_TEST_OBJ+8) --
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
         move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt

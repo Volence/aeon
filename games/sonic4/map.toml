@@ -35,6 +35,18 @@
 
 fill = 0x00
 
+# WHY `Map_Tails` IS NOT NEXT TO `HeightMaps` (character-dispatch C1 task 5): it
+# belongs there — the Tails mappings/DPLC/art are the exact peer of the Sonic trio
+# that ends the `collision_data` section — and it does not FIT there. The data
+# region runs out at the `dac_banks` org anchor ($48000, a Z80 SetBank latch), and
+# `Art_Sonic` already ends at $4277E: 22,658 bytes of headroom against the 132 KB
+# the Tails body + appendage need. So the bulk sprite data is exiled to the ROM
+# tail, after the sound banks, where growth is unbounded; the 234-byte
+# `Ani_Tails` script table DOES fit and stays with `Ani_Sonic` where it belongs.
+# This exile is a ROM-ADDRESS workaround, not a design one — module ownership and
+# file layout are unchanged — and it is exactly what the parked "banks late, data
+# unbounded" ROM re-layout parcel exists to retire. Undo it when that lands.
+#
 # ── Order (byte-emitting section head-labels / module-ids, canonical union order).
 #    Root array — MUST precede the `[[table]]` sections below (TOML scoping). Each
 #    target's derived byte-emitting order must be a SUBSEQUENCE of this list; a
@@ -58,8 +70,9 @@ order = [
   "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "ObjDef_Static",
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj",
-  "Ani_Sonic", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
+  "Ani_Sonic", "Ani_Tails", "Ani_Particle", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
   "Song_MovingTrucks", "Sfx_33",
+  "Map_Tails",
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init",
   "__align$games.sonic4.replay_fixture$0", "Replay_OJZ_Fixture",
   "ReleaseFault", "BusError", "EndOfRom",
