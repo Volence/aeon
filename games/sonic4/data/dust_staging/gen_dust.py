@@ -184,11 +184,23 @@ def main():
     args = ap.parse_args()
 
     src = Path(args.skdisasm) / 'General' / 'Sprites' / 'Dash Dust'
-    if not (src / 'Dash Dust.bin').is_file():
+    # Check EVERY donor file we will read, not just the art: verify_remap below
+    # reaches into the Sonic palette directory through derive_palette_remap, so a
+    # partial checkout (art present, palettes missing) would otherwise surface as
+    # a bare traceback from inside the borrowed parser rather than as this message.
+    required = [
+        src / 'Dash Dust.bin',
+        src / 'DPLC - Dash Dust.asm',
+        src / 'Map - Dash Dust.asm',
+        Path(args.skdisasm) / 'General' / 'Sprites' / 'Sonic' / 'Palettes' / 'SonicAndTails.bin',
+    ]
+    missing = [p for p in required if not p.is_file()]
+    if missing:
         raise SystemExit(
-            f"gen_dust: donor art not found at {src / 'Dash Dust.bin'}. "
-            "Pass --skdisasm pointing at your skdisasm checkout root "
-            "(tools/test_gen_dust.py honors AEON_SKDISASM_DIR for the same purpose).")
+            "gen_dust: donor file(s) not found:\n  "
+            + "\n  ".join(str(p) for p in missing)
+            + "\nPass --skdisasm pointing at your skdisasm checkout root "
+              "(tools/test_gen_dust.py honors AEON_SKDISASM_DIR for the same purpose).")
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

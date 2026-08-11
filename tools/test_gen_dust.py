@@ -88,6 +88,18 @@ def test_spindash_mappings_are_seven_frames(tmp_path):
     corrupts charge frames (while leaving the already-checked puff frames
     correct) is caught: it would either drop below the DPLC's tile count, spill
     a piece past the 12-tile charge window, or leave a frame with no pieces.
+
+    THE EXACT-EQUALITY IS A CHOSEN INTOLERANCE, NOT A FORMAT RULE. Nothing in
+    the mapping format forbids a frame from drawing FEWER tiles than it loads,
+    or from reusing one loaded tile across two pieces via the flip bits (a
+    standard Genesis space-saving trick). Equality holds here only because all
+    seven S3K charge frames are SINGLE-PIECE, so cross-piece reuse cannot arise
+    — measured, not assumed. It is kept strict deliberately: this is donor art
+    we control, and the tight form is what would catch a bad re-export.
+    If a future re-export legitimately introduces a multi-piece frame with tile
+    reuse, this assertion fires on GOOD data — relax this one comparison to
+    `<=`, do not reshape the importer, and do not read the failure as a
+    build_mappings regression.
     """
     run(tmp_path)
     dm = open(os.path.join(tmp_path, "map_dust_spindash.bin"), "rb").read()
