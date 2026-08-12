@@ -30,7 +30,7 @@
 module games.sonic4.player_glide in player_glide
 
 use engine.objects.sst.{Sst}
-use engine.constants.{PHYS_GRAVITY, PHYS_FALL_CAP, ST_XFLIP, ST_ON_OBJECT,
+use engine.constants.{PHYS_GRAVITY, PHYS_FALL_CAP, ST_XFLIP, ST_ON_OBJECT, SOLID_TOP,
         BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.constants.{PSTATE_GROUND, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, CHEAT_DEBUG_FLY}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, dist_to_fix}
@@ -286,14 +286,32 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         beq     .no_wall_r
         bset    #GLF_PUSH_BIT, 1(sp)
 .no_wall_r:
-        // floor land only while descending (S3K :30722 loc_17A36)
+        // Floor land only while descending. THE WALL-CATCH FIX (Task 10 bug): use a
+        // SINGLE CENTRE probe, NOT the A/B pair (Player_SensorFloor). After the wall
+        // snap above leaves the player flush against the face (centre at face - radius),
+        // the pair's OUTER sensor sits exactly on the wall's near column and reads the
+        // wall's TOP-solidity (the walls here are SOLID_ALL = TOP|LRB) as a FLOOR —
+        // spuriously landing the glide (GLF_INAIR cleared) so PState_Glide takes
+        // .hit_floor before it ever tests GLF_PUSH, and the wall-catch chain is
+        // unreachable. A wall contact is not a floor. S3K's glide floor check
+        // (sub_11FD6) is likewise a single CENTRE sensor, so the outer-sensor false
+        // land cannot happen there. The centre (snapped to face - radius) is clear of
+        // the wall column, so it only lands on a genuine floor under the player.
         tst.w   y_vel(a0)
         bmi     .airborne
-        jbsr    Player_SensorFloor              // d0 = dist, d1 = angle
+        move.w  x_pos(a0), d0                   // centre X (post wall-snap = clear of the wall)
+        moveq   #0, d1
+        move.b  height_pixels(a0), d1
+        lsr.w   #1, d1                           // y_radius
+        add.w   y_pos(a0), d1                   // feet Y = y + y_radius (integer word)
+        moveq   #SOLID_TOP, d6
+        moveq   #0, d3
+        move.b  layer(a0), d3
+        jbsr    Collision_ProbeDown             // d0 = floor dist, d1 = angle, a0 preserved
         tst.w   d0
         bpl     .airborne                       // not embedded → no landing
-        // landed — snap onto the floor along +Y (S3K `add.w d1,y_pos`, always the
-        // down axis here), take the floor angle, kill the vertical.
+        // landed — snap onto the floor along +Y (S3K `add.w d1,y_pos`), take the floor
+        // angle, kill the vertical.
         move.b  d1, d3                          // save the floor angle
         dist_to_fix(d0)                         // d0 = dist << 16
         add.l   d0, y_pos(a0)
