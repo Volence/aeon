@@ -4081,3 +4081,16 @@ law-change that should not happen. The options are:
 
 Note that option 3 does not generally escape the rule: for both sites the divide-free alternative
 is a *multiply*, which sits under the same sentence.
+
+
+### VRAM linker T1 — the packer in sigil's chainer (spec §6)
+**Blocked by:** nothing technical; queued behind the T1 plan being written.
+**What:** the six sigil asks from `docs/superpowers/specs/2026-08-11-vram-linker-design.md` §6: S-1 vram.toml parser in the harness, S-2 the solver (FFD + lifetime stub + exact fallback, with the fixpoint acceptance test: given the pinned map, reproduce it), S-3 define emission — VRAM names join `emp_defines`, replacing the hand ring-placeholder values across the native.rs profiles (MUST land value-neutral, byte-identical goldens as its gate), S-4 the no-raw-literal lint, S-5 map/budget/diff artifacts + refreeze integration, S-6 (T2) per-act solve outputs.
+**Also ledgered with it:** the art_tile hash normalization rider (spec §12 — one re-stamp, unpins the character window for T1 floating); the possible vram.toml/map.toml merge when the user's broader TOML review happens (their stated intent, 2026-08-11).
+**When ready:** after the T0 execution note and the T1 plan (task queued).
+
+### Dust plan Task 2 — SUPERSEDED by the VRAM registry carve
+`docs/superpowers/plans/2026-08-11-dust-effect.md` Task 2 (the hand
+POOL_TILE_CEILING carve) is superseded by the registry
+(`games/sonic4/vram.toml`, commit c51a4ff9): VRAM_DUST_PUFF/VRAM_DUST_SPINDASH
+now exist from the generated block. Dust Tasks 3-6 resume unchanged otherwise.

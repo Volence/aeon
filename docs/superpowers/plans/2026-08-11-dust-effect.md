@@ -1,5 +1,13 @@
 # Dust Effect Implementation Plan
 
+> **2026-08-11 STATUS:** Task 1 DONE (importer, cd45d752/8f2f1934/89d27f63).
+> **Task 2 is SUPERSEDED** — the VRAM carve re-landed through the VRAM registry
+> (games/sonic4/vram.toml, commit c51a4ff9): `VRAM_DUST_PUFF` (896) and
+> `VRAM_DUST_SPINDASH` (912) now come from the generated block in
+> config/constants.emp, with all three replay gates passed and no fixture
+> re-stamp. Resume at Task 3; ignore Task 2's steps and its ojz_strip_gen.py
+> edit (the tool now imports the ceiling from tools/vram_map.py).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the player visible dust — the puff cycling behind a spindash charge and the puffs kicked up by a skid — as two objects on the existing Effect pool.
