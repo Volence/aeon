@@ -6,69 +6,95 @@ These conventions encode lessons from: S.C.E. (Sonic Clean Engine), Batman & Rob
 
 ---
 
-## 1. AS Assembler — Use It to the Fullest
+## 1. Sigil & the `.emp` Language — Use It to the Fullest
 
-### 1.1 `function` — Every Constant Calculation
+This engine is assembled by **sigil** from `.emp` source; the spellings below are
+the `.emp` language (SIGIL_SPEC2_LANGUAGE.md). The AS-era spellings each rule cites
+(`function`, `struct`/`endstruct`, `phase`/`dephase`, `even`, `rept`) survive only
+in the residual `.asm` files (`games/<game>/game_root.asm`, `engine/debug/debugger.asm`)
+assembled through sigil-frontend-as, and in `@as_compat` ports — never in new `.emp` code.
 
-Any formula that's constant at build time MUST be a `function`. Never compute at runtime what the assembler can compute at build time.
+### 1.1 `comptime fn` — Every Constant Calculation
 
-```asm
-; VDP command generation — zero runtime cost
-vdpComm     function addr,type,rwd, \
-              (((type & rwd) & 3) << 30) | ((addr & $3FFF) << 16) | (((type & rwd) & $FC) << 2) | ((addr & $C000) >> 14)
+Any formula that's constant at build time MUST be a `comptime fn` — sigil's one
+metaprogramming construct: a pure, deterministic function evaluated during assembly.
+Never compute at runtime what the assembler can compute at build time. (AS's
+`function` directive maps 1:1 onto expression-bodied comptime fns and still governs
+residual `.asm`.)
 
-; Art tile encoding
-vram_art    function tile,pal,pri, (pri<<15)|(pal<<13)|tile
-vram_bytes  function tile, tile<<5
+```emp
+// VDP command generation — zero runtime cost (real form uses VdpTarget/VdpOp enums)
+pub comptime fn vdp_comm(addr: int, target: VdpTarget, op: VdpOp) -> int { ... }
 
-; Sprite size encoding (width/height in cells: 1-4)
-sprSize     function w,h, ((((h)-1)<<2)|((w)-1))<<8
+// Art tile encoding
+pub comptime fn vram_art(tile: int, pal: int, pri: int) -> int {
+    return (pri << 15) | (pal << 13) | tile
+}
+pub comptime fn vram_bytes(tile: int) -> int { return tile << 5 }
 
-; Section grid index
-secIndex    function x,y, ((y)*GRID_WIDTH+(x))*SEC_ENTRY_SIZE
+// DMA word count
+pub comptime fn dma_length(bytes: int) -> int { return (bytes >> 1) & $FFFF }
 
-; Collision map index (128-column shift-based)
-collCell    function x,y, ((y)<<7)+(x)
-
-; DMA word count
-dmaWords    function bytes, (bytes)>>1
+// A bitfield constructor range-checks every field at comptime — preferred over raw
+// bit-math where the encoding is a bitfield (kills the unchecked vram_art class):
+bitfield ArtTile: u16 { pri: 1, pal: 2, tile: 11 @ 0 }
 ```
 
-### 1.2 `struct` / `endstruct` — Named Field Offsets
+Refinement bounds (`reg: int where 0..$17`) and enum params give each argument a
+comptime range-check for free — reach for them over bare `int` when the domain is known.
 
-Never manually chain `equ` values. Define structures so the assembler calculates offsets and catches layout errors.
+### 1.2 `struct` — Named Field Offsets
 
-```asm
-        struct OBJ
-code_addr       ds.l 1      ; routine pointer
-mappings        ds.l 1      ; sprite mapping pointer
-art_tile        ds.w 1      ; VRAM tile + palette + priority
-render_flags    ds.w 1      ; on-screen, flip, multi-sprite
-x_pos           ds.l 1      ; 16.16 fixed-point
-y_pos           ds.l 1      ; 16.16 fixed-point
-x_vel           ds.w 1      ; 8.8 fixed-point
-y_vel           ds.w 1      ; 8.8 fixed-point
-        endstruct OBJ
-; OBJ_len is auto-generated — use for size assertions
+Never manually chain `const`/`equ` values. Define structures so the compiler
+calculates offsets and catches layout errors. `.emp` structs are Rust-like
+(`struct Name (size: N) { field: type, }`); the AS `struct`/`endstruct`/`ds.x`
+form governs residual `.asm` only.
+
+```emp
+pub struct OBJ (size: $50) {         // (size: N) IS the assertion — see §1.6
+    code_addr:    *Code,   // +0  routine pointer
+    mappings:     *u8,     // +4  sprite mapping pointer
+    art_tile:     ArtTile, // +8  VRAM tile + palette + priority (bitfield)
+    render_flags: u16,     // +A  on-screen, flip, multi-sprite
+    x_pos:        Coord,   // +C  16.16 fixed-point
+    y_pos:        Coord,   // +10 16.16 fixed-point
+    x_vel:        Velocity,// +14 8.8 fixed-point
+    y_vel:        Velocity,// +16 8.8 fixed-point
+    // ... pad to $50; padding is ALWAYS a named field (the compiler never inserts any)
+}
+// sizeof(OBJ) / offsetof(OBJ, field) are comptime builtins; OBJ_len is harvested for AS parity.
 ```
 
-### 1.3 `phase` / `dephase` — RAM Layout
+The compiler never inserts alignment padding — a word/long field at an odd offset is
+the default-on `[layout.odd-field]` warning (fix it or `@allow` it for legitimately
+unaligned Z80 layouts). Bitfields (`bitfield`), enums (`enum`), and self-relative
+offset tables (`offsets`, replacing hand `dc.w Target-Base` chains) are the same
+declaration-order, layout-checked family.
 
-Declare RAM layout sequentially. The assembler tracks addresses; overflow is caught at build time.
+### 1.3 `region` / `vars` — RAM Layout
 
-```asm
-        phase RAM_START
-Object_RAM:         ds.b MAX_OBJECTS * OBJ_SIZE
-Sprite_Table:       ds.b 80 * 8
-DMA_Queue:          ds.b DMA_SLOTS * DMA_ENTRY_SIZE
-Horiz_Scroll_Buf:   ds.b 224 * 4
-; ...
-RAM_Used_End:
-        if * > RAM_END
-          error "RAM overflow by \{* - RAM_END} bytes!"
-        endif
-        dephase
+Declare RAM as named `region`s (their base/limit addresses live in the map/module)
+populated by `vars` blocks that allocate at deterministic addresses. Region overflow,
+the `.w`-addressability bit-15 rule, and align-under-VMA correctness are compiler
+checks — replacing AS's hand-written `phase`/`dephase` + `if * > limit / error` guards
+(which still govern residual `.asm`). `mark Name,` names a running position inside a
+`vars` block; `pad(N)` is an explicit reserved gap; align a field with `@align(N)`.
+
+```emp
+pub region upper_ram @ $FFFF8000 .. SYSTEM_STACK, w_addressable
+
+vars upper_ram {
+    Object_RAM:        [u8; MAX_OBJECTS * sizeof(OBJ)],
+    Sprite_Table:      [u8; 80 * 8],
+    mark DMA_Queue,
+    DMA_Slots:         [DMAEntry; DMA_SLOTS],
+    mark DMA_Queue_End,
+    // overflow past the region limit is a build error, named, automatically
+}
 ```
+
+The AS even-alignment footgun (odd `ds.b` silently un-padding the next word field) is
+gone for `.emp` regions — the compiler checks addressability and alignment directly.
 
 ### 1.4 Branch Sizing — UNSIZED in `.emp`
 
@@ -95,12 +121,16 @@ Explicit `.s`/`.w` spellings remain in exactly two places: `@as_compat` ports (w
 
 ### 1.5 Local Label Scoping
 
-Every routine's internal labels use `.prefix` scoping. Reuse `.loop`, `.done`, `.skip` freely — AS scopes them to the enclosing global label.
+Every proc's internal labels use `.name` scoping. Reuse `.loop`, `.done`, `.skip`
+freely — sigil scopes a `.name:` label to the **enclosing `proc`** (or `asm{}`
+template). External reference is `ProcName.label`, read-only. There are no bare
+code-level globals — globals exist only as proc/data names, so the `loc_XXXX` class
+is unrepresentable (§4.3).
 
-```asm
-Process_DMA:
+```emp
+proc Process_DMA (a5: *u8) clobbers(d0) {
         tst.w   d0
-        beq.s   .empty
+        beq     .empty
 .loop:
         move.l  (a0)+, (a5)
         dbf     d0, .loop
@@ -108,37 +138,37 @@ Process_DMA:
         rts
 .empty:
         moveq   #0, d0
-        bra.s   .done
-
-; From outside: bsr Process_DMA.done (fully qualified)
+        jbra    .done
+}
+// From outside: jbra Process_DMA.done (module-qualified)
 ```
+
+Labels born inside an `asm{}` comptime template are **fresh per instantiation** — a
+template that means to publish a caller-visible label marks it `export .name:`. That
+one rule is the whole hygiene model; it retires AS's "expand once per scope"
+fixed-internal-label constraints and the `{GLOBALSYMBOLS}` attribute.
 
 ### 1.6 Compile-Time Validation
 
-Catch errors at build time, not at runtime. Every boundary, table size, and layout assumption gets an assembler check.
+Catch errors at build time, not at runtime. Every boundary, table size, and layout
+assumption gets a comptime check. The `.emp` guard is `ensure(cond, "msg with {vals}")`
+(error severity; `ensure_fatal` aborts the module) — it replaces AS's `if cond / error /
+endif` idiom, which governs residual `.asm` only. There are **no assembly passes** in
+sigil, so AS's `if MOMPASS > 1` final-pass gating is unnecessary and gone: a guard whose
+condition depends on a size-relaxable position defers to a link-time assertion
+automatically, evaluated against the settled layout.
 
-```asm
-; Struct size assertion
-        if OBJ_len <> $50
-          error "OBJ struct is \{OBJ_len} bytes, expected $50"
-        endif
+```emp
+// Struct size assertion — prefer the struct's own (size: N) (§1.2), which IS this check;
+// ensure() covers the cases (size: N) can't express:
+ensure(sizeof(OBJ) == $50, "OBJ struct is {sizeof(OBJ)} bytes, expected $50")
 
-; Table size consistency
-        if (Table_End - Table_Start) / ENTRY_SIZE <> EXPECTED_COUNT
-          error "Table entry count mismatch"
-        endif
+// Table size consistency
+ensure((Table_End - Table_Start) / ENTRY_SIZE == EXPECTED_COUNT, "Table entry count mismatch")
 
-; RAM overflow
-        if RAM_Used_End > $FFFFFFFF
-          error "RAM overflow by \{RAM_Used_End - $FFFFFFFF} bytes"
-        endif
-
-; VRAM pool budget (final pass only)
-        if MOMPASS > 1
-          if Permanent_Tiles_End > VRAM_POOL_END
-            error "Permanent tiles overflow pool by \{Permanent_Tiles_End - VRAM_POOL_END}"
-          endif
-        endif
+// Budget check — legal at item position, evaluated against here(); no pass guard needed
+ensure(Permanent_Tiles_End <= VRAM_POOL_END,
+       "Permanent tiles overflow pool by {Permanent_Tiles_End - VRAM_POOL_END}")
 ```
 
 ### 1.7 Conditional Debug Assembly
@@ -218,22 +248,22 @@ One structural consequence to respect: whenever the `error_handler` island is pr
 
 ### 1.8 Build-Time Data Generation
 
-Use `rept`, `irp`, and math functions to generate lookup tables at assembly time.
+Generate lookup tables with a `comptime fn` returning a typed array, emitted by a
+`data` item. Comptime `for`/`while`/`match`, arrays (`map`/`filter`/`fold`, `[i]`),
+the `|>` pipe, and lambdas are the toolkit — replacing AS's `rept`/`irp`/`set`
+counter-macros (which survive in residual `.asm`). Float tables use `as.sin`/`as.int`
+(bit-compatible with `asl 1.42`) for ported data, `math.sin` for new code.
 
-```asm
-; Sine table — computed, not included as binary
-Sine_Table:
-angle = 0
-        rept 512
-        dc.w (sin(angle * 3.14159265 * 2.0 / 512.0)) * $7FFF
-angle = angle + 1
-        endr
+```emp
+// Sine wave — computed, not included as binary. A comptime fn folds the loop:
+pub comptime fn deform_sine(amplitude: int, period: int) -> [i8; 256] {
+    ensure(256 % period == 0, "deform_sine: period {period} must divide 256")
+    return comptime for i in 0..256 { as.int(amplitude * as.sin(TAU * i / period)) }
+}
+pub data DeformTable_Calm: [i8; 256] = deform_sine(amplitude: 96, period: 64)
 
-; Power-of-two table
-Powers_Of_Two:
-        irp val, 1,2,4,8,16,32,64,128,256,512,1024,2048
-        dc.w val
-        endr
+// Content-hashed includes replace BINCLUDE: embed("path") (inspectable at comptime —
+// .len, [i]), plus zx0()/s4lz()/kosinski() compression builtins that run at build.
 ```
 
 ---
@@ -282,7 +312,7 @@ Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtim
 ### 2.4 Memory Access
 
 - **PC-relative for ROM reads.** `move.w Table(pc), d0` saves 2 bytes and 4 cycles vs absolute. Use for all ROM data within ±32KB. Batman & Robin uses 986 PC-relative references.
-- **Word-align everything.** The 68000 bus is 16-bit. Unaligned word/long access causes an address error (crash). Use `even` after any byte data.
+- **Word-align everything.** The 68000 bus is 16-bit. Unaligned word/long access causes an address error (crash). Use `align 2` after any byte data. (The `.emp` front-end does not implement `even` at all — `even` is the AS residual spelling for `align 2`; data items also take an `(align: N)` attribute, e.g. `pub data T (align: 2) = ...`.) A `proc` or word/long data item landing at an odd address is the `[layout.odd-item]` diagnostic — error for procs, warning for data.
 - **Prefer `(a0)+` post-increment.** Sequential reads with `(a0)+` are the fastest access pattern — 0 extra cycles vs base addressing.
 - **Avoid `(d0.w, a0)` in tight loops.** Indexed addressing = 10 extra cycles. Pre-compute the effective address with `lea` outside the loop.
 
@@ -328,7 +358,7 @@ Rules:
 
 **Self-modifying immediates:** The 68000 has no instruction cache. Patching immediate values in instruction streams (e.g., writing a new value into the `#xxxx` field of a `move.w #xxxx,d0`) is safe and eliminates a memory load. Useful for per-frame constants like scroll base offsets, palette indices, or tile base addresses that change once per frame but are read many times. Cost: one `move.w` to patch vs one `move.w (a0),d0` per read — same speed but removes the pointer setup.
 
-**Word-align hot branch targets:** The 68000 fetches 16-bit words. Branch targets on odd word boundaries cost a wasted prefetch. Use `even` or `align 2` before frequently-hit labels — especially loop tops and hot-path branch destinations. Saves 4 cycles on taken branches to misaligned targets.
+**Word-align hot branch targets:** The 68000 fetches 16-bit words. Branch targets on odd word boundaries cost a wasted prefetch. Use `align 2` before frequently-hit labels — especially loop tops and hot-path branch destinations (AS spells this `even`). Saves 4 cycles on taken branches to misaligned targets.
 
 **LEA displacement chaining:** Instead of multiple `adda` operations, chain `lea`: `lea 8(a0),a1` then `lea 12(a1),a2`. LEA sets up the effective address in the calculation stage while ADDA stalls on the address bus. Useful when computing multiple derived pointers from a base.
 
@@ -424,26 +454,27 @@ Cost: ~6 cycles per value. Idempotent — safe to run when already converged (de
 
 - **`jbsr` for calls** — sigil relaxes it through `bsr.s`/`bsr.w`/`jsr` by reach (§1.4). Raw `jsr` only for register-indirect dispatch.
 - **Keep hot routines short.** If a routine is called per-object per-frame, it should fit in ~50 instructions. Large routines should be split into inlined fast-path + called slow-path.
-- **Leaf routines don't need `movem`.** If a routine doesn't call other routines, don't save/restore registers — just document which registers it clobbers. The caller manages its own register state.
-- **Document register clobber.** Every routine header states inputs, outputs, and clobbered registers.
+- **Leaf routines don't need `movem`.** If a routine doesn't call other routines, don't save/restore registers — declare its `clobbers(...)` and let the caller manage its own register state.
+- **Declare the register contract as attributes.** Every `proc` that writes registers declares `clobbers(...)` (the write set INCLUDING outputs, plus callee effects); a proc that returns results declares `out(...)`; a proc that saves/restores via a `movem` pair declares `preserves(...)` in the movem-reglist spelling. These are compiler-verified (tranche-3 ruling, §10). The header comment's `Clobbers:` line explains MEANING; the attribute is authoritative and the two must not contradict. A no-effect proc declares the explicit empty `clobbers()`.
 - **Tail calls.** When the last instruction before `rts` is `jbsr Target`, replace the pair with `jbra Target`. Saves 10 cycles and 4 bytes by eliminating the call/`rts` overhead.
 
-```asm
-; -----------------------------------------------
-; Get_Collision_Type
-; In:  d0.w = X position (section-local)
-;      d1.w = Y position (section-local)
-;      a0   = collision map base
-; Out: d0.b = collision type
-; Clobbers: d1
-; -----------------------------------------------
-Get_Collision_Type:
+```emp
+// -----------------------------------------------
+// Get_Collision_Type
+// In:  d0.w = X position (section-local)
+//      d1.w = Y position (section-local)
+//      a0   = collision map base
+// Out: d0.b = collision type
+// Clobbers: d1
+// -----------------------------------------------
+pub proc Get_Collision_Type (a0: *u8) clobbers(d1) out(d0) {
         lsr.w   #4, d0
         lsr.w   #4, d1
         lsl.w   #7, d1
         add.w   d0, d1
         move.b  (a0, d1.w), d0
         rts
+}
 ```
 
 ---
@@ -513,13 +544,21 @@ This applies to any pair of (data, state) that are both consumed mid-scanline. N
 | ROM constants | `ALL_CAPS_UNDERSCORED` | `MAX_OBJECTS`, `VRAM_POOL_SIZE`, `SEC_ENTRY_SIZE` |
 | Local labels | `.lowercase_dotted` | `.loop`, `.skip`, `.done`, `.return`, `.not_found` |
 | Struct fields | `lowercase_underscored` | `x_pos`, `art_tile`, `render_flags`, `code_addr` |
-| AS functions | `camelCase` | `vdpComm`, `vram_art`, `sprSize`, `secIndex` |
-| AS macros | `camelCase` | `stopZ80`, `setVDPReg`, `queueStaticDMA` |
+| `comptime fn` (values + `asm{}` templates) | `snake_case` | `vdp_comm`, `vram_art`, `dma_length`, `set_vdp_reg` |
 | Enum values | `ALL_CAPS` with prefix | `STATE_IDLE`, `STATE_RUNNING`, `FLAG_ON_SCREEN` |
-| SST custom overlays | `_lowercase_underscored` | `_dplc_ptr`, `_patrol_left`, `_art_base` |
-| Overlay var structs | `<Object>V` PascalCase | `TEnemyV`, `TPlayerV`, `DplcV` (shared) |
+| SST overlay (`vars`) | `<Object>V` PascalCase | `TEnemyV`, `PlayerV`, `DplcV` (shared) |
+| SST overlay fields | `lowercase_underscored` | `steps_remaining`, `dplc_ptr`, `art_base` |
 
-SST custom field overlays use a leading underscore to distinguish them from global labels. Each object defines a `<Object>V` struct for its layout (assembler computes offsets), follows it with `objvarsCheck <Object>V_len` (build-aborts on sst_custom overflow), and derives the underscore accessors from struct fields: `_patrol_left = SST_sst_custom+TEnemyV_patrol_left`. Raw `= SST_sst_custom + N` arithmetic is banned. When multiple objects share the same custom layout, guard the whole block (struct + check + equates) with `ifndef` in EVERY file that uses it so include order doesn't matter.
+Per-object custom SST state is a **typed overlay** over the `Sst.sst_custom`
+window: `vars <Object>V: Sst.sst_custom { field: type, ... }` (SPEC2 §4.6). Fields
+lay out by the §1.2 struct rules and are read as displacements through a `*Sst`-typed
+register — `TEnemyV.steps_remaining(a0)` (qualified) or bare `steps_remaining(a0)`
+when the name resolves in the register's field space. Window overflow is an error at
+the declaration, always-on — subsuming the AS `objvarsCheck`. Raw `SST_sst_custom + N`
+arithmetic is inexpressible (the compiler resolves field names as the whole
+displacement). Sharing a layout across files is by `use`/prelude on a `pub vars`
+overlay — no re-declaration, no `ifndef` include-order guards. The old
+leading-underscore accessor equates (`_patrol_left = SST_sst_custom+...`) are retired.
 
 ### 4.2 Routine Naming
 
@@ -546,93 +585,75 @@ Every label must describe what the code DOES, not where it IS. No `loc_`, `sub_`
 
 One logical unit per file. A file should contain one routine and its helpers, or one data table and its accessors.
 
+Source files are `.emp`. There is **no** include manifest and no all-including
+`main.asm` — ROM placement is the declared sigil map (`games/<game>/map.toml`), not
+include order (SPEC2 §3.3). The authoritative directory layout is the engine/game
+split described in `CLAUDE.md` / `ENGINE_ARCHITECTURE.md`; the tree below is
+illustrative of the one-unit-per-file principle only.
+
 ```
-aeon/
-  main.asm              ; entry point, includes everything
-  constants.asm         ; all ROM constants and enums
-  macros.asm            ; all macros and AS functions
-  ram.asm               ; RAM layout via phase/dephase
-  structs.asm           ; all struct definitions (OBJ, SEC, DMA, etc.)
-  
-  engine/
-    vdp_init.asm        ; VDP register setup
-    dma_queue.asm       ; DMA queue system
-    sprites.asm         ; sprite rendering (build_sprites + render)
-    plane_buffer.asm    ; deferred plane buffer
-    vblank.asm          ; VBlank handler and frame loop
-    hblank.asm          ; HBlank handler (RAM-patched)
-    controllers.asm     ; joypad reading (3-button + 6-button)
-    
+engine/                 ; the reusable, Sonic-agnostic engine
+  constants.emp         ; ROM constants and enums (system/)
+  structs.emp           ; struct definitions (OBJ, SEC, DMA, etc.)
+  ram.emp               ; RAM layout via region/vars (§1.3)
+  vdp.emp               ; VDP comptime fns + defs (replaces macros.asm's AS functions)
+
+  system/
+    vdp_init.emp        ; VDP register setup
+    dma_queue.emp       ; DMA queue system
+    vblank.emp          ; VBlank handler and frame loop
+    hblank.emp          ; HBlank handler (RAM-patched)
+    controllers.emp     ; joypad reading (3-button + 6-button)
+
   objects/
-    object_core.asm     ; Object_Load, Object_Delete, RunObjects
-    object_draw.asm     ; Draw_Sprite, Render_Sprites
-    object_collision.asm; collision_response dispatch
-    
+    core.emp            ; Object_Load, Object_Delete, RunObjects
+    sprites.emp         ; sprite rendering (build_sprites + render)
+    collision.emp       ; collision_response dispatch
+
   level/
-    section_grid.asm    ; section streaming, preload, teleport
-    camera.asm          ; camera system
-    collision_map.asm   ; per-section collision lookup
-    parallax.asm        ; 8-layer computed parallax
-    
-  player/
-    player_common.asm   ; shared movement, collision, hurt
-    sonic.asm           ; Sonic-specific code
-    tails.asm
-    knuckles.asm
-    
-  vram/
-    allocator.asm       ; dynamic VRAM allocator
-    art_loading.asm     ; S4LZ/UFTC decompression integration
-    
-  effects/
-    palette.asm         ; fade, crossfade, cycling, water
-    deformation.asm     ; scroll deformation tables
-    effects_engine.asm  ; effect sequencer
-    
-  screens/
-    game_modes.asm      ; mode dispatcher
-    title.asm
-    level_select.asm
-    
-  sound/
-    flamedriver.asm     ; Z80 sound driver (BINCLUDE or inline)
-    sound_commands.asm  ; 68K side: play/stop/fade API
-    
+    section.emp         ; section streaming, preload, teleport
+    camera.emp          ; camera system
+    collision_lookup.emp; per-section collision lookup
+    parallax.emp        ; computed parallax
+
+  sound/                ; Z80 driver + FM/PSG/sequencer/SFX (.emp, no BINCLUDE)
   debug/
-    error_handler.asm   ; MD Debugger integration
-    assertions.asm      ; per-subsystem debug checks
-    profiler.asm        ; raster bars, lagometer
-    
-  data/
-    art/                ; compressed art files
-    mappings/           ; sprite mappings (VDP-order format)
-    palettes/           ; raw 128-byte palette files
-    levels/             ; section data, collision maps, nametable strips
-    sound/              ; music, SFX, DAC samples
+    error_handler.emp   ; MD Debugger integration
+    debugger.asm        ; vendored MD Debugger (one of the residual .asm files)
+
+games/sonic4/           ; the game built on the engine
+  player/               ; sonic.emp, tails.emp, knuckles.emp, shared movement
+  objects/
+  data/                 ; levels, art (S4LZ/ZX0), mappings, palettes, sound
+  game_root.asm         ; minimal AS residual root — defines/externs only, emits no bytes
 ```
 
 ### 5.2 File Header
 
-Every `.asm` file starts with a one-line description. No multi-line headers, no ASCII art, no changelog.
+Every `.emp` file starts with a one-line description. No multi-line headers, no ASCII art, no changelog.
 
-```asm
-; DMA queue — 3-priority sub-queue system with hybrid drain
+```emp
+// DMA queue — 3-priority sub-queue system with hybrid drain
 ```
 
 ### 5.3 Routine Header
 
-Every public routine has a register contract. Local helpers (`.prefixed`) don't need one unless the contract is non-obvious.
+Every public routine has a register contract — as compiler-verified `clobbers()`/
+`out()`/`preserves()` attributes (§2.8), with a header comment explaining the meaning.
+`.emp` header banners use `//` rules (§10). Local helpers (`.prefixed`) don't need a
+banner unless the contract is non-obvious.
 
-```asm
-; -----------------------------------------------
-; DMA_Queue_Add — Enqueue a DMA transfer
-; In:  d0.l = source address (68K, even)
-;      d1.w = destination (VRAM/CRAM/VSRAM word address)
+```emp
+// -----------------------------------------------
+// DMA_Queue_Add — Enqueue a DMA transfer
+// In:  d0.l = source address (68K, even)
+//      d1.w = destination (VRAM/CRAM/VSRAM word address)
 ;      d2.w = length in bytes (even, non-zero)
-;      d3.w = priority (0=critical, 1=important, 2=deferrable)
-; Out: none
-; Clobbers: d0-d3, a1
-; -----------------------------------------------
+//      d3.w = priority (0=critical, 1=important, 2=deferrable)
+// Out: none
+// Clobbers: d0-d3, a1
+// -----------------------------------------------
+pub proc DMA_Queue_Add (d0: *u8) clobbers(d0-d3/a1) { ... }
 ```
 
 ### 5.4 No Comments Unless Non-Obvious
@@ -658,7 +679,7 @@ Default: no comments. Code should be self-documenting through naming.
 
 ### 6.1 Alignment
 
-- Word-align ALL word and long data. Use `even` after any byte sequence.
+- Word-align ALL word and long data. Use `align 2` after any byte sequence (`even` in residual `.asm`), or the `(align: N)` attribute on a `data` item.
 - Long-align data that will be accessed with `move.l` in tight loops.
 - Tables indexed by shift or multiply must be at addresses the indexing can reach.
 
@@ -679,7 +700,7 @@ Section_0_0_Objects:
         dc.w    $0180
         dc.b    OBJ_BADNIK, $02
         dc.w    $0600
-        even
+        align 2
 ```
 
 ### 6.3 ROM Data Ordering
@@ -699,7 +720,7 @@ Every computation that CAN happen at build time MUST happen at build time. The 6
 - Nametable strips: pre-computed, not chunk→block→tile at runtime
 - VRAM tile indices: graph-colored at build time, not allocated at runtime
 - Collision maps: flattened at build time, not chunk→block→collision at runtime
-- Sine tables: computed by AS, not stored as opaque binaries
+- Sine tables: computed by a `comptime fn` (`deform_sine`, `as.sin`/`math.sin`), not stored as opaque binaries
 - Lookup tables: generated by macros/functions, not hand-typed
 
 ### 7.2 Zero-Copy Data Paths
@@ -769,8 +790,8 @@ Where possible, use dirty flags and state change detection instead of checking e
 Every assumption should be checked at build time. Runtime assertion checks (debug mode) catch what build time can't. Silent runtime failure is never acceptable.
 
 Priority order:
-1. AS `error` / `warning` at build time (cheapest — ROM won't even build)
-2. Debug `RaiseError` at runtime in debug builds (catches dynamic errors)
+1. `ensure(...)` / `ensure_fatal(...)` comptime guard at build time (cheapest — ROM won't even build). Sigil also emits a default-on **lint tier** (`[layout.odd-item]`, `[clobber.*]`, `[branch.*]`, ...) that catches whole classes without a hand-written guard; `@allow` silences a specific site.
+2. `assert` (§1.7 — self-gating, free in release) or a `DEBUG`-wrapped `raise_error` at runtime in debug builds (catches dynamic errors)
 3. `CHK` instruction bounds checking in debug builds (auto-triggers exception)
 4. Never: silent corruption, mystery crashes, "it works if you don't do X"
 
@@ -797,7 +818,7 @@ when the need first arises — likely a per-ObjDef shift mask of custom longword
 | VBlank CPU | ~4,300 cycles | Window plane lagometer |
 | VBlank DMA | ~7.5 KB | DMA byte counter |
 | VRAM tiles | 1,536 (unified pool) | Build tool report |
-| RAM | 65,536 bytes | `phase`/`dephase` overflow check |
+| RAM | 65,536 bytes | `region` limit overflow check (§1.3) |
 | Sprites/frame | 80 | Sprite counter in debug overlay |
 | Sprites/line | 20 | Visual inspection (flicker = overflow) |
 
