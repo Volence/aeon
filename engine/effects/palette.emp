@@ -193,12 +193,12 @@ pub struct PalCycleScript2 { pcs_count: u16, pcs_ch: [pal_cycle_channel; 2] }
 comptime fn clamp_d1_07() -> Code {
     return asm {
         tst.w   d1
-        bpl.s   .cl_pos
+        bpl   .cl_pos
         moveq   #0, d1
-        bra.s   .cl_end
+        bra   .cl_end
     .cl_pos:
         cmpi.w  #7, d1
-        bls.s   .cl_end
+        bls   .cl_end
         moveq   #7, d1
     .cl_end:
     }
@@ -208,10 +208,10 @@ comptime fn clamp_d1_07() -> Code {
 comptime fn step_d3_toward_d4() -> Code {
     return asm {
         cmp.w   d4, d3
-        beq.s   .st_end
-        bcs.s   .st_up
+        beq   .st_end
+        bcs   .st_up
         subq.w  #1, d3
-        bra.s   .st_end
+        bra   .st_end
     .st_up:
         addq.w  #1, d3
     .st_end:
@@ -234,11 +234,11 @@ comptime fn step_d3_toward_d4() -> Code {
 // -----------------------------------------------
 pub proc Palette_LoadSection (a0: u32) clobbers(d0-d1/a1-a2) {
         move.l  Sec.sec_pal(a0), d0
-        beq.s   .keep
+        beq   .keep
         movea.l d0, a1
         // fade armed? -> load Target and start the lerp; else -> load Base (snap)
         tst.b   Pal_Fade_Request
-        bne.s   .load_target
+        bne   .load_target
         lea     Pal_Base, a2
         moveq   #(96 / 4) - 1, d1
     .copy_base:
@@ -300,7 +300,7 @@ pub proc Palette_SetVariant (d0: u16, a0: u32) clobbers(d0/a1) {
         andi.b  #~PAL_ACT_VARIANT, Pal_Active
         move.l  Pal_Variant_Ptr, d0
         or.l    Pal_Variant_Ptr + 4, d0
-        beq.s   .none
+        beq   .none
         ori.b   #PAL_ACT_VARIANT, Pal_Active
     .none:
         rts
@@ -313,13 +313,13 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
         move.l  a0, Pal_Cycle_Script
         andi.b  #~PAL_ACT_CYCLE, Pal_Active
         move.l  a0, d0
-        beq.s   .done
+        beq   .done
         ori.b   #PAL_ACT_CYCLE, Pal_Active
         // reset each channel's frame timer to its period so cycling starts in phase
         movea.l a0, a1
         move.w  (a1)+, d0                       // channel_count
         subq.w  #1, d0
-        bmi.s   .done
+        bmi   .done
         lea     Pal_Cycle_Timers, a1
         moveq   #0, d1
     .zero:
@@ -342,18 +342,18 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
 // -----------------------------------------------
 pub proc Palette_InstallCycleSection (a0: u32) clobbers(d0-d1/a1) {
         move.l  Sec.sec_pal_cycle(a0), d0
-        beq.s   .keep                           // NULL = keep current
+        beq   .keep                           // NULL = keep current
         cmp.l   Pal_Cycle_Script, d0            // already live? (re-cross churn)
-        beq.s   .keep
+        beq   .keep
         move.l  d0, Pal_Cycle_Script
         andi.b  #~PAL_ACT_CYCLE, Pal_Active
         move.l  d0, d1
-        beq.s   .keep                           // empty install path (defensive)
+        beq   .keep                           // empty install path (defensive)
         ori.b   #PAL_ACT_CYCLE, Pal_Active
         movea.l d0, a1
         move.w  (a1)+, d0                       // channel_count
         subq.w  #1, d0
-        bmi.s   .keep
+        bmi   .keep
         lea     Pal_Cycle_Timers, a1
         moveq   #0, d1
     .zero:
@@ -373,7 +373,7 @@ pub proc Palette_InstallCycleSection (a0: u32) clobbers(d0-d1/a1) {
 // ===========================================================================
 pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
         tst.b   Pal_Active
-        bne.s   .work
+        bne   .work
         rts
     .work:
         // Each layer ORs the lines it moved straight into Palette_Dirty (no dirty
@@ -383,7 +383,7 @@ pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
 
         // ---- base: one-shot copy of a freshly-loaded section palette ----
         tst.b   Pal_Base_Dirty
-        beq.s   .cycling
+        beq   .cycling
         clr.b   Pal_Base_Dirty
         andi.b  #~PAL_ACT_BASE, Pal_Active
         lea     Pal_Base, a0
@@ -398,27 +398,27 @@ pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
         // ---- cycling ----
     .cycling:
         btst    #1, Pal_Active                  // PAL_ACT_CYCLE
-        beq.s   .fade
+        beq   .fade
         jbsr    Palette_DoCycle                 // ORs its own touched lines into Palette_Dirty
 
         // ---- cross-fade ----
     .fade:
         tst.b   Pal_Fade_Frames
-        beq.s   .operators
+        beq   .operators
         jbsr    Palette_DoFade
         ori.b   #%1110, Palette_Dirty
 
         // ---- global operators ----
     .operators:
         tst.b   Pal_Op
-        beq.s   .variants
+        beq   .variants
         jbsr    Palette_DoOperator
         ori.b   #%1110, Palette_Dirty
 
         // ---- variants: derive each bound slot from the LIVE composed palette ----
     .variants:
         btst    #4, Pal_Active                  // PAL_ACT_VARIANT
-        beq.s   .done
+        beq   .done
         jbsr    Palette_DoVariants
 
     .done:
@@ -442,7 +442,7 @@ proc Palette_DoCycle () clobbers(d0-d7/a0-a3) {
         movea.l Pal_Cycle_Script, a0
         move.w  (a0)+, d6                       // channel_count
         subq.w  #1, d6
-        bmi.s   .ret
+        bmi   .ret
         lea     Pal_Cycle_Timers, a3
         moveq   #0, d5                          // channel index
     .chan:
@@ -453,11 +453,11 @@ proc Palette_DoCycle () clobbers(d0-d7/a0-a3) {
         move.b  (a0)+, d4                       // direction
         addq.l  #1, a0                          // skip pad
         tst.b   (a3, d5.w)                      // this channel's timer
-        bne.s   .wait
+        bne   .wait
         move.b  d3, (a3, d5.w)                  // reload period
         bset    d0, d7                          // record the touched line (bit = line index)
         jbsr    Palette_RotateSpan             // rotate d2 entries at line d0 from d1, dir d4
-        bra.s   .next
+        bra   .next
     .wait:
         subq.b  #1, (a3, d5.w)
     .next:
@@ -477,7 +477,7 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
         moveq   #0, d3
         move.b  d2, d3                          // d3 = count (clean, byte read had stale upper bits)
         cmpi.w  #2, d3
-        bcs.s   .done                           // count < 2: nothing to rotate
+        bcs   .done                           // count < 2: nothing to rotate
         lea     Palette_Buffer, a1
         move.w  d0, d2
         lsl.w   #5, d2                          // line*32
@@ -488,7 +488,7 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
         move.w  d3, d1
         subq.w  #2, d1                          // dbf trips = count-2
         tst.b   d4
-        bne.s   .rev
+        bne   .rev
         // forward: temp = first; shift each entry down one; last = temp
         move.w  (a1), d0                        // temp
         movea.l a1, a2
@@ -518,7 +518,7 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
 // ===========================================================================
 proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         subq.b  #1, Pal_Fade_Frames
-        bne.s   .step_frame
+        bne   .step_frame
         // ---- final frame: snap Palette_Buffer to Target, and Target -> Base ----
         lea     Pal_Target, a0
         lea     Palette_Buffer + $20, a1
@@ -534,7 +534,7 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         rts
     .step_frame:
         btst    #0, Pal_Fade_Frames             // step only on even frame parity
-        bne.s   .noskip
+        bne   .noskip
         rts
     .noskip:
         lea     Palette_Buffer + $20, a0        // cur (lines 1-3)
@@ -593,9 +593,9 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
 proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         move.b  Pal_Op, d0
         cmpi.b  #PAL_OP_FADE_WHITE, d0
-        beq.s   .fade_dir
+        beq   .fade_dir
         cmpi.b  #PAL_OP_FADE_BLACK, d0
-        beq.s   .fade_dir
+        beq   .fade_dir
         cmpi.b  #PAL_OP_WHITE_FLASH, d0
         beq     .white_flash
         // PAL_OP_NEG_FLASH
@@ -604,7 +604,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         addq.b  #1, d1
         andi.b  #3, d1
         move.b  d1, Pal_Op_Timer
-        bne.s   .neg_tick
+        bne   .neg_tick
         lea     Palette_Buffer + $20, a0
         move.w  #48 - 1, d7
     .neg_xor:
@@ -612,16 +612,16 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         dbf     d7, .neg_xor
     .neg_tick:
         subq.b  #1, Pal_Op_Step
-        bne.w   .ret                            // .ret is past the long fw_word loop below
+        bne   .ret                            // .ret is past the long fw_word loop below
         bra     .op_done_restore
     .fade_dir:
         // step every level channel +/-1 toward 0 (black) or 7 (white) every 2 frames
         subq.b  #1, Pal_Op_Timer
-        bpl.w   .ret
+        bpl   .ret
         move.b  #1, Pal_Op_Timer                // reload cadence (0,1 -> step every 2)
         moveq   #0, d6                          // target channel value: 0 for black
         cmpi.b  #PAL_OP_FADE_WHITE, d0
-        bne.s   .have_tgt
+        bne   .have_tgt
         moveq   #7, d6
     .have_tgt:
         lea     Palette_Buffer + $20, a0
@@ -655,7 +655,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         move.w  d2, (a0)+
         dbf     d7, .fw_word
         subq.b  #1, Pal_Op_Step
-        bne.s   .ret
+        bne   .ret
         // fade complete: leave the palette at black/white and idle the operator.
         move.b  #PAL_OP_NONE, Pal_Op
         andi.b  #~PAL_ACT_OP, Pal_Active
@@ -668,7 +668,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         move.w  #$0EEE, (a0)+
         dbf     d7, .wf_fill
         subq.b  #1, Pal_Op_Step
-        bne.s   .ret
+        bne   .ret
     .op_done_restore:
         // flash over: idle the op and force a base recompose to restore the palette.
         move.b  #PAL_OP_NONE, Pal_Op
@@ -688,13 +688,13 @@ proc Palette_DoVariants () clobbers(d0-d7/a0-a3) {
         // Absolute reads (not a held base pointer): Palette_DeriveVariant clobbers
         // a2-a3, so nothing may be kept in an address register across the call.
         move.l  Pal_Variant_Ptr, d0
-        beq.s   .slot1
+        beq   .slot1
         movea.l d0, a0
         lea     Pal_Variant_Stage, a1
         jbsr    Palette_DeriveVariant
     .slot1:
         move.l  Pal_Variant_Ptr + 4, d0
-        beq.s   .ret
+        beq   .ret
         movea.l d0, a0
         lea     Pal_Variant_Stage + 128, a1
         jbsr    Palette_DeriveVariant
@@ -717,7 +717,7 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
         moveq   #1, d6                          // current line index (start at 1)
     .line:
         btst    d6, d5
-        beq.w   .next_line                      // across the unrolled 16-entry loop below
+        beq   .next_line                      // across the unrolled 16-entry loop below
         // a2 -> Palette_Buffer line d6 ; a3 -> dest line d6
         lea     Palette_Buffer, a2
         move.w  d6, d0
@@ -772,7 +772,7 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
     .next_line:
         addq.w  #1, d6
         cmpi.w  #4, d6
-        bcs.w   .line                           // loops back across the unrolled body
+        bcs   .line                           // loops back across the unrolled body
         rts
 }
 

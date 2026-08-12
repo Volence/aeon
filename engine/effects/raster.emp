@@ -362,12 +362,12 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // decision needing user sign-off (see the report), not taken here.
         // -------------------------------------------------------------------
         tst.w   Raster_Dense_Lines
-        bne.w   .dense_body
+        bne     .dense_body
         movea.l Raster_Cursor, a1
         move.w  (a1)+, (a2)             // arm word -> reg $0A (consumed at fire i+1)
         move.w  (a1)+, d0               // op_count
         cmpi.w  #RASTER_OPS_END, d0
-        beq.w   .park                   // terminator: stray fire, do not advance (far — dense body below)
+        beq     .park                   // terminator: stray fire, do not advance
         subq.w  #1, d0
         bmi.s   .advance                // priming / no-op record
     .op_loop:
@@ -382,9 +382,9 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         cmpi.w  #OP_CRAM, d1
         beq.s   .op_cram
         cmpi.w  #OP_PAL_REGION, d1
-        beq.s   .op_region
+        beq     .op_region
         cmpi.w  #OP_RUN_GRADIENT, d1
-        beq.w   .op_run_gradient
+        beq     .op_run_gradient
         // OP_SET_REG — one $8xxx word
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
