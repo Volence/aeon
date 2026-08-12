@@ -24,7 +24,8 @@ use engine.level.parallax_dsl.*
 // Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
 // command builder they are pinned against.
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
-use engine.effects.raster.{OP_SET_REG, OP_CRAM, RASTER_OPS_END}
+use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, RASTER_ARM_PARK, raster_arm, raster_fire_screen, pal_stage_off}
+use engine.effects.palette.{cycle_channel, pal_cycle_channel, PalCycleScript1}
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
@@ -337,3 +338,16 @@ comptime fn test_palette() -> [u16; 48] {
 }
 
 pub data OJZ_TestPal: [u16; 48] = test_palette()
+
+// ===========================================================================
+// EFFECTS P2 GATE FIXTURES — the palette-cycling band (Task 8) and the OJZ water
+// cluster (Task 7). Authored here, the game-side effects library.
+// ===========================================================================
+
+// OJZ_ShimmerCycle — a per-section cycling band: rotate line-2 entries 8..11 every 8
+// frames. `sec_pal_cycle` finally gets a consumer; the controller reads CRAM per
+// frame to confirm the rotation period. Line 2 (not 0 — the character's).
+pub data OJZ_ShimmerCycle: PalCycleScript1 = PalCycleScript1{
+    pcs_count: 1,
+    pcs_ch: [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ],
+}
