@@ -72,21 +72,26 @@ RAM_Used_End:
 
 ### 1.4 Branch Sizing — UNSIZED in `.emp`
 
-Write ALL relative branches (`bcc`, `bra`, `bsr`) **without** a size suffix in `.emp` source. sigil picks the optimal encoding by reach — `.s` when the target is within ±127 bytes, `.w` otherwise — and re-optimizes on every build, so a branch never stays pinned wide after the code between it and its target shrinks. Past ±32KB it errors loudly (`jbcc` deliberately does not exist; a transfer that far wants restructuring, not a hidden trampoline). Absolute addressing likewise defaults to the bare symbol; the width rule picks the optimal encoding.
+Let sigil size every transfer. The spelling set:
+
+- **`bcc .label` (unsized conditionals)** — sigil picks `.s`/`.w` by reach and re-optimizes on every build, so a branch never stays pinned wide after the code between it and its target shrinks. Out of ±32K reach is a loud convergence error (`jbcc` trampolines are deliberately deferred — a conditional that far wants restructuring, not a hidden trampoline).
+- **`jbsr Target` (calls)** — the relaxing call: sigil picks `bsr.s`/`bsr.w`/`jsr` by reach, so it always reaches. This is the standard call spelling; raw `jsr` remains only for register-indirect dispatch (`jsr (a0)`, `jsr (a1,d1.w)`) which cannot relax.
+- **`jbra Target` (unconditional jumps)** — same ladder for `bra.s`/`bra.w`/`jmp`. Bare unsized `bra`/`bsr` also relax (two rungs, no far form) but `jbra`/`jbsr` are preferred for anything that might leave the module.
+- **Absolute addressing** — defaults to the bare symbol; the width rule picks the optimal encoding.
 
 ```asm
 ; CORRECT — let sigil size it
-        bra     .local_label
         bne     .skip
-        bsr     Nearby_Helper
-        jsr     Far_Function
+        jbsr    Nearby_Or_Far_Helper
+        jbra    Common_Exit
+        jsr     (a0)                    ; register-indirect: raw jsr, cannot relax
 
 ; WRONG in .emp — hand-pinned sizes go stale as code moves
-        bra.s   .local_label
-        bne.w   .skip           ; stays .w forever even if the gap shrinks
+        bne.w   .skip                   ; stays .w forever even if the gap shrinks
+        bsr.s   Helper                  ; breaks the build if Helper drifts out of range
 ```
 
-Explicit `.s`/`.w` spellings remain in exactly two places: `@as_compat` ports (AS-parity byte equivalence) and self-modified/patched fields where the encoding width is load-bearing. `dbf` keeps its form (always word). The historical rule ("explicit size on every branch, no exceptions") applied to the AS single-pass era and still governs the residual `.asm` files assembled via sigil-frontend-as.
+Explicit `.s`/`.w` spellings remain in exactly two places: `@as_compat` ports (where an unsized branch is a pin ERROR and sized spellings stay byte-identical for AS parity) and self-modified/patched fields where the encoding width is load-bearing. `dbf` keeps its form (always word). The historical rule ("explicit size on every branch, no exceptions") applied to the AS single-pass era and still governs the residual `.asm` files assembled via sigil-frontend-as.
 
 ### 1.5 Local Label Scoping
 
@@ -417,11 +422,11 @@ Cost: ~6 cycles per value. Idempotent — safe to run when already converged (de
 
 ### 2.8 Subroutine Discipline
 
-- **`bsr`** — unsized in `.emp` like every relative branch (§1.4); sigil picks `.s`/`.w` by reach.
+- **`jbsr` for calls** — sigil relaxes it through `bsr.s`/`bsr.w`/`jsr` by reach (§1.4). Raw `jsr` only for register-indirect dispatch.
 - **Keep hot routines short.** If a routine is called per-object per-frame, it should fit in ~50 instructions. Large routines should be split into inlined fast-path + called slow-path.
 - **Leaf routines don't need `movem`.** If a routine doesn't call other routines, don't save/restore registers — just document which registers it clobbers. The caller manages its own register state.
 - **Document register clobber.** Every routine header states inputs, outputs, and clobbered registers.
-- **Tail calls.** When the last instruction before `rts` is `jsr Target`, replace with `jmp Target`. Saves 10 cycles and 4 bytes by eliminating the `jsr`/`rts` pair overhead.
+- **Tail calls.** When the last instruction before `rts` is `jbsr Target`, replace the pair with `jbra Target`. Saves 10 cycles and 4 bytes by eliminating the call/`rts` overhead.
 
 ```asm
 ; -----------------------------------------------
