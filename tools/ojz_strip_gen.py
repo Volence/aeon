@@ -119,9 +119,14 @@ STRIP_TILE_HEIGHT = 256  # nametable rows per strip (full section height)
 # (VRAM_TEST_SONIC) and the BG region at 1024 (BG_TILE_BASE_VRAM), so a pool
 # past 960 would pass a 1472-tile check and silently DMA over live art at
 # runtime. 1472 ($0000-$B7FF, SAT excluded) becomes the ceiling only when the
-# spec's Phase 3 unifies BG/characters into the residency pool. Mirrors
-# POOL_TILE_CEILING in constants.asm — keep in sync.
-POOL_TILE_CEILING = 960
+# spec's Phase 3 unifies BG/characters into the residency pool.
+# POOL_TILE_CEILING / BG_* are imported from the generated registry mirror —
+# ONE authority (tools/vram_map.py <- games/sonic4/vram.toml); the engine-side
+# constant is cross-checked by the generated ensure in config/constants.emp.
+from vram_map import GAME as _VRAM_MAP_GAME, POOL_TILE_CEILING, BG_TILE_BASE_SLOT, BG_TILE_CAPACITY
+assert _VRAM_MAP_GAME == 'sonic4', (
+    f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
+    "regenerate: python3 tools/gen_vram_map.py --game sonic4 --toml games/sonic4/vram.toml --py tools/vram_map.py")
 ART_POOL_PAGE_TILES = 64              # tiles per independently-decodable act art page (P2b cutover: 256->64)
 PAGE_TABLE_MAX = 256                  # residency page-table ceiling (replaces POOL_TILE_CEILING as the hard cap)
 SECTION_LOCAL_INDEX_MAX = 2047        # 11-bit nametable field: a section's local palette must fit
@@ -259,8 +264,7 @@ def chunk_get_tile_word(
 
 PLANE_B_W = 64       # Plane B cells horizontally
 PLANE_B_H = 32       # Plane B cells vertically (= 4 chunk-rows-worth, but we only show 2)
-BG_TILE_BASE_SLOT_PY = 1024   # mirrors constants.asm BG_TILE_BASE_SLOT
-BG_TILE_CAPACITY_PY  = 448    # mirrors constants.asm BG_TILE_CAPACITY (usable $8000..$B7FF, SAT at $B800)
+# BG_TILE_BASE_SLOT / BG_TILE_CAPACITY imported above from vram_map (the _PY twins died with the collapse)
 
 
 def build_bg_nametable_words(
@@ -393,7 +397,7 @@ def emit_zone_bg_layout(
     for i, word in enumerate(bg_nametable_words):
         src_idx = word & tile_dedupe.NAMETABLE_TILE_MASK
         canon_idx, flip_bits = src_to_canon.get(src_idx, (0, 0))
-        slot = BG_TILE_BASE_SLOT_PY + canon_idx
+        slot = BG_TILE_BASE_SLOT + canon_idx
         remapped = tile_dedupe.remap_nametable_word(word, slot, flip_bits)
         remapped &= ~PRIORITY_BIT          # BG always low-priority
         if palette_override is not None:
@@ -1888,9 +1892,9 @@ def generate(stress_uniquify=0):
         f"({bg_tile_count} unique tiles, {os.path.getsize(bg_tiles_path)} bytes)"
     )
     print(f"Emitted zone BG layout (T1).")
-    if bg_tile_count > BG_TILE_CAPACITY_PY:
+    if bg_tile_count > BG_TILE_CAPACITY:
         raise RuntimeError(
-            f"BG tile count {bg_tile_count} exceeds shared region capacity {BG_TILE_CAPACITY_PY}"
+            f"BG tile count {bg_tile_count} exceeds shared region capacity {BG_TILE_CAPACITY}"
         )
 
     # ---- Pass 7: act art pool manifest (page count + per-page tile count -> VRAM slot base) ----

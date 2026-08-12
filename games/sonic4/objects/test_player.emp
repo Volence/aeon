@@ -8,10 +8,20 @@ use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_XFLIP, ST_IN_AIR, 
 use engine.objects.objdef.{vram_art, vram_bytes}
 use engine.types.{VramTile}
 
-// VRAM_TEST_SONIC — tile 960, character DPLC region (up to 25 tiles). A
-// game-config value, imported from games.sonic4.constants below.
+// VRAM_TEST_SONIC — tile 960, the character DPLC window: 32 tiles, 960 up to
+// the VRAM_TEST_OBJ wall at 992 (Sonic's own art peaks at 29). A game-config
+// value, imported from games.sonic4.constants below.
 // CHEAT_DEBUG_FLY — bit 0 of Cheat_Flags, the runtime gate on debug free-flight.
 use games.sonic4.constants.{VRAM_TEST_SONIC, CHEAT_DEBUG_FLY}
+
+// PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock), and the
+// splice expands in THIS module's scope, so the type has to resolve here.
+use games.sonic4.ram.{PlayerBlock}
+
+// player_block — the per-slot player-block derivation splice. TestPlayer borrows
+// the player sensor wrappers, so it must establish a4 the same way the real
+// player frame does (see the floor probe in TestPlayer_Main).
+use games.sonic4.player_common.{player_block}
 
 // TPlayerV — the player's SST overlay: the shared DPLC prefix (dplc_ptr/art_base,
 // byte-identical to test_animated's DplcV) plus a debug_flag. This module owns the
@@ -41,12 +51,12 @@ const DEBUG_FLY_SPEED_FAST = 16         // = base speed for now (camera clamp); 
 // -----------------------------------------------
 // TestPlayer — init routine
 // In:  a0 = SST pointer (slot already allocated)
-// Clobbers: d0-d7, a1-a3 — falls into TestPlayer_Main, whose set this covers. The
+// Clobbers: d0-d7, a1-a4 — falls into TestPlayer_Main, whose set this covers. The
 //   extra d7 is the conservative-v1 fact: TestPlayer_Main preserves only d7's LOW
 //   word (`preserves(d7.w)`), and a word-preserving successor is a full clobber to
 //   whoever falls into it, so this proc charges the whole register.
 // -----------------------------------------------
-pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main {
+pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a4) falls_into TestPlayer_Main {
         move.l  #Map_Sonic, mappings(a0)
         move.w  #vram_art(VRAM_TEST_SONIC), art_tile(a0)
         move.l  #Ani_Sonic, anim_table(a0)
@@ -68,7 +78,9 @@ pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main 
 // -----------------------------------------------
 // TestPlayer_Main — per-frame update
 // In:  a0 = SST pointer
-// Clobbers: d0-d6, a1-a3 — a4-a6 untouched.
+// Clobbers: d0-d6, a1-a4 — a5-a6 untouched. a4 is set (not read) at the floor
+//   probe below: the player sensor wrappers take the calling slot's player block
+//   there, so this routine establishes it rather than inheriting it.
 // Preserves: a0 (the RunObjects slot pointer), d7.w — the RunObjects dbf counter is
 //   a word. The `move.w d7` save/
 //   restore around Player_SensorFloor (which clobbers the full d7) round-trips d7's
@@ -77,7 +89,7 @@ pub proc TestPlayer (a0: *Sst) clobbers(d0-d7/a1-a3) falls_into TestPlayer_Main 
 //   Perform_DPLC, the Draw_Sprite tail, the TestPlayer_Debug tail) preserves d7, so
 //   the low word reaches RunObjects intact.
 // -----------------------------------------------
-pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d6/a1-a3) preserves(a0, d7.w) {
+pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(a0, d7.w) {
         // --- B press toggles debug free-flight mode, behind CHEAT_DEBUG_FLY ---
         // d4 NOT d7: object routines must preserve a0/d7 (RunObjects loop
         // contract). A d7.b clobber here overran the player slot loop by
@@ -246,6 +258,15 @@ pub proc TestPlayer_Main (a0: *Sst) clobbers(d0-d6/a1-a3) preserves(a0, d7.w) {
         tst.w   y_vel(a0)
         bmi     .no_floor
 .do_floor:
+        // TestPlayer borrows the PLAYER sensor wrapper, so it has to honor that
+        // wrapper's register convention: a4 = the calling slot's player block,
+        // whose quadrant byte selects the probe direction (per-slot since C1).
+        // Derived from a0 through the shared splice rather than hardcoded to slot
+        // 0: object_test_state installs TestPlayer in Player_1 today, but nothing
+        // enforces that, and hardcoding it would be exactly the silent
+        // wrong-slot coupling this parcel exists to remove. Six bytes in a
+        // debug-only object buys a version that cannot go stale.
+        player_block(a0, a4)
         move.w  d7, -(sp)                       // Player_SensorFloor clobbers
         jbsr    Player_SensorFloor              // d7 (RunObjects counter);
         move.w  (sp)+, d7                       // a0 is preserved

@@ -1,0 +1,24 @@
+// Dust animation scripts.
+//
+// Duration semantics: AnimateSprite reloads anim_timer with the duration byte
+// and ticks `subq.b #1 / bpl`, so byte N holds a frame for N+1 display frames
+// (engine/objects/animate.emp:91). These are therefore the S3K timings exactly:
+// duration 1 x 7 frames = a 14-frame charge loop; duration 3 x 4 frames = a
+// 16-frame puff life.
+module games.sonic4.dust_anims in dust_anims
+
+use engine.constants.{AF_DELETE, AF_END}
+
+offsets Ani_DustSpindash {
+    // The charge cycle. Loops forever — the follower's own state check ends it,
+    // not the script (S3K: `dc.b 1, $A..$10, $FF`).
+    Charge: [u8; 9] = [1, 0, 1, 2, 3, 4, 5, 6, AF_END],
+}
+align 2
+
+offsets Ani_DustPuff {
+    // One puff, then gone. The script OWNS the lifetime: there is no timer field
+    // (S3K: `dc.b 3, $11..$14, $FC` into a routine bump that deletes).
+    Puff: [u8; 6] = [3, 0, 1, 2, 3, AF_DELETE],
+}
+align 2

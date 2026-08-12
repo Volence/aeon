@@ -1498,8 +1498,23 @@ UFTC was originally planned for random-access sprite decompression, but measured
 **Purpose:** Assign VRAM tile addresses with no runtime bookkeeping. Tile addresses are fixed at build time, so the engine never tracks "what's in VRAM" at runtime.
 
 **How it works:**
-- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool run as a VRAM residency cache (§9.7): bulk-loaded at level init (§2.3, §2.5), pages living in allocated frames, degenerating to fully resident when the pool fits the frame budget. Section nametables reference per-section LOCAL indices translated to global at block decode (§2.3) — there is no per-section VRAM allocation and no per-section art swap.
-- **Object/permanent art** (HUD, rings, monitors, characters) uses VRAM addresses baked into archetype templates via the `vram_art()` macro at build time. The address is a static immediate; objects spawn with it directly (§3.9). No allocation step runs when an object spawns.
+- **THE PLACEMENT AUTHORITY IS THE VRAM REGISTRY (2026-08-11, "the VRAM
+  linker" T0 — spec `docs/superpowers/specs/2026-08-11-vram-linker-design.md`):**
+  every region is DECLARED in `games/<game>/vram.toml` (name, owner, size,
+  lifetime, typed engine-constant authority) and `tools/gen_vram_map.py`
+  verifies full coverage of all 2048 tiles / non-overlap / quantum fit, then
+  emits the game's `VRAM_*` constants (a generated marker block in
+  `config/constants.emp`), the Python mirror the build tools import
+  (`tools/vram_map.py`), and the LIVING MAP —
+  `docs/generated/vram-map-<game>.md`, which supersedes any hand-drawn layout
+  table in this document as the per-game truth. Engine-owned bases (planes,
+  SAT, HScroll, the pool ceiling) keep their authority in
+  `engine/system/constants.emp`; the generated block cross-checks them by
+  name, so engine/contract drift fails the build. T1 (planned) moves solving
+  into the sigil chainer; T2 adds state overlays, per-act solving, and
+  register emission.
+- **Act FG art** occupies a single globally-deduped, spatially-ordered, paged pool run as a VRAM residency cache (§9.7): bulk-loaded at level init (§2.3, §2.5), pages living in allocated frames, degenerating to fully resident when the pool fits the frame budget. Section nametables reference per-section LOCAL indices translated to global at block decode (§2.3) — there is no per-section VRAM allocation and no per-section art swap. The pool's ceiling is 896 tiles (14 pages) since the dust carve; the surrendered page holds the dust windows (896/912) + 36 spare.
+- **Object/permanent art** (HUD, rings, monitors, characters) uses VRAM addresses baked into archetype templates via the `vram_art()` macro at build time — the addresses now COME FROM the registry rather than hand-picked literals. The address is a static immediate; objects spawn with it directly (§3.9). No allocation step runs when an object spawns.
 
 Because every object/permanent tile address is decided at build time and act FG art rides the §9.7 residency cache, there is no fragmentation, no compaction, and no allocator beyond the cache's own frame/refcount machinery. The act pool is capped by ROM budget, not VRAM: `tools/art_rom_report.py` gates the per-act ROM footprint at build time, and the cache degenerates to fully resident for acts whose pool fits the frame budget.
 
@@ -1508,6 +1523,13 @@ Because every object/permanent tile address is decided at build time and act FG 
 **Cross-references:** §2.1 (S4LZ + ZX0 + uncompressed/DPLC formats), §2.3 (VRAM layout), §2.5 (art loading flow), §3.9 (static object art).
 
 ### 2.3 VRAM Layout — Unified Pool + 64×64 Scroll Planes
+
+**THE PER-GAME OCCUPANCY TRUTH IS GENERATED, NOT THIS DIAGRAM:** see
+`docs/generated/vram-map-sonic4.md` / `vram-map-demo.md`, emitted from each
+game's `vram.toml` on every regeneration (§2.2). The diagram below keeps the
+DESIGN — the unified-pool shape and the plane/table placement rationale — and
+its numbers are correct for the layout's original 960-tile pool; the current
+pool ceiling is 896 with the dust windows in the surrendered page.
 
 **Purpose:** Maximize available art tiles through a single unified pool, with 64×64 scroll planes for vertical buffering and visual effects. Character DPLC art lives in the pool (tile `$3C0`, DMA'd per frame); the sprite attr + HScroll tables sit in their own region (`$5C0-$5FF`, below Plane A) — so both scroll planes keep all 64 rows free for vertical streaming (no off-screen-row embedding, no "Region 2").
 
@@ -2722,7 +2744,7 @@ Three playable characters (Sonic, Tails, Knuckles) with shared physics via `game
 
 ### 5.2 Per-Section Terrain Physics (NOVEL)
 
-**Status (§5 shipped 2026-06-14): plumbing SHIPPED, modifier system deferred.** Movement code never reads `PHYS_*` constants directly — it reads an *effective physics table in RAM* (`Player_Phys` in `games/sonic4/config/ram.emp`: accel, decel, friction, top speed, gravity, jump force, air accel, release cap) through the a4-register convention (`lea (Player_Phys).w, a4` at the top of `Player_Main`; handlers use `PPHYS_*` offsets). `Player_RefreshPhysics` recomputes that table and is called on section change / status events, NEVER per-frame. **Day one the modifier is identity** — `Player_RefreshPhysics` is a straight 16-byte copy of `PhysTable_Sonic` (the character base row) into `Player_Phys`, so behavior is pure classic. The modifier/Lerp system itself (per-section terrain multipliers, boundary interpolation) is the deferred half: it slots into `Player_RefreshPhysics` later as one `dc.w` table + a section reference, with zero changes to movement code. See `DEFERRED_WORK.md` §5.
+**Status (§5 shipped 2026-06-14): plumbing SHIPPED, modifier system deferred.** Movement code never reads `PHYS_*` constants directly — it reads an *effective physics row in RAM* (accel, decel, friction, top speed, gravity, jump force, air accel, release cap) through the a4-register convention; handlers use `PBLK_*` offsets. **Since C1 (2026-08-10) that row is PER-SLOT**: it is the head of a per-player `PlayerBlock` (`games/sonic4/config/ram.emp`) that also carries the frame's derived quadrant and jump-buffer bytes, and `Player_Main` resolves the calling slot's block into a4 once per frame via the `player_block` splice (`player_common.emp`) rather than `lea`-ing a single global table. `Player_RefreshPhysics` recomputes ONE slot's row — it takes that slot's block pointer in a2 — and is called on section change / status events, NEVER per-frame. **Day one the modifier is identity** — `Player_RefreshPhysics` is a straight 16-byte copy of `PhysTable_Sonic` (the character base row) into the slot's row, so behavior is pure classic. The modifier/Lerp system itself (per-section terrain multipliers, boundary interpolation) is the deferred half: it slots into `Player_RefreshPhysics` later as one `dc.w` table + a section reference, with zero changes to movement code. See `DEFERRED_WORK.md` §5.
 
 The intended modifier design (deferred):
 
@@ -2778,18 +2800,40 @@ Section transitions smoothly interpolate modifiers via Lerp so physics don't sna
 ### 5.4 Character Architecture
 
 **Files as shipped (§5, Sonic only):**
-- `games/sonic4/player/player_common.emp` — owns the player frame: the `PlayerV` SST overlay (13 of 34 `sst_custom` bytes used), `Player_Init`, `Player_RefreshPhysics`, `Player_Main` (frame skeleton + state dispatch), `Player_SetState` + the enter/exit hook tables, `Player_Display` tail (now just `bsr Player_Animate` / `jsr AnimateSprite` / `jmp Sonic_LoadArt`), `Player_LevelBound`, debug-fly suspend, and shared helpers (`Player_SnapToSurface`, sizing macros, `PSTATE_COUNT` lockstep asserts). Also owns `Player_Animate` (see §5.6).
+- `games/sonic4/player/player_common.emp` — owns the player frame: the `PlayerV` SST overlay (18 of 30 `sst_custom` bytes used), `Player_Init` (which also does the ONE roster resolve — see "Character dispatch" below), the character-agnostic loaders `Player_InitAssets` / `Player_RefreshPhysics` / `Player_LoadArt`, the `CharacterDefs` roster table, `Ability_None`, `Player_Main` (frame skeleton + state dispatch), `Player_SetState` + the enter/exit hook tables, `Player_Display` tail (now just `bsr Player_Animate` / `jsr AnimateSprite` / `jmp Player_LoadArt`), `Player_LevelBound`, debug-fly suspend, and shared helpers (`Player_SnapToSurface`, sizing macros, `PSTATE_COUNT` lockstep asserts). Also owns `Player_Animate` (see §5.6).
 - `games/sonic4/player/player_ground.emp` — grounded state bodies: `PState_Ground`, `PState_Roll`, the shared `Ground_Move` tail (cap → projection → wall probe → integrate → floor pair → `Player_SlopeRepel`), and `Player_Jump`.
 - `games/sonic4/player/player_spindash.emp` — `PState_Spindash` (relocated from `sonic.emp` into shared player code — pure move, logic identical). Resolves ANIM_SPINDASH per-character via the shared `ANIM_*` contract.
 - `games/sonic4/player/player_air.emp` — the one shared air body (`PState_Air`/`PState_Jump`/`PState_RollJump`/`PState_AirBall`, flagged per state via d6), landing banding, `Air_LandState`.
 - `games/sonic4/player/player_sensors.emp` — the four macro-stamped directional cores (`Collision_ProbeDown/Up/Right/Left`), the floor/ceiling pair wrappers and wall single-probe (`Player_SensorWallDir`), `Player_AtLedgeEdge` (balance probe — see §5.6), and a DEBUG boot self-check (`PlayerSensors_SelfCheck` column path + `PlayerSensors_SelfCheck_RowFill` exercising the row-fill collision path) that asserts the asm sensors agree with `collision_pipeline.py`.
-- `games/sonic4/player/sonic.emp` — Sonic's physics base row (`PhysTable_Sonic`), `Sonic_InitAssets`, `Sonic_LoadArt`. Spindash moved to `player_spindash.emp`. Tails/Knuckles will add sibling files with zero changes to common.
+- `games/sonic4/player/sonic.emp` — Sonic's character RECORD and nothing else: `CharDef_Sonic` (a `CharacterDef`) plus the physics base row it points at (`PhysTable_Sonic`). No Sonic code survives — spindash moved to `player_spindash.emp`, and the asset/art/physics loaders became the character-agnostic `Player_*` procs in `player_common.emp`. Tails/Knuckles add sibling records with zero changes to common.
+
+**Character dispatch (C1, shipped).** The player frame names no character. `CharacterDef` (`engine/structs.emp`, 32 bytes) is the ROM record: `cd_phys` (the 8-word physics base row), `cd_mappings`, `cd_dplc`, `cd_artbase`, `cd_animtable`, `cd_ability` (the airborne `AbilityHook` — flight/glide/double-jump; Sonic's is `Ability_None`), `cd_vrambase` (the character DPLC region's base TILE index — the art word is `vram_art(tile,0,0) == tile`, the DPLC destination is `tile<<5`), `cd_stand_wh` / `cd_roll_wh` (the standing/rolling collision boxes as `W<<8|H`), and `cd_flags` (reserved).
+
+The box packing is not cosmetic: `Sst.width_pixels`/`height_pixels` are adjacent and word-aligned (`size_wh_off()`, `engine/objects/sst.emp`), so `set_standing_size` / `set_ball_size` store a whole box from the record in ONE aligned word — and the enter hooks' "am I curled" test is a word compare of that box against the active record's `cd_roll_wh`, so the curled key moves with the boxes it keys on. Sonic stands 19x39 and balls 15x29 (the classic 9/19 and 7/14 radii); Tails stands 19x31 (S3K `default_y_radius` `$F`) and shares the ball box, which S3K's single `Player_DoRoll` also does.
+
+The **curl geometry** is derived from those same two words rather than stored or constant, because it is a function of them: `curl_head_rise` (`player_common.emp`) is `cd_stand_wh.H - cd_roll_wh.H` — the distance the head travels on uncurl — and `curl_shift_px` / `curl_y_shift` are half of it, the centre move that keeps the feet planted. Sonic 10/5, Tails 2/1. S3K computes the identical pair per character as `y_radius - default_y_radius`. Four sites consume it, all of them formerly hardcoded to Sonic's numbers: the two curl hooks' y-shift, the unroll head-rise ceiling probes in `player_ground` and `player_air`, and the rolling wall probe's standing-height correction (which had the `5` as a bare literal, not even behind the constant). Both records carry an `ensure` that the ball is never taller than the standing box, since the derivation's `sub.b` must not borrow.
+
+The fifth consumer is `Camera_Update`'s roll-tracking lift, and it is the interesting one because it is ENGINE code that needs a per-character runtime value — every source of which is game state `games/demo` does not define. It is served by **`Camera_Curl_Offset` (`engine/ram.emp`): the engine owns the cell, the game fills it.** That is the `Camera_Target` pattern rather than the landing lock's: reaching into a game symbol behind a `Game.*` comptime gate also works, but each such hole has to be gated again for `demo`, while a cell needs no gate at all — `demo` links clean, and 0 means "the tracked object does not curl", which is correct there rather than merely harmless. `Player_RefreshPhysics` is the game's single write, chosen because it is the chokepoint every `Player_Chardef` write passes through, so the cell cannot go stale behind a character swap.
+
+Rejected alternative, recorded so it is not re-proposed: tracking the **feet** needs no character knowledge at all (feet are curl-invariant by construction — that is what the half-difference shift buys), but it moves the tracked point by a per-character standing half-height, so it is the same problem wearing a different hat.
+
+`CURL_Y_SHIFT` is deleted. There is no engine-wide curl constant, because any such constant could only ever have been one character's.
+
+`CharacterDefs` (player_common.emp) is the roster: one record pointer per `CHAR_*` id (`games/sonic4/config/constants.emp`), longword-strided so the index scales by `lsl.w #2` — the 68000 has no scaled indexing. `Player_Init` performs the ONE lookup (`Character_ID` → `CharacterDefs[id]`) and caches the record pointer in `Player_Chardef`; `Player_InitAssets`, `Player_RefreshPhysics`, `Player_LoadArt` and `Player_DebugExit` all read that cache.
+
+Both `Character_ID` and `Player_Chardef` live in GAME RAM, deliberately NOT in the `PlayerV` SST overlay: `engine/system/replay.emp` hashes the whole custom window as part of the recorded-input regression net, and every field inside a hashed span must be address-free or a behaviour-identical tick would hash differently between two builds whose layouts differ. The overlay is 20 of the window's 30 usable bytes since flight (below) claimed two for ability scratch.
+
+**Tails' flight (C2, shipped).** `games/sonic4/player/player_fly.emp` holds `PSTATE_FLY`'s body and `Ability_TailsFlight`, the `AbilityHook` `CharDef_Tails.cd_ability` points at — and that single pointer is the whole of what makes flight Tails-only. Numbers and call order are stock S3K (`skdisasm/sonic3k.asm`, `Tails_Test_For_Flight` / `Tails_Move_FlySwim` / `Tails_FlyingSwimming`): 240 fuel ticks spent on alternate frames (480 frames = 8 s), thrust `y_vel -= $20` while `y_vel >= -$100` capped at a 32-frame ramp, coast gravity `+8` against the normal `$38`, top clamp at camera-minimum `+ $10`, and "tired" being nothing but the re-flap gate closing when the fuel is out. It shares the air state's terrain and horizontal control outright — `Air_XInput`, `Air_XDrag`, `Air_Collide` and `Air_LandOnObject` were factored out of `PState_AirShared` for it — because S3K shares the identical routines between flight and jumping.
+
+Three deliberate departures, each commented at the code that makes it: the **SPG-documented S3K ceiling bug is fixed, not reproduced** (S3K zeroes `y_vel` on ceiling contact and leaves the gravity flip stranded, sticking Tails to the ceiling with no gravity until the ramp counter saturates — both stranding sites, terrain ceiling and top clamp, reset the flap here); the coast fall speed is clamped at the shared `PHYS_FALL_CAP` where S3K leaves it unbounded (a sensor-reach safety no real fall observes); and the flight SFX are unwired because S3K's `$BA`/`$BB` are outside the `$33..$B9` id range our SFX bank imports.
+
+The **frame semantics of the ability seam** are settled by this consumer, and the seam needed no change. The hook sits mid-body in `PState_AirShared`, so the press frame finishes under the AIR state's rules and the new state's body first runs the frame after. S3K does exactly that: its flight-entry check hangs off the *jumping* mode handler while the flight physics hang off a different branch of the same status dispatch, so the entry frame gets normal `$38` gravity and flight begins, coasting, the next frame. Entry seeds the **coast** state, not a thrust — the ability arrests a fall before it lifts, and it takes a second press to buy the first flap.
 
 Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, projection, sensing, display) lives in `player_common`/`player_ground`/`player_air`; characters contribute only data + ability states — inverting sonic_hack's failed split that shared helpers while duplicating control flow 3×. Deferred per-character behavior (instashield/dropdash/Super for Sonic, flight+AI for Tails, glide/climb for Knuckles) and the per-character dispatch-table indirection that Tails/Knuckles need are tracked in `DEFERRED_WORK.md` §5.
 
 ### 5.6 Animation Classifier and Speed-Scaled Timing (Shipped — feat/sonic-animations)
 
-**Shared `ANIM_*` id contract** (`games/sonic4/config/constants.emp`): eleven named ids form the cross-character animation contract:
+**Shared `ANIM_*` id contract** (`games/sonic4/config/constants.emp`): thirteen named ids form the cross-character animation contract:
 
 | Id | Constant | Notes |
 |---|---|---|
@@ -2804,13 +2848,16 @@ Shared movement (accel/decel/friction, jumping, rolling, slope factor/repel, pro
 | 8 | `ANIM_DUCK` | |
 | 9 | `ANIM_SKID` | |
 | 10 | `ANIM_GETUP` | |
-| — | `ANIM_COUNT = 11` | build-time assert: `Ani_Sonic` entry count must equal this |
+| 11 | `ANIM_FLY` | Tails' flight, fuel remaining |
+| 12 | `ANIM_FLY_TIRED` | Tails' flight, fuel spent |
+| — | `ANIM_COUNT = 13` | build-time assert: `Ani_Sonic` entry count must equal this |
 
-Each character's `Ani_<char>` table is ordered by these ids. A build-time `assert` keeps `Ani_Sonic`'s entry count == `ANIM_COUNT` so adding a new id without updating the table is a build error.
+Each character's `Ani_<char>` table is ordered by these ids, and the contract is "every table has a row for every id", NOT "every character can reach every id". The two flight ids are the worked example: `Player_Animate` writes them only from its `PSTATE_FLY` branch, which only Tails' ability can enter, so `Ani_Sonic`'s rows for them exist purely to keep the table total and carry his walk cycle as a deliberately-indistinguishable-from-correct fallback. A build-time `ensure` keeps every table's entry count == `ANIM_COUNT` (`Ani_Sonic`, `Ani_Tails`, `Ani_TailsAppendage`) plus one per ordinal, so adding an id without updating all three tables is a build error.
 
 **`Player_Animate` — character-agnostic read-only classifier** (`games/sonic4/player/player_common.emp`): called from `Player_Display`; classifies the current frame's animation id into `SST_anim` and computes a speed-scaled hold into `d3` without touching any PSTATE or persistent status bits. Priority order (highest to lowest):
 
 1. spindash (`PState_Spindash` active)
+1b. flight (`PState_Fly` active) — `ANIM_FLY` or, once the fuel byte reaches zero, `ANIM_FLY_TIRED`. It needs its own branch because flight is airborne AND uncurled, so without one it would fall through to the walk/run tail
 2. ball / roll / jump-ball / airball
 3. skid (see below)
 4. push (wall contact + opposing input)

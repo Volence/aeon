@@ -15,10 +15,17 @@ import json, struct, os, sys
 # bank pointers = 44 bytes) is mirrored by the `bganim_band` struct in
 # engine/level/bg_anim.emp (`struct bganim_band`, read field-by-field by
 # BgAnim_Update). A record-format change edits BOTH together.
-BG_TILE_BASE_SLOT = 1024
-# constants.asm says 512, but the sprite table ($B800) and HScroll table
-# ($BC00) live in the top of the $8000-$BFFF region — real art ceiling:
-BG_TILE_CAPACITY = 448
+# BG_TILE_BASE_SLOT / BG_TILE_CAPACITY are imported from the generated registry
+# mirror — ONE authority (tools/vram_map.py <- games/sonic4/vram.toml), not
+# restated literals (the four-copies-of-448 incident). The capacity is 448, not
+# constants.asm's old 512 nominal: the sprite table ($B800) and HScroll table
+# ($BC00) live in the top of the $8000-$BFFF region.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vram_map import GAME as _VRAM_MAP_GAME, BG_TILE_BASE_SLOT, BG_TILE_CAPACITY
+assert _VRAM_MAP_GAME == 'sonic4', (
+    f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
+    "regenerate: python3 tools/gen_vram_map.py --game sonic4 "
+    "--toml games/sonic4/vram.toml --py tools/vram_map.py")
 OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'generated', 'ojz', 'act1')
 OVERRIDE = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'editor_bg_override.json')
 

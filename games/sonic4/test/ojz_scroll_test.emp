@@ -3,10 +3,9 @@
 // camera, Player_1, section streaming, parallax, then hands to a per-frame update
 // that drives the camera off Player_1 and streams the world.
 //
-// Canonical-emission: byte-identical to ojz_scroll_test.asm both shapes
-// (ojz_scroll_test window; shape-DEPENDENT — the two Debug_Scene_Freeze skip
-// blocks plus the DEBUG cheat-arm write grow the region +$12 in DEBUG). As the
-// boot state it is a LIVE oracle-A/B
+// Shape-DEPENDENT region: the two Debug_Scene_Freeze skip blocks, the DEBUG
+// cheat-arm write and Debug_CharacterHotkey (whole proc, rts included) all emit
+// only in the DEBUG shape. As the boot state it is a LIVE oracle-A/B
 // instrument: its two Debug_Scene_Freeze skips (camera + entity-scan) are the
 // deterministic-cache-fill / frame-lock hooks the A/B soak uses, so the port
 // keeps them bit-exact (any byte-gate-blind change names the oracle-A/B rider).
@@ -22,7 +21,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, INPUT_LIVE}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -31,8 +30,23 @@ use engine.coords.{pixels_to_coord}
 
 // VRAM_TEST_OBJ / VRAM_TEST_MARKER — sole authority is games.sonic4.constants
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
-// VRAM_TEST_OBJ+$18.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY}
+// VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
+// hotkey wraps at.
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, CHEAT_DEBUG_FLY, CHAR_COUNT}
+
+// The puff block's byte offset/length inside Art_Dust — owned by the format's
+// module (data/dust_data.emp), so a re-export that moved the split is one edit
+// there, not here.
+use games.sonic4.dust_data.{DUST_PUFF_ART_OFF, DUST_PUFF_ART_LEN}
+
+// PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock) and the
+// splice expands in THIS module's scope, so the type has to resolve here.
+use games.sonic4.ram.{PlayerBlock}
+
+// player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
+// player's SST overlay (the hotkey reads debug_flag off it). Both are
+// player_common's, imported the way the player state files import them.
+use games.sonic4.player_common.{PlayerV, player_block}
 
 // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
 // real home is engine/level/camera.asm (not exported by camera.emp), mirrored
@@ -84,10 +98,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
         // -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
         // sonic_hack runtime layout: PalPtr_BGND -> line 0, PalPtr_OJZ -> line 1.
-        // The BGND palette is what gives OJZ's clouds + grass band their real
-        // (magenta/pink) colors — chunk-source nametable words use palette bits
-        // 0 to reference these entries. Without BGND loaded, palette-0 BG tiles
-        // render against an empty CRAM line 0 = black.
+        //
+        // Line 0 is the CHARACTER line, not a level line. It serves exactly
+        // three things: the player sprite (Player_InitAssets writes the art word
+        // as vram_art(tile,0,0) — palette 0 verbatim), the backdrop colour the
+        // VDP reads out of CRAM entry 0, and the DEBUG test squares/marker.
+        // Nothing in the act's own art is drawn on it — measured: every FG block
+        // nametable word carrying palette bits 0 references tile $000, the blank
+        // tile, and the Plane B nametable uses only lines 2 and 3 (the
+        // magenta/pink clouds are on line 3). So a missing BGND load costs the
+        // player and the backdrop, not the level.
         lea     BGND_Palette, a0
         lea     Palette_Buffer, a1                  // CRAM line 0 base — (Palette_Buffer).w
         moveq   #32/4 - 1, d0
@@ -107,12 +127,25 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
         jbsr    Level_LoadArt
 
-        // -- test object + ring placeholder art (9 tiles at VRAM_TEST_OBJ;
-        //    the last tile is VRAM_RING_PLACEHOLDER for DrawRings) --
+        // -- test object + ring placeholder art (TEST_ART_LEN = 768 B = 24 tiles
+        //    at VRAM_TEST_OBJ: two 4-tile colour squares then the 16-tile ring
+        //    blob, whose base is VRAM_RING_PLACEHOLDER = VRAM_TEST_OBJ+8) --
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
         move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
         jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
+
+        // -- dust puff block: 16 tiles RESIDENT at VRAM_DUST_PUFF for the whole
+        //    act. Every puff frame must be live simultaneously (concurrent puffs
+        //    sit on different frames), so this object never streams — this one
+        //    DMA is its entire art cost. Source is the TAIL of Art_Dust; the
+        //    leading 72 tiles are the charge dust's DPLC source. --
+        move.l  #Art_Dust + DUST_PUFF_ART_OFF, d1
+        move.w  #vram_bytes(VRAM_DUST_PUFF), d2
+        move.w  #DUST_PUFF_ART_LEN, d3
+        jbsr    QueueDMA_Critical @discards(dropped)   // level init: a dropped DMA is
+                                                       // acceptable here exactly as for
+                                                       // TestArt above
 
         // -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
@@ -138,10 +171,28 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         clr.w   PLAYER_1_X_VEL                 // (Player_1+SST_x_vel).w
         clr.w   PLAYER_1_Y_VEL                 // (Player_1+SST_y_vel).w
 
+        // -- name slot 0 the LEADER: the slot the camera follows and that the
+        //    leader-following objects (path swap) track. Both read Camera_Target
+        //    rather than a hardwired Player_1, so a roster that leads with
+        //    another slot changes only this write. Stored off the `lea` because
+        //    a link-time immediate cannot combine with a symbolic destination in
+        //    one instruction.
+        //
+        //    ORDERING — the seed MUST precede the first read, and does by
+        //    construction: this is the one-shot boot init (Game.entry), while
+        //    BOTH readers live in the per-frame update state that only runs
+        //    after it returns (Camera_Update from GameState_OJZScroll_Update;
+        //    PathSwap_Init/_Main from RunObjects, their swappers spawned by
+        //    EntityWindow_Scan). Nothing in this init spawns an object or runs
+        //    the camera follow. Load-bearing, not tidiness: the cell boot-clears
+        //    to 0, a NULL SST pointer into the vector table — not a benign
+        //    "slot 0". --
+        lea     Player_1, a0                    // (Player_1).w
+        move.w  a0, Camera_Target               // (Camera_Target).w
+
         // -- set up Player_1 as the player (Sonic). Player_Init boots in
         //    debug-fly (yellow square) so the streaming-test workflow is
         //    unchanged — B drops into physics. --
-        lea     Player_1, a0                    // (Player_1).w
         jbsr    Player_Init
 
         // -- write 4 marker tiles to VRAM (16x16 sprite = 2x2 tiles) at
@@ -226,6 +277,15 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 // GameState_OJZScroll_Update — per-frame update
 // -----------------------------------------------
 pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
+        // -- DEBUG character-cycle hotkey (A, while in debug mode). Polled before
+        //    RunObjects, so the debug_flag it gates on is the state the player
+        //    ENTERED this frame with — a B press later this same frame toggles
+        //    after the poll, which is what makes B-then-A read as two frames.
+        //    Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_CharacterHotkey
+        }
+
         // -- initialize sprite system for this frame --
         jbsr    InitSpriteSystem
 
@@ -321,6 +381,139 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 }
 
 // -----------------------------------------------
+// Debug_CharacterHotkey — inside debug mode, A cycles the active character
+// (Sonic -> Tails -> Knuckles -> Sonic).
+//
+// THE BINDING: B enters and leaves debug mode (Player_Main's cheat-gated
+// toggle, unchanged). While debug mode is ACTIVE, A cycles the character. C is
+// untouched and stays a jump button; BUTTON_JUMP_MASK is not modified. In normal
+// play A is a jump button and nothing here fires — the whole affordance lives
+// behind the debug_flag gate. So the round trip is: B, A, B, and you are Tails.
+//
+// WHY A IS FREE — AND ONLY IN DEBUG MODE. Player_Main's debug escape hatch
+// (`tst.b PlayerV.debug_flag(a0); bne Player_DebugMove`) sits BEFORE the jump
+// latch, the physics, the state dispatch and the rings, so while debug_flag is
+// set none of those ever see the pad. What does run is Player_DebugMove, and it
+// reads Ctrl_1_Held and tests LEFT/RIGHT/UP/DOWN only — A and C do nothing
+// whatsoever in free flight. That is the whole safety argument, and it is why
+// the gate is on debug_flag rather than on some free button: outside debug mode
+// A keeps its jump meaning bit for bit.
+//
+// WHY IT LIVES IN THE LEVEL STATE. The canonical DEBUG shape binds NO game
+// debug_tick: config/game.emp binds the hook only under SOUND_DEBUG_HOTKEYS,
+// i.e. the off-canonical Config-A profile, so a hotkey hosted in game_debug.emp
+// would emit zero bytes in the ROM this is actually played in. This scene is the
+// de-facto game state and already carries DEBUG-gated work, so the affordance
+// sits with the thing it affords. Move it to a proper debug hook the day the
+// canonical debug shape binds one.
+//
+// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`,
+// so the whole proc emits ZERO bytes in the plain shape (the Debug_AssertObjLoop
+// idiom, engine/objects/core.emp).
+//
+// THE REPLAY GUARD IS LOAD-BEARING HERE. A is an ordinary main-pad bit, so
+// unlike a 6-button extension bit it IS recorded in a fixture and IS replayed by
+// Input_Tick's INPUT_PLAYBACK arm — and the slide fixture deliberately enters
+// debug-fly to exercise vertical flight, so a recorded A press would land
+// squarely inside the gate and swap characters mid-run. The hotkey is therefore
+// LIVE-ONLY: it stands down for INPUT_PLAYBACK and, deliberately, for
+// INPUT_RECORD too. Gating only playback would let a dev cycle characters while
+// RECORDING, baking an A press into a fixture that playback then ignores — the
+// recorded run and its replay would diverge, which is exactly the desync the net
+// exists to catch. One `tst.b` covers both because INPUT_LIVE is 0 (asserted
+// below).
+//
+// WHY A NARROW REFRESH AND NOT Player_Init. Player_Init is the LEVEL-ENTRY
+// initializer: it forces PSTATE_AIR, clears ground speed / move lock / spindash
+// charge / the whole status set, and tail-calls Player_DebugEnter whenever
+// CHEAT_DEBUG_FLY is armed — which, since this only ever runs while already in
+// debug mode, would re-enter free flight and clear the player's velocity every
+// press. This touches only what varies per character.
+//
+// THE SWAP IS ALWAYS DEFERRED TO THE EXIT, and that is by construction, not an
+// edge case: the gate means we only ever fire while the marker square owns the
+// SST's art. So this updates the RECORD half — Player_Chardef and the slot's
+// physics row — and Player_DebugExit does the visual half on the way out. It
+// re-runs Player_InitAssets off the (now new) Player_Chardef, clears
+// mapping_frame, re-caches the piece count, and sets prev_anim/prev_frame = $FF,
+// which forces Player_Display's next pass to re-select the animation and re-run
+// Player_LoadArt — the DPLC stream that actually re-DMAs the new character's
+// tiles. Nothing is left for this routine to do, so it does not do it.
+//
+// THE APPENDAGE IS THE ONE THING THE NARROW REFRESH CANNOT LEAVE TO THE EXIT.
+// Everything else that varies per character lives in the player's own SST, which
+// Player_DebugExit rebuilds; Tails' twin tails are a SEPARATE OBJECT, so a swap
+// away from him would leave it parented to a body that is no longer his. The
+// reconcile call at the tail below owns both directions.
+//
+// In:  none (reads/writes Character_ID)
+// Out: Character_ID advanced, Player_Chardef + the slot's physics row re-resolved,
+//      the appendage object spawned/removed to match the new record
+// Clobbers: d0-d2, a0-a2 — a1-a2 via Player_RefreshPhysics; d1-d2 via
+//           TailsAppendage_Refresh (DeleteChildren's chain cursor).
+// -----------------------------------------------
+ensure(INPUT_LIVE == 0, "Debug_CharacterHotkey's live-only gate is a tst.b — INPUT_LIVE must be 0")
+
+proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
+    if DEBUG == 1 {
+        // Three gates, and nothing is written until all three pass — on any
+        // other frame this routine is a few reads and a branch to the rts.
+        tst.b   Input_Source                    // (Input_Source).w
+        bne     .done                           // replaying or recording: stand down
+        move.b  Ctrl_1_Press, d0                // tick-stable press latch
+        andi.b  #BUTTON_A, d0
+        beq     .done
+        lea     Player_1, a0                    // the leader slot — the only one this
+                                                // state spawns
+        tst.b   PlayerV.debug_flag(a0)
+        beq     .done                           // not in debug mode: A is the jump button
+
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.w  Character_ID, d0
+        addq.w  #1, d0
+        cmpi.w  #CHAR_COUNT, d0                 // the id only ever steps by one, so
+        bne     .no_wrap                        // equality is the whole wrap condition
+        moveq   #0, d0
+    .no_wrap:
+        assert.w d0, ls, #CHAR_COUNT-1          // id in roster range — Player_Init's guard,
+                                                // checked BEFORE the store so a bad value
+                                                // never reaches RAM
+        move.w  d0, Character_ID
+
+        // roster resolve — the same derivation Player_Init runs, repeated here
+        // rather than reached through Player_Init because calling Player_Init is
+        // the thing this routine exists to avoid (see the header). The
+        // CHAR_KNUCKLES row is still the Sonic record, so every id in
+        // 0..CHAR_COUNT-1 lands on a complete CharacterDef and cycling past
+        // Tails is safe.
+        lsl.w   #2, d0                          // × sizeof(pointer); no scaled
+                                                // indexing on the 68000
+        lea     CharacterDefs, a1
+        movea.l (a1,d0.w), a1
+        move.l  a1, Player_Chardef
+
+        player_block(a0, a2)                    // this slot's block — Refresh writes its row
+        jbsr    Player_RefreshPhysics
+
+        // THE APPENDAGE HALF OF THE SWAP, and it belongs to this routine rather
+        // than to Player_DebugExit's visual half because it is a two-DIRECTION
+        // reconcile: switching AWAY from Tails has to remove the tails, and
+        // Player_DebugExit runs on every character's way out of free flight with
+        // no knowledge of which record it left. TailsAppendage_Refresh is
+        // idempotent in both directions (spawn only on an empty chain, delete
+        // only on a non-empty one), so cycling Sonic -> Tails -> Knuckles ->
+        // Sonic can neither duplicate the tails nor strand a pair on Knuckles.
+        // a0 is still Player_1 — Player_RefreshPhysics preserves it. Tail call:
+        // its rts returns to this routine's caller (§2.8), which also keeps the
+        // growth this adds to a module that packs with zero slack as small as it
+        // can be.
+        jbra    TailsAppendage_Refresh
+    .done:
+        rts
+    }
+}
+
+// -----------------------------------------------
 // Per-section sky tint table — referenced by the marker code in Update. CRAM
 // colors (BGR, 9-bit). Section_id indexes into this array, so the backdrop
 // visibly differs per section. T15 diagnostic only.
@@ -386,7 +579,11 @@ data TestArt_Square2: [u32; 32] = [
 // Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
 // VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
 // (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
-// F3 narrower-mirrored, in VDP 2×2 column-major order per frame; the S3K
-// line-0 gold indices remapped to sonic.bin line-0 (E/F gold, 6 white glint).
+// F3 narrower-mirrored, in VDP 2×2 column-major order per frame.
+// Rings draw on PALETTE LINE 1, not line 0: RING_ART_ATTR is
+// vram_art(VRAM_RING_PLACEHOLDER, 1, 1) (engine/objects/rings.emp) — line 1,
+// high priority — and line 1 holds OJZ palette page 0, not the character line.
+// The blob's pixels use colour indices 5/6/12/13 only, so it is line 1's
+// entries 5/6/12/13 that colour the ring.
 // DrawRings picks a frame with base + Ring_Anim_Frame×4.
 data TestArt_Ring = RingArt

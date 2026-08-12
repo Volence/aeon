@@ -22,7 +22,14 @@
 module games.sonic4.constants
 
 use engine.types.{VramTile}
-use engine.constants.{COLLECTED_MASK_BYTES}
+use engine.constants.{COLLECTED_MASK_BYTES, TILE_SIZE}
+// The two fixed VDP tables the character/appendage VRAM allocations below are
+// walled against — read from the engine, never restated as literals here.
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, MAX_VDP_SPRITES}
+// The generated vram-map block's authority cross-checks reference these engine
+// names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
+use engine.constants.{POOL_TILE_CEILING, BG_TILE_CAPACITY, BG_TILE_BASE_VRAM,
+                      VRAM_PLANE_A, VRAM_PLANE_B, VRAM_WINDOW}
 
 // Game state ids
 pub const GS_OBJECT_TEST          = 2
@@ -44,15 +51,61 @@ pub const CHEAT_DEBUG_FLY         = 1 << 0    // bit 0 of Cheat_Flags — free-f
 // another symbolic operand is not supported ([lower.imm-link]). The moveq/and pair
 // keeps one symbolic operand per instruction and costs the same 6 bytes.
 
+// The per-slot player working block is a TYPE, not a constant here: see
+// `struct PlayerBlock` in config/ram.emp. Its stride is sizeof(PlayerBlock) and
+// its field displacements are offsetof(PlayerBlock, ...), so there is no
+// hand-typed size for this file to own and keep in sync.
+
 pub const ANIM_RUN_THRESHOLD      = $600      // |gsp| at/above which walk -> run anim (S3K)
 pub const SPINDASH_BASE           = $800
 pub const SPINDASH_CHARGE_STEP    = $200
 pub const SPINDASH_CHARGE_MAX     = $800
 
 // Player states (jump-table byte offsets: index x 2)
-// ORDERING CONSTRAINT: the curled states (JUMP/ROLLJUMP/AIRBALL) must stay the
-// LAST entries — Player_Display's ball-anim test is `>= PSTATE_JUMP`. Append new
-// states BEFORE PSTATE_JUMP and renumber.
+//
+// THE RULE, exactly: each state's value IS 2 x its row index in ALL THREE of the
+// parallel tables in player_common.emp (Player_States / PState_EnterHooks /
+// PState_ExitHooks). The value is not a name for a row — it is the row's byte
+// displacement, fed straight to `move.w (a1,d0.w)` / `jsr (a1,d1.w)`. A row in
+// the wrong position therefore dispatches the wrong handler, and a value that
+// is not 2 x its index dispatches off the end of a 2*PSTATE_COUNT-byte table.
+//
+// What checks what. The three `.count == PSTATE_COUNT` ensures in
+// player_common.emp are CARDINALITY ONLY: they catch a table with the wrong
+// number of rows, and nothing else — not a row out of position, not a value
+// that skips or repeats. `pstate_values_ok` below the value list covers the
+// value half, with three rules over one list of the values:
+//
+//   * EVEN         — every value even (it is a byte offset, not an index)
+//   * IN RANGE     — every value < PSTATE_COUNT * 2 (inside the tables)
+//   * DISTINCT +   — the values cover every row 0..PSTATE_COUNT-1 exactly
+//     COMPLETE       once (a one-bit-per-row sum)
+//
+// Together with the `.count` ensures that is airtight: PSTATE_COUNT rows, and
+// PSTATE_COUNT distinct in-range even values that hit every one of them. The
+// DEBUG-shape `assert.w` at Player_Main's dispatch is the runtime backstop for
+// the one thing no comptime check can see — a stray WRITE putting an
+// out-of-range byte in player_state.
+//
+// ADDING A STATE is therefore four edits, all of which the guards police: a new
+// even value, a row appended to each of the three tables at that value/2, a
+// raised PSTATE_COUNT, and the new name added to the value list in
+// `pstate_values_ok`. Forgetting that last one does NOT quietly pass — the
+// coverage sum fails, because PSTATE_COUNT-1 values cannot fill PSTATE_COUNT
+// rows.
+//
+// There is deliberately NO ordering constraint on top of that any more. The
+// curled set used to have to sit last because Player_Animate's ball test was a
+// `>= PSTATE_JUMP` compare; it now reads the ST_ROLLING status bit, which the
+// enter hooks own, so the classification no longer rides the numbering. (C2/C4
+// append FLY/GLIDE/SLIDE/CLIMB/LEDGE, and glide/slide are attacking but NOT
+// curled — a range test could not have expressed that set at all.)
+//
+// One numbering coupling survives and is intentional: engine/level/camera.emp
+// mirrors PSTATE_JUMP / PSTATE_ROLLJUMP for its landing lock (the engine is
+// game-agnostic and cannot `use` this module) and cross-checks the mirror with
+// `ensure`. RENUMBERING either of those two fails the build with that message —
+// update the mirror in the same edit.
 pub const PSTATE_GROUND           = 0
 pub const PSTATE_ROLL             = 2
 pub const PSTATE_SPINDASH         = 4
@@ -60,9 +113,46 @@ pub const PSTATE_AIR              = 6          // airborne uncurled — no relea
 pub const PSTATE_JUMP             = 8          // airborne curled from jump — release cap active
 pub const PSTATE_ROLLJUMP         = 10         // as JUMP + air control lockout
 pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
-pub const PSTATE_COUNT            = 7          // state/hook tables assert against this
-ensure(PSTATE_AIRBALL == (PSTATE_COUNT - 1) * 2,
-       "curled states must remain the last PSTATE_* entries (Player_Display ball test)")
+pub const PSTATE_FLY              = 14         // Tails' flight (player_fly) — entered only
+                                               // from CharDef_Tails' cd_ability hook, so it
+                                               // is unreachable for every other character
+pub const PSTATE_COUNT            = 8          // state/hook tables assert against this
+
+// -----------------------------------------------
+// The PSTATE_* value guards (see THE RULE above). ORDER-FREE by construction:
+// the fold is symmetric in its operands, so renumbering the set stays legal and
+// only breaking the value/row correspondence fails. The value list appears
+// exactly ONCE — every rule below reads it, so adding a state's name here is the
+// whole registration, and forgetting to is itself caught (see the return).
+// -----------------------------------------------
+comptime fn pstate_values_ok() -> bool {
+    comptime var cover = 0
+    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY] {
+        // EVEN — the value is a jump-table BYTE offset, not a row index.
+        ensure((v & 1) == 0, "PSTATE_* value {v} is ODD — a player-state value is a jump-table BYTE offset, i.e. 2 x its row index in Player_States / PState_EnterHooks / PState_ExitHooks")
+        // IN RANGE — all three tables are 2 * PSTATE_COUNT bytes long. Checked
+        // before the shift below, which is only meaningful for a real row.
+        ensure(v < PSTATE_COUNT * 2, "PSTATE_* value {v} is >= PSTATE_COUNT*2 — it indexes past the end of the state/hook tables, so the dispatch would jsr to whatever follows them (add the three table rows and raise PSTATE_COUNT)")
+        cover = cover + (1 << (v >> 1))
+    }
+    // DISTINCT + COMPLETE — one bit per row index. A sum of PSTATE_COUNT powers
+    // of two has popcount PSTATE_COUNT only if all of them differ, and the only
+    // such sum equal to (1 << PSTATE_COUNT) - 1 is the one using rows
+    // 0..PSTATE_COUNT-1 once each. So this single equality rejects a duplicate
+    // value, a gap in the numbering, AND a state left out of the list above
+    // (PSTATE_COUNT-1 values cannot fill PSTATE_COUNT rows).
+    return cover == (1 << PSTATE_COUNT) - 1
+}
+ensure(pstate_values_ok(), "the PSTATE_* values must be DISTINCT and cover rows 0..PSTATE_COUNT-1 exactly once — a duplicate value, a gap in the numbering, or a state missing from the list in pstate_values_ok breaks the value/row correspondence the dispatch relies on")
+
+// Playable characters — the roster index (C1). These ARE the indices into
+// CharacterDefs (characters.emp), so the order of that table is bound to this
+// ordering; append new characters at the end and raise CHAR_COUNT. Character_ID
+// (game RAM) holds one of these; Player_Init resolves it to a CharacterDef once.
+pub const CHAR_SONIC              = 0
+pub const CHAR_TAILS              = 1
+pub const CHAR_KNUCKLES           = 2
+pub const CHAR_COUNT              = 3
 
 // Player animation ids — SHARED CONTRACT across all characters. Each character's
 // Ani_<char> script table is ordered by these ids (sonic_anims.emp asserts its
@@ -79,7 +169,14 @@ pub const ANIM_LOOKUP             = 7
 pub const ANIM_DUCK               = 8
 pub const ANIM_SKID               = 9
 pub const ANIM_GETUP              = 10
-pub const ANIM_COUNT              = 11         // sonic_anims.emp asserts entry count == this
+// Tails' flight poses. They are part of the SHARED contract like every other id
+// — the contract is "every character's table has a row for every id", not "every
+// character can reach every id" — so Sonic's table carries rows here too. Only
+// Player_Animate's FLY branch writes them, and that branch is gated on
+// PSTATE_FLY, which only Tails' ability can enter.
+pub const ANIM_FLY                = 11         // flapping (fuel remaining)
+pub const ANIM_FLY_TIRED          = 12         // out of fuel — the flap is disabled
+pub const ANIM_COUNT              = 13         // sonic_anims.emp asserts entry count == this
 
 // Game state ids (extend existing table)
 pub const GS_OJZ_SCROLL_TEST      = 3
@@ -110,21 +207,65 @@ pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwri
 pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed, entries NOT word-aligned)
 
 // -----------------------------------------------
-// Test VRAM allocation
+// VRAM allocation — VALUES are generated from games/sonic4/vram.toml
 // -----------------------------------------------
-// tile 992 — test object art (8 tiles) in the free gap between the character DPLC
-// region end (985) and the BG shared region base (1024).
-pub const VRAM_TEST_OBJ           : VramTile = $03E0
+// The rationale prose below is hand-owned; the constants and their walls are
+// emitted by tools/gen_vram_map.py between the markers. Edit the TOML, then
+// regenerate — never the block. The full map: docs/generated/vram-map-sonic4.md.
+//
+// VRAM_TEST_OBJ (tile 992): test object art (8 tiles) at the end of the
+// character DPLC window (960..991), below the BG shared region base (1024).
+// This address IS the character window's hard wall: tails_data.emp /
+// collision_data.emp `ensure` each character's measured peak DPLC frame stays
+// under it.
 // VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the S3K ring-art base:
 // a GAME->ENGINE `-D` interface value (DrawRings, rings.emp, renders every ring
 // from it) homed in native.rs `emp_defines` (game-varying), NOT declared here — the
-// same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER.
-// tile 1016 — debug-fly marker (2x2 = 4 tiles) in the free gap below the BG region
-// (1024). VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8) + 16. Must NOT sit inside the
-// act art pool (every pool slot is referenced FG art — see POOL_TILE_CEILING) nor in
-// the ring sprite's 1000-1003 span.
-pub const VRAM_TEST_MARKER        : VramTile = VRAM_TEST_OBJ + $18
-// tile 960 — character DPLC region (up to 25 tiles). MUST stay clear of: the act
-// art pool (tiles 0..POOL_TILE_CEILING-1), the test-obj/ring/marker span
-// (992-1007), BG region (1024+), SAT/HScroll/planes.
-pub const VRAM_TEST_SONIC         : VramTile = $03C0
+// same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER. The vram.toml records it as a
+// sigil-D authority; T1's define emission makes the TOML feed it.
+// VRAM_TEST_MARKER (tile 1016): debug-fly marker (2x2 = 4 tiles) in the free gap
+// below the BG region (1024). Must NOT sit inside the act art pool (every pool
+// slot is referenced FG art — see POOL_TILE_CEILING) nor in the ring sprite's
+// 1000-1015 span.
+// VRAM_TEST_SONIC (tile 960): THE character DPLC window — 32 tiles, 960 up to the
+// VRAM_TEST_OBJ wall at 992. Every playable character streams his current frame's
+// art here, so it is sized by the LARGEST peak frame across the cast, not by any
+// one of them (Sonic peaks at 29 tiles, ending 989; Tails at 24). Only one
+// character is resident at a time, so they share it rather than each taking a
+// window. The peak-vs-wall check is a comptime `ensure` per character data module
+// (collision_data.emp for Sonic, tails_data.emp for Tails), derived from the
+// DPLC blob itself. GROW this window in place (raise tiles in the TOML, base
+// held); MOVING the base re-stamps the replay fixtures (art_tile is hashed).
+// VRAM_TAILS_APPENDAGE (tile 1492): the twin-tail appendage's own DPLC window
+// (9 tiles) in the 12-tile gap between the sprite attribute table and the HScroll
+// table. It needs its own window because the appendage is a SECOND simultaneously
+// resident sprite: body + tails are both on screen every frame, so they cannot
+// take turns in the character window above. The generated walls check both
+// neighbours, so relocating either re-checks this allocation.
+// >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<
+// Emitted from games/sonic4/vram.toml — edit THAT, then run:
+//   python3 tools/gen_vram_map.py --game sonic4
+// The map doc: docs/generated/vram-map-sonic4.md
+pub const VRAM_DUST_PUFF          : VramTile = $0380   // dust_puff: tiles 896..911 (16), act, owner games.sonic4.dust_puff
+pub const VRAM_DUST_SPINDASH      : VramTile = $0390   // dust_spindash: tiles 912..923 (12), act, owner games.sonic4.dust_spindash
+pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..991 (32), act, owner games.sonic4.player
+pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
+pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 1016..1019 (4), mode, owner games.sonic4.player_common
+pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
+// Authority cross-checks — the engine constant vs the declared map:
+ensure(POOL_TILE_CEILING == 896, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
+ensure(BG_TILE_CAPACITY == 448, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
+ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_A — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_PLANE_B == $E000, "vram.toml plane_b drifted from engine VRAM_PLANE_B — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_WINDOW == $F000, "vram.toml window_plane drifted from engine VRAM_WINDOW — edit games/sonic4/vram.toml and regenerate")
+// Walls — regeneration re-checks every adjacency:
+ensure(VRAM_DUST_PUFF + 16 <= $0390, "dust_puff runs into dust_spindash")
+ensure(VRAM_DUST_SPINDASH + 12 <= $03C0, "dust_spindash runs into character_window")
+ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
+ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
+ensure(VRAM_TEST_MARKER + 4 <= $0400, "test_marker runs into bg_region")
+ensure(VRAM_TAILS_APPENDAGE + 9 <= $05E0, "tails_appendage runs into hscroll_table")
+// <<< GENERATED: vram map END >>>

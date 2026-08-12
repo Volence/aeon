@@ -15,6 +15,20 @@ cd games/sonic4/data/characters_staging
 ./gen_characters.py [skdisasm_root]   # default /home/volence/sonic_hacks/skdisasm
 ```
 
+The generator also **ships** the build-consumed Tails trio into the real data
+dirs the manifest embeds (`art/optimized/characters/tails*.bin`,
+`games/sonic4/data/mappings/tails*.bin`,
+`games/sonic4/data/dplc/optimized/tails*.bin`) and prints which of them changed.
+That is deliberate: it makes this script the single source of truth end to end,
+so a regenerate can never leave the ROM's copy stale. Knuckles is not shipped —
+nothing embeds him yet.
+
+> **Reproducibility gate — the expected bytes CHANGED on 2026-08-10.** Tails' art
+> is no longer a byte-for-byte S3K copy; it is re-indexed (see below). A
+> regenerate against a pre-2026-08-10 checkout of these blobs will therefore
+> differ, **deliberately**. The current run is still bit-reproducible against
+> itself: two consecutive runs produce byte-identical output.
+
 ## Provenance (exact skdisasm sources, read-only)
 
 The spec ruled: assets = **stock Sonic 3 & Knuckles from skdisasm** (S.C.E. carries
@@ -52,10 +66,10 @@ characters_staging/
   gen_characters.py            reproducible extractor/converter (this dir, not tools/)
   README.md
   tails/
-    art/tails.bin              raw S3K art, byte-for-byte copy (2858 tiles)
+    art/tails.bin              S3K art, RE-INDEXED to our palette order (2858 tiles)
     art/tails_opt.bin          contiguous per-frame layout — BUILD-CONSUMED (3635 tiles)
-    art/tails_tail.bin         appendage raw art (139 tiles)
-    art/tails_tail_opt.bin     appendage contiguous
+    art/tails_tail.bin         appendage art, RE-INDEXED (139 tiles)
+    art/tails_tail_opt.bin     appendage contiguous — BUILD-CONSUMED
     mappings/tails.bin         Aeon VDP-order mappings + flip-invariant bbox
     mappings/tails_tail.bin    appendage mappings
     dplc/tails.bin             raw S3K-format DPLC (provenance / re-optimizable)
@@ -65,7 +79,7 @@ characters_staging/
     anim/tails_anims.json      42 raw S3K scripts, decoded (see "Deferred")
     anim/tails_tail_anims.json 13 raw scripts
   knuckles/
-    art/knuckles.bin           raw (4092 tiles)
+    art/knuckles.bin           raw S3K art, byte-for-byte (4092 tiles) — NOT re-indexed
     art/knuckles_opt.bin       contiguous — BUILD-CONSUMED (4383 tiles)
     mappings/knuckles.bin      Aeon VDP-order mappings
     dplc/knuckles.bin          raw S3K-format DPLC
@@ -82,10 +96,60 @@ The trio the build consumes mirrors Sonic exactly (see
 `dplc/<name>_opt.bin` + `art/<name>_opt.bin`**. The raw `art/<name>.bin` and
 `dplc/<name>.bin` are kept for provenance and re-optimization.
 
+## Palette re-indexing — Tails' art is NOT a pass-through
+
+S3K art indexes **S3K's** character palette. Aeon loads a *different ordering of
+the same colours* into CRAM line 0 (`art/palettes/SonicAndTails.bin`, the
+sonic_hack / S2-era order), and the player draws at palette 0 verbatim
+(`Player_InitAssets`: `vram_art(tile,0,0)`). Dropping S3K art in unchanged gave
+Tails a grey head and an orange body.
+
+The fix, applied at build time by `gen_characters.py`, is a **colour-lossless
+index permutation** of Tails' body art and appendage art. Zero ROM cost, zero
+CRAM cost, zero runtime cost, and — the reason this beats a runtime palette swap
+or a second CRAM line — Sonic and Tails stay renderable on one line at the same
+time, which a follower / 2P mode needs.
+
+| S3K idx | CRAM word | our idx | | S3K idx | CRAM word | our idx |
+|---|---|---|---|---|---|---|
+| 0 | `$0000` | 0 | | 8 | `$00AE` | 14 |
+| 1 | `$0EEE` | 6 | | 9 | `$008E` | 15 |
+| 2 | `$0E66` | 5 | | 10 | `$08AE` | 10 |
+| 3 | `$0C42` | 3 | | 11 | `$046A` | 11 |
+| 4 | `$0822` | 2 | | 12 | `$0ECC` | 4 |
+| 5 | `$0080` | **none** | | 13 | `$0CAA` | 7 |
+| 6 | `$000E` | 12 | | 14 | `$0866` | 8 |
+| 7 | `$0008` | 13 | | 15 | `$0222` | 1 |
+
+Genesis art is 4bpp, 2 pixels/byte, high nibble first; both nibbles of every byte
+are permuted. Output length equals input length, so there is **no ROM-size or
+placement delta** — only content.
+
+**Why it is lossless.** `$0080` (S3K index 5) is the one colour our line does not
+carry, and **Tails' art uses index 5 exactly zero times** — body and appendage
+alike. The generator asserts this: `remap_art_indices` refuses (`AssertionError`)
+if any index without a counterpart is present, rather than silently painting
+those pixels a wrong colour. The permutation itself is **re-derived from the two
+palette files on every run** by matching CRAM words, then checked against the
+pinned `PALETTE_REMAP_EXPECTED`; editing either palette fails the run loudly.
+
+**A regenerate from raw S3K must go through this step.** Copying
+`General/Sprites/Tails/Art/*.bin` in by hand reintroduces the bug. Both the
+staged raw `art/tails*.bin` and the contiguous `art/tails*_opt.bin` are emitted
+already re-indexed, so either can be re-optimised later without redoing this.
+
+**Knuckles is deliberately NOT re-indexed** and remains a raw copy: his art uses
+S3K index 5 for ~3,450 pixels, so no permutation is lossless for him. He needs a
+genuine palette swap (S3K itself swaps `Pal_Knuckles` into line 0). Logged in
+`docs/DEFERRED_WORK.md`. **Sonic is not produced here at all** — his art is
+already in our order and is untouched by any of this.
+
 ## Format decisions MADE (pipeline mirrored our Sonic path exactly)
 
-- **Art** — S3K character art is already uncompressed 32-byte 4bpp tiles; copied
-  byte-for-byte. Aeon uses uncompressed sprite art (no Nemesis), so no transcode.
+- **Art** — S3K character art is already uncompressed 32-byte 4bpp tiles, so
+  there is no transcode (Aeon uses uncompressed sprite art, no Nemesis). Tails'
+  art is **re-indexed** into our palette order on the way through (see above);
+  Knuckles' is copied byte-for-byte.
 - **Mappings** — converted from the S3K **6-byte** piece format
   (`Y.b size.b tile.w X.w`) to Aeon's **8-byte VDP-order** piece
   (`Y.w size.b pad.b tile.w X.w`) with a per-frame flip-invariant bbox header,
@@ -138,10 +202,11 @@ The trio the build consumes mirrors Sonic exactly (see
      (gameplay) and `knuckles_ssz_end.bin` (ending). The plan must load the
      Knuckles line into the player palette slot when Knuckles is active.
    - **Tails** has **no separate palette** in S3K — Tails shares the combined
-     Sonic+Tails palette. That palette is already in-repo as
-     `art/palettes/SonicAndTails.bin` (and `art/palettes/sonic.bin`); no new
-     Tails palette file is needed. Confirm the active player palette line covers
-     Tails' colors when Sonic isn't present.
+     Sonic+Tails palette, and needs no palette file of his own here. **Resolved
+     2026-08-10:** our in-repo `art/palettes/SonicAndTails.bin` carries the same
+     colour set as S3K's in a *different order*, which is why Tails first
+     rendered wrong; his art is now re-indexed into our order at build time and
+     shares CRAM line 0 with Sonic unchanged. See "Palette re-indexing" above.
 4. **VRAM budget — the character DPLC window.** Aeon DMAs per-frame character art
    into a fixed window at **tile $3C0 ($7800)**, currently documented/sized for
    Sonic at **"up to 25 tiles"** (`games/sonic4/player/sonic.emp`,
@@ -170,6 +235,19 @@ The trio the build consumes mirrors Sonic exactly (see
 - Anim decode spot-checked: Tails walk/run == Sonic walk/run frame lists.
 - DPLC <=16-tile invariant asserted in-generator; max optimized entry = 16.
 - Determinism: two consecutive runs produce byte-identical output.
+- **Palette permutation** — derived by matching all 16 CRAM words of
+  `art/palettes/SonicAndTails.bin` against S3K's
+  `General/Sprites/Sonic/Palettes/SonicAndTails.bin` line 0: 15 of 16 S3K
+  indices match exactly one of ours, index 5 (`$0080`) matches none, and our
+  line has no duplicate words (so each match is unambiguous). Asserted against
+  the pinned table every run.
+- **Losslessness** — index histograms over Tails' body and appendage art before
+  the remap: index 5 count = **0** in both. Post-remap histograms are the
+  before-histograms permuted, population-for-population (checked per index in
+  the generator), and byte length is unchanged.
+- **Blast radius** — regenerating touches only the four Tails art blobs plus
+  their two shipped copies. Mappings, DPLCs, anim JSON, Knuckles, and
+  `art/optimized/characters/sonic.bin` are byte-identical across the change.
 
 ## Concerns / surprises
 

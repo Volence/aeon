@@ -1,0 +1,239 @@
+// Dust spawning — the per-frame cadence and the charge-dust follower.
+module games.sonic4.dust_spindash in dust_spindash
+
+use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_bytes}
+use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP}
+use engine.coords.{pixels_to_coord}
+use engine.structs.{CharacterDef, cd_stand_h_off}
+use games.sonic4.constants.{PSTATE_SPINDASH, VRAM_DUST_SPINDASH}
+use games.sonic4.player_common.{PlayerV}
+use games.sonic4.ram.{PlayerBlock}
+
+// The a4-relative cadence-byte displacement, mirroring player_common's
+// file-local PBLK_* convention. PBLK_* consts are not link symbols (they are
+// module-local `const`s), so cross-module agreement is spelled the way
+// player_common itself spells it: both sides `ensure` against the type that
+// owns the layout (config/ram.emp), and a drifted offset fails the build.
+const PBLK_DUSTTIMER = 18
+ensure(PBLK_DUSTTIMER == offsetof(PlayerBlock, dust_timer),
+       "PBLK_DUSTTIMER diverged from PlayerBlock.dust_timer (config/ram.emp) — player_common's mirror binds the same offset")
+
+// One puff every 4 frames — S2, S3K and S.C.E. all use a plain countdown
+// reloaded with 3, no mask and no randomisation (the reference dust uses no RNG
+// at all, which suits an engine that has none).
+const DUST_CADENCE_RELOAD = 3
+
+// The skid puff sits 3 px above the character's FEET, derived from the record
+// rather than from S3K's magic "short character" flag byte.
+//
+// cd_stand_wh's height half is the FULL box (2r+1, always odd), so `>> 1`
+// recovers the y_radius exactly. y_off = y_radius - 3 reproduces S3K's numbers
+// for free: Sonic (r=19) -> 16, which is S3K's literal +$10; Tails (r=15) -> 12,
+// which is S3K's $10 MINUS the 4 px its short-character flag subtracts. The
+// per-character delta S3K encodes as a flag is simply the radius difference, so
+// deriving it needs no per-character dust data at all.
+const DUST_FEET_RISE = 3
+
+// The radius the donor dust MAPPINGS were authored against: Sonic's standing
+// y_radius. The charge-dust frames' piece offsets (-32,+4 / -32,-4) place the
+// cloud on the GROUND for an origin 19 px above it; a shorter character's
+// ground line sits closer to his origin, so a raw origin copy sinks the cloud
+// into the floor (user report, 2026-08-12: Tails' charge dust visibly detached
+// from his ball). S3K's `$38` short-character flag subtracts the same 4 px.
+// The follower derives it from the record instead: ref − this character's
+// radius = 0 for Sonic (byte-identical behaviour, fixtures unaffected), 4 for
+// Tails. A future character taller than 19 would get a NEGATIVE lift, which is
+// also correct.
+const DUST_ART_REF_RADIUS = 19          // == engine PLAYER_Y_RADIUS, pinned below
+ensure(DUST_ART_REF_RADIUS == extern("PLAYER_Y_RADIUS"),
+       "the dust art's authoring reference drifted from Sonic's standing radius — re-derive the mapping offsets or update the reference")
+
+// -----------------------------------------------
+// Dust_Tick — emit skid/slide dust on the cadence, or disarm.
+//
+// Reads PlayerV.skid_latch, the authoritative latch the animation classifier
+// already maintains (player_common.emp:699-733) — the alternative, re-deriving
+// "is skidding" from grounded + opposing input + |gsp| >= PHYS_SKID_MIN, would
+// duplicate a four-term condition that has exactly one home and would drift.
+//
+// The Y offset is derived from the active character's standing height rather
+// than S3K's flag byte, so a shorter character's puff rides correspondingly
+// higher with no per-character data of its own.
+//
+// In:  a0 = player SST; a4 = the slot's player block (an IMPLICIT input, matching
+//      PState_Spindash's convention — a4 is held by Player_Main for the whole
+//      frame and documented rather than declared)
+// Out: at most one puff spawned
+// Clobbers: d0-d2, a1-a2
+// Preserves: a0, d3 (Player_Display's dynamic animation hold, live across this
+//            call into AnimateSprite)
+// -----------------------------------------------
+pub proc Dust_Tick (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0, d3) {
+        tst.b   PlayerV.skid_latch(a0)
+        beq     .disarm
+        subq.b  #1, PBLK_DUSTTIMER(a4)
+        bpl     .done                           // not this frame
+        move.b  #DUST_CADENCE_RELOAD, PBLK_DUSTTIMER(a4)
+
+        // y = feet - 3 px, where feet = origin + y_radius and y_radius is the
+        // record's full height >> 1 (the box is 2r+1, so the shift is exact).
+        movea.l Player_Chardef, a1
+        moveq   #0, d0
+        move.b  cd_stand_h_off()(a1), d0        // full standing height (2r+1)
+        lsr.w   #1, d0                          // d0 = y_radius
+        subq.w  #DUST_FEET_RISE, d0             // Sonic -> 16, Tails -> 12
+        pixels_to_coord(d0)
+        move.l  Sst.y_pos(a0), d1
+        add.l   d0, d1
+        move.l  Sst.x_pos(a0), d0
+        jbra    DustPuff_Spawn                  // tail call: its clobbers (d0/d2/a1)
+                                                // are inside ours, and it preserves
+                                                // a0/d1
+    .disarm:
+        // Zeroed while not emitting, so the FIRST puff of the next skid lands on
+        // the frame the skid arms — the reference behaviour, which falls out of
+        // the countdown starting at 0.
+        clr.b   PBLK_DUSTTIMER(a4)
+    .done:
+        rts
+}
+
+// The follower's own sst_custom overlay — just the player it tracks.
+//
+// NOT parent_ptr, deliberately: children.emp:630-635 records that a non-zero
+// parent_ptr makes Draw_Sprite dereference the parent every frame to test
+// RF_MULTISPRITE, and that an effect spawned by a multisprite parent was then
+// skipped as batch-rendered while absent from the sibling chain — i.e. never
+// drawn at all. Holding the pointer here also keeps this 2P-ready without
+// reading the Player_1 label, and keeps the object out of the sibling chain
+// entirely (no chain contract, no cascade interaction).
+vars DustV: Sst.sst_custom {
+        player: u16,            // the player SST this follower tracks
+}
+
+// Band 2, the same deliberate deviation dust_puff.emp documents: behind the
+// player (4) and Tails' appendage (3), first to degrade at MAX_VDP_SPRITES.
+// Whole-byte write into a freshly zeroed slot, as there.
+const DUST_SPINDASH_BAND         = 2
+const DUST_SPINDASH_RENDER_FLAGS = DUST_SPINDASH_BAND << RF_PRIORITY_SHIFT
+
+// Cross-seam link values — the sprite data lives in games.sonic4.dust_data,
+// the script table in games.sonic4.dust_anims (the tails_appendage idiom).
+equ MAP_DUST_SPINDASH = extern("Map_DustSpindash")
+equ ANI_DUST_SPINDASH = extern("Ani_DustSpindash")
+equ DPLC_DUST         = extern("DPLC_Dust")
+equ ART_DUST          = extern("Art_Dust")
+
+// -----------------------------------------------
+// DustSpindash_Spawn — create the charge-dust follower.
+// Called from PHook_SpindashEnter, i.e. exactly once per charge.
+//
+// prev_anim/prev_frame = $FF is the animator-owned init documented on
+// RefreshSpritePieceCount: the first AnimateSprite takes its .anim_changed
+// path and populates the piece count + frame_off cache before the first
+// render, so there is no PopulateSpawnedPieceCount call here.
+//
+// In:  a0 = player SST
+// Out: follower allocated, or nothing (silent skip) if the pool is exhausted —
+//      a charge with no dust is the correct degradation for a cosmetic
+// Clobbers: d0 (AllocEffect's status), a1
+// Preserves: a0
+// -----------------------------------------------
+pub proc DustSpindash_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
+        jbsr    AllocEffect             // a1 = slot on the eq edge; a1 survives the
+        bne     .done                   //   pool-empty edge untouched
+
+        move.w  #DustSpindash_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  Sst.x_pos(a0), Sst.x_pos(a1)    // placed NOW, not left at 0: the
+        move.l  Sst.y_pos(a0), Sst.y_pos(a1)    //   Effect sweep may render this slot
+                                                //   before its first Main runs
+        move.l  #MAP_DUST_SPINDASH, Sst.mappings(a1)
+        move.w  #VRAM_DUST_SPINDASH, Sst.art_tile(a1)   // vram_art(tile,0,0) == tile:
+                                                        // palette 0, low priority
+        move.l  #ANI_DUST_SPINDASH, Sst.anim_table(a1)
+        move.b  #$FF, Sst.prev_anim(a1)
+        move.b  #$FF, Sst.prev_frame(a1)
+        move.b  #DUST_SPINDASH_RENDER_FLAGS, Sst.render_flags(a1)
+        move.w  a0, DustV.player(a1)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// DustSpindash_Main — follow the player, animate, stream, draw, and retire.
+//
+// RETIREMENT IS A STATE POLL, NOT A HOOK, and that is deliberate. Deleting this
+// object from PHook_SpindashExit would need a cached slot pointer, and that
+// pointer can be invalidated behind the hook's back — DeleteChildren runs on a
+// character switch and DeleteObject's cascade runs on death, either of which
+// frees this slot while the hook still believes it owns it. A stale pointer plus
+// a delete is the classic double-delete that corrupts the free stack. The poll
+// has no such surface and self-heals: if the player slot is zeroed under us,
+// player_state reads 0 (PSTATE_GROUND), the compare fails, and we retire.
+//
+// This is NOT the S2 floating-dust bug. That dust polled spin_dash_flag, which a
+// grab leaves set; we poll the state byte, which Player_SetState writes on every
+// transition and which has no stale path.
+//
+// Runs from the Effect sweep, AFTER the Player sweep, so the position and status
+// read here are this frame's final values.
+//
+// In:  a0 = own SST
+// Clobbers: d0-d4, a1-a3 — the callee union: AnimateSprite (d0-d2/a1-a2) union
+//           Perform_DPLC_Deferrable (d0-d4/a1-a2, a3 an input written here)
+//           union Draw_Sprite (d0-d3/a1).
+// -----------------------------------------------
+pub proc DustSpindash_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
+        movea.w DustV.player(a0), a1
+        cmpi.b  #PSTATE_SPINDASH, PlayerV.player_state(a1)
+        beq     .live
+        jbra    DeleteObject                    // tail call — the charge ended by ANY
+                                                // path, including death and a
+                                                // character switch. (jbra, not a bare
+                                                // bne: DeleteObject is cross-section
+                                                // and a conditional branch has no far
+                                                // form — [branch.out-of-reach].)
+    .live:
+
+        move.l  Sst.x_pos(a1), Sst.x_pos(a0)
+        move.l  Sst.y_pos(a1), Sst.y_pos(a0)
+
+        // Lift the cloud onto the character's OWN ground line (see
+        // DUST_ART_REF_RADIUS above): ref − radius pixels, 0 for Sonic. Derived
+        // per frame from the record, not cached at spawn, so a mid-charge
+        // character switch cannot strand a stale lift (the retirement poll
+        // below kills the follower a frame later anyway, but the copy runs
+        // first in this dispatch).
+        movea.l Player_Chardef, a2
+        moveq   #0, d0
+        move.b  cd_stand_h_off()(a2), d0        // full standing height (2r+1)
+        lsr.w   #1, d0                          // d0 = this character's y_radius
+        neg.w   d0
+        addi.w  #DUST_ART_REF_RADIUS, d0        // d0 = ref - radius (0, 4, ...)
+        pixels_to_coord(d0)
+        sub.l   d0, Sst.y_pos(a0)
+
+        // Mirror the facing only. AnimateSprite propagates status bits 1-2 into
+        // render_flags itself, so copying the whole status byte would also drag
+        // across bits this object has no business carrying. Spelled as
+        // bclr/btst/bset rather than a mask pair: no complement operator is
+        // assumed, and the bit index is the same ST_XFLIP the player uses.
+        bclr    #ST_XFLIP, Sst.status(a0)
+        btst    #ST_XFLIP, Sst.status(a1)
+        beq     .no_flip
+        bset    #ST_XFLIP, Sst.status(a0)
+    .no_flip:
+
+        jbsr    AnimateSprite
+        movea.l #DPLC_DUST, a2
+        movea.l #ART_DUST, a3
+        move.w  #vram_bytes(VRAM_DUST_SPINDASH), d1
+        jbsr    Perform_DPLC_Deferrable         // Deferrable, not Important: this is
+                                                // cosmetic non-player art and may slip
+                                                // a frame. perform_dplc leaves
+                                                // prev_frame stale on a dropped
+                                                // enqueue, so the next frame RETRIES
+                                                // rather than showing stale tiles.
+        jbra    Draw_Sprite
+}

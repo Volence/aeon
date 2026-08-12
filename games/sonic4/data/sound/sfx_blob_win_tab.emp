@@ -40,8 +40,8 @@ module data.sfx_blob_win_tab (cpu: z80)
 // co-link byte gate covers body-length drift. A renumber that grows the SFX id
 // range bumps SFX_TABLE_LEN (automatically, from the table rows) and fires this,
 // prompting a matching edit here.
-ensure(135 == extern("SFX_TABLE_LEN"),
-       "SfxBlobWinTab span (135 cells) disagrees with SFX_TABLE_LEN (sfx_bank.emp, SfxTable.len)")
+ensure(137 == extern("SFX_TABLE_LEN"),
+       "SfxBlobWinTab span (137 cells) disagrees with SFX_TABLE_LEN (sfx_bank.emp, SfxTable.len)")
 
 // Pure data table — the proc emits only `dc.w` cells and touches no register, so
 // `clobbers()` is the honest empty contract.
@@ -69,5 +69,7 @@ section sfx_blob_win_tab (cpu: z80, vma: $8000) {
         dc.w    SFX_WIN_B6          // $B6 DASH
         dc.w    0, 0   // $B7..$B8 unused (2)
         dc.w    SFX_WIN_B9          // $B9 RINGLOSS
+        dc.w    SFX_WIN_BA          // $BA FLYING
+        dc.w    SFX_WIN_BB          // $BB FLY_TIRED
     }
 }

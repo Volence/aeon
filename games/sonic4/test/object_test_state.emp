@@ -80,6 +80,17 @@ pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a3) {
 
         // --- Player ---
         lea     Player_1, a1                    // (Player_1).w
+        move.w  a1, Camera_Target               // (Camera_Target).w — name the
+                                                // leader. This scene never calls
+                                                // Camera_Update and spawns no
+                                                // leader-following object, so the
+                                                // cell is not read today; it is
+                                                // seeded anyway because it
+                                                // boot-clears to 0, a NULL SST
+                                                // pointer into the vector table
+                                                // rather than a benign "slot 0" —
+                                                // adding camera follow here later
+                                                // must not be a null deref.
         move.w  #TestPlayer - ObjCodeBase, Sst.code_addr(a1)
         move.l  #40 << 16, Sst.x_pos(a1)
         move.l  #STUB_FLOOR_Y << 16, Sst.y_pos(a1)
@@ -263,6 +274,11 @@ pub proc GameState_ObjectTestChurn_Init () clobbers(d0-d5/a0-a2) {
         // --- Player (physics target for TouchResponse; rests on stub floor,
         //     placed clear of the churner grid so it is not culled/hurt) ---
         lea     Player_1, a1                    // (Player_1).w
+        move.w  a1, Camera_Target               // (Camera_Target).w — same seed,
+                                                // same reason as the ObjectTest
+                                                // scene above: unread here, but
+                                                // the cell's boot value is a NULL
+                                                // SST pointer, not slot 0.
         move.w  #TestPlayer - ObjCodeBase, Sst.code_addr(a1)
         move.l  #300 << 16, Sst.x_pos(a1)
         move.l  #STUB_FLOOR_Y << 16, Sst.y_pos(a1)

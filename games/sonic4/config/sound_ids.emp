@@ -68,6 +68,8 @@ pub const SFXID_JUMP       : SfxId = $62
 pub const SFXID_SPINDASH   : SfxId = $AB
 pub const SFXID_DASH       : SfxId = $B6
 pub const SFXID_RINGLOSS   : SfxId = $B9
+pub const SFXID_FLYING     : SfxId = $BA
+pub const SFXID_FLY_TIRED  : SfxId = $BB
 
 // SFXID_REV_LOOP — spindash-rev special case (Sfx_Frame's rev-loop retrigger).
 // -1 = feature off (games without a spindash). Aliases the spindash id.
@@ -83,6 +85,13 @@ pub const SFXID_REV_LOOP   : SfxId = SFXID_SPINDASH
 // (plays but never latches the floor; Sfx_BeginSound masks it off for arbitration).
 // Only relative ordering matters (all compares are `cp`), so these values carry rank
 // only — keep them spaced and strictly < $80.
+// Flight sits BELOW ring/UI, the only tier that does. It is the one SFX in the
+// set that retriggers on a fixed cadence for as long as the player holds a state
+// (every 16 frames while Tails is airborne), so it is the one SFX that would
+// otherwise win an arbitration purely by asking most often. Losing a flap to a
+// ring or a jump costs nothing — the cadence hands it another attempt 16 frames
+// later — whereas the reverse would let a held button mute the pickups.
+pub const SFXPRI_FLY      = $08    // flight flap/tired — below everything; see above
 pub const SFXPRI_RING     = $10    // ring/UI — lowest; never ducks (authored sfh_duck = 0)
 pub const SFXPRI_JUMP     = $20
 pub const SFXPRI_ROLL     = $30
@@ -95,5 +104,5 @@ pub const SFXPRI_RINGLOSS = $60
 // Guard: every priority tier MUST fit in 7 bits so bit 7 stays free as the
 // non-latching flag (and stays non-negative under signed compares). Mirrored by a
 // test in tools/sfx_transcode.py.
-ensure(((SFXPRI_RING | SFXPRI_JUMP | SFXPRI_ROLL | SFXPRI_SKID | SFXPRI_SPINDASH | SFXPRI_DASH | SFXPRI_DEATH | SFXPRI_RINGLOSS) & $80) == 0,
+ensure(((SFXPRI_FLY | SFXPRI_RING | SFXPRI_JUMP | SFXPRI_ROLL | SFXPRI_SKID | SFXPRI_SPINDASH | SFXPRI_DASH | SFXPRI_DEATH | SFXPRI_RINGLOSS) & $80) == 0,
        "an SFXPRI_* tier has bit 7 set — priorities must be 7-bit ($00-$7F); bit 7 is the non-latching flag")

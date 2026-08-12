@@ -97,6 +97,23 @@ pub comptime fn interact_off() -> int {
     return sizeof(Sst) - 2
 }
 
+// size_wh_off ($16): the collision box as ONE word. width_pixels and
+// height_pixels are adjacent and word-aligned, so a whole box is a single
+// aligned word — which is exactly why the packed W<<8|H box shape exists
+// (CharacterDef.cd_stand_wh / cd_roll_wh): the player's enter hooks store a
+// character's box straight from its record with no field-by-field unpacking.
+// Spelled as a comptime fn for the same reason interact_off() is — a bare
+// displacement on a TYPED register is (correctly) closed to the field namespace,
+// and the call-expr form is the escape a word view of a byte-typed field PAIR
+// needs.
+pub comptime fn size_wh_off() -> int {
+    return offsetof(Sst, width_pixels)
+}
+ensure(offsetof(Sst, height_pixels) == offsetof(Sst, width_pixels) + 1,
+       "size_wh_off()'s word view needs width_pixels/height_pixels adjacent with width in the HIGH byte")
+ensure(offsetof(Sst, width_pixels) % 2 == 0,
+       "size_wh_off() is a word access — width_pixels must be even-aligned or it address-errors")
+
 // -----------------------------------------------
 // ObjDef — the v2 archetype spawn template. A COMPACT 26-byte ROM image
 // (code_addr word + a 24-byte block) that Load_Object burst-copies into a

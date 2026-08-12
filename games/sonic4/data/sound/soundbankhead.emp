@@ -56,9 +56,9 @@ section soundbankhead (cpu: m68000, vma: $8000) {
     pub data MovingTrucks_PitchTable = _pitchtab
     // The id->blob window-pointer table. VMA $845F. Shape-dependent.
     pub data SfxBlobWinTab = _sfxwin
-    // The coordination-opcode jump table. VMA $856D, 32 dw entries. Shape-dependent.
+    // The coordination-opcode jump table. VMA $8571, 32 dw entries. Shape-dependent.
     pub data SeqOpcodeTable = _seqop
-    // The DAC-sample descriptor head. VMA $85AD.
+    // The DAC-sample descriptor head. VMA $85B1.
     pub data DacSampleTable = _dacsamp
 }
 
@@ -66,9 +66,9 @@ section soundbankhead (cpu: m68000, vma: $8000) {
 // fixed banked-carrier VMA and desync the resident Z80 blob.
 ensure(_sound_tables.len == $357, "sound_tables_z80 head wrong size ($357=855 B) — downstream head VMAs would shift")
 ensure(_pitchtab.len == $108, "MovingTrucks_PitchTable wrong size (must be 2*PITCHTAB_COUNT = $108)")
-ensure(_sfxwin.len == $10E, "SfxBlobWinTab wrong size (must be SFX_TABLE_LEN*2 = $10E)")
+ensure(_sfxwin.len == $112, "SfxBlobWinTab wrong size (must be SFX_TABLE_LEN*2 = $112)")
 ensure(_seqop.len == $40, "SeqOpcodeTable wrong size (must be 32 dw entries = $40)")
-ensure(_dacsamp.len == $7B, "DacSampleTable wrong size (must be DAC_SAMPLE_COUNT*DacSample_len = 10*12 = $78, + the 3-byte head-tail 4-alignment pad = $7B — see dac_sample_tab.emp DacHeadPad)")
+ensure(_dacsamp.len == $7F, "DacSampleTable wrong size (must be DAC_SAMPLE_COUNT*DacSample_len = 10*12 = $78, + the 7-byte head-tail 8-alignment pad = $7F — see dac_sample_tab.emp DacHeadPad; the pad grew 3->7 when the SFX range reached $BB and widened _sfxwin by 4)")
 
 // The head-tail 8-alignment wall (package 3 fix): the MT bank after this head is
 // seam-2-lowered against a baseline-0 base and the SFX block's baked pointer

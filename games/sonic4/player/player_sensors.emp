@@ -23,6 +23,14 @@
 // REGISTER CONVENTION (collision_lookup.asm header): d3.b = layer on
 // every entry, X/Y saved in d4/d5, d3 NOT preserved.
 //
+// The PLAYER WRAPPERS additionally take a4 = the calling slot's player block
+// (config/ram.emp), because the probe quadrant they rotate by is per-slot
+// working state (C1) rather than a global. The probe CORES do not — they are
+// pure geometry and take their direction from which core the wrapper picked.
+// Every caller of Player_SensorFloor/Ceiling/Surface must therefore have a4
+// live; the player frame establishes it once in Player_Main, and the one
+// non-player caller (TestPlayer_Main, debug shape only) loads it explicitly.
+//
 // Lives in the ENGINE BLOCK (main.asm gameEngineBlockIncludes), the first
 // include — a called collision primitive with NO code_addr entry points, a
 // DIFFERENT region than the object code bank. Gate SIGIL_EMP_PLAYER_SENSORS
@@ -42,6 +50,12 @@ use engine.coords.{abs_w}
 // closure derives its effects from the real def. The four ROM tables it reads
 // (SolidityTable/AngleTable/HeightMaps/HeightMapsRot) are AS-only data in
 // games/sonic4/main.asm, likewise bare link symbols.
+
+// player-block field offset (a4-relative; the PlayerBlock displacement).
+// File-local, like the PBLK_* offsets in player_ground/player_air and for the
+// same reason: a divergent offset shows up as a mismatched instruction byte in
+// the region gate.
+const PBLK_QUADRANT = 16
 
 // SensorProbe — the stamped-probe-core routine type Player_SensorPair dispatches
 // through `jsr (a2)`. In: d0/d1 engine X/Y, d3.b layer, d6.b class mask; Out:
@@ -261,12 +275,12 @@ pub proc Player_SensorPair () clobbers(d0-d5/a1) {
 }
 
 // -----------------------------------------------
-// Player_SensorFloor — A/B floor pair, rotated by Player_Quadrant
-// In:  a0 = player SST
+// Player_SensorFloor — A/B floor pair, rotated by the slot quadrant
+// In:  a0 = player SST, a4 = the slot's player block (holds the quadrant)
 // Out: d0.w = dist (closer sensor; A = the −cross-offset sensor wins ties)
 //      d1.b = angle with resolution policy applied: odd flag OR
 //             |angle − SST_angle| ≥ $20 (byte wraparound) → substitute the
-//             quadrant cardinal (Player_Quadrant << 6)
+//             quadrant cardinal (slot quadrant << 6)
 //      d2.b = attr
 // Clobbers: d0-d7, a1-a2
 // Note: radii = SST_width/height_pixels >> 1. The player state hooks
@@ -309,7 +323,8 @@ pub proc Player_SensorCeiling (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Player
         // fall through
 }
 
-// shared pair body — d6 = class mask, d7 = quadrant offset (0/2)
+// shared pair body — a4 = the slot's player block, d6 = class mask,
+// d7 = quadrant offset (0/2)
 pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #0, d3
         move.b  layer(a0), d3
@@ -322,7 +337,7 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.b  height_pixels(a0), d1
         lsr.w   #1, d1                 // probe-axis radius (y_rad in floor mode)
         moveq   #0, d2
-        move.b  Player_Quadrant, d2
+        move.b  PBLK_QUADRANT(a4), d2
         add.b   d7, d2
         andi.w  #3, d2                 // effective probe direction
         add.w   d2, d2
@@ -372,8 +387,8 @@ pub proc Player_SensorSurface (a0: *Sst) clobbers(d0-d7/a1-a2) {
 .pair:
         jbsr    Player_SensorPair      // d0/d1/d2 = closer sensor (raw angle)
 
-        // angle resolution: cardinal = ((Player_Quadrant + d7) & 3) << 6
-        move.b  Player_Quadrant, d3
+        // angle resolution: cardinal = ((slot quadrant + d7) & 3) << 6
+        move.b  PBLK_QUADRANT(a4), d3
         add.b   d7, d3
         andi.b  #3, d3
         ror.b   #2, d3                 // 0/1/2/3 → $00/$40/$80/$C0

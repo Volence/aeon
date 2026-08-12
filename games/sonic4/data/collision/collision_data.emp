@@ -3,6 +3,11 @@
 // the labels stay word-aligned with no inter-blob padding. Boundary key HeightMaps.
 module games.sonic4.collision_data in collision_data
 
+// The character DPLC window + its hard wall (games.sonic4.constants) and the
+// comptime DPLC parser that measures a table's worst frame (engine.objects.dplc).
+use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
+use engine.objects.dplc.{dplc_peak_tiles}
+
 const _heightmaps     = embed("games/sonic4/data/collision/heightmaps.bin")
 const _heightmaps_rot = embed("games/sonic4/data/collision/heightmaps_rot.bin")
 const _angles         = embed("games/sonic4/data/collision/angles.bin")
@@ -16,6 +21,15 @@ const _art_sonic      = embed("art/optimized/characters/sonic.bin")
 // walls; now comptime facts).
 ensure(_map_sonic.len <= $7FFF, "Map_Sonic exceeds signed word-offset range")
 ensure(_dplc_sonic.len <= $7FFF, "DPLC_Sonic exceeds signed word-offset range")
+
+// Sonic's worst frame must fit the character VRAM window (960 up to the
+// VRAM_TEST_OBJ wall at 992). Measured 29 tiles, ending 989 — three to spare.
+// This used to be the comment "up to 25 tiles" in four files, which was both
+// wrong and unchecked; the number now comes from the blob and the wall from its
+// owner, so an art re-export that grew fails the build instead of DMA'ing over
+// the test-object art.
+ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_sonic) <= VRAM_TEST_OBJ,
+       "Sonic's peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
 
 pub data HeightMaps    = _heightmaps
 pub data HeightMapsRot = _heightmaps_rot

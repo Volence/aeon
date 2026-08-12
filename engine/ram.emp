@@ -112,7 +112,10 @@ pub vars lower_ram {
     // region means any hypothetical over-decode spills into the unused
     // Lower_RAM_End..region-end gap instead of corrupting Page_Table's low entries.
     Page_Table:     [u8; PAGE_TABLE_MAX],                                   // 256 bytes — page id -> frame idx / PAGE_NOT_RESIDENT
-    Page_Frames:    [PageFrame; PAGE_FRAMES],                               // 15 × sizeof(PageFrame)=8 = 120 bytes
+    Page_Frames:    [PageFrame; PAGE_FRAMES_MAX],                           // CAPACITY-sized (15 × 8 = 120 B), NOT count-sized:
+                                                                            // a pool resize must not move RAM (2026-08-11 ruling —
+                                                                            // see PAGE_FRAMES_MAX in engine/system/constants.emp).
+                                                                            // Runtime walks bound by PAGE_FRAMES; tail slots idle.
     Page_Queued_Bits: [u8; PAGE_TABLE_MAX / 8],                             // 32 bytes — "page already in the request FIFO" bitset (PageCache_Request dedupe)
 
     // Art staging LAST in lower_ram (defense-in-depth): a hypothetical over-decode
@@ -329,7 +332,11 @@ pub vars upper_ram {
         // not a silent black hang. Reset to 0 the first frame the fill does not stall.
         Cache_Stall_Watchdog:   u16,
         Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
-        Page_Audit_Scratch:     [u16; PAGE_FRAMES],   // per-frame refcount recomputed from the nametable (audit)
+        Page_Audit_Scratch:     [u16; PAGE_FRAMES_MAX],   // per-frame refcount recomputed from the nametable (audit).
+                                                          // CAPACITY-sized like Page_Frames — this array shrinking by
+                                                          // 2 B is exactly what slid every debug cell below it (incl.
+                                                          // the free stacks) by -2 and desynced the replay fixtures
+                                                          // on the 2026-08-11 pool resize.
         // Ground-truth snapshot the audit fills at entry, so a red-screen freezes a
         // compact readable copy of the residency map (Task-6 mapping-bug debug):
         //   [0]=Page_Free_Head [1]=[2]=$FF reserved (dead LRU heads) [3]=pad
@@ -339,7 +346,7 @@ pub vars upper_ram {
     }
 
     // --- Object System (§3) ---
-    // Object RAM — all slots contiguous, stride = sizeof(Sst) ($52). Reserved
+    // Object RAM — all slots contiguous, stride = sizeof(Sst) ($50). Reserved
     // tracked-entity slots — engine camera/rings/collision address slot 0/1
     // directly; the game's player code claims them at spawn.
     mark Object_RAM,
@@ -413,6 +420,67 @@ pub vars upper_ram {
     Camera_Pan_Offset:      u16,        // current extended lookahead pan
     Camera_X_Max:           u16,        // per-act clamp ceiling: (grid_w << SECTION_SIZE_SHIFT) - SCREEN_WIDTH
     Camera_Y_Max:           u16,        // per-act clamp ceiling: (grid_h << SECTION_SIZE_SHIFT) - SCREEN_HEIGHT
+
+    // The LEADER: a POINTER to the SST the camera follows (and that the game's
+    // other leader-following systems track — path swap today). One indirection
+    // replaces every hardwired `lea Player_1`, so a roster where slot 0 is not
+    // the followed character needs no engine change: the level init writes this
+    // cell and everything downstream agrees.
+    //
+    // A WORD, not a long: every SST lives in upper_ram ($FFFF8000+), so bit 15
+    // is set and `movea.w Camera_Target, aN` sign-extends to the right address —
+    // the same idiom Sprite_Bands and the free stacks already use for SST
+    // addresses, and half the storage of a long.
+    //
+    // That premise is STRUCTURALLY enforced, not assumed: the whole SST pool
+    // (Object_RAM .. Object_RAM_End above — Player_1/2, Dynamic, System, Effect)
+    // is a field run of THIS region, and the region carries `w_addressable`,
+    // which the compiler checks across its entire `[base, limit)` window
+    // ([region.not-w-addressable]). Moving the pool out of a `.w`-addressable
+    // region therefore fails the build before this read can go wrong; no
+    // separate `ensure` is needed here. (The game-side twin in
+    // games/sonic4/player_common.emp — `ensure((extern("Player_1") &
+    // $FFFF8000) == $FFFF8000)` for its `cmpa.w` sites — exists because a GAME
+    // module cannot see this region declaration, not because the property is
+    // unenforced.)
+    //
+    // It is engine RAM (not game RAM) because engine.camera reads it
+    // unconditionally, and engine.camera is compiled into EVERY game — including
+    // `demo`, which defines no game-side player symbols at all (that is exactly
+    // why the landing-lock probe below it is comptime-gated on
+    // Game.CAMERA_JUMP_LOCK). A game-RAM home fails the demo link outright.
+    //
+    // NOT boot-safe by default: Work-RAM boot-clears to 0, and 0 is not a valid
+    // SST — it is a null pointer into the vector table, not a benign "slot 0".
+    // Level init MUST seed it before the first Camera_Update.
+    Camera_Target:          u16,        // leader SST pointer (word, sign-extended)
+
+    // How far Camera_Update lifts the tracked point while Camera_Target is
+    // CURLED (its ST_ROLLING bit set) — the pixels a game's curl displaces the
+    // SST origin by, so the camera keeps following the same body point across a
+    // curl instead of stepping by the difference.
+    //
+    // ENGINE OWNS THE CELL, THE GAME FILLS IT. The number is a property of the
+    // game's character (Sonic curls by 5px, Tails by 1 — S3K derives it per
+    // character as `y_radius - default_y_radius`), so the engine cannot compute
+    // it; but engine.camera reads it unconditionally and is compiled into EVERY
+    // game, so it cannot live in game RAM either. That is the same bind
+    // Camera_Target is in, and this is the same answer — which is deliberately
+    // NOT the answer the landing lock gives just below it: reaching into a game
+    // symbol behind a Game.* comptime gate works, but every such hole has to be
+    // gated again for `demo`'s sake, and a cell needs no gate at all.
+    //
+    // Sonic 4 writes it in Player_RefreshPhysics — the chokepoint every
+    // Player_Chardef write passes through — from the active record's two box
+    // heights, the same derivation its curl hooks and ceiling probes use.
+    //
+    // BOOT-SAFE, unlike Camera_Target: Work-RAM clears to 0 and 0 means "this
+    // game's tracked object does not curl", which is the correct answer for a
+    // game that never sets ST_ROLLING (`demo`) and unreachable for one that
+    // does — the bit is set by the player's own state machine, which cannot
+    // have run before the character was resolved.
+    Camera_Curl_Offset:     u16,        // px lifted while the target is curled (0 = no curl)
+
     Camera_Hold_Frames:     u8,         // frames the camera holds position (game code sets it;
                                         // Camera_Update tests it each frame to suppress movement,
                                         // then decrements)

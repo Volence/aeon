@@ -80,6 +80,7 @@ SFXEL_NOISE = 3
 # flag (spec §5/§7.1). Only relative ordering matters; values must stay < 0x80
 # (guarded by a build-time assert in games/sonic4/config/sound_ids.asm and
 # test_priorities_are_7bit below).
+SFXPRI_FLY      = 0x08
 SFXPRI_RING     = 0x10
 SFXPRI_JUMP     = 0x20
 SFXPRI_ROLL     = 0x30
@@ -105,6 +106,8 @@ _SFX_PRIORITY = {
     0xAB: SFXPRI_SPINDASH,
     0xB6: SFXPRI_DASH,
     0xB9: SFXPRI_RINGLOSS,
+    0xBA: SFXPRI_FLY,
+    0xBB: SFXPRI_FLY,
 }
 
 # S3K channel id -> (our CHROUTE_*, eligibility kind)
@@ -123,7 +126,7 @@ _S3K_CHAN_MAP = {
 _RESERVED_ROUTES = {CHROUTE_FM1, CHROUTE_FM2, CHROUTE_FM6, CHROUTE_DAC}
 
 # SFX id -> filename prefix (for the core set)
-_CORE_SFX_IDS = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x62, 0xAB, 0xB6, 0xB9]
+_CORE_SFX_IDS = [0x33, 0x34, 0x35, 0x36, 0x3C, 0x62, 0xAB, 0xB6, 0xB9, 0xBA, 0xBB]
 
 # S3K note enum: nRst=$80, nC0=$81, nCs0=$82, ..., sequential chromatically
 # The enum starts at $80 for nRst, then $81 for nC0, $82 for nCs0, etc.
@@ -1820,6 +1823,8 @@ _CORE_SFX_FILENAMES = {
     0xAB: 'AB - Spin Dash.asm',
     0xB6: 'B6 - Dash.asm',
     0xB9: 'B9 - Ring Loss.asm',
+    0xBA: 'BA - Flying.asm',
+    0xBB: 'BB - Flying (Tired).asm',
 }
 
 
@@ -1887,6 +1892,7 @@ def generate_all(out_dir: str = None, skdisasm_dir: str = None,
     _CROSS_FILE_APPEND = {
         0x34: [0x33],   # Sound_34_Jump00 + Sound_33_34_B9_Voices in SFX 33
         0xB9: [0x33],   # Sound_33_34_B9_Voices in SFX 33
+        0xBB: [0xBA],   # Sound_BA_BB_Voices lives in SFX BA — BB's header names it
     }
 
     id_to_label = {}

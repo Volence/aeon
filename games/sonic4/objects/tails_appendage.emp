@@ -1,0 +1,369 @@
+// Tails' twin tails — the appendage child object.
+//
+// S3K renders Tails as TWO simultaneously-resident sprites: the body (the player
+// slot) and the tails, a separate object with its own mappings, its own DPLC
+// stream into its own VRAM window, and its own animation script running at its
+// own rate (`Obj_Tails_Tail`, skdisasm sonic3k.asm:30021). This is the peer of
+// that object. It owns nothing about Tails' behaviour — it is a pure display
+// satellite that re-reads its parent every frame.
+//
+// THE ANIMATION TABLE IS BODY-ID-ALIGNED, so S3K's 42-byte
+// `Obj_Tails_Tail_AniSelection` parent-anim -> tail-anim lookup does not exist
+// here: `Ani_TailsAppendage` is indexed by the SAME ANIM_* ids as `Ani_Tails`
+// (games/sonic4/data/animations/tails_anims.emp, where 14 `ensure`s bind every
+// ordinal to its ANIM_* constant), so the anim byte copies straight across.
+//
+// WHY THE SPAWN IS HAND-ROLLED AND NOT A CreateChild_*/CreateEffect_* CALL.
+// This object needs a combination none of the six creators offers: an
+// EFFECT-pool slot that is ALSO linked into the parent's sibling chain.
+//   * Pool — RunObjects culls the DYNAMIC pool by camera distance
+//     (core.emp `.run_culled`, CULL_DISTANCE_X/Y): a culled slot is not
+//     dispatched at all, so the tails would silently stop following the body.
+//     That is reachable today — debug-fly carries the player past the camera's
+//     act clamp — and "the tails vanish when you fly too far" is exactly the
+//     class of bug this pool choice exists to prevent. System and Effect are
+//     FIXED sweeps (`.run_always`), always dispatched. The System pool has no
+//     allocator and no slot registry; Effect has `AllocEffect`. Hence Effect,
+//     which is also the pool `Perform_DPLC`'s budget assumptions were written
+//     against for non-player art. Every CreateChild_* creator hardcodes
+//     `AllocDynamic`, so none of them can be used here.
+//   * Chain — the child must die with the player (DeleteObject's C1b cascade
+//     walks the parent's chain) and must be findable on a character switch.
+//     `CreateEffect_Normal` deliberately writes NO `parent_ptr` and does NOT
+//     chain: effects are fire-and-forget.
+// So the slot is allocated and linked below, satisfying children.emp's chain
+// contract explicitly: the parent is not itself a linked child (DEBUG rail
+// below), the prepend terminates because a freshly allocated slot's
+// `sibling_ptr` is zero, and this object never releases ITSELF — it is freed by
+// the parent's cascade or by `DeleteChildren` from the reconcile.
+//
+// EVERY FIELD `CreateEffect_Normal` WOULD INHERIT IS WRONG HERE ANYWAY: the
+// appendage's `mappings` and `art_tile` are its own (a second sprite set in a
+// second VRAM window), not the parent's, so an inherit would be two moves
+// immediately overwritten.
+module games.sonic4.tails_appendage in tails_appendage
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_PRIORITY_SHIFT, RF_XFLIP, RF_YFLIP, ST_XFLIP, TILE_SIZE}
+use games.sonic4.constants.{ANIM_ROLL, VRAM_TAILS_APPENDAGE}
+
+// Cross-seam link values. The sprite trio lives in games.sonic4.tails_data, the
+// script table in games.sonic4.tails_anims, and CharDef_Tails in games.sonic4.tails.
+equ MAP_TAILS_APPENDAGE  = extern("Map_TailsAppendage")
+equ DPLC_TAILS_APPENDAGE = extern("DPLC_TailsAppendage")
+equ ART_TAILS_APPENDAGE  = extern("Art_TailsAppendage")
+equ ANI_TAILS_APPENDAGE  = extern("Ani_TailsAppendage")
+equ CHARDEF_TAILS        = extern("CharDef_Tails")
+
+// -----------------------------------------------
+// THE PRIORITY BAND IS ONE BELOW THE PLAYER'S, AND THAT IS LOAD-BEARING — it is
+// NOT S3K's `move.w priority(a2),priority(a0)` inherit.
+//
+// Render_Sprites walks bands 7 down to 0 (higher band = emitted earlier = in
+// FRONT), but WITHIN a band it reverses the walk on odd frames — deliberate
+// per-frame fairness so no sprite is permanently occluded by a same-band
+// neighbour (sprites.emp `.reverse_band`, "the flicker is the cost of the
+// fairness"). Copying the parent's band would put the body and the tails in the
+// same band and hand their z-order to that coin flip: the tails would pop in
+// front of Tails every other frame. A band BELOW the player's is the only way to
+// state "always behind the body" in this renderer. Player_Init's band is 4
+// (player_common, `set_priority_band(4)`); this is 3.
+// -----------------------------------------------
+const APPENDAGE_PRIORITY_BAND = 3
+
+// The whole render_flags byte at spawn: band only. Coordinate mode stays 0
+// (world coords, like the player); the two flip bits are NOT set here because
+// AnimateSprite re-derives them from `status` every frame, and `status` is
+// copied from the parent below — which is precisely how S3K propagates Tails'
+// facing to his tails (`move.b status(a2),status(a0)` + Animate_Tails_Part2's
+// status-to-render_flags copy).
+const APPENDAGE_RENDER_FLAGS = APPENDAGE_PRIORITY_BAND << RF_PRIORITY_SHIFT
+
+// The appendage's own DPLC window, as a VDP byte address (Perform_DPLC's d1).
+// The window's walls are checked at build time where the art lives:
+// tails_data.emp measures the peak DPLC frame out of the shipped blob and
+// fails the build if it ever overruns into the HScroll table.
+const APPENDAGE_VRAM_BYTES = VRAM_TAILS_APPENDAGE * TILE_SIZE
+
+// The flip PAIR, as a mask and its inverse. S3K spells these `3` and `$FC`
+// because its render_flags puts xflip/yflip in bits 0-1; ours are bits 1-2
+// (RF_XFLIP/RF_YFLIP are bit NUMBERS, and ST_XFLIP is bit-aligned with
+// RF_XFLIP so the facing bit needs no shifting between the two bytes). Derived
+// rather than written as $06/$F9 so a future bit reshuffle cannot leave a
+// stale literal behind.
+const APPENDAGE_FLIP_PAIR  = (1 << RF_XFLIP) | (1 << RF_YFLIP)
+const APPENDAGE_FLIP_CLEAR = $FF - APPENDAGE_FLIP_PAIR
+
+// -----------------------------------------------
+// TailsAppendage_Refresh — reconcile the appendage against the active character.
+//
+// THE ONE ENTRY POINT, and it is IDEMPOTENT in both directions, which is what
+// makes a double-switch safe: it spawns only when the parent has NO chain, and
+// deletes only when it HAS one. Two presses of the cycle key run this twice and
+// the second call is a compare and a branch either way, so a switch sequence can
+// neither duplicate the tails nor orphan a pair on a character that has none.
+//
+// The chain IS the presence test: nothing else spawns a child of a player slot
+// today, so `sibling_ptr != 0` means "the appendage is live". Should the player
+// ever gain a second kind of child, this needs a discriminator (walk the chain
+// for a matching code_addr) — and DeleteChildren below would need to become an
+// unlink of this one child rather than a chain wipe.
+//
+// SOLE CALLER: Debug_CharacterHotkey (games/sonic4/test/ojz_scroll_test.emp),
+// the only writer of Character_ID and, with Player_Init's boot resolve, one of
+// only two writers of Player_Chardef. Player_Init is deliberately NOT a second
+// call site: Character_ID is boot-zero (CHAR_SONIC) and the hotkey is its only
+// runtime writer, so a level-entry reconcile could never observe Tails — it
+// would be a Tails name in the shared player frame for a branch that cannot be
+// taken. When a real character select lands, that is where the second call goes.
+//
+// In:  a0 = player SST
+// Out: the parent's chain holds the appendage iff the active record is Tails'
+// Clobbers: d0-d2, a1 — d0-d2/a1 is DeleteChildren's license and covers
+//           TailsAppendage_Spawn's (d0/a1); a0 is preserved for the caller.
+// -----------------------------------------------
+pub proc TailsAppendage_Refresh (a0: *Sst) clobbers(d0-d2/a1) preserves(a0) {
+        move.l  Player_Chardef, d0
+        cmpi.l  #CHARDEF_TAILS, d0
+        bne     .not_tails
+        tst.w   Sst.sibling_ptr(a0)
+        bne     .done                   // already has tails — re-entry is a no-op
+        jbra    TailsAppendage_Spawn
+    .not_tails:
+        tst.w   Sst.sibling_ptr(a0)
+        beq     .done                   // nothing to remove
+        jbra    DeleteChildren          // frees the slot and clears the parent's head
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// TailsAppendage_Spawn — allocate the appendage and link it under the player.
+//
+// The slot comes back ZEROED (DeleteObject zeroes on release and the pools boot
+// zeroed), so every field this routine does not write is 0 — which is the value
+// it wants for collision_resp (COLLISION_NONE: the tails are decoration and must
+// never enter TouchResponse's System+Effect sweep), for the box dimensions, and
+// for coordinate mode. Position is left at 0 for exactly one instant: this runs
+// from the level state's pre-RunObjects hotkey poll, so the Effect sweep — which
+// follows the Player sweep in the same RunObjects call — reaches Main and writes
+// the real position before Render_Sprites ever reads the slot.
+//
+// prev_anim/prev_frame = $FF is the animator-owned init documented on
+// RefreshSpritePieceCount: the forced change makes the first AnimateSprite take
+// its `.anim_changed` path, which tail-calls RefreshSpritePieceCount and
+// populates the piece count + frame_off cache before the first render. That is
+// why there is no PopulateSpawnedPieceCount call here.
+//
+// In:  a0 = player SST (must not itself be a linked child)
+// Out: appendage allocated and prepended to the parent's chain, or nothing at
+//      all if the effect pool is exhausted (the silent-skip every creator uses)
+// Clobbers: d0, a1
+// -----------------------------------------------
+pub proc TailsAppendage_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
+        if DEBUG == 1 {
+        move.w  Sst.parent_ptr(a0), d0
+        assert.w d0, eq, #0             // children.emp chain contract: a parent may
+                                        // not itself be a linked child — its
+                                        // sibling_ptr would be the grandparent's link
+        }
+        jbsr    AllocEffect             // a1 = slot on the eq edge; a1 survives the
+        bne     .done                   //   pool-empty edge untouched (see AllocEffect)
+
+        move.w  #TailsAppendage_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  #MAP_TAILS_APPENDAGE, Sst.mappings(a1)
+        move.w  #VRAM_TAILS_APPENDAGE, Sst.art_tile(a1)   // palette 0, low priority:
+                                                          // vram_art(tile,0,0) == tile,
+                                                          // the same word the player's
+                                                          // cd_vrambase writes
+        move.l  #ANI_TAILS_APPENDAGE, Sst.anim_table(a1)
+        move.b  #$FF, Sst.prev_anim(a1)
+        move.b  #$FF, Sst.prev_frame(a1)
+
+        // Whole-byte write, not the clear-then-set set_priority_band idiom: that
+        // idiom exists because `ori` over an INHERITED band yields the bitwise
+        // union (C1c), and nothing is inherited here — the slot is freshly
+        // zeroed, so a plain move is exact. (The splice is also a0-only.)
+        move.b  #APPENDAGE_RENDER_FLAGS, Sst.render_flags(a1)
+
+        // Link: child -> parent, then PREPEND to the parent's chain. The prepend
+        // terminates because a freshly allocated slot's sibling_ptr is zero
+        // (children.emp), and the parent's head is written last so no observer
+        // sees a chain pointing at a half-built child.
+        move.w  a0, Sst.parent_ptr(a1)
+        move.w  Sst.sibling_ptr(a0), Sst.sibling_ptr(a1)
+        move.w  a1, Sst.sibling_ptr(a0)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// TailsAppendage_Main — per-frame: re-read the parent, animate, stream, draw.
+//
+// Runs from the Effect sweep, which RunObjects walks AFTER the Player sweep, so
+// every field read here is the parent's FINAL value for this frame: position
+// after physics, `anim` after Player_Animate, `status` after the state hooks.
+//
+// S3K PARITY — the two restorations tails_anims.emp assigns to this object, both
+// now shipped here because both are per-frame functions of the PARENT's motion
+// and so cannot live in a static script table:
+//   * FLIGHT ASCEND RATE — S3K carries two flight rows for the tails that differ
+//     only in hold ($B holds 1, $C holds 0, so the tails visibly spin up while
+//     climbing) and picks between them off the parent's flight direction. Our
+//     single ANIM_FLY id cannot carry both, so `Ani_TailsAppendage.Fly` is
+//     DUR_DYNAMIC and the hold is computed HERE from the parent's y_vel sign.
+//   * ROLL DIRECTION BANK — the ball-spin tails are drawn at one of four
+//     orientations picked from the parent's direction of travel, via
+//     `GetArcTan(parent x_vel, y_vel)`. See the block in the body.
+//
+// In:  a0 = own SST
+// Out: none
+// Clobbers: d0-d4, a1-a3 — the callee union: AnimateSprite (d0-d2/a1-a2) ∪
+//           Perform_DPLC (d0-d4/a1-a2, with a3 an input it preserves) ∪
+//           Draw_Sprite (d0-d3/a1), plus d3 (the dynamic hold this routine
+//           computes) and a1 (the parent cursor). a0/d7 preserved per the
+//           RunObjects dispatch contract.
+// -----------------------------------------------
+pub proc TailsAppendage_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
+        // No parent_ptr rail here, deliberately, and for children.emp's own
+        // reason: an assert's message blob costs DEBUG bytes that are not free at
+        // the system level. TailsAppendage_Spawn is this code_addr's only writer
+        // and it writes parent_ptr unconditionally, and the parent's death
+        // cascades this slot away rather than orphaning it — so the check would be
+        // paid for on every frame of every debug build to guard a value with no
+        // way to be wrong. The rail that CAN fire lives at the spawn.
+        movea.w Sst.parent_ptr(a0), a1
+
+        // Position is the parent's EXACTLY — the offset that puts the tails
+        // behind Tails lives in the appendage's own mappings, which is how S3K
+        // does it too (`move.w x_pos(a1),x_pos(a0)`, no displacement).
+        move.l  Sst.x_pos(a1), Sst.x_pos(a0)
+        move.l  Sst.y_pos(a1), Sst.y_pos(a0)
+
+        // status carries the facing bit AnimateSprite turns into render_flags'
+        // flip bits, so this one byte is the whole mirror; angle rides along as
+        // S3K's inheritance set has it.
+        move.b  Sst.status(a1), Sst.status(a0)
+        move.b  Sst.angle(a1), Sst.angle(a0)
+
+        // The tail script is selected by the parent's OWN anim id — no lookup
+        // table (see the module header). AnimateSprite owns change detection, so
+        // an unchanged id costs nothing here.
+        move.b  Sst.anim(a1), Sst.anim(a0)
+
+        // DUR_DYNAMIC hold for the flight row: 0 while climbing (S3K's $C, the
+        // spin-up), 1 otherwise (S3K's $B, which is also the tired rate). Every
+        // other row carries a static duration and ignores d3.
+        moveq   #1, d3
+        tst.w   Sst.y_vel(a1)
+        bpl     .hold_ok
+        moveq   #0, d3                  // y_vel < 0 = ascending
+    .hold_ok:
+        jbsr    AnimateSprite
+
+        // -----------------------------------------------
+        // ROLL DIRECTION BANK — S3K `loc_15A3C` (sonic3k.asm:29556).
+        //
+        // In ball form the tails are drawn at one of FOUR orientations, picked
+        // from the PARENT's direction of TRAVEL (not its facing): the shipped
+        // mapping set carries the same 4-frame spin cycle four times over, at
+        // frames 5-8 / 9-$C / $D-$10 / $11-$14, so the orientation is selected
+        // by ADDING 0/4/8/$C to whatever frame the script just stepped to. The
+        // remaining half-turn is covered by flipping both axes rather than by
+        // four more banks, which is what the `bpl` on the biased angle tests.
+        //
+        // Gated on ANIM_ROLL because that is the only script whose frames have
+        // banks behind them — every other row would index into an unrelated
+        // frame. S3K gates the same way, by reaching this code only from its
+        // ball-spin dispatch.
+        // -----------------------------------------------
+        cmpi.b  #ANIM_ROLL, Sst.anim(a0)
+        bne     .no_bank
+
+        // The angle of the parent's velocity vector. a1 is free again here —
+        // AnimateSprite clobbered the parent cursor, so it is re-read.
+        movea.w Sst.parent_ptr(a0), a1
+        move.w  Sst.x_vel(a1), d1 as i16
+        move.w  Sst.y_vel(a1), d2 as i16
+        jbsr    GetArcTan               // d0.b = direction of travel
+
+        // Mirror the angle on the facing bit, then bias by half a bank ($10)
+        // so the bank boundaries straddle the axes instead of landing on them.
+        moveq   #0, d1
+        move.b  Sst.status(a0), d2
+        andi.b  #1 << ST_XFLIP, d2
+        bne     .bank_facing_left
+        not.b   d0
+        jbra    .bank_bias
+    .bank_facing_left:
+        addi.b  #$80, d0
+    .bank_bias:
+        addi.b  #$10, d0
+        bpl     .bank_flip_ready
+        moveq   #APPENDAGE_FLIP_PAIR, d1   // upper half-turn: flip BOTH axes
+    .bank_flip_ready:
+
+        // Re-derive the flip pair. This OVERWRITES what AnimateSprite just
+        // propagated from `status`: for the ball the vertical flip is a
+        // function of the travel angle, and the horizontal one is the facing
+        // XORed with it, so plain facing is not the answer on this script.
+        andi.b  #APPENDAGE_FLIP_CLEAR, Sst.render_flags(a0)
+        eor.b   d1, d2
+        or.b    d2, Sst.render_flags(a0)
+
+        lsr.b   #3, d0
+        andi.b  #$C, d0                 // d0 = bank 0/4/8/$C (bits 5-6 of the angle)
+
+        // ADD THE BANK TO THE SCRIPT'S FRAME, RE-DERIVED RATHER THAN
+        // ACCUMULATED. S3K can `add.b d3,mapping_frame(a0)` because it reaches
+        // this code ONLY on the frames its timer expired on, so the addend
+        // lands exactly once per animation step. Our AnimateSprite is not a
+        // once-per-step call — it returns early on the 3 frames of 4 that do
+        // not advance, LEAVING mapping_frame carrying the bank it was given
+        // last time — so the same `add` here would compound the bank every
+        // frame and walk the frame index off the end of the set. Reading the
+        // script's own byte back gives the unbanked base on every frame,
+        // advancing or not, which makes this idempotent by construction.
+        //
+        // `anim_frame` indexes the byte AnimateSprite last resolved to a frame
+        // (it is post-incremented before the read, and the AF_END wrap clears
+        // it before re-reading), and that byte already passed AnimateSprite's
+        // control-code test — so it is always a real frame index, never a $F7+
+        // command.
+        //
+        // THIS ALSO KEEPS THE BANK AND THE FLIP PAIR ON THE SAME ANGLE SAMPLE.
+        // They encode one orientation between them, and the flip half MUST be
+        // rewritten every frame regardless (AnimateSprite reasserts it from
+        // `status` above), so sampling the bank on a different cadence than the
+        // flip would let the two disagree for up to 3 frames after a turn.
+        // Deviation from S3K, stated plainly: our orientation tracks the
+        // trajectory every frame instead of every 4th.
+        movea.l Sst.anim_table(a0), a1
+        moveq   #0, d1
+        move.b  Sst.anim(a0), d1
+        add.w   d1, d1
+        adda.w  (a1,d1.w), a1           // a1 = the running script
+        moveq   #0, d1
+        move.b  Sst.anim_frame(a0), d1
+        add.b   1(a1,d1.w), d0          // d0 = base frame + bank
+        move.b  d0, Sst.mapping_frame(a0)
+
+        // mapping_frame moved, so the H1 frame-data cache and the piece count
+        // must move with it (sst.emp: "MUST be refreshed on every
+        // mapping_frame/mappings write"). Without this the renderer would draw
+        // the PRE-bank frame from the stale offset and the DEBUG staleness
+        // assert in Render_Sprites would fire.
+        jbsr    RefreshSpritePieceCount
+    .no_bank:
+
+        // Own DPLC stream into its own VRAM window. IMPORTANT priority, matching
+        // the body's (Player_LoadArt): the two sprite sets are one character, and
+        // letting the tails slip to a deferrable queue would let them lag the body
+        // by a frame on a busy one.
+        movea.l #DPLC_TAILS_APPENDAGE, a2
+        movea.l #ART_TAILS_APPENDAGE, a3
+        move.w  #APPENDAGE_VRAM_BYTES, d1
+        jbsr    Perform_DPLC
+
+        jbra    Draw_Sprite
+}

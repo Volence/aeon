@@ -1,0 +1,169 @@
+# games/sonic4/vram.toml — the DECLARED VRAM placement contract (peer of map.toml).
+# Spec: docs/superpowers/specs/2026-08-11-vram-linker-design.md §4.1/§5.
+# T0: every region is PINNED (base required); the T1 solver introduces floating.
+# Sizes in tiles (1 tile = 32 bytes). Consumed by tools/gen_vram_map.py, which
+# rewrites the GENERATED block in config/constants.emp, tools/vram_map.py, and
+# docs/generated/vram-map-sonic4.md. Full coverage of tiles 0..2047 is enforced:
+# every tile is a region or a declared [[free]] run.
+
+[[region]]
+name = "fg_art_pool"
+owner = "engine.level.page_cache"
+kind = "arena"
+base = 0
+tiles = 896                      # 960 -> 896: the top page surrendered to the dust
+quantum = 64                     # windows below (the dust design's carve, re-landed
+lifetime = "act"                 # as this TOML edit — safe post-prep-parcel: no RAM
+authority = "engine-endtiles:POOL_TILE_CEILING"  # moves, no fixture re-stamp).
+                                 # AUTHORITY stays engine-side; the generated block
+                                 # cross-checks equality, so forgetting the engine
+                                 # constant fails the build by name.
+
+[[region]]
+name = "dust_puff"
+owner = "games.sonic4.dust_puff"
+kind = "window"
+base = 896
+tiles = 16
+lifetime = "act"
+const = "VRAM_DUST_PUFF"
+# resident block: concurrent puffs sit on DIFFERENT anim frames, so all four
+# frames must be live at once, addressed 0/4/8/$C from this base (dust spec §4)
+
+[[region]]
+name = "dust_spindash"
+owner = "games.sonic4.dust_spindash"
+kind = "window"
+base = 912
+tiles = 12
+lifetime = "act"
+const = "VRAM_DUST_SPINDASH"
+# the charge dust's DPLC target — deliberately NOT shared with the puff block
+# (S3K shares one window and has a visible lingering-puff artifact; dust spec §4.1)
+
+[[free]]
+base = 924
+tiles = 36
+# the page-quantised carve's remainder — future sprite art
+
+[[region]]
+name = "character_window"
+owner = "games.sonic4.player"
+kind = "window"
+base = 960
+tiles = 32
+lifetime = "act"
+const = "VRAM_TEST_SONIC"
+# PINNED, deliberately: the base is baked into the player's art_tile word,
+# which the replay hash covers — MOVING it re-stamps both fixtures. GROWING it
+# is not moving it (spec §4.1): raise `tiles` with the base held.
+
+[[region]]
+name = "test_obj"
+owner = "games.sonic4.test_objects"
+kind = "window"
+base = 992
+tiles = 8
+lifetime = "mode"
+const = "VRAM_TEST_OBJ"
+
+[[region]]
+name = "ring_placeholder"
+owner = "engine.objects.rings"
+kind = "window"
+base = 1000
+tiles = 16
+lifetime = "act"
+authority = "sigil-D:VRAM_RING_PLACEHOLDER"   # -D define, native.rs; T1 feeds it
+                                              # from this file. T0: soft-checked.
+
+[[region]]
+name = "test_marker"
+owner = "games.sonic4.player_common"
+kind = "window"
+base = 1016
+tiles = 4
+lifetime = "mode"
+const = "VRAM_TEST_MARKER"
+
+[[free]]
+base = 1020
+tiles = 4
+
+[[region]]
+name = "bg_region"
+owner = "engine.bg"
+kind = "arena"
+base = 1024
+tiles = 448
+lifetime = "act"
+authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
+
+[[region]]
+name = "sprite_table"
+owner = "engine.system.buffers"
+kind = "table"
+base = 1472
+tiles = 20
+lifetime = "boot"
+register = "vdp:0x05"
+authority = "engine-bytebase:VRAM_SPRITE_TABLE"
+
+[[region]]
+name = "tails_appendage"
+owner = "games.sonic4.tails_appendage"
+kind = "window"
+base = 1492
+tiles = 9
+lifetime = "act"
+const = "VRAM_TAILS_APPENDAGE"
+
+[[free]]
+base = 1501
+tiles = 3
+
+[[region]]
+name = "hscroll_table"
+owner = "engine.system.buffers"
+kind = "table"
+base = 1504
+tiles = 28
+lifetime = "boot"
+register = "vdp:0x0D"
+authority = "engine-bytebase:VRAM_HSCROLL_TABLE"
+
+[[free]]
+base = 1532
+tiles = 4
+
+[[region]]
+name = "plane_a"
+owner = "engine.system.boot"
+kind = "plane"
+base = 1536
+tiles = 256
+lifetime = "boot"
+register = "vdp:0x02"
+authority = "engine-bytebase:VRAM_PLANE_A"
+
+[[region]]
+name = "plane_b"
+owner = "engine.system.boot"
+kind = "plane"
+base = 1792
+tiles = 256
+lifetime = "boot"
+register = "vdp:0x04"
+authority = "engine-bytebase:VRAM_PLANE_B"
+
+[[region]]
+name = "window_plane"
+owner = "engine.system.boot"
+kind = "plane"
+base = 1920
+tiles = 128
+lifetime = "boot"
+register = "vdp:0x03"
+overlay_with = ["plane_b"]      # the one overlay the tree already contains:
+authority = "engine-bytebase:VRAM_WINDOW" # the window feature is DISABLED (regs $11/$12
+                                 # = 0) and deliberately aliases Plane B's tail

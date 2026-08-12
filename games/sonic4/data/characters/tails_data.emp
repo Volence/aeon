@@ -1,0 +1,86 @@
+// Tails character data — the sprite trio the shared player frame reads out of a
+// CharacterDef, mirroring the Sonic trio in collision_data.emp: mappings +
+// optimized DPLC + contiguous art, per set.
+//
+// TWO sets, because Tails is TWO simultaneously-resident sprites: the BODY
+// (`Map_Tails` / `DPLC_Tails` / `Art_Tails`) and the twin-tail APPENDAGE
+// (`Map_TailsAppendage` / …), which S3K renders as its own object with its own
+// DPLC stream. They stay separate tables rather than one merged set because each
+// is animated and DMA'd independently — the appendage's script runs at its own
+// rate and it lands in its own VRAM window (VRAM_TAILS_APPENDAGE).
+//
+// PROVENANCE: stock Sonic 3 & Knuckles, extracted and converted to Aeon's sprite
+// formats by games/sonic4/data/characters_staging/gen_characters.py (that
+// directory's README carries the exact skdisasm sources). The two BUILD-CONSUMED
+// derived blobs per set (contiguous art + one-entry-per-frame DPLC split to <=16
+// tiles) are reproducible from the raw pair by the repo's own
+// tools/dplc_layout.py — verified byte-identical, so the staging generator is a
+// convenience, not a second source of truth.
+//
+// NOTHING CONSUMES THIS YET. Tails becomes playable when the roster row
+// (CharacterDefs, player/characters.emp) stops pointing CHAR_TAILS at the Sonic
+// record; this lands the data half only, so the ROM still runs as Sonic.
+module games.sonic4.tails_data in tails_data
+
+// The character DPLC window + its hard wall — the VRAM budget the peak guards
+// below are stated against. Sole authority is games.sonic4.constants.
+use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ, VRAM_TAILS_APPENDAGE}
+use engine.constants.{VRAM_HSCROLL_TABLE, TILE_SIZE}
+use engine.objects.dplc.{dplc_peak_tiles}
+
+// ---- body ----
+const _map_tails  = embed("games/sonic4/data/mappings/tails.bin")
+const _dplc_tails = embed("games/sonic4/data/dplc/optimized/tails.bin")
+const _art_tails  = embed("art/optimized/characters/tails.bin")
+
+// ---- twin-tail appendage ----
+const _map_tail   = embed("games/sonic4/data/mappings/tails_tail.bin")
+const _dplc_tail  = embed("games/sonic4/data/dplc/optimized/tails_tail.bin")
+const _art_tail   = embed("art/optimized/characters/tails_tail.bin")
+
+// The Map_/DPLC_ frame indices are signed word-offset tables (AnimateSprite and
+// Perform_DPLC both index them as `frame*2` into a word table of offsets FROM the
+// table head), so each blob must fit the signed range — the same comptime wall
+// collision_data.emp puts on the Sonic pair.
+ensure(_map_tails.len <= $7FFF, "Map_Tails exceeds signed word-offset range")
+ensure(_dplc_tails.len <= $7FFF, "DPLC_Tails exceeds signed word-offset range")
+ensure(_map_tail.len <= $7FFF, "Map_TailsAppendage exceeds signed word-offset range")
+ensure(_dplc_tail.len <= $7FFF, "DPLC_TailsAppendage exceeds signed word-offset range")
+
+// Every blob is even-length, so the labels stay word-aligned with no inter-blob
+// padding — the property collision_data.emp states in its header, stated as a
+// checked fact here because six blobs is enough for one odd length to hide in.
+ensure((_map_tails.len & 1) == 0 && (_dplc_tails.len & 1) == 0 && (_art_tails.len & 1) == 0,
+       "a Tails body blob is odd-length — the label after it would land on an odd address")
+ensure((_map_tail.len & 1) == 0 && (_dplc_tail.len & 1) == 0 && (_art_tail.len & 1) == 0,
+       "a Tails appendage blob is odd-length — the label after it would land on an odd address")
+
+// Art is whole 32-byte tiles by construction (uncompressed 4bpp); a truncated
+// embed would otherwise surface only as garbage in a frame's last DMA.
+ensure((_art_tails.len % TILE_SIZE) == 0, "Art_Tails is not a whole number of tiles")
+ensure((_art_tail.len % TILE_SIZE) == 0, "Art_TailsAppendage is not a whole number of tiles")
+
+// -----------------------------------------------
+// THE VRAM WALLS — the peak comes from the DATA, not from a comment.
+//
+// Body: Tails shares the character DPLC window with Sonic (only one character is
+// resident at a time), so his file-wide peak has to clear the same wall Sonic's
+// does. Measured 24 tiles into a 32-tile window — the slack is real, but the
+// point of the guard is that a re-exported sheet which grew past it fails the
+// build instead of DMA'ing over the test-object art at VRAM_TEST_OBJ.
+//
+// Appendage: its own window, walled by the HScroll table it sits below. Both
+// bounds are read from their owners (VRAM_TEST_OBJ, VRAM_HSCROLL_TABLE) rather
+// than restated, so moving either neighbour re-checks these automatically.
+// -----------------------------------------------
+ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_OBJ,
+       "Tails' peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+ensure(VRAM_TAILS_APPENDAGE + dplc_peak_tiles(_dplc_tail) <= VRAM_HSCROLL_TABLE / TILE_SIZE,
+       "the Tails appendage's peak DPLC frame overruns its VRAM window into the HScroll table")
+
+pub data Map_Tails             = _map_tails
+pub data DPLC_Tails            = _dplc_tails
+pub data Art_Tails             = _art_tails
+pub data Map_TailsAppendage    = _map_tail
+pub data DPLC_TailsAppendage   = _dplc_tail
+pub data Art_TailsAppendage    = _art_tail

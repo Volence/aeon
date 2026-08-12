@@ -1,14 +1,18 @@
 // engine/level/camera.emp — Camera system (§4)
-// Tracks player with a fixed classic-S3K X deadzone and a fixed Y deadzone.
+// Tracks the leader with a fixed classic-S3K X deadzone and a fixed Y deadzone.
+//
+// The followed slot is NOT hardwired: every follow read goes through
+// Camera_Target (engine RAM), the leader's SST pointer, which level init seeds
+// — see its declaration in engine/ram.emp.
 //
 // Public:
 //   Camera_Init(a0=Act*)  — initialise from act descriptor
-//   Camera_Update         — follow Player_1 each frame
+//   Camera_Update         — follow Camera_Target each frame
 
 module engine.camera in camera
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, CAM_MAX_Y_STEP}
-use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT, ST_ROLLING, CURL_Y_SHIFT}
+use engine.constants.{ART_HOLD_X_BIT, ART_HOLD_Y_BIT, ST_ROLLING}
 use engine.structs.{Act}
 use engine.objects.sst.{Sst}
 use engine.coords.{pixels_to_coord}
@@ -55,22 +59,35 @@ comptime fn pstate_rolljump_mirror_ok() -> bool {
     if !Game.CAMERA_JUMP_LOCK { return true }
     return extern("PSTATE_ROLLJUMP") == PSTATE_ROLLJUMP
 }
-ensure(pstate_jump_mirror_ok(), "games/sonic4/config/constants.asm and camera.emp disagree on PSTATE_JUMP — update the mirror")
-ensure(pstate_rolljump_mirror_ok(), "games/sonic4/config/constants.asm and camera.emp disagree on PSTATE_ROLLJUMP — update the mirror")
+ensure(pstate_jump_mirror_ok(), "games/sonic4/config/constants.emp and camera.emp disagree on PSTATE_JUMP — update the mirror")
+ensure(pstate_rolljump_mirror_ok(), "games/sonic4/config/constants.emp and camera.emp disagree on PSTATE_ROLLJUMP — update the mirror")
 
-// The player-state byte's absolute address (sound_api's extern-equ-sum idiom;
-// `_pl_state` is the game-declared SST-custom offset, link-exported by
-// games.sonic4.player_common as an `equ`). The equ's RHS is
-// COMPTIME-SELECTED on the gate: a `Game.CAMERA_JUMP_LOCK=false` game gets an
-// inert 0 — an equ resolves eagerly even when unused, so an unconditional extern
-// sum would force `_pl_state` onto games without the lock (the false link probe
-// in camera_port proves the property). The locked arm resolves through the link;
-// its only reader sits inside the gated block.
-comptime fn pl_state_addr() -> int {
-    if !Game.CAMERA_JUMP_LOCK { return 0 }
-    return extern("Player_1") + extern("_pl_state")
+// The player-state byte's SST-CUSTOM OFFSET — the game's `_pl_state` (declared
+// by games.sonic4.player_common as `offsetof(Sst, sst_custom) +
+// offsetof(PlayerV, player_state)`).
+//
+// This USED to be a whole absolute ADDRESS: an `equ` summing `extern("Player_1")`
+// with `extern("_pl_state")`, read by an absolute `move.b`. That spelling baked
+// slot 0 into the probe and cannot survive a dynamic leader. The OFFSET is the
+// half that carries over unchanged — Camera_Target is a leader SST pointer, so
+// the field sits at the same displacement off whichever slot leads — and the
+// read becomes register-indexed off the a0 the Y-track already holds: no extra
+// register, no extra load, one instruction as before.
+//
+// It is a MIRROR rather than an `extern()` read for the same reason the PSTATE_*
+// values above are: a `d16(An)` displacement is encoded at lowering, so it
+// cannot carry a link-time value (the operand fails to resolve and the whole
+// instruction is silently dropped — the contract-closure gate catches it). Same
+// remedy, same shape: a bare int, drift-locked. The guard fn COMPTIME-SELECTS on
+// the gate, so a `Game.CAMERA_JUMP_LOCK=false` game returns `true` before the
+// extern() is ever evaluated and need not define `_pl_state` at all (the false
+// link probe in camera_port proves the property).
+const PL_STATE_OFF = $32       // = sst_custom ($30) + PlayerV.player_state (+2)
+comptime fn pl_state_off_mirror_ok() -> bool {
+    if !Game.CAMERA_JUMP_LOCK { return true }
+    return extern("_pl_state") == PL_STATE_OFF
 }
-equ PL_STATE_ADDR = pl_state_addr()
+ensure(pl_state_off_mirror_ok(), "games/sonic4/player/player_common.emp and camera.emp disagree on _pl_state — update the PL_STATE_OFF mirror")
 
 
 // -----------------------------------------------
@@ -197,8 +214,8 @@ pub proc Camera_Init (a0: *Act) clobbers(d0-d1) {
 }
 
 // -----------------------------------------------
-// Camera_Update — follow Player_1 each frame
-// In:  none (reads Player_1 SST and Camera_X/Camera_Y)
+// Camera_Update — follow the leader each frame
+// In:  none (reads Camera_Target's SST and Camera_X/Camera_Y)
 // Out: none (updates Camera_X and Camera_Y)
 // Clobbers: d0-d4, a0   (d4 = spindash-freeze flag, set in the preamble and
 //                        consumed at .y_track — see the reservation note there)
@@ -243,7 +260,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    fill clears the bit the frame the stall resolves.
         btst    #ART_HOLD_X_BIT, Camera_Art_Hold
         bne     .x_done
-        lea     Player_1, a0                        // (Player_1).w
+        movea.w Camera_Target, a0                   // the leader (seeded by level init)
 
         // -- X tracking: classic S3K fixed deadzone (screen-x 144..160) --
         //    Matches S2/S3K ScrollHoriz: scroll-RIGHT boundary at dead
@@ -313,17 +330,20 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         bne     .clamp_y
         tst.b   d4                                  // spindash freeze active?
         bne     .clamp_y                            // yes → hold Y, clamp only
-        lea     Player_1, a0                        // (Player_1).w
+        movea.w Camera_Target, a0                   // the leader (seeded by level init)
 
         move.l  Sst.y_pos(a0), d0
         swap    d0                                 // d0.w = player engine Y
-        // S3K parity (MoveCameraY `subq #5` on Status_Roll): the curl hook drops
-        // y_pos by CURL_Y_SHIFT, so track the STANDING center — otherwise the
-        // camera target steps 5px on every curl/uncurl. Engine-generic: a game
-        // that never sets ST_ROLLING pays one btst.
+        // S3K parity (MoveCameraY `subq #5` on Status_Roll): a curl drops the
+        // target's y_pos, so lift it back to track the same body point —
+        // otherwise the camera steps by the curl distance on every curl/uncurl.
+        // That distance is a property of the GAME's character (Sonic 5px, Tails
+        // 1px), so it is read from Camera_Curl_Offset, which the game fills;
+        // engine-generic in both directions — a game that never sets ST_ROLLING
+        // pays one btst and never writes the cell.
         btst    #ST_ROLLING, Sst.status(a0)
         beq     .no_curl_comp
-        subq.w  #CURL_Y_SHIFT, d0
+        sub.w   Camera_Curl_Offset, d0
     .no_curl_comp:
         move.l  Camera_Y, d1                       // (Camera_Y).w
         swap    d1                                 // d1.w = camera Y pixels
@@ -358,7 +378,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
         //    without them set Game.CAMERA_JUMP_LOCK=false for plain deadzone follow
         //    (falls straight from .check_down to .down_ok below).
         if Game.CAMERA_JUMP_LOCK {
-            move.b  PL_STATE_ADDR, d2                   // (Player_1+_pl_state).w
+            move.b  PL_STATE_OFF(a0), d2                // a0 = leader (unclobbered since .y_track)
             cmpi.b  #PSTATE_JUMP, d2
             beq     .jump_state
             cmpi.b  #PSTATE_ROLLJUMP, d2
@@ -373,7 +393,7 @@ pub proc Camera_Update () clobbers(d0-d4/a0) {
             // is falling: release so the descent follows like a walk-off (32-px
             // deadzone, 16 px/frame) and settles back to the focal point. Short hops
             // still don't scroll (their descent never exceeds the deadzone).
-            tst.w   Sst.y_vel(a0)                       // a0 = Player_1 (unclobbered since .y_track) — falling? (y_vel > 0)
+            tst.w   Sst.y_vel(a0)                       // a0 = leader (unclobbered since .y_track) — falling? (y_vel > 0)
             bgt     .down_ok                            // yes → normal deadzone follow
         .land_lock:
             // rising/hanging, below focal point — d3 still holds the raw signed dist

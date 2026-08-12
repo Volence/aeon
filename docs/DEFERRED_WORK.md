@@ -552,8 +552,13 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   flagged as tunable; the current value is a first estimate.
 - **Dropdash, instashield** — Sonic move-kit extensions.
 - **Super Sonic** — transformation, palette cycle, physics row.
-- **Tails** — CPU AI (4-state machine) + flight physics + position-history-buffer
-  following (the `Player_Pos_Ring`/`Player_Stat_Ring` are already recorded for this).
+- **Tails** — CPU AI (4-state machine) + position-history-buffer following (the
+  `Player_Pos_Ring`/`Player_Stat_Ring` are already recorded for this) + the
+  twin-tail appendage child object. **Flight physics are DONE** —
+  `games/sonic4/player/player_fly.emp` (`PSTATE_FLY` + `Ability_TailsFlight`,
+  S3K-exact bar three flagged deviations); until the appendage object lands, the
+  flight pose draws the body without its spinning tails, and the flight SFX are
+  unwired because S3K's `$BA`/`$BB` are outside the imported SFX id range.
 - **Knuckles** — gliding, climbing, wall detection.
 - **Per-character dispatch-table indirection** — the prerequisite refactor for
   Tails/Knuckles (today `Player_States` and `PhysTable_Sonic` are referenced
@@ -3745,3 +3750,370 @@ Open items this execution creates or leaves:
   undocumented and will surprise the next author. **Either document the per-module
   const seam in the engine/game contract reference, or make the lists derive from
   the modules' actual references.**
+
+---
+
+## Ledgered by the 2026-08-10 `characters.emp` module registration (`feat/character-dispatch`)
+
+### Adding a module should not require editing the toolchain — SIGIL ASK, RECORDED (owner-raised)
+
+**Raised by Volence 2026-08-10**, on discovering that moving the character roster into a new
+`.emp` module required a commit to the *sigil* repo. The observation, in his framing: adding a
+character "should really be as simple as making the new file and calling it where needed in the
+actual game code."
+
+**What it costs today.** Adding one module is three edits in two repos:
+
+| edit | repo | correct? |
+|---|---|---|
+| the `.emp` file itself | game | yes |
+| a row in `games/<game>/map.toml` `order` | game | **no** — ceremony |
+| a `ModuleSpec` in `crates/sigil-harness/src/native.rs` `registry()` | **assembler** | **no** — wrong repo |
+
+Pins and port tests are **not** in this path — verified this session: `characters` registered with
+`DUMMY_REGION` and both shapes built green, because every shipped profile is `SizeSource::Frozen`
+and `ModuleSpec.region` is read only from `emp_map_toml`, reachable only from `PinnedBaked`. So the
+friction is the registry + the order list, not the pin table.
+
+For a **brand-new game** it is worse: three *sigil* edits (a `GameProfile` literal, a registry
+function, and a frozen size table under `crates/sigil-harness/golden/offcanonical_sizes/`). A third
+party cannot build their own game on Aeon without committing to the assembler. That is backwards
+and it undercuts the engine/game wall the 2026-07-07 split exists to enforce.
+
+**The principle to design to: declare a placement REQUIREMENT, never a placement POSITION.**
+
+Auditing `map.toml`'s ~60-entry `order`, the genuine requirements are about eight facts — object
+code bank at `$10000`; the hard-org'd sound banks at `$8000`/`$58000` (the Z80 holds pointers in, so
+they never pack); DAC banks at `$48000`/`$50000`; `error_handler` must be the final byte-emitting
+section (MDDBG blob-end contract, `check_error_handler_is_last`); the OJZ act island runs stay
+contiguous; `Vectors` at 0 and the header at `$100`. Everything else is arbitrary-but-deterministic.
+Nothing breaks if `tails` lands before `sonic`; it only has to land *somewhere in the object bank*,
+reproducibly.
+
+**Sketch of the end state** — the file declares its own bucket:
+
+```
+module games.sonic4.tails in tails @ object_bank
+```
+
+sigil auto-places within the bucket in a stable order (sort by module id — stable across machines,
+unlike a filesystem walk). `map.toml` shrinks to the memory map: regions, anchors, and the few hard
+ordering contracts. You edit it when the *architecture* changes, not when content is added. Adding
+a character becomes: write the `.emp`, add the roster row, build.
+
+**Two dependencies that must land with it:**
+
+1. **Inclusion must follow from use.** It cannot today, and this is the hidden reason the registry
+   exists at all: cross-module calls resolve as **bare link refs**, so `player_common` calling
+   `Player_LoadArt` creates no module-graph edge to `characters`. With no dependency graph to walk,
+   `synthetic_entry_src` fabricates reachability by `use`-ing every registry row. Two ways out —
+   make bare cross-module refs create real edges (proper dead-code elimination, larger job), or
+   scope by directory (`engine/` + `games/<this game>/` are the link set), which is already the
+   de-facto rule, just expressed in Rust (`demo_registry`'s `module_id.starts_with("engine.")`).
+2. **Shape gating must move into the file.** Debug-only modules are excluded in Rust today, and
+   `CODING_CONVENTIONS.md` §"Whole-file gating" is explicit that this is a workaround, not a
+   preference: "a module-level comptime `if` wrapping items is not expressible in `.emp`, so the
+   file is the gated unit and the exclusion happens in the build registry." Fix the expressiveness
+   (`module … requires DEBUG`) and the last reason to open the Rust disappears.
+
+**Known costs, to be priced in the spec, not discovered later:**
+
+- Auto-placement can separate two hot mutually-calling modules far enough to widen branches. `jbsr`
+  handles it correctly but spends bytes and cycles. Bucket granularity bounds it; a `near:` hint
+  covers the rare case that matters.
+- The frozen size tables are a *this-repo* byte-exactness gate, not something a third-party game
+  wants. They should degrade gracefully: no frozen table means pure packed layout from the declared
+  buckets, and freezing becomes opt-in. Today they are mandatory because sizes are sourced from them.
+- One goldens refreeze when the placement algorithm lands. Not per content change — that is already
+  true today.
+
+**Treat as ONE design, not three.** The registry, the `order` list, and the frozen size tables are
+the same mistake wearing three hats: the toolchain storing positions that should be derived from
+declared requirements. K5 already did half of it (the map took `order` authority from the frozen
+table, which was explicitly demoted to a "measurement cache"); this is the other half of that
+migration, which was never finished.
+
+**Status: NOT STARTED.** Novel, cross-repo, hard to reverse — wants an explicit owner go-ahead and a
+written spec before any code. Parked 2026-08-10 at Volence's direction to keep C2/C4 moving.
+
+---
+
+## Ledgered by the 2026-08-10 per-slot player-state split (`feat/character-dispatch`)
+
+### Hoist `Player_Quadrant` out of the sensor stack into a parameter — RECORDED, not fixed
+
+**What:** `Player_SensorFloor` / `Player_SensorCeiling` / `Player_SensorSurface`
+(`games/sonic4/player/player_sensors.emp`) read the probe quadrant out of ambient state rather than
+taking it as an argument. Before C1 that was a global (`Player_Quadrant`); after C1 it is
+`PBLK_QUADRANT(a4)`, the calling slot's PlayerBlock. Either way the dependency is **hidden**: the
+wrapper's signature says `a0 = player SST` and nothing in the call expression says the caller must
+also have established a4. The fix is to pass the quadrant explicitly (a register argument, or the
+block pointer as a declared param) so the contract is on the signature where the compiler and the
+reader can both see it.
+
+**Why it is worth doing, beyond tidiness — the latent coupling it closes.** `TestPlayer`
+(`games/sonic4/objects/test_player.emp`, DEBUG shape only) borrows `Player_SensorFloor` for its
+floor probe. It is not a player, has its own overlay (`TPlayerV`), and wants plain quadrant-0
+downward probing — but it has no way to *say* so. Pre-C1 it silently inherited whatever the real
+player last wrote to the global, and got away with it only because the object-test scene never runs
+the real player, so the boot-zero global happened to mean "quadrant 0". Had the two ever run in the
+same scene, TestPlayer's floor probe would have rotated with the real player's terrain angle and
+nobody would have suspected the sensor call. With an explicit parameter, TestPlayer states
+quadrant 0 honestly and the coupling cannot exist.
+
+**Why it was deferred.** The hoist changes the register contract of three procs that every player
+frame runs through, at ~10 call sites in the hot path (`player_ground` ×3, `player_air` ×4,
+`player_spindash` ×1, `test_player` ×1, plus the `Player_SensorSurface` fall-through). C1 Task 4
+gates this refactor on the **real player being byte-identical under a recorded-input replay**, and a
+contract change across the shared sensor stack underneath that gate would make a byte diff
+impossible to attribute. Right idea, wrong moment — owner ruling, 2026-08-10.
+
+**What was done instead (option 1 of the two considered):** `TestPlayer_Main` loads slot 0's block
+into a4 before its `Player_SensorFloor` call, and says why at the `lea`. That is coherent rather
+than a patch — `object_test_state.emp` installs TestPlayer in the `Player_1` slot, so slot 0's block
+genuinely is its block. The alternative considered and **rejected** was having TestPlayer call
+`Collision_ProbeDown` directly (as `Player_AtLedgeEdge` does): that is *not* behavior-preserving,
+because `Player_SensorSurface` runs an **A/B sensor pair** at x±x_rad and keeps the closer hit,
+while the bare core is a single centre point — collapsing a 32px-wide box's two foot probes to one
+would change how it behaves straddling a ledge edge.
+
+**Pick this up when:** Task 4's replay gate has passed and the byte-identity requirement is
+discharged. It closes the last hidden dependency in the player sensor path — post-C1 the quadrant is
+not a global any more, it is an *ambient register parameter*, which is why the compiler still cannot
+see it. **Do not size this from this paragraph** — it is mechanical but it is not small; the
+`MEASURED SCOPE` block immediately below is the estimate, and it concludes ~19 procs plus the
+dispatch type, i.e. its own parcel with its own gate.
+
+**MEASURED SCOPE (attempted and reverted 2026-08-10 — read this before estimating).** The obvious
+first move is to declare the dependency on the four procs that actually read the quadrant
+(`Player_SensorFloor`/`Ceiling`/`Surface` + `Player_SnapToSurface`), the way
+`Player_RefreshPhysics (a2: *u8)` does. That was tried. It does **not** build, and the reason is
+structural, not cosmetic: `[call.input-undefined]` fires **13 times**. a4 reaches the state machine
+*implicitly* — `Player_Main` establishes it, then dispatches through
+`jsr (a1,d1.w) as PlayerState`, and `type PlayerState` declares `clobbers(d0-d7, a1-a4)`. The
+closure therefore treats a4 as destroyed at the dispatch boundary and cannot carry the definition
+into any handler. The 13 firings:
+
+```
+Air_CeilingBump, Air_LandState, PState_AirShared,
+PState_Ground, PState_Roll (x2)          -> Player_SensorCeiling
+Air_FloorLandBanded, Air_FloorLandFlat,
+Ground_PostMove, PState_Spindash         -> Player_SensorFloor
+Air_TouchFloor, Ground_PostMove,
+PState_Spindash                          -> Player_SnapToSurface
+```
+
+So the real change is not four signatures — it is an `a4` in-param on roughly **nineteen** procs
+spanning `player_ground` / `player_air` / `player_spindash` **plus the `PlayerState` dispatch type
+itself**, whose clobber list `Player_Main` brackets. That is the whole player frame's register
+contract, which is exactly why it must not ride along underneath the Task 4 byte-identity gate: a
+change that broad makes any byte diff impossible to attribute. Budget it as its own parcel with its
+own gate. The partial form is not a valid halfway house — it does not compile, so there is no
+smaller increment to land first.
+
+---
+
+## Ledgered by the 2026-08-10 Tails palette re-index (`feat/character-dispatch`)
+
+### Knuckles is NOT solvable by index permutation — he needs a real palette swap — RECORDED, not fixed
+
+**Read this before designing Knuckles' art path.** Tails' wrong colours were fixed by re-indexing
+his S3K art into our CRAM line 0 ordering at build time
+(`games/sonic4/data/characters_staging/gen_characters.py`, `remap_art_indices`). **That fix does not
+generalise to Knuckles, and reaching for it will silently corrupt his colours.**
+
+**The measurement.** Our player line is `art/palettes/SonicAndTails.bin`; S3K's is
+`skdisasm/General/Sprites/Sonic/Palettes/SonicAndTails.bin` line 0. The two hold the *same colour
+set in a different order* — 15 of 16 S3K indices match one of ours exactly. The exception is S3K
+index **5 = `$0080`** (dark green), which our line does not carry at any index.
+
+| art | S3K index-5 pixels | permutation lossless? |
+|---|---|---|
+| Tails body (`Tails.bin`) | **0** | yes — shipped |
+| Tails appendage (`Tails tails.bin`) | **0** | yes — shipped |
+| Knuckles (`Knuckles.bin`, contiguous `_opt`) | **3,450** | **no** |
+
+3,450 pixels have nowhere to go. Any permutation either drops them onto a wrong colour or needs a
+colour our line does not have — so the whole approach is off the table for him, whatever ordering is
+chosen. This is not a tuning problem; it is a set-membership one.
+
+**What Knuckles actually needs.** A genuine palette swap: S3K itself swaps `Pal_Knuckles` into
+CRAM line 0 when Knuckles is the active character. Both his lines are already staged —
+`games/sonic4/data/characters_staging/palettes/knuckles_main.bin` (gameplay) and
+`knuckles_ssz_end.bin` (ending) — so the asset side is done; the missing piece is the runtime
+decision about **who owns CRAM line 0** and when it is rewritten.
+
+**The consequence that must be designed for, not discovered.** Line 0 is a *shared* resource. Today
+it holds the Sonic+Tails colours and both characters render off it simultaneously, which is exactly
+what a follower / 2P mode will need. Swapping `Pal_Knuckles` in makes line 0 Knuckles-only: **Sonic
+and Knuckles cannot be on screen together on one line.** So the Knuckles design has to answer one of:
+- **swap on character select** (simplest; forecloses Sonic-and-Knuckles co-presence), or
+- **give Knuckles a second CRAM line** (costs a line the level art currently uses — measured: the
+  OJZ act draws its FG on lines 2/3 and its Plane B on lines 2/3, with line 1 the OJZ page-0 line, so
+  a fourth character line means taking one back from the level), or
+- **re-author Knuckles' art** against a line that unions with Sonic's (an art decision, not an
+  engineering one — it changes how he looks).
+
+Pick before writing code; all three are cheap up front and expensive to retrofit.
+
+**How to re-run the measurement.** The generator prints the derived permutation and per-set index
+histograms on every run (`./gen_characters.py` from `games/sonic4/data/characters_staging/`), and
+hard-asserts that no art it re-indexes uses an unmappable index. It deliberately does **not**
+re-index Knuckles — see the comment at his `process_set` call.
+
+---
+
+## Ledgered by the 2026-08-11 Tails appendage object (`feat/character-dispatch`)
+
+### ✅ RESOLVED 2026-08-11 — The appendage's angle-banked roll frames stay at bank 0 — BLOCKED on an engine arctan
+
+**RESOLVED 2026-08-11 (`feat/character-dispatch`).** `GetArcTan` + `ArcTan_Table` shipped in
+`engine/system/math.emp` (a faithful port of S3K `s3.asm:3174`, `preserves(d3-d4)`), and
+`TailsAppendage_Main` now banks `mapping_frame` and re-derives the flip pair between the
+`AnimateSprite` call and the DPLC. The four banks were confirmed present and distinct in the
+converted data before the code was written — mapping frames 5-8 / 9-$C / $D-$10 / $11-$14, all 16
+DPLC frames distinct, and the VDP size code changes $09 -> $06 between the horizontal and vertical
+pairs, so they are genuinely different orientations and not a duplicated cycle.
+
+**TWO CORRECTIONS TO THE ORIGINAL TEXT BELOW — it was wrong on the mechanism, and the error was
+load-bearing enough to send a reader down a dead end:**
+
+1. **"S3K's `GetArcTan` is a `$100`-byte table lookup" is FALSE.** It is a **257-entry ratio
+   table plus TWO `divu.w`s** (`s3.asm:3193` and `:3202`). `ArcTanTable` is not indexed by x and
+   y — it is indexed by the *quotient* `floor(min·256/max)`, so the table converts a ratio to an
+   angle and the divide is what produces the ratio. A table lookup therefore does NOT make the
+   routine division-free. The blob is 258 bytes: 257 entries (the index is an inclusive quotient —
+   equal magnitudes divide to exactly `$100`) plus one even-pad byte.
+2. **The rejection of the octant approximation was RIGHT, and now has a number behind it.** The
+   ledger rejected a `tan(22.5°) ≈ 7/16` threshold as "not S3K's rounding". Correct:
+   `tan(22.5°)·256 = 106.04`, but the table's own crossings are at **q = 103** (entry 15 -> 16) and
+   **q = 110** (16 -> 17). A trig-derived threshold of 106 sits between them and disagrees with S3K
+   on real inputs.
+
+**A PROVEN-EXACT SHORTCUT EXISTS AND WAS DELIBERATELY NOT TAKEN — do not "discover" it again
+without reading this.** The appendage keeps only bits 5-7 of the biased angle (`(a>>3)&$C` is bits
+5-6, and the `bpl` flip test is bit 7), i.e. a 45°-sector classifier with a 22.5° offset. Because
+`ArcTanTable` is monotonic, each sector boundary is exactly a threshold on the quotient, and
+`floor(min·256/max) >= k` is exactly `min·256 >= k·max` — a multiply, not a divide. Deriving the
+two `k` from the TABLE rather than from trigonometry makes the result bit-identical by
+construction. This was verified, not assumed: **3.77M inputs (all of `|x|,|y| <= 600`, 600K random
+full-int16 pairs, every quotient 0-256 at 14 scales, and the exact crossing rows ±1 at ~3000
+scales) produced ZERO disagreements** with the full S3K pipeline, filling all 32 classifier
+entries. The both-zero case does *not* fold in (it collides with the near-45° key and needs its own
+test, exactly as S3K's `GetArcTan_Zero` does).
+
+It was rejected on **measured cost**, not correctness. From the 68000 manual, over the code each
+form actually emits: faithful `GetArcTan` + transform = **498 cycles**; the classifier =
+**327** multiply-free, **291** with `mulu.w #k`. That is 1.5x, not the ~3x a bare `divu`-vs-`mulu`
+comparison suggests, because the classifier must reconstruct by hand all the sign and octant
+bookkeeping the fold does implicitly — a saving of **171-207 cycles, ~0.13-0.16% of one NTSC
+frame**, on a path that runs once per frame and only while Tails is rolling. Against that it costs
+two magic constants that encode the table's ROUNDING (silently wrong if the table is ever
+regenerated), a 32-entry classifier table of its own, and it still needs a `mulu` exception unless
+you pay 88 cycles for a shift/add chain — so it does not escape the convention question either.
+The full derivation, the 32-entry table, and the verifier are recoverable from this entry's
+description if the tradeoff is ever re-opened.
+
+**Original entry, preserved:**
+
+`games/sonic4/objects/tails_appendage.emp` ships S3K's tail behaviour with one frame-selection
+detail missing, and it is missing because a primitive does not exist yet — not because it was
+skipped.
+
+**What S3K does.** When Tails is in ball form his tails render from one of FOUR angle-banked mapping
+banks (`AniTails_Tail03`/`04`/`05`/`06` — the same 4-frame cycle drawn at four orientations). The
+selection is `sonic3k.asm:29556` (`loc_15A3C`): take the PARENT's `x_vel`/`y_vel`, run them through
+`GetArcTan`, mirror the result on the facing bit (`not.b d0` facing right, `+$80` facing left), bias
+by `+$10`, then `lsr.b #3` / `andi.b #$C` to get 0/4/8/$C and ADD that to `mapping_frame` after the
+script step. The same angle also drives a two-bit render_flags flip.
+
+**What we ship.** `Ani_TailsAppendage.Roll` carries bank 0 (tails_anims.emp deviation 3 says so
+explicitly and assigns the offset to the appendage object), and the object does not add anything, so
+a rolling Tails' tails spin at the horizontal orientation regardless of travel direction.
+
+**The blocking dependency.** `engine/system/math.emp` is sine/cosine only — there is no arctan
+anywhere in the engine (`GetSineCosine` + `Sine_Table` are the whole module). S3K's `GetArcTan` is a
+$100-byte table lookup. An APPROXIMATION is available (classify the octant from `|dx|` vs `|dy|`
+against a `tan(22.5°) ≈ 7/16` threshold, which is all `>>3 & $C` actually extracts) but it is NOT
+S3K's rounding, so it would ship a visible-frame difference against the reference we are measuring
+against, and it cannot be A/B'd against S3K without the real table.
+
+**What closing it looks like.** Add `GetArcTan` (table + lookup) to `engine/system/math.emp` as its
+own parcel — it is a general primitive several systems will want (projectile aiming, slope-facing
+objects, the classic `CalcAngle` the air-state quadrant comment already name-checks) — then the
+appendage change is ~10 instructions in `TailsAppendage_Main` between the `AnimateSprite` call and
+the DPLC: bank the mapping_frame and re-derive the flip pair. The flight ascend/descend hold, the
+OTHER thing tails_anims.emp assigned to this object, is already shipped (DUR_DYNAMIC + the parent's
+`y_vel` sign).
+
+### The `mulu`/`divu` convention text and the shipped code disagree — needs a ruling
+
+`CODING_CONVENTIONS.md:247` states the rule absolutely:
+
+> **Rule:** No `mulu`/`muls`/`divu`/`divs` in any code that runs per-frame. Use shifts, adds, or
+> lookup tables. The ONLY exception is code that runs once (level load, init).
+
+Two shipped sites are per-frame divides, and neither is "code that runs once":
+
+| Site | Instruction | Why it is there |
+|---|---|---|
+| `engine/level/parallax.emp:548` | `divs.w d4, d2` | ramp step = `(target − current) / frames_remaining`, so a band transition converges exactly on its last frame. Runs every frame a transition is active. |
+| `engine/system/math.emp` `GetArcTan` | `divu.w` ×2 | the arctan table is indexed by the RATIO, so the divide is what produces the index. Runs once per frame while Tails is rolling. |
+
+Both carry a block comment proving the divisor is never zero and the quotient cannot overflow, so
+the *practice* looks like **"not casually, and prove the invariants at the site"** rather than the
+blanket prohibition the text states. That is a real gap between the law and the code, and the two
+are not reconcilable by reading.
+
+**This is a decision for the user, and is deliberately NOT resolved here** — amending
+`CODING_CONVENTIONS.md` as a side effect of a feature parcel is exactly the kind of quiet
+law-change that should not happen. The options are:
+
+1. **Amend the text** to match practice: divides are permitted where an exact result requires one,
+   provided the site documents divisor-non-zero and no-overflow. Both sites already comply.
+2. **Keep the text absolute** and mark these two as named, listed exceptions (the text would need
+   an exceptions register, since "the ONLY exception is code that runs once" currently excludes
+   them).
+3. **Remove the divides.** Costed for `GetArcTan` in the entry above and rejected: the divide-free
+   form is provably exact but buys only ~0.13% of a frame while adding two rounding-derived magic
+   constants — and it needs a `mulu`, which the same rule forbids, so it does not even resolve the
+   discrepancy. Not costed for `parallax.emp`.
+
+Note that option 3 does not generally escape the rule: for both sites the divide-free alternative
+is a *multiply*, which sits under the same sentence.
+
+
+### VRAM linker T1 — the packer in sigil's chainer (spec §6)
+**Blocked by:** nothing technical; queued behind the T1 plan being written.
+**What:** the six sigil asks from `docs/superpowers/specs/2026-08-11-vram-linker-design.md` §6: S-1 vram.toml parser in the harness, S-2 the solver (FFD + lifetime stub + exact fallback, with the fixpoint acceptance test: given the pinned map, reproduce it), S-3 define emission — VRAM names join `emp_defines`, replacing the hand ring-placeholder values across the native.rs profiles (MUST land value-neutral, byte-identical goldens as its gate), S-4 the no-raw-literal lint, S-5 map/budget/diff artifacts + refreeze integration, S-6 (T2) per-act solve outputs.
+**Also ledgered with it:** the art_tile hash normalization rider (spec §12 — one re-stamp, unpins the character window for T1 floating); the possible vram.toml/map.toml merge when the user's broader TOML review happens (their stated intent, 2026-08-11).
+**When ready:** after the T0 execution note and the T1 plan (task queued).
+
+### Dust plan Task 2 — SUPERSEDED by the VRAM registry carve
+`docs/superpowers/plans/2026-08-11-dust-effect.md` Task 2 (the hand
+POOL_TILE_CEILING carve) is superseded by the registry
+(`games/sonic4/vram.toml`, commit c51a4ff9): VRAM_DUST_PUFF/VRAM_DUST_SPINDASH
+now exist from the generated block. Dust Tasks 3-6 resume unchanged otherwise.
+
+
+### Dust riders (plan Task 6, 2026-08-12)
+1. **Knuckles dust art variant** — a second, RAW (unpermuted) 2816 B blob
+   selected at Player_RefreshPhysics alongside his palette swap, which must
+   also re-DMA the resident puff block (it is palette-specific). Measured: no
+   single variant serves both CRAM lines — the three colours the art needs sit
+   at disjoint indices, and the lines agree only at 0/10/11, none used by dust
+   (dust spec §5.4).
+2. **Water splash / water-run dust** — a design task gated on a water system
+   existing at all (dust spec §1; no ST_UNDERWATER implementation today).
+3. **TF4 round-robin misattribution** — docs/ENGINE_ARCHITECTURE.md (~1118,
+   1165, 1955, §3.5) and docs/research/children-particles.md:166 credit
+   Thunder Force IV with "round-robin sprite flicker" at $F29A. Verified from
+   its disassembly: that address is a global Y-drift accumulator; TF4 has no
+   such mechanism, and the doc's claimed TF4 RAM pools are palette/tilemap
+   staging. Our per-frame intra-band link-order cycling (sprites.emp:242) is
+   real — only the provenance is wrong. Correct in one docs pass.
+4. **particle_anims.emp:17 duration comment** — says "duration 4 frames/frame";
+   under animate.emp's N+1 rule a duration byte of 4 holds for 5 frames.
+5. **Hoist the shared S3K sprite conversion** out of gen_characters.py /
+   gen_dust.py into tools/s3k_sprites.py — deferred while gen_characters.py is
+   load-bearing on two branches (dust plan, File Structure note).

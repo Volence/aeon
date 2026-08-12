@@ -486,6 +486,12 @@ collision surfacing in real play. A small ring-buffer mailbox (A2) is the system
 below remove specific collisions at the source.
 
 ### Item 4 + Item 2 — spurious roll-jump SFX after a spindash launch — **FIXED 2026-06-21**
+> **Symbol note (2026-08-10):** the narrative below names `Player_JumpBuffer`, a global that no
+> longer exists. The per-slot split (C1) folded it into the player working block, where it is now
+> `PBLK_JUMPBUF(a4)`; the `.asm` files it cites are the `.emp` twins today
+> (`games/sonic4/player/player_spindash.emp`, `player_ground.emp`). The fix itself still stands at
+> `player_spindash.emp` `.launch`. History left as written.
+
 **Root cause (data-flow traced, not guessed):** charge-mashing JUMP latches `Player_JumpBuffer`; `.rev`
 consumes it each rev, BUT the release frame runs `.release` (never `.rev`), so a jump press landing in the
 buffer window at the moment of release is never consumed. `.release` → `jmp PState_Roll`, and `PState_Roll`

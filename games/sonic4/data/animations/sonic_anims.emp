@@ -50,6 +50,23 @@ offsets Ani_Sonic {
     Duck:     [u8; 5]  = [5, $9B, $9C, AF_BACK, 1],   // hold last frame
     Skid:     [u8; 7]  = [3, $9D, $9E, $9F, $A0, AF_BACK, 1],  // hold the braced pose
     GetUp:    [u8; 3]  = [8, $8F, AF_END],
+
+    // ANIM_FLY / ANIM_FLY_TIRED — Sonic cannot fly. The ANIM contract is "every
+    // character's table has a row for every id", not "every character can reach
+    // every id", so these rows exist to keep the table total and are UNREACHABLE
+    // for him: Player_Animate only writes them from its PSTATE_FLY branch, and
+    // only Tails' cd_ability can enter that state.
+    //
+    // The fallback is his WALK cycle, byte-for-byte. That is the deliberate
+    // choice over a cheaper one-frame hold: if a future bug ever did land Sonic
+    // on one of these ids, walk/run is exactly what the classifier picks for an
+    // uncurled airborne Sonic today, so the pose would be indistinguishable from
+    // correct rather than a frozen frame that reads as a crash. Repeated rather
+    // than aliased — the `offsets` construct has no alias form, and the
+    // Ani_TailsAppendage rows already set the precedent of repeating a shared
+    // body at 3-10 bytes rather than adding an indirection.
+    Fly:      [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    FlyTired: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
 }
 // keeps the NEXT table (Ani_Particle, word-read) even — inert today
 // (the packed total is even) but guards body edits.
@@ -67,4 +84,6 @@ ensure(Ani_Sonic.LookUp == extern("ANIM_LOOKUP"), "LookUp ordinal drifted from A
 ensure(Ani_Sonic.Duck == extern("ANIM_DUCK"), "Duck ordinal drifted from ANIM_DUCK")
 ensure(Ani_Sonic.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SKID")
 ensure(Ani_Sonic.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_Sonic.Fly == extern("ANIM_FLY"), "Fly ordinal drifted from ANIM_FLY")
+ensure(Ani_Sonic.FlyTired == extern("ANIM_FLY_TIRED"), "FlyTired ordinal drifted from ANIM_FLY_TIRED")
 ensure(Ani_Sonic.count == extern("ANIM_COUNT"), "Ani_Sonic entry count drifted from ANIM_COUNT")

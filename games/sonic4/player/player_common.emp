@@ -4,28 +4,34 @@
 // quadrant → jump buffer → state dispatch → history rings → display tail.
 // The state bodies live in player_ground.asm / player_air.asm (reached
 // only via the Player_States offset table below); characters contribute
-// asset/physics data + ability states (sonic.emp) — never forks inside
-// shared routines (spec §3.1 inversion of the sonic_hack split).
+// asset/physics data + ability states through the roster (characters.emp,
+// sonic.emp) — never forks inside shared routines (spec §3.1 inversion of
+// the sonic_hack split).
 //
 // Lives in the object code bank: Player_Main is dispatched through
 // SST_code_addr via a code_addr = label − ObjCodeBase store.
 //
 // This module OWNS the player frame outright — player_common.asm is deleted. The
-// PlayerV overlay, the PPHYS_* / BUTTON_JUMP_MASK / PLAYER_DEBUG_FLY_SPEED consts,
+// PlayerV overlay, the PBLK_* / BUTTON_JUMP_MASK / PLAYER_DEBUG_FLY_SPEED consts,
 // the four macro→comptime-fn templates, and the code span all live here; the state
 // files (player_ground/air/spindash) reach them by module `use`, and engine.camera
 // late-binds the one `_pl_state` offset through the link.
 module games.sonic4.player_common in player_common
 
-use engine.objects.sst.{Sst, set_priority_band}
-use engine.structs.{Act}
+use engine.objects.sst.{Sst, set_priority_band, size_wh_off}
+use engine.structs.{Act, CharacterDef, cd_stand_h_off, cd_roll_h_off}
 use engine.coords.{pixels_to_coord, abs_w}
 use engine.objects.objdef.{vram_art}
-use engine.constants.{RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
-        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP, PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS,
-        CURL_Y_SHIFT, ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
+use engine.constants.{NUM_PLAYERS,
+        RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
+        PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
+        ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
+
+// PlayerBlock — the per-slot player working block this module's a4 convention
+// addresses; config/ram.emp is its sole author.
+use games.sonic4.ram.{PlayerBlock}
 
 // Player_AtLedgeEdge — player_sensors' idle-balance ledge probe (returns d0=0/Z
 // set = supported, d0=1/Z clear = teetering) — resolves module-to-module to
@@ -44,14 +50,20 @@ type PlayerState = proc (a0: *Sst) preserves(a0) clobbers(d0-d7, a1-a4)
 // the clobber set.
 type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 
+// AbilityHook (the per-character jump-press hook type), CharacterDefs (the
+// roster), Ability_None and the two record readers Player_InitAssets /
+// Player_LoadArt live in characters.emp — the frame does not own the cast.
+// Player_Init, Player_DebugExit and Player_Display reach them as bare link refs.
+
 // Game-config constants — the sole authority is games.sonic4.constants
 // (config/constants.emp). VRAM_TEST_MARKER is the tile-1016 debug-fly marker.
 use games.sonic4.constants.{
     PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP,
-    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_COUNT,
+    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
-    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY
+    ANIM_FLY, ANIM_FLY_TIRED,
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -62,8 +74,10 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 18 of 34
-// bytes). This module owns the overlay outright (player_common.asm deleted); the
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 22 of 30
+// usable bytes — the sst_custom window is 32 bytes at $30 and its tail word
+// $4E-$4F is the engine-owned SST_interact).
+// This module owns the overlay outright (player_common.asm deleted); the
 // state files reach the fields through the imported PlayerV struct, so no `_pl_*`
 // mirror equate survives (only the link-exported `_pl_state` offset for camera).
 // The overlay's always-on window-overflow check subsumes the AS objvarsCheck /
@@ -87,6 +101,33 @@ pub vars PlayerV: Sst.sst_custom {
                                         // the same tick's air body; MUST be zero at
                                         // tick end (replay-hash discipline)
         even_pad:         u8,           // pad — keeps the overlay even
+
+        // --- ABILITY SCRATCH: the per-character airborne-ability working set.
+        // These two bytes are a UNION, not Tails' private property: exactly one
+        // character is resident per slot (Player_Chardef is the single resolved
+        // record), so Knuckles' glide and any later ability re-use the same bytes
+        // under their own names rather than each claiming fresh ones. The window
+        // has 30 game-usable bytes and PlayerV now spends 20.
+        //
+        // REPLAY-HASH DISCIPLINE — read this before touching them. The custom
+        // window $30..$4D is hashed by engine/system/replay.emp, and the recorded
+        // fixtures were captured with SONIC, for whom every byte past the old
+        // 18-byte PlayerV hashed as boot-zero. So the contract on this block is
+        // stronger than the window's usual "address-free": it is address-free AND
+        // SONIC-UNREACHABLE. The only writers are player_fly.emp's
+        // Ability_TailsFlight (seeds both) and PState_Fly (steps them), and
+        // both are reachable only through CharDef_Tails.cd_ability / PSTATE_FLY.
+        // Player_Init deliberately does NOT clear them — a clear is a write, and
+        // the whole point is that Sonic's frame never touches these addresses.
+        // Seeding is complete at the flight-entry hook instead.
+        fly_fuel:         u8,           // flap fuel, ticked on alternate frames (240 at entry,
+                                        // 0 = tired). player_fly owns the semantics.
+        fly_thrust:       u8,           // flight mode AND the flap's ramp counter in one byte,
+                                        // exactly as S3K's double_jump_flag: FLY_COAST (1) =
+                                        // coasting, FLY_THRUST_FIRST (2) .. FLY_RAMP_CAP (32)
+                                        // = flapping, the value being the flap's frame count.
+                                        // One byte because the two facts are one fact — a flap
+                                        // IS its ramp — and two would be free to disagree.
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
@@ -119,24 +160,152 @@ pub const BUTTON_JUMP_MASK_NO_B = BUTTON_A | BUTTON_C   // while the cheat owns 
 
 const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STEP
 
+// player-block field displacements (a4-relative). File-local hand-typed literals,
+// matching the PBLK_* convention in player_ground/player_air; the ensures below
+// bind THESE two to the PlayerBlock layout, so a drifted offset fails the build
+// rather than surfacing as a mismatched instruction byte in the region gate.
+//
+// PBLK_JUMPBUF is deliberately NOT spelled PBLK_JUMP_BUFFER, breaking the
+// otherwise-exact field-name mapping (PBLK_TOP_SPEED <-> PlayerBlock.top_speed).
+// The engine constant PHYS_JUMP_BUFFER is one character away, and the two appear
+// on the SAME LINE in the latch below (`move.b #PHYS_JUMP_BUFFER, PBLK_JUMPBUF(a4)`)
+// — near-identical names sitting adjacent is a misreading waiting to happen.
+// Keep the abbreviation.
+const PBLK_QUADRANT  = 16
+const PBLK_JUMPBUF   = 17
+const PBLK_DUSTTIMER = 18
+
 // -----------------------------------------------
-// set_standing_size / set_ball_size — the two collision boxes (sizes are 2r+1;
-// sensors halve by lsr → standing 9/19, ball 7/14 — the exact classic radii).
-// The enter hooks are the ONE writer of these fields and of the paired
-// ±CURL_Y_SHIFT y-shift (spec §3.3).
-// In: sst = player SST register
+// player_block — point a register at the CALLING SLOT's PlayerBlock
+// (config/ram.emp: the 8-word physics row + quadrant + jump buffer).
+//
+// THIS IS THE WHOLE PER-SLOT MECHANISM. Player_Main resolves the slot once per
+// frame into a4 and every downstream site — the state bodies, the sensor stack,
+// Player_SnapToSurface — addresses the block a4-relative. No slot index is
+// carried in a register and no access site does arithmetic; making the state
+// per-slot was an addressing-mode change at each site, not a logic change.
+//
+// WHY A COMPARE AND NOT AN INDEX: the slot index is (sst − Object_RAM) /
+// sizeof(Sst), and sizeof(Sst) is $50 — not a power of two — so that division
+// needs a `divu`, which the conventions forbid outright (§2.1). With two slots a
+// single compare against Player_1 is both exact and cheaper. That is an
+// assumption about NUM_PLAYERS, so it is asserted at build time immediately
+// below rather than left to be discovered by a third slot silently reading slot
+// 1's block.
+//
+// The stride is sizeof(PlayerBlock), so the slot arithmetic cannot disagree with
+// the RAM layout — there is no separate size constant to keep in sync, and no
+// adjacency to assert: `Player_Blocks` IS the contiguous run.
+//
+// Hygienic `.blk_resolved` label per expansion (the mask_opposing_lr / abs_w
+// splice pattern), so the expansion sites don't collide. NOTE for consumers
+// outside this module: the body expands in the CALLER's scope, so the caller
+// must also `use games.sonic4.ram.{PlayerBlock}` — test_player does.
+// In:  sst = register holding the player SST (preserved)
+// Out: dst = that slot's PlayerBlock
+// Clobbers: CCR — the `cmpa.w` leaves the compare's flags, not the caller's.
+//      Both expansion sites are flag-independent at the splice, but this file
+//      deliberately carries flags across instruction boundaries elsewhere
+//      (player_ground's `btst` into a later `bpl`), so it is stated.
 // -----------------------------------------------
-pub comptime fn set_standing_size(sst: Reg) -> Code {
+pub comptime fn player_block(sst: Reg, dst: Reg) -> Code {
         return asm {
-                move.b  #PLAYER_X_RADIUS*2+1, Sst.width_pixels({sst})
-                move.b  #PLAYER_Y_RADIUS*2+1, Sst.height_pixels({sst})
+                lea     Player_Blocks, {dst}            // slot 0 (the leader)
+                cmpa.w  #Player_1, {sst}
+                beq     .blk_resolved
+                lea     sizeof(PlayerBlock)({dst}), {dst}
+        .blk_resolved:
+        }
+}
+ensure(NUM_PLAYERS == 2,
+       "player_block's compare-against-Player_1 slot derivation assumes exactly two player slots")
+// Both `cmpa.w #Player_1` sites (the splice above and Player_Main's ring gate)
+// compare a SIGN-EXTENDED word against a full address register. That is correct
+// only while Player_1 lives in the w-addressable window, where bit 15 is set and
+// the extension reproduces $FFFFxxxx. Move Object_RAM down into lower_ram
+// ($FFFF0000..$FFFF8000, not w_addressable) and the `lea` would still lower to
+// abs.l while the compare tested a sign-CLEARED value — never equal. The failure
+// is silent and severe: every slot would resolve to block 1 (re-introducing the
+// exact single-block bug this parcel removes) and the ring gate would never fire.
+ensure((extern("Player_1") & $FFFF8000) == $FFFF8000,
+       "player_block + the ring gate use cmpa.w — Player_1 must sign-extend from a word, i.e. live in the w-addressable window ($FFFF8000+)")
+// The two hand-typed displacements above, bound to the type that owns the layout.
+ensure(PBLK_QUADRANT == offsetof(PlayerBlock, quadrant),
+       "PBLK_QUADRANT out of sync with PlayerBlock.quadrant (config/ram.emp)")
+ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
+       "PBLK_JUMPBUF out of sync with PlayerBlock.jump_buffer (config/ram.emp)")
+ensure(PBLK_DUSTTIMER == offsetof(PlayerBlock, dust_timer),
+       "PBLK_DUSTTIMER out of sync with PlayerBlock.dust_timer (config/ram.emp)")
+
+// -----------------------------------------------
+// set_standing_size / set_ball_size — the two collision boxes, taken from the
+// ACTIVE CHARACTER's record. cd_stand_wh / cd_roll_wh are packed W<<8|H exactly
+// so a box is one aligned word store over the adjacent width_pixels/
+// height_pixels pair (size_wh_off, engine.objects.sst) — a character's box is
+// data, never a constant, so a second character is a record and not a branch.
+// Sizes are FULL dims (2r+1); the sensors halve by lsr → Sonic stands 9/19 and
+// balls 7/14 (the classic radii), Tails stands 9/15 (S3K default_y_radius $F).
+// The enter hooks are the ONE writer of these fields and of the paired
+// curl y-shift (spec §3.3).
+// In: sst = player SST register, def = register already holding the resolved
+//     CharacterDef (Player_Chardef) — loaded at the call site so the hooks share
+//     the one load with their curled-test
+// -----------------------------------------------
+pub comptime fn set_standing_size(sst: Reg, def: Reg) -> Code {
+        return asm {
+                move.w  CharacterDef.cd_stand_wh({def}), size_wh_off()({sst})
         }
 }
 
-pub comptime fn set_ball_size(sst: Reg) -> Code {
+pub comptime fn set_ball_size(sst: Reg, def: Reg) -> Code {
         return asm {
-                move.b  #BALL_X_RADIUS*2+1, Sst.width_pixels({sst})
-                move.b  #BALL_Y_RADIUS*2+1, Sst.height_pixels({sst})
+                move.w  CharacterDef.cd_roll_wh({def}), size_wh_off()({sst})
+        }
+}
+
+// -----------------------------------------------
+// curl_head_rise / curl_y_shift — the curl GEOMETRY, derived from the two boxes
+// in the active character's record for the same reason the boxes themselves are:
+// it is a property of the character, not of the engine. S3K computes exactly
+// this pair per character (`y_radius - default_y_radius`, sonic3k.asm) rather
+// than using a constant.
+//
+// Uncurling raises the head by the full height difference; the centre moves by
+// HALF of it, which is what keeps the feet planted. Sonic 10/5 (the values the
+// retired engine-wide CURL_Y_SHIFT hardcoded), Tails 2/1. curl_shift_px is also
+// what Player_RefreshPhysics publishes to the camera (Camera_Curl_Offset), so
+// all five consumers share one formula.
+//
+// The subtraction cannot borrow — no character's ball is taller than its
+// standing box — so the byte result reaches the word/long users clean off the
+// `moveq`.
+// In:  def = register holding the resolved CharacterDef
+// Out: dest.w = full height difference (the standing head rise, px)
+// -----------------------------------------------
+pub comptime fn curl_head_rise(def: Reg, dest: Reg) -> Code {
+        return asm {
+                moveq   #0, {dest}
+                move.b  cd_stand_h_off()({def}), {dest}
+                sub.b   cd_roll_h_off()({def}), {dest}
+        }
+}
+
+// Out: dest.w = the curl y-shift in PIXELS (half the head rise) — what the
+//      rolling wall probe subtracts to get back to the standing centre height
+pub comptime fn curl_shift_px(def: Reg, dest: Reg) -> Code {
+        return asm {
+                curl_head_rise({def}, {dest})
+                lsr.b   #1, {dest}
+        }
+}
+
+// Out: dest.l = the curl y-shift as a 16.16 delta (shift<<16), ready to add to
+//      (curl) or subtract from (uncurl) y_pos
+pub comptime fn curl_y_shift(def: Reg, dest: Reg) -> Code {
+        return asm {
+                curl_shift_px({def}, {dest})
+                swap    {dest}                  // px -> 16.16 (low word is the
+                                                // moveq's zero)
         }
 }
 
@@ -177,9 +346,13 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 // abs_w — the |v| in-place idiom (bpl/neg.w), a corpus-wide engine idiom
 // (engine.coords), not a game one. Consumed via `use engine.coords.{abs_w}` above.
 // -----------------------------------------------
-// Player_Init — set up a player slot as Sonic (called from level state init;
-// caller writes x_pos/y_pos first). Boots into DEBUG-FLY when CHEAT_DEBUG_FLY is
-// armed — the debug shape arms it at game init, so the streaming-test workflow
+// Player_Init — set up a player slot as the active CHARACTER (called from level
+// state init; caller writes x_pos/y_pos first). The roster lookup happens HERE
+// and only here: Character_ID selects a CharacterDef, the resolved record is
+// cached in Player_Chardef, and every later dispatch site reads that cache.
+//
+// Boots into DEBUG-FLY when CHEAT_DEBUG_FLY is armed — the debug shape arms it
+// at game init, so the streaming-test workflow
 // still starts in the yellow square and B drops into physics. With the cheat
 // clear (the release/lean default) the player boots as a PLAYER: this returns
 // normally with the slot in PSTATE_AIR, dropping to ground on frame 1. Gating
@@ -190,12 +363,23 @@ pub comptime fn dist_to_fix(v: Reg) -> Code {
 // Clobbers: d0-d2, a1-a2 (d2 via Player_SetState's hook dispatch)
 // -----------------------------------------------
 pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
-        jbsr    Sonic_InitAssets
+        // roster resolve — the ONE place a character id becomes a record pointer
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.w  Character_ID, d0
+        assert.w d0, ls, #CHAR_COUNT-1          // id in roster range
+        lsl.w   #2, d0                          // × sizeof(pointer); no scaled
+                                                // indexing on the 68000
+        lea     CharacterDefs, a1
+        movea.l (a1,d0.w), a1
+        move.l  a1, Player_Chardef
+        set_standing_size(a0, a1)               // the box is part of the record —
+                                                // taken here, while the resolve
+                                                // still has it in hand
+        jbsr    Player_InitAssets
         move.b  #ANIM_IDLE, anim(a0)            // Player_Display re-selects per frame
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
         set_priority_band(4)                    // C1c idiom: clear-then-set
-        set_standing_size(a0)
         move.b  #COLLISION_NONE, collision_resp(a0)
         clr.b   status(a0)
         clr.b   angle(a0)
@@ -211,6 +395,7 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         clr.b   PlayerV.player_state(a0)        // defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 // drop to ground on frame 1
         jbsr    Player_SetState
+        player_block(a0, a2)                    // this slot's block — Refresh writes its row
         jbsr    Player_RefreshPhysics
         move.w  #Player_Main - ObjCodeBase, code_addr(a0)
         // Boot-entry into debug-fly rides the SAME runtime cheat bit as the B
@@ -222,17 +407,36 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
 }
 
 // -----------------------------------------------
-// Player_RefreshPhysics — recompute the effective physics table in RAM.
-// Identity modifier today: straight copy of the character base row.
-// Section/water/speed-shoes modifiers compose HERE later — called on section
-// change and status events, NEVER per-frame (spec §3.4).
-// In:  none (character = Sonic until the roster exists)
+// Player_RefreshPhysics — recompute ONE slot's effective physics row in RAM.
+// Identity modifier today: straight copy of the active character's base row
+// (CharacterDef.cd_phys). Section/water/speed-shoes modifiers compose HERE
+// later — called on section change and status events, NEVER per-frame
+// (spec §3.4).
+//
+// Takes the slot's block pointer rather than re-deriving one: the row it writes
+// is per-slot (C1), and every caller already has the SST in hand, so `player_block`
+// at the call site keeps the derivation in one place instead of two.
+//
+// ALSO the game's one write of the engine's Camera_Curl_Offset (engine/ram.emp),
+// and it lives here because this is the CHOKEPOINT for a character change:
+// Player_Chardef has exactly two writers — Player_Init's roster resolve and the
+// debug character hotkey — and both call this immediately after, while this is
+// called from nowhere else. So the cell cannot go stale behind a character swap,
+// which would hand the new character the old one's compensation: the same bug
+// the per-character curl derivation exists to kill. Unlike the physics row the
+// value is per-CHARACTER, not per-slot, which costs nothing while Player_Chardef
+// is itself one global — when characters go per-slot, the cell follows whichever
+// slot Camera_Target names, and both move together.
+// In:  a2 = the slot's PlayerBlock (player_block); reads Player_Chardef
 // Out: none
-// Clobbers: a1-a2
+// Clobbers: d0, a1-a2
 // -----------------------------------------------
-pub proc Player_RefreshPhysics () clobbers(a1-a2) {
-        lea     PhysTable_Sonic, a1             // (PhysTable_Sonic).l — ROM table, abs.l by the width rule
-        lea     Player_Phys, a2
+pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
+        movea.l Player_Chardef, a1
+        curl_shift_px(a1, d0)                   // the camera's curl compensation:
+        move.w  d0, Camera_Curl_Offset          // one formula, shared with the
+                                                // hooks and the ceiling probes
+        movea.l CharacterDef.cd_phys(a1), a1
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
@@ -287,7 +491,10 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
                                                 // skips physics, dispatch,
                                                 // rings, and display tail
 
-        lea     Player_Phys, a4                 // physics table convention
+        player_block(a0, a4)                    // a4 = THIS SLOT's working block —
+                                                // resolved once, held for the whole
+                                                // frame (physics row + quadrant +
+                                                // jump buffer all ride it)
 
         // quadrant = (angle+$20)>>6 — first-class derived value; computed from
         // LAST frame's angle (classic: angle updates at the floor pair)
@@ -295,7 +502,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         addi.b  #$20, d0
         rol.b   #2, d0
         andi.b  #3, d0
-        move.b  d0, Player_Quadrant
+        move.b  d0, PBLK_QUADRANT(a4)
 
         // jump buffer: latch PHYS_JUMP_BUFFER on a press edge, else tick down.
         // Maintained here; the ground-state jump check CONSUMES it.
@@ -327,12 +534,12 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         andi.b  #BUTTON_JUMP_MASK_NO_B, d6      // armed: B is the fly toggle, not a jump
         beq     .no_latch
 .latch:
-        move.b  #PHYS_JUMP_BUFFER, Player_JumpBuffer
+        move.b  #PHYS_JUMP_BUFFER, PBLK_JUMPBUF(a4)
         jbra    .buffer_done
 .no_latch:
-        tst.b   Player_JumpBuffer
+        tst.b   PBLK_JUMPBUF(a4)
         beq     .buffer_done
-        subq.b  #1, Player_JumpBuffer
+        subq.b  #1, PBLK_JUMPBUF(a4)
 .buffer_done:
 
         // --- state dispatch. d7 saved across: Player_SensorFloor legitimately
@@ -341,6 +548,11 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         lea     Player_States(pc), a1
         moveq   #0, d0
         move.b  PlayerV.player_state(a0), d0
+        // The value guards in config/constants.emp make every PSTATE_* a valid
+        // row at BUILD time; this is the runtime backstop for the byte itself
+        // being stomped, which no comptime check can see. Unsigned compare — the
+        // moveq above zero-extends the byte.
+        assert.w d0, ls, #(PSTATE_COUNT-1)*2    // state byte indexes a real row
         move.w  (a1,d0.w), d1
         jsr     (a1,d1.w) as PlayerState
         move.w  (sp)+, d7
@@ -352,8 +564,15 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
 
         jbsr    Player_LevelBound               // classic LevelBound, post-dispatch
 
-        // --- position history rings (recorded unconditionally — a "follower
-        // active?" branch costs more than the writes) ---
+        // --- position history rings — LEADER ONLY. This is the trail a follower
+        // reads to lag behind the leader, so exactly one slot may write it: two
+        // writers would interleave their samples at the 4-byte stride and the ring
+        // would describe no player at all. The gate is the same compare the block
+        // derivation makes (a4 is not a proxy for it — both slots hold a valid
+        // block), and it is one compare per player per frame. Non-leader slots
+        // fall straight through to the shared display tail. ---
+        cmpa.w  #Player_1, a0
+        bne     .rings_done
         move.w  Player_Ring_Index, d0
         lea     Player_Pos_Ring, a1
         move.w  x_pos(a0), (a1,d0.w)
@@ -366,6 +585,7 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
         move.b  status(a0), 2(a1,d0.w)          // +pad byte left untouched
         addq.b  #4, Player_Ring_Index+1         // (Player_Ring_Index+1).w — low-byte
                                                 // wrap; rings are 256-aligned (ram.asm)
+.rings_done:
         // fall through to the shared display tail
 }
 
@@ -376,9 +596,17 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
 // -----------------------------------------------
 pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
         jbsr    Player_Animate                  // sets SST_anim + d3 (dyn hold)
+        jbsr    Dust_Tick                       // AFTER Player_Animate: the
+                                                // classifier is what sets and clears
+                                                // skid_latch, so reading it earlier
+                                                // in the frame reads LAST frame's
+                                                // value. a4 is still the slot's block
+                                                // (Player_Main holds it for the whole
+                                                // frame) and d3 must survive for
+                                                // AnimateSprite, so Dust_Tick
+                                                // preserves it.
         jbsr    AnimateSprite
-        jbra    Sonic_LoadArt                   // character dispatch (Tails/Knux
-                                                // replace via roster later)
+        jbra    Player_LoadArt
 }
 
 // -----------------------------------------------
@@ -419,12 +647,47 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         move.b  #ANIM_SPINDASH, anim(a0)
         rts
 .not_spindash:
-        // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL >= PSTATE_JUMP)
-        cmpi.b  #PSTATE_JUMP, d0
-        bhs     .ball
-        cmpi.b  #PSTATE_ROLL, d0
-        bne     .uncurled
-.ball:
+        // (1b) FLIGHT — the second state-keyed pose, and it needs its own branch
+        // for the same reason spindash does: flight is AIRBORNE and UNCURLED, so
+        // the classification below would fall through to .walk_or_run and animate
+        // a flying Tails with the run cycle. Which of the two flight poses plays
+        // is the fuel byte, not a separate state: `tired` is the same PSTATE_FLY
+        // with the flap disabled (player_fly).
+        // Unreachable for any character whose cd_ability cannot enter PSTATE_FLY,
+        // which today is everyone but Tails.
+        cmpi.b  #PSTATE_FLY, d0
+        bne     .not_fly
+        tst.b   PlayerV.fly_fuel(a0)
+        beq     .fly_tired
+        move.b  #ANIM_FLY, anim(a0)
+        rts
+.fly_tired:
+        move.b  #ANIM_FLY_TIRED, anim(a0)
+        rts
+.not_fly:
+        // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL). ST_ROLLING IS
+        // "in ball form", so the test is the bit, not a state range — which is
+        // what retires the PSTATE_* ordering constraint (config/constants.emp).
+        // The equivalence is structural, not incidental: PHook_EnsureBall/
+        // EnsureStanding are the bit's ONLY writers (both set/clear it
+        // UNCONDITIONALLY, outside their height-keyed guard), every state reaches
+        // exactly one of them through PState_EnterHooks — Roll/Jump/RollJump/
+        // AirBall → EnsureBall, Ground/Air/Spindash → EnsureStanding — and
+        // Player_SetState is the only TRANSITION writer of player_state, writing
+        // it and running the enter hook with nothing in between. The one other
+        // writer is Player_Init's boot `clr.b` (a defined start for SetState's
+        // exit lookup, which runs before any hook has), and it does not break the
+        // equivalence: the same init block clears `status` a few lines earlier —
+        // so ST_ROLLING is 0 — and the byte it writes is 0, which IS the uncurled
+        // PSTATE_GROUND, so the pair it leaves behind is exactly the one
+        // EnsureStanding would. Init then goes straight through Player_SetState
+        // for the real start state. So bit and state agree
+        // at every point a frame can observe them, this one included: Player_Animate
+        // runs in the display tail, after the dispatch has completed its transitions.
+        // (SPINDASH never reaches here — priority 1 above returns — so the fact
+        // that it is standing-but-attacking costs nothing either way.)
+        btst    #ST_ROLLING, status(a0)
+        beq     .uncurled
         // S3K-exact roll hold: max(0,($400-|gsp|)>>8) — the prologue's $800
         // walk hold would spin the ball at HALF the classic rate (Harmony
         // study defect #1). ground_speed is the right input even airborne
@@ -553,6 +816,7 @@ pub offsets Player_States {
         Jump:     PState_Jump,          // PSTATE_JUMP (player_air)
         RollJump: PState_RollJump,      // PSTATE_ROLLJUMP (player_air)
         AirBall:  PState_AirBall,       // PSTATE_AIRBALL (player_air)
+        Fly:      PState_Fly,           // PSTATE_FLY (player_fly) — Tails only
 }
 ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
 
@@ -589,6 +853,11 @@ pub offsets PState_EnterHooks {
         Jump:     PHook_AirBallEnter,   // JUMP
         RollJump: PHook_AirBallEnter,   // ROLLJUMP
         AirBall:  PHook_AirBallEnter,   // AIRBALL
+        Fly:      PHook_AirEnter,       // FLY — uncurled airborne, exactly like AIR.
+                                        // The flight ENTRY gate refuses to engage while
+                                        // curled, so EnsureStanding is always a no-op
+                                        // here; it runs anyway because the hook's job is
+                                        // to make the invariant true, not to assume it.
 }
 ensure(PState_EnterHooks.count == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
 
@@ -604,6 +873,11 @@ pub offsets PState_ExitHooks {
         Jump:     PHook_Null,           // JUMP
         RollJump: PHook_Null,           // ROLLJUMP
         AirBall:  PHook_Null,           // AIRBALL
+        Fly:      PHook_Null,           // FLY — the flight scratch is seeded on ENTRY
+                                        // (Ability_TailsFlight), never on exit: an exit
+                                        // hook that cleared it would be a write on the
+                                        // path out of every state, and PHook_Null keeps
+                                        // this row off Sonic's reachable set entirely.
 }
 ensure(PState_ExitHooks.count == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
 
@@ -616,7 +890,7 @@ pub proc PHook_Null () clobbers() {
         rts
 }
 
-pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
+pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1/a1) {
         jbsr    PHook_EnsureStanding            // uncurl (jump/ball landings;
                                                 // down-held landings go straight
                                                 // to ROLL via Air_LandState)
@@ -624,25 +898,31 @@ pub proc PHook_GroundEnter (a0: *Sst) clobbers() {
         rts
 }
 
-pub proc PHook_AirEnter (a0: *Sst) clobbers() { // uncurled airborne
+pub proc PHook_AirEnter (a0: *Sst) clobbers(d1/a1) { // uncurled airborne
         jbsr    PHook_EnsureStanding
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
-pub proc PHook_AirBallEnter (a0: *Sst) clobbers() { // JUMP / ROLLJUMP / AIRBALL
+pub proc PHook_AirBallEnter (a0: *Sst) clobbers(d1/a1) { // JUMP / ROLLJUMP / AIRBALL
         jbsr    PHook_EnsureBall
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
-pub proc PHook_RollEnter (a0: *Sst) clobbers() { // grounded ball — entered from
+pub proc PHook_RollEnter (a0: *Sst) clobbers(d1/a1) { // grounded ball — entered from
         jbsr    PHook_EnsureBall                // GROUND (roll start), SPINDASH
         bclr    #ST_IN_AIR, status(a0)          // (release), or a curled/down-
         rts                                     // held landing (air → cleared)
 }
 
-pub proc PHook_SpindashEnter (a0: *Sst) clobbers() { // entered only from GROUND —
+pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1/a1) preserves(d0) { // entered only from GROUND —
+                                                // preserves(d0) is DECLARED (not left
+                                                // implicit) so the closure gate verifies
+                                                // the stack round-trip below instead of
+                                                // charging the spawn call's d0 clobber
+                                                // to this hook (the TestChurnObj_Main
+                                                // shape)
         jbsr    PHook_EnsureStanding            // the player is pinned charging
                                                 // at STANDING size (classic S2:
                                                 // curl + feet-planted shift
@@ -655,6 +935,23 @@ pub proc PHook_SpindashEnter (a0: *Sst) clobbers() { // entered only from GROUND
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         clr.w   PlayerV.spindash_charge(a0)     // the initiating press is rev 0
+
+        // d0 bracketed, NOT added to the clobber set: PlayerHook preserves d0 —
+        // the exit dispatch carries the new state byte there, and Player_SetState's
+        // own contract (clobbers d1-d2/a1-a2) promises its callers d0 survives the
+        // enter-hook tail jmp. DustSpindash_Spawn's AllocEffect owns d0 (its status
+        // code lands there), so the save/restore is this hook's obligation — the
+        // same caller-side bracket Player_Main uses for d7 around the state
+        // dispatch.
+        move.l  d0, -(sp)
+        jbsr    DustSpindash_Spawn              // one follower per charge; it retires
+                                                // itself on the state byte, so there is
+                                                // deliberately no teardown in
+                                                // PHook_SpindashExit (a cached slot
+                                                // pointer there could be freed behind
+                                                // the hook's back by DeleteChildren or
+                                                // the death cascade)
+        move.l  (sp)+, d0
         rts                                     // Rev SFX fired per-tap in player_spindash.asm
 }
 
@@ -665,8 +962,9 @@ pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
 }
 
 // bug #5 fix (structural): the collision box lives ONLY here — every curled
-// state gets ball radii with the symmetric ±CURL_Y_SHIFT feet-planted shift, so
-// the classic roll-jump 5px size mismatch cannot exist. Enter-hook-owns-it:
+// state gets ball radii with the symmetric feet-planted shift (curl_y_shift,
+// derived from the record), so the classic roll-jump 5px size mismatch cannot
+// exist. Enter-hook-owns-it:
 // each enter hook ENSURES its size, keyed on the current height byte —
 // idempotent and correct for every transition path.
 //
@@ -675,22 +973,34 @@ pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
 // guard — because the debug-fly art swap writes a third height (16) outside the
 // state machine: a debug round-trip re-enters via SetState and the hook must
 // repair the bit even when the height byte needs no curl work.
-pub proc PHook_EnsureStanding (a0: *Sst) clobbers() {
+// The curled test is the box word against the ACTIVE CHARACTER's cd_roll_wh, not
+// a constant height: the "am I curled" key has to move with the boxes it keys on,
+// or a character whose ball differs from Sonic's would read as permanently
+// curled/uncurled. Comparing the whole word (both dims) rather than the height
+// alone is the same test — no character's standing box shares its rolling box —
+// and it is one aligned read instead of two.
+pub proc PHook_EnsureStanding (a0: *Sst) clobbers(d1/a1) {
         bclr    #ST_ROLLING, status(a0)
-        cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
+        movea.l Player_Chardef, a1
+        move.w  size_wh_off()(a0), d1
+        cmp.w   CharacterDef.cd_roll_wh(a1), d1
         bne     .keep                           // not curled (incl. debug 16)
-        set_standing_size(a0)
-        subi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
+        set_standing_size(a0, a1)
+        curl_y_shift(a1, d1)
+        sub.l   d1, y_pos(a0)
 .keep:
         rts
 }
 
-pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
+pub proc PHook_EnsureBall (a0: *Sst) clobbers(d1/a1) {
         bset    #ST_ROLLING, status(a0)
-        cmpi.b  #BALL_Y_RADIUS*2+1, height_pixels(a0)
+        movea.l Player_Chardef, a1
+        move.w  size_wh_off()(a0), d1
+        cmp.w   CharacterDef.cd_roll_wh(a1), d1
         beq     .keep                           // already curled
-        set_ball_size(a0)
-        addi.l  #CURL_Y_SHIFT<<16, y_pos(a0)
+        set_ball_size(a0, a1)
+        curl_y_shift(a1, d1)
+        add.l   d1, y_pos(a0)
 .keep:
         rts
 }
@@ -703,13 +1013,14 @@ pub proc PHook_EnsureBall (a0: *Sst) clobbers() {
 //   quadrant 1: Collision_ProbeLeft  → x_pos −= dist
 //   quadrant 2: Collision_ProbeUp    → y_pos −= dist
 //   quadrant 3: Collision_ProbeRight → x_pos += dist
-// In:  a0 = player SST, d0.w = signed surface distance (px)
+// In:  a0 = player SST, a4 = the slot's player block (the quadrant it reads is
+//      per-slot), d0.w = signed surface distance (px)
 // Out: none
 // Clobbers: d0, d2
 // -----------------------------------------------
 pub proc Player_SnapToSurface (a0: *Sst) clobbers(d0/d2) {
         dist_to_fix(d0)
-        move.b  Player_Quadrant, d2
+        move.b  PBLK_QUADRANT(a4), d2
         beq     .down                           // floor mode — common case
         subq.b  #2, d2
         bmi     .left                           // quadrant 1
@@ -880,9 +1191,10 @@ pub proc Player_DebugEnter (a0: *Sst) clobbers(d2/a1) {
 // In:  a0 = player SST.  Clobbers: d0-d2, a1-a2
 pub proc Player_DebugExit (a0: *Sst) clobbers(d0-d2/a1-a2) {
         sf      PlayerV.debug_flag(a0)
-        jbsr    Sonic_InitAssets
+        jbsr    Player_InitAssets
         // standing radii until the AIR frame lands and hooks take over
-        set_standing_size(a0)
+        movea.l Player_Chardef, a1
+        set_standing_size(a0, a1)
         clr.b   mapping_frame(a0)
         jbsr    RefreshSpritePieceCount         // prev_anim=$FF forces a refresh NEXT
                                                 // frame, but a render can run before

@@ -10,9 +10,9 @@ module games.sonic4.player_air in player_air
 use engine.objects.sst.{Sst}
 use engine.coords.{abs_w}
 use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PHYS_JUMP_SKIP_CLEARANCE, PUSH_RADIUS, ST_XFLIP, ST_ON_OBJECT, ST_PUSHING,
-        ST_ROLLING, PLAYER_Y_RADIUS, BALL_Y_RADIUS, CURL_Y_SHIFT,
+        ST_ROLLING,
         BUTTON_LEFT, BUTTON_RIGHT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
-use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix,
+use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix, curl_head_rise,
         BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
 
 // Player_SensorFloor/Ceiling/WallAt resolve module-to-module to player_sensors.emp
@@ -29,13 +29,17 @@ use games.sonic4.constants.{PSTATE_GROUND, PSTATE_ROLL, CHEAT_DEBUG_FLY}
 // press latch must resolve to the same effective mask, so they cannot be
 // file-local copies (a latch-without-sustain gives B jumps a clipped arc).
 
-// physics-table field offsets (a4-relative displacements; the Player_Phys field
-// displacements). File-local; a divergent offset shows up as a mismatched
+// player-block field offsets (a4-relative displacements; the PlayerBlock
+// displacements). a4 holds the CALLING SLOT's block, so these reach that slot's
+// state and no other — the quadrant is per-slot working state, not a global.
+// File-local; a divergent offset shows up as a mismatched
 // instruction byte in the region gate (the mirror equates + guards are gone).
-const PPHYS_TOP_SPEED  = 6
-const PPHYS_GRAVITY    = 8
-const PPHYS_AIR_ACCEL  = 12
-const PPHYS_RELEASE_CAP = 14
+const PBLK_TOP_SPEED  = 6
+const PBLK_GRAVITY    = 8
+const PBLK_AIR_ACCEL  = 12
+const PBLK_RELEASE_CAP = 14
+const PBLK_QUADRANT   = 16
+const PBLK_JUMPBUF    = 17
 
 // Air behavior flag bits, carried in d6.b through body steps 1-2 only —
 // the sensor layer clobbers d6, but nothing after the input block reads
@@ -51,7 +55,7 @@ const AIRF_INPUT_LOCK  = 1     // air-input block skipped (ROLLJUMP)
 //   ROLLJUMP as JUMP + the classic air-control lockout (research §5:
 //            the WHOLE input block is skipped — drag still runs)
 //   AIRBALL  curled, not from a jump (rolled off a ledge): no cap
-// In:  a0 = player SST, a4 = Player_Phys
+// In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_GROUND)
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
@@ -87,13 +91,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // so its press-frame run always reaches the class dispatch.
         btst    #ST_ON_OBJECT, status(a0)
         beq     .not_on_obj
-        clr.b   angle(a0)                       // flat object top
-        move.w  x_vel(a0), PlayerV.ground_speed(a0) // flat conversion (gsp = x_vel)
-        bclr    #ST_PUSHING, status(a0)
-        jbsr    Air_LandState                   // d0 = GROUND/ROLL (curled
-                                                // states uncurl in the enter
-                                                // hook; down-held → ROLL)
-        jbra    Player_SetState                 // tail — does NOT fall into
+        jbra    Air_LandOnObject                // tail — does NOT fall into
                                                 // air physics below
 .not_on_obj:
         // --- 1. variable jump height: while rising faster than the
@@ -101,7 +99,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         btst    #AIRF_RELEASE_CAP, d6
         beq     .no_cap
         move.w  y_vel(a0), d0
-        cmp.w   PPHYS_RELEASE_CAP(a4), d0
+        cmp.w   PBLK_RELEASE_CAP(a4), d0
         bge     .no_cap                         // not rising past the cap
         // B SUSTAINS a jump exactly when B could start one — same gate, same two
         // masks as player_common's press latch (which owns both). If B latched a
@@ -122,68 +120,121 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         andi.b  #BUTTON_JUMP_MASK_NO_B, d1      // armed: B is the fly toggle, not a jump
         bne     .no_cap                         // still held → full arc
 .cut_arc:
-        move.w  PPHYS_RELEASE_CAP(a4), y_vel(a0)
+        move.w  PBLK_RELEASE_CAP(a4), y_vel(a0)
 .no_cap:
+
+        // --- 1b. ability: a FRESH jump press while ALREADY airborne runs the
+        // active character's cd_ability hook (Tails' flight, Knuckles' glide, a
+        // double jump). Sonic's is Ability_None — an rts — so this is a no-op
+        // for him past the gate. Same two masks and the same cheat gate as the
+        // HELD check above and player_common's press latch: a button that starts
+        // a jump is a button that triggers the ability. ---
+        //
+        // PRESS-EDGE, verified against the ground→air seam (this is the whole
+        // reason for the buffer test below):
+        //   * Ctrl_1_Press is TICK-STABLE — VInt_Level latches the accumulated
+        //     edges into it once per tick (vblank.emp), so a press bit reads as
+        //     fresh for the WHOLE of that tick, to every consumer.
+        //   * Player_Jump runs the air body ON THE PRESS FRAME: after
+        //     Player_SetState it tail-jumps PState_Jump / PState_RollJump, which
+        //     land here. So the press that STARTED the jump reaches this point
+        //     with its bit still set, and an unguarded press test would fire the
+        //     ability on the launch frame — Tails would start flying out of the
+        //     same press that jumped.
+        //   * The jump BUFFER separates the two. Player_Main latches
+        //     PHYS_JUMP_BUFFER on every jump press edge BEFORE the dispatch, and
+        //     Player_Jump CONSUMES it (clr.b) on a successful launch. So at this
+        //     point the buffer is 0 exactly on a launch frame and non-zero on a
+        //     genuine airborne press — no new state, one test.
+        //   * That is the ONLY overlap. The complete list of the OTHER ways a
+        //     frame can arrive in an air state is three, and every one of them
+        //     tail-jumps Player_SetState and returns to Player_Main's dispatch
+        //     rather than running the air body in the same frame:
+        //       - Ground_DetachState (player_ground, from Ground_PostMove and
+        //         Player_SlopeRepel) — walked/rolled off a ledge;
+        //       - PState_Spindash's `.floor_gone` (player_spindash) → AIRBALL —
+        //         the floor vanished under a charging spindash;
+        //       - Player_DebugExit (player_common) → AIR — leaving debug-fly.
+        //     Anything added as a FOURTH must either keep that shape or be
+        //     weighed against this gate: a path that reaches the air body
+        //     in-frame with the jump buffer still non-zero would fire the
+        //     ability on its own transition frame.
+        //   * A held button cannot re-fire: a press bit lives exactly one tick.
+        // The buffer is deliberately NOT consumed here. It must keep decaying to
+        // the landing frame exactly as it does today (an airborne press already
+        // buffers a landing jump), or wiring the hook would change Sonic.
+        //
+        // TWO CONSEQUENCES OF WHERE THIS GATE SITS, both deliberate:
+        //   * an ability press on an ON-OBJECT CONVERSION frame is silently
+        //     dropped — step 0 above returns through Player_SetState before
+        //     reaching here. Standing on a solid object is a landing, not a
+        //     flight frame, so losing the press there is the right reading of it.
+        //   * the hook DOES fire during ROLLJUMP, even though that state's whole
+        //     air-input block is locked out: the gate sits BEFORE the
+        //     AIRF_INPUT_LOCK test at step 2. The lockout is about steering a
+        //     rolljump, not about suppressing an ability the player asked for.
+        //
+        // FRAME SEMANTICS — SETTLED against S3K by the first real consumer
+        // (Tails' flight, player_fly.emp). This hook sits MID-BODY, so when an
+        // ability transitions state the REST of this frame still runs under the
+        // OLD state's rules (air input, drag, ObjectMove, gravity, Air_Collide),
+        // and the new state's own body first runs NEXT frame. Player_Jump chooses
+        // the opposite at the ground→air seam — it re-enters through the target
+        // state's preamble, so the new rules apply on the transition frame itself.
+        //
+        // The disagreement is real but this side of it is the CORRECT one, and
+        // S3K agrees frame for frame. There, flight entry lives in
+        // `Tails_Test_For_Flight`, called from `Tails_JumpHeight` — the first call
+        // in the JUMPING mode handler `Tails_Spin_Freespace` (skdisasm
+        // sonic3k.asm:27769, :28596, :28627). The flying mode handler
+        // `Tails_FlyingSwimming` (:27574) hangs off a DIFFERENT branch of the
+        // status dispatch, so it cannot run on the entry frame: the press frame
+        // finishes under the jump's rules — normal `MoveSprite_TestGravity`
+        // (+$38) and `Tails_DoLevelCollision` — and `Tails_Move_FlySwim` first
+        // runs the frame after, in its COAST state. That is exactly what this
+        // body does with PBLK_GRAVITY and Air_Collide below.
+        //
+        // So the seam needs no change, and nothing here is pending measurement
+        // any more. A future ability whose S3K reference acts on the press frame
+        // must NOT be fixed by moving this hook — that would change Sonic's path
+        // and sits under the replay gate; it would apply its own press-frame
+        // effect inside its hook, exactly as S3K's entry routine does when it
+        // clears Status_Roll.
+        move.b  Ctrl_1_Press, d1
+        andi.b  #BUTTON_JUMP_MASK, d1           // A|B|C — classic three-button jump
+        beq     .no_ability
+        moveq   #CHEAT_DEBUG_FLY, d0
+        and.b   Cheat_Flags, d0                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .press_ok                       // cheat clear: B presses like A and C
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d1      // armed: B is the fly toggle, not a jump
+        beq     .no_ability
+.press_ok:
+        tst.b   PBLK_JUMPBUF(a4)                // spent => this IS the launch frame
+        beq     .no_ability
+        jbsr    Player_Ability                  // clobbers d0-d2/a1-a2, so a0, d6
+                                                // and a4 all survive it. a4 is the
+                                                // load-bearing one: every step
+                                                // below reads this slot's block
+                                                // through it (d6 carries the AIRF_*
+                                                // flags into steps 1-2)
+.no_ability:
 
         // --- 2. air input: x_vel directly — gsp is NOT authoritative
         // airborne. ROLLJUMP lockout skips the whole block (no accel,
         // no facing change) ---
         btst    #AIRF_INPUT_LOCK, d6
-        bne     .input_done
-        move.b  Ctrl_1_Held, d2
-        mask_opposing_lr(d2)
-        move.w  x_vel(a0), d0
-        btst    #BUTTON_LEFT_BIT, d2
-        bne     .air_left
-        btst    #BUTTON_RIGHT_BIT, d2
-        beq     .input_done
-        bclr    #ST_XFLIP, status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
-        cmp.w   d1, d0
-        bge     .input_done                     // S3K back-out: speed already
-                                                // at/above top is preserved —
-                                                // input never curtails it
-        add.w   PPHYS_AIR_ACCEL(a4), d0
-        cmp.w   d1, d0
-        ble     .air_store
-        move.w  d1, d0                          // crossed top this frame → clamp
-        jbra    .air_store
-.air_left:
-        bset    #ST_XFLIP, status(a0)
-        move.w  PPHYS_TOP_SPEED(a4), d1
-        neg.w   d1
-        cmp.w   d1, d0
-        ble     .input_done                     // S3K back-out (mirror)
-        sub.w   PPHYS_AIR_ACCEL(a4), d0
-        cmp.w   d1, d0
-        bge     .air_store
-        move.w  d1, d0
-.air_store:
-        move.w  d0, x_vel(a0)
-.input_done:
+        bne     .input_locked
+        jbsr    Air_XInput
+.input_locked:
 
-        // --- 3. air drag — ALL air states, lockout included. Exact
-        // classic band: −$400 ≤ y_vel ≤ −1 (apex, rising slowly). The
-        // asr supplies the sign work: x_vel in −$1F..−$1 still drags −1
-        // toward zero while +0..+$1F drags 0; subtraction direction is
-        // automatic for both signs and can't cross zero (|x>>5| ≤ |x|) ---
-        move.w  y_vel(a0), d0
-        bpl     .no_drag                        // falling/level → no drag
-        cmpi.w  #-$400, d0
-        blt     .no_drag                        // rising faster than $400
-        move.w  x_vel(a0), d0
-        move.w  d0, d1
-        asr.w   #5, d1
-        beq     .no_drag
-        sub.w   d1, d0
-        move.w  d0, x_vel(a0)
-.no_drag:
+        // --- 3. air drag — ALL air states, lockout included ---
+        jbsr    Air_XDrag
 
         // --- 4. integrate, THEN gravity (classic order, research §4:
         // old y_vel moves you this frame, gravity sets up the next) ---
         jbsr    ObjectMove
         move.w  y_vel(a0), d0
-        add.w   PPHYS_GRAVITY(a4), d0
+        add.w   PBLK_GRAVITY(a4), d0
         cmpi.w  #PHYS_FALL_CAP, d0
         ble     .fall_capped
         move.w  #PHYS_FALL_CAP, d0
@@ -196,6 +247,32 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // re-add silently.
         move.w  d0, y_vel(a0)
 
+        // --- 5+6. angle decay + collision by motion class (shared with
+        // PState_Fly — S3K routes flight through the same Player_JumpAngle
+        // and Tails_DoLevelCollision the jump uses) ---
+        jbra    Air_Collide
+}
+
+// -----------------------------------------------
+// Air_Collide — the post-move airborne resolution step: angle decay, then
+// collision by motion class. The tail of every airborne frame, shared by
+// PState_AirShared and PState_Fly.
+//
+// Factored rather than copied because S3K shares it too: `Tails_FlyingSwimming`
+// calls the very same `Player_JumpAngle` + `Tails_DoLevelCollision` that
+// `Tails_Spin_Freespace` does, so flight and jumping resolve terrain through one
+// routine there and through one routine here.
+//
+// It ENDS the frame: several paths tail into Player_SetState (landing,
+// ceiling reattach), so a caller must have nothing left to do — or must call it
+// with `jbsr` and accept that the state may already have changed underneath it
+// (PState_Fly does exactly that, deliberately: its ceiling fix reads the
+// resolved y_vel).
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_GROUND / PSTATE_ROLL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc Air_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // --- 5. airborne angle decay: 2/frame toward 0, both directions
         // (research §3 end). Angles here are always even (the odd-flag
         // sensors substitute cardinals), so ±2 lands exactly on 0 ---
@@ -217,7 +294,7 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // without this the floor pair (and the landing snap axis in
         // Air_TouchFloor) would probe sideways during those frames.
         // Grounded frames recompute the quadrant in Player_Main ---
-        clr.b   Player_Quadrant
+        clr.b   PBLK_QUADRANT(a4)
         // |x_vel| vs |y_vel| compare + signs ≡ the classic
         // CalcAngle(x_vel,y_vel)−$20 & $C0 quadrant for non-boundary
         // vectors (each class spans the ±45° cone around its axis). On
@@ -325,6 +402,112 @@ proc PState_AirShared (a0: *Sst) clobbers(d0-d7/a1-a2) {
 }
 
 // -----------------------------------------------
+// Air_LandOnObject — convert an airborne frame that a solid object caught LAST
+// tick into a grounded one. Touch_Solid's `.solid_top` already snapped Y, zeroed
+// y_vel, cleared ST_IN_AIR and set ST_ON_OBJECT, so this is a FLAT landing on the
+// object top: no slope, no position snap. Convert by the flat rule (gsp = x_vel),
+// then the shared GROUND-vs-ROLL pick.
+//
+// Factored out of PState_AirShared's step 0 so PState_Fly can open with the same
+// conversion. It has to: our solid-object handler clears ST_IN_AIR without
+// touching the player state, so a state that ignores the bit keeps running its
+// airborne body while standing on a platform.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (transitions to PSTATE_GROUND / PSTATE_ROLL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc Air_LandOnObject (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        clr.b   angle(a0)                       // flat object top
+        move.w  x_vel(a0), PlayerV.ground_speed(a0) // flat conversion (gsp = x_vel)
+        bclr    #ST_PUSHING, status(a0)
+        jbsr    Air_LandState                   // d0 = GROUND/ROLL (curled
+                                                // states uncurl in the enter
+                                                // hook; down-held → ROLL)
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Air_XInput — the AIRBORNE horizontal control step: accelerate x_vel toward
+// ±top_speed by the slot's air acceleration and set facing. x_vel is the
+// authority airborne (gsp is not), and the S3K back-out applies in both
+// directions: a speed already at or past top is PRESERVED, never curtailed by
+// input.
+//
+// Factored out of PState_AirShared (which calls it unless AIRF_INPUT_LOCK is
+// set) so PState_Fly can share it instead of carrying a second copy. Flight in
+// S3K steers with the ordinary air control, so "share" is the accurate model,
+// not a convenience: one edit to the air feel moves both states.
+// In:  a0 = player SST, a4 = the slot's player block (top speed + air accel)
+// Out: none
+// Clobbers: d0-d2
+// -----------------------------------------------
+pub proc Air_XInput (a0: *Sst) clobbers(d0-d2) {
+        move.b  Ctrl_1_Held, d2
+        mask_opposing_lr(d2)
+        move.w  x_vel(a0), d0
+        btst    #BUTTON_LEFT_BIT, d2
+        bne     .air_left
+        btst    #BUTTON_RIGHT_BIT, d2
+        beq     .done
+        bclr    #ST_XFLIP, status(a0)
+        move.w  PBLK_TOP_SPEED(a4), d1
+        cmp.w   d1, d0
+        bge     .done                           // S3K back-out: speed already
+                                                // at/above top is preserved —
+                                                // input never curtails it
+        add.w   PBLK_AIR_ACCEL(a4), d0
+        cmp.w   d1, d0
+        ble     .air_store
+        move.w  d1, d0                          // crossed top this frame → clamp
+        jbra    .air_store
+.air_left:
+        bset    #ST_XFLIP, status(a0)
+        move.w  PBLK_TOP_SPEED(a4), d1
+        neg.w   d1
+        cmp.w   d1, d0
+        ble     .done                           // S3K back-out (mirror)
+        sub.w   PBLK_AIR_ACCEL(a4), d0
+        cmp.w   d1, d0
+        bge     .air_store
+        move.w  d1, d0
+.air_store:
+        move.w  d0, x_vel(a0)
+.done:
+        rts
+}
+
+// -----------------------------------------------
+// Air_XDrag — the classic airborne drag, applied by EVERY air state (the
+// ROLLJUMP input lockout suppresses steering, not drag). Exact classic band:
+// −$400 ≤ y_vel ≤ −1 (apex, rising slowly). The asr supplies the sign work:
+// x_vel in −$1F..−$1 still drags −1 toward zero while +0..+$1F drags 0;
+// subtraction direction is automatic for both signs and can't cross zero
+// (|x>>5| ≤ |x|).
+//
+// Factored out of PState_AirShared alongside Air_XInput, and shared with
+// PState_Fly for the same reason. In flight the band is rarely satisfied (the
+// flap holds y_vel near −$100 and the coast pushes it positive), so this is
+// mostly a no-op there — but it is the SAME rule, not a flight-specific one.
+// In:  a0 = player SST
+// Out: none
+// Clobbers: d0-d1
+// -----------------------------------------------
+pub proc Air_XDrag (a0: *Sst) clobbers(d0-d1) {
+        move.w  y_vel(a0), d0
+        bpl     .done                           // falling/level → no drag
+        cmpi.w  #-$400, d0
+        blt     .done                           // rising faster than $400
+        move.w  x_vel(a0), d0
+        move.w  d0, d1
+        asr.w   #5, d1
+        beq     .done
+        sub.w   d1, d0
+        move.w  d0, x_vel(a0)
+.done:
+        rts
+}
+
+// -----------------------------------------------
 // Air_FloorLandBanded — down-class floor landing with the classic angle
 // banding (research physics-classics §2 "Landing", S2 s2.asm:37570-37613;
 // S3K is byte-identical — axis-select, NOT vector projection)
@@ -421,7 +604,7 @@ proc Air_FloorLandFlat (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // -----------------------------------------------
 proc Air_TouchFloor (a0: *Sst) clobbers(d0/d2) {
         // quadrant invariant (no runtime branch needed): the air body
-        // forces Player_Quadrant = 0 before its sensor block (air
+        // forces the slot quadrant to 0 before its sensor block (air
         // sensors never rotate), so the helper's quadrant dispatch is
         // always the +Y snap here — classic landings snap on Y
         jbsr    Player_SnapToSurface
@@ -464,7 +647,7 @@ proc Air_GspFromYvel (a0: *Sst) clobbers(d0) {
 // hook, so JUMP/ROLLJUMP/AIRBALL) may only pick GROUND if the standing
 // head rise fits — same hazard class and same threshold expression as
 // PState_Roll's unroll guard (player_ground.emp). The caller has already
-// floor-snapped with Player_Quadrant = 0, so Player_SensorCeiling probes
+// floor-snapped with the slot quadrant at 0, so Player_SensorCeiling probes
 // the ball box upward at the landed position — identical geometry.
 // Blocked → PSTATE_ROLL (KEEP_ROLL owns the low-speed case next frame).
 // In:  a0 = player SST (_pl_gsp already converted by the caller)
@@ -489,7 +672,9 @@ proc Air_LandState (a0: *Sst) clobbers(d1-d7/a1-a2) out(d0) {
         btst    #ST_ROLLING, status(a0)
         beq     .stand                          // landed uncurled: nothing to guard
         jbsr    Player_SensorCeiling            // d0 = head clearance (ball box)
-        cmpi.w  #(PLAYER_Y_RADIUS-BALL_Y_RADIUS)+CURL_Y_SHIFT, d0
+        movea.l Player_Chardef, a1
+        curl_head_rise(a1, d1)                  // d1.w = this character's rise
+        cmp.w   d1, d0
         blt     .stay_rolling
 .stand:
         moveq   #PSTATE_GROUND, d0
