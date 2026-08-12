@@ -70,21 +70,23 @@ RAM_Used_End:
         dephase
 ```
 
-### 1.4 Single-Pass Discipline
+### 1.4 Branch Sizing — UNSIZED in `.emp`
 
-Specify `.s`, `.w`, or `.l` on EVERY branch, jump, and memory reference. No exceptions. This eliminates AS's multi-pass resolution and gives 10-50x faster builds.
+Write ALL relative branches (`bcc`, `bra`, `bsr`) **without** a size suffix in `.emp` source. sigil picks the optimal encoding by reach — `.s` when the target is within ±127 bytes, `.w` otherwise — and re-optimizes on every build, so a branch never stays pinned wide after the code between it and its target shrinks. Past ±32KB it errors loudly (`jbcc` deliberately does not exist; a transfer that far wants restructuring, not a hidden trampoline). Absolute addressing likewise defaults to the bare symbol; the width rule picks the optimal encoding.
 
 ```asm
-; CORRECT — explicit sizing
-        bra.s   .local_label
-        bra.w   Distant_Routine
-        bne.s   .skip
+; CORRECT — let sigil size it
+        bra     .local_label
+        bne     .skip
+        bsr     Nearby_Helper
         jsr     Far_Function
 
-; WRONG — forces multi-pass resolution
-        bra     .local_label    ; assembler doesn't know the size
-        bne     .skip           ; might be .s or .w
+; WRONG in .emp — hand-pinned sizes go stale as code moves
+        bra.s   .local_label
+        bne.w   .skip           ; stays .w forever even if the gap shrinks
 ```
+
+Explicit `.s`/`.w` spellings remain in exactly two places: `@as_compat` ports (AS-parity byte equivalence) and self-modified/patched fields where the encoding width is load-bearing. `dbf` keeps its form (always word). The historical rule ("explicit size on every branch, no exceptions") applied to the AS single-pass era and still governs the residual `.asm` files assembled via sigil-frontend-as.
 
 ### 1.5 Local Label Scoping
 
@@ -262,7 +264,7 @@ Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtim
 ### 2.2 Branching
 
 - **Fall-through for the common case.** The 68000 has no branch predictor — taken branches cost 10 cycles, not-taken costs 8. Put the likely path as fall-through.
-- **`.s` branches when in range.** `bra.s` = 10 cycles, `bra.w` = 10 cycles but 2 bytes larger. Always use `.s` for local labels within the same routine.
+- **Short encodings come free.** `bra.s` = 10 cycles, `bra.w` = 10 cycles but 2 bytes larger and 4 cycles slower not-taken. In `.emp` you never choose: write the branch unsized (§1.4) and sigil emits the short form whenever the target is in range. What you DO control is keeping loop bodies compact so branches stay in short range.
 - **`dbf` for counted loops.** `dbf` = 10 cycles (taken) / 14 cycles (exit). Cheaper than `subq + bne`.
 
 ### 2.3 Register Usage
@@ -415,7 +417,7 @@ Cost: ~6 cycles per value. Idempotent — safe to run when already converged (de
 
 ### 2.8 Subroutine Discipline
 
-- **`bsr.s` / `bsr.w`** — always sized. `bsr.s` when the target is within the same file/nearby.
+- **`bsr`** — unsized in `.emp` like every relative branch (§1.4); sigil picks `.s`/`.w` by reach.
 - **Keep hot routines short.** If a routine is called per-object per-frame, it should fit in ~50 instructions. Large routines should be split into inlined fast-path + called slow-path.
 - **Leaf routines don't need `movem`.** If a routine doesn't call other routines, don't save/restore registers — just document which registers it clobbers. The caller manages its own register state.
 - **Document register clobber.** Every routine header states inputs, outputs, and clobbered registers.

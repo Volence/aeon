@@ -45,7 +45,7 @@ Aeon draws a hard **engine / game** wall (restructure 2026-06-28; agnostic engin
 **Read `CODING_CONVENTIONS.md` before writing ANY code.** It is the law of this codebase.
 
 Key rules that are easy to forget:
-- `.s`/`.w`/`.l` on EVERY branch and jump — no unsized references
+- Branches UNSIZED in `.emp` (`bne .label`, `bra .label`, `bsr Helper`) — sigil picks `.s`/`.w` by reach and re-optimizes every build; explicit sizes only in `@as_compat` ports, patched fields, and residual `.asm`
 - `function` for ALL compile-time math — never compute at runtime what AS can compute at build time
 - `struct`/`endstruct` for ALL data structures — no manual `equ` chains
 - `phase`/`dephase` for RAM layout — assembler catches overflow
