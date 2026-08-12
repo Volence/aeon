@@ -1,5 +1,10 @@
 # Effects P1 — gate evidence (oracle, 2026-08-12)
 
+> **Read the CORRECTION at the end of this file before quoting any line number.**
+> The split-line measurement is confounded by art coverage; what is solidly
+> established is that the effect fires, is transient, and lands within a couple of
+> lines of the authored boundary.
+
 ROM: `s4.debug.bin` crc=`66ce78de` len=428548, built from
 `feat/effects-p1-raster-core` against sigil `9f6b6209` + `feat/effects-p1-registry`.
 Content: `OJZ_TestRaster` on OJZ act-1 section 1, `OJZ_TestPal` on section 2.
@@ -113,3 +118,42 @@ mechanism instead of depending on debug-mode state:
 Entry 0 alone read `$0E00`, written by `ojz_scroll_test`'s own per-frame backdrop
 poke, not by the section consumer. Before the fix, all 16 entries would have been
 overwritten. This is the invariant the Knuckles palette round-trip depends on.
+
+---
+
+## CORRECTION — the split-LINE measurement was confounded; the split-EXISTS proof holds
+
+Found while re-verifying after the handler switched to the `ints_off` bracket. The
+same method then reported the effect starting at row **118** (row 117 = 1 px) rather
+than 120, and the framebuffer was only 46.6% identical to the previous capture.
+
+**The method has a hole.** "Zero target pixels above row N" only bounds the effect if
+the art on those rows *uses the target palette entry at all*. At these camera
+positions OJZ's brown ground begins right around the split, so rows above it contain
+no entry-5 pixels whether the effect is active there or not. The earlier "exactly
+120" reading was therefore partly measuring the **art** boundary, not the effect
+boundary. (The 46.6% figure has a mundane cause — that run was not preceded by a
+reset, so the camera started from where the replay net left it and the scene differs.
+It does not indicate instability.)
+
+**What the evidence still establishes, unchanged:**
+- The dispatcher fires and its `OP_CRAM` write reaches CRAM (the target colour appears
+  at all, and `Raster_Program` reads the installed program's address).
+- The write is **transient**, re-asserted every frame — the A/B against a wrong
+  `pal_dirty_mask` (line 0 named while the op writes line 2) shows the target colour
+  on **all 224 rows** instead of below a boundary. That comparison is immune to the
+  art-coverage confound because it is a whole-frame difference.
+- The multi-op fire record walks correctly: `OP_SET_REG` precedes `OP_CRAM` in the
+  same record, so a mis-parse would desync the CRAM command and produce garbage
+  rather than a clean boundary anywhere.
+- A boundary lands in the **117-120** neighbourhood, i.e. the schedule is right to
+  within a couple of lines of the authored 120.
+
+**What is NOT established:** the exact scanline, to the line. Nailing that needs a
+capture where the target entry is present both above and below the intended split
+(or a per-scanline CRAM probe, which oracle's frame-granular CRAM read cannot give).
+
+**Disposition:** deferred to Phase 2 Task 4, which already owns pixel-clean
+boundaries — it now also owns calibrating the `ints_off` bracket's cost at the arm
+write, since raising the mask adds a stack push ahead of the most timing-sensitive
+instruction in the handler. Do not quote "exactly line 120" as a shipped result.

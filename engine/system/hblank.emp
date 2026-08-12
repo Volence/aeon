@@ -29,6 +29,7 @@ module engine.hblank in hblank
 use engine.vdp.{VDP_MODE1_OFF, VDP_HINT_OFF}
 use engine.constants.{VDP_CTRL, VDP_DATA}
 use engine.structs.{Sec}
+use engine.irq.{ints_off}
 
 // VDP shadow register-slot offsets come from the shared engine.vdp block.
 // Nothing relates that block to VdpShadow's field offsets — engine.vdp says so
@@ -308,14 +309,25 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
 // this record's ops, then advance the cursor. No line compares, no delta math.
 // -----------------------------------------------
 pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
-        // Raise to IPL 7 FIRST. The 68000 enters IRQ4 at IPL 4, so IRQ6 (VBlank)
-        // can nest inside this handler — and a nested VBlank between an OP_CRAM
-        // command longword and the colour words that follow it would retarget the
-        // VDP address latch, sending our colours wherever VBlank left the latch.
-        // Free to undo: `rte` restores the pre-interrupt SR off the stack.
-        // Precedent: every long HInt payload in TF4 / Vectorman / Gunstar / Alien
-        // Soldier opens with exactly this (survey Q4).
-        move.w  #$2700, sr
+        // Raise to IPL 7 for the body. The 68000 enters IRQ4 at IPL 4, so IRQ6
+        // (VBlank) can nest inside this handler — and a nested VBlank between an
+        // OP_CRAM command longword and the colour words that follow it would
+        // retarget the VDP address latch, sending our colours wherever VBlank left
+        // it. Precedent: every long HInt payload in TF4 / Vectorman / Gunstar /
+        // Alien Soldier opens by raising the mask (survey Q4).
+        //
+        // The engine's `ints_off` bracket rather than a bare `move.w #$2700,sr`:
+        // bare, the write needs `sr` in the contract, and adding it to preserves()
+        // defeats the movem round-trip proof (the checker cannot model `rte`
+        // restoring SR, so the whole clause stops verifying and every saved
+        // register reports undeclared). The bracket declares its own effect.
+        //
+        // `rte` MUST sit outside the bracket. Order: acquire pushes SR, the movem
+        // pushes the registers, ... movem pops them, release pops SR, and only then
+        // does `rte` pop the exception frame the CPU pushed. Balanced. An `rte`
+        // INSIDE the bracket would leave the pushed SR word on the stack and `rte`
+        // would pop a frame shifted by one word.
+        with ints_off {
         movem.l d0-d1/a1-a2, -(sp)
         movea.l Raster_Cursor, a1
         lea     VDP_CTRL, a2
@@ -352,6 +364,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         move.w  #RASTER_ARM_PARK, (a2)
     .out:
         movem.l (sp)+, d0-d1/a1-a2
+        }
         rte
 }
 
