@@ -228,8 +228,14 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bmi     Climb_ReachFloor                  // ground below → land
 .animate:
         jbsr    Climb_Animate                     // advance/pin the pose (d3 = delta)
-        // --- jump-off (S3K :31414) ---
-        move.b  Ctrl_1_Held, d0
+        // --- jump-off (S3K :31414). PRESS edge, NOT held: glide entry REQUIRES the jump
+        // button held (releasing mid-glide drops to GLIDEFALL), so every natural
+        // glide->catch reaches the first climb frame with jump STILL HELD. A held-button
+        // gate would auto-eject on that first frame — the player would jump straight back
+        // off the wall the instant they caught it. Ctrl_1_Press is the fresh-edge latch
+        // (tick-stable, same one the ability gate uses), so the player must RELEASE and
+        // RE-PRESS to leap off. Cheat-mask shape is identical to the ability gate.
+        move.b  Ctrl_1_Press, d0
         andi.b  #BUTTON_JUMP_MASK, d0
         beq     .no_jump
         moveq   #CHEAT_DEBUG_FLY, d1
