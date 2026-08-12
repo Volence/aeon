@@ -24,7 +24,7 @@ use engine.level.parallax_dsl.*
 // Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
 // command builder they are pinned against.
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
-use engine.hblank.{OP_SET_REG, OP_CRAM, RASTER_OPS_END}
+use engine.effects.raster.{OP_SET_REG, OP_CRAM, RASTER_OPS_END}
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
