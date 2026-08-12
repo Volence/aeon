@@ -24,6 +24,21 @@
 // integer px, big-endian), exactly as S3K's `subq.w #1,y_pos` does — the fraction rides
 // along untouched, which is what keeps 1px/frame climbing clean.
 //
+// OVERHANG / GRASS-LIP AUTHORING NOTE (Bug B, user-reported "can't top out under an
+// overhanging lip"). EVERY climb probe here is SOLID_LRB — the facing wall probe
+// (Climb_WallDist -> Player_SensorWallDir) AND the flush-climb ceiling probe (SOLID_LRB
+// at y-18). This is byte-for-byte the S3K contract: Knuckles_Wall_Climb reads
+// `lrb_solid_bit` for all of them. The consequence is that the climb is BLIND to
+// TOP-only (jump-through) solids by design: a grass lip that overhangs the wall face
+// tops out cleanly IFF it is authored TOP-only (solidity bit12 set, bit13 clear), so the
+// LRB wall/ceiling probes pass straight through it. A lip authored FULL-solid (LRB/ALL)
+// keeps the wall probe "on wall" past the top (or the ceiling probe embeds under it), so
+// the ledge handoff never fires and Knuckles is pinned — and STOCK S3K refuses the exact
+// same geometry, this is not an Aeon regression. FIX BELONGS IN THE LEVEL DATA: author
+// overhanging climbable lips TOP-only in Aurora/OJZ (the collision baker already carries
+// per-plane solidity, tools/collision_pipeline.py bit13:12; "jump-through" is a first-
+// class case). No climb-code change can widen this without diverging from S3K.
+//
 // Lives in the object code bank, right after `player_glide` per map.toml `order`. Pure code.
 module games.sonic4.player_climb in player_climb
 
