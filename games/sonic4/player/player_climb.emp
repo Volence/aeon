@@ -27,11 +27,12 @@
 // Lives in the object code bank, right after `player_glide` per map.toml `order`. Pure code.
 module games.sonic4.player_climb in player_climb
 
-use engine.objects.sst.{Sst}
+use engine.objects.sst.{Sst, size_wh_off}
+use engine.structs.{CharacterDef}
 use engine.constants.{ST_XFLIP, ST_ON_OBJECT, SOLID_LRB, SOLID_TOP, PLAYER_Y_RADIUS,
         BUTTON_UP_BIT, BUTTON_DOWN_BIT}
 use games.sonic4.constants.{PSTATE_JUMP, PSTATE_GROUND, PSTATE_CLIMB, PSTATE_LEDGE, PSTATE_GLIDEFALL, CHEAT_DEBUG_FLY}
-use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
+use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, set_standing_size}
 
 // KNUX_ABILITY_RADIUS lives on CharDef_Knuckles (knuckles.emp); the climb box is the
 // 10x10 ability box, so the probe offsets are literals here matching that radius. A
@@ -381,6 +382,16 @@ pub proc PState_Ledge (a0: *Sst) clobbers(d0-d7/a1-a2) {
         subq.w  #1, x_pos(a0)
 .stand:
         clr.b   angle(a0)
+        // LEDGE-FINISH SEAMLESS TOP-OUT: restore the standing box HERE, before the GROUND
+        // transition, so PHook_GroundEnter's EnsureStanding sees the box already standing
+        // and applies NO feet-planted y-shift. S3K's pull-up ends seamless (:31547 zeroes
+        // velocities + Knux_TouchFloor, no y correction — the clamber dy already placed
+        // Knuckles on top); our generalised EnsureStanding would otherwise spring him up
+        // (cd_stand_h - ability_h) >> 1 = 9 px — the visible hop the user reported. This
+        // exempts ONLY the ledge finish: the slide get-up (whose 9 px lift IS correct) and
+        // ball->standing (replay-hash byte-identity) still run EnsureStanding's shift.
+        movea.l Player_Chardef, a1
+        set_standing_size(a0, a1)
         moveq   #PSTATE_GROUND, d0
         jbra    Player_SetState
 .hold:
