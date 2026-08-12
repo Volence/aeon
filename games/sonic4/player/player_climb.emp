@@ -55,6 +55,8 @@ const CLIMB_FRAME_HI     = $BC                  // climb cycle high frame
 const CLIMB_CATCH_FRAME  = $B7                  // the wall-catch pose
 const CLIMB_LETGO_FRAME  = $CB                  // the let-go pose
 const CLIMB_ANIM_PIN     = $20                  // anim_timer pin (keeps AnimateSprite on .done)
+const CLIMB_CLAMBER_END  = 16                   // the clamber cursor's terminal value: 4 entries × 4
+                                                //   bytes = the 16-byte Climb_ClamberFrames table
 
 const CLIMB_JUMP_YVEL    = -$380                // jump-off up velocity
 const CLIMB_JUMP_XVEL    = $400                 // jump-off away-from-wall velocity
@@ -353,11 +355,16 @@ pub proc PState_Ledge (a0: *Sst) clobbers(d0-d7/a1-a2) {
         subq.b  #1, PlayerV.knux_timer(a0)
         rts                                      // still holding this clamber frame
 .step:
-        cmpi.b  #16, PlayerV.knux_step(a0)       // cursor past the last step (4 steps × 4)?
-        bhs     .done
-        jbsr    Climb_DoClamberStep
-        rts
-.done:
+        // S3K ORDER (sonic3k.asm:31540-31544): ADVANCE the clamber, THEN test for the
+        // end — `DoLedgeClimbingAnimation` then `cmpi #End-Frames, property; bne wait`.
+        // Checking AFTER the advance finishes on the very frame the last entry ($D2) is
+        // applied (S3K's "$D2 is never actually seen"), and — the bug this fixes — it
+        // removes the separate knux_step==16 poll frame the previous check-then-advance
+        // form left behind AFTER $D2's 6-frame hold, where the clamber wedged: the state
+        // sat at knux_step=$10, knux_timer=0, frame=$D2 and never took the terminator.
+        jbsr    Climb_DoClamberStep              // applies the step, advances knux_step by 4
+        cmpi.b  #CLIMB_CLAMBER_END, PlayerV.knux_step(a0)  // past the 4-entry (16-byte) script?
+        blo     .hold                             // more steps remain → hold this one out
         // Finished — stand up (S3K :31547). The 1px left nudge (facing left) is inherited
         // from GetDistanceFromWall's left-branch subq #1; keep it.
         clr.w   x_vel(a0)
@@ -370,6 +377,8 @@ pub proc PState_Ledge (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.b   angle(a0)
         moveq   #PSTATE_GROUND, d0
         jbra    Player_SetState
+.hold:
+        rts
 }
 
 // -----------------------------------------------
