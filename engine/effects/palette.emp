@@ -1,63 +1,715 @@
-// engine/effects/palette.emp — the per-section palette load, and Phase 2's home for
-// the palette engine's composition pipeline.
+// engine/effects/palette.emp — the palette engine: the single writer of the level
+// palette (Palette_Buffer lines 1-3), composing base -> cycling -> cross-fade ->
+// operators -> variants once per frame.
 //
 // Split out of engine/system/buffers.emp (which keeps the CRAM upload machinery) so
-// the effects suite owns its own modules, per the design's file structure. Pure code
-// motion: the proc below is byte-for-byte what shipped in chain 105.
+// the effects suite owns its own modules, per the design's file structure.
 //
 // Design: docs/superpowers/2026-08-11-effects-suite-design.md §5.
+// Timing/CRAM rules the region derive is built on: docs/research/2026-08-12-raster-hint-survey.md.
 module engine.effects.palette in palette
 
 use engine.structs.{Sec}
 
 // ===========================================================================
-// PER-SECTION PALETTE LOAD (effects P1)
+// THE COMPOSITION PIPELINE (effects P2)
 //
-// `Sec.sec_pal` finally gets a consumer. It has been a reserved descriptor field
-// since the section struct was written — before this, game code hand-poked
-// Palette_Buffer (see games/sonic4/test/*), so "each section has its own palette"
-// was descriptor-only.
+// One owner, one deterministic order, composed once per frame into Palette_Buffer
+// by Palette_Compose (called from GameLoop, NOT VBlank — it is arithmetic, not VDP
+// work, and it must land before the next VBlank's Enqueue_Dirty_Buffers reads the
+// dirty mask):
 //
-// The level owns CRAM lines 1-3; line 0 belongs to the character system. See the
-// proc comment below — getting that boundary wrong reverts the active character's
-// palette on every section crossing.
+//     base (sec_pal) -> cycling -> cross-fade -> global operators -> variants
 //
-// P1 is an INSTANT snap. The palette engine's composition pipeline (base ->
-// cycling -> cross-fade -> operators -> variants) is Phase 2; this proc becomes
-// its base-layer step rather than being replaced.
+// * base       Palette_LoadSection loads the section's 96-byte palette into Pal_Base
+//              (or Pal_Target when a cross-fade is armed) on a boundary crossing.
+// * cycling    sec_pal_cycle rotates spans of CRAM entries in place each period.
+// * cross-fade 16-frame per-channel lerp Pal_Base -> Pal_Target, armed on a crossing
+//              whose section requested it; replaces the P1 instant snap ONLY then.
+// * operators  fade-to-black/white, white/negative flash — compose AFTER the fade so
+//              a flash during a transition still reads as a flash.
+// * variants   cheap per-channel transforms of the LIVE composed palette, derived
+//              into a RAM staging buffer the raster dispatcher's OP_PAL_REGION streams.
 //
-// Note the ownership boundary: engine.buffers owns the CRAM *upload* (Palette_Buffer,
-// the dirty mask, Enqueue_Dirty_Buffers). This module owns what goes IN it. Phase 2's
-// composition pipeline (base -> cycling -> cross-fade -> operators -> variants) grows
-// here, with the proc below becoming its base-layer step rather than being replaced.
+// LINE-0 INVARIANT. The engine writes CRAM lines 1-3 ONLY. Line 0 is the character's
+// (Player_ApplyCharacter / CharacterDef.cd_palette); a section load that touched it
+// would revert the active character's colours on every boundary crossing (Knuckles
+// -> Sonic mid-act). Every field is 96 bytes = lines 1-3, and the compose ORs at
+// most %1110 into Palette_Dirty. Global operators therefore act on the LEVEL palette
+// only; a full-screen fade that also dims the character is the character system's job
+// (a known limitation, not a bug — see the operator note below).
+//
+// Pal_Composed is ELIDED: the compose writes straight into Palette_Buffer and the
+// variant derive reads Palette_Buffer as "the live composed palette", so no separate
+// pre-variant image is kept (plan Task 1 Step 1). Only the two cross-fade endpoints
+// (Pal_Base / Pal_Target) live in RAM.
 // ===========================================================================
 
-// -----------------------------------------------
-// Palette_LoadSection — load a section's palette (CRAM lines 1-3) and mark those
-// three lines dirty, so Enqueue_Dirty_Buffers DMAs them in the same VBlank.
-//   a0 = Sec*   (preserved — the boundary hook still needs it)
-// A NULL sec_pal means "keep current", matching the descriptor 0-convention that
-// sec_parallax_config uses.
+// ---- tunables (RAM authority is engine/ram.emp's Palette_State; these are mirrored
+//      there as literals per the CODE-module import rule) ----
+pub const PAL_MAX_VARIANTS       = 2   // simultaneously derived variants (raise only on measured evidence)
+pub const PAL_CYCLE_MAX_CHANNELS = 4   // per sec_pal_cycle script
+
+// ---- global operators (Pal_Op) ----
+pub const PAL_OP_NONE       = 0
+pub const PAL_OP_FADE_BLACK = 1   // step every channel toward 0
+pub const PAL_OP_FADE_WHITE = 2   // step every channel toward 7 (S.C.E.'s to-$EEE)
+pub const PAL_OP_WHITE_FLASH = 3  // hold $0EEE for Pal_Op_Step frames, then release
+pub const PAL_OP_NEG_FLASH  = 4   // XOR $0EEE, toggling every 4 frames for Pal_Op_Step frames
+
+pub const PAL_FADE_FRAMES = 16    // cross-fade window (frames)
+
+// Palette_State span guard — the RAM block (engine/ram.emp) is the twin of this
+// layout; a drift on either side must fail the build, not the frame.
+//   Pal_Base 96 + Pal_Target 96 + Pal_Variant_Stage 256 + Pal_Variant_Ptr 8
+//   + Pal_Cycle_Script 4 + Pal_Cycle_Timers 4 + 8 scalar bytes = 472
+pub const PALETTE_STATE_SIZE = 96 + 96 + (128 * PAL_MAX_VARIANTS) + (4 * PAL_MAX_VARIANTS) + 4 + PAL_CYCLE_MAX_CHANNELS + 8
+ensure((extern("Palette_State_End") - extern("Palette_State")) == PALETTE_STATE_SIZE,
+       "Palette_State RAM block drifted from palette.emp's layout")
+
+// Pal_Active summary bits — Palette_Compose early-outs on `tst.b Pal_Active; beq`.
+pub const PAL_ACT_BASE    = %00001   // a fresh base awaits its one-shot copy
+pub const PAL_ACT_CYCLE   = %00010   // a cycling script is installed
+pub const PAL_ACT_FADE    = %00100   // a cross-fade is in flight
+pub const PAL_ACT_OP      = %01000   // a global operator is running
+pub const PAL_ACT_VARIANT = %10000   // >=1 variant slot is deriving
+
+// ===========================================================================
+// VARIANTS — authorable per-channel transforms (Task 2)
 //
-// `sec_pal` is 96 bytes = CRAM lines 1-3, NOT a full 128-byte 4-line image.
-// **CRAM line 0 is the CHARACTER line and this proc must never touch it.**
-// Player_ApplyCharacter owns it via CharacterDef.cd_palette (per-character: Sonic
-// and Tails share one, Knuckles has his own) and writes it only on a character
-// change. A section load that included line 0 would revert the active character's
-// colours on every boundary crossing — i.e. Knuckles would turn back into Sonic
-// mid-act. The level owning 1-3 and the character owning 0 is also why the OJZ
-// palette data has always been exactly 96 bytes.
+// A variant is a cheap transform of the live composed palette, so it never goes
+// stale under cycling or cross-fade: per channel, clamp((c >> shift) + bias).
+// Genesis colour word is 0000 BBB0 GGG0 RRR0 — 3 bits per channel — so shift is
+// 0..3 and bias -7..+7; both validated at build time, not runtime.
+// ===========================================================================
+
+pub struct pal_variant {
+    v_shift_r: u8, v_bias_r: i8,
+    v_shift_g: u8, v_bias_g: i8,
+    v_shift_b: u8, v_bias_b: i8,
+    v_lines:   u8,   // bitmask bits 1-3: which CRAM lines the variant covers (bit 0 ignored — character's)
+    v_pad:     u8,
+}
+
+pub comptime fn variant(shift_r: int = 0, bias_r: int = 0,
+                        shift_g: int = 0, bias_g: int = 0,
+                        shift_b: int = 0, bias_b: int = 0,
+                        lines: int = %1110) -> pal_variant {
+    ensure(shift_r >= 0 && shift_r <= 3, "variant: shift_r {shift_r} outside 0..3 (3-bit channel)")
+    ensure(shift_g >= 0 && shift_g <= 3, "variant: shift_g {shift_g} outside 0..3")
+    ensure(shift_b >= 0 && shift_b <= 3, "variant: shift_b {shift_b} outside 0..3")
+    ensure(bias_r >= -7 && bias_r <= 7,  "variant: bias_r {bias_r} outside -7..+7")
+    ensure(bias_g >= -7 && bias_g <= 7,  "variant: bias_g {bias_g} outside -7..+7")
+    ensure(bias_b >= -7 && bias_b <= 7,  "variant: bias_b {bias_b} outside -7..+7")
+    // bit 0 (character line) must never be selected — the derive would read/write it.
+    ensure((lines & %1) == 0, "variant: lines mask {lines} selects line 0 (the character's) — use bits 1-3")
+    ensure((lines & %1110) != 0, "variant: lines mask {lines} selects no level line (bits 1-3)")
+    return pal_variant{ v_shift_r: shift_r, v_bias_r: bias_r,
+                        v_shift_g: shift_g, v_bias_g: bias_g,
+                        v_shift_b: shift_b, v_bias_b: bias_b,
+                        v_lines: lines, v_pad: 0 }
+}
+
+// ---- comptime model of the runtime derive, and the build-time proof of the
+//      packing. `variant_channel` and `variant_word` are the intended semantics;
+//      the asm in Palette_DeriveVariant must match them, and the ensure() below
+//      asserts a known colour through a known variant so the shift/clamp/repack
+//      is proven at build time (plan Task 2 Step 2). ----
+comptime fn clamp07(x: int) -> int {
+    if x < 0 { return 0 }
+    if x > 7 { return 7 }
+    return x
+}
+comptime fn variant_channel(chan3: int, shift: int, bias: int) -> int {
+    return clamp07((chan3 >> shift) + bias)
+}
+// c is a full 12-bit colour word 0000 BBB0 GGG0 RRR0.
+comptime fn variant_word(c: int, v: pal_variant) -> int {
+    let r = variant_channel((c >> 1) & 7, v.v_shift_r, v.v_bias_r)
+    let g = variant_channel((c >> 5) & 7, v.v_shift_g, v.v_bias_g)
+    let b = variant_channel((c >> 9) & 7, v.v_shift_b, v.v_bias_b)
+    return (b << 9) | (g << 5) | (r << 1)
+}
+
+// Build-time proof: mid-grey $0888 (R=G=B=4) through "halve R and G, keep B"
+//   R: 4>>1=2  G: 4>>1=2  B: 4>>0=4  -> $0844
+ensure(variant_word($0888, variant(shift_r: 1, shift_g: 1)) == $0844,
+       "Palette_DeriveVariant packing model drifted — the halve-RG test vector no longer packs to $0844")
+// Bias + clamp proof: $000E (R=7) through "R>>0 +3" clamps to 7 (10 -> 7): stays $000E
+ensure(variant_word($000E, variant(bias_r: 3)) == $000E,
+       "variant bias clamp model drifted — R=7 +3 must clamp to 7, not overflow into G")
+// Negative-bias-to-zero proof: $000E (R=7) through "R>>2 -3" = clamp(1-3)=0 -> $0000
+ensure(variant_word($000E, variant(shift_r: 2, bias_r: -3)) == $0000,
+       "variant negative-bias model drifted — clamp floor must be 0")
+
+// ---- inline channel primitives (comptime Code splices) --------------------
+// These are the per-channel step/clamp operations, inlined rather than jbsr'd: an
+// in-out register helper (a value passed in and transformed in place) cannot be
+// expressed as a called proc under the contract closure — declaring the register in
+// clobbers() makes the caller's live value read as call.live-clobbered, and omitting
+// it makes the helper proc.clobber-undeclared. A Code splice sidesteps both: it
+// inlines into the caller (whose clobbers already cover the registers) and sigil
+// uniquifies the local labels per expansion, exactly as queue_static_dma relies on.
+
+// clamp_d1_07 — clamp d1 (signed word) into 0..7 in place. Branch-based so a channel
+// can never overflow into a neighbour (survey / plan Task 2 Step 2).
+comptime fn clamp_d1_07() -> Code {
+    return asm {
+        tst.w   d1
+        bpl.s   .cl_pos
+        moveq   #0, d1
+        bra.s   .cl_end
+    .cl_pos:
+        cmpi.w  #7, d1
+        bls.s   .cl_end
+        moveq   #7, d1
+    .cl_end:
+    }
+}
+
+// step_d3_toward_d4 — move d3 one step (+/-1) toward d4, clamped at equality.
+comptime fn step_d3_toward_d4() -> Code {
+    return asm {
+        cmp.w   d4, d3
+        beq.s   .st_end
+        bcs.s   .st_up
+        subq.w  #1, d3
+        bra.s   .st_end
+    .st_up:
+        addq.w  #1, d3
+    .st_end:
+    }
+}
+
+// The starter variants (Task 2 Step 3) are DATA and emit bytes; they live at the
+// END of this module so the section head stays Palette_LoadSection (the map/order
+// and repin `palette` region boundary), not a data label.
+
+// -----------------------------------------------
+// Palette_LoadSection — the pipeline's BASE-LAYER step. Load a section's palette
+// (CRAM lines 1-3) into Pal_Base, or into Pal_Target + arm a cross-fade when
+// Pal_Fade_Request is set. Request a recompose rather than writing Palette_Buffer
+// directly (P1 wrote the buffer here; the compose owns the buffer now).
+//   a0 = Sec*   (preserved — the boundary hook still needs it)
+// NULL sec_pal = "keep current" (the descriptor 0-convention).
+//
+// `sec_pal` is 96 bytes = lines 1-3, NEVER line 0 (the character's).
 // -----------------------------------------------
 pub proc Palette_LoadSection (a0: u32) clobbers(d0-d1/a1-a2) {
         move.l  Sec.sec_pal(a0), d0
         beq.s   .keep
         movea.l d0, a1
-        lea     Palette_Buffer + $20, a2    // CRAM line 1 base — line 0 is the character's
+        // fade armed? -> load Target and start the lerp; else -> load Base (snap)
+        tst.b   Pal_Fade_Request
+        bne.s   .load_target
+        lea     Pal_Base, a2
         moveq   #(96 / 4) - 1, d1
-    .copy:
+    .copy_base:
         move.l  (a1)+, (a2)+
-        dbf     d1, .copy
-        ori.b   #%1110, Palette_Dirty       // lines 1-3 only; bit 0 stays the character's
+        dbf     d1, .copy_base
+        move.b  #1, Pal_Base_Dirty              // one-shot base copy
+        move.b  #%1110, Pal_Compose_Lines       // lines the base touched
+        ori.b   #PAL_ACT_BASE, Pal_Active
+        rts
+    .load_target:
+        clr.b   Pal_Fade_Request
+        lea     Pal_Target, a2
+        moveq   #(96 / 4) - 1, d1
+    .copy_target:
+        move.l  (a1)+, (a2)+
+        dbf     d1, .copy_target
+        move.b  #PAL_FADE_FRAMES, Pal_Fade_Frames
+        ori.b   #PAL_ACT_FADE, Pal_Active
     .keep:
         rts
 }
+
+// -----------------------------------------------
+// Palette_ArmFade — the NEXT Palette_LoadSection cross-fades instead of snapping.
+// One-shot; consumed by the load. A section whose parallax config sets
+// pcfg_transition=smooth arms this so palette and parallax agree at the boundary
+// (the game/preset calls it before the crossing; an instant-transition section
+// leaves it clear and the load snaps, mirroring pcfg_transition's semantics).
+// -----------------------------------------------
+pub proc Palette_ArmFade () clobbers() {
+        move.b  #1, Pal_Fade_Request
+        rts
+}
+
+// -----------------------------------------------
+// Palette_SetOp — arm a global operator. d0.b = PAL_OP_*, d1.b = duration/hold frames.
+// -----------------------------------------------
+pub proc Palette_SetOp (d0: u8, d1: u8) clobbers() {
+        move.b  d0, Pal_Op
+        move.b  d1, Pal_Op_Step
+        move.b  #0, Pal_Op_Timer
+        ori.b   #PAL_ACT_OP, Pal_Active
+        rts
+}
+
+// -----------------------------------------------
+// Palette_SetVariant — bind a pal_variant to a staging slot (or clear it).
+//   d0.w = slot (0..PAL_MAX_VARIANTS-1)   a0 = pal_variant* (0 = clear the slot)
+// While bound, Palette_Compose derives it into Pal_Variant_Stage[slot] each frame;
+// an OP_PAL_REGION built against that slot streams the derived bytes mid-frame.
+// -----------------------------------------------
+pub proc Palette_SetVariant (d0: u16, a0: u32) clobbers(d0/a1) {
+        andi.w  #(PAL_MAX_VARIANTS - 1), d0     // PAL_MAX_VARIANTS is 2 -> mask 1
+        add.w   d0, d0
+        add.w   d0, d0                          // *4 for the longword table
+        lea     Pal_Variant_Ptr, a1
+        move.l  a0, (a1, d0.w)
+        // recompute the variant-active summary bit
+        andi.b  #~PAL_ACT_VARIANT, Pal_Active
+        move.l  Pal_Variant_Ptr, d0
+        or.l    Pal_Variant_Ptr + 4, d0
+        beq.s   .none
+        ori.b   #PAL_ACT_VARIANT, Pal_Active
+    .none:
+        rts
+}
+
+// -----------------------------------------------
+// Palette_LoadCycle — install a sec_pal_cycle script (or clear it: a0 = 0).
+// -----------------------------------------------
+pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
+        move.l  a0, Pal_Cycle_Script
+        andi.b  #~PAL_ACT_CYCLE, Pal_Active
+        move.l  a0, d0
+        beq.s   .done
+        ori.b   #PAL_ACT_CYCLE, Pal_Active
+        // reset each channel's frame timer to its period so cycling starts in phase
+        movea.l a0, a1
+        move.w  (a1)+, d0                       // channel_count
+        subq.w  #1, d0
+        bmi.s   .done
+        lea     Pal_Cycle_Timers, a1
+        moveq   #0, d1
+    .zero:
+        move.b  d1, (a1)+                       // 0 = rotate on the first compose
+        dbf     d0, .zero
+    .done:
+        rts
+}
+
+// ===========================================================================
+// Palette_Compose — the once-per-frame composition, called from GameLoop.
+//
+// Order is FIXED (base -> cycling -> cross-fade -> operators -> variants). Each
+// layer that runs ORs the CRAM lines it changed into d7; the accumulated mask is
+// OR'd into Palette_Dirty at the end so Enqueue_Dirty_Buffers ships only the lines
+// that moved. A fully static frame costs one `tst.b Pal_Active` and returns.
+// ===========================================================================
+pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
+        tst.b   Pal_Active
+        bne.s   .work
+        rts
+    .work:
+        // Each layer ORs the lines it moved straight into Palette_Dirty (no dirty
+        // accumulator is held across the sub-proc calls — they clobber the data
+        // registers). `ori.b ...,Palette_Dirty` from main-loop context is the same
+        // read-modify-write P1's Palette_LoadSection already does.
+
+        // ---- base: one-shot copy of a freshly-loaded section palette ----
+        tst.b   Pal_Base_Dirty
+        beq.s   .cycling
+        clr.b   Pal_Base_Dirty
+        andi.b  #~PAL_ACT_BASE, Pal_Active
+        lea     Pal_Base, a0
+        lea     Palette_Buffer + $20, a1        // CRAM line 1 (line 0 is the character's)
+        moveq   #(96 / 4) - 1, d0
+    .base_copy:
+        move.l  (a0)+, (a1)+
+        dbf     d0, .base_copy
+        move.b  Pal_Compose_Lines, d0
+        or.b    d0, Palette_Dirty
+
+        // ---- cycling ----
+    .cycling:
+        btst    #1, Pal_Active                  // PAL_ACT_CYCLE
+        beq.s   .fade
+        jbsr    Palette_DoCycle                 // ORs its own touched lines into Palette_Dirty
+
+        // ---- cross-fade ----
+    .fade:
+        tst.b   Pal_Fade_Frames
+        beq.s   .operators
+        jbsr    Palette_DoFade
+        ori.b   #%1110, Palette_Dirty
+
+        // ---- global operators ----
+    .operators:
+        tst.b   Pal_Op
+        beq.s   .variants
+        jbsr    Palette_DoOperator
+        ori.b   #%1110, Palette_Dirty
+
+        // ---- variants: derive each bound slot from the LIVE composed palette ----
+    .variants:
+        btst    #4, Pal_Active                  // PAL_ACT_VARIANT
+        beq.s   .done
+        jbsr    Palette_DoVariants
+
+    .done:
+        rts
+}
+
+// ===========================================================================
+// Palette_DoCycle — advance sec_pal_cycle: rotate each channel's span of CRAM
+// entries in place (Task 8). Composes BEFORE cross-fade (the fixed order) so a
+// cycling band survives a transition rather than fighting it.
+// ORs the lines it touched straight into Palette_Dirty (no register return: the
+// contract closure has no OUT-param model, so a returned d0 reads as live-clobbered).
+//
+// Script (ROM), authored by pal_cycle_channel / pal_cycle_script below:
+//   dc.w channel_count
+//   per channel (6 bytes): dc.b line(1-3), first_index(0-15), count, frame_period,
+//                          direction(0=fwd/1=rev), pad
+// ===========================================================================
+proc Palette_DoCycle () clobbers(d0-d7/a0-a3) {
+        moveq   #0, d7                          // touched-line accumulator
+        movea.l Pal_Cycle_Script, a0
+        move.w  (a0)+, d6                       // channel_count
+        subq.w  #1, d6
+        bmi.s   .ret
+        lea     Pal_Cycle_Timers, a3
+        moveq   #0, d5                          // channel index
+    .chan:
+        move.b  (a0)+, d0                       // line 1-3
+        move.b  (a0)+, d1                       // first_index
+        move.b  (a0)+, d2                       // count
+        move.b  (a0)+, d3                       // frame_period
+        move.b  (a0)+, d4                       // direction
+        addq.l  #1, a0                          // skip pad
+        tst.b   (a3, d5.w)                      // this channel's timer
+        bne.s   .wait
+        move.b  d3, (a3, d5.w)                  // reload period
+        bset    d0, d7                          // record the touched line (bit = line index)
+        jbsr    Palette_RotateSpan             // rotate d2 entries at line d0 from d1, dir d4
+        bra.s   .next
+    .wait:
+        subq.b  #1, (a3, d5.w)
+    .next:
+        addq.w  #1, d5
+        dbf     d6, .chan
+    .ret:
+        or.b    d7, Palette_Dirty               // publish the touched lines
+        rts
+}
+
+// Palette_RotateSpan — rotate `count` consecutive CRAM entries one step.
+//   d0.b = line(1-3)  d1.b = first_index(0-15)  d2.b = count  d4.b = direction
+// Operates in place on Palette_Buffer. count<2 is a no-op.
+// Clobbers only d0-d3/a1-a2: the caller (Palette_DoCycle) holds its channel index
+// (d5) and channel-loop counter (d6) live across this call, so those stay untouched.
+proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
+        moveq   #0, d3
+        move.b  d2, d3                          // d3 = count (clean, byte read had stale upper bits)
+        cmpi.w  #2, d3
+        bcs.s   .done                           // count < 2: nothing to rotate
+        lea     Palette_Buffer, a1
+        move.w  d0, d2
+        lsl.w   #5, d2                          // line*32
+        add.w   d2, a1
+        move.w  d1, d2
+        add.w   d2, d2                          // first_index*2
+        add.w   d2, a1                          // a1 -> first entry
+        move.w  d3, d1
+        subq.w  #2, d1                          // dbf trips = count-2
+        tst.b   d4
+        bne.s   .rev
+        // forward: temp = first; shift each entry down one; last = temp
+        move.w  (a1), d0                        // temp
+        movea.l a1, a2
+    .fwd:
+        move.w  2(a2), (a2)+
+        dbf     d1, .fwd
+        move.w  d0, (a2)                        // last <- temp
+        rts
+    .rev:
+        add.w   d3, d3                          // count*2
+        lea     -2(a1, d3.w), a2                // -> last entry
+        move.w  (a2), d0                        // temp = last
+    .rup:
+        move.w  -(a2), 2(a2)
+        dbf     d1, .rup
+        move.w  d0, (a1)                        // first <- temp
+    .done:
+        rts
+}
+
+// ===========================================================================
+// Palette_DoFade — 16-frame per-channel cross-fade Pal_Base -> Pal_Target (Task 6).
+// Steps Palette_Buffer (the live accumulator) toward Pal_Target by +/-1 per channel
+// on every OTHER frame (cadence 2 -> up to 8 steps across the 16-frame window, which
+// spans the full 3-bit 0..7 range monotonically). NO multiply. At frame 0 it snaps
+// exactly to Target and copies Target -> Base so a future fade departs from here.
+// ===========================================================================
+proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
+        subq.b  #1, Pal_Fade_Frames
+        bne.s   .step_frame
+        // ---- final frame: snap Palette_Buffer to Target, and Target -> Base ----
+        lea     Pal_Target, a0
+        lea     Palette_Buffer + $20, a1
+        lea     Pal_Base, a2
+        moveq   #(96 / 4) - 1, d0
+    .snap:
+        move.l  (a0), d1
+        move.l  d1, (a1)+
+        move.l  d1, (a2)+
+        addq.l  #4, a0
+        dbf     d0, .snap
+        andi.b  #~PAL_ACT_FADE, Pal_Active
+        rts
+    .step_frame:
+        btst    #0, Pal_Fade_Frames             // step only on even frame parity
+        bne.s   .noskip
+        rts
+    .noskip:
+        lea     Palette_Buffer + $20, a0        // cur (lines 1-3)
+        lea     Pal_Target, a1
+        move.w  #48 - 1, d7                     // 48 words = lines 1-3
+    .word:
+        move.w  (a0), d0                        // cur word
+        move.w  (a1)+, d1                       // target word
+        moveq   #0, d2                          // rebuilt word
+        // R (bits 1-3)
+        move.w  d0, d3
+        lsr.w   #1, d3
+        andi.w  #7, d3
+        move.w  d1, d4
+        lsr.w   #1, d4
+        andi.w  #7, d4
+        step_d3_toward_d4()                   // d3 stepped toward d4
+        lsl.w   #1, d3
+        or.w    d3, d2
+        // G (bits 5-7)
+        move.w  d0, d3
+        lsr.w   #5, d3
+        andi.w  #7, d3
+        move.w  d1, d4
+        lsr.w   #5, d4
+        andi.w  #7, d4
+        step_d3_toward_d4()
+        lsl.w   #5, d3
+        or.w    d3, d2
+        // B (bits 9-11)
+        move.w  d0, d3
+        lsr.w   #8, d3
+        lsr.w   #1, d3
+        andi.w  #7, d3
+        move.w  d1, d4
+        lsr.w   #8, d4
+        lsr.w   #1, d4
+        andi.w  #7, d4
+        step_d3_toward_d4()
+        lsl.w   #8, d3
+        lsl.w   #1, d3
+        or.w    d3, d2
+        move.w  d2, (a0)+
+        dbf     d7, .word
+        rts
+}
+
+// ===========================================================================
+// Palette_DoOperator — global operators (Task 6 Step 2). Compose AFTER cross-fade
+// so a flash during a transition still reads as a flash. Operators act on the LEVEL
+// palette (lines 1-3) ONLY — the character line is the character system's; a
+// full-screen fade that must also dim the character is a documented limitation, not
+// a bug (line-0 invariant). The two flash operators corrupt Palette_Buffer, so on
+// completion they request a base recompose to restore the clean palette.
+// ===========================================================================
+proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
+        move.b  Pal_Op, d0
+        cmpi.b  #PAL_OP_FADE_WHITE, d0
+        beq.s   .fade_dir
+        cmpi.b  #PAL_OP_FADE_BLACK, d0
+        beq.s   .fade_dir
+        cmpi.b  #PAL_OP_WHITE_FLASH, d0
+        beq     .white_flash
+        // PAL_OP_NEG_FLASH
+        // XOR the level palette with $0EEE every 4 frames; run for Pal_Op_Step frames.
+        move.b  Pal_Op_Timer, d1
+        addq.b  #1, d1
+        andi.b  #3, d1
+        move.b  d1, Pal_Op_Timer
+        bne.s   .neg_tick
+        lea     Palette_Buffer + $20, a0
+        move.w  #48 - 1, d7
+    .neg_xor:
+        eori.w  #$0EEE, (a0)+
+        dbf     d7, .neg_xor
+    .neg_tick:
+        subq.b  #1, Pal_Op_Step
+        bne.w   .ret                            // .ret is past the long fw_word loop below
+        bra     .op_done_restore
+    .fade_dir:
+        // step every level channel +/-1 toward 0 (black) or 7 (white) every 2 frames
+        subq.b  #1, Pal_Op_Timer
+        bpl.w   .ret
+        move.b  #1, Pal_Op_Timer                // reload cadence (0,1 -> step every 2)
+        moveq   #0, d6                          // target channel value: 0 for black
+        cmpi.b  #PAL_OP_FADE_WHITE, d0
+        bne.s   .have_tgt
+        moveq   #7, d6
+    .have_tgt:
+        lea     Palette_Buffer + $20, a0
+        move.w  #48 - 1, d7
+    .fw_word:
+        move.w  (a0), d0
+        moveq   #0, d2
+        move.w  d0, d3
+        lsr.w   #1, d3
+        andi.w  #7, d3
+        move.w  d6, d4
+        step_d3_toward_d4()
+        lsl.w   #1, d3
+        or.w    d3, d2
+        move.w  d0, d3
+        lsr.w   #5, d3
+        andi.w  #7, d3
+        move.w  d6, d4
+        step_d3_toward_d4()
+        lsl.w   #5, d3
+        or.w    d3, d2
+        move.w  d0, d3
+        lsr.w   #8, d3
+        lsr.w   #1, d3
+        andi.w  #7, d3
+        move.w  d6, d4
+        step_d3_toward_d4()
+        lsl.w   #8, d3
+        lsl.w   #1, d3
+        or.w    d3, d2
+        move.w  d2, (a0)+
+        dbf     d7, .fw_word
+        subq.b  #1, Pal_Op_Step
+        bne.s   .ret
+        // fade complete: leave the palette at black/white and idle the operator.
+        move.b  #PAL_OP_NONE, Pal_Op
+        andi.b  #~PAL_ACT_OP, Pal_Active
+    .ret:
+        rts
+    .white_flash:
+        lea     Palette_Buffer + $20, a0
+        move.w  #48 - 1, d7
+    .wf_fill:
+        move.w  #$0EEE, (a0)+
+        dbf     d7, .wf_fill
+        subq.b  #1, Pal_Op_Step
+        bne.s   .ret
+    .op_done_restore:
+        // flash over: idle the op and force a base recompose to restore the palette.
+        move.b  #PAL_OP_NONE, Pal_Op
+        andi.b  #~PAL_ACT_OP, Pal_Active
+        move.b  #1, Pal_Base_Dirty
+        move.b  #%1110, Pal_Compose_Lines
+        ori.b   #PAL_ACT_BASE, Pal_Active
+        rts
+}
+
+// ===========================================================================
+// Palette_DoVariants — derive each bound variant slot from the live composed
+// palette into its staging image (Task 3 pre-derive). OP_PAL_REGION streams from
+// there mid-frame; no derive happens in the ~60-cycle HBlank handler.
+// ===========================================================================
+proc Palette_DoVariants () clobbers(d0-d7/a0-a3) {
+        // Absolute reads (not a held base pointer): Palette_DeriveVariant clobbers
+        // a2-a3, so nothing may be kept in an address register across the call.
+        move.l  Pal_Variant_Ptr, d0
+        beq.s   .slot1
+        movea.l d0, a0
+        lea     Pal_Variant_Stage, a1
+        jbsr    Palette_DeriveVariant
+    .slot1:
+        move.l  Pal_Variant_Ptr + 4, d0
+        beq.s   .ret
+        movea.l d0, a0
+        lea     Pal_Variant_Stage + 128, a1
+        jbsr    Palette_DeriveVariant
+    .ret:
+        rts
+}
+
+// ===========================================================================
+// Palette_DeriveVariant — apply a variant's per-channel transform to the covered
+// lines of the live composed palette (Task 2 Step 2).
+//   a0 = pal_variant*   a1 = dest (128-byte staging image)
+// Per channel: clamp((c >> shift) + bias, 0, 7), extracted/shifted/biased/clamped
+// and repacked with shift-and-add only — NO mulu/divu — and the clamp is
+// branch-based so a channel can never overflow into a neighbour. The packing is
+// proven at build time by the variant_word() ensure() vectors above.
+// Only lines named in v_lines (bits 1-3) are written; uncovered lines are left as-is.
+// ===========================================================================
+pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
+        move.b  pal_variant.v_lines(a0), d5     // line mask (bits 1-3)
+        moveq   #1, d6                          // current line index (start at 1)
+    .line:
+        btst    d6, d5
+        beq.w   .next_line                      // across the unrolled 16-entry loop below
+        // a2 -> Palette_Buffer line d6 ; a3 -> dest line d6
+        lea     Palette_Buffer, a2
+        move.w  d6, d0
+        lsl.w   #5, d0                          // line*32
+        add.w   d0, a2
+        movea.l a1, a3
+        add.w   d0, a3
+        moveq   #16 - 1, d7                     // 16 entries per line
+    .entry:
+        move.w  (a2)+, d0                       // source colour word
+        moveq   #0, d4                          // rebuilt word
+        // ---- R (bits 1-3) ----
+        move.w  d0, d1
+        lsr.w   #1, d1
+        andi.w  #7, d1
+        move.b  pal_variant.v_shift_r(a0), d2
+        lsr.w   d2, d1
+        move.b  pal_variant.v_bias_r(a0), d2
+        ext.w   d2
+        add.w   d2, d1
+        clamp_d1_07()
+        lsl.w   #1, d1
+        or.w    d1, d4
+        // ---- G (bits 5-7) ----
+        move.w  d0, d1
+        lsr.w   #5, d1
+        andi.w  #7, d1
+        move.b  pal_variant.v_shift_g(a0), d2
+        lsr.w   d2, d1
+        move.b  pal_variant.v_bias_g(a0), d2
+        ext.w   d2
+        add.w   d2, d1
+        clamp_d1_07()
+        lsl.w   #5, d1
+        or.w    d1, d4
+        // ---- B (bits 9-11) ----
+        move.w  d0, d1
+        lsr.w   #8, d1
+        lsr.w   #1, d1
+        andi.w  #7, d1
+        move.b  pal_variant.v_shift_b(a0), d2
+        lsr.w   d2, d1
+        move.b  pal_variant.v_bias_b(a0), d2
+        ext.w   d2
+        add.w   d2, d1
+        clamp_d1_07()
+        lsl.w   #8, d1
+        lsl.w   #1, d1
+        or.w    d1, d4
+        move.w  d4, (a3)+
+        dbf     d7, .entry
+    .next_line:
+        addq.w  #1, d6
+        cmpi.w  #4, d6
+        bcs.w   .line                           // loops back across the unrolled body
+        rts
+}
+
+
+// ---- starter variants (Task 2 Step 3) — the "give people ideas" seeds. DATA, so
+// placed LAST in the module to keep Palette_LoadSection as the section head. ----
+pub data Variant_Water_Deep:  pal_variant = variant(shift_r: 1, shift_g: 1)                 // halve R+G, keep B
+pub data Variant_Water_Murky: pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, warm bias
+pub data Variant_Poison:      pal_variant = variant(shift_r: 1, shift_b: 1, bias_g: 1)      // halve R+B, green push
+pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shift_b: 1)     // halve all
+pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias

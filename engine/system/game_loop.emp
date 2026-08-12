@@ -40,6 +40,13 @@ pub proc GameLoop () clobbers(d0-d7/a0-a6) {
         invoke  Game.debug_tick
         movea.l Game_State, a0
         jsr     (a0) as GameState       // computed dispatch (bare jsr by the jbra/jbsr rule)
+        // The palette engine's per-frame composition (effects P2). Main-loop, NOT
+        // VBlank: it is arithmetic (base -> cycling -> cross-fade -> operators ->
+        // variants), and it must land AFTER the game state's boundary crossings
+        // (which set Pal_Base / arm fades) and BEFORE the next VBlank's
+        // Enqueue_Dirty_Buffers reads Palette_Dirty. A static frame costs one
+        // `tst.b Pal_Active`.
+        jbsr    Palette_Compose
         jbra    GameLoop
 }
 

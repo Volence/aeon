@@ -285,6 +285,46 @@ pub vars upper_ram {
     Raster_Pad:         u16,        // keeps the block even-sized; span-guarded
     mark Raster_State_End,
 
+    // --- Palette engine state (effects P2) — the composition pipeline's working
+    // set (engine/effects/palette.emp). Its span is cross-checked there by an
+    // `ensure` against PALETTE_STATE_SIZE, so a drift on either side fails the
+    // build. The named sizes below are mirrored as literals because ram.emp cannot
+    // import a CODE module's consts (the Raster_State constraint above documents
+    // the same rule); palette.emp is the authority.
+    //
+    // The pipeline (design suite §5): base -> cycling -> cross-fade -> operators
+    // -> variants, composed once per frame into Palette_Buffer. Pal_Composed is
+    // DELIBERATELY ELIDED (plan Task 1 Step 1 option): the compose writes straight
+    // into Palette_Buffer lines 1-3 and the variant derive reads Palette_Buffer as
+    // "the live composed palette", so no separate pre-variant image is kept. Only
+    // Base/Target survive here (the two cross-fade endpoints). Saves 128 B + a copy.
+    //
+    // Everything the engine writes is LINES 1-3 ONLY (96 bytes) — line 0 is the
+    // character's (Player_ApplyCharacter / CharacterDef.cd_palette). No field here
+    // is ever indexed to a line-0 byte; the compose ORs at most %1110 into
+    // Palette_Dirty. This is the P1 invariant the Knuckles palette round-trip needs.
+    mark Palette_State,
+    Pal_Base:           [u8; 96],   // section palette lines 1-3 — cross-fade source A / static base
+    Pal_Target:         [u8; 96],   // incoming section palette lines 1-3 — cross-fade source B
+    // Variant derive staging — PAL_MAX_VARIANTS slots of a full 128-byte 4-line
+    // image each; the derive fills the covered lines at their natural line*32
+    // offset, and OP_PAL_REGION's build-time source pointer indexes straight in
+    // (Pal_Variant_Stage + slot*128 + line*32 + entry*2). Pre-derived at frame time
+    // because a 16-colour derive is ~far beyond the ~60-cycle HBlank budget.
+    Pal_Variant_Stage:  [u8; 128 * 2],  // PAL_MAX_VARIANTS(2) x 128
+    Pal_Variant_Ptr:    [u32; 2],   // PAL_MAX_VARIANTS active pal_variant* (0 = slot idle)
+    Pal_Cycle_Script:   u32,        // active sec_pal_cycle script (0 = none)
+    Pal_Cycle_Timers:   [u8; 4],    // PAL_CYCLE_MAX_CHANNELS per-channel frame countdown
+    Pal_Fade_Frames:    u8,         // cross-fade frames remaining (0 = stable)
+    Pal_Op:             u8,         // active global operator (PAL_OP_*; 0 = none)
+    Pal_Op_Step:        u8,         // operator progress / component step
+    Pal_Op_Timer:       u8,         // operator flicker/step cadence countdown
+    Pal_Active:         u8,         // any-layer summary: 0 = Palette_Compose early-outs (one compare)
+    Pal_Base_Dirty:     u8,         // 1 = a fresh base was loaded; compose copies it in once
+    Pal_Compose_Lines:  u8,         // lines (bits 1-3) the pending base touched -> Palette_Dirty
+    Pal_Fade_Request:   u8,         // one-shot: next Palette_LoadSection cross-fades (loads Target) not snaps (loads Base)
+    mark Palette_State_End,
+
     // Driver-keyed BG tile-band animation (engine/level/bg_anim.emp)
     BgAnim_LastStep:        [u16; BGANIM_MAX_BANDS],  // per band: last DMA'd step; -1 = none yet
 
