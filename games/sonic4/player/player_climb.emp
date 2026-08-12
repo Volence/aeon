@@ -44,7 +44,7 @@ module games.sonic4.player_climb in player_climb
 
 use engine.objects.sst.{Sst, size_wh_off}
 use engine.structs.{CharacterDef}
-use engine.constants.{ST_XFLIP, ST_ON_OBJECT, SOLID_LRB, SOLID_TOP, PLAYER_Y_RADIUS,
+use engine.constants.{ST_XFLIP, ST_ON_OBJECT, SOLID_LRB, SOLID_TOP,
         BUTTON_UP_BIT, BUTTON_DOWN_BIT}
 use games.sonic4.constants.{PSTATE_JUMP, PSTATE_GROUND, PSTATE_CLIMB, PSTATE_LEDGE, PSTATE_GLIDEFALL, CHEAT_DEBUG_FLY}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, set_standing_size}
@@ -65,6 +65,19 @@ const CLIMB_RADIUS       = 10                   // the ability box radius (KNUX_
 const CLIMB_WALL_PROBE_Y = 11                   // wall probe at y-/+11 (mid-body)
 const CLIMB_LEDGE_DIST   = 4                    // wall dist >= this at y-11 climbing UP → ledge
 const CLIMB_CEIL_Y       = 18                   // ceiling probe origin (y-18 = head-8-radius)
+const CLIMB_FLOOR_PROBE_Y = 9                   // floor probe origin: y+9 = the CLIMB box feet (S3K
+                                                //   :31334 climb-down + :31352 idle-detach both
+                                                //   `addi.w #9,d2`). NOT PLAYER_Y_RADIUS (19, the
+                                                //   STANDING radius): the whole climb runs at the
+                                                //   10-radius ability box (CLIMB_RADIUS), so a y+19
+                                                //   origin sat 9 px BELOW Knuckles' actual feet. On a
+                                                //   climb-DOWN to a low step, that origin slipped past
+                                                //   the walkable-ground TOP before the real feet
+                                                //   reached it; Collision_ProbeDown only sees surfaces
+                                                //   at/below its origin, so it read no floor →
+                                                //   addq #1 kept descending → wall lost → LetGo →
+                                                //   GLIDEFALL → fell through the map to the bottom
+                                                //   skim (user's y~=5920). At the box feet it lands.
 const CLIMB_ANIM_RELOAD  = 3                    // 1 climb frame every 4 (S3K countdown)
 const CLIMB_FRAME_LO     = $B7                  // climb cycle low frame
 const CLIMB_FRAME_HI     = $BC                  // climb cycle high frame
@@ -211,7 +224,7 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // floor below?
         move.w  x_pos(a0), d0
         move.w  y_pos(a0), d1
-        addi.w  #PLAYER_Y_RADIUS, d1             // floor probe at y+19
+        addi.w  #CLIMB_FLOOR_PROBE_Y, d1         // floor probe at the CLIMB-box feet (y+9), NOT y+19
         moveq   #SOLID_TOP, d6
         moveq   #0, d3
         move.b  layer(a0), d3
@@ -237,7 +250,7 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bne     .animate                          // moving up/down: already handled its own floor
         move.w  x_pos(a0), d0
         move.w  y_pos(a0), d1
-        addi.w  #PLAYER_Y_RADIUS, d1
+        addi.w  #CLIMB_FLOOR_PROBE_Y, d1          // idle-detach floor probe at the climb-box feet (y+9)
         moveq   #SOLID_TOP, d6
         move.w  d3, -(sp)                          // preserve the anim delta across the probe
         moveq   #0, d3
