@@ -4117,3 +4117,83 @@ now exist from the generated block. Dust Tasks 3-6 resume unchanged otherwise.
 5. **Hoist the shared S3K sprite conversion** out of gen_characters.py /
    gen_dust.py into tools/s3k_sprites.py — deferred while gen_characters.py is
    load-bearing on two branches (dust plan, File Structure note).
+
+
+## Ledgered by the 2026-08-12 Knuckles C4 task 9 + research (`feat/knuckles`)
+
+### The ability collision box does not compose with the enter hooks — BLOCKING Task 10, not yet fixed
+Glide, slide and climb all run at 10x10 radii (S3K `sonic3k.asm:32566-32569`) — a
+THIRD collision box beside standing and ball, and our box machinery only knows
+two. `PHook_EnsureStanding` (`player_common.emp:1014`) keys on `cd_roll_wh`, so
+coming from a 21x21 ability box it takes `.keep` and **never restores the
+standing box**; `PHook_EnsureBall` (`:1027`) applies the full stand-to-ball
+`curl_y_shift` that S3K's wall jump-off does not have (`:31430-31431`). So a
+glide or climb detach would leave Knuckles with a 21x21 hitbox for the rest of
+the act, and every wall jump-off would drop him 5 px.
+
+Fix (designed, not built): a third registered box `cd_ability_wh` in
+`CharacterDef` at `$24`, a `set_ability_size` splice, a `PHook_EnsureAbility`,
+and generalising EnsureStanding's guard to "am I not the standing box" with the
+y shift derived from the CURRENT height. That closed form is literally S3K's
+`y_radius - default_y_radius` and reproduces today's numbers exactly (ball 5,
+ability 9 — and 9 is what S3K's slide get-up applies). Sonic and Tails come out
+behaviour-identical; ROM changes, RAM does not.
+→ §0 of `docs/superpowers/2026-08-12-knuckles-c4-research.md`
+
+### The plan's Task 10/11 text has ~12 substantive errors — CORRECTED IN PLACE
+The plan now carries a banner at each task pointing at the research. The ones
+that change what gets built: the slide dust cadence is 4, not 8 (8 is the SFX
+cadence); the fall-from-glide needs its own PSTATE rather than being a
+sub-state; glide needs its OWN terrain pass because `Air_Collide` tail-jumps
+into `Player_SetState`; there are three climb detach conditions, not two.
+
+### Task 11 Step 1 is DONE, and the answer is "no sensor work needed"
+`player_sensors.emp` already takes fully arbitrary probe points, so the
+S3K-to-ours wall-detection mapping the plan calls "the hard part" needs no
+extension. The full equivalence table is banked. One genuine gap remains
+recorded: the glide wall-catch needs "both sensors flush" and
+`Player_SensorPair` returns the NEARER hit — answer is to call the probe cores
+twice, the idiom `Player_AtLedgeEdge` already documents.
+→ §2 of the research doc
+
+### Glide/slide/climb SFX do not exist in our bank — SCOPE DECISION OWED
+S3K uses `sfx_GlideLand $4C`, `sfx_GroundSlide $7E`, `sfx_Grab $4A`. Our SFX
+bank has none of them, so Task 10/11 either opens a sound-side parcel (bank
+entry + priority-ladder row each) or ships the abilities silent. The plan is
+silent about being silent. Same class as, and can ride with, the flight-SFX
+range work if that is still open.
+
+### S3K's `Disable_wall_grab` has no counterpart — object-side hook, RECORDED
+Two S3K gates (`:30777-30778`, `:31039-31040`) let specific walls refuse a
+grab. We have no equivalent, so every wall will be climbable. Register the
+object-side hook when the climb lands rather than losing the capability.
+
+### `knux_latch_x` will need the floating-origin shift-list — NOTE AT THE FIELD
+The climb latches a WORLD X to detect being pushed off the wall. When the
+floating-origin rebase lands, that cell must join the rebase shift-list or every
+rebase mid-climb trips the drift guard and drops Knuckles off the wall. Same
+class as the `Player_Pos_Ring` note in plan Task 8. Put the note at the field,
+not only here.
+
+### `PlayerV` header comment says "22 of 30" and is stale — it is 20 of 30
+`player_common.emp:78`. (Plan Task 12 Step 1 already lists a DIFFERENT stale
+figure, "18 of 34", whose text no longer exists at the cited line.) Fix in
+whichever task gets there first.
+
+### The `.emp` language cannot express the ability-scratch UNION — SIGIL ASK, RECORDED
+`player_common.emp:104-110` states the design intent that Knuckles' ability
+bytes re-use Tails' `fly_fuel`/`fly_thrust`, since exactly one character is
+resident per slot. The language has no way to say it: every
+`vars X: Sst.sst_custom` overlay in the tree starts at `$30`, none uses
+offset-anchored placement, and both characters share the single `PlayerV`
+overlay. Costs 2 bytes of a 30-byte window today (26 of 30 after climb), so it
+is not urgent — but the comment should be amended to read as a BUDGET principle
+rather than a byte-sharing one until the language grows an offset-anchored view.
+
+### The ROM-tail character-art exile has now happened TWICE — relayout pressure
+Knuckles' 0x226C8 of art took the same exile Tails' 132 KB took, for the same
+reason (Art_Sonic ends at $4277E, the `dac_banks` org anchor is at $48000). The
+plain ROM is 676 KB against 414 KB before Tails, and each exile costs a
+frozen-table hand ruling in five shapes. The parked "banks late, data unbounded"
+relayout retires the whole friction class; a fourth character, or any further
+character-scale art, pays the tax again.
