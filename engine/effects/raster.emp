@@ -84,8 +84,37 @@ use engine.irq.{ints_off}
 
 // ---- opcodes (compare-chain dispatch; see the note in Raster_HInt for why this
 // is not a pc-indexed jump table) ----
-pub const OP_SET_REG = 0
-pub const OP_CRAM    = 2
+pub const OP_SET_REG    = 0
+pub const OP_CRAM       = 2
+// OP_PAL_REGION (effects P2, Task 3) — a scanline REGION boundary: stream `count`
+// pre-derived colour words from RAM to CRAM. Same 3-word wire body as OP_CRAM but the
+// colours come from a RAM SOURCE POINTER (a variant's derived staging bytes) rather
+// than being inline in the program. The derive happens at frame time in
+// Palette_Compose (Palette_DeriveVariant -> Pal_Variant_Stage); the handler only
+// streams, so it stays inside the ~60-cycle budget.
+//
+// WHAT A "REGION" IS (the RASTER_CRAM_MAX=3 ruling forces this choice, survey 2a):
+// a full 16-colour line CANNOT swap in one fire (3 CRAM words/fire is a cycle budget,
+// not a FIFO one). So a region is a SCOPED swap: the few visually-dominant entries of
+// a line (<= RASTER_CRAM_MAX), streamed in one fire. A full-line region is authored as
+// CONSECUTIVE OP_PAL_REGION fires on successive lines — S3K's actual technique (it
+// writes 3 colours per scanline precisely to push the CRAM dots offscreen), so such a
+// boundary takes ceil(N/3) lines to complete. The water cluster (Task 7) uses the
+// scoped form: swap the handful of body colours at the water line, not the whole line.
+pub const OP_PAL_REGION = 4
+
+// pal_stage_off — the comptime offset into Pal_Variant_Stage an OP_PAL_REGION streams
+// from: slot*128 + line*32 + entry*2. The variant staging is PAL_MAX_VARIANTS slots of
+// a 128-byte 4-line image each (engine/ram.emp); Palette_DeriveVariant fills the covered
+// lines at their natural line*32 offset. Kept as literals (128/32/2) rather than
+// importing palette's consts to avoid an engine.effects.raster -> engine.effects.palette
+// module edge for two numbers; the ensure() below pins the slot bound.
+pub comptime fn pal_stage_off(slot: int, line: int, entry: int) -> int {
+    ensure(slot >= 0 && slot < 2,     "pal_stage_off: slot {slot} outside 0..PAL_MAX_VARIANTS(2)")
+    ensure(line >= 1 && line <= 3,    "pal_stage_off: line {line} outside 1..3 (line 0 is the character's)")
+    ensure(entry >= 0 && entry <= 15, "pal_stage_off: entry {entry} outside 0..15")
+    return slot * 128 + line * 32 + entry * 2
+}
 
 // op_count sentinel: park the counter and do not advance the cursor. Reached only
 // by a stray fire (a counter that somehow wrapped), so it is defense, not flow.
@@ -261,13 +290,17 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         bmi.s   .advance                // priming / no-op record
     .op_loop:
         move.w  (a1)+, d1               // op
-        // Two-op compare chain rather than a pc-indexed jump table: at this few
+        // Three-op compare chain rather than a pc-indexed jump table: at this few
         // opcodes it is fewer cycles than the table setup, and it keeps the handler
         // analyzable — a computed `jmp` defeats the contract-closure dataflow, and
-        // proc.clobber-undeclared is zero-firing by contract. The opcodes stay byte
-        // offsets so a table can drop back in without touching the program format.
+        // proc.clobber-undeclared is zero-firing by contract. Frequency-ordered:
+        // OP_CRAM (the common raster write) first, then OP_PAL_REGION (region
+        // boundaries), OP_SET_REG the fall-through. The opcodes stay byte offsets so a
+        // table can drop back in without touching the program format.
         cmpi.w  #OP_CRAM, d1
         beq.s   .op_cram
+        cmpi.w  #OP_PAL_REGION, d1
+        beq.s   .op_region
         // OP_SET_REG — one $8xxx word
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
@@ -278,6 +311,24 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
     .cram_loop:
         move.w  (a1)+, VDP_DATA
         dbf     d1, .cram_loop
+        dbf     d0, .op_loop
+        jbra    .advance
+    .op_region:
+        // Stream count pre-derived colour words from a variant's Pal_Variant_Stage
+        // bytes to CRAM. The program carries a comptime OFFSET into Pal_Variant_Stage
+        // (slot*128 + line*32 + entry*2 — pal_stage_off below), NOT a link-time
+        // pointer, so the whole program stays a flat [u16] of comptime literals. a2
+        // (VDP_CTRL) is repurposed as the source cursor (colours go to VDP_DATA
+        // absolute, which needs no a2), then restored for the arm write / next op — no
+        // register is added to the movem save set (the ~60-cycle budget).
+        move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
+        move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX)
+        lea     Pal_Variant_Stage, a2   // staging base (was VDP_CTRL)
+        adda.w  (a1)+, a2               // + comptime offset -> the derived colours
+    .region_loop:
+        move.w  (a2)+, VDP_DATA
+        dbf     d1, .region_loop
+        lea     VDP_CTRL, a2            // restore the control-port cursor
         dbf     d0, .op_loop
     .advance:
         move.l  a1, Raster_Cursor
