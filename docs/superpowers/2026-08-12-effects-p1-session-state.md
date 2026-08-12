@@ -1,5 +1,11 @@
 # Session state — effects suite design + Phase 1, overnight 2026-08-11/12
 
+> **SUPERSEDED 2026-08-12 (later the same day): the blockers below are CLEARED and
+> the parcel is MERGED to master, aeon + sigil paired.** The character-dispatch work
+> landed, which re-coupled the pair; this parcel was rebased onto it, re-verified,
+> repinned and refrozen as sigil chain entry 105. Kept for the gotchas, which still
+> hold. Current status: `docs/benchmarks/effects-p1/GATE-EVIDENCE.md`.
+
 ## Where the work is
 
 - **aeon:** `feat/effects-p1-raster-core`, worktree `.worktrees/effects-p1`, 11 commits ahead of master. Both canonical shapes build green (debug crc `66ce78de`, plain crc `cf6c2811`).
