@@ -148,6 +148,13 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // so it stays here (frame boundary, matches DMA_Budget_Remaining); its 12288
             // ceiling is coarse enough that a rare straddle accumulation is benign.
 
+            // Raster (effects P1) MUST precede Flush_VDP_Shadow: HBlank_Install arms
+            // reg $0A through the VDP shadow + dirty mask, so the arm only reaches
+            // the hardware on THIS frame's flush — a post-flush position would delay
+            // every arm a frame. It also ORs the program's pal_dirty_mask into
+            // Palette_Dirty, which Enqueue_Dirty_Buffers below must then see.
+            jbsr    Raster_VBlank
+
             jbsr    Flush_VDP_Shadow
 
             jbsr    Enqueue_Dirty_Buffers   // queues palette + sprites + HScroll (§4.6)
@@ -267,6 +274,11 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
         // ONE body serves both shapes — under sound ON it lowers unbracketed and the
         // flag pair above is the fence instead.
         with z80_stopped if SOUND_DRIVER_ENABLED == 0 {
+            // Mirrors VInt_Level: raster re-arm runs every PHYSICAL frame, before the
+            // flush. Skipping it on a lag frame would leave the cursor mid-walk and the
+            // counter parked at $8AFF, killing the effect until the next full frame.
+            jbsr    Raster_VBlank
+
             jbsr    Flush_VDP_Shadow
             jbsr    Enqueue_Dirty_Buffers
             // Do NOT drain Plane_Buffer here. On a lag frame the main loop has not

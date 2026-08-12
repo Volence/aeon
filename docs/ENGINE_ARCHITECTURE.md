@@ -3329,13 +3329,37 @@ DAC (6.2, shipped shape)
 
 ## 7. Visual Effects System
 
-> **Status: PLANNED design — not yet implemented.** §7 documents the intended visual-effects system. The shipped engine does not yet include these; the `Sec` struct reserves `sec_raster_table`/`sec_pal_cycle`/`sec_anim_blocks` fields for them (and no shipped code reads them yet). Subsections below are design specs for future work.
+> **Status: PARTIALLY SHIPPED (effects suite Phase 1, 2026-08-12) — the rest is PLANNED.**
+>
+> **Shipped:** the SPARSE tier of the raster engine (§7.2) and the per-section
+> palette load. `sec_raster_table` and `sec_pal` now have live consumers, wired at
+> the section-boundary crossing in `Parallax_CheckBoundary`; the dispatcher lives in
+> `engine/system/hblank.emp` as the RAM-trampoline's first consumer. Verified on
+> oracle mid-scroll — see `docs/benchmarks/effects-p1/GATE-EVIDENCE.md`.
+>
+> **Still planned:** everything else in §7 — the dense raster tier (per-scanline
+> gradients, per-column VSRAM runs), the palette *engine* (composition pipeline,
+> cross-fade, cycling, variants/regions), S/H as a shipped effect, sprite-table
+> reflections, and the frame-level effects engine (§7.4/7.5). `sec_pal_cycle` and
+> `sec_anim_blocks` remain reserved with no consumer.
+>
+> Design: `docs/superpowers/2026-08-11-effects-suite-design.md` (six phases).
+> The timing rules the dispatcher is built on: `docs/research/2026-08-12-raster-hint-survey.md`.
 
 Palette management, raster effects, hardware-driven lighting, and a lightweight effects engine. The palette system is fully section-aware with computed water palettes (novel). Raster effects are driven by a unified per-scanline command table (§7.2) — Batman & Robin's core raster architecture, enabling stackable VDP register changes per frame. Shadow/Highlight mode provides hardware transparency and lighting at zero CPU cost. Boss and special stage effects use Batman-inspired compound rotation math.
 
 ### 7.1 Palette System
 
-**Shipped vs planned.** Only the **dirty-line DMA upload** is implemented (see "Palette DMA via queue" below and §1.1's `Palette_Dirty` 4-bit mask + `Enqueue_Dirty_Buffers` in `engine/system/buffers.emp`): game code writes `Palette_Buffer` and flags dirty lines, which DMA to CRAM as Critical priority. Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design** (per the §7 banner); no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet.
+**Shipped vs planned.** As of effects P1 (2026-08-12) the **per-section palette
+load** ships too: `Palette_LoadSection` (`engine/system/buffers.emp`) consumes
+`Sec.sec_pal` on a boundary crossing, copying a full 128-byte CRAM image into
+`Palette_Buffer` and marking all four lines dirty. NOTE the contract this pins:
+`sec_pal` is a **full 4-line, 128-byte CRAM image**, not a partial palette — OJZ's
+two-half layout (shared/HUD 32 B at line 0 + act 96 B at lines 1-3) is concatenated
+into one conformant blob (`OJZ_FullPalette`) rather than the engine learning a
+game-specific split. A short or line-offset blob silently clobbers line 0 and
+over-reads; that was a real, verified failure. Cross-fade is still planned, so the
+load is an instant snap. Otherwise only the **dirty-line DMA upload** is implemented (see "Palette DMA via queue" below and §1.1's `Palette_Dirty` 4-bit mask + `Enqueue_Dirty_Buffers` in `engine/system/buffers.emp`): game code writes `Palette_Buffer` and flags dirty lines, which DMA to CRAM as Critical priority. Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design** (per the §7 banner); no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet.
 
 **Palette cross-fading (planned):** Section transitions smoothly cross-fade between palettes over ~16 frames using per-component RGB Lerp. Armed as the camera nears a section boundary and completed across the crossing, so there is no jarring palette snap at the boundary. ~3840 cycles during the transition window, run in idle time.
 
@@ -3354,6 +3378,53 @@ Palette management, raster effects, hardware-driven lighting, and a lightweight 
 **Per-scanline palette gradient :** Cycle-exact CRAM writes during HInt — 3 colors per scanline pushed into overscan (Sonic 3 technique). Enables smooth 224-step sky/water gradients. Pre-computed gradient table: 224 × 6 bytes = 1,344 bytes RAM. **Key timing detail:** DMA to CRAM and VSRAM during active display runs at 2x the speed of VRAM DMA (36 bytes/scanline in H40 vs 18 bytes/scanline). This doubled bandwidth makes mid-frame palette gradient writes and VSRAM column-scroll updates significantly more practical than VRAM transfers during active display.
 
 ### 7.2 Unified Raster Command Table (from Batman & Robin)
+
+> **Sparse tier SHIPPED 2026-08-12** (`engine/system/hblank.emp`). The as-built
+> format and its timing model are below; the rest of this subsection is the
+> remaining design.
+>
+> **The reload lag is the whole design constraint.** The VDP reloads its internal
+> line counter from reg `$0A` *at the instant of underflow*, before the 68000
+> executes one handler instruction. A write to `$8Axx` from inside handler `i` is
+> therefore consumed at fire `i+1` and schedules **gap(i+1 -> i+2)** — the naive
+> "write next_line - cur_line - 1" is off by a whole event. Two consequences:
+> deltas are precomputed at BUILD time into each fire record, and the program opens
+> with two priming records (reg `$0A` = 0 in VBlank gives cheap no-op fires on lines
+> 0 and 1) so every later fire lands exactly. The runtime does no delta arithmetic
+> and no line comparison — the schedule IS the program order.
+>
+> **As-built program format** (what the Phase-3 `raster_dsl` and Aurora compile to):
+> a header (`pal_dirty_mask`, `init_count`, `init[]` frame-top `$8xxx` words),
+> then fire records in FIRE ORDER (`arm_word`, `op_count`, ops), then a terminator
+> (`RASTER_ARM_PARK`, `RASTER_OPS_END`). Ops: `OP_SET_REG` (one `$8xxx` word) and
+> `OP_CRAM` (a full command longword in ONE `move.l`, then `count-1` and up to
+> `RASTER_CRAM_MAX` = 3 colours).
+>
+> **Fire lines are one line early by construction:** a register write in the handler
+> for fire-line L takes effect from L+1, so an effect authored to begin at screen
+> line M is scheduled at fire line M-1. The comptime helpers own that -1.
+>
+> **`pal_dirty_mask` must name the palette lines the ops write.** It is re-asserted
+> into `Palette_Dirty` every frame, which is what makes a mid-frame CRAM write
+> transient. A mask naming a different line leaves the write latched forever
+> (verified failure mode, GATE-EVIDENCE.md).
+>
+> **The handler raises to IPL 7 on entry.** The 68000 enters IRQ4 at IPL 4, so IRQ6
+> can nest; a VBlank between an `OP_CRAM` command and its colour words would
+> retarget the VDP address latch. `rte` restores SR, so the guard is ~4 cycles.
+>
+> **Cycle budget:** ~105 68k cycles from HINT-pending to the next line's active
+> display, less ~44 for exception entry — about 60 usable. That, not the 4-entry
+> FIFO, is why `RASTER_CRAM_MAX` is 3. A CRAM write landing inside active display
+> tints the pixels drawn after it on that line (single-ported CRAM), which is the
+> observed partial row 119 in the gate evidence.
+>
+> **Sparse, not fire-every-line:** cost is `2 + events` interrupts per frame rather
+> than ~224. Fire-every-line was costed at ~11% of an NTSC frame as a constant tax
+> and rejected for this tier. Reprogramming the counter from inside the handler is
+> shipped Treasure practice (Alien Soldier parks `$8AFF` for a once-per-frame split;
+> Gunstar runs a mid-frame state machine), not a novel risk.
+
 
 Rather than separate per-effect HBlank handlers, the engine uses a **unified per-scanline command table** — a pre-computed list of VDP register changes that the HBlank handler walks sequentially. This is Batman & Robin's core raster architecture, and the reason it achieves visual effects no other Genesis game matches.
 

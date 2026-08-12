@@ -21,6 +21,10 @@ module games.sonic4.parallax_configs in parallax_configs
 use engine.structs.{parallax_config}
 use engine.parallax.{band_entry}
 use engine.level.parallax_dsl.*
+// Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
+// command builder they are pinned against.
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
+use engine.hblank.{OP_SET_REG, OP_CRAM, RASTER_OPS_END}
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
@@ -263,3 +267,73 @@ pub data ParallaxConfig_OJZ_LockedClouds: ParallaxCfg5 = ParallaxCfg5{
              band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
              band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 15, dsb: 15) ],
 }
+
+// ===========================================================================
+// EFFECTS P1 GATE FIXTURES — the first raster program and the first per-section
+// palette. These live beside the parallax configs because this file IS the
+// game-side effects library (design suite §6); the Phase-3 preset format and the
+// `raster_dsl` general constructors supersede the hand-laid words below.
+// ===========================================================================
+
+// The CRAM-write command longword for colour 0, split into the two words the
+// program format carries. Pinned against the comptime builder so a change in
+// engine.vdp's command encoding fails the build instead of writing to VRAM.
+// The gate writes CRAM entry $4A = palette line 2, entry 5 — measured to be OJZ's
+// single most-used ground colour (~54% of the lower-screen pixels). Colour 0 (the
+// backdrop) was the obvious first choice and is the WRONG one: OJZ's art covers the
+// backdrop everywhere, so the effect was invisible and the gate unfalsifiable.
+// Pinned against the comptime builder so an encoding change fails the build rather
+// than quietly writing somewhere else.
+const OJZ_TEST_CRAM_ADDR = $4A
+ensure(vdp_comm(OJZ_TEST_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C04A0000,
+       "CRAM write command encoding drifted — OJZ_TestRaster's split words are stale")
+
+// OJZ_TestRaster — the P1 acceptance program: below screen line 120, turn
+// Shadow/Highlight ON and repaint OJZ's dominant ground colour bright red. Two
+// different mechanisms (a mode-register write and a CRAM write) firing at the same
+// line, so the gate exercises the multi-op path rather than a single write — and
+// the CRAM half is chosen to be objectively measurable from a screenshot.
+//
+// FIRE SCHEDULE (see the timing model in engine/system/hblank.emp):
+//   fire 0 @ line 0    priming, arm = raster_arm(1, 119) = $8A75 (117)
+//   fire 1 @ line 1    priming, arm = park (nothing scheduled after the event)
+//   fire 2 @ line 119  the event; its writes land on line 120
+// Walk-through: VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1
+// at line 1, reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
+pub data OJZ_TestRaster: [u16; 18] = [
+    %0100,                      // pal_dirty_mask: re-assert palette line 2 each frame —
+                                //   the line the CRAM op below writes into. THIS is what
+                                //   makes the mid-frame write transient; a mask naming any
+                                //   other line leaves the write latched forever (observed:
+                                //   the red covered the whole ground, not just below the
+                                //   split, when this said %0001 and the op wrote line 2).
+    1, $8C81,                   // init: S/H OFF at frame top (H40 base, boot_data.emp:140)
+
+    $8A75, 0,                   // fire 0 — priming; arms the gap that lands fire 2 on 119
+    $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
+
+    $8AFF, 2,                   // fire 2 — the event, two ops
+      OP_SET_REG, $8C89,        //   S/H ON  ($81 | bit 3 — resolution bits untouched,
+                                //   per the V28/V30 quirk ruling in the survey)
+      OP_CRAM, $C04A, $0000,    //   CRAM write @ $4A (command, ensure-pinned above)
+                 0, $000E,      //   count-1 = 0, one colour: bright red
+
+    $8AFF, RASTER_OPS_END,      // terminator — reached only by a stray fire
+]
+
+// OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
+// "did sec_pal load on the crossing?" is answerable from one CRAM read or
+// screenshot. Not a tinted copy of the real palette: a subtle shift would make a
+// NEGATIVE result (consumer never ran) look like a positive one.
+//
+// 48 words = 96 bytes = CRAM lines 1-3, matching the sec_pal contract. It must NOT
+// cover line 0: that is the character's line (CharacterDef.cd_palette), and a
+// section palette that overwrote it would repaint the active character on every
+// boundary crossing.
+comptime fn test_palette() -> [u16; 48] {
+    return comptime for i in 0..48 {
+        (((i * 14) / 47) << 9) | (((i & 3) * 2) << 4)
+    }
+}
+
+pub data OJZ_TestPal: [u16; 48] = test_palette()
