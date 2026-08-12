@@ -32,7 +32,12 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, CHEAT_DEBUG_FLY, CHAR_COUNT}
+
+// The puff block's byte offset/length inside Art_Dust — owned by the format's
+// module (data/dust_data.emp), so a re-export that moved the split is one edit
+// there, not here.
+use games.sonic4.dust_data.{DUST_PUFF_ART_OFF, DUST_PUFF_ART_LEN}
 
 // PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock) and the
 // splice expands in THIS module's scope, so the type has to resolve here.
@@ -129,6 +134,18 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
         move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
         jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
+
+        // -- dust puff block: 16 tiles RESIDENT at VRAM_DUST_PUFF for the whole
+        //    act. Every puff frame must be live simultaneously (concurrent puffs
+        //    sit on different frames), so this object never streams — this one
+        //    DMA is its entire art cost. Source is the TAIL of Art_Dust; the
+        //    leading 72 tiles are the charge dust's DPLC source. --
+        move.l  #Art_Dust + DUST_PUFF_ART_OFF, d1
+        move.w  #vram_bytes(VRAM_DUST_PUFF), d2
+        move.w  #DUST_PUFF_ART_LEN, d3
+        jbsr    QueueDMA_Critical @discards(dropped)   // level init: a dropped DMA is
+                                                       // acceptable here exactly as for
+                                                       // TestArt above
 
         // -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
