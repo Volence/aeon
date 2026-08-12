@@ -134,6 +134,8 @@ offsets Ani_Tails {
     Slide:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     SlideGetUp:[u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     GlideLand: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Climb:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Ledge:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
 }
 align 2
 
@@ -218,6 +220,8 @@ offsets Ani_TailsAppendage {
     Slide:    [u8; 3] = [$20, 0, AF_END],
     SlideGetUp:[u8; 3] = [$20, 0, AF_END],
     GlideLand: [u8; 3] = [$20, 0, AF_END],
+    Climb:    [u8; 3] = [$20, 0, AF_END],
+    Ledge:    [u8; 3] = [$20, 0, AF_END],
 }
 // The appendage bodies sum to an ODD length, so this pad is load-bearing for
 // whatever table the linker places next (offsets tables are word-read).
@@ -248,6 +252,8 @@ ensure(Ani_Tails.GlideFall == extern("ANIM_GLIDEFALL"), "GlideFall ordinal drift
 ensure(Ani_Tails.Slide == extern("ANIM_SLIDE"), "Slide ordinal drifted from ANIM_SLIDE")
 ensure(Ani_Tails.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
 ensure(Ani_Tails.GlideLand == extern("ANIM_GLIDE_LAND"), "GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_Tails.Climb == extern("ANIM_CLIMB"), "Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_Tails.Ledge == extern("ANIM_LEDGE"), "Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_Tails.count == extern("ANIM_COUNT"), "Ani_Tails entry count drifted from ANIM_COUNT")
 
 ensure(Ani_TailsAppendage.Walk == extern("ANIM_WALK"), "appendage Walk ordinal drifted from ANIM_WALK")
@@ -272,4 +278,6 @@ ensure(Ani_TailsAppendage.GlideFall == extern("ANIM_GLIDEFALL"), "appendage Glid
 ensure(Ani_TailsAppendage.Slide == extern("ANIM_SLIDE"), "appendage Slide ordinal drifted from ANIM_SLIDE")
 ensure(Ani_TailsAppendage.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "appendage SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
 ensure(Ani_TailsAppendage.GlideLand == extern("ANIM_GLIDE_LAND"), "appendage GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_TailsAppendage.Climb == extern("ANIM_CLIMB"), "appendage Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_TailsAppendage.Ledge == extern("ANIM_LEDGE"), "appendage Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_TailsAppendage.count == extern("ANIM_COUNT"), "Ani_TailsAppendage entry count drifted from ANIM_COUNT")

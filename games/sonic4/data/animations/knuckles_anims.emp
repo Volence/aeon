@@ -148,6 +148,14 @@ offsets Ani_Knuckles {
     // holds the last pose and lets Player_Animate own the exit.
     SlideGetUp:[u8; 4] = [$F, $CD, AF_BACK, 1],
     GlideLand: [u8; 4] = [$F, $9C, AF_BACK, 1],
+
+    // Climb + ledge (Task 11) — 1-frame ANCHOR scripts. The state body owns
+    // mapping_frame every frame (cycling $B7..$BC on the climb, running the clamber
+    // script on the ledge) and pins anim_timer so AnimateSprite never advances these;
+    // the anchor's only job is to land the initial frame ($B7 / $BD) once via the
+    // anim-changed path.
+    Climb:    [u8; 3] = [$1F, $B7, AF_END],
+    Ledge:    [u8; 3] = [$1F, $BD, AF_END],
 }
 align 2
 
@@ -178,4 +186,6 @@ ensure(Ani_Knuckles.GlideFall == extern("ANIM_GLIDEFALL"), "GlideFall ordinal dr
 ensure(Ani_Knuckles.Slide == extern("ANIM_SLIDE"), "Slide ordinal drifted from ANIM_SLIDE")
 ensure(Ani_Knuckles.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
 ensure(Ani_Knuckles.GlideLand == extern("ANIM_GLIDE_LAND"), "GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_Knuckles.Climb == extern("ANIM_CLIMB"), "Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_Knuckles.Ledge == extern("ANIM_LEDGE"), "Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_Knuckles.count == extern("ANIM_COUNT"), "Ani_Knuckles entry count drifted from ANIM_COUNT")

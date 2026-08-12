@@ -1,0 +1,452 @@
+// Knuckles' wall climb + ledge pull-up — PSTATE_CLIMB, PSTATE_LEDGE, and the glide
+// wall-catch that enters them (§7, Task 11).
+//
+// SOURCE OF TRUTH: stock S3K, skdisasm `sonic3k.asm` —
+//   Knuckles_Gliding_HitWall  :30776   the wall catch (both-flush pair + 12px fallback)
+//   Knuckles_Wall_Climb       :31038   the per-frame climb (up / down / idle / jump-off)
+//   Knuckles_ClimbUp          :31441   climb -> ledge handoff
+//   Knuckles_LetGoOfWall      :31453   detach -> fall
+//   Knuckles_DoLedgeClimbingAnimation :31471  the 4-step clamber script stepper
+//   Knuckles_Climb_Ledge      :31536   the ledge state
+//   GetDistanceFromWall       :31518   the facing-side wall probe
+//
+// THE SENSOR MAPPING (Task 11's crux, research §2.2): our player_sensors layer already
+// expresses every S3K query — no extension was needed. `Player_SensorWallDir` takes an
+// arbitrary probe point (X and Y) and a direction, pinned to SOLID_LRB exactly like
+// S3K's lrb_solid_bit; the four `Collision_Probe*` cores take an arbitrary point and a
+// caller-chosen class. Distance semantics match S3K's FindWall/FindFloor: positive =
+// gap, negative = embedded that many px, +32 = the "nothing found" sentinel. The one
+// gap — S3K's glide catch needs BOTH sensors flush (max == 0) where Player_SensorPair
+// keeps the NEARER (min) — is closed by calling the cores TWICE (the Player_AtLedgeEdge
+// idiom), which is cheaper than a named pair wrapper anyway.
+//
+// Integer-px moves operate on the WORD at y_pos(a0) directly (the 16.16 high word IS the
+// integer px, big-endian), exactly as S3K's `subq.w #1,y_pos` does — the fraction rides
+// along untouched, which is what keeps 1px/frame climbing clean.
+//
+// Lives in the object code bank, right after `player_glide` per map.toml `order`. Pure code.
+module games.sonic4.player_climb in player_climb
+
+use engine.objects.sst.{Sst}
+use engine.constants.{ST_XFLIP, ST_ON_OBJECT, SOLID_LRB, SOLID_TOP, PLAYER_Y_RADIUS,
+        BUTTON_UP_BIT, BUTTON_DOWN_BIT}
+use games.sonic4.constants.{PSTATE_JUMP, PSTATE_GROUND, PSTATE_CLIMB, PSTATE_LEDGE, PSTATE_GLIDEFALL, CHEAT_DEBUG_FLY}
+use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
+
+// KNUX_ABILITY_RADIUS lives on CharDef_Knuckles (knuckles.emp); the climb box is the
+// 10x10 ability box, so the probe offsets are literals here matching that radius. A
+// compile guard binds them so a radius change fails the build rather than drifting.
+use engine.constants.{PLAYER_X_RADIUS}
+
+// Player_SensorWallDir / Collision_ProbeUp / Collision_ProbeDown (player_sensors),
+// Player_SnapToSurface (player_common), Player_SetState (player_common),
+// RefreshSpritePieceCount (engine.objects) resolve module-to-module as bare link refs.
+
+// -----------------------------------------------
+// The climb numbers, all S3K's.
+// -----------------------------------------------
+const CLIMB_RADIUS       = 10                   // the ability box radius (KNUX_ABILITY_RADIUS)
+const CLIMB_WALL_PROBE_Y = 11                   // wall probe at y-/+11 (mid-body)
+const CLIMB_LEDGE_DIST   = 4                    // wall dist >= this at y-11 climbing UP → ledge
+const CLIMB_CEIL_Y       = 18                   // ceiling probe origin (y-18 = head-8-radius)
+const CLIMB_ANIM_RELOAD  = 3                    // 1 climb frame every 4 (S3K countdown)
+const CLIMB_FRAME_LO     = $B7                  // climb cycle low frame
+const CLIMB_FRAME_HI     = $BC                  // climb cycle high frame
+const CLIMB_CATCH_FRAME  = $B7                  // the wall-catch pose
+const CLIMB_LETGO_FRAME  = $CB                  // the let-go pose
+const CLIMB_ANIM_PIN     = $20                  // anim_timer pin (keeps AnimateSprite on .done)
+
+const CLIMB_JUMP_YVEL    = -$380                // jump-off up velocity
+const CLIMB_JUMP_XVEL    = $400                 // jump-off away-from-wall velocity
+
+const CATCH_FALLBACK_MAX = 12                   // the glide catch's floor-lip window (0..11)
+
+ensure(CLIMB_RADIUS == PLAYER_X_RADIUS + 1,
+       "climb probe radius (10) drifted from the ability box — re-derive the wall probe offsets")
+
+// -----------------------------------------------
+// Climb_WallDist — wall distance on the FACING side at world Y d1 (S3K
+// GetDistanceFromWall, :31518). Right: probe (x+10, Y) rightward; left: (x-10-1, Y)
+// leftward — the `-1` is S3K's deliberate left asymmetry, and it is what makes the
+// flush test land at exactly 0 on the left (the same 1px that the ledge finish subtracts).
+// In:  a0 = player SST, d1.w = probe world Y
+// Out: d0.w = wall distance (>= gap, < 0 embedded, +32 nothing) — S3K's `d1`
+// Clobbers: d0-d6, a1
+// -----------------------------------------------
+proc Climb_WallDist (a0: *Sst) clobbers(d0-d6/a1) {
+        move.w  x_pos(a0), d0
+        btst    #ST_XFLIP, status(a0)
+        bne     .facing_left
+        addi.w  #CLIMB_RADIUS, d0               // right edge: x + 10
+        moveq   #2, d2                          // probe right
+        jbra    Player_SensorWallDir            // tail — returns d0 = dist to our caller
+.facing_left:
+        subi.w  #CLIMB_RADIUS+1, d0             // left edge: x - 10 - 1 (S3K asymmetry)
+        moveq   #3, d2                          // probe left
+        jbra    Player_SensorWallDir
+}
+
+// -----------------------------------------------
+// Climb_Animate — advance the climb cycle by d3 (+1 up / -1 down / 0 pause), 1 frame
+// every 4, wrapping $B7..$BC. Then pin anim_timer so AnimateSprite (display tail) stays
+// on its .done path and never touches mapping_frame — the state body OWNS the frame here,
+// exactly as S3K pins anim_frame_timer (:31411). A manual mapping_frame write must
+// refresh the engine's frame_off / piece-count cache (Player_DebugEnter is the precedent).
+// In:  a0 = player SST, d3.w = signed frame delta
+// Out: none
+// Clobbers: d0-d2, a1 (RefreshSpritePieceCount's set)
+// -----------------------------------------------
+proc Climb_Animate (a0: *Sst) clobbers(d0-d2/a1) {
+        move.b  #CLIMB_ANIM_PIN, Sst.anim_timer(a0)     // pin every frame (S3K :31411)
+        tst.w   d3
+        beq     .done                           // paused (a wall dip) → hold the pose
+        subq.b  #1, PlayerV.knux_step(a0)
+        bpl     .done                           // not this frame
+        move.b  #CLIMB_ANIM_RELOAD, PlayerV.knux_step(a0)
+        move.b  Sst.mapping_frame(a0), d0
+        add.b   d3, d0                           // advance by the delta
+        cmpi.b  #CLIMB_FRAME_LO, d0
+        bhs     .no_wrap_lo
+        move.b  #CLIMB_FRAME_HI, d0             // wrapped below → high
+.no_wrap_lo:
+        cmpi.b  #CLIMB_FRAME_HI, d0
+        bls     .no_wrap_hi
+        move.b  #CLIMB_FRAME_LO, d0            // wrapped above → low
+.no_wrap_hi:
+        move.b  d0, Sst.mapping_frame(a0)
+        jbra    RefreshSpritePieceCount         // tail — re-cache frame_off + piece count
+.done:
+        rts
+}
+
+// -----------------------------------------------
+// PState_Climb — one frame on the wall (S3K Knuckles_Wall_Climb, :31038). THREE detach
+// conditions: latch-X drift (something pushed Knuckles off), ST_ON_OBJECT (an object now
+// carries him), and wall-loss (climb-DOWN only). Up: wall far (>=4) → ledge; a small dip
+// (1..3 or embedded) → freeze in place; flush (0) → ceiling-gated 1px up. Down: wall gone
+// → detach; floor below (dist < 0) → land; else 1px down. Idle: floor below → land.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_LEDGE / PSTATE_GROUND / PSTATE_JUMP / PSTATE_GLIDEFALL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // --- detach 1: latch-X drift (S3K :31046) ---
+        move.w  x_pos(a0), d0
+        cmp.w   PlayerV.knux_latch_x(a0), d0
+        bne     Climb_LetGo
+        // --- detach 2: ST_ON_OBJECT (S3K :31052 — omitted by the plan text) ---
+        btst    #ST_ON_OBJECT, status(a0)
+        bne     Climb_LetGo
+
+        // Pinned to the wall — no physics (S3K zeroes all three every climb frame).
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+
+        moveq   #0, d3                          // default anim delta 0 (pause; survives to .finish
+                                                //   only on the idle path, which calls no probe)
+
+        // Ctrl_1_Held is frame-stable (VInt latches it once per tick), so it is RE-READ at
+        // each use rather than snapshotted — the early-exit transitions below (LetGo/ToLedge/
+        // ReachFloor) jbra straight out, so a stacked snapshot would leak the slot.
+        move.b  Ctrl_1_Held, d5
+        btst    #BUTTON_UP_BIT, d5
+        beq     .not_up
+
+        // --- climbing UP ---
+        move.w  y_pos(a0), d1
+        subi.w  #CLIMB_WALL_PROBE_Y, d1          // wall probe at y-11
+        jbsr    Climb_WallDist                   // d0 = wall dist
+        cmpi.w  #CLIMB_LEDGE_DIST, d0
+        bge     Climb_ToLedge                    // wall far → reached a ledge
+        tst.w   d0
+        bne     .dip                             // a dip (1..3 or embedded) → freeze, don't detach
+        // flush against the wall — check for headroom
+        move.w  x_pos(a0), d0
+        move.w  y_pos(a0), d1
+        subi.w  #CLIMB_CEIL_Y, d1                // ceiling probe origin (y-18)
+        moveq   #SOLID_LRB, d6
+        moveq   #0, d3
+        move.b  layer(a0), d3
+        jbsr    Collision_ProbeUp               // d0 = ceiling dist
+        tst.w   d0
+        bpl     .move_up
+        // embedded in the ceiling → push down out of it, no upward move
+        sub.w   d0, y_pos(a0)                   // d0 < 0 → y_pos - d0 = down (integer word)
+        moveq   #1, d3                           // anim forward
+        jbra    .finish
+.move_up:
+        subq.w  #1, y_pos(a0)                   // 1px up (integer word)
+        moveq   #1, d3                           // anim forward
+        jbra    .finish
+
+.not_up:
+        btst    #BUTTON_DOWN_BIT, d5
+        beq     .finish                          // neither held → idle (floor check in .finish)
+
+        // --- climbing DOWN ---
+        move.w  y_pos(a0), d1
+        addi.w  #CLIMB_WALL_PROBE_Y, d1          // wall probe at y+11
+        jbsr    Climb_WallDist                   // d0 = wall dist
+        tst.w   d0
+        bne     Climb_LetGo                      // wall gone below (asymmetric with UP) → detach
+        // floor below?
+        move.w  x_pos(a0), d0
+        move.w  y_pos(a0), d1
+        addi.w  #PLAYER_Y_RADIUS, d1             // floor probe at y+19
+        moveq   #SOLID_TOP, d6
+        moveq   #0, d3
+        move.b  layer(a0), d3
+        jbsr    Collision_ProbeDown             // d0 = floor dist
+        tst.w   d0
+        bmi     Climb_ReachFloor                 // embedded floor → landed
+        addq.w  #1, y_pos(a0)                   // 1px down (integer word)
+        moveq   #-1, d3                           // anim backward
+        jbra    .finish
+
+.dip:
+        moveq   #0, d3                           // pause the cycle (re-set: Climb_WallDist clobbered d3)
+.finish:
+        // Idle floor-detach (S3K :31334 — runs when NOT holding up/down): ground directly
+        // below → land, so a rising floor lifts Knuckles off the wall properly.
+        move.b  Ctrl_1_Held, d5                   // re-read (frame-stable)
+        andi.b  #(1<<BUTTON_UP_BIT)|(1<<BUTTON_DOWN_BIT), d5
+        bne     .animate                          // moving up/down: already handled its own floor
+        move.w  x_pos(a0), d0
+        move.w  y_pos(a0), d1
+        addi.w  #PLAYER_Y_RADIUS, d1
+        moveq   #SOLID_TOP, d6
+        move.w  d3, -(sp)                          // preserve the anim delta across the probe
+        moveq   #0, d3
+        move.b  layer(a0), d3
+        jbsr    Collision_ProbeDown
+        move.w  d0, d1                            // floor dist
+        move.w  (sp)+, d3                          // restore anim delta
+        tst.w   d1
+        bmi     Climb_ReachFloor                  // ground below → land
+.animate:
+        jbsr    Climb_Animate                     // advance/pin the pose (d3 = delta)
+        // --- jump-off (S3K :31414) ---
+        move.b  Ctrl_1_Held, d0
+        andi.b  #BUTTON_JUMP_MASK, d0
+        beq     .no_jump
+        moveq   #CHEAT_DEBUG_FLY, d1
+        and.b   Cheat_Flags, d1                  // (Cheat_Flags).w — runtime cheat gate
+        beq     Climb_JumpOff                    // cheat clear: any A/B/C jumps off
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d0
+        bne     Climb_JumpOff
+.no_jump:
+        rts
+}
+
+// -----------------------------------------------
+// Climb_JumpOff — leap off the wall into a curled jump (S3K :31419). Always launches
+// AWAY from the wall: bchg facing, negate x_vel if the OLD facing bit was clear (right).
+// In:  a0 = player SST.  Clobbers: d0-d2, a1-a2 (via Player_SetState)
+// -----------------------------------------------
+proc Climb_JumpOff (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        move.w  #CLIMB_JUMP_YVEL, y_vel(a0)
+        move.w  #CLIMB_JUMP_XVEL, x_vel(a0)     // provisionally rightward
+        // Toggle facing to point AWAY from the wall (S3K `bchg Status_Facing`, which sigil
+        // has no mnemonic for — emulated with btst + bset/bclr). Was facing the wall, so
+        // flipping faces away; the x_vel sign follows so the launch is always outward.
+        btst    #ST_XFLIP, status(a0)
+        bne     .was_left
+        bset    #ST_XFLIP, status(a0)           // was right (into a right wall) → face left, launch left
+        neg.w   x_vel(a0)
+        jbra    .go
+.was_left:
+        bclr    #ST_XFLIP, status(a0)           // was left (into a left wall) → face right, keep +x
+.go:
+        moveq   #PSTATE_JUMP, d0
+        jbra    Player_SetState                 // AirBallEnter → EnsureBall (ability box -> ball)
+}
+
+// -----------------------------------------------
+// Climb_ReachFloor — climbed down onto the floor (S3K :31244). Snap onto it, zero the
+// velocities, hand to GROUND (whose EnsureStanding restores the standing box).
+// In:  a0 = player SST, d1.w = floor dist (< 0).  Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Climb_ReachFloor (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        add.w   d1, y_pos(a0)                   // d1 < 0 → up out of the floor (integer word)
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        clr.b   angle(a0)                        // flat (S3K takes Primary_Angle; flat is the common case)
+        moveq   #PSTATE_GROUND, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Climb_ToLedge — the wall opened into a ledge above (S3K Knuckles_ClimbUp, :31441):
+// enter PSTATE_LEDGE and run clamber STEP 0 immediately (S3K :31447 — step 0 is at
+// ENTRY, not on the first ledge frame, so the state is ~18 frames not 24).
+// In:  a0 = player SST.  Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Climb_ToLedge (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        clr.b   PlayerV.knux_step(a0)           // clamber cursor 0
+        jbsr    Climb_DoClamberStep             // step 0 at entry
+        moveq   #PSTATE_LEDGE, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Climb_LetGo — detach from the wall into the fall (S3K Knuckles_LetGoOfWall, :31453):
+// set the let-go pose and enter GLIDEFALL (whose enter hook restores the standing box).
+// In:  a0 = player SST.  Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Climb_LetGo (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        move.b  #CLIMB_LETGO_FRAME, Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount
+        moveq   #PSTATE_GLIDEFALL, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Climb_DoClamberStep — run one step of the 4-step ledge clamber (S3K
+// Knuckles_DoLedgeClimbingAnimation, :31471). Writes the frame, offsets x_pos/y_pos
+// (x negates when facing left; y never), sets knux_timer, and advances the cursor by 4.
+// In:  a0 = player SST (knux_step = cursor 0/4/8/12).  Clobbers: d0-d2, a1
+// -----------------------------------------------
+proc Climb_DoClamberStep (a0: *Sst) clobbers(d0-d2/a1) {
+        moveq   #0, d0
+        move.b  PlayerV.knux_step(a0), d0
+        lea     Climb_ClamberFrames(pc), a1
+        adda.w  d0, a1
+        move.b  (a1)+, Sst.mapping_frame(a0)    // frame
+        move.b  (a1)+, d0                        // dx
+        ext.w   d0
+        btst    #ST_XFLIP, status(a0)
+        beq     .dx_ok
+        neg.w   d0                               // facing left → mirror dx
+.dx_ok:
+        add.w   d0, x_pos(a0)                   // integer word
+        move.b  (a1)+, d0                        // dy (never mirrored)
+        ext.w   d0
+        add.w   d0, y_pos(a0)                   // integer word
+        move.b  (a1)+, PlayerV.knux_timer(a0)   // step duration
+        addq.b  #4, PlayerV.knux_step(a0)       // advance the cursor
+        jbra    RefreshSpritePieceCount         // tail — re-cache after the manual frame write
+}
+
+// The S3K clamber script (sonic3k.asm:31507) — frame, dx, dy, duration; 4 steps of 6
+// frames each. Frame ids are S3K's ordinals verbatim ($BD $BE $BF $D2) because the
+// converter kept frame order (characters_staging/README.md); no KnuxFrame_* indirection.
+// The last frame $D2 is never actually seen — Knuckles' waiting animation overwrites it
+// the moment the clamber finishes (S3K's own comment).
+data Climb_ClamberFrames: [u8; 16] = [
+        $BD, 3,   256-3,  6,           // dy -3 (as unsigned byte $FD; ext.w restores -3)
+        $BE, 8,   256-10, 6,           // dy -10
+        $BF, 256-8, 256-12, 6,         // dx -8, dy -12
+        $D2, 8,   256-5,  6,           // dy -5
+]
+
+// -----------------------------------------------
+// PState_Ledge — the ledge pull-up (S3K Knuckles_Climb_Ledge, :31536). Runs the next
+// clamber step when knux_timer expires; ends STANDING when the cursor reaches the end.
+// In:  a0 = player SST.  Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc PState_Ledge (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        move.b  #CLIMB_ANIM_PIN, Sst.anim_timer(a0)     // keep AnimateSprite off mapping_frame
+        tst.b   PlayerV.knux_timer(a0)
+        beq     .step
+        subq.b  #1, PlayerV.knux_timer(a0)
+        rts                                      // still holding this clamber frame
+.step:
+        cmpi.b  #16, PlayerV.knux_step(a0)       // cursor past the last step (4 steps × 4)?
+        bhs     .done
+        jbsr    Climb_DoClamberStep
+        rts
+.done:
+        // Finished — stand up (S3K :31547). The 1px left nudge (facing left) is inherited
+        // from GetDistanceFromWall's left-branch subq #1; keep it.
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        btst    #ST_XFLIP, status(a0)
+        beq     .stand
+        subq.w  #1, x_pos(a0)
+.stand:
+        clr.b   angle(a0)
+        moveq   #PSTATE_GROUND, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Knuckles_Gliding_WallCatch — the glide wall-catch (S3K Knuckles_Gliding_HitWall,
+// :30776), called from PState_Glide's .hit_wall in place of the Task-10 interim fall.
+// Catches when BOTH wall sensors (at y-10 and y+10 on the moving-into side) are flush, OR
+// the 12px floor-lip fallback (0 <= dist < 12 at the far bottom corner) succeeds. On a
+// catch: zero the velocities, latch the world X, set the catch pose, enter PSTATE_CLIMB.
+// Otherwise fall (S3K's `.fail` — the same GLIDEFALL the interim path took).
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (transitions to PSTATE_CLIMB or PSTATE_GLIDEFALL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc Knuckles_Gliding_WallCatch (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // Which wall: moving right (x_vel >= 0) → right wall, else left. Facing is set
+        // toward the wall (S3K bset/bclr Status_Facing), and Climb_WallDist reads it to
+        // pick the probe side.
+        tst.w   x_vel(a0)
+        bmi     .left_wall
+        bclr    #ST_XFLIP, status(a0)            // face right (toward the wall)
+        jbra    .pair
+.left_wall:
+        bset    #ST_XFLIP, status(a0)            // face left
+.pair:
+        // Both sensors flush? Call Climb_WallDist twice (the Player_AtLedgeEdge idiom —
+        // Player_SensorPair keeps the NEARER hit, but the catch needs the MAX flush). Each
+        // call clobbers d0-d6, so the first result rides the stack across the second.
+        move.w  y_pos(a0), d1
+        subi.w  #CLIMB_RADIUS, d1                // upper corner (y-10)
+        jbsr    Climb_WallDist                   // d0 = upper wall dist
+        move.w  d0, -(sp)
+        move.w  y_pos(a0), d1
+        addi.w  #CLIMB_RADIUS, d1                // lower corner (y+10)
+        jbsr    Climb_WallDist                   // d0 = lower wall dist
+        or.w    (sp)+, d0                         // both flush ⇔ or == 0
+        beq     Climb_Catch
+        // fallback: the 12px floor-lip window at the bottom-far corner (x±11, y-11)
+        move.w  x_pos(a0), d0
+        btst    #ST_XFLIP, status(a0)
+        bne     .fb_left
+        addi.w  #CLIMB_RADIUS+1, d0             // right: x+11
+        jbra    .fb_probe
+.fb_left:
+        subi.w  #CLIMB_RADIUS+1, d0             // left: x-11
+.fb_probe:
+        move.w  y_pos(a0), d1
+        subi.w  #CLIMB_WALL_PROBE_Y, d1          // y-11
+        moveq   #SOLID_TOP, d6
+        moveq   #0, d3
+        move.b  layer(a0), d3
+        jbsr    Collision_ProbeDown             // d0 = floor dist
+        tst.w   d0
+        bmi     .fall                            // embedded → not a lip
+        cmpi.w  #CATCH_FALLBACK_MAX, d0
+        bhs     .fall                            // too far below → not a lip
+        add.w   d0, y_pos(a0)                   // 0..11 → snap onto the lip (integer word)
+        jbra    Climb_Catch
+.fall:
+        moveq   #PSTATE_GLIDEFALL, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Climb_Catch — the successful wall catch (S3K :30802): zero the velocities, set the
+// catch pose, latch the world X, seed the anim countdown, enter PSTATE_CLIMB.
+// In:  a0 = player SST.  Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Climb_Catch (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // TODO(user): S3K plays sfx_Grab ($4A) here — no grab SFX exists in our bank yet
+        // (sourcing audio is the user's decision), so the catch is silent.
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        move.b  #CLIMB_CATCH_FRAME, Sst.mapping_frame(a0)
+        jbsr    RefreshSpritePieceCount
+        move.w  x_pos(a0), PlayerV.knux_latch_x(a0)     // the drift-detach reference
+        move.b  #CLIMB_ANIM_RELOAD, PlayerV.knux_step(a0)
+        moveq   #PSTATE_CLIMB, d0
+        jbra    Player_SetState
+}

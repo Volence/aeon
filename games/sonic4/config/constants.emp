@@ -126,7 +126,11 @@ pub const PSTATE_FLY              = 14         // Tails' flight (player_fly) —
 pub const PSTATE_GLIDE            = 16
 pub const PSTATE_GLIDEFALL        = 18
 pub const PSTATE_SLIDE            = 20
-pub const PSTATE_COUNT            = 11         // state/hook tables assert against this
+// Knuckles' wall climb + ledge pull-up (player_climb) — entered only from the glide
+// wall-catch (Knuckles_Gliding_WallCatch), so unreachable for every other character.
+pub const PSTATE_CLIMB            = 22
+pub const PSTATE_LEDGE            = 24
+pub const PSTATE_COUNT            = 13         // state/hook tables assert against this
 
 // -----------------------------------------------
 // The PSTATE_* value guards (see THE RULE above). ORDER-FREE by construction:
@@ -137,7 +141,7 @@ pub const PSTATE_COUNT            = 11         // state/hook tables assert again
 // -----------------------------------------------
 comptime fn pstate_values_ok() -> bool {
     comptime var cover = 0
-    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE] {
+    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, PSTATE_CLIMB, PSTATE_LEDGE] {
         // EVEN — the value is a jump-table BYTE offset, not a row index.
         ensure((v & 1) == 0, "PSTATE_* value {v} is ODD — a player-state value is a jump-table BYTE offset, i.e. 2 x its row index in Player_States / PState_EnterHooks / PState_ExitHooks")
         // IN RANGE — all three tables are 2 * PSTATE_COUNT bytes long. Checked
@@ -200,7 +204,14 @@ pub const ANIM_GLIDEFALL          = 18         // S3K AniKnuckles21 ($CA $CB) �
 pub const ANIM_SLIDE              = 19         // S3K AniKnuckles (frame $CC) — belly slide
 pub const ANIM_SLIDE_GETUP        = 20         // S3K AniKnuckles22 ($CD) — rising from a slide
 pub const ANIM_GLIDE_LAND         = 21         // S3K AniKnuckles23 ($9C) — get-up from a hard glide-fall land
-pub const ANIM_COUNT              = 22         // sonic_anims.emp asserts entry count == this
+// Knuckles' climb + ledge (Task 11). The climb CYCLES mapping frames $B7..$BC
+// directly from the state body (1 frame / 4, backward when descending) and the ledge
+// runs the 4-step clamber script from the body too, so both are 1-frame anchor scripts
+// whose only job is to land the initial frame once via the anim-changed path — the
+// bodies then pin anim_timer so AnimateSprite never advances them.
+pub const ANIM_CLIMB              = 22         // S3K climb cycle anchor (frame $B7)
+pub const ANIM_LEDGE              = 23         // S3K clamber anchor (frame $BD)
+pub const ANIM_COUNT              = 24         // sonic_anims.emp asserts entry count == this
 // The glide turn poses must be a contiguous 5-id run so the classifier's index math
 // (Glide_Pose_Table8 -> ANIM_GLIDE_0 + i) stays in range.
 ensure(ANIM_GLIDE_1 == ANIM_GLIDE_0 + 1 && ANIM_GLIDE_2 == ANIM_GLIDE_0 + 2 && ANIM_GLIDE_3 == ANIM_GLIDE_0 + 3 && ANIM_GLIDE_4 == ANIM_GLIDE_0 + 4, "ANIM_GLIDE_0..4 must be contiguous — the glide pose classifier indexes them as ANIM_GLIDE_0 + turn_index")

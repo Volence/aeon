@@ -82,6 +82,8 @@ offsets Ani_Sonic {
     Slide:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     SlideGetUp:[u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     GlideLand: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Climb:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Ledge:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
 }
 // keeps the NEXT table (Ani_Particle, word-read) even — inert today
 // (the packed total is even) but guards body edits.
@@ -110,4 +112,6 @@ ensure(Ani_Sonic.GlideFall == extern("ANIM_GLIDEFALL"), "GlideFall ordinal drift
 ensure(Ani_Sonic.Slide == extern("ANIM_SLIDE"), "Slide ordinal drifted from ANIM_SLIDE")
 ensure(Ani_Sonic.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
 ensure(Ani_Sonic.GlideLand == extern("ANIM_GLIDE_LAND"), "GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_Sonic.Climb == extern("ANIM_CLIMB"), "Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_Sonic.Ledge == extern("ANIM_LEDGE"), "Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_Sonic.count == extern("ANIM_COUNT"), "Ani_Sonic entry count drifted from ANIM_COUNT")

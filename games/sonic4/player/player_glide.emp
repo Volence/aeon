@@ -121,11 +121,10 @@ pub proc PState_Glide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbra    Player_SetState
 
 .hit_wall:
-        // TASK 10 INTERIM — S3K's own `.fail` path (sonic3k.asm:30890): enter the fall,
-        // radii restored by the enter hook. Task 11 REPLACES this one branch with the
-        // wall-catch → PSTATE_CLIMB; nothing else here changes.
-        moveq   #PSTATE_GLIDEFALL, d0
-        jbra    Player_SetState
+        // Glide into a wall → the wall-catch (player_climb): both-flush pair OR the 12px
+        // floor-lip fallback → PSTATE_CLIMB; otherwise it enters GLIDEFALL itself (S3K's
+        // `.fail`). This replaces the Task-10 interim fall.
+        jbra    Knuckles_Gliding_WallCatch
 
 .on_object:
         clr.b   angle(a0)                       // the object top is flat

@@ -60,11 +60,11 @@ type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 use games.sonic4.constants.{
     PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP,
     PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY,
-    PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, PSTATE_COUNT,
+    PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, PSTATE_CLIMB, PSTATE_LEDGE, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
     ANIM_FLY, ANIM_FLY_TIRED,
-    ANIM_GLIDE_0, ANIM_GLIDEFALL, ANIM_SLIDE,
+    ANIM_GLIDE_0, ANIM_GLIDEFALL, ANIM_SLIDE, ANIM_CLIMB, ANIM_LEDGE,
     ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
 }
 
@@ -76,7 +76,7 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 21 of 30
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 26 of 30
 // usable bytes — the sst_custom window is 32 bytes at $30 and its tail word
 // $4E-$4F is the engine-owned SST_interact).
 // This module owns the overlay outright (player_common.asm deleted); the
@@ -107,9 +107,11 @@ pub vars PlayerV: Sst.sst_custom {
         // --- ABILITY SCRATCH: the per-character airborne-ability working set.
         // These two bytes are a UNION, not Tails' private property: exactly one
         // character is resident per slot (Player_Chardef is the single resolved
-        // record), so Knuckles' glide and any later ability re-use the same bytes
-        // under their own names rather than each claiming fresh ones. The window
-        // has 30 game-usable bytes and PlayerV now spends 20.
+        // record), so Knuckles' glide/climb and any later ability re-use the same
+        // bytes under their own names rather than each claiming fresh ones. The
+        // language cannot express the union as byte-SHARING (every overlay starts at
+        // $30), so the fields are declared in place and this reads as a budget
+        // principle; the window has 30 game-usable bytes and PlayerV now spends 26.
         //
         // REPLAY-HASH DISCIPLINE — read this before touching them. The custom
         // window $30..$4D is hashed by engine/system/replay.emp, and the recorded
@@ -143,7 +145,23 @@ pub vars PlayerV: Sst.sst_custom {
         // only through CharDef_Knuckles.cd_ability / PSTATE_GLIDE, so Sonic's frame
         // never touches this address and Player_Init deliberately does NOT clear it.
         glide_angle:      u8,           // glide turn angle (S3K double_jump_property)
-        ability_pad:      u8,           // pad — keeps the overlay even
+
+        // Knuckles' climb + ledge scratch (Task 11), same UNION principle + replay-hash
+        // discipline as glide_angle above (only Knuckles' climb writes them; Sonic's
+        // frame never reaches these addresses, so Player_Init does NOT clear them).
+        knux_step:        u8,           // climb anim countdown (1 frame / 4) AND the ledge
+                                        // cursor (S3K double_jump_property doing double duty —
+                                        // the states are disjoint, so one byte is exactly right)
+        knux_timer:       u8,           // ledge-step frame timer — our own, because AnimateSprite
+                                        // owns Sst.anim_timer (S3K reuses anim_frame_timer)
+        climb_pad:        u8,           // pad — keeps knux_latch_x word-aligned
+        knux_latch_x:     i16,          // world X at the wall catch — the climb detaches if x_pos
+                                        // drifts off it (something pushed Knuckles off the wall).
+                                        // FLOATING-ORIGIN HAZARD: this is a WORLD coordinate. When
+                                        // the floating-origin rebase lands it MUST join the
+                                        // shift-list, or every rebase during a climb trips the
+                                        // drift guard and drops Knuckles off the wall (same class
+                                        // as the Player_Pos_Ring note in Task 8).
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
@@ -773,6 +791,21 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         move.b  #ANIM_SLIDE, anim(a0)
         rts
 .not_slide:
+        // CLIMB / LEDGE — the state body owns mapping_frame directly (it cycles the
+        // climb frames $B7..$BC / runs the clamber script and pins anim_timer so
+        // AnimateSprite stays on .done). The classifier just anchors `anim` to the
+        // matching 1-frame script so prev_anim stabilises after the first frame — the
+        // anim-changed path lands the initial frame once, then the body takes over.
+        cmpi.b  #PSTATE_CLIMB, d0
+        bne     .not_climb
+        move.b  #ANIM_CLIMB, anim(a0)
+        rts
+.not_climb:
+        cmpi.b  #PSTATE_LEDGE, d0
+        bne     .not_ledge
+        move.b  #ANIM_LEDGE, anim(a0)
+        rts
+.not_ledge:
         // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL). ST_ROLLING IS
         // "in ball form", so the test is the bit, not a state range — which is
         // what retires the PSTATE_* ordering constraint (config/constants.emp).
@@ -928,6 +961,8 @@ pub offsets Player_States {
         Glide:    PState_Glide,         // PSTATE_GLIDE (player_glide) — Knuckles only
         GlideFall:PState_GlideFall,     // PSTATE_GLIDEFALL (player_glide) — Knuckles only
         Slide:    PState_Slide,         // PSTATE_SLIDE (player_glide) — Knuckles only
+        Climb:    PState_Climb,         // PSTATE_CLIMB (player_climb) — Knuckles only
+        Ledge:    PState_Ledge,         // PSTATE_LEDGE (player_climb) — Knuckles only
 }
 ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
 
@@ -975,6 +1010,8 @@ pub offsets PState_EnterHooks {
                                         // runs at default radii) + set airborne. The
                                         // generalised EnsureStanding lifts feet-planted.
         Slide:    PHook_SlideEnter,     // SLIDE — keep the 10x10 ability box, grounded
+        Climb:    PHook_ClimbEnter,     // CLIMB — 10x10 ability box, attached to the wall (not airborne)
+        Ledge:    PHook_ClimbEnter,     // LEDGE — same box, mid-clamber
 }
 ensure(PState_EnterHooks.count == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
 
@@ -998,6 +1035,8 @@ pub offsets PState_ExitHooks {
         Glide:    PHook_Null,           // GLIDE — glide_angle seeded on ENTRY (Ability_KnuxGlide)
         GlideFall:PHook_Null,           // GLIDEFALL
         Slide:    PHook_Null,           // SLIDE
+        Climb:    PHook_Null,           // CLIMB — latch/step seeded at the wall catch
+        Ledge:    PHook_Null,           // LEDGE
 }
 ensure(PState_ExitHooks.count == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
 
@@ -1024,13 +1063,13 @@ pub proc PHook_AirEnter (a0: *Sst) clobbers(d1-d2/a1) { // uncurled airborne (d2
         rts
 }
 
-pub proc PHook_AirBallEnter (a0: *Sst) clobbers(d1/a1) { // JUMP / ROLLJUMP / AIRBALL
+pub proc PHook_AirBallEnter (a0: *Sst) clobbers(d1-d2/a1) { // JUMP / ROLLJUMP / AIRBALL (d2: EnsureBall shift)
         jbsr    PHook_EnsureBall
         bset    #ST_IN_AIR, status(a0)
         rts
 }
 
-pub proc PHook_RollEnter (a0: *Sst) clobbers(d1/a1) { // grounded ball — entered from
+pub proc PHook_RollEnter (a0: *Sst) clobbers(d1-d2/a1) { // grounded ball — entered from (d2: EnsureBall shift)
         jbsr    PHook_EnsureBall                // GROUND (roll start), SPINDASH
         bclr    #ST_IN_AIR, status(a0)          // (release), or a curled/down-
         rts                                     // held landing (air → cleared)
@@ -1044,6 +1083,12 @@ pub proc PHook_GlideEnter (a0: *Sst) clobbers(d1/a1) { // Knuckles' glide — ai
 
 pub proc PHook_SlideEnter (a0: *Sst) clobbers(d1/a1) { // belly slide — grounded,
         jbsr    PHook_EnsureAbility             // keeps the 10x10 box (idempotent)
+        bclr    #ST_IN_AIR, status(a0)
+        rts
+}
+
+pub proc PHook_ClimbEnter (a0: *Sst) clobbers(d1/a1) { // wall climb / ledge clamber —
+        jbsr    PHook_EnsureAbility             // 10x10 box, attached to the wall (not falling)
         bclr    #ST_IN_AIR, status(a0)
         rts
 }
@@ -1158,15 +1203,27 @@ pub proc PHook_EnsureAbility (a0: *Sst) clobbers(d1/a1) {
         rts
 }
 
-pub proc PHook_EnsureBall (a0: *Sst) clobbers(d1/a1) {
+// GENERALISED like EnsureStanding (§0 step 5): the feet-planted shift is computed
+// from the CURRENT height, (cur_h - roll_h) >> 1 SIGNED, so the climb jump-off
+// (ability box 21 -> ball box 29) shifts correctly instead of applying the
+// standing-based curl. Reproduces the standing->ball case byte-for-byte —
+// (39-29)>>1 = +5, identical to the retired curl_y_shift — so Sonic/Tails are
+// RAM-identical; ability->ball is (21-29)>>1 = -4 (a shorter box growing taller, the
+// centre rises 4px to keep the feet planted).
+pub proc PHook_EnsureBall (a0: *Sst) clobbers(d1-d2/a1) {
         bset    #ST_ROLLING, status(a0)
         movea.l Player_Chardef, a1
         move.w  size_wh_off()(a0), d1
         cmp.w   CharacterDef.cd_roll_wh(a1), d1
         beq     .keep                           // already curled
+        moveq   #0, d2
+        move.b  d1, d2                          // current height (d1 low byte)
+        sub.b   cd_roll_h_off()(a1), d2         // cur_h - roll_h (signed byte)
+        ext.w   d2                              // sign-extend byte -> word
+        asr.w   #1, d2                          // (cur_h - roll_h) >> 1, signed
         set_ball_size(a0, a1)
-        curl_y_shift(a1, d1)
-        add.l   d1, y_pos(a0)
+        swap    d2                              // px -> 16.16 (high word stays 0 -> new low word)
+        add.l   d2, y_pos(a0)
 .keep:
         rts
 }
