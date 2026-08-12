@@ -268,6 +268,23 @@ pub vars upper_ram {
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
     mark Parallax_State_End,
 
+    // --- Raster state (effects P1) — the sparse HInt dispatcher's working set
+    // (engine/effects/raster.emp). Its span is cross-checked there by an
+    // `ensure` against RASTER_STATE_SIZE, so a drift on either side fails the
+    // build. RASTER_BUF_SIZE is mirrored here as a literal because ram.emp
+    // cannot import a CODE module's consts (same constraint bg_anim.emp
+    // documents at BGANIM_MAX_BANDS); raster.emp is the authority.
+    mark Raster_State,
+    Raster_Program:     u32,        // installed compiled program (0 = none)
+    Raster_Cursor:      u32,        // HInt walk cursor into the active buffer
+    Raster_Pending:     u32,        // staged by Raster_Install, consumed at VBlank
+    Raster_Line:        u16,        // line the cursor's next entry group starts at
+    Raster_Buf_A:       [u8; 128],  // working copy (active)       — RASTER_BUF_SIZE
+    Raster_Buf_B:       [u8; 128],  // working copy (P2 patch seam) — RASTER_BUF_SIZE
+    Raster_Active_Buf:  u32,        // -> Raster_Buf_A or Raster_Buf_B
+    Raster_Pad:         u16,        // keeps the block even-sized; span-guarded
+    mark Raster_State_End,
+
     // Driver-keyed BG tile-band animation (engine/level/bg_anim.emp)
     BgAnim_LastStep:        [u16; BGANIM_MAX_BANDS],  // per band: last DMA'd step; -1 = none yet
 
