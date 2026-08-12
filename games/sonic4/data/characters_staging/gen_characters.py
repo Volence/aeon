@@ -28,8 +28,14 @@ CRAM line 0 (art/palettes/SonicAndTails.bin, the sonic_hack/S2-era order). Tails
 therefore rendered with a grey head and an orange body. The fix is a colour-
 lossless index permutation applied at build time — see `derive_palette_remap`
 and `remap_art_indices` below. Sonic's art is already in our order and is not
-produced here; Knuckles is NOT permutable (he uses an S3K colour our line lacks)
-and is deliberately left as a raw copy. See README.md "Palette re-indexing".
+produced here.
+
+KNUCKLES CANNOT BE BRIDGED ONTO SONICTAILS' LINE (he uses an S3K colour that line
+lacks), so he keeps his own CRAM line 0. But he IS permuted WITHIN that line
+(2026-08-12): KNUCKLES_LINE_PERMUTE swaps his grays into the shared effect-dust
+slots 4/6/7 so the shared skid/spindash/slide dust — which draws on line 0 at
+those indices — stays gray on him instead of inheriting his reds. It is applied
+identically to his art and his palette (a lossless relabel). See README.md.
 
 Usage:
   ./gen_characters.py [skdisasm_root]
@@ -89,8 +95,44 @@ PALETTE_REMAP_EXPECTED = {
 }
 # S3K index 5 ($0080, dark green) has no counterpart in our line 0. Tails uses it
 # ZERO times, so the permutation is lossless for him; Knuckles uses it ~3,450
-# times, which is why he cannot be fixed this way (docs/DEFERRED_WORK.md).
+# times, which is why he cannot be bridged onto SonicTails' line this way
+# (docs/DEFERRED_WORK.md).
 S3K_UNMAPPABLE_INDEX = 5
+
+# --- Knuckles' OWN-line permutation — the effect-dust fix ---------------------
+# Knuckles keeps his own CRAM line 0 (he cannot be re-indexed onto SonicTails' —
+# see above). But the shared effect-dust art (skid / spindash / belly-slide) draws
+# on line 0 at indices 4/6/7 as grays, and line 0 is the PER-CHARACTER line, so
+# those three slots must hold the SAME grays in the Knuckles palette as in
+# SonicTails or the dust recolours to his reds (user screenshot). His grays sat at
+# 12/1/13; this INVOLUTION swaps them into 4/6/7 (and the displaced colours back
+# out), applied IDENTICALLY to his art and his palette so the swap is a pure
+# relabel — lossless, nothing lost, no ROM-size delta. Identity elsewhere.
+# games/sonic4/data/characters/knuckles_data.emp re-checks the invariant at build.
+KNUCKLES_LINE_PERMUTE = {i: i for i in range(16)}
+KNUCKLES_LINE_PERMUTE.update({4: 12, 12: 4, 6: 1, 1: 6, 7: 13, 13: 7})
+# The line-0 slots the shared dust art draws through (index 0 = transparent).
+DUST_SHARED_SLOTS = (4, 6, 7)
+
+
+def permute_cram_line(data, table):
+    """Relabel the first 16-entry CRAM line of `data` by `table`.
+
+    Pairs with remap_art_indices, which sends pixel value i -> table[i]: for the
+    displaced palette to still show the right colour, slot i must inherit the
+    colour that used to live at table[i], i.e. new[i] = old[table[i]]. `table`
+    must be a permutation of 0..15 (asserted); an involution round-trips cleanly.
+    Only the first 32 bytes (line 0) are touched; any trailing lines pass through.
+    """
+    if len(data) < 32:
+        raise AssertionError(f"palette too short to permute ({len(data)} bytes)")
+    if sorted(table.keys()) != list(range(16)) or sorted(table.values()) != list(range(16)):
+        raise AssertionError("permute_cram_line: table is not a permutation of 0..15")
+    words = [struct.unpack_from('>H', data, i * 2)[0] for i in range(16)]
+    out = bytearray(data)
+    for i in range(16):
+        struct.pack_into('>H', out, i * 2, words[table[i]])
+    return bytes(out)
 
 
 # ---------------------------------------------------------------------------
@@ -628,17 +670,21 @@ def main():
         f"{S}/Tails/DPLC - Tails tails.asm",
         f"{S}/Tails/Anim - Tails Tail.asm",
         out / "tails", report, remap=remap)
-    # ---- Knuckles — NOT re-indexed. He uses S3K index 5 ($0080), a colour our
-    #      line 0 does not carry at all, so no permutation is lossless for him;
-    #      he needs a genuine palette swap (S3K swaps Pal_Knuckles into line 0).
-    #      Staged raw, deliberately. See docs/DEFERRED_WORK.md. ----
+    # ---- Knuckles — NOT bridged onto SonicTails' line (he uses S3K index 5
+    #      $0080, a colour that line does not carry), so he keeps his OWN CRAM
+    #      line 0 and S3K swaps Pal_Knuckles in for him. He IS permuted within
+    #      that line, though: KNUCKLES_LINE_PERMUTE swaps his grays into the
+    #      shared effect-dust slots 4/6/7 (see the constant) — a lossless relabel
+    #      of art + palette so the shared dust stays gray on him. optimize=False
+    #      because his contiguous art overruns the DPLC's 12-bit tile_start (see
+    #      below). See docs/DEFERRED_WORK.md. ----
     process_set(
         sk, "knuckles",
         f"{S}/Knuckles/Art/Knuckles.bin",
         f"{S}/Knuckles/Map - Knuckles.asm",
         f"{S}/Knuckles/DPLC - Knuckles.asm",
         f"{S}/Knuckles/Anim - Knuckles.asm",
-        out / "knuckles", report, optimize=False)
+        out / "knuckles", report, remap=KNUCKLES_LINE_PERMUTE, optimize=False)
 
     # ---- Animation intermediate JSON (deferred format decision) ----
     anim_specs = [
@@ -655,10 +701,25 @@ def main():
         jpath.write_text(json.dumps(obj, indent=2, sort_keys=False) + "\n")
 
     # ---- Palettes (copy; document sharing in README) ----
+    # Main.bin is line-permuted the SAME way as his art (KNUCKLES_LINE_PERMUTE),
+    # so his grays land in the shared effect-dust slots 4/6/7 and the shared dust
+    # stays gray on him. Then assert those slots now equal SonicTails' — the exact
+    # invariant knuckles_data.emp re-checks against the shipped blobs, caught here
+    # first with the clearer message. SSZ End.bin is a cutscene palette, not
+    # build-consumed, and is copied raw.
     pal_out = out / "palettes"
     pal_out.mkdir(parents=True, exist_ok=True)
-    (pal_out / "knuckles_main.bin").write_bytes(
-        (sk / f"{S}/Knuckles/Palettes/Main.bin").read_bytes())
+    _knux_main = permute_cram_line(
+        (sk / f"{S}/Knuckles/Palettes/Main.bin").read_bytes(), KNUCKLES_LINE_PERMUTE)
+    _knux_words = [struct.unpack_from('>H', _knux_main, i * 2)[0] for i in range(16)]
+    for _s in DUST_SHARED_SLOTS:
+        if _knux_words[_s] != ours_pal[_s]:
+            raise AssertionError(
+                f"Knuckles line-0 slot {_s} = ${_knux_words[_s]:04X} after "
+                f"KNUCKLES_LINE_PERMUTE, but SonicTails carries ${ours_pal[_s]:04X} "
+                "there — the shared effect-dust slots no longer agree. The permute "
+                "or one of the two source palettes changed; re-rule before shipping.")
+    (pal_out / "knuckles_main.bin").write_bytes(_knux_main)
     (pal_out / "knuckles_ssz_end.bin").write_bytes(
         (sk / f"{S}/Knuckles/Palettes/SSZ End.bin").read_bytes())
 

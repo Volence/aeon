@@ -74,6 +74,33 @@ ensure(_pal_sonic_tails.len == 32, "Pal_SonicTails must be exactly one 16-entry 
 ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line (32 bytes)")
 
 // -----------------------------------------------
+// EFFECT-DUST SHARED LINE-0 SLOTS — the convention that keeps the dust gray for every
+// character (the fix for it rendering RED as Knuckles, user screenshot).
+//
+// The shared dust art (skid / spindash / belly-slide — DustPuff + DustSpindash) draws on
+// CRAM LINE 0 at palette indices 4, 6, 7 (index 0 = transparent), authored as grays.
+// Line 0 is the PER-CHARACTER line (CharacterDef.cd_palette), so those indices must hold
+// the SAME colours in EVERY character palette or the dust inherits whatever that
+// character carries there. Sonic/Tails carry the grays natively at 4/6/7; Knuckles' own
+// grays sat at 12/1/13, so his palette + art were permuted (swap 4<->12, 6<->1, 7<->13,
+// applied to art/palettes/knuckles.bin AND art/optimized/characters/knuckles.bin via the
+// same nibble re-index remap_art_indices uses — LOSSLESS, he uses all 16 of his own
+// colours) so his 4/6/7 now match. HUD/rings are on line 1 (unaffected); the Tails
+// appendage rides line 0 only while Tails is active, so it needs no Knuckles alignment.
+//
+// THE BUILD-TIME ENFORCEMENT: every character palette must AGREE with the dust's
+// authoring reference (Pal_SonicTails) at idx 4/6/7. A new character palette (or a
+// re-export) that stomps these slots fails HERE, loudly — never a quiet recolour.
+// idx N = CRAM word at bytes 2N..2N+1 (big-endian).
+// -----------------------------------------------
+ensure((_pal_knux[8]  << 8 | _pal_knux[9])  == (_pal_sonic_tails[8]  << 8 | _pal_sonic_tails[9]),
+       "Pal_Knuckles idx4 must match Pal_SonicTails — the shared effect-dust slot (skid/spindash/slide draw gray there)")
+ensure((_pal_knux[12] << 8 | _pal_knux[13]) == (_pal_sonic_tails[12] << 8 | _pal_sonic_tails[13]),
+       "Pal_Knuckles idx6 must match Pal_SonicTails — the shared effect-dust slot (the dust's dominant colour)")
+ensure((_pal_knux[14] << 8 | _pal_knux[15]) == (_pal_sonic_tails[14] << 8 | _pal_sonic_tails[15]),
+       "Pal_Knuckles idx7 must match Pal_SonicTails — the shared effect-dust slot")
+
+// -----------------------------------------------
 // THE VRAM WALL — the peak comes from the DATA, not from a comment.
 //
 // Knuckles shares the single character DPLC window with Sonic and Tails (only one
