@@ -312,7 +312,7 @@ Encode bands' factors as `(shift1, shift2, op)` byte triples in ROM data; runtim
 ### 2.4 Memory Access
 
 - **PC-relative for ROM reads.** `move.w Table(pc), d0` saves 2 bytes and 4 cycles vs absolute. Use for all ROM data within ±32KB. Batman & Robin uses 986 PC-relative references.
-- **Word-align everything.** The 68000 bus is 16-bit. Unaligned word/long access causes an address error (crash). Use `even` after any byte data.
+- **Word-align everything.** The 68000 bus is 16-bit. Unaligned word/long access causes an address error (crash). Use `align 2` after any byte data. (The `.emp` front-end does not implement `even` at all — `even` is the AS residual spelling for `align 2`; data items also take an `(align: N)` attribute, e.g. `pub data T (align: 2) = ...`.) A `proc` or word/long data item landing at an odd address is the `[layout.odd-item]` diagnostic — error for procs, warning for data.
 - **Prefer `(a0)+` post-increment.** Sequential reads with `(a0)+` are the fastest access pattern — 0 extra cycles vs base addressing.
 - **Avoid `(d0.w, a0)` in tight loops.** Indexed addressing = 10 extra cycles. Pre-compute the effective address with `lea` outside the loop.
 
@@ -358,7 +358,7 @@ Rules:
 
 **Self-modifying immediates:** The 68000 has no instruction cache. Patching immediate values in instruction streams (e.g., writing a new value into the `#xxxx` field of a `move.w #xxxx,d0`) is safe and eliminates a memory load. Useful for per-frame constants like scroll base offsets, palette indices, or tile base addresses that change once per frame but are read many times. Cost: one `move.w` to patch vs one `move.w (a0),d0` per read — same speed but removes the pointer setup.
 
-**Word-align hot branch targets:** The 68000 fetches 16-bit words. Branch targets on odd word boundaries cost a wasted prefetch. Use `even` or `align 2` before frequently-hit labels — especially loop tops and hot-path branch destinations. Saves 4 cycles on taken branches to misaligned targets.
+**Word-align hot branch targets:** The 68000 fetches 16-bit words. Branch targets on odd word boundaries cost a wasted prefetch. Use `align 2` before frequently-hit labels — especially loop tops and hot-path branch destinations (AS spells this `even`). Saves 4 cycles on taken branches to misaligned targets.
 
 **LEA displacement chaining:** Instead of multiple `adda` operations, chain `lea`: `lea 8(a0),a1` then `lea 12(a1),a2`. LEA sets up the effective address in the calculation stage while ADDA stalls on the address bus. Useful when computing multiple derived pointers from a base.
 
@@ -688,7 +688,7 @@ Default: no comments. Code should be self-documenting through naming.
 
 ### 6.1 Alignment
 
-- Word-align ALL word and long data. Use `even` after any byte sequence.
+- Word-align ALL word and long data. Use `align 2` after any byte sequence (`even` in residual `.asm`), or the `(align: N)` attribute on a `data` item.
 - Long-align data that will be accessed with `move.l` in tight loops.
 - Tables indexed by shift or multiply must be at addresses the indexing can reach.
 
@@ -709,7 +709,7 @@ Section_0_0_Objects:
         dc.w    $0180
         dc.b    OBJ_BADNIK, $02
         dc.w    $0600
-        even
+        align 2
 ```
 
 ### 6.3 ROM Data Ordering
