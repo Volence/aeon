@@ -76,3 +76,40 @@ directly; oracle exposes CRAM/VRAM/VSRAM and CPU registers, not VDP registers.
 
 Deferred to Phase 2, where the water cluster supplies low-priority content that makes
 S/H observable by construction. Do not record S/H as visually proven on P1.
+
+---
+
+## Re-verification after the rebase onto master (character-dispatch + Knuckles)
+
+ROM: `s4.debug.bin` crc=`a3f4f13e` len=707280 (the ROM grew from 428 KB — the
+character-art tail exile), built against sigil master `14049a9c` (chain 102).
+
+**The raster split is byte-identical to the pre-rebase result.** Same method, same
+camera position (150 start + 240 right): exact-target rows 119..223, zero above row
+118, row 119 = 52, row 120 = 80. A pixel-for-pixel compare of the two framebuffers
+is **71680/71680 identical (100%)** — the rebase over 67+ commits of character work
+changed nothing observable about the raster path.
+
+## The character-palette invariant, verified directly
+
+The rebase surfaced that **CRAM line 0 is the CHARACTER line**, owned by
+`Player_ApplyCharacter` via `CharacterDef.cd_palette`. The original P1 consumer
+copied a full 128-byte image including line 0 on every boundary crossing, which
+would have repainted the active character mid-act (Knuckles reverting to Sonic's
+colours at the first boundary). Fixed: `sec_pal` is 96 bytes -> CRAM lines 1-3, and
+`Palette_Dirty` gets `%1110`, never bit 0.
+
+Tested by sentinel rather than by driving the character hotkey, which isolates the
+mechanism instead of depending on debug-mode state:
+
+1. Wrote `$0EEE` into all 16 entries of `Palette_Buffer` line 0 (standing in for a
+   character having set its own palette).
+2. Scrolled right across the boundary into section 2, which carries `OJZ_TestPal`.
+3. Read back at Camera_X = `$1115` (section 2):
+   - lines 1-3 = `0000 0020 0040 0060 0200 0220 0240 0460 ...` — the section palette
+     loaded, so the consumer definitely ran
+   - line 0 entries 1-15 = `$0EEE` — **the sentinel survived untouched**
+
+Entry 0 alone read `$0E00`, written by `ojz_scroll_test`'s own per-frame backdrop
+poke, not by the section consumer. Before the fix, all 16 entries would have been
+overwritten. This is the invariant the Knuckles palette round-trip depends on.
