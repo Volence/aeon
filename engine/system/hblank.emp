@@ -100,33 +100,62 @@ pub proc HBlank_Uninstall () clobbers(d0) {
 // ===========================================================================
 // SPARSE RASTER DISPATCHER (effects P1) — the trampoline's first consumer.
 //
-// The SPARSE tier of the two-tier raster engine: a line-sorted command list
-// walked by the HBlank handler, which fires ONLY on event lines. The dense tier
-// (gradient / per-column VSRAM runs) is Phase 2 and plugs in as new opcodes.
+// The SPARSE tier of the two-tier raster engine (design suite §4): a schedule of
+// per-scanline VDP work in which HInt fires ONLY on event lines. The dense tier
+// (gradient / per-column VSRAM runs) is Phase 2 and arrives as new opcodes.
+//
+// THE TIMING MODEL (docs/research/2026-08-12-raster-hint-survey.md, Ruling 1b —
+// read it before touching this code). The VDP reloads its internal line counter
+// from reg $0A *at the instant of underflow*, before the 68000 executes a single
+// handler instruction. So a write to $8Axx from inside handler `i` is NOT consumed
+// by the gap it is sitting in: it is consumed by the reload at fire `i+1`, and
+// therefore schedules gap(i+1 -> i+2). Naive "write next_line - cur_line - 1" is
+// off by a whole event.
+//
+// Two consequences shape the whole format:
+//   1. Each fire record carries a BUILD-TIME arm word = $8A00 | (L[i+2]-L[i+1]-1).
+//      The runtime never computes a delta and never compares a line number — the
+//      schedule IS the program order. (Build-time computation over runtime.)
+//   2. The program opens with TWO PRIMING records. Raster_VBlank leaves reg $0A = 0,
+//      so cheap no-op fires land on lines 0 and 1 and load the first two real arm
+//      words; every fire from the third onward lands exactly on its authored line.
+//      Real events therefore start at line >= 2 — lines 0-1 belong to the VBlank
+//      init words anyway.
+//
+// Fire lines are one line EARLY by construction: a register write in the handler
+// for fire-line L takes effect from L+1 (Ruling 1a/3a), so an effect authored to
+// begin at screen line M is scheduled at fire line M-1. The comptime constructors
+// own that -1 so authors think in screen lines.
 //
 // A compiled raster program is DATA — the Phase-3 `raster_dsl` and Aurora both
 // compile to exactly this layout:
 //
 //   Header
 //     dc.w pal_dirty_mask   bits 0-3: palette lines Raster_VBlank re-asserts into
-//                           Palette_Dirty EVERY frame, so a mid-frame CRAM write
-//                           is transient (base palette restored at frame top)
-//     dc.w init_count       N pre-composed $8xxx register words applied in VBlank
+//                           Palette_Dirty EVERY frame, so mid-frame CRAM writes are
+//                           transient (the base palette is restored at frame top)
+//     dc.w init_count       N pre-composed $8xxx words applied in VBlank
 //     dc.w init[N]          frame-top VDP state (e.g. S/H OFF before a mid-frame ON)
-//   Entries — sorted ascending by line; entries sharing a line are adjacent and
-//   all execute in the same interrupt.
-//     dc.w line             0..223
-//     dc.w op               byte offset into the .optable bra.w slots
-//     ...op args...
+//   Fire records, in FIRE ORDER (first two are the priming no-ops)
+//     dc.w arm_word         $8A00 | delta — written at THIS fire, schedules the gap
+//                           after next; RASTER_ARM_PARK on the last two real records
+//     dc.w op_count         ops to run at this fire (0 = priming / no-op)
+//     op_count x { dc.w op; ...args... }
 //   Terminator
-//     dc.w RASTER_LINE_END  ($7FFF — sorts last, never equals a real line)
-//     dc.w OP_END
+//     dc.w RASTER_ARM_PARK
+//     dc.w RASTER_OPS_END   ($FFFF — park the counter and do NOT advance)
 //
 // Op argument layouts:
 //   OP_SET_REG  dc.w $8xxx                  one VDP register word
-//   OP_CRAM     dc.l <vdp_comm CRAM write>  full command longword (ONE move.l)
-//               dc.w count-1                count <= RASTER_CRAM_MAX
+//   OP_CRAM     dc.l <vdp_comm CRAM write>   full command longword (ONE move.l)
+//               dc.w count-1                 count <= RASTER_CRAM_MAX
 //               dc.w color[count]
+//
+// CYCLE BUDGET (Ruling 2a): ~105 68k cycles from HINT-pending to the next line's
+// active display, less ~44 for autovector exception entry — about 60 usable. A CRAM
+// write outside that window paints a visible dot (single-ported CRAM, Ruling 2b),
+// which is why RASTER_CRAM_MAX is 3 and why the save set below is deliberately
+// small: a 4-register movem round trip alone would be 40 of those cycles.
 //
 // VDP-access invariant (the HBlankHandler note above): the handler runs in raw
 // interrupt context and writes the VDP control port, so it can corrupt a two-word
@@ -136,50 +165,62 @@ pub proc HBlank_Uninstall () clobbers(d0) {
 // command longwords in ONE move.l, so it never leaves a split pair of its own.
 // ===========================================================================
 
-// ---- opcodes: byte offsets into the .optable bra.w slots (4-byte slots, the
-// engine/objects/animate.emp:139 computed-jump idiom) ----
+// ---- opcodes (compare-chain dispatch; see the note in Raster_HInt for why this
+// is not a pc-indexed jump table) ----
 pub const OP_SET_REG = 0
-pub const OP_CRAM    = 4
-// OP_END exists for format completeness and debuggability. The walker never
-// dispatches it: END is detected by its LINE sentinel before the op is read, so
-// the terminator costs no table slot.
-pub const OP_END     = 8
+pub const OP_CRAM    = 2
 
-// Terminator line. Sorts after every real line (0..223) and can never compare
-// equal to the current line, so the walker's line test alone ends the frame.
-pub const RASTER_LINE_END = $7FFF
+// op_count sentinel: park the counter and do not advance the cursor. Reached only
+// by a stray fire (a counter that somehow wrapped), so it is defense, not flow.
+pub const RASTER_OPS_END = $FFFF
 
-// Colors per OP_CRAM entry. The VDP FIFO is 4 words deep and a mid-frame CRAM
-// burst that outruns HBlank paints visible "CRAM dots" on the next line, so the
-// sparse tier stays small; bulk palette work belongs to the Phase-2 dense tier.
+// reg $0A arm word that parks the counter past the end of the frame ($8A00|255):
+// the next fire would be 256 lines away, i.e. never within active display.
+pub const RASTER_ARM_PARK = $8AFF
+
+// Colors per OP_CRAM entry — a CYCLE budget (Ruling 2a), not a FIFO one.
 pub const RASTER_CRAM_MAX = 3
 
-// Working-buffer size (bytes) per copy. Buf_B is the Phase-2 patch/double-buffer
-// seam; P1 runs entirely out of Buf_A.
+// Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
+// P1 runs entirely out of Buf_A.
 pub const RASTER_BUF_SIZE = 128
-
-// VDP reg $0A ($8A00 | n) — "no further HInt this frame" parks the counter past
-// the end of active display; Raster_VBlank re-arms every frame regardless.
-const RASTER_COUNTER_PARK = $8AFF
-
-// HInt counter arming. The VDP reloads reg $0A after each fire, so the value
-// written is a DELTA in scanlines, less a bias that absorbs the reload's own
-// line. Two biases because the first arm happens from VBlank (no "current line")
-// while later arms happen from inside a handler at a known line.
-// Both are calibrated empirically on oracle (plan Task 4) — the survey's ruling
-// is the starting point, the emulator is the authority.
-pub const RASTER_ARM_BIAS   = 1         // in-handler: next_line - cur_line - BIAS
-pub const RASTER_FIRST_BIAS = 1         // VBlank: first_line - FIRST_BIAS
 
 // Raster_State span guard — the RAM block (engine/ram.emp) is the twin of this
 // layout; a drift on either side must fail the build, not the frame.
-ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
-       "Raster_State RAM block drifted from raster.emp's layout")
 pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2
+ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
+       "Raster_State RAM block drifted from hblank.emp's raster layout")
+
+// ---- comptime authoring helpers -------------------------------------------
+// These own the two off-by-one rules so authored programs read in SCREEN lines:
+//   * fire line = screen line - 1   (the effect lands on the line after the fire)
+//   * arm word at record i schedules gap(i+1 -> i+2)
+// The general constructors (and their validation) are Phase 3's `raster_dsl`;
+// what lives here is the minimum P1 needs plus the arithmetic's single authority.
+
+// raster_arm — the arm word to place in record i, given the FIRE lines of records
+// i+1 and i+2. Pass RASTER_ARM_PARK's operand (255) when there is no i+2.
+pub comptime fn raster_arm(next_fire: int, after_fire: int) -> int {
+    ensure(after_fire > next_fire,
+           "raster_arm: fire lines must strictly increase ({next_fire} -> {after_fire})")
+    ensure(after_fire - next_fire - 1 <= 255,
+           "raster_arm: gap {next_fire}->{after_fire} exceeds one counter reload")
+    return $8A00 | (after_fire - next_fire - 1)
+}
+
+// raster_fire_line — screen line an effect should begin on -> the fire line that
+// achieves it. Enforces the >= 2 floor the priming records impose.
+pub comptime fn raster_fire_line(screen_line: int) -> int {
+    // Floor is 3: fires 0/1 prime on lines 0-1, so the earliest real fire is 2,
+    // which lands its effect on screen line 3. Lines 0-2 are the init words' job.
+    ensure(screen_line >= 3 && screen_line <= 223,
+           "raster_fire_line: screen line {screen_line} outside 3..223")
+    return screen_line - 1
+}
 
 // -----------------------------------------------
 // Raster_Install — stage a compiled program; it takes effect at the next
-// Raster_VBlank (so an install can never tear a frame mid-walk).
+// Raster_VBlank, so an install can never tear a frame mid-walk.
 //   a0 = program (0 = clear/uninstall)
 // Main-loop context only.
 // -----------------------------------------------
@@ -200,15 +241,16 @@ pub proc Raster_Clear () clobbers(a0) {
 // -----------------------------------------------
 // Raster_VBlank — once per frame from VInt_Level AND VInt_Lag.
 //
-// MUST run BEFORE Flush_VDP_Shadow: HBlank_Install programs the HInt counter
-// through the VDP shadow + dirty mask, so the arm only reaches the hardware on
-// that frame's flush. Running after the flush would delay every arm by a frame.
+// MUST run BEFORE Flush_VDP_Shadow: HBlank_Install programs reg $0A through the
+// VDP shadow + dirty mask, so the arm only reaches the hardware on that frame's
+// flush (Ruling 1d). Running after the flush would delay every arm by a frame.
 // It also ORs the program's pal_dirty_mask into Palette_Dirty, which must land
-// before Enqueue_Dirty_Buffers reads the mask (Flush precedes Enqueue, so a
-// pre-Flush position satisfies both orderings).
+// before Enqueue_Dirty_Buffers reads the mask — Flush precedes Enqueue, so a
+// pre-Flush position satisfies both orderings.
 //
-// Consumes a pending install, re-asserts frame-top register state, resets the
-// walk cursor, and arms the first HInt of the frame.
+// Consumes a pending install, re-asserts frame-top register state, rewinds the
+// cursor to the first (priming) record, and leaves reg $0A = 0 so the pipeline
+// primes on lines 0 and 1.
 // -----------------------------------------------
 pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         move.l  Raster_Pending, d0
@@ -243,16 +285,12 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         move.w  (a1)+, (a2)             // frame-top $8xxx register words
         dbf     d1, .init
     .init_done:
-        move.l  a1, Raster_Cursor       // first entry
-        move.w  (a1), d1                // its line
-        cmpi.w  #RASTER_LINE_END, d1
-        beq.s   .done                   // empty program: never arm
-        move.w  d1, Raster_Line
-        subq.w  #RASTER_FIRST_BIAS, d1
-        move.w  d1, d0                  // d0.b = HInt line counter
+        move.l  a1, Raster_Cursor       // first (priming) fire record
+        // reg $0A = 0 primes the pipeline: no-op fires on lines 0 and 1 load the
+        // first two real arm words. Re-installed every frame on purpose — it is
+        // idempotent and it heals the counter the last record parked at $8AFF.
+        moveq   #0, d0
         lea     Raster_HInt, a0
-        // Re-installed every frame on purpose: idempotent, and it heals the
-        // counter that .disarm parked at the end of the previous frame.
         jbsr    HBlank_Install
     .done:
         rts
@@ -261,66 +299,48 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
 // -----------------------------------------------
 // Raster_HInt — the IRQ4 handler, entered by `jmp` from HBlank_Vector_Slot.
 //
-// Interrupt-transparent per the HBlankHandler contract (hblank.emp:43): saves and
-// restores every register it touches and terminates with `rte`.
+// Interrupt-transparent per the HBlankHandler contract: observable clobbers are
+// EMPTY, the movem round trip is declared by preserves(), and it ends in `rte`.
 //
-// Executes every entry whose line matches the current one, then reprograms reg
-// $0A with the delta to the next entry's line.
+// Per fire: publish this record's build-time arm word (FIRST — it is the one write
+// that must not be lost, and it schedules gap(i+1 -> i+2) per Ruling 1b), then run
+// this record's ops, then advance the cursor. No line compares, no delta math.
 // -----------------------------------------------
-// Observable clobbers are EMPTY (interrupt transparency, the HBlankHandler
-// contract); the movem round-trip is declared by preserves(), exactly as
-// VBlank_Handler does it.
 pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         movem.l d0-d1/a1-a2, -(sp)
         movea.l Raster_Cursor, a1
         lea     VDP_CTRL, a2
-    .next:
-        move.w  (a1)+, d0               // entry line
-        cmpi.w  #RASTER_LINE_END, d0
-        beq.s   .disarm
-        cmp.w   Raster_Line, d0
-        bne.s   .rearm                  // first entry belonging to a later line
-        move.w  (a1)+, d0               // op
-        // Two-op compare chain rather than a pc-indexed jump table: with this few
-        // opcodes it is FEWER cycles than the table setup, and it keeps the handler
-        // analyzable (a computed `jmp` defeats the closure gate's dataflow, which is
-        // zero-firing by contract for this family). Revisit if the sparse tier ever
-        // grows enough opcodes to make a table pay — the opcodes stay byte offsets
-        // so a table can drop back in without touching the program format.
-        cmpi.w  #OP_CRAM, d0
+        move.w  (a1)+, (a2)             // arm word -> reg $0A (consumed at fire i+1)
+        move.w  (a1)+, d0               // op_count
+        cmpi.w  #RASTER_OPS_END, d0
+        beq.s   .park                   // terminator: stray fire, do not advance
+        subq.w  #1, d0
+        bmi.s   .advance                // priming / no-op record
+    .op_loop:
+        move.w  (a1)+, d1               // op
+        // Two-op compare chain rather than a pc-indexed jump table: at this few
+        // opcodes it is fewer cycles than the table setup, and it keeps the handler
+        // analyzable — a computed `jmp` defeats the contract-closure dataflow, and
+        // proc.clobber-undeclared is zero-firing by contract. The opcodes stay byte
+        // offsets so a table can drop back in without touching the program format.
+        cmpi.w  #OP_CRAM, d1
         beq.s   .op_cram
-    .op_set_reg:
-        move.w  (a1)+, (a2)             // one $8xxx register word
-        jbra    .next
-
+        // OP_SET_REG — one $8xxx word
+        move.w  (a1)+, (a2)
+        dbf     d0, .op_loop
+        jbra    .advance
     .op_cram:
         move.l  (a1)+, (a2)             // full CRAM command in ONE move.l
         move.w  (a1)+, d1               // count-1
     .cram_loop:
         move.w  (a1)+, VDP_DATA
         dbf     d1, .cram_loop
-        jbra    .next
-
-    .rearm:
-        subq.l  #2, a1                  // un-consume the peeked line word
+        dbf     d0, .op_loop
+    .advance:
         move.l  a1, Raster_Cursor
-        move.w  Raster_Line, d1         // the line just serviced
-        move.w  d0, Raster_Line         // becomes "current" at the next fire
-        sub.w   d1, d0                  // delta in scanlines
-        subq.w  #RASTER_ARM_BIAS, d0
-        andi.w  #$00FF, d0
-        ori.w   #$8A00, d0
-        move.w  d0, (a2)
         jbra    .out
-
-    .disarm:
-        move.w  #RASTER_COUNTER_PARK, (a2)
-        // Cursor is reset unconditionally by Raster_VBlank's .init_done, so this
-        // is redundant defense — kept because it is two cycles and makes a stray
-        // fire (a counter that somehow wraps) walk a terminator, not garbage.
-        subq.l  #2, a1
-        move.l  a1, Raster_Cursor
-
+    .park:
+        move.w  #RASTER_ARM_PARK, (a2)
     .out:
         movem.l (sp)+, d0-d1/a1-a2
         rte
