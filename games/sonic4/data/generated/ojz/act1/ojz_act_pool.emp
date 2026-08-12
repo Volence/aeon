@@ -2,8 +2,10 @@
 // OJZ Act 1 act-wide paged art pool: per-page ZX0/raw blob embeds + the
 // manifest v2 table [PageManifest;N] the loader strides by page number
 // ({source, tiles, form, flags}). Natively placed at the ojz_act_pool section;
-// consumed by act_descriptor.emp (OJZ_Act_Pool_PageTable). Pages are
-// even-length — no inter-page padding.
+// consumed by act_descriptor.emp (OJZ_Act_Pool_PageTable). Page blobs are
+// PADDED to even length at generation (one dead byte past the ZX0 end
+// marker) — an odd blob once landed the table at an odd address -> boot
+// AddressError (2026-08-12). sigil does not auto-align data decls.
 module games.sonic4.ojz_act_pool_act1 in ojz_act_pool
 
 use engine.structs.{PageManifest}
@@ -27,7 +29,7 @@ pub data OJZ_Act_Pool_PageTable: [PageManifest; 10] = [
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page4"), pm_tiles: 64, pm_form: 0, pm_flags: 0 },
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page5"), pm_tiles: 64, pm_form: 0, pm_flags: 0 },
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page6"), pm_tiles: 64, pm_form: 0, pm_flags: 0 },
-  PageManifest{ pm_source: extern("OJZ_Act_Pool_Page7"), pm_tiles: 64, pm_form: 0, pm_flags: 0 },
+  PageManifest{ pm_source: extern("OJZ_Act_Pool_Page7"), pm_tiles: 64, pm_form: 0, pm_flags: 1 },
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page8"), pm_tiles: 64, pm_form: 0, pm_flags: 1 },
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page9"), pm_tiles: 36, pm_form: 0, pm_flags: 1 },
 ]
