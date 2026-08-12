@@ -321,35 +321,19 @@ pub data OJZ_TestRaster: [u16; 18] = [
     $8AFF, RASTER_OPS_END,      // terminator — reached only by a stray fire
 ]
 
-// OJZ_FullPalette — the act's FULL 128-byte CRAM image, which is what the engine's
-// per-section palette contract wants (ARCH §4: a full 4-line CRAM copy, instant
-// load). OJZ's palette data ships as two halves — the shared/HUD palette at CRAM
-// line 0 (32 B) and the act palette at lines 1-3 (96 B) — which ojz_scroll_test.emp
-// used to load with two separate hand-written copy loops. Concatenating them here
-// gives sec_pal one conformant blob and makes init and the boundary crossing agree
-// by construction.
+// OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
+// "did sec_pal load on the crossing?" is answerable from one CRAM read or
+// screenshot. Not a tinted copy of the real palette: a subtle shift would make a
+// NEGATIVE result (consumer never ran) look like a positive one.
 //
-// Re-embedded here rather than re-homed in act_assets.emp on purpose: that module's
-// FIRST pub data is its section head-label, so reordering it to put line 0 first
-// renames the head — which would have to be re-declared in map.toml AND re-derived
-// in the frozen boundary tables. 128 duplicated bytes is the cheaper trade.
-// Adjacency is load-bearing, so it is guarded, not assumed.
-pub data OJZ_FullPalette         = embed("art/palettes/SonicAndTails.bin")
-pub data OJZ_FullPalette_Lines13 = embed("games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
-ensure(extern("OJZ_FullPalette_Lines13") - extern("OJZ_FullPalette") == 32,
-       "the line-0 half must be exactly 32 B and immediately precede the lines-1-3 half — sec_pal reads the pair as one 128-byte CRAM image")
-
-// OJZ_TestPal — a deliberately unmistakable 64-colour palette for the adjacent
-// section, so "did sec_pal load on the crossing?" is answerable from one CRAM
-// read or screenshot. Not a tinted copy of the real palette: a subtle shift would
-// make a NEGATIVE result (consumer never ran) look like a positive one.
-// Ramp: colour 0 black, then a blue-dominant sweep across all four lines.
-// No index-0 special case is needed: the formula already yields 0 there, which is
-// exactly the black backdrop colour 0 wants.
-comptime fn test_palette() -> [u16; 64] {
-    return comptime for i in 0..64 {
-        (((i * 14) / 63) << 9) | (((i & 3) * 2) << 4)
+// 48 words = 96 bytes = CRAM lines 1-3, matching the sec_pal contract. It must NOT
+// cover line 0: that is the character's line (CharacterDef.cd_palette), and a
+// section palette that overwrote it would repaint the active character on every
+// boundary crossing.
+comptime fn test_palette() -> [u16; 48] {
+    return comptime for i in 0..48 {
+        (((i * 14) / 47) << 9) | (((i & 3) * 2) << 4)
     }
 }
 
-pub data OJZ_TestPal: [u16; 64] = test_palette()
+pub data OJZ_TestPal: [u16; 48] = test_palette()
