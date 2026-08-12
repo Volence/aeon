@@ -26,6 +26,10 @@ use engine.constants.{COLLECTED_MASK_BYTES, TILE_SIZE}
 // The two fixed VDP tables the character/appendage VRAM allocations below are
 // walled against — read from the engine, never restated as literals here.
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, MAX_VDP_SPRITES}
+// The generated vram-map block's authority cross-checks reference these engine
+// names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
+use engine.constants.{POOL_TILE_CEILING, BG_TILE_CAPACITY, BG_TILE_BASE_VRAM,
+                      VRAM_PLANE_A, VRAM_PLANE_B, VRAM_WINDOW}
 
 // Game state ids
 pub const GS_OBJECT_TEST          = 2
@@ -203,47 +207,61 @@ pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwri
 pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed, entries NOT word-aligned)
 
 // -----------------------------------------------
-// Test VRAM allocation
+// VRAM allocation — VALUES are generated from games/sonic4/vram.toml
 // -----------------------------------------------
-// tile 992 — test object art (8 tiles) at the end of the character DPLC window
-// (960..991) and below the BG shared region base (1024). This address IS the
-// character window's hard wall: tails_data.emp / collision_data.emp `ensure` each
-// character's measured peak DPLC frame stays under it.
-pub const VRAM_TEST_OBJ           : VramTile = $03E0
+// The rationale prose below is hand-owned; the constants and their walls are
+// emitted by tools/gen_vram_map.py between the markers. Edit the TOML, then
+// regenerate — never the block. The full map: docs/generated/vram-map-sonic4.md.
+//
+// VRAM_TEST_OBJ (tile 992): test object art (8 tiles) at the end of the
+// character DPLC window (960..991), below the BG shared region base (1024).
+// This address IS the character window's hard wall: tails_data.emp /
+// collision_data.emp `ensure` each character's measured peak DPLC frame stays
+// under it.
 // VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the S3K ring-art base:
 // a GAME->ENGINE `-D` interface value (DrawRings, rings.emp, renders every ring
 // from it) homed in native.rs `emp_defines` (game-varying), NOT declared here — the
-// same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER.
-// tile 1016 — debug-fly marker (2x2 = 4 tiles) in the free gap below the BG region
-// (1024). VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8) + 16. Must NOT sit inside the
-// act art pool (every pool slot is referenced FG art — see POOL_TILE_CEILING) nor in
-// the ring sprite's 1000-1003 span.
-pub const VRAM_TEST_MARKER        : VramTile = VRAM_TEST_OBJ + $18
-// tile 960 — THE character DPLC window: 32 tiles, 960 up to the VRAM_TEST_OBJ
-// wall at 992. Every playable character streams his current frame's art here, so
-// it is sized by the LARGEST peak frame across the cast, not by any one of them
-// (Sonic peaks at 29 tiles, ending 989; Tails at 24). Only one character is
-// resident at a time, so they share it rather than each taking a window.
-// MUST stay clear of: the act art pool (tiles 0..POOL_TILE_CEILING-1), the
-// test-obj/ring/marker span (992-1007), BG region (1024+), SAT/HScroll/planes.
-// The peak-vs-wall check is a comptime `ensure` per character data module
+// same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER. The vram.toml records it as a
+// sigil-D authority; T1's define emission makes the TOML feed it.
+// VRAM_TEST_MARKER (tile 1016): debug-fly marker (2x2 = 4 tiles) in the free gap
+// below the BG region (1024). Must NOT sit inside the act art pool (every pool
+// slot is referenced FG art — see POOL_TILE_CEILING) nor in the ring sprite's
+// 1000-1015 span.
+// VRAM_TEST_SONIC (tile 960): THE character DPLC window — 32 tiles, 960 up to the
+// VRAM_TEST_OBJ wall at 992. Every playable character streams his current frame's
+// art here, so it is sized by the LARGEST peak frame across the cast, not by any
+// one of them (Sonic peaks at 29 tiles, ending 989; Tails at 24). Only one
+// character is resident at a time, so they share it rather than each taking a
+// window. The peak-vs-wall check is a comptime `ensure` per character data module
 // (collision_data.emp for Sonic, tails_data.emp for Tails), derived from the
-// DPLC blob itself — it was only ever a comment here, and a comment does not
-// catch an art re-export that grew.
-pub const VRAM_TEST_SONIC         : VramTile = $03C0
-
-// tile 1492 — the Tails twin-tail APPENDAGE's own DPLC window (9 tiles needed),
-// in the 12-tile gap between the sprite attribute table and the HScroll table.
-// It needs its own window because the appendage is a SECOND simultaneously
+// DPLC blob itself. GROW this window in place (raise tiles in the TOML, base
+// held); MOVING the base re-stamps the replay fixtures (art_tile is hashed).
+// VRAM_TAILS_APPENDAGE (tile 1492): the twin-tail appendage's own DPLC window
+// (9 tiles) in the 12-tile gap between the sprite attribute table and the HScroll
+// table. It needs its own window because the appendage is a SECOND simultaneously
 // resident sprite: body + tails are both on screen every frame, so they cannot
-// take turns in the character window above.
-// Clear of: the SAT, which ends at VRAM_SPRITE_TABLE + MAX_VDP_SPRITES*8 =
-// $BA80 = tile 1492 (80 sprites x 8 bytes = 640 is the whole table — the
-// per-frame SAT DMA only ever shortens it, never extends past 640); and the
-// HScroll table at $BC00 = tile 1504. Both walls are checked below rather than
-// restated as numbers, so relocating either one re-checks this allocation.
-pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4
-ensure(VRAM_TAILS_APPENDAGE * TILE_SIZE >= VRAM_SPRITE_TABLE + MAX_VDP_SPRITES * 8,
-       "VRAM_TAILS_APPENDAGE overlaps the sprite attribute table")
-ensure(VRAM_TAILS_APPENDAGE * TILE_SIZE < VRAM_HSCROLL_TABLE,
-       "VRAM_TAILS_APPENDAGE starts at or past the HScroll table")
+// take turns in the character window above. The generated walls check both
+// neighbours, so relocating either re-checks this allocation.
+// >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<
+// Emitted from games/sonic4/vram.toml — edit THAT, then run:
+//   python3 tools/gen_vram_map.py --game sonic4
+// The map doc: docs/generated/vram-map-sonic4.md
+pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..991 (32), act, owner games.sonic4.player
+pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
+pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 1016..1019 (4), mode, owner games.sonic4.player_common
+pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
+// Authority cross-checks — the engine constant vs the declared map:
+ensure(POOL_TILE_CEILING == 960, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
+ensure(BG_TILE_CAPACITY == 448, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
+ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_HSCROLL_TABLE == $BC00, "vram.toml hscroll_table drifted from engine VRAM_HSCROLL_TABLE — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_A — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_PLANE_B == $E000, "vram.toml plane_b drifted from engine VRAM_PLANE_B — edit games/sonic4/vram.toml and regenerate")
+ensure(VRAM_WINDOW == $F000, "vram.toml window_plane drifted from engine VRAM_WINDOW — edit games/sonic4/vram.toml and regenerate")
+// Walls — regeneration re-checks every adjacency:
+ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
+ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
+ensure(VRAM_TEST_MARKER + 4 <= $0400, "test_marker runs into bg_region")
+ensure(VRAM_TAILS_APPENDAGE + 9 <= $05E0, "tails_appendage runs into hscroll_table")
+// <<< GENERATED: vram map END >>>
