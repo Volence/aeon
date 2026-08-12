@@ -493,3 +493,66 @@ pub proc Raster_InstallSection (a0: u32) clobbers(d0) {
 // re-assert, no init words, and a terminator that parks the counter. Installing
 // it is how a section turns a neighbour's effect OFF.
 pub data Raster_Program_None: [u16; 4] = [0, 0, RASTER_ARM_PARK, RASTER_OPS_END]
+
+// ===========================================================================
+// WATER_LEVEL PATCH SLOT (effects P2 Task 7) — a raster program whose boundary line
+// MOVES at runtime without rebuilding the whole program. The back buffer Raster_Buf_B
+// (reserved by P1 for exactly this) holds a runtime COPY of a template whose priming
+// arm word is recomputed from Raster_Water_Line; Raster_VBlank walks it because
+// Raster_Active_Buf points at Buf_B. Only the arm word moves, so a line change is one
+// word write.
+//
+// The template MUST be laid out with init_count == 1 (one frame-top init word), so its
+// priming record 0's arm word sits at byte offset 6:
+//   [pal_dirty_mask 0][init_count 2][init[0] 4][arm0 6][opc0 8]...
+pub const WATER_TEMPLATE_ARM0_OFF = 6
+
+// Raster_WaterArm — the priming arm word that lands the water fire at screen line M.
+// FORMULA (survey Ruling 1b — the one-interrupt arm lag): priming fires 0 and 1 land on
+// lines 0 and 1 (Raster_VBlank leaves reg $0A=0); the arm word WRITTEN at priming record
+// 0 is consumed at the NEXT reload and schedules gap(1 -> event). The event fire must be
+// at M-1 so its writes land on M (Ruling 1a). Priming fire 1 is at line 1, so the gap
+// 1 -> (M-1) needs reg $0A = (M-1) - 1 - 1 = M - 3. So arm0 = $8A00 | (M - 3).
+pub comptime fn water_arm0(screen_line: int) -> int {
+    ensure(screen_line >= 3 && screen_line <= 223, "water_arm0: line {screen_line} outside 3..223")
+    return $8A00 | (screen_line - 3)
+}
+
+// -----------------------------------------------
+// Raster_InstallWater — install a water template into Raster_Buf_B and make it the
+// live program, with the boundary at screen line d0.
+//   a0 = water template (init_count must be 1)   d0.w = water screen line
+// After this, Raster_VBlank walks Buf_B every frame; Raster_PatchWaterLine moves the
+// line. Bypasses Raster_Pending (which drives the ROM-program Buf_A path) — the water
+// program is the runtime-patched Buf_B, not a static ROM program.
+// -----------------------------------------------
+pub proc Raster_InstallWater (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
+        lea     Raster_Buf_B, a1
+        move.l  a1, Raster_Active_Buf
+        move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
+        clr.l   Raster_Pending
+        move.w  #(RASTER_BUF_SIZE / 2) - 1, d1
+    .copy:
+        move.w  (a0)+, (a1)+
+        dbf     d1, .copy
+        // seed the line + patch the priming arm word for it
+        move.w  d0, Raster_Water_Line
+        jbra    Raster_PatchWaterLine
+}
+
+// -----------------------------------------------
+// Raster_PatchWaterLine — move the water boundary to screen line d0 by recomputing
+// Buf_B's priming arm word (water_arm0's runtime twin). Cheap enough to call every
+// frame from the main loop; the change lands at the next Raster_VBlank rewind.
+//   d0.w = water screen line
+// The RUNTIME twin of water_arm0 (kept in sync with the comptime formula above):
+//   arm0 = $8A00 | ((line - 3) & $FF)
+// -----------------------------------------------
+pub proc Raster_PatchWaterLine (d0: u16) clobbers(d0) {
+        move.w  d0, Raster_Water_Line
+        subi.w  #3, d0
+        andi.w  #$FF, d0                        // clamp to the counter's 8-bit field
+        ori.w   #$8A00, d0
+        move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
+        rts
+}

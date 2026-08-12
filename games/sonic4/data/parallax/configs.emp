@@ -24,7 +24,7 @@ use engine.level.parallax_dsl.*
 // Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
 // command builder they are pinned against.
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
-use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, RASTER_ARM_PARK, raster_arm, raster_fire_screen, pal_stage_off}
+use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, RASTER_ARM_PARK, raster_arm, raster_fire_screen, pal_stage_off, water_arm0}
 use engine.effects.palette.{cycle_channel, pal_cycle_channel, PalCycleScript1}
 
 // ---- record shapes: a header followed by N band entries ----
@@ -351,3 +351,47 @@ pub data OJZ_ShimmerCycle: PalCycleScript1 = PalCycleScript1{
     pcs_count: 1,
     pcs_ch: [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ],
 }
+
+// OJZ_WaterRaster — the water-cluster raster TEMPLATE (Task 7). init_count == 1
+// (WATER_TEMPLATE_ARM0_OFF depends on it). At the water line it (1) turns Shadow/
+// Highlight ON ($8C89 — bit 3 set, resolution bits unchanged per the survey V28/V30
+// ruling) and (2) swaps line-2 entries 4-6 to the deep-water variant's derived bytes
+// via OP_PAL_REGION streaming from Pal_Variant_Stage slot 0. The priming arm word
+// (arm0) is a DEFAULT here (water line 120); Raster_InstallWater/Raster_PatchWaterLine
+// overwrite it at runtime from Raster_Water_Line, so the boundary MOVES live.
+//
+// pal_dirty_mask %0100 re-asserts CRAM line 2 every frame, so the mid-frame region
+// swap is transient (base restored at frame top -> above the line = base palette, below
+// = deep-water). The CRAM command is pinned to the comptime builder.
+//
+// S/H CONTENT FINDING (plan Task 7 Step 3 — stated, not silently dropped). The
+// $8C89 write turns Shadow/Highlight ON below the water line, but S/H only dims
+// LOW-priority pixels and OJZ's plane art is HIGH-priority (the P1 residual). Making
+// the tiles below the water line low-priority is a CONTENT change: the priority bit is
+// baked into the generated OJZ block/nametable data, and the tile-cache stream writes
+// those words verbatim — there is no priority-clearing hook in the engine. Regenerating
+// that data runs through tools/ojz_strip_gen.py + games/sonic4/data/editor/ojz, which
+// this parcel is forbidden to touch (auto-commit daemon). So S/H transparency CANNOT be
+// visually demonstrated on OJZ's current art; the op provably EXECUTES (it precedes the
+// region op in the same fire, and a mis-parse would desync the CRAM command into
+// garbage) but has nothing to dim. Proving S/H needs low-priority water content, which
+// is out of this parcel's scope — flagged for the controller/user.
+const OJZ_WATER_CRAM_ADDR = $48                 // CRAM line 2, entry 4
+ensure(vdp_comm(OJZ_WATER_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
+       "CRAM write command encoding drifted — OJZ_WaterRaster's split words are stale")
+
+pub data OJZ_WaterRaster: [u16; 18] = [
+    %0100,                              // pal_dirty_mask: re-assert line 2 (the region op's line)
+    1, $8C81,                           // init: S/H OFF at frame top (H40 base)
+
+    water_arm0(120), 0,                 // fire 0 — priming; arm PATCHED at runtime (default line 120)
+    RASTER_ARM_PARK, 0,                 // fire 1 — priming; nothing after the event, so park
+
+    RASTER_ARM_PARK, 2,                 // fire 2 — the water line event, two ops
+      OP_SET_REG, $8C89,                //   S/H ON below the line
+      OP_PAL_REGION, $C048, $0000,      //   region: CRAM $48 (line 2 entry 4), command longword
+                 2,                     //   count-1 = 2 -> 3 colours (<= RASTER_CRAM_MAX)
+                 pal_stage_off(0, 2, 4),//   source: variant slot 0, line 2, entry 4
+
+    RASTER_ARM_PARK, RASTER_OPS_END,    // terminator
+]

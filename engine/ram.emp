@@ -288,7 +288,11 @@ pub vars upper_ram {
     Raster_Dense_Lines:  u16,       // scanlines remaining in the active dense run (0 = sparse)
     Raster_Dense_Cursor: u32,       // ROM stream cursor (3 words/line) for the run
     Raster_Dense_Cmd:    u32,       // constant CRAM write command for every line of the run
-    Raster_Pad:         u16,        // keeps the block even-sized; span-guarded
+    // Water_Level patch slot (effects P2 Task 7) — the runtime water-line screen row.
+    // The main loop patches Raster_Buf_B's priming arm word from this so the water
+    // boundary can move without rebuilding the program (Raster_PatchWaterLine). Also
+    // keeps the block even-sized (span-guarded).
+    Raster_Water_Line:  u16,
     mark Raster_State_End,
 
     // --- Palette engine state (effects P2) — the composition pipeline's working
