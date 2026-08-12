@@ -3333,8 +3333,11 @@ DAC (6.2, shipped shape)
 >
 > **Shipped:** the SPARSE tier of the raster engine (§7.2) and the per-section
 > palette load. `sec_raster_table` and `sec_pal` now have live consumers, wired at
-> the section-boundary crossing in `Parallax_CheckBoundary`; the dispatcher lives in
-> `engine/system/hblank.emp` as the RAM-trampoline's first consumer. Verified on
+> the section-boundary crossing in `Parallax_CheckBoundary`. The dispatcher lives in
+> `engine/effects/raster.emp` and the palette consumer in `engine/effects/palette.emp`
+> (split out of `engine/system/hblank.emp` / `buffers.emp` 2026-08-12; `hblank` is the
+> RAM jmp-slot trampoline — dispatch mechanism only — and `buffers` keeps the CRAM
+> upload machinery). Verified on
 > oracle mid-scroll — see `docs/benchmarks/effects-p1/GATE-EVIDENCE.md`.
 >
 > **Still planned:** everything else in §7 — the dense raster tier (per-scanline

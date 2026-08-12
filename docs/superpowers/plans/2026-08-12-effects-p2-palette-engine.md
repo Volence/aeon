@@ -27,7 +27,7 @@
 2. **S/H never visually proven.** `OP_SET_REG` executes, but OJZ's art is high-priority and S/H only shadows low-priority pixels. Water content is what makes it observable (Task 7).
 
 **Deliberate debts P1 booked, NOT this phase's job unless they block you:**
-- Code lives in `hblank.emp` / `buffers.emp` rather than `engine/effects/*.emp`, because a new sigil section is a circular bootstrap (repin region + generated pins + frozen boundary tables + refreeze). The split is a separate pure code-motion parcel. **If Phase 2's additions make these files unwieldy, do the module split FIRST as its own parcel** — do not let two large files rot.
+- ~~Code lives in `hblank.emp` / `buffers.emp`~~ **DONE 2026-08-12 (chain 106):** the split shipped before Phase 2 started, so the modules are already `engine/effects/raster.emp` and `engine/effects/palette.emp`. Grow Phase 2 there. `hblank` is dispatch mechanism only; `buffers` owns the CRAM upload, this owns what goes in it.
 - Replay-net fixtures were not re-run after P1's RAM insertion (`Raster_State` shifts `Engine_RAM_End` and game RAM, so expect layout-induced hash drift needing a fixture re-stamp).
 - P1 is on `feat/effects-p1-raster-core` paired with sigil `9f6b6209` + `feat/effects-p1-registry`, NOT merged. Reconcile before starting (Task 0).
 
