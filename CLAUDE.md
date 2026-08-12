@@ -46,9 +46,9 @@ Aeon draws a hard **engine / game** wall (restructure 2026-06-28; agnostic engin
 
 Key rules that are easy to forget:
 - Transfers are auto-sized in `.emp`: unsized `bcc .label` for conditionals, `jbsr` for calls, `jbra` for jumps (sigil relaxes by reach, incl. the far `jsr`/`jmp` rung); raw `jsr` only for register-indirect; explicit `.s`/`.w` only in `@as_compat` ports, patched fields, and residual `.asm`
-- `function` for ALL compile-time math — never compute at runtime what AS can compute at build time
-- `struct`/`endstruct` for ALL data structures — no manual `equ` chains
-- `phase`/`dephase` for RAM layout — assembler catches overflow
+- `comptime fn` for ALL compile-time math — never compute at runtime what sigil can compute at build time (AS's `function` maps 1:1, residual `.asm` only)
+- `struct (size: N)` for ALL data structures — no manual `const`/`equ` chains (AS `struct`/`endstruct` is residual `.asm` only)
+- `region`/`vars` for RAM layout — compiler catches overflow (AS `phase`/`dephase` is residual `.asm` only)
 - PascalCase for routines and global variables, ALL_CAPS for constants, .lowercase for locals
 - No `mulu`/`divu` — use shifts, adds, or lookup tables
 - No unstopped Z80 during VDP access
