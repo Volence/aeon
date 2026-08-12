@@ -282,6 +282,12 @@ pub vars upper_ram {
     Raster_Buf_A:       [u8; 128],  // working copy (active)       — RASTER_BUF_SIZE
     Raster_Buf_B:       [u8; 128],  // working copy (P2 patch seam) — RASTER_BUF_SIZE
     Raster_Active_Buf:  u32,        // -> Raster_Buf_A or Raster_Buf_B
+    // Dense-run state (effects P2 Task 5) — OP_RUN_GRADIENT switches the handler into a
+    // per-line MODE: while Raster_Dense_Lines != 0 the handler bypasses the record walk,
+    // writes Raster_Dense_Cmd + 3 colours from Raster_Dense_Cursor, and re-arms reg $0A=0.
+    Raster_Dense_Lines:  u16,       // scanlines remaining in the active dense run (0 = sparse)
+    Raster_Dense_Cursor: u32,       // ROM stream cursor (3 words/line) for the run
+    Raster_Dense_Cmd:    u32,       // constant CRAM write command for every line of the run
     Raster_Pad:         u16,        // keeps the block even-sized; span-guarded
     mark Raster_State_End,
 
