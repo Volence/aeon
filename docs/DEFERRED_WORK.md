@@ -371,6 +371,31 @@ sets, flag/enum layouts, DEFERRED_WORK-tracked scaffolding), not cruft. Shipped:
 
 ## From §5 — Player System
 
+### No bottom death plane — falling past the level bottom leaves the player skimming, not dying — 2026-08-12
+**Surfaced during:** Knuckles C4 (glide/slide/climb) oracle verification — the controller
+observed a fallen player skimming at y≈5920 (near the OJZ act-1 bottom, world height 6144)
+in a **perpetual airborne state** rather than dying/respawning.
+**Status (pre-existing engine gap, NOT a C4 defect):** there is no death/respawn system yet.
+`Player_LevelBound` (`games/sonic4/player/player_common.emp`) already routes the bottom trip
+on `EDGE_KILL` — it sets `Player_Death_Pending` (`st`) — but with the shipped `EDGE_CLAMP`
+edge mode it just clamps `y` to the playable bottom and zeros `y_vel`, so the player sits at
+the bottom edge airborne. The trigger point exists; the consumer (death → respawn → ring
+loss) does not.
+**When to revisit:** when the death/respawn system lands — it consumes `Player_Death_Pending`
+and this becomes the single trigger. Until then the clamp is the intended placeholder.
+**See:** `Player_LevelBound` (`.edge_kill` / `.edge_clamp`), `Player_Death_Pending`
+(`games/sonic4/config/ram.emp`), spec §10 edge modes.
+
+### Knuckles' `Disable_wall_grab` (non-grabbable walls) has no counterpart — 2026-08-12
+**Surfaced during:** Knuckles C4 Task 11 (climb) research.
+**Status:** S3K's `Disable_wall_grab` (`sonic3k.asm:30777`, `:31039`) lets an object mark a
+wall non-grabbable so the glide catch / climb refuse it; our engine has no equivalent, so
+**every** LRB terrain wall is grabbable. The climb otherwise works; this is only the
+object-side opt-out.
+**When to revisit:** when an object needs a non-grabbable wall (e.g. a moving platform face,
+a scripted no-climb zone). It is an object flag consulted at the wall-catch (`player_climb.emp`
+`Knuckles_Gliding_WallCatch`) and the two climb detach points.
+
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
 **Surfaced during:** §5 Task 10.4 frame-budget pass.
 **Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built.
