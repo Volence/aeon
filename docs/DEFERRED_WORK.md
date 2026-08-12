@@ -226,12 +226,19 @@ engine code before then moves the pin target and grows the port surface for no d
    **PRIORITY RAISED (2026-08-05):** `3c96265` ("CrossResetRAM persistence RULED OUT — design
    deleted, SRAM is the mechanism") makes SRAM the *only* persistence mechanism the engine has.
    It is no longer an optional convenience feature.
-3. **Water/underwater engine hooks** — **PORT GATE CLEARED (2026-08-05), but this is NOT a
-   pick-up-and-go item — it still wants its own design pass.** NOT simple; needs its own design pass, and only
-   when a level actually needs water. Two halves: mid-frame underwater palette via HInt
-   (CRAM-dot timing hazards; design #8's raster script engine is the natural host —
-   extend it, don't build parallel machinery) and per-section physics-modifier plumbing
-   (engine hooks, game values). Also explicitly deferred by the design-week queue.
+3. **Water/underwater engine hooks** — **PALETTE HALF SHIPPED (effects P2, 2026-08-12);
+   physics half still deferred.** Two halves: (a) mid-frame underwater palette via HInt —
+   **DONE.** The water cluster is a composed preset (a `Variant_Water_Deep` boundary +
+   S/H + the `Water_Level` patch slot: `Raster_Buf_B` rebuild + runtime arm recompute via
+   `Raster_PatchWaterLine`), built on the raster script engine exactly as this entry
+   predicted ("extend it, don't build parallel machinery"). The host now exists and is
+   used (`Raster_InstallWater` / `OJZ_WaterRaster`). Two open riders on this half:
+   (i) **S/H is visually UNPROVEN** — it dims only low-priority pixels and OJZ art is
+   high-priority (baked into generated block data, no engine hook to clear); proving it
+   needs low-priority water content, which is out of the effects-P2 parcel's scope. (ii)
+   The oracle gate (variant boundary + moving line) is the controller's, not yet run.
+   (b) per-section physics-modifier plumbing (engine hooks, game values) — **still
+   deferred**, its own design pass when a level needs it.
 4. **Engine-default sound bank** — lift the split plan's v1 limitation that `games/demo/`
    can't build with `SOUND_DRIVER_ENABLED` (ship a minimal engine-side bank satisfying
    the soundBankHead contract). **LIVE as of 2026-07-08:** the engine/game split executed
@@ -263,6 +270,17 @@ engine code before then moves the pin target and grows the port surface for no d
 5. **RNG** — trivial; fold into design #9 execution (the behavior sequencer is its first
    real consumer), not a standalone task. **(2026-08-05: port gate cleared, but this remains
    NOT standalone — it lands with design #9, not on its own.)**
+6. **Dense-tier reserved stream register — FLAGGED, needs user sign-off (effects P2,
+   2026-08-12).** `OP_RUN_GRADIENT`'s `.dense_body` ships the CONSERVATIVE model: the
+   stream cursor is reloaded from `Raster_Dense_Cursor` (RAM) every line and only
+   d0-d1/a1-a2 are saved. The corpus affords a ~26-cycle every-line handler by reserving
+   a global stream register and saving zero (Gunstar `a6` / Alien Soldier, survey Ruling
+   4c); for a 224-line gradient that difference is ~thousands of cycles/frame. Reserving
+   a register engine-wide trades against the contract system and changes register
+   conventions across the engine — an irreversible bet, so it is NOT taken without a
+   user ruling (`memory/leapfrog_provenance_audit`). Revisit if a dense-tier workload
+   measures over budget on oracle. Cycle arithmetic + the two mode-switch transitions are
+   documented at `Raster_HInt`'s dense-body comment and `tools/effects_budget_model.toml`.
 
 ### ✅ RESOLVED — PAL fixed-timestep — deleted, NTSC-only (ruling B) — 2026-08-02
 **Resolution (Volence, 2026-08-02, ruling B):** commit to NTSC-only. The dead PAL

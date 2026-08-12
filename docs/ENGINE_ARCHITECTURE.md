@@ -3340,22 +3340,43 @@ DAC (6.2, shipped shape)
 
 ## 7. Visual Effects System
 
-> **Status: PARTIALLY SHIPPED (effects suite Phase 1, 2026-08-12) — the rest is PLANNED.**
+> **Status: SHIPPED through effects suite Phase 2 (2026-08-12) — code-complete; the
+> visual gates are oracle-owned (see below).**
 >
-> **Shipped:** the SPARSE tier of the raster engine (§7.2) and the per-section
-> palette load. `sec_raster_table` and `sec_pal` now have live consumers, wired at
-> the section-boundary crossing in `Parallax_CheckBoundary`. The dispatcher lives in
-> `engine/effects/raster.emp` and the palette consumer in `engine/effects/palette.emp`
-> (split out of `engine/system/hblank.emp` / `buffers.emp` 2026-08-12; `hblank` is the
-> RAM jmp-slot trampoline — dispatch mechanism only — and `buffers` keeps the CRAM
-> upload machinery). Verified on
-> oracle mid-scroll — see `docs/benchmarks/effects-p1/GATE-EVIDENCE.md`.
+> **Shipped (P1):** the SPARSE tier of the raster engine (§7.2) and the per-section
+> palette load. `sec_raster_table` and `sec_pal` have live consumers wired at the
+> section-boundary crossing in `Parallax_CheckBoundary`. The dispatcher lives in
+> `engine/effects/raster.emp` and the palette module in `engine/effects/palette.emp`
+> (split out of `engine/system/hblank.emp` / `buffers.emp`; `hblank` is the RAM
+> jmp-slot trampoline — dispatch mechanism only — and `buffers` keeps the CRAM upload
+> machinery). Verified on oracle mid-scroll — `docs/benchmarks/effects-p1/GATE-EVIDENCE.md`.
 >
-> **Still planned:** everything else in §7 — the dense raster tier (per-scanline
-> gradients, per-column VSRAM runs), the palette *engine* (composition pipeline,
-> cross-fade, cycling, variants/regions), S/H as a shipped effect, sprite-table
-> reflections, and the frame-level effects engine (§7.4/7.5). `sec_pal_cycle` and
-> `sec_anim_blocks` remain reserved with no consumer.
+> **Shipped (P2):** the **palette engine** — one owner (`Palette_Compose`, from
+> GameLoop) composing base → cycling → cross-fade → global operators → variants into
+> `Palette_Buffer` lines 1-3 each frame (line 0 stays the character's). **Variants**
+> (`pal_variant`, cheap per-channel shift+bias transforms of the live composed palette,
+> derived to a RAM staging buffer) and **scanline regions** (`OP_PAL_REGION`, a scoped
+> ≤3-colour swap streamed from that staging — a full-line region spreads across
+> ceil(16/3) fires, S3K-style). The **dense raster tier** (`OP_RUN_GRADIENT`, a per-line
+> mode firing every line). **Cross-fade** (16-frame per-channel lerp) and **global
+> operators** (fade-to-black/white, white/negative flash). **`sec_pal_cycle`** finally
+> has a consumer (per-section palette cycling). The **water cluster** is a preset, not
+> an engine concept: a variant boundary + S/H + the `Water_Level` patch slot
+> (`Raster_Buf_B` rebuild + runtime arm recompute). Budget model: `tools/effects_budget_model.toml`.
+>
+> **Oracle-owned (code-complete, not yet visually gated):** the row-119 pixel-clean
+> boundary (both fixes behind `EFX_ROW119_FIX` — the controller measures and picks);
+> the `OP_RUN_GRADIENT` enter/leave line-alignment calibration; and the water-cluster
+> gate itself (variant boundary + moving line). **S/H remains visually UNPROVEN** and
+> is blocked on CONTENT: it dims only low-priority pixels and OJZ art is high-priority,
+> baked into generated block data no engine hook can clear — proving it needs
+> low-priority water content (out of the parcel's scope).
+>
+> **Still planned (Phase 3+):** `raster_dsl`/`palette_dsl` general constructors + the
+> preset format (Phase 3); sprite-table-switch reflections (§7.6 — needs a second SAT);
+> the frame-level effects engine — sequencer, oscillators, shake, hit-stop (§7.4/7.5,
+> Phase 6); Aurora Effects Lab (Phases 4-5); `sec_anim_blocks` (separate). A reserved-
+> global stream register for the dense tier is a FLAGGED decision awaiting user sign-off.
 >
 > Design: `docs/superpowers/2026-08-11-effects-suite-design.md` (six phases).
 > The timing rules the dispatcher is built on: `docs/research/2026-08-12-raster-hint-survey.md`.

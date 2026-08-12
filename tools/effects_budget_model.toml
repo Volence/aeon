@@ -1,0 +1,62 @@
+# Effects suite budget model (design suite §8) — the ONE machine-readable budget the
+# generator enforces and Aurora displays. Populated during effects P2.
+#
+# STATUS KEY:
+#   fixed        = a hardware/architecture constant (datasheet or shipped-code derived)
+#   code-derived = read from the shipped .emp (const or structural fact)
+#   NEEDS-MEASUREMENT = only oracle profiling can give the real number; the value here
+#                       is a placeholder/upper-estimate the controller replaces after the
+#                       Task-4/5 oracle calibration. DO NOT treat as authoritative.
+#
+# Provenance for the fixed rows: docs/research/2026-08-12-raster-hint-survey.md.
+
+[hblank_window]
+# The binding limit on per-fire VDP work is the cycle window between HINT-pending and
+# the next line's active display, NOT the 4-entry FIFO (survey Ruling 2a).
+h40_line_mclk        = 3420          # fixed — H40 scanline, NTSC and PAL alike (Ruling 2c)
+hint_to_hblank_68k_cycles = 105      # fixed — ~90px $A6->$00 ~= 733 mclk ~= 105 68k cyc
+autovector_entry_cycles   = 44       # fixed — IRQ4 autovector exception entry
+usable_cycles_after_entry = 60       # fixed — the ~60-cycle budget (105 - 44, rounded)
+status = "fixed"
+
+[raster.sparse]
+cram_words_per_fire  = 3             # code-derived — RASTER_CRAM_MAX (engine/effects/raster.emp)
+cram_words_reason    = "cycle budget, not FIFO (Ruling 2a); a 16-colour line cannot swap in one fire"
+save_set_registers   = 4            # code-derived — movem d0-d1/a1-a2 in Raster_HInt
+movem_roundtrip_cycles = 40         # fixed — 4-register movem push+pop
+# Per-fire handler cost (arm write + op parse + one OP_CRAM of 3 colours). The corpus
+# lower bound is ~26 cyc (zero-save, Ruling 4c); ours saves 4 registers.
+per_fire_cycles      = "NEEDS-MEASUREMENT"   # oracle: profile Raster_HInt one-fire cost
+program_overhead_fires = 2           # code-derived — the two priming records
+
+[raster.op_pal_region]
+# A region is a SCOPED colour swap (<= cram_words_per_fire), streamed from a variant's
+# Pal_Variant_Stage bytes. A full-line region spreads across ceil(16/3)=6 fires.
+max_colours_per_fire = 3             # code-derived — bound by RASTER_CRAM_MAX
+handler_extra_cycles = "NEEDS-MEASUREMENT"  # oracle: lea+adda.w+stream vs a plain OP_CRAM
+full_line_fire_cost  = 6             # code-derived — ceil(16 / 3) consecutive fires
+
+[raster.dense]
+# OP_RUN_GRADIENT: fire every line (reg $0A=0), minimal per-line body.
+mode = "every-line"
+per_line_body_cycles = "NEEDS-MEASUREMENT"   # oracle: profile .dense_body (conservative save model)
+per_line_body_estimate = 84          # placeholder — ~full-fire cost; the reserved-register
+                                     # form targets the corpus ~26 (Ruling 4c), FLAGGED for sign-off
+transition_arm_lag_fires = 1         # fixed — one pipelined arm at EACH of enter/leave (Ruling 1b)
+# Full-frame every-line cost (rejected for the sparse tier): ~224 * per-fire.
+full_frame_fraction_ntsc = "NEEDS-MEASUREMENT"  # oracle: (224 * per_line_body) / frame_cycles
+
+[palette]
+max_active_variants  = 2             # code-derived — PAL_MAX_VARIANTS (raise only on evidence)
+cycle_max_channels   = 4             # code-derived — PAL_CYCLE_MAX_CHANNELS
+fade_window_frames   = 16            # code-derived — PAL_FADE_FRAMES
+compose_static_frame = "one compare (tst.b Pal_Active)"  # code-derived — early-out
+compose_variant_derive_cycles = "NEEDS-MEASUREMENT"  # oracle: Palette_DeriveVariant per covered line (16 entries)
+compose_fade_step_cycles      = "NEEDS-MEASUREMENT"  # oracle: Palette_DoFade per active frame (48 words)
+
+[ram]
+# code-derived — the two effects RAM blocks (engine/ram.emp span guards).
+palette_state_bytes  = 472           # PALETTE_STATE_SIZE
+raster_state_bytes   = 286           # RASTER_STATE_SIZE (incl. Buf_A/Buf_B 128 each + dense + water)
+variant_stage_bytes  = 256           # PAL_MAX_VARIANTS * 128 (part of palette_state)
+free_before_stack_kb = "NEEDS-MEASUREMENT"  # build.sh reports it; ~31.8 KB at P2 (headroom check)
