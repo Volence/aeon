@@ -200,9 +200,14 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #SOLID_TOP, d6
         moveq   #0, d3
         move.b  layer(a0), d3
-        jbsr    Collision_ProbeDown             // d0 = floor dist
-        tst.w   d0
-        bmi     Climb_ReachFloor                 // embedded floor → landed
+        jbsr    Collision_ProbeDown             // d0 = floor dist, d1 = angle, d2 = attr
+        move.w  d0, d1                            // dist -> d1: Climb_ReachFloor's `add.w d1,y_pos`
+                                                 // expects the DIST, but the probe just left the
+                                                 // ANGLE (dirty high byte) in d1 — adding THAT to
+                                                 // y_pos hurled the player through the floor to the
+                                                 // level bottom. The .finish idle-detach path below
+                                                 // already copies d0->d1; the climb-down path did not.
+        bmi     Climb_ReachFloor                 // embedded floor (dist < 0) → landed
         addq.w  #1, y_pos(a0)                   // 1px down (integer word)
         moveq   #-1, d3                           // anim backward
         jbra    .finish
