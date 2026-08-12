@@ -46,6 +46,9 @@ module games.sonic4.tails_appendage in tails_appendage
 use engine.objects.sst.{Sst}
 use engine.constants.{RF_PRIORITY_SHIFT, RF_XFLIP, RF_YFLIP, ST_XFLIP, TILE_SIZE}
 use games.sonic4.constants.{ANIM_ROLL, VRAM_TAILS_APPENDAGE}
+// The parent's PlayerV overlay — for the debug-fly hide (debug_flag). player_common
+// is the overlay's sole author; this is a bare struct import, no code dependency.
+use games.sonic4.player_common.{PlayerV}
 
 // Cross-seam link values. The sprite trio lives in games.sonic4.tails_data, the
 // script table in games.sonic4.tails_anims, and CharDef_Tails in games.sonic4.tails.
@@ -234,6 +237,15 @@ pub proc TailsAppendage_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         // way to be wrong. The rail that CAN fire lives at the spawn.
         movea.w Sst.parent_ptr(a0), a1
 
+        // DEBUG-FLY HIDE: when the parent is in free-flight, Player_DebugEnter has swapped
+        // it for the yellow cursor square — the twin tails must not keep rendering beside
+        // it (user screenshot). The appendage re-derives everything from the parent every
+        // frame and holds no persistent draw state, so a clean early-out here is the whole
+        // fix: it simply isn't drawn this frame (absent from the SAT = not rendered), and
+        // the first frame after debug-fly exit resumes normally with no teardown or respawn.
+        tst.b   PlayerV.debug_flag(a1)
+        bne     .hidden
+
         // Position is the parent's EXACTLY — the offset that puts the tails
         // behind Tails lives in the appendage's own mappings, which is how S3K
         // does it too (`move.w x_pos(a1),x_pos(a0)`, no displacement).
@@ -366,4 +378,6 @@ pub proc TailsAppendage_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         jbsr    Perform_DPLC
 
         jbra    Draw_Sprite
+.hidden:
+        rts                             // parent in debug-fly: skip the whole draw this frame
 }
