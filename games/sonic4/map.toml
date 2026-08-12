@@ -67,6 +67,7 @@ order = [
   "PState_Air", "PState_Spindash", "PState_Fly",
   "CharDef_Sonic", "CharDef_Tails", "CharacterDefs",
   "TailsAppendage_Refresh",
+  "DustPuff_Spawn", "Dust_Tick",
   "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",

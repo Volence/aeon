@@ -171,8 +171,9 @@ const PLAYER_DEBUG_FLY_SPEED = 16       // px/frame — matched to CAM_MAX_Y_STE
 // on the SAME LINE in the latch below (`move.b #PHYS_JUMP_BUFFER, PBLK_JUMPBUF(a4)`)
 // — near-identical names sitting adjacent is a misreading waiting to happen.
 // Keep the abbreviation.
-const PBLK_QUADRANT = 16
-const PBLK_JUMPBUF  = 17
+const PBLK_QUADRANT  = 16
+const PBLK_JUMPBUF   = 17
+const PBLK_DUSTTIMER = 18
 
 // -----------------------------------------------
 // player_block — point a register at the CALLING SLOT's PlayerBlock
@@ -233,6 +234,8 @@ ensure(PBLK_QUADRANT == offsetof(PlayerBlock, quadrant),
        "PBLK_QUADRANT out of sync with PlayerBlock.quadrant (config/ram.emp)")
 ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
        "PBLK_JUMPBUF out of sync with PlayerBlock.jump_buffer (config/ram.emp)")
+ensure(PBLK_DUSTTIMER == offsetof(PlayerBlock, dust_timer),
+       "PBLK_DUSTTIMER out of sync with PlayerBlock.dust_timer (config/ram.emp)")
 
 // -----------------------------------------------
 // set_standing_size / set_ball_size — the two collision boxes, taken from the
@@ -593,6 +596,15 @@ pub proc Player_Main (a0: *Sst) clobbers(d0-d6/a1-a4) preserves(d7.w) falls_into
 // -----------------------------------------------
 pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
         jbsr    Player_Animate                  // sets SST_anim + d3 (dyn hold)
+        jbsr    Dust_Tick                       // AFTER Player_Animate: the
+                                                // classifier is what sets and clears
+                                                // skid_latch, so reading it earlier
+                                                // in the frame reads LAST frame's
+                                                // value. a4 is still the slot's block
+                                                // (Player_Main holds it for the whole
+                                                // frame) and d3 must survive for
+                                                // AnimateSprite, so Dust_Tick
+                                                // preserves it.
         jbsr    AnimateSprite
         jbra    Player_LoadArt
 }

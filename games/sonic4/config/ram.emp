@@ -45,6 +45,16 @@ pub struct PlayerBlock {
     release_cap:    u16,
     quadrant:       u8,     // (angle+$20)>>6 — derived once per frame
     jump_buffer:    u8,     // frames remaining on buffered jump press
+    dust_timer:     u8,     // frames until the next dust puff (4-frame cadence);
+                            // 0 while not emitting so the first puff of a skid
+                            // lands on the arming frame, as in S3K
+    pad:            u8,     // KEEPS sizeof(PlayerBlock) EVEN. The struct is the
+                            // per-slot ARRAY STRIDE (`lea sizeof(PlayerBlock)(dst),
+                            // dst`), and every field from accel down is a u16 at
+                            // even offset 0..15 — an odd stride would put slot 1's
+                            // accel on an odd address and `move.w` would ADDRESS
+                            // ERROR. 8 words + quadrant + jump_buffer was exactly
+                            // 18; dust_timer makes 19, so this pads back to 20.
 }
 
 pub region game_ram @ after(upper_ram) .. SYSTEM_STACK, w_addressable

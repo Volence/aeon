@@ -1,0 +1,88 @@
+// Skid / slide dust puff — a fire-and-forget effect.
+//
+// The cheapest object in the engine: no velocity, no DPLC, no parent link, no
+// timer field. It is dropped at a world position, animates four frames, and
+// deletes itself via AF_DELETE. Its art is permanently resident at
+// VRAM_DUST_PUFF (games/sonic4/data/dust_data.emp), so it queues no DMA in its
+// entire life — which is what lets several puffs at DIFFERENT animation frames
+// coexist. S3K achieves the same thing with an invisible emitter object that
+// pumps a 16-tile DPLC every frame plus four empty DPLC lists; residency
+// deletes that whole mechanism.
+//
+// NOT screen-space: render_flags leaves RF_COORDMODE CLEAR (level-relative), so
+// the puff stays where it was dropped and scrolls with the level. The slot
+// arrives freshly zeroed from DeleteObject, so "clear" is the default and the
+// band write below is the only render_flags write.
+module games.sonic4.dust_puff in dust_puff
+
+use engine.objects.sst.{Sst}
+use engine.constants.{RF_PRIORITY_SHIFT}
+use games.sonic4.constants.{VRAM_DUST_PUFF}
+
+// Band 2: BEHIND the player (4) and Tails' appendage (3), and low enough that
+// dust is the first thing dropped when Render_Sprites hits MAX_VDP_SPRITES — it
+// walks bands 7 down to 0 and truncates the tail (engine/objects/sprites.emp:225).
+// This is a deliberate DEVIATION from the reference: S2/S3K/S.C.E. all put dust
+// at priority 1-of-8-FRONT, protecting a cosmetic at the expense of gameplay
+// sprites. Whole-byte write, not set_priority_band: nothing is inherited into a
+// freshly zeroed slot, so a plain move is exact (the C1c union hazard needs an
+// inherited band).
+const DUST_PUFF_BAND          = 2
+const DUST_PUFF_RENDER_FLAGS  = DUST_PUFF_BAND << RF_PRIORITY_SHIFT
+
+equ MAP_DUST_PUFF = extern("Map_DustPuff")
+equ ANI_DUST_PUFF = extern("Ani_DustPuff")
+
+// -----------------------------------------------
+// DustPuff_Spawn — drop one puff at (d0.l, d1.l) in world coords.
+//
+// In:  d0.l = x_pos (16.16), d1.l = y_pos (16.16)
+// Out: a puff allocated, or NOTHING if the effect pool is exhausted — the
+//      silent skip every creator uses (children.emp:604). Dropping the NEW
+//      spawn is the right policy for a cosmetic and is unanimous across the
+//      reference corpus; do not add eviction.
+// Clobbers: d0, d2, a1 — d0 falls to AllocEffect's exhaustive license (its
+//           success/fail code lands there), so the x argument is banked in d2
+//           across the call.
+// Preserves: a0 (the caller's player SST), d1
+// -----------------------------------------------
+pub proc DustPuff_Spawn (d0: u32, d1: u32) clobbers(d0/d2/a1) preserves(a0, d1) {
+        move.l  d0, d2                  // bank x — AllocEffect owns d0 (it returns
+                                        //   its success code there)
+        jbsr    AllocEffect             // a1 = slot on the eq edge; a1 survives the
+        bne     .done                   //   pool-empty edge untouched
+
+        move.w  #DustPuff_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  d2, Sst.x_pos(a1)
+        move.l  d1, Sst.y_pos(a1)
+        move.l  #MAP_DUST_PUFF, Sst.mappings(a1)
+        move.w  #VRAM_DUST_PUFF, Sst.art_tile(a1)   // vram_art(tile,0,0) == tile:
+                                                    // palette 0, low priority
+        move.l  #ANI_DUST_PUFF, Sst.anim_table(a1)
+        move.b  #$FF, Sst.prev_anim(a1)             // force AnimateSprite's
+        move.b  #$FF, Sst.prev_frame(a1)            // .anim_changed path, which
+                                                    // tail-calls RefreshSpritePieceCount
+                                                    // and populates the piece count +
+                                                    // frame_off cache before the first
+                                                    // render (so no
+                                                    // PopulateSpawnedPieceCount call)
+        move.b  #DUST_PUFF_RENDER_FLAGS, Sst.render_flags(a1)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// DustPuff_Main — animate, draw, and eventually delete itself.
+//
+// No ObjectMove (no velocity — the puff is static in world space, exactly as in
+// S2/S3K) and no Perform_DPLC (resident art). AF_DELETE at the end of the script
+// is the entire retirement path.
+//
+// In:  a0 = own SST
+// Clobbers: d0-d3, a1-a2 — the callee union: AnimateSprite (d0-d2/a1-a2) union
+//           Draw_Sprite (d0-d3/a1). a0/d7.w preserved per the dispatch contract.
+// -----------------------------------------------
+pub proc DustPuff_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
+        jbsr    AnimateSprite
+        jbra    Draw_Sprite
+}
