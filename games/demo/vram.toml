@@ -7,8 +7,11 @@ name = "fg_art_pool"
 owner = "engine.level.page_cache"
 kind = "arena"
 base = 0
-tiles = 960
-quantum = 64
+tiles = 896                      # follows the engine-global POOL_TILE_CEILING
+quantum = 64                     # (960 -> 896, the sonic4 dust carve; the engine
+                                 # constant is shared, so every game's map moves
+                                 # with it — demo has no dust, so the freed page
+                                 # is simply declared free below)
 lifetime = "act"
 authority = "engine-endtiles:POOL_TILE_CEILING"
 # demo ships HAS_ACT_ART_POOL=0 — the range exists, unpopulated.
@@ -36,9 +39,10 @@ base = 997
 tiles = 27
 
 [[free]]
-base = 960
-tiles = 32
-# no character window in demo — the band sonic4 uses for the player is free here
+base = 896
+tiles = 96
+# no dust and no character window in demo — the surrendered pool page (896-959)
+# and the band sonic4 uses for the player (960-991) are both free here
 
 [[region]]
 name = "bg_region"

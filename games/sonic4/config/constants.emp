@@ -246,12 +246,14 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // Emitted from games/sonic4/vram.toml — edit THAT, then run:
 //   python3 tools/gen_vram_map.py --game sonic4
 // The map doc: docs/generated/vram-map-sonic4.md
+pub const VRAM_DUST_PUFF          : VramTile = $0380   // dust_puff: tiles 896..911 (16), act, owner games.sonic4.dust_puff
+pub const VRAM_DUST_SPINDASH      : VramTile = $0390   // dust_spindash: tiles 912..923 (12), act, owner games.sonic4.dust_spindash
 pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..991 (32), act, owner games.sonic4.player
 pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
 pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 1016..1019 (4), mode, owner games.sonic4.player_common
 pub const VRAM_TAILS_APPENDAGE    : VramTile = $05D4   // tails_appendage: tiles 1492..1500 (9), act, owner games.sonic4.tails_appendage
 // Authority cross-checks — the engine constant vs the declared map:
-ensure(POOL_TILE_CEILING == 960, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
+ensure(POOL_TILE_CEILING == 896, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_CAPACITY == 448, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_SPRITE_TABLE == $B800, "vram.toml sprite_table drifted from engine VRAM_SPRITE_TABLE — edit games/sonic4/vram.toml and regenerate")
@@ -260,6 +262,8 @@ ensure(VRAM_PLANE_A == $C000, "vram.toml plane_a drifted from engine VRAM_PLANE_
 ensure(VRAM_PLANE_B == $E000, "vram.toml plane_b drifted from engine VRAM_PLANE_B — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_WINDOW == $F000, "vram.toml window_plane drifted from engine VRAM_WINDOW — edit games/sonic4/vram.toml and regenerate")
 // Walls — regeneration re-checks every adjacency:
+ensure(VRAM_DUST_PUFF + 16 <= $0390, "dust_puff runs into dust_spindash")
+ensure(VRAM_DUST_SPINDASH + 12 <= $03C0, "dust_spindash runs into character_window")
 ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
 ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
 ensure(VRAM_TEST_MARKER + 4 <= $0400, "test_marker runs into bg_region")

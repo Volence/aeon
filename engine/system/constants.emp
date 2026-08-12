@@ -592,7 +592,15 @@ pub const PARALLAX_LERP_SHIFT   = 4
 // -----------------------------------------------
 // Act art-pool VRAM ceiling + per-act section grid cap.
 // -----------------------------------------------
-pub const POOL_TILE_CEILING = 960       // pool loads to tiles 0..N-1; DPLC region at tile 960
+// 896 = 14 pages of 64, NOT 960 (15): the top page was surrendered to the dust
+// windows (VRAM_DUST_PUFF at 896, VRAM_DUST_SPINDASH at 912, 36 tiles spare at
+// 924-959 — see docs/generated/vram-map-sonic4.md, emitted from
+// games/sonic4/vram.toml, whose generated block cross-checks THIS value by
+// name). Affordable because the pool is over-provisioned: OJZ act 1 needs 10
+// pages (612 tiles) of the remaining 14, so it stays fully resident. Safe
+// because of the 2026-08-11 prep parcel: the RAM arrays are PAGE_FRAMES_MAX-
+// sized (a resize moves no RAM) and the replay hash is layout-proof.
+pub const POOL_TILE_CEILING = 896       // pool loads to tiles 0..N-1; dust windows at 896; DPLC region at tile 960
 pub const MAX_ACT_SECTIONS  = 48        // flat id = sec_y*grid_w + sec_x; build asserts grid_w*grid_h <= this
 
 // -----------------------------------------------

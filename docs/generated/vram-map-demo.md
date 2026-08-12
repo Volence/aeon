@@ -5,8 +5,8 @@ Do not edit; edit the TOML and regenerate.
 
 | tiles | name | kind | lifetime | owner | constant / authority | notes |
 |---|---|---|---|---|---|---|
-| 0-959 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
-| 960-991 | FREE |  |  |  |  |  |
+| 0-895 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 896-991 | FREE |  |  |  |  |  |
 | 992-995 | demo_obj | window | boot | games.demo.demo_state | VRAM_DEMO_OBJ |  |
 | 996-996 | ring_placeholder | window | boot | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 997-1023 | FREE |  |  |  |  |  |
@@ -19,4 +19,4 @@ Do not edit; edit the TOML and regenerate.
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 75 tiles across 4 runs.
+Free: 139 tiles across 4 runs.

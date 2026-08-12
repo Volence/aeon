@@ -5,7 +5,10 @@ Do not edit; edit the TOML and regenerate.
 
 | tiles | name | kind | lifetime | owner | constant / authority | notes |
 |---|---|---|---|---|---|---|
-| 0-959 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 0-895 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
+| 896-911 | dust_puff | window | act | games.sonic4.dust_puff | VRAM_DUST_PUFF |  |
+| 912-923 | dust_spindash | window | act | games.sonic4.dust_spindash | VRAM_DUST_SPINDASH |  |
+| 924-959 | FREE |  |  |  |  |  |
 | 960-991 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
 | 992-999 | test_obj | window | mode | games.sonic4.test_objects | VRAM_TEST_OBJ |  |
 | 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
@@ -21,4 +24,4 @@ Do not edit; edit the TOML and regenerate.
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 11 tiles across 3 runs.
+Free: 47 tiles across 4 runs.

@@ -11,10 +11,40 @@ name = "fg_art_pool"
 owner = "engine.level.page_cache"
 kind = "arena"
 base = 0
-tiles = 960                      # AUTHORITY stays engine-side (POOL_TILE_CEILING);
-quantum = 64                     # the generated block cross-checks equality.
+tiles = 896                      # 960 -> 896: the top page surrendered to the dust
+quantum = 64                     # windows below (the dust design's carve, re-landed
+lifetime = "act"                 # as this TOML edit — safe post-prep-parcel: no RAM
+authority = "engine-endtiles:POOL_TILE_CEILING"  # moves, no fixture re-stamp).
+                                 # AUTHORITY stays engine-side; the generated block
+                                 # cross-checks equality, so forgetting the engine
+                                 # constant fails the build by name.
+
+[[region]]
+name = "dust_puff"
+owner = "games.sonic4.dust_puff"
+kind = "window"
+base = 896
+tiles = 16
 lifetime = "act"
-authority = "engine-endtiles:POOL_TILE_CEILING"
+const = "VRAM_DUST_PUFF"
+# resident block: concurrent puffs sit on DIFFERENT anim frames, so all four
+# frames must be live at once, addressed 0/4/8/$C from this base (dust spec §4)
+
+[[region]]
+name = "dust_spindash"
+owner = "games.sonic4.dust_spindash"
+kind = "window"
+base = 912
+tiles = 12
+lifetime = "act"
+const = "VRAM_DUST_SPINDASH"
+# the charge dust's DPLC target — deliberately NOT shared with the puff block
+# (S3K shares one window and has a visible lingering-puff artifact; dust spec §4.1)
+
+[[free]]
+base = 924
+tiles = 36
+# the page-quantised carve's remainder — future sprite art
 
 [[region]]
 name = "character_window"
