@@ -278,13 +278,21 @@ pub data ParallaxConfig_OJZ_LockedClouds: ParallaxCfg5 = ParallaxCfg5{
 // The CRAM-write command longword for colour 0, split into the two words the
 // program format carries. Pinned against the comptime builder so a change in
 // engine.vdp's command encoding fails the build instead of writing to VRAM.
-ensure(vdp_comm(0, VdpTarget.Cram, VdpOp.Write) == $C0000000,
+// The gate writes CRAM entry $4A = palette line 2, entry 5 — measured to be OJZ's
+// single most-used ground colour (~54% of the lower-screen pixels). Colour 0 (the
+// backdrop) was the obvious first choice and is the WRONG one: OJZ's art covers the
+// backdrop everywhere, so the effect was invisible and the gate unfalsifiable.
+// Pinned against the comptime builder so an encoding change fails the build rather
+// than quietly writing somewhere else.
+const OJZ_TEST_CRAM_ADDR = $4A
+ensure(vdp_comm(OJZ_TEST_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C04A0000,
        "CRAM write command encoding drifted — OJZ_TestRaster's split words are stale")
 
 // OJZ_TestRaster — the P1 acceptance program: below screen line 120, turn
-// Shadow/Highlight ON and repaint the backdrop blue. Two visibly different
-// mechanisms (a mode-register write and a CRAM write) firing at the same line, so
-// the gate exercises the multi-op path rather than a single write.
+// Shadow/Highlight ON and repaint OJZ's dominant ground colour bright red. Two
+// different mechanisms (a mode-register write and a CRAM write) firing at the same
+// line, so the gate exercises the multi-op path rather than a single write — and
+// the CRAM half is chosen to be objectively measurable from a screenshot.
 //
 // FIRE SCHEDULE (see the timing model in engine/system/hblank.emp):
 //   fire 0 @ line 0    priming, arm = raster_arm(1, 119) = $8A75 (117)
@@ -293,8 +301,12 @@ ensure(vdp_comm(0, VdpTarget.Cram, VdpOp.Write) == $C0000000,
 // Walk-through: VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1
 // at line 1, reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
 pub data OJZ_TestRaster: [u16; 18] = [
-    %0001,                      // pal_dirty_mask: re-assert palette line 0 each frame,
-                                //   which is what makes the mid-frame CRAM write transient
+    %0100,                      // pal_dirty_mask: re-assert palette line 2 each frame —
+                                //   the line the CRAM op below writes into. THIS is what
+                                //   makes the mid-frame write transient; a mask naming any
+                                //   other line leaves the write latched forever (observed:
+                                //   the red covered the whole ground, not just below the
+                                //   split, when this said %0001 and the op wrote line 2).
     1, $8C81,                   // init: S/H OFF at frame top (H40 base, boot_data.emp:140)
 
     $8A75, 0,                   // fire 0 — priming; arms the gap that lands fire 2 on 119
@@ -303,11 +315,29 @@ pub data OJZ_TestRaster: [u16; 18] = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       OP_SET_REG, $8C89,        //   S/H ON  ($81 | bit 3 — resolution bits untouched,
                                 //   per the V28/V30 quirk ruling in the survey)
-      OP_CRAM, $C000, $0000,    //   CRAM write @ colour 0 (command, ensure-pinned above)
-                 0, $0E00,      //   count-1 = 0, one colour: full blue
+      OP_CRAM, $C04A, $0000,    //   CRAM write @ $4A (command, ensure-pinned above)
+                 0, $000E,      //   count-1 = 0, one colour: bright red
 
     $8AFF, RASTER_OPS_END,      // terminator — reached only by a stray fire
 ]
+
+// OJZ_FullPalette — the act's FULL 128-byte CRAM image, which is what the engine's
+// per-section palette contract wants (ARCH §4: a full 4-line CRAM copy, instant
+// load). OJZ's palette data ships as two halves — the shared/HUD palette at CRAM
+// line 0 (32 B) and the act palette at lines 1-3 (96 B) — which ojz_scroll_test.emp
+// used to load with two separate hand-written copy loops. Concatenating them here
+// gives sec_pal one conformant blob and makes init and the boundary crossing agree
+// by construction.
+//
+// Re-embedded here rather than re-homed in act_assets.emp on purpose: that module's
+// FIRST pub data is its section head-label, so reordering it to put line 0 first
+// renames the head — which would have to be re-declared in map.toml AND re-derived
+// in the frozen boundary tables. 128 duplicated bytes is the cheaper trade.
+// Adjacency is load-bearing, so it is guarded, not assumed.
+pub data OJZ_FullPalette         = embed("art/palettes/SonicAndTails.bin")
+pub data OJZ_FullPalette_Lines13 = embed("games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
+ensure(extern("OJZ_FullPalette_Lines13") - extern("OJZ_FullPalette") == 32,
+       "the line-0 half must be exactly 32 B and immediately precede the lines-1-3 half — sec_pal reads the pair as one 128-byte CRAM image")
 
 // OJZ_TestPal — a deliberately unmistakable 64-colour palette for the adjacent
 // section, so "did sec_pal load on the crossing?" is answerable from one CRAM

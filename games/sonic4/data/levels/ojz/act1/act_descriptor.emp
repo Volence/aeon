@@ -17,7 +17,7 @@ use engine.structs.{Act, Sec}
 
 // Effects P1 gate fixtures live in the game-side effects library beside the
 // parallax configs (games/sonic4/data/parallax/configs.emp).
-use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal}
+use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_FullPalette}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -160,13 +160,13 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
     ojz_sec(blocks: OJZ_Sec0_Blocks,
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec1_Blocks,
             objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
             type_table: OJZ_Sec1_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             // Effects P1 gate: section 1 carries the raster program (S/H + backdrop
             // split below screen line 120). Scroll right from spawn to reach it.
             raster: OJZ_TestRaster,
@@ -183,37 +183,37 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
     ojz_sec(blocks: OJZ_Sec3_Blocks,
             objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
             type_table: OJZ_Sec3_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec4_Blocks,
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec6_Blocks,
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec8_Blocks,
             objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
             type_table: OJZ_Sec8_TypeTable,
-            pal: OJZ_Palette,
+            pal: OJZ_FullPalette,
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]
