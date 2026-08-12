@@ -694,7 +694,7 @@ proc Air_LandState (a0: *Sst) clobbers(d1-d7/a1-a2) out(d0) {
 //      engage the wall-run gsp)
 // Clobbers: d0-d6, a1
 // -----------------------------------------------
-proc Air_WallProbeRight (a0: *Sst) clobbers(d0-d6/a1) {
+pub proc Air_WallProbeRight (a0: *Sst) clobbers(d0-d6/a1) {
         move.w  x_pos(a0), d0
         addi.w  #PUSH_RADIUS, d0
         move.w  y_pos(a0), d1
@@ -712,7 +712,7 @@ proc Air_WallProbeRight (a0: *Sst) clobbers(d0-d6/a1) {
         rts
 }
 
-proc Air_WallProbeLeft (a0: *Sst) clobbers(d0-d6/a1) {
+pub proc Air_WallProbeLeft (a0: *Sst) clobbers(d0-d6/a1) {
         move.w  x_pos(a0), d0
         subi.w  #PUSH_RADIUS, d0
         move.w  y_pos(a0), d1

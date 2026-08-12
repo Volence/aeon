@@ -116,7 +116,17 @@ pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
 pub const PSTATE_FLY              = 14         // Tails' flight (player_fly) — entered only
                                                // from CharDef_Tails' cd_ability hook, so it
                                                // is unreachable for every other character
-pub const PSTATE_COUNT            = 8          // state/hook tables assert against this
+// Knuckles' glide/slide (player_glide) — entered only from CharDef_Knuckles'
+// cd_ability hook (Ability_KnuxGlide), so unreachable for every other character.
+// GLIDE is attacking-but-NOT-curled (ST_ROLLING clear), which is why the retired
+// ">= PSTATE_JUMP" curled range test could never have expressed this set.
+// GLIDEFALL is its OWN state, not a glide sub-state: it has normal air gravity
+// AFTER the move, normal air control, and a landing that is a DEAD STOP (all three
+// velocities zeroed) rather than the gsp = x_vel conversion every other landing does.
+pub const PSTATE_GLIDE            = 16
+pub const PSTATE_GLIDEFALL        = 18
+pub const PSTATE_SLIDE            = 20
+pub const PSTATE_COUNT            = 11         // state/hook tables assert against this
 
 // -----------------------------------------------
 // The PSTATE_* value guards (see THE RULE above). ORDER-FREE by construction:
@@ -127,7 +137,7 @@ pub const PSTATE_COUNT            = 8          // state/hook tables assert again
 // -----------------------------------------------
 comptime fn pstate_values_ok() -> bool {
     comptime var cover = 0
-    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY] {
+    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE] {
         // EVEN — the value is a jump-table BYTE offset, not a row index.
         ensure((v & 1) == 0, "PSTATE_* value {v} is ODD — a player-state value is a jump-table BYTE offset, i.e. 2 x its row index in Player_States / PState_EnterHooks / PState_ExitHooks")
         // IN RANGE — all three tables are 2 * PSTATE_COUNT bytes long. Checked
@@ -176,7 +186,24 @@ pub const ANIM_GETUP              = 10
 // PSTATE_FLY, which only Tails' ability can enter.
 pub const ANIM_FLY                = 11         // flapping (fuel remaining)
 pub const ANIM_FLY_TIRED          = 12         // out of fuel — the flap is disabled
-pub const ANIM_COUNT              = 13         // sonic_anims.emp asserts entry count == this
+// Knuckles' glide/slide poses (SHARED contract like every other id — every
+// character's table carries a row; only Player_Animate's PSTATE_GLIDE/GLIDEFALL/
+// SLIDE branch writes them, and only Knuckles' ability can enter those states).
+// ANIM_GLIDE_0..4 are CONTIGUOUS so the classifier selects a turn pose with an
+// `add.b index` and the ensure below pins the span. S3K frames $C0..$C4.
+pub const ANIM_GLIDE_0            = 13         // S3K frame $C0 (level glide, facing)
+pub const ANIM_GLIDE_1            = 14         // S3K frame $C1
+pub const ANIM_GLIDE_2            = 15         // S3K frame $C2
+pub const ANIM_GLIDE_3            = 16         // S3K frame $C3
+pub const ANIM_GLIDE_4            = 17         // S3K frame $C4 (mirror-point pose)
+pub const ANIM_GLIDEFALL          = 18         // S3K AniKnuckles21 ($CA $CB) — falling after release
+pub const ANIM_SLIDE              = 19         // S3K AniKnuckles (frame $CC) — belly slide
+pub const ANIM_SLIDE_GETUP        = 20         // S3K AniKnuckles22 ($CD) — rising from a slide
+pub const ANIM_GLIDE_LAND         = 21         // S3K AniKnuckles23 ($9C) — get-up from a hard glide-fall land
+pub const ANIM_COUNT              = 22         // sonic_anims.emp asserts entry count == this
+// The glide turn poses must be a contiguous 5-id run so the classifier's index math
+// (Glide_Pose_Table8 -> ANIM_GLIDE_0 + i) stays in range.
+ensure(ANIM_GLIDE_1 == ANIM_GLIDE_0 + 1 && ANIM_GLIDE_2 == ANIM_GLIDE_0 + 2 && ANIM_GLIDE_3 == ANIM_GLIDE_0 + 3 && ANIM_GLIDE_4 == ANIM_GLIDE_0 + 4, "ANIM_GLIDE_0..4 must be contiguous — the glide pose classifier indexes them as ANIM_GLIDE_0 + turn_index")
 
 // Game state ids (extend existing table)
 pub const GS_OJZ_SCROLL_TEST      = 3

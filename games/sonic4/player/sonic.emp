@@ -49,6 +49,7 @@ pub data CharDef_Sonic: CharacterDef = CharacterDef{
     // Sonic -> Tails -> Knuckles -> Sonic, and a 0 here would leave Knuckles'
     // palette in line 0 on the way back and render Sonic in his colours.
     cd_palette:   extern("Pal_SonicTails"),
+    cd_ability_wh: 0,                       // no ability box — Sonic never enters a 10x10 state
 }
 // curl_head_rise derives the curl geometry with a `sub.b` of the two box heights
 // and relies on it not borrowing. Nothing makes a character taller by curling,

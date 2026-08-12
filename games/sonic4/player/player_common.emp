@@ -25,7 +25,7 @@ use engine.objects.objdef.{vram_art}
 use engine.constants.{NUM_PLAYERS,
         RF_PRIORITY_SHIFT, RF_PRIORITY_MASK, ST_IN_AIR, BUTTON_LEFT, BUTTON_RIGHT, SECTION_SIZE_SHIFT, SCREEN_HEIGHT,
         PHYS_SKID_MIN, PHYS_JUMP_BUFFER, PHYS_FALL_CAP,
-        ST_ROLLING, ST_PUSHING, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
+        ST_ROLLING, ST_PUSHING, ST_XFLIP, COLLISION_NONE, EDGE_WRAP_V, EDGE_KILL, BUTTON_A, BUTTON_B, BUTTON_C,
         BUTTON_UP_BIT, BUTTON_B_BIT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use engine.types.{VramTile}
 
@@ -59,10 +59,12 @@ type PlayerHook = proc (a0: *Sst) preserves(a0) clobbers(d1-d2, a1-a2)
 // (config/constants.emp). VRAM_TEST_MARKER is the tile-1016 debug-fly marker.
 use games.sonic4.constants.{
     PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP,
-    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_COUNT,
+    PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY,
+    PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, PSTATE_COUNT,
     ANIM_WALK, ANIM_RUN, ANIM_ROLL, ANIM_SPINDASH, ANIM_PUSH, ANIM_IDLE,
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
     ANIM_FLY, ANIM_FLY_TIRED,
+    ANIM_GLIDE_0, ANIM_GLIDEFALL, ANIM_SLIDE,
     ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
 }
 
@@ -74,7 +76,7 @@ use games.sonic4.sound_ids.{SFXID_SKID}
 // `use engine.constants.{...}` above.
 
 // -----------------------------------------------
-// PlayerV — the SST overlay (research structure-refs §2.2 budget: 22 of 30
+// PlayerV — the SST overlay (research structure-refs §2.2 budget: 21 of 30
 // usable bytes — the sst_custom window is 32 bytes at $30 and its tail word
 // $4E-$4F is the engine-owned SST_interact).
 // This module owns the overlay outright (player_common.asm deleted); the
@@ -128,6 +130,20 @@ pub vars PlayerV: Sst.sst_custom {
                                         // = flapping, the value being the flap's frame count.
                                         // One byte because the two facts are one fact — a flap
                                         // IS its ramp — and two would be free to disagree.
+
+        // Knuckles' glide turn angle (S3K's double_jump_property, sonic3k.asm:31677).
+        // Signed byte: 0 = facing right, -$80 = facing left; the glide turn steps it
+        // ±2/frame toward the held direction (a half turn is 64 frames). x_vel is
+        // rebuilt each frame as cos(glide_angle)·gsp>>8, and the glide POSE + facing
+        // are derived from it in Player_Animate. Same UNION principle as the flight
+        // scratch above (exactly one character is resident, so Knuckles' glide reuses
+        // the ability-scratch region under its own name) and the same replay-hash
+        // discipline: address-free AND Sonic-UNREACHABLE — the only writers are
+        // Ability_KnuxGlide (seeds it) and the glide body (steps it), both reachable
+        // only through CharDef_Knuckles.cd_ability / PSTATE_GLIDE, so Sonic's frame
+        // never touches this address and Player_Init deliberately does NOT clear it.
+        glide_angle:      u8,           // glide turn angle (S3K double_jump_property)
+        ability_pad:      u8,           // pad — keeps the overlay even
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
@@ -260,6 +276,16 @@ pub comptime fn set_standing_size(sst: Reg, def: Reg) -> Code {
 pub comptime fn set_ball_size(sst: Reg, def: Reg) -> Code {
         return asm {
                 move.w  CharacterDef.cd_roll_wh({def}), size_wh_off()({sst})
+        }
+}
+
+// set_ability_size — the THIRD box (Knuckles' glide/slide/climb 10x10), the exact
+// peer of the two splices above. cd_ability_wh is 0 for a character with no ability
+// box, but the only writer (PHook_EnsureAbility) is reachable only through
+// Ability_KnuxGlide, so a 0-box character never reaches this.
+pub comptime fn set_ability_size(sst: Reg, def: Reg) -> Code {
+        return asm {
+                move.w  CharacterDef.cd_ability_wh({def}), size_wh_off()({sst})
         }
 }
 
@@ -641,6 +667,16 @@ pub proc Player_Display (a0: *Sst) clobbers(d0-d6/a1-a3) {
         jbra    Player_LoadArt
 }
 
+// Glide_Pose_Table8 — S3K's RawAni_Knuckles_GlideTurn (sonic3k.asm:31588) expressed
+// as pose OFFSETS from ANIM_GLIDE_0 rather than as raw mapping frames ($C0..$C4),
+// because our AnimateSprite owns mapping_frame and re-classifies every frame — the
+// direct-write trick does not carry over. Player_Animate's glide branch reads it
+// pc-relative: index = (glide_angle + $10) >> 5 & 7; the table is symmetric
+// (0 1 2 3 4 3 2 1) and offset 4 is the mirror point the classifier flips facing on.
+// 8 bytes (even) on an even section, so the following code stays word-aligned with no
+// `align` directive — which at this mid-section position would be a provisional pad.
+data Glide_Pose_Table8: [u8; 8] = [0, 1, 2, 3, 4, 3, 2, 1]
+
 // -----------------------------------------------
 // Player_Animate — read-only animation classifier. Reads state/status/input and
 // (at rest) one ledge sensor; writes ONE ANIM_* id to SST_anim and the
@@ -697,6 +733,46 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         move.b  #ANIM_FLY_TIRED, anim(a0)
         rts
 .not_fly:
+        // (1c) KNUCKLES GLIDE / GLIDEFALL / SLIDE — the third state-keyed group,
+        // and it needs its own branch for the same reason FLY does: glide is
+        // AIRBORNE and UNCURLED, so the classification below would fall through to
+        // .walk_or_run and animate a gliding Knuckles with the run cycle. Unreachable
+        // for any character whose cd_ability cannot enter these states (everyone but
+        // Knuckles). GLIDE also DERIVES FACING from the glide angle here — not from
+        // x_vel — so the mirror-point pose lands correctly; nothing else steers a
+        // glide (Air_XInput does not run in the glide body).
+        cmpi.b  #PSTATE_GLIDE, d0
+        bne     .not_glide
+        // pose = Glide_Pose_Table8[(glide_angle + $10) >> 5 & 7]; index 4 flips
+        // facing and uses pose 0 (S3K Knuckles_Set_Gliding_Animation, :31564-31584:
+        // the $C4 table entry is replaced by $C0 + Status_Facing). Facing is cleared
+        // first, set only on the mirror index — exactly S3K's bclr-then-conditional-bset.
+        bclr    #ST_XFLIP, status(a0)
+        move.b  PlayerV.glide_angle(a0), d1
+        addi.b  #$10, d1
+        lsr.b   #5, d1                          // low-byte >> 5 -> 0..7
+        andi.w  #7, d1                          // index hygiene for the pc-relative load
+        lea     Glide_Pose_Table8(pc), a1
+        move.b  (a1,d1.w), d1                   // d1 = 0..4 (offset from ANIM_GLIDE_0)
+        cmpi.b  #4, d1
+        bne     .glide_face_set
+        bset    #ST_XFLIP, status(a0)           // mirror index -> flip, pose 0
+        moveq   #0, d1
+.glide_face_set:
+        addi.b  #ANIM_GLIDE_0, d1
+        move.b  d1, anim(a0)
+        rts
+.not_glide:
+        cmpi.b  #PSTATE_GLIDEFALL, d0
+        bne     .not_glidefall
+        move.b  #ANIM_GLIDEFALL, anim(a0)
+        rts
+.not_glidefall:
+        cmpi.b  #PSTATE_SLIDE, d0
+        bne     .not_slide
+        move.b  #ANIM_SLIDE, anim(a0)
+        rts
+.not_slide:
         // (2) ball: ROLL + curled air (JUMP/ROLLJUMP/AIRBALL). ST_ROLLING IS
         // "in ball form", so the test is the bit, not a state range — which is
         // what retires the PSTATE_* ordering constraint (config/constants.emp).
@@ -849,6 +925,9 @@ pub offsets Player_States {
         RollJump: PState_RollJump,      // PSTATE_ROLLJUMP (player_air)
         AirBall:  PState_AirBall,       // PSTATE_AIRBALL (player_air)
         Fly:      PState_Fly,           // PSTATE_FLY (player_fly) — Tails only
+        Glide:    PState_Glide,         // PSTATE_GLIDE (player_glide) — Knuckles only
+        GlideFall:PState_GlideFall,     // PSTATE_GLIDEFALL (player_glide) — Knuckles only
+        Slide:    PState_Slide,         // PSTATE_SLIDE (player_glide) — Knuckles only
 }
 ensure(Player_States.count == PSTATE_COUNT, "Player_States table out of sync with PSTATE_*")
 
@@ -890,6 +969,12 @@ pub offsets PState_EnterHooks {
                                         // curled, so EnsureStanding is always a no-op
                                         // here; it runs anyway because the hook's job is
                                         // to make the invariant true, not to assume it.
+        Glide:    PHook_GlideEnter,     // GLIDE — install the 10x10 ability box (no y-shift),
+                                        // uncurl, airborne
+        GlideFall:PHook_AirEnter,       // GLIDEFALL — restore the STANDING box (S3K's fall
+                                        // runs at default radii) + set airborne. The
+                                        // generalised EnsureStanding lifts feet-planted.
+        Slide:    PHook_SlideEnter,     // SLIDE — keep the 10x10 ability box, grounded
 }
 ensure(PState_EnterHooks.count == PSTATE_COUNT, "PState_EnterHooks table out of sync with PSTATE_*")
 
@@ -910,6 +995,9 @@ pub offsets PState_ExitHooks {
                                         // hook that cleared it would be a write on the
                                         // path out of every state, and PHook_Null keeps
                                         // this row off Sonic's reachable set entirely.
+        Glide:    PHook_Null,           // GLIDE — glide_angle seeded on ENTRY (Ability_KnuxGlide)
+        GlideFall:PHook_Null,           // GLIDEFALL
+        Slide:    PHook_Null,           // SLIDE
 }
 ensure(PState_ExitHooks.count == PSTATE_COUNT, "PState_ExitHooks table out of sync with PSTATE_*")
 
@@ -922,7 +1010,7 @@ pub proc PHook_Null () clobbers() {
         rts
 }
 
-pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1/a1) {
+pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1-d2/a1) { // d2: EnsureStanding's y-shift calc
         jbsr    PHook_EnsureStanding            // uncurl (jump/ball landings;
                                                 // down-held landings go straight
                                                 // to ROLL via Air_LandState)
@@ -930,7 +1018,7 @@ pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1/a1) {
         rts
 }
 
-pub proc PHook_AirEnter (a0: *Sst) clobbers(d1/a1) { // uncurled airborne
+pub proc PHook_AirEnter (a0: *Sst) clobbers(d1-d2/a1) { // uncurled airborne (d2: EnsureStanding's shift calc)
         jbsr    PHook_EnsureStanding
         bset    #ST_IN_AIR, status(a0)
         rts
@@ -948,7 +1036,19 @@ pub proc PHook_RollEnter (a0: *Sst) clobbers(d1/a1) { // grounded ball — enter
         rts                                     // held landing (air → cleared)
 }
 
-pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1/a1) preserves(d0) { // entered only from GROUND —
+pub proc PHook_GlideEnter (a0: *Sst) clobbers(d1/a1) { // Knuckles' glide — airborne,
+        jbsr    PHook_EnsureAbility             // uncurled, 10x10 ability box
+        bset    #ST_IN_AIR, status(a0)
+        rts
+}
+
+pub proc PHook_SlideEnter (a0: *Sst) clobbers(d1/a1) { // belly slide — grounded,
+        jbsr    PHook_EnsureAbility             // keeps the 10x10 box (idempotent)
+        bclr    #ST_IN_AIR, status(a0)
+        rts
+}
+
+pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1-d2/a1) preserves(d0) { // entered only from GROUND —
                                                 // preserves(d0) is DECLARED (not left
                                                 // implicit) so the closure gate verifies
                                                 // the stack round-trip below instead of
@@ -1011,15 +1111,49 @@ pub proc PHook_SpindashExit (a0: *Sst) clobbers() {
 // curled/uncurled. Comparing the whole word (both dims) rather than the height
 // alone is the same test — no character's standing box shares its rolling box —
 // and it is one aligned read instead of two.
-pub proc PHook_EnsureStanding (a0: *Sst) clobbers(d1/a1) {
+// GENERALISED GUARD (§0 fix): the old guard keyed on cd_roll_wh — "am I the ball
+// box" — so coming from the 21x21 ability box (Knuckles' glide/slide) it missed and
+// the standing box was NEVER restored. The guard is now "am I NOT the standing box",
+// with the feet-planted y-shift computed from the CURRENT height rather than the
+// fixed curl pair: shift = (cd_stand_h - current_h) >> 1. That is S3K's own
+// `y_radius - default_y_radius` (sonic3k.asm:30978), and it reproduces the two-box
+// case EXACTLY — ball->standing is (39-29)>>1 = 5 (byte-identical to the retired
+// curl_y_shift), ability->standing is (39-21)>>1 = 9 (the number S3K's slide get-up
+// uses). Sonic and Tails are behaviour-identical (same shift, same paths); only the
+// encoding moves, so this is ROM-changing but RAM-identical and the replay fixtures
+// hold. The debug-fly 16 box never reaches here — Player_DebugExit calls
+// set_standing_size explicitly before any hook runs, so the box is already standing
+// and the guard takes .keep.
+pub proc PHook_EnsureStanding (a0: *Sst) clobbers(d1-d2/a1) {
+        bclr    #ST_ROLLING, status(a0)
+        movea.l Player_Chardef, a1
+        move.w  size_wh_off()(a0), d1           // current box W<<8|H (low byte = height)
+        cmp.w   CharacterDef.cd_stand_wh(a1), d1
+        beq     .keep                           // already standing
+        moveq   #0, d2
+        move.b  cd_stand_h_off()(a1), d2        // standing height (2r+1)
+        sub.b   d1, d2                          // stand_h - current_h (d1.b = current height)
+        lsr.b   #1, d2                          // feet-planted shift px (always even: both odd)
+        set_standing_size(a0, a1)               // NOW overwrite the box
+        swap    d2                              // px -> 16.16 (the moveq's zero is the low word)
+        sub.l   d2, y_pos(a0)                   // lift so the feet stay planted
+.keep:
+        rts
+}
+
+// PHook_EnsureAbility — install the 10x10 ability box (Knuckles' glide/slide/climb),
+// the exact peer of the two Ensure hooks. Glide is ATTACKING but NOT curled, so
+// ST_ROLLING is cleared; NO y-shift is applied — S3K writes the radii on glide entry
+// and never touches y_pos (sonic3k.asm:32565-32572). Idempotent, so glide->slide is a
+// no-op on the box exactly as S3K leaves it. Reachable only through Ability_KnuxGlide,
+// so a character with cd_ability_wh = 0 never gets a degenerate box.
+pub proc PHook_EnsureAbility (a0: *Sst) clobbers(d1/a1) {
         bclr    #ST_ROLLING, status(a0)
         movea.l Player_Chardef, a1
         move.w  size_wh_off()(a0), d1
-        cmp.w   CharacterDef.cd_roll_wh(a1), d1
-        bne     .keep                           // not curled (incl. debug 16)
-        set_standing_size(a0, a1)
-        curl_y_shift(a1, d1)
-        sub.l   d1, y_pos(a0)
+        cmp.w   CharacterDef.cd_ability_wh(a1), d1
+        beq     .keep                           // already the ability box
+        set_ability_size(a0, a1)                // no y-shift (S3K applies none)
 .keep:
         rts
 }

@@ -216,10 +216,21 @@ pub struct CharacterDef {
                                  //       Copied into Palette_Buffer + line 0 marked
                                  //       dirty by Player_RefreshPhysics on every
                                  //       character resolve.
+    cd_ability_wh: u16,          // $24 — the ABILITY-state collision box (Knuckles'
+                                 //       glide/slide/climb), W<<8|H full dims (2r+1).
+                                 //       0 = no ability box (Sonic, Tails). Set by
+                                 //       PHook_EnsureAbility with NO y-shift — S3K
+                                 //       applies none on glide entry (:32565-32567).
+                                 //       A THIRD box alongside cd_stand_wh/cd_roll_wh:
+                                 //       the box machinery knew only two, and coming
+                                 //       from a 21x21 ability box PHook_EnsureStanding's
+                                 //       old cd_roll_wh-keyed guard missed and never
+                                 //       restored standing (the §0 blocker). Appended
+                                 //       AFTER cd_palette so $00-$1E stay byte-stable.
 }
 
-// cd_palette is LAST deliberately, so every offset $00-$1E above is byte-stable
-// and no `CharacterDef.cd_*(a1)` displacement in the player code moves.
+// cd_palette + cd_ability_wh are LAST deliberately, so every offset $00-$1E above is
+// byte-stable and no `CharacterDef.cd_*(a1)` displacement in the player code moves.
 //
 // WHY A PER-CHARACTER PALETTE EXISTS AT ALL. Two of the three characters could
 // share one CRAM line: Sonic's art is already in our index order, and Tails' was

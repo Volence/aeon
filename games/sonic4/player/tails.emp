@@ -76,6 +76,7 @@ pub data CharDef_Tails: CharacterDef = CharacterDef{
     // palette of his own. Named rather than left 0 so the hotkey round-trip
     // restores it after Knuckles (see the note in engine/structs.emp).
     cd_palette:   extern("Pal_SonicTails"),
+    cd_ability_wh: 0,                       // no ability box — flight keeps the standing box
 }
 // See CharDef_Sonic: curl_head_rise's `sub.b` of the two heights must not borrow.
 ensure(TAILS_Y_RADIUS >= BALL_Y_RADIUS,

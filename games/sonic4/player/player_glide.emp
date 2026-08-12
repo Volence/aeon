@@ -1,0 +1,474 @@
+// Knuckles' glide + slide — PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, and the
+// ability hook that enters them (§7, Task 10).
+//
+// The Knuckles peer of player_fly.emp: CharDef_Knuckles' cd_ability points at
+// Ability_KnuxGlide, the air state calls it on a fresh jump press while airborne, and
+// everything below is reachable ONLY through that pointer — so for Sonic and Tails
+// this module is dead ROM, the property the replay gate depends on (see the
+// ability-scratch block in player_common's PlayerV).
+//
+// SOURCE OF TRUTH: stock S3K, skdisasm `sonic3k.asm` —
+//   Knux_Test_For_Glide      :32543   entry gate + seeding
+//   Knux_Glide_Freespace     :30679   the per-frame call order
+//   Knuckles_Move_Glide      :31602   accel / turn / x_vel projection / parachute / level-top
+//   Knuckles_Glide           :30691   the per-frame state dispatch (floor / wall / release)
+//   Knuckles_Fall_From_Glide :30899   the fall sub-state (own gravity + DEAD-STOP land)
+//   Knuckles_Sliding         :30950   friction / floor-follow / ledge-drop / get-up
+//   Knux_DoLevelCollision_CheckRet :32629  the flags-returning terrain pass
+//
+// THREE STATES, not two. The fall-from-glide is its OWN state: it has normal air
+// gravity AFTER the move, normal air control, and a landing that is a DEAD STOP
+// (all three velocities zeroed) rather than the gsp = x_vel conversion every other
+// landing does. It cannot be PSTATE_AIR and it does not share glide's per-frame shape.
+//
+// THE PER-FRAME ORDER IS PState_Fly's, NOT PState_Air's: the vertical (parachute)
+// is computed in Glide_Move BEFORE the move, then ObjectMove runs with NO gravity of
+// its own. PState_Air integrates and THEN applies gravity; getting this backwards
+// costs a frame of lag on every glide.
+//
+// Lives in the object code bank, right after `player_fly` per map.toml `order`. Pure code.
+module games.sonic4.player_glide in player_glide
+
+use engine.objects.sst.{Sst}
+use engine.constants.{PHYS_GRAVITY, PHYS_FALL_CAP, ST_XFLIP, ST_ON_OBJECT,
+        BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
+use games.sonic4.constants.{PSTATE_GROUND, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, CHEAT_DEBUG_FLY}
+use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B, dist_to_fix}
+use games.sonic4.ram.{PlayerBlock}
+
+// GetSineCosine (engine.math), ObjectMove (engine.objects), Player_SetState /
+// Player_SensorFloor / Air_WallProbeLeft / Air_WallProbeRight / Air_XInput (the
+// player modules) resolve module-to-module as bare link refs.
+
+// player-block field displacement (a4-relative), the PBLK_* convention. a4 holds the
+// CALLING SLOT's block, so this reaches that slot's jump-release cap and no other.
+const PBLK_RELEASE_CAP = 14
+ensure(PBLK_RELEASE_CAP == offsetof(PlayerBlock, release_cap),
+       "PBLK_RELEASE_CAP diverged from PlayerBlock.release_cap (config/ram.emp)")
+
+// -----------------------------------------------
+// The glide numbers, all S3K's (sonic3k.asm:31602-31721).
+// -----------------------------------------------
+const GLIDE_START_SPEED     = $400              // gsp at entry, and the accel band split
+const GLIDE_SPEED_CAP       = $1800             // the hard speed limit
+const GLIDE_ACCEL_LOW       = 8                 // +8/frame while gsp < $400
+const GLIDE_ACCEL_HIGH      = 4                 // +4/frame while $400 <= gsp < $1800 (not turning)
+const GLIDE_TURN_STEP       = 2                 // glide_angle step/frame (a half turn = 64 frames)
+const GLIDE_ENTRY_YVEL      = $200              // y_vel bump at entry (clamped >= 0)
+const GLIDE_PARACHUTE_STEP  = $20               // parachute y_vel step toward terminal
+const GLIDE_TERMINAL        = $80               // parachute terminal fall speed
+const GLIDE_TOP_MARGIN      = $10               // world Y the horizontal speed is cut at
+                                                //   (the camera minimum is a structural 0
+                                                //   in this engine — see player_fly.emp:66)
+
+const SLIDE_FRICTION        = $20               // x_vel decel/frame while sliding
+const SLIDE_LEDGE_DIST      = 14                // floor dist beyond this = slid off a ledge
+const SLIDE_GETUP_LOCK      = $F                // move_lock frames on the slide get-up
+
+// Glide terrain-pass result flags (Glide_Collide's returned byte). S3K keeps the same
+// two facts in Gliding_collision_flags (Status_InAir / Status_Push); we return them in
+// a register instead of a global RAM cell.
+const GLF_INAIR_BIT         = 0                 // set = still airborne (no floor landing)
+const GLF_PUSH_BIT          = 1                 // set = hit a wall this frame
+
+// -----------------------------------------------
+// PState_Glide — one frame of the glide proper. Call order is S3K's
+// Knux_Glide_Freespace (sonic3k.asm:30679): Move (accel/turn/project/parachute),
+// then move-with-no-gravity, then the terrain dispatch. Player_LevelBound is NOT
+// called here — Player_Main calls it after every state dispatch, exactly as it does
+// for PState_Fly.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_GROUND / PSTATE_GLIDEFALL / PSTATE_SLIDE)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc PState_Glide (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // A solid object caught us last tick (our solid handler clears ST_IN_AIR
+        // without touching the player state, so an ignored bit leaves Knuckles
+        // gliding on a platform — the class of bug player_fly.emp:91 documents). Treat
+        // the object top as a flat landing → slide.
+        btst    #ST_ON_OBJECT, status(a0)
+        bne     .on_object
+
+        jbsr    Glide_Move                      // accel, turn, x_vel = cos·gsp, parachute, level-top
+        jbsr    ObjectMove                      // move — NO gravity (Glide_Move owns the vertical)
+        jbsr    Glide_Collide                   // d0.b = GLF_* flags; snaps + zeroes on contact
+
+        btst    #GLF_INAIR_BIT, d0
+        beq     .hit_floor                      // floor caught us → land
+        btst    #GLF_PUSH_BIT, d0
+        bne     .hit_wall
+
+        // Still gliding — has the jump button been released? (S3K continues gliding
+        // while ANY of A/B/C is held; the cheat gate steals B while free-flight owns it,
+        // exactly as player_common's latch and player_fly's flap do.)
+        move.b  Ctrl_1_Held, d0
+        andi.b  #BUTTON_JUMP_MASK, d0
+        beq     .release
+        moveq   #CHEAT_DEBUG_FLY, d1
+        and.b   Cheat_Flags, d1                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .continue                       // cheat clear: any A/B/C sustains the glide
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d0      // armed: B is the fly toggle
+        beq     .release
+.continue:
+        rts                                     // pose + facing set in Player_Animate
+
+.release:
+        // Enter the fall: x_vel /= 4 (asr twice, S3K :30727-30728). The GLIDEFALL enter
+        // hook (PHook_AirEnter) restores the standing box — S3K's fall runs at default radii.
+        asr.w   x_vel(a0)
+        asr.w   x_vel(a0)
+        moveq   #PSTATE_GLIDEFALL, d0
+        jbra    Player_SetState
+
+.hit_wall:
+        // TASK 10 INTERIM — S3K's own `.fail` path (sonic3k.asm:30890): enter the fall,
+        // radii restored by the enter hook. Task 11 REPLACES this one branch with the
+        // wall-catch → PSTATE_CLIMB; nothing else here changes.
+        moveq   #PSTATE_GLIDEFALL, d0
+        jbra    Player_SetState
+
+.on_object:
+        clr.b   angle(a0)                       // the object top is flat
+        // fall through to the landing logic (angle 0 → flat → slide)
+.hit_floor:
+        // Facing from the horizontal velocity's sign (S3K Knux_Gliding_HitFloor).
+        bclr    #ST_XFLIP, status(a0)
+        tst.w   x_vel(a0)
+        bpl     .face_set
+        bset    #ST_XFLIP, status(a0)
+.face_set:
+        // Quadrant test (angle+$20)&$C0: nonzero = a real slope → normal land with
+        // x_vel = gsp; zero = flat → the belly SLIDE.
+        move.b  angle(a0), d0
+        addi.b  #$20, d0
+        andi.b  #$C0, d0
+        beq     .flat_slide
+        move.w  PlayerV.ground_speed(a0), x_vel(a0)
+        clr.w   y_vel(a0)
+        moveq   #PSTATE_GROUND, d0
+        jbra    Player_SetState
+.flat_slide:
+        moveq   #PSTATE_SLIDE, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Glide_Move — accel band, turn, x_vel projection, parachute, level-top cut.
+// S3K's Knuckles_Move_Glide (sonic3k.asm:31602). Runs BEFORE the move.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none
+// Clobbers: d0-d7, a1-a2 (GetSineCosine clobbers only d0/d1, so gsp survives in d2)
+// -----------------------------------------------
+proc Glide_Move (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // --- accel: +8 below $400, +4 in [$400,$1800) unless turning, hard cap $1800 ---
+        move.w  PlayerV.ground_speed(a0), d0
+        cmpi.w  #GLIDE_START_SPEED, d0
+        bhs     .medium
+        addq.w  #GLIDE_ACCEL_LOW, d0
+        jbra    .apply
+.medium:
+        cmpi.w  #GLIDE_SPEED_CAP, d0
+        bhs     .apply                          // at the cap: no accel
+        // turning suppresses ONLY the +4 branch (the +8 branch has no turn gate)
+        move.b  PlayerV.glide_angle(a0), d1
+        andi.b  #$7F, d1
+        bne     .apply
+        addq.w  #GLIDE_ACCEL_HIGH, d0
+.apply:
+        move.w  d0, PlayerV.ground_speed(a0)
+
+        jbsr    Glide_Turn                      // step glide_angle toward the held direction
+
+        // --- x_vel = cos(glide_angle) · gsp >> 8. The muls idiom with the established
+        // pragma (Ground_Move_Cap .project_slope): cos and gsp are both full-range
+        // variables so no shift-add decomposition exists, one player, one product per
+        // glide frame, and S3K spends the same muls.w/asr.l #8 (:31681-31682). ---
+        move.w  PlayerV.ground_speed(a0), d2    // gsp — survives GetSineCosine (clobbers d0/d1)
+        moveq   #0, d0
+        move.b  PlayerV.glide_angle(a0), d0 as Angle
+        jbsr    GetSineCosine                   // d0 = sin·$100, d1 = cos·$100
+        muls.w  d2, d1                          // lint: disable=E002
+        asr.l   #8, d1
+        move.w  d1, x_vel(a0)
+
+        // --- parachute: y_vel toward the terminal $80 by ±$20 (S3K :31687-31695) ---
+        move.w  y_vel(a0), d0
+        cmpi.w  #GLIDE_TERMINAL, d0
+        blt     .falling_slow
+        subi.w  #GLIDE_PARACHUTE_STEP, d0       // falling fast → slow the fall
+        jbra    .chute_done
+.falling_slow:
+        addi.w  #GLIDE_PARACHUTE_STEP, d0       // falling slow → gravity
+.chute_done:
+        move.w  d0, y_vel(a0)
+
+        // --- level top: above world Y $10 → halve x_vel and gsp (S3K :31700-31709) ---
+        cmpi.w  #GLIDE_TOP_MARGIN, y_pos(a0)    // word read = the integer-px high word
+        bge     .done
+        asr.w   x_vel(a0)
+        asr.w   PlayerV.ground_speed(a0)
+.done:
+        rts
+}
+
+// -----------------------------------------------
+// Glide_Turn — step glide_angle toward the held direction (S3K :31637-31677).
+// The turn CONTINUES with no direction held (it completes to the next rest position,
+// :31670-31674), and a mid-turn reversal `neg.b`s the angle then steps +2 — the mirror
+// preserves cos (facing) while flipping the rotation, which is the whole trick.
+// glide_angle: 0 = fully right, $80 = fully left; the sign tracks which way it rotates.
+// In:  a0 = player SST
+// Out: none
+// Clobbers: d0-d1
+// -----------------------------------------------
+proc Glide_Turn (a0: *Sst) clobbers(d0-d1) {
+        move.b  PlayerV.glide_angle(a0), d0
+        move.b  Ctrl_1_Held, d1
+        btst    #BUTTON_LEFT_BIT, d1
+        beq     .not_left
+        cmpi.b  #$80, d0
+        beq     .store                          // already fully left
+        tst.b   d0
+        bpl     .add_l                          // d0 >= 0: step straight
+        neg.b   d0                              // d0 < 0 (reversing): mirror, preserving cos
+.add_l:
+        addq.b  #GLIDE_TURN_STEP, d0
+        jbra    .store
+.not_left:
+        btst    #BUTTON_RIGHT_BIT, d1
+        beq     .not_right
+        tst.b   d0
+        beq     .store                          // already fully right
+        bmi     .add_r                          // d0 < 0: step straight
+        neg.b   d0                              // d0 > 0 (reversing): mirror
+.add_r:
+        addq.b  #GLIDE_TURN_STEP, d0
+        jbra    .store
+.not_right:
+        // no direction held — keep turning unless at a rest position ($00 or $80)
+        move.b  d0, d1
+        andi.b  #$7F, d1
+        beq     .store
+        addq.b  #GLIDE_TURN_STEP, d0
+.store:
+        move.b  d0, PlayerV.glide_angle(a0)
+        rts
+}
+
+// -----------------------------------------------
+// Glide_Collide — the glide-owned terrain pass (S3K's Knux_DoLevelCollision_CheckRet,
+// :32629). Air_Collide TAIL-JUMPS into Player_SetState on a landing, so glide cannot
+// call it and inspect the outcome — the state would already be GROUND with a normal
+// gsp = x_vel conversion, which is exactly what glide must NOT do. So glide gets its own
+// pass that REPORTS into a flags byte instead of transitioning.
+//
+// Built from the shared push probes (Air_WallProbeLeft/Right — they snap out of the
+// wall and zero x_vel on a hit, S3K's `bset Status_Push` + snap) and Player_SensorFloor.
+// Both walls are checked every frame (S3K's mostly-down class does the same); the floor
+// is checked only while descending (S3K gates the floor land on y_vel >= 0, :30722).
+// The box read by the sensors is the SST's, so this is correct at BOTH the 10x10 glide
+// box and the standing GLIDEFALL box with no parameter.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: d0.b = GLF_* flags (GLF_INAIR set = still airborne, GLF_PUSH set = wall hit).
+//      Returned as a plain clobber the caller reads (the Air_WallProbeRight/d4 idiom),
+//      NOT a typed `out(d0)` — the flags reach d0 through a word-width stack pop, and
+//      `out` wants a provably full-width write.
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        clr.w   -(sp)                           // flags accumulator (low byte at 1(sp))
+        jbsr    Air_WallProbeLeft               // d4 = -1 on a hit (snaps, zeroes x_vel)
+        tst.w   d4
+        beq     .no_wall_l
+        bset    #GLF_PUSH_BIT, 1(sp)
+.no_wall_l:
+        jbsr    Air_WallProbeRight
+        tst.w   d4
+        beq     .no_wall_r
+        bset    #GLF_PUSH_BIT, 1(sp)
+.no_wall_r:
+        // floor land only while descending (S3K :30722 loc_17A36)
+        tst.w   y_vel(a0)
+        bmi     .airborne
+        jbsr    Player_SensorFloor              // d0 = dist, d1 = angle
+        tst.w   d0
+        bpl     .airborne                       // not embedded → no landing
+        // landed — snap onto the floor along +Y (S3K `add.w d1,y_pos`, always the
+        // down axis here), take the floor angle, kill the vertical.
+        move.b  d1, d3                          // save the floor angle
+        dist_to_fix(d0)                         // d0 = dist << 16
+        add.l   d0, y_pos(a0)
+        move.b  d3, angle(a0)
+        clr.w   y_vel(a0)
+        jbra    .done                           // GLF_INAIR stays CLEAR = landed
+.airborne:
+        bset    #GLF_INAIR_BIT, 1(sp)
+.done:
+        move.w  (sp)+, d0
+        rts
+}
+
+// -----------------------------------------------
+// PState_GlideFall — the fall after a glide release / wall bail (S3K
+// Knuckles_Fall_From_Glide, :30899). A genuinely different body from the glide: normal
+// air control, gravity AFTER the move, and a landing that is a DEAD STOP — all three
+// velocities zeroed, NOT the gsp = x_vel conversion. Runs at the STANDING box (the enter
+// hook restored it).
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_GROUND)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc PState_GlideFall (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        btst    #ST_ON_OBJECT, status(a0)
+        bne     .dead_stop                      // an object caught us → dead-stop land
+        jbsr    ObjectMove                      // move by the current velocity (no gravity yet)
+        jbsr    Air_XInput                      // normal air steering (S3K Knux_ChgJumpDir)
+        // gravity AFTER the move (S3K addi #$38), capped like every air fall
+        move.w  y_vel(a0), d0
+        add.w   #PHYS_GRAVITY, d0
+        cmpi.w  #PHYS_FALL_CAP, d0
+        ble     .grav_ok
+        move.w  #PHYS_FALL_CAP, d0
+.grav_ok:
+        move.w  d0, y_vel(a0)
+        jbsr    Glide_Collide                   // d0.b = flags
+        btst    #GLF_INAIR_BIT, d0
+        bne     .airborne                       // still falling
+.dead_stop:
+        // DEAD STOP — no gsp = x_vel conversion (S3K :30918-30920). The GROUND enter
+        // hook's generalised EnsureStanding is a no-op (box already standing).
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        // TODO(user): S3K plays sfx_GlideLand ($4C) here — no glide SFX exists in our
+        // bank yet (sourcing audio is the user's decision), so the land is silent.
+        moveq   #PSTATE_GROUND, d0
+        jbra    Player_SetState
+.airborne:
+        rts
+}
+
+// -----------------------------------------------
+// PState_Slide — the belly slide after a flat glide landing (S3K Knuckles_Sliding,
+// :30950). Runs at the 10x10 ability box. Friction $20/frame on x_vel toward 0; a
+// sign crossing OR a jump-button release triggers the full get-up. The floor is
+// followed every frame; a floor gap >= 14 means Knuckles slid off a ledge → the fall.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_GROUND / PSTATE_GLIDEFALL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+pub proc PState_Slide (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // Jump released → full get-up (S3K :30953 `beq .getUp`). The cheat gate steals
+        // B while free-flight owns it, matching every other jump-button site.
+        move.b  Ctrl_1_Held, d0
+        andi.b  #BUTTON_JUMP_MASK, d0
+        beq     .get_up
+        moveq   #CHEAT_DEBUG_FLY, d1
+        and.b   Cheat_Flags, d1                 // (Cheat_Flags).w — runtime cheat gate
+        beq     .held                           // cheat clear: any A/B/C sustains the slide
+        andi.b  #BUTTON_JUMP_MASK_NO_B, d0
+        beq     .get_up
+.held:
+        // friction toward 0 by $20; a sign crossing ends the slide (S3K :30955-30971)
+        tst.w   x_vel(a0)
+        bpl     .going_right
+        addi.w  #SLIDE_FRICTION, x_vel(a0)
+        bmi     .terrain                        // still negative → keep sliding
+        jbra    .get_up                         // crossed 0 → get up
+.going_right:
+        subi.w  #SLIDE_FRICTION, x_vel(a0)
+        bmi     .get_up                         // crossed 0 → get up
+.terrain:
+        jbra    Slide_Terrain                   // floor-follow + ledge-drop (may transition)
+
+.get_up:
+        // Full get-up (S3K :30973-30993): zero the velocities, lock input, hand off to
+        // GROUND — whose generalised EnsureStanding restores the standing box and lifts
+        // the feet-planted 9 px (the exact number S3K's slide get-up applies, :30978).
+        clr.w   x_vel(a0)
+        clr.w   y_vel(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        move.w  #SLIDE_GETUP_LOCK, PlayerV.move_lock(a0)
+        moveq   #PSTATE_GROUND, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Slide_Terrain — floor-follow + ledge-drop for the slide (S3K :30996-31024). Walls
+// are snapped out of (the slide stops at a wall); the floor is followed on +Y every
+// frame; a floor gap >= 14 means the ledge dropped away → the fall.
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (may transition to PSTATE_GLIDEFALL)
+// Clobbers: d0-d7, a1-a2
+// -----------------------------------------------
+proc Slide_Terrain (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        jbsr    Air_WallProbeLeft               // snap out of walls (the slide just stops)
+        jbsr    Air_WallProbeRight
+        jbsr    Player_SensorFloor              // d0 = dist, d1 = angle
+        cmpi.w  #SLIDE_LEDGE_DIST, d0
+        bge     .ledge_drop
+        // follow the floor: y_pos += dist, angle = floor angle (S3K :31013-31014)
+        move.b  d1, d3
+        dist_to_fix(d0)
+        add.l   d0, y_pos(a0)
+        move.b  d3, angle(a0)
+        // TODO(user): S3K plays sfx_GroundSlide ($7E) every 8 frames here — no slide SFX
+        // exists in our bank yet (sourcing audio is the user's decision), so it is silent.
+        // The visual slide DUST (cadence 4) is emitted display-side in Dust_Tick.
+        rts
+.ledge_drop:
+        // Slid off a ledge — enter the fall (S3K :31027 `.fail`, radii restored by the
+        // GLIDEFALL enter hook).
+        moveq   #PSTATE_GLIDEFALL, d0
+        jbra    Player_SetState
+}
+
+// -----------------------------------------------
+// Ability_KnuxGlide — CharDef_Knuckles' cd_ability (the AbilityHook the air state calls
+// on a fresh jump press while already airborne). Seeds the glide and hands to
+// PSTATE_GLIDE; the enter hook (PHook_GlideEnter) installs the 10x10 ability box,
+// uncurls, and sets airborne.
+//
+// THE ENTRY GATE is S3K's, inherited from Knux_JumpHeight (:32520-32522): y_vel >= the
+// jump release cap (-$400), read per-character out of the slot's physics row through a4
+// — the same gate Ability_TailsFlight uses. It stops a double-tap at launch from
+// converting the whole jump into a glide: the rise has to decay past the cap first.
+//
+// Like Tails' flight, entry does NOT run any glide physics — those start next frame in
+// PState_Glide. The press frame finishes under the AIR state's rules (see the settled
+// frame-semantics note at the hook site in player_air.emp).
+// In:  a0 = player SST, a4 = the slot's player block
+// Out: none (transitions to PSTATE_GLIDE)
+// Clobbers: d0-d2, a1-a2 — the AbilityHook contract
+// -----------------------------------------------
+pub proc Ability_KnuxGlide (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
+        move.w  y_vel(a0), d1
+        cmp.w   PBLK_RELEASE_CAP(a4), d1
+        blt     .rising_too_fast
+
+        // gsp = $400; x_vel = ±$400 and glide_angle = 0 / -$80 by facing (S3K :32575-32586)
+        move.w  #GLIDE_START_SPEED, d0
+        moveq   #0, d1                          // glide_angle for facing right
+        btst    #ST_XFLIP, status(a0)
+        beq     .store_face
+        neg.w   d0                              // x_vel = -$400
+        moveq   #-$80, d1                       // glide_angle for facing left
+.store_face:
+        move.w  #GLIDE_START_SPEED, PlayerV.ground_speed(a0)
+        move.w  d0, x_vel(a0)
+        move.b  d1, PlayerV.glide_angle(a0)
+        clr.b   angle(a0)
+
+        // y_vel += $200, clamp >= 0 (S3K :32570-32572)
+        move.w  y_vel(a0), d0
+        addi.w  #GLIDE_ENTRY_YVEL, d0
+        bpl     .yvel_ok
+        moveq   #0, d0
+.yvel_ok:
+        move.w  d0, y_vel(a0)
+
+        moveq   #PSTATE_GLIDE, d0
+        jbra    Player_SetState                 // enter hook installs the 10x10 box, uncurls, airborne
+.rising_too_fast:
+        rts
+}
