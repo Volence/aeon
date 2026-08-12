@@ -195,7 +195,7 @@ comptime fn clamp_d1_07() -> Code {
         tst.w   d1
         bpl   .cl_pos
         moveq   #0, d1
-        bra   .cl_end
+        jbra   .cl_end
     .cl_pos:
         cmpi.w  #7, d1
         bls   .cl_end
@@ -211,7 +211,7 @@ comptime fn step_d3_toward_d4() -> Code {
         beq   .st_end
         bcs   .st_up
         subq.w  #1, d3
-        bra   .st_end
+        jbra   .st_end
     .st_up:
         addq.w  #1, d3
     .st_end:
@@ -457,7 +457,7 @@ proc Palette_DoCycle () clobbers(d0-d7/a0-a3) {
         move.b  d3, (a3, d5.w)                  // reload period
         bset    d0, d7                          // record the touched line (bit = line index)
         jbsr    Palette_RotateSpan             // rotate d2 entries at line d0 from d1, dir d4
-        bra   .next
+        jbra   .next
     .wait:
         subq.b  #1, (a3, d5.w)
     .next:
@@ -613,7 +613,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
     .neg_tick:
         subq.b  #1, Pal_Op_Step
         bne   .ret                            // .ret is past the long fw_word loop below
-        bra     .op_done_restore
+        jbra     .op_done_restore
     .fade_dir:
         // step every level channel +/-1 toward 0 (black) or 7 (white) every 2 frames
         subq.b  #1, Pal_Op_Timer
