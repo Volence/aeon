@@ -11,6 +11,41 @@ module engine.collision_lookup in collision_lookup
 use engine.constants.{CTYPE_AIR, TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE}
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
 
+// ===================================================================
+// REMOVABLE TEST FIXTURE — Knuckles C4 climb-chain verification (2026-08-12).
+// DEBUG-ONLY (`if DEBUG == 1`, so ZERO bytes in the release shape). Organic OJZ act1
+// terrain has NO glide-catchable wall with a flat approach (the only LRB vertical
+// faces are an 80px pillar boxed by pits at x~1248) — verified by an offline scan of
+// the section collision. So this injects ONE deterministic solid wall into the terrain
+// query, standing on the flat spawn ground band (Y~208-224, walkable x=128..760), so
+// the terrain-based glide wall-catch -> climb -> ledge chain can be exercised.
+//
+// The wall is a full-LRB solid column (returns attr 1 = the sonic4 SOLID_ALL full block;
+// its HeightMaps + HeightMapsRot are all-16, verified). It sits at world X [560,576),
+// Y [48,240) — 16px wide, 192px tall, base merging into the real ground at Y~224.
+//
+// RECIPE for the controller (debug ROM, OJZ test state, debug-fly already armed):
+//   1. Teleport the player STANDING to world (x=380, y=189) — feet on the Y~208 ground,
+//      ~180px LEFT of the wall face. Facing RIGHT (clear Sst.status bit ST_XFLIP=1).
+//   2. Press C to jump (PSTATE_JUMP) — a short hold is enough; the glide starts from
+//      PSTATE_JUMP only.
+//   3. While airborne with y_vel >= -$400, press C AGAIN -> Ability_KnuxGlide ->
+//      PSTATE_GLIDE (state 16). Glide travels right and descends gently (~Y130).
+//   4. At x~550 the glide's wall probe (x+10 = 560) hits the face -> PSTATE_CLIMB (22),
+//      PlayerV.knux_latch_x ~= 550, contact Y~130 (>=24px below the wall top Y=48).
+//   5. Hold UP: 1px/frame up, mapping_frame cycles $B7..$BC; near the top the wall dist
+//      >=4 -> PSTATE_LEDGE (24) -> the 4-step clamber ($BD $BE $BF $D2) -> PSTATE_GROUND
+//      standing on the wall top (~Y=48). Hold DOWN to climb down; press A/B/C to jump off
+//      away from the wall (-$380 up, $400 leftward) into PSTATE_JUMP.
+//
+// DELETE this block + DBG_CW_* consts after the chain is verified — it is a scaffold,
+// not shippable engine content (it also couples to the game's attr-1 = full solid).
+// ===================================================================
+const DBG_CW_X0 = 560           // wall left face (world px) — approach from the left
+const DBG_CW_X1 = 576           // wall right edge (16px wide)
+const DBG_CW_Y0 = 48            // wall top (above the jump apex, so a glide hits the face)
+const DBG_CW_Y1 = 240           // wall base (merges into the real Y~224 ground)
+
 // -----------------------------------------------
 // Collision_GetType — look up collision type for a world-space position.
 // Fuses the world-space bounds check with the cache-relative fetch: the
@@ -26,6 +61,23 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE}
 // -----------------------------------------------
 pub proc Collision_GetType (d0: u16, d1: u16, d3: u8) clobbers(d1-d3/a0) out(d0: u8) {
         ensure(TILE_CACHE_STRIDE == 80, "Collision_GetType multiplies by #80; keep TILE_CACHE_STRIDE=80 or the collision row stride is wrong")
+        // REMOVABLE TEST FIXTURE (see the banner above): a DEBUG-only solid wall at
+        // [DBG_CW_X0,X1) x [DBG_CW_Y0,Y1). d0=world X, d1=world Y are still the raw pixel
+        // inputs here (before the >>3 tile conversion), and the cmpi.w's leave them
+        // intact, so a miss falls straight through to the normal lookup.
+        if DEBUG == 1 {
+                cmpi.w  #DBG_CW_X0, d0
+                blt     .dcw_miss
+                cmpi.w  #DBG_CW_X1, d0
+                bge     .dcw_miss
+                cmpi.w  #DBG_CW_Y0, d1
+                blt     .dcw_miss
+                cmpi.w  #DBG_CW_Y1, d1
+                bge     .dcw_miss
+                moveq   #1, d0              // attr 1 = full-LRB solid (SOLID_ALL, all-16 profile)
+                rts
+        .dcw_miss:
+        }
         lsr.w   #3, d0                      // X pixels → world tile col
         move.w  Cache_Left_Col, d2          // read once: bounds compare + cache-relative
         cmp.w   d2, d0
