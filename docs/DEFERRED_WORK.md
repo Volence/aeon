@@ -4094,3 +4094,26 @@ is a *multiply*, which sits under the same sentence.
 POOL_TILE_CEILING carve) is superseded by the registry
 (`games/sonic4/vram.toml`, commit c51a4ff9): VRAM_DUST_PUFF/VRAM_DUST_SPINDASH
 now exist from the generated block. Dust Tasks 3-6 resume unchanged otherwise.
+
+
+### Dust riders (plan Task 6, 2026-08-12)
+1. **Knuckles dust art variant** — a second, RAW (unpermuted) 2816 B blob
+   selected at Player_RefreshPhysics alongside his palette swap, which must
+   also re-DMA the resident puff block (it is palette-specific). Measured: no
+   single variant serves both CRAM lines — the three colours the art needs sit
+   at disjoint indices, and the lines agree only at 0/10/11, none used by dust
+   (dust spec §5.4).
+2. **Water splash / water-run dust** — a design task gated on a water system
+   existing at all (dust spec §1; no ST_UNDERWATER implementation today).
+3. **TF4 round-robin misattribution** — docs/ENGINE_ARCHITECTURE.md (~1118,
+   1165, 1955, §3.5) and docs/research/children-particles.md:166 credit
+   Thunder Force IV with "round-robin sprite flicker" at $F29A. Verified from
+   its disassembly: that address is a global Y-drift accumulator; TF4 has no
+   such mechanism, and the doc's claimed TF4 RAM pools are palette/tilemap
+   staging. Our per-frame intra-band link-order cycling (sprites.emp:242) is
+   real — only the provenance is wrong. Correct in one docs pass.
+4. **particle_anims.emp:17 duration comment** — says "duration 4 frames/frame";
+   under animate.emp's N+1 rule a duration byte of 4 holds for 5 frames.
+5. **Hoist the shared S3K sprite conversion** out of gen_characters.py /
+   gen_dust.py into tools/s3k_sprites.py — deferred while gen_characters.py is
+   load-bearing on two branches (dust plan, File Structure note).
