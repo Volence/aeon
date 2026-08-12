@@ -35,6 +35,20 @@ const DUST_CADENCE_RELOAD = 3
 // deriving it needs no per-character dust data at all.
 const DUST_FEET_RISE = 3
 
+// The radius the donor dust MAPPINGS were authored against: Sonic's standing
+// y_radius. The charge-dust frames' piece offsets (-32,+4 / -32,-4) place the
+// cloud on the GROUND for an origin 19 px above it; a shorter character's
+// ground line sits closer to his origin, so a raw origin copy sinks the cloud
+// into the floor (user report, 2026-08-12: Tails' charge dust visibly detached
+// from his ball). S3K's `$38` short-character flag subtracts the same 4 px.
+// The follower derives it from the record instead: ref − this character's
+// radius = 0 for Sonic (byte-identical behaviour, fixtures unaffected), 4 for
+// Tails. A future character taller than 19 would get a NEGATIVE lift, which is
+// also correct.
+const DUST_ART_REF_RADIUS = 19          // == engine PLAYER_Y_RADIUS, pinned below
+ensure(DUST_ART_REF_RADIUS == extern("PLAYER_Y_RADIUS"),
+       "the dust art's authoring reference drifted from Sonic's standing radius — re-derive the mapping offsets or update the reference")
+
 // -----------------------------------------------
 // Dust_Tick — emit skid/slide dust on the cadence, or disarm.
 //
@@ -184,6 +198,21 @@ pub proc DustSpindash_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
 
         move.l  Sst.x_pos(a1), Sst.x_pos(a0)
         move.l  Sst.y_pos(a1), Sst.y_pos(a0)
+
+        // Lift the cloud onto the character's OWN ground line (see
+        // DUST_ART_REF_RADIUS above): ref − radius pixels, 0 for Sonic. Derived
+        // per frame from the record, not cached at spawn, so a mid-charge
+        // character switch cannot strand a stale lift (the retirement poll
+        // below kills the follower a frame later anyway, but the copy runs
+        // first in this dispatch).
+        movea.l Player_Chardef, a2
+        moveq   #0, d0
+        move.b  cd_stand_h_off()(a2), d0        // full standing height (2r+1)
+        lsr.w   #1, d0                          // d0 = this character's y_radius
+        neg.w   d0
+        addi.w  #DUST_ART_REF_RADIUS, d0        // d0 = ref - radius (0, 4, ...)
+        pixels_to_coord(d0)
+        sub.l   d0, Sst.y_pos(a0)
 
         // Mirror the facing only. AnimateSprite propagates status bits 1-2 into
         // render_flags itself, so copying the whole status byte would also drag
