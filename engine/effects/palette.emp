@@ -1,0 +1,63 @@
+// engine/effects/palette.emp — the per-section palette load, and Phase 2's home for
+// the palette engine's composition pipeline.
+//
+// Split out of engine/system/buffers.emp (which keeps the CRAM upload machinery) so
+// the effects suite owns its own modules, per the design's file structure. Pure code
+// motion: the proc below is byte-for-byte what shipped in chain 105.
+//
+// Design: docs/superpowers/2026-08-11-effects-suite-design.md §5.
+module engine.effects.palette in palette
+
+use engine.structs.{Sec}
+
+// ===========================================================================
+// PER-SECTION PALETTE LOAD (effects P1)
+//
+// `Sec.sec_pal` finally gets a consumer. It has been a reserved descriptor field
+// since the section struct was written — before this, game code hand-poked
+// Palette_Buffer (see games/sonic4/test/*), so "each section has its own palette"
+// was descriptor-only.
+//
+// The level owns CRAM lines 1-3; line 0 belongs to the character system. See the
+// proc comment below — getting that boundary wrong reverts the active character's
+// palette on every section crossing.
+//
+// P1 is an INSTANT snap. The palette engine's composition pipeline (base ->
+// cycling -> cross-fade -> operators -> variants) is Phase 2; this proc becomes
+// its base-layer step rather than being replaced.
+//
+// Note the ownership boundary: engine.buffers owns the CRAM *upload* (Palette_Buffer,
+// the dirty mask, Enqueue_Dirty_Buffers). This module owns what goes IN it. Phase 2's
+// composition pipeline (base -> cycling -> cross-fade -> operators -> variants) grows
+// here, with the proc below becoming its base-layer step rather than being replaced.
+// ===========================================================================
+
+// -----------------------------------------------
+// Palette_LoadSection — load a section's palette (CRAM lines 1-3) and mark those
+// three lines dirty, so Enqueue_Dirty_Buffers DMAs them in the same VBlank.
+//   a0 = Sec*   (preserved — the boundary hook still needs it)
+// A NULL sec_pal means "keep current", matching the descriptor 0-convention that
+// sec_parallax_config uses.
+//
+// `sec_pal` is 96 bytes = CRAM lines 1-3, NOT a full 128-byte 4-line image.
+// **CRAM line 0 is the CHARACTER line and this proc must never touch it.**
+// Player_ApplyCharacter owns it via CharacterDef.cd_palette (per-character: Sonic
+// and Tails share one, Knuckles has his own) and writes it only on a character
+// change. A section load that included line 0 would revert the active character's
+// colours on every boundary crossing — i.e. Knuckles would turn back into Sonic
+// mid-act. The level owning 1-3 and the character owning 0 is also why the OJZ
+// palette data has always been exactly 96 bytes.
+// -----------------------------------------------
+pub proc Palette_LoadSection (a0: u32) clobbers(d0-d1/a1-a2) {
+        move.l  Sec.sec_pal(a0), d0
+        beq.s   .keep
+        movea.l d0, a1
+        lea     Palette_Buffer + $20, a2    // CRAM line 1 base — line 0 is the character's
+        moveq   #(96 / 4) - 1, d1
+    .copy:
+        move.l  (a1)+, (a2)+
+        dbf     d1, .copy
+        ori.b   #%1110, Palette_Dirty       // lines 1-3 only; bit 0 stays the character's
+    .keep:
+        rts
+}

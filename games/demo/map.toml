@@ -21,7 +21,7 @@ order = [
   "InitSpriteSystem", "AnimateSprite", "TouchResponse", "RingBuffer_Add",
   "Collected_Init", "PopulateSpawnedPieceCount", "Load_Object", "Plane_Buffer_Reset",
   "Tile_Cache_GetTile", "Collision_GetType", "Section_Init", "Camera_Init",
-  "Parallax_Init", "Level_LoadArt", "PageIn_Process", "PageCache_Init", "BG_Init", "BgAnim_Init",
+  "Parallax_Init", "Raster_Install", "Palette_LoadSection", "Level_LoadArt", "PageIn_Process", "PageCache_Init", "BG_Init", "BgAnim_Init",
   "CompressionSelfTest", "ObjCodeBase", "DemoBox_Main", "ObjDef_DemoBox",
   "GameState_Demo_Init", "ReleaseFault", "BusError",
 ]
