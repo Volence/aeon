@@ -1,0 +1,120 @@
+// Knuckles — the character RECORD (§5), the exact peer of sonic.emp and tails.emp.
+// Pure data: the CharacterDef the shared player frame dispatches through, plus the
+// physics base row it points at.
+//
+// There is no Knuckles CODE in this file, and that is the roster working as
+// designed: the places the player frame used to name a character (asset wiring,
+// the DPLC + art immediates, the physics source, the airborne ability, and now the
+// palette) all read this record through Player_Chardef, so a third playable
+// character is a third record plus one roster row.
+//
+// HIS ABILITY IS NOT WIRED YET. cd_ability points at Ability_None, so a jump press
+// while airborne does nothing extra — he plays as a Sonic-with-a-weaker-jump.
+// Glide/slide (PSTATE_GLIDE / PSTATE_SLIDE) and climb/ledge (PSTATE_CLIMB /
+// PSTATE_LEDGE) are Tasks 10-11; when Ability_KnuxGlide lands, this one pointer is
+// the whole of what turns it on, exactly as Ability_TailsFlight was for Tails.
+module games.sonic4.knuckles in knuckles
+
+use engine.structs.{CharacterDef}
+use games.sonic4.ram.{PlayerBlock}
+use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
+use engine.constants.{PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
+
+// VRAM_TEST_SONIC — tile 960, THE single character DPLC window (32 tiles, up to
+// the VRAM_TEST_OBJ wall at 992). Its name says Sonic; its role is the one
+// character window, and only ONE character is resident at a time, so Knuckles
+// streams into the same 32 tiles Sonic and Tails do. The guard is not a comment:
+// knuckles_data.emp carries
+// `ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_OBJ)`, which
+// measures his worst DPLC frame out of the shipped blob (29 tiles of the 32 — the
+// tightest of the three characters) and fails the build if a re-exported sheet
+// ever outgrows the window. No VRAM_KNUCKLES constant exists on purpose: a second
+// window is only needed for a second SIMULTANEOUSLY-resident sprite, which is why
+// the Tails appendage has one and Knuckles does not.
+use games.sonic4.constants.{VRAM_TEST_SONIC}
+
+// -----------------------------------------------
+// KNUX_JUMP_FORCE — the ONE physics delta in the whole record.
+//
+// Stock S3K: `Knux_Jump` loads $600 into d2 where `Sonic_Jump` loads $680
+// (skdisasm sonic3k.asm:32458 vs :23315). The SPG lists this as Knuckles' single
+// movement difference: he jumps noticeably lower and everything else about his
+// ground game is Sonic's. Verified directly in the disassembly rather than taken
+// from the SPG alone — `Knuckles_Init` (:30365-30367) writes Max_speed $600,
+// Acceleration $C and Deceleration $80, i.e. Sonic's values verbatim, and
+// `Knux_JumpHeight` (:32514) uses the same -$400 jump-release cap.
+//
+// A module-local const rather than an engine constant: engine/system/constants.emp
+// is game-agnostic and PHYS_JUMP_FORCE is the engine's shared default. A
+// per-character deviation belongs to the character's record, which is this file —
+// the same call tails.emp makes for TAILS_Y_RADIUS.
+// -----------------------------------------------
+const KNUX_JUMP_FORCE = $600
+
+// -----------------------------------------------
+// CharDef_Knuckles — the record the roster (CharacterDefs, characters.emp) points
+// at for CHAR_KNUCKLES.
+//
+// His collision boxes are SONIC'S, both of them. `Knuckles_Init` (sonic3k.asm
+// :30355-30358) writes y_radius $13 / x_radius 9, which is exactly what
+// `Sonic_Init` writes, so there is no per-character radius const here the way
+// tails.emp needs one; the engine's PLAYER_*_RADIUS defaults are correct for him.
+// Rolling uses the shared ball radii (S3K's `Player_DoRoll` is one routine for all
+// three characters). Built from radii rather than restated as numbers, so the
+// derived curl geometry (curl_head_rise / curl_y_shift, player_common) follows
+// automatically — and being Sonic's boxes, his curl compensation is Sonic's too.
+//
+// cd_palette is the field this task added, and Knuckles is the reason it exists:
+// his art indexes S3K's character palette, which our CRAM line 0 cannot express
+// (see knuckles_data.emp). Player_RefreshPhysics copies the 32 bytes into
+// Palette_Buffer and marks line 0 dirty on every character resolve.
+// -----------------------------------------------
+pub data CharDef_Knuckles: CharacterDef = CharacterDef{
+    cd_phys:      PhysTable_Knuckles,
+    cd_mappings:  extern("Map_Knuckles"),
+    cd_dplc:      extern("DPLC_Knuckles"),
+    cd_artbase:   extern("Art_Knuckles"),
+    cd_animtable: extern("Ani_Knuckles"),
+    cd_ability:   extern("Ability_None"),   // -> Ability_KnuxGlide at Task 10
+    cd_vrambase:  VRAM_TEST_SONIC,          // the shared character window (one character resident)
+    cd_stand_wh:  ((PLAYER_X_RADIUS * 2 + 1) << 8) | (PLAYER_Y_RADIUS * 2 + 1),
+    cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
+    cd_flags:     0,
+    cd_palette:   extern("Pal_Knuckles"),
+}
+// See CharDef_Sonic: curl_head_rise's `sub.b` of the two heights must not borrow.
+ensure(PLAYER_Y_RADIUS >= BALL_Y_RADIUS,
+       "CharDef_Knuckles' ball is taller than its standing box — curl_head_rise's sub.b would borrow")
+
+// -----------------------------------------------
+// Knuckles' physics base table — Sonic's row with ONE substitution. Naming the row
+// separately (rather than pointing cd_phys at PhysTable_Sonic and living with the
+// jump difference elsewhere) is what keeps the delta declarative: the difference
+// between the two characters is visible as one line of a table instead of a branch
+// somewhere in the jump code.
+//
+// Same contract as PhysTable_Sonic: block-copied into the calling slot's
+// PlayerBlock by Player_RefreshPhysics (the per-CHARACTER base row; section /
+// water / speed-shoe modifiers compose there later, NEVER per-frame). Field order
+// is bound to the PlayerBlock physics row (config/ram.emp) — the ensure enforces
+// size.
+// -----------------------------------------------
+pub data PhysTable_Knuckles: [i16; 8] = [
+        PHYS_ACCEL,
+        PHYS_DECEL,
+        PHYS_FRICTION,
+        PHYS_TOP_SPEED,
+        PHYS_GRAVITY,
+        KNUX_JUMP_FORCE,          // <<< the ONLY delta from PhysTable_Sonic
+        PHYS_AIR_ACCEL,
+        PHYS_JUMP_RELEASE_CAP,
+]
+// The physics row is the head of PlayerBlock, so its length is the offset of the
+// first non-physics field: this 8-word ROM row and the RAM row
+// Player_RefreshPhysics block-copies it into must be the same size. Every physics
+// row the roster can point at carries this guard, not just the first one.
+ensure(8 * 2 == offsetof(PlayerBlock, quadrant), "PhysTable_Knuckles out of sync with the PlayerBlock physics row")
+// The delta is the POINT of this table existing; if a future tuning pass ever made
+// them equal, this row should be deleted and cd_phys pointed at Sonic's instead.
+ensure(KNUX_JUMP_FORCE < PHYS_JUMP_FORCE,
+       "Knuckles' jump force must stay below Sonic's — that difference is the only reason this row exists")

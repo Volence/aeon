@@ -1,0 +1,97 @@
+// Knuckles character data — the sprite trio the shared player frame reads out of a
+// CharacterDef (mappings + DPLC + art), plus the two CRAM line-0 palettes the
+// roster's per-character palette swap points at.
+//
+// ONE set, unlike Tails: Knuckles is a single sprite. He has no appendage object,
+// so there is no second mappings/DPLC/art trio and no second VRAM window.
+//
+// PROVENANCE: stock Sonic 3 & Knuckles, extracted and converted to Aeon's sprite
+// formats by games/sonic4/data/characters_staging/gen_characters.py (that
+// directory's README carries the exact skdisasm sources), and shipped to the paths
+// below by that generator's own `ship` list.
+//
+// HE SHIPS THE RAW DPLC PAIR, NOT THE `_opt` PAIR — the one place his data
+// deliberately differs from Sonic's and Tails'. The contiguous ("optimized")
+// rearrange copies every frame's tiles in full, duplicates included, so it makes
+// the art strictly LARGER: 4383 tiles against the raw 4092. A DPLC entry's
+// tile_start field is only TWELVE bits (max 4095), so the contiguous form is not
+// addressable and 25 of its entries across frames 234-250 silently wrapped to
+// low tile indices — those frames DMA'd early-frame art. `write_dplc` now refuses
+// to emit it (see the tile_start assert there), and the raw pair is both correct
+// and 8,702 bytes smaller. Its only cost is up to 5 DPLC entries per frame
+// instead of 2, well inside DMA_IMPORTANT_SLOTS, moving the same 29 tiles either
+// way — and multi-entry DPLC is already the shipped norm (DPLC_Sonic carries up
+// to 13). See docs/DEFERRED_WORK.md.
+//
+// TWO PALETTES, and this is the structural reason Knuckles needed a per-character
+// palette at all. Tails' art was fixable by a lossless index PERMUTATION into our
+// existing CRAM line 0, because he uses only colours we already carry. Knuckles
+// uses S3K index 5 ($0080) for 3,272 pixels and our line 0 does not carry that
+// colour at any index, so no permutation is lossless for him. His art therefore
+// stays in S3K's index order and the PALETTE moves instead — exactly what S3K
+// itself does (it swaps Pal_Knuckles into CRAM line 0 for him).
+module games.sonic4.knuckles_data in knuckles_data
+
+// The character DPLC window + its hard wall — the VRAM budget the peak guard
+// below is stated against. Sole authority is games.sonic4.constants.
+use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
+use engine.constants.{TILE_SIZE}
+use engine.objects.dplc.{dplc_peak_tiles}
+
+const _map_knux  = embed("games/sonic4/data/mappings/knuckles.bin")
+const _dplc_knux = embed("games/sonic4/data/dplc/knuckles.bin")
+const _art_knux  = embed("art/optimized/characters/knuckles.bin")
+
+// The two CRAM line-0 images the roster swaps between. 32 bytes each = one
+// 16-entry line. `Pal_SonicTails` is the SAME file act_assets.emp loads at level
+// init, embedded here rather than referenced cross-module so a character record
+// never has to name a per-act level asset (BGND_Palette lives in the OJZ act
+// module and will be retired when the act set grows). 32 bytes of duplication
+// buys the character data being self-contained.
+const _pal_sonic_tails = embed("art/palettes/SonicAndTails.bin")
+const _pal_knux        = embed("art/palettes/knuckles.bin")
+
+// The Map_/DPLC_ frame indices are signed word-offset tables (AnimateSprite and
+// Perform_DPLC both index them as `frame*2` into a word table of offsets FROM the
+// table head), so each blob must fit the signed range — the same comptime wall
+// collision_data.emp puts on the Sonic pair and tails_data.emp on Tails'.
+ensure(_map_knux.len <= $7FFF, "Map_Knuckles exceeds signed word-offset range")
+ensure(_dplc_knux.len <= $7FFF, "DPLC_Knuckles exceeds signed word-offset range")
+
+// Every blob even-length, so the labels after them stay word-aligned with no
+// inter-blob padding.
+ensure((_map_knux.len & 1) == 0 && (_dplc_knux.len & 1) == 0 && (_art_knux.len & 1) == 0,
+       "a Knuckles blob is odd-length — the label after it would land on an odd address")
+
+// Art is whole 32-byte tiles by construction (uncompressed 4bpp); a truncated
+// embed would otherwise surface only as garbage in a frame's last DMA.
+ensure((_art_knux.len % TILE_SIZE) == 0, "Art_Knuckles is not a whole number of tiles")
+
+// A CRAM line is exactly 16 entries. Both palettes are read as a fixed 32-byte
+// copy into Palette_Buffer by Player_RefreshPhysics, so a short file would copy
+// whatever followed it into CRAM and a long one would silently ignore the tail.
+ensure(_pal_sonic_tails.len == 32, "Pal_SonicTails must be exactly one 16-entry CRAM line (32 bytes)")
+ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line (32 bytes)")
+
+// -----------------------------------------------
+// THE VRAM WALL — the peak comes from the DATA, not from a comment.
+//
+// Knuckles shares the single character DPLC window with Sonic and Tails (only one
+// character is resident at a time), so his file-wide peak has to clear the same
+// wall theirs does. Measured 29 tiles into the 32-tile window: the same peak
+// Sonic has, and the tightest of the three. The bound is read from its owner
+// (VRAM_TEST_OBJ) rather than restated, so moving that neighbour re-checks this
+// automatically.
+//
+// NOTE this is measured on the RAW DPLC, where a frame's tiles arrive as up to 5
+// entries. dplc_peak_tiles sums per frame, so it measures the VRAM footprint
+// (29 tiles) and not the entry count — which is the right quantity for this wall.
+// -----------------------------------------------
+ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_OBJ,
+       "Knuckles' peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+
+pub data Map_Knuckles   = _map_knux
+pub data DPLC_Knuckles  = _dplc_knux
+pub data Art_Knuckles   = _art_knux
+pub data Pal_SonicTails = _pal_sonic_tails
+pub data Pal_Knuckles   = _pal_knux

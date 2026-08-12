@@ -441,6 +441,38 @@ pub proc Player_RefreshPhysics (a2: *PlayerBlock) clobbers(d0/a1-a2) {
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
         move.l  (a1)+, (a2)+
+
+        // --- the per-character CRAM line 0 (cd_palette) ---
+        //
+        // Here for the same reason Camera_Curl_Offset is: this proc is the
+        // CHOKEPOINT for a character change. Player_Chardef has exactly two
+        // writers (Player_Init's roster resolve and the debug character hotkey)
+        // and both call this immediately after, while nothing else calls it — so
+        // the palette cannot go stale behind a swap.
+        //
+        // Per-CHARACTER, not per-slot: there is one CRAM line 0, so unlike the
+        // physics row above this write is not indexed by a2. When a follower makes
+        // characters per-slot, this follows whichever slot Camera_Target names —
+        // and at that point two characters needing different line 0s is a real
+        // conflict, which is the foreclosure noted at the field in structs.emp.
+        //
+        // Costs ~20 bytes and runs TWICE in a normal session (init + a hotkey
+        // press), never per-frame. Fits the existing clobbers(d0/a1-a2) contract —
+        // a1/a2/d0 are all spent by this point — so no caller changes and a0
+        // survives, which ojz_scroll_test's hotkey tail call depends on.
+        movea.l Player_Chardef, a1              // re-load: the phys copy consumed a1
+        movea.l CharacterDef.cd_palette(a1), a1
+        move.l  a1, d0
+        beq     .no_pal                         // 0 = inherit the current line 0
+        lea     Palette_Buffer, a2              // (Palette_Buffer).w — CRAM line 0 base
+        moveq   #32/4 - 1, d0
+    .pal_copy:
+        move.l  (a1)+, (a2)+
+        dbf     d0, .pal_copy
+        ori.b   #1, Palette_Dirty               // (Palette_Dirty).w — bit 0 = line 0;
+                                                // the VBlank per-line DMA in
+                                                // engine/system/buffers.emp does the rest
+    .no_pal:
         rts
 }
 

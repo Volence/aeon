@@ -211,7 +211,36 @@ pub struct CharacterDef {
                                  //       2r+1 — the set_standing_size values)
     cd_roll_wh:   u16,           // $1C — rolling collision box, W<<8|H (set_ball_size)
     cd_flags:     u16,           // $1E — reserved capability bits (0 today)
+    cd_palette:   *u8,           // $20 — pointer to a 32-byte CRAM line-0 image, or
+                                 //       0 for "leave the current line 0 alone".
+                                 //       Copied into Palette_Buffer + line 0 marked
+                                 //       dirty by Player_RefreshPhysics on every
+                                 //       character resolve.
 }
+
+// cd_palette is LAST deliberately, so every offset $00-$1E above is byte-stable
+// and no `CharacterDef.cd_*(a1)` displacement in the player code moves.
+//
+// WHY A PER-CHARACTER PALETTE EXISTS AT ALL. Two of the three characters could
+// share one CRAM line: Sonic's art is already in our index order, and Tails' was
+// brought into it by a lossless index PERMUTATION at asset-build time
+// (gen_characters.py). Knuckles cannot be — his art uses S3K index 5 ($0080) for
+// 3,272 pixels and our line 0 carries that colour at no index, so no permutation
+// is lossless for him. S3K solves this the same way, by swapping Pal_Knuckles into
+// CRAM line 0 when Knuckles is the player.
+//
+// THE FORECLOSURE, stated here because this field is where it becomes true: with a
+// per-character line 0, Sonic and Knuckles cannot be simultaneously resident on
+// one CRAM line. That only constrains a CPU FOLLOWER (two characters on screen at
+// once), which is blocked on its own VRAM ruling; a solo character swap is
+// unaffected. Three costed options are ledgered in docs/DEFERRED_WORK.md.
+//
+// A 0 here is legal and means "inherit whatever line 0 already holds", which is
+// what a game with one character wants. Note it is NOT the right value for a
+// character in a roster that can be CYCLED: the debug hotkey walks
+// Sonic -> Tails -> Knuckles -> Sonic, so if Sonic's record said 0 the trip back
+// from Knuckles would leave Knuckles' palette in line 0 and render Sonic in his
+// colours. Every record in a cycling roster needs a real pointer.
 
 // The HEIGHT halves of the two packed boxes — blessed sub-field views (the
 // module boundary above admits these), because the curl geometry is a function

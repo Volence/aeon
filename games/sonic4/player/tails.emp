@@ -71,6 +71,11 @@ pub data CharDef_Tails: CharacterDef = CharacterDef{
     cd_stand_wh:  ((PLAYER_X_RADIUS * 2 + 1) << 8) | (TAILS_Y_RADIUS * 2 + 1),
     cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
     cd_flags:     0,
+    // Tails SHARES Sonic's line: his art was brought into our index order by the
+    // lossless permutation in gen_characters.py, which is exactly why he needed no
+    // palette of his own. Named rather than left 0 so the hotkey round-trip
+    // restores it after Knuckles (see the note in engine/structs.emp).
+    cd_palette:   extern("Pal_SonicTails"),
 }
 // See CharDef_Sonic: curl_head_rise's `sub.b` of the two heights must not borrow.
 ensure(TAILS_Y_RADIUS >= BALL_Y_RADIUS,

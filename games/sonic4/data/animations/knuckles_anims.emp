@@ -1,0 +1,146 @@
+// Knuckles animation scripts — one offsets table whose declaration positions ARE
+// the shared ANIM_* ids (games/sonic4/config/constants.emp), exactly as
+// sonic_anims.emp and tails_anims.emp are.
+//
+// SOURCE OF TRUTH: stock S3K, skdisasm `General/Sprites/Knuckles/Anim -
+// Knuckles.asm`, decoded to raw bytes by
+// games/sonic4/data/characters_staging/gen_characters.py (its
+// knuckles_anims.json carries all 37 S3K scripts with their raw_hex). Hand-
+// authored rather than generated for the same reason Tails' table is: S3K's table
+// is in S3K's own id order and its duration bytes lean on S3K-specific dispatch,
+// so the re-indexing onto our 13 ids is a judgement, not a transform.
+//
+// The S3K id -> our id correspondence is the one Ani_Sonic established and
+// Ani_Tails reused: walk 0, run 1, roll 2, push 4, wait 5, balance 6, lookup 7,
+// duck 8, spindash 9, getup $B, skid $D. Knuckles' rows sit at those same S3K
+// ids, so the mapping carries over unchanged and no row here is a guess about
+// which S3K script is which.
+//
+// THE DELIBERATE DEVIATIONS, each flagged at its entry — the same three
+// tails_anims.emp makes, for the same reasons:
+//
+//   1. S3K's DURATION byte doubles as a dispatch selector when negative. Our
+//      AnimateSprite has exactly ONE sentinel, DUR_DYNAMIC ($FF) = "take the hold
+//      from the caller's d3", which Player_Animate computes for the walk/run
+//      cycles. So S3K's $FF (walk/run) becomes DUR_DYNAMIC, and its $FE (the
+//      speed-scaled roll dispatch) and $FD (push) become static holds — exactly
+//      the translation Ani_Sonic already made.
+//   2. Where S3K ends a script with AF_CHANGE ($FD + id), our player state machine
+//      owns the exit: Player_Animate re-classifies every frame and would overwrite
+//      the switch, so those scripts hold their last pose with `AF_BACK 1` instead.
+//      Ani_Sonic's Skid made this choice first; Knuckles' Skid is the same case.
+//   3. Fly / FlyTired are UNREACHABLE for Knuckles — he has no flight ability — but
+//      the ANIM_* contract is "every character's table has a row for every id",
+//      not "every character can reach every id" (constants.emp). They carry his
+//      walk cycle, which is what Ani_Sonic does with the same two rows. The cost
+//      is two offsets-table words, and the benefit is that the shared
+//      Player_Animate classifier can never index off the end of a table.
+//
+// KNUCKLES-ONLY ANIMATIONS ARE NOT HERE YET. Glide/slide/climb/ledge-pull-up are
+// Tasks 10-11; their S3K scripts are AniKnuckles20/21/22/23 plus the
+// mapping-frame-driven climb range ($B7..$BD) and the four-step
+// Knuckles_ClimbLedge_Frames script, and adding them means growing ANIM_COUNT and
+// giving Sonic and Tails four fallback rows each. Deliberately deferred to the
+// task that can exercise them rather than shipping eight unreachable rows now.
+module games.sonic4.knuckles_anims in knuckles_anims
+
+// Animation command bytes + the DUR_DYNAMIC sentinel come from engine.constants.
+use engine.constants.{AF_END, AF_BACK, DUR_DYNAMIC}
+
+offsets Ani_Knuckles {
+    // Declaration position IS the ANIM_* id (guards below). Bodies ride INLINE
+    // with no inter-body pads — AnimateSprite reads scripts BYTE-wise; only the
+    // offsets table itself needs to be even.
+    //
+    // Every row below was generated from knuckles_anims.json's STRUCTURED fields
+    // (duration / frames / terminator), not from its `raw_hex`: that field is
+    // right-padded with $FF to a fixed width, so transcribing it by hand gives
+    // Run and Push four phantom AF_END bytes. Lengths are the decoder's own
+    // frame_count + 2, so a re-export that changes a script changes the row.
+
+    // S3K AniKnuckles00/01 — byte-identical frame lists to Sonic's and Tails'
+    // walk/run rows, including the $FF (= DUR_DYNAMIC) speed-scaled hold.
+    Walk:     [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Run:      [u8; 6]  = [DUR_DYNAMIC, $21, $22, $23, $24, AF_END],
+
+    // S3K AniKnuckles02 — and this row is where Knuckles genuinely differs from
+    // both other characters: his ball spin INTERLEAVES frame $9A between each of
+    // the four spin poses, where Sonic's and Tails' rows are a plain 4-frame
+    // cycle. Its duration byte is S3K's $FE speed-scaled-roll DISPATCH, the same
+    // one Sonic's roll uses, so it becomes DUR_DYNAMIC and the ball spins at the
+    // engine-computed rate — NOT the static hold Tails' roll takes (S3K hardcodes
+    // Tails' roll duration; it dispatches Sonic's and Knuckles').
+    Roll:     [u8; 10] = [DUR_DYNAMIC, $9A, $96, $9A, $97, $9A, $98, $9A, $99, AF_END],
+
+    // S3K AniKnuckles09 — the rev cycle at hold 0 (one frame per step, the fastest
+    // the engine expresses). Same shape as Sonic's spindash row.
+    Spindash: [u8; 12] = [0, $86, $87, $86, $88, $86, $89, $86, $8A, $86, $8B, AF_END],
+
+    // S3K AniKnuckles04 — his own four push frames. Its duration byte is S3K's
+    // $FD push dispatch, which becomes the static 6 Ani_Sonic and Ani_Tails both
+    // use. AF_END here means LOOP (a push cycle repeats), matching Ani_Sonic.
+    Push:     [u8; 6]  = [6, $CE, $CF, $D0, $D1, AF_END],
+
+    // S3K AniKnuckles05 — the 150-frame idle, kept in FULL. The long tail IS the
+    // animation (the stand, the impatient foot, then the stretch/look-around
+    // beats); truncating it would be a design change disguised as a port.
+    Wait:     [u8; 152] = [5,
+        $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56,
+        $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56,
+        $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56, $56,
+        $56, $56, $D2, $D2, $D2, $D3, $D3, $D3, $D2, $D2, $D2, $D3, $D3, $D3, $D2, $D2,
+        $D2, $D3, $D3, $D3, $D2, $D2, $D2, $D3, $D3, $D3, $D2, $D2, $D2, $D3, $D3, $D3,
+        $D2, $D2, $D2, $D3, $D3, $D3, $D2, $D2, $D2, $D3, $D3, $D3, $D2, $D2, $D2, $D3,
+        $D3, $D3, $D2, $D2, $D2, $D3, $D3, $D3, $D4, $D4, $D4, $D4, $D4, $D7, $D8, $D9,
+        $DA, $DB, $D8, $D9, $DA, $DB, $D8, $D9, $DA, $DB, $D8, $D9, $DA, $DB, $D8, $D9,
+        $DA, $DB, $D8, $D9, $DA, $DB, $D8, $D9, $DA, $DB, $D8, $D9, $DA, $DB, $DC, $DD,
+        $DC, $DD, $DE, $DE, $D8, $D7,
+        AF_END],
+
+    // S3K AniKnuckles06 — the edge balance, hold 3, most poses held two script
+    // steps. Its AF_BACK 6 rewind is S3K's own and is kept: the row is a
+    // one-shot lean-out that then oscillates over its last six steps.
+    Balance:  [u8; 42] = [3,
+        $9F, $9F, $A0, $A0, $A1, $A1, $A2, $A2, $A3, $A3, $A4, $A4,
+        $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5, $A5,
+        $A6, $A6, $A6, $A7, $A7, $A7, $A8, $A8, $A9, $A9, $AA, $AA, AF_BACK, 6],
+
+    // S3K AniKnuckles07 / 08 — look-up and duck, two frames each holding the last
+    // pose on S3K's own AF_BACK 1.
+    LookUp:   [u8; 5]  = [5, $D5, $D6, AF_BACK, 1],
+    Duck:     [u8; 5]  = [5, $9B, $9C, AF_BACK, 1],
+
+    // S3K AniKnuckles0D — the skid, same four frames as Sonic's. S3K terminates it
+    // with AF_CHANGE 0 (switch back to walk); deviation 2 holds the last pose and
+    // lets Player_Animate own the exit.
+    Skid:     [u8; 7]  = [3, $9D, $9E, $9F, $A0, AF_BACK, 1],
+
+    // S3K AniKnuckles0B — the get-up, one frame at hold $F.
+    GetUp:    [u8; 3]  = [$F, $8F, AF_END],
+
+    // UNREACHABLE for Knuckles (deviation 3) — his walk cycle, so a mis-set
+    // ANIM_FLY draws a walking Knuckles rather than indexing off the table.
+    Fly:      [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    FlyTired: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+}
+align 2
+
+// The ordinal pairing as CHECKED FACTS, not comments: the offsets block's
+// declaration order must equal the ANIM_* numbering, and the entry count must
+// equal ANIM_COUNT. Read cross-module through `extern` (constants.emp is the sole
+// authority), so renumbering an id or adding one without adding a row here fails
+// the build rather than silently shifting every animation by one.
+ensure(Ani_Knuckles.Walk == extern("ANIM_WALK"), "Walk ordinal drifted from ANIM_WALK")
+ensure(Ani_Knuckles.Run == extern("ANIM_RUN"), "Run ordinal drifted from ANIM_RUN")
+ensure(Ani_Knuckles.Roll == extern("ANIM_ROLL"), "Roll ordinal drifted from ANIM_ROLL")
+ensure(Ani_Knuckles.Spindash == extern("ANIM_SPINDASH"), "Spindash ordinal drifted from ANIM_SPINDASH")
+ensure(Ani_Knuckles.Push == extern("ANIM_PUSH"), "Push ordinal drifted from ANIM_PUSH")
+ensure(Ani_Knuckles.Wait == extern("ANIM_IDLE"), "Wait ordinal drifted from ANIM_IDLE")
+ensure(Ani_Knuckles.Balance == extern("ANIM_BALANCE"), "Balance ordinal drifted from ANIM_BALANCE")
+ensure(Ani_Knuckles.LookUp == extern("ANIM_LOOKUP"), "LookUp ordinal drifted from ANIM_LOOKUP")
+ensure(Ani_Knuckles.Duck == extern("ANIM_DUCK"), "Duck ordinal drifted from ANIM_DUCK")
+ensure(Ani_Knuckles.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SKID")
+ensure(Ani_Knuckles.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
+ensure(Ani_Knuckles.Fly == extern("ANIM_FLY"), "Fly ordinal drifted from ANIM_FLY")
+ensure(Ani_Knuckles.FlyTired == extern("ANIM_FLY_TIRED"), "FlyTired ordinal drifted from ANIM_FLY_TIRED")
+ensure(Ani_Knuckles.count == extern("ANIM_COUNT"), "Ani_Knuckles entry count drifted from ANIM_COUNT")

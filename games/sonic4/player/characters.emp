@@ -65,12 +65,12 @@ type AbilityHook = proc (a0: *Sst) preserves(a0) clobbers(d0-d2, a1-a2)
 pub data CharacterDefs: [*u8; CHAR_COUNT] = [
         extern("CharDef_Sonic"),        // CHAR_SONIC
         extern("CharDef_Tails"),        // CHAR_TAILS    — the real record (tails.emp)
-        // CHAR_KNUCKLES is still a TEMP stub aimed at the Sonic record, and that
-        // is what keeps the id space TOTAL: every CHAR_* value in 0..CHAR_COUNT-1
-        // resolves to a real, complete CharacterDef, so cycling the roster past
-        // Tails lands on a playable Sonic rather than a null pointer. Replaced by
-        // a CharDef_Knuckles when the Knuckles art + glide ability land.
-        extern("CharDef_Sonic"),        // CHAR_KNUCKLES — TEMP roster stub, plays as Sonic
+        // The TEMP Sonic stub is GONE: all three ids now resolve to their own
+        // complete record, so the id space is total by construction rather than by
+        // aliasing. Knuckles' ability is still Ability_None (glide/climb are Tasks
+        // 10-11), so he currently plays as a Sonic with a weaker jump — but his
+        // art, mappings, animations, boxes, physics row and palette are all his.
+        extern("CharDef_Knuckles"),     // CHAR_KNUCKLES — the real record (knuckles.emp)
 ]
 
 // -----------------------------------------------
