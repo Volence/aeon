@@ -916,7 +916,13 @@ pub proc PHook_RollEnter (a0: *Sst) clobbers(d1/a1) { // grounded ball — enter
         rts                                     // held landing (air → cleared)
 }
 
-pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1/a1) { // entered only from GROUND —
+pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1/a1) preserves(d0) { // entered only from GROUND —
+                                                // preserves(d0) is DECLARED (not left
+                                                // implicit) so the closure gate verifies
+                                                // the stack round-trip below instead of
+                                                // charging the spawn call's d0 clobber
+                                                // to this hook (the TestChurnObj_Main
+                                                // shape)
         jbsr    PHook_EnsureStanding            // the player is pinned charging
                                                 // at STANDING size (classic S2:
                                                 // curl + feet-planted shift
@@ -929,6 +935,23 @@ pub proc PHook_SpindashEnter (a0: *Sst) clobbers(d1/a1) { // entered only from G
         clr.w   x_vel(a0)
         clr.w   y_vel(a0)
         clr.w   PlayerV.spindash_charge(a0)     // the initiating press is rev 0
+
+        // d0 bracketed, NOT added to the clobber set: PlayerHook preserves d0 —
+        // the exit dispatch carries the new state byte there, and Player_SetState's
+        // own contract (clobbers d1-d2/a1-a2) promises its callers d0 survives the
+        // enter-hook tail jmp. DustSpindash_Spawn's AllocEffect owns d0 (its status
+        // code lands there), so the save/restore is this hook's obligation — the
+        // same caller-side bracket Player_Main uses for d7 around the state
+        // dispatch.
+        move.l  d0, -(sp)
+        jbsr    DustSpindash_Spawn              // one follower per charge; it retires
+                                                // itself on the state byte, so there is
+                                                // deliberately no teardown in
+                                                // PHook_SpindashExit (a cached slot
+                                                // pointer there could be freed behind
+                                                // the hook's back by DeleteChildren or
+                                                // the death cascade)
+        move.l  (sp)+, d0
         rts                                     // Rev SFX fired per-tap in player_spindash.asm
 }
 

@@ -1,9 +1,12 @@
-// Dust spawning — the per-frame cadence and (Task 5) the charge-dust follower.
+// Dust spawning — the per-frame cadence and the charge-dust follower.
 module games.sonic4.dust_spindash in dust_spindash
 
 use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_bytes}
+use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP}
 use engine.coords.{pixels_to_coord}
 use engine.structs.{CharacterDef, cd_stand_h_off}
+use games.sonic4.constants.{PSTATE_SPINDASH, VRAM_DUST_SPINDASH}
 use games.sonic4.player_common.{PlayerV}
 use games.sonic4.ram.{PlayerBlock}
 
@@ -80,4 +83,128 @@ pub proc Dust_Tick (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0, d3) {
         clr.b   PBLK_DUSTTIMER(a4)
     .done:
         rts
+}
+
+// The follower's own sst_custom overlay — just the player it tracks.
+//
+// NOT parent_ptr, deliberately: children.emp:630-635 records that a non-zero
+// parent_ptr makes Draw_Sprite dereference the parent every frame to test
+// RF_MULTISPRITE, and that an effect spawned by a multisprite parent was then
+// skipped as batch-rendered while absent from the sibling chain — i.e. never
+// drawn at all. Holding the pointer here also keeps this 2P-ready without
+// reading the Player_1 label, and keeps the object out of the sibling chain
+// entirely (no chain contract, no cascade interaction).
+vars DustV: Sst.sst_custom {
+        player: u16,            // the player SST this follower tracks
+}
+
+// Band 2, the same deliberate deviation dust_puff.emp documents: behind the
+// player (4) and Tails' appendage (3), first to degrade at MAX_VDP_SPRITES.
+// Whole-byte write into a freshly zeroed slot, as there.
+const DUST_SPINDASH_BAND         = 2
+const DUST_SPINDASH_RENDER_FLAGS = DUST_SPINDASH_BAND << RF_PRIORITY_SHIFT
+
+// Cross-seam link values — the sprite data lives in games.sonic4.dust_data,
+// the script table in games.sonic4.dust_anims (the tails_appendage idiom).
+equ MAP_DUST_SPINDASH = extern("Map_DustSpindash")
+equ ANI_DUST_SPINDASH = extern("Ani_DustSpindash")
+equ DPLC_DUST         = extern("DPLC_Dust")
+equ ART_DUST          = extern("Art_Dust")
+
+// -----------------------------------------------
+// DustSpindash_Spawn — create the charge-dust follower.
+// Called from PHook_SpindashEnter, i.e. exactly once per charge.
+//
+// prev_anim/prev_frame = $FF is the animator-owned init documented on
+// RefreshSpritePieceCount: the first AnimateSprite takes its .anim_changed
+// path and populates the piece count + frame_off cache before the first
+// render, so there is no PopulateSpawnedPieceCount call here.
+//
+// In:  a0 = player SST
+// Out: follower allocated, or nothing (silent skip) if the pool is exhausted —
+//      a charge with no dust is the correct degradation for a cosmetic
+// Clobbers: d0 (AllocEffect's status), a1
+// Preserves: a0
+// -----------------------------------------------
+pub proc DustSpindash_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
+        jbsr    AllocEffect             // a1 = slot on the eq edge; a1 survives the
+        bne     .done                   //   pool-empty edge untouched
+
+        move.w  #DustSpindash_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  Sst.x_pos(a0), Sst.x_pos(a1)    // placed NOW, not left at 0: the
+        move.l  Sst.y_pos(a0), Sst.y_pos(a1)    //   Effect sweep may render this slot
+                                                //   before its first Main runs
+        move.l  #MAP_DUST_SPINDASH, Sst.mappings(a1)
+        move.w  #VRAM_DUST_SPINDASH, Sst.art_tile(a1)   // vram_art(tile,0,0) == tile:
+                                                        // palette 0, low priority
+        move.l  #ANI_DUST_SPINDASH, Sst.anim_table(a1)
+        move.b  #$FF, Sst.prev_anim(a1)
+        move.b  #$FF, Sst.prev_frame(a1)
+        move.b  #DUST_SPINDASH_RENDER_FLAGS, Sst.render_flags(a1)
+        move.w  a0, DustV.player(a1)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// DustSpindash_Main — follow the player, animate, stream, draw, and retire.
+//
+// RETIREMENT IS A STATE POLL, NOT A HOOK, and that is deliberate. Deleting this
+// object from PHook_SpindashExit would need a cached slot pointer, and that
+// pointer can be invalidated behind the hook's back — DeleteChildren runs on a
+// character switch and DeleteObject's cascade runs on death, either of which
+// frees this slot while the hook still believes it owns it. A stale pointer plus
+// a delete is the classic double-delete that corrupts the free stack. The poll
+// has no such surface and self-heals: if the player slot is zeroed under us,
+// player_state reads 0 (PSTATE_GROUND), the compare fails, and we retire.
+//
+// This is NOT the S2 floating-dust bug. That dust polled spin_dash_flag, which a
+// grab leaves set; we poll the state byte, which Player_SetState writes on every
+// transition and which has no stale path.
+//
+// Runs from the Effect sweep, AFTER the Player sweep, so the position and status
+// read here are this frame's final values.
+//
+// In:  a0 = own SST
+// Clobbers: d0-d4, a1-a3 — the callee union: AnimateSprite (d0-d2/a1-a2) union
+//           Perform_DPLC_Deferrable (d0-d4/a1-a2, a3 an input written here)
+//           union Draw_Sprite (d0-d3/a1).
+// -----------------------------------------------
+pub proc DustSpindash_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
+        movea.w DustV.player(a0), a1
+        cmpi.b  #PSTATE_SPINDASH, PlayerV.player_state(a1)
+        beq     .live
+        jbra    DeleteObject                    // tail call — the charge ended by ANY
+                                                // path, including death and a
+                                                // character switch. (jbra, not a bare
+                                                // bne: DeleteObject is cross-section
+                                                // and a conditional branch has no far
+                                                // form — [branch.out-of-reach].)
+    .live:
+
+        move.l  Sst.x_pos(a1), Sst.x_pos(a0)
+        move.l  Sst.y_pos(a1), Sst.y_pos(a0)
+
+        // Mirror the facing only. AnimateSprite propagates status bits 1-2 into
+        // render_flags itself, so copying the whole status byte would also drag
+        // across bits this object has no business carrying. Spelled as
+        // bclr/btst/bset rather than a mask pair: no complement operator is
+        // assumed, and the bit index is the same ST_XFLIP the player uses.
+        bclr    #ST_XFLIP, Sst.status(a0)
+        btst    #ST_XFLIP, Sst.status(a1)
+        beq     .no_flip
+        bset    #ST_XFLIP, Sst.status(a0)
+    .no_flip:
+
+        jbsr    AnimateSprite
+        movea.l #DPLC_DUST, a2
+        movea.l #ART_DUST, a3
+        move.w  #vram_bytes(VRAM_DUST_SPINDASH), d1
+        jbsr    Perform_DPLC_Deferrable         // Deferrable, not Important: this is
+                                                // cosmetic non-player art and may slip
+                                                // a frame. perform_dplc leaves
+                                                // prev_frame stale on a dropped
+                                                // enqueue, so the next frame RETRIES
+                                                // rather than showing stale tiles.
+        jbra    Draw_Sprite
 }
