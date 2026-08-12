@@ -107,6 +107,14 @@ for (( k = 0; k < POOL_PAGES; k++ )); do
         page_zx0="${page_bin%.bin}.zx0"
         printf '%b' "$(printf '\\x%02x\\x%02x\\x00\\x02' $((size >> 8)) $((size & 255)))" > "$page_zx0"
         cat "${page_bin%.bin}.zx0.tmp" >> "$page_zx0"
+        # Pad to EVEN length (one trailing byte past the ZX0 end marker, never
+        # read) so every successor symbol stays word-aligned. An odd blob once
+        # landed OJZ_Act_Pool_PageTable at an odd address -> boot AddressError
+        # (2026-08-12); sigil does not auto-align data decls and an (align: 2)
+        # attr materializes a synthetic section the map contract then rejects.
+        if (( $(stat -c%s "$page_zx0") % 2 == 1 )); then
+            printf '\x00' >> "$page_zx0"
+        fi
         PAGE_FORM[k]=0; PAGE_EXT[k]="zx0"
     else
         # raw-direct wins: the uncompressed payload, no wrapper.
@@ -127,8 +135,10 @@ POOL_EMP="${POOL_DIR}/ojz_act_pool.emp"
   echo "// OJZ Act 1 act-wide paged art pool: per-page ZX0/raw blob embeds + the"
   echo "// manifest v2 table [PageManifest;N] the loader strides by page number"
   echo "// ({source, tiles, form, flags}). Natively placed at the ojz_act_pool section;"
-  echo "// consumed by act_descriptor.emp (OJZ_Act_Pool_PageTable). Pages are"
-  echo "// even-length — no inter-page padding."
+  echo "// consumed by act_descriptor.emp (OJZ_Act_Pool_PageTable). Page blobs are"
+  echo "// PADDED to even length at generation (one dead byte past the ZX0 end"
+  echo "// marker) — an odd blob once landed the table at an odd address -> boot"
+  echo "// AddressError (2026-08-12). sigil does not auto-align data decls."
   echo "module games.sonic4.ojz_act_pool_act1 in ojz_act_pool"
   echo ""
   echo "use engine.structs.{PageManifest}"
