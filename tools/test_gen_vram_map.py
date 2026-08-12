@@ -158,6 +158,7 @@ def test_py_mirror_emits_constants(tmp_path):
     assert r.returncode == 0, r.stderr
     ns = {}
     exec((tmp_path / "vram_map.py").read_text(), ns)
+    assert ns["GAME"] == "testgame"   # sonic4-only consumers assert this stamp
     assert ns["REGIONS"]["win"]["base"] == 960
     assert ns["VRAM_WIN"] == 960
     assert ns["POOL_TILE_CEILING"] == 960

@@ -30,7 +30,14 @@ from PIL import Image
 
 PLANE_W = 64          # cells; 512 px, the horizontal wrap period
 PLANE_H = 64          # cells; VDP Plane B is 64x64 for OJZ
-BG_TILE_CAPACITY = 448
+# BG_TILE_CAPACITY is imported from the generated registry mirror — one
+# authority (tools/vram_map.py <- games/sonic4/vram.toml), not a restated literal.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from vram_map import GAME as _VRAM_MAP_GAME, BG_TILE_CAPACITY
+assert _VRAM_MAP_GAME == 'sonic4', (
+    f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
+    "regenerate: python3 tools/gen_vram_map.py --game sonic4 "
+    "--toml games/sonic4/vram.toml --py tools/vram_map.py")
 DEFAULT_PAL_LINE = 2  # OJZ BG owns CRAM line 2 (decoded from ojz_palette.bin)
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))

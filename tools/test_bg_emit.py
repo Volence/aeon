@@ -13,7 +13,7 @@ from ojz_strip_gen import (
     CHUNK_MAP_PATH,
     LAYOUT_DIR,
     OJZ_ART_PATH,
-    BG_TILE_BASE_SLOT_PY,
+    BG_TILE_BASE_SLOT,
     PLANE_B_W,
     PLANE_B_H,
     build_bg_nametable_words,
@@ -81,10 +81,10 @@ class TestBgPipeline(unittest.TestCase):
                 word = struct.unpack(">H", data[i:i + 2])[0]
                 tile_idx = word & 0x07FF
                 self.assertGreaterEqual(
-                    tile_idx, BG_TILE_BASE_SLOT_PY,
-                    f"BG word {i//2} tile_idx {tile_idx} below BG region base {BG_TILE_BASE_SLOT_PY}")
+                    tile_idx, BG_TILE_BASE_SLOT,
+                    f"BG word {i//2} tile_idx {tile_idx} below BG region base {BG_TILE_BASE_SLOT}")
                 self.assertLess(
-                    tile_idx, BG_TILE_BASE_SLOT_PY + count,
+                    tile_idx, BG_TILE_BASE_SLOT + count,
                     f"BG word {i//2} tile_idx {tile_idx} above BG region top")
 
     def test_zone_bg_priority_bit_clear(self):
