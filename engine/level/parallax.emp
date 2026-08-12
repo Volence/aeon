@@ -148,9 +148,10 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 //
 // In:  none (reads Camera_X/Y, Current_Act_Ptr, Parallax_Prev_Sec_X/Y)
 // Out: config switched + transition staged iff a crossing changed it.
-// Clobbers: d0-d3, a0, a2
+// Clobbers: d0-d3, a0-a2 (a1 enters the union via Palette_LoadSection, the
+//   effects-P1 sec_pal consumer called on a crossing)
 // ----------------------------------------------------------------------
-pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0/a2) {
+pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a2) {
         // -- section under the camera centre (camX+160 / camY+112) --
         move.w  Camera_X, d2                        // (Camera_X).w — world X px (high word)
         addi.w  #SCREEN_WIDTH/2, d2
@@ -174,6 +175,14 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0/a2) {
         // commit the new section coords only once we have a valid section
         move.b  d2, Parallax_Prev_Sec_X             // (Parallax_Prev_Sec_X).w
         move.b  d3, Parallax_Prev_Sec_Y             // (Parallax_Prev_Sec_Y).w
+
+        // -- the other per-section descriptor consumers (effects P1) --
+        // This is the ONE place the engine notices "the camera entered a new
+        // section", so the palette and raster consumers hang here beside the
+        // parallax one rather than duplicating the crossing detection. Both take
+        // a0 = Sec* and preserve it; both treat NULL as "keep current".
+        jbsr    Palette_LoadSection                 // sec_pal   -> Palette_Buffer + dirty
+        jbsr    Raster_InstallSection               // sec_raster_table -> Raster_Pending
 
         // -- resolve config: section's own, else act default --
         movea.l Sec.sec_parallax_config(a0), a0

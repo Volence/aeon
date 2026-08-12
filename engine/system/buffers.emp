@@ -1,7 +1,7 @@
 // Buffer initialization, static DMA entries, and plane utilities
 module engine.buffers in buffers
 
-use engine.structs.{DMAEntry, parallax_config}
+use engine.structs.{DMAEntry, Sec, parallax_config}
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length}
 use engine.irq.{vblank}
@@ -265,5 +265,46 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
     .hs_cell:
         queue_static_dma(Static_Hscroll_Cell)
     .hs_done:
+        rts
+}
+
+// ===========================================================================
+// PER-SECTION PALETTE LOAD (effects P1)
+//
+// `Sec.sec_pal` finally gets a consumer. It has been a reserved descriptor field
+// since the section struct was written — before this, game code hand-poked
+// Palette_Buffer (see games/sonic4/test/*), so "each section has its own palette"
+// was descriptor-only.
+//
+// P1 is an INSTANT snap. The palette engine's composition pipeline (base ->
+// cycling -> cross-fade -> operators -> variants) is Phase 2; this proc becomes
+// its base-layer step rather than being replaced.
+//
+// Lives here rather than in a new engine/effects/palette.emp for the same reason
+// the raster dispatcher lives in hblank.emp: a new sigil section is a circular
+// bootstrap, while growing a registered one is free. buffers.emp already owns
+// Palette_Buffer, the dirty mask, and the CRAM enqueue, so this is the cohesive
+// home for P1's scope regardless.
+// ===========================================================================
+
+// -----------------------------------------------
+// Palette_LoadSection — load a section's 128-byte palette into Palette_Buffer
+// and mark all four lines dirty, so Enqueue_Dirty_Buffers DMAs them to CRAM in
+// the same VBlank.
+//   a0 = Sec*   (preserved — the boundary hook still needs it)
+// A NULL sec_pal means "keep current", matching the descriptor 0-convention that
+// sec_parallax_config uses.
+// -----------------------------------------------
+pub proc Palette_LoadSection (a0: u32) clobbers(d0-d1/a1-a2) {
+        move.l  Sec.sec_pal(a0), d0
+        beq.s   .keep
+        movea.l d0, a1
+        lea     Palette_Buffer, a2
+        moveq   #(128 / 4) - 1, d1
+    .copy:
+        move.l  (a1)+, (a2)+
+        dbf     d1, .copy
+        move.b  #$0F, Palette_Dirty         // all four lines
+    .keep:
         rts
 }
