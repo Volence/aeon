@@ -215,7 +215,7 @@ pub struct CharacterDef {
   - Cosmetic sync at rest (facing + spindash-charge mimic).
 - [ ] **Step 4: Oracle soak. ⚠ controller.** Leader circuits at max scroll: follower keeps up through OJZ's fastest stretch (the keep-up fix observable); park — no orbit (lands within tolerance); despawn/fly-in cycle; idle takeover timing; manual P2 control. If floating-origin/rebase has landed: force a rebase mid-follow and verify no follower teleport (ring on the shift-list). `Lag_Frame_Count` delta ≤ ~1-2%. Commit: verify branch. `feat(player): CPU Tails — input-filter AI with AIR quality fixes (C3)`.
 
-### Task 9: C4a — Knuckles assets + def
+### Task 9: C4a — Knuckles assets + def  ✅ DONE (aeon `a4626d94`, sigil chain 102, merged to master 2026-08-12)
 
 **Files:**
 - Create: converted Knuckles assets under `games/sonic4/data/characters/`, `games/sonic4/data/characters/knuckles_data.emp`, `games/sonic4/data/animations/knuckles_anims.emp`, `games/sonic4/player/knuckles.emp` + head-labels into `map.toml` `order`.
@@ -226,6 +226,39 @@ pub struct CharacterDef {
 - [ ] **Step 2: Convert + def.** Integrate staged (or convert via `convert_s3k_char.py knuckles`), **assert no DPLC entry > 16 tiles**. `PhysTable_Knuckles` = Sonic's row with jump force `$680 → $600` (the ONLY delta — comment cites SPG/S3K; the jump-force field is `PHYS_JUMP_FORCE`, the 6th row entry, sonic.emp:64). `CharDef_Knuckles` (stand 9×19-shaped bytes, `cd_ability = Ability_KnuxGlide`). `Ani_Knuckles` full table + the `ANIM_GLIDE`/`ANIM_SLIDE`/`ANIM_CLIMB`/`ANIM_LEDGE` contract growth (bump `ANIM_COUNT`; re-assert every character table incl. Sonic/Tails fallbacks). Point `CharacterDefs[CHAR_KNUCKLES]` at it. Commit: verify branch. `feat(player): Knuckles def + converted S3K assets (C4)`.
 
 ### Task 10: C4b — glide + slide
+
+> **⚠ READ `docs/superpowers/2026-08-12-knuckles-c4-research.md` FIRST.** Two
+> independent research legs (2026-08-12, after Task 9 landed) checked every
+> clause of Tasks 10 and 11 against skdisasm and the live tree. They found one
+> BLOCKING mechanism gap and about a dozen errors in the text below. The
+> corrections that change what you build:
+>
+> - **§0 BLOCKER — the 10x10 ability box does not compose with the enter hooks.**
+>   `PHook_EnsureStanding` keys on `cd_roll_wh`, so from the ability box it takes
+>   `.keep` and the standing box is NEVER restored; `PHook_EnsureBall` applies a
+>   spurious curl y-shift on the climb jump-off. A `set_ability_size` splice
+>   alone (what Step 1 below asks for) does NOT fix this — the guards are what is
+>   wrong. Fix = a third registered box `cd_ability_wh` + `PHook_EnsureAbility` +
+>   generalising EnsureStanding's guard to "am I not the standing box" with the
+>   shift derived from the current height. Land it as Task 10's opening step,
+>   WITH the glide as its first consumer.
+> - **Step 3's "dust cadence 8" is WRONG.** 8 is S3K's slide *SFX* cadence; the
+>   *dust* is 4 (`:34102-34104`), identical to skid dust.
+> - **A third state is needed.** The fall-from-glide is not a sub-state — it has
+>   its own gravity ordering, its own air control, and a landing that is a DEAD
+>   STOP rather than a `gsp = x_vel` conversion. Add `PSTATE_GLIDEFALL`.
+> - **The largest piece of work is not in any of the four steps below:** glide
+>   needs its OWN terrain pass. `Air_Collide` tail-jumps into `Player_SetState`
+>   on landing, so glide cannot call it and inspect the outcome.
+> - Also missing here: the entry release cap, the turn continuing with no input
+>   held, facing derived from the glide angle, the parachute-before-move ordering,
+>   9 new ANIM ids across three character tables, and the fact that none of the
+>   three S3K SFX exist in our bank.
+>
+> The `x_vel = cos*gsp >> 8` question Step 1 raises is answered: use the
+> `muls.w` + `asr.l #8` idiom with the `lint: disable=E002` pragma, exactly as
+> `Ground_Move_Cap .project_slope` (player_ground.emp:630-641) already does.
+
 
 **Files:**
 - Create: `games/sonic4/player/player_glide.emp` (PSTATE_GLIDE + PSTATE_SLIDE) + head-labels into `map.toml` `order`.
@@ -238,6 +271,25 @@ pub struct CharacterDef {
 - [ ] **Step 4: Oracle matrix. ⚠ controller.** RAM-watch: turn takes 64 frames end-to-end with |velocity| preserved; cap honored; parachute terminal $80; slide stop distance vs hand-computed friction; drop = quarter speed. Verify DURING motion. Commit: verify branch. `feat(player): Knuckles glide + slide (C4)`.
 
 ### Task 11: C4c — climb + ledge
+
+> **⚠ Step 1 is ALREADY DONE** — see §2 of
+> `docs/superpowers/2026-08-12-knuckles-c4-research.md`. The headline: our sensor
+> layer already expresses every S3K query the climb makes, so **no extension to
+> `player_sensors.emp` is needed**. `Player_SensorWallDir` and the four probe
+> cores all take a fully arbitrary probe point. The one real gap is the glide
+> wall-catch's "both sensors flush" (`Player_SensorPair` returns the NEARER hit,
+> and the catch needs the max), and the cheap correct answer is to call the cores
+> twice — the idiom `Player_AtLedgeEdge` already documents.
+>
+> Corrections to the text below: there are THREE detach conditions, not two
+> (`ST_ON_OBJECT` is missing here); there is no "head sensor"; the landing test
+> is `dist < 0`, not "within 19px"; the "top camera clamp" is a level-top clamp;
+> the 12px window is the wall-catch FALLBACK, not a gate on every catch; and the
+> clamber frame ids are S3K's ordinals verbatim (`$BD $BE $BF $D2`) because the
+> converter kept frame order — do not author an indirection to find them.
+>
+> Task 11 is hard-blocked on Task 10: Step 2 modifies `player_glide.emp`.
+
 
 **Files:**
 - Create: `games/sonic4/player/player_climb.emp` (PSTATE_CLIMB + PSTATE_LEDGE) + head-labels into `map.toml` `order`.
