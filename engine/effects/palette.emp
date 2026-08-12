@@ -478,13 +478,15 @@ proc Palette_RotateSpan () clobbers(d0-d3/a1-a2) {
         move.b  d2, d3                          // d3 = count (clean, byte read had stale upper bits)
         cmpi.w  #2, d3
         bcs   .done                           // count < 2: nothing to rotate
+        andi.w  #$FF, d0                        // line: same stale-upper-bits hazard as count —
+        andi.w  #$FF, d1                        // first_index: the lsl/add below are word math
         lea     Palette_Buffer, a1
         move.w  d0, d2
         lsl.w   #5, d2                          // line*32
-        add.w   d2, a1
+        adda.w  d2, a1
         move.w  d1, d2
         add.w   d2, d2                          // first_index*2
-        add.w   d2, a1                          // a1 -> first entry
+        adda.w  d2, a1                          // a1 -> first entry
         move.w  d3, d1
         subq.w  #2, d1                          // dbf trips = count-2
         tst.b   d4
@@ -722,9 +724,9 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
         lea     Palette_Buffer, a2
         move.w  d6, d0
         lsl.w   #5, d0                          // line*32
-        add.w   d0, a2
+        adda.w  d0, a2
         movea.l a1, a3
-        add.w   d0, a3
+        adda.w  d0, a3
         moveq   #16 - 1, d7                     // 16 entries per line
     .entry:
         move.w  (a2)+, d0                       // source colour word
