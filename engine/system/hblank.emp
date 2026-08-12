@@ -292,7 +292,14 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         // first two real arm words. Re-installed every frame on purpose — it is
         // idempotent and it heals the counter the last record parked at $8AFF.
         moveq   #0, d0
-        lea     Raster_HInt, a0
+        // PC-relative, not absolute: HBlank_Install stores this into the RAM jmp slot,
+        // so a0 must end up holding Raster_HInt's true runtime address — which
+        // `lea (pc)` yields just as well as an absolute operand, while keeping this
+        // module's emitted bytes PLACEMENT-INVARIANT. That invariance is a property
+        // the port harness probes (hblank_negative_probes' wrong-base probe asserts
+        // the same section linked at two bases carries identical bytes), so an
+        // absolute self-reference here would break a test for no gain.
+        lea     Raster_HInt(pc), a0
         jbsr    HBlank_Install
     .done:
         rts
