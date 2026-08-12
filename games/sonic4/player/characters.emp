@@ -128,6 +128,25 @@ pub proc Player_LoadArt (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
 // -----------------------------------------------
 pub proc Player_Ability (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
         movea.l Player_Chardef, a1
+        if DEBUG == 1 {
+                // DESYNC GUARD (an INTENTIONAL diagnostic — the "raise" a corrupt
+                // Player_Chardef triggers). Player_Chardef is a CACHE of the record
+                // Character_ID resolves to, kept in lockstep by its only two writers
+                // (Player_Init's roster resolve and the debug character-cycle hotkey, both
+                // atomic). A hand-poked Character_ID or Player_Chardef that desyncs them
+                // would `jmp (a1)` through a corrupt cd_ability and crash opaquely (an
+                // illegal instruction the debugger catches, but with no clue why). Re-
+                // resolve from Character_ID and assert they still match, so a desync fails
+                // HERE with a named guard instead of as a mystery crash. DEBUG-only (zero
+                // release bytes), and only on an airborne ability press — never per frame.
+                moveq   #0, d0
+                move.w  Character_ID, d0
+                lsl.w   #2, d0                  // × sizeof(pointer)
+                lea     CharacterDefs, a2
+                move.l  (a2,d0.w), d0           // the record Character_ID resolves to
+                move.l  a1, d1                  // the cached Player_Chardef
+                assert.l d1, eq, d0             // desync ⇒ clean diagnostic, not a jmp to garbage
+        }
         movea.l CharacterDef.cd_ability(a1), a1
         jmp     (a1) as AbilityHook
 }
