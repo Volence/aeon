@@ -6,69 +6,95 @@ These conventions encode lessons from: S.C.E. (Sonic Clean Engine), Batman & Rob
 
 ---
 
-## 1. AS Assembler — Use It to the Fullest
+## 1. Sigil & the `.emp` Language — Use It to the Fullest
 
-### 1.1 `function` — Every Constant Calculation
+This engine is assembled by **sigil** from `.emp` source; the spellings below are
+the `.emp` language (SIGIL_SPEC2_LANGUAGE.md). The AS-era spellings each rule cites
+(`function`, `struct`/`endstruct`, `phase`/`dephase`, `even`, `rept`) survive only
+in the residual `.asm` files (`games/<game>/game_root.asm`, `engine/debug/debugger.asm`)
+assembled through sigil-frontend-as, and in `@as_compat` ports — never in new `.emp` code.
 
-Any formula that's constant at build time MUST be a `function`. Never compute at runtime what the assembler can compute at build time.
+### 1.1 `comptime fn` — Every Constant Calculation
 
-```asm
-; VDP command generation — zero runtime cost
-vdpComm     function addr,type,rwd, \
-              (((type & rwd) & 3) << 30) | ((addr & $3FFF) << 16) | (((type & rwd) & $FC) << 2) | ((addr & $C000) >> 14)
+Any formula that's constant at build time MUST be a `comptime fn` — sigil's one
+metaprogramming construct: a pure, deterministic function evaluated during assembly.
+Never compute at runtime what the assembler can compute at build time. (AS's
+`function` directive maps 1:1 onto expression-bodied comptime fns and still governs
+residual `.asm`.)
 
-; Art tile encoding
-vram_art    function tile,pal,pri, (pri<<15)|(pal<<13)|tile
-vram_bytes  function tile, tile<<5
+```emp
+// VDP command generation — zero runtime cost (real form uses VdpTarget/VdpOp enums)
+pub comptime fn vdp_comm(addr: int, target: VdpTarget, op: VdpOp) -> int { ... }
 
-; Sprite size encoding (width/height in cells: 1-4)
-sprSize     function w,h, ((((h)-1)<<2)|((w)-1))<<8
+// Art tile encoding
+pub comptime fn vram_art(tile: int, pal: int, pri: int) -> int {
+    return (pri << 15) | (pal << 13) | tile
+}
+pub comptime fn vram_bytes(tile: int) -> int { return tile << 5 }
 
-; Section grid index
-secIndex    function x,y, ((y)*GRID_WIDTH+(x))*SEC_ENTRY_SIZE
+// DMA word count
+pub comptime fn dma_length(bytes: int) -> int { return (bytes >> 1) & $FFFF }
 
-; Collision map index (128-column shift-based)
-collCell    function x,y, ((y)<<7)+(x)
-
-; DMA word count
-dmaWords    function bytes, (bytes)>>1
+// A bitfield constructor range-checks every field at comptime — preferred over raw
+// bit-math where the encoding is a bitfield (kills the unchecked vram_art class):
+bitfield ArtTile: u16 { pri: 1, pal: 2, tile: 11 @ 0 }
 ```
 
-### 1.2 `struct` / `endstruct` — Named Field Offsets
+Refinement bounds (`reg: int where 0..$17`) and enum params give each argument a
+comptime range-check for free — reach for them over bare `int` when the domain is known.
 
-Never manually chain `equ` values. Define structures so the assembler calculates offsets and catches layout errors.
+### 1.2 `struct` — Named Field Offsets
 
-```asm
-        struct OBJ
-code_addr       ds.l 1      ; routine pointer
-mappings        ds.l 1      ; sprite mapping pointer
-art_tile        ds.w 1      ; VRAM tile + palette + priority
-render_flags    ds.w 1      ; on-screen, flip, multi-sprite
-x_pos           ds.l 1      ; 16.16 fixed-point
-y_pos           ds.l 1      ; 16.16 fixed-point
-x_vel           ds.w 1      ; 8.8 fixed-point
-y_vel           ds.w 1      ; 8.8 fixed-point
-        endstruct OBJ
-; OBJ_len is auto-generated — use for size assertions
+Never manually chain `const`/`equ` values. Define structures so the compiler
+calculates offsets and catches layout errors. `.emp` structs are Rust-like
+(`struct Name (size: N) { field: type, }`); the AS `struct`/`endstruct`/`ds.x`
+form governs residual `.asm` only.
+
+```emp
+pub struct OBJ (size: $50) {         // (size: N) IS the assertion — see §1.6
+    code_addr:    *Code,   // +0  routine pointer
+    mappings:     *u8,     // +4  sprite mapping pointer
+    art_tile:     ArtTile, // +8  VRAM tile + palette + priority (bitfield)
+    render_flags: u16,     // +A  on-screen, flip, multi-sprite
+    x_pos:        Coord,   // +C  16.16 fixed-point
+    y_pos:        Coord,   // +10 16.16 fixed-point
+    x_vel:        Velocity,// +14 8.8 fixed-point
+    y_vel:        Velocity,// +16 8.8 fixed-point
+    // ... pad to $50; padding is ALWAYS a named field (the compiler never inserts any)
+}
+// sizeof(OBJ) / offsetof(OBJ, field) are comptime builtins; OBJ_len is harvested for AS parity.
 ```
 
-### 1.3 `phase` / `dephase` — RAM Layout
+The compiler never inserts alignment padding — a word/long field at an odd offset is
+the default-on `[layout.odd-field]` warning (fix it or `@allow` it for legitimately
+unaligned Z80 layouts). Bitfields (`bitfield`), enums (`enum`), and self-relative
+offset tables (`offsets`, replacing hand `dc.w Target-Base` chains) are the same
+declaration-order, layout-checked family.
 
-Declare RAM layout sequentially. The assembler tracks addresses; overflow is caught at build time.
+### 1.3 `region` / `vars` — RAM Layout
 
-```asm
-        phase RAM_START
-Object_RAM:         ds.b MAX_OBJECTS * OBJ_SIZE
-Sprite_Table:       ds.b 80 * 8
-DMA_Queue:          ds.b DMA_SLOTS * DMA_ENTRY_SIZE
-Horiz_Scroll_Buf:   ds.b 224 * 4
-; ...
-RAM_Used_End:
-        if * > RAM_END
-          error "RAM overflow by \{* - RAM_END} bytes!"
-        endif
-        dephase
+Declare RAM as named `region`s (their base/limit addresses live in the map/module)
+populated by `vars` blocks that allocate at deterministic addresses. Region overflow,
+the `.w`-addressability bit-15 rule, and align-under-VMA correctness are compiler
+checks — replacing AS's hand-written `phase`/`dephase` + `if * > limit / error` guards
+(which still govern residual `.asm`). `mark Name,` names a running position inside a
+`vars` block; `pad(N)` is an explicit reserved gap; align a field with `@align(N)`.
+
+```emp
+pub region upper_ram @ $FFFF8000 .. SYSTEM_STACK, w_addressable
+
+vars upper_ram {
+    Object_RAM:        [u8; MAX_OBJECTS * sizeof(OBJ)],
+    Sprite_Table:      [u8; 80 * 8],
+    mark DMA_Queue,
+    DMA_Slots:         [DMAEntry; DMA_SLOTS],
+    mark DMA_Queue_End,
+    // overflow past the region limit is a build error, named, automatically
+}
 ```
+
+The AS even-alignment footgun (odd `ds.b` silently un-padding the next word field) is
+gone for `.emp` regions — the compiler checks addressability and alignment directly.
 
 ### 1.4 Branch Sizing — UNSIZED in `.emp`
 
@@ -95,12 +121,16 @@ Explicit `.s`/`.w` spellings remain in exactly two places: `@as_compat` ports (w
 
 ### 1.5 Local Label Scoping
 
-Every routine's internal labels use `.prefix` scoping. Reuse `.loop`, `.done`, `.skip` freely — AS scopes them to the enclosing global label.
+Every proc's internal labels use `.name` scoping. Reuse `.loop`, `.done`, `.skip`
+freely — sigil scopes a `.name:` label to the **enclosing `proc`** (or `asm{}`
+template). External reference is `ProcName.label`, read-only. There are no bare
+code-level globals — globals exist only as proc/data names, so the `loc_XXXX` class
+is unrepresentable (§4.3).
 
-```asm
-Process_DMA:
+```emp
+proc Process_DMA (a5: *u8) clobbers(d0) {
         tst.w   d0
-        beq.s   .empty
+        beq     .empty
 .loop:
         move.l  (a0)+, (a5)
         dbf     d0, .loop
@@ -108,37 +138,37 @@ Process_DMA:
         rts
 .empty:
         moveq   #0, d0
-        bra.s   .done
-
-; From outside: bsr Process_DMA.done (fully qualified)
+        jbra    .done
+}
+// From outside: jbra Process_DMA.done (module-qualified)
 ```
+
+Labels born inside an `asm{}` comptime template are **fresh per instantiation** — a
+template that means to publish a caller-visible label marks it `export .name:`. That
+one rule is the whole hygiene model; it retires AS's "expand once per scope"
+fixed-internal-label constraints and the `{GLOBALSYMBOLS}` attribute.
 
 ### 1.6 Compile-Time Validation
 
-Catch errors at build time, not at runtime. Every boundary, table size, and layout assumption gets an assembler check.
+Catch errors at build time, not at runtime. Every boundary, table size, and layout
+assumption gets a comptime check. The `.emp` guard is `ensure(cond, "msg with {vals}")`
+(error severity; `ensure_fatal` aborts the module) — it replaces AS's `if cond / error /
+endif` idiom, which governs residual `.asm` only. There are **no assembly passes** in
+sigil, so AS's `if MOMPASS > 1` final-pass gating is unnecessary and gone: a guard whose
+condition depends on a size-relaxable position defers to a link-time assertion
+automatically, evaluated against the settled layout.
 
-```asm
-; Struct size assertion
-        if OBJ_len <> $50
-          error "OBJ struct is \{OBJ_len} bytes, expected $50"
-        endif
+```emp
+// Struct size assertion — prefer the struct's own (size: N) (§1.2), which IS this check;
+// ensure() covers the cases (size: N) can't express:
+ensure(sizeof(OBJ) == $50, "OBJ struct is {sizeof(OBJ)} bytes, expected $50")
 
-; Table size consistency
-        if (Table_End - Table_Start) / ENTRY_SIZE <> EXPECTED_COUNT
-          error "Table entry count mismatch"
-        endif
+// Table size consistency
+ensure((Table_End - Table_Start) / ENTRY_SIZE == EXPECTED_COUNT, "Table entry count mismatch")
 
-; RAM overflow
-        if RAM_Used_End > $FFFFFFFF
-          error "RAM overflow by \{RAM_Used_End - $FFFFFFFF} bytes"
-        endif
-
-; VRAM pool budget (final pass only)
-        if MOMPASS > 1
-          if Permanent_Tiles_End > VRAM_POOL_END
-            error "Permanent tiles overflow pool by \{Permanent_Tiles_End - VRAM_POOL_END}"
-          endif
-        endif
+// Budget check — legal at item position, evaluated against here(); no pass guard needed
+ensure(Permanent_Tiles_End <= VRAM_POOL_END,
+       "Permanent tiles overflow pool by {Permanent_Tiles_End - VRAM_POOL_END}")
 ```
 
 ### 1.7 Conditional Debug Assembly
@@ -218,22 +248,22 @@ One structural consequence to respect: whenever the `error_handler` island is pr
 
 ### 1.8 Build-Time Data Generation
 
-Use `rept`, `irp`, and math functions to generate lookup tables at assembly time.
+Generate lookup tables with a `comptime fn` returning a typed array, emitted by a
+`data` item. Comptime `for`/`while`/`match`, arrays (`map`/`filter`/`fold`, `[i]`),
+the `|>` pipe, and lambdas are the toolkit — replacing AS's `rept`/`irp`/`set`
+counter-macros (which survive in residual `.asm`). Float tables use `as.sin`/`as.int`
+(bit-compatible with `asl 1.42`) for ported data, `math.sin` for new code.
 
-```asm
-; Sine table — computed, not included as binary
-Sine_Table:
-angle = 0
-        rept 512
-        dc.w (sin(angle * 3.14159265 * 2.0 / 512.0)) * $7FFF
-angle = angle + 1
-        endr
+```emp
+// Sine wave — computed, not included as binary. A comptime fn folds the loop:
+pub comptime fn deform_sine(amplitude: int, period: int) -> [i8; 256] {
+    ensure(256 % period == 0, "deform_sine: period {period} must divide 256")
+    return comptime for i in 0..256 { as.int(amplitude * as.sin(TAU * i / period)) }
+}
+pub data DeformTable_Calm: [i8; 256] = deform_sine(amplitude: 96, period: 64)
 
-; Power-of-two table
-Powers_Of_Two:
-        irp val, 1,2,4,8,16,32,64,128,256,512,1024,2048
-        dc.w val
-        endr
+// Content-hashed includes replace BINCLUDE: embed("path") (inspectable at comptime —
+// .len, [i]), plus zx0()/s4lz()/kosinski() compression builtins that run at build.
 ```
 
 ---
