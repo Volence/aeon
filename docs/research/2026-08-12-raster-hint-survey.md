@@ -147,3 +147,53 @@ not copying a local precedent. Verify on oracle accordingly.
    dispatch costs `2 + events` interrupts. (Today HInt is genuinely dormant — the
    profiler's "HInt ~10.8%" bucket in DEFERRED_WORK is mislabelled VBlank/HScroll-DMA
    work; `HBlank_Install` has zero callers.)
+
+---
+
+## Q4. Reference-corpus HInt survey (TF4 / Vectorman / Gunstar / Alien Soldier)
+
+ROM-verified (the linear-sweep `disasm.asm` files are desynced over several of these
+handlers and render them as `ori.b #$0,d0` filler, so payload citations are ROM
+offsets confirmed with Capstone).
+
+| | Thunder Force IV | Vectorman | Gunstar Heroes | Alien Soldier |
+|---|---|---|---|---|
+| Vector `$70` | `$00C000` ROM trampoline -> RAM slot `$FFFFF0F8` | `$FFFF9D2E` (RAM code) | `$FFFFEE00` (RAM code) | `$FFFFEE00` (RAM code) |
+| Idle state | stale pointer, IE1 off | `rte` stub copied from ROM | `rte` (`#$4E73`) | `rte` (`#$4E73`) |
+| Handlers | 2 | 1 (2 configs) | 5 | 11+ |
+| Registers saved | 1 | 1 (`a0`) | 0, or 2 | **0** |
+| R10 reprogrammed *inside* a handler? | No | No | **Yes** | **Yes** |
+| HInt used for parallax? | **No** | No (vscroll only) | Yes | Yes (heavily) |
+
+**Ruling 4a — sparse counter reprogramming from inside the handler IS shipped
+practice.** This refines Q1's "only Batman does counter arithmetic": Treasure does it
+in both engines. Alien Soldier writes `#$8AFF` at ROM `$00169A` immediately after its
+VSRAM write to park the counter so the interrupt fires **exactly once per frame** —
+precisely our `.park` behaviour. Gunstar runs a mid-frame state machine (`#$8A80` at
+`$001744`; `#$8A1F`/`#$8A8F` at `$00182C`/`$00183E`). So the sparse tier is not novel
+and not risky; it is the Treasure idiom.
+
+**Ruling 4b — RAISE TO IPL 7 AT HANDLER ENTRY (bug fix, applied).** The 68000 enters
+IRQ4 at IPL 4, so IRQ6 (VBlank) can nest. Between an `OP_CRAM` command longword and
+its following colour words, a nested VBlank would retarget the VDP address latch and
+the colours would land wherever VBlank left it. Every long payload in the corpus opens
+with `move.w #$2700,sr` (TF4 `$00C000`, Vectorman `$06D96A`, Gunstar `$001698`/
+`$001704`/`$001782`, Alien Soldier `$0017D8`/`$001DF4`); the 3-instruction VSRAM-only
+payloads omit it because they are atomic in practice. `rte` restores SR from the
+stack, so the guard costs 4 cycles and nothing to undo.
+
+**Ruling 4c — a reserved stream register is how the corpus affords a ~26-cycle
+handler.** Alien Soldier saves ZERO registers and Gunstar often zero, because `a6` is
+globally reserved as the per-line stream cursor and the foreground cooperates. Our
+handler reloads its cursor from RAM and saves four registers (a 40-cycle `movem` round
+trip inside a ~60-cycle budget). Parked as the Phase-2 lever if the dense tier needs
+the cycles — it trades a global register reservation against the contract system, so
+it is a deliberate design decision, not a micro-optimisation.
+
+**Ruling 4d — per-line H-scroll belongs in the VBlank-DMA'd HSCROLL table, not HInt.**
+TF4's famous 8-layer parallax is R11=`$8B03` per-line mode fed from a 192-entry RAM
+table at `$FFFFE800`, DMA'd to VRAM `$F000+$80` each VBlank; its two HInt handlers
+touch VSRAM word 0 only, and IE1 is off for 100% of gameplay. This is exactly what
+Aeon already does in §4.6, and it confirms the split of duties: bulk per-line scroll
+via the table, HInt reserved for what the table cannot express (mid-frame register /
+CRAM / nametable changes).

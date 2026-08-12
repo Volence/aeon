@@ -308,6 +308,14 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
 // this record's ops, then advance the cursor. No line compares, no delta math.
 // -----------------------------------------------
 pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
+        // Raise to IPL 7 FIRST. The 68000 enters IRQ4 at IPL 4, so IRQ6 (VBlank)
+        // can nest inside this handler — and a nested VBlank between an OP_CRAM
+        // command longword and the colour words that follow it would retarget the
+        // VDP address latch, sending our colours wherever VBlank left the latch.
+        // Free to undo: `rte` restores the pre-interrupt SR off the stack.
+        // Precedent: every long HInt payload in TF4 / Vectorman / Gunstar / Alien
+        // Soldier opens with exactly this (survey Q4).
+        move.w  #$2700, sr
         movem.l d0-d1/a1-a2, -(sp)
         movea.l Raster_Cursor, a1
         lea     VDP_CTRL, a2
