@@ -21,6 +21,10 @@ module games.sonic4.parallax_configs in parallax_configs
 use engine.structs.{parallax_config}
 use engine.parallax.{band_entry}
 use engine.level.parallax_dsl.*
+// Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
+// command builder they are pinned against.
+use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
+use engine.hblank.{OP_SET_REG, OP_CRAM, RASTER_OPS_END}
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
@@ -263,3 +267,59 @@ pub data ParallaxConfig_OJZ_LockedClouds: ParallaxCfg5 = ParallaxCfg5{
              band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
              band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 15, dsb: 15) ],
 }
+
+// ===========================================================================
+// EFFECTS P1 GATE FIXTURES — the first raster program and the first per-section
+// palette. These live beside the parallax configs because this file IS the
+// game-side effects library (design suite §6); the Phase-3 preset format and the
+// `raster_dsl` general constructors supersede the hand-laid words below.
+// ===========================================================================
+
+// The CRAM-write command longword for colour 0, split into the two words the
+// program format carries. Pinned against the comptime builder so a change in
+// engine.vdp's command encoding fails the build instead of writing to VRAM.
+ensure(vdp_comm(0, VdpTarget.Cram, VdpOp.Write) == $C0000000,
+       "CRAM write command encoding drifted — OJZ_TestRaster's split words are stale")
+
+// OJZ_TestRaster — the P1 acceptance program: below screen line 120, turn
+// Shadow/Highlight ON and repaint the backdrop blue. Two visibly different
+// mechanisms (a mode-register write and a CRAM write) firing at the same line, so
+// the gate exercises the multi-op path rather than a single write.
+//
+// FIRE SCHEDULE (see the timing model in engine/system/hblank.emp):
+//   fire 0 @ line 0    priming, arm = raster_arm(1, 119) = $8A75 (117)
+//   fire 1 @ line 1    priming, arm = park (nothing scheduled after the event)
+//   fire 2 @ line 119  the event; its writes land on line 120
+// Walk-through: VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1
+// at line 1, reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
+pub data OJZ_TestRaster: [u16; 18] = [
+    %0001,                      // pal_dirty_mask: re-assert palette line 0 each frame,
+                                //   which is what makes the mid-frame CRAM write transient
+    1, $8C81,                   // init: S/H OFF at frame top (H40 base, boot_data.emp:140)
+
+    $8A75, 0,                   // fire 0 — priming; arms the gap that lands fire 2 on 119
+    $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
+
+    $8AFF, 2,                   // fire 2 — the event, two ops
+      OP_SET_REG, $8C89,        //   S/H ON  ($81 | bit 3 — resolution bits untouched,
+                                //   per the V28/V30 quirk ruling in the survey)
+      OP_CRAM, $C000, $0000,    //   CRAM write @ colour 0 (command, ensure-pinned above)
+                 0, $0E00,      //   count-1 = 0, one colour: full blue
+
+    $8AFF, RASTER_OPS_END,      // terminator — reached only by a stray fire
+]
+
+// OJZ_TestPal — a deliberately unmistakable 64-colour palette for the adjacent
+// section, so "did sec_pal load on the crossing?" is answerable from one CRAM
+// read or screenshot. Not a tinted copy of the real palette: a subtle shift would
+// make a NEGATIVE result (consumer never ran) look like a positive one.
+// Ramp: colour 0 black, then a blue-dominant sweep across all four lines.
+// No index-0 special case is needed: the formula already yields 0 there, which is
+// exactly the black backdrop colour 0 wants.
+comptime fn test_palette() -> [u16; 64] {
+    return comptime for i in 0..64 {
+        (((i * 14) / 63) << 9) | (((i & 3) * 2) << 4)
+    }
+}
+
+pub data OJZ_TestPal: [u16; 64] = test_palette()

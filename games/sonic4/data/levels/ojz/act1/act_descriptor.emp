@@ -15,6 +15,10 @@ module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 // validating constructor + field defaults below.
 use engine.structs.{Act, Sec}
 
+// Effects P1 gate fixtures live in the game-side effects library beside the
+// parallax configs (games/sonic4/data/parallax/configs.emp).
+use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal}
+
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
@@ -122,15 +126,19 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 // facts are the four per-section pointers and the dict pair; everything
 // else is the declared Sec default. (Tier 3 — deriving the stems from the
 // section NUMBER — waits on computed-name extern(); see the design note.)
-comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int) -> Sec {
+// `pal` is an explicit required argument rather than a defaulted one: OJZ_Palette
+// is a cross-module `pub data` resolving as a link-time extern, so it can be a
+// field VALUE but not a comptime default. Each section naming its palette is the
+// clearer contract anyway. `raster` defaults to 0 = no raster program.
+comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0) -> Sec {
     return Sec{
         sec_block_index:      blocks,
         sec_objects:          objects,
         sec_rings:            rings,
         sec_plc:              default,
-        sec_pal:              OJZ_Palette,
+        sec_pal:              pal,        
         sec_parallax_config:  default,      // act default parallax
-        sec_raster_table:     default,
+        sec_raster_table:     raster, 
         sec_bg_layout:        default,      // NULL = zone-wide T1 BG
         sec_type_table:       type_table,
         sec_pal_cycle:        default,
@@ -152,46 +160,60 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
     ojz_sec(blocks: OJZ_Sec0_Blocks,
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec1_Blocks,
             objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
             type_table: OJZ_Sec1_TypeTable,
+            pal: OJZ_Palette,
+            // Effects P1 gate: section 1 carries the raster program (S/H + backdrop
+            // split below screen line 120). Scroll right from spawn to reach it.
+            raster: OJZ_TestRaster,
             dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC1_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec2_Blocks,
             objects: OJZ_Sec2_Objects, rings: OJZ_Sec2_Rings,
             type_table: OJZ_Sec2_TypeTable,
+            // Effects P1 gate: section 2 proves sec_pal on its own — crossing in must
+            // snap the palette, crossing back out must restore it.
+            pal: OJZ_TestPal,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec3_Blocks,
             objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
             type_table: OJZ_Sec3_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec4_Blocks,
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec6_Blocks,
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec8_Blocks,
             objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
             type_table: OJZ_Sec8_TypeTable,
+            pal: OJZ_Palette,
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]
