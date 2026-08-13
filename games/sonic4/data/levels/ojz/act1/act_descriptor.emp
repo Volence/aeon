@@ -17,7 +17,7 @@ use engine.structs.{Act, Sec}
 
 // Effects P1 gate fixtures live in the game-side effects library beside the
 // parallax configs (games/sonic4/data/parallax/configs.emp).
-use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal}
+use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -134,18 +134,18 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 // A section palette is 96 bytes = CRAM lines 1-3. Line 0 is the CHARACTER line
 // (CharacterDef.cd_palette) and the level must never write it — see
 // Palette_LoadSection in engine/system/buffers.emp.
-comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0) -> Sec {
+comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0, cycle: Label = 0) -> Sec {
     return Sec{
         sec_block_index:      blocks,
         sec_objects:          objects,
         sec_rings:            rings,
         sec_plc:              default,
-        sec_pal:              pal,        
+        sec_pal:              pal,
         sec_parallax_config:  default,      // act default parallax
-        sec_raster_table:     raster, 
+        sec_raster_table:     raster,
         sec_bg_layout:        default,      // NULL = zone-wide T1 BG
         sec_type_table:       type_table,
-        sec_pal_cycle:        default,
+        sec_pal_cycle:        cycle,        // effects P2 Task 8: sec_pal_cycle consumer
         sec_sound_bank:       default,
         sec_block_dict:       dict,
         sec_anim_blocks:      default,
@@ -182,12 +182,20 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // Effects P1 gate: section 2 proves sec_pal on its own — crossing in must
             // snap the palette, crossing back out must restore it.
             pal: OJZ_TestPal,
+            // Effects P2 Task 5 gate: section 2 also carries the DENSE-tier program (a
+            // 96-line ramp on screen lines 96-191). Sited here, adjacent to the P1
+            // raster section, so ONE sustained right-hold walks sparse -> dense and the
+            // sparse tier is proven un-regressed on the same run.
+            raster: OJZ_TestGradient,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec3_Blocks,
             objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
             type_table: OJZ_Sec3_TypeTable,
             pal: OJZ_Palette,
+            // Effects P2 Task 8 gate: section 3 carries a palette-cycling band
+            // (line 2 entries 8-11, 8-frame period). Read CRAM per frame to see it.
+            cycle: OJZ_ShimmerCycle,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec4_Blocks,

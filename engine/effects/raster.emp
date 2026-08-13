@@ -84,8 +84,49 @@ use engine.irq.{ints_off}
 
 // ---- opcodes (compare-chain dispatch; see the note in Raster_HInt for why this
 // is not a pc-indexed jump table) ----
-pub const OP_SET_REG = 0
-pub const OP_CRAM    = 2
+pub const OP_SET_REG    = 0
+pub const OP_CRAM       = 2
+// OP_PAL_REGION (effects P2, Task 3) — a scanline REGION boundary: stream `count`
+// pre-derived colour words from RAM to CRAM. Same 3-word wire body as OP_CRAM but the
+// colours come from a RAM SOURCE POINTER (a variant's derived staging bytes) rather
+// than being inline in the program. The derive happens at frame time in
+// Palette_Compose (Palette_DeriveVariant -> Pal_Variant_Stage); the handler only
+// streams, so it stays inside the ~60-cycle budget.
+//
+// WHAT A "REGION" IS (the RASTER_CRAM_MAX=3 ruling forces this choice, survey 2a):
+// a full 16-colour line CANNOT swap in one fire (3 CRAM words/fire is a cycle budget,
+// not a FIFO one). So a region is a SCOPED swap: the few visually-dominant entries of
+// a line (<= RASTER_CRAM_MAX), streamed in one fire. A full-line region is authored as
+// CONSECUTIVE OP_PAL_REGION fires on successive lines — S3K's actual technique (it
+// writes 3 colours per scanline precisely to push the CRAM dots offscreen), so such a
+// boundary takes ceil(N/3) lines to complete. The water cluster (Task 7) uses the
+// scoped form: swap the handful of body colours at the water line, not the whole line.
+pub const OP_PAL_REGION = 4
+
+// pal_stage_off — the comptime offset into Pal_Variant_Stage an OP_PAL_REGION streams
+// from: slot*128 + line*32 + entry*2. The variant staging is PAL_MAX_VARIANTS slots of
+// a 128-byte 4-line image each (engine/ram.emp); Palette_DeriveVariant fills the covered
+// lines at their natural line*32 offset. Kept as literals (128/32/2) rather than
+// importing palette's consts to avoid an engine.effects.raster -> engine.effects.palette
+// module edge for two numbers; the ensure() below pins the slot bound.
+pub comptime fn pal_stage_off(slot: int, line: int, entry: int) -> int {
+    ensure(slot >= 0 && slot < 2,     "pal_stage_off: slot {slot} outside 0..PAL_MAX_VARIANTS(2)")
+    ensure(line >= 1 && line <= 3,    "pal_stage_off: line {line} outside 1..3 (line 0 is the character's)")
+    ensure(entry >= 0 && entry <= 15, "pal_stage_off: entry {entry} outside 0..15")
+    return slot * 128 + line * 32 + entry * 2
+}
+
+// OP_RUN_GRADIENT (effects P2, Task 5) — the DENSE tier. A dense run is a MODE, not an
+// op that returns: for a line RANGE the handler fires EVERY line (reg $0A=0) and runs a
+// minimal per-line body (write a constant CRAM command + 3 stream colours), then restores
+// sparse delta dispatch at the end of the run. Wire body:
+//   OP_RUN_GRADIENT
+//   dc.l <CRAM write command longword>   constant target for every line (e.g. 3 sky entries)
+//   dc.w <line count L>
+//   dc.l <ROM gradient stream pointer>   L*3 colour words, 3 per line (pre-computed, no
+//                                        handler arithmetic; Palette_Compose may refill it
+//                                        when the gradient must follow the live palette)
+pub const OP_RUN_GRADIENT = 6
 
 // op_count sentinel: park the counter and do not advance the cursor. Reached only
 // by a stray fire (a counter that somehow wrapped), so it is defense, not flow.
@@ -95,8 +136,42 @@ pub const RASTER_OPS_END = $FFFF
 // the next fire would be 256 lines away, i.e. never within active display.
 pub const RASTER_ARM_PARK = $8AFF
 
+// reg $0A arm word for the dense tier: value 0 = fire EVERY line (Task 5).
+pub const RASTER_ARM_EVERY_LINE = $8A00
+
 // Colors per OP_CRAM entry — a CYCLE budget (Ruling 2a), not a FIFO one.
 pub const RASTER_CRAM_MAX = 3
+
+// ---- row-119 partial-tint fix (Task 4) — DECIDED, measured on oracle 2026-08-13 ----
+// The P1 residual: a CRAM write lands inside the fire+1 line's ACTIVE display, so pixels
+// drawn after the write on that line carry the new colour (single-ported CRAM, survey
+// Ruling 2b). Two options were built behind a select and measured at an IDENTICAL
+// camera (2840, 356), section 1, both shapes converged:
+//
+//   (a) fire one line early — REJECTED and DELETED. It never removed the artifact by
+//       construction (it relocates the partial row from M-1 to M-2 and starts the whole
+//       effect a line high), and the audit found its helper `raster_fire_screen` was
+//       imported but NEVER CALLED, so the option was dead code that had never affected
+//       a shipped program. Numbers recorded in docs/benchmarks/effects-p2/GATE-EVIDENCE.md
+//       so it is not re-litigated.
+//   (b) blanking delay — ADOPTED, and now unconditional. A cycle-counted dbf before each
+//       CRAM write parks it in HBlank (offscreen). Measured: row 119 goes 1 px -> 0 px
+//       and the boundary lands on the AUTHORED line 120 instead of 119. S3K's approach
+//       (sonic3k.asm:1018, :1038-1039, retuned per region, runtime-selected by measured
+//       VBlank length at :9791-9793).
+//
+// RESIDUAL, deliberately not fixed here: the delay guards the CRAM paths only, so a fire
+// mixing OP_SET_REG with a CRAM op still switches its mode REGISTER mid-line. Measured at
+// ~45% across line 119 (column-bucket brightness, identical in both options). Authors
+// wanting a pixel-clean mode change must schedule it a line earlier; extending the delay
+// to OP_SET_REG would cost another ~40 cycles of a ~60-cycle budget and was not taken
+// without a cycle measurement to justify it.
+//
+// dbf iterations. Each dbf is ~10 cyc; 4 covers the ~40 cyc from mid-handler to the
+// active-display edge on an H40 line, and 4 is what the measurement above validates.
+// Region-tunable — recalibrate on oracle if the handler's prologue changes (the ints_off
+// bracket's stack push already shifted it once; see P1 GATE-EVIDENCE's CORRECTION).
+const EFX_BLANK_DELAY = 4
 
 // Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
 // P1 runs entirely out of Buf_A.
@@ -104,7 +179,9 @@ pub const RASTER_BUF_SIZE = 128
 
 // Raster_State span guard — the RAM block (engine/ram.emp) is the twin of this
 // layout; a drift on either side must fail the build, not the frame.
-pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2
+//   Program 4 + Cursor 4 + Pending 4 + Line 2 + Buf_A + Buf_B + Active_Buf 4
+//   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4 + Water_Line 2 + Water_World_Y 2
+pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 2
 ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
        "Raster_State RAM block drifted from hblank.emp's raster layout")
 
@@ -133,6 +210,79 @@ pub comptime fn raster_fire_line(screen_line: int) -> int {
     ensure(screen_line >= 3 && screen_line <= 223,
            "raster_fire_line: screen line {screen_line} outside 3..223")
     return screen_line - 1
+}
+
+
+
+// ---- dense-run authoring (Task 5) -----------------------------------------
+// RasterGradientProgram — the wire shape of a minimal dense-run program: two priming
+// records, the setup record carrying OP_RUN_GRADIENT, and the terminator. A struct
+// rather than the flat [u16] the sparse fixtures use, because the gradient op carries a
+// LINK-TIME stream pointer — OP_PAL_REGION deliberately avoided one by carrying a
+// comptime staging offset instead, but a ROM stream has no staging base to be relative
+// to, and a [u16] literal array cannot hold a symbol address.
+//
+// THE ENTER SCHEDULE, for a run of L lines whose first stream line lands on screen line
+// T (the other half of the mode-switch schedule commented at the dense fast path):
+//   fire 0 @ line 0     priming, arm = raster_arm(1, T-1)
+//   fire 1 @ line 1     priming, arm = raster_arm(T-1, T) = the every-line word
+//   fire 2 @ line T-1   setup: OP_RUN_GRADIENT stashes cmd/lines/cursor, writes nothing
+//   fire 3 @ line T     first .dense_body -> stream[0] shows on screen line T
+//   ...                 L dense fires; the last stream line lands on screen line T+L-1
+// Record i's arm governs gap(i+1 -> i+2), so BOTH record 1 and record 2 must carry the
+// every-line word: record 1's puts fire 3 at T, record 2's puts fire 4 at T+1. The
+// setup fire writes no colours of its own, which is why it gets its own line at T-1.
+//
+// THE T-1 SETUP LINE IS MEASURED, NOT DERIVED. The naive derivation puts the setup at
+// T-2 (fire 3 then lands at T-1, whose handler write shows on T, per the sparse tier's
+// fire-line = M-1 rule). On hardware that authors the whole run ONE LINE HIGH: with
+// top=96 the level boundaries came out at 107/119/131/143/155/167/179 instead of
+// 108/120/.../180 — a uniform -1 across all seven, i.e. stream[0] displayed on 95.
+// The dense path does not inherit the sparse -1 because entering the run costs its own
+// pipelined arm (Ruling 1b at the ENTER edge), which absorbs exactly one line. Evidence:
+// docs/benchmarks/effects-p2/GATE-EVIDENCE.md, dense-tier section.
+pub struct RasterGradientProgram {
+    rgp_mask:       u16,    // pal_dirty_mask — must name the line rgp_cmd writes into
+    rgp_init_count: u16,
+    rgp_init_word:  u16,
+    rgp_arm0:       u16, rgp_ops0: u16,     // fire 0 — priming
+    rgp_arm1:       u16, rgp_ops1: u16,     // fire 1 — priming
+    rgp_arm2:       u16, rgp_ops2: u16,     // fire 2 — the setup record, one op
+    rgp_op:         u16,
+    rgp_cmd:        u32,    // constant CRAM write command, re-issued every dense line
+    rgp_lines:      u16,
+    rgp_stream:     *u8,    // rgp_lines * RASTER_CRAM_MAX colour words
+    rgp_end_arm:    u16, rgp_end_ops: u16,  // terminator
+}
+
+// raster_gradient_program — build the schedule above. `cmd` is the CRAM write command
+// longword, passed in already built (game-side, pinned against engine.vdp's comptime
+// builder) so this module keeps its import surface.
+pub comptime fn raster_gradient_program(top: int, lines: int, mask: int, cmd: int,
+                                        stream: Label) -> RasterGradientProgram {
+    // Floor is 3, matching raster_fire_line: the setup fire sits at T-1 and must still
+    // land after the two priming fires on lines 0-1.
+    ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
+    ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
+    ensure(top + lines <= 224,
+           "raster_gradient_program: run {top}..{top + lines - 1} runs past screen line 223")
+    return RasterGradientProgram{
+        rgp_mask:       mask,
+        rgp_init_count: 1,
+        rgp_init_word:  $8C81,                          // S/H OFF at frame top (H40 base)
+        rgp_arm0:       raster_arm(1, top - 1),
+        rgp_ops0:       0,
+        rgp_arm1:       raster_arm(top - 1, top),       // == RASTER_ARM_EVERY_LINE
+        rgp_ops1:       0,
+        rgp_arm2:       RASTER_ARM_EVERY_LINE,
+        rgp_ops2:       1,
+        rgp_op:         OP_RUN_GRADIENT,
+        rgp_cmd:        cmd,
+        rgp_lines:      lines,
+        rgp_stream:     stream,
+        rgp_end_arm:    RASTER_ARM_PARK,
+        rgp_end_ops:    RASTER_OPS_END,
+    }
 }
 
 // -----------------------------------------------
@@ -251,36 +401,125 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // would pop a frame shifted by one word.
         with ints_off {
         movem.l d0-d1/a1-a2, -(sp)
-        movea.l Raster_Cursor, a1
         lea     VDP_CTRL, a2
+        // -------------------------------------------------------------------
+        // DENSE-RUN FAST PATH (Task 5). While a gradient run is active the handler
+        // bypasses the record walk: it fires every line, writes the constant CRAM
+        // command + 3 stream colours, advances the cursor, and re-arms reg $0A=0.
+        //
+        // THE MODE-SWITCH SCHEDULE (both transitions, per Ruling 1b — the one-interrupt
+        // arm lag). reg $0A is a CONSTANT 0 across the whole run, so there is no per-line
+        // delta to pipeline; the lag only bites at the two edges:
+        //   ENTER: the fire record carrying OP_RUN_GRADIENT is authored with arm word 0
+        //     (raster_arm gap 1). That 0, written at the setup fire, is consumed at the
+        //     NEXT fire's reload -> the first dense line fires one line after setup, i.e.
+        //     the run's first stream line lands on setup_line+2 (setup writes the FIRST
+        //     line itself so no line is dropped). Author the OP_RUN_GRADIENT fire at
+        //     gradient_top - 2 so line gradient_top gets stream[0].
+        //   LEAVE: the LAST dense fire (Raster_Dense_Lines 1->0) still writes reg $0A=0,
+        //     so one extra every-line fire happens after the run; that fire finds
+        //     Dense_Lines==0, falls through to the record walk at Raster_Cursor (already
+        //     past the gradient op), and writes the NEXT record's arm word. Because of
+        //     the lag that arm governs the fire after next, so the first post-gradient
+        //     sparse event must be scheduled >= 2 lines below the run's last line. The
+        //     comptime authoring helper owns that gap; the run body does not.
+        // Conservative register model: the cursor is reloaded from Raster_Dense_Cursor
+        // (RAM) every fire and only d0-d1/a1-a2 are saved. A reserved global stream
+        // register (Gunstar's a6 / Alien Soldier's zero-save handler, survey Ruling 4c)
+        // would drop the reload but changes engine-wide register conventions — a FLAGGED
+        // decision needing user sign-off (see the report), not taken here.
+        // -------------------------------------------------------------------
+        tst.w   Raster_Dense_Lines
+        bne     .dense_body
+        movea.l Raster_Cursor, a1
         move.w  (a1)+, (a2)             // arm word -> reg $0A (consumed at fire i+1)
         move.w  (a1)+, d0               // op_count
         cmpi.w  #RASTER_OPS_END, d0
-        beq.s   .park                   // terminator: stray fire, do not advance
+        beq     .park                   // terminator: stray fire, do not advance
         subq.w  #1, d0
         bmi.s   .advance                // priming / no-op record
     .op_loop:
         move.w  (a1)+, d1               // op
-        // Two-op compare chain rather than a pc-indexed jump table: at this few
+        // Three-op compare chain rather than a pc-indexed jump table: at this few
         // opcodes it is fewer cycles than the table setup, and it keeps the handler
         // analyzable — a computed `jmp` defeats the contract-closure dataflow, and
-        // proc.clobber-undeclared is zero-firing by contract. The opcodes stay byte
-        // offsets so a table can drop back in without touching the program format.
+        // proc.clobber-undeclared is zero-firing by contract. Frequency-ordered:
+        // OP_CRAM (the common raster write) first, then OP_PAL_REGION (region
+        // boundaries), OP_SET_REG the fall-through. The opcodes stay byte offsets so a
+        // table can drop back in without touching the program format.
         cmpi.w  #OP_CRAM, d1
         beq.s   .op_cram
+        cmpi.w  #OP_PAL_REGION, d1
+        beq     .op_region
+        cmpi.w  #OP_RUN_GRADIENT, d1
+        beq     .op_run_gradient
         // OP_SET_REG — one $8xxx word
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
         jbra    .advance
     .op_cram:
-        move.l  (a1)+, (a2)             // full CRAM command in ONE move.l
+        move.l  (a1)+, (a2)             // full CRAM command in ONE move.l (sets the address)
+        // Row-119 fix: burn a cycle-counted delay so the colour writes below land in
+        // HBlank (offscreen). d1 is free here, before it is loaded with count.
+        moveq   #EFX_BLANK_DELAY, d1
+    .cram_delay:
+        dbf     d1, .cram_delay
         move.w  (a1)+, d1               // count-1
     .cram_loop:
         move.w  (a1)+, VDP_DATA
         dbf     d1, .cram_loop
         dbf     d0, .op_loop
+        jbra    .advance
+    .op_region:
+        // Stream count pre-derived colour words from a variant's Pal_Variant_Stage
+        // bytes to CRAM. The program carries a comptime OFFSET into Pal_Variant_Stage
+        // (slot*128 + line*32 + entry*2 — pal_stage_off below), NOT a link-time
+        // pointer, so the whole program stays a flat [u16] of comptime literals. a2
+        // (VDP_CTRL) is repurposed as the source cursor (colours go to VDP_DATA
+        // absolute, which needs no a2), then restored for the arm write / next op — no
+        // register is added to the movem save set (the ~60-cycle budget).
+        move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
+        // Row-119 fix: same blanking delay as OP_CRAM (d1 free before count).
+        moveq   #EFX_BLANK_DELAY, d1
+    .region_delay:
+        dbf     d1, .region_delay
+        move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX)
+        lea     Pal_Variant_Stage, a2   // staging base (was VDP_CTRL)
+        adda.w  (a1)+, a2               // + comptime offset -> the derived colours
+    .region_loop:
+        move.w  (a2)+, VDP_DATA
+        dbf     d1, .region_loop
+        lea     VDP_CTRL, a2            // restore the control-port cursor
+        dbf     d0, .op_loop
+        jbra    .advance
+    .op_run_gradient:
+        // ENTER a dense run: stash the constant command, the line count, and the ROM
+        // stream cursor into RAM, then fall through to .advance (Raster_Cursor now points
+        // past the op, where the sparse walk resumes when the run ends). Every line of the
+        // run is written by .dense_body on the subsequent every-line fires. Must be the
+        // LAST op in its record (the record's arm word is authored 0 so the pipeline
+        // starts firing every line — see the ENTER schedule at the handler top).
+        move.l  (a1)+, Raster_Dense_Cmd     // constant CRAM write command
+        move.w  (a1)+, Raster_Dense_Lines   // L lines
+        move.l  (a1)+, Raster_Dense_Cursor  // ROM stream pointer (L*3 words)
+        // fall through to .advance
     .advance:
         move.l  a1, Raster_Cursor
+        jbra    .out
+    .dense_body:
+        // One dense line: keep firing every line, write the constant command + 3 stream
+        // colours, advance the cursor, count down. When Raster_Dense_Lines reaches 0 the
+        // NEXT fire finds it clear and resumes the sparse record walk at Raster_Cursor
+        // (LEAVE schedule at the handler top). Conservative: cursor reloaded from RAM,
+        // no reserved register.
+        move.w  #RASTER_ARM_EVERY_LINE, (a2)       // reg $0A=0: fire every line
+        move.l  Raster_Dense_Cmd, (a2)             // constant CRAM command (sets address)
+        movea.l Raster_Dense_Cursor, a1
+        move.w  (a1)+, VDP_DATA
+        move.w  (a1)+, VDP_DATA
+        move.w  (a1)+, VDP_DATA
+        move.l  a1, Raster_Dense_Cursor
+        subq.w  #1, Raster_Dense_Lines
         jbra    .out
     .park:
         move.w  #RASTER_ARM_PARK, (a2)
@@ -318,3 +557,131 @@ pub proc Raster_InstallSection (a0: u32) clobbers(d0) {
 // re-assert, no init words, and a terminator that parks the counter. Installing
 // it is how a section turns a neighbour's effect OFF.
 pub data Raster_Program_None: [u16; 4] = [0, 0, RASTER_ARM_PARK, RASTER_OPS_END]
+
+// ===========================================================================
+// WATER_LEVEL PATCH SLOT (effects P2 Task 7) — a raster program whose boundary line
+// MOVES at runtime without rebuilding the whole program. The back buffer Raster_Buf_B
+// (reserved by P1 for exactly this) holds a runtime COPY of a template whose priming
+// arm word is recomputed from Raster_Water_Line; Raster_VBlank walks it because
+// Raster_Active_Buf points at Buf_B. Only the arm word moves, so a line change is one
+// word write.
+//
+// The template MUST be laid out with init_count == 1 (one frame-top init word), so its
+// priming record 0's arm word sits at byte offset 6:
+//   [pal_dirty_mask 0][init_count 2][init[0] 4][arm0 6][opc0 8]...
+pub const WATER_TEMPLATE_ARM0_OFF = 6
+
+// Raster_WaterArm — the priming arm word that lands the water fire at screen line M.
+// FORMULA (survey Ruling 1b — the one-interrupt arm lag): priming fires 0 and 1 land on
+// lines 0 and 1 (Raster_VBlank leaves reg $0A=0); the arm word WRITTEN at priming record
+// 0 is consumed at the NEXT reload and schedules gap(1 -> event). The event fire must be
+// at M-1 so its writes land on M (Ruling 1a). Priming fire 1 is at line 1, so the gap
+// 1 -> (M-1) needs reg $0A = (M-1) - 1 - 1 = M - 3. So arm0 = $8A00 | (M - 3).
+//
+// RASTER_MIN_FIRE_LINE is the `- 3` above, named ONCE: the comptime formula here and its
+// runtime twin in Raster_PatchWaterLine both spell it, and they were previously two
+// hand-synced literals with only a comment holding them together.
+pub const RASTER_MIN_FIRE_LINE = 3
+pub const RASTER_MAX_FIRE_LINE = 223
+
+// The literals below are deliberate, NOT an oversight: a comptime fn's free names
+// resolve at its CALL site, so if this body spelled RASTER_MIN_FIRE_LINE then every
+// caller of water_arm0 (games/sonic4/data/parallax/configs.emp, which names neither
+// constant) would have to import both or get `unknown name`. The build-time equality
+// check below keeps the single source of truth without imposing that on callers.
+pub comptime fn water_arm0(screen_line: int) -> int {
+    ensure(screen_line >= 3 && screen_line <= 223, "water_arm0: line {screen_line} outside 3..223")
+    return $8A00 | (screen_line - 3)
+}
+ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
+       "water_arm0's inlined bounds drifted from RASTER_{MIN,MAX}_FIRE_LINE")
+
+// -----------------------------------------------
+// Raster_InstallWater — install a water template into Raster_Buf_B and make it the
+// live program, with the boundary at screen line d0.
+//   a0 = water template (init_count must be 1)   d0.w = water screen line
+// After this, Raster_VBlank walks Buf_B every frame; Raster_PatchWaterLine moves the
+// line. Bypasses Raster_Pending (which drives the ROM-program Buf_A path) — the water
+// program is the runtime-patched Buf_B, not a static ROM program.
+// -----------------------------------------------
+pub proc Raster_InstallWater (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
+        lea     Raster_Buf_B, a1
+        move.l  a1, Raster_Active_Buf
+        move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
+        clr.l   Raster_Pending
+        move.w  #(RASTER_BUF_SIZE / 2) - 1, d1
+    .copy:
+        move.w  (a0)+, (a1)+
+        dbf     d1, .copy
+        // Seed the AUTHORED world Y from the screen line the caller asked for, so an
+        // install still reads as "put the boundary here on screen" while every frame
+        // after it is world-anchored. world_y = screen_line + Camera_Y(int).
+        move.w  Camera_Y, d1
+        add.w   d1, d0
+        move.w  d0, Raster_Water_World_Y
+        jbra    Raster_PatchWaterWorldY
+}
+
+// -----------------------------------------------
+// Raster_PatchWaterLine — move the water boundary to screen line d0 by recomputing
+// Buf_B's priming arm word (water_arm0's runtime twin). Cheap enough to call every
+// frame from the main loop; the change lands at the next Raster_VBlank rewind.
+//   d0.w = water screen line, SIGNED — it may legitimately be off-screen in either
+//          direction once the line is anchored to a WORLD Y (Raster_PatchWaterWorldY).
+//
+// OFF-SCREEN IS A SEMANTIC, NOT A CLAMP. The two directions mean opposite things and a
+// plain clamp gets one of them wrong:
+//   line < MIN  the surface is above the viewport -> the view is entirely BELOW it
+//               (fully submerged) -> fire as early as possible so the effect covers the
+//               whole screen.
+//   line > MAX  the surface is below the viewport -> the effect is not visible at all
+//               -> PARK the counter so the program never fires.
+// The previous version did neither: it masked the line to 8 bits, so a negative line
+// WRAPPED to an arbitrary on-screen row and painted a boundary in the wrong place. That
+// was invisible while the line was a build-time-validated constant (water_arm0's ensure
+// caught it at compile time) and becomes reachable on every vertical scroll the moment
+// the line is world-anchored.
+//
+// The RUNTIME twin of water_arm0 (both spell RASTER_MIN_FIRE_LINE):
+//   arm0 = $8A00 | (line - RASTER_MIN_FIRE_LINE)
+// -----------------------------------------------
+pub proc Raster_PatchWaterLine (d0: i16) clobbers(d0) {
+        move.w  d0, Raster_Water_Line
+        cmpi.w  #RASTER_MIN_FIRE_LINE, d0
+        blt     .fully_submerged
+        cmpi.w  #RASTER_MAX_FIRE_LINE, d0
+        bgt     .not_visible
+        subi.w  #RASTER_MIN_FIRE_LINE, d0
+        ori.w   #$8A00, d0
+        move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
+        rts
+    .fully_submerged:
+        // Earliest legal fire. Screen lines 0..MIN-1 are the priming records' own lines
+        // and cannot carry the effect, so a fully-submerged view keeps a MIN-line sliver
+        // of un-effected pixels at the very top. Authors wanting a seamless full-screen
+        // state must put it in the program's frame-top init words instead, which is a
+        // content decision rather than something this proc can fix.
+        move.w  #$8A00 | (RASTER_MIN_FIRE_LINE - RASTER_MIN_FIRE_LINE), d0
+        move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
+        rts
+    .not_visible:
+        move.w  #RASTER_ARM_PARK, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
+        rts
+}
+
+// -----------------------------------------------
+// Raster_PatchWaterWorldY — anchor the boundary to a WORLD y instead of a screen row.
+// This is what makes the effect stay on a place in the LEVEL rather than at a fixed
+// height on the display: screen_line = Raster_Water_World_Y - Camera_Y(int), recomputed
+// per frame. Takes no argument on purpose — the authored world Y lives in RAM so there
+// is exactly one place to set it and no way for a caller to pass a stale copy.
+// Call once per frame from the main loop, beside the other camera-derived work. The
+// subtraction can go negative or past the screen bottom, which is exactly the case
+// Raster_PatchWaterLine's two off-screen branches exist to handle.
+// -----------------------------------------------
+pub proc Raster_PatchWaterWorldY () clobbers(d0-d1) {
+        move.w  Raster_Water_World_Y, d0        // the AUTHORED value
+        move.w  Camera_Y, d1                    // (Camera_Y).w — 16.16, integer word
+        sub.w   d1, d0                          // may go negative; that is meaningful
+        jbra    Raster_PatchWaterLine
+}
