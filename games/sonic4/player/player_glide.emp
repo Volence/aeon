@@ -323,6 +323,31 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bset    #GLF_PUSH_BIT, 1(sp)
 .no_wall_r:
         // Floor land only while descending. THE WALL-CATCH FIX (Task 10 bug): use a
+        // *** THE S3K CLAIM BELOW WAS FALSE — corrected 2026-08-13 (lens sweep, CHAR-5).
+        // This block used to assert "S3K's glide floor check (sub_11FD6) is likewise a
+        // single CENTRE sensor, so the outer-sensor false land cannot happen there".
+        // It is not: sub_11FD6 (sonic3k.asm:24131) is a one-line trampoline into
+        // Sonic_CheckFloor, which runs FindFloor TWICE — at x + x_radius and
+        // x - x_radius — and keeps the nearer (loc_F7E2, :19881). S3K uses the ordinary
+        // pair here, exactly as it does for every other floor query.
+        //
+        // The single-centre probe is therefore a DELIBERATE DIVERGENCE, not a port, and
+        // the real cause of the bug it was introduced for is narrower than the old note
+        // claimed: PUSH_RADIUS (10) equals Knuckles' ability-box x_radius (10), so after
+        // Air_WallProbe* snaps him flush the OUTER floor sensor lands exactly on the snap
+        // pixel and the probe cores read that column as inside the wall. S3K is immune
+        // because its wall push leaves the sensor on the last empty pixel.
+        //
+        // COST, recorded rather than hidden: Glide_Collide is shared with
+        // PSTATE_GLIDEFALL, where the pair's spread is the whole point. Falling beside a
+        // platform lip, PState_Air (Player_SensorFloor) catches ~10px earlier than
+        // GLIDEFALL does — an inconsistency inside our own engine that S3K does not have.
+        // Restoring the pair means first closing the flush-boundary overlap (bias the
+        // post-snap floor sensors inward 1px, or make the wall snap leave the probe point
+        // one pixel clear). Booked as CHAR-5; NOT changed here because the OJZ test
+        // section has no climbable wall at glide height, so the wall-catch regression it
+        // would risk cannot currently be tested. ***
+        //
         // SINGLE CENTRE probe, NOT the A/B pair (Player_SensorFloor). After the wall
         // snap above leaves the player flush against the face (centre at face - radius),
         // the pair's OUTER sensor sits exactly on the wall's near column and reads the

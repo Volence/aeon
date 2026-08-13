@@ -98,12 +98,32 @@ ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line
 // re-export) that stomps these slots fails HERE, loudly — never a quiet recolour.
 // idx N = CRAM word at bytes 2N..2N+1 (big-endian).
 // -----------------------------------------------
-ensure((_pal_knux[8]  << 8 | _pal_knux[9])  == (_pal_sonic_tails[8]  << 8 | _pal_sonic_tails[9]),
-       "Pal_Knuckles idx4 must match Pal_SonicTails — the shared effect-dust slot (skid/spindash/slide draw gray there)")
-ensure((_pal_knux[12] << 8 | _pal_knux[13]) == (_pal_sonic_tails[12] << 8 | _pal_sonic_tails[13]),
-       "Pal_Knuckles idx6 must match Pal_SonicTails — the shared effect-dust slot (the dust's dominant colour)")
-ensure((_pal_knux[14] << 8 | _pal_knux[15]) == (_pal_sonic_tails[14] << 8 | _pal_sonic_tails[15]),
-       "Pal_Knuckles idx7 must match Pal_SonicTails — the shared effect-dust slot")
+// PINNED TO THE AUTHORED GRAYS, not merely to each other. These used to assert
+// only that Pal_Knuckles AGREED with Pal_SonicTails at 4/6/7 — which is not the
+// property the fix secured. Re-export BOTH palettes with those slots recoloured in
+// lockstep and all three agreement asserts pass while the skid/spindash/slide dust
+// turns that colour for every character, i.e. exactly the bug (dust rendering RED
+// as Knuckles) coming back with a green build. The dust art is authored gray, so
+// the values are the invariant and belong here as literals.
+//
+// Roster-scoped by construction: a fourth character's palette adds three lines
+// against the SAME constants, not against whichever palette happened to ship first.
+const DUST_GRAY_IDX4 = $0ECC
+const DUST_GRAY_IDX6 = $0EEE    // the dust's dominant colour
+const DUST_GRAY_IDX7 = $0CAA
+
+ensure((_pal_sonic_tails[8] << 8 | _pal_sonic_tails[9]) == DUST_GRAY_IDX4,
+       "Pal_SonicTails moved off the authored effect-dust gray at idx4 — the shared dust would recolour")
+ensure((_pal_sonic_tails[12] << 8 | _pal_sonic_tails[13]) == DUST_GRAY_IDX6,
+       "Pal_SonicTails moved off the authored effect-dust gray at idx6 — the shared dust would recolour")
+ensure((_pal_sonic_tails[14] << 8 | _pal_sonic_tails[15]) == DUST_GRAY_IDX7,
+       "Pal_SonicTails moved off the authored effect-dust gray at idx7 — the shared dust would recolour")
+ensure((_pal_knux[8] << 8 | _pal_knux[9]) == DUST_GRAY_IDX4,
+       "Pal_Knuckles moved off the authored effect-dust gray at idx4 — the shared dust would recolour")
+ensure((_pal_knux[12] << 8 | _pal_knux[13]) == DUST_GRAY_IDX6,
+       "Pal_Knuckles moved off the authored effect-dust gray at idx6 — the shared dust would recolour")
+ensure((_pal_knux[14] << 8 | _pal_knux[15]) == DUST_GRAY_IDX7,
+       "Pal_Knuckles moved off the authored effect-dust gray at idx7 — the shared dust would recolour")
 
 // -----------------------------------------------
 // THE VRAM WALL — the peak comes from the DATA, not from a comment.
