@@ -4383,3 +4383,52 @@ plain ROM is 676 KB against 414 KB before Tails, and each exile costs a
 frozen-table hand ruling in five shapes. The parked "banks late, data unbounded"
 relayout retires the whole friction class; a fourth character, or any further
 character-scale art, pays the tax again.
+
+### Palette variant DEBUG guard — CONSIDERED AND BANKED, not an oversight (2026-08-13)
+`fix/palette-variant-derive` gated the variant derive on `PAL_ACT_VARIANT_STALE`,
+which makes "the palette engine is the sole runtime writer of `Palette_Buffer`
+lines 1-3" a CORRECTNESS dependency rather than a tidiness one: an outside
+runtime writer of those lines would leave `Pal_Variant_Stage` stale with nothing
+to notice. A DEBUG-only guard was designed (checksum the `v_lines` bytes at
+derive time, re-check on a skipped frame) and deliberately NOT built.
+
+The audit that made it optional — every writer of `Palette_Buffer` in the tree:
+
+| Writer | Lines | When |
+|---|---|---|
+| `player_common.emp:517` character resolve | **line 0** | **every frame** |
+| `ojz_scroll_test.emp:112` BGND | line 0 | init |
+| `ojz_scroll_test.emp:119` OJZ_Palette | **lines 1-3** | init, before first compose |
+| `ojz_scroll_test.emp:390` backdrop tint | line 0 | runtime |
+| `object_test_state` / `demo_state` | line 0 | init |
+| `palette.emp` compose layers | lines 1-3 | per frame |
+
+So today the invariant holds: the only non-engine writers of lines 1-3 are
+init-time (and covered anyway, since binding sets the stale bit), and every
+runtime outside writer touches line 0, which no variant can cover (`v_lines` is
+bits 1-3 by construction).
+
+**If the guard is ever built, it must cover ONLY the `v_lines` lines.** A
+whole-buffer checksum fires on every character resolve — a guard that cries wolf
+each frame gets deleted, and takes the real invariant with it. Cost if built: one
+debug-only RAM cell (moves debug pins) plus ~400 cyc/frame in the debug shape.
+
+### Palette variant LUT (design lever C) — deferred until real content exists
+Lever A took the STATIC-frame derive to zero, but a frame whose source actually
+moved still pays the full **19332 cyc** (48 entries at ~403, measured) — 3 lines
+x 16 entries, each doing three variable-shift + branch-clamped channel rebuilds
+with six loop-invariant descriptor bytes re-read from memory per entry.
+
+The fix is not another gate, it is the arithmetic: each channel is 3 bits, so
+build three 8-entry word tables at BIND time, pre-shifted into channel position
+(`clamp((c >> shift) + bias, 0, 7) << {1,5,9}`). 48 bytes per slot. The inner
+loop becomes three extract-and-index sequences plus two `or`s — est. 3-4x. This
+is the house idiom (CODING_CONVENTIONS: tables over runtime arithmetic), and
+`variant_word(c, v)` already exists as a `comptime fn` computing exactly this
+mapping, so the builder can be gated at build time against its `ensure` vectors
+rather than tested by hand.
+
+Deferred because the only scene that exercises it has no continuous cycling, so
+any measurement today would be on a garish test fixture rather than real content
+— the same caveat that already qualifies the dense-tier reserved-register ruling.
+Revisit when a section runs cycling or a fade continuously.
