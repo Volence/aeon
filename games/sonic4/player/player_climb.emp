@@ -205,7 +205,8 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #0, d3                          // default anim delta 0 (pause; survives to .finish
                                                 //   only on the idle path, which calls no probe)
 
-        // Ctrl_1_Held is frame-stable (VInt latches it once per tick), so it is RE-READ at
+        // Ctrl_1_Held is tick-stable (VInt_Level latches it once per tick from the raw
+        // shadow; lag VBlanks refresh only the shadow), so it is RE-READ at
         // each use rather than snapshotted — the early-exit transitions below (LetGo/ToLedge/
         // ReachFloor) jbra straight out, so a stacked snapshot would leak the slot.
         move.b  Ctrl_1_Held, d5

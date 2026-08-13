@@ -122,7 +122,13 @@ ensure(HASH_P1_HASHED_BYTES + HASH_P1_EXCLUDED_BYTES == sizeof(Sst),
 //   INPUT_PLAYBACK (1): overwrite Ctrl_1_Held / Ctrl_1_Press from the stream.
 //                       Presses derive from the STREAM's previous byte, NEVER the
 //                       live pad (the S1 REV00 / S2 input-bleed desync class,
-//                       killed structurally). A live Start press sets
+//                       killed structurally). The HELD half of that kill landed
+//                       later (2026-08-13): until then Read_Controllers wrote
+//                       Ctrl_1_Held directly on EVERY VBlank, so a lag frame
+//                       mid-tick overwrote the stream byte with the live pad —
+//                       $00 during playback, i.e. all held input dropped for the
+//                       rest of the tick. Held now latches in VInt_Level only,
+//                       off a raw shadow, exactly as Press does. A live Start press sets
 //                       Replay_Exit_Request WITHOUT merging into the latched
 //                       bytes (the replayed stream stays pure). On end-of-stream:
 //                       Replay_Done set, revert to live.

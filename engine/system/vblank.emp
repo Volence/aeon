@@ -243,6 +243,16 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
         clr.b   Ctrl_1_Ext_Press_Accum
         move.b  (Ctrl_2_Ext_Press_Accum).w, (Ctrl_2_Ext_Press).w    // widths pinned: mem-to-mem two-symbolic operands
         clr.b   Ctrl_2_Ext_Press_Accum
+        // Publish HELD for the upcoming logic tick — VInt_Level ONLY, exactly like
+        // the press latch above. Read_Controllers rewrites the raw shadows on every
+        // physical VBlank; if it wrote these bytes a lag VBlank would replace the
+        // tick's held input mid-tick with the live pad (under playback: $00, i.e.
+        // all held input dropped for the rest of the tick). Held is now as
+        // tick-stable as Press. See engine/ram.emp's raw-shadow block.
+        move.b  (Ctrl_1_Held_Raw).w, (Ctrl_1_Held).w                // widths pinned: mem-to-mem two-symbolic operands
+        move.b  (Ctrl_2_Held_Raw).w, (Ctrl_2_Held).w                // widths pinned: mem-to-mem two-symbolic operands
+        move.b  (Ctrl_1_Ext_Held_Raw).w, (Ctrl_1_Ext_Held).w        // widths pinned: mem-to-mem two-symbolic operands
+        move.b  (Ctrl_2_Ext_Held_Raw).w, (Ctrl_2_Ext_Held).w        // widths pinned: mem-to-mem two-symbolic operands
         addq.w  #1, Frame_Counter
         move.b  #1, VBlank_Flag
         rts
@@ -326,6 +336,9 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             }
         }
 
+        // Refresh the raw shadows + accumulate press edges. Deliberately does NOT
+        // publish: neither Ctrl_x_Press nor (since 2026-08-13) Ctrl_x_Held may move
+        // under the running logic tick. Both latch in VInt_Level only.
         jbsr    Read_Controllers
         addq.w  #1, Frame_Counter
         move.b  #1, VBlank_Flag
