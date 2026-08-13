@@ -17,7 +17,7 @@
 module games.sonic4.tails in tails
 
 use engine.structs.{CharacterDef}
-use games.sonic4.ram.{PlayerBlock}
+use games.sonic4.ram.{PlayerBlock, PHYS_ROW_WORDS}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 use engine.constants.{PLAYER_X_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
@@ -97,7 +97,7 @@ ensure(TAILS_Y_RADIUS >= BALL_Y_RADIUS,
 // modifiers compose there later, NEVER per-frame). Field order is bound to the
 // PlayerBlock physics row (config/ram.emp) — the ensure below enforces size.
 // -----------------------------------------------
-pub data PhysTable_Tails: [i16; 8] = [
+pub data PhysTable_Tails: [i16; PHYS_ROW_WORDS] = [
         PHYS_ACCEL,
         PHYS_DECEL,
         PHYS_FRICTION,
@@ -112,4 +112,5 @@ pub data PhysTable_Tails: [i16; 8] = [
 // Player_RefreshPhysics block-copies it into must be the same size. Same guard
 // PhysTable_Sonic carries — every physics row the roster can point at needs it,
 // not just the first one.
-ensure(8 * 2 == offsetof(PlayerBlock, quadrant), "PhysTable_Tails out of sync with the PlayerBlock physics row")
+ensure(PHYS_ROW_WORDS * 2 == offsetof(PlayerBlock, quadrant),
+       "PhysTable_Tails's row length (PHYS_ROW_WORDS) no longer matches the PlayerBlock physics row it is block-copied into")

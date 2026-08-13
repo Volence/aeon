@@ -9,7 +9,7 @@
 module games.sonic4.sonic in sonic
 
 use engine.structs.{CharacterDef}
-use games.sonic4.ram.{PlayerBlock}
+use games.sonic4.ram.{PlayerBlock, PHYS_ROW_WORDS}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 use engine.constants.{PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
@@ -68,7 +68,7 @@ ensure(PLAYER_Y_RADIUS >= BALL_Y_RADIUS,
 // immediates in the state code — S3K invariants, intentionally NOT in
 // this table; a future per-section modifier would not touch them.
 // -----------------------------------------------
-pub data PhysTable_Sonic: [i16; 8] = [
+pub data PhysTable_Sonic: [i16; PHYS_ROW_WORDS] = [
         PHYS_ACCEL,
         PHYS_DECEL,
         PHYS_FRICTION,
@@ -82,4 +82,5 @@ pub data PhysTable_Sonic: [i16; 8] = [
 // first non-physics field. Guards the same fact the retired mark-difference did:
 // this 8-word ROM row and the RAM row Player_RefreshPhysics block-copies it into
 // must be the same size.
-ensure(8 * 2 == offsetof(PlayerBlock, quadrant), "PhysTable_Sonic out of sync with the PlayerBlock physics row")
+ensure(PHYS_ROW_WORDS * 2 == offsetof(PlayerBlock, quadrant),
+       "PhysTable_Sonic's row length (PHYS_ROW_WORDS) no longer matches the PlayerBlock physics row it is block-copied into")

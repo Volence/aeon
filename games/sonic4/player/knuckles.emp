@@ -16,7 +16,7 @@
 module games.sonic4.knuckles in knuckles
 
 use engine.structs.{CharacterDef}
-use games.sonic4.ram.{PlayerBlock}
+use games.sonic4.ram.{PlayerBlock, PHYS_ROW_WORDS}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 use engine.constants.{PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
@@ -117,7 +117,7 @@ ensure(PLAYER_Y_RADIUS >= BALL_Y_RADIUS,
 // is bound to the PlayerBlock physics row (config/ram.emp) — the ensure enforces
 // size.
 // -----------------------------------------------
-pub data PhysTable_Knuckles: [i16; 8] = [
+pub data PhysTable_Knuckles: [i16; PHYS_ROW_WORDS] = [
         PHYS_ACCEL,
         PHYS_DECEL,
         PHYS_FRICTION,
@@ -131,7 +131,8 @@ pub data PhysTable_Knuckles: [i16; 8] = [
 // first non-physics field: this 8-word ROM row and the RAM row
 // Player_RefreshPhysics block-copies it into must be the same size. Every physics
 // row the roster can point at carries this guard, not just the first one.
-ensure(8 * 2 == offsetof(PlayerBlock, quadrant), "PhysTable_Knuckles out of sync with the PlayerBlock physics row")
+ensure(PHYS_ROW_WORDS * 2 == offsetof(PlayerBlock, quadrant),
+       "PhysTable_Knuckles's row length (PHYS_ROW_WORDS) no longer matches the PlayerBlock physics row it is block-copied into")
 // The delta is the POINT of this table existing; if a future tuning pass ever made
 // them equal, this row should be deleted and cd_phys pointed at Sonic's instead.
 ensure(KNUX_JUMP_FORCE < PHYS_JUMP_FORCE,
