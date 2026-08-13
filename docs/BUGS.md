@@ -5,7 +5,7 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
-## character subsystem — 2026-08-13 lens sweep · CHAR-1/2/3/7 FIXED, CHAR-8 partly, CHAR-4/5/6 open
+## character subsystem — 2026-08-13 lens sweep · CHAR-1/2/3/7/8 FIXED · CHAR-4/5/6 + the coverage hole OPEN
 
 Full evidence, reproduction chains and fixes: `docs/superpowers/notes/2026-08-13-character-lens-sweep.md`.
 Every one was confirmed by ≥2 independent panel seats and re-verified by the overseer against the
@@ -59,7 +59,8 @@ motion classes, and a glide is in a horizontal class essentially always. Gliding
 overhang, the head enters solid terrain with nothing to eject it, and the parachute (`y_vel >= 0`)
 means it cannot self-correct. Compounds with CHAR-6.
 
-### CHAR-5 — the single-centre glide floor probe rests on a false S3K claim
+### CHAR-5 — the single-centre glide floor probe rests on a false S3K claim — **RECORD CORRECTED, behaviour unchanged**
+*The false citation is fixed in place* (`sub_11FD6` runs `FindFloor` twice; the real cause is `PUSH_RADIUS` == Knuckles' ability `x_radius`), with the ~10px GLIDEFALL landing cost recorded. The probe itself is unchanged: restoring the A/B pair risks re-opening the wall-catch bug it was introduced for, and the test section has no climbable wall at glide height to verify against.
 `player_glide.emp:315-325` justifies dropping the A/B pair with "S3K's glide floor check
 (sub_11FD6) is likewise a single CENTRE sensor". `sub_11FD6` trampolines into `Sonic_CheckFloor`,
 which runs `FindFloor` **twice** (`x ± x_radius`) and keeps the nearer. Consequence: `GlideFall`
@@ -81,9 +82,9 @@ stand-vs-roll from a horizontal clearance reading. And `ST_PUSHING` survives the
 jump→glide→climb chain (none of the four Knuckles landing paths clears it), showing one frame of
 `ANIM_PUSH` on touchdown — fixable once in `PHook_GroundEnter`.
 
-### CHAR-8 — ~~vacuous guards~~ **PARTLY FIXED**
+### CHAR-8 — ~~vacuous guards~~ **FIXED**
 *Fixed:* the climb guard re-bound to `KNUX_ABILITY_RADIUS` (exported) with its three derived offsets guarded too; the three `PhysTable_*` guards and the clamber terminal bound through shared constants (`PHYS_ROW_WORDS`, `CLIMB_CLAMBER_BYTES`). All proven to fail on the drift they exist to catch. No tautological assert was left behind where the binding became structural.
-*Still open:* the 21 hand-rolled `PBLK_*` offsets (16 unguarded) and the palette guard that tests agreement rather than grayness.
+*Also fixed since:* all 16 unguarded `PBLK_*` offsets now bind to `PlayerBlock` (inserting one field at its head fires 18 guards; 5 would have fired before), and the palette guards are pinned to the authored gray literals `$0ECC`/`$0EEE`/`$0CAA` per palette instead of merely agreeing with each other (a lockstep recolour now fires both).
 `ensure(CLIMB_RADIUS == PLAYER_X_RADIUS + 1)` (`player_climb.emp:121`) binds the climb probes to
 **Sonic's standing radius**, not `KNUX_ABILITY_RADIUS`; it holds only by the 9+1==10 coincidence, so
 retuning the ability radius silently desyncs all six probe offsets with a green build. Found by
