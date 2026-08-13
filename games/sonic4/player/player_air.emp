@@ -14,6 +14,7 @@ use engine.constants.{PHYS_FALL_CAP, PHYS_ROLL_START_MIN, PHYS_JUMP_SKIP_CLEARAN
         BUTTON_LEFT, BUTTON_RIGHT, BUTTON_DOWN_BIT, BUTTON_LEFT_BIT, BUTTON_RIGHT_BIT}
 use games.sonic4.player_common.{PlayerV, mask_opposing_lr, dist_to_fix, curl_head_rise,
         BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
+use games.sonic4.ram.{PlayerBlock}
 
 // Player_SensorFloor/Ceiling/WallAt resolve module-to-module to player_sensors.emp
 // (bare link) — the P4 close retired their extern-proc boundary decls (kill row 80).
@@ -40,6 +41,28 @@ const PBLK_AIR_ACCEL  = 12
 const PBLK_RELEASE_CAP = 14
 const PBLK_QUADRANT   = 16
 const PBLK_JUMPBUF    = 17
+
+// Bound to the type that OWNS the layout. These file-local displacements used to
+// carry no guard at all: the header justified it as "a divergent offset shows up as a
+// mismatched instruction byte in the region gate", which only catches a change to an
+// already-pinned build, never a newly-introduced wrong value — and it contradicted the
+// rule player_common.emp and dust_spindash.emp both state, that both sides `ensure`
+// against config/ram.emp. 16 of the 21 PBLK_* consts across 8 files were unguarded.
+// PlayerBlock's own doc says declaring it a TYPE is what makes the layout invariants
+// structural rather than merely checked; these restore the "checked" half at least.
+ensure(PBLK_TOP_SPEED == offsetof(PlayerBlock, top_speed),
+       "PBLK_TOP_SPEED diverged from PlayerBlock.top_speed (games/sonic4/config/ram.emp)")
+ensure(PBLK_GRAVITY == offsetof(PlayerBlock, gravity),
+       "PBLK_GRAVITY diverged from PlayerBlock.gravity (games/sonic4/config/ram.emp)")
+ensure(PBLK_AIR_ACCEL == offsetof(PlayerBlock, air_accel),
+       "PBLK_AIR_ACCEL diverged from PlayerBlock.air_accel (games/sonic4/config/ram.emp)")
+ensure(PBLK_RELEASE_CAP == offsetof(PlayerBlock, release_cap),
+       "PBLK_RELEASE_CAP diverged from PlayerBlock.release_cap (games/sonic4/config/ram.emp)")
+ensure(PBLK_QUADRANT == offsetof(PlayerBlock, quadrant),
+       "PBLK_QUADRANT diverged from PlayerBlock.quadrant (games/sonic4/config/ram.emp)")
+ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
+       "PBLK_JUMPBUF diverged from PlayerBlock.jump_buffer (games/sonic4/config/ram.emp)")
+
 
 // Air behavior flag bits, carried in d6.b through body steps 1-2 only —
 // the sensor layer clobbers d6, but nothing after the input block reads

@@ -43,6 +43,7 @@ module games.sonic4.player_sensors in player_sensors
 use engine.objects.sst.{Sst, interact_off}
 use engine.constants.{ST_XFLIP, ST_ON_OBJECT, PLAYER_X_RADIUS, SOLID_TOP, SOLID_LRB}
 use engine.coords.{abs_w}
+use games.sonic4.ram.{PlayerBlock}
 
 // Collision_GetType is a ported .emp proc (engine.collision_lookup); the .cell
 // call below resolves to it by BARE LINK (module-to-module in the mixed build,
@@ -56,6 +57,14 @@ use engine.coords.{abs_w}
 // same reason: a divergent offset shows up as a mismatched instruction byte in
 // the region gate.
 const PBLK_QUADRANT = 16
+
+// Bound to the type that OWNS the layout. This displacement carried no guard: the
+// "region gate will notice" rationale above only catches a change to an already-
+// pinned build, never a newly-introduced wrong value, and it contradicts the rule
+// player_common.emp and dust_spindash.emp both state — that both sides `ensure`
+// against config/ram.emp. 16 of the 21 PBLK_* consts across 8 files were unguarded.
+ensure(PBLK_QUADRANT == offsetof(PlayerBlock, quadrant),
+       "PBLK_QUADRANT diverged from PlayerBlock.quadrant (games/sonic4/config/ram.emp)")
 
 // SensorProbe — the stamped-probe-core routine type Player_SensorPair dispatches
 // through `jsr (a2)`. In: d0/d1 engine X/Y, d3.b layer, d6.b class mask; Out:
