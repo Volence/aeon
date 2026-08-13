@@ -179,8 +179,11 @@ git -C /home/volence/sonic_hacks/sigil  merge --no-ff feat/knuckles-c4
 
 **Replay-net re-stamp** — the RAM layout moved (PlayerV grew the climb scratch), so the
 input-replay fixtures may hash-drift. Expected disposition is **layout-induced → re-stamp
-via the probe-ROM logger** (`docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`),
-NOT a regression — but confirm which it is before dispositioning. The generalised
+against a patched ROM image** per `docs/superpowers/plans/2026-08-13-replay-net-restamp.md`,
+NOT a regression — but confirm which it is before dispositioning. (This line used to cite a
+"probe-ROM logger" in `docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`; that
+runbook is not in that note, and the technique — sketched in
+`notes/2026-08-05-sst-fold-ab.md:27-38` — was never committed as code.) The generalised
 `PHook_EnsureStanding` was verified to reproduce ball→standing byte-for-byte for
 Sonic/Tails, so a behavioural drift there would be surprising and worth stopping for.
 

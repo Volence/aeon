@@ -58,7 +58,7 @@ Fix any conflicts in `hblank.emp` / `buffers.emp` / `parallax.emp` / `configs.em
 Expected: zero above row 118, full from row 120. Anything else means the rebase moved something real — STOP and diagnose before building on it.
 
 - [ ] **Step 4: Re-run the replay net and dispose of the drift.** Follow `docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`. Both fixtures. If hashes fail, determine whether it is layout-induced (RAM shifted) or behavioural (the palette/raster consumers changed observable state) — these have different dispositions:
-  - layout-induced → re-stamp the fixtures via the probe-ROM logger and record the re-stamp
+  - layout-induced → re-stamp the fixtures per `docs/superpowers/plans/2026-08-13-replay-net-restamp.md` and record the re-stamp
   - behavioural → a real regression; STOP and report BLOCKED
 Report aggregate pass/fail counts, not a tail (`memory/feedback_never_tail_a_test_run`).
 

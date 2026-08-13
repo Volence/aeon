@@ -155,9 +155,13 @@ parcel touches no sound code) — confirmed, not assumed: `refreeze` reported
 
 Also owed at merge: the **frozen-table audit** (this lane regenerated placement
 tables mid-parcel) and the **replay-net re-stamp** — the RAM layout moved
-(`Palette_State`), so expect layout-induced hash drift; disposition it via the
-probe-ROM logger per `docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`,
-and STOP if it looks behavioural rather than layout-induced.
+(`Palette_State`), so expect layout-induced hash drift; disposition it by
+re-stamping per `docs/superpowers/plans/2026-08-13-replay-net-restamp.md`, and
+STOP if it looks behavioural rather than layout-induced. (Earlier revisions of this
+handoff sent you to a "probe-ROM logger" in
+`docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`. That runbook is not
+in that note — the technique is only sketched in
+`notes/2026-08-05-sst-fold-ab.md:27-38` and was never committed as code.)
 
 ### 4b. Smaller residuals, all written up in GATE-EVIDENCE.md
 

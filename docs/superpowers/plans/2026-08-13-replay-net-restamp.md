@@ -270,11 +270,24 @@ Use these calls in order. `Replay_Ptr` = `Replay_OJZ_Fixture + 20` (the body, pa
 emulator_breakpoint_add   addr=0xA1734        # GameState_OJZScroll_Init, BEFORE reload
 emulator_reload_rom
 emulator_wait_for_break
-emulator_write_memory     addr=0xFF8040 value=0xA1DB4 width=4    # Replay_Ptr
-emulator_write_memory     addr=0xFF803A value=1       width=1    # Input_Source = PLAYBACK
+emulator_write_memory     addr=0xFF8040 value=662964 width=4    # Replay_Ptr = $A1DB4
+emulator_write_memory     addr=0xFF803A value=1      width=1    # Input_Source = PLAYBACK
 emulator_breakpoint_clear
 emulator_resume
 ```
+
+> **`value` is DECIMAL — convert carefully and always read back.** `$A1DB4` is **662964**.
+> An earlier revision of this plan carried 662452, which is `$A1BB4` — a wrong pointer that
+> the emulator accepts silently and that would have replayed garbage. Verify before resuming:
+>
+> ```
+> emulator_read_memory addr=0xFF8040 len=4     # expect 000A1DB4
+> emulator_read_memory addr=0xA1DA0    len=24  # expect 41525030 ... "ARP0" + header
+> ```
+>
+> The second read is the stronger check: bytes 0-3 are `ARP0`, 6-9 are the tick count
+> (`000006B9` = 1721), 10-13 the core hash, and offset 20 must be `FF 01` — the ring-0
+> checkpoint escape, which is precisely where `Replay_Ptr` should land.
 
 Then poll — **do not add a watchpoint on `Replay_Done`, it wedges the emulator**:
 
@@ -527,7 +540,9 @@ grep -E "^Replay_OJZ_Slide_Fixture " /home/volence/sonic_hacks/aeon/s4.debug.lst
 - [ ] **Step 2: Run the slide fixture**
 
 Same MCP sequence as Task 2 Step 3, but `Replay_Ptr` = `Replay_OJZ_Slide_Fixture + 20`
-(`$A1EB0 + 20 = $A1EC4 = 662724` for the build this plan was written against — re-derive).
+= `$A1EB0 + $14` = **`$A1EC4` = 663236 decimal** for the build this plan was written against.
+Re-derive it, and read it back — see the decimal warning in Task 2 Step 3. (An earlier
+revision said 662724, which is `$A1EC4` miscomputed.)
 
 - [ ] **Step 3: Branch on the result**
 

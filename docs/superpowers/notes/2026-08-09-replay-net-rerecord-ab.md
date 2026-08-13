@@ -1,5 +1,13 @@
 # Replay-net re-record (P-2 closure) — evidence note
 
+> **SUPERSEDED IN PART (2026-08-13).** Every fixture statistic, CRC and byte count below is
+> stale — the fixtures were replaced twice after this was written (`f3537d44`, `5129060c`).
+> Measured truth: `ojz_fixture.bin` 1721 ticks / 27 checkpoints / 272 B;
+> `ojz_slide_fixture.bin` 2350 ticks / 37 checkpoints / 336 B. Use
+> `python3 tools/replay_pack.py dump <fixture>` as the source of truth.
+> This note also does NOT contain the "probe-ROM logger" runbook that several later
+> documents cite it for; see `notes/2026-08-05-sst-fold-ab.md:27-38`.
+
 **Parcel:** `fix/replay-net-rerecord` (aeon + sigil), 2026-08-09.
 **Why:** P-2 (wave adjudication, second sitting): both standing replay fixtures
 desync on post-P2 master. Root cause confirmed at re-verification: the trap

@@ -103,9 +103,13 @@ Master's replay net is red: both master and the P2 branch desync byte-identicall
 the fixture's input at tick 1212 is a spindash charge, and C4 changed spindash dust, line-0
 palette, and `EnsureStanding`.
 
-Re-stamp per `docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`, using the
-probe-ROM logger route (interactive MCP recording was measured as unable to produce a
-trustworthy fixture: `emulator_hold` fails ~50% of the time and adds rather than replaces).
+Re-stamp by iterating against a patched ROM image (the runbook is
+`docs/superpowers/plans/2026-08-13-replay-net-restamp.md`). Note that the
+"probe-ROM logger" several docs cite in the 2026-08-09 note **is not in that
+note** — the technique is sketched in `notes/2026-08-05-sst-fold-ab.md:27-38`
+and was never committed as code. Re-RECORDING is not an option regardless: the
+fixture's stream uses BUTTON_C in four runs (including the spindash rev inside
+the desyncing region) and the oracle driver cannot press `c`.
 
 **The gate must not be "both fixtures green."** A re-recorded fixture always replays green
 against the ROM it was recorded on, so that observation is true by construction and tests
