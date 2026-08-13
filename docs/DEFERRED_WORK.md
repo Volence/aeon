@@ -420,6 +420,40 @@ EMBEDDED still detach there exactly as S3K does.
 would make the divergence inert rather than wrong. See `games/sonic4/player/player_climb.emp`
 header and ARCH §5.4.
 
+### Solid object tops are floors for every player state — user principle + S3K divergence — 2026-08-12
+**Surfaced during:** Knuckles C4, glide landing on the `TestSolid` platform.
+**The ruling (user):** "a solid object's top is a floor and should behave like one" — for
+EVERY player state, not just the standing ones. A glide landing on a platform must slide
+exactly as it does on flat terrain.
+**Status:** HOLDS TODAY across the glide family; recorded so a new airborne state does not
+silently break it. Our solid handler (`engine/objects/collision.emp` `.solid_top`) clears
+ST_IN_AIR and sets ST_ON_OBJECT **without touching the player state**, so each AIRBORNE
+state must observe the bit itself or it keeps running its airborne body while parked on a
+platform. The grounded half is enforced in one chokepoint instead: `Player_SensorFloor`'s
+ST_ON_OBJECT early-out (`player_sensors.emp`) reports dist 0 / angle 0 / solid.
+
+| State | On a solid-object top | Correct per the principle |
+|---|---|---|
+| GLIDE | `.on_object` → angle 0 → flat → PSTATE_SLIDE, x_vel preserved | yes — same as its flat-terrain landing |
+| GLIDEFALL | `.dead_stop` → GROUND, velocities zeroed | yes — dead-stop IS its terrain landing |
+| SLIDE | floor-follow + ledge-drop via `Player_SensorFloor` early-out; drop fires at the platform edge when the bit clears | yes |
+| AIR / FLY | `Air_LandOnObject` (shared conversion, gsp = x_vel) | yes |
+| CLIMB | ST_ON_OBJECT = DETACH (S3K `:31052`) | yes — deliberate, S3K-faithful |
+| LEDGE | no test — mid-clamber is a scripted animation | acceptable; S3K has no test either |
+
+**DELIBERATE S3K DIVERGENCE.** Stock S3K does NOT slide on a platform. Every solid object
+routes the landing through `RideObject_SetRide` (`:42047`), which does `bclr
+#Status_InAir` and calls `Player_TouchFloor` → `Knux_TouchFloor` (`:32833`), zeroing
+`double_jump_flag`. The glide family runs only under mode 2 (Freespace) of `Knux_Modes`
+(`:30473`, mode = `status & 6`), so clearing Status_InAir + zeroing double_jump_flag drops
+Knuckles out of the glide state machine entirely — he stands up. S3K's glide never tests
+Status_OnObj at all (the only two tests in the player region are the climb's detach
+`:31052` and the standing/push code `:31805`); the object acts on the player from outside.
+Worth noting S3K does not dead-stop him either — `RideObject_SetRide` preserves speed via
+`move.w x_vel(a1),ground_vel(a1)`, landing him RUNNING at glide speed.
+**When to revisit:** when a new airborne state is added — it must test ST_ON_OBJECT and
+route to its own terrain-landing outcome, or it will glide-on-platform.
+
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
 **Surfaced during:** §5 Task 10.4 frame-budget pass.
 **Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built.

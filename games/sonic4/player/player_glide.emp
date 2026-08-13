@@ -26,6 +26,32 @@
 // its own. PState_Air integrates and THEN applies gravity; getting this backwards
 // costs a frame of lag on every glide.
 //
+// SOLID OBJECT TOPS ARE FLOORS — the engine-wide principle (user ruling 2026-08-12).
+// A solid object's top must behave like terrain for EVERY player state, not merely the
+// standing ones: a glide landing on a platform slides exactly as it would on flat ground.
+// Our solid handler (engine/objects/collision.emp `.solid_top`) clears ST_IN_AIR and sets
+// ST_ON_OBJECT WITHOUT touching the player state, so each airborne state has to observe
+// the bit itself or it keeps running its airborne body while parked on a platform. Here
+// PState_Glide tests it first thing and routes the object top through the SAME landing
+// classification terrain uses (`.on_object` -> angle 0 -> flat -> PSTATE_SLIDE, x_vel
+// preserved); PState_GlideFall likewise dead-stops on it, which IS its terrain behavior.
+// The grounded half of the principle is enforced in ONE place — Player_SensorFloor's
+// ST_ON_OBJECT early-out (player_sensors.emp) reports dist 0 / angle 0 / solid, which is
+// what makes the SLIDE's floor-follow and its ledge-drop test read a platform as ground.
+//
+// THIS IS A DELIBERATE DIVERGENCE FROM S3K, recorded rather than accidental. Stock S3K
+// does NOT slide on a platform: every solid object routes the landing through
+// RideObject_SetRide (:42047), which does `bclr #Status_InAir` and calls Player_TouchFloor
+// -> Knux_TouchFloor (:32833), and that zeroes `double_jump_flag`. Since the whole glide
+// family only runs under mode 2 (Freespace) of Knux_Modes (:30473, mode = status & 6), a
+// cleared Status_InAir plus a zeroed double_jump_flag removes Knuckles from the glide
+// state machine outright — he stands up. S3K's glide never even looks at Status_OnObj
+// (the only two tests in the player region are the climb's detach at :31052 and the
+// standing/push code at :31805); the object acts on the player from the outside. Note S3K
+// does NOT dead-stop him there — RideObject_SetRide preserves the speed via
+// `move.w x_vel(a1),ground_vel(a1)` — so stock S3K lands him RUNNING at glide speed.
+// See DEFERRED_WORK.md "Solid object tops are floors for every player state".
+//
 // Lives in the object code bank, right after `player_fly` per map.toml `order`. Pure code.
 module games.sonic4.player_glide in player_glide
 
