@@ -131,7 +131,58 @@ BOTH sigil binaries → rebuild aeon with the tripwire ARMED → `repin` → `re
 --freeze <parcel> --ab <evidence>` → strict suite → `refreeze --check` + `repin --check`).
 **Check that agent's final report before redoing any of it.**
 
-Then: replay-net re-stamp (RAM layout moved), and the paired merge.
+**STATUS AT SESSION END: the ritual is COMPLETE and the lane is merge-ready.**
+
+- aeon `feat/knuckles-c4` → **`6251de8d`** · sigil `feat/knuckles-c4` → **`08037f07`**
+- plain `s4.bin` crc **`3d2cf804`** (695154) — never moved all lane
+- debug `s4.debug.bin` crc **`d8e0c6c2`** (709621) — byte-for-byte the pre-scaffold ROM
+- Built with the BLOB_LEN tripwire **ARMED**; no `BLOB_LEN_*`/`Z80_SOUND_SIZE`/seam-1
+  re-pin was needed (this parcel touches no sound code — that ritual step is a no-op here)
+- `refreeze --check` OK (tip `knuckles-c4`, chain len 107 — entry AMENDED in place, not
+  duplicated) · `repin --check` clean · **strict suite 3667 passed / 0 failed** ·
+  aeon pytest 941 passed / 2 skipped
+- Note: sigil `59ec3162`'s message says "RITUAL INCOMPLETE" — **superseded** by
+  `08037f07` right after it. Carry the completed state into any merge summary.
+
+### THE MERGE IS BLOCKED ON ONE THING — a content decision only the user can make
+
+The main aeon tree (on `master`) has the user's **live uncommitted Aurora edits** in the
+exact files this branch also changed, so a merge would collide with their working tree.
+I did not touch them. Comparison at session end:
+
+| File | Main tree (user's live) vs branch |
+|---|---|
+| `section_0.tiles.bin`, `chunks.json` | identical — no issue |
+| `section_0.collattr.bin` / `.collattrb.bin` | **448 cells differ**, world x896-1280 y256-512: branch has `30FF`, user has `30FB` |
+
+That difference is **mine, not theirs**: while debugging the climb I rewrote those wall
+cells from shape **251** (`30FB`, carries angle `$E0`) to shape **255** (`30FF`, flat
+full square) so the test wall had a flat top. The user's live tree still holds their
+original shape-251 paint. **Ask the user which wins** before merging:
+
+- *Keep their 251* — `git checkout feat/knuckles-c4 -- <the two collattr files>` is WRONG;
+  instead let their working copy stand, commit it on master after the merge, and re-run
+  `tools/regenerate-level.sh` (the baked tree in the branch assumes 255).
+- *Keep the branch's 255* — they discard their working-tree copy of those two files.
+
+Either way the level tree must be re-baked to match whichever paint wins, since
+`games/sonic4/data/generated/` in the branch was baked against `30FF`.
+
+**Merge commands once resolved** (pair, aeon first or sigil first but both before any
+build elsewhere):
+```
+git -C /home/volence/sonic_hacks/aeon   merge --no-ff feat/knuckles-c4
+git -C /home/volence/sonic_hacks/sigil  merge --no-ff feat/knuckles-c4
+```
+
+### Also owed before/at merge
+
+**Replay-net re-stamp** — the RAM layout moved (PlayerV grew the climb scratch), so the
+input-replay fixtures may hash-drift. Expected disposition is **layout-induced → re-stamp
+via the probe-ROM logger** (`docs/superpowers/notes/2026-08-09-replay-net-rerecord-ab.md`),
+NOT a regression — but confirm which it is before dispositioning. The generalised
+`PHook_EnsureStanding` was verified to reproduce ball→standing byte-for-byte for
+Sonic/Tails, so a behavioural drift there would be surprising and worth stopping for.
 
 ### 2c. Removable scaffolds (delete before shipping)
 
