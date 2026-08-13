@@ -487,10 +487,26 @@ pub proc PState_Ledge (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 pub proc Knuckles_Gliding_WallCatch (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        // Which wall: moving right (x_vel >= 0) → right wall, else left. Facing is set
-        // toward the wall (S3K bset/bclr Status_Facing), and Climb_WallDist reads it to
-        // pick the probe side.
-        tst.w   x_vel(a0)
+        // Which wall: from the GLIDE ANGLE, not from x_vel. Facing is set toward the
+        // wall (S3K bset/bclr Status_Facing), and Climb_WallDist reads it to pick the
+        // probe side — so getting this wrong makes the catch probe open air.
+        //
+        // This used to read `tst.w x_vel`, which is ALWAYS ZERO here: the only way to
+        // reach this routine is GLF_PUSH_BIT, and that bit is set exactly by the wall
+        // probe hit whose own handler does `clr.w x_vel(a0)` (Air_WallProbeLeft/Right,
+        // player_air.emp). So `bmi` was never taken, Knuckles always faced RIGHT, and
+        // every LEFT-wall catch probed rightward into open air, got the +32 "nothing"
+        // sentinel on both corners, failed the both-flush test and dropped into
+        // GLIDEFALL. Right-hand walls worked by accident, which is why the feature
+        // tested fine.
+        //
+        // S3K keys the same decision off double_jump_property — our glide_angle — for
+        // the same reason (sonic3k.asm:30776 `move.b double_jump_property(a0),d0 /
+        // addi.b #$40,d0 / bpl.s .right`). glide_angle is 0 = fully right, $80 = fully
+        // left, and nothing in the collision path writes it, so +$40 splits the two
+        // halves exactly and cannot be destroyed by a snap.
+        move.b  PlayerV.glide_angle(a0), d0
+        addi.b  #$40, d0
         bmi     .left_wall
         bclr    #ST_XFLIP, status(a0)            // face right (toward the wall)
         jbra    .pair

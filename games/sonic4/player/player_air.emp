@@ -418,6 +418,15 @@ pub proc Air_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // -----------------------------------------------
 pub proc Air_LandOnObject (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.b   angle(a0)                       // flat object top
+        // ...and the DERIVED quadrant with it. Air_LandState probes the ceiling for its
+        // A7 head-clearance test, and Player_SensorCeiling rotates by PBLK_QUADRANT —
+        // which Player_Main derived this frame from LAST frame's angle. This routine is
+        // reached from PState_AirShared step 0, BEFORE Air_Collide's `clr.b quadrant`,
+        // so detaching from a steep slope while curled and then landing on a solid
+        // object within the ~16 frames the angle takes to decay under $20 would make the
+        // stand-vs-stay-rolling decision from a HORIZONTAL clearance reading. Clearing
+        // the angle without the quadrant it feeds only looks complete.
+        clr.b   PBLK_QUADRANT(a4)
         move.w  x_vel(a0), PlayerV.ground_speed(a0) // flat conversion (gsp = x_vel)
         bclr    #ST_PUSHING, status(a0)
         jbsr    Air_LandState                   // d0 = GROUND/ROLL (curled
