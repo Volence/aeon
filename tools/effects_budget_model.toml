@@ -68,20 +68,30 @@ full_frame_fraction_ntsc = 0.76   # measured-derived: 224 lines * 342 cyc / 1280
 max_active_variants  = 2             # code-derived — PAL_MAX_VARIANTS (raise only on evidence)
 cycle_max_channels   = 4             # code-derived — PAL_CYCLE_MAX_CHANNELS
 fade_window_frames   = 16            # code-derived — PAL_FADE_FRAMES
-compose_static_frame = "one compare (tst.b Pal_Active)"  # code-derived — early-out
-# MEASURED 2026-08-13 — AND IT IS THE BIGGEST SINGLE COST IN THE EFFECTS SUITE.
-# Palette_DeriveVariant 19332 cyc/frame = 15.1% of the frame, EVERY frame, and
-# IDENTICAL in section 1 and section 2. It is larger than the entire sparse raster
-# tier (6.5%) and half the cost of a 96-line dense run.
-compose_variant_derive_cycles = 19332
-compose_variant_derive_pct    = 15.1
-# This CONTRADICTS compose_static_frame below: a frame with nothing changing was
-# supposed to cost "one compare". It does not. Either the early-out is not firing or a
-# variant is being held active in sections that do not use one. Flagged as the top
-# optimisation target for the effects suite — see the session handoff. NOT fixed in
-# the Task-4/5 parcel because it is a palette-engine defect, not a raster one.
+compose_static_frame = "one compare (tst.b Pal_Active)"  # code-derived — early-out, and TRUE again as of the fix below
+# RESOLVED 2026-08-13 (fix/palette-variant-derive). The 15.1% figure below WAS real and
+# WAS the biggest single cost in the effects suite; it is now ~0.
+#
+# The early-out was never broken. Pal_Active answers "is a slot bound?", but the derive
+# needed "did this layer's input change?" — so a bound-but-static variant recomputed a
+# bit-identical staging image every frame. Confirmed on hardware before the fix:
+# Pal_Active = $10 (variant-only), with Palette_Buffer AND Pal_Variant_Stage verified
+# bit-identical across frames. PAL_ACT_VARIANT_STALE (Pal_Active bit 5) now gates it.
+#
+# A/B, same scene, same 30 frames, profiler on both shapes of the change:
+#   Palette_DeriveVariant  19332 (15.1%) -> absent from top-14 (floor 1095 cyc)
+#   Palette_Compose        19568 (15.3%) -> absent
+#   VSync_Wait idle        80267 (62.7%) -> 99688 (77.9%)   [+15.2 points]
+# Pal_Variant_Stage byte-identical after the fix: same image, ~19.5k fewer cycles.
+compose_variant_derive_cycles = 0        # was 19332 — gated; pays only on frames whose source moved
+compose_variant_derive_pct    = 0.0      # was 15.1
+# The cost when it DOES run (a cycling/fading frame) is unchanged at ~19332 for a
+# 3-line variant — 48 entries at ~403 cyc. That is the remaining target if real content
+# runs cycling or a fade continuously; the per-channel bind-time LUT (lever C in the
+# design) is the answer there, NOT another gate. NEEDS-MEASUREMENT in real content.
+compose_variant_derive_when_stale_cycles = 19332
 compose_fade_step_cycles      = "NEEDS-MEASUREMENT"  # no fade was armed in the measured captures
-palette_compose_total_cycles  = 19568   # measured — almost entirely the variant derive above
+palette_compose_total_cycles  = 0        # was 19568 — see above
 
 [ram]
 # code-derived — the two effects RAM blocks (engine/ram.emp span guards).

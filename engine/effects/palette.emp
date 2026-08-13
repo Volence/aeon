@@ -39,6 +39,17 @@ use engine.structs.{Sec}
 // only; a full-screen fade that also dims the character is the character system's job
 // (a known limitation, not a bug — see the operator note below).
 //
+// THAT INVARIANT IS NOW LOAD-BEARING, not just tidy. The variant derive is gated on
+// PAL_ACT_VARIANT_STALE (below), which is set by the compose layers — so if anything
+// OUTSIDE this module writes lines 1-3 at runtime, the gate will not know and the
+// variant staging image goes stale. Audited 2026-08-13, and it holds: the only
+// non-engine writers of lines 1-3 are game-state INIT paths (e.g. ojz_scroll_test's
+// OJZ_Palette copy), which run before the first compose and are covered anyway because
+// binding a variant sets the stale bit. Every other outside writer touches LINE 0 only
+// (player_common's character resolve, every frame), which no variant can cover —
+// v_lines is bits 1-3 by construction. Adding a runtime writer of lines 1-3 outside
+// this module means marking PAL_ACT_VARIANT_STALE at that site.
+//
 // Pal_Composed is ELIDED: the compose writes straight into Palette_Buffer and the
 // variant derive reads Palette_Buffer as "the live composed palette", so no separate
 // pre-variant image is kept (plan Task 1 Step 1). Only the two cross-fade endpoints
