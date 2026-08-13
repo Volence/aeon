@@ -78,7 +78,7 @@ use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B
 // KNUX_ABILITY_RADIUS lives on CharDef_Knuckles (knuckles.emp); the climb box is the
 // 10x10 ability box, so the probe offsets are literals here matching that radius. A
 // compile guard binds them so a radius change fails the build rather than drifting.
-use engine.constants.{PLAYER_X_RADIUS}
+use games.sonic4.knuckles.{KNUX_ABILITY_RADIUS}
 
 // Player_SensorWallDir / Collision_ProbeUp / Collision_ProbeDown (player_sensors),
 // Player_SnapToSurface (player_common), Player_SetState (player_common),
@@ -118,8 +118,22 @@ const CLIMB_JUMP_XVEL    = $400                 // jump-off away-from-wall veloc
 
 const CATCH_FALLBACK_MAX = 12                   // the glide catch's floor-lip window (0..11)
 
-ensure(CLIMB_RADIUS == PLAYER_X_RADIUS + 1,
-       "climb probe radius (10) drifted from the ability box — re-derive the wall probe offsets")
+// Bound to the AUTHORITY, not to a coincidence. This guard used to read
+// `CLIMB_RADIUS == PLAYER_X_RADIUS + 1` — PLAYER_X_RADIUS being SONIC'S STANDING
+// half-width (9, engine/system/constants.emp), which has nothing to do with
+// Knuckles' ability box. It passed only because 9 + 1 happens to equal 10, so
+// retuning KNUX_ABILITY_RADIUS moved cd_ability_wh and PHook_EnsureAbility while
+// every probe offset in this file silently stayed at 10 — with a GREEN build. The
+// header three paragraphs up claimed "a compile guard binds them"; it did not.
+// Five separate review seats found this independently.
+ensure(CLIMB_RADIUS == KNUX_ABILITY_RADIUS,
+       "climb probe radius drifted from KNUX_ABILITY_RADIUS (the ability box on CharDef_Knuckles) — re-derive the wall probe offsets in this file")
+ensure(CLIMB_WALL_PROBE_Y == KNUX_ABILITY_RADIUS + 1,
+       "CLIMB_WALL_PROBE_Y is the ability radius + 1 — re-derive it from KNUX_ABILITY_RADIUS")
+ensure(CLIMB_CEIL_Y == KNUX_ABILITY_RADIUS + 8,
+       "CLIMB_CEIL_Y is the ability radius + 8 (head clearance) — re-derive it from KNUX_ABILITY_RADIUS")
+ensure(CLIMB_FLOOR_PROBE_Y == KNUX_ABILITY_RADIUS - 1,
+       "CLIMB_FLOOR_PROBE_Y is the ability radius - 1 — re-derive it from KNUX_ABILITY_RADIUS")
 
 // -----------------------------------------------
 // Climb_WallDist — wall distance on the FACING side at world Y d1 (S3K

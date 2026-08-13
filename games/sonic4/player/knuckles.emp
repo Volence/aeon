@@ -61,7 +61,7 @@ const KNUX_JUMP_FORCE = $600
 // NOT `PUSH_RADIUS` (engine constants, also 10): that is the wall-push sensor
 // half-width, a different fact that happens to share the value.
 // -----------------------------------------------
-const KNUX_ABILITY_RADIUS = 10
+pub const KNUX_ABILITY_RADIUS = 10
 
 // -----------------------------------------------
 // CharDef_Knuckles — the record the roster (CharacterDefs, characters.emp) points
