@@ -454,6 +454,71 @@ Worth noting S3K does not dead-stop him either — `RideObject_SetRide` preserve
 **When to revisit:** when a new airborne state is added — it must test ST_ON_OBJECT and
 route to its own terrain-landing outcome, or it will glide-on-platform.
 
+### Ability agency — cancels and re-entry (the C4 follow-up parcel) — 2026-08-12
+**Surfaced during:** Knuckles C4 playtest; the user endorsed prototyping these.
+**Status:** DESIGN + PROTOTYPE, not started. Today an ability is committal: once in
+flight or a glide there is no voluntary exit but the terminal one. The parcel:
+- **Tails: flight cancel** — proposed input down+jump, dropping to a normal fall.
+- **Knuckles: re-glide from `PSTATE_GLIDEFALL`** on a fresh jump press, so a bailed
+  glide is recoverable instead of a committed drop (S3K does not allow this).
+- **Ball-cancel variant behind a DEBUG flag** for feel-testing only, so the two
+  candidate feels can be A/B'd on hardware-accurate playback before either ships.
+**USER RULING already given:** a cancel lands the player in the **vulnerable fall**
+by default (not a curled/invulnerable ball) — the cancel buys agency, not safety.
+**When to revisit:** next player-feel parcel. All three are gated on nothing.
+
+### Slope standstill: mirror-symmetry option (abs-before-shift) — 2026-08-12
+**Surfaced during:** the "Knuckles drifts off a ledge at rest" investigation, which
+closed as AUTHENTIC — our `Player_SlopeResist` matches S3K clause for clause
+(standing gate `|factor| >= $D`, `PHYS_SLOPE_WALK $20`, byte-identical sine table).
+**Status:** OPTION, needs the user's call. `asr` floors toward −∞, so at 22.5° the
+factor is −13 one way and +12 the other: the same slope drifts in one orientation
+and holds in its mirror. Exactly **four angles** in the table are decided by this
+rounding asymmetry — `$90`, `$91`, `$EF`, `$F0`. The minimal fix is to take the
+absolute value BEFORE the shift (`(|sin|)>>3` instead of `|sin>>3|`), which leaves
+every symmetric case bit-identical and only affects those four.
+**Cost:** it is an S3K divergence and touches shared ground physics, so it needs a
+**replay-fixture re-record** (the Sonic fixtures hash the player window).
+**When to revisit:** only on a user ruling that mirrored slopes must behave alike.
+
+### Glide / slide / climb SFX are unwired placeholders — 2026-08-12
+**Surfaced during:** Knuckles C4.
+**Status:** TODO markers at the code. S3K plays `sfx_Grab` ($4A) at the wall catch,
+`sfx_GlideLand` ($4C) on the fall landing, and `sfx_GroundSlide` ($7E) every 8
+frames while sliding. None exist in our SFX bank yet, so all three sites are
+silent with a `TODO(user)` note. Sourcing audio is the **user's** decision (the
+same reason Tails' flight SFX `$BA`/`$BB` are unwired).
+**When to revisit:** when the user sources the audio; the call sites are already
+in place and each is a one-line add.
+
+### REMOVABLE SCAFFOLDS currently in the tree — 2026-08-12
+**Status:** live, deliberately. Remove before ship.
+- **DEBUG glide test platform** (`4ea60239`) — 8 `ObjDef_Solid` blocks edge to
+  edge in OJZ sec0 at x960-1088, top y=208, 48 px above the y=256 surface. It
+  exists because the shipped sec0 solid is untestable by construction (16×16, top
+  only 8 px above the surface, crossed in ONE frame by a 16 px/frame glide).
+  **DEBUG-gated as a single conditional array, so the release ROM is byte-identical
+  — verified.** REMOVAL: delete `DBG_PLATFORM_*` + `debug_platform_words()` + the
+  sec0 branch in `tools/ojz_entity_gen.py`, then re-run `tools/regenerate-level.sh`.
+- The replay fixtures and the DEBUG-only object-test scene are permanent test
+  infrastructure, NOT scaffolds — do not remove those.
+
+### Min-penetration-axis may misclassify fast-horizontal contacts — 2026-08-12
+**Surfaced during:** BUG 10 (withdrawn — the reported case was three measurement
+errors, not engine behaviour).
+**Status:** DOCUMENTED, not observed in practice. `Touch_Solid` picks the contact
+face by minimum penetration axis (`pen_x` vs `pen_y`). A player moving fast
+horizontally and slowly vertically — a glide is 16 px/frame against 0.5 px/frame —
+can first overlap a narrow platform at its leading EDGE with a tiny `pen_x`, which
+classifies as a SIDE hit (push + `clr.w x_vel`, a stall) rather than a top landing.
+Whether it bites depends on sub-pixel phase and platform width; on the 128 px test
+platform the top landing is reliable, and the ruled glide→slide behaviour was
+**verified working on an object top**. A narrow platform plus a fast approach is
+the risk case.
+**When to revisit:** if a stall-on-edge is ever seen in real level geometry. The
+fix direction would be a swept/previous-position test rather than a static AABB —
+a shared-collision change needing the user's ruling, not a local patch.
+
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
 **Surfaced during:** §5 Task 10.4 frame-budget pass.
 **Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built.
@@ -642,11 +707,23 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   S3K-exact bar three flagged deviations); until the appendage object lands, the
   flight pose draws the body without its spinning tails, and the flight SFX are
   unwired because S3K's `$BA`/`$BB` are outside the imported SFX id range.
-- **Knuckles** — gliding, climbing, wall detection.
-- **Per-character dispatch-table indirection** — the prerequisite refactor for
-  Tails/Knuckles (today `Player_States` and `PhysTable_Sonic` are referenced
-  directly; siblings need a character base-pointer). See the `Player_States`
-  comment in `player_common.asm`.
+- ~~**Knuckles** — gliding, climbing, wall detection.~~ **DONE (feat/knuckles-c4,
+  2026-08-12):** all five states ship — `PSTATE_GLIDE` / `GLIDEFALL` / `SLIDE`
+  (`player_glide.emp`) and `CLIMB` / `LEDGE` (`player_climb.emp`), entered through
+  the single `CharDef_Knuckles.cd_ability` → `Ability_KnuxGlide` pointer, plus the
+  glide wall-catch. Structure and numbers are S3K's, with two user-ruled
+  divergences recorded separately below (the 1..3 px climb recess tolerance; solid
+  object tops as floors). Oracle-verified: wall-catch → climb → ledge top-out →
+  stand, climb-down landing, glide-land → slide (~440 px travel, dust trailing),
+  and slide-off-a-solid → ledge-drop → GLIDEFALL. Remaining Knuckles gaps are the
+  SFX placeholders and `Disable_wall_grab` (both tracked separately).
+- ~~**Per-character dispatch-table indirection** — the prerequisite refactor for
+  Tails/Knuckles.~~ **DONE (character-dispatch C1, merged 2026-08-12):**
+  `CharacterDef` (`engine/structs.emp`) is the ROM record and `Player_Chardef` the
+  resolved cache; `Player_Init` does the ONE roster resolve. The proof it worked is
+  that C4 added a whole third character — five states — with **zero** engine
+  changes and no `Character_ID` test anywhere in the frame: one record field and
+  two modules. See `ENGINE_ARCHITECTURE.md` §5.4.
 - **Shields + damage + loss-rings** — shield objects, hit/invuln response, ring
   scatter (loss-rings is also tracked under §4.9).
 - **Water** — and with it the **per-section physics modifier / Lerp system** (the
