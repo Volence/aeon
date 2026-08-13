@@ -65,9 +65,13 @@ so they are not re-opened:
 - The **Z80 sound blob is untouched** by this parcel: both shapes build clean with the
   `BLOB_LEN_*` tripwire **ARMED** (no `SIGIL_BLOB_LEN_DRIFT` override), so no
   `BLOB_LEN_*` / `Z80_SOUND_SIZE` / seam-1 re-pin was required.
-- The **release shape is byte-identical across the DEBUG test scaffold**: the scaffold
-  is gated as a single conditional array whose `DEBUG=0` branch is the original list
-  verbatim. Verified in the built ROMs — the 8 platform records appear contiguously in
-  `s4.debug.bin` and are **absent** from `s4.bin`.
+- The **DEBUG test platform was REVERTED** (`8dc43d9b`) after it had served its purpose.
+  It was gated so the release ROM stayed byte-identical, and that held — but the strict
+  suite caught the real problem: a DEBUG-only ENTITY makes `entity_data` 48 bytes longer
+  in the debug shape, and the harness enforces `debug_len == plain_len` for every ported
+  section (`ojz_run_a_port.rs`). Level DATA is expected to be shape-identical. The
+  invariant was kept and the scaffold removed; the solid-object observation above was
+  captured on it BEFORE the revert, so the evidence stands without it. Debug is now
+  byte-for-byte the pre-scaffold ROM (`d8e0c6c2`).
 - Replay fixtures are expected to be unaffected as Sonic: the parcel adds Knuckles-only
   states plus the dust changes, and touches no shared ground/air physics.

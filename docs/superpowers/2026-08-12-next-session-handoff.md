@@ -36,7 +36,7 @@ Commits on `feat/knuckles-c4` (oldest first):
 `06c4eab5` dust palette permute · `b630be35` overhang finding note · `3ab8ad6f`
 climb-down floor-probe fix · `70f523a9` 1-3px recess divergence · `6a6abaeb` dust
 priority band · `d551b5ea` slide ObjectMove · `8e001fcf` solid-objects-are-floors
-principle docs · `4ea60239` DEBUG test platform.
+principle docs · ~~`4ea60239` DEBUG test platform~~ (reverted `8dc43d9b`, see §2c).
 
 ### The nine bugs (each was invisible to build gates and unit tests)
 
@@ -135,10 +135,29 @@ Then: replay-net re-stamp (RAM layout moved), and the paired merge.
 
 ### 2c. Removable scaffolds (delete before shipping)
 
-- `4ea60239` DEBUG-only test platform: 8 × `ObjDef_Solid` at x960-1088, top y=208,
-  48px above the y=256 surface. Release shape is byte-identical (verified: plain crc
-  `3d2cf804` unchanged); emitted from `tools/ojz_entity_gen.py` with removal
-  instructions in its header.
+- ~~`4ea60239` DEBUG-only test platform~~ — **REVERTED at the merge ritual
+  (`8dc43d9b`). Nothing to delete; read this before building another one.**
+
+  It was 8 × `ObjDef_Solid` at x960-1088, top y=208, 48px above the y=256 surface,
+  DEBUG-gated so the release ROM stayed byte-identical — and that part held. The
+  strict suite caught the real problem: **a DEBUG-only ENTITY is not expressible.**
+  Gating it made `entity_data` 48 bytes longer in the debug shape, and the harness
+  enforces `debug_len == plain_len` for **every** ported section
+  (`sigil crates/sigil-cli/tests/ojz_run_a_port.rs`) — level DATA must be
+  shape-identical, because the port tests compile ONE length for both shapes. The
+  invariant won; the scaffold was removed. It had already done its job (the ruled
+  glide→SLIDE-on-a-solid-top behaviour was verified on it, and BUG 10 withdrawn).
+
+  **If you need an object-landing fixture, the recipe survives — respect the
+  constraint:** put the records in `data/editor/ojz/act1/section_0.objects.json` so
+  they land in **BOTH** shapes, run `tools/regenerate-level.sh`, and revert before
+  merging. Geometry: 8 blocks 16px apart at x = 968,984,…,1080, y = 216 (top y=208),
+  over the x896-1279 flat band whose surface is y=256, with the x768-895 pit as a
+  clear approach. Approach recipe: place at x=800, y=195 gliding right at `$1000`
+  with C held → contact ~frame 10 at x≈960, `.solid_top` snaps to y=199. **Why the
+  shipped sec0 solid can't be used instead:** it is 16×16 with its top only 8px above
+  the surface, and a 16px/frame glide crosses it in ONE frame. Full note block is
+  preserved in `tools/ojz_entity_gen.py`.
 - The user's authored test walls in OJZ section 0 (their content — ask before removing).
 
 ### 2d. Open items needing the USER's ruling
