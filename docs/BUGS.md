@@ -5,6 +5,89 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## OPEN — character subsystem, from the 2026-08-13 lens sweep
+
+Full evidence, reproduction chains and fixes: `docs/superpowers/notes/2026-08-13-character-lens-sweep.md`.
+Every one was confirmed by ≥2 independent panel seats and re-verified by the overseer against the
+code (and, where cited, against skdisasm). Review SHA `53efbf69`.
+
+**Why all of these shipped, and why none of them will be caught by the replay net:**
+`Debug_CharacterHotkey` (`games/sonic4/test/ojz_scroll_test.emp:514`) is the ONLY writer of
+`Character_ID`, and it stands down under `Input_Source != 0` — so under playback a replayed `A`
+cannot cycle the character and under record a cycle cannot be captured. **Every fixture, present
+and future, runs as Sonic by construction**, leaving `PSTATE_FLY/GLIDE/GLIDEFALL/SLIDE/CLIMB/LEDGE`,
+both ability hooks and the per-character asset paths at zero automated coverage. The planned
+fixture re-record will go green and change none of that. Fixing it needs a design decision (how
+does a fixture select a character?), so it is a *task*, not a patch.
+
+### CHAR-1 — skid dust spawns through the entire jump arc — RELEASE, Sonic, ordinary play
+`PlayerV.skid_latch`'s only clear (`player_common.emp:896`) sits below both the `ST_ROLLING`
+(`:836`) and `ST_IN_AIR` (`:855`) early-returns, and `Dust_Tick` (`dust_spindash.emp:85-90`) reads
+it guarded by nothing but a `PSTATE_SLIDE` check. **Repro (3 inputs):** run to
+`|gsp| >= PHYS_SKID_MIN`, hold Left (dust correct), then press jump while still holding Left.
+Puffs trail the whole arc at 1 per 4 frames until landing *and* releasing. Same leak into roll,
+spindash and (Knuckles) glide. Tails skid→jump→flight emits ~120 puffs, permanently occupying ~4
+of 16 `NUM_EFFECTS` slots and silently dropping other effects.
+**Fix:** clear the latch at the top of `Player_Animate` and let `.skid_show` re-`st` it.
+
+### CHAR-2 — left-wall glide catches always fail — Knuckles
+`Knuckles_Gliding_WallCatch` (`player_climb.emp:492`) picks the wall side with `tst.w x_vel`, but
+both `Air_WallProbeLeft/Right` do `clr.w x_vel(a0)` on the very hit that sets `GLF_PUSH_BIT`, so
+`x_vel` is always 0 there and `bmi` never taken. Knuckles always faces right; `Climb_WallDist`
+then probes rightward into open air and drops to `GLIDEFALL`. **Right walls work by accident**,
+which is why nine rounds of playtest passed.
+**Fix (S3K-faithful):** discriminate on `PlayerV.glide_angle` — `sonic3k.asm:30776` uses
+`double_jump_property + $40 / bpl`, never velocity. Second site, same root:
+`player_glide.emp:158-163` `.hit_floor`.
+
+### CHAR-3 — `Slide_Terrain` applies a quadrant-rotated probe along a fixed +Y — latent
+`player_glide.emp:478-485` calls the rotated `Player_SensorFloor` and `add.l d0, y_pos` regardless,
+while writing `angle` from the floor every frame — which `Player_Main:583-587` turns into next
+frame's quadrant. `PSTATE_SLIDE` never routes through `Air_Collide`, so nothing zeroes it here, and
+every other `Player_SensorFloor` consumer either uses `Player_SnapToSurface` or forces quadrant 0.
+Reaches wrong-axis snap / spurious ledge-drop once a slide follows terrain past ±45°. S3K's slide
+uses a fixed downward probe (`sub_11FD6` → `Sonic_CheckFloor`).
+**Fix:** `clr.b PBLK_QUADRANT(a4)` at the top of `PState_Slide` (one instruction).
+
+### CHAR-4 — the glide family has no ceiling probe at all
+`Glide_Collide` and `Slide_Terrain` probe left wall, right wall, floor — nothing upward. S3K's
+`Knux_DoLevelCollision_CheckRet` (`sonic3k.asm:32629`) probes the ceiling in three of its four
+motion classes, and a glide is in a horizontal class essentially always. Gliding into a rising
+overhang, the head enters solid terrain with nothing to eject it, and the parachute (`y_vel >= 0`)
+means it cannot self-correct. Compounds with CHAR-6.
+
+### CHAR-5 — the single-centre glide floor probe rests on a false S3K claim
+`player_glide.emp:315-325` justifies dropping the A/B pair with "S3K's glide floor check
+(sub_11FD6) is likewise a single CENTRE sensor". `sub_11FD6` trampolines into `Sonic_CheckFloor`,
+which runs `FindFloor` **twice** (`x ± x_radius`) and keeps the nearer. Consequence: `GlideFall`
+lands ~10px later than an ordinary fall beside a platform lip. The real cause of the bug it was
+introduced for is that `PUSH_RADIUS` (10) equals Knuckles' ability `x_radius`, so a post-snap outer
+sensor lands exactly on the snap pixel.
+
+### CHAR-6 — `PHook_AirEnter` lifts 9px on MID-AIR ability-box exits; S3K lifts 0
+All three mid-air 21→39 restores (glide release, slide ledge-drop, wall-catch fail) run
+`PHook_EnsureStanding`'s `(39-21)>>1 = 9` teleport with no head-clearance check. All three S3K
+sites leave `y_pos` alone; S3K lifts only on the two GROUNDED landings — where ours is correct and
+should stay.
+
+### CHAR-7 — minor state leaks
+`Air_LandOnObject` (`player_air.emp:420-423`) doesn't clear the cached quadrant before
+`Air_LandState`'s ceiling probe, so a solid-object landing while carrying a steep angle decides
+stand-vs-roll from a horizontal clearance reading. And `ST_PUSHING` survives the whole
+jump→glide→climb chain (none of the four Knuckles landing paths clears it), showing one frame of
+`ANIM_PUSH` on touchdown — fixable once in `PHook_GroundEnter`.
+
+### CHAR-8 — vacuous guards (build-time, no runtime symptom yet)
+`ensure(CLIMB_RADIUS == PLAYER_X_RADIUS + 1)` (`player_climb.emp:121`) binds the climb probes to
+**Sonic's standing radius**, not `KNUX_ABILITY_RADIUS`; it holds only by the 9+1==10 coincidence, so
+retuning the ability radius silently desyncs all six probe offsets with a green build. Found by
+five separate seats. Also: 21 hand-rolled `PBLK_*` offsets across 8 files with only 5 `offsetof`
+guards; the `PhysTable_*` guards name a table their condition never references
+(`sizeof(PhysTable_X)` is the fix); and the palette guard tests agreement rather than the grayness
+it exists to secure.
+
+---
+
 ## 🚨 TRIAGE TRAP — A RED SCREEN NO LONGER MEANS BUG-001 — 2026-08-05
 
 **Read this before diagnosing any red-screen report.** `engine/system/release_fault.emp:73`

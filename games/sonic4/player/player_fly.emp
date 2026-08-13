@@ -13,9 +13,10 @@
 //   Tails_Move_FlySwim      :27596   fuel / thrust / coast / top clamp
 //   Tails_DoLevelCollision  :28875   terrain (shared with the jump)
 //   Tails_TouchFloor        :29137   the one routine that ends flight
-// Every constant below is S3K's; the three deliberate deviations are each
-// flagged AT the code that makes them (the entry-curl reading, the coast fall
-// cap, and the unwired SFX).
+// Every constant below is S3K's; the two deliberate deviations are each
+// flagged AT the code that makes them (the entry-curl reading and the coast
+// fall cap). The flap SFX ARE wired — step 1b calls Fly_TickSfx, which plays
+// SFXID_FLYING / SFXID_FLY_TIRED on S3K's 16-frame cadence.
 //
 // Lives in the object code bank, right after `player_spindash` per map.toml
 // `order`. Pure code.
