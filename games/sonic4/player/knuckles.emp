@@ -52,6 +52,18 @@ use games.sonic4.constants.{VRAM_TEST_SONIC}
 const KNUX_JUMP_FORCE = $600
 
 // -----------------------------------------------
+// KNUX_ABILITY_RADIUS — the glide/slide/climb collision radius. S3K's
+// Knux_Test_For_Glide writes y_radius = x_radius = $A (sonic3k.asm:32566-32567),
+// a THIRD box distinct from standing (9/19) and rolling (7/14). It rides the new
+// CharacterDef.cd_ability_wh slot and PHook_EnsureAbility installs it with NO
+// y-shift (S3K applies none on glide entry).
+//
+// NOT `PUSH_RADIUS` (engine constants, also 10): that is the wall-push sensor
+// half-width, a different fact that happens to share the value.
+// -----------------------------------------------
+const KNUX_ABILITY_RADIUS = 10
+
+// -----------------------------------------------
 // CharDef_Knuckles — the record the roster (CharacterDefs, characters.emp) points
 // at for CHAR_KNUCKLES.
 //
@@ -75,13 +87,19 @@ pub data CharDef_Knuckles: CharacterDef = CharacterDef{
     cd_dplc:      extern("DPLC_Knuckles"),
     cd_artbase:   extern("Art_Knuckles"),
     cd_animtable: extern("Ani_Knuckles"),
-    cd_ability:   extern("Ability_None"),   // -> Ability_KnuxGlide at Task 10
+    cd_ability:   extern("Ability_KnuxGlide"),  // the glide/slide airborne ability (player_glide)
     cd_vrambase:  VRAM_TEST_SONIC,          // the shared character window (one character resident)
     cd_stand_wh:  ((PLAYER_X_RADIUS * 2 + 1) << 8) | (PLAYER_Y_RADIUS * 2 + 1),
     cd_roll_wh:   ((BALL_X_RADIUS * 2 + 1) << 8) | (BALL_Y_RADIUS * 2 + 1),
     cd_flags:     0,
     cd_palette:   extern("Pal_Knuckles"),
+    cd_ability_wh: ((KNUX_ABILITY_RADIUS * 2 + 1) << 8) | (KNUX_ABILITY_RADIUS * 2 + 1),
 }
+// The ability box must fit under the standing box in height (PHook_EnsureStanding's
+// generalised guard computes (cd_stand_h - current_h) >> 1 on the glide-to-standing
+// restore and cannot borrow).
+ensure(PLAYER_Y_RADIUS >= KNUX_ABILITY_RADIUS,
+       "Knuckles' ability box is taller than his standing box — the standing-restore y-shift would borrow")
 // See CharDef_Sonic: curl_head_rise's `sub.b` of the two heights must not borrow.
 ensure(PLAYER_Y_RADIUS >= BALL_Y_RADIUS,
        "CharDef_Knuckles' ball is taller than its standing box — curl_head_rise's sub.b would borrow")

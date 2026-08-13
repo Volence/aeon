@@ -17,17 +17,29 @@ module games.sonic4.dust_puff in dust_puff
 
 use engine.objects.sst.{Sst}
 use engine.constants.{RF_PRIORITY_SHIFT}
-use games.sonic4.constants.{VRAM_DUST_PUFF}
+use games.sonic4.constants.{VRAM_DUST_PUFF, EFFECT_DUST_BAND}
 
-// Band 2: BEHIND the player (4) and Tails' appendage (3), and low enough that
-// dust is the first thing dropped when Render_Sprites hits MAX_VDP_SPRITES — it
-// walks bands 7 down to 0 and truncates the tail (engine/objects/sprites.emp:225).
-// This is a deliberate DEVIATION from the reference: S2/S3K/S.C.E. all put dust
-// at priority 1-of-8-FRONT, protecting a cosmetic at the expense of gameplay
-// sprites. Whole-byte write, not set_priority_band: nothing is inherited into a
-// freshly zeroed slot, so a plain move is exact (the C1c union hazard needs an
-// inherited band).
-const DUST_PUFF_BAND          = 2
+// EFFECT_DUST_BAND = PLAYER_PRIORITY_BAND + 1 -> IN FRONT of the character
+// (config/constants.emp owns the relationship + the ensure that keeps it).
+// Render_Sprites walks bands 7 -> 0 appending to the SAT, so a HIGHER band draws
+// in front (engine/objects/sprites.emp:225).
+//
+// REVERSED 2026-08-12 (user-reported, S3K-verified). This was band 2 — BEHIND the
+// player — on the reasoning that dust is a cosmetic and should be the first thing
+// dropped when Render_Sprites truncates at MAX_VDP_SPRITES. In practice the
+// character simply occluded its own dust and the puff was barely visible. S3K
+// composites it the other way: Obj_DashDust sets priority $80 against the player's
+// $100 (sonic3k.asm:33975), and S3K's Draw_Sprite walks buckets from the START, so
+// there the LOWER value is the FRONT one — the dust draws OVER the character.
+// (Do not copy S3K's raw numbers into our band field; the conventions are
+// inverted. The RELATIONSHIP is what transfers.)
+//
+// THE COST, accepted with the ruling: at band 5 the dust now outranks every
+// gameplay object in bands 0-4 under sprite-limit truncation, where before it was
+// sacrificed first. Whole-byte write, not set_priority_band: nothing is inherited
+// into a freshly zeroed slot, so a plain move is exact (the C1c union hazard needs
+// an inherited band).
+const DUST_PUFF_BAND          = EFFECT_DUST_BAND
 const DUST_PUFF_RENDER_FLAGS  = DUST_PUFF_BAND << RF_PRIORITY_SHIFT
 
 equ MAP_DUST_PUFF = extern("Map_DustPuff")

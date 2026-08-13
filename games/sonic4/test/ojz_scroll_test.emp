@@ -21,7 +21,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, INPUT_LIVE}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, INPUT_LIVE}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -461,12 +461,25 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
         tst.b   Input_Source                    // (Input_Source).w
         bne     .done                           // replaying or recording: stand down
         move.b  Ctrl_1_Press, d0                // tick-stable press latch
+        move.b  d0, d1                          // keep the raw press for the B veto below
         andi.b  #BUTTON_A, d0
         beq     .done
+        // B veto: a B press this frame is the free-flight TOGGLE (Player_DebugExit runs
+        // later this frame). This poll reads the FRAME-ENTRY debug_flag, so B+A pressed
+        // together would otherwise cycle the character on the very frame the player meant
+        // to LEAVE debug-fly — the "A cycled unexpectedly" surprise. Fumbling B+A now
+        // just exits fly, no cycle.
+        andi.b  #BUTTON_B, d1
+        bne     .done
         lea     Player_1, a0                    // the leader slot — the only one this
                                                 // state spawns
+        // DEBUG-MODE gate: cycle ONLY while the player is actively in debug free-flight
+        // (debug_flag), where A has no other meaning. In normal physics gameplay
+        // debug_flag is 0 and A is the jump button — this is a DEBUG-MODE test, NOT a
+        // raw CHEAT_DEBUG_FLY-armed check (the cheat can be armed while the player is in
+        // physics; debug_flag is only set while actually flying).
         tst.b   PlayerV.debug_flag(a0)
-        beq     .done                           // not in debug mode: A is the jump button
+        beq     .done                           // not in debug-fly: A is the jump button
 
         moveq   #0, d0                          // index-register hygiene (§2.5b)
         move.w  Character_ID, d0

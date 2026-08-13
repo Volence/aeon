@@ -39,7 +39,7 @@ DEFAULT_SOFT_KB = 24.0
 DEFAULT_HARD_KB = 64.0
 FORM_NAMES = {0: "zx0", 1: "raw"}
 
-EMBED_RE = re.compile(r'data\s+(OJZ_Act_Pool_Page\d+)\s*=\s*embed\("([^"]+)"\)')
+EMBED_RE = re.compile(r'data\s+(OJZ_Act_Pool_Page\d+)\s*(?:\(align:\s*\d+\)\s*)?=\s*embed\("([^"]+)"\)')
 MANIFEST_RE = re.compile(
     r'pm_source:\s*extern\("(OJZ_Act_Pool_Page\d+)"\)\s*,\s*'
     r'pm_tiles:\s*(\d+)\s*,\s*pm_form:\s*(\d+)'

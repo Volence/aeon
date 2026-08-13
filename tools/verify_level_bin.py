@@ -83,7 +83,7 @@ def verify_act_pool():
     pool_txt = open(pool).read()
     # page blob embeds — .zx0 or .raw, symbol index must equal file index
     binc = re.findall(
-        r'OJZ_Act_Pool_Page(\d+)\s*=\s*embed\("[^"]*/act_pool_page(\d+)\.(zx0|raw)"\)',
+        r'OJZ_Act_Pool_Page(\d+)\s*(?:\(align:\s*\d+\)\s*)?=\s*embed\("[^"]*/act_pool_page(\d+)\.(zx0|raw)"\)',
         pool_txt)
     embed_ext = {int(sym): ext for sym, fidx, ext in binc if sym == fidx}
     check([int(sym) for sym, fidx, ext in binc if sym == fidx] == list(range(pages)),

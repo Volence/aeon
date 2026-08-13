@@ -61,6 +61,28 @@ pub const SPINDASH_BASE           = $800
 pub const SPINDASH_CHARGE_STEP    = $200
 pub const SPINDASH_CHARGE_MAX     = $800
 
+// -----------------------------------------------
+// SPRITE PRIORITY BANDS — the character and the effects composited against it.
+//
+// Render_Sprites (engine/objects/sprites.emp) walks bands 7 -> 0, APPENDING each
+// band's objects to the SAT. The earliest SAT entry wins on hardware, so a HIGHER
+// band number draws IN FRONT. (This is the opposite convention to S3K, whose
+// Draw_Sprite uses `priority` directly as a bucket offset walked from the start,
+// making the LOWER value the front one — so a band relationship copied from S3K's
+// raw numbers would come out inverted. Compare RELATIONSHIPS, never the values.)
+//
+// S3K's relative order, which these reproduce: Obj_DashDust sets priority $80
+// while the player sets $100 (sonic3k.asm:33975) — i.e. the dust composites OVER
+// the character. The dust is therefore exactly ONE band in front of the player.
+// -----------------------------------------------
+pub const PLAYER_PRIORITY_BAND    = 4         // the character (player_common.emp Player_Init)
+pub const EFFECT_DUST_BAND        = PLAYER_PRIORITY_BAND + 1   // skid/spindash/slide dust — IN FRONT
+
+ensure(EFFECT_DUST_BAND > PLAYER_PRIORITY_BAND,
+       "effect dust must be in a HIGHER band than the player — higher = drawn in front (Render_Sprites walks 7->0). S3K composites the dust OVER the character; a band re-shuffle that inverts this re-buries it behind the player.")
+ensure(EFFECT_DUST_BAND <= 7,
+       "effect dust band exceeds PRIORITY_BANDS-1 (7) — set_priority_band/render_flags carry only 3 bits")
+
 // Player states (jump-table byte offsets: index x 2)
 //
 // THE RULE, exactly: each state's value IS 2 x its row index in ALL THREE of the
@@ -116,7 +138,21 @@ pub const PSTATE_AIRBALL          = 12         // airborne curled, not from jump
 pub const PSTATE_FLY              = 14         // Tails' flight (player_fly) — entered only
                                                // from CharDef_Tails' cd_ability hook, so it
                                                // is unreachable for every other character
-pub const PSTATE_COUNT            = 8          // state/hook tables assert against this
+// Knuckles' glide/slide (player_glide) — entered only from CharDef_Knuckles'
+// cd_ability hook (Ability_KnuxGlide), so unreachable for every other character.
+// GLIDE is attacking-but-NOT-curled (ST_ROLLING clear), which is why the retired
+// ">= PSTATE_JUMP" curled range test could never have expressed this set.
+// GLIDEFALL is its OWN state, not a glide sub-state: it has normal air gravity
+// AFTER the move, normal air control, and a landing that is a DEAD STOP (all three
+// velocities zeroed) rather than the gsp = x_vel conversion every other landing does.
+pub const PSTATE_GLIDE            = 16
+pub const PSTATE_GLIDEFALL        = 18
+pub const PSTATE_SLIDE            = 20
+// Knuckles' wall climb + ledge pull-up (player_climb) — entered only from the glide
+// wall-catch (Knuckles_Gliding_WallCatch), so unreachable for every other character.
+pub const PSTATE_CLIMB            = 22
+pub const PSTATE_LEDGE            = 24
+pub const PSTATE_COUNT            = 13         // state/hook tables assert against this
 
 // -----------------------------------------------
 // The PSTATE_* value guards (see THE RULE above). ORDER-FREE by construction:
@@ -127,7 +163,7 @@ pub const PSTATE_COUNT            = 8          // state/hook tables assert again
 // -----------------------------------------------
 comptime fn pstate_values_ok() -> bool {
     comptime var cover = 0
-    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY] {
+    for v in [PSTATE_GROUND, PSTATE_ROLL, PSTATE_SPINDASH, PSTATE_AIR, PSTATE_JUMP, PSTATE_ROLLJUMP, PSTATE_AIRBALL, PSTATE_FLY, PSTATE_GLIDE, PSTATE_GLIDEFALL, PSTATE_SLIDE, PSTATE_CLIMB, PSTATE_LEDGE] {
         // EVEN — the value is a jump-table BYTE offset, not a row index.
         ensure((v & 1) == 0, "PSTATE_* value {v} is ODD — a player-state value is a jump-table BYTE offset, i.e. 2 x its row index in Player_States / PState_EnterHooks / PState_ExitHooks")
         // IN RANGE — all three tables are 2 * PSTATE_COUNT bytes long. Checked
@@ -176,7 +212,31 @@ pub const ANIM_GETUP              = 10
 // PSTATE_FLY, which only Tails' ability can enter.
 pub const ANIM_FLY                = 11         // flapping (fuel remaining)
 pub const ANIM_FLY_TIRED          = 12         // out of fuel — the flap is disabled
-pub const ANIM_COUNT              = 13         // sonic_anims.emp asserts entry count == this
+// Knuckles' glide/slide poses (SHARED contract like every other id — every
+// character's table carries a row; only Player_Animate's PSTATE_GLIDE/GLIDEFALL/
+// SLIDE branch writes them, and only Knuckles' ability can enter those states).
+// ANIM_GLIDE_0..4 are CONTIGUOUS so the classifier selects a turn pose with an
+// `add.b index` and the ensure below pins the span. S3K frames $C0..$C4.
+pub const ANIM_GLIDE_0            = 13         // S3K frame $C0 (level glide, facing)
+pub const ANIM_GLIDE_1            = 14         // S3K frame $C1
+pub const ANIM_GLIDE_2            = 15         // S3K frame $C2
+pub const ANIM_GLIDE_3            = 16         // S3K frame $C3
+pub const ANIM_GLIDE_4            = 17         // S3K frame $C4 (mirror-point pose)
+pub const ANIM_GLIDEFALL          = 18         // S3K AniKnuckles21 ($CA $CB) — falling after release
+pub const ANIM_SLIDE              = 19         // S3K AniKnuckles (frame $CC) — belly slide
+pub const ANIM_SLIDE_GETUP        = 20         // S3K AniKnuckles22 ($CD) — rising from a slide
+pub const ANIM_GLIDE_LAND         = 21         // S3K AniKnuckles23 ($9C) — get-up from a hard glide-fall land
+// Knuckles' climb + ledge (Task 11). The climb CYCLES mapping frames $B7..$BC
+// directly from the state body (1 frame / 4, backward when descending) and the ledge
+// runs the 4-step clamber script from the body too, so both are 1-frame anchor scripts
+// whose only job is to land the initial frame once via the anim-changed path — the
+// bodies then pin anim_timer so AnimateSprite never advances them.
+pub const ANIM_CLIMB              = 22         // S3K climb cycle anchor (frame $B7)
+pub const ANIM_LEDGE              = 23         // S3K clamber anchor (frame $BD)
+pub const ANIM_COUNT              = 24         // sonic_anims.emp asserts entry count == this
+// The glide turn poses must be a contiguous 5-id run so the classifier's index math
+// (Glide_Pose_Table8 -> ANIM_GLIDE_0 + i) stays in range.
+ensure(ANIM_GLIDE_1 == ANIM_GLIDE_0 + 1 && ANIM_GLIDE_2 == ANIM_GLIDE_0 + 2 && ANIM_GLIDE_3 == ANIM_GLIDE_0 + 3 && ANIM_GLIDE_4 == ANIM_GLIDE_0 + 4, "ANIM_GLIDE_0..4 must be contiguous — the glide pose classifier indexes them as ANIM_GLIDE_0 + turn_index")
 
 // Game state ids (extend existing table)
 pub const GS_OJZ_SCROLL_TEST      = 3

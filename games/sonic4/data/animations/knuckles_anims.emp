@@ -122,6 +122,40 @@ offsets Ani_Knuckles {
     // ANIM_FLY draws a walking Knuckles rather than indexing off the table.
     Fly:      [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     FlyTired: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+
+    // KNUCKLES-ONLY glide/slide poses (Task 10). S3K writes the glide turn frames
+    // ($C0..$C4) DIRECTLY via mapping_frame (Knuckles_Set_Gliding_Animation); our
+    // AnimateSprite owns mapping_frame, so each turn pose is a 1-frame script and
+    // Player_Animate's glide branch selects which ANIM_GLIDE_i to play from the turn
+    // angle. AF_END on a single frame holds it (the classifier re-selects each frame),
+    // exactly the static behaviour S3K's $1F-then-loop AniKnuckles20 has.
+    Glide0:   [u8; 3] = [$1F, $C0, AF_END],
+    Glide1:   [u8; 3] = [$1F, $C1, AF_END],
+    Glide2:   [u8; 3] = [$1F, $C2, AF_END],
+    Glide3:   [u8; 3] = [$1F, $C3, AF_END],
+    Glide4:   [u8; 3] = [$1F, $C4, AF_END],
+
+    // S3K AniKnuckles21 — the fall-after-release flutter, $CA/$CB looping on S3K's
+    // own AF_BACK 1 ($FE 1).
+    GlideFall:[u8; 5] = [7, $CA, $CB, AF_BACK, 1],
+
+    // The belly slide — S3K sets mapping_frame $CC directly (loc_1693E); a 1-frame
+    // hold here, re-selected each slide frame by the classifier.
+    Slide:    [u8; 3] = [$1F, $CC, AF_END],
+
+    // S3K AniKnuckles22 / 23 — the two get-ups (from a slide, and from a hard
+    // glide-fall land). S3K ends each with AF_CHANGE 0 (switch to walk); deviation 2
+    // holds the last pose and lets Player_Animate own the exit.
+    SlideGetUp:[u8; 4] = [$F, $CD, AF_BACK, 1],
+    GlideLand: [u8; 4] = [$F, $9C, AF_BACK, 1],
+
+    // Climb + ledge (Task 11) — 1-frame ANCHOR scripts. The state body owns
+    // mapping_frame every frame (cycling $B7..$BC on the climb, running the clamber
+    // script on the ledge) and pins anim_timer so AnimateSprite never advances these;
+    // the anchor's only job is to land the initial frame ($B7 / $BD) once via the
+    // anim-changed path.
+    Climb:    [u8; 3] = [$1F, $B7, AF_END],
+    Ledge:    [u8; 3] = [$1F, $BD, AF_END],
 }
 align 2
 
@@ -143,4 +177,15 @@ ensure(Ani_Knuckles.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM
 ensure(Ani_Knuckles.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
 ensure(Ani_Knuckles.Fly == extern("ANIM_FLY"), "Fly ordinal drifted from ANIM_FLY")
 ensure(Ani_Knuckles.FlyTired == extern("ANIM_FLY_TIRED"), "FlyTired ordinal drifted from ANIM_FLY_TIRED")
+ensure(Ani_Knuckles.Glide0 == extern("ANIM_GLIDE_0"), "Glide0 ordinal drifted from ANIM_GLIDE_0")
+ensure(Ani_Knuckles.Glide1 == extern("ANIM_GLIDE_1"), "Glide1 ordinal drifted from ANIM_GLIDE_1")
+ensure(Ani_Knuckles.Glide2 == extern("ANIM_GLIDE_2"), "Glide2 ordinal drifted from ANIM_GLIDE_2")
+ensure(Ani_Knuckles.Glide3 == extern("ANIM_GLIDE_3"), "Glide3 ordinal drifted from ANIM_GLIDE_3")
+ensure(Ani_Knuckles.Glide4 == extern("ANIM_GLIDE_4"), "Glide4 ordinal drifted from ANIM_GLIDE_4")
+ensure(Ani_Knuckles.GlideFall == extern("ANIM_GLIDEFALL"), "GlideFall ordinal drifted from ANIM_GLIDEFALL")
+ensure(Ani_Knuckles.Slide == extern("ANIM_SLIDE"), "Slide ordinal drifted from ANIM_SLIDE")
+ensure(Ani_Knuckles.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
+ensure(Ani_Knuckles.GlideLand == extern("ANIM_GLIDE_LAND"), "GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_Knuckles.Climb == extern("ANIM_CLIMB"), "Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_Knuckles.Ledge == extern("ANIM_LEDGE"), "Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_Knuckles.count == extern("ANIM_COUNT"), "Ani_Knuckles entry count drifted from ANIM_COUNT")

@@ -46,6 +46,9 @@ module games.sonic4.tails_appendage in tails_appendage
 use engine.objects.sst.{Sst}
 use engine.constants.{RF_PRIORITY_SHIFT, RF_XFLIP, RF_YFLIP, ST_XFLIP, TILE_SIZE}
 use games.sonic4.constants.{ANIM_ROLL, VRAM_TAILS_APPENDAGE}
+// The parent's PlayerV overlay — for the debug-fly hide (debug_flag). player_common
+// is the overlay's sole author; this is a bare struct import, no code dependency.
+use games.sonic4.player_common.{PlayerV}
 
 // Cross-seam link values. The sprite trio lives in games.sonic4.tails_data, the
 // script table in games.sonic4.tails_anims, and CharDef_Tails in games.sonic4.tails.
@@ -66,8 +69,20 @@ equ CHARDEF_TAILS        = extern("CharDef_Tails")
 // fairness"). Copying the parent's band would put the body and the tails in the
 // same band and hand their z-order to that coin flip: the tails would pop in
 // front of Tails every other frame. A band BELOW the player's is the only way to
-// state "always behind the body" in this renderer. Player_Init's band is 4
-// (player_common, `set_priority_band(4)`); this is 3.
+// state "always behind the body" in this renderer. Player_Init's band is
+// PLAYER_PRIORITY_BAND (4, config/constants.emp); this is 3.
+//
+// CHECKED against S3K when the effect dust was moved in front (2026-08-12) — and
+// DELIBERATELY LEFT BEHIND. S3K's Obj_Tails_Tail does NOT pick a lower bucket: it
+// copies the parent's outright (`move.w priority(a2),priority(a0)`,
+// sonic3k.asm:30021+), so the tails share Tails' bucket and their z-order falls
+// out of insertion order — the tails object occupies a later slot than the player,
+// is appended after it, and so composites BEHIND the body. Same visual result as
+// this band, arrived at differently. Reproducing S3K's mechanism literally (same
+// band) would be strictly WORSE here, because our Render_Sprites deliberately
+// reverses intra-band order every frame for fairness: co-banding would convert
+// S3K's stable "behind" into a per-frame flicker. So the dust moved and this did
+// not — the two children are not the same case.
 // -----------------------------------------------
 const APPENDAGE_PRIORITY_BAND = 3
 
@@ -234,6 +249,15 @@ pub proc TailsAppendage_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         // way to be wrong. The rail that CAN fire lives at the spawn.
         movea.w Sst.parent_ptr(a0), a1
 
+        // DEBUG-FLY HIDE: when the parent is in free-flight, Player_DebugEnter has swapped
+        // it for the yellow cursor square — the twin tails must not keep rendering beside
+        // it (user screenshot). The appendage re-derives everything from the parent every
+        // frame and holds no persistent draw state, so a clean early-out here is the whole
+        // fix: it simply isn't drawn this frame (absent from the SAT = not rendered), and
+        // the first frame after debug-fly exit resumes normally with no teardown or respawn.
+        tst.b   PlayerV.debug_flag(a1)
+        bne     .hidden
+
         // Position is the parent's EXACTLY — the offset that puts the tails
         // behind Tails lives in the appendage's own mappings, which is how S3K
         // does it too (`move.w x_pos(a1),x_pos(a0)`, no displacement).
@@ -366,4 +390,6 @@ pub proc TailsAppendage_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         jbsr    Perform_DPLC
 
         jbra    Draw_Sprite
+.hidden:
+        rts                             // parent in debug-fly: skip the whole draw this frame
 }

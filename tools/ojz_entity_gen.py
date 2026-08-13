@@ -262,6 +262,29 @@ def hexw(v: int) -> str:
     return f"${v:03X}"
 
 
+# ---------------------------------------------------------------------------
+# NOTE — the DEBUG-only glide test platform was REVERTED (2026-08-12).
+#
+# It was 8 ObjDef_Solid blocks appended to sec0 (x960-1088, top y=208, 48 px above
+# the y=256 surface) so the "solid tops are floors" ruling could be verified: the
+# shipped sec0 solid is untestable by construction (16x16, top only 8 px above the
+# surface, crossed in ONE frame by a 16 px/frame glide). It did its job — the ruled
+# glide -> SLIDE behaviour was verified on it and BUG 10 withdrawn.
+#
+# WHY IT CANNOT STAY: DEBUG-gating it made `entity_data` 48 bytes longer in the
+# debug shape, and the harness enforces `debug_len == plain_len` for every ported
+# section (sigil `crates/sigil-cli/tests/ojz_run_a_port.rs`) — level DATA is
+# expected to be shape-identical, so a DEBUG-only ENTITY is not expressible. The
+# alternative (ungated) would have changed release bytes. The gate caught this,
+# and the scaffold was reverted rather than the invariant relaxed.
+#
+# TO RE-ADD TEMPORARILY: put the 8 records in sec0's editor JSON
+# (data/editor/ojz/act1/section_0.objects.json) so they land in BOTH shapes, run
+# tools/regenerate-level.sh, and REVERT before merging. Geometry is recorded in
+# docs/DEFERRED_WORK.md ("REMOVABLE SCAFFOLDS").
+# ---------------------------------------------------------------------------
+
+
 def emit_section(lines: list[str], sec_idx: int,
                  sorted_objects, type_order, library, sorted_rings) -> None:
     """Append one section's TypeTable/Objects/Rings `.emp` items to lines

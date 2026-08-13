@@ -4,7 +4,7 @@
 // Consumed at comptime by act_descriptor.emp; emits ZERO ROM bytes.
 module games.sonic4.ojz_block_dicts_act1
 
-pub const OJZ_SEC0_BLOCK_DICT_LEN = 0
+pub const OJZ_SEC0_BLOCK_DICT_LEN = 768
 pub const OJZ_SEC1_BLOCK_DICT_LEN = 768
 pub const OJZ_SEC2_BLOCK_DICT_LEN = 768
 pub const OJZ_SEC3_BLOCK_DICT_LEN = 768

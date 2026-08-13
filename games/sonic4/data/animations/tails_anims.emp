@@ -122,6 +122,20 @@ offsets Ani_Tails {
     // "tired" is a POSE, not a cadence: S3K's 16-frame tired cadence drives the
     // SFX retrigger only (sonic3k.asm:27669), never the animation.
     FlyTired: [u8; 4]  = [$B, $A3, $A4, AF_END],
+
+    // Knuckles' glide/slide poses — UNREACHABLE for Tails (same rule as Fly above).
+    // His WALK cycle byte-for-byte, so a mis-set glide id draws a walking Tails.
+    Glide0:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide1:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide2:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide3:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide4:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    GlideFall:[u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Slide:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    SlideGetUp:[u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    GlideLand: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Climb:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Ledge:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
 }
 align 2
 
@@ -193,6 +207,21 @@ offsets Ani_TailsAppendage {
     // descending rate, whichever way the tired Tails is drifting.
     Fly:      [u8; 4] = [DUR_DYNAMIC, $27, $28, AF_END],
     FlyTired: [u8; 4] = [1, $27, $28, AF_END],
+
+    // Knuckles' glide/slide ids — UNREACHABLE for the Tails appendage (Tails never
+    // glides), the neutral trailing pose (S3K app 00), so the shared ANIM_* contract
+    // stays total and the classifier can never index off this table's end.
+    Glide0:   [u8; 3] = [$20, 0, AF_END],
+    Glide1:   [u8; 3] = [$20, 0, AF_END],
+    Glide2:   [u8; 3] = [$20, 0, AF_END],
+    Glide3:   [u8; 3] = [$20, 0, AF_END],
+    Glide4:   [u8; 3] = [$20, 0, AF_END],
+    GlideFall:[u8; 3] = [$20, 0, AF_END],
+    Slide:    [u8; 3] = [$20, 0, AF_END],
+    SlideGetUp:[u8; 3] = [$20, 0, AF_END],
+    GlideLand: [u8; 3] = [$20, 0, AF_END],
+    Climb:    [u8; 3] = [$20, 0, AF_END],
+    Ledge:    [u8; 3] = [$20, 0, AF_END],
 }
 // The appendage bodies sum to an ODD length, so this pad is load-bearing for
 // whatever table the linker places next (offsets tables are word-read).
@@ -214,6 +243,17 @@ ensure(Ani_Tails.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SK
 ensure(Ani_Tails.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
 ensure(Ani_Tails.Fly == extern("ANIM_FLY"), "Fly ordinal drifted from ANIM_FLY")
 ensure(Ani_Tails.FlyTired == extern("ANIM_FLY_TIRED"), "FlyTired ordinal drifted from ANIM_FLY_TIRED")
+ensure(Ani_Tails.Glide0 == extern("ANIM_GLIDE_0"), "Glide0 ordinal drifted from ANIM_GLIDE_0")
+ensure(Ani_Tails.Glide1 == extern("ANIM_GLIDE_1"), "Glide1 ordinal drifted from ANIM_GLIDE_1")
+ensure(Ani_Tails.Glide2 == extern("ANIM_GLIDE_2"), "Glide2 ordinal drifted from ANIM_GLIDE_2")
+ensure(Ani_Tails.Glide3 == extern("ANIM_GLIDE_3"), "Glide3 ordinal drifted from ANIM_GLIDE_3")
+ensure(Ani_Tails.Glide4 == extern("ANIM_GLIDE_4"), "Glide4 ordinal drifted from ANIM_GLIDE_4")
+ensure(Ani_Tails.GlideFall == extern("ANIM_GLIDEFALL"), "GlideFall ordinal drifted from ANIM_GLIDEFALL")
+ensure(Ani_Tails.Slide == extern("ANIM_SLIDE"), "Slide ordinal drifted from ANIM_SLIDE")
+ensure(Ani_Tails.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
+ensure(Ani_Tails.GlideLand == extern("ANIM_GLIDE_LAND"), "GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_Tails.Climb == extern("ANIM_CLIMB"), "Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_Tails.Ledge == extern("ANIM_LEDGE"), "Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_Tails.count == extern("ANIM_COUNT"), "Ani_Tails entry count drifted from ANIM_COUNT")
 
 ensure(Ani_TailsAppendage.Walk == extern("ANIM_WALK"), "appendage Walk ordinal drifted from ANIM_WALK")
@@ -229,4 +269,15 @@ ensure(Ani_TailsAppendage.Skid == extern("ANIM_SKID"), "appendage Skid ordinal d
 ensure(Ani_TailsAppendage.GetUp == extern("ANIM_GETUP"), "appendage GetUp ordinal drifted from ANIM_GETUP")
 ensure(Ani_TailsAppendage.Fly == extern("ANIM_FLY"), "appendage Fly ordinal drifted from ANIM_FLY")
 ensure(Ani_TailsAppendage.FlyTired == extern("ANIM_FLY_TIRED"), "appendage FlyTired ordinal drifted from ANIM_FLY_TIRED")
+ensure(Ani_TailsAppendage.Glide0 == extern("ANIM_GLIDE_0"), "appendage Glide0 ordinal drifted from ANIM_GLIDE_0")
+ensure(Ani_TailsAppendage.Glide1 == extern("ANIM_GLIDE_1"), "appendage Glide1 ordinal drifted from ANIM_GLIDE_1")
+ensure(Ani_TailsAppendage.Glide2 == extern("ANIM_GLIDE_2"), "appendage Glide2 ordinal drifted from ANIM_GLIDE_2")
+ensure(Ani_TailsAppendage.Glide3 == extern("ANIM_GLIDE_3"), "appendage Glide3 ordinal drifted from ANIM_GLIDE_3")
+ensure(Ani_TailsAppendage.Glide4 == extern("ANIM_GLIDE_4"), "appendage Glide4 ordinal drifted from ANIM_GLIDE_4")
+ensure(Ani_TailsAppendage.GlideFall == extern("ANIM_GLIDEFALL"), "appendage GlideFall ordinal drifted from ANIM_GLIDEFALL")
+ensure(Ani_TailsAppendage.Slide == extern("ANIM_SLIDE"), "appendage Slide ordinal drifted from ANIM_SLIDE")
+ensure(Ani_TailsAppendage.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "appendage SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
+ensure(Ani_TailsAppendage.GlideLand == extern("ANIM_GLIDE_LAND"), "appendage GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_TailsAppendage.Climb == extern("ANIM_CLIMB"), "appendage Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_TailsAppendage.Ledge == extern("ANIM_LEDGE"), "appendage Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_TailsAppendage.count == extern("ANIM_COUNT"), "Ani_TailsAppendage entry count drifted from ANIM_COUNT")

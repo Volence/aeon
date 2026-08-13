@@ -67,6 +67,23 @@ offsets Ani_Sonic {
     // body at 3-10 bytes rather than adding an indirection.
     Fly:      [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
     FlyTired: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+
+    // Knuckles' glide/slide poses — UNREACHABLE for Sonic (same rule as Fly above:
+    // the ANIM contract is "every table has a row for every id", and only
+    // Player_Animate's PSTATE_GLIDE/GLIDEFALL/SLIDE branch writes these, which only
+    // Knuckles' cd_ability can reach). His WALK cycle byte-for-byte — an uncurled
+    // airborne Sonic on one of these ids would be indistinguishable from correct.
+    Glide0:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide1:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide2:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide3:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Glide4:   [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    GlideFall:[u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Slide:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    SlideGetUp:[u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    GlideLand: [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Climb:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
+    Ledge:    [u8; 10] = [DUR_DYNAMIC, 7, 8, 1, 2, 3, 4, 5, 6, AF_END],
 }
 // keeps the NEXT table (Ani_Particle, word-read) even — inert today
 // (the packed total is even) but guards body edits.
@@ -86,4 +103,15 @@ ensure(Ani_Sonic.Skid == extern("ANIM_SKID"), "Skid ordinal drifted from ANIM_SK
 ensure(Ani_Sonic.GetUp == extern("ANIM_GETUP"), "GetUp ordinal drifted from ANIM_GETUP")
 ensure(Ani_Sonic.Fly == extern("ANIM_FLY"), "Fly ordinal drifted from ANIM_FLY")
 ensure(Ani_Sonic.FlyTired == extern("ANIM_FLY_TIRED"), "FlyTired ordinal drifted from ANIM_FLY_TIRED")
+ensure(Ani_Sonic.Glide0 == extern("ANIM_GLIDE_0"), "Glide0 ordinal drifted from ANIM_GLIDE_0")
+ensure(Ani_Sonic.Glide1 == extern("ANIM_GLIDE_1"), "Glide1 ordinal drifted from ANIM_GLIDE_1")
+ensure(Ani_Sonic.Glide2 == extern("ANIM_GLIDE_2"), "Glide2 ordinal drifted from ANIM_GLIDE_2")
+ensure(Ani_Sonic.Glide3 == extern("ANIM_GLIDE_3"), "Glide3 ordinal drifted from ANIM_GLIDE_3")
+ensure(Ani_Sonic.Glide4 == extern("ANIM_GLIDE_4"), "Glide4 ordinal drifted from ANIM_GLIDE_4")
+ensure(Ani_Sonic.GlideFall == extern("ANIM_GLIDEFALL"), "GlideFall ordinal drifted from ANIM_GLIDEFALL")
+ensure(Ani_Sonic.Slide == extern("ANIM_SLIDE"), "Slide ordinal drifted from ANIM_SLIDE")
+ensure(Ani_Sonic.SlideGetUp == extern("ANIM_SLIDE_GETUP"), "SlideGetUp ordinal drifted from ANIM_SLIDE_GETUP")
+ensure(Ani_Sonic.GlideLand == extern("ANIM_GLIDE_LAND"), "GlideLand ordinal drifted from ANIM_GLIDE_LAND")
+ensure(Ani_Sonic.Climb == extern("ANIM_CLIMB"), "Climb ordinal drifted from ANIM_CLIMB")
+ensure(Ani_Sonic.Ledge == extern("ANIM_LEDGE"), "Ledge ordinal drifted from ANIM_LEDGE")
 ensure(Ani_Sonic.count == extern("ANIM_COUNT"), "Ani_Sonic entry count drifted from ANIM_COUNT")

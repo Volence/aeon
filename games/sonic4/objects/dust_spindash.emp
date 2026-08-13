@@ -6,7 +6,7 @@ use engine.objects.objdef.{vram_bytes}
 use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP}
 use engine.coords.{pixels_to_coord}
 use engine.structs.{CharacterDef, cd_stand_h_off}
-use games.sonic4.constants.{PSTATE_SPINDASH, VRAM_DUST_SPINDASH}
+use games.sonic4.constants.{PSTATE_SPINDASH, PSTATE_SLIDE, VRAM_DUST_SPINDASH, EFFECT_DUST_BAND}
 use games.sonic4.player_common.{PlayerV}
 use games.sonic4.ram.{PlayerBlock}
 
@@ -34,6 +34,12 @@ const DUST_CADENCE_RELOAD = 3
 // per-character delta S3K encodes as a flag is simply the radius difference, so
 // deriving it needs no per-character dust data at all.
 const DUST_FEET_RISE = 3
+
+// Knuckles' belly-slide dust rises 4 px off the ability box's feet — S3K's slide dust
+// sits +6 px from the origin (loc_18CE4, moveq #6,d1) and the ability box's y_radius is
+// 10, so 10 - 4 = 6 hits it exactly (research row 28). A separate rise from the skid's
+// because the slide runs at the 10-radius ability box while the skid stands at 19.
+const SLIDE_DUST_RISE = 4
 
 // The radius the donor dust MAPPINGS were authored against: Sonic's standing
 // y_radius. The charge-dust frames' piece offsets (-32,+4 / -32,-4) place the
@@ -70,6 +76,16 @@ ensure(DUST_ART_REF_RADIUS == extern("PLAYER_Y_RADIUS"),
 //            call into AnimateSprite)
 // -----------------------------------------------
 pub proc Dust_Tick (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0, d3) {
+        // The BELLY SLIDE (Knuckles) dusts on the same cadence as the skid — S3K spawns a
+        // dust cloud every 4 frames while sliding (loc_18CE4, $36 reload 3), AND bursts one
+        // at the glide->slide land itself (loc_1693E). The disarm-to-0 tail makes that first
+        // puff fall on the first slide frame automatically, so both S3K moments are covered
+        // by one wiring. The slide's y-offset differs (ability box, not standing), so it
+        // takes its own leg; everything downstream (cadence, spawn) is shared.
+        cmpi.b  #PSTATE_SLIDE, PlayerV.player_state(a0)
+        beq     .slide
+
+        // --- SKID (unchanged) ---
         tst.b   PlayerV.skid_latch(a0)
         beq     .disarm
         subq.b  #1, PBLK_DUSTTIMER(a4)
@@ -83,6 +99,19 @@ pub proc Dust_Tick (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0, d3) {
         move.b  cd_stand_h_off()(a1), d0        // full standing height (2r+1)
         lsr.w   #1, d0                          // d0 = y_radius
         subq.w  #DUST_FEET_RISE, d0             // Sonic -> 16, Tails -> 12
+        jbra    .spawn
+
+        // --- SLIDE (Knuckles): same cadence, y = ability y_radius(10) - 4 = origin + 6 ---
+    .slide:
+        subq.b  #1, PBLK_DUSTTIMER(a4)
+        bpl     .done                           // not this frame
+        move.b  #DUST_CADENCE_RELOAD, PBLK_DUSTTIMER(a4)
+        moveq   #0, d0
+        move.b  height_pixels(a0), d0           // the CURRENT (ability) box, full height 21
+        lsr.w   #1, d0                          // y_radius = 10
+        subq.w  #SLIDE_DUST_RISE, d0            // 10 - 4 = 6 px off the origin (S3K's +6)
+
+    .spawn:
         pixels_to_coord(d0)
         move.l  Sst.y_pos(a0), d1
         add.l   d0, d1
@@ -91,9 +120,9 @@ pub proc Dust_Tick (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0, d3) {
                                                 // are inside ours, and it preserves
                                                 // a0/d1
     .disarm:
-        // Zeroed while not emitting, so the FIRST puff of the next skid lands on
-        // the frame the skid arms — the reference behaviour, which falls out of
-        // the countdown starting at 0.
+        // Zeroed while not emitting, so the FIRST puff of the next skid/slide lands on
+        // the frame it arms — the reference behaviour, which falls out of the countdown
+        // starting at 0 (and gives the glide->slide land its burst for free).
         clr.b   PBLK_DUSTTIMER(a4)
     .done:
         rts
@@ -112,10 +141,11 @@ vars DustV: Sst.sst_custom {
         player: u16,            // the player SST this follower tracks
 }
 
-// Band 2, the same deliberate deviation dust_puff.emp documents: behind the
-// player (4) and Tails' appendage (3), first to degrade at MAX_VDP_SPRITES.
-// Whole-byte write into a freshly zeroed slot, as there.
-const DUST_SPINDASH_BAND         = 2
+// EFFECT_DUST_BAND (= player band + 1) -> IN FRONT of the character, matching
+// S3K's relative order. Same reversal, same rationale, and the same accepted cost
+// as dust_puff.emp documents in full — see there. Whole-byte write into a freshly
+// zeroed slot, as there.
+const DUST_SPINDASH_BAND         = EFFECT_DUST_BAND
 const DUST_SPINDASH_RENDER_FLAGS = DUST_SPINDASH_BAND << RF_PRIORITY_SHIFT
 
 // Cross-seam link values — the sprite data lives in games.sonic4.dust_data,
