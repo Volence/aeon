@@ -229,14 +229,23 @@ pub comptime fn raster_fire_line(screen_line: int) -> int {
 //
 // THE ENTER SCHEDULE, for a run of L lines whose first stream line lands on screen line
 // T (the other half of the mode-switch schedule commented at the dense fast path):
-//   fire 0 @ line 0     priming, arm = raster_arm(1, T-2)
-//   fire 1 @ line 1     priming, arm = raster_arm(T-2, T-1) = the every-line word
-//   fire 2 @ line T-2   setup: OP_RUN_GRADIENT stashes cmd/lines/cursor, writes nothing
-//   fire 3 @ line T-1   first .dense_body -> its CRAM write lands on screen line T
+//   fire 0 @ line 0     priming, arm = raster_arm(1, T-1)
+//   fire 1 @ line 1     priming, arm = raster_arm(T-1, T) = the every-line word
+//   fire 2 @ line T-1   setup: OP_RUN_GRADIENT stashes cmd/lines/cursor, writes nothing
+//   fire 3 @ line T     first .dense_body -> stream[0] shows on screen line T
 //   ...                 L dense fires; the last stream line lands on screen line T+L-1
 // Record i's arm governs gap(i+1 -> i+2), so BOTH record 1 and record 2 must carry the
-// every-line word: record 1's puts fire 3 at T-1, record 2's puts fire 4 at T. The
-// setup fire itself writes no colours, which is why T-2 (not T-1) is its line.
+// every-line word: record 1's puts fire 3 at T, record 2's puts fire 4 at T+1. The
+// setup fire writes no colours of its own, which is why it gets its own line at T-1.
+//
+// THE T-1 SETUP LINE IS MEASURED, NOT DERIVED. The naive derivation puts the setup at
+// T-2 (fire 3 then lands at T-1, whose handler write shows on T, per the sparse tier's
+// fire-line = M-1 rule). On hardware that authors the whole run ONE LINE HIGH: with
+// top=96 the level boundaries came out at 107/119/131/143/155/167/179 instead of
+// 108/120/.../180 — a uniform -1 across all seven, i.e. stream[0] displayed on 95.
+// The dense path does not inherit the sparse -1 because entering the run costs its own
+// pipelined arm (Ruling 1b at the ENTER edge), which absorbs exactly one line. Evidence:
+// docs/benchmarks/effects-p2/GATE-EVIDENCE.md, dense-tier section.
 pub struct RasterGradientProgram {
     rgp_mask:       u16,    // pal_dirty_mask — must name the line rgp_cmd writes into
     rgp_init_count: u16,
@@ -256,9 +265,9 @@ pub struct RasterGradientProgram {
 // builder) so this module keeps its import surface.
 pub comptime fn raster_gradient_program(top: int, lines: int, mask: int, cmd: int,
                                         stream: Label) -> RasterGradientProgram {
-    // Floor is 4, not raster_fire_line's 3: the setup fire sits at T-2 and must still
+    // Floor is 3, matching raster_fire_line: the setup fire sits at T-1 and must still
     // land after the two priming fires on lines 0-1.
-    ensure(top >= 4, "raster_gradient_program: top {top} below 4 (priming needs lines 0-1)")
+    ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
     ensure(top + lines <= 224,
            "raster_gradient_program: run {top}..{top + lines - 1} runs past screen line 223")
@@ -266,9 +275,9 @@ pub comptime fn raster_gradient_program(top: int, lines: int, mask: int, cmd: in
         rgp_mask:       mask,
         rgp_init_count: 1,
         rgp_init_word:  $8C81,                          // S/H OFF at frame top (H40 base)
-        rgp_arm0:       raster_arm(1, top - 2),
+        rgp_arm0:       raster_arm(1, top - 1),
         rgp_ops0:       0,
-        rgp_arm1:       raster_arm(top - 2, top - 1),   // == RASTER_ARM_EVERY_LINE
+        rgp_arm1:       raster_arm(top - 1, top),       // == RASTER_ARM_EVERY_LINE
         rgp_ops1:       0,
         rgp_arm2:       RASTER_ARM_EVERY_LINE,
         rgp_ops2:       1,
