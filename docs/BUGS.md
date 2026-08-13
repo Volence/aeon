@@ -5,7 +5,7 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
-## OPEN — character subsystem, from the 2026-08-13 lens sweep
+## character subsystem — 2026-08-13 lens sweep · CHAR-1/2/3/7 FIXED, CHAR-8 partly, CHAR-4/5/6 open
 
 Full evidence, reproduction chains and fixes: `docs/superpowers/notes/2026-08-13-character-lens-sweep.md`.
 Every one was confirmed by ≥2 independent panel seats and re-verified by the overseer against the
@@ -20,7 +20,8 @@ both ability hooks and the per-character asset paths at zero automated coverage.
 fixture re-record will go green and change none of that. Fixing it needs a design decision (how
 does a fixture select a character?), so it is a *task*, not a patch.
 
-### CHAR-1 — skid dust spawns through the entire jump arc — RELEASE, Sonic, ordinary play
+### CHAR-1 — ~~skid dust trails the whole jump arc~~ **FIXED**
+*Fix:* skid_latch cleared unconditionally at the top of `Player_Animate`, re-armed only by `.skid_show` (one writer); the once-per-skid SFX edge re-keyed onto the previous frame's `anim`. Oracle before/after: 3 mid-air DustPuffs -> 0; natural repro clean on the final combined ROM; grounded skid dust unaffected (2 puffs at feet).
 `PlayerV.skid_latch`'s only clear (`player_common.emp:896`) sits below both the `ST_ROLLING`
 (`:836`) and `ST_IN_AIR` (`:855`) early-returns, and `Dust_Tick` (`dust_spindash.emp:85-90`) reads
 it guarded by nothing but a `PSTATE_SLIDE` check. **Repro (3 inputs):** run to
@@ -30,7 +31,8 @@ spindash and (Knuckles) glide. Tails skid→jump→flight emits ~120 puffs, perm
 of 16 `NUM_EFFECTS` slots and silently dropping other effects.
 **Fix:** clear the latch at the top of `Player_Animate` and let `.skid_show` re-`st` it.
 
-### CHAR-2 — left-wall glide catches always fail — Knuckles
+### CHAR-2 — ~~left-wall glide catches always fail~~ **FIXED (mechanism-verified, not end-to-end)**
+*Fix:* wall side taken from `PlayerV.glide_angle` (S3K's `double_jump_property + $40`), which collision never touches, instead of the always-zero `x_vel`; scratch in d7 because `Climb_WallDist` returns in d0. Same change at `.hit_floor` for corner landings. *Verification is partial:* `glide_angle` measured live at `$80` mid-left-glide and the arithmetic matches S3K, but OJZ act1 sec0 has no climbable wall at glide height in either direction, so a catch could not be staged.
 `Knuckles_Gliding_WallCatch` (`player_climb.emp:492`) picks the wall side with `tst.w x_vel`, but
 both `Air_WallProbeLeft/Right` do `clr.w x_vel(a0)` on the very hit that sets `GLF_PUSH_BIT`, so
 `x_vel` is always 0 there and `bmi` never taken. Knuckles always faces right; `Climb_WallDist`
@@ -40,7 +42,8 @@ which is why nine rounds of playtest passed.
 `double_jump_property + $40 / bpl`, never velocity. Second site, same root:
 `player_glide.emp:158-163` `.hit_floor`.
 
-### CHAR-3 — `Slide_Terrain` applies a quadrant-rotated probe along a fixed +Y — latent
+### CHAR-3 — ~~`Slide_Terrain` rotated probe vs fixed +Y snap~~ **FIXED**
+*Fix:* `clr.b PlayerBlock.quadrant(a4)` at the top of `PState_Slide` — the `Air_Collide` idiom, and truthful: the slide's terrain model is fixed-down exactly like S3K's.
 `player_glide.emp:478-485` calls the rotated `Player_SensorFloor` and `add.l d0, y_pos` regardless,
 while writing `angle` from the floor every frame — which `Player_Main:583-587` turns into next
 frame's quadrant. `PSTATE_SLIDE` never routes through `Air_Collide`, so nothing zeroes it here, and
@@ -70,14 +73,17 @@ All three mid-air 21→39 restores (glide release, slide ledge-drop, wall-catch 
 sites leave `y_pos` alone; S3K lifts only on the two GROUNDED landings — where ours is correct and
 should stay.
 
-### CHAR-7 — minor state leaks
+### CHAR-7 — ~~minor state leaks~~ **FIXED**
+*Fix:* `Air_LandOnObject` now clears the derived quadrant alongside `angle`; `ST_PUSHING` cleared once in `PHook_GroundEnter`, which all four Knuckles landing paths reach.
 `Air_LandOnObject` (`player_air.emp:420-423`) doesn't clear the cached quadrant before
 `Air_LandState`'s ceiling probe, so a solid-object landing while carrying a steep angle decides
 stand-vs-roll from a horizontal clearance reading. And `ST_PUSHING` survives the whole
 jump→glide→climb chain (none of the four Knuckles landing paths clears it), showing one frame of
 `ANIM_PUSH` on touchdown — fixable once in `PHook_GroundEnter`.
 
-### CHAR-8 — vacuous guards (build-time, no runtime symptom yet)
+### CHAR-8 — ~~vacuous guards~~ **PARTLY FIXED**
+*Fixed:* the climb guard re-bound to `KNUX_ABILITY_RADIUS` (exported) with its three derived offsets guarded too; the three `PhysTable_*` guards and the clamber terminal bound through shared constants (`PHYS_ROW_WORDS`, `CLIMB_CLAMBER_BYTES`). All proven to fail on the drift they exist to catch. No tautological assert was left behind where the binding became structural.
+*Still open:* the 21 hand-rolled `PBLK_*` offsets (16 unguarded) and the palette guard that tests agreement rather than grayness.
 `ensure(CLIMB_RADIUS == PLAYER_X_RADIUS + 1)` (`player_climb.emp:121`) binds the climb probes to
 **Sonic's standing radius**, not `KNUX_ABILITY_RADIUS`; it holds only by the 9+1==10 coincidence, so
 retuning the ability radius silently desyncs all six probe offsets with a green build. Found by
