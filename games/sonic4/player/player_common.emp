@@ -65,7 +65,8 @@ use games.sonic4.constants.{
     ANIM_BALANCE, ANIM_LOOKUP, ANIM_DUCK, ANIM_SKID, ANIM_GETUP,
     ANIM_FLY, ANIM_FLY_TIRED,
     ANIM_GLIDE_0, ANIM_GLIDEFALL, ANIM_SLIDE, ANIM_CLIMB, ANIM_LEDGE,
-    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT
+    ANIM_RUN_THRESHOLD, VRAM_TEST_MARKER, CHEAT_DEBUG_FLY, CHAR_COUNT,
+    PLAYER_PRIORITY_BAND
 }
 
 // Sound id — sole authority is games.sonic4.sound_ids.
@@ -423,7 +424,12 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         move.b  #ANIM_IDLE, anim(a0)            // Player_Display re-selects per frame
         move.b  #$FF, prev_anim(a0)
         move.b  #$FF, prev_frame(a0)
-        set_priority_band(4)                    // C1c idiom: clear-then-set
+        set_priority_band(PLAYER_PRIORITY_BAND) // C1c idiom: clear-then-set. NAMED because the
+                                                // effect dust derives its band from this one
+                                                // (config/constants.emp: dust = player + 1, with
+                                                // an ensure) — S3K composites the dust OVER the
+                                                // character, and a bare literal here let that
+                                                // relationship drift silently.
         move.b  #COLLISION_NONE, collision_resp(a0)
         clr.b   status(a0)
         clr.b   angle(a0)

@@ -69,8 +69,20 @@ equ CHARDEF_TAILS        = extern("CharDef_Tails")
 // fairness"). Copying the parent's band would put the body and the tails in the
 // same band and hand their z-order to that coin flip: the tails would pop in
 // front of Tails every other frame. A band BELOW the player's is the only way to
-// state "always behind the body" in this renderer. Player_Init's band is 4
-// (player_common, `set_priority_band(4)`); this is 3.
+// state "always behind the body" in this renderer. Player_Init's band is
+// PLAYER_PRIORITY_BAND (4, config/constants.emp); this is 3.
+//
+// CHECKED against S3K when the effect dust was moved in front (2026-08-12) — and
+// DELIBERATELY LEFT BEHIND. S3K's Obj_Tails_Tail does NOT pick a lower bucket: it
+// copies the parent's outright (`move.w priority(a2),priority(a0)`,
+// sonic3k.asm:30021+), so the tails share Tails' bucket and their z-order falls
+// out of insertion order — the tails object occupies a later slot than the player,
+// is appended after it, and so composites BEHIND the body. Same visual result as
+// this band, arrived at differently. Reproducing S3K's mechanism literally (same
+// band) would be strictly WORSE here, because our Render_Sprites deliberately
+// reverses intra-band order every frame for fairness: co-banding would convert
+// S3K's stable "behind" into a per-frame flicker. So the dust moved and this did
+// not — the two children are not the same case.
 // -----------------------------------------------
 const APPENDAGE_PRIORITY_BAND = 3
 

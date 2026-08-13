@@ -6,7 +6,7 @@ use engine.objects.objdef.{vram_bytes}
 use engine.constants.{RF_PRIORITY_SHIFT, ST_XFLIP}
 use engine.coords.{pixels_to_coord}
 use engine.structs.{CharacterDef, cd_stand_h_off}
-use games.sonic4.constants.{PSTATE_SPINDASH, PSTATE_SLIDE, VRAM_DUST_SPINDASH}
+use games.sonic4.constants.{PSTATE_SPINDASH, PSTATE_SLIDE, VRAM_DUST_SPINDASH, EFFECT_DUST_BAND}
 use games.sonic4.player_common.{PlayerV}
 use games.sonic4.ram.{PlayerBlock}
 
@@ -141,10 +141,11 @@ vars DustV: Sst.sst_custom {
         player: u16,            // the player SST this follower tracks
 }
 
-// Band 2, the same deliberate deviation dust_puff.emp documents: behind the
-// player (4) and Tails' appendage (3), first to degrade at MAX_VDP_SPRITES.
-// Whole-byte write into a freshly zeroed slot, as there.
-const DUST_SPINDASH_BAND         = 2
+// EFFECT_DUST_BAND (= player band + 1) -> IN FRONT of the character, matching
+// S3K's relative order. Same reversal, same rationale, and the same accepted cost
+// as dust_puff.emp documents in full — see there. Whole-byte write into a freshly
+// zeroed slot, as there.
+const DUST_SPINDASH_BAND         = EFFECT_DUST_BAND
 const DUST_SPINDASH_RENDER_FLAGS = DUST_SPINDASH_BAND << RF_PRIORITY_SHIFT
 
 // Cross-seam link values — the sprite data lives in games.sonic4.dust_data,

@@ -61,6 +61,28 @@ pub const SPINDASH_BASE           = $800
 pub const SPINDASH_CHARGE_STEP    = $200
 pub const SPINDASH_CHARGE_MAX     = $800
 
+// -----------------------------------------------
+// SPRITE PRIORITY BANDS — the character and the effects composited against it.
+//
+// Render_Sprites (engine/objects/sprites.emp) walks bands 7 -> 0, APPENDING each
+// band's objects to the SAT. The earliest SAT entry wins on hardware, so a HIGHER
+// band number draws IN FRONT. (This is the opposite convention to S3K, whose
+// Draw_Sprite uses `priority` directly as a bucket offset walked from the start,
+// making the LOWER value the front one — so a band relationship copied from S3K's
+// raw numbers would come out inverted. Compare RELATIONSHIPS, never the values.)
+//
+// S3K's relative order, which these reproduce: Obj_DashDust sets priority $80
+// while the player sets $100 (sonic3k.asm:33975) — i.e. the dust composites OVER
+// the character. The dust is therefore exactly ONE band in front of the player.
+// -----------------------------------------------
+pub const PLAYER_PRIORITY_BAND    = 4         // the character (player_common.emp Player_Init)
+pub const EFFECT_DUST_BAND        = PLAYER_PRIORITY_BAND + 1   // skid/spindash/slide dust — IN FRONT
+
+ensure(EFFECT_DUST_BAND > PLAYER_PRIORITY_BAND,
+       "effect dust must be in a HIGHER band than the player — higher = drawn in front (Render_Sprites walks 7->0). S3K composites the dust OVER the character; a band re-shuffle that inverts this re-buries it behind the player.")
+ensure(EFFECT_DUST_BAND <= 7,
+       "effect dust band exceeds PRIORITY_BANDS-1 (7) — set_priority_band/render_flags carry only 3 bits")
+
 // Player states (jump-table byte offsets: index x 2)
 //
 // THE RULE, exactly: each state's value IS 2 x its row index in ALL THREE of the
