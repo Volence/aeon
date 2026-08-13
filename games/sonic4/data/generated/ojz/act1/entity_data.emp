@@ -34,7 +34,13 @@ struct ObjTypeTable2 { count: u8, pad: u8, t0: *u8, t1: *u8 }
 
 // ---- Sec0 ----
 pub data OJZ_Sec0_TypeTable: ObjTypeTable1 = ObjTypeTable1{ count: 1, pad: 0, t0: ObjDef_Solid }
-pub data OJZ_Sec0_Objects: [u16; 4] = [$323, $0D0, $0000, $FFFF]
+// --- sec0 carries the DEBUG-only glide test platform (REMOVABLE SCAFFOLD) ---
+// 8 solids edge to edge: x960-1088, top y=208, 48 px above the
+// y=256 surface, with the x768-895 pit as a clear approach.
+// DEBUG=0 emits the original list verbatim. See
+// tools/ojz_entity_gen.py debug_platform_words().
+const _SEC0_OBJ_N = if DEBUG == 1 { 28 } else { 4 }
+pub data OJZ_Sec0_Objects: [u16; _SEC0_OBJ_N] = if DEBUG == 1 { [$323, $0D0, $0000, $3C8, $0D8, $0000, $3D8, $0D8, $0000, $3E8, $0D8, $0000, $3F8, $0D8, $0000, $408, $0D8, $0000, $418, $0D8, $0000, $428, $0D8, $0000, $438, $0D8, $0000, $FFFF] } else { [$323, $0D0, $0000, $FFFF] }
 pub data OJZ_Sec0_Rings: [u16; 16] = [$080, $060, $090, $060, $0A0, $060, $0B0, $060, $0C0, $060, $134, $09D, $144, $09D, $000, $000]
 
 // ---- Sec1 ----

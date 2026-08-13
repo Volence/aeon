@@ -262,6 +262,42 @@ def hexw(v: int) -> str:
     return f"${v:03X}"
 
 
+# ---------------------------------------------------------------------------
+# DEBUG-only glide test platform — REMOVABLE SCAFFOLD (2026-08-12)
+#
+# WHY IT EXISTS: the shipped sec0 solid (x=803, y=208) is untestable for the
+# "solid tops are floors" ruling by construction — it is a 16x16 block whose top
+# (y=200) sits 8 px above the local surface, and a glide crosses its 16 px width
+# in ONE frame at 16 px/frame, so the contact window is unhittable by frame
+# stepping. This is a WIDE, clearly ELEVATED platform with a long clear approach.
+#
+# GEOMETRY (all derived from section_0.collattr.bin, not guessed):
+#   ground surface over x896-1279 is y=256 (a 384 px flat band)
+#   8 x ObjDef_Solid (16x16 each) laid edge to edge, centres 16 px apart
+#   spans x960-1088 (128 px wide); centre y=216 -> TOP AT y=208, i.e. 48 px of
+#   clear air above the surface, with the x768-895 pit immediately left of it so
+#   the approach glide has nothing to clip.
+# All x are > 803, so appending here keeps the object list X-SORTED (the entity
+# window relies on that ordering) without touching the shipped record.
+#
+# TO REMOVE: delete this function, the DBG_PLATFORM_SEC const, and the sec0
+# branch in emit_section, then re-run tools/regenerate-level.sh.
+# ---------------------------------------------------------------------------
+DBG_PLATFORM_SEC = 0
+DBG_PLATFORM_XS = (968, 984, 1000, 1016, 1032, 1048, 1064, 1080)
+DBG_PLATFORM_Y = 216
+
+
+def debug_platform_words() -> list[str]:
+    """The gated records: { x, y, packed } per block, type 0 (ObjDef_Solid —
+    sec0's only type) and subtype 0, i.e. the same archetype the shipped record
+    uses, so no type-table change is needed."""
+    words: list[str] = []
+    for x in DBG_PLATFORM_XS:
+        words += [hexw(x), hexw(DBG_PLATFORM_Y), "$0000"]
+    return words
+
+
 def emit_section(lines: list[str], sec_idx: int,
                  sorted_objects, type_order, library, sorted_rings) -> None:
     """Append one section's TypeTable/Objects/Rings `.emp` items to lines
@@ -286,8 +322,27 @@ def emit_section(lines: list[str], sec_idx: int,
             mask |= (1 << OEF_FLAG_BITS[name])
         packed = mask | (type_idx << OEF_TYPE_SHIFT) | subtype
         ow += [hexw(x), hexw(y), f"${packed:04X}"]
-    ow.append("$FFFF")
-    lines.append(f"pub data OJZ_Sec{sec_idx}_Objects: [u16; {len(ow)}] = [{', '.join(ow)}]")
+    if sec_idx == DBG_PLATFORM_SEC:
+        # DEBUG-only glide test platform (REMOVABLE SCAFFOLD). ONE conditional
+        # decl, not a split list: the DEBUG=0 branch is the byte-for-byte
+        # original array, so the release ROM is unchanged. The platform records
+        # go before the terminator and all their X are > the shipped record's, so
+        # the list stays X-SORTED (the entity window depends on that).
+        rel = ow + ["$FFFF"]
+        dbg = ow + debug_platform_words() + ["$FFFF"]
+        lines.append("// --- sec0 carries the DEBUG-only glide test platform "
+                     "(REMOVABLE SCAFFOLD) ---")
+        lines.append("// 8 solids edge to edge: x960-1088, top y=208, 48 px above the")
+        lines.append("// y=256 surface, with the x768-895 pit as a clear approach.")
+        lines.append("// DEBUG=0 emits the original list verbatim. See")
+        lines.append("// tools/ojz_entity_gen.py debug_platform_words().")
+        lines.append(f"const _SEC0_OBJ_N = if DEBUG == 1 {{ {len(dbg)} }} else {{ {len(rel)} }}")
+        lines.append(f"pub data OJZ_Sec{sec_idx}_Objects: [u16; _SEC0_OBJ_N] = "
+                     f"if DEBUG == 1 {{ [{', '.join(dbg)}] }} "
+                     f"else {{ [{', '.join(rel)}] }}")
+    else:
+        ow.append("$FFFF")
+        lines.append(f"pub data OJZ_Sec{sec_idx}_Objects: [u16; {len(ow)}] = [{', '.join(ow)}]")
 
     # Rings: dc.w X,Y pairs + a longword-0 terminator (two zero words).
     rw: list[str] = []
