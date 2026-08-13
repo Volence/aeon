@@ -472,6 +472,21 @@ non-fatal ratchet rather than a hard assert.
 | **CHAR-7** state leaks | **FIXED** | Quadrant cleared with `angle`; `ST_PUSHING` cleared in `PHook_GroundEnter`. |
 | **G1 / CHAR-8 (part)** | **FIXED** | Climb guard re-bound to `KNUX_ABILITY_RADIUS`; `PhysTable_*` and clamber bound via shared constants. All proven to fail on their drift. |
 
+**Wrap-up additions.** G2 (all 16 unguarded `PBLK_*` offsets now bind to
+`PlayerBlock` — a field inserted at its head fires 18 guards where 5 would have),
+G4 (dust grays pinned as literals per palette, not merely agreeing with each
+other), and CHAR-5's false S3K citation corrected in place. CHAR-8 is closed.
+
+**What is deliberately NOT done, and why.** CHAR-4 (no ceiling probe in the glide
+family), CHAR-5's actual probe change, and CHAR-6 (the 9px mid-air lift) are all
+glide-family physics. They interact, and restoring CHAR-5's A/B pair specifically
+risks re-opening the wall-catch bug it was introduced to work around. OJZ act1
+sec0 has no climbable wall at glide height in either direction, so neither the
+change nor its regression can be verified here. Making unverifiable physics
+changes at wrap-up would have been the wrong trade; the record is corrected and
+the parcel is booked instead. It wants either authored test geometry (the reverted
+DEBUG glide platform, done properly) or a section that has a real wall.
+
 **A process failure worth recording.** Midway through, the shell cwd reverted to the
 main repo, so `python`/`bash` edits (G1, the guards) landed on **master** and were
 committed there, while `Edit`-tool edits (CHAR-2/3/7, absolute paths) stayed in the
