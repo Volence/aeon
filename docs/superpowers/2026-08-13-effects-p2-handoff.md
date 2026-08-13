@@ -9,7 +9,7 @@ Knuckles half of that doc is **done — merged as `50d54612`**.
 |---|---|---|
 | worktree | `.worktrees/effects-p2` | `.worktrees/effects-p2` |
 | branch | `feat/effects-p2-palette` | `feat/effects-p2` |
-| tip | `6daf6c6d` | `c4938391` |
+| tip | `17ca9ec3` | `c4938391` |
 
 Build with THIS lane's binaries (the sigil module registry is global per binary pair):
 
@@ -19,7 +19,7 @@ SIGIL_EMIT=/home/volence/sonic_hacks/sigil/.worktrees/effects-p2/target/release/
 DEBUG=1 ./build.sh
 ```
 
-Shapes: debug `fa5c04e5` / 711162 · plain `2add4b51` / 696698 · 31.8 KB free before
+Shapes: debug `f9b3d140` / 711252 · plain `2e932149` / 696788 · 31.8 KB free before
 stack · aeon pytest **941 passed, 2 skipped**.
 
 ---
@@ -42,6 +42,11 @@ stack · aeon pytest **941 passed, 2 skipped**.
   boundary. The claim that OJZ art is all high-priority is wrong for section 1.
 - **Task 9 budget model populated** from oracle profiling.
 - Sigil now reports every build error, not just the first.
+- **World-anchored water + an off-screen wrap bug fixed.** The boundary was a screen
+  row; it is now anchored to a world Y. The runtime patch path had no off-screen guard
+  (the comptime one does), so a negative screen line wrapped into an arbitrary on-screen
+  row — unreachable while the line was a build-time constant, reachable on every
+  vertical scroll once world-anchored. All four branches verified on hardware.
 
 Evidence: `docs/benchmarks/effects-p2/GATE-EVIDENCE.md` (+ 4 captures).
 
@@ -109,6 +114,13 @@ and STOP if it looks behavioural rather than layout-induced.
 - Dense tier not yet captured under MOTION (the discriminator used is
   art-independent, so a static frame is sound for the claim made, but a moving
   capture is still owed).
+- The **gradient is not world-anchorable** yet — its arm words are comptime ROM
+  constants. Making it movable means installing it into `Raster_Buf_B` the way water
+  is, then reusing `Raster_PatchWaterLine`'s (now correct) off-screen handling. Left
+  unbuilt rather than built speculatively.
+- A fully-submerged view keeps a 3-line un-effected sliver at the top (screen lines
+  0-2 are the priming records'); a seamless full-screen state must come from the
+  program's frame-top init words — a content decision.
 - Two budget rows honestly unmeasured: `OP_PAL_REGION` handler delta, fade step —
   neither scenario was armed.
 - Test fixtures are garish placeholders; Phase 3 prunes them for real content.
@@ -128,9 +140,12 @@ and STOP if it looks behavioural rather than layout-induced.
 4. **The camera is soft-clamped** and converges to a teleport over several hundred
    frames. For an A/B, wait until `Camera_X`/`Camera_Y` STOP CHANGING — comparing two
    captures at different camera positions makes the pixel counts meaningless.
-5. **A `comptime fn`'s struct-literal field values resolve at the EMISSION site's
-   scope**, so a constructor's own module-local constants must be imported into the
-   consumer module. An unresolved bareword degrades SILENTLY to a label ref.
+5. **A `comptime fn`'s free names resolve at its CALL site, not where it is defined.**
+   Broader than the struct-literal case: any module-local constant a comptime fn
+   spells must be visible in the CALLING module. In a scalar field this is a loud
+   `unknown name`; in a struct-literal field it degrades SILENTLY to a label ref.
+   Either import into the consumer, or inline the literal and pin it with a
+   module-scope `ensure` (what `water_arm0` does).
 
 ## 6. Suggested order
 
