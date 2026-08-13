@@ -396,6 +396,30 @@ object-side opt-out.
 a scripted no-climb zone). It is an object flag consulted at the wall-catch (`player_climb.emp`
 `Knuckles_Gliding_WallCatch`) and the two climb detach points.
 
+### Climb tolerates a 1..3 px wall recess — DELIBERATE S3K divergence — 2026-08-12
+**Surfaced during:** Knuckles C4 climb verification (user playtest, reproduced live).
+**Status:** SHIPPED as a user-ruled deviation, recorded here so it is never "corrected" back.
+S3K freezes the climb on any non-flush, non-ledge wall reading ("If Knuckles has encountered
+a small dip in the wall, then make him stop" — `Knuckles_Wall_Climb`, `tst.w d1; bne
+.notMoving`). That is safe on S3K's terrain because its climbable walls have FLAT tops, so
+the wall distance jumps 0 → ≥4 in one step and the freeze band is never entered en route to
+a ledge. **Our terrain has SLOPED grass tops** (ubiquitous), so the face recedes gradually
+and the probe walks 0 → 1 → 2 → 3 before reaching the ledge threshold — S3K's rule then
+wedges the ascent permanently, ~7 px short of the top, with no eject and no ledge.
+Reproduced at the user's ledge: left face x464, frozen at y=561; the platform's top tile is
+shape 29 (heights `[9,9,10,10,…,16,16]`, a slope). **The divergence:** a distance of 1..3
+means "still on the wall" and the climb continues (normal ceiling gate + 1 px ascent);
+freeze is reserved for EMBEDDED (dist < 0), a genuine intrusion. The ledge threshold
+(`CLIMB_LEDGE_DIST` = 4) is UNCHANGED, so the ledge still fires by S3K's own test — at
+y=560 the gap reads exactly 4. `x_pos` is deliberately NOT hugged toward the wall (that
+would drift off `knux_latch_x` and trip the latch-drift detach). The same tolerance is
+mirrored in the climb-DOWN path, where S3K's `bne` ejected on a 1..3 recess mid-descent (a
+spurious fall rather than a wedge, same cause); a real wall end (≥4 / the +32 sentinel) and
+EMBEDDED still detach there exactly as S3K does.
+**When to revisit:** only if terrain authoring moves to flat-topped climbable walls, which
+would make the divergence inert rather than wrong. See `games/sonic4/player/player_climb.emp`
+header and ARCH §5.4.
+
 ### Cycle Profiler (§8.5) Not Wired — Frame-Budget Measured via Lag Counter — 2026-06-14
 **Surfaced during:** §5 Task 10.4 frame-budget pass.
 **Status:** The §8.5 raster-bar / lagometer cycle profiler is NOT built.

@@ -24,6 +24,32 @@
 // integer px, big-endian), exactly as S3K's `subq.w #1,y_pos` does — the fraction rides
 // along untouched, which is what keeps 1px/frame climbing clean.
 //
+// *** DELIBERATE S3K DIVERGENCE — the climb tolerates a 1..3 px wall RECESS ***
+// (user-ruled 2026-08-12; the ONE place this module knowingly departs from S3K.)
+//
+// S3K freezes the climb on any non-flush, non-ledge wall reading: "If Knuckles has
+// encountered a small dip in the wall, then make him stop" (Knuckles_Wall_Climb —
+// `tst.w d1; bne .notMoving`). That rule is safe on S3K's terrain because its climbable
+// walls have FLAT tops: the reading jumps 0 -> >=4 in one step, so the freeze band is
+// never entered on the way to a ledge.
+//
+// OUR terrain has SLOPED (grass) tops, which is ubiquitous here. The face then recedes
+// GRADUALLY near the top, so the wall probe walks 0 -> 1 -> 2 -> 3 before it ever reaches
+// the ledge threshold of 4 — and S3K's rule freezes the ascent permanently, ~7 px short of
+// the top, with no eject and no ledge. That is a WEDGE, not a stumble: the player is stuck
+// on a ledge the level geometry plainly invites them to climb. Verified live at the user's
+// ledge (left face x464, freeze at y561; the platform's top tile is shape 29, heights
+// [9,9,10,10,...], a slope).
+//
+// THE DIVERGENCE: a distance of 1..3 means "still on the wall" and the climb CONTINUES
+// (normal ceiling gate + 1 px ascent). Freeze is reserved for EMBEDDED (dist < 0) — a
+// genuine intrusion, where advancing would drive Knuckles into terrain. The ledge
+// threshold (>= CLIMB_LEDGE_DIST) is UNCHANGED, so the ledge still fires by S3K's own
+// test — the recess band just stops blocking the approach to it. Knuckles is NOT hugged
+// toward the wall: x_pos must stay put or it would drift off knux_latch_x and trip the
+// latch-drift detach at the top of PState_Climb. The same tolerance is mirrored in the
+// climb-DOWN path (see there). DEFERRED_WORK.md and ARCH §5 carry the same note.
+//
 // OVERHANG / GRASS-LIP AUTHORING NOTE (Bug B, user-reported "can't top out under an
 // overhanging lip"). EVERY climb probe here is SOLID_LRB — the facing wall probe
 // (Climb_WallDist -> Player_SensorWallDir) AND the flush-climb ceiling probe (SOLID_LRB
@@ -153,9 +179,11 @@ proc Climb_Animate (a0: *Sst) clobbers(d0-d2/a1) {
 // -----------------------------------------------
 // PState_Climb — one frame on the wall (S3K Knuckles_Wall_Climb, :31038). THREE detach
 // conditions: latch-X drift (something pushed Knuckles off), ST_ON_OBJECT (an object now
-// carries him), and wall-loss (climb-DOWN only). Up: wall far (>=4) → ledge; a small dip
-// (1..3 or embedded) → freeze in place; flush (0) → ceiling-gated 1px up. Down: wall gone
-// → detach; floor below (dist < 0) → land; else 1px down. Idle: floor below → land.
+// carries him), and wall-loss (climb-DOWN only). Up: wall far (>=4) → ledge; EMBEDDED
+// (< 0) → freeze in place; flush (0) or a 1..3 RECESS → ceiling-gated 1px up (the
+// user-ruled S3K divergence — see the header). Down: embedded or wall gone (>=4/+32) →
+// detach, a 1..3 recess keeps descending; floor below (dist < 0) → land; else 1px down.
+// Idle: floor below → land.
 // In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_LEDGE / PSTATE_GROUND / PSTATE_JUMP / PSTATE_GLIDEFALL)
 // Clobbers: d0-d7, a1-a2
@@ -191,8 +219,10 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         cmpi.w  #CLIMB_LEDGE_DIST, d0
         bge     Climb_ToLedge                    // wall far → reached a ledge
         tst.w   d0
-        bne     .dip                             // a dip (1..3 or embedded) → freeze, don't detach
-        // flush against the wall — check for headroom
+        bmi     .dip                             // EMBEDDED (dist < 0) → freeze. A 1..3 RECESS
+                                                 //   falls through and keeps climbing — the
+                                                 //   user-ruled S3K divergence, see the header.
+        // on the wall (flush, or 1..3 recessed) — check for headroom
         move.w  x_pos(a0), d0
         move.w  y_pos(a0), d1
         subi.w  #CLIMB_CEIL_Y, d1                // ceiling probe origin (y-18)
@@ -219,8 +249,18 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         move.w  y_pos(a0), d1
         addi.w  #CLIMB_WALL_PROBE_Y, d1          // wall probe at y+11
         jbsr    Climb_WallDist                   // d0 = wall dist
+        // MIRROR OF THE UP-PATH DIVERGENCE (same sloped-top terrain, descending). S3K
+        // detaches on ANY nonzero here (`tst.w d1; bne LetGoOfWall`), so a 1..3 px RECESS
+        // — a sloped or textured face, not a wall end — ejected Knuckles into a fall
+        // mid-descent. The failure mode differs from the up-path's (a fall, not a wedge),
+        // but the cause is identical, so the tolerance is applied identically: a real wall
+        // END still reads >= CLIMB_LEDGE_DIST (or the +32 "nothing" sentinel) and still
+        // detaches, and EMBEDDED still detaches exactly as S3K does.
         tst.w   d0
-        bne     Climb_LetGo                      // wall gone below (asymmetric with UP) → detach
+        bmi     Climb_LetGo                      // embedded → detach (S3K, unchanged)
+        cmpi.w  #CLIMB_LEDGE_DIST, d0
+        bge     Climb_LetGo                      // wall genuinely gone below (>=4 / +32) → detach
+                                                 //   (asymmetric with UP, where >=4 = a ledge)
         // floor below?
         move.w  x_pos(a0), d0
         move.w  y_pos(a0), d1
@@ -241,6 +281,9 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         jbra    .finish
 
 .dip:
+        // Reached ONLY when embedded (dist < 0) now — a genuine intrusion into the face,
+        // where advancing would push Knuckles into terrain. A 1..3 recess no longer lands
+        // here (see the up-path branch + the header's divergence note).
         moveq   #0, d3                           // pause the cycle (re-set: Climb_WallDist clobbered d3)
 .finish:
         // Idle floor-detach (S3K :31334 — runs when NOT holding up/down): ground directly
