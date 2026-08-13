@@ -130,12 +130,117 @@ def check_dplc_file(path, art_tile_count):
     return len(issues) == 0, frame_count, stats, issues
 
 
+# (dplc, art) PAIRS, named explicitly rather than discovered by globbing two
+# directories and hoping the stems match.
+#
+# The old form globbed `data/dplc` — a path that has not existed since the
+# engine/game restructure moved the tables to games/sonic4/data/dplc. The glob
+# therefore matched nothing, the whole DPLC section was skipped, `all_ok` stayed
+# True and test.sh printed "PASS: Sprite & DPLC verification" while verifying
+# zero tables. Knuckles was never covered at all (there is no
+# art/uncompressed/characters/knuckles.bin), and the one check that matters most
+# — every DPLC tile index inside its art blob — was the check being skipped.
+#
+# SHIPPED pairs are exactly what the .emp modules embed(), so this list is
+# checkable against them by grep. Note knuckles ships a RAW dplc while the other
+# three ship optimized ones — precisely the asymmetry a stem-matching glob hides.
+SHIPPED_PAIRS = [
+    ('sonic',       'games/sonic4/data/dplc/optimized/sonic.bin',
+                    'art/optimized/characters/sonic.bin'),
+    ('tails',       'games/sonic4/data/dplc/optimized/tails.bin',
+                    'art/optimized/characters/tails.bin'),
+    ('tails_tail',  'games/sonic4/data/dplc/optimized/tails_tail.bin',
+                    'art/optimized/characters/tails_tail.bin'),
+    ('knuckles',    'games/sonic4/data/dplc/knuckles.bin',
+                    'art/optimized/characters/knuckles.bin'),
+    ('dust',        'games/sonic4/data/generated/dust/dplc_dust.bin',
+                    'games/sonic4/data/generated/dust/art_dust.bin'),
+]
+
+# On disk and verifiable, but not embedded in the ROM today. Still checked — a
+# broken pending asset should fail here, not on the day someone wires it up.
+PENDING_PAIRS = [
+    ('sonic_src',      'games/sonic4/data/dplc/sonic.bin',
+                       'art/uncompressed/characters/sonic.bin'),
+    ('tails_src',      'games/sonic4/data/dplc/tails.bin',
+                       'art/uncompressed/characters/tails.bin'),
+    ('tails_tail_src', 'games/sonic4/data/dplc/tails_tail.bin',
+                       'art/uncompressed/characters/tails_tail.bin'),
+    ('bubble_shield',    'games/sonic4/data/dplc/bubble_shield.bin',
+                         'art/uncompressed/shields/bubble_shield.bin'),
+    ('fire_shield',      'games/sonic4/data/dplc/fire_shield.bin',
+                         'art/uncompressed/shields/fire_shield.bin'),
+    ('insta_shield',     'games/sonic4/data/dplc/insta_shield.bin',
+                         'art/uncompressed/shields/insta_shield.bin'),
+    ('lightning_shield', 'games/sonic4/data/dplc/lightning_shield.bin',
+                         'art/uncompressed/shields/lightning_shield.bin'),
+    # wind shares the lightning art (same animation, recoloured)
+    ('wind_shield',      'games/sonic4/data/dplc/wind_shield.bin',
+                         'art/uncompressed/shields/lightning_shield.bin'),
+]
+
+
+def verify_pairs(base, pairs, heading):
+    """Check each (dplc, art) pair. A missing file is a FAILURE, not a skip:
+    a named gate whose input is absent is a red gate."""
+    ok_all = True
+
+    print("\n" + "=" * 70)
+    print(heading)
+    print("=" * 70)
+
+    for name, dplc_rel, art_rel in pairs:
+        dplc_path = base / dplc_rel
+        art_path = base / art_rel
+
+        missing = [p for p in (dplc_path, art_path) if not p.is_file()]
+        if missing:
+            print(f"\n  [FAIL] {name}")
+            for p in missing:
+                print(f"       missing input: {p.relative_to(base)}")
+            ok_all = False
+            continue
+
+        art_ok, art_tiles, art_issues = check_art_file(art_path)
+        if not art_ok:
+            print(f"\n  [FAIL] {art_path.relative_to(base)}")
+            for issue in art_issues:
+                print(f"       {issue}")
+            ok_all = False
+
+        # art_tiles is the real bound — there is no 65536 escape hatch. The old
+        # code substituted 65536 when it could not find the art, which disabled
+        # the tile-index bounds check that is this tool's whole reason to exist.
+        dplc_ok, frame_count, stats, issues = check_dplc_file(dplc_path, art_tiles)
+        status = "OK" if dplc_ok else "FAIL"
+        print(f"\n  [{status}] {name}: {dplc_path.relative_to(base)}")
+        print(f"       art: {art_path.relative_to(base)} ({art_tiles} tiles)")
+
+        if stats:
+            print(f"       {stats['frame_count']} frames, "
+                  f"{stats['avg_entries']:.1f} avg entries/frame (max {stats['max_entries']})")
+            print(f"       {stats['avg_tiles']:.1f} avg tiles/frame (max {stats['max_tiles']}), "
+                  f"highest tile index: {stats['max_tile_index']}")
+            print(f"       Avg DMA per frame change: {stats['avg_dma_bytes']:.0f} bytes, "
+                  f"max: {stats['max_dma_bytes']} bytes")
+            print(f"       Art utilization: {stats['art_utilization']:.1f}% "
+                  f"({stats['max_tile_index'] + 1}/{art_tiles} tiles referenced)")
+
+        for issue in issues:
+            prefix = "FAIL:" if "exceed" in issue or "out of bounds" in issue else "     "
+            print(f"       {prefix} {issue}")
+
+        if not dplc_ok:
+            ok_all = False
+
+    return ok_all
+
+
 def main():
     base = Path(__file__).parent.parent
 
     art_dir = base / 'art' / 'uncompressed' / 'characters'
     shield_dir = base / 'art' / 'uncompressed' / 'shields'
-    dplc_dir = base / 'data' / 'dplc'
 
     ART_ALIASES = {
         'wind_shield': 'lightning_shield',
@@ -161,45 +266,11 @@ def main():
                 if not ok:
                     all_ok = False
 
-    print("\n" + "=" * 70)
-    print("DPLC TABLE VERIFICATION")
-    print("=" * 70)
+    if not verify_pairs(base, SHIPPED_PAIRS, "DPLC TABLE VERIFICATION — SHIPPED (embedded in the ROM)"):
+        all_ok = False
 
-    if dplc_dir.exists():
-        for f in sorted(dplc_dir.glob('*.bin')):
-            name = f.stem
-            art_name = ART_ALIASES.get(name, name)
-            art_count = art_files.get(art_name, 0)
-
-            if art_name != name and art_count > 0:
-                print(f"\n       (using art from '{art_name}' — shared animation)")
-
-            if art_count == 0:
-                print(f"\n  [WARN] {f.relative_to(base)}")
-                print(f"       No matching art file for '{name}' — validating structure only")
-                art_count = 65536
-
-            ok, frame_count, stats, issues = check_dplc_file(f, art_count)
-            status = "OK" if ok else "FAIL"
-            print(f"\n  [{status}] {f.relative_to(base)}")
-
-            if stats:
-                print(f"       {stats['frame_count']} frames, "
-                      f"{stats['avg_entries']:.1f} avg entries/frame (max {stats['max_entries']})")
-                print(f"       {stats['avg_tiles']:.1f} avg tiles/frame (max {stats['max_tiles']}), "
-                      f"highest tile index: {stats['max_tile_index']}")
-                print(f"       Avg DMA per frame change: {stats['avg_dma_bytes']:.0f} bytes, "
-                      f"max: {stats['max_dma_bytes']} bytes")
-                if art_count < 65536:
-                    print(f"       Art utilization: {stats['art_utilization']:.1f}% "
-                          f"({stats['max_tile_index'] + 1}/{art_count} tiles referenced)")
-
-            for issue in issues:
-                prefix = "FAIL:" if "exceed" in issue or "out of bounds" in issue else "     "
-                print(f"       {prefix} {issue}")
-
-            if not ok:
-                all_ok = False
+    if not verify_pairs(base, PENDING_PAIRS, "DPLC TABLE VERIFICATION — PENDING (on disk, not yet embedded)"):
+        all_ok = False
 
     print("\n" + "=" * 70)
     if all_ok:
