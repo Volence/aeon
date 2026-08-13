@@ -290,9 +290,18 @@ pub vars upper_ram {
     Raster_Dense_Cmd:    u32,       // constant CRAM write command for every line of the run
     // Water_Level patch slot (effects P2 Task 7) — the runtime water-line screen row.
     // The main loop patches Raster_Buf_B's priming arm word from this so the water
-    // boundary can move without rebuilding the program (Raster_PatchWaterLine). Also
-    // keeps the block even-sized (span-guarded).
+    // boundary can move without rebuilding the program (Raster_PatchWaterLine).
+    // DERIVED, not authored: Raster_PatchWaterWorldY writes it each frame from
+    // Raster_Water_World_Y minus the camera. It may be negative or past the screen
+    // bottom — the two off-screen branches in Raster_PatchWaterLine are what give
+    // those meaning (fully submerged / not visible).
     Raster_Water_Line:  u16,
+    // The AUTHORED half of the pair: the water surface's world Y. Water level is a
+    // property of the LEVEL, not of the display, so this is the value content sets and
+    // the screen row above is recomputed from it every frame. Anchoring it here rather
+    // than at a fixed screen row is what stops the boundary sliding around as the
+    // camera moves vertically.
+    Raster_Water_World_Y: u16,
     mark Raster_State_End,
 
     // --- Palette engine state (effects P2) — the composition pipeline's working

@@ -180,8 +180,8 @@ pub const RASTER_BUF_SIZE = 128
 // Raster_State span guard — the RAM block (engine/ram.emp) is the twin of this
 // layout; a drift on either side must fail the build, not the frame.
 //   Program 4 + Cursor 4 + Pending 4 + Line 2 + Buf_A + Buf_B + Active_Buf 4
-//   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4 + Pad 2
-pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2
+//   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4 + Water_Line 2 + Water_World_Y 2
+pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 2
 ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
        "Raster_State RAM block drifted from hblank.emp's raster layout")
 
@@ -577,10 +577,24 @@ pub const WATER_TEMPLATE_ARM0_OFF = 6
 // 0 is consumed at the NEXT reload and schedules gap(1 -> event). The event fire must be
 // at M-1 so its writes land on M (Ruling 1a). Priming fire 1 is at line 1, so the gap
 // 1 -> (M-1) needs reg $0A = (M-1) - 1 - 1 = M - 3. So arm0 = $8A00 | (M - 3).
+//
+// RASTER_MIN_FIRE_LINE is the `- 3` above, named ONCE: the comptime formula here and its
+// runtime twin in Raster_PatchWaterLine both spell it, and they were previously two
+// hand-synced literals with only a comment holding them together.
+pub const RASTER_MIN_FIRE_LINE = 3
+pub const RASTER_MAX_FIRE_LINE = 223
+
+// The literals below are deliberate, NOT an oversight: a comptime fn's free names
+// resolve at its CALL site, so if this body spelled RASTER_MIN_FIRE_LINE then every
+// caller of water_arm0 (games/sonic4/data/parallax/configs.emp, which names neither
+// constant) would have to import both or get `unknown name`. The build-time equality
+// check below keeps the single source of truth without imposing that on callers.
 pub comptime fn water_arm0(screen_line: int) -> int {
     ensure(screen_line >= 3 && screen_line <= 223, "water_arm0: line {screen_line} outside 3..223")
     return $8A00 | (screen_line - 3)
 }
+ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
+       "water_arm0's inlined bounds drifted from RASTER_{MIN,MAX}_FIRE_LINE")
 
 // -----------------------------------------------
 // Raster_InstallWater — install a water template into Raster_Buf_B and make it the
@@ -599,24 +613,75 @@ pub proc Raster_InstallWater (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
     .copy:
         move.w  (a0)+, (a1)+
         dbf     d1, .copy
-        // seed the line + patch the priming arm word for it
-        move.w  d0, Raster_Water_Line
-        jbra    Raster_PatchWaterLine
+        // Seed the AUTHORED world Y from the screen line the caller asked for, so an
+        // install still reads as "put the boundary here on screen" while every frame
+        // after it is world-anchored. world_y = screen_line + Camera_Y(int).
+        move.w  Camera_Y, d1
+        add.w   d1, d0
+        move.w  d0, Raster_Water_World_Y
+        jbra    Raster_PatchWaterWorldY
 }
 
 // -----------------------------------------------
 // Raster_PatchWaterLine — move the water boundary to screen line d0 by recomputing
 // Buf_B's priming arm word (water_arm0's runtime twin). Cheap enough to call every
 // frame from the main loop; the change lands at the next Raster_VBlank rewind.
-//   d0.w = water screen line
-// The RUNTIME twin of water_arm0 (kept in sync with the comptime formula above):
-//   arm0 = $8A00 | ((line - 3) & $FF)
+//   d0.w = water screen line, SIGNED — it may legitimately be off-screen in either
+//          direction once the line is anchored to a WORLD Y (Raster_PatchWaterWorldY).
+//
+// OFF-SCREEN IS A SEMANTIC, NOT A CLAMP. The two directions mean opposite things and a
+// plain clamp gets one of them wrong:
+//   line < MIN  the surface is above the viewport -> the view is entirely BELOW it
+//               (fully submerged) -> fire as early as possible so the effect covers the
+//               whole screen.
+//   line > MAX  the surface is below the viewport -> the effect is not visible at all
+//               -> PARK the counter so the program never fires.
+// The previous version did neither: it masked the line to 8 bits, so a negative line
+// WRAPPED to an arbitrary on-screen row and painted a boundary in the wrong place. That
+// was invisible while the line was a build-time-validated constant (water_arm0's ensure
+// caught it at compile time) and becomes reachable on every vertical scroll the moment
+// the line is world-anchored.
+//
+// The RUNTIME twin of water_arm0 (both spell RASTER_MIN_FIRE_LINE):
+//   arm0 = $8A00 | (line - RASTER_MIN_FIRE_LINE)
 // -----------------------------------------------
-pub proc Raster_PatchWaterLine (d0: u16) clobbers(d0) {
+pub proc Raster_PatchWaterLine (d0: i16) clobbers(d0) {
         move.w  d0, Raster_Water_Line
-        subi.w  #3, d0
-        andi.w  #$FF, d0                        // clamp to the counter's 8-bit field
+        cmpi.w  #RASTER_MIN_FIRE_LINE, d0
+        blt     .fully_submerged
+        cmpi.w  #RASTER_MAX_FIRE_LINE, d0
+        bgt     .not_visible
+        subi.w  #RASTER_MIN_FIRE_LINE, d0
         ori.w   #$8A00, d0
         move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
         rts
+    .fully_submerged:
+        // Earliest legal fire. Screen lines 0..MIN-1 are the priming records' own lines
+        // and cannot carry the effect, so a fully-submerged view keeps a MIN-line sliver
+        // of un-effected pixels at the very top. Authors wanting a seamless full-screen
+        // state must put it in the program's frame-top init words instead, which is a
+        // content decision rather than something this proc can fix.
+        move.w  #$8A00 | (RASTER_MIN_FIRE_LINE - RASTER_MIN_FIRE_LINE), d0
+        move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
+        rts
+    .not_visible:
+        move.w  #RASTER_ARM_PARK, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
+        rts
+}
+
+// -----------------------------------------------
+// Raster_PatchWaterWorldY — anchor the boundary to a WORLD y instead of a screen row.
+// This is what makes the effect stay on a place in the LEVEL rather than at a fixed
+// height on the display: screen_line = Raster_Water_World_Y - Camera_Y(int), recomputed
+// per frame. Takes no argument on purpose — the authored world Y lives in RAM so there
+// is exactly one place to set it and no way for a caller to pass a stale copy.
+// Call once per frame from the main loop, beside the other camera-derived work. The
+// subtraction can go negative or past the screen bottom, which is exactly the case
+// Raster_PatchWaterLine's two off-screen branches exist to handle.
+// -----------------------------------------------
+pub proc Raster_PatchWaterWorldY () clobbers(d0-d1) {
+        move.w  Raster_Water_World_Y, d0        // the AUTHORED value
+        move.w  Camera_Y, d1                    // (Camera_Y).w — 16.16, integer word
+        sub.w   d1, d0                          // may go negative; that is meaningful
+        jbra    Raster_PatchWaterLine
 }

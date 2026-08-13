@@ -181,3 +181,59 @@ row 120:   6.6   5.5  13.1   2.5   6.6   5.5  13.1   2.5   6.6   5.5   (all shad
 Extending the delay to `OP_SET_REG` would cost ~40 more cycles of a ~60-cycle budget
 and was NOT taken without a cycle measurement to justify it. Authors wanting a
 pixel-clean mode change should schedule it one line earlier. Left open deliberately.
+
+---
+
+## World-anchored water boundary (2026-08-13, ROM crc `f9b3d140`)
+
+The effect boundary was a SCREEN row: it stayed at a fixed height on the display while
+the level scrolled past it. It is now anchored to a world Y, recomputed per frame as
+`Raster_Water_World_Y - Camera_Y`.
+
+### The latent bug this closed
+
+The build-time constructor guards its range (`ensure(3..223)`), but the runtime twin
+only masked: `subi.w #3, d0; andi.w #$FF, d0`. That was harmless while the line was a
+validated constant, and reachable on **every vertical scroll** once world-anchored: a
+negative screen line wrapped into an arbitrary on-screen row.
+
+Concretely, the state measured below (world 264, camera 592 -> line **-328**) would
+have produced `$8A00 | ((-331) & $FF)` = `$8AB5` — a spurious water boundary at screen
+line 184, on screen, with no error anywhere.
+
+Off-screen is now a SEMANTIC rather than a clamp, because the two directions mean
+opposite things: above the viewport = fully submerged (fire as early as possible);
+below = not visible (park).
+
+### Measured — all four branches, on hardware
+
+| case | world Y | Camera_Y | derived line | arm0 written | expected |
+|---|---|---|---|---|---|
+| in range | 712 | 592 | 120 | `$8A75` | `$8A75` (= comptime `water_arm0(120)`) |
+| above viewport | 264 | 592 | **-328** | `$8A00` | earliest fire (submerged) |
+| below viewport | 992 | 592 | **400** | `$8AFF` | `RASTER_ARM_PARK` |
+| anchoring | 264 held | moved to 592 | tracks camera | — | world Y unchanged by camera motion |
+
+The in-range arm word is byte-identical to what the comptime constructor emits, which
+is the cross-check that the runtime twin and the build-time formula agree — they now
+share `RASTER_MIN_FIRE_LINE` instead of two hand-synced literals.
+
+### Design note — the authored/derived split
+
+`Raster_Water_World_Y` is authored (a property of the LEVEL); `Raster_Water_Line` is
+derived every frame and may legitimately be out of range. `Raster_PatchWaterWorldY`
+takes no argument on purpose: the authored value lives in one place in RAM so a caller
+cannot pass a stale copy. `Raster_InstallWater` still takes a screen line and seeds the
+world Y from it, so installs still read as "put the boundary here".
+
+### Residuals
+
+- A fully-submerged view keeps a 3-line sliver at the very top un-effected: screen
+  lines 0..2 are the priming records' own lines and cannot carry an effect. A seamless
+  full-screen state has to come from the program's frame-top init words, which is a
+  content decision, not something the patch proc can fix.
+- The **gradient** is not yet world-anchorable. Its arm words are comptime constants in
+  ROM; making it movable means installing it into `Raster_Buf_B` the way water is, then
+  reusing the same patch. Not built speculatively.
+- A moving S/H boundary will have a slightly ragged transition line, per the
+  mode-register residual recorded above.
