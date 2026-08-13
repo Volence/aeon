@@ -5,6 +5,44 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ⚠ OPEN — the OJZ replay fixture needs a RE-STAMP (character lens sweep, merged 2026-08-13)
+
+**`ojz_fixture` desyncs at tick 735** on merged master. This is an EXPECTED, CORRECT
+desync, not a regression: the lens-sweep parcel deliberately changes Sonic's grounded
+behaviour (the skid-latch one-writer clear, `ST_PUSHING` now cleared in
+`PHook_GroundEnter`, the quadrant clear in `Air_LandOnObject`), and the fixture's
+checkpoints were re-stamped by the Effects-P3 lane (`32a79e1d`) against the PREVIOUS
+behaviour. The recording captured the old behaviour; the golden needs updating.
+
+**Measured** on merged master (`s4.debug.bin` crc `3dc20e2c`): `Input_Source = 1`,
+`Replay_Ptr = $A1DB4`, run → `REPLAY DESYNC` fault screen, `d1 = 0x2DF` (tick 735),
+`d0 = DD37D093` (actual), `d2 = 1D375066` (expected payload). `Logic_Tick` freezes at 735.
+
+**Why this is more work than the last re-stamp.** Parcel 0's stale set was 7 checkpoints,
+all at/above ring 1280 (everything after the spindash). Ours desyncs at ~ring 733, well
+before it, because the changed behaviour is ordinary grounded play rather than the
+spindash — so roughly 15+ checkpoints from ring ~733 to the 1721 stream end need
+re-stamping.
+
+**The recipe** is `docs/superpowers/notes/2026-08-13-replay-net-restamp-ab.md` §3, unchanged:
+run → trap → read `d0`/`d1` off the MD Debugger screen (registers are CLOBBERED at a
+fault, so screenshot the dump rather than calling `emulator_registers`) → patch that
+4-byte payload in `games/sonic4/data/replays/ojz_fixture.bin` → rebuild → repeat until
+`Replay_Done = $FF` and `Input_Source` self-clears. Verify the slide fixture
+(`Replay_Ptr = $A1EC4`) too — it was green before and may or may not have moved.
+
+**What is NOT affected:** the automated gates are all green — sigil workspace suite
+3672 passed / 0 failed (goldens re-frozen against the merged ROM, provenance 111), three
+aeon shapes build, and `tools/test_replay_fixture.py` (the STRUCTURAL gate) passes. The
+replay net is a MANUAL gate, not wired into any runner, which is exactly why this note
+exists: nothing will fail loudly to remind you.
+
+**Precedent:** master carried a stale fixture from the Knuckles C4 merge (2026-08-12)
+until Parcel 0 fixed it a day later, so a pending re-stamp after a behaviour change is
+known maintenance rather than a broken build.
+
+---
+
 ## character subsystem — 2026-08-13 lens sweep · CHAR-1/2/3/7/8 FIXED · CHAR-4/5/6 + the coverage hole OPEN
 
 Full evidence, reproduction chains and fixes: `docs/superpowers/notes/2026-08-13-character-lens-sweep.md`.
