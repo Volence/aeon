@@ -493,13 +493,21 @@ in place and each is a one-line add.
 
 ### REMOVABLE SCAFFOLDS currently in the tree — 2026-08-12
 **Status:** live, deliberately. Remove before ship.
-- **DEBUG glide test platform** (`4ea60239`) — 8 `ObjDef_Solid` blocks edge to
-  edge in OJZ sec0 at x960-1088, top y=208, 48 px above the y=256 surface. It
-  exists because the shipped sec0 solid is untestable by construction (16×16, top
-  only 8 px above the surface, crossed in ONE frame by a 16 px/frame glide).
-  **DEBUG-gated as a single conditional array, so the release ROM is byte-identical
-  — verified.** REMOVAL: delete `DBG_PLATFORM_*` + `debug_platform_words()` + the
-  sec0 branch in `tools/ojz_entity_gen.py`, then re-run `tools/regenerate-level.sh`.
+- ~~**DEBUG glide test platform** (`4ea60239`)~~ **REVERTED at the merge ritual
+  (2026-08-12).** It was 8 `ObjDef_Solid` blocks in OJZ sec0 at x960-1088, top
+  y=208, 48 px above the y=256 surface, added because the shipped sec0 solid is
+  untestable by construction (16×16, top only 8 px above the surface, crossed in
+  ONE frame by a 16 px/frame glide). It did its job — the ruled glide→SLIDE
+  behaviour was verified on it and BUG 10 withdrawn — and then the strict suite
+  caught why it cannot stay: DEBUG-gating made `entity_data` 48 bytes longer in
+  the debug shape, and the harness enforces `debug_len == plain_len` for every
+  ported section (`sigil crates/sigil-cli/tests/ojz_run_a_port.rs`). Level DATA is
+  expected to be shape-identical, so a **DEBUG-only ENTITY is not expressible**;
+  the ungated alternative would have changed release bytes. The invariant was kept
+  and the scaffold reverted. TO RE-ADD TEMPORARILY: put the 8 records in
+  `data/editor/ojz/act1/section_0.objects.json` so they land in BOTH shapes, run
+  `tools/regenerate-level.sh`, and revert before merging — geometry and the
+  approach recipe are preserved in the note block in `tools/ojz_entity_gen.py`.
 - The replay fixtures and the DEBUG-only object-test scene are permanent test
   infrastructure, NOT scaffolds — do not remove those.
 
