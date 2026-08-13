@@ -17,7 +17,7 @@ use engine.structs.{Act, Sec}
 
 // Effects P1 gate fixtures live in the game-side effects library beside the
 // parallax configs (games/sonic4/data/parallax/configs.emp).
-use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal}
+use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -182,6 +182,11 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // Effects P1 gate: section 2 proves sec_pal on its own — crossing in must
             // snap the palette, crossing back out must restore it.
             pal: OJZ_TestPal,
+            // Effects P2 Task 5 gate: section 2 also carries the DENSE-tier program (a
+            // 96-line ramp on screen lines 96-191). Sited here, adjacent to the P1
+            // raster section, so ONE sustained right-hold walks sparse -> dense and the
+            // sparse tier is proven un-regressed on the same run.
+            raster: OJZ_TestGradient,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec3_Blocks,
