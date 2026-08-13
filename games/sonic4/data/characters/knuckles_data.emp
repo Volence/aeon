@@ -19,9 +19,14 @@
 // low tile indices — those frames DMA'd early-frame art. `write_dplc` now refuses
 // to emit it (see the tile_start assert there), and the raw pair is both correct
 // and 8,702 bytes smaller. Its only cost is up to 5 DPLC entries per frame
-// instead of 2, well inside DMA_IMPORTANT_SLOTS, moving the same 29 tiles either
-// way — and multi-entry DPLC is already the shipped norm (DPLC_Sonic carries up
-// to 13). See docs/DEFERRED_WORK.md.
+// instead of 2 — genuinely inside DMA_IMPORTANT_SLOTS, and now ENFORCED by the
+// dplc_peak_entries guard below rather than asserted here. Moving the same 29
+// tiles either way. See docs/DEFERRED_WORK.md.
+//
+// The "(DPLC_Sonic carries up to 13)" that used to close this paragraph as
+// reassurance was the opposite of reassuring: 13 > DMA_IMPORTANT_SLOTS. Sonic is
+// the module that is over budget, not the precedent that makes 5 safe — see the
+// ratchet in games/sonic4/data/collision/collision_data.emp.
 //
 // TWO PALETTES, and this is the structural reason Knuckles needed a per-character
 // palette at all. Tails' art was fixable by a lossless index PERMUTATION into our
@@ -35,8 +40,8 @@ module games.sonic4.knuckles_data in knuckles_data
 // The character DPLC window + its hard wall — the VRAM budget the peak guard
 // below is stated against. Sole authority is games.sonic4.constants.
 use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ}
-use engine.constants.{TILE_SIZE}
-use engine.objects.dplc.{dplc_peak_tiles}
+use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
 
 const _map_knux  = embed("games/sonic4/data/mappings/knuckles.bin")
 const _dplc_knux = embed("games/sonic4/data/dplc/knuckles.bin")
@@ -93,12 +98,32 @@ ensure(_pal_knux.len == 32, "Pal_Knuckles must be exactly one 16-entry CRAM line
 // re-export) that stomps these slots fails HERE, loudly — never a quiet recolour.
 // idx N = CRAM word at bytes 2N..2N+1 (big-endian).
 // -----------------------------------------------
-ensure((_pal_knux[8]  << 8 | _pal_knux[9])  == (_pal_sonic_tails[8]  << 8 | _pal_sonic_tails[9]),
-       "Pal_Knuckles idx4 must match Pal_SonicTails — the shared effect-dust slot (skid/spindash/slide draw gray there)")
-ensure((_pal_knux[12] << 8 | _pal_knux[13]) == (_pal_sonic_tails[12] << 8 | _pal_sonic_tails[13]),
-       "Pal_Knuckles idx6 must match Pal_SonicTails — the shared effect-dust slot (the dust's dominant colour)")
-ensure((_pal_knux[14] << 8 | _pal_knux[15]) == (_pal_sonic_tails[14] << 8 | _pal_sonic_tails[15]),
-       "Pal_Knuckles idx7 must match Pal_SonicTails — the shared effect-dust slot")
+// PINNED TO THE AUTHORED GRAYS, not merely to each other. These used to assert
+// only that Pal_Knuckles AGREED with Pal_SonicTails at 4/6/7 — which is not the
+// property the fix secured. Re-export BOTH palettes with those slots recoloured in
+// lockstep and all three agreement asserts pass while the skid/spindash/slide dust
+// turns that colour for every character, i.e. exactly the bug (dust rendering RED
+// as Knuckles) coming back with a green build. The dust art is authored gray, so
+// the values are the invariant and belong here as literals.
+//
+// Roster-scoped by construction: a fourth character's palette adds three lines
+// against the SAME constants, not against whichever palette happened to ship first.
+const DUST_GRAY_IDX4 = $0ECC
+const DUST_GRAY_IDX6 = $0EEE    // the dust's dominant colour
+const DUST_GRAY_IDX7 = $0CAA
+
+ensure((_pal_sonic_tails[8] << 8 | _pal_sonic_tails[9]) == DUST_GRAY_IDX4,
+       "Pal_SonicTails moved off the authored effect-dust gray at idx4 — the shared dust would recolour")
+ensure((_pal_sonic_tails[12] << 8 | _pal_sonic_tails[13]) == DUST_GRAY_IDX6,
+       "Pal_SonicTails moved off the authored effect-dust gray at idx6 — the shared dust would recolour")
+ensure((_pal_sonic_tails[14] << 8 | _pal_sonic_tails[15]) == DUST_GRAY_IDX7,
+       "Pal_SonicTails moved off the authored effect-dust gray at idx7 — the shared dust would recolour")
+ensure((_pal_knux[8] << 8 | _pal_knux[9]) == DUST_GRAY_IDX4,
+       "Pal_Knuckles moved off the authored effect-dust gray at idx4 — the shared dust would recolour")
+ensure((_pal_knux[12] << 8 | _pal_knux[13]) == DUST_GRAY_IDX6,
+       "Pal_Knuckles moved off the authored effect-dust gray at idx6 — the shared dust would recolour")
+ensure((_pal_knux[14] << 8 | _pal_knux[15]) == DUST_GRAY_IDX7,
+       "Pal_Knuckles moved off the authored effect-dust gray at idx7 — the shared dust would recolour")
 
 // -----------------------------------------------
 // THE VRAM WALL — the peak comes from the DATA, not from a comment.
@@ -116,6 +141,12 @@ ensure((_pal_knux[14] << 8 | _pal_knux[15]) == (_pal_sonic_tails[14] << 8 | _pal
 // -----------------------------------------------
 ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_OBJ,
        "Knuckles' peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+
+// The OTHER budget the note above disclaims: entries are Important queue SLOTS,
+// one enqueue each. Knuckles' raw table peaks at 5, comfortably inside the real
+// bound, so this is a true guard rather than a ratchet.
+ensure(dplc_peak_entries(_dplc_knux) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
+       "Knuckles' peak DPLC frame costs more Important queue slots than the budget leaves — re-page the art or raise DMA_IMPORTANT_SLOTS")
 
 pub data Map_Knuckles   = _map_knux
 pub data DPLC_Knuckles  = _dplc_knux

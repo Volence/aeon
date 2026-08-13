@@ -34,6 +34,18 @@ use engine.constants.{SYSTEM_STACK, NUM_PLAYERS}
 // invariants structural instead of merely checked: the stride is sizeof(PlayerBlock),
 // slot N's base is the array's own indexing, and there is no separate size
 // constant, evenness assertion, or block/tail adjacency to keep in sync.
+// The physics row's length in WORDS — the single authority shared by the
+// PlayerBlock head below and every PhysTable_* ROM row the roster can point at.
+// Player_RefreshPhysics block-copies one into the other, so they must agree.
+//
+// It exists because the guard on each row could not be bound to the row itself:
+// `sizeof()` takes types and `.len` does not apply to a typed `data` symbol, so
+// the three guards used to spell a bare `8 * 2` while their MESSAGES named
+// PhysTable_Sonic/Tails/Knuckles — conditions that referenced only PlayerBlock and
+// would not have noticed a 9th row. Routing both sides through this name makes the
+// declared array size and the guard move together.
+pub const PHYS_ROW_WORDS = 8
+
 pub struct PlayerBlock {
     accel:          u16,
     decel:          u16,

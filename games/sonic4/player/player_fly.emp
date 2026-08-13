@@ -13,9 +13,10 @@
 //   Tails_Move_FlySwim      :27596   fuel / thrust / coast / top clamp
 //   Tails_DoLevelCollision  :28875   terrain (shared with the jump)
 //   Tails_TouchFloor        :29137   the one routine that ends flight
-// Every constant below is S3K's; the three deliberate deviations are each
-// flagged AT the code that makes them (the entry-curl reading, the coast fall
-// cap, and the unwired SFX).
+// Every constant below is S3K's; the two deliberate deviations are each
+// flagged AT the code that makes them (the entry-curl reading and the coast
+// fall cap). The flap SFX ARE wired — step 1b calls Fly_TickSfx, which plays
+// SFXID_FLYING / SFXID_FLY_TIRED on S3K's 16-frame cadence.
 //
 // Lives in the object code bank, right after `player_spindash` per map.toml
 // `order`. Pure code.
@@ -24,6 +25,7 @@ module games.sonic4.player_fly in player_fly
 use engine.objects.sst.{Sst}
 use engine.constants.{PHYS_FALL_CAP, ST_ON_OBJECT, ST_PUSHING, RF_ONSCREEN}
 use games.sonic4.sound_ids.{SFXID_FLYING, SFXID_FLY_TIRED}
+use games.sonic4.ram.{PlayerBlock}
 use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B}
 
 // Air_XInput / Air_XDrag / Air_Collide / Air_LandOnObject / Air_LandState resolve
@@ -40,6 +42,18 @@ use games.sonic4.constants.{PSTATE_FLY, CHEAT_DEBUG_FLY}
 // literals, matching the PBLK_* convention in player_ground/player_air/
 // player_spindash.
 const PBLK_RELEASE_CAP = 14
+
+// Bound to the type that OWNS the layout. These file-local displacements used to
+// carry no guard at all: the header justified it as "a divergent offset shows up as a
+// mismatched instruction byte in the region gate", which only catches a change to an
+// already-pinned build, never a newly-introduced wrong value — and it contradicted the
+// rule player_common.emp and dust_spindash.emp both state, that both sides `ensure`
+// against config/ram.emp. 16 of the 21 PBLK_* consts across 8 files were unguarded.
+// PlayerBlock's own doc says declaring it a TYPE is what makes the layout invariants
+// structural rather than merely checked; these restore the "checked" half at least.
+ensure(PBLK_RELEASE_CAP == offsetof(PlayerBlock, release_cap),
+       "PBLK_RELEASE_CAP diverged from PlayerBlock.release_cap (games/sonic4/config/ram.emp)")
+
 
 // -----------------------------------------------
 // The flight numbers, all S3K's (sonic3k.asm:27596-27647).

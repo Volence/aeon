@@ -25,8 +25,8 @@ module games.sonic4.tails_data in tails_data
 // The character DPLC window + its hard wall — the VRAM budget the peak guards
 // below are stated against. Sole authority is games.sonic4.constants.
 use games.sonic4.constants.{VRAM_TEST_SONIC, VRAM_TEST_OBJ, VRAM_TAILS_APPENDAGE}
-use engine.constants.{VRAM_HSCROLL_TABLE, TILE_SIZE}
-use engine.objects.dplc.{dplc_peak_tiles}
+use engine.constants.{VRAM_HSCROLL_TABLE, TILE_SIZE, DMA_IMPORTANT_SLOTS}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
 
 // ---- body ----
 const _map_tails  = embed("games/sonic4/data/mappings/tails.bin")
@@ -75,6 +75,14 @@ ensure((_art_tail.len % TILE_SIZE) == 0, "Art_TailsAppendage is not a whole numb
 // -----------------------------------------------
 ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_OBJ,
        "Tails' peak DPLC frame overruns the character VRAM window into VRAM_TEST_OBJ — widen the window or re-page the art")
+// Entries are Important queue SLOTS (one enqueue each) — the budget
+// dplc_peak_tiles does NOT measure. Tails' body peaks at 2 and the appendage at
+// 1, both far inside the bound, so these are true guards. Note the appendage is
+// a SECOND simultaneously-resident DPLC consumer, so its cost adds to the body's
+// in the same frame.
+ensure(dplc_peak_entries(_dplc_tails) + dplc_peak_entries(_dplc_tail) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
+       "Tails' body + appendage peak DPLC frames together cost more Important queue slots than the budget leaves — re-page the art or raise DMA_IMPORTANT_SLOTS")
+
 ensure(VRAM_TAILS_APPENDAGE + dplc_peak_tiles(_dplc_tail) <= VRAM_HSCROLL_TABLE / TILE_SIZE,
        "the Tails appendage's peak DPLC frame overruns its VRAM window into the HScroll table")
 

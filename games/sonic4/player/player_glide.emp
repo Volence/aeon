@@ -156,9 +156,19 @@ pub proc PState_Glide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         clr.b   angle(a0)                       // the object top is flat
         // fall through to the landing logic (angle 0 → flat → slide)
 .hit_floor:
-        // Facing from the horizontal velocity's sign (S3K Knux_Gliding_HitFloor).
+        // Facing from the GLIDE ANGLE. S3K uses x_vel's sign here
+        // (Knux_Gliding_HitFloor, sonic3k.asm:30741) and gets away with it because its
+        // floor and wall outcomes are MUTUALLY EXCLUSIVE — `beq.s Knux_Gliding_HitFloor`
+        // else `Knuckles_Gliding_HitWall` — so its x_vel is never wall-zeroed on this
+        // path. Ours is not exclusive: Glide_Collide runs both wall probes AND the floor
+        // probe every frame and the dispatch tests GLF_INAIR first, so a CORNER landing
+        // (floor and wall in the same frame) arrives here with x_vel already cleared by
+        // the wall probe, and the facing would default right regardless of travel.
+        // glide_angle is untouched by collision, so it is the robust discriminator —
+        // same fact S3K reads at its wall catch. (0 = fully right, $80 = fully left.)
         bclr    #ST_XFLIP, status(a0)
-        tst.w   x_vel(a0)
+        move.b  PlayerV.glide_angle(a0), d0
+        addi.b  #$40, d0
         bpl     .face_set
         bset    #ST_XFLIP, status(a0)
 .face_set:
@@ -313,6 +323,31 @@ proc Glide_Collide (a0: *Sst) clobbers(d0-d7/a1-a2) {
         bset    #GLF_PUSH_BIT, 1(sp)
 .no_wall_r:
         // Floor land only while descending. THE WALL-CATCH FIX (Task 10 bug): use a
+        // *** THE S3K CLAIM BELOW WAS FALSE — corrected 2026-08-13 (lens sweep, CHAR-5).
+        // This block used to assert "S3K's glide floor check (sub_11FD6) is likewise a
+        // single CENTRE sensor, so the outer-sensor false land cannot happen there".
+        // It is not: sub_11FD6 (sonic3k.asm:24131) is a one-line trampoline into
+        // Sonic_CheckFloor, which runs FindFloor TWICE — at x + x_radius and
+        // x - x_radius — and keeps the nearer (loc_F7E2, :19881). S3K uses the ordinary
+        // pair here, exactly as it does for every other floor query.
+        //
+        // The single-centre probe is therefore a DELIBERATE DIVERGENCE, not a port, and
+        // the real cause of the bug it was introduced for is narrower than the old note
+        // claimed: PUSH_RADIUS (10) equals Knuckles' ability-box x_radius (10), so after
+        // Air_WallProbe* snaps him flush the OUTER floor sensor lands exactly on the snap
+        // pixel and the probe cores read that column as inside the wall. S3K is immune
+        // because its wall push leaves the sensor on the last empty pixel.
+        //
+        // COST, recorded rather than hidden: Glide_Collide is shared with
+        // PSTATE_GLIDEFALL, where the pair's spread is the whole point. Falling beside a
+        // platform lip, PState_Air (Player_SensorFloor) catches ~10px earlier than
+        // GLIDEFALL does — an inconsistency inside our own engine that S3K does not have.
+        // Restoring the pair means first closing the flush-boundary overlap (bias the
+        // post-snap floor sensors inward 1px, or make the wall snap leave the probe point
+        // one pixel clear). Booked as CHAR-5; NOT changed here because the OJZ test
+        // section has no climbable wall at glide height, so the wall-catch regression it
+        // would risk cannot currently be tested. ***
+        //
         // SINGLE CENTRE probe, NOT the A/B pair (Player_SensorFloor). After the wall
         // snap above leaves the player flush against the face (centre at face - radius),
         // the pair's OUTER sensor sits exactly on the wall's near column and reads the
@@ -405,6 +440,28 @@ pub proc PState_GlideFall (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 pub proc PState_Slide (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // --- THE SLIDE'S TERRAIN MODEL IS FIXED-DOWN. Say so, every frame. ---
+        // Slide_Terrain calls the quadrant-ROTATED Player_SensorFloor but applies the
+        // returned distance unconditionally along +Y. That is only sound while the slot
+        // quadrant is 0. Entry is gated flat (.flat_slide tests (angle+$20)&$C0), but
+        // nothing KEEPS it flat: Slide_Terrain rewrites angle(a0) from the floor every
+        // frame and Player_Main re-derives PBLK_QUADRANT from that angle on the next one.
+        // Follow terrain past +-45 degrees and the probe goes sideways while the snap
+        // stays on Y — wrong-axis teleport, and SLIDE_LEDGE_DIST comparing a horizontal
+        // gap.
+        //
+        // PSTATE_SLIDE is the one glide-family state that reaches Player_SensorFloor and
+        // does NOT route through Air_Collide, which is where every airborne path gets its
+        // `clr.b quadrant`. Every other floor consumer either uses Player_SnapToSurface
+        // (which mirrors the quadrant case table) or forces 0 first; this one did
+        // neither. S3K has no such hazard: its slide floor-follow is sub_11FD6 ->
+        // Sonic_CheckFloor, a plain fixed-DOWN probe (sonic3k.asm:24131), so its
+        // `add.w d1,y_pos` is axis-consistent by construction.
+        //
+        // Forcing the quadrant here is the Air_Collide idiom and it is TRUTHFUL: the
+        // slide's terrain model really is fixed-down, exactly like S3K's.
+        clr.b   PlayerBlock.quadrant(a4)
+
         // --- THE MOVE, FIRST — before the jump test and the friction. ---
         // This is S3K's order, not a convenience: in S3K the glide FAMILY shares one
         // per-frame wrapper, `Knux_Glide_Freespace` (:30681), which runs

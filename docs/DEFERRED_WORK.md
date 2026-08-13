@@ -518,10 +518,20 @@ every symmetric case bit-identical and only affects those four.
 **Status:** TODO markers at the code. S3K plays `sfx_Grab` ($4A) at the wall catch,
 `sfx_GlideLand` ($4C) on the fall landing, and `sfx_GroundSlide` ($7E) every 8
 frames while sliding. None exist in our SFX bank yet, so all three sites are
-silent with a `TODO(user)` note. Sourcing audio is the **user's** decision (the
-same reason Tails' flight SFX `$BA`/`$BB` are unwired).
+silent with a `TODO(user)` note. Sourcing audio is the **user's** decision.
 **When to revisit:** when the user sources the audio; the call sites are already
 in place and each is a one-line add.
+
+> **Correction (2026-08-13, character lens sweep, seat A2).** This entry used to
+> close with "(the same reason Tails' flight SFX `$BA`/`$BB` are unwired)". That
+> was FALSE and has been removed: Tails' flight SFX **are** wired.
+> `Fly_TickSfx` (`games/sonic4/player/player_fly.emp:368-381`) plays
+> `SFXID_FLYING` / `SFXID_FLY_TIRED` on S3K's 16-frame cadence behind an
+> on-screen gate and tail-jumps `Sound_PlaySFX`; `PState_Fly` step 1b calls it.
+> `player_fly.emp:16` carried the same false claim ("the three deliberate
+> deviations ... and the unwired SFX" — there are two) and is corrected in the
+> same pass. A stale "unwired" entry in the doc every planning phase reads first
+> is how finished work gets redone.
 
 ### REMOVABLE SCAFFOLDS currently in the tree — 2026-08-12
 **Status:** live, deliberately. Remove before ship.

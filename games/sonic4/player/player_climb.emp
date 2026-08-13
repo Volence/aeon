@@ -78,7 +78,7 @@ use games.sonic4.player_common.{PlayerV, BUTTON_JUMP_MASK, BUTTON_JUMP_MASK_NO_B
 // KNUX_ABILITY_RADIUS lives on CharDef_Knuckles (knuckles.emp); the climb box is the
 // 10x10 ability box, so the probe offsets are literals here matching that radius. A
 // compile guard binds them so a radius change fails the build rather than drifting.
-use engine.constants.{PLAYER_X_RADIUS}
+use games.sonic4.knuckles.{KNUX_ABILITY_RADIUS}
 
 // Player_SensorWallDir / Collision_ProbeUp / Collision_ProbeDown (player_sensors),
 // Player_SnapToSurface (player_common), Player_SetState (player_common),
@@ -110,7 +110,8 @@ const CLIMB_FRAME_HI     = $BC                  // climb cycle high frame
 const CLIMB_CATCH_FRAME  = $B7                  // the wall-catch pose
 const CLIMB_LETGO_FRAME  = $CB                  // the let-go pose
 const CLIMB_ANIM_PIN     = $20                  // anim_timer pin (keeps AnimateSprite on .done)
-const CLIMB_CLAMBER_END  = 16                   // the clamber cursor's terminal value: 4 entries × 4
+const CLIMB_CLAMBER_BYTES = 16                  // Climb_ClamberFrames' declared size (4 entries x 4)
+const CLIMB_CLAMBER_END  = CLIMB_CLAMBER_BYTES                   // the clamber cursor's terminal value: 4 entries × 4
                                                 //   bytes = the 16-byte Climb_ClamberFrames table
 
 const CLIMB_JUMP_YVEL    = -$380                // jump-off up velocity
@@ -118,8 +119,22 @@ const CLIMB_JUMP_XVEL    = $400                 // jump-off away-from-wall veloc
 
 const CATCH_FALLBACK_MAX = 12                   // the glide catch's floor-lip window (0..11)
 
-ensure(CLIMB_RADIUS == PLAYER_X_RADIUS + 1,
-       "climb probe radius (10) drifted from the ability box — re-derive the wall probe offsets")
+// Bound to the AUTHORITY, not to a coincidence. This guard used to read
+// `CLIMB_RADIUS == PLAYER_X_RADIUS + 1` — PLAYER_X_RADIUS being SONIC'S STANDING
+// half-width (9, engine/system/constants.emp), which has nothing to do with
+// Knuckles' ability box. It passed only because 9 + 1 happens to equal 10, so
+// retuning KNUX_ABILITY_RADIUS moved cd_ability_wh and PHook_EnsureAbility while
+// every probe offset in this file silently stayed at 10 — with a GREEN build. The
+// header three paragraphs up claimed "a compile guard binds them"; it did not.
+// Five separate review seats found this independently.
+ensure(CLIMB_RADIUS == KNUX_ABILITY_RADIUS,
+       "climb probe radius drifted from KNUX_ABILITY_RADIUS (the ability box on CharDef_Knuckles) — re-derive the wall probe offsets in this file")
+ensure(CLIMB_WALL_PROBE_Y == KNUX_ABILITY_RADIUS + 1,
+       "CLIMB_WALL_PROBE_Y is the ability radius + 1 — re-derive it from KNUX_ABILITY_RADIUS")
+ensure(CLIMB_CEIL_Y == KNUX_ABILITY_RADIUS + 8,
+       "CLIMB_CEIL_Y is the ability radius + 8 (head clearance) — re-derive it from KNUX_ABILITY_RADIUS")
+ensure(CLIMB_FLOOR_PROBE_Y == KNUX_ABILITY_RADIUS - 1,
+       "CLIMB_FLOOR_PROBE_Y is the ability radius - 1 — re-derive it from KNUX_ABILITY_RADIUS")
 
 // -----------------------------------------------
 // Climb_WallDist — wall distance on the FACING side at world Y d1 (S3K
@@ -138,7 +153,24 @@ proc Climb_WallDist (a0: *Sst) clobbers(d0-d6/a1) {
         moveq   #2, d2                          // probe right
         jbra    Player_SensorWallDir            // tail — returns d0 = dist to our caller
 .facing_left:
-        subi.w  #CLIMB_RADIUS+1, d0             // left edge: x - 10 - 1 (S3K asymmetry)
+        // x - 10, SYMMETRIC with the right edge above. This used to be x - 10 - 1,
+        // carrying over S3K's `subq.w #1,d3` from GetDistanceFromWall
+        // (sonic3k.asm:31527) — but that -1 is an artifact of S3K's own collision
+        // routines, whose left and right wall queries are not symmetric. OURS ARE:
+        // player_sensors stamps all four probe cores from one comptime fn with
+        // direction inversions, so no side needs a fudge.
+        //
+        // Importing it broke every LEFT-wall glide catch. Air_WallProbeLeft snaps the
+        // player so that x - PUSH_RADIUS (x-10) is exactly flush; probing at x-11 then
+        // reads ONE PIXEL EMBEDDED, so Knuckles_Gliding_WallCatch's both-flush test
+        // (`or.w` of the two corner distances == 0) could never pass on the left. The
+        // right side matched (x+10 push vs x+10 probe) and caught fine, which is why
+        // the feature looked like it worked.
+        //
+        // MEASURED on hardware at the catch, gliding left into a wall: both corner
+        // probes returned -1 (embedded) with the old offset. Right-wall catches
+        // measured 0/0 and succeeded.
+        subi.w  #CLIMB_RADIUS, d0               // left edge: x - 10
         moveq   #3, d2                          // probe left
         jbra    Player_SensorWallDir
 }
@@ -205,7 +237,8 @@ pub proc PState_Climb (a0: *Sst) clobbers(d0-d7/a1-a2) {
         moveq   #0, d3                          // default anim delta 0 (pause; survives to .finish
                                                 //   only on the idle path, which calls no probe)
 
-        // Ctrl_1_Held is frame-stable (VInt latches it once per tick), so it is RE-READ at
+        // Ctrl_1_Held is tick-stable (VInt_Level latches it once per tick from the raw
+        // shadow; lag VBlanks refresh only the shadow), so it is RE-READ at
         // each use rather than snapshotted — the early-exit transitions below (LetGo/ToLedge/
         // ReachFloor) jbra straight out, so a stacked snapshot would leak the slot.
         move.b  Ctrl_1_Held, d5
@@ -419,7 +452,24 @@ proc Climb_DoClamberStep (a0: *Sst) clobbers(d0-d2/a1) {
 // converter kept frame order (characters_staging/README.md); no KnuxFrame_* indirection.
 // The last frame $D2 is never actually seen — Knuckles' waiting animation overwrites it
 // the moment the clamber finishes (S3K's own comment).
-data Climb_ClamberFrames: [u8; 16] = [
+// STRUCTURALLY bound, so there is no drift assert to write here. The terminal
+// value and this table's declared size are now the same constant
+// (CLIMB_CLAMBER_BYTES), so adding a fifth step makes the literal disagree with
+// the declared [u8; CLIMB_CLAMBER_BYTES] and the compiler rejects it. The
+// terminal moves with the table by construction.
+//
+// Before, CLIMB_CLAMBER_END was hand-typed 300 lines up against this table's
+// length: a fifth step would have terminated the clamber one step early with no
+// build failure and no test — a re-run of the shipped check-then-advance bug (the
+// ledge top-out that rested at knux_step=16 forever). An `ensure` comparing the
+// two names would now be tautological, which is worse than nothing: it reads as a
+// live gate while testing that a constant equals itself.
+//
+// This one is NOT tautological — the cursor's stride is an independent fact:
+ensure(CLIMB_CLAMBER_BYTES % 4 == 0,
+       "the clamber cursor advances by 4 — the frame table must be a whole number of entries")
+
+data Climb_ClamberFrames: [u8; CLIMB_CLAMBER_BYTES] = [
         $BD, 3,   256-3,  6,           // dy -3 (as unsigned byte $FD; ext.w restores -3)
         $BE, 8,   256-10, 6,           // dy -10
         $BF, 256-8, 256-12, 6,         // dx -8, dy -12
@@ -486,10 +536,29 @@ pub proc PState_Ledge (a0: *Sst) clobbers(d0-d7/a1-a2) {
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 pub proc Knuckles_Gliding_WallCatch (a0: *Sst) clobbers(d0-d7/a1-a2) {
-        // Which wall: moving right (x_vel >= 0) → right wall, else left. Facing is set
-        // toward the wall (S3K bset/bclr Status_Facing), and Climb_WallDist reads it to
-        // pick the probe side.
-        tst.w   x_vel(a0)
+        // Which wall: from the GLIDE ANGLE, not from x_vel. Facing is set toward the
+        // wall (S3K bset/bclr Status_Facing), and Climb_WallDist reads it to pick the
+        // probe side — so getting this wrong makes the catch probe open air.
+        //
+        // This used to read `tst.w x_vel`, which is ALWAYS ZERO here: the only way to
+        // reach this routine is GLF_PUSH_BIT, and that bit is set exactly by the wall
+        // probe hit whose own handler does `clr.w x_vel(a0)` (Air_WallProbeLeft/Right,
+        // player_air.emp). So `bmi` was never taken, Knuckles always faced RIGHT, and
+        // every LEFT-wall catch probed rightward into open air, got the +32 "nothing"
+        // sentinel on both corners, failed the both-flush test and dropped into
+        // GLIDEFALL. Right-hand walls worked by accident, which is why the feature
+        // tested fine.
+        //
+        // S3K keys the same decision off double_jump_property — our glide_angle — for
+        // the same reason (sonic3k.asm:30776 `move.b double_jump_property(a0),d0 /
+        // addi.b #$40,d0 / bpl.s .right`). glide_angle is 0 = fully right, $80 = fully
+        // left, and nothing in the collision path writes it, so +$40 splits the two
+        // halves exactly and cannot be destroyed by a snap.
+        // d7, not d0: Climb_WallDist below is `clobbers(d0-d6/a1)` and RETURNS in d0,
+        // so a d0 scratch here trips the [call.live-clobbered] closure gate at that
+        // call site. d7 is outside the callee's clobber set and inside this proc's own.
+        move.b  PlayerV.glide_angle(a0), d7
+        addi.b  #$40, d7
         bmi     .left_wall
         bclr    #ST_XFLIP, status(a0)            // face right (toward the wall)
         jbra    .pair

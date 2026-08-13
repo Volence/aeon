@@ -21,22 +21,31 @@ use engine.irq.{vblank}
 // SOUND_DRIVER_ENABLED-gated bracket would leave the burst unfenced in one of
 // the shapes).
 //
+// HELD vs PRESS publication (2026-08-13): this routine runs on EVERY physical
+// VBlank, lag frames included, so it may NOT write the bytes game logic reads —
+// a lag VBlank landing mid-tick would replace the tick's input with the live pad.
+// It therefore writes the RAW shadows (Ctrl_x_Held_Raw / Ctrl_x_Ext_Held_Raw) and
+// accumulates press edges off them; VInt_Level alone latches raw -> published, the
+// same consume-once discipline PRESS already had. See engine/ram.emp's raw-shadow
+// block for the failure this closes.
+//
 // In:  none
-// Out: Ctrl_x_Held/Press_Accum + Ctrl_x_Ext_Held/Ext_Press_Accum + Pad_x_Type
-//      updated (SACBRLDU main, 0000MXYZ ext, PAD_3BTN/PAD_6BTN type).
+// Out: Ctrl_x_Held_Raw/Press_Accum + Ctrl_x_Ext_Held_Raw/Ext_Press_Accum +
+//      Pad_x_Type updated (SACBRLDU main, 0000MXYZ ext, PAD_3BTN/PAD_6BTN type).
+//      The PUBLISHED Ctrl_x_Held / Ctrl_x_Ext_Held are NOT touched here.
 // Clobbers: d0-d4, a0
 // -----------------------------------------------
 pub proc Read_Controllers () clobbers(d0-d4/a0) requires(vblank) {
         with z80_stopped {                  // unconditional — see header trace
             lea     HW_PORT_1_DATA, a0
             jbsr    .read_pad_6                 // d0=SACBRLDU d1=0000MXYZ d2=type
-            move.b  Ctrl_1_Held, d3
-            move.b  d0, Ctrl_1_Held
+            move.b  Ctrl_1_Held_Raw, d3           // previous PHYSICAL read (never the published byte)
+            move.b  d0, Ctrl_1_Held_Raw
             eor.b   d0, d3
             and.b   d0, d3
             or.b    d3, Ctrl_1_Press_Accum        // main edge accumulate across lag frames (§5)
-            move.b  Ctrl_1_Ext_Held, d3
-            move.b  d1, Ctrl_1_Ext_Held
+            move.b  Ctrl_1_Ext_Held_Raw, d3
+            move.b  d1, Ctrl_1_Ext_Held_Raw
             eor.b   d1, d3
             and.b   d1, d3
             or.b    d3, Ctrl_1_Ext_Press_Accum    // ext edge accumulate (same idiom, ×2 per pad)
@@ -44,13 +53,13 @@ pub proc Read_Controllers () clobbers(d0-d4/a0) requires(vblank) {
 
             lea     HW_PORT_2_DATA, a0
             jbsr    .read_pad_6
-            move.b  Ctrl_2_Held, d3
-            move.b  d0, Ctrl_2_Held
+            move.b  Ctrl_2_Held_Raw, d3
+            move.b  d0, Ctrl_2_Held_Raw
             eor.b   d0, d3
             and.b   d0, d3
             or.b    d3, Ctrl_2_Press_Accum
-            move.b  Ctrl_2_Ext_Held, d3
-            move.b  d1, Ctrl_2_Ext_Held
+            move.b  Ctrl_2_Ext_Held_Raw, d3
+            move.b  d1, Ctrl_2_Ext_Held_Raw
             eor.b   d1, d3
             and.b   d1, d3
             or.b    d3, Ctrl_2_Ext_Press_Accum

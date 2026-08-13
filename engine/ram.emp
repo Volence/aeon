@@ -861,6 +861,29 @@ pub vars upper_ram {
     Act_Art_Budget:         u16,        // per-act steady-state art-DMA byte budget (from Act.act_art_budget)
     Art_Budget_Remaining:   u16,        // remaining art-DMA bytes this frame (reloaded in PageIn_Process's tick)
 
+    // --- Controller HELD raw shadows (IRQ-owned) ---
+    // The bytes Read_Controllers actually writes each physical VBlank, and the
+    // previous-value source for its press-edge detection. The PUBLISHED
+    // Ctrl_x_Held / Ctrl_x_Ext_Held bytes up in the controller block are latched
+    // from these by VInt_Level ONLY, giving HELD the same tick-stability PRESS has
+    // always had.
+    //
+    // Before this split, Read_Controllers wrote the published bytes directly and
+    // VInt_Lag calls it too — so any lag VBlank landing mid-tick replaced the
+    // logic tick's held input with the live pad. Under replay playback the pad is
+    // untouched ($00), so a lag frame silently dropped ALL held input for the rest
+    // of that tick while the 11 game-side re-reads kept sampling it: a guaranteed
+    // desync, and the mechanism replay.emp claimed was "killed structurally" (it
+    // was killed for PRESS only).
+    //
+    // Placed at the RAM TAIL so the addition ripples ZERO existing engine-RAM
+    // addresses (only Engine_RAM_End + the game RAM chained after it). Four bytes
+    // keeps the run even.
+    Ctrl_1_Held_Raw:        u8,         // live pad, rewritten EVERY VBlank (incl. lag)
+    Ctrl_2_Held_Raw:        u8,
+    Ctrl_1_Ext_Held_Raw:    u8,         // 0000MXYZ, same discipline
+    Ctrl_2_Ext_Held_Raw:    u8,
+
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed
     // at the RAM TAIL and @shape_divergent (size-varying group — REQUIRED by the

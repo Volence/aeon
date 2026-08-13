@@ -732,6 +732,21 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         lsr.w   #8, d4
         move.b  d4, d3
 
+        // SKID LATCH — ONE WRITER, and it is here. Cleared every frame before the
+        // classification, re-armed only by .skid_show below.
+        //
+        // It used to be cleared ONLY on the grounded-uncurled `.skid_drop` path,
+        // which nine state-keyed branches return before ever reaching (spindash,
+        // fly, glide, glidefall, slide, climb, ledge, the ball path, and airborne-
+        // uncurled). So a latch armed on the last grounded frame survived
+        // indefinitely, and Dust_Tick — whose skid leg tests the latch guarded by
+        // nothing but a PSTATE_SLIDE check — kept emitting ground dust every 4
+        // frames through the whole jump arc. Repro was three inputs: run to
+        // |gsp| >= PHYS_SKID_MIN, hold the opposing direction, jump while still
+        // holding it. Reproduced on oracle (3 DustPuffs trailing a rising player)
+        // before this fix.
+        clr.b   PlayerV.skid_latch(a0)
+
         move.b  PlayerV.player_state(a0), d0
         // (1) spindash
         cmpi.b  #PSTATE_SPINDASH, d0
@@ -870,8 +885,15 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         btst    #BUTTON_RIGHT_BIT, d2           // moving left: opposing = RIGHT
         beq     .skid_drop
 .skid_opposing:
-        tst.b   PlayerV.skid_latch(a0)
-        bne     .skid_show                      // already latched -> keep (no new sfx)
+        // Once-per-skid SFX edge. This used to read skid_latch, which only worked
+        // while the latch survived across frames; now that the latch is cleared
+        // every frame (one writer, above) the edge is keyed on the PREVIOUS
+        // frame's anim instead — `anim(a0)` still holds last frame's value here,
+        // since .skid_show below is what writes it. Same semantics: already
+        // skidding -> no new sfx; a skid entered fresh after a jump or a landing
+        // correctly re-fires, which the old latch-keyed form also did.
+        cmpi.b  #ANIM_SKID, anim(a0)
+        beq     .skid_show                      // already skidding -> keep (no new sfx)
         move.w  d1, d2
         abs_w(d2)
         cmpi.w  #PHYS_SKID_MIN, d2
@@ -893,7 +915,8 @@ pub proc Player_Animate (a0: *Sst) clobbers(d0-d6/a1-a2) {
         move.b  #ANIM_SKID, anim(a0)
         rts
 .skid_drop:
-        clr.b   PlayerV.skid_latch(a0)
+        // (the clear that used to live here is now unconditional at the top of the
+        // routine — reaching this label simply means the latch stays clear)
 .not_skid:
 
         // (4) push — grounded, ST_PUSHING (facing-aware bit from ground code)
@@ -1060,6 +1083,18 @@ pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1-d2/a1) { // d2: EnsureStanding
                                                 // down-held landings go straight
                                                 // to ROLL via Air_LandState)
         bclr    #ST_IN_AIR, status(a0)
+        // ST_PUSHING is cleared by the ground wall probe and by the airborne landing
+        // helpers (Air_TouchFloor, Air_LandOnObject, Air_Collide's reattach) — but NONE
+        // of the four Knuckles landing paths passes through any of them: the glide's
+        // slope land, GLIDEFALL's dead stop, the slide get-up and Climb_ReachFloor all
+        // jbra straight to Player_SetState. So a push bit set before a jump survived the
+        // whole jump -> glide -> climb chain and showed one frame of ANIM_PUSH on
+        // touchdown, until the next PState_Ground wall probe cleared it.
+        //
+        // Clearing it HERE closes all four at once: every one of those paths enters
+        // PSTATE_GROUND, so they all reach this hook. Harmless for the paths that
+        // already cleared it — the bit is simply already 0.
+        bclr    #ST_PUSHING, status(a0)
         rts
 }
 

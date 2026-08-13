@@ -14,6 +14,7 @@ module games.sonic4.player_spindash in player_spindash
 use engine.objects.sst.{Sst}
 use engine.constants.{ST_XFLIP, BUTTON_DOWN_BIT}
 use games.sonic4.player_common.{PlayerV}
+use games.sonic4.ram.{PlayerBlock}
 
 // Player_SensorFloor resolves module-to-module to player_sensors.emp (bare link) —
 // the P4 close retired its extern-proc boundary decl (kill row 80).
@@ -35,6 +36,18 @@ use games.sonic4.sound_ids.{SFXID_SPINDASH, SFXID_DASH}
 // PBLK_* offsets in player_ground/player_air and for the same reason: a
 // divergent offset shows up as a mismatched instruction byte in the region gate.
 const PBLK_JUMPBUF = 17
+
+// Bound to the type that OWNS the layout. These file-local displacements used to
+// carry no guard at all: the header justified it as "a divergent offset shows up as a
+// mismatched instruction byte in the region gate", which only catches a change to an
+// already-pinned build, never a newly-introduced wrong value — and it contradicted the
+// rule player_common.emp and dust_spindash.emp both state, that both sides `ensure`
+// against config/ram.emp. 16 of the 21 PBLK_* consts across 8 files were unguarded.
+// PlayerBlock's own doc says declaring it a TYPE is what makes the layout invariants
+// structural rather than merely checked; these restore the "checked" half at least.
+ensure(PBLK_JUMPBUF == offsetof(PlayerBlock, jump_buffer),
+       "PBLK_JUMPBUF diverged from PlayerBlock.jump_buffer (games/sonic4/config/ram.emp)")
+
 
 // -----------------------------------------------
 // PState_Spindash — Sonic's spindash charge (a CHARACTER state BODY:
