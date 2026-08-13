@@ -9,7 +9,7 @@ Knuckles half of that doc is **done — merged as `50d54612`**.
 |---|---|---|
 | worktree | `.worktrees/effects-p2` | `.worktrees/effects-p2` |
 | branch | `feat/effects-p2-palette` | `feat/effects-p2` |
-| tip | `17ca9ec3` | `c4938391` |
+| tip | `58c1b857` | `a5b2a5b2` |
 
 Build with THIS lane's binaries (the sigil module registry is global per binary pair):
 
@@ -79,11 +79,31 @@ optimisation target in the effects suite.**
 
 ## 4. What remains before merge
 
-### 4a. The repin/refreeze ritual — THE blocking item
+### 4a. Merge gate — repin/refreeze DONE, PORT-FLIP remains
 
-Running the sigil suite with `AEON_DIR` pointed at the P2 worktree gives
-**3533 passed / 139 failed**, including `pins_rs_is_current`. These are the expected
-byte comparisons against pre-P2 goldens; the ritual is what clears them.
+**repin + refreeze are DONE** (sigil `a5b2a5b2`, provenance chain entry 108). Golden
+CRCs agree with the aeon build exactly (s4 `2e932149`, s4_debug `f9b3d140`).
+
+Gate went **139 failed -> 14 failed** (3658 passed). The remaining 14 are the
+PORT-FLIP set — port tests compile one module in isolation, so a NEW cross-seam
+reference breaks them until the test's symbol table is taught about it. Enumerated:
+
+| failure | cause | fix |
+|---|---|---|
+| `parallax_{,debug_}region_matches_reference` | parallax now calls `Palette_InstallCycleSection` (Task 8 cycling hook) | add a pin + an entry in `parallax_port.rs`'s symbol table (pattern: the existing `Palette_LoadSection` / `Raster_InstallSection` rows) |
+| `game_loop_{,debug_}region_matches_reference` | game_loop now calls `Palette_Compose` | same pattern, `game_loop_port.rs` |
+| `act_descriptor_{,debug_}region_matches_reference` | unresolved `OJZ_TestGradient` + `OJZ_ShimmerCycle` data symbols | teach the port test's scope about the two new fixtures |
+| `sound_api_debug_region_matches_reference` | `sound_api [0x9D30,0xA182)` now overlaps the test's hard-pinned `sec40960 [0xA000,0xA006)` | move the test's synthetic pin |
+| `ojz_run_a_{,debug_}regions_match_reference` | **`ojz_act_pool len must be shape-invariant`, 12056 vs 15166** | **INVESTIGATE FIRST — do not re-baseline** |
+| `two_module_*` (3), `drain_define_is_load_bearing`, `generated_pins_match_the_hand_typed_baseline` | layout-dependent harness baselines | re-derive after the above |
+
+> **The `ojz_run_a` one is the reason this was not finished.** `debug_len == plain_len`
+> for a ported level section is the SAME invariant that killed the Knuckles DEBUG test
+> platform (see the 2026-08-12 handoff §2c) — level DATA must be shape-identical
+> because the port tests compile ONE length for both shapes. A 3110-byte difference is
+> either a genuine shape-dependent leak into level data or a stale port fixture.
+> Establish which BEFORE touching it; re-baselining a real shape leak would bury
+> exactly the class of bug that invariant exists to catch.
 
 > **TRAP, verified this session:** a plain `cargo test` in sigil defaults
 > `AEON_DIR` to `/home/volence/sonic_hacks/aeon` — the MAIN tree, on master. It
@@ -91,12 +111,22 @@ byte comparisons against pre-P2 goldens; the ritual is what clears them.
 > MUST pass `AEON_DIR=<the effects-p2 worktree>` or you are gating master against
 > itself. Same family as the "refreeze --check is NOT the goldens" trap.
 
-Ritual (per `memory/reference_sigil_byte_changing_parcel_ritual`): `SIGIL_BLOB_LEN_DRIFT=warn`
-→ rebuild BOTH sigil binaries → rebuild aeon with the tripwire ARMED → `repin` →
-`refreeze --freeze <parcel> --ab <evidence>` → strict suite → `refreeze --check` +
-`repin --check`. This parcel touches no sound code, so the `BLOB_LEN_*` /
-`Z80_SOUND_SIZE` / seam-1 re-pin steps should be no-ops (as they were for Knuckles) —
-confirm rather than assume.
+Commands that worked, for the record:
+
+```
+# repin
+SIGIL_EMIT=<sigil-wt>/target/release/emit_sound_blob SIGIL_BLOB_LEN_DRIFT=warn \
+  cargo run --release -q -p sigil-harness --bin repin -- --aeon <aeon-wt>
+
+# refreeze
+SIGIL_EMIT=... SIGIL_BUILD=... AEON_DIR=<aeon-wt> SIGIL_BLOB_LEN_DRIFT=warn \
+  cargo run --release -q -p sigil-harness --bin refreeze -- \
+    --freeze effects-p2 --ab docs/benchmarks/effects-p2/GATE-EVIDENCE.md --note "..."
+```
+
+The `BLOB_LEN_*` / `Z80_SOUND_SIZE` / seam-1 re-pin steps were no-ops as expected (this
+parcel touches no sound code) — confirmed, not assumed: `refreeze` reported
+`pins.rs unchanged` on its internal repin pass.
 
 Also owed at merge: the **frozen-table audit** (this lane regenerated placement
 tables mid-parcel) and the **replay-net re-stamp** — the RAM layout moved
