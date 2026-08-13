@@ -367,14 +367,42 @@ pub proc PState_GlideFall (a0: *Sst) clobbers(d0-d7/a1-a2) {
 
 // -----------------------------------------------
 // PState_Slide — the belly slide after a flat glide landing (S3K Knuckles_Sliding,
-// :30950). Runs at the 10x10 ability box. Friction $20/frame on x_vel toward 0; a
-// sign crossing OR a jump-button release triggers the full get-up. The floor is
-// followed every frame; a floor gap >= 14 means Knuckles slid off a ledge → the fall.
+// :30950). Runs at the 10x10 ability box. Per-frame order, S3K's:
+//   move (ObjectMove) → jump-held test → friction → terrain (Slide_Terrain)
+// The move leads because S3K integrates position in the glide family's shared wrapper
+// (Knux_Glide_Freespace) BEFORE dispatching to Knuckles_Sliding — see the note at the
+// call. Friction $20/frame on x_vel toward 0; a sign crossing OR a jump-button release
+// triggers the full get-up. The floor is followed every frame (Slide_Terrain owns Y);
+// a floor gap >= 14 means Knuckles slid off a ledge → the fall.
 // In:  a0 = player SST, a4 = the slot's player block
 // Out: none (may transition to PSTATE_GROUND / PSTATE_GLIDEFALL)
 // Clobbers: d0-d7, a1-a2
 // -----------------------------------------------
 pub proc PState_Slide (a0: *Sst) clobbers(d0-d7/a1-a2) {
+        // --- THE MOVE, FIRST — before the jump test and the friction. ---
+        // This is S3K's order, not a convenience: in S3K the glide FAMILY shares one
+        // per-frame wrapper, `Knux_Glide_Freespace` (:30681), which runs
+        //     Knuckles_Move_Glide -> Player_LevelBound -> MoveSprite_TestGravity2
+        // and only THEN dispatches through `Knuckles_Glide` (:30691) to the sub-state
+        // (`double_jump_flag` 3 = Knuckles_Sliding). So the position integration has
+        // already happened by the time Knuckles_Sliding's first instruction runs —
+        // ahead of the button test, the friction, and the terrain pass alike.
+        //
+        // We have no shared wrapper: PState_Slide is dispatched straight off the player
+        // state table, so the state body must own its move, and the faithful slot is the
+        // top. Without this the slide burned off x_vel while standing perfectly still and
+        // the dust piled up in one spot (user-reported; x_pos held at $01EE across the
+        // whole $1004 -> $0F44 -> $0EC4 decay).
+        //
+        // NO GRAVITY, deliberately, and it is not a divergence: S3K's wrapper gravity is
+        // cancelled every frame by its own floor contact (Knux_DoLevelCollision_CheckRet
+        // zeroes y_vel on landing), and here Slide_Terrain OWNS Y outright — it snaps
+        // y_pos onto the floor each frame. y_vel is 0 on entry (the glide landing in
+        // Glide_Collide clears it) and nothing in the slide writes it, so ObjectMove's Y
+        // term contributes exactly 0 and the floor snap is the only Y authority. Adding
+        // gravity here would only churn a y_vel the floor snap immediately overrides.
+        jbsr    ObjectMove
+
         // Jump released → full get-up (S3K :30953 `beq .getUp`). The cheat gate steals
         // B while free-flight owns it, matching every other jump-button site.
         move.b  Ctrl_1_Held, d0
