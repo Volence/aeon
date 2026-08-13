@@ -98,6 +98,12 @@ measured on the P1 fixture's entry 5, not here.**
   claim — but a moving-camera capture is still owed before the tier is called done.
 - Whether a second dense run in the same frame re-arms correctly (single run only).
 
+### Re-verified on the final ROM
+
+Re-run after the Task-4 decision below changed the handler: crc `fa5c04e5`, all seven
+boundaries still exact. The dense body does not use `OP_CRAM`, so the blanking delay
+does not touch it — confirmed rather than assumed.
+
 ### Reproduction
 
 The fixture sits on section 2, which is reached from spawn only past the authored
@@ -115,3 +121,63 @@ test wall at x=464. Recipe that works:
    ~8 s: the camera is soft-clamped (art-streaming P2c) and converges to the
    teleport over several hundred frames rather than snapping.
 4. Confirm `Raster_Program` holds `OJZ_TestGradient` before capturing.
+
+---
+
+## Row-119 partial tint — the A/B (plan Task 4) and S/H (plan Task 7 Step 3 / §4.5)
+
+Fixture: `OJZ_TestRaster` on OJZ act-1 **section 1** (the P1 gate program). Both
+builds captured at an **identical, fully-converged camera (2840, 356)** — the first
+attempt compared (2856, 420) against (2840, 356) because the camera had not finished
+converging, which would have made the pixel counts incomparable. Wait for
+`Camera_X`/`Camera_Y` to stop changing, not for a fixed number of seconds.
+
+### The measurement colour is NOT P1's (238,0,0)
+
+Counting exact `(238,0,0)` returned **zero pixels on every row** — and that is not a
+failure, it is S/H. Below the split every colour is exactly halved:
+`(0,68,34)→(0,34,17)`, `(68,34,34)→(34,17,17)`, and the raster's red target
+`(238,0,0)→(119,0,0)`. The correct discriminator below an S/H boundary is the
+**shadowed** value. P1's number predates S/H actually working.
+
+### Result
+
+| | (a) fire early | (b) blanking delay |
+|---|---|---|
+| row 118 red px | 0 | 0 |
+| **row 119 red px** | **1** | **0** |
+| row 120 red px | 8 | 8 |
+| first affected row | **119** | **120** (the authored line) |
+| affected rows total | 97 | 96 |
+| mean brightness 108-117 → 121-130 | 15.83 → 8.10 | 15.83 → 8.10 |
+
+**(b) ADOPTED.** It removes the partial tint and puts the boundary on the authored
+line. Option (a) is DELETED — it never removed the artifact by construction, and its
+helper `raster_fire_screen` turned out to be **imported but never called**, so it was
+dead code that had never affected a shipped program. Deleting it changed **zero
+bytes** (debug crc `fa5c04e5` identical before and after), which is the proof it was
+dead.
+
+### S/H is PROVEN — closes the P1 residual and handoff §4.5
+
+Mean row brightness steps **15.83 → 8.10 across the boundary, a 1.95x step DOWN**,
+in the correct direction, at a boundary where the art is uniform. The prior note that
+OJZ's art is all high-priority and S/H therefore undemonstrable is **wrong for
+section 1**: the spawn-area art is low-priority and visibly shadows. This satisfies
+plan Task 7 Step 3's requirement without any content change.
+
+### Residual: the mode-register half of a fire still switches mid-line
+
+The blanking delay guards the CRAM paths only. Column-bucket brightness across row
+119 (32 px buckets) shows the S/H register taking effect ~45% of the way across the
+line, **identically in both options**:
+
+```
+row 118:   5.3  10.3  25.1   7.8   5.3  10.3  25.1   7.8   5.3  10.3   (all unshadowed)
+row 119:  10.3  10.3  22.3   2.8   5.1   5.1  10.8   1.4   5.1   5.1   (switch ~bucket 3)
+row 120:   6.6   5.5  13.1   2.5   6.6   5.5  13.1   2.5   6.6   5.5   (all shadowed)
+```
+
+Extending the delay to `OP_SET_REG` would cost ~40 more cycles of a ~60-cycle budget
+and was NOT taken without a cycle measurement to justify it. Authors wanting a
+pixel-clean mode change should schedule it one line earlier. Left open deliberately.

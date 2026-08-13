@@ -24,7 +24,7 @@ use engine.level.parallax_dsl.*
 // Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
 // command builder they are pinned against.
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
-use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, RASTER_ARM_PARK, raster_arm, raster_fire_screen, pal_stage_off, water_arm0}
+use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, RASTER_ARM_PARK, raster_arm, pal_stage_off, water_arm0}
 // RASTER_ARM_EVERY_LINE + OP_RUN_GRADIENT are imported even though nothing in THIS
 // file names them: a comptime fn's struct-literal field values are resolved at the
 // EMISSION site's scope, not the definition site (the same late-binding rule the

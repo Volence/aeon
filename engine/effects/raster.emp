@@ -142,41 +142,36 @@ pub const RASTER_ARM_EVERY_LINE = $8A00
 // Colors per OP_CRAM entry — a CYCLE budget (Ruling 2a), not a FIFO one.
 pub const RASTER_CRAM_MAX = 3
 
-// ---- row-119 partial-tint fix (Task 4) — BOTH options behind a build-time select ----
+// ---- row-119 partial-tint fix (Task 4) — DECIDED, measured on oracle 2026-08-13 ----
 // The P1 residual: a CRAM write lands inside the fire+1 line's ACTIVE display, so pixels
 // drawn after the write on that line carry the new colour (single-ported CRAM, survey
-// Ruling 2b). Two documented fixes; the controller measures both on oracle (GATE-
-// EVIDENCE.md's exact-colour-per-row method) and picks. Flip EFX_ROW119_FIX to switch.
-pub const EFX_FIX_EARLY    = 0   // option (a)
-pub const EFX_FIX_BLANKING = 1   // option (b)
+// Ruling 2b). Two options were built behind a select and measured at an IDENTICAL
+// camera (2840, 356), section 1, both shapes converged:
 //
-//   (a) EFX_FIX_EARLY (default) — ZERO handler cycles. The boundary is AUTHORED one
-//       line early: raster_fire_screen() below fires at M-2 instead of the usual M-1,
-//       so the effect establishes a line high and the partial-tint row moves from M-1
-//       to M-2 rather than being removed. Cheap; does not eliminate the artifact.
-//   (b) EFX_FIX_BLANKING — the handler burns a cycle-counted dbf delay before each CRAM
-//       write so the write lands in HBlank (offscreen), REMOVING the partial tint. Costs
-//       cycles inside the ~60-cycle budget and is region-dependent. This is S3K's
-//       approach (sonic3k.asm:1018, :1038-1039, retuned per region and selected at
-//       runtime by measured VBlank length at :9791-9793).
-const EFX_ROW119_FIX = EFX_FIX_EARLY
-// dbf iterations for option (b). Each dbf is ~10 cyc; ~4 covers the ~40 cyc from
-// mid-handler to the active-display edge on an H40 line. Region-tunable — the controller
-// calibrates the exact count on oracle (it depends on where in the handler the write
-// lands, which the ints_off bracket's stack push shifted — see GATE-EVIDENCE.md's
-// CORRECTION). Only emitted when EFX_ROW119_FIX == EFX_FIX_BLANKING.
+//   (a) fire one line early — REJECTED and DELETED. It never removed the artifact by
+//       construction (it relocates the partial row from M-1 to M-2 and starts the whole
+//       effect a line high), and the audit found its helper `raster_fire_screen` was
+//       imported but NEVER CALLED, so the option was dead code that had never affected
+//       a shipped program. Numbers recorded in docs/benchmarks/effects-p2/GATE-EVIDENCE.md
+//       so it is not re-litigated.
+//   (b) blanking delay — ADOPTED, and now unconditional. A cycle-counted dbf before each
+//       CRAM write parks it in HBlank (offscreen). Measured: row 119 goes 1 px -> 0 px
+//       and the boundary lands on the AUTHORED line 120 instead of 119. S3K's approach
+//       (sonic3k.asm:1018, :1038-1039, retuned per region, runtime-selected by measured
+//       VBlank length at :9791-9793).
+//
+// RESIDUAL, deliberately not fixed here: the delay guards the CRAM paths only, so a fire
+// mixing OP_SET_REG with a CRAM op still switches its mode REGISTER mid-line. Measured at
+// ~45% across line 119 (column-bucket brightness, identical in both options). Authors
+// wanting a pixel-clean mode change must schedule it a line earlier; extending the delay
+// to OP_SET_REG would cost another ~40 cycles of a ~60-cycle budget and was not taken
+// without a cycle measurement to justify it.
+//
+// dbf iterations. Each dbf is ~10 cyc; 4 covers the ~40 cyc from mid-handler to the
+// active-display edge on an H40 line, and 4 is what the measurement above validates.
+// Region-tunable — recalibrate on oracle if the handler's prologue changes (the ints_off
+// bracket's stack push already shifted it once; see P1 GATE-EVIDENCE's CORRECTION).
 const EFX_BLANK_DELAY = 4
-
-// raster_fire_screen — the fire line for a boundary intended at screen line M, honouring
-// the row-119 fix select. Option (a) subtracts one MORE line (M-2) so the boundary is a
-// line high; option (b) keeps the exact M-1 fire and relies on the handler's blanking
-// delay. Task-7's water program authors its water-line fire through this.
-pub comptime fn raster_fire_screen(screen_line: int) -> int {
-    if EFX_ROW119_FIX == EFX_FIX_EARLY {
-        return raster_fire_line(screen_line) - 1   // M-2: a line early (option a)
-    }
-    return raster_fire_line(screen_line)           // M-1: exact (option b handles the tint)
-}
 
 // Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
 // P1 runs entirely out of Buf_A.
@@ -464,13 +459,11 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         jbra    .advance
     .op_cram:
         move.l  (a1)+, (a2)             // full CRAM command in ONE move.l (sets the address)
-        // Row-119 fix option (b): burn a cycle-counted delay so the colour writes below
-        // land in HBlank (offscreen). d1 is free here, before it is loaded with count.
-        if EFX_ROW119_FIX == EFX_FIX_BLANKING {
+        // Row-119 fix: burn a cycle-counted delay so the colour writes below land in
+        // HBlank (offscreen). d1 is free here, before it is loaded with count.
         moveq   #EFX_BLANK_DELAY, d1
     .cram_delay:
         dbf     d1, .cram_delay
-        }
         move.w  (a1)+, d1               // count-1
     .cram_loop:
         move.w  (a1)+, VDP_DATA
@@ -486,12 +479,10 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // absolute, which needs no a2), then restored for the arm write / next op — no
         // register is added to the movem save set (the ~60-cycle budget).
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
-        // Row-119 fix option (b): same blanking delay as OP_CRAM (d1 free before count).
-        if EFX_ROW119_FIX == EFX_FIX_BLANKING {
+        // Row-119 fix: same blanking delay as OP_CRAM (d1 free before count).
         moveq   #EFX_BLANK_DELAY, d1
     .region_delay:
         dbf     d1, .region_delay
-        }
         move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX)
         lea     Pal_Variant_Stage, a2   // staging base (was VDP_CTRL)
         adda.w  (a1)+, a2               // + comptime offset -> the derived colours
