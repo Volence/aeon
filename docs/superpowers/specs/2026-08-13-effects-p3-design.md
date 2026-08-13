@@ -499,7 +499,33 @@ keep-current semantics would not.
 
 ## 6. Verified toolchain facts this design depends on
 
-### 6.1 Computed-length arrays — RUN THE PROBE BEFORE PLANNING
+### 6.1 Computed-length arrays — PROBED AND CONFIRMED (2026-08-13)
+
+> **RESULT: option C works end-to-end, verified on the real build path with a negative
+> probe.** Ruling 7 stands; the padding fallback stays retired.
+>
+> | probe | result |
+> |---|---|
+> | `pub data Probe_Table: [u16; probe_words(2)] = [1, 2, 3, 4]` | **builds** (`len` 711252 -> 711264) |
+> | same type, **3** elements | **fails**: `array length mismatch: expected 4 element(s), got 3` |
+> | probe reverted | `crc=d792e8d6 len=711252`, byte-identical to the pre-probe build |
+>
+> The negative probe is what makes this meaningful: the comptime fn call was evaluated to
+> 4 and **enforced**, so `[u16; raster_words(PROGRAM)]` is a real guard, not decoration.
+>
+> **New finding, and a trap for the plan: `const` does NOT enforce its declared array
+> length — only `data` does.** The first attempt used a zero-byte
+> `const PROBE: [u16; probe_words(2)] = [1, 2, 3]` to avoid changing the ROM; it compiled
+> the 3-element value and only failed later, at an out-of-bounds index in a separate
+> `ensure`. So a length guard written on a `const` is **vacuous**. Note this makes
+> `engine/sound/sound_sfx.emp:1611`'s "THE LENGTH GUARD IS THE TYPE ANNOTATION" comment
+> misattributed: the guard there holds because of the `pub data SfxEligTable: [u8;
+> CHROUTE_COUNT] = SFX_ELIG` line beneath it, not the `const`'s own annotation. Every
+> Phase-3 length guard must therefore sit on the `data` declaration. Worth a dedicated
+> check in Parcel A, since it is exactly the vacuous-probe failure mode this codebase has
+> been bitten by before.
+
+### 6.1.1 Original reasoning (retained for the plan's benefit)
 
 Sigil parses the array-size position with the full expression parser
 (`sigil-frontend-emp/src/parser.rs:823-830`) and resolves it through `eval_const_index` ->
@@ -507,11 +533,13 @@ Sigil parses the array-size position with the full expression parser
 `eval/call.rs:235-256`). Two doc comments state the intent (`layout.rs:1535-1537`,
 `eval/mod.rs:1812-1813`). Only provisional forms (`bankid`, `extern`, `here()`) are refused.
 
-**Not witnessed end-to-end from aeon**, and ruling 7 retired the padding fallback — so if the
-probe fails, the authoring shape, the type-guard doctrine, and the byte-compare targets all
-change. **Run it before the plan promises `[u16; raster_words(PROGRAM)]`:** a single file with
-`comptime fn n() -> int { return 4 }` and `data T: [u16; n()] = [0,0,0,0]`, `sigil emp` on that
-file alone. Fold in the §5.2 `Label != 0` witness while you are there.
+This was the static reasoning; §6.1's table above is the measured confirmation.
+
+**Method note for anyone re-running it:** there is no standalone `sigil emp` entry point —
+the `sigil` binary takes an `.asm`, and `emp_census` / `emp_contracts` only inspect procs, so
+neither exercises layout. The probe must go into an already-registered module and run through
+`./build.sh`. The §5.2 `Label != 0` witness is still owed and belongs in Parcel A alongside
+the `const`-vs-`data` guard check.
 
 Two riders: the size expression is re-evaluated on every `resolve_type`, so `ensure`s inside a
 length fn can double-report; and a comptime fn's return-type annotation is never enforced.
