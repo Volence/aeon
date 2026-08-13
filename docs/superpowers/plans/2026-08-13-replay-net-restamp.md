@@ -302,10 +302,21 @@ When `emulator_status` shows `symbol_at_pc` at `ErrorHandlerBlob` (this presents
 `running=true`, `Logic_Tick` frozen — which is expected, not a failure):
 
 ```
-emulator_registers
+emulator_screenshot
 ```
 
-Record `d0` (actual hash), `d1` (`Logic_Tick`), `d2` (expected hash).
+Read `d0` (actual hash), `d1` (`Logic_Tick`), `d2` (expected hash) off the MD Debugger's
+register dump in the image.
+
+> **Do NOT use `emulator_registers` here — it returns the wrong values.** Measured this
+> session: by the time you can query, the handler is ~3630 bytes deep into
+> `ErrorHandlerBlob` and has already clobbered `d0`-`d2` drawing its own screen (a live read
+> returned `d0=FFFFFF00, d1=FFFFFF00, d2=00000004`). The trap-time values survive **only** on
+> the displayed dump, which the MD Debugger captured at exception entry. The screenshot is
+> the instrument.
+>
+> Cross-check cheaply with `emulator_read_memory addr=0xFF8004 len=4` (`Logic_Tick`), which
+> must equal the `d1` you read off the screen.
 
 Expected: `d1 = 0x502` (1282), `d2 = 0x1F420103`. Record whatever `d0` actually is — the
 note says `BBB93779`, and this is the first time it is being independently measured.
