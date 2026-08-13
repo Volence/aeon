@@ -110,6 +110,20 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   clobbers), and make a violation **build-fatal** — not a warning. This lives in the sigil repo
   (`/home/volence/sonic_hacks/sigil`), not here; recorded so the ask isn't lost.
 
+- **The replay net has NO automated runner — it is invisible to every gate we own.**
+  Discovered 2026-08-13 while re-stamping it (`docs/superpowers/plans/2026-08-13-replay-net-restamp.md`).
+  Verified: it is not a pytest, not a cargo test in sigil, not in `test.sh`, and there is no CI.
+  The aeon suite's "2 skipped" are `test_s4lint.py` looking for a deleted `main.asm` — **not**
+  the replay net. The net fails only when a human runs a manual oracle procedure, which is
+  precisely how master stayed red from the Knuckles C4 merge until 2026-08-13 with nothing
+  reporting it. `tools/test_replay_fixture.py` now gates fixture *structure* (length, tick
+  count, checkpoint ring alignment, and the BUTTON_C spindash runs that prove a re-stamp
+  rather than a re-record), but it cannot detect a desync — that needs the emulator.
+  Two candidate fixes, neither scoped: (a) a headless oracle runner invoked from `test.sh`,
+  (b) a committed re-stamp tool that makes the manual loop cheap enough to run routinely.
+  The manual loop currently costs ~7 full playbacks; each one replays from tick 0, and the
+  post-spindash section runs well under realtime under host CPU contention.
+
 ### 6. Sound package 4 — ✅ EXECUTED 2026-08-10 (historical text below)
 **D1, D4, D5, D6, D7** and **E5's 7th RegDelta group** are open, verified against the tree, and do
 **not** depend on the unexecuted packages 1/3/5/6. (**D2 is DONE** — corrected below.) This is the
