@@ -26,7 +26,14 @@ save_set_registers   = 4            # code-derived — movem d0-d1/a1-a2 in Rast
 movem_roundtrip_cycles = 40         # fixed — 4-register movem push+pop
 # Per-fire handler cost (arm write + op parse + one OP_CRAM of 3 colours). The corpus
 # lower bound is ~26 cyc (zero-save, Ruling 4c); ours saves 4 registers.
-per_fire_cycles      = "NEEDS-MEASUREMENT"   # oracle: profile Raster_HInt one-fire cost
+# MEASURED 2026-08-13 (oracle profiler, OJZ section 1, ~4 fires/frame): the whole
+# sparse tier costs 8358 cyc/frame = 6.5% of the 128000-cycle NTSC frame. Divided by
+# the fire count this is an UPPER BOUND per fire, not the handler body: the profiler
+# instruments every interrupt it records, and the figure includes autovector entry
+# and rte. Treat as a budget ceiling, not as an instruction-count model.
+sparse_tier_cycles_per_frame = 8358
+sparse_tier_frame_pct        = 6.5
+per_fire_cycles      = "upper-bound only — see sparse_tier_cycles_per_frame"
 program_overhead_fires = 2           # code-derived — the two priming records
 
 [raster.op_pal_region]
@@ -39,24 +46,46 @@ full_line_fire_cost  = 6             # code-derived — ceil(16 / 3) consecutive
 [raster.dense]
 # OP_RUN_GRADIENT: fire every line (reg $0A=0), minimal per-line body.
 mode = "every-line"
-per_line_body_cycles = "NEEDS-MEASUREMENT"   # oracle: profile .dense_body (conservative save model)
-per_line_body_estimate = 84          # placeholder — ~full-fire cost; the reserved-register
-                                     # form targets the corpus ~26 (Ruling 4c), FLAGGED for sign-off
+# MEASURED 2026-08-13 (oracle profiler, OJZ section 2, 96-line run = 101 fires/frame).
+# Dense H-INT total 41579 cyc/frame (32.5%) vs sparse 8358 (6.5%); the marginal cost of
+# the 97 extra fires is (41579-8358)/97 = ~342 cyc/line. That INCLUDES profiler
+# instrumentation, autovector entry and rte, so it is an upper bound on the body.
+per_line_body_cycles_upper = 342
+dense_run_cycles_per_frame = 41579   # a 96-line run
+dense_run_frame_pct        = 32.5
+# THE DECISION-RELEVANT FACT: this costs ZERO lag frames. VSync_Wait measured 62.8%
+# idle WITH the dense run active vs 62.4% without — i.e. the run is absorbed by
+# existing slack, because H-INT time nests inside the idle wait rather than adding to
+# a saturated frame. So the reserved-register optimisation (corpus ~26 cyc/line,
+# Ruling 4c) is a HEADROOM improvement, not a correctness or lag fix, at this content
+# density. Caveat: OJZ_ScrollTest is a near-empty game state; a populated level has
+# less idle to absorb it, so re-measure before concluding it is free in real content.
 transition_arm_lag_fires = 1         # fixed — one pipelined arm at EACH of enter/leave (Ruling 1b)
 # Full-frame every-line cost (rejected for the sparse tier): ~224 * per-fire.
-full_frame_fraction_ntsc = "NEEDS-MEASUREMENT"  # oracle: (224 * per_line_body) / frame_cycles
+full_frame_fraction_ntsc = 0.76   # measured-derived: 224 lines * 342 cyc / 128000 (upper bound)
 
 [palette]
 max_active_variants  = 2             # code-derived — PAL_MAX_VARIANTS (raise only on evidence)
 cycle_max_channels   = 4             # code-derived — PAL_CYCLE_MAX_CHANNELS
 fade_window_frames   = 16            # code-derived — PAL_FADE_FRAMES
 compose_static_frame = "one compare (tst.b Pal_Active)"  # code-derived — early-out
-compose_variant_derive_cycles = "NEEDS-MEASUREMENT"  # oracle: Palette_DeriveVariant per covered line (16 entries)
-compose_fade_step_cycles      = "NEEDS-MEASUREMENT"  # oracle: Palette_DoFade per active frame (48 words)
+# MEASURED 2026-08-13 — AND IT IS THE BIGGEST SINGLE COST IN THE EFFECTS SUITE.
+# Palette_DeriveVariant 19332 cyc/frame = 15.1% of the frame, EVERY frame, and
+# IDENTICAL in section 1 and section 2. It is larger than the entire sparse raster
+# tier (6.5%) and half the cost of a 96-line dense run.
+compose_variant_derive_cycles = 19332
+compose_variant_derive_pct    = 15.1
+# This CONTRADICTS compose_static_frame below: a frame with nothing changing was
+# supposed to cost "one compare". It does not. Either the early-out is not firing or a
+# variant is being held active in sections that do not use one. Flagged as the top
+# optimisation target for the effects suite — see the session handoff. NOT fixed in
+# the Task-4/5 parcel because it is a palette-engine defect, not a raster one.
+compose_fade_step_cycles      = "NEEDS-MEASUREMENT"  # no fade was armed in the measured captures
+palette_compose_total_cycles  = 19568   # measured — almost entirely the variant derive above
 
 [ram]
 # code-derived — the two effects RAM blocks (engine/ram.emp span guards).
 palette_state_bytes  = 472           # PALETTE_STATE_SIZE
 raster_state_bytes   = 286           # RASTER_STATE_SIZE (incl. Buf_A/Buf_B 128 each + dense + water)
 variant_stage_bytes  = 256           # PAL_MAX_VARIANTS * 128 (part of palette_state)
-free_before_stack_kb = "NEEDS-MEASUREMENT"  # build.sh reports it; ~31.8 KB at P2 (headroom check)
+free_before_stack_kb = 31.8   # measured — build.sh reports it each build
