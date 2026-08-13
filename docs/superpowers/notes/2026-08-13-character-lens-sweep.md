@@ -467,7 +467,7 @@ non-fatal ratchet rather than a hard assert.
 |---|---|---|
 | **D1** runtime verification | **DONE** | Forced a lag VBlank mid-tick with a sentinel in `Ctrl_1_Held`: the raw shadow moved `$00`->`$08` (proving `Read_Controllers` ran) while the published byte stayed `$AA`. Publication still works — held right for 30 frames walks the player (`x` 256->275, anim wait->walk). |
 | **CHAR-1** skid dust | **FIXED + verified** | Reproduced first (3 mid-air DustPuffs behind a rising player), then 0 after; natural 3-input repro clean on the final ROM; grounded skid dust unaffected. |
-| **CHAR-2** left-wall catch | **FIXED, mechanism-verified** | `glide_angle` measured live at `$80` mid-left-glide; arithmetic matches S3K. No end-to-end catch: the test section has no climbable wall at glide height. |
+| **CHAR-2** left-wall catch | **FIXED — end-to-end** | TWO bugs, the first masking the second. Facing (`x_vel` always 0 -> `glide_angle`), then an off-by-one: `Climb_WallDist` probed x-11 where the push makes x-10 flush, so both corners read -1 against a test needing 0. Measured before `-1/-1` -> after `0/0` -> `PSTATE_CLIMB`; owner climbed it up and down. |
 | **CHAR-3** slide quadrant | **FIXED** | One instruction; builds, no regression. |
 | **CHAR-7** state leaks | **FIXED** | Quadrant cleared with `angle`; `ST_PUSHING` cleared in `PHook_GroundEnter`. |
 | **G1 / CHAR-8 (part)** | **FIXED** | Climb guard re-bound to `KNUX_ABILITY_RADIUS`; `PhysTable_*` and clamber bound via shared constants. All proven to fail on their drift. |

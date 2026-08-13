@@ -31,8 +31,34 @@ spindash and (Knuckles) glide. Tails skid→jump→flight emits ~120 puffs, perm
 of 16 `NUM_EFFECTS` slots and silently dropping other effects.
 **Fix:** clear the latch at the top of `Player_Animate` and let `.skid_show` re-`st` it.
 
-### CHAR-2 — ~~left-wall glide catches always fail~~ **FIXED (mechanism-verified, not end-to-end)**
-*Fix:* wall side taken from `PlayerV.glide_angle` (S3K's `double_jump_property + $40`), which collision never touches, instead of the always-zero `x_vel`; scratch in d7 because `Climb_WallDist` returns in d0. Same change at `.hit_floor` for corner landings. *Verification is partial:* `glide_angle` measured live at `$80` mid-left-glide and the arithmetic matches S3K, but OJZ act1 sec0 has no climbable wall at glide height in either direction, so a catch could not be staged.
+### CHAR-2 — ~~left-wall glide catches always fail~~ **FIXED — VERIFIED END-TO-END (owner playtest, 2026-08-13)**
+**TWO bugs on one code path; the first masked the second.**
+
+*Bug A (facing):* the wall side came from `tst.w x_vel`, but `GLF_PUSH_BIT` is set
+exactly by the wall-probe hit whose handler does `clr.w x_vel`, so x_vel is always 0
+at the catch and the left branch was never taken. Now keyed on `PlayerV.glide_angle`
+(S3K's `double_jump_property + $40`), scratch in d7 because `Climb_WallDist` returns
+in d0.
+
+*Bug B (off-by-one) — the reason it STILL failed after A:* `Air_WallProbeLeft` snaps
+so `x - PUSH_RADIUS` (x-10) is flush, but `Climb_WallDist` probed `x - CLIMB_RADIUS - 1`
+(x-11) — one pixel inside the wall. Both corner probes returned **-1**, and the
+both-flush test needs **0**, so no left wall could ever be caught. The right side used
+x+10 on both sides of that equation, which is why right walls worked and the feature
+looked functional. The `-1` was imported from S3K's `GetDistanceFromWall`
+(`sonic3k.asm:31527`), where it compensates for S3K's asymmetric wall queries; ours are
+stamped from one symmetric core and never needed it.
+
+**Measured at the catch, gliding left into a real wall:**
+`before -1/-1 -> GLIDEFALL` · `after 0/0 -> Climb_Catch -> player_state $16 (PSTATE_CLIMB)`.
+Right-wall catch re-verified unaffected (glide_angle $00, flush, climbs, tops out).
+Owner then climbed the left wall up and down: **works**.
+
+**Process note:** Bug A was reported fixed on mechanism evidence after I failed to stage
+a left-wall catch in OJZ act1 sec0. The owner drove to a real left wall and it still
+flopped off. The partial verification was honestly labelled, and that label is what made
+the second bug findable instead of shipping as "done".
+
 `Knuckles_Gliding_WallCatch` (`player_climb.emp:492`) picks the wall side with `tst.w x_vel`, but
 both `Air_WallProbeLeft/Right` do `clr.w x_vel(a0)` on the very hit that sets `GLF_PUSH_BIT`, so
 `x_vel` is always 0 there and `bmi` never taken. Knuckles always faces right; `Climb_WallDist`
