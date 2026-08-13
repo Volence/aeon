@@ -522,3 +522,53 @@ Lesson: verify the branch AND that the tree you built is the tree you edited.
 `./test.sh` on an unmodified `53efbf69` tree fails `OJZ strip generator self-tests` and
 `ROM build` — identically, with or without this branch. Same disease as G3: red gates
 nobody is watching. Worth a look, out of scope here.
+
+
+---
+
+## 9. MERGE ATTEMPT — BLOCKED, suite red (2026-08-13)
+
+`refreeze --freeze character-lens-sweep` ran clean (7 goldens, size tables, pins,
+provenance entry **110**; sigil branch `parcel/character-lens-sweep`, commit
+`241beb8d`). The full workspace suite then read **3639 passed / 33 failed across 22
+binaries**. Not merged.
+
+**A near-miss worth recording.** My first suite run piped through
+`sort | uniq -c | head -25` and reported exit 0 — the failing-target lines fell below
+the cutoff and the exit code came from `head`, not from the tests. It looked green.
+That is the same shape as the earlier "tail hid 16 failures and I merged claiming
+green" incident. Re-running with full output captured is what surfaced the 33.
+**Never aggregate a test run through `head`/`tail`; capture in full, then filter.**
+
+### What remains — both scaffolding, neither an engine defect
+
+**(1) Port-flip: new cross-seam refs.** ~10 `*_port` binaries compile a module
+standalone against a synthesized extern set, and mine now reach outside it:
+- `Ctrl_1_Held_Raw` / `Ctrl_2_Held_Raw` / `Ctrl_1_Ext_Held_Raw` / `Ctrl_2_Ext_Held_Raw`
+  (D1's RAM-tail addition) — `controllers_port` and anything else linking `controllers`.
+  The stub is spelled out inline, e.g. `controllers_port.rs:194`.
+- `PlayerBlock` in `player_air/ground/fly/spindash/sensors` (the `offsetof` guards) —
+  `test_p1_player_port`, `test_p2_player_states_port`, `test_p4_player_sensors_port`.
+Failing message is explicit and tells you the fix: *"expected when compiling a
+cross-seam module standalone; supply the map/harness composition that defines it"*.
+
+This corrects a claim I made earlier: the `offsetof` guards are **comptime-only in the
+ROM but NOT free in the harness**. A guard that imports a type is a cross-seam
+reference like any other.
+
+**(2) The hand-typed pin ledger** (`crates/sigil-harness/tests/repin_pins.rs`). Every
+moved pin carries an annotated delta chain (`// +0x10 sst-fold // +0x140 sound-pkg1 …`)
+and needs this parcel's entry appended — e.g. `ANIMATE.plain_base` 0x33C0 -> 0x33D0.
+It is hand-maintained ON PURPOSE so a pin move is a conscious, explained act; batch
+-rewriting it would defeat the gate. Read each row, append the delta.
+
+### Order to finish
+1. Close (1) and (2). 2. Re-run `cargo test --release --workspace --no-fail-fast`
+capturing FULL output; require **0 failed** (reference green is 3667/0, though this
+parcel's total differs since it adds guards). 3. Merge sigil
+`parcel/character-lens-sweep` and aeon `review/character-lens-sweep` **back to back** —
+sigil's goldens are pinned to exactly this aeon code, so either alone leaves the other
+mismatched.
+
+Everything in §2-§8 is unaffected: three shapes build, the fixes are oracle-verified,
+and the goldens are frozen against them.
