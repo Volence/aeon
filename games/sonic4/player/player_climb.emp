@@ -153,7 +153,24 @@ proc Climb_WallDist (a0: *Sst) clobbers(d0-d6/a1) {
         moveq   #2, d2                          // probe right
         jbra    Player_SensorWallDir            // tail — returns d0 = dist to our caller
 .facing_left:
-        subi.w  #CLIMB_RADIUS+1, d0             // left edge: x - 10 - 1 (S3K asymmetry)
+        // x - 10, SYMMETRIC with the right edge above. This used to be x - 10 - 1,
+        // carrying over S3K's `subq.w #1,d3` from GetDistanceFromWall
+        // (sonic3k.asm:31527) — but that -1 is an artifact of S3K's own collision
+        // routines, whose left and right wall queries are not symmetric. OURS ARE:
+        // player_sensors stamps all four probe cores from one comptime fn with
+        // direction inversions, so no side needs a fudge.
+        //
+        // Importing it broke every LEFT-wall glide catch. Air_WallProbeLeft snaps the
+        // player so that x - PUSH_RADIUS (x-10) is exactly flush; probing at x-11 then
+        // reads ONE PIXEL EMBEDDED, so Knuckles_Gliding_WallCatch's both-flush test
+        // (`or.w` of the two corner distances == 0) could never pass on the left. The
+        // right side matched (x+10 push vs x+10 probe) and caught fine, which is why
+        // the feature looked like it worked.
+        //
+        // MEASURED on hardware at the catch, gliding left into a wall: both corner
+        // probes returned -1 (embedded) with the old offset. Right-wall catches
+        // measured 0/0 and succeeded.
+        subi.w  #CLIMB_RADIUS, d0               // left edge: x - 10
         moveq   #3, d2                          // probe left
         jbra    Player_SensorWallDir
 }
