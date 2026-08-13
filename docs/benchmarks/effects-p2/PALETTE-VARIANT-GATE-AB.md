@@ -121,3 +121,40 @@ it.
 Caveat, as everywhere else in this file: `OJZ_ScrollTest` in debug-fly, not real content.
 The absolute counts will differ in a populated level. The direction and rough magnitude
 should hold, since the charge is a per-frame constant.
+
+## Lag as a FRACTION, and why averaged profiling cannot find the residual
+
+The raw lag counts above have no denominator, which makes them hard to read. Same
+traverse, reading `Logic_Tick` alongside `Lag_Frame_Count`:
+
+- **1063 logic ticks** elapsed (camera 96 -> ~5760, diagonal)
+- post-fix **151 lag frames = ~14%** of frames (roughly 1 in 7)
+- pre-fix **~309 = ~29%** (roughly 1 in 3.5) over the same tick count
+
+The denominator is the same for both legs: the camera advances per LOGIC TICK, so an
+identical traverse distance is an identical tick count regardless of how many frames
+lagged. A lag frame renders at half rate, so this reads as mild hitching post-fix and
+clear stutter pre-fix. Note this is a deliberate STRESS case — debug-fly drives the
+camera diagonally at high speed, streaming on both axes at once; ordinary
+mostly-horizontal play streams far less.
+
+**Methodological finding — averaged profiling is the WRONG instrument for lag.** Frame
+averages over the traverse report ~78-81% `VSync_Wait` idle, which looks incompatible
+with 14% of frames missing the deadline. Both are true: lag is a SPIKE phenomenon (a
+section crossing triggering a redraw burst), and an average dilutes a rare expensive
+frame into a cheap mean. Two further practical problems:
+
+- the emulator runs FASTER than realtime, so a ~1063-tick traverse completes inside a
+  couple of MCP round trips — by the time a profile is requested the camera has already
+  settled at the act bound, and the "during motion" sample is really an at-rest sample
+  (recognisable because the numbers match the at-rest profile to within a few cycles);
+- `get_profiler_frames(frames=1)` returned the same values as `frames=20`, so it does not
+  isolate a single frame either.
+
+**The right instrument for the residual** is per-lagging-frame, not averaged: break on the
+`Lag_Frame_Count` increment (`engine/system/vblank.emp:334`) and inspect state at that
+break, or add a DEBUG peak-cost-per-frame high-water mark. Standing hypothesis, untested:
+the burst is the section-crossing redraw path (`Tile_Cache_Fill` / plane redraw / block
+stream), which is exactly what the 2026-08-09 patch-run batching parcel targeted — and
+consistent with the earlier finding that the FillColumn copy chain is NOT the top lever.
+Tracked as its own task; NOT investigated here.
