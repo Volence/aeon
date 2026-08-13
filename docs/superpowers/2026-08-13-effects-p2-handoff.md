@@ -1,5 +1,30 @@
 # Next-session handoff — 2026-08-13 (Effects P2)
 
+> **STATUS UPDATE (later the same day): §4a IS CLOSED. The merge gate is green.**
+> All 14 failures are fixed; the strict suite is 3672/0 and aeon pytest 941/2-skipped.
+>
+> - **The `ojz_act_pool` shape-invariance blocker was a STALE FIXTURE, not a shape leak.**
+>   Adjudicated with byte evidence in
+>   `notes/2026-08-13-ojz-act-pool-shape-invariance-ruling.md`. Nothing was re-baselined;
+>   the gate now measures the section's own bytes plus a map-fill tail check, and was
+>   negative-probed. **Note the numbers in §4a below are wrong** — the real delta is
+>   2 bytes (`0x2F16`/`0x2F18`), and the "15166" belonged to a DIFFERENT failure
+>   (`generated_pins_match_the_hand_typed_baseline`), which §4a had conflated into the
+>   same row.
+> - **The replay-net item is NOT this lane's.** Both master and effects-p2 desync
+>   byte-identically (tick 1282, actual `BBB93779`, expected `1F420103`), so P2
+>   contributes zero delta to the net. The break is inherited from the Knuckles C4 merge,
+>   whose own re-stamp was never done. Evidence + the corrected premise (the hash is
+>   layout-proof BY CONTRACT, so "RAM moved therefore expect drift" is not a safe default)
+>   in `notes/2026-08-13-replay-net-attribution.md`.
+> - Two incidental catches: the tranche5 negative probes (a) and (b) had gone **vacuous**
+>   (they assert only that resolve/link failed, which the unresolved `Palette_Compose`
+>   satisfied for the wrong reason), and `sound_api_port`'s synthetic consumer LMA is now
+>   **derived** instead of hand-typed after going stale for the third time.
+>
+> Still open below and unchanged: §2 (the reserved-register ruling) and §3 (the
+> `Palette_DeriveVariant` defect — now root-caused on hardware, see the session summary).
+
 Supersedes the Effects P2 half of `2026-08-12-next-session-handoff.md` (§4). The
 Knuckles half of that doc is **done — merged as `50d54612`**.
 
