@@ -537,8 +537,11 @@ pub proc Knuckles_Gliding_WallCatch (a0: *Sst) clobbers(d0-d7/a1-a2) {
         // addi.b #$40,d0 / bpl.s .right`). glide_angle is 0 = fully right, $80 = fully
         // left, and nothing in the collision path writes it, so +$40 splits the two
         // halves exactly and cannot be destroyed by a snap.
-        move.b  PlayerV.glide_angle(a0), d0
-        addi.b  #$40, d0
+        // d7, not d0: Climb_WallDist below is `clobbers(d0-d6/a1)` and RETURNS in d0,
+        // so a d0 scratch here trips the [call.live-clobbered] closure gate at that
+        // call site. d7 is outside the callee's clobber set and inside this proc's own.
+        move.b  PlayerV.glide_angle(a0), d7
+        addi.b  #$40, d7
         bmi     .left_wall
         bclr    #ST_XFLIP, status(a0)            // face right (toward the wall)
         jbra    .pair
