@@ -6,10 +6,33 @@
 //   Entry word:   bits 15-12 = tile_count-1 (1-16), bits 11-0 = tile_start
 //
 // A frame may carry 1..N entries (each a separate DMA), so the entry loop
-// below is load-bearing — NOT dead generality: DPLC_Sonic frames legitimately
-// carry up to 6 entries (ObjectTest oracle soak), so the entry loop must
-// handle 1..N. If a single-DMA guarantee is wanted for the shipping art, it
-// belongs in the build tool, not this shared runtime path.
+// below is load-bearing — NOT dead generality. If a single-DMA guarantee is
+// wanted for the shipping art, it belongs in the build tool, not this shared
+// runtime path.
+//
+// ENTRY COUNT IS A QUEUE-SLOT COST, AND IT IS THE BINDING CONSTRAINT.
+// Each entry is one QueueDMA_Important enqueue, so a frame costs
+// entry_count slots out of DMA_IMPORTANT_SLOTS (12). Measured from the
+// shipped blobs (dplc_peak_entries below, corroborated by
+// tools/verify_sprites.py):
+//
+//     optimized/sonic.bin   13 entries (frames 193/200) — worst SCRIPT-REACHABLE
+//                              frame is 196 ($C4, LookUp) at 12 = the whole queue
+//     knuckles.bin           5      optimized/tails.bin        2
+//     optimized/tails_tail.bin  1   generated/dust/dplc_dust.bin  1
+//
+// This header previously claimed "up to 6 entries (ObjectTest oracle soak)" and
+// knuckles_data.emp claimed "well inside DMA_IMPORTANT_SLOTS ... (DPLC_Sonic
+// carries up to 13)". Both were wrong, and they disagreed with each other.
+// dplc_peak_tiles guards only the VRAM footprint, so nothing bounded entries
+// against slots at all.
+//
+// Consequence at 12/12: the frame LookUp is entered, the Important queue is
+// 100% player and PageIn_EnqueueLanding is deterministically dropped — a
+// streaming stall exactly when the camera pans up. At 13 it is worse and
+// PERMANENT: perform_dplc enqueues 12, the 13th returns carry-set, and the
+// `bcs .done` bails BEFORE committing prev_frame — so every subsequent frame
+// re-enqueues all 12 and drops the 13th forever. That entry's tiles never load.
 //
 // Cross-module: QueueDMA_Important / QueueDMA_Deferrable live in
 // engine.dma_queue and resolve at link.
@@ -25,6 +48,45 @@ use engine.objects.sst.{Sst}
 // was full and the request was silently dropped — a caller MUST consume it
 // (perform_dplc's `bcs .done` does), or the [call.flag-result-unused] check
 // fires.
+
+// -----------------------------------------------
+// DPLC_ENTRY_RESERVE — Important slots a DPLC frame must leave free.
+//
+// The player's DPLC is not the queue's only Important customer in a frame:
+// PageIn_EnqueueLanding publishes a decoded art page (and a landing whose ROM
+// source straddles a $20000 boundary is SPLIT into two entries by
+// QueueDMA — .split_reject needs BOTH free or it rejects the whole entry).
+// Character art totals ~354 KB across the cast, i.e. ~2.7 x 128 KB, so at least
+// two boundary-straddling entries exist by construction.
+//
+// Two is the floor, not a comfortable margin. Raise it before adding another
+// per-frame Important producer.
+// -----------------------------------------------
+pub const DPLC_ENTRY_RESERVE = 2
+
+// -----------------------------------------------
+// dplc_peak_entries — COMPTIME: the largest per-frame ENTRY count in a DPLC
+// table, i.e. the peak Important-queue SLOT cost of one frame change.
+//
+// The sibling of dplc_peak_tiles, and the one the queue actually cares about:
+// tiles size the VRAM window, entries consume queue slots, and the two are
+// unrelated (a 29-tile frame can be 2 entries; a 16-tile frame can be 13).
+// Pair it with the slot budget to make the wall a comptime fact:
+//
+//     ensure(dplc_peak_entries(_dplc_x) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS, "...")
+//
+// Same parser and same format spec as dplc_peak_tiles — a format change has to
+// move both, and they are adjacent for that reason.
+// -----------------------------------------------
+pub comptime fn dplc_peak_entries(d: Data) -> int {
+    comptime var peak = 0
+    for f in 0..(((d[0] << 8) | d[1]) >> 1) {                  // frames = table[0] / 2
+        comptime var fo = (d[f << 1] << 8) | d[(f << 1) + 1]   // frame block offset
+        comptime var n = (d[fo] << 8) | d[fo + 1]              // that frame's entry count
+        if n > peak { peak = n }
+    }
+    return peak
+}
 
 // -----------------------------------------------
 // dplc_peak_tiles — COMPTIME: the largest per-frame tile total in a DPLC table,

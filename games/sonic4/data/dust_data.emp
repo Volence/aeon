@@ -9,8 +9,8 @@
 // its README for donor provenance and the palette re-index). Do not hand-edit.
 module games.sonic4.dust_data in dust_data
 
-use engine.constants.{TILE_SIZE}
-use engine.objects.dplc.{dplc_peak_tiles}
+use engine.constants.{TILE_SIZE, DMA_IMPORTANT_SLOTS}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
 
 const _map_spindash = embed("games/sonic4/data/generated/dust/map_dust_spindash.bin")
 const _map_puff     = embed("games/sonic4/data/generated/dust/map_dust_puff.bin")
@@ -26,6 +26,10 @@ pub const DUST_PUFF_ART_LEN = 16 * TILE_SIZE    // 512
 ensure(_art_dust.len == 88 * TILE_SIZE, "Art_Dust must be 88 tiles — 72 charge + 16 puff")
 ensure(DUST_PUFF_ART_OFF + DUST_PUFF_ART_LEN == _art_dust.len,
        "the puff block must be the TAIL of Art_Dust")
+// Entries are Important queue slots; the dust's tables are single-entry.
+ensure(dplc_peak_entries(_dplc_dust) + DPLC_ENTRY_RESERVE <= DMA_IMPORTANT_SLOTS,
+       "the dust DPLC's peak frame costs more Important queue slots than the budget leaves — re-page the dust art")
+
 ensure(dplc_peak_tiles(_dplc_dust) <= 12,
        "the charge DPLC's peak frame exceeds its 12-tile window (VRAM_DUST_SPINDASH)")
 
