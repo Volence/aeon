@@ -461,6 +461,29 @@ non-fatal ratchet rather than a hard assert.
 | Stale docs | **FIXED** (`0873f8a2`) | Flight-SFX correction; CHAR-1..8 booked in `BUGS.md`. |
 | D2, D4–D10, G1/G2/G4–G6, §4 | **OPEN** | Booked in `BUGS.md` as CHAR-1..CHAR-8. |
 
+### Session 2 (oracle available) — additions
+
+| Item | State | Evidence |
+|---|---|---|
+| **D1** runtime verification | **DONE** | Forced a lag VBlank mid-tick with a sentinel in `Ctrl_1_Held`: the raw shadow moved `$00`->`$08` (proving `Read_Controllers` ran) while the published byte stayed `$AA`. Publication still works — held right for 30 frames walks the player (`x` 256->275, anim wait->walk). |
+| **CHAR-1** skid dust | **FIXED + verified** | Reproduced first (3 mid-air DustPuffs behind a rising player), then 0 after; natural 3-input repro clean on the final ROM; grounded skid dust unaffected. |
+| **CHAR-2** left-wall catch | **FIXED, mechanism-verified** | `glide_angle` measured live at `$80` mid-left-glide; arithmetic matches S3K. No end-to-end catch: the test section has no climbable wall at glide height. |
+| **CHAR-3** slide quadrant | **FIXED** | One instruction; builds, no regression. |
+| **CHAR-7** state leaks | **FIXED** | Quadrant cleared with `angle`; `ST_PUSHING` cleared in `PHook_GroundEnter`. |
+| **G1 / CHAR-8 (part)** | **FIXED** | Climb guard re-bound to `KNUX_ABILITY_RADIUS`; `PhysTable_*` and clamber bound via shared constants. All proven to fail on their drift. |
+
+**A process failure worth recording.** Midway through, the shell cwd reverted to the
+main repo, so `python`/`bash` edits (G1, the guards) landed on **master** and were
+committed there, while `Edit`-tool edits (CHAR-2/3/7, absolute paths) stayed in the
+worktree. Two commits had to be rescued off master with `format-patch` +
+`reset --keep` (which preserved the unrelated editor working files) and re-applied
+here. The real damage was not the misplacement but the **false green**: the
+"three shapes build" check after CHAR-2/3/7 had compiled the main repo, which did
+not contain those edits. Once every change sat in one tree the build **failed** —
+`[call.live-clobbered] Knuckles_Gliding_WallCatch @ Climb_WallDist :: d0`, because
+the new discriminator used d0 and `Climb_WallDist` returns in d0. Fixed with d7.
+Lesson: verify the branch AND that the tree you built is the tree you edited.
+
 ### Two things the next session must not inherit as "done"
 
 1. **D1 is not runtime-verified.** The single oracle instance was in use by the
