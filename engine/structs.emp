@@ -1,4 +1,4 @@
-// Shared engine struct definitions — Act (the 34-byte act descriptor), Sec
+// Shared engine struct definitions — Act (the 40-byte act descriptor), Sec
 // (the 66-byte section descriptor), DMAEntry (the 14-byte DMA-queue entry),
 // parallax_config (the 28-byte parallax ROM config header), and VdpShadow (the
 // 19-byte RAM mirror of VDP registers $00-$12).
