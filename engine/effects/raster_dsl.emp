@@ -15,4 +15,8 @@ module engine.effects.raster_dsl
 // `configs.emp` glob-imports this module, and a glob over a module with no `pub`
 // name is a hard error ("matches no module with `pub` names"), so the reachability
 // the glob provides costs exactly one exported name until there is a real one.
+// The deletion is an obligation, not a tidy-up: if this module ever joins
+// COMPTIME_HELPERS, `publicize_helper_comptime` (sigil-harness/src/native.rs:1747)
+// force-publicizes every const here and glob-injects it into EVERY module, putting
+// this name into the duplicate-name surface Task 2's tool checks.
 pub const RASTER_DSL_PLACEHOLDER = 0

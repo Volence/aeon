@@ -32,6 +32,11 @@ use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, R
 // be visible HERE or they degrade to unresolved label refs.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT}
 use engine.effects.palette.{cycle_channel, pal_cycle_channel, PalCycleScript1}
+// raster_dsl is pure comptime and nothing HERE names it — this glob is the only
+// thing that makes the module reachable, and an unimported comptime module's
+// module-level `ensure`s are never evaluated at all (they do not fail; they do
+// not run). Do not prune. Task 6 fills the module; if it joins COMPTIME_HELPERS
+// this line's job changes and should be re-justified or removed deliberately.
 use engine.effects.raster_dsl.*
 
 // ---- record shapes: a header followed by N band entries ----
