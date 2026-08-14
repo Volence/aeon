@@ -274,8 +274,17 @@ pub comptime fn cd_roll_h_off() -> int {
 // -----------------------------------------------
 // VDP Shadow Table (§0.4) — 19 bytes, RAM mirror of VDP registers $00-$12.
 // Registers $13-$17 (DMA) are NOT shadowed. VDP_Shadow_Init copies boot
-// register values in; Flush_VDP_Shadow write-backs only the dirty ones. The
-// build harvests these field offsets (`VDP_Shadow_vdp_*`) + `VDP_Shadow_len`
+// register values in; Flush_VDP_Shadow then re-blits ALL 19 back to the VDP
+// every VBlank, unconditionally — no dirty bitmask, no per-register skip (the
+// `VDP_Dirty_Mask` field this comment used to describe was deleted 2026-08-14).
+// So this table is the AUTHORITY for $00-$12, not a cache of it: whatever a byte
+// holds at frame top is what the hardware register holds for that frame. Two
+// consequences worth knowing before you touch it. (1) A persistent register
+// change MUST land here (`Set_VDP_Reg`, or an inline read-modify-write for a
+// single bit) — a hardware-only write is undone by the next flush, every frame,
+// with nothing gating it. (2) A mid-frame raster poke needs no paired frame-top
+// reset word, because the flush already is one; that is the whole reason the
+// dirty mask went. The build harvests these field offsets (`VDP_Shadow_vdp_*`) + `VDP_Shadow_len`
 // for the residual AS (ram.asm's `ds`, residual-AS `setVDPReg` expansions);
 // engine.vdp mirrors the register offsets it needs as convenience constants
 // (VDP_MODE1_OFF/…, e.g. demo_state.emp's display-enable).

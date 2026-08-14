@@ -52,8 +52,19 @@ pub proc VDP_Shadow_Init () clobbers(d0/a0-a1) {
 // bypassing the shadow — MUST keep interrupts masked for the whole excursion,
 // or a VBlank landing inside it flushes $8F02 back under the routine's feet
 // and the rest of its column-mode writes stride by 2 instead of $80. The three
-// excursion sites are engine/level/bg.emp, engine/level/section.emp and
+// in-game excursion sites are engine/level/bg.emp, engine/level/section.emp and
 // engine/level/plane_buffer.emp; each carries a DEBUG-shape IPL assert.
+//
+// A FOURTH site exists and deliberately carries no assert: engine/system/boot.emp
+// sets autoincrement to 1 for the byte-by-byte VRAM DMA fill (`vdp_reg($0F, $01)`)
+// and restores it from boot_data.emp's AUTO_INC_2_CMD. It is safe by CONTEXT, not
+// by masking discipline: boot runs at $2700 throughout, VInt is not enabled in the
+// VDP until boot.emp's `move.b #$34, VDP_Shadow_Table + VDP_MODE2_OFF` + flush, and
+// the SR is not lowered to $2300 until the line after that — so no VBlank handler
+// (and therefore no flush) can exist while the excursion is open. An assert there
+// would only re-measure the mask instruction a few lines above it. Note the census
+// grep in ENGINE_ARCHITECTURE.md §0.4 must match `vdp_reg(` to see this site at
+// all: it is spelled as a comptime call, not as a literal $8Fxx word.
 //
 // In:  none
 // Out: none
@@ -76,11 +87,34 @@ pub proc Flush_VDP_Shadow () clobbers(d0-d1/a0-a1) {
 // Set_VDP_Reg — the ONE way to change a VDP register outside VBlank and have
 // it survive to the next frame. Writes the shadow byte only; the unconditional
 // flush at frame top is what reaches the hardware.
+//
+// SHIPS UNADOPTED, and saying so beats letting a reader infer otherwise from
+// CODING_CONVENTIONS §3.1 rule 5. Every settled-state site in the tree still
+// writes `VDP_Shadow_Table + VDP_*_OFF` inline — parallax.emp (2 sites),
+// boot.emp, demo_state.emp, object_test_state.emp (2), ojz_scroll_test.emp (2).
+// Those predate this proc; converting them is a byte-moving change with its own
+// pin/golden ritual, so it is a separate parcel rather than a rider on the one
+// that introduced the helper. (hblank.emp's two sites are read-modify-write —
+// set one bit of reg $00 without disturbing the rest — and legitimately CANNOT
+// use this proc, which writes and never reads. They are not adoption debt.)
+// NEW code changing a whole register should call this; the inline sites are the
+// backlog, not the pattern to copy.
+//
+// The index is a byte offset into VDP_Shadow_Table, which for the shadowed span
+// equals the register number. It is NOT bounds-checked in release: the write is a
+// bare indexed store, and ram.emp puts the table + pad(1) immediately before the
+// interrupt-dispatch block, so an out-of-range or negative d0 corrupts RAM
+// silently. The DEBUG-shape assert below is the gate — same idiom, and the same
+// zero release cost, as the reg $0F excursion asserts this parcel added.
+//
 // In:  d0.w = register index ($00-$12), d1.b = value
 // Out: none
 // Clobbers: a0
 // -----------------------------------------------
 pub proc Set_VDP_Reg (d0: u16, d1: u8) clobbers(a0) {
+        if DEBUG == 1 {
+            assert.w d0, ls, #$12           // unsigned: catches negatives too
+        }
         lea     VDP_Shadow_Table, a0
         move.b  d1, (a0, d0.w)
         rts

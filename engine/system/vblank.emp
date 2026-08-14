@@ -313,18 +313,27 @@ proc VInt_Lag () clobbers(d0-d4/a0-a2/a5) requires(vblank) {
             // the Ptr-gated plane buffer dangerous. The plane drain defers to the
             // next complete frame (VInt_Level, VBlank_Ready=1).
             //
-            // Re-assert autoinc = $02 (NEW-1, 2026-08-05). On a complete frame
-            // VInt_DrawLevel exits $8F02 unconditionally one call before the
-            // drain; on a LAG frame it is skipped (above), so the drain used to
-            // REST on the ambient invariant that every $8F80 writer restores
-            // before yielding — unasserted, and a future writer that returns
-            // without restoring would break Critical DMA on lag frames only, a
-            // nearly untestable failure mode. 20 cycles on lag frames buys the
-            // invariant back unconditionally (declared-contexts can prove
-            // bracket PAIRING but not register VALUES, and an IRQ is not a CFG
-            // edge — the structural close was evaluated and ledgered, see
-            // DEFERRED_WORK).
-            move.w  #$8F02, VDP_CTRL
+            // NO autoinc re-assert here — the blanket flush IS one. There used to
+            // be a `move.w #$8F02, VDP_CTRL` on this line (NEW-1, 2026-08-05),
+            // buying back the ambient "every $8F80 writer restores before
+            // yielding" invariant for the lag path, where VInt_DrawLevel's
+            // unconditional $8F02 exit is skipped. It went dead the moment
+            // Flush_VDP_Shadow stopped consulting a dirty mask (2026-08-14) and
+            // is deleted rather than left as a dormant scaffold. The chain: the
+            // flush two calls above re-blits every shadowed register $00-$12,
+            // unconditionally, every frame; reg $0F's shadow byte is $02 from
+            // BootData_VDPRegs and has NO writer anywhere in engine or games
+            // (grep VDP_Shadow_Table — every write names MODE1/MODE2/MODE3/HINT;
+            // Set_VDP_Reg is the only routine that could reach an arbitrary slot
+            // and it currently has no callers). Between the flush and here sits
+            // only Enqueue_Dirty_Buffers, which appends DMA-queue entries in RAM
+            // and calls Parallax_Active_Config — no VDP access on either path.
+            // So the drain is entered with autoinc = $02 by construction.
+            // NOT the same as VInt_DrawLevel's identical-looking `.done` restore
+            // (plane_buffer.emp), which is still load-bearing: on the VInt_Level
+            // path the drain runs AFTER it, and VInt_DrawLevel's own column
+            // entries take an $8F80 excursion in between — so there the flush is
+            // upstream of the excursion, not downstream of it.
             jbsr    Process_DMA_Critical
             jbsr    Vscroll_Write           // §4.6 — after Critical DMA
         }

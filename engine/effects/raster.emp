@@ -476,9 +476,10 @@ pub proc Raster_Clear () clobbers(a0) {
 // -----------------------------------------------
 // Raster_VBlank — once per frame from VInt_Level AND VInt_Lag.
 //
-// MUST run BEFORE Flush_VDP_Shadow: HBlank_Install programs reg $0A through the
-// VDP shadow + dirty mask, so the arm only reaches the hardware on that frame's
-// flush (Ruling 1d). Running after the flush would delay every arm by a frame.
+// MUST run BEFORE Flush_VDP_Shadow: HBlank_Install arms reg $0A through the VDP
+// shadow, so the arm only reaches the hardware on THIS frame's flush
+// (unconditional, every register, every frame — see engine/system/vdp_init.emp)
+// — a post-flush position would delay every arm a frame (Ruling 1d).
 // It also ORs the program's pal_dirty_mask into Palette_Dirty, which must land
 // before Enqueue_Dirty_Buffers reads the mask — Flush precedes Enqueue, so a
 // pre-Flush position satisfies both orderings.

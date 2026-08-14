@@ -30,6 +30,9 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 // free names resolve at the EMISSION site's scope, so they must be visible HERE or
 // they degrade to unresolved label refs.
 use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
+// The water patch-offset invariant below names these directly (an ensure at THIS
+// file's scope, so they must resolve here — see the late-binding note above).
+use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
 // RASTER_ARM_EVERY_LINE + OP_RUN_GRADIENT are imported even though nothing in THIS
 // file names them: a comptime fn's struct-literal field values are resolved at the
 // EMISSION site's scope, not the definition site (the same late-binding rule the
@@ -449,6 +452,36 @@ const OJZ_WATER_PROG = [
                     slot: 0, pal_line: 2, entry: 4, count: 3,
                     sh:   1),
 ]
+
+// THE PATCH-OFFSET INVARIANT — the designated survivor, re-pointed at the offset.
+//
+// Raster_PatchWaterLine writes ONE word into Buf_B at a FIXED byte offset
+// (WATER_TEMPLATE_ARM0_OFF) on all three of its exit paths, unconditionally. That
+// word had better be the priming arm word. The header is one word now, so the
+// offset is structural rather than conditional on an init-word count — which is
+// exactly why the old form of this guard (`[3] == ...`, valid only while
+// init_count == 1) was deleted with the init-word mechanism. Deleting the CHECK
+// along with the condition it happened to be phrased in terms of would have left
+// nothing at all asserting that the patched word is an arm word.
+//
+// It is redundant TODAY, the same way its predecessor was: OJZ_WATER_HAND below
+// pins every word of the program, so a template whose word 1 is not $8A75 also
+// diverges from the twin. But OJZ_WATER_HAND retires in Parcel D with the fixture,
+// and at that moment this becomes the ONLY build-time guard on the one word the
+// runtime overwrites sight-unseen. Deleting a survivor during the change that
+// makes it load-bearing is the mistake to avoid; this is the second time this
+// parcel line has had the chance to make it.
+//
+// It also carries what Raster_InstallWater's doc precondition used to say in
+// prose ("init_count must be 1") in the only form that cannot go stale: it names
+// the runtime constant (WATER_TEMPLATE_ARM0_OFF), the authored line
+// (OJZ_WATER_LINE) and the arm formula's base (RASTER_MIN_FIRE_LINE), so a drift
+// in ANY of the three fails the build here rather than painting a boundary in the
+// wrong place — or, at the offsets a header change could produce, decrementing a
+// record's op_count and sending `dbf` walking ROM as opcodes inside a raw
+// interrupt handler.
+ensure(raster_program(OJZ_WATER_PROG)[WATER_TEMPLATE_ARM0_OFF / 2] == $8A00 | (OJZ_WATER_LINE - RASTER_MIN_FIRE_LINE),
+       "OJZ_WaterRaster: the word at WATER_TEMPLATE_ARM0_OFF is not the priming arm word for line OJZ_WATER_LINE — Raster_PatchWaterLine overwrites that byte offset unconditionally, so it must be arm0")
 
 // THE PIN (design spec 8.1) — the words measured on hardware during P2. Retires in
 // Parcel D with the fixture.

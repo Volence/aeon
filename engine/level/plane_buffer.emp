@@ -445,10 +445,14 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
         // reg $0F=$80, and a caller (or a prior VBlank step) may leave it non-$02,
         // so the empty path must restore it too — not just the drain path's .done.
         // The postcondition is engine-wide: every $8F80 writer restores $8F02
-        // before yielding. It is BELT-AND-BRACES since NEW-1 (2026-08-05) —
-        // VInt_Lag re-asserts $8F02 at its Critical drain head, so a lag frame
-        // no longer rests on this convention alone — but keep honoring it; the
-        // complete-frame path (VInt_Level) still does.
+        // before yielding. Here it is LOAD-BEARING, not belt-and-braces, and the
+        // blanket Flush_VDP_Shadow does not cover it: the flush runs at the TOP of
+        // the VBlank handler, upstream of this proc, and Process_DMA_Critical runs
+        // downstream of it — so between them the only thing that can put reg $0F
+        // back after a column entry's $8F80 excursion is the .done restore below.
+        // (VInt_Lag's matching re-assert was deleted 2026-08-14 as genuinely dead:
+        // that path skips this proc entirely, so nothing perturbs $0F between its
+        // flush and its drain. Different position, different verdict.)
         //
         // The COL entries below take an autoincrement excursion ($8F80 direct
         // to VDP_CTRL, restored to $8F02 at .done) that bypasses the VDP shadow,
