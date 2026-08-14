@@ -302,6 +302,19 @@ pub vars upper_ram {
     // than at a fixed screen row is what stops the boundary sliding around as the
     // camera moves vertically.
     Raster_Water_World_Y: u16,
+
+    // --- Dense RAMP state (OP_RUN_RAMP). The dense tier's second body: instead of
+    // streaming three baked words per line it COMPUTES one word per line from a 16.16
+    // accumulator, which is what makes a dense effect parameterisable at RUNTIME rather
+    // than frozen in ROM. Five reference engines converged on exactly this shape (Ristar's
+    // perspective floor, Vectorman's table-free scaler, Gunstar, Alien Soldier, TF4).
+    //
+    // Acc and Step are the RUNTIME PARAMETERS: a game may rewrite them any frame to
+    // animate the ramp, which no ROM-streamed gradient can do. Kind selects which body
+    // runs, because both share Raster_Dense_Lines/Cmd and the every-line arm.
+    Raster_Dense_Kind:  u16,        // 0 = gradient (stream), 1 = ramp (accumulate)
+    Raster_Ramp_Acc:    u32,        // 16.16 accumulator; high word is the emitted value
+    Raster_Ramp_Step:   u32,        // 16.16 per-line delta, signed
     mark Raster_State_End,
 
     // --- Palette engine state (effects P2) — the composition pipeline's working

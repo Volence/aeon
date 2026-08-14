@@ -140,6 +140,31 @@ pub comptime fn pal_stage_off(slot: int, line: int, entry: int) -> int {
 //                                        when the gradient must follow the live palette)
 pub const OP_RUN_GRADIENT = 6
 
+// OP_RUN_RAMP — the dense tier's second body, and the first raster effect in this engine
+// whose per-line values are COMPUTED rather than baked. Same run mechanics as
+// OP_RUN_GRADIENT (fire every line, constant command, count down), but instead of reading
+// three words per line from ROM it advances a 16.16 accumulator and writes its integer
+// half. Wire body:
+//   OP_RUN_RAMP
+//   dc.l <VDP write command longword>    constant target for every line
+//   dc.w <line count L>
+//   dc.l <start>                         16.16 initial accumulator
+//   dc.l <step>                          16.16 per-line delta, SIGNED
+//
+// WHY IT EXISTS. A gradient stream is frozen in ROM: it cannot change without rebuilding
+// the data, so every dense effect was a fixture rather than a preset. The accumulator's
+// two words live in RAM (Raster_Ramp_Acc / Raster_Ramp_Step) and a game may rewrite them
+// on any frame, which is what turns "a gradient" into "a parameterised effect" — the
+// dynamic-uniforms half the vocabulary review named as missing.
+//
+// Pointed at VSRAM this is vertical scale: each line scrolls the plane by a different
+// amount, giving squash, stretch, and the perspective-floor family. Five reference
+// engines independently converged on this exact 16.16-accumulator shape (Ristar's floor
+// at ROM $061ACE does one divu per frame then add/asr per line; Vectorman's scaler at
+// $0006F6F8 uses no table at all; also Gunstar, Alien Soldier and Thunder Force IV), and
+// none of them could parameterise it from a data file the way this can.
+pub const OP_RUN_RAMP = 8
+
 // op_count sentinel: park the counter and do not advance the cursor. Reached only
 // by a stray fire (a counter that somehow wrapped), so it is defense, not flow.
 pub const RASTER_OPS_END = $FFFF
@@ -193,7 +218,8 @@ pub const RASTER_BUF_SIZE = 128
 // layout; a drift on either side must fail the build, not the frame.
 //   Program 4 + Cursor 4 + Pending 4 + Line 2 + Buf_A + Buf_B + Active_Buf 4
 //   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4 + Water_Line 2 + Water_World_Y 2
-pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 2
+//   + Dense_Kind 2 + Ramp_Acc 4 + Ramp_Step 4
+pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 2 + 2 + 4 + 4
 ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
        "Raster_State RAM block drifted from hblank.emp's raster layout")
 
@@ -315,6 +341,112 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
         rgp_end_arm:    RASTER_ARM_PARK,
         rgp_end_ops:    RASTER_OPS_END,
     }
+}
+
+// RasterRampProgram — the wire shape of a dense RAMP program. Same schedule as
+// RasterGradientProgram (two priming records, a setup record carrying the op, then the
+// terminator); the body differs only in what the setup record carries.
+pub struct RasterRampProgram {
+    rrp_mask:       u16,    // pal_dirty_mask — see the constructor; 0 for a non-CRAM target
+    rrp_init_count: u16,
+    rrp_init_word:  u16,
+    rrp_arm0:       u16, rrp_ops0: u16,     // fire 0 — priming
+    rrp_arm1:       u16, rrp_ops1: u16,     // fire 1 — priming
+    rrp_arm2:       u16, rrp_ops2: u16,     // fire 2 — the setup record, one op
+    rrp_op:         u16,
+    rrp_cmd:        u32,    // constant VDP write command, re-issued every line
+    rrp_lines:      u16,
+    rrp_start:      u32,    // 16.16 initial accumulator
+    rrp_step:       u32,    // 16.16 per-line delta, signed
+    rrp_end_arm:    u16, rrp_end_ops: u16,  // terminator
+}
+
+// raster_ramp_program — a dense run whose per-line value is COMPUTED from a 16.16
+// accumulator instead of streamed from ROM, which is what makes it parameterisable at
+// runtime (Raster_Ramp_Acc / Raster_Ramp_Step are RAM).
+//
+// `start` and `step` are 16.16 FIXED POINT: 65536 is one unit per line. Authors should
+// use fp16() below rather than writing the raw longword, so the scale is stated once.
+//
+// WHICH LINE THE FIRST VALUE LANDS ON DEPENDS ON THE TARGET, and it is MEASURED, not
+// assumed (docs/benchmarks/effects-p3/RAMP-EVIDENCE.md, 74 of 74 rows):
+//   CRAM target  — value j displays on screen line top + j     (like the gradient tier)
+//   VSRAM target — value j displays on screen line top + j + 1
+// The extra line is the same N+1 behaviour measured for a sparse `vsram` write on
+// 2026-08-14: a VSRAM write issued in line N's HBlank takes effect on N+1, while CRAM
+// applies to the line being set up. So a VSRAM ramp's `top` line renders with whatever
+// scroll was live BEFORE the run, and the ramp proper starts one line down.
+//
+// This is deliberately NOT corrected by biasing `top` inside the constructor. The bias
+// would have to be conditional on the target, which puts a silent one-line shift between
+// two calls that differ only in their command word — the exact class of surprise the
+// sparse tier's single `-1` rule was designed to avoid. Author the line you want the
+// ramp to START at and, for VSRAM, expect the line above it to hold the previous value.
+//
+// THE MASK IS DERIVED, exactly as the gradient constructor derives it, and for the same
+// reason — a pal_dirty_mask naming the wrong line leaves a mid-frame write latched
+// forever. A ramp pointed at VSRAM writes no palette, so its mask is 0; that is the same
+// ruling `vsram`'s op_mask carries in the sparse tier, and it is NOT an omission: a
+// CRAM-style `1 << (addr >> 5)` computed from a VSRAM address is a palette line derived
+// from a scroll offset, and at offset 0 it names the CHARACTER's line.
+pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
+                                    start: int, step: int,
+                                    init_word: int = $8C81) -> RasterRampProgram {
+    ensure(top >= 3, "raster_ramp_program: top {top} below 3 (priming needs lines 0-1)")
+    ensure(lines >= 1, "raster_ramp_program: line count {lines} must be positive")
+    ensure(top + lines <= 224,
+           "raster_ramp_program: run {top}..{top + lines - 1} runs past screen line 223")
+    ensure(init_word >= $8000 && init_word <= $97FF,
+           "raster_ramp_program: frame-top init {init_word} is not a VDP register write word ($8000..$97FF)")
+    let addr = vdp_comm_addr(cmd)
+    // Exactly one of the two supported targets, and the mask follows from which. INT
+    // flags, not booleans, and the mask is built in a comptime var rather than an
+    // if-expression: `if` is a statement here, and a value-position `if` in a struct
+    // literal resolves as a LABEL rather than failing loudly (the silent-degradation
+    // trap this module's opening note warns about — hit while writing this function).
+    comptime var is_cram  = 0
+    comptime var is_vsram = 0
+    if cmd == vdp_comm(addr, VdpTarget.Cram,  VdpOp.Write) { is_cram  = 1 }
+    if cmd == vdp_comm(addr, VdpTarget.Vsram, VdpOp.Write) { is_vsram = 1 }
+    ensure(is_cram + is_vsram == 1,
+           "raster_ramp_program: cmd {cmd} is neither a CRAM nor a VSRAM write command. A ramp re-issues this command every line and derives its pal_dirty_mask from the target, so an unrecognised one would both write the wrong place and re-assert a palette line computed from a non-palette address.")
+    ensure(is_vsram == 0 || addr <= 78,
+           "raster_ramp_program: VSRAM byte address {addr} outside 0..78")
+    ensure(is_cram == 0 || addr <= 126,
+           "raster_ramp_program: CRAM byte address {addr} outside 0..126")
+    ensure(is_cram == 0 || (addr >> 5) != 0,
+           "raster_ramp_program: the run writes CRAM line 0, the CHARACTER's palette line — a dense run re-asserts its line every frame, so this would fight the player's palette for the whole section")
+    comptime var mask = 0
+    if is_cram == 1 { mask = 1 << (addr >> 5) }
+    return RasterRampProgram{
+        rrp_mask:       mask,
+        rrp_init_count: 1,
+        rrp_init_word:  init_word,
+        rrp_arm0:       raster_arm(1, top - 1),
+        rrp_ops0:       0,
+        rrp_arm1:       raster_arm(top - 1, top),       // == RASTER_ARM_EVERY_LINE
+        rrp_ops1:       0,
+        rrp_arm2:       RASTER_ARM_EVERY_LINE,
+        rrp_ops2:       1,
+        rrp_op:         OP_RUN_RAMP,
+        rrp_cmd:        cmd,
+        rrp_lines:      lines,
+        rrp_start:      start,
+        rrp_step:       step,
+        rrp_end_arm:    RASTER_ARM_PARK,
+        rrp_end_ops:    RASTER_OPS_END,
+    }
+}
+
+// fp16 — build a 16.16 fixed-point value from whole and 1/256 parts, so a ramp's rate is
+// authored as "pixels per line" rather than as a raw longword nobody can read.
+//   fp16(1, 0)   = +1 px per line          fp16(0, 128) = +0.5 px per line
+//   fp16(-1, 0)  = -1 px per line
+pub comptime fn fp16(whole: int, frac256: int) -> int {
+    ensure(frac256 >= 0 && frac256 <= 255, "fp16: frac256 {frac256} outside 0..255")
+    ensure(whole >= -512 && whole <= 511, "fp16: whole {whole} outside -512..511")
+    if whole < 0 { return (whole * 65536) - (frac256 * 256) }
+    return (whole * 65536) + (frac256 * 256)
 }
 
 // -----------------------------------------------
@@ -478,7 +610,8 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         cmpi.w  #RASTER_OPS_END, d0
         beq     .park                   // terminator: stray fire, do not advance
         subq.w  #1, d0
-        bmi.s   .advance                // priming / no-op record
+        bmi     .advance                // priming / no-op record (unsized: OP_RUN_RAMP's
+                                        // ENTER arm pushed this past a short displacement)
     .op_loop:
         move.w  (a1)+, d1               // op
         // Three-op compare chain rather than a pc-indexed jump table: at this few
@@ -494,6 +627,8 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         beq     .op_region
         cmpi.w  #OP_RUN_GRADIENT, d1
         beq     .op_run_gradient
+        cmpi.w  #OP_RUN_RAMP, d1
+        beq     .op_run_ramp
         // OP_SET_REG — one $8xxx word
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
@@ -543,6 +678,20 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         move.l  (a1)+, Raster_Dense_Cmd     // constant CRAM write command
         move.w  (a1)+, Raster_Dense_Lines   // L lines
         move.l  (a1)+, Raster_Dense_Cursor  // ROM stream pointer (L*3 words)
+        clr.w   Raster_Dense_Kind           // 0 = stream the ROM gradient
+        // fall through to .advance
+        jbra    .advance
+    .op_run_ramp:
+        // ENTER a dense RAMP run. Same shape as the gradient ENTER — stash the constant
+        // command and the line count, fall through to .advance — but seed the accumulator
+        // from the program instead of a ROM cursor. The seed is deliberate: re-entering a
+        // section restarts the ramp from its authored start rather than wherever the last
+        // run left the accumulator, so the effect is not history-dependent.
+        move.l  (a1)+, Raster_Dense_Cmd     // constant VDP write command (VSRAM or CRAM)
+        move.w  (a1)+, Raster_Dense_Lines   // L lines
+        move.l  (a1)+, Raster_Ramp_Acc      // 16.16 start
+        move.l  (a1)+, Raster_Ramp_Step     // 16.16 per-line delta (signed)
+        move.w  #1, Raster_Dense_Kind       // 1 = compute
         // fall through to .advance
     .advance:
         move.l  a1, Raster_Cursor
@@ -554,12 +703,30 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // (LEAVE schedule at the handler top). Conservative: cursor reloaded from RAM,
         // no reserved register.
         move.w  #RASTER_ARM_EVERY_LINE, (a2)       // reg $0A=0: fire every line
-        move.l  Raster_Dense_Cmd, (a2)             // constant CRAM command (sets address)
+        move.l  Raster_Dense_Cmd, (a2)             // constant command (sets the address)
+        // Which body? Both dense kinds share the every-line arm and the constant command
+        // above, and differ only in where the per-line words come from. One compare, on
+        // the shared prologue, rather than two near-duplicate bodies each re-arming and
+        // re-issuing the command.
+        tst.w   Raster_Dense_Kind
+        bne.s   .ramp_body
         movea.l Raster_Dense_Cursor, a1
         move.w  (a1)+, VDP_DATA
         move.w  (a1)+, VDP_DATA
         move.w  (a1)+, VDP_DATA
         move.l  a1, Raster_Dense_Cursor
+        subq.w  #1, Raster_Dense_Lines
+        jbra    .out
+    .ramp_body:
+        // One ramp line: advance the 16.16 accumulator and emit its INTEGER half. `swap`
+        // is the whole trick — it moves the high word down with no shift loop, so the
+        // fixed-point divide is free. This is Ristar's per-line body (add, shift, store)
+        // with the shift folded into the word select.
+        move.l  Raster_Ramp_Acc, d1
+        add.l   Raster_Ramp_Step, d1
+        move.l  d1, Raster_Ramp_Acc
+        swap    d1                                 // high word = integer part
+        move.w  d1, VDP_DATA
         subq.w  #1, Raster_Dense_Lines
         jbra    .out
     .park:

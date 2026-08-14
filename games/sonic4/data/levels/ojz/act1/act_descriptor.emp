@@ -17,7 +17,7 @@ use engine.structs.{Act, Sec}
 
 // Effects P1 gate fixtures live in the game-side effects library beside the
 // parallax configs (games/sonic4/data/parallax/configs.emp).
-use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram}
+use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -173,7 +173,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // because the OJZ BG art repeats every 64 px vertically — a 64 px
             // shift is pixel-invisible. On section 0 so it is on screen at
             // spawn with no navigation.
-            raster: OJZ_TestVsram,
+            raster: OJZ_TestRamp,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec1_Blocks,
