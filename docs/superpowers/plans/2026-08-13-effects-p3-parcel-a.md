@@ -74,7 +74,10 @@ stay in the byte-emitting modules; only constructors and validation move. The de
     something *reads* `P`. This is the same hazard class as an unimported comptime module
     (`configs.emp:38-42`), one level lower. It is why Tasks 7-8's retained hand-word twins are real
     gates: each is read by a per-word `ensure`. **Any `const` added without a reader is inert** — if
-    you add one as a guard, add the reader in the same edit, and watch it fail once.
+    you add one as a guard, add the reader in the same edit, and watch it fail once. Stronger still,
+    confirmed at review: an unreferenced `const`'s expression is not even **name-resolved** — a probe
+    calling a function that was never imported built silently green, and only produced
+    `unknown function` once something read the const.
 
 ---
 
@@ -957,11 +960,15 @@ pub comptime fn cycle_channel(line: int, first: int, count: int, period: int, di
 // resolve at the CALL site, and a caller naming neither constant would otherwise get
 // `unknown name`. The module-level ensure below is the single source of truth.
 pub comptime fn cycle_script1(chs: array) -> PalCycleScript1 {
-    ensure(chs.len == 1, "cycle_script1: {chs.len} channels — use cycle_script{chs.len}")
+    // Do NOT interpolate the count into a suggested function name: only
+    // cycle_script1/2 exist, so "use cycle_script3" would be a message that lies.
+    ensure(chs.len == 1,
+           "cycle_script1: {chs.len} channels — cycle_script1 takes exactly 1. Wrappers exist for 1 and 2; a wider script needs a new PalCycleScriptN struct alongside it (PAL_CYCLE_MAX_CHANNELS is 4).")
     return PalCycleScript1{ pcs_count: 1, pcs_ch: chs }
 }
 pub comptime fn cycle_script2(chs: array) -> PalCycleScript2 {
-    ensure(chs.len == 2, "cycle_script2: {chs.len} channels — use cycle_script{chs.len}")
+    ensure(chs.len == 2,
+           "cycle_script2: {chs.len} channels — cycle_script2 takes exactly 2. Use cycle_script1 for a single channel; a wider script needs a new PalCycleScriptN struct (PAL_CYCLE_MAX_CHANNELS is 4).")
     return PalCycleScript2{ pcs_count: 2, pcs_ch: chs }
 }
 ensure(PAL_CYCLE_MAX_CHANNELS == 4,
@@ -983,9 +990,12 @@ after `use engine.structs.{Sec}` (`:12`):
 
 ```
 // The constructors + validation live in the DSL; the wire-format structs below stay
-// here because runtime code reads them. Ambient injection makes this `use` redundant
-// at build time (normalize_helper_imports strips it), but it documents the seam —
-// the same convention `use engine.structs.{Sec}` above follows.
+// here because runtime code reads them. This `use` is LOAD-BEARING today: delete it
+// and the five starter variants below fail with `unknown function \`variant\`` (a
+// comptime fn's free names resolve at the CALL site). It becomes redundant only once
+// palette_dsl joins COMPTIME_HELPERS, after which normalize_helper_imports strips it
+// and the line survives as seam documentation — the convention
+// `use engine.structs.{Sec}` above already follows.
 use engine.effects.palette_dsl.{variant, cycle_channel}
 ```
 
