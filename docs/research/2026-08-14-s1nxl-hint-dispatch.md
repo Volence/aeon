@@ -49,25 +49,46 @@ This is the same shape the project already recorded for Ristar (HBlank → `$FFE
 
 ## 2. Why this matters for the ambition question
 
-The owner's question was whether our authoring vocabulary lets us build effects of this class.
+**CORRECTION, and it inverts the interesting half of this note.** The first draft framed this as an
+architectural difference between S1NXL and Aeon. It is not. **Aeon already ships the identical
+mechanism**, and the author of this note asserted the contrast without checking our own side first.
 
-**The relevant difference is not the op set — it is what the interrupt runs.**
+`engine/system/hblank.emp` points IRQ4 **directly at `HBlank_Vector_Slot`, a 6-byte executable slot in
+RAM**, holding either an idle `rte` (`$4E73`) or `jmp handler.l` (`$4EF9` + target). `HBlank_Install
+(a0: HBlankHandler, d0: u8)` writes the opcode and the handler address, programs the line counter and
+enables IE1. The module's own header states the intent plainly: *"The trampoline is dispatch MECHANISM
+only. Its first consumer — the sparse raster dispatcher that installs itself here — lives in
+engine/effects/raster.emp."*
+
+`ENGINE_ARCHITECTURE.md:299` already records this, notes that Vectorman (`$FFFF9D2E`), Batman
+(`$FFFFE560`) and Gunstar/Alien Soldier (`$FFFFEE00`) all do a variant, and argues ours is slightly
+better — theirs read a *pointer* from RAM, ours executes an *instruction* from RAM, saving the
+pointer-load and the indirect jump.
+
+**So the difference is policy, not capability:**
 
 | | S1NXL | Aeon |
 |---|---|---|
-| What HBlank executes | **arbitrary per-state 68000 code**, swapped by a 4-byte RAM write | one fixed handler (`Raster_HInt`) walking **per-section data** (`Sec.sec_raster_table`) |
-| Adding a new effect kind | write a new handler; no engine change | add an **opcode** to the handler and a constructor to the DSL |
-| Cost of a wrong handler | crash / corruption, at runtime | build-time `ensure` failure |
-| Per-line budget | whatever that handler costs | ~60 cycles, enforced by construction |
+| Dispatch mechanism | RAM trampoline, `jmp abs.l` | **RAM trampoline, `jmp abs.l` — the same** |
+| What is installed today | arbitrary per-state handlers | **one** handler (`Raster_HInt`) walking per-section **data** (`Sec.sec_raster_table`) |
+| Installing a bespoke handler | the norm | **supported and public** — `HBlank_Install` is a `pub proc` with no policy attached |
+| Cost of a wrong handler | crash / corruption at runtime | same, if you bypass the DSL |
 
-Neither is strictly better and the project already chose deliberately. The data model buys build-time
-validation, a single audited hot path, and a vocabulary that can refuse bad programs — which is the
-whole premise of Effects P3. It pays for that by making every *new kind* of per-line work an engine
-change rather than an authoring act.
+**The practical answer to "can we do what MarkeyJester did for that boss?" is therefore yes, and the
+mechanism is already shipped.** A boss state can call `HBlank_Install` with its own handler and do
+anything per line that fits the budget. What it gives up by doing so is exactly what the raster DSL
+exists to provide: build-time validation, a single audited hot path, and programs that cannot be
+malformed.
 
-**The practical consequence:** anything MarkeyJester does per line that our four opcodes cannot express
-is a runtime change for us, not an authoring one. So the value of each additional opcode is high, and
-the cheapest ones should be taken early. See §4.
+The honest trade is a per-state choice, not an engine limitation:
+
+- **Use the DSL** for anything expressible in its op set — you get the guards, and the effect is data.
+- **Install a bespoke handler** for a set-piece that needs computed per-line values (Thunder Force IV's
+  Bresenham accumulator, Ristar's fixed-point interpolation, a boss with a per-frame-varying warp).
+  The DSL cannot express computed values by design — everything it emits is comptime-constant.
+
+The value of each additional DSL opcode is still real, because an opcode moves an effect from the
+second column to the first. But it is not the difference between possible and impossible.
 
 ---
 
@@ -100,10 +121,12 @@ on the emulator with a breakpoint on `$FFA7F2` than statically.
 | Per-column VSRAM shear | Raster | **Runtime can already do it; constructor missing.** `.op_cram` writes whatever VDP command it is handed — only `cram()`/`pal_region()` hardcode `VdpTarget.Cram` |
 | Palette bands / glow | Raster DSL | **Covered** (`cram`, `pal_region`, `cycle_channel`) |
 | Mid-screen plane base swap | Raster DSL | **Authorable today** — regs `$02`/`$04` are inside `set_reg`'s range |
+| Per-line values that must be *computed* | A bespoke handler via `HBlank_Install` | **Supported today** (§2). The DSL cannot express computed values by design |
 | Player over the boss | Sprites | Normal |
 
-So the raster tier is **not** the binding constraint for this effect class; VRAM is. But the tier is on
-the path, and the missing VSRAM constructor sits squarely in the middle of it.
+So the raster tier is **not** the binding constraint for this effect class; VRAM is. The VSRAM
+constructor (added 2026-08-14) closes the vertical-shear gap inside the DSL, and anything the DSL
+still cannot express can be done by installing a bespoke handler — at the cost of the DSL's guards.
 
 ---
 
