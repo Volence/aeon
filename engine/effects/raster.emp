@@ -186,11 +186,12 @@ ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZ
        "Raster_State RAM block drifted from hblank.emp's raster layout")
 
 // ---- comptime authoring helpers -------------------------------------------
-// These own the two off-by-one rules so authored programs read in SCREEN lines:
-//   * fire line = screen line - 1   (the effect lands on the line after the fire)
-//   * arm word at record i schedules gap(i+1 -> i+2)
-// The general constructors (and their validation) are Phase 3's `raster_dsl`;
-// what lives here is the minimum P1 needs plus the arithmetic's single authority.
+// What survives here is the arm arithmetic the DENSE tier still authors with: the
+// arm word at record i schedules gap(i+1 -> i+2). The SPARSE tier's authoring
+// surface — including the other off-by-one, `fire line = screen line - 1` — is
+// engine.effects.raster_dsl, which owns the general constructors and their
+// validation. Helpers this module no longer needs have been deleted, not kept
+// dormant (raster_fire_screen at the row-119 note above set that precedent).
 
 // raster_arm — the arm word to place in record i, given the FIRE lines of records
 // i+1 and i+2. Pass RASTER_ARM_PARK's operand (255) when there is no i+2.
@@ -201,18 +202,6 @@ pub comptime fn raster_arm(next_fire: int, after_fire: int) -> int {
            "raster_arm: gap {next_fire}->{after_fire} exceeds one counter reload")
     return $8A00 | (after_fire - next_fire - 1)
 }
-
-// raster_fire_line — screen line an effect should begin on -> the fire line that
-// achieves it. Enforces the >= 2 floor the priming records impose.
-pub comptime fn raster_fire_line(screen_line: int) -> int {
-    // Floor is 3: fires 0/1 prime on lines 0-1, so the earliest real fire is 2,
-    // which lands its effect on screen line 3. Lines 0-2 are the init words' job.
-    ensure(screen_line >= 3 && screen_line <= 223,
-           "raster_fire_line: screen line {screen_line} outside 3..223")
-    return screen_line - 1
-}
-
-
 
 // ---- dense-run authoring (Task 5) -----------------------------------------
 // RasterGradientProgram — the wire shape of a minimal dense-run program: two priming
@@ -260,7 +249,7 @@ pub struct RasterGradientProgram {
 // builder) so this module keeps its import surface.
 pub comptime fn raster_gradient_program(top: int, lines: int, mask: int, cmd: int,
                                         stream: Label) -> RasterGradientProgram {
-    // Floor is 3, matching raster_fire_line: the setup fire sits at T-1 and must still
+    // Floor is 3, matching `raster_dsl.fire`: the setup fire sits at T-1 and must still
     // land after the two priming fires on lines 0-1.
     ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
@@ -578,23 +567,12 @@ pub const WATER_TEMPLATE_ARM0_OFF = 6
 // at M-1 so its writes land on M (Ruling 1a). Priming fire 1 is at line 1, so the gap
 // 1 -> (M-1) needs reg $0A = (M-1) - 1 - 1 = M - 3. So arm0 = $8A00 | (M - 3).
 //
-// RASTER_MIN_FIRE_LINE is the `- 3` above, named ONCE: the comptime formula here and its
-// runtime twin in Raster_PatchWaterLine both spell it, and they were previously two
-// hand-synced literals with only a comment holding them together.
+// RASTER_MIN_FIRE_LINE is the `- 3` above, named ONCE: engine.effects.raster_dsl's
+// arm_at reduces to $8A00 | (M - 3) for a single-event program and pins itself against
+// this constant; Raster_PatchWaterLine below is the runtime twin. They were previously
+// two hand-synced literals with only a comment holding them together.
 pub const RASTER_MIN_FIRE_LINE = 3
 pub const RASTER_MAX_FIRE_LINE = 223
-
-// The literals below are deliberate, NOT an oversight: a comptime fn's free names
-// resolve at its CALL site, so if this body spelled RASTER_MIN_FIRE_LINE then every
-// caller of water_arm0 (games/sonic4/data/parallax/configs.emp, which names neither
-// constant) would have to import both or get `unknown name`. The build-time equality
-// check below keeps the single source of truth without imposing that on callers.
-pub comptime fn water_arm0(screen_line: int) -> int {
-    ensure(screen_line >= 3 && screen_line <= 223, "water_arm0: line {screen_line} outside 3..223")
-    return $8A00 | (screen_line - 3)
-}
-ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
-       "water_arm0's inlined bounds drifted from RASTER_{MIN,MAX}_FIRE_LINE")
 
 // -----------------------------------------------
 // Raster_InstallWater — install a water template into Raster_Buf_B and make it the
@@ -624,8 +602,9 @@ pub proc Raster_InstallWater (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
 
 // -----------------------------------------------
 // Raster_PatchWaterLine — move the water boundary to screen line d0 by recomputing
-// Buf_B's priming arm word (water_arm0's runtime twin). Cheap enough to call every
-// frame from the main loop; the change lands at the next Raster_VBlank rewind.
+// Buf_B's priming arm word (the runtime twin of raster_dsl's arm_at). Cheap enough
+// to call every frame from the main loop; the change lands at the next Raster_VBlank
+// rewind.
 //   d0.w = water screen line, SIGNED — it may legitimately be off-screen in either
 //          direction once the line is anchored to a WORLD Y (Raster_PatchWaterWorldY).
 //
@@ -638,11 +617,11 @@ pub proc Raster_InstallWater (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
 //               -> PARK the counter so the program never fires.
 // The previous version did neither: it masked the line to 8 bits, so a negative line
 // WRAPPED to an arbitrary on-screen row and painted a boundary in the wrong place. That
-// was invisible while the line was a build-time-validated constant (water_arm0's ensure
-// caught it at compile time) and becomes reachable on every vertical scroll the moment
-// the line is world-anchored.
+// was invisible while the line was a build-time-validated constant (the comptime
+// constructor's screen-line bounds caught it at compile time) and becomes reachable on
+// every vertical scroll the moment the line is world-anchored.
 //
-// The RUNTIME twin of water_arm0 (both spell RASTER_MIN_FIRE_LINE):
+// The RUNTIME twin of raster_dsl's arm_at (both spell RASTER_MIN_FIRE_LINE):
 //   arm0 = $8A00 | (line - RASTER_MIN_FIRE_LINE)
 // -----------------------------------------------
 pub proc Raster_PatchWaterLine (d0: i16) clobbers(d0) {
