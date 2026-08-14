@@ -50,6 +50,19 @@ pub data NotDottedEither: engine.structs.Sec = 0
 data NotPubData: Epsilon = Epsilon{ e_a: 0 }
 pub proc NotAnItem () clobbers() { rts }
 ensure(1 == 1, "not an item, and this brace { is inside a string")
+pub implement Game {
+    const NOT_A_CONTRACT_BINDING = false
+    proc entry = SomeRoutine
+}
+comptime fn omicron() -> int {
+    const NOT_A_FN_BODY_LINE = 5
+    newtype NotAFnBodyType = u16
+    return NOT_A_FN_BODY_LINE
+}
+pub struct Pi {
+    p_a: u16
+    const NOT_A_STRUCT_BODY_LINE = 1
+}
 /*
 pub const NOT_IN_BLOCK_COMMENT = 1
 */
@@ -61,8 +74,21 @@ section fake_section {
 
 SAMPLE_EXPECTED = {
     "ALPHA", "BETA", "gamma", "delta", "Epsilon", "Zeta", "Eta", "Theta",
-    "Iota", "Kappa", "Lambda", "Mu", "NU", "xi",
+    "Iota", "Kappa", "Lambda", "Mu", "NU", "xi", "omicron", "Pi",
 }
+
+# Names that LOOK like declarations but sit inside a nested body. `implement` is
+# the real-world one (games/*/config/game.emp bind contract values exactly this
+# way, and `Item::Implement` is not `Item::Section`, so sigil never recurses into
+# it). The fn-body and struct-body lines do not parse as `.emp` — they are here to
+# pin the scanner's item-position rule, which is the only thing keeping a nested
+# line out of a helper's exported closure.
+SAMPLE_NESTED_NON_ITEMS = (
+    "NOT_A_CONTRACT_BINDING",
+    "NOT_A_FN_BODY_LINE",
+    "NotAFnBodyType",
+    "NOT_A_STRUCT_BODY_LINE",
+)
 
 
 def _items_of(text):
@@ -107,10 +133,22 @@ class TestComptimeItems(unittest.TestCase):
         self.assertNotIn("NotPubData", names)
 
     def test_section_bodies_are_walked_one_level_deep(self):
-        """publicize_helper_comptime recurses into Item::Section."""
+        """publicize_helper_comptime recurses into Item::Section — the POSITIVE
+        half of item-position gating."""
         names = _items_of(SAMPLE)
         self.assertIn("NU", names)
         self.assertIn("xi", names)
+
+    def test_declarations_inside_nested_bodies_are_not_items(self):
+        """The NEGATIVE half. A declaration-shaped line inside an `implement`, a
+        comptime fn body or a struct body is not a module item, and a scanner that
+        ignored brace depth would export all four of these."""
+        names = _items_of(SAMPLE)
+        for nested in SAMPLE_NESTED_NON_ITEMS:
+            self.assertNotIn(nested, names)
+        # ...while the enclosing items themselves still are.
+        self.assertIn("omicron", names)
+        self.assertIn("Pi", names)
 
     def test_fn_body_locals_are_not_items(self):
         """Only item position counts — a `let` in a comptime fn body is not exported."""
@@ -149,6 +187,15 @@ class TestRealHelperForms(unittest.TestCase):
              "TEMPLATE_COPY_SHIFT", "set_priority_band"},
         )
 
+    def test_real_implement_block_bindings_are_not_module_items(self):
+        """games/*/config/game.emp bind contract values with depth-1 `const` lines.
+        `Item::Implement` is not `Item::Section`, so sigil does not recurse into it
+        and these names are NOT in any consumer's ambient scope. Both files export
+        nothing at all, so a scanner blind to brace depth reads them backwards."""
+        for game in ("demo", "sonic4"):
+            path = os.path.join(AEON, "games", game, "config", "game.emp")
+            self.assertEqual(comptime_items(path), set(), path)
+
     def test_every_helper_module_parses_and_exports_something(self):
         ids = helper_ids_from_native(SIGIL_NATIVE)
         index = module_index(AEON)
@@ -166,10 +213,32 @@ class TestHelperList(unittest.TestCase):
         self.assertGreaterEqual(len(ids), 12)
 
     def test_locator_finds_the_paired_sigil_checkout(self):
-        self.assertTrue(os.path.exists(default_native_rs(AEON)))
+        """Not merely "a native.rs exists" — falling through to sigil master is the
+        exact bug this guards, and master's helper list can be a merge behind."""
+        resolved = default_native_rs(AEON)
+        self.assertTrue(os.path.exists(resolved))
+        parts = os.path.abspath(AEON).split(os.sep)
+        if len(parts) >= 3 and parts[-2] == ".worktrees":
+            expected = os.path.join(
+                os.sep.join(parts[:-3]), "sigil", ".worktrees", parts[-1])
+            self.assertTrue(
+                resolved.startswith(expected + os.sep),
+                f"resolved {resolved}, expected the paired worktree under {expected}")
+        else:
+            self.assertNotIn(".worktrees", resolved)
 
 
 class TestModuleIndex(unittest.TestCase):
+
+    def test_a_module_line_inside_a_block_comment_does_not_claim_the_id(self):
+        """No file in the tree does this today, so the guard is untestable against
+        the live tree — build a scratch tree that does."""
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "real.emp"), "w") as f:
+                f.write("/*\nmodule engine.decoy\n*/\nmodule engine.real\n")
+            index = module_index(d)
+            self.assertIn("engine.real", index)
+            self.assertNotIn("engine.decoy", index)
 
     def test_module_id_is_read_from_the_declaration_not_the_path(self):
         """engine.types lives at engine/system/types.emp — path mapping would miss it."""

@@ -31,6 +31,14 @@ WHAT COUNTS AS EXPORTED, and why (read against sigil, which is the authority):
   `equ`, `proc`, `data` without a bare named type, private `context`, and the
   `vars <region> { }` REGION form (name is None) are all invisible to a consumer.
 
+Coverage note, so the load-bearing parts stay legible: on the CURRENT twelve
+helpers only the `pub context` rule and the module-id lookup change the answer —
+without them irq/z80_bus read as exporting nothing, and two helpers resolve to no
+file at all. The `vars`/`data` rules and the block-comment stripping match sigil's
+semantics but are inert here (no helper contains either form). Item-position
+gating is NOT inert: `implement` blocks bind contract values with depth-1 `const`
+lines, and helper modules gain comptime-fn bodies as the set grows.
+
 Usage:
     python3 tools/emp_helper_closure.py [AEON_DIR] [NATIVE_RS]
 """
@@ -190,8 +198,8 @@ def default_native_rs(aeon: str) -> str:
     """Locate the sigil checkout PAIRED with this aeon checkout.
 
     A parcel edits aeon and sigil together in matching worktrees, so
-    `<root>/aeon/.worktrees/NAME` must read `<root>/sigil/.worktrees/NAME` — not
-    sigil master, whose helper list is one merge behind.
+    `<root>/aeon/.worktrees/NAME` must read `<root>/sigil/.worktrees/NAME` rather
+    than sigil master, which may be a merge behind on the helper list.
     """
     aeon = os.path.abspath(aeon)
     candidates: List[str] = []
@@ -222,16 +230,19 @@ def module_index(aeon: str) -> Dict[str, str]:
                 continue
             path = os.path.join(dirpath, fn)
             with open(path, "r", encoding="utf-8") as fh:
-                for line in fh:
-                    m = MODULE_DECL_RE.match(line)
-                    if m:
-                        prior = index.get(m.group(1))
-                        if prior and prior != path:
-                            raise SystemExit(
-                                f"module id {m.group(1)} declared twice: {prior}, {path}"
-                            )
-                        index[m.group(1)] = path
-                        break
+                # Comment-stripped, so a `module x.y` line inside the file's header
+                # block comment cannot claim the id ahead of the real declaration.
+                src = strip_comments(fh.read())
+            for line in src.split("\n"):
+                m = MODULE_DECL_RE.match(line)
+                if m:
+                    prior = index.get(m.group(1))
+                    if prior and prior != path:
+                        raise SystemExit(
+                            f"module id {m.group(1)} declared twice: {prior}, {path}"
+                        )
+                    index[m.group(1)] = path
+                    break
     return index
 
 
