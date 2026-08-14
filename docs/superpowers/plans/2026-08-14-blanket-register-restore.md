@@ -265,7 +265,18 @@ Sections 0/1/2 carry raster fixtures. Confirm each still looks right — the flu
 
 - [ ] **Step 3: Move the water patch offset**
 
-`WATER_TEMPLATE_ARM0_OFF` (`raster.emp:780`) 6 → **4**: the header is now `[mask][arm0][opc0]…`. Three unconditional write sites use it — `raster.emp:854`, `:863`, `:866`. They need no change if the constant is correct, but **verify by reading each**.
+`WATER_TEMPLATE_ARM0_OFF` (`raster.emp:780`) 6 → **2**. Three unconditional write sites use it —
+`raster.emp:854`, `:863`, `:866`. They need no change if the constant is correct, but **verify by
+reading each**.
+
+> **CORRECTION (execution, 2026-08-14): this plan originally said 6 → 4. That was WRONG.**
+> The header goes from `[mask][init_count][init_word][arm0]` (arm0 at byte 6) to `[mask][arm0]`
+> (arm0 at byte **2**) — two words removed is 4 bytes, so 6 - 4 = 2. Byte 4 is now `opc0`.
+> Caught by dumping the emitted template out of the built ROM instead of trusting the number:
+> `0004 8A75 0000 …`, where `$8A75` = `$8A00 | (120-3)` is the priming arm word at +2.
+> Had the 4 shipped, the water patch's `subq.w #1` would have decremented a record's `op_count`
+> and `dbf` would have walked ~35k words of ROM as opcodes inside a raw interrupt handler.
+> **Lesson: verify a computed offset against emitted bytes, not against the prose that derived it.**
 
 - [ ] **Step 4: Re-author both hand pins**
 
