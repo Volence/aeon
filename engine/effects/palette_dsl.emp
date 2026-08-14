@@ -12,8 +12,12 @@
 // site's scope, not this one.
 module engine.effects.palette_dsl
 
-// Bound-pinning only: these names are used by the module-level ensures below, never
-// inside a constructor body (a body's free names resolve at the CALL site).
+// Bound-pinning only — never named inside a constructor body (a body's free names
+// resolve at the CALL site). The two CONSTANTS are real pins: the module-level
+// ensures below read them. The two STRUCT names are documented intent, not pins —
+// measured inert (dropping either leaves the build green), because a param/return
+// type annotation is not resolved here. They record which wire-format types this
+// module's constructors build, and which a call site must therefore have in scope.
 use engine.effects.palette.{PAL_MAX_VARIANTS, PAL_CYCLE_MAX_CHANNELS, pal_variant, pal_cycle_channel}
 
 // ===========================================================================
@@ -101,11 +105,15 @@ pub comptime fn cycle_channel(line: int, first: int, count: int, period: int, di
 // resolve at the CALL site, and a caller naming neither constant would otherwise get
 // `unknown name`. The module-level ensure below is the single source of truth.
 pub comptime fn cycle_script1(chs: array) -> PalCycleScript1 {
-    ensure(chs.len == 1, "cycle_script1: {chs.len} channels — use cycle_script{chs.len}")
+    // Do NOT interpolate the count into a suggested function name: only
+    // cycle_script1/2 exist, so "use cycle_script3" would be a message that lies.
+    ensure(chs.len == 1,
+           "cycle_script1: {chs.len} channels — cycle_script1 takes exactly 1. Wrappers exist for 1 and 2; a wider script needs a new PalCycleScriptN struct alongside it (PAL_CYCLE_MAX_CHANNELS is 4).")
     return PalCycleScript1{ pcs_count: 1, pcs_ch: chs }
 }
 pub comptime fn cycle_script2(chs: array) -> PalCycleScript2 {
-    ensure(chs.len == 2, "cycle_script2: {chs.len} channels — use cycle_script{chs.len}")
+    ensure(chs.len == 2,
+           "cycle_script2: {chs.len} channels — cycle_script2 takes exactly 2. Use cycle_script1 for a single channel; a wider script needs a new PalCycleScriptN struct (PAL_CYCLE_MAX_CHANNELS is 4).")
     return PalCycleScript2{ pcs_count: 2, pcs_ch: chs }
 }
 ensure(PAL_CYCLE_MAX_CHANNELS == 4,

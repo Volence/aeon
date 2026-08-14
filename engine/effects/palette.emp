@@ -11,9 +11,12 @@ module engine.effects.palette in palette
 
 use engine.structs.{Sec}
 // The constructors + validation live in the DSL; the wire-format structs below stay
-// here because runtime code reads them. Ambient injection makes this `use` redundant
-// at build time (normalize_helper_imports strips it), but it documents the seam —
-// the same convention `use engine.structs.{Sec}` above follows.
+// here because runtime code reads them. This `use` is LOAD-BEARING today: delete it
+// and the five starter variants below fail with `unknown function \`variant\`` (a
+// comptime fn's free names resolve at the CALL site). It becomes redundant only once
+// palette_dsl joins COMPTIME_HELPERS, after which normalize_helper_imports strips it
+// and the line survives as seam documentation — the convention
+// `use engine.structs.{Sec}` above already follows.
 use engine.effects.palette_dsl.{variant, cycle_channel}
 
 // ===========================================================================
