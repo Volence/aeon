@@ -11,12 +11,15 @@ module engine.effects.palette in palette
 
 use engine.structs.{Sec}
 // The constructors + validation live in the DSL; the wire-format structs below stay
-// here because runtime code reads them. This `use` is LOAD-BEARING today: delete it
-// and the five starter variants below fail with `unknown function \`variant\`` (a
-// comptime fn's free names resolve at the CALL site). It becomes redundant only once
-// palette_dsl joins COMPTIME_HELPERS, after which normalize_helper_imports strips it
-// and the line survives as seam documentation — the convention
-// `use engine.structs.{Sec}` above already follows.
+// here because runtime code reads them (moving them would invert the dependency).
+//
+// This line emits nothing: palette_dsl is a COMPTIME_HELPERS member, so
+// normalize_helper_imports drops this selective `use` and prepends a glob that is a
+// strict superset of it — measured, the ROM is byte-identical with the line deleted.
+// It survives as seam documentation, the convention `use engine.structs.{Sec}` above
+// already follows. Before palette_dsl joined the helper set it WAS load-bearing:
+// deleting it failed the five starter variants below with `unknown function variant`,
+// because a comptime fn's free names resolve at the CALL site, not where it is defined.
 use engine.effects.palette_dsl.{variant, cycle_channel}
 
 // ===========================================================================
