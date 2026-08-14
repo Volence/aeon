@@ -18,9 +18,14 @@ use engine.irq.{ints_off, vblank}
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
 const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
 
-// StartTransition writes VDP register $0B (Mode Set 3) through the shadow +
-// dirty mask; VDP_MODE3_OFF comes from the shared engine.vdp shadow-offset
-// block. Nothing relates that block to VdpShadow's field offsets — engine.vdp
+// StartTransition writes VDP register $0B (Mode Set 3) through the shadow, which
+// IS the register's authority — Flush_VDP_Shadow re-blits all of $00-$12 from it
+// unconditionally at the next VBlank, so there is no dirty bit to set and no way
+// to opt out of the write-back. Parallax_Update (`.mode3_shadow` below) writes the
+// same byte and additionally drives the register directly on the frame the mode
+// changes, because the flush is a VBlank step and the mode must be live for the
+// frame it becomes active. VDP_MODE3_OFF comes from the shared engine.vdp
+// shadow-offset block. Nothing relates that block to VdpShadow's field offsets — engine.vdp
 // says so itself: a wrong offset there changes the emitted displacement, so the
 // seven-target byte identity is the only check.
 
@@ -258,10 +263,14 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         beq     .v_done
         ori.b   #%100, d0                           // bit 2 = per-column V
     .v_done:
-        // setVDPReg VDP_Shadow_vdp_mode3, d0 — write-through shadow + dirty
-        // (shared set_vdp_reg helper = ledgered adoption debt, 3-site census)
+        // Shadow write-through only: the shadow IS the register's authority, and
+        // Flush_VDP_Shadow re-blits all of $00-$12 unconditionally next VBlank.
+        // The Set_VDP_Reg helper now EXISTS (engine/system/vdp_init.emp) and is
+        // what §3.1 rule 5 mandates for a write like this; what is outstanding is
+        // ADOPTION, here and at the seven other inline shadow-write sites. Left
+        // inline deliberately: converting them moves bytes and belongs in its own
+        // parcel, not as a rider on the one that added the helper.
         move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
-        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
 
     .no_change:
         rts
@@ -319,8 +328,10 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // via stopZ80 (sound-off build) OR the SND_CTRL_DMA_ACTIVE flag bracket (sound
 // build, where the Z80 is deliberately not halted). VDP writes happen here, and
 // they inherit the ambient autoincrement (reg $0F must be 2 for the per-column
-// VSRAM stride — the drain path leaves it $02, and on a lag frame VInt_Lag
-// re-asserts $8F02 at its Critical drain head before reaching here (NEW-1)).
+// VSRAM stride — the drain path leaves it $02, and on BOTH VBlank paths
+// Flush_VDP_Shadow has already re-blitted reg $0F from its shadow byte ($02,
+// writerless since boot) earlier in the same handler, so $02 holds here by
+// construction rather than by every $8F80 excursion restoring itself).
 //
 // In:  none (reads Parallax_Active_Config, Vscroll_Factor)
 // Out: VSRAM written
@@ -459,7 +470,6 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // which is what makes the shadow a sound record of the register.
         move.b  VDP_Shadow_Table + VDP_MODE3_OFF, d1   // previous mode
         move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
-        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
         cmp.b   d1, d0
         beq     .mode3_reg_live                        // unchanged — register already correct
         // Also drive reg $0B on the hardware directly (not only the shadow): the

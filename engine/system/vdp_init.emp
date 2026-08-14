@@ -9,13 +9,16 @@ use engine.constants.{VDP_Shadow_len}
 const VDP_REG_CMD  = $8000
 const VDP_REG_STEP = $0100
 
-// Drift-lock: Flush_VDP_Shadow walks the dirty registers by shifting the `.l`
-// dirty mask one bit at a time (`lsr.l #1, d1`) and bounds the walk with
-// `moveq #VDP_Shadow_len-1` (signed byte) consumed by `dbeq`. The .l mask holds
-// exactly 32 dirty bits and the signed-byte counter caps at 32; a table grown
-// past that would need more than 32 mask bits. Compile error instead.
+// Drift-lock: both loops here (VDP_Shadow_Init's copy, Flush_VDP_Shadow's blit)
+// are counted `dbf` walks primed by `moveq #VDP_Shadow_len-1`. `moveq` sign-
+// extends a SIGNED byte, so a bound past 128 loads a NEGATIVE count and `dbf`
+// runs 65536 iterations — the flush would walk the whole 68K address space
+// writing garbage to VDP_CTRL. The real ceiling is far tighter than that: the
+// VDP has 24 registers and only $00-$12 are shadowed, so anything above 24 is
+// already a table-definition bug. Guard at the hardware bound, not the encoding
+// bound, so the error names the real mistake.
 // VDP_Shadow_len is an imported const, so ensure sees it at comptime.
-ensure(VDP_Shadow_len <= 32, "engine.constants VDP_Shadow_len > 32 — Flush_VDP_Shadow's .l dirty mask holds only 32 bits; the lsr walk cannot index past that")
+ensure(VDP_Shadow_len <= 24, "engine.constants VDP_Shadow_len > 24 — the VDP has only 24 registers, and moveq's signed-byte count bounds both shadow walks")
 
 // -----------------------------------------------
 // VDP_Shadow_Init — copy boot VDP register values into shadow table
@@ -30,36 +33,89 @@ pub proc VDP_Shadow_Init () clobbers(d0/a0-a1) {
     .copy:
         move.b  (a0)+, (a1)+
         dbf     d0, .copy
-        clr.l   VDP_Dirty_Mask        // RAM operand, so the I/O clr read hazard doesn't apply
         rts
 }
 
 // -----------------------------------------------
-// Flush_VDP_Shadow — write only dirty registers to VDP (§0.4)
-// Called during VBlank
+// Flush_VDP_Shadow — re-blit ALL shadowed registers to the VDP (§0.4)
+// Called during VBlank, unconditionally: the shadow is the authority for
+// registers $00-$12, so every frame starts from it. That is what makes a
+// mid-frame raster write self-undoing — an effect that pokes reg $0B or $0A
+// during active scan needs no paired "frame-top reset" word, because the next
+// flush restores the settled value for free. Two independently-authored
+// effects can therefore touch the same register without agreeing on anything.
+// (Gunstar Heroes and Alien Soldier both restore blanket for this reason.)
+//
+// INVARIANT this creates for reg $0F (autoincrement): the flush restores $0F
+// every frame from the shadow ($02). Any routine that changes autoincrement
+// mid-frame — writing $8F80 straight to VDP_CTRL and restoring $8F02 itself,
+// bypassing the shadow — MUST keep interrupts masked for the whole excursion,
+// or a VBlank landing inside it flushes $8F02 back under the routine's feet
+// and the rest of its column-mode writes stride by 2 instead of $80. The three
+// in-game excursion sites are engine/level/bg.emp, engine/level/section.emp and
+// engine/level/plane_buffer.emp; each carries a DEBUG-shape IPL assert.
+//
+// A FOURTH site exists and deliberately carries no assert: engine/system/boot.emp
+// sets autoincrement to 1 for the byte-by-byte VRAM DMA fill (`vdp_reg($0F, $01)`)
+// and restores it from boot_data.emp's AUTO_INC_2_CMD. It is safe by CONTEXT, not
+// by masking discipline: boot runs at $2700 throughout, VInt is not enabled in the
+// VDP until boot.emp's `move.b #$34, VDP_Shadow_Table + VDP_MODE2_OFF` + flush, and
+// the SR is not lowered to $2300 until the line after that — so no VBlank handler
+// (and therefore no flush) can exist while the excursion is open. An assert there
+// would only re-measure the mask instruction a few lines above it. Note the census
+// grep in ENGINE_ARCHITECTURE.md §0.4 must match `vdp_reg(` to see this site at
+// all: it is spelled as a comptime call, not as a literal $8Fxx word.
+//
 // In:  none
 // Out: none
-// Clobbers: d0-d3, a0-a1
+// Clobbers: d0-d1, a0-a1
 // -----------------------------------------------
-pub proc Flush_VDP_Shadow () clobbers(d0-d3/a0-a1) {
-        move.l  VDP_Dirty_Mask, d1
-        beq     .done                       // fast path: nothing dirty
+pub proc Flush_VDP_Shadow () clobbers(d0-d1/a0-a1) {
         lea     VDP_Shadow_Table, a0
         lea     VDP_CTRL, a1
-        move.w  #VDP_REG_CMD, d0            // register command base (reg 0)
-        moveq   #0, d2                      // register index (counts up)
-        moveq   #VDP_Shadow_len-1, d3       // upper-bound loop counter
+        move.w  #VDP_REG_CMD, d0            // register command base (reg $00)
+        moveq   #VDP_Shadow_len-1, d1
     .loop:
-        lsr.l   #1, d1                      // shift next dirty bit into carry
-        bcc     .skip
-        move.b  (a0,d2.w), d0               // load shadow value into low byte
+        move.b  (a0)+, d0                   // shadow value into the command's low byte
         move.w  d0, (a1)                    // write $8X00+val to VDP
-    .skip:
-        addi.w  #VDP_REG_STEP, d0           // next register command
-        addq.w  #1, d2                      // next register index
-        tst.l   d1                          // dirty bits remaining?
-        dbeq    d3, .loop                   // early-exit when the mask drains, else loop to the VDP_Shadow_len bound
-        clr.l   VDP_Dirty_Mask              // RAM operand — see VDP_Shadow_Init
-    .done:
+        addi.w  #VDP_REG_STEP, d0           // next register command ($8X00 -> $8(X+1)00)
+        dbf     d1, .loop
+        rts
+}
+
+// -----------------------------------------------
+// Set_VDP_Reg — the ONE way to change a VDP register outside VBlank and have
+// it survive to the next frame. Writes the shadow byte only; the unconditional
+// flush at frame top is what reaches the hardware.
+//
+// SHIPS UNADOPTED, and saying so beats letting a reader infer otherwise from
+// CODING_CONVENTIONS §3.1 rule 5. Every settled-state site in the tree still
+// writes `VDP_Shadow_Table + VDP_*_OFF` inline — parallax.emp (2 sites),
+// boot.emp, demo_state.emp, object_test_state.emp (2), ojz_scroll_test.emp (2).
+// Those predate this proc; converting them is a byte-moving change with its own
+// pin/golden ritual, so it is a separate parcel rather than a rider on the one
+// that introduced the helper. (hblank.emp's two sites are read-modify-write —
+// set one bit of reg $00 without disturbing the rest — and legitimately CANNOT
+// use this proc, which writes and never reads. They are not adoption debt.)
+// NEW code changing a whole register should call this; the inline sites are the
+// backlog, not the pattern to copy.
+//
+// The index is a byte offset into VDP_Shadow_Table, which for the shadowed span
+// equals the register number. It is NOT bounds-checked in release: the write is a
+// bare indexed store, and ram.emp puts the table + pad(1) immediately before the
+// interrupt-dispatch block, so an out-of-range or negative d0 corrupts RAM
+// silently. The DEBUG-shape assert below is the gate — same idiom, and the same
+// zero release cost, as the reg $0F excursion asserts this parcel added.
+//
+// In:  d0.w = register index ($00-$12), d1.b = value
+// Out: none
+// Clobbers: a0
+// -----------------------------------------------
+pub proc Set_VDP_Reg (d0: u16, d1: u8) clobbers(a0) {
+        if DEBUG == 1 {
+            assert.w d0, ls, #$12           // unsigned: catches negatives too
+        }
+        lea     VDP_Shadow_Table, a0
+        move.b  d1, (a0, d0.w)
         rts
 }

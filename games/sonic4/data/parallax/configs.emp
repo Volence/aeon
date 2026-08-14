@@ -30,6 +30,9 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 // free names resolve at the EMISSION site's scope, so they must be visible HERE or
 // they degrade to unresolved label refs.
 use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
+// The water patch-offset invariant below names these directly (an ensure at THIS
+// file's scope, so they must resolve here — see the late-binding note above).
+use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
 // RASTER_ARM_EVERY_LINE + OP_RUN_GRADIENT are imported even though nothing in THIS
 // file names them: a comptime fn's struct-literal field values are resolved at the
 // EMISSION site's scope, not the definition site (the same late-binding rule the
@@ -357,11 +360,10 @@ const OJZ_TEST_PROG = [
 // Literals on purpose: a pin sharing symbols with the encoder it pins is weaker.
 // raster_dsl's module-level ensures hold these against engine.effects.raster.
 const OJZ_TEST_HAND = [
-    %0100,
-    1, $8C81,
-    $8A75, 0,
-    $8AFF, 0,
-    $8AFF, 2,
+    %0100,                      // pal_dirty_mask — the WHOLE header, one word
+    $8A75, 0,                   // fire 0 — priming; arm = $8A00 | (120 - 3)
+    $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
+    $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       2, $C04A, $0000,          // OP_CRAM, command longword split
                  0, $000E,      // count-1, the colour
@@ -412,9 +414,8 @@ pub data OJZ_TestPal: [u16; 48] = test_palette()
 pub data OJZ_ShimmerCycle: PalCycleScript1 = cycle_script1(
     [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ])
 
-// OJZ_WaterRaster — the water-cluster raster TEMPLATE (Task 7). init_count == 1
-// (WATER_TEMPLATE_ARM0_OFF depends on it). At the water line it (1) turns Shadow/
-// Highlight ON ($8C89 — bit 3 set, resolution bits unchanged per the survey V28/V30
+// OJZ_WaterRaster — the water-cluster raster TEMPLATE (Task 7). At the water line it
+// (1) turns Shadow/Highlight ON ($8C89 — bit 3 set, resolution bits unchanged per the survey V28/V30
 // ruling) and (2) swaps line-2 entries 4-6 to the deep-water variant's derived bytes
 // via OP_PAL_REGION streaming from Pal_Variant_Stage slot 0. The priming arm word
 // (arm0) is a DEFAULT here (water line 120); Raster_InstallWater/Raster_PatchWaterLine
@@ -452,29 +453,35 @@ const OJZ_WATER_PROG = [
                     sh:   1),
 ]
 
-// THE PATCH-OFFSET INVARIANT, previously carried only by prose. Raster_PatchWaterLine
-// writes the priming arm word at a FIXED byte offset into Buf_B
-// (WATER_TEMPLATE_ARM0_OFF = 6), which is word index 3 — and word 3 is arm0 only when
-// init_count is exactly 1. Any second init word would silently shift arm0 to index 4,
-// and the patch would then rewrite an init word every frame instead of the boundary.
+// THE PATCH-OFFSET INVARIANT — the designated survivor, re-pointed at the offset.
 //
-// IT IS REDUNDANT TODAY, and saying so is the point of this paragraph. Word index 1 IS
-// init_count, so ANY program with init_count != 1 already diverges from OJZ_WATER_HAND
-// below at index <= 1 — verified at review by constructing the one case this ensure was
-// briefly thought to catch alone (three set_reg ops, two distinct resets plus a repeat,
-// init_count 2 at the SAME 18-word total): both guards fired, not just this one. There
-// is no reachable failure the twin misses.
+// Raster_PatchWaterLine writes ONE word into Buf_B at a FIXED byte offset
+// (WATER_TEMPLATE_ARM0_OFF) on all three of its exit paths, unconditionally. That
+// word had better be the priming arm word. The header is one word now, so the
+// offset is structural rather than conditional on an init-word count — which is
+// exactly why the old form of this guard (`[3] == ...`, valid only while
+// init_count == 1) was deleted with the init-word mechanism. Deleting the CHECK
+// along with the condition it happened to be phrased in terms of would have left
+// nothing at all asserting that the patched word is an arm word.
 //
-// It stays for two reasons that outlive that redundancy. (1) OJZ_WATER_HAND retires in
-// Parcel D with the fixture, and at that moment this becomes the ONLY build-time guard
-// on init_count == 1 — it is the designated survivor, so deleting it as dead weight
-// during exactly the change that makes it load-bearing is the mistake to avoid. (2) It
-// is the co-located half of region_boundary's no-default `sh` parameter
-// (engine/effects/raster_dsl.emp:156-163): `sh` is required so an author cannot reach
-// init_count == 0 by not thinking about Shadow/Highlight, and this asserts the result
-// at the one call site the runtime patches.
-ensure(raster_program(OJZ_WATER_PROG)[3] == $8A00 | (OJZ_WATER_LINE - 3),
-       "OJZ_WaterRaster: word 3 is not the priming arm word — Raster_PatchWaterLine patches byte offset 6 (WATER_TEMPLATE_ARM0_OFF) unconditionally, which is word 3 only when init_count == 1")
+// It is redundant TODAY, the same way its predecessor was: OJZ_WATER_HAND below
+// pins every word of the program, so a template whose word 1 is not $8A75 also
+// diverges from the twin. But OJZ_WATER_HAND retires in Parcel D with the fixture,
+// and at that moment this becomes the ONLY build-time guard on the one word the
+// runtime overwrites sight-unseen. Deleting a survivor during the change that
+// makes it load-bearing is the mistake to avoid; this is the second time this
+// parcel line has had the chance to make it.
+//
+// It also carries what Raster_InstallWater's doc precondition used to say in
+// prose ("init_count must be 1") in the only form that cannot go stale: it names
+// the runtime constant (WATER_TEMPLATE_ARM0_OFF), the authored line
+// (OJZ_WATER_LINE) and the arm formula's base (RASTER_MIN_FIRE_LINE), so a drift
+// in ANY of the three fails the build here rather than painting a boundary in the
+// wrong place — or, at the offsets a header change could produce, decrementing a
+// record's op_count and sending `dbf` walking ROM as opcodes inside a raw
+// interrupt handler.
+ensure(raster_program(OJZ_WATER_PROG)[WATER_TEMPLATE_ARM0_OFF / 2] == $8A00 | (OJZ_WATER_LINE - RASTER_MIN_FIRE_LINE),
+       "OJZ_WaterRaster: the word at WATER_TEMPLATE_ARM0_OFF is not the priming arm word for line OJZ_WATER_LINE — Raster_PatchWaterLine overwrites that byte offset unconditionally, so it must be arm0")
 
 // THE PIN (design spec 8.1) — the words measured on hardware during P2. Retires in
 // Parcel D with the fixture.
@@ -482,11 +489,10 @@ ensure(raster_program(OJZ_WATER_PROG)[3] == $8A00 | (OJZ_WATER_LINE - 3),
 // raster_dsl's module-level ensures hold these against engine.effects.raster.
 // 72 is pal_stage_off(0, 2, 4) = 0*128 + 2*32 + 4*2.
 const OJZ_WATER_HAND = [
-    %0100,
-    1, $8C81,
-    $8A75, 0,
-    $8AFF, 0,
-    $8AFF, 2,
+    %0100,                      // pal_dirty_mask — the WHOLE header, one word
+    $8A75, 0,                   // fire 0 — priming; arm0, the word the runtime patches
+    $8AFF, 0,                   // fire 1 — priming
+    $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       4, $C048, $0000,          // OP_PAL_REGION, command longword split
                  2,             // count-1
@@ -617,9 +623,10 @@ pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
 // line. Inferred from the image being stable frame to frame rather than drifting;
 // not separately instrumented.
 //
-// NOTE the program has ZERO init words (no set_reg), so arm0 sits at word 2, not
-// word 3. That is correct here and it is also why this program must never be fed
-// to the water patch slot, which writes byte offset 6 unconditionally.
+// NOTE arm0 sits at word 1, as it does in every program — the header is a single
+// word. It used to depend on whether the program carried a frame-top init word
+// (this one carries none, having no set_reg), which is why it once had to be kept
+// away from the water patch slot; that coupling is gone.
 const OJZ_VSRAM_LINE = 112              // split the 224-line display in half
 const OJZ_VSRAM_OFFSET = $0043          // 67 px — NOT 64: the BG art is 64 px-periodic (see above)
 
@@ -628,13 +635,12 @@ const OJZ_VSRAM_PROG = [
 ]
 
 // THE PIN. Hand-derived from the wire format, and read as the twin the DSL must
-// reproduce. 15 words: 2 header + 0 init + 4 priming + 7 event + 2 terminator.
+// reproduce. 14 words: 1 header + 4 priming + 7 event + 2 terminator.
 //   arm0 = $8A00 | (112 - 3) = $8A00 | 109 = $8A6D
 //   cmd  = vdp_comm(2, Vsram, Write) — VSRAM write at byte 2 = entry 1 = plane B
 // Literals on purpose: a pin sharing symbols with the encoder it pins is weaker.
 const OJZ_VSRAM_HAND = [
     0,                                  // pal_dirty_mask — 0: a VSRAM op dirties no palette line
-    0,                                  // init_count — no set_reg, so no frame-top reset
     $8A6D, 0,                           // fire 0 — priming; arms the gap that lands fire 2 on 111
     $8AFF, 0,                           // fire 1 — priming; nothing after the event, so park
     $8AFF, 1,                           // fire 2 — the event, one op

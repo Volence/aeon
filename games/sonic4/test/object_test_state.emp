@@ -117,9 +117,8 @@ pub proc GameState_ObjectTest_Init () clobbers(d0-d4/a0-a3) {
         dbf     d4, .spawn_emitters
 .emitters_done:
 
-        // Enable display
+        // Enable display (shadow write; the blanket flush carries it to reg $01)
         move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
-        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
 
         // Switch to running loop
         move.l  #GameState_ObjectTest, (Game_State).w
@@ -307,9 +306,8 @@ pub proc GameState_ObjectTestChurn_Init () clobbers(d0-d5/a0-a2) {
         dbf     d4, .spawn_churn
 .churn_done:
 
-        // Enable display
+        // Enable display (shadow write; the blanket flush carries it to reg $01)
         move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
-        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
 
         move.l  #GameState_ObjectTestChurn, (Game_State).w
         rts

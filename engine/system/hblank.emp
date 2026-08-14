@@ -50,21 +50,19 @@ type HBlankHandler = proc () clobbers()
 //   a0 = handler (rte-terminated, interrupt-transparent — see HBlankHandler)
 //   d0.b = HInt line counter (VDP reg $0A: fire every d0+1 scanlines)
 // Patches the slot to `jmp a0`, programs the line counter, and sets IE1 — all
-// register writes go through the VDP shadow (+ dirty mask) so the enable survives
-// the next Flush_VDP_Shadow. The slot write is a direct RAM store (instant), so
+// register writes go through the VDP shadow so the enable survives the next
+// Flush_VDP_Shadow. The slot write is a direct RAM store (instant), so
 // the jmp target is live the moment IE1 takes effect.
 // -----------------------------------------------
 pub proc HBlank_Install (a0: HBlankHandler, d0: u8) clobbers(d1) {
         move.w  #HBLANK_SLOT_JMP, HBlank_Vector_Slot        // jmp.l opcode
         move.l  a0, HBlank_Vector_Slot + 2                  // handler target
-        // program the HInt line counter (reg $0A) — shadow + dirty
+        // program the HInt line counter (reg $0A) through the shadow
         move.b  d0, VDP_Shadow_Table + VDP_HINT_OFF
-        ori.l   #(1 << VDP_HINT_OFF), VDP_Dirty_Mask
         // enable HInt (reg $00 IE1) — read/modify/write to keep the other bits
         move.b  VDP_Shadow_Table + VDP_MODE1_OFF, d1
         ori.b   #HBLANK_IE1_BIT, d1
         move.b  d1, VDP_Shadow_Table + VDP_MODE1_OFF
-        ori.l   #(1 << VDP_MODE1_OFF), VDP_Dirty_Mask
         rts
 }
 
@@ -80,6 +78,5 @@ pub proc HBlank_Uninstall () clobbers(d0) {
         move.b  VDP_Shadow_Table + VDP_MODE1_OFF, d0
         andi.b  #~HBLANK_IE1_BIT, d0                        // clear IE1, keep the rest
         move.b  d0, VDP_Shadow_Table + VDP_MODE1_OFF
-        ori.l   #(1 << VDP_MODE1_OFF), VDP_Dirty_Mask
         rts
 }

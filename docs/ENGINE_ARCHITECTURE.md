@@ -495,11 +495,16 @@ ensure(PLANE_H_CELLS * PLANE_V_CELLS <= 4096, "Plane exceeds 8KB")
 >   scope, not a shared design — and TCL has **no dirty tracking either**: its `$000534` loop
 >   unconditionally re-pushes all 19.
 >
-> **The shadow-plus-dirty-tracking design below is therefore ours.** The RAM mirror is a
-> convergent, common technique (the VDP control port is write-only, so anything that needs to
-> read a register back must keep a copy); the **dirty-tracked flush** — `SetVDPReg` sets a bit,
-> `Flush_VDP_Shadow` writes only the changed registers in ascending order — is a novel Aeon
-> design and was already labelled as such further down this section.
+> **The shadow itself is therefore ours**, in the sense above: the RAM mirror is a convergent,
+> common technique (the VDP control port is write-only, so anything that needs to read a register
+> back must keep a copy). The *dirty-tracked flush* this note originally went on to defend —
+> `SetVDPReg` sets a bit, `Flush_VDP_Shadow` writes only the changed registers — was itself retired
+> later the same day: see
+> `docs/superpowers/plans/2026-08-14-blanket-register-restore.md`. `Flush_VDP_Shadow` now re-blits
+> all 19 shadowed registers unconditionally, every VBlank — the Batman/TCL bulk-write shape this
+> note is busy explaining Aeon did NOT copy from them. The convergence is real now, but it was
+> chosen for composability, not sourced from either reference — see the blanket-restore
+> description below and `engine/system/vdp_init.emp` for the current code.
 
 **What the pattern is:** a GPU state object, from modern 3D engines, adapted for the VDP.
 
@@ -532,71 +537,104 @@ vdp_window_v        ds.b 1      ; reg $12
 
 **Why shadow only $00-$12** (19 registers, not 24): Registers $13-$17 control DMA source/length/mode and are set immediately before each DMA transfer by the queue system (§1.1). Shadowing them would be wrong — they change per-transfer, not per-frame.
 
-**Dirty tracking** (NOVEL — no reference game does this):
+**Frame-top blanket restore** (as of 2026-08-14 — supersedes the dirty-tracked design this section
+described until then):
 
-Batman and Alien Soldier bulk-write all 19 registers every VBlank regardless of changes. That's 19 × `move.b`/`move.w` pairs = ~190 cycles. For most frames, only 1-3 registers actually change (background color, scroll mode, window position).
+Every VBlank, `Flush_VDP_Shadow` re-blits all 19 shadowed registers from `VDP_Shadow_Table` to the
+VDP control port, unconditionally — no dirty bitmask, no per-register skip. This is the same shape
+Batman & Robin and The Chaos Layer use (see the provenance note above), and it is how Gunstar
+Heroes and Alien Soldier restore VDP state after raster effects: the flush is what makes a
+mid-frame register write self-undoing. An effect that pokes reg `$0B` or `$0A` during active scan
+needs no paired "frame-top reset" word of its own — the next flush restores the settled shadow
+value for free, so two independently-authored effects can touch the same register without
+agreeing on anything. That reset-word coupling was exactly the ceiling the old dirty-tracked
+design imposed (the raster DSL's `prog_init` had to `ensure` disagreeing resets were a build
+error, the water template depended on `init_count == 1`, `region_boundary`'s `sh: 1` existed only
+to manufacture an init word) — removing it was the entire point of the change. See
+`docs/superpowers/plans/2026-08-14-blanket-register-restore.md` for the full rationale.
+
+There is no `VDP_Dirty_Mask` field anymore. It had zero readers once the flush stopped checking
+it and was deleted along with all 11 `ori.l #(1 << …), VDP_Dirty_Mask` writer sites, across
+`parallax.emp`, `hblank.emp`, `boot.emp`, `demo_state.emp`, `object_test_state.emp` and
+`ojz_scroll_test.emp`.
+
+**Write-through idiom** (game code uses this, never writes VDP directly). `Set_VDP_Reg`
+(`engine/system/vdp_init.emp`) is the one sanctioned way to change a register outside VBlank and
+have the change survive to the next frame — `d0.w` = register-slot offset, `d1.b` = value; it
+writes only the shadow byte:
 
 ```asm
-; Modern approach: dirty-bit bitmask — one 32-bit mask covers all 19 registers
-VDP_Dirty_Mask:     ds.l 1      ; bits 0-18 for regs $00-$12
-                                ; Bit 0 = reg $00, bit 1 = reg $01, etc.
+        move.w  #VDP_MODE2_OFF, d0
+        move.b  #$34, d1
+        jbsr    Set_VDP_Reg                 ; VDP_Shadow_Table + VDP_MODE2_OFF <- $34
 ```
 
-**Write-through idiom** (game code uses this, never writes VDP directly). The AS-era
-`setVDPReg` macro is gone; in `.emp` it is spelled out as its two-instruction expansion at
-each site, so the shadow write and the dirty bit are visible together:
-
-```asm
-        move.b  #$34, VDP_Shadow_Table + VDP_MODE2_OFF   ; update shadow
-        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    ; mark dirty
-```
-
-The register-slot offsets (`VDP_MODE1_OFF`, `VDP_MODE2_OFF`, `VDP_HINT_OFF`, …) come from
-`engine/vdp.emp`, drift-locked against the `VdpShadow` struct in `engine/structs.emp`.
-Read-modify-write sites (setting a single bit such as IE1 without disturbing the rest of
-reg $00) load the shadow byte, mask, store it back and then set the dirty bit — see
+There is no dirty bit to set — the unconditional flush at the next VBlank is what reaches
+hardware, for every shadowed register, every frame. The register-slot offsets
+(`VDP_MODE1_OFF`, `VDP_MODE2_OFF`, `VDP_HINT_OFF`, …) come from `engine/vdp.emp`, drift-locked
+against the `VdpShadow` struct in `engine/structs.emp`. Read-modify-write sites (setting a single
+bit such as IE1 without disturbing the rest of reg $00) load the shadow byte directly, mask it,
+and store it straight back — `Set_VDP_Reg` only writes, it does not read, so a masked bit-set
+reads/writes `VDP_Shadow_Table` inline rather than round-tripping through it. See
 `HBlank_Install` / `HBlank_Uninstall` (`engine/system/hblank.emp`).
 
+**`Set_VDP_Reg` currently has zero callers.** It is the mandated idiom and it ships unadopted: every
+whole-register settled-state write in the tree still stores to `VDP_Shadow_Table + VDP_*_OFF` inline
+— `engine/level/parallax.emp` (2), `engine/system/boot.emp`, `games/demo/demo_state.emp`,
+`games/sonic4/test/object_test_state.emp` (2), `games/sonic4/test/ojz_scroll_test.emp` (2). Those
+sites predate the helper and converting them moves bytes, so it is booked as its own parcel rather
+than smuggled into the one that introduced it. The two `hblank.emp` sites are read-modify-write and
+are *not* adoption debt — see the paragraph above. New code should call `Set_VDP_Reg`; the inline
+sites are the backlog, not the pattern. In the DEBUG shape it asserts `d0 <= $12` (unsigned, so
+negatives are caught too) — the shadow table sits immediately before the interrupt-dispatch block in
+`engine/ram.emp`, so an out-of-range index would otherwise corrupt RAM silently.
+
 ```asm
-; VBlank flush — only writes changed registers (ascending from reg 0).
-; The walk shifts the dirty mask one bit at a time (lsr.l/bcc) and early-exits
-; the moment the mask drains (dbeq on tst.l d1), bounded by VDP_Shadow_len-1.
+; VBlank flush — re-blits every shadowed register, unconditionally, ascending
+; from reg 0. No dirty check: the whole point is that a mid-frame register
+; write needs no matching reset word — this restores each register's settled
+; value every frame, whether or not anything touched it since the last flush.
 Flush_VDP_Shadow:
-        move.l  (VDP_Dirty_Mask).w, d1
-        beq.s   .done                       ; Fast path: nothing dirty
         lea.l   (VDP_Shadow_Table).w, a0
         lea.l   (VDP_CTRL).l, a1
         move.w  #$8000, d0                  ; VDP command base (reg 0)
-        moveq   #0, d2                      ; register index (counts up)
-        moveq   #VDP_Shadow_len-1, d3       ; upper-bound loop counter
+        moveq   #VDP_Shadow_len-1, d1       ; 19 registers
 .loop:
-        lsr.l   #1, d1                      ; shift next dirty bit into carry
-        bcc.s   .skip
-        move.b  (a0,d2.w), d0              ; load shadow value into low byte
+        move.b  (a0)+, d0                   ; shadow value into the command's low byte
         move.w  d0, (a1)                    ; write $8X00+val to VDP
-.skip:
         addi.w  #$0100, d0                  ; next register command
-        addq.w  #1, d2                      ; next register index
-        tst.l   d1                          ; any dirty bits left?
-        dbeq    d3, .loop                   ; early-exit when the mask drains, else loop to the bound
-        clr.l   (VDP_Dirty_Mask).w
-.done:
+        dbf     d1, .loop
         rts
 ```
 
-**Tradeoff:** The dirty tracking adds overhead when registers DO change (~8 extra cycles per changed register for the btst/branch). But it saves ~150 cycles on frames where nothing changes, which is most gameplay frames. Net win for our engine where HInt handler changes happen at section boundaries, not every frame.
-
-**Fallback:** If profiling shows dirty tracking isn't worth it, revert to Batman's bulk-write approach. 190 cycles is only ~4.4% of VBlank and is completely predictable.
+**Why blanket, not dirty-tracked:** The retired design was a deliberate cycles-vs-composability
+tradeoff — skip unchanged registers, at the cost of every raster effect owning a matching
+frame-top reset word so two effects touching the same register would not fight. In practice that
+coupling was the ceiling on composability (the cases above). The blanket restore costs a fixed,
+small, predictable 19-register write every frame — the same shape Batman & Robin, The Chaos
+Layer, Gunstar Heroes and Alien Soldier all already ship — in exchange for effects never needing
+to agree on anything. **Do not state a specific cycle delta between the two designs as fact**:
+the implementing plan record explicitly flags its "~200 cycles cheaper" estimate as unmeasured.
 
 **Direct VDP register-write conventions** (audited 2026-04-27, see `docs/superpowers/specs/2026-04-27-vdp-shadow-dma-audit-design.md`):
 
-The shadow + dirty-bit idiom is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
+The shadow idiom is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
 
-1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.emp`, `engine/level/plane_buffer.emp`. Shadow drift is harmless because nothing reads back the shadow as authoritative state — `Flush_VDP_Shadow` only writes registers whose dirty bit is set.
-2. **HInt-handler-internal raster effects (future §7.2).** HInt handlers may freely write VDP registers during the active line — that's the entire point of raster effects. They MUST NOT update the shadow or set the dirty mask. The shadow represents settled frame state, not transient mid-frame VDP changes. When the section's HInt program exits, hardware register state is whatever the last write left; the next VBlank's `Flush_VDP_Shadow` re-asserts settled values for any dirty registers, and HInt handlers re-establish their own per-line program from scratch.
+1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.emp`, `engine/level/section.emp`, `engine/level/plane_buffer.emp`. **This is no longer harmless by default.** `Flush_VDP_Shadow` re-blits reg `$0F` from the shadow (settled value `$02`) unconditionally, every VBlank — so a VBlank landing mid-excursion flushes `$02` back over the caller's `$80` out from under it, and the rest of the excursion's column-mode writes silently stride by 2 instead of `$80`. All three sites MUST keep interrupts masked (`IPL >= 6`) across the whole excursion for exactly this reason; each carries a DEBUG-shape assert checking it. An unmasked `$8F80` excursion is a silent VRAM-stride bug the flush no longer has any dirty gate to prevent.
+
+   **The census is four sites, not three.** `engine/system/boot.emp:109` makes the same excursion — `move.w #vdp_reg($0F, $01), (a4)`, autoincrement 1 for the byte-by-byte VRAM DMA fill, restored via `AUTO_INC_2_CMD` (`engine/system/boot_data.emp:184`). It carries **no assert, deliberately**: it is safe by *context* rather than by masking discipline. Boot runs masked at `$2700` from the first instruction, VInt is not enabled in the VDP until `boot.emp:300` (`move.b #$34, VDP_Shadow_Table + VDP_MODE2_OFF` followed by the flush at `:303`) and the SR is not lowered to `$2300` until `:307` — so there is no VBlank handler in existence, and therefore no flush, while the excursion is open. An IPL assert there would measure the boot mask a few lines above it and be vacuous. It is listed here because a census that omits it invites the next reader to "discover" an unguarded site and add a vacuous assert, or worse, to conclude the invariant is unenforced.
+2. **HInt-handler-internal raster effects (future §7.2).** HInt handlers may freely write VDP registers during the active line — that's the entire point of raster effects. They MUST NOT update the shadow. The shadow represents settled frame state, not transient mid-frame VDP changes. When the section's HInt program exits, hardware register state is whatever the last write left; the next VBlank's `Flush_VDP_Shadow` re-asserts the settled value for every shadowed register unconditionally, and HInt handlers re-establish their own per-line program from scratch.
 3. **DMA register writes (`$13-$17`)** are not shadowed and are set per-transfer by the DMA queue. This is by design — the shadow only covers `$00-$12`.
 
-**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST use the shadow + dirty-bit idiom above. Bypassing the shadow for settled state risks the next dirty-flush overwriting a hardware-only change with a stale shadow value. Audit grep: `grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]' engine/` periodically; classify each new hit as transient (OK) or settled (use the shadow). The sanctioned transient hits today are the `$8F02` autoincrement restores in `engine/level/bg.emp`, `engine/level/plane_buffer.emp` and `engine/level/section.emp`.
+**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST use the shadow idiom above. Bypassing the shadow for settled state risks the next flush overwriting a hardware-only change with a stale shadow value — more certain now than under the old design, since the flush no longer needs a dirty bit to trigger the overwrite; it happens every frame regardless. Audit grep, run periodically; classify each new hit as transient (OK) or settled (use the shadow):
+
+```
+grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]|vdp_reg\(|Set_VDP_Reg' engine/
+```
+
+The `vdp_reg\(` and `Set_VDP_Reg` alternatives are not decoration — **the literal-word pattern alone has a structural blind spot.** A register write spelled through the comptime constructor (`move.w #vdp_reg($0F, $01), (a4)` — `engine/system/boot.emp:109`, and `AUTO_INC_2_CMD` at `engine/system/boot_data.emp:94`) folds to `$8F01` only at assembly time; no source line ever contains `#$8F`, so the old grep could never find it and the census above was silently short by one site. `Set_VDP_Reg` is matched so the audit also enumerates the sanctioned *shadow* path in the same pass.
+
+The sanctioned transient hits today are the `$8F02`/`$8F80` autoincrement excursions in `engine/level/bg.emp`, `engine/level/plane_buffer.emp` and `engine/level/section.emp` (masked, asserted), plus boot's `vdp_reg($0F, $01)` fill excursion (safe by context, no assert — see above). `engine/system/release_fault.emp`'s two direct writes are the lean-shape fault path, which by design runs after the engine has stopped.
 
 ### 0.5 Z80 Initialization & Sound System Bootstrap
 
@@ -1369,9 +1407,9 @@ The design below is preserved as an unimplemented proposal:
 
 ### 1.7 VDP Register & VSRAM Management
 
-**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.emp`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach (verified 2026-08-14: `sub_00AE2C`, `The Adventures of Batman and Robin/disasm/code/engine/main_loop.asm:5400-5409` — 19 unconditional register writes from a byte table, no readback; see the §0.4 provenance note).
+**VDP register shadow:** Full 19-register shadow table, re-blitted unconditionally every VBlank (§0.4, `VDP_Shadow` struct, `engine/structs.emp`). Game code is *supposed* to never write VDP registers directly — persistent changes go through `Set_VDP_Reg` (`engine/system/vdp_init.emp`), which updates the RAM shadow only. `Flush_VDP_Shadow` in VBlank writes all 19 registers in ascending order every frame, no dirty check — the same shape Batman & Robin's `sub_00AE2C` and The Chaos Layer's bulk re-push use (verified 2026-08-14: `The Adventures of Batman and Robin/disasm/code/engine/main_loop.asm:5400-5409` — 19 unconditional register writes from a byte table, no readback; see the §0.4 provenance note). Aeon adopted the same shape 2026-08-14, for composability rather than performance — see §0.4 and `docs/superpowers/plans/2026-08-14-blanket-register-restore.md`.
 
-**Known exception (2026-07-16 review):** OJZ test/game-shell code has a direct `$8B` VDP write for HScroll mode that bypasses `SetVDPReg`, violating the invariant above. This is tracked as a bug, not a supported pattern — the engine-level convention still holds; the violation is game-side content, not engine code.
+**Known exception (2026-07-16 review):** OJZ test/game-shell code has a direct `$8B` VDP write for HScroll mode that bypasses the shadow (`Set_VDP_Reg`), violating the invariant above. This is tracked as a bug, not a supported pattern — the engine-level convention still holds; the violation is game-side content, not engine code.
 
 **Key register change points:**
 - `vdp_mode2` (reg $01): Display enable/disable — toggled during loading screens and display-disable burst DMA (§7.2)
