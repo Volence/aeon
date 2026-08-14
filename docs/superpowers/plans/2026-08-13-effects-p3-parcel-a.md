@@ -167,7 +167,7 @@ single-event program at screen line `M` this reduces to `$8A00 | (M - 3)` — th
 | Constructor | Parameters | Emits | `op_size` |
 |---|---|---|---|
 | `set_reg(word, reset)` | `word` = mid-frame `$8xxx` VDP register write; `reset` = the frame-top word restoring the **same** register | `OP_SET_REG, word` | 2 |
-| `sh_on()` | none | `set_reg($8C89, $8C81)` — Shadow/Highlight on below the fire, H40 base restored at frame top (`games/sonic4/data/boot_data.emp:140`) | 2 |
+| `sh_on()` | none | `set_reg($8C89, $8C81)` — Shadow/Highlight on below the fire, H40 base restored at frame top (`engine/system/boot_data.emp:140`) | 2 |
 | `cram(addr, colours)` | `addr` = CRAM **byte** address; `colours` = 1..3 colour words, inline | `OP_CRAM, cmd>>16, cmd&$FFFF, colours.len-1, <colours>` | `4 + colours.len` |
 | `pal_region(addr, slot, pal_line, entry, count)` | `addr` = destination CRAM byte address; `slot`/`pal_line`/`entry` = the `Pal_Variant_Stage` source; `count` = 1..3 | `OP_PAL_REGION, cmd>>16, cmd&$FFFF, count-1, slot*128 + pal_line*32 + entry*2` | 5 |
 | `fire(line, ops)` | `line` = screen line 3..223 the effect lands on; `ops` = descriptor array | one record: `arm, ops.len, <bodies>` | `2 + Σ op_size` |
@@ -1222,7 +1222,7 @@ pub comptime fn set_reg(word: int, reset: int) -> RasterOp {
 
 // sh_on — Shadow/Highlight ON below the fire line, H40 base restored at frame top.
 // $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30 quirk
-// ruling in the raster survey. $8C81 is boot's H40 base (games/sonic4/data/boot_data.emp:140).
+// ruling in the raster survey. $8C81 is boot's H40 base (engine/system/boot_data.emp:140).
 pub comptime fn sh_on() -> RasterOp {
     return set_reg($8C89, $8C81)
 }
@@ -1271,6 +1271,17 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(line >= 3 && line <= 223,
            "fire: screen line {line} outside 3..223 (lines 0-2 belong to the priming records and the init words)")
     ensure(ops.len >= 1, "fire: a fire with no ops — drop the fire rather than authoring an empty one")
+    // RASTER_CRAM_MAX is a PER-FIRE cycle budget, not a per-op one (raster.emp:71-76):
+    // the handler must finish inside the ~60 cycles between HINT-pending and the next
+    // line's active display, and that ceiling is on the whole fire. `cram`/`pal_region`
+    // each bound their OWN colour count, which is necessary and not sufficient — three
+    // 3-colour ops in one fire satisfy every per-op guard and blow the budget by 3x.
+    comptime var cram_words = 0
+    for o in ops {
+        cram_words = cram_words + op_cram_words(o)
+    }
+    ensure(cram_words <= 3,
+           "fire at screen line {line}: {cram_words} CRAM words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line legitimately takes ceil(16/3) = 6 of them, one per scanline, which is S3K's actual technique.")
     return RasterFire.Fire(line, ops)
 }
 
@@ -1278,8 +1289,17 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
 // Shadow/Highlight on, then swap the region. SET_REG comes first BY CONSTRUCTION here,
 // so the mixed-fire invariant is structural for this constructor and only checked for
 // hand-assembled fires.
+//
+// `sh` HAS NO DEFAULT, deliberately. sh:0 yields a program with ZERO init words, which
+// moves the priming arm word off word 3 — and Raster_PatchWaterLine writes byte offset
+// 6 (WATER_TEMPLATE_ARM0_OFF, raster.emp:572) unconditionally at three sites
+// (:656, :665, :668). On a patched template that would overwrite the priming record's
+// op_count with an arm word, and Raster_HInt would then loop tens of thousands of times
+// over garbage. A `= 0` default made the corrupt case the one an author gets by simply
+// not thinking about Shadow/Highlight, so the parameter is required instead. The
+// init_count == 1 assertion in Task 8 is the co-located half of this guard.
 pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
-                                entry: int, count: int, sh: int = 0) -> RasterFire {
+                                entry: int, count: int, sh: int) -> RasterFire {
     ensure(sh == 0 || sh == 1, "region_boundary: sh {sh} must be 0 or 1")
     if sh == 1 {
         return fire(line, [sh_on(), pal_region(addr, slot, pal_line, entry, count)])
@@ -1324,6 +1344,17 @@ comptime fn op_size(o: RasterOp) -> int {
         SetReg(w, reset)             => 2,
         Cram(a, cols)                => 4 + cols.len,
         PalRegion(a, slot, pl, e, n) => 5,
+    }
+}
+
+// op_cram_words — CRAM words this op writes, which `fire` sums against the per-fire
+// ceiling. Distinct from op_size (wire words): a PalRegion is 5 wire words but writes
+// `n` colours, and a SetReg is 2 wire words but writes no CRAM at all.
+comptime fn op_cram_words(o: RasterOp) -> int {
+    return match o {
+        SetReg(w, reset)             => 0,
+        Cram(a, cols)                => cols.len,
+        PalRegion(a, slot, pl, e, n) => n,
     }
 }
 
@@ -1477,7 +1508,7 @@ pub comptime fn raster_program(fires: array) {
     // Raster_VBlank and Raster_InstallWater both copy a FIXED RASTER_BUF_SIZE bytes
     // into Buf_A / Buf_B, so a program longer than the buffer would be truncated live.
     // (The converse over-read of a short template is pre-existing and harmless — the
-    // walker never reaches past the terminator — and is booked in docs/BUGS.md.)
+    // walker never reaches past the terminator. NOT yet in docs/BUGS.md — Task 10 books it.)
     ensure(out.len * 2 <= 128,
            "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
     ensure(out.len == raster_words(fires),
@@ -1530,7 +1561,7 @@ repainted bright red. It is the only fixture exercising the plain `OP_CRAM` path
 (spec §8.2), so it is the harder of the two to express and goes first.
 
 **Files:**
-- Modify: `games/sonic4/data/parallax/configs.emp:310-329`
+- Modify: `games/sonic4/data/parallax/configs.emp:316-335`
 
 **Target words** (from the shipped fixture — the DSL must reproduce these 18 exactly):
 
@@ -1559,7 +1590,7 @@ pub comptime fn first_mismatch(a: array, b: array) -> int {
 
 - [ ] **Step 2: Write the DSL program and its pin, keeping the hand words**
 
-Replace `configs.emp:310-329` (the `pub data OJZ_TestRaster: [u16; 18] = [ ... ]` block, keeping the
+Replace `configs.emp:316-335` (the `pub data OJZ_TestRaster: [u16; 18] = [ ... ]` block, keeping the
 explanatory comment above it) with:
 
 ```
@@ -1663,7 +1694,7 @@ variant's derived bytes, streamed from `Pal_Variant_Stage` slot 0. Its arm0 is a
 runtime patches it — which makes the `WATER_TEMPLATE_ARM0_OFF` invariant this task's new guard.
 
 **Files:**
-- Modify: `games/sonic4/data/parallax/configs.emp:389-403`
+- Modify: `games/sonic4/data/parallax/configs.emp:395-409`
 
 **Target words:**
 
@@ -1675,7 +1706,7 @@ runtime patches it — which makes the `WATER_TEMPLATE_ARM0_OFF` invariant this 
 
 - [ ] **Step 1: Replace the fixture**
 
-Replace `configs.emp:389-403` (the `pub data OJZ_WaterRaster: [u16; 18] = [ ... ]` block, keeping the
+Replace `configs.emp:395-409` (the `pub data OJZ_WaterRaster: [u16; 18] = [ ... ]` block, keeping the
 long explanatory comment above it, which stays accurate) with:
 
 ```
