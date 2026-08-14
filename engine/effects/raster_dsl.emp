@@ -169,19 +169,25 @@ pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, coun
 // only entries 0 and 1 are read. Addresses are BYTE addresses into that, like `cram`'s.
 //
 // ---------------------------------------------------------------------------------
-// UNMEASURED, AND CONTENT MUST NOT ASSUME IT: WHICH LINE A VSRAM WRITE LANDS ON.
-// The VDP latches the next line's render state ~36 cycles after HInt asserts, while the
-// 68000 needs ~44 cycles just to reach the handler. CRAM and reg $07 are unlatched and so
-// apply to the next line (this is why the DSL's screen-line = fire-line + 1 rule holds for
-// `cram`); VSRAM may NOT be, in which case a write issued from the handler first takes
-// effect on line N+2 rather than N+1. Sources conflict and emulators differ. Nobody has run
-// it on oracle.
-// Until someone does, `vsram` carries the SAME screen-line semantics as `cram` — `fire`
-// owns the single -1 and this op inherits it, so an author still names the line the scroll
-// change should land on. If measurement says N+2, THE FIX IS IN THIS CONSTRUCTOR'S LINE
-// ARITHMETIC (return a fire scheduled one line earlier, or carry a per-op line bias into
-// fire_lines), NOT in the runtime: the handler is target-agnostic by design and must stay
-// that way. Booked in docs/DEFERRED_WORK.md under "From §7 — Visual Effects".
+// MEASURED ON ORACLE 2026-08-14: A VSRAM WRITE FROM HINT LANDS ON N+1, LIKE CRAM.
+// OJZ_TestVsram authored at screen line 112 → first differing pixel row is exactly 112,
+// rows 108-111 pixel-identical — measured for entry 0 (plane A) and entry 1 (plane B).
+// `fire` owns the single -1 and this op inherits it unchanged; there is no
+// VSRAM-specific line rule. Caveat: oracle is Exodus-derived (consults VSRAM
+// continuously); GensKMod latches at HBlank start, and this project has no real
+// hardware, so N+1 is the standard of evidence available, not a silicon fact. If a
+// latching implementation ever measures N+2, THE FIX IS IN THIS CONSTRUCTOR'S LINE
+// ARITHMETIC (return a fire scheduled one line earlier, or carry a per-op line bias
+// into fire_lines), NOT in the runtime: the handler is target-agnostic by design and
+// must stay that way. Evidence: docs/benchmarks/effects-p3/GATE-EVIDENCE.md.
+//
+// AUTHORING CAUTIONS, both learned on the gate fixture:
+//   - Byte 0 (plane A, full-screen mode) is UNSAFE to scroll mid-frame in this engine:
+//     the rows around the camera window are the streamer's working margin, and a large
+//     shift displays that scratch space as stale/half-written tiles. Band plane B.
+//   - Pick the offset against the art: a shift equal to the BG's vertical repeat
+//     period is pixel-invisible (the OJZ trunks repeat every 64 px — a $0040 shift
+//     showed literally nothing; $0043 banded cleanly).
 // ---------------------------------------------------------------------------------
 pub comptime fn vsram(addr: int, values: array) -> RasterOp {
     ensure(addr >= 0 && addr <= 78,

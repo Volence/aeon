@@ -539,3 +539,104 @@ pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
     mask:   %0100,          // re-assert CRAM line 2 each frame -> the ramp is transient
     cmd:    vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write),
     stream: OJZ_GradientStream)
+
+// ===========================================================================
+// EFFECTS P3 GATE FIXTURE — the first VSRAM raster program in this engine.
+//
+// WHAT IT PROVES. Raster_HInt's CRAM op was never CRAM-specific: it writes
+// whatever VDP command longword the program carries (`move.l (a1)+, (a2)`) and
+// then streams words to VDP_DATA. Only the CONSTRUCTORS were locked to
+// VdpTarget.Cram. `vsram()` (2026-08-14) removes that lock, and this fixture is
+// the first program to exercise it — no runtime change was needed for any of it.
+//
+// WHAT IT LOOKS LIKE. Below screen line OJZ_VSRAM_LINE, plane B's vertical
+// scroll snaps to a fixed offset, so the background jumps 67 px at that line and
+// stops tracking the camera vertically below it. A hard horizontal seam across
+// the BG, which is what makes the boundary line measurable from a screenshot.
+//
+// WHY ONE ENTRY AND NOT A COLUMN. Reg $0B bit 2 is 0 here (measured on oracle:
+// the VDP shadow reads $03, so HScroll mode %11 = per-line and vscroll mode = 0 =
+// FULL-SCREEN), so the VDP reads only VSRAM entry 0 (plane A) and entry 1 (plane
+// B) — byte addresses 0 and 2 — for every column. Writing byte 2 mid-frame
+// therefore re-scrolls the whole of plane B for every line rendered after the
+// write. This is Thunder Force IV's shape.
+//
+// WHY PLANE B AND NOT PLANE A. Mid-frame vertical scroll of plane A is UNSAFE in
+// this engine: TILE_CACHE_ROWS = 60 means the rows around the camera window are
+// the streamer's WORKING MARGIN, not display-ready content, and a large shift
+// points the VDP straight at that scratch space — stale/half-written tiles on
+// screen (observed on the first cut of this fixture, which targeted byte 0).
+// This is why the reference corpus banks VSRAM banding on plane B.
+//
+// MEASURED ON ORACLE 2026-08-14 — the two things this fixture exists to settle:
+//
+//   1. IT WORKS, AND IT LANDS ON N+1. Against a control build identical but for
+//      the offset ($0043 vs $0000), the first differing pixel row is EXACTLY
+//      y=112, the authored line; rows 108-111 are pixel-identical and every row
+//      from 112 to 223 differs — measured with plane A composited ON and again
+//      with it OFF (16,630 differing pixels both ways, so occlusion is a
+//      non-factor). A VSRAM write from HInt takes effect on the line after the
+//      fire, and the DSL's existing `-1` fire-line arithmetic is CORRECT for
+//      VSRAM — no separate rule is needed. Same y=112 result as the earlier
+//      plane A (byte 0) measurement. This closes the N+1-vs-N+2 question
+//      DEFERRED_WORK booked when vsram() was added.
+//
+//   2. EMULATOR CAVEAT, recorded rather than glossed. Emulators disagree about
+//      mid-frame VSRAM: GensKMod latches at HBlank start, Exodus/BizHawk consult
+//      continuously. Oracle is Exodus-derived, so this measurement reflects the
+//      continuous reading. This project verifies on oracle by policy and has no
+//      real hardware, so N+1 is the standard of evidence available — but a
+//      latching implementation could differ, and that is a known unknown.
+//
+// WHY THE OFFSET IS 67 AND NOT 64 — the resolved plane B "mystery". A $0040
+// write to this plane produced ZERO differing pixels against control (plane A
+// on or off) while $0043 produced 16,630 from y=112 down. The OJZ BG nametable
+// is vertically PERIODIC: the trunk band cycles every 8 tile rows (exactly
+// 64 px), the canopy every 4 rows (32 px), and every row repeats every 16 tiles
+// horizontally (read off $E000 on oracle) — so a 64 px scroll maps plane B onto
+// itself pixel-for-pixel. The write worked all along; the art hid it. Read the
+// period off the nametable before choosing a banding offset here.
+//
+// WHY IT IS TRANSIENT. Vscroll_Write rewrites VSRAM[0]/[1] every VBlank, so the
+// base is restored at frame top exactly the way pal_dirty_mask restores a palette
+// line. Inferred from the image being stable frame to frame rather than drifting;
+// not separately instrumented.
+//
+// NOTE the program has ZERO init words (no set_reg), so arm0 sits at word 2, not
+// word 3. That is correct here and it is also why this program must never be fed
+// to the water patch slot, which writes byte offset 6 unconditionally.
+const OJZ_VSRAM_LINE = 112              // split the 224-line display in half
+const OJZ_VSRAM_OFFSET = $0043          // 67 px — NOT 64: the BG art is 64 px-periodic (see above)
+
+const OJZ_VSRAM_PROG = [
+    fire(OJZ_VSRAM_LINE, [ vsram(2, [OJZ_VSRAM_OFFSET]) ]),   // byte 2 = VSRAM entry 1 = plane B
+]
+
+// THE PIN. Hand-derived from the wire format, and read as the twin the DSL must
+// reproduce. 15 words: 2 header + 0 init + 4 priming + 7 event + 2 terminator.
+//   arm0 = $8A00 | (112 - 3) = $8A00 | 109 = $8A6D
+//   cmd  = vdp_comm(2, Vsram, Write) — VSRAM write at byte 2 = entry 1 = plane B
+// Literals on purpose: a pin sharing symbols with the encoder it pins is weaker.
+const OJZ_VSRAM_HAND = [
+    0,                                  // pal_dirty_mask — 0: a VSRAM op dirties no palette line
+    0,                                  // init_count — no set_reg, so no frame-top reset
+    $8A6D, 0,                           // fire 0 — priming; arms the gap that lands fire 2 on 111
+    $8AFF, 0,                           // fire 1 — priming; nothing after the event, so park
+    $8AFF, 1,                           // fire 2 — the event, one op
+      2, $4002, $0010,                  //   OP_CRAM opcode, VSRAM write cmd @ byte 2 = $40020010
+                                        //   (type&rwd = VSRAM&WRITE = %000101: bits 1-0 -> $40000000,
+                                        //    addr -> high word, bits 7-2 -> $10 in the low word)
+                 0, OJZ_VSRAM_OFFSET,   //   count-1 = 0, one scroll word
+    $8AFF, $FFFF,                       // terminator
+]
+ensure(raster_words(OJZ_VSRAM_PROG) == OJZ_VSRAM_HAND.len,
+       "OJZ_TestVsram: DSL counts {raster_words(OJZ_VSRAM_PROG)} words, the hand program is {OJZ_VSRAM_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_VSRAM_PROG), OJZ_VSRAM_HAND) == -1,
+       "OJZ_TestVsram: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_VSRAM_PROG), OJZ_VSRAM_HAND)}")
+// The derived mask MUST be 0. A CRAM-style mask from a VSRAM address would be
+// 1 << (2 >> 5) = 1 = CRAM line 0, the CHARACTER's line — re-asserted every frame
+// for no reason. This ensure is the guard on op_mask's VSRAM arm.
+ensure(raster_program(OJZ_VSRAM_PROG)[0] == 0,
+       "OJZ_TestVsram: pal_dirty_mask is {raster_program(OJZ_VSRAM_PROG)[0]}, not 0 — a VSRAM op must dirty no palette line")
+
+pub data OJZ_TestVsram: [u16; raster_words(OJZ_VSRAM_PROG)] = raster_program(OJZ_VSRAM_PROG)
