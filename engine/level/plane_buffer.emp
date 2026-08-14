@@ -449,6 +449,20 @@ pub proc VInt_DrawLevel () clobbers(d0-d1/a0/a5-a6) requires(vblank) {
         // VInt_Lag re-asserts $8F02 at its Critical drain head, so a lag frame
         // no longer rests on this convention alone — but keep honoring it; the
         // complete-frame path (VInt_Level) still does.
+        //
+        // The COL entries below take an autoincrement excursion ($8F80 direct
+        // to VDP_CTRL, restored to $8F02 at .done) that bypasses the VDP shadow,
+        // and Flush_VDP_Shadow re-blits reg $0F from that shadow every VBlank.
+        // Unlike the bg.emp / section.emp excursions this one is not masked by
+        // hand — it runs inside the VBlank handler, where the 68000 has already
+        // set IPL 6 on IRQ entry and nothing here lowers it. That is what keeps
+        // the excursion atomic against the flush; assert it rather than leave it
+        // resting on where the routine happens to be called from.
+        if DEBUG == 1 {
+            move.w  sr, d0
+            andi.w  #$0700, d0
+            assert.w d0, hs, #$0600     // IPL >= 6: VBlank context, no re-entry
+        }
         lea     VDP_DATA, a6
         lea     VDP_CTRL_OFF(a6), a5               // a5 = VDP_CTRL (= a6 + VDP_CTRL-VDP_DATA)
         tst.w   Plane_Buffer_Ptr

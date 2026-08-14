@@ -133,6 +133,17 @@ pub proc BG_Init (a0: *Act) clobbers(d0-d1/a1-a2) preserves(a3/sr) {
         movea.l Act.act_bg_layout(a3), a1
         cmpa.w  #0, a1
         beq     .skip_nt
+        // Second consumer of the $2700 mask above: the blit takes an
+        // autoincrement excursion ($8F80 direct to VDP_CTRL, $8F02 restored at
+        // the end) that bypasses the VDP shadow, and Flush_VDP_Shadow re-blits
+        // reg $0F from that shadow every VBlank. A VBlank landing inside the
+        // excursion would restore $02 under this loop and the remaining column
+        // writes would stride by 2 instead of $80.
+        if DEBUG == 1 {
+            move.w  sr, d0
+            andi.w  #$0700, d0
+            assert.w d0, hs, #$0600     // IPL >= 6: no VBlank can land mid-excursion
+        }
         with z80_stopped {
             // Column-major blit: the layout blob is column-contiguous
             // (blob[col*128 + row*2], 64 rows/column). Per column, point the VDP at
