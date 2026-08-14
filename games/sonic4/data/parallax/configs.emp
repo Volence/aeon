@@ -308,32 +308,46 @@ ensure(vdp_comm(OJZ_TEST_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C04A0000,
 // line, so the gate exercises the multi-op path rather than a single write — and
 // the CRAM half is chosen to be objectively measurable from a screenshot.
 //
-// FIRE SCHEDULE (see the timing model in engine/system/hblank.emp):
-//   fire 0 @ line 0    priming, arm = raster_arm(1, 119) = $8A75 (117)
+// The fire schedule below is now DERIVED. Kept as prose because it is what the arm
+// words mean, and the walk-through is the thing a reader needs:
+//   fire 0 @ line 0    priming, arm = $8A00 | (120 - 3) = $8A75 (117)
 //   fire 1 @ line 1    priming, arm = park (nothing scheduled after the event)
 //   fire 2 @ line 119  the event; its writes land on line 120
-// Walk-through: VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1
-// at line 1, reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
-pub data OJZ_TestRaster: [u16; 18] = [
-    %0100,                      // pal_dirty_mask: re-assert palette line 2 each frame —
-                                //   the line the CRAM op below writes into. THIS is what
-                                //   makes the mid-frame write transient; a mask naming any
-                                //   other line leaves the write latched forever (observed:
-                                //   the red covered the whole ground, not just below the
-                                //   split, when this said %0001 and the op wrote line 2).
-    1, $8C81,                   // init: S/H OFF at frame top (H40 base, boot_data.emp:140)
-
-    $8A75, 0,                   // fire 0 — priming; arms the gap that lands fire 2 on 119
-    $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
-
-    $8AFF, 2,                   // fire 2 — the event, two ops
-      OP_SET_REG, $8C89,        //   S/H ON  ($81 | bit 3 — resolution bits untouched,
-                                //   per the V28/V30 quirk ruling in the survey)
-      OP_CRAM, $C04A, $0000,    //   CRAM write @ $4A (command, ensure-pinned above)
-                 0, $000E,      //   count-1 = 0, one colour: bright red
-
-    $8AFF, RASTER_OPS_END,      // terminator — reached only by a stray fire
+// VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1 at line 1,
+// reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
+//
+// pal_dirty_mask is DERIVED from the CRAM address ($4A >> 5 = line 2), so the mask
+// can no longer name the wrong line — the observed P1 bug, where a mask of %0001
+// against an op writing line 2 left the red latched over the whole ground instead of
+// only below the split.
+const OJZ_TEST_PROG = [
+    fire(120, [ sh_on(),                            // S/H ON below the line
+                cram($4A, [$000E]) ]),              // bright red at line 2 entry 5
 ]
+
+// THE PIN (design spec 8.1). The hand-authored words are the ones measured on
+// hardware during P1; the DSL must reproduce them exactly. Retained deliberately
+// rather than deleted: a `const` emits nothing, and it turns a Parcel-C/D regression
+// from "golden ROM differs" into a named index — the negative control that proved this
+// pin bites flipped the colour word and got "diverges ... at index 15". It retires in
+// Parcel D together with the fixture it pins (design spec 8.2).
+const OJZ_TEST_HAND = [
+    %0100,
+    1, $8C81,
+    $8A75, 0,
+    $8AFF, 0,
+    $8AFF, 2,
+      OP_SET_REG, $8C89,
+      OP_CRAM, $C04A, $0000,
+                 0, $000E,
+    $8AFF, RASTER_OPS_END,
+]
+ensure(raster_words(OJZ_TEST_PROG) == OJZ_TEST_HAND.len,
+       "OJZ_TestRaster: DSL counts {raster_words(OJZ_TEST_PROG)} words, the hand program is {OJZ_TEST_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND) == -1,
+       "OJZ_TestRaster: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND)}")
+
+pub data OJZ_TestRaster: [u16; raster_words(OJZ_TEST_PROG)] = raster_program(OJZ_TEST_PROG)
 
 // OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
 // "did sec_pal load on the crossing?" is answerable from one CRAM read or

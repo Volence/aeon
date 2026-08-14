@@ -49,19 +49,22 @@ ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
 // DESCRIPTORS
 //
 // The enum is plumbing; the AUTHORING surface is the constructors below it, which
-// are where every bound is checked. Payload TYPES are not checked by the evaluator
-// (they are declared `int` here even where the real payload is an array) — the
-// constructors' ensures are what actually enforce the shapes.
+// are where every bound is checked. The payload slots are spelled truthfully —
+// `array` where the payload is an array — but that spelling is DOCUMENTATION, not a
+// check: measured at Task 7, `RasterOp.Cram(addr, 5)` binds an int to the `array`
+// slot without complaint, and the build only fails downstream, at the first `.len`
+// or `++` (`` `len` is not a field or `.len` of int ``). The constructors' ensures
+// are what actually enforce the shapes. Same class as the parameter annotations.
 // ===========================================================================
 
 pub comptime enum RasterOp {
     SetReg(int, int),                     // (mid-frame $8xxx word, frame-top reset word)
-    Cram(int, int),                       // (CRAM byte address, colour-word ARRAY)
+    Cram(int, array),                     // (CRAM byte address, colour-word ARRAY)
     PalRegion(int, int, int, int, int),   // (CRAM byte address, slot, pal line, entry, count)
 }
 
 pub comptime enum RasterFire {
-    Fire(int, int),                       // (screen line the effect lands on, RasterOp ARRAY)
+    Fire(int, array),                     // (screen line the effect lands on, RasterOp ARRAY)
 }
 
 // ---- op constructors --------------------------------------------------------
@@ -379,4 +382,19 @@ pub comptime fn raster_program(fires: array) {
     ensure(out.len == raster_words(fires),
            "raster_program: emitted {out.len} words but raster_words counted {raster_words(fires)} — the two encoding paths disagree")
     return out
+}
+
+// ---- development instruments -------------------------------------------------
+
+// first_mismatch — -1 when the two word lists are equal, else the index of the first
+// differing element. The development instrument for re-expressing a hand-authored
+// program through the DSL (design spec 8.1); pair it with a separate length ensure,
+// because a length difference is a different failure than a value difference.
+pub comptime fn first_mismatch(a: array, b: array) -> int {
+    for i in 0..a.len {
+        if i < b.len {
+            if a[i] != b[i] { return i }
+        }
+    }
+    return -1
 }
