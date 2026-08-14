@@ -77,12 +77,12 @@ descriptors encode, or the guards that catch you.
 
 ## Descriptor set
 
-Signatures and bounds below are read from `engine/effects/raster_dsl.emp` at `2dd5e35c`, not inferred.
+Signatures and bounds below are read from `engine/effects/raster_dsl.emp` at `912f8cb3`, not inferred.
 
 | Constructor | Parameters | Emits | `op_size` |
 |---|---|---|---|
-| `set_reg(word, reset)` (`:88-111`) | `word` = mid-frame `$8xxx` VDP register write, `$8000..$97FF`; `reset` = the frame-top word restoring the **same** register. Reg `$0A` is refused — it is the schedule's | `OP_SET_REG, word` | 2 |
-| `sh_on()` (`:116-118`) | none | `set_reg($8C89, $8C81)` — Shadow/Highlight ON **starting at the landing line M** (the fire is at M-1, so the register write takes effect from M), H40 base restored at frame top (`engine/system/boot_data.emp:140`) | 2 |
+| `set_reg(word)` | `word` = mid-frame `$8xxx` VDP register write, `$8000..$97FF`. **No frame-top reset** — the unconditional `Flush_VDP_Shadow` restores every shadowed register at frame top. Reg `$0A` is refused — it is the schedule's | `OP_SET_REG, word` | 2 |
+| `sh_on()` | none | `set_reg($8C89)` — Shadow/Highlight ON **starting at the landing line M** (the fire is at M-1, so the register write takes effect from M). The frame-top flush restores whatever the shadow holds for reg `$0C`, boot's H40 base `$8C81` (`engine/system/boot_data.emp:140`) unless a section changed it with `Set_VDP_Reg` | 2 |
 | `cram(addr, colours)` (`:121-131`) | `addr` = CRAM **byte** address 0..126, even, not on line 0; `colours` = 1..3 colour words, inline; `entry + colours.len <= 16` | `OP_CRAM, cmd>>16, cmd&$FFFF, colours.len-1, <colours>` | `4 + colours.len` |
 | `pal_region(addr, slot, pal_line, entry, count)` (`:136-152`) | `addr` = destination CRAM byte address; `slot` 0..1, `pal_line` 1..3, `entry` 0..15 = the `Pal_Variant_Stage` source; `count` = 1..3. `addr` must agree with `pal_line`/`entry` | `OP_PAL_REGION, cmd>>16, cmd&$FFFF, count-1, slot*128 + pal_line*32 + entry*2` | 5 |
 | `vsram(addr, values)` (`:186-195`) | `addr` = VSRAM **byte** address 0..78, even; `values` = 1..3 scroll words, inline; `addr + 2*values.len <= 80` | `OP_CRAM, cmd>>16, cmd&$FFFF, values.len-1, <values>` — the same opcode with a **VSRAM** command longword | `4 + values.len` |
@@ -140,21 +140,19 @@ CRAM line — forcing a spurious full re-assert of the character palette every s
 `region_boundary`'s `sh` is a **required** parameter. A `= 0` default would be the ordinary, friendly
 choice and it is the wrong one here, because `sh: 0` is the *dangerous* value:
 
-`sh: 0` produces a program with **zero** init words (nothing contributes a frame-top reset), which moves
-the priming arm word from word 3 to word 2. But `Raster_PatchWaterLine` writes
-`WATER_TEMPLATE_ARM0_OFF = 6` (`raster.emp:573`) — byte offset 6, i.e. **word 3** — unconditionally, at
-all three of its exit paths (`raster.emp:647`, `:656`, `:659`). On a patched template that write lands on
-a priming record's `op_count` instead of its arm word, and `Raster_HInt` then does `subq.w #1` on a value
-that was never a count (`raster.emp:440`).
+**The safety reason is gone; the parameter stayed.** `sh: 0` used to produce a program with **zero**
+init words, which moved the priming arm word from word 3 to word 2 — while `Raster_PatchWaterLine`
+wrote `WATER_TEMPLATE_ARM0_OFF` unconditionally at all three of its exit paths. On a patched template
+that write landed on a priming record's `op_count` instead of its arm word, and `Raster_HInt` then did
+`subq.w #1` on a value that was never a count: for the shipped water template the patched word was the
+arm word `$8A75`, so `dbf` ran the op loop **35,445 times**, walking that many words of adjacent ROM as
+opcodes inside a raw interrupt handler. A `= 0` default would have made that the outcome an author got
+by *not thinking about Shadow/Highlight at all*.
 
-That number is exactly computable rather than a vague "tens of thousands". **Derived** for the shipped
-water template: the patched word is the arm word `$8A75`, `subq.w #1` leaves `$8A74`, and `dbf` runs the
-op loop `$8A74 + 1` = **35,445 times**, walking 35,445 words of adjacent ROM as opcodes inside a raw
-interrupt handler.
-
-A default would have made that the outcome an author gets by *not thinking about Shadow/Highlight at
-all* — the failure would be reached by omission. Requiring the parameter forces the thought. It is not
-a complete guard on its own; see the `init_count` pairing under "What the vocabulary does NOT check".
+That failure is unreachable now. The header is **one word** for every program, so `arm0` is always word
+1 and `WATER_TEMPLATE_ARM0_OFF = 2` is structural rather than conditional. `sh` remains required
+because whether an effect changes a mode register is worth stating at the call site — an authoring
+choice, no longer a guard.
 
 ### Deviation from the spec's sketch, recorded so it is not silent
 
@@ -189,8 +187,8 @@ pub data OJZ_DuskBand: [u16; raster_words(DUSK_PROG)] = raster_program(DUSK_PROG
 
 No `use` line is needed — `raster_dsl` is ambient (see "Reaching the ROM"). Nothing else is typed: the
 arm word, the CRAM command, the `count-1`, the staging offset, the `pal_dirty_mask` and the length are
-all derived. Self-check if you want one: 2 header words + 0 init words + 4 priming + (2 + 5) + 2
-terminator = **15 words**, and the single event at screen line 96 gives arm `$8A00 | (96 - 3)` = `$8A5D`.
+all derived. Self-check if you want one: 1 header word + 4 priming + (2 + 5) + 2
+terminator = **14 words**, and the single event at screen line 96 gives arm `$8A00 | (96 - 3)` = `$8A5D`.
 
 **3. Bind a variant to the slot the program names.** A `pal_region` streams from
 `Pal_Variant_Stage[slot]`, which is empty until something binds a descriptor to that slot. At level init:
@@ -217,7 +215,7 @@ exactly as section 1 already does for `OJZ_TestRaster` (`act_descriptor.emp:176`
 
 **5. See it.** On a boundary crossing `Parallax_CheckBoundary` (`engine/level/parallax.emp:154`, calls at
 `:185-186`) invokes `Raster_InstallSection` (`raster.emp:545-555`), which stages the pointer; the next
-`Raster_VBlank` (`:323-372`) copies 128 bytes into `Raster_Buf_A`, applies the init words, and leaves
+`Raster_VBlank` copies 128 bytes into `Raster_Buf_A`, re-asserts the program's palette lines, and leaves
 reg `$0A` = 0 so the pipeline primes on lines 0 and 1. Screen lines 0-95 show the base palette; from 96
 down, entries 8-10 of line 1 carry the dusk-derived colours, and the base is restored at the next frame
 top because `pal_dirty_mask` re-asserts line 1 every frame.
@@ -278,12 +276,11 @@ fire is a build error rather than a surprise on screen.
 vertically, so a `$0040` shift is *pixel-identical* to no shift at all. A session was spent on that
 before anyone read the period off the nametable. `$0043` bands cleanly.
 
-**Presets must agree about registers.** Two presets that touch the same VDP register with different
-frame-top resets are **refused** — `prog_init` keys its dedupe on the register and requires the
-resets to match, because the later one silently won and left the register wrong for a whole frame.
-That is correct but it means composition is currently a negotiation whenever registers overlap. The
-fix (a blanket VBlank register restore, which would delete the `reset` parameter outright) is
-byte-changing and booked; do not design around today's behaviour as if it were permanent.
+**Presets no longer have to agree about registers.** Two presets touching the same VDP register used
+to be **refused** unless they carried the same frame-top reset word, which made composition a
+negotiation between preset authors. The blanket VBlank register restore landed, `set_reg` lost its
+`reset` parameter, and presets now simply layer. What composition still cannot reconcile is two ops
+writing the same register on the **same line**: both execute, in preset order, and the last wins.
 
 **`fx_tint_band` cannot check its own variant.** The variant bound to `slot` must cover `pal_line`
 in its `lines` mask, or the staging line is never derived and the op streams zeros — or a previous
@@ -396,13 +393,13 @@ and therefore can never be helpers.
 
 **Helper membership also force-publicises a module's PRIVATE comptime items.** That is a real
 consequence, not a footnote, and it is why the four internal helpers below are described as *internal by
-convention* and not as private: `op_size`, `op_cram_words`, `op_mask`, `op_init`, `op_words`,
-`op_is_set_reg`, `prog_mask`, `prog_init`, `fire_lines`, `arm_at` and `check_mixed_fire` are all
+convention* and not as private: `op_size`, `op_cram_words`, `op_mask`, `op_words`,
+`op_is_set_reg`, `prog_mask`, `fire_lines`, `arm_at` and `check_mixed_fire` are all
 **ambient names in every module in the tree**, whatever their declared visibility. An author never calls
 them; nothing stops one.
 
 The practical consequence for *you*: this parcel injected roughly twenty short generic names — `fire`,
-`cram`, `set_reg`, `vsram`, `variant`, `op_size`, `op_mask`, `op_init`, `op_words`, … — into every
+`cram`, `set_reg`, `vsram`, `variant`, `op_size`, `op_mask`, `op_words`, … — into every
 module. **Do not shadow them with a module-local name.** `python3 tools/emp_helper_closure.py` catches
 helper-vs-helper collisions and fails on any name exported by two helpers; it does **not** catch a
 collision against a module-local name. Run it before and after any change to the helper list; it also
@@ -432,8 +429,8 @@ copied into prose (it reported 426 names across 14 helpers at `2dd5e35c`).
    Y** as the camera moves, which is what makes the effect stay on a place in the level rather than at a
    fixed height on the display. `Raster_PatchWaterLine` (`:639-661`) does the actual one-word arm
    rewrite and owns the two off-screen semantics (above the viewport = fully submerged, fire as early as
-   possible; below it = park). **This is the route carrying the `init_count == 1` invariant** described
-   under "What the vocabulary does NOT check".
+   possible; below it = park). The route used to carry an `init_count == 1` invariant on its template;
+   with a one-word header `arm0` is word 1 in every program and there is nothing left to get wrong.
 
 Route 3's call sites are what Parcel C replaces: the imperative water install is deleted in favour of a
 single `sec_effects` preset pointer (spec ruling 2). The program format and this vocabulary are
@@ -471,19 +468,10 @@ Stated plainly rather than left for someone to discover on hardware:
   copy that pairing, do not copy only the `first_mismatch` line. (The chain happens to hold one rung
   deeper here, because `raster_program` asserts `out.len == raster_words(fires)` on every call — but that
   is a fact about `raster_program`, not about `first_mismatch`, and a caller must not rely on it.)
-- **The patched-water template's `init_count == 1` requirement — not by the vocabulary.**
-  `WATER_TEMPLATE_ARM0_OFF = 6` (`raster.emp:573`) is a byte offset that is only correct when the header
-  carries exactly one init word: with `N = 1` the layout is `[mask 0][init_count 2][init[0] 4][arm0 6]`,
-  but with `N = 0` offset 6 lands on `op_count` and with `N = 2` `arm0` moves to offset 8 (so the patch
-  would rewrite an *init word* every frame instead of the boundary). Because `raster_program` **derives**
-  the init words from the ops, a patched template's init count is a consequence of how many *distinct*
-  `set_reg` reset words the program happens to use. Two things mitigate it and neither is a general
-  guard: `region_boundary`'s `sh` is required, so the zero-init case cannot be reached by omission; and
-  the water fixture carries a **co-located** `ensure` (`configs.emp:466-468`) that word 3 of its own
-  compiled program is the expected priming arm word. **If you author any other program destined for the
-  water patch slot, write that assertion yourself** — nothing in `raster_dsl` knows a program is going
-  to be patched. Note also that a `sh: 0` region boundary needs *some* `set_reg` to manufacture the init
-  word at all; a no-op pairing such as `set_reg($8C81, $8C81)` is the escape hatch.
+- ~~**The patched-water template's `init_count == 1` requirement.**~~ **Closed.** The header is one
+  word, so `WATER_TEMPLATE_ARM0_OFF = 2` names `arm0` in every program and there is no layout
+  precondition on a template destined for the water patch slot. The invariant, the co-located `ensure`
+  in `configs.emp` that carried it, and the `set_reg($8C81, $8C81)` escape hatch are all deleted.
 - **Nothing checks a `pal_region` against the bound variant's covered lines.** See the palette variant
   section: an uncovered line streams uninitialised staging RAM to CRAM.
 - **Parameter type annotations.** They are mandatory to parse but mostly not enforced: `[T; N]` on a
@@ -504,18 +492,19 @@ Stated plainly rather than left for someone to discover on hardware:
 
 ## New correctness the constructors guarantee (ruling 5)
 
-- **`set_reg`**: the mid-frame word and its frame-top reset must target the **same** VDP register — so a
-  mode change can never latch past the frame. The reset is not optional and is not typed separately into
-  a header; `raster_program` derives the program's init words from these resets, so an author cannot
-  write the mid-frame half alone.
+- **`set_reg`**: a mode change can never latch past the frame — but that is now the *engine's*
+  guarantee, not this constructor's. `Flush_VDP_Shadow` re-blits all 19 shadowed VDP registers from
+  `VDP_Shadow_Table` unconditionally at the top of every VBlank, so a mid-frame write is undone at frame
+  top whichever register it named. The old paired `reset` parameter, the header words it fed and
+  `prog_init`'s disagreeing-resets check are all gone. A register change meant to **persist** is settled
+  state, not a raster op: call `Set_VDP_Reg` (`engine/system/vdp_init.emp`) and let the flush deliver it.
 - **`set_reg` refuses reg `$0A`.** That register is the *schedule's*. `Raster_HInt` writes the record's
   arm word to reg `$0A` **first** and only then runs the record's ops (`raster.emp:436` before `:442`),
   so an op writing `$8Axx` would overwrite the arm the encoder just scheduled; the counter then reloads
   with the author's value at the next HInt and every remaining fire in the frame lands on the wrong line
   — silently, and only from that fire onward. Reg `$0F` (autoincrement) was considered and **deliberately
   not** banned: Gunstar Heroes and Alien Soldier both change autoincrement mid-frame as ordinary
-  technique, and the mandatory frame-top reset already bounds the change to the frame that made it
-  (`raster_dsl.emp:95-109`).
+  technique, and the blanket frame-top restore already bounds the change to the frame that made it.
 - **`pal_region`**: the destination CRAM address must name the **same line and entry** as the staging
   source (`(addr >> 5) == pal_line` and `((addr >> 1) & 15) == entry`). Hand authoring had no such check
   — the two were independent literals.
@@ -602,25 +591,23 @@ build time (`raster_dsl.emp:514-515`), but the message speaks bytes rather than 
 here is the arithmetic up front instead of discovered by overflowing.
 
 ```
-total words = 2                    header: pal_dirty_mask + init_count
-            + I                    one word per DISTINCT set_reg reset value
+total words = 1                    header: pal_dirty_mask
             + 4                    the two priming records
             + Σ over fires (2 + Σ op_size)
             + 2                    terminator
             <= 64
 ```
 
-Fixed overhead is therefore `8 + I` — **9 words** for the ordinary case of one init word. What that
-leaves, by fire shape:
+Fixed overhead is therefore a flat **7 words** — it no longer depends on how many registers the
+program touches. What that leaves, by fire shape:
 
-| Fire shape | words per fire | init words | max fires |
-|---|---|---|---|
-| `region_boundary(…, sh: 1)` — the water shape | 9 | 1 | **6** |
-| `fire(M, [cram(a, [c1, c2, c3])])` | 9 | 0 | **6** |
-| `fire(M, [pal_region(…)])` | 7 | 0 | **8** (exactly 64 words) |
-| `fire(M, [vsram(a, [v])])` | 7 | 0 | **8** |
-| `fire(M, [set_reg(w, r)])`, resets all distinct | 4 | 1 each | 11 |
-| `fire(M, [set_reg(w, r)])`, one shared reset | 4 | 1 total | 13 |
+| Fire shape | words per fire | max fires |
+|---|---|---|
+| `region_boundary(…, sh: 1)` — the water shape | 9 | **6** |
+| `fire(M, [cram(a, [c1, c2, c3])])` | 9 | **6** |
+| `fire(M, [pal_region(…)])` | 7 | **8** |
+| `fire(M, [vsram(a, [v])])` | 7 | **8** |
+| `fire(M, [set_reg(w)])` | 4 | **14** |
 
 So **roughly 6-8 events for anything that writes colour**, and the ceiling is on the *program*, not on
 the frame. Plan for six if your fires carry a mode change; if you need more bands than that, the answer
@@ -642,10 +629,9 @@ someone else's arithmetic.
 
 ```
 word 0            pal_dirty_mask          DERIVED — OR of (1 << (cram_addr >> 5)) over every CRAM-class
-                                          op; 0 for a vsram op
-word 1            init_count N            DERIVED — count of distinct frame-top reset words
-words 2..2+N-1    init words              DERIVED — each set_reg op's reset word, first-appearance
-                                          order, deduped
+                                          op; 0 for a vsram op. The WHOLE header: one word, so a
+                                          program's arm0 is always word 1 (byte offset 2, which is
+                                          what WATER_TEMPLATE_ARM0_OFF names)
                   ---- records ----
 record 0          arm, 0                  priming, fires on line 0
 record 1          arm, 0                  priming, fires on line 1
@@ -701,13 +687,13 @@ Both fixtures are one event at screen line 120, so `L = [0, 1, 119]` for both.
 | single-event form | `$8A00 \| (120 - 3)` = `$8A00 \| 117` = `$8A75` ✓ | `120 - 3 = 117` ✓ |
 | record 1 arm | `i+2 = 3 = L.len` → park **`$8AFF`** ✓ | ✓ |
 | record 2 arm | `i+2 = 4 > L.len` → park **`$8AFF`** ✓ | ✓ |
-| word count | `2 + 1 + 4 + (2 + 2 + 5) + 2` = **18** ✓ declared `[u16; 18]` | `2 + 1 + 4 + (2 + 2 + 5) + 2` = **18** ✓ |
+| word count | `1 + 4 + (2 + 2 + 5) + 2` = **16** ✓ | `1 + 4 + (2 + 2 + 5) + 2` = **16** ✓ |
 | `pal_dirty_mask` | CRAM `$4A` → `1 << ($4A >> 5)` = `1 << 2` = **`%0100`** ✓ | CRAM `$48` → `1 << 2` = **`%0100`** ✓ |
 | CRAM addr decode | `$4A` → line `2`, entry `5` | `$48` → line `2`, entry `4`; the staging source `pal_stage_off(0, 2, 4)` separately evaluates to 72 |
 
-Word-count breakdown, identical for both: 2 header words (`pal_dirty_mask`, `init_count`) + 1 init word
-(`$8C81`) + 4 for the two priming records + 9 for the event record (2 for `arm`/`op_count`, 2 for the
-`set_reg`, 5 for the CRAM-class op) + 2 for the terminator = 18.
+Word-count breakdown, identical for both: 1 header word (`pal_dirty_mask`) + 4 for the two priming
+records + 9 for the event record (2 for `arm`/`op_count`, 2 for the `set_reg`, 5 for the CRAM-class op)
++ 2 for the terminator = 16.
 
 **A coincidence to not read as a rule.** In `OJZ_WaterRaster` two different numbers are both 72
 (`$48` — see the note at `configs.emp:473`). They are *not* the same quantity and they are not even in
@@ -756,21 +742,22 @@ constructor authors it at `top - 1` (`raster.emp:276`). 2026-08-14 review §1.4,
 
 ### Four per-op quantities, deliberately distinct
 
-The encoding asks four different questions of one op, and the answers are **not** interchangeable. This
+The encoding asks three different questions of one op, and the answers are **not** interchangeable. This
 is where a plausible-looking simplification does real damage: a `pal_region` occupies 5 wire words but
 writes `count` colours, and a `set_reg` occupies 2 wire words but writes no CRAM at all — so counting
 either one with the other's function silently mis-sizes a program or mis-budgets a fire.
 
-| Helper | Answers | `SetReg(w, reset)` | `Cram(a, cols)` | `PalRegion(a, slot, pl, e, n)` | `Vsram(a, vals)` |
+| Helper | Answers | `SetReg(w)` | `Cram(a, cols)` | `PalRegion(a, slot, pl, e, n)` | `Vsram(a, vals)` |
 |---|---|---|---|---|---|
 | `op_size` (`:316-323`) | wire words the op occupies | 2 | `4 + cols.len` | 5 | `4 + vals.len` |
 | `op_cram_words` (`:330-337`) | **data words streamed to the VDP** — what `fire` sums against the per-fire ceiling | 0 | `cols.len` | `n` | `vals.len` |
 | `op_mask` (`:344-356`) | the `pal_dirty_mask` bit the op needs re-asserted at frame top | 0 | `1 << (a >> 5)` | `1 << (a >> 5)` | **0** — deliberately; see the `vsram` note above |
-| `op_init` (`:359-366`) | frame-top reset words the op contributes | `[reset]` | `[]` | `[]` | `[]` |
 
-`op_size` feeds `raster_words`; `op_cram_words` feeds `fire`'s per-fire budget; `op_mask` and `op_init`
-feed the header, OR'd and deduped-in-first-appearance-order respectively. A fifth,
-`op_is_set_reg` (`:372-379`), feeds both the mixed-fire ordering guard and the CRAM-class op ceiling —
+There is no `op_init` any more — it answered "which frame-top reset words does this op contribute", and
+the blanket `Flush_VDP_Shadow` answers that for every register without asking the program.
+
+`op_size` feeds `raster_words`; `op_cram_words` feeds `fire`'s per-fire budget; `op_mask` feeds the
+header, OR'd across the program. A fourth, `op_is_set_reg`, feeds both the mixed-fire ordering guard and the CRAM-class op ceiling —
 that split is the runtime's, not a taxonomy: `OP_SET_REG` is the one op that writes with no blanking
 delay.
 
