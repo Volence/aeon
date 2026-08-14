@@ -1,0 +1,18 @@
+// engine/effects/raster_dsl.emp — the comptime authoring vocabulary for raster
+// programs (filled in by Task 6).
+//
+// This file carried the Parcel A capability probe; see
+// docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md for what was
+// established (payload-carrying `comptime enum` + `match` destructuring, `++`
+// accumulation into a fn-level `comptime var`, the `Label != 0` bound/unbound
+// witness, and the const-vs-data length-guard asymmetry), and for the three
+// grammar constraints the vocabulary has to live within — a `comptime fn`
+// parameter's type annotation is mandatory but unenforced (there is no slice
+// type), and a glob-imported module must export at least one `pub` name.
+module engine.effects.raster_dsl
+
+// PLACEHOLDER — delete in Task 6, once this module exports real vocabulary.
+// `configs.emp` glob-imports this module, and a glob over a module with no `pub`
+// name is a hard error ("matches no module with `pub` names"), so the reachability
+// the glob provides costs exactly one exported name until there is a real one.
+pub const RASTER_DSL_PLACEHOLDER = 0

@@ -32,6 +32,7 @@ use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, R
 // be visible HERE or they degrade to unresolved label refs.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT}
 use engine.effects.palette.{cycle_channel, pal_cycle_channel, PalCycleScript1}
+use engine.effects.raster_dsl.*
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
