@@ -53,13 +53,19 @@ stay in the byte-emitting modules; only constructors and validation move. The de
 7. **T-1 is a DENSE-tier fact** (`raster.emp:236-243`). The sparse authorities are `raster_arm` /
    `raster_fire_line` / `water_arm0`. Applying the dense off-by-one to sparse arithmetic fails the
    byte-compare in the most confusing possible direction.
-8. **Param type annotations are mandatory but NOT enforced** — measured by Task 1's probe, recorded in
-   `docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md`. An untyped `comptime fn` param is
-   a parse error (`expected ':', found RParen`), so every param must carry an annotation; but only
-   `where LO..HI`-refined params are checked at bind (`sigil-frontend-emp/src/eval/call.rs:309-318`).
-   In particular **`[T; N]` on a parameter is not a checked length** — a 4-element list binds happily
-   to an `[int; 3]` param. This plan therefore spells loose array params `array` and does its length
-   checking with explicit `ensure`s on `.len`. Do not read any param annotation here as a guarantee.
+8. **Param type annotations are mandatory; most of them are not enforced.** Measured by Task 1's probe,
+   recorded in `docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md`. An untyped
+   `comptime fn` param is a parse error (`expected ':', found RParen`), so every param must carry an
+   annotation. What the annotation buys you:
+   - **No bind-time range or length check** outside `where LO..HI` refinements
+     (`sigil-frontend-emp/src/eval/call.rs:309-318`). In particular **`[T; N]` on a parameter is not a
+     checked length** — a 4-element list binds happily to an `[int; 3]` param. This plan therefore
+     spells loose array params `array` and does its length checking with explicit `ensure`s on `.len`.
+   - **`Reg` and `Label` ARE class-checked**, by exact spelling, on *explicitly supplied* args only
+     (`check_arg_class`, `eval/call.rs:446-480`, called at `:545`/`:563`). Defaults skip the check —
+     which is exactly why `sym: Label = 0` works as the "is it bound?" idiom. **Do not strip a `Label`
+     annotation as decorative**; it is load-bearing, and removing it would destroy the mechanism §5.2's
+     witness established.
 9. **A glob-imported module must export at least one `pub` name**, so `raster_dsl.emp` carries a
    `pub const RASTER_DSL_PLACEHOLDER = 0` from Task 1. **Task 6 deletes it** once the module has real
    `pub` items.
