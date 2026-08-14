@@ -146,6 +146,29 @@ pub comptime fn vdp_comm_delta(addr: int) -> int {
     return ((addr & $3FFF) << 16) | ((addr & $C000) >> 14)
 }
 
+// vdp_comm_addr — the INVERSE scatter: recover the byte address from a command
+// longword. Lives here, touching vdp_comm_delta, because a scatter and its inverse
+// drift as a pair or not at all; spelled in a consumer it would be a hand-synced twin
+// of the line above, which is the failure mode this module already avoids by having
+// vdp_comm compose vdp_comm_delta rather than re-spell it.
+//
+// The consumer is the dense raster tier, which is handed a prebuilt CRAM command and
+// must DERIVE its pal_dirty_mask from it rather than accept the author's claim — a
+// mask naming the wrong line leaves a mid-frame write latched forever (the observed
+// P1 bug). See engine/effects/raster.emp, raster_gradient_program.
+pub comptime fn vdp_comm_addr(cmd: int) -> int {
+    return ((cmd >> 16) & $3FFF) | ((cmd & 3) << 14)
+}
+
+// The round trip, pinned at three addresses that exercise both halves of the scatter:
+// below $4000 (low bits only), and above it (where bits 14-15 land in the low word).
+ensure(vdp_comm_addr(vdp_comm_delta($48)) == $48,
+       "vdp_comm_addr is not the inverse of vdp_comm_delta at $48")
+ensure(vdp_comm_addr(vdp_comm_delta($3FFE)) == $3FFE,
+       "vdp_comm_addr is not the inverse of vdp_comm_delta at $3FFE")
+ensure(vdp_comm_addr(vdp_comm_delta($C000)) == $C000,
+       "vdp_comm_addr is not the inverse of vdp_comm_delta at $C000 — the high address bits ride in the command's LOW word")
+
 // plane_loc: nametable cell (col, row) -> byte offset in a plane `width` cells
 // wide.
 pub comptime fn plane_loc(width: int, col: int, row: int) -> int {

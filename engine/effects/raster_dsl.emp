@@ -42,6 +42,17 @@ ensure(RASTER_BUF_SIZE == 128, "raster_dsl's inlined buffer bound drifted from R
 // diagnostic — latent while the pin passes, broken exactly when it fires.
 ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
        "raster_dsl's inlined screen-line bounds drifted from RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE")
+// WHY arm_at CARRIES NO PER-CALL RANGE CHECK. Reg $0A holds one 8-bit reload, so an arm
+// word can express a gap of at most 255 lines. That is not a constraint an author can
+// reach: the widest gap constructible is from priming fire line 1 to the last legal fire
+// line, and the bound below is what makes every per-call check dead code. Assert it ONCE,
+// here, where it fires if someone raises the screen-line ceiling — the only way it breaks.
+ensure((RASTER_MAX_FIRE_LINE - 1) - 1 <= 255,
+       "raster screen-line ceiling raised past what one reg $0A reload can span (255): arm_at drops its per-call gap check on the strength of this bound, so restore one there before raising it")
+// NOTE this reasoning does NOT transfer to raster.emp's raster_arm, which keeps both of
+// its guards. It is `pub` and takes unconstrained fire lines, so its checks are dead only
+// for today's callers rather than structurally — the distinction that decides whether
+// removing a guard is a cleanup or a silent loss of coverage.
 // pal_region inlines the staging arithmetic rather than calling pal_stage_off (a
 // call-site name); this pins the formula against its authority.
 ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
@@ -105,6 +116,15 @@ pub comptime fn set_reg(word: int, reset: int) -> RasterOp {
     // NOT banned: Gunstar Heroes and Alien Soldier both change autoincrement mid-frame as
     // ordinary technique, and set_reg's mandatory frame-top reset already bounds the
     // change to the frame that made it.
+    // NOT ROUTED THROUGH VDP_Shadow_Table — both halves go straight to VDP_CTRL (the
+    // mid-frame word from Raster_HInt's .op_set_reg, the reset from Raster_VBlank's init
+    // loop). Harmless today and NOT a latent bug by luck: Flush_VDP_Shadow runs right
+    // after Raster_VBlank in the same VBlank but writes only registers whose dirty bit is
+    // set, and nothing in the tree ever marks reg $0C dirty. It becomes real the moment
+    // someone set_regs a register that IS shadowed and dirtied: the flush would override
+    // this op's frame-top reset for exactly those frames, and the shadow's idea of the
+    // register would permanently diverge from the hardware's. If you add one, write the
+    // reset through the shadow instead of here.
     ensure((word >> 8) != $8A,
            "set_reg: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
     return RasterOp.SetReg(word, reset)
@@ -396,6 +416,21 @@ comptime fn prog_mask(fires: array) -> int {
 }
 
 // prog_init — the distinct frame-top reset words, in first-appearance order.
+//
+// THE DEDUPE KEY IS THE REGISTER, NOT THE WORD. Keying on the whole word looks like the
+// same thing and is not: two set_regs on the SAME register with DIFFERENT resets are two
+// distinct words, so both were emitted, and Raster_HInt writes init words in array order
+// (`move.w (a1)+, (a2)` / `dbf`) — so the later one silently won and the earlier op's
+// intended reset was discarded for the whole frame. `set_reg` already guarantees a word
+// and its own reset name the same register; nothing compared two different set_regs.
+//
+// Example that used to build green: fire(100, [set_reg($8C89, $8C81)]) with
+// fire(140, [set_reg($8C8B, $8C83)]) emitted init = [$8C81, $8C83], leaving reg $0C at
+// $8C83 — interlace ON, permanently, from a program that only asked for Shadow/Highlight.
+//
+// It also mattered structurally: init_count is the water patch offset's input
+// (WATER_TEMPLATE_ARM0_OFF is valid only at init_count == 1), so a silently duplicated
+// register moved the arm word the runtime patches unconditionally.
 comptime fn prog_init(fires: array) {
     comptime var out = []
     for f in fires {
@@ -403,7 +438,11 @@ comptime fn prog_init(fires: array) {
             for w in op_init(o) {
                 comptime var seen = 0
                 for x in out {
-                    if x == w { seen = 1 }
+                    if (x >> 8) == (w >> 8) {
+                        seen = 1
+                        ensure(x == w,
+                               "raster program: two frame-top resets for VDP reg {(w >> 8) - $80} disagree ({x} and {w}). Every set_reg on one register must carry the SAME reset word — the init words are written in order at frame top, so the last one silently wins and the other op's restore never happens.")
+                    }
                 }
                 if seen == 0 { out = out ++ [w] }
             }
@@ -432,12 +471,17 @@ comptime fn fire_lines(fires: array) {
 // arm_at — the arm word for record i. Ruling 1b: the word WRITTEN at record i is
 // consumed at the next reload and schedules gap(L[i+1] -> L[i+2]); past the end it
 // parks the counter 255 lines away, i.e. never within active display.
+// BOTH HALVES OF THE OLD PER-CALL ensure WERE UNREACHABLE, so it is gone and the fact it
+// was reaching for is asserted ONCE, at module level, against the bounds that make it true
+// (see RASTER_FIRE_SPAN below). `gap <= 255` could not fire because `fire` bounds screen
+// lines to 3..223, capping any gap at 220; `gap >= 0` could not fire because
+// raster_program calls fire_lines FIRST, and fire_lines already ensures strict ascent.
+// A guard that cannot fire is not free — this codebase has a documented history of them,
+// and each one reads as protection that is not there. The module-level version DOES fire
+// if someone raises the screen-line ceiling, which is the only way the fact can break.
 comptime fn arm_at(L: array, i: int) -> int {
     if i + 2 >= L.len { return $8AFF }
-    let gap = L[i + 2] - L[i + 1] - 1
-    ensure(gap >= 0 && gap <= 255,
-           "raster program: gap {L[i + 1]}->{L[i + 2]} does not fit one counter reload (0..255)")
-    return $8A00 | gap
+    return $8A00 | (L[i + 2] - L[i + 1] - 1)
 }
 
 // check_mixed_fire — ruling 14. In a fire mixing OP_SET_REG with a CRAM-class op, the

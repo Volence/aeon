@@ -396,9 +396,19 @@ pub data OJZ_TestPal: [u16; 48] = test_palette()
 // cluster (Task 7). Authored here, the game-side effects library.
 // ===========================================================================
 
-// OJZ_ShimmerCycle — a per-section cycling band: rotate line-2 entries 8..11 every 8
-// frames. `sec_pal_cycle` finally gets a consumer; the controller reads CRAM per
-// frame to confirm the rotation period. Line 2 (not 0 — the character's).
+// OJZ_ShimmerCycle — a per-section cycling band: rotate line-2 entries 8..11 on a
+// NINE-frame cadence. `sec_pal_cycle` finally gets a consumer; the controller reads CRAM
+// per frame to confirm the rotation period. Line 2 (not 0 — the character's).
+//
+// `period: 8` yields 9 frames, not 8, and this comment used to say 8. The runtime
+// (Palette_RunCycles) rotates, THEN reloads the timer with `period`, then spends one
+// frame per decrement down to zero before the next rotation — so the cadence is
+// period + 1. The field comment calls it "frames between rotations", which is literally
+// true (there are 8 non-rotating frames between two rotations) and reads as the cadence,
+// which it is not. Nothing measured this in either direction: there is no cycling row in
+// the budget model and no GATE-EVIDENCE cycling capture. Corrected as documentation only
+// — making `period: N` mean N frames is a runtime change that moves bytes, and it is
+// booked rather than smuggled into a zero-byte parcel.
 pub data OJZ_ShimmerCycle: PalCycleScript1 = cycle_script1(
     [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ])
 
@@ -533,12 +543,17 @@ pub data OJZ_GradientStream: [u16; 288] = comptime for i in 0..288 { grad_word(i
 ensure(288 == OJZ_GRAD_LINES * RASTER_CRAM_MAX,
        "OJZ_GradientStream length must be lines * words-per-line")
 
+// The mask is no longer passed: raster_gradient_program DERIVES it from cmd's CRAM
+// address ($48 >> 5 = line 2), so "re-assert CRAM line 2 each frame -> the ramp is
+// transient" is now a property of the address rather than a claim this call site makes
+// and the engine trusts. stream_words is the array's real length, checked there against
+// lines * RASTER_CRAM_MAX — the ensure that used to sit beside the stream below.
 pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
-    top:    OJZ_GRAD_TOP,
-    lines:  OJZ_GRAD_LINES,
-    mask:   %0100,          // re-assert CRAM line 2 each frame -> the ramp is transient
-    cmd:    vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write),
-    stream: OJZ_GradientStream)
+    top:          OJZ_GRAD_TOP,
+    lines:        OJZ_GRAD_LINES,
+    cmd:          vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write),
+    stream:       OJZ_GradientStream,
+    stream_words: 288)
 
 // ===========================================================================
 // EFFECTS P3 GATE FIXTURE — the first VSRAM raster program in this engine.
