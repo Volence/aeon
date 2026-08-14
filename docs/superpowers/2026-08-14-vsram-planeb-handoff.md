@@ -127,3 +127,26 @@ fixture, keep `vsram()` and the N+1 measurement on master, and record the constr
 plane A one.
 
 Both are good outcomes. Shipping the plane A fixture is not.
+
+---
+
+## RESOLVED — 2026-08-14, same day
+
+**Candidate 1 was correct: the OJZ BG is vertically self-similar at exactly 64 px, so the write
+worked all along and the art hid it.** Established by a three-build matrix (control `$0000`,
+`$0040`, `$0043` — one constant apart, all byte 2), each captured with plane A on and off:
+
+- `$0040` vs control: **0 differing pixels**, plane A on or off — the null, reproduced.
+- `$0043` (67 px, non-commensurate with the art) vs control: **16,630 differing pixels starting at
+  exactly y=112**, plane A on or off. The write lands, fires on the authored line, N+1 holds for
+  plane B too.
+- VRAM `$E000` read: the trunk band of the plane B nametable cycles every 8 tile rows — **exactly
+  64 px** (canopy every 4 rows = 32 px, horizontal repeat every 16 tiles). A 64 px scroll maps the
+  plane onto itself pixel-for-pixel.
+
+Occlusion disproven (fully visible with plane A on). Clobber disproven statically (`Vscroll_Write`
+is `requires(vblank)`, the only other VSRAM writer) and empirically (the 67 px band persists to the
+bottom of frame). The fixture now ships as plane B `$0043`; evidence re-measured in
+`docs/benchmarks/effects-p3/GATE-EVIDENCE.md`; the plane A mid-frame-vscroll constraint and the
+pick-the-offset-against-the-art caution are recorded in the `vsram()` constructor docs. Branch still
+unmerged — the refreeze ritual remains the owner's sign-off.
