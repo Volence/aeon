@@ -158,18 +158,76 @@ This is the risk from the header and it must not live only in a plan. At the new
 Make the invariant a real gate, not just prose. Use the `assert.*` idiom that self-gates to zero
 bytes in the plain shape (see `engine/sound/sound_api.emp:230` and `engine/debug/compression_selftest.emp:65`).
 
-**Research the shape before writing it — report findings before coding.** The invariant to test is
-"IRQs are masked for the duration of the excursion", so the natural assert is at each `$8F80` site
-checking the SR interrupt level is 7. Two things to resolve first:
-- Whether `assert.*` can test SR at all, or whether this needs a different construct.
-- **The VBlank-context site is NOT the same case.** The plan's header notes one site "restores before
-  yielding" rather than masking. Asserting level-7 there may be wrong — inside the VBlank handler the
-  flush cannot re-enter, so the invariant is satisfied differently. Do not paper over that difference
-  with a uniform assert; if the two cases need two different assertions, say so.
+**RESEARCH COMPLETE (2026-08-14).** Findings below are verified with file:line evidence and empirical
+builds. Three of them invalidate the obvious implementation:
 
-If the research shows a clean SR assert is not achievable, **STOP and report BLOCKED** with what you
-found rather than silently downgrading to the comment-only version — the user explicitly chose the
-assert over the comment.
+**The predicate is `hs, #$0600` (IPL >= 6), NOT `eq, #$0700`.** Contexts are not uniform:
+
+| Site | Context | Mask | Established by |
+|---|---|---|---|
+| `section.emp:237`, `:406` | main loop only | IPL 7 | hand-spelled `move.w #$2700, sr` at `:215`, restored `:438` |
+| `bg.emp:148` | main loop only | IPL 7 | hand-spelled at `:74-75`, restored `:168` |
+| `plane_buffer.emp:467/481/503` | **VBlank only** | **IPL 6** (hardware, on IRQ6 accept) | nothing — `VInt_DrawLevel` declares `requires(vblank)` at `:442`; re-entrancy impossible because `Flush_VDP_Shadow` runs at `vblank.emp:158`, earlier in the same handler |
+| `vblank.emp:326` | VBlank only (`VInt_Lag`) | IPL 6 | **not an excursion** — writes the default `$02`, i.e. the shadow's own value |
+
+The main loop runs at **IPL 3** (`boot.emp:307` `move.w #$2300, sr`), so IPL >= 6 is exactly
+discriminating: unmasked main loop (3) fails, masked main loop (7) passes, VBlank (6) passes.
+
+**The snippet:**
+```emp
+        if DEBUG == 1 {
+            move.w  sr, d0
+            andi.w  #$0700, d0
+            assert.w d0, hs, #$0600     // IPL >= 6: no VBlank can land mid-excursion
+        }
+```
+The `assert` self-gates to zero bytes on its own (`sigil crates/sigil-frontend-emp/src/eval/asm.rs:911-918`);
+the outer `if DEBUG == 1` is required for the two SR-extraction instructions, which do NOT self-gate.
+`move.w sr, dN` is fine — not privileged on 68000, engine runs supervisor, and it does not trip
+`[proc.sr-undeclared]` (that fires only when SR is the *destination*).
+
+**BLOCKER: `assert` may NOT be placed inside a `with z80_stopped { }` body.** Its raise rail ends in
+`jmp (MDDBG__ErrorHandler_PagesController).l`, modelled as `Edge::TailOut`, which fires
+`[context.escape]` — a zero-firing-by-contract family, so the build hard-fails. There is no
+`AssertDesugar` exemption in `context.rs`. **Hoist each assert to just BEFORE the `with`, still
+inside the masked span.**
+
+**TRAP — sonic4 alone does not prove this.** `section.emp:235` is
+`with z80_stopped if SOUND_DRIVER_ENABLED == 0 {`. With sound ON (sonic4) the gate is false, no region
+is planted, and `[context.escape]` does not fire. Reproduced: `sigil build --game sonic4 --debug`
+**succeeds** while `--game demo --debug` (sound OFF) **fails**. **Build BOTH games.**
+
+**Placement (do not deviate — `d0` free-ness was checked per site):**
+
+| Site | Where | Reg |
+|---|---|---|
+| `section.emp` | immediately before the `with` at `:234` — one span covers both `:237` and `:406` | `d0` |
+| `bg.emp` | immediately before the `with` at `:144` | `d0` |
+| `plane_buffer.emp` | **proc head at `:452`**, before `lea VDP_DATA, a6`. NOT at `:481` — no register is free there (`d0`,`d1`,`a0`,`a5`,`a6` all live, and that is exactly the proc's `clobbers` contract) | `d0` |
+
+Do NOT place an assert immediately after a proc's own `move.w #$2700, sr` — that measures the line
+above it and is vacuous. The recommended placements are ~200 lines and a `jbsr` away from the mask,
+so a future refactor that moves either one gets caught.
+
+Measured cost: ~28-38 bytes and ~55-60 cycles per site in DEBUG; **exactly zero in release**, proven
+by CRC equality (`8b3dc951` with and without).
+
+**Context that softens the risk framing:** a mid-excursion VBlank is ALREADY fatal at these sites via
+the VDP address latch, independent of this parcel (`bg.emp:69-73`). The blanket restore adds no new
+failure class at any masked site. The assert's value is pinning a pre-existing invariant, not
+covering a new hole.
+
+**Rejected alternatives** (researched, with reasons — do not silently revisit):
+- *DEBUG "excursion in progress" flag checked by the flush*: only fires if a VBlank actually lands in
+  a ~few-hundred-cycle window out of ~120,000/frame, so it can report green through a whole campaign;
+  and the flush runs BEFORE `VInt_DrawLevel` in the same handler, so it structurally cannot observe
+  the `plane_buffer` site at all.
+- *Routing `$0F` through `Set_VDP_Reg`*: buys nothing real (the address-latch hazard dominates) while
+  adding cycles and a shadow that transiently lies.
+- *Converting the three sites to `with ints_off`*: this is the genuine end-state — sigil would PROVE
+  the mask at compile time with zero runtime bytes. But `engine/irq.emp:29-33` deliberately lists
+  these as hand-spelled, so it is a design reversal, and it collides with the `with z80_stopped`
+  nesting. **Out of scope for this parcel; record it as follow-up work.**
 
 - [ ] **Step 3: Build and boot**
 
