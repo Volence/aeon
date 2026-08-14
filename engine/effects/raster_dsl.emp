@@ -296,6 +296,62 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
     return fire(line, [pal_region(addr, slot, pal_line, entry, count)])
 }
 
+// ---- composition -------------------------------------------------------------
+
+// compose — merge N fire lists into one program's fire list. THE point of a preset
+// library: presets that do not combine force a combinatorial pile of hand-merged
+// variants, which is the thing a preset library exists to avoid.
+//
+// It walks screen lines in ascending order rather than sorting, which buys three
+// properties without a sort's off-by-ones:
+//   - the result is in strictly ascending line order, which fire_lines requires;
+//   - two presets firing on the SAME line become ONE fire rather than a duplicate-line
+//     error, which is what "layer these two effects" has to mean;
+//   - every SetReg is emitted before every CRAM-class op, so ruling 14's prefix
+//     invariant holds BY CONSTRUCTION for merged fires (check_mixed_fire still runs,
+//     but it can no longer be tripped by the act of composing).
+// Each merged op list goes back through `fire`, so the per-fire ceilings apply to the
+// COMPOSITION and not merely to its parts — composing two legal presets into an illegal
+// fire is a build error, not a surprise at runtime.
+//
+// WHAT IT CANNOT RECONCILE, and this is the current limit of composability: two presets
+// that touch the SAME VDP register with DIFFERENT frame-top resets are refused by
+// prog_init. That guard is correct (the later reset silently won and left the register
+// wrong for the whole frame), but it means presets must AGREE about registers, i.e.
+// composition is a negotiation. The corpus answer is a blanket VBlank register restore
+// (Gunstar re-blits regs $01-$12 from a RAM shadow in ~290 cycles), which would delete
+// the `reset` parameter entirely. Byte-changing; booked. Do not treat this limit as
+// permanent when designing presets.
+pub comptime fn compose(progs: array) -> array {
+    ensure(progs.len >= 1, "compose: nothing to compose")
+    comptime var out = []
+    for line in RASTER_MIN_FIRE_LINE..RASTER_MAX_FIRE_LINE + 1 {
+        comptime var ops   = []
+        comptime var found = 0
+        for p in progs {
+            for f in p {
+                if fire_screen_line(f) == line {
+                    found = 1
+                    for o in fire_ops(f) {
+                        if op_is_set_reg(o) == 1 { ops = ops ++ [o] }
+                    }
+                }
+            }
+        }
+        for p in progs {
+            for f in p {
+                if fire_screen_line(f) == line {
+                    for o in fire_ops(f) {
+                        if op_is_set_reg(o) == 0 { ops = ops ++ [o] }
+                    }
+                }
+            }
+        }
+        if found == 1 { out = out ++ [fire(line, ops)] }
+    }
+    return out
+}
+
 // ===========================================================================
 // ENCODING
 // ===========================================================================
