@@ -118,7 +118,7 @@ on the emulator with a breakpoint on `$FFA7F2` than statically.
 |---|---|---|
 | Plane art for the figure | VRAM pool / art streaming (ARCH §9.7) | **The real constraint.** A near-fullscreen unique image is ~1000+ tiles against 2048 total. A boss state can plausibly discard the act's art budget — whether the streamer supports that cleanly is an open question |
 | Per-line HScroll warp | **Parallax deform (§4.6)** | **Ships.** Frame-level `Hscroll_Buffer` DMA'd at VBlank — and therefore **costs zero HBlank time**, which is better than doing it per-scanline |
-| Per-column VSRAM shear | Raster | **Runtime can already do it; constructor missing.** `.op_cram` writes whatever VDP command it is handed — only `cram()`/`pal_region()` hardcode `VdpTarget.Cram` |
+| Per-column VSRAM shear | Raster DSL | **Closed 2026-08-14.** `.op_cram` writes whatever VDP command it is handed, so `vsram(addr, values)` needed no runtime change at all. Caveat: whether the write lands on line N+1 or N+2 is UNMEASURED — see `docs/DEFERRED_WORK.md` |
 | Palette bands / glow | Raster DSL | **Covered** (`cram`, `pal_region`, `cycle_channel`) |
 | Mid-screen plane base swap | Raster DSL | **Authorable today** — regs `$02`/`$04` are inside `set_reg`'s range |
 | Per-line values that must be *computed* | A bespoke handler via `HBlank_Install` | **Supported today** (§2). The DSL cannot express computed values by design |
