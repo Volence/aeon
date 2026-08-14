@@ -1194,8 +1194,11 @@ ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RA
 ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
 ensure(RASTER_CRAM_MAX == 3, "raster_dsl's inlined per-fire colour ceiling drifted from RASTER_CRAM_MAX")
 ensure(RASTER_BUF_SIZE == 128, "raster_dsl's inlined buffer bound drifted from RASTER_BUF_SIZE")
+// NOTE the message spells both constant names out. `RASTER_{MIN,MAX}_FIRE_LINE` would
+// be parsed as an INTERPOLATION and emit `unknown name MIN` at span 0..3 instead of the
+// diagnostic — latent while the pin passes, broken exactly when it fires.
 ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
-       "raster_dsl's inlined screen-line bounds drifted from RASTER_{MIN,MAX}_FIRE_LINE")
+       "raster_dsl's inlined screen-line bounds drifted from RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE")
 // pal_region inlines the staging arithmetic rather than calling pal_stage_off (a
 // call-site name); this pins the formula against its authority.
 ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
@@ -1327,7 +1330,7 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
 // ENCODING
 // ===========================================================================
 
-comptime fn fire_line_of(f: RasterFire) -> int {
+comptime fn fire_screen_line(f: RasterFire) -> int {
     return match f { Fire(m, ops) => m }
 }
 comptime fn fire_ops(f: RasterFire) {
@@ -1350,11 +1353,16 @@ comptime fn op_words(o: RasterOp) {
     }
 }
 
-// op_size — the SAME fact by an independent path. This is what makes
-// `data X: [u16; raster_words(P)] = raster_program(P)` a real guard rather than the
-// tautology `[u16; P.len] = P` would be: two expressions of the word count that must
-// agree. It catches header/record FRAMING drift; a wrong word VALUE inside a
-// correctly-sized body is caught by the pinned hand-word twins and by the goldens.
+// op_size — the SAME fact by an independent path from op_words. The cross-check that
+// actually runs is raster_program's own `ensure(out.len == raster_words(fires))` at the
+// bottom of this module: it fires on EVERY call, and it is what catches header/record
+// FRAMING drift. The `data X: [u16; raster_words(P)] = raster_program(P)` annotation adds
+// one narrower thing on top — it catches `[u16; raster_words(A)] = raster_program(B)`,
+// an annotation naming a DIFFERENT program, which is a realistic copy-paste between two
+// adjacent fixtures — and it pins the declared ROM footprint at the linker seam. Writing
+// `[u16; P.len] = P` instead would be tautological and is forbidden. A wrong word VALUE
+// inside a correctly-sized body is caught by neither; that is the hand-word twins' job,
+// with the goldens behind them.
 comptime fn op_size(o: RasterOp) -> int {
     return match o {
         SetReg(w, reset)             => 2,
@@ -1440,7 +1448,7 @@ comptime fn fire_lines(fires: array) {
     comptime var out = [0, 1]
     comptime var prev = 1
     for f in fires {
-        let fl = fire_line_of(f) - 1
+        let fl = fire_screen_line(f) - 1
         ensure(fl > prev,
                "raster program: fires must be in strictly ascending screen-line order, and two events cannot share a fire line (fire line {fl} follows {prev})")
         out = out ++ [fl]
@@ -1478,7 +1486,7 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
         i = i + 1
     }
     ensure(n_set == 0 || n_cram == 0 || first_set == 0,
-           "raster fire at screen line {fire_line_of(f)}: OP_SET_REG must be the FIRST op in a mixed fire (it is at index {first_set}). A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp:164-167); placing SET_REG after a CRAM op pushes it strictly later still, because CRAM ops burn EFX_BLANK_DELAY and SET_REG does not. Schedule a pixel-clean mode change a line earlier instead.")
+           "raster fire at screen line {fire_screen_line(f)}: OP_SET_REG must be the FIRST op in a mixed fire (it is at index {first_set}). A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp:164-167); placing SET_REG after a CRAM op pushes it strictly later still, because CRAM ops burn EFX_BLANK_DELAY and SET_REG does not. Schedule a pixel-clean mode change a line earlier instead.")
     return 0
 }
 
