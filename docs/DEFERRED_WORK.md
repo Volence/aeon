@@ -1896,7 +1896,7 @@ non-zero; intermittently they read zero.
 **What:** The design spec sketched `region_boundary(line:, variant:, sh:)`. The shipped constructor takes `(line, addr, slot, pal_line, entry, count, sh)` — the parameters `OJZ_WaterRaster` actually needs — because the sketch's `variant:` handle presumes the `EffectsPreset` binding that does not exist until Parcel C. Parcel D re-shapes the signature once the starter pack's needs are known. Note `sh` deliberately has **no default**: `sh: 0` yields a program with zero init words, which moves the priming arm word off word 3 while `Raster_PatchWaterLine` patches byte offset 6 unconditionally. A default would have made that corrupt case reachable by omission.
 **Blocked by:** Parcel C (the preset binding), then Parcel D (the pack's real authoring needs).
 
-### Which screen line a raster VSRAM write lands on is UNMEASURED (N+1 vs N+2) — recorded 2026-08-14
+### Which screen line a raster VSRAM write lands on — MEASURED N+1 (2026-08-14)
 **Surfaced during:** effects P3, the five-lens review fixes (`vsram()` added to `engine/effects/raster_dsl.emp`).
 **What:** `vsram(addr, values)` reuses `Raster_HInt`'s target-agnostic `.op_cram` path (the handler issues whatever command longword the program carries and never inspects its target bits), so it needed zero runtime change. What it did NOT come with is a measurement. The VDP latches the next line's render state ~36 cycles after HInt asserts while the 68000 needs ~44 cycles to reach the handler; CRAM and reg `$07` are unlatched and apply to line N+1, which is what the DSL's screen-line = fire-line + 1 rule encodes — **but VSRAM may be latched, in which case a write issued from the handler first takes effect on line N+2.** Sources conflict and emulators differ. The constructor therefore ships with the same screen-line semantics as `cram` and a prominent comment saying so.
 **What is owed:** an oracle measurement — author a `vsram` fire at a known line, screenshot, and read where the scroll discontinuity actually falls. **No content may rely on the exact landing line until that runs.** If it measures as N+2 the fix belongs in the *constructor's* line arithmetic (schedule the fire a line earlier, or carry a per-op line bias into `fire_lines`), never in the handler: target-agnosticism is the property that made the op free, and it must stay.
@@ -1905,6 +1905,8 @@ non-zero; intermittently they read zero.
 ---
 
 ## From §4.6 — Parallax (post-T17 backlog)
+**RESOLVED 2026-08-14 on oracle.** `OJZ_TestVsram` (section 0) authored at screen line 112; against a control build differing only in the offset, the first differing pixel row is exactly **y=112** and rows 108-111 are pixel-identical. A VSRAM write from HInt therefore lands on **N+1**, and the DSL's existing `-1` fire-line arithmetic is correct for VSRAM with no separate rule. Caveat kept open: emulators disagree on mid-frame VSRAM (GensKMod latches at HBlank start, Exodus/BizHawk consult continuously); oracle is Exodus-derived, and this project has no real hardware, so N+1 is the best available evidence rather than a hardware fact.
+
 
 ### Per-block linear interpolation deformation format
 **Blocked by:** N/A — deliberately not in v1.
