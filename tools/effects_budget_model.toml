@@ -1,5 +1,10 @@
-# Effects suite budget model (design suite §8) — the ONE machine-readable budget the
-# generator enforces and Aurora displays. Populated during effects P2.
+# Effects suite budget model (design suite §8) — the ONE machine-readable budget.
+# The `code-derived` rows are gated by tools/effects_budget_check.py against the
+# [symbols] table at the bottom of this file; the `fixed` rows are documentation with
+# provenance; the NEEDS-MEASUREMENT rows are evidence gaps. There is deliberately no
+# generator: the measured rows are upper bounds that include profiler instrumentation
+# and exception entry (~2090 cyc/fire against a usable_cycles_after_entry of 60), so a
+# generated `ensure` would fail programs that demonstrably run today (design spec §4.3).
 #
 # STATUS KEY:
 #   fixed        = a hardware/architecture constant (datasheet or shipped-code derived)
@@ -96,6 +101,26 @@ palette_compose_total_cycles  = 0        # was 19568 — see above
 [ram]
 # code-derived — the two effects RAM blocks (engine/ram.emp span guards).
 palette_state_bytes  = 472           # PALETTE_STATE_SIZE
-raster_state_bytes   = 286           # RASTER_STATE_SIZE (incl. Buf_A/Buf_B 128 each + dense + water)
+raster_state_bytes   = 288           # RASTER_STATE_SIZE (Program/Cursor/Pending/Line + Buf_A/Buf_B 128 each + Active_Buf + dense + water)
 variant_stage_bytes  = 256           # PAL_MAX_VARIANTS * 128 (part of palette_state)
 free_before_stack_kb = 31.8   # measured — build.sh reports it each build
+
+# ---------------------------------------------------------------------------
+# [symbols] — the machine-readable half of the "code-derived" status key. Each entry
+# maps a dotted row path above to the .emp constant that is its authority;
+# tools/effects_budget_check.py resolves the constant and fails on disagreement.
+#
+# NOT resolvable, deliberately absent, and recorded here so their absence is not read
+# as an oversight: save_set_registers (a `movem` operand, not a constant),
+# program_overhead_fires (no symbol exists), full_line_fire_cost (ceil(16/3), computed
+# prose), compose_static_frame (prose). The two NEEDS-MEASUREMENT rows are evidence
+# gaps, not build gates.
+[symbols]
+"raster.sparse.cram_words_per_fire"         = "engine/effects/raster.emp:RASTER_CRAM_MAX"
+"raster.op_pal_region.max_colours_per_fire" = "engine/effects/raster.emp:RASTER_CRAM_MAX"
+"palette.max_active_variants"               = "engine/effects/palette.emp:PAL_MAX_VARIANTS"
+"palette.cycle_max_channels"                = "engine/effects/palette.emp:PAL_CYCLE_MAX_CHANNELS"
+"palette.fade_window_frames"                = "engine/effects/palette.emp:PAL_FADE_FRAMES"
+"ram.palette_state_bytes"                   = "engine/effects/palette.emp:PALETTE_STATE_SIZE"
+"ram.raster_state_bytes"                    = "engine/effects/raster.emp:RASTER_STATE_SIZE"
+"ram.variant_stage_bytes"                   = "engine/effects/palette.emp:PAL_MAX_VARIANTS * 128"

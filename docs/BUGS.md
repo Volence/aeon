@@ -5,6 +5,130 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## effects suite — 2026-08-13 Phase 3 design audit · EFX-5 FIXED · EFX-4 partially closed · EFX-1/2/3/6 OPEN (Parcel C)
+
+Source: `docs/superpowers/specs/2026-08-13-effects-p3-design.md` §10. Booked here by Effects
+P3 **Parcel A** (Task 10) so that none is lost in the gap between parcels — only EFX-5 is
+Parcel A's to fix; the rest are recorded, not repaired.
+
+**Every claim below was re-verified against the code at booking time**, and the citations are
+the CURRENT line numbers. Two of the spec's own citations did not survive verification and are
+corrected in place: EFX-3's `palette.emp:374-395` predates Parcel A's Task 9 deletions (the
+proc is now `:324-345`), and EFX-2's "zero callers" is true of `Palette_ArmFade` but not of
+`Palette_DoFade`, which is called and merely unreachable.
+
+### EFX-1 — water survives exactly one section crossing — OPEN (Parcel C)
+
+`Raster_InstallWater` (`engine/effects/raster.emp:585`) is called once, at level init
+(`games/sonic4/test/ojz_scroll_test.emp:283`), and points `Raster_Program` / `Raster_Active_Buf`
+at **Buf_B**. `Raster_InstallSection` (`raster.emp:533-543`) reads `Sec.sec_raster_table` and
+takes `beq .keep` on 0 — the descriptor 0-convention, "keep current".
+
+In `OJZ_Act1_Sections` only section 1 (`raster: OJZ_TestRaster`,
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp:176`) and section 2
+(`raster: OJZ_TestGradient`, `:189`) carry a table; every other section takes `ojz_sec`'s
+`raster: Label = 0` default (`:137`). **Repro:** spawn in section 0 (water live in Buf_B),
+scroll right into section 1 — `Raster_Pending` takes `OJZ_TestRaster`, VBlank stages it into
+Buf_A and makes Buf_A active, and the water install is gone. Scroll back into section 0: its
+table is 0, so `.keep` fires and **nothing ever restores the water** for the rest of the level.
+
+*Fix:* Parcel C's total-binding preset install (a section states its whole effects state rather
+than patching a neighbour's).
+
+### EFX-2 — the cross-fade layer is unreachable — OPEN (Parcel C)
+
+`Palette_ArmFade` (`engine/effects/palette.emp:250`) is the **only writer** of
+`Pal_Fade_Request` (`:219` is a `tst.b`, `:231` a `clr.b`) and has **zero callers** across
+`engine/` and `games/`. So `Palette_LoadSection`'s `.load_target` branch (`:229-238`) can never
+be taken, which means `Pal_Target` is never written and `Pal_Fade_Frames` is never set from
+`PAL_FADE_FRAMES` (`:237` is its only non-zero writer).
+
+`Palette_Compose`'s `.fade` therefore always falls through on `tst.b Pal_Fade_Frames`
+(`:388-390`), and **`Palette_DoFade` (`:513`) never executes** — note it IS called, at `:392`,
+so "zero callers" is the wrong description of it; it is called under a condition that cannot
+hold. `Pal_Target` (96 bytes of RAM) and `PAL_FADE_FRAMES` are dead in the shipped ROM by the
+same chain.
+
+`Palette_LoadCycle` (`:293`) likewise has zero callers — `Palette_InstallCycleSection`
+deliberately duplicates its body inline to keep `a0 = Sec*` (`:321-322`).
+
+*Fix:* Parcel C's `ep_transition` exists to claim this layer.
+
+### EFX-3 — a count-0 cycle script leaves cycling ACTIVE — OPEN, and Parcel C would ACTIVATE it
+
+In `Palette_InstallCycleSection` (`palette.emp:324-345`) the `ori.b #PAL_ACT_CYCLE, Pal_Active`
+at `:333` happens **before** `channel_count` is even read (`:335`) and before the
+`subq.w #1,d0` / `bmi .keep` count test (`:336-337`). A non-NULL script with `channel_count == 0`
+therefore returns with `PAL_ACT_CYCLE` **set**. `Palette_LoadCycle` (`:293-311`) has the
+identical shape (`ori` at `:298`, count at `:301`, `bmi .done` at `:303`).
+
+`Palette_Compose`'s `.cycling` (`:381-385`) then takes its branch every frame and
+unconditionally does `ori.b #PAL_ACT_VARIANT_STALE, Pal_Active` before calling
+`Palette_DoCycle` — which itself early-outs on count 0, so the cycling work is free. **The cost
+is downstream:** at `.variants` (`:404-414`) the re-set STALE bit defeats the gate that took
+`Palette_DoVariants` from 19332 cyc/frame (15.1%) to 0 (`fix/palette-variant-derive`), re-arming
+that derive every frame. *Precision:* this only costs the derive when a variant slot is bound —
+with `PAL_ACT_VARIANT` clear, `.variants` early-outs on `btst #4` and the stale bit is merely set
+and never consumed.
+
+**Latent today** because nothing exercises the empty-script path: the convention is documented
+(`:318-319`) but the only `sec_pal_cycle` in the tree is `OJZ_ShimmerCycle`
+(`act_descriptor.emp:198`), and no `Pal_Cycle_None` exists yet. **Parcel C must move the flag set
+after the count test** — `Pal_Cycle_None` would be the first thing ever to run this path.
+
+### EFX-4 — `Raster_InstallWater` over-reads a short template — PARTIALLY CLOSED (Parcel A)
+
+`Raster_InstallWater` (`raster.emp:585-593`) copies a fixed
+`move.w #(RASTER_BUF_SIZE / 2) - 1, d1` / `dbf` loop = 64 words = **128 bytes**, unconditionally,
+from a template that is **18 words / 36 bytes** (`OJZ_WATER_HAND`,
+`games/sonic4/data/parallax/configs.emp:473-484`, pinned equal to the DSL's output). ~92 bytes of
+adjacent ROM land in `Raster_Buf_B` past the terminator.
+
+**Harmless today** — the record walk stops at `RASTER_OPS_END` and never reaches the junk — which
+is why this is booked rather than hot-fixed.
+
+**Parcel A closed the UPPER bound only:** `engine/effects/raster_dsl.emp:382-383` now `ensure`s
+an authored program cannot *exceed* `RASTER_BUF_SIZE`, so no author can overflow Buf_B. The
+over-read of a SHORT template stays open (it wants a length word or a bounded copy).
+
+*Follow-up for whoever next touches that file:* the comment at `raster_dsl.emp:380-381` still
+says this defect is "NOT yet in docs/BUGS.md — Task 10 books it". Task 10 has now booked it, but
+Task 10 is forbidden to edit `.emp`, so the note is stale by one line and wants deleting.
+
+### EFX-5 — the budget model claimed a `raster_state_bytes` the code disagreed with — **FIXED (Parcel A, Task 10)**
+
+`tools/effects_budget_model.toml` said `raster_state_bytes = 286`. `RASTER_STATE_SIZE`
+(`raster.emp:184`) is `4+4+4+2+128+128+4+2+4+4+2+2` = **288**. `PALETTE_STATE_SIZE` agreed at 472,
+so this was a real one-row drift and not a systematic offset.
+
+Documentation drift with **no runtime effect** — nothing read the TOML at build time, which is
+precisely how it survived. Caught by the new `tools/effects_budget_check.py` on its first run and
+fixed in the same commit. The checker is now the standing gate: it resolves each `[symbols]` row
+against its `.emp` authority, and `tools/test_effects_budget_check.py::TestLiveTree` fails the
+python suite the moment a constant and the TOML drift again.
+
+### EFX-6 — `act_sec_field_equs()` is un-gated against the struct harvest — OPEN (Parcel C), and ALREADY STALE
+
+`act_sec_field_equs()` (sigil `crates/sigil-harness/src/test_support.rs:111`) supplies
+`Act_*` / `Sec_*` equs to standalone port oracles. Its own doc names `engine/structs.emp` as the
+source of truth and says "the values track the struct declarations" — but **nothing cross-checks
+the two**, so a field rename silently leaves a dead equ.
+
+**This is not hypothetical; it is already stale, measured at booking.** The blob stops at
+`Act_edge_mode $20` and declares `("Act_len", "$22")` (`:127`), while `engine/structs.emp:28-51`
+continues through `pad_21 $21`, `act_sec_local_maps $22` and `act_art_budget $26` — so the real
+`Act_len` is `$28`, which sigil's `crates/sigil-cli/tests/structs_module.rs:58` asserts of the
+actual harvest. The blob is two fields and 6 bytes behind. (`pad_21` is anonymous and correctly
+omitted; the other two are not.)
+
+**Consequence today is exactly the predicted one and no worse:** the stale entries are dead equs
+that no port reads, so all seven goldens stay byte-identical and nothing fails — which is the
+whole argument for adding the gate. Spec §5.1's rider names the same hazard on
+`("Sec_sec_collision_s4lz", "$34")` (`:142`), the very field Parcel C renames to `sec_effects`;
+that rename must land with the cross-check, or it lands silently.
+
+---
+
 ## ⚠ OPEN — the OJZ replay fixture needs a RE-STAMP (character lens sweep, merged 2026-08-13)
 
 **`ojz_fixture` desyncs at tick 735** on merged master. This is an EXPECTED, CORRECT

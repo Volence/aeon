@@ -10,6 +10,17 @@
 module engine.effects.palette in palette
 
 use engine.structs.{Sec}
+// The constructors + validation live in the DSL; the wire-format structs below stay
+// here because runtime code reads them (moving them would invert the dependency).
+//
+// This line emits nothing: palette_dsl is a COMPTIME_HELPERS member, so
+// normalize_helper_imports drops this selective `use` and prepends a glob that is a
+// strict superset of it — measured, the ROM is byte-identical with the line deleted.
+// It survives as seam documentation, the convention `use engine.structs.{Sec}` above
+// already follows. Before palette_dsl joined the helper set it WAS load-bearing:
+// deleting it failed the five starter variants below with `unknown function variant`,
+// because a comptime fn's free names resolve at the CALL site, not where it is defined.
+use engine.effects.palette_dsl.{variant, cycle_channel}
 
 // ===========================================================================
 // THE COMPOSITION PIPELINE (effects P2)
@@ -120,57 +131,6 @@ pub struct pal_variant {
     v_pad:     u8,
 }
 
-pub comptime fn variant(shift_r: int = 0, bias_r: int = 0,
-                        shift_g: int = 0, bias_g: int = 0,
-                        shift_b: int = 0, bias_b: int = 0,
-                        lines: int = %1110) -> pal_variant {
-    ensure(shift_r >= 0 && shift_r <= 3, "variant: shift_r {shift_r} outside 0..3 (3-bit channel)")
-    ensure(shift_g >= 0 && shift_g <= 3, "variant: shift_g {shift_g} outside 0..3")
-    ensure(shift_b >= 0 && shift_b <= 3, "variant: shift_b {shift_b} outside 0..3")
-    ensure(bias_r >= -7 && bias_r <= 7,  "variant: bias_r {bias_r} outside -7..+7")
-    ensure(bias_g >= -7 && bias_g <= 7,  "variant: bias_g {bias_g} outside -7..+7")
-    ensure(bias_b >= -7 && bias_b <= 7,  "variant: bias_b {bias_b} outside -7..+7")
-    // bit 0 (character line) must never be selected — the derive would read/write it.
-    ensure((lines & %1) == 0, "variant: lines mask {lines} selects line 0 (the character's) — use bits 1-3")
-    ensure((lines & %1110) != 0, "variant: lines mask {lines} selects no level line (bits 1-3)")
-    return pal_variant{ v_shift_r: shift_r, v_bias_r: bias_r,
-                        v_shift_g: shift_g, v_bias_g: bias_g,
-                        v_shift_b: shift_b, v_bias_b: bias_b,
-                        v_lines: lines, v_pad: 0 }
-}
-
-// ---- comptime model of the runtime derive, and the build-time proof of the
-//      packing. `variant_channel` and `variant_word` are the intended semantics;
-//      the asm in Palette_DeriveVariant must match them, and the ensure() below
-//      asserts a known colour through a known variant so the shift/clamp/repack
-//      is proven at build time (plan Task 2 Step 2). ----
-comptime fn clamp07(x: int) -> int {
-    if x < 0 { return 0 }
-    if x > 7 { return 7 }
-    return x
-}
-comptime fn variant_channel(chan3: int, shift: int, bias: int) -> int {
-    return clamp07((chan3 >> shift) + bias)
-}
-// c is a full 12-bit colour word 0000 BBB0 GGG0 RRR0.
-comptime fn variant_word(c: int, v: pal_variant) -> int {
-    let r = variant_channel((c >> 1) & 7, v.v_shift_r, v.v_bias_r)
-    let g = variant_channel((c >> 5) & 7, v.v_shift_g, v.v_bias_g)
-    let b = variant_channel((c >> 9) & 7, v.v_shift_b, v.v_bias_b)
-    return (b << 9) | (g << 5) | (r << 1)
-}
-
-// Build-time proof: mid-grey $0888 (R=G=B=4) through "halve R and G, keep B"
-//   R: 4>>1=2  G: 4>>1=2  B: 4>>0=4  -> $0844
-ensure(variant_word($0888, variant(shift_r: 1, shift_g: 1)) == $0844,
-       "Palette_DeriveVariant packing model drifted — the halve-RG test vector no longer packs to $0844")
-// Bias + clamp proof: $000E (R=7) through "R>>0 +3" clamps to 7 (10 -> 7): stays $000E
-ensure(variant_word($000E, variant(bias_r: 3)) == $000E,
-       "variant bias clamp model drifted — R=7 +3 must clamp to 7, not overflow into G")
-// Negative-bias-to-zero proof: $000E (R=7) through "R>>2 -3" = clamp(1-3)=0 -> $0000
-ensure(variant_word($000E, variant(shift_r: 2, bias_r: -3)) == $0000,
-       "variant negative-bias model drifted — clamp floor must be 0")
-
 // ===========================================================================
 // CYCLING — sec_pal_cycle script format (Task 8)
 //
@@ -190,16 +150,6 @@ pub struct pal_cycle_channel {
     pc_period: u8,   // frames between rotations
     pc_dir:    u8,   // 0 = forward, 1 = reverse
     pc_pad:    u8,
-}
-
-pub comptime fn cycle_channel(line: int, first: int, count: int, period: int, dir: int = 0) -> pal_cycle_channel {
-    ensure(line >= 1 && line <= 3,        "cycle_channel: line {line} outside 1..3 (line 0 is the character's)")
-    ensure(first >= 0 && first <= 15,     "cycle_channel: first {first} outside 0..15")
-    ensure(count >= 2 && first + count <= 16, "cycle_channel: span first+count {first}+{count} exceeds line's 16 entries")
-    ensure(period >= 1 && period <= 255,  "cycle_channel: period {period} outside 1..255")
-    ensure(dir == 0 || dir == 1,          "cycle_channel: dir {dir} must be 0 (fwd) or 1 (rev)")
-    return pal_cycle_channel{ pc_line: line, pc_first: first, pc_count: count,
-                              pc_period: period, pc_dir: dir, pc_pad: 0 }
 }
 
 // A concrete single-channel script wrapper (header word + one channel). More

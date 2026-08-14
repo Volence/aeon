@@ -53,6 +53,31 @@ stay in the byte-emitting modules; only constructors and validation move. The de
 7. **T-1 is a DENSE-tier fact** (`raster.emp:236-243`). The sparse authorities are `raster_arm` /
    `raster_fire_line` / `water_arm0`. Applying the dense off-by-one to sparse arithmetic fails the
    byte-compare in the most confusing possible direction.
+8. **Param type annotations are mandatory; most of them are not enforced.** Measured by Task 1's probe,
+   recorded in `docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md`. An untyped
+   `comptime fn` param is a parse error (`expected ':', found RParen`), so every param must carry an
+   annotation. What the annotation buys you:
+   - **No bind-time range or length check** outside `where LO..HI` refinements
+     (`sigil-frontend-emp/src/eval/call.rs:309-318`). In particular **`[T; N]` on a parameter is not a
+     checked length** — a 4-element list binds happily to an `[int; 3]` param. This plan therefore
+     spells loose array params `array` and does its length checking with explicit `ensure`s on `.len`.
+   - **`Reg` and `Label` ARE class-checked**, by exact spelling, on *explicitly supplied* args only
+     (`check_arg_class`, `eval/call.rs:446-480`, called at `:545`/`:563`). Defaults skip the check —
+     which is exactly why `sym: Label = 0` works as the "is it bound?" idiom. **Do not strip a `Label`
+     annotation as decorative**; it is load-bearing, and removing it would destroy the mechanism §5.2's
+     witness established.
+9. **A glob-imported module must export at least one `pub` name**, so `raster_dsl.emp` carries a
+   `pub const RASTER_DSL_PLACEHOLDER = 0` from Task 1. **Task 6 deletes it** once the module has real
+   `pub` items.
+10. **An unreferenced `const` is never evaluated** — measured in Task 4. `const P = f(...)` where `f`
+    carries `ensure`s builds **green** with those `ensure`s never running; they fire only once
+    something *reads* `P`. This is the same hazard class as an unimported comptime module
+    (`configs.emp:38-42`), one level lower. It is why Tasks 7-8's retained hand-word twins are real
+    gates: each is read by a per-word `ensure`. **Any `const` added without a reader is inert** — if
+    you add one as a guard, add the reader in the same edit, and watch it fail once. Stronger still,
+    confirmed at review: an unreferenced `const`'s expression is not even **name-resolved** — a probe
+    calling a function that was never imported built silently green, and only produced
+    `unknown function` once something read the const.
 
 ---
 
@@ -151,7 +176,7 @@ single-event program at screen line `M` this reduces to `$8A00 | (M - 3)` — th
 | Constructor | Parameters | Emits | `op_size` |
 |---|---|---|---|
 | `set_reg(word, reset)` | `word` = mid-frame `$8xxx` VDP register write; `reset` = the frame-top word restoring the **same** register | `OP_SET_REG, word` | 2 |
-| `sh_on()` | none | `set_reg($8C89, $8C81)` — Shadow/Highlight on below the fire, H40 base restored at frame top (`games/sonic4/data/boot_data.emp:140`) | 2 |
+| `sh_on()` | none | `set_reg($8C89, $8C81)` — Shadow/Highlight on below the fire, H40 base restored at frame top (`engine/system/boot_data.emp:140`) | 2 |
 | `cram(addr, colours)` | `addr` = CRAM **byte** address; `colours` = 1..3 colour words, inline | `OP_CRAM, cmd>>16, cmd&$FFFF, colours.len-1, <colours>` | `4 + colours.len` |
 | `pal_region(addr, slot, pal_line, entry, count)` | `addr` = destination CRAM byte address; `slot`/`pal_line`/`entry` = the `Pal_Variant_Stage` source; `count` = 1..3 | `OP_PAL_REGION, cmd>>16, cmd&$FFFF, count-1, slot*128 + pal_line*32 + entry*2` | 5 |
 | `fire(line, ops)` | `line` = screen line 3..223 the effect lands on; `ops` = descriptor array | one record: `arm, ops.len, <bodies>` | `2 + Σ op_size` |
@@ -471,6 +496,30 @@ Verify the stat lists exactly those three paths and nothing under `data/editor/`
 ---
 
 ## Task 2: The helper-closure collision tool
+
+> **SHIPPED — `912c00d7` + `de116cdd`. The drafted code below is superseded; read the shipped
+> `tools/emp_helper_closure.py` instead.** Four defects in the draft, two of which made the gate
+> worthless:
+> - **`module_path()`'s dots-to-slashes mapping is WRONG.** Module ids are not paths —
+>   `engine.types` lives at `engine/system/types.emp`, `engine.constants` at
+>   `engine/system/constants.emp`. Two of twelve helpers failed to resolve, so the drafted gate
+>   returned rc=2 and never checked anything. The shipped tool builds a `module_index()` by reading
+>   the `module` declaration out of all 143 `.emp` files. **Any later task needing a module-id ->
+>   path mapping must use that, not string substitution.**
+> - **`pub context` was missing from the item set.** `pub_comptime_name`
+>   (`sigil-frontend-emp/src/resolve/mod.rs:23-50`) injects `Context(d) if d.public`; the tree has
+>   `ints_off`/`vblank` (`engine/irq.emp`) and `z80_stopped` (`engine/z80_bus.emp`), so those two
+>   helpers were reporting the EMPTY SET.
+> - `vars` must match only the overlay form (`name.is_some()`), and `pub data X: <bare Named>` is
+>   injected as a type stub by `pub_struct_data_name`. Correct, but inert on the current helper set.
+> - `.emp` has non-nesting `/* */` block comments (`lexer.rs:117`), so line-comment stripping is
+>   insufficient; item position is depth 0 or depth 1 inside a `section` body. **Not inert:**
+>   `implement` blocks (`games/*/config/game.emp`) bind contract values with depth-1 `const` lines,
+>   and `Item::Implement` is not `Item::Section` — sigil never recurses into it, so a depth-blind
+>   scanner reads those two files exactly backwards.
+>
+> Reading: **394 names across 12 helpers, no collisions.** 22 tests, mutation-tested (the reviewer
+> found the item-position gate initially had no failing test; it does now). Full suite 944 -> 966.
 
 `publicize_helper_comptime` (`native.rs:1134-1155`) force-publicizes every **private** comptime item of
 a helper module, and `normalize_helper_imports` (`:1077-1126`) injects one glob per helper **in list
@@ -910,12 +959,16 @@ pub comptime fn cycle_channel(line: int, first: int, count: int, period: int, di
 // The literal 4 is PAL_CYCLE_MAX_CHANNELS, INLINED on purpose: a body's free names
 // resolve at the CALL site, and a caller naming neither constant would otherwise get
 // `unknown name`. The module-level ensure below is the single source of truth.
-pub comptime fn cycle_script1(chs: int) -> PalCycleScript1 {
-    ensure(chs.len == 1, "cycle_script1: {chs.len} channels — use cycle_script{chs.len}")
+pub comptime fn cycle_script1(chs: array) -> PalCycleScript1 {
+    // Do NOT interpolate the count into a suggested function name: only
+    // cycle_script1/2 exist, so "use cycle_script3" would be a message that lies.
+    ensure(chs.len == 1,
+           "cycle_script1: {chs.len} channels — cycle_script1 takes exactly 1. Wrappers exist for 1 and 2; a wider script needs a new PalCycleScriptN struct alongside it (PAL_CYCLE_MAX_CHANNELS is 4).")
     return PalCycleScript1{ pcs_count: 1, pcs_ch: chs }
 }
-pub comptime fn cycle_script2(chs: int) -> PalCycleScript2 {
-    ensure(chs.len == 2, "cycle_script2: {chs.len} channels — use cycle_script{chs.len}")
+pub comptime fn cycle_script2(chs: array) -> PalCycleScript2 {
+    ensure(chs.len == 2,
+           "cycle_script2: {chs.len} channels — cycle_script2 takes exactly 2. Use cycle_script1 for a single channel; a wider script needs a new PalCycleScriptN struct (PAL_CYCLE_MAX_CHANNELS is 4).")
     return PalCycleScript2{ pcs_count: 2, pcs_ch: chs }
 }
 ensure(PAL_CYCLE_MAX_CHANNELS == 4,
@@ -937,9 +990,12 @@ after `use engine.structs.{Sec}` (`:12`):
 
 ```
 // The constructors + validation live in the DSL; the wire-format structs below stay
-// here because runtime code reads them. Ambient injection makes this `use` redundant
-// at build time (normalize_helper_imports strips it), but it documents the seam —
-// the same convention `use engine.structs.{Sec}` above follows.
+// here because runtime code reads them. This `use` is LOAD-BEARING today: delete it
+// and the five starter variants below fail with `unknown function \`variant\`` (a
+// comptime fn's free names resolve at the CALL site). It becomes redundant only once
+// palette_dsl joins COMPTIME_HELPERS, after which normalize_helper_imports strips it
+// and the line survives as seam documentation — the convention
+// `use engine.structs.{Sec}` above already follows.
 use engine.effects.palette_dsl.{variant, cycle_channel}
 ```
 
@@ -1138,8 +1194,11 @@ ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RA
 ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
 ensure(RASTER_CRAM_MAX == 3, "raster_dsl's inlined per-fire colour ceiling drifted from RASTER_CRAM_MAX")
 ensure(RASTER_BUF_SIZE == 128, "raster_dsl's inlined buffer bound drifted from RASTER_BUF_SIZE")
+// NOTE the message spells both constant names out. `RASTER_{MIN,MAX}_FIRE_LINE` would
+// be parsed as an INTERPOLATION and emit `unknown name MIN` at span 0..3 instead of the
+// diagnostic — latent while the pin passes, broken exactly when it fires.
 ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
-       "raster_dsl's inlined screen-line bounds drifted from RASTER_{MIN,MAX}_FIRE_LINE")
+       "raster_dsl's inlined screen-line bounds drifted from RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE")
 // pal_region inlines the staging arithmetic rather than calling pal_stage_off (a
 // call-site name); this pins the formula against its authority.
 ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
@@ -1182,13 +1241,13 @@ pub comptime fn set_reg(word: int, reset: int) -> RasterOp {
 
 // sh_on — Shadow/Highlight ON below the fire line, H40 base restored at frame top.
 // $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30 quirk
-// ruling in the raster survey. $8C81 is boot's H40 base (games/sonic4/data/boot_data.emp:140).
+// ruling in the raster survey. $8C81 is boot's H40 base (engine/system/boot_data.emp:140).
 pub comptime fn sh_on() -> RasterOp {
     return set_reg($8C89, $8C81)
 }
 
 // cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
-pub comptime fn cram(addr: int, colours: int) -> RasterOp {
+pub comptime fn cram(addr: int, colours: array) -> RasterOp {
     ensure(addr >= 0 && addr <= 126, "cram: CRAM byte address {addr} outside 0..126")
     ensure((addr & 1) == 0, "cram: CRAM byte address {addr} is odd — colours are words")
     ensure((addr >> 5) != 0,
@@ -1227,10 +1286,21 @@ pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, coun
 // derives the fire line (line - 1) and the arm schedule. The floor of 3 is the priming
 // records': fires 0/1 prime on lines 0-1, so the earliest real fire is 2, landing on 3.
 // Lines 0-2 are the init words' job.
-pub comptime fn fire(line: int, ops: int) -> RasterFire {
+pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(line >= 3 && line <= 223,
            "fire: screen line {line} outside 3..223 (lines 0-2 belong to the priming records and the init words)")
     ensure(ops.len >= 1, "fire: a fire with no ops — drop the fire rather than authoring an empty one")
+    // RASTER_CRAM_MAX is a PER-FIRE cycle budget, not a per-op one (raster.emp:71-76):
+    // the handler must finish inside the ~60 cycles between HINT-pending and the next
+    // line's active display, and that ceiling is on the whole fire. `cram`/`pal_region`
+    // each bound their OWN colour count, which is necessary and not sufficient — three
+    // 3-colour ops in one fire satisfy every per-op guard and blow the budget by 3x.
+    comptime var cram_words = 0
+    for o in ops {
+        cram_words = cram_words + op_cram_words(o)
+    }
+    ensure(cram_words <= 3,
+           "fire at screen line {line}: {cram_words} CRAM words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line legitimately takes ceil(16/3) = 6 of them, one per scanline, which is S3K's actual technique.")
     return RasterFire.Fire(line, ops)
 }
 
@@ -1238,8 +1308,17 @@ pub comptime fn fire(line: int, ops: int) -> RasterFire {
 // Shadow/Highlight on, then swap the region. SET_REG comes first BY CONSTRUCTION here,
 // so the mixed-fire invariant is structural for this constructor and only checked for
 // hand-assembled fires.
+//
+// `sh` HAS NO DEFAULT, deliberately. sh:0 yields a program with ZERO init words, which
+// moves the priming arm word off word 3 — and Raster_PatchWaterLine writes byte offset
+// 6 (WATER_TEMPLATE_ARM0_OFF, raster.emp:572) unconditionally at three sites
+// (:656, :665, :668). On a patched template that would overwrite the priming record's
+// op_count with an arm word, and Raster_HInt would then loop tens of thousands of times
+// over garbage. A `= 0` default made the corrupt case the one an author gets by simply
+// not thinking about Shadow/Highlight, so the parameter is required instead. The
+// init_count == 1 assertion in Task 8 is the co-located half of this guard.
 pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
-                                entry: int, count: int, sh: int = 0) -> RasterFire {
+                                entry: int, count: int, sh: int) -> RasterFire {
     ensure(sh == 0 || sh == 1, "region_boundary: sh {sh} must be 0 or 1")
     if sh == 1 {
         return fire(line, [sh_on(), pal_region(addr, slot, pal_line, entry, count)])
@@ -1251,7 +1330,7 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
 // ENCODING
 // ===========================================================================
 
-comptime fn fire_line_of(f: RasterFire) -> int {
+comptime fn fire_screen_line(f: RasterFire) -> int {
     return match f { Fire(m, ops) => m }
 }
 comptime fn fire_ops(f: RasterFire) {
@@ -1274,16 +1353,32 @@ comptime fn op_words(o: RasterOp) {
     }
 }
 
-// op_size — the SAME fact by an independent path. This is what makes
-// `data X: [u16; raster_words(P)] = raster_program(P)` a real guard rather than the
-// tautology `[u16; P.len] = P` would be: two expressions of the word count that must
-// agree. It catches header/record FRAMING drift; a wrong word VALUE inside a
-// correctly-sized body is caught by the pinned hand-word twins and by the goldens.
+// op_size — the SAME fact by an independent path from op_words. The cross-check that
+// actually runs is raster_program's own `ensure(out.len == raster_words(fires))` at the
+// bottom of this module: it fires on EVERY call, and it is what catches header/record
+// FRAMING drift. The `data X: [u16; raster_words(P)] = raster_program(P)` annotation adds
+// one narrower thing on top — it catches `[u16; raster_words(A)] = raster_program(B)`,
+// an annotation naming a DIFFERENT program, which is a realistic copy-paste between two
+// adjacent fixtures — and it pins the declared ROM footprint at the linker seam. Writing
+// `[u16; P.len] = P` instead would be tautological and is forbidden. A wrong word VALUE
+// inside a correctly-sized body is caught by neither; that is the hand-word twins' job,
+// with the goldens behind them.
 comptime fn op_size(o: RasterOp) -> int {
     return match o {
         SetReg(w, reset)             => 2,
         Cram(a, cols)                => 4 + cols.len,
         PalRegion(a, slot, pl, e, n) => 5,
+    }
+}
+
+// op_cram_words — CRAM words this op writes, which `fire` sums against the per-fire
+// ceiling. Distinct from op_size (wire words): a PalRegion is 5 wire words but writes
+// `n` colours, and a SetReg is 2 wire words but writes no CRAM at all.
+comptime fn op_cram_words(o: RasterOp) -> int {
+    return match o {
+        SetReg(w, reset)             => 0,
+        Cram(a, cols)                => cols.len,
+        PalRegion(a, slot, pl, e, n) => n,
     }
 }
 
@@ -1318,7 +1413,7 @@ comptime fn op_is_set_reg(o: RasterOp) -> int {
 }
 
 // prog_mask — OR of every op's mask bit.
-comptime fn prog_mask(fires) -> int {
+comptime fn prog_mask(fires: array) -> int {
     comptime var m = 0
     for f in fires {
         for o in fire_ops(f) {
@@ -1329,7 +1424,7 @@ comptime fn prog_mask(fires) -> int {
 }
 
 // prog_init — the distinct frame-top reset words, in first-appearance order.
-comptime fn prog_init(fires) {
+comptime fn prog_init(fires: array) {
     comptime var out = []
     for f in fires {
         for o in fire_ops(f) {
@@ -1349,11 +1444,11 @@ comptime fn prog_init(fires) {
 // one per authored event at (screen line - 1). Ruling 1a: the event fire must be at
 // M-1 so its writes land on M. This is the SPARSE rule; the dense tier's T-1 setup
 // line is a different, measured fact and must not be applied here.
-comptime fn fire_lines(fires) {
+comptime fn fire_lines(fires: array) {
     comptime var out = [0, 1]
     comptime var prev = 1
     for f in fires {
-        let fl = fire_line_of(f) - 1
+        let fl = fire_screen_line(f) - 1
         ensure(fl > prev,
                "raster program: fires must be in strictly ascending screen-line order, and two events cannot share a fire line (fire line {fl} follows {prev})")
         out = out ++ [fl]
@@ -1365,7 +1460,7 @@ comptime fn fire_lines(fires) {
 // arm_at — the arm word for record i. Ruling 1b: the word WRITTEN at record i is
 // consumed at the next reload and schedules gap(L[i+1] -> L[i+2]); past the end it
 // parks the counter 255 lines away, i.e. never within active display.
-comptime fn arm_at(L, i: int) -> int {
+comptime fn arm_at(L: array, i: int) -> int {
     if i + 2 >= L.len { return $8AFF }
     let gap = L[i + 2] - L[i + 1] - 1
     ensure(gap >= 0 && gap <= 255,
@@ -1391,7 +1486,7 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
         i = i + 1
     }
     ensure(n_set == 0 || n_cram == 0 || first_set == 0,
-           "raster fire at screen line {fire_line_of(f)}: OP_SET_REG must be the FIRST op in a mixed fire (it is at index {first_set}). A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp:164-167); placing SET_REG after a CRAM op pushes it strictly later still, because CRAM ops burn EFX_BLANK_DELAY and SET_REG does not. Schedule a pixel-clean mode change a line earlier instead.")
+           "raster fire at screen line {fire_screen_line(f)}: OP_SET_REG must be the FIRST op in a mixed fire (it is at index {first_set}). A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp:164-167); placing SET_REG after a CRAM op pushes it strictly later still, because CRAM ops burn EFX_BLANK_DELAY and SET_REG does not. Schedule a pixel-clean mode change a line earlier instead.")
     return 0
 }
 
@@ -1402,7 +1497,7 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
 //     pub data P: [u16; raster_words(PROG)] = raster_program(PROG)
 // NOT `[u16; PROG.len] = PROG`, which is tautological. Note the guard only bites on a
 // `data` declaration — `const` does not enforce its declared array length.
-pub comptime fn raster_words(fires) -> int {
+pub comptime fn raster_words(fires: array) -> int {
     comptime var n = 2 + 4 + 2            // mask + init_count, two priming records, terminator
     n = n + prog_init(fires).len
     for f in fires {
@@ -1416,7 +1511,7 @@ pub comptime fn raster_words(fires) -> int {
 
 // raster_program — the flat program. Header, two priming records, one record per
 // authored fire in ascending screen-line order, terminator.
-pub comptime fn raster_program(fires) {
+pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
     let init = prog_init(fires)
@@ -1437,7 +1532,7 @@ pub comptime fn raster_program(fires) {
     // Raster_VBlank and Raster_InstallWater both copy a FIXED RASTER_BUF_SIZE bytes
     // into Buf_A / Buf_B, so a program longer than the buffer would be truncated live.
     // (The converse over-read of a short template is pre-existing and harmless — the
-    // walker never reaches past the terminator — and is booked in docs/BUGS.md.)
+    // walker never reaches past the terminator. NOT yet in docs/BUGS.md — Task 10 books it.)
     ensure(out.len * 2 <= 128,
            "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
     ensure(out.len == raster_words(fires),
@@ -1490,7 +1585,7 @@ repainted bright red. It is the only fixture exercising the plain `OP_CRAM` path
 (spec §8.2), so it is the harder of the two to express and goes first.
 
 **Files:**
-- Modify: `games/sonic4/data/parallax/configs.emp:310-329`
+- Modify: `games/sonic4/data/parallax/configs.emp:316-335`
 
 **Target words** (from the shipped fixture — the DSL must reproduce these 18 exactly):
 
@@ -1507,7 +1602,7 @@ The instrument spec §8.1 asks for. It reports *where* the divergence is, which 
 // differing element. The development instrument for re-expressing a hand-authored
 // program through the DSL (design spec 8.1); pair it with a separate length ensure,
 // because a length difference is a different failure than a value difference.
-pub comptime fn first_mismatch(a, b) -> int {
+pub comptime fn first_mismatch(a: array, b: array) -> int {
     for i in 0..a.len {
         if i < b.len {
             if a[i] != b[i] { return i }
@@ -1519,7 +1614,7 @@ pub comptime fn first_mismatch(a, b) -> int {
 
 - [ ] **Step 2: Write the DSL program and its pin, keeping the hand words**
 
-Replace `configs.emp:310-329` (the `pub data OJZ_TestRaster: [u16; 18] = [ ... ]` block, keeping the
+Replace `configs.emp:316-335` (the `pub data OJZ_TestRaster: [u16; 18] = [ ... ]` block, keeping the
 explanatory comment above it) with:
 
 ```
@@ -1623,7 +1718,7 @@ variant's derived bytes, streamed from `Pal_Variant_Stage` slot 0. Its arm0 is a
 runtime patches it — which makes the `WATER_TEMPLATE_ARM0_OFF` invariant this task's new guard.
 
 **Files:**
-- Modify: `games/sonic4/data/parallax/configs.emp:389-403`
+- Modify: `games/sonic4/data/parallax/configs.emp:395-409`
 
 **Target words:**
 
@@ -1635,7 +1730,7 @@ runtime patches it — which makes the `WATER_TEMPLATE_ARM0_OFF` invariant this 
 
 - [ ] **Step 1: Replace the fixture**
 
-Replace `configs.emp:389-403` (the `pub data OJZ_WaterRaster: [u16; 18] = [ ... ]` block, keeping the
+Replace `configs.emp:395-409` (the `pub data OJZ_WaterRaster: [u16; 18] = [ ... ]` block, keeping the
 long explanatory comment above it, which stays accurate) with:
 
 ```
@@ -1773,6 +1868,17 @@ Delete `raster.emp:586-597` (the call-site-resolution comment, the fn, and its b
 // this constant; Raster_PatchWaterLine below is the runtime twin. They were previously
 // two hand-synced literals with only a comment holding them together.
 ```
+
+- [ ] **Step 2b: Reword the `vdp_comm` pins' messages — they now describe an impossible failure**
+
+`configs.emp`'s two CRAM-command pins say "`OJZ_TestRaster`/`OJZ_WaterRaster`'s split words are
+stale". That was true when the split words were hand-typed; they are now regenerated by `vdp_comm`
+on every build, so the failure the message names cannot occur. The pin itself is still sound and
+must stay — it is a golden-value test of the encoder against a hand-written literal, not a
+self-comparison, and it outlives the hand-word twins — but it has silently inverted from "catch
+the data drifting from the encoder" to "freeze the encoder's output at this address". Reword to
+say that, e.g. `"vdp_comm's CRAM encoding changed — the raster DSL now derives these command words,
+so a drift here moves the emitted program"`.
 
 - [ ] **Step 3: Rewrite the two pins in literals, then prune the imports**
 
@@ -2317,8 +2423,9 @@ went out claiming green.
 cd $AEON && python3 -m pytest -q > /tmp/t11-py.out 2>&1; tail -3 /tmp/t11-py.out
 ```
 
-Expected: `958 passed, 2 skipped` — Task 0's 944 plus the 14 new tests (6 closure + 8 budget). If the
-count is not exactly `944 + 14`, a test file is not being collected.
+Expected: `983 passed, 2 skipped` — Task 0's 944 plus 39 new tests (22 closure from `de116cdd`;
+17 budget from `1e94f951`). Both tasks landed more tests than drafted, each for reasons recorded in
+their reports. If the count differs, a test file is not being collected.
 
 **Caveat to state in the evidence note rather than paper over:** nothing runs `pytest` automatically —
 no CI, no hook, not `test.sh`. The two new checkers are gates only when someone runs the suite. That is

@@ -21,17 +21,47 @@ module games.sonic4.parallax_configs in parallax_configs
 use engine.structs.{parallax_config}
 use engine.parallax.{band_entry}
 use engine.level.parallax_dsl.*
-// Effects P1 gate fixtures (below) need the raster program vocabulary + the CRAM
-// command builder they are pinned against.
+// The effects gate fixtures (below) are pinned against engine.vdp's comptime CRAM
+// command builder.
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
-use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, RASTER_ARM_PARK, raster_arm, pal_stage_off, water_arm0}
+// The sparse fixtures are authored through engine.effects.raster_dsl, which is a
+// COMPTIME_HELPERS member and therefore ambient. What remains is the DENSE tier's
+// import surface: raster_gradient_program's BODY names these, and a comptime fn's
+// free names resolve at the EMISSION site's scope, so they must be visible HERE or
+// they degrade to unresolved label refs.
+use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // RASTER_ARM_EVERY_LINE + OP_RUN_GRADIENT are imported even though nothing in THIS
 // file names them: a comptime fn's struct-literal field values are resolved at the
 // EMISSION site's scope, not the definition site (the same late-binding rule the
 // `asm {}` splice helpers document), so raster_gradient_program's own constants must
 // be visible HERE or they degrade to unresolved label refs.
+//
+// WHICH ERROR YOU GET DEPENDS ON THE DESTINATION FIELD'S TYPE. Measured 2026-08-13 by
+// deleting RASTER_ARM_PARK + RASTER_OPS_END from the import above: the names DID degrade
+// to label references, and the build failed as `[emit.type] expected an integer for u16,
+// got label` — named and phase-early, because rgp_end_arm/rgp_end_ops are u16. Into a
+// POINTER-typed field a label reference is well-typed, so emit accepts it and the catch
+// DEFERS to link, arriving positionally instead: `unresolved symbol ... for fixup in
+// section ... at offset ...` (sigil-link/src/lib.rs:432; comptime constants lower to zero
+// link symbols, so a degraded constant has no definition to find). Not silent — deferred
+// and de-named. The one genuinely silent case is a degraded name that collides with a
+// real label or `equ`.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT}
-use engine.effects.palette.{cycle_channel, pal_cycle_channel, PalCycleScript1}
+use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
+use engine.effects.palette_dsl.{cycle_channel, cycle_script1}
+// STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
+// assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
+// is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base
+// is a helper module, then prepends one glob per helper to every module
+// (`normalize_helper_imports`, sigil crates/sigil-harness/src/native.rs:1077-1126). So this
+// exact line is deleted and regenerated on every build; it cannot be load-bearing.
+// It stays because the fixtures below call raster_dsl's constructors (`fire`, `cram`,
+// `sh_on`, `region_boundary`, `raster_program`, `raster_words`, `first_mismatch`) as bare
+// names, and this is the only place in the file that says where they come from. If
+// raster_dsl ever leaves the helper set, this line is what keeps the file building —
+// and what keeps the module's own `ensure`s evaluated, since an unimported comptime
+// module's module-level `ensure`s do not fail, they simply never run.
+use engine.effects.raster_dsl.*
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
@@ -293,7 +323,7 @@ pub data ParallaxConfig_OJZ_LockedClouds: ParallaxCfg5 = ParallaxCfg5{
 // than quietly writing somewhere else.
 const OJZ_TEST_CRAM_ADDR = $4A
 ensure(vdp_comm(OJZ_TEST_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C04A0000,
-       "CRAM write command encoding drifted — OJZ_TestRaster's split words are stale")
+       "vdp_comm's CRAM encoding changed — the raster DSL now derives OJZ_TestRaster's command words, so a drift here moves the emitted program")
 
 // OJZ_TestRaster — the P1 acceptance program: below screen line 120, turn
 // Shadow/Highlight ON and repaint OJZ's dominant ground colour bright red. Two
@@ -301,32 +331,48 @@ ensure(vdp_comm(OJZ_TEST_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C04A0000,
 // line, so the gate exercises the multi-op path rather than a single write — and
 // the CRAM half is chosen to be objectively measurable from a screenshot.
 //
-// FIRE SCHEDULE (see the timing model in engine/system/hblank.emp):
-//   fire 0 @ line 0    priming, arm = raster_arm(1, 119) = $8A75 (117)
+// The fire schedule below is now DERIVED. Kept as prose because it is what the arm
+// words mean, and the walk-through is the thing a reader needs:
+//   fire 0 @ line 0    priming, arm = $8A00 | (120 - 3) = $8A75 (117)
 //   fire 1 @ line 1    priming, arm = park (nothing scheduled after the event)
 //   fire 2 @ line 119  the event; its writes land on line 120
-// Walk-through: VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1
-// at line 1, reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
-pub data OJZ_TestRaster: [u16; 18] = [
-    %0100,                      // pal_dirty_mask: re-assert palette line 2 each frame —
-                                //   the line the CRAM op below writes into. THIS is what
-                                //   makes the mid-frame write transient; a mask naming any
-                                //   other line leaves the write latched forever (observed:
-                                //   the red covered the whole ground, not just below the
-                                //   split, when this said %0001 and the op wrote line 2).
-    1, $8C81,                   // init: S/H OFF at frame top (H40 base, boot_data.emp:140)
-
-    $8A75, 0,                   // fire 0 — priming; arms the gap that lands fire 2 on 119
-    $8AFF, 0,                   // fire 1 — priming; nothing after the event, so park
-
-    $8AFF, 2,                   // fire 2 — the event, two ops
-      OP_SET_REG, $8C89,        //   S/H ON  ($81 | bit 3 — resolution bits untouched,
-                                //   per the V28/V30 quirk ruling in the survey)
-      OP_CRAM, $C04A, $0000,    //   CRAM write @ $4A (command, ensure-pinned above)
-                 0, $000E,      //   count-1 = 0, one colour: bright red
-
-    $8AFF, RASTER_OPS_END,      // terminator — reached only by a stray fire
+// VBlank leaves reg $0A = 0 -> fire 0 at line 0, reload 0 -> fire 1 at line 1,
+// reload 117 -> fire 2 at 1 + 117 + 1 = 119. Effect on 120.
+//
+// pal_dirty_mask is DERIVED from the CRAM address ($4A >> 5 = line 2), so the mask
+// can no longer name the wrong line — the observed P1 bug, where a mask of %0001
+// against an op writing line 2 left the red latched over the whole ground instead of
+// only below the split.
+const OJZ_TEST_PROG = [
+    fire(120, [ sh_on(),                            // S/H ON below the line
+                cram($4A, [$000E]) ]),              // bright red at line 2 entry 5
 ]
+
+// THE PIN (design spec 8.1). The hand-authored words are the ones measured on
+// hardware during P1; the DSL must reproduce them exactly. Retained deliberately
+// rather than deleted: a `const` emits nothing, and it turns a Parcel-C/D regression
+// from "golden ROM differs" into a named index — the negative control that proved this
+// pin bites flipped the colour word and got "diverges ... at index 15". It retires in
+// Parcel D together with the fixture it pins (design spec 8.2).
+// Literals on purpose: a pin sharing symbols with the encoder it pins is weaker.
+// raster_dsl's module-level ensures hold these against engine.effects.raster.
+const OJZ_TEST_HAND = [
+    %0100,
+    1, $8C81,
+    $8A75, 0,
+    $8AFF, 0,
+    $8AFF, 2,
+      0, $8C89,                 // OP_SET_REG
+      2, $C04A, $0000,          // OP_CRAM, command longword split
+                 0, $000E,      // count-1, the colour
+    $8AFF, $FFFF,               // park + RASTER_OPS_END
+]
+ensure(raster_words(OJZ_TEST_PROG) == OJZ_TEST_HAND.len,
+       "OJZ_TestRaster: DSL counts {raster_words(OJZ_TEST_PROG)} words, the hand program is {OJZ_TEST_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND) == -1,
+       "OJZ_TestRaster: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_TEST_PROG), OJZ_TEST_HAND)}")
+
+pub data OJZ_TestRaster: [u16; raster_words(OJZ_TEST_PROG)] = raster_program(OJZ_TEST_PROG)
 
 // OJZ_TestPal — a deliberately unmistakable palette for the adjacent section, so
 // "did sec_pal load on the crossing?" is answerable from one CRAM read or
@@ -353,10 +399,8 @@ pub data OJZ_TestPal: [u16; 48] = test_palette()
 // OJZ_ShimmerCycle — a per-section cycling band: rotate line-2 entries 8..11 every 8
 // frames. `sec_pal_cycle` finally gets a consumer; the controller reads CRAM per
 // frame to confirm the rotation period. Line 2 (not 0 — the character's).
-pub data OJZ_ShimmerCycle: PalCycleScript1 = PalCycleScript1{
-    pcs_count: 1,
-    pcs_ch: [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ],
-}
+pub data OJZ_ShimmerCycle: PalCycleScript1 = cycle_script1(
+    [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ])
 
 // OJZ_WaterRaster — the water-cluster raster TEMPLATE (Task 7). init_count == 1
 // (WATER_TEMPLATE_ARM0_OFF depends on it). At the water line it (1) turns Shadow/
@@ -384,23 +428,67 @@ pub data OJZ_ShimmerCycle: PalCycleScript1 = PalCycleScript1{
 // is out of this parcel's scope — flagged for the controller/user.
 const OJZ_WATER_CRAM_ADDR = $48                 // CRAM line 2, entry 4
 ensure(vdp_comm(OJZ_WATER_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
-       "CRAM write command encoding drifted — OJZ_WaterRaster's split words are stale")
+       "vdp_comm's CRAM encoding changed — the raster DSL now derives OJZ_WaterRaster's command words, so a drift here moves the emitted program")
 
-pub data OJZ_WaterRaster: [u16; 18] = [
-    %0100,                              // pal_dirty_mask: re-assert line 2 (the region op's line)
-    1, $8C81,                           // init: S/H OFF at frame top (H40 base)
+// The default water line. Raster_InstallWater / Raster_PatchWaterLine overwrite the
+// priming arm word at runtime from Raster_Water_Line, so the boundary MOVES live; this
+// value is only what the template ships with.
+const OJZ_WATER_LINE = 120
 
-    water_arm0(120), 0,                 // fire 0 — priming; arm PATCHED at runtime (default line 120)
-    RASTER_ARM_PARK, 0,                 // fire 1 — priming; nothing after the event, so park
-
-    RASTER_ARM_PARK, 2,                 // fire 2 — the water line event, two ops
-      OP_SET_REG, $8C89,                //   S/H ON below the line
-      OP_PAL_REGION, $C048, $0000,      //   region: CRAM $48 (line 2 entry 4), command longword
-                 2,                     //   count-1 = 2 -> 3 colours (<= RASTER_CRAM_MAX)
-                 pal_stage_off(0, 2, 4),//   source: variant slot 0, line 2, entry 4
-
-    RASTER_ARM_PARK, RASTER_OPS_END,    // terminator
+const OJZ_WATER_PROG = [
+    region_boundary(line: OJZ_WATER_LINE,
+                    addr: OJZ_WATER_CRAM_ADDR,   // $48 — CRAM line 2, entry 4
+                    slot: 0, pal_line: 2, entry: 4, count: 3,
+                    sh:   1),
 ]
+
+// THE PATCH-OFFSET INVARIANT, previously carried only by prose. Raster_PatchWaterLine
+// writes the priming arm word at a FIXED byte offset into Buf_B
+// (WATER_TEMPLATE_ARM0_OFF = 6), which is word index 3 — and word 3 is arm0 only when
+// init_count is exactly 1. Any second init word would silently shift arm0 to index 4,
+// and the patch would then rewrite an init word every frame instead of the boundary.
+//
+// IT IS REDUNDANT TODAY, and saying so is the point of this paragraph. Word index 1 IS
+// init_count, so ANY program with init_count != 1 already diverges from OJZ_WATER_HAND
+// below at index <= 1 — verified at review by constructing the one case this ensure was
+// briefly thought to catch alone (three set_reg ops, two distinct resets plus a repeat,
+// init_count 2 at the SAME 18-word total): both guards fired, not just this one. There
+// is no reachable failure the twin misses.
+//
+// It stays for two reasons that outlive that redundancy. (1) OJZ_WATER_HAND retires in
+// Parcel D with the fixture, and at that moment this becomes the ONLY build-time guard
+// on init_count == 1 — it is the designated survivor, so deleting it as dead weight
+// during exactly the change that makes it load-bearing is the mistake to avoid. (2) It
+// is the co-located half of region_boundary's no-default `sh` parameter
+// (engine/effects/raster_dsl.emp:156-163): `sh` is required so an author cannot reach
+// init_count == 0 by not thinking about Shadow/Highlight, and this asserts the result
+// at the one call site the runtime patches.
+ensure(raster_program(OJZ_WATER_PROG)[3] == $8A00 | (OJZ_WATER_LINE - 3),
+       "OJZ_WaterRaster: word 3 is not the priming arm word — Raster_PatchWaterLine patches byte offset 6 (WATER_TEMPLATE_ARM0_OFF) unconditionally, which is word 3 only when init_count == 1")
+
+// THE PIN (design spec 8.1) — the words measured on hardware during P2. Retires in
+// Parcel D with the fixture.
+// Literals on purpose: a pin sharing symbols with the encoder it pins is weaker.
+// raster_dsl's module-level ensures hold these against engine.effects.raster.
+// 72 is pal_stage_off(0, 2, 4) = 0*128 + 2*32 + 4*2.
+const OJZ_WATER_HAND = [
+    %0100,
+    1, $8C81,
+    $8A75, 0,
+    $8AFF, 0,
+    $8AFF, 2,
+      0, $8C89,                 // OP_SET_REG
+      4, $C048, $0000,          // OP_PAL_REGION, command longword split
+                 2,             // count-1
+                 72,            // Pal_Variant_Stage offset
+    $8AFF, $FFFF,               // park + RASTER_OPS_END
+]
+ensure(raster_words(OJZ_WATER_PROG) == OJZ_WATER_HAND.len,
+       "OJZ_WaterRaster: DSL counts {raster_words(OJZ_WATER_PROG)} words, the hand program is {OJZ_WATER_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_WATER_PROG), OJZ_WATER_HAND) == -1,
+       "OJZ_WaterRaster: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_WATER_PROG), OJZ_WATER_HAND)}")
+
+pub data OJZ_WaterRaster: [u16; raster_words(OJZ_WATER_PROG)] = raster_program(OJZ_WATER_PROG)
 
 // ---------------------------------------------------------------------------
 // OJZ_TestGradient — the DENSE-tier gate (Task 5 Step 4). A 96-line ramp across
@@ -428,7 +516,7 @@ ensure(RASTER_CRAM_MAX == 3,
 // OJZ_TestRaster note) and the effect is visible as well as measurable.
 const OJZ_GRAD_CRAM_ADDR = $48
 ensure(vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
-       "CRAM write command encoding drifted — OJZ_TestGradient's command is stale")
+       "vdp_comm's CRAM encoding changed — raster_gradient_program is handed this very call's result as rgp_cmd, so a drift here moves the emitted program")
 
 // Genesis CRAM is 3 bits per channel, so 8 levels is the hardware's whole range: the
 // ramp steps every 12 lines and a "monotonic ramp" claim means non-decreasing with
