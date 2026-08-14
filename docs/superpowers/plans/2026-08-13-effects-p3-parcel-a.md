@@ -2423,9 +2423,9 @@ went out claiming green.
 cd $AEON && python3 -m pytest -q > /tmp/t11-py.out 2>&1; tail -3 /tmp/t11-py.out
 ```
 
-Expected: `974 passed, 2 skipped` — Task 0's 944 plus the 30 new tests (22 closure, shipped in
-`de116cdd`; 8 budget from Task 10). If the count is not exactly `944 + 22 + <Task 10's count>`, a test
-file is not being collected. Task 2 landed 22 rather than the drafted 6 — see its SHIPPED note.
+Expected: `983 passed, 2 skipped` — Task 0's 944 plus 39 new tests (22 closure from `de116cdd`;
+17 budget from `1e94f951`). Both tasks landed more tests than drafted, each for reasons recorded in
+their reports. If the count differs, a test file is not being collected.
 
 **Caveat to state in the evidence note rather than paper over:** nothing runs `pytest` automatically —
 no CI, no hook, not `test.sh`. The two new checkers are gates only when someone runs the suite. That is
