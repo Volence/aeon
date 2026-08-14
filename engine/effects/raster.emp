@@ -413,10 +413,19 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // delta to pipeline; the lag only bites at the two edges:
         //   ENTER: the fire record carrying OP_RUN_GRADIENT is authored with arm word 0
         //     (raster_arm gap 1). That 0, written at the setup fire, is consumed at the
-        //     NEXT fire's reload -> the first dense line fires one line after setup, i.e.
-        //     the run's first stream line lands on setup_line+2 (setup writes the FIRST
-        //     line itself so no line is dropped). Author the OP_RUN_GRADIENT fire at
-        //     gradient_top - 2 so line gradient_top gets stream[0].
+        //     NEXT fire's reload -> the first dense line fires one line after setup.
+        //
+        //     CORRECTED 2026-08-14. This comment used to conclude "author the fire at
+        //     gradient_top - 2", which is the NAIVE derivation the hardware REJECTED:
+        //     it authors the whole run one line high (with top=96 the seven ramp
+        //     boundaries came out at 107/119/.../179 instead of 108/120/.../180). The
+        //     measured setup line is T-1, not T-2 — see the T-1 note at the top of the
+        //     dense-tier section, which records the measurement and why the dense path
+        //     does not inherit the sparse -1. raster_gradient_program has always used
+        //     T-1 (`rgp_arm1: raster_arm(top - 1, top)`); only this comment was stale,
+        //     and it sat in the module docs/EFFECTS_AUTHORING.md names as the runtime
+        //     source of truth. Anyone hand-authoring a dense program from here would
+        //     have reproduced the exact bug the P2 gate already caught once.
         //   LEAVE: the LAST dense fire (Raster_Dense_Lines 1->0) still writes reg $0A=0,
         //     so one extra every-line fire happens after the run; that fire finds
         //     Dense_Lines==0, falls through to the record walk at Raster_Cursor (already

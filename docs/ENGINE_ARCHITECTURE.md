@@ -3580,7 +3580,9 @@ HBlank_Handler:
 - Window plane resize for letterboxing (lines 0-32, 192-224)
 - Per-scanline palette gradient (every line, via CRAM writes)
 
-All from ONE handler walking ONE table. No per-effect handler swapping, no priority conflicts between effects, no limit on how many effects stack in a single frame.
+All from ONE handler walking ONE table. No per-effect handler swapping, no priority conflicts between effects.
+
+**Corrected 2026-08-14 — there IS a limit, and it binds.** This paragraph used to claim "no limit on how many effects stack in a single frame". `RASTER_BUF_SIZE` is 128 bytes = 64 words, and `raster_program` refuses anything longer (the VBlank walker and the water installer both copy a fixed 128 bytes, so a longer program would be truncated live). Header + two priming records + terminator is ~9 words and a CRAM-class event is ~7-9, so **a program caps at roughly 6-8 events depending on op mix** — one full-line palette boundary alone is 51 of the 64. Raising the buffer is a RAM change (two arrays in `engine/ram.emp` plus the pins) and is not currently planned; see `docs/EFFECTS_AUTHORING.md`'s size-ceiling section for the arithmetic.
 
 **Section installs its raster table:** `sec_raster_table` pointer in the section definition. Section preload copies or points to the section's command table. Default is an empty table (just the terminator) — zero cost when no raster effects are needed.
 
