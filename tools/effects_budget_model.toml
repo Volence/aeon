@@ -31,14 +31,30 @@ save_set_registers   = 4            # code-derived — movem d0-d1/a1-a2 in Rast
 movem_roundtrip_cycles = 40         # fixed — 4-register movem push+pop
 # Per-fire handler cost (arm write + op parse + one OP_CRAM of 3 colours). The corpus
 # lower bound is ~26 cyc (zero-save, Ruling 4c); ours saves 4 registers.
-# MEASURED 2026-08-13 (oracle profiler, OJZ section 1, ~4 fires/frame): the whole
-# sparse tier costs 8358 cyc/frame = 6.5% of the 128000-cycle NTSC frame. Divided by
-# the fire count this is an UPPER BOUND per fire, not the handler body: the profiler
-# instruments every interrupt it records, and the figure includes autovector entry
-# and rte. Treat as a budget ceiling, not as an instruction-count model.
-sparse_tier_cycles_per_frame = 8358
-sparse_tier_frame_pct        = 6.5
-per_fire_cycles      = "upper-bound only — see sparse_tier_cycles_per_frame"
+# SUPERSEDED 2026-08-14 — DO NOT USE. The 8358 figure was read from the profiler's
+# `interrupts.hint` block, which INCLUDES VBlank: oracle buckets interrupt time by
+# comparing the handler's entry PC against 0x78, and Aeon's IRQ6 vector is
+# `dc.l VBlank_Handler`, a ROM address that never matches. Confirmed three times on live
+# data, to the cycle: interrupts.hint == HBlank_Vector_Slot + VBlank_Handler, with
+# interrupts.vint reading 0 throughout. So this row was two handlers summed, and every
+# absolute HInt number previously in this tree carried the same error.
+sparse_tier_cycles_per_frame_SUPERSEDED = 8358
+sparse_tier_frame_pct_SUPERSEDED        = 6.5
+
+# MEASURED 2026-08-14 (oracle, OJZ section 0, differentials within one shape so the
+# instrument's constant terms cancel). Evidence: docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md
+#   3 records (2 priming + 1 vsram event)  = 1026 cyc/frame
+#   8 records (2 priming + 6 vsram events) = 3296  -> marginal 454 cyc per fire
+#   8 records (2 priming + 6 cram3 events) = 3656  -> marginal 526 cyc per fire
+sparse_fire_vsram1_cycles = 454      # measured-differential
+sparse_fire_cram3_cycles  = 526      # measured-differential
+ntsc_scanline_cycles      = 488      # fixed — 128000 / 262, floored
+# The consequence, and the rule the density guard encodes: a 1-word vsram fire FITS
+# inside a scanline and adjacent vsram fires are clean; a 3-colour cram fire does NOT,
+# so consecutive colour fires overrun into active display and paint a mid-line colour
+# change. Nothing is dropped — `calls` stays 8 — the writes just land late.
+adjacent_fire_verdict = "vsram1 OK adjacent; cram3 must be spaced >= 2 lines"
+per_fire_cycles      = "see sparse_fire_* rows above (measured-differential)"
 program_overhead_fires = 2           # code-derived — the two priming records
 
 [raster.op_pal_region]
@@ -46,7 +62,14 @@ program_overhead_fires = 2           # code-derived — the two priming records
 # Pal_Variant_Stage bytes. A full-line region spreads across ceil(16/3)=6 fires.
 max_colours_per_fire = 3             # code-derived — bound by RASTER_CRAM_MAX
 handler_extra_cycles = "NEEDS-MEASUREMENT"  # oracle: lea+adda.w+stream vs a plain OP_CRAM
-full_line_fire_cost  = 6             # code-derived — ceil(16 / 3) consecutive fires
+# RENAMED 2026-08-14. This was `full_line_fire_cost`, which read as a CYCLE cost while
+# being ceil(16/3) — a LINE COUNT — tagged `code-derived`, i.e. arithmetic wearing a
+# measurement's label. It is how many fires a 16-colour line needs, nothing more.
+full_line_fire_lines = 6             # code-derived — ceil(16 / 3)
+# And the measured consequence: six of them CONSECUTIVELY is refused by the density
+# guard, because a 3-colour cram fire is 526 cyc against a 488-cyc line. A full-line
+# swap belongs in the dense tier, which stays inside one interrupt.
+full_line_consecutive_verdict = "REFUSED — space them, or use the dense tier"
 
 [raster.dense]
 # OP_RUN_GRADIENT: fire every line (reg $0A=0), minimal per-line body.
@@ -112,7 +135,7 @@ free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 #
 # NOT resolvable, deliberately absent, and recorded here so their absence is not read
 # as an oversight: save_set_registers (a `movem` operand, not a constant),
-# program_overhead_fires (no symbol exists), full_line_fire_cost (ceil(16/3), computed
+# program_overhead_fires (no symbol exists), full_line_fire_lines (ceil(16/3), computed
 # prose), compose_static_frame (prose). The two NEEDS-MEASUREMENT rows are evidence
 # gaps, not build gates.
 [symbols]

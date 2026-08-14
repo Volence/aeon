@@ -296,6 +296,125 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
     return fire(line, [pal_region(addr, slot, pal_line, entry, count)])
 }
 
+// ---- composition -------------------------------------------------------------
+
+// compose — merge N fire lists into one program's fire list. THE point of a preset
+// library: presets that do not combine force a combinatorial pile of hand-merged
+// variants, which is the thing a preset library exists to avoid.
+//
+// It walks screen lines in ascending order rather than sorting, which buys three
+// properties without a sort's off-by-ones:
+//   - the result is in strictly ascending line order, which fire_lines requires;
+//   - two presets firing on the SAME line become ONE fire rather than a duplicate-line
+//     error, which is what "layer these two effects" has to mean;
+//   - every SetReg is emitted before every CRAM-class op, so ruling 14's prefix
+//     invariant holds BY CONSTRUCTION for merged fires (check_mixed_fire still runs,
+//     but it can no longer be tripped by the act of composing).
+// Each merged op list goes back through `fire`, so the per-fire ceilings apply to the
+// COMPOSITION and not merely to its parts — composing two legal presets into an illegal
+// fire is a build error, not a surprise at runtime.
+//
+// WHAT IT CANNOT RECONCILE, and this is the current limit of composability: two presets
+// that touch the SAME VDP register with DIFFERENT frame-top resets are refused by
+// prog_init. That guard is correct (the later reset silently won and left the register
+// wrong for the whole frame), but it means presets must AGREE about registers, i.e.
+// composition is a negotiation. The corpus answer is a blanket VBlank register restore
+// (Gunstar re-blits regs $01-$12 from a RAM shadow in ~290 cycles), which would delete
+// the `reset` parameter entirely. Byte-changing; booked. Do not treat this limit as
+// permanent when designing presets.
+pub comptime fn compose(progs: array) -> array {
+    ensure(progs.len >= 1, "compose: nothing to compose")
+    comptime var out = []
+    // THE BOUNDS ARE INLINED LITERALS, per this module's opening note, and the first
+    // version of this function proved why the hard way. A comptime fn's free names
+    // resolve at the CALL SITE, and RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE are
+    // IMPORTED here rather than defined here — imports do not travel with a helper, only
+    // locally-defined names do. Spelled as constants, the range collapsed to empty at
+    // every call site and compose returned ZERO fires with no diagnostic at all: the
+    // program simply lost its event records. (Constants DEFINED in this module, such as
+    // RASTER_SCANLINE_CYC above, are injected and are safe to name.) 3 and 224 below are
+    // held to their authority by the module-level pin near the top of this file.
+    for line in 3..224 {
+        comptime var ops   = []
+        comptime var found = 0
+        for p in progs {
+            for f in p {
+                if fire_screen_line(f) == line {
+                    found = 1
+                    for o in fire_ops(f) {
+                        if op_is_set_reg(o) == 1 { ops = ops ++ [o] }
+                    }
+                }
+            }
+        }
+        for p in progs {
+            for f in p {
+                if fire_screen_line(f) == line {
+                    for o in fire_ops(f) {
+                        if op_is_set_reg(o) == 0 { ops = ops ++ [o] }
+                    }
+                }
+            }
+        }
+        if found == 1 { out = out ++ [fire(line, ops)] }
+    }
+    return out
+}
+
+// ---- the starter preset library ----------------------------------------------
+// A preset is a comptime fn returning a FIRE LIST, so presets take parameters and
+// compose (see `compose`). No new type was needed for this — the language already
+// allowed it and only `compose` was missing.
+//
+// The `fx_` prefix is a namespace, not decoration: this module is a COMPTIME_HELPERS
+// member, so every public name here is glob-injected into EVERY module in the tree, and
+// tools/emp_helper_closure.py is the collision gate. Run it when adding a preset.
+
+// fx_sh_below — Shadow/Highlight ON from `line` down, H40 base restored at frame top.
+// The cheapest dramatic effect the hardware has: one register write, no CRAM traffic,
+// and it darkens everything below the line including sprites.
+pub comptime fn fx_sh_below(line: int) -> array {
+    return [ fire(line, [ sh_on() ]) ]
+}
+
+// fx_vscroll_split — plane B's vertical scroll snaps to `offset` from `line` down, so the
+// background stops tracking the camera below it. Vertical scroll BANDING.
+//
+// PICK THE OFFSET AGAINST THE ART. A shift equal to the background's vertical repeat
+// period is pixel-invisible: the OJZ trunks repeat every 64 px, and a $0040 shift showed
+// literally nothing while $0043 banded cleanly. That cost a full session on 2026-08-14 —
+// read the period off the nametable before choosing.
+//
+// PLANE B, NOT PLANE A. Mid-frame vertical scroll of plane A displays the streamer's
+// working margin (TILE_CACHE_ROWS = 60) as stale/half-written tiles.
+pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
+    return [ fire(line, [ vsram(2, [offset]) ]) ]
+}
+
+// fx_tint_band — from `line` down, swap `count` colours of the palette variant staged in
+// `slot` into CRAM, optionally turning Shadow/Highlight on at the same line. This is the
+// water-boundary shape generalised, and the CRAM destination is DERIVED from
+// pal_line/entry via pal_stage_off rather than asked for a second time — pal_region's
+// address/line/entry agreement checks then cannot fail, because there is only one source
+// of the fact. (slot 0 in the pal_stage_off call is deliberate: the CRAM destination is
+// slot-independent; `slot` selects the staging SOURCE and is passed through below.)
+//
+// UNCHECKABLE HERE, AND REAL: the variant bound to `slot` at runtime must cover
+// `pal_line` in its `lines` mask, or Palette_DeriveVariant never writes that staging line
+// and this streams whatever the buffer holds — zeros, or a previous variant's colours
+// after a rebind. Binding is a runtime call (Palette_SetVariant), so a comptime guard
+// cannot see it. Booked; see the vocabulary review §5.
+pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
+                             count: int, sh: int) -> array {
+    return [ region_boundary(line:     line,
+                             addr:     pal_stage_off(0, pal_line, entry),
+                             slot:     slot,
+                             pal_line: pal_line,
+                             entry:    entry,
+                             count:    count,
+                             sh:       sh) ]
+}
+
 // ===========================================================================
 // ENCODING
 // ===========================================================================
@@ -451,6 +570,70 @@ comptime fn prog_init(fires: array) {
     return out
 }
 
+// ---- the measured density model (docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md) ----
+// Two measured points, 2026-08-14 on oracle, as DIFFERENTIALS within one shape so the
+// instrument's constant terms cancel:
+//     1-word vsram fire   454 cyc        3-colour cram fire   526 cyc
+// Those two determine a line in the number of CRAM-class words: 418 + 36*words.
+// An NTSC scanline is 128000/262 = 488.5; 488 is used, floored, so the comparison is
+// conservative in the direction that ADMITS rather than refuses.
+//
+// IT LUMPS VSRAM IN WITH CRAM, WHICH IS KNOWN TO BE PESSIMISTIC. The 2026-08-14 corpus
+// sweep found that only CRAM writes glitch — a CRAM write during rasterisation recolours
+// the pixel being drawn, while VRAM, VSRAM and register writes produce no mid-line
+// artifact at all. If that holds here, `vsram` inheriting EFX_BLANK_DELAY and the
+// RASTER_CRAM_MAX ceiling is pure loss (Ristar writes 42 VSRAM words in ONE fire).
+// Splitting the op class is booked and byte-changing. It only ever makes fires CHEAPER,
+// so nothing this model admits today becomes illegal under the split.
+//
+// WHAT IT DELIBERATELY DOES NOT COUNT: OP_SET_REG. Its dispatch cost is UNMEASURED — the
+// fire-ceiling comment above notes it is the compare chain's fall-through and therefore
+// the most expensive op to dispatch, but no number exists. Rather than invent one, a
+// set_reg contributes ZERO here, so the model UNDER-states cost and the guard fires only
+// on evidence. A set_reg-only fire is unmodelled and is never refused. Say so out loud
+// wherever this model is cited.
+pub const RASTER_FIRE_BASE_CYC  = 418
+pub const RASTER_CRAM_WORD_CYC  = 36
+pub const RASTER_SCANLINE_CYC   = 488
+ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 1 == 454,
+       "density model drifted from the measured 1-word vsram fire (454 cyc)")
+ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 3 == 526,
+       "density model drifted from the measured 3-colour cram fire (526 cyc)")
+
+// fire_cost_cycles — modelled cost of one fire. Each CRAM-class op pays its own dispatch
+// AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
+comptime fn fire_cost_cycles(f: RasterFire) -> int {
+    comptime var c = 0
+    for o in fire_ops(f) {
+        if op_is_set_reg(o) == 0 {
+            c = c + RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * op_cram_words(o)
+        }
+    }
+    return c
+}
+
+// check_density — a fire must finish before the next one is due. The budget between two
+// fires is the number of scanlines between them. Overrunning does NOT drop the next fire
+// (the counter is already armed) but pushes its writes into active display, which is
+// measured as a visible mid-row colour change (DENSITY-EVIDENCE rows 111-113, transitions
+// at x = 232/248/294 of 320). The last fire has nothing after it and is unconstrained.
+//
+// THIS CANNOT LIVE IN `fire`. Density is a property of the SCHEDULE — one fire cannot see
+// its neighbour — which is exactly why the per-fire ceilings above could not catch it.
+comptime fn check_density(fires: array) -> int {
+    comptime var i = 0
+    for f in fires {
+        if i + 1 < fires.len {
+            let gap  = fire_screen_line(fires[i + 1]) - fire_screen_line(f)
+            let cost = fire_cost_cycles(f)
+            ensure(cost <= gap * RASTER_SCANLINE_CYC,
+                   "raster program: the fire at screen line {fire_screen_line(f)} models at {cost} cycles but only {gap} scanline(s) = {gap * RASTER_SCANLINE_CYC} cycles remain before the fire at {fire_screen_line(fires[i + 1])}. MEASURED 2026-08-14: a 3-colour CRAM fire costs 526 cycles against a 488-cycle line, so consecutive colour fires overrun and paint a visible mid-line colour change. Either space these fires further apart, or move per-line colour work to the DENSE tier (raster_gradient_program), which stays inside ONE interrupt instead of paying an exception entry per line — that is how S3K writes 3 colours per line at 484. Note this model does not count OP_SET_REG at all, so the true cost is higher than the number above.")
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 // fire_lines — the full fire-line list: the two priming fires on lines 0 and 1, then
 // one per authored event at (screen line - 1). Ruling 1a: the event fire must be at
 // M-1 so its writes land on M. This is the SPARSE rule; the dense tier's T-1 setup
@@ -541,6 +724,7 @@ pub comptime fn raster_words(fires: array) -> int {
 pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
+    check_density(fires)
     let init = prog_init(fires)
     comptime var out = [prog_mask(fires), init.len] ++ init
     out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0

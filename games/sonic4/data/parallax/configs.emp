@@ -655,3 +655,18 @@ ensure(raster_program(OJZ_VSRAM_PROG)[0] == 0,
        "OJZ_TestVsram: pal_dirty_mask is {raster_program(OJZ_VSRAM_PROG)[0]}, not 0 — a VSRAM op must dirty no palette line")
 
 pub data OJZ_TestVsram: [u16; raster_words(OJZ_VSRAM_PROG)] = raster_program(OJZ_VSRAM_PROG)
+
+// COMPOSITION EQUIVALENCE PROOF (Parcel C1). The preset path must reproduce the
+// hand-authored program EXACTLY before anything is built on top of it — the same
+// re-express-then-extend standard the DSL itself was held to in Parcel A.
+//
+// Paired with a length check ON PURPOSE: first_mismatch walks only its first argument's
+// indices, so it returns -1 whenever that argument is a PREFIX of the second. A preset
+// path short by a trailing record would compare EQUAL without this.
+//
+// This is a `const`, so it emits nothing — the proof costs zero ROM bytes.
+const OJZ_VSRAM_VIA_PRESET = compose([ fx_vscroll_split(OJZ_VSRAM_LINE, OJZ_VSRAM_OFFSET) ])
+ensure(raster_words(OJZ_VSRAM_VIA_PRESET) == raster_words(OJZ_VSRAM_PROG),
+       "preset path emits {raster_words(OJZ_VSRAM_VIA_PRESET)} words, hand-authored is {raster_words(OJZ_VSRAM_PROG)}")
+ensure(first_mismatch(raster_program(OJZ_VSRAM_VIA_PRESET), raster_program(OJZ_VSRAM_PROG)) == -1,
+       "preset path diverges from the hand-authored program at word {first_mismatch(raster_program(OJZ_VSRAM_VIA_PRESET), raster_program(OJZ_VSRAM_PROG))}")

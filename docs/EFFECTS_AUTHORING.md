@@ -232,6 +232,74 @@ NULL means "keep current", not "no effects". A section that must kill a neighbou
 
 ---
 
+## Presets and `compose` — the reusable half (Parcel C1)
+
+A **preset** is nothing exotic: it is a `comptime fn` that returns a **fire list**. The language
+already allowed that; the only thing missing was a way to merge two of them.
+
+```emp
+pub comptime fn fx_sh_below(line: int) -> array {
+    return [ fire(line, [ sh_on() ]) ]
+}
+```
+
+Because a preset is a function, it takes **parameters** — `fx_vscroll_split(140, $0043)` — so one
+preset covers every line and every offset instead of needing a hand-written program per case.
+
+**`compose(progs)`** merges N fire lists into one program:
+
+```emp
+const OJZ_DUSK = compose([
+    fx_sh_below(96),
+    fx_vscroll_split(140, $0043),
+])
+pub data OJZ_Dusk: [u16; raster_words(OJZ_DUSK)] = raster_program(OJZ_DUSK)
+```
+
+It walks screen lines in ascending order rather than sorting, which gets three things for free:
+the result is in the strictly ascending order `fire_lines` demands; two presets firing on the
+**same line become one fire** rather than a duplicate-line error, which is what "layer these two"
+has to mean; and every `set_reg` is emitted before every CRAM-class op, so the ruling-14 prefix
+invariant holds by construction. Each merged op list goes back through `fire`, so **the per-fire
+ceilings bind the composition, not just its parts** — composing two legal presets into an illegal
+fire is a build error rather than a surprise on screen.
+
+### The shipped presets
+
+| preset | what it does | notes |
+|---|---|---|
+| `fx_sh_below(line)` | Shadow/Highlight ON from `line` down | one register write, no CRAM traffic; darkens sprites too |
+| `fx_vscroll_split(line, offset)` | plane B vertical scroll snaps to `offset` below `line` | **pick the offset against the art** — see below |
+| `fx_tint_band(line, slot, pal_line, entry, count, sh)` | swap `count` staged variant colours into CRAM at `line` | derives the CRAM address from `pal_line`/`entry` |
+
+### Three things that will bite you
+
+**Pick a vscroll offset against the art's repeat period.** The OJZ background repeats every 64 px
+vertically, so a `$0040` shift is *pixel-identical* to no shift at all. A session was spent on that
+before anyone read the period off the nametable. `$0043` bands cleanly.
+
+**Presets must agree about registers.** Two presets that touch the same VDP register with different
+frame-top resets are **refused** — `prog_init` keys its dedupe on the register and requires the
+resets to match, because the later one silently won and left the register wrong for a whole frame.
+That is correct but it means composition is currently a negotiation whenever registers overlap. The
+fix (a blanket VBlank register restore, which would delete the `reset` parameter outright) is
+byte-changing and booked; do not design around today's behaviour as if it were permanent.
+
+**`fx_tint_band` cannot check its own variant.** The variant bound to `slot` must cover `pal_line`
+in its `lines` mask, or the staging line is never derived and the op streams zeros — or a previous
+variant's colours after a rebind. Binding happens at runtime (`Palette_SetVariant`), so no comptime
+guard can see it.
+
+### Density is now checked
+
+`raster_program` refuses a schedule whose modelled cost exceeds the scanlines available before the
+next fire. The model comes from two measured points (a 1-word `vsram` fire at **454** cycles, a
+3-colour `cram` fire at **526**, against a **488**-cycle NTSC line) and it deliberately scores
+`set_reg` as **zero**, because its dispatch cost has never been measured — so the model *under*-states
+cost and the guard fires only on evidence.
+
+---
+
 ## Scope — what is and is not authorable in Phase 3
 
 **Sparse tier only.** The general constructors (`raster_words` / `raster_program`) cover the sparse tier:
@@ -487,18 +555,30 @@ Stated plainly rather than left for someone to discover on hardware:
   been made impossible. It had not: the guard then counted only CRAM words and scored `set_reg` as free,
   so a twenty-`set_reg` fire passed everything. 2026-08-14 review §1.2, VERIFIED.)
 
-  The legitimate way to write more colours than the ceiling is **consecutive fires on successive
-  lines** — a full 16-colour line takes `ceil(16/3) = 6` of them. **That six-fire idiom is OURS, not a
-  reference's.** S3K's `HInt3` swaps a whole water palette in **one** interrupt: park the counter, stop
-  the Z80, then repeat {fresh CRAM command, 3 colours, a cycle-counted ~370-cycle `dbf` spin} — the
-  spacing that pushes the dots offscreen comes from the *spin*, not from multiple interrupts. S3K's
-  `HInt2`, Sonic 2's `PalToCRAM` and S.C.E.'s `HInt` each write **64 CRAM words in a single fire with no
-  delay at all**. Ours is dot-free by construction (single-ported CRAM, Ruling 2b) and pays six
-  exception entries for that. An earlier revision of this document and of `fire`'s error message
-  attributed the six-fire idiom to S3K; that was checked against the disassembly and is false.
-  *(Density caveat: nothing has ever run **adjacent** fires on hardware. The only measured sparse figure
-  is 8358 cyc/frame at ~4 fires/frame, non-adjacent. Six back-to-back fires wants an oracle measurement
-  before content relies on it — 2026-08-14 review §9.)*
+  **THE SIX-CONSECUTIVE-FIRE IDIOM IS RETIRED. It was measured, and it does not work.** This document
+  used to prescribe consecutive fires on successive lines — `ceil(16/3) = 6` for a full 16-colour line —
+  and claimed the result was dot-free by construction. On 2026-08-14 that was measured on oracle for the
+  first time (`docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`):
+
+  - a 3-colour CRAM fire costs **526 cycles**; an NTSC scanline is **~488**;
+  - so consecutive colour fires **overrun the line**. Nothing is dropped — the counter is already
+    armed, and the profiler confirms all 8 records still run — but each write lands progressively later,
+    **inside active display**, which is exactly the dot the idiom claimed to avoid. Measured directly:
+    rows 111-113 each carry two different authored colours, switching at x = 232/248/294 of 320.
+  - `raster_program` now **refuses** such a schedule at build time (the density guard), so this is not
+    advice you can ignore — it is a build error naming the cost.
+
+  **Write per-line colour work in the DENSE tier instead** (`raster_gradient_program`). It stays inside
+  ONE interrupt rather than paying an exception entry per line, which is the whole difference: S3K's
+  `HInt3` writes 3 colours per line at ~484 cycles against the same 488-cycle line by parking the
+  counter, stopping the Z80, and repeating {fresh CRAM command, 3 colours, a cycle-counted `dbf` spin} —
+  the spacing that pushes dots offscreen comes from the *spin*, not from multiple interrupts. S3K's
+  `HInt2`, Sonic 2's `PalToCRAM` and S.C.E.'s `HInt` each write 64 CRAM words in a single fire with no
+  delay at all. Sparse adjacent fires remain fine for ops that fit under a scanline — a 1-word `vsram`
+  fire measures **454** and six of them adjacent were verified clean, every fire landing on its own line.
+
+  *(An earlier revision attributed the six-fire idiom to S3K; that was checked against the disassembly
+  and is false. It was ours, and it is now withdrawn on our own evidence.)*
 - **Fire ordering**: fires must be in strictly ascending screen-line order and no two events may share a
   fire line (`raster_dsl.emp:418-419`); the schedule *is* the program order, since the runtime never
   compares a line number.
