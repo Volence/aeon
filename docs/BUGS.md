@@ -887,3 +887,37 @@ exercised throughout the phase's captures. If "a few others" ever becomes reprod
 against the paths that are actually live today: the **release-side ring-full drop** (>7 distinct ids
 in one frame, silent outside DEBUG) and the **same-id same-frame dedup** — both recorded as BY-DESIGN
 entries at the top of this file.
+
+### EFX-7 — `Raster_Clear` is a no-op and `HBlank_Uninstall` is unreachable — OPEN (byte-changing)
+
+**Surfaced during:** the 2026-08-14 five-lens vocabulary review (runtime-surface lens), confirmed by
+the controller.
+
+**What:** `Raster_Clear` stores 0 into `Raster_Pending`. `Raster_VBlank` opens with
+
+```
+move.l  Raster_Pending, d0
+beq.s   .no_install          // 0 is filtered HERE
+clr.l   Raster_Pending
+move.l  d0, Raster_Program
+bne.s   .copy_program        // d0 provably non-zero -> ALWAYS taken
+jbsr    HBlank_Uninstall     // dead code
+```
+
+so a pending value of 0 is read as "nothing pending" and skipped. The documented
+"0 = clear/uninstall" convention on `Raster_Install` is therefore **unreachable**, HInt is never
+disarmed through this path, and `HBlank_Uninstall`'s only reference in the tree is that dead branch.
+
+**Severity:** latent. `Raster_Clear` and `Raster_Install` both have zero callers — sections go through
+`Raster_InstallSection`, which stores `Raster_Pending` directly. Nothing in the shipped ROM depends on
+the broken path.
+
+**Why it still matters:** `docs/EFFECTS_AUTHORING.md` documented `Raster_Clear` as install route 2's
+teardown, i.e. the authoring reference pointed at a no-op. That text now carries the warning; the code
+is still wrong.
+
+**Fix:** sentinel the clear (e.g. `Raster_Pending = -1` meaning "explicit clear") or branch on
+`Raster_Program` rather than on `d0`. **This changes emitted bytes**, so it needs the byte-changing
+parcel ritual — rebuild both sigil binaries, repin, and `refreeze --freeze <name> --ab <evidence>` with
+real emulator A/B evidence. Not appropriate for a documentation-and-guards parcel; deliberately
+deferred rather than smuggled in.
