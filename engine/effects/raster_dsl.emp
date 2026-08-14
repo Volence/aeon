@@ -325,7 +325,16 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
 pub comptime fn compose(progs: array) -> array {
     ensure(progs.len >= 1, "compose: nothing to compose")
     comptime var out = []
-    for line in RASTER_MIN_FIRE_LINE..RASTER_MAX_FIRE_LINE + 1 {
+    // THE BOUNDS ARE INLINED LITERALS, per this module's opening note, and the first
+    // version of this function proved why the hard way. A comptime fn's free names
+    // resolve at the CALL SITE, and RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE are
+    // IMPORTED here rather than defined here — imports do not travel with a helper, only
+    // locally-defined names do. Spelled as constants, the range collapsed to empty at
+    // every call site and compose returned ZERO fires with no diagnostic at all: the
+    // program simply lost its event records. (Constants DEFINED in this module, such as
+    // RASTER_SCANLINE_CYC above, are injected and are safe to name.) 3 and 224 below are
+    // held to their authority by the module-level pin near the top of this file.
+    for line in 3..224 {
         comptime var ops   = []
         comptime var found = 0
         for p in progs {
