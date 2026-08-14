@@ -46,10 +46,11 @@ ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from
 // deliberately excludes from the struct-offset injector, so the two are
 // independent by construction. Equality is the right relation because BOTH
 // directions are live: too small and a shadowed register silently never reaches
-// the hardware (no crash, no golden byte); too large and the init copy walks
-// past the buffer's pad into VDP_Dirty_Mask, a live RAM stomp. vdp_init's own
-// `<= 32` guard is a ceiling and passes for 19 and 20 alike. This is the one
-// place both authorities are already in scope.
+// the hardware (no crash, no golden byte); too large and BOTH walks run past the
+// buffer's pad into whatever RAM follows — the init copy stomps it, the flush
+// ships it to VDP_CTRL as register writes. vdp_init's own `<= 24` guard is a
+// ceiling and passes for 19 and 20 alike. This is the one place both
+// authorities are already in scope.
 ensure(VDP_Shadow_len == sizeof(VdpShadow),
        "VDP_Shadow_len ({VDP_Shadow_len}) and sizeof(VdpShadow) disagree — the shadow buffer and the flush-loop bound would cover different register counts")
 
@@ -146,7 +147,6 @@ pub vars upper_ram {
     // --- VDP Shadow Table (§0.4) ---
     VDP_Shadow_Table:       [u8; sizeof(VdpShadow)],
     pad(1),                             // pad to even (sizeof(VdpShadow) is 19 = odd)
-    VDP_Dirty_Mask:         u32,        // bits 0-18 for regs $00-$12
 
     // --- Interrupt dispatch ---
     // HBlank dispatch runs through HBlank_Vector_Slot (defined at the RAM tail — so

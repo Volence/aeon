@@ -296,9 +296,8 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         move.l  #$4E734E73, HBlank_Vector_Slot
 
         // Enable VBlank interrupt (set VDP reg $01 bit 5) — write-through the
-        // VDP shadow + dirty mask (the setVDPReg macro's expansion).
+        // VDP shadow, which is the register's authority.
         move.b  #$34, VDP_Shadow_Table + VDP_MODE2_OFF      // $14 | $20 (VInt enable) = $34
-        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask
 
         // Flush shadow to hardware — VInt must be enabled in VDP before unmasking
         jbsr    Flush_VDP_Shadow

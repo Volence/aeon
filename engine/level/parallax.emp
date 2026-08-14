@@ -258,10 +258,10 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         beq     .v_done
         ori.b   #%100, d0                           // bit 2 = per-column V
     .v_done:
-        // setVDPReg VDP_Shadow_vdp_mode3, d0 — write-through shadow + dirty
+        // Shadow write-through only: the shadow IS the register's authority, and
+        // Flush_VDP_Shadow re-blits all of $00-$12 unconditionally next VBlank.
         // (shared set_vdp_reg helper = ledgered adoption debt, 3-site census)
         move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
-        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
 
     .no_change:
         rts
@@ -459,7 +459,6 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // which is what makes the shadow a sound record of the register.
         move.b  VDP_Shadow_Table + VDP_MODE3_OFF, d1   // previous mode
         move.b  d0, VDP_Shadow_Table + VDP_MODE3_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode3).w
-        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask  // (VDP_Dirty_Mask).w
         cmp.b   d1, d0
         beq     .mode3_reg_live                        // unchanged — register already correct
         // Also drive reg $0B on the hardware directly (not only the shadow): the

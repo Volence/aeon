@@ -49,9 +49,9 @@ pub proc GameState_Demo_Init () clobbers(d0-d4/a0-a3) {
         jbsr    Load_ObjectList
         // TODO: your game starts here — spawn objects, load level data, add states
 
-        // Enable display (the setVDPReg macro's expansion: shadow write + dirty bit)
+        // Enable display — write the shadow; the next VBlank's blanket flush
+        // carries it to reg $01.
         move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // (VDP_Shadow_Table+VDP_Shadow_vdp_mode2).w
-        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask    // (VDP_Dirty_Mask).w
 
         // Switch to the running loop
         move.l  #GameState_Demo, (Game_State).w

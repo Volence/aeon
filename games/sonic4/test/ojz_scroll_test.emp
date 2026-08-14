@@ -92,8 +92,7 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         }
 
         // -- per-8-row HScroll mode (reg $0B bits 1:0 = %10) --
-        move.b  #$02, VDP_Shadow_Table + VDP_MODE3_OFF   // setVDPReg VDP_Shadow_vdp_mode3, #$02
-        ori.l   #(1 << VDP_MODE3_OFF), VDP_Dirty_Mask
+        move.b  #$02, VDP_Shadow_Table + VDP_MODE3_OFF   // shadow is the authority for reg $0B
 
         // -- load BGND palette (32 bytes, "SonicAndTails") into CRAM line 0 --
         // -- load OJZ palette (96 bytes, 3 pages) into CRAM lines 1-3 --
@@ -262,8 +261,7 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         jbsr    Parallax_Update
 
         // -- enable display now that VRAM and nametable are populated --
-        move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // setVDPReg VDP_Shadow_vdp_mode2, #$74 — display/VBlank/DMA/M5 on
-        ori.l   #(1 << VDP_MODE2_OFF), VDP_Dirty_Mask
+        move.b  #$74, VDP_Shadow_Table + VDP_MODE2_OFF   // shadow reg $01 = display/VBlank/DMA/M5 on
 
         // -- set VInt_Ptr to level handler --
         move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share one instruction
