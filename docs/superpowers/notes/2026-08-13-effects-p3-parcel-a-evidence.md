@@ -27,7 +27,7 @@ rebuild through `crates/sigil-harness/golden/capture_goldens.sh` with no `--writ
 | `lean` | `1602cde3 / 655726`, anchor `2737f366 / 655726` | **identical** |
 
 **No `refreeze --freeze` was run.** `refreeze --check` reports
-`OK (tip \`character-lens-sweep-postmerge\`, chain len 111)` — the same tip and the same chain length
+`OK (tip character-lens-sweep-postmerge, chain len 111)` — the same tip and the same chain length
 as before the parcel. Nothing was frozen; the goldens were never the moving part.
 
 The in-suite byte gates (`native_full_rom`, `native_offcanonical_full`, `native_offcanonical_rom`,
@@ -195,7 +195,7 @@ exist in aeon master is the recorded failure mode that once made aeon master unb
 Post-merge verification from both masters, with the sigil binaries rebuilt from merged master:
 
 - all seven goldens re-captured: **identical** to the table in §1
-- `refreeze --check`: `OK (tip \`character-lens-sweep-postmerge\`, chain len 111)` — unchanged
+- `refreeze --check`: `OK (tip character-lens-sweep-postmerge, chain len 111)` — unchanged
 - `python3 -m pytest -q`: `983 passed, 2 skipped`
 - `emp_helper_closure`: `OK — 425 names across 14 helpers, no collisions`
 - `effects_budget_check`: `OK — 8 code-derived rows agree`
