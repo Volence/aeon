@@ -46,7 +46,7 @@ use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // link symbols, so a degraded constant has no definition to find). Not silent — deferred
 // and de-named. The one genuinely silent case is a degraded name that collides with a
 // real label or `equ`.
-use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT}
+use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette_dsl.{cycle_channel, cycle_script1}
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
@@ -670,3 +670,30 @@ ensure(raster_words(OJZ_VSRAM_VIA_PRESET) == raster_words(OJZ_VSRAM_PROG),
        "preset path emits {raster_words(OJZ_VSRAM_VIA_PRESET)} words, hand-authored is {raster_words(OJZ_VSRAM_PROG)}")
 ensure(first_mismatch(raster_program(OJZ_VSRAM_VIA_PRESET), raster_program(OJZ_VSRAM_PROG)) == -1,
        "preset path diverges from the hand-authored program at word {first_mismatch(raster_program(OJZ_VSRAM_VIA_PRESET), raster_program(OJZ_VSRAM_PROG))}")
+
+// ===========================================================================
+// RAMP GATE FIXTURE — the first COMPUTED per-line raster values in this engine.
+//
+// A dense run pointed at plane B's VSRAM entry, whose per-line value comes from a
+// 16.16 accumulator rather than a baked ROM stream. Each scanline scrolls plane B
+// by a different amount, so the background is progressively stretched down the
+// run — the vertical-scale family (squash, stretch, perspective floor).
+//
+// STEP IS 0.5 px/line ON PURPOSE. A whole-pixel step would pass even if the
+// fractional half of the accumulator were dropped entirely; at 0.5 the integer
+// output only advances every OTHER line, so the fixture fails loudly if the 16.16
+// arithmetic is wrong. That is the property worth pinning — the fixed point IS
+// the feature, since it is what lets a rate be authored finer than a pixel.
+const OJZ_RAMP_TOP   = 112
+const OJZ_RAMP_LINES = 96
+const OJZ_RAMP_STEP  = fp16(0, 128)     // +0.5 px per line
+
+// The run WRITES the VSRAM entry rather than adding to it, so the control must be a
+// ramp too — same program, step 0 — or the comparison would confound "the ramp" with
+// "the ramp replaced the parallax system's base scroll".
+pub data OJZ_TestRamp: RasterRampProgram = raster_ramp_program(
+    top:   OJZ_RAMP_TOP,
+    lines: OJZ_RAMP_LINES,
+    cmd:   vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),   // byte 2 = entry 1 = plane B
+    start: 0,
+    step:  OJZ_RAMP_STEP)
