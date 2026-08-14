@@ -9,7 +9,7 @@
 // Timing rules this is built on: docs/research/2026-08-12-raster-hint-survey.md.
 module engine.effects.raster in raster
 
-use engine.vdp.{VDP_HINT_OFF}
+use engine.vdp.{VDP_HINT_OFF, vdp_comm, vdp_comm_addr, VdpTarget, VdpOp}
 use engine.constants.{VDP_CTRL, VDP_DATA}
 use engine.structs.{Sec}
 use engine.irq.{ints_off}
@@ -243,7 +243,7 @@ pub comptime fn raster_arm(next_fire: int, after_fire: int) -> int {
 // pipelined arm (Ruling 1b at the ENTER edge), which absorbs exactly one line. Evidence:
 // docs/benchmarks/effects-p2/GATE-EVIDENCE.md, dense-tier section.
 pub struct RasterGradientProgram {
-    rgp_mask:       u16,    // pal_dirty_mask — must name the line rgp_cmd writes into
+    rgp_mask:       u16,    // pal_dirty_mask — DERIVED from rgp_cmd's CRAM address
     rgp_init_count: u16,
     rgp_init_word:  u16,
     rgp_arm0:       u16, rgp_ops0: u16,     // fire 0 — priming
@@ -258,19 +258,50 @@ pub struct RasterGradientProgram {
 
 // raster_gradient_program — build the schedule above. `cmd` is the CRAM write command
 // longword, passed in already built (game-side, pinned against engine.vdp's comptime
-// builder) so this module keeps its import surface.
-pub comptime fn raster_gradient_program(top: int, lines: int, mask: int, cmd: int,
-                                        stream: Label) -> RasterGradientProgram {
+// builder).
+//
+// THE MASK IS DERIVED, NOT ACCEPTED. It used to be a parameter, and it was the last
+// hand-authorable pal_dirty_mask in the suite — the one field with a shipped history of
+// producing wrong pixels (P1: the mask said %0001 while the op wrote line 2, so the red
+// covered the whole ground instead of the band, permanently). The sparse tier has always
+// derived it (raster_dsl's op_mask); the dense tier took the author's word for it. Now
+// both derive from the same fact — the CRAM address inside the command longword — so a
+// mask that disagrees with the write is UNREPRESENTABLE rather than merely detectable.
+//
+// `stream_words` is the array's actual length, checked against the run's demand. The
+// alternative was a co-located hand-written ensure at each call site (the shipped fixture
+// carried one), which every future dense program would have to remember to copy — the
+// ritual this codebase keeps discovering it has not copied.
+pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
+                                        stream: Label, stream_words: int,
+                                        init_word: int = $8C81) -> RasterGradientProgram {
     // Floor is 3, matching `raster_dsl.fire`: the setup fire sits at T-1 and must still
     // land after the two priming fires on lines 0-1.
     ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
     ensure(top + lines <= 224,
            "raster_gradient_program: run {top}..{top + lines - 1} runs past screen line 223")
+    // The command must BE a CRAM write, or the derived mask is a palette line computed
+    // from something that is not a palette address. The round trip proves target, op and
+    // address in one comparison, and it subsumes the pin each call site used to carry.
+    let addr = vdp_comm_addr(cmd)
+    ensure(cmd == vdp_comm(addr, VdpTarget.Cram, VdpOp.Write),
+           "raster_gradient_program: cmd {cmd} is not a CRAM WRITE command — the dense run streams colour words to CRAM and derives its pal_dirty_mask from this address, so a VRAM or VSRAM command here would both write the wrong place and re-assert a palette line computed from a non-palette address")
+    ensure(addr <= 126,
+           "raster_gradient_program: CRAM byte address {addr} outside 0..126")
+    ensure((addr >> 5) != 0,
+           "raster_gradient_program: the run writes CRAM line 0, the CHARACTER's palette line — a dense run re-asserts its line every frame, so this would fight the player's palette for the whole section")
+    ensure(stream_words == lines * RASTER_CRAM_MAX,
+           "raster_gradient_program: stream is {stream_words} words but the run needs lines * RASTER_CRAM_MAX = {lines * RASTER_CRAM_MAX}. A short stream is read past its end into whatever ROM follows, for the rest of the run, every frame.")
+    ensure(init_word >= $8000 && init_word <= $97FF,
+           "raster_gradient_program: frame-top init {init_word} is not a VDP register write word ($8000..$97FF)")
     return RasterGradientProgram{
-        rgp_mask:       mask,
+        rgp_mask:       1 << (addr >> 5),
         rgp_init_count: 1,
-        rgp_init_word:  $8C81,                          // S/H OFF at frame top (H40 base)
+        // Default $8C81 is boot's H40 base with S/H OFF. It is a PARAMETER because every
+        // dense program asserting it unconditionally silently turns Shadow/Highlight off
+        // at frame top for any section that wanted it globally.
+        rgp_init_word:  init_word,
         rgp_arm0:       raster_arm(1, top - 1),
         rgp_ops0:       0,
         rgp_arm1:       raster_arm(top - 1, top),       // == RASTER_ARM_EVERY_LINE
