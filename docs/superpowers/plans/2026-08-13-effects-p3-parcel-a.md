@@ -488,6 +488,30 @@ Verify the stat lists exactly those three paths and nothing under `data/editor/`
 
 ## Task 2: The helper-closure collision tool
 
+> **SHIPPED — `912c00d7` + `de116cdd`. The drafted code below is superseded; read the shipped
+> `tools/emp_helper_closure.py` instead.** Four defects in the draft, two of which made the gate
+> worthless:
+> - **`module_path()`'s dots-to-slashes mapping is WRONG.** Module ids are not paths —
+>   `engine.types` lives at `engine/system/types.emp`, `engine.constants` at
+>   `engine/system/constants.emp`. Two of twelve helpers failed to resolve, so the drafted gate
+>   returned rc=2 and never checked anything. The shipped tool builds a `module_index()` by reading
+>   the `module` declaration out of all 143 `.emp` files. **Any later task needing a module-id ->
+>   path mapping must use that, not string substitution.**
+> - **`pub context` was missing from the item set.** `pub_comptime_name`
+>   (`sigil-frontend-emp/src/resolve/mod.rs:23-50`) injects `Context(d) if d.public`; the tree has
+>   `ints_off`/`vblank` (`engine/irq.emp`) and `z80_stopped` (`engine/z80_bus.emp`), so those two
+>   helpers were reporting the EMPTY SET.
+> - `vars` must match only the overlay form (`name.is_some()`), and `pub data X: <bare Named>` is
+>   injected as a type stub by `pub_struct_data_name`. Correct, but inert on the current helper set.
+> - `.emp` has non-nesting `/* */` block comments (`lexer.rs:117`), so line-comment stripping is
+>   insufficient; item position is depth 0 or depth 1 inside a `section` body. **Not inert:**
+>   `implement` blocks (`games/*/config/game.emp`) bind contract values with depth-1 `const` lines,
+>   and `Item::Implement` is not `Item::Section` — sigil never recurses into it, so a depth-blind
+>   scanner reads those two files exactly backwards.
+>
+> Reading: **394 names across 12 helpers, no collisions.** 22 tests, mutation-tested (the reviewer
+> found the item-position gate initially had no failing test; it does now). Full suite 944 -> 966.
+
 `publicize_helper_comptime` (`native.rs:1134-1155`) force-publicizes every **private** comptime item of
 a helper module, and `normalize_helper_imports` (`:1077-1126`) injects one glob per helper **in list
 order** so between two helpers the later wins silently. The moment `palette_dsl` joins the list,
@@ -2333,8 +2357,9 @@ went out claiming green.
 cd $AEON && python3 -m pytest -q > /tmp/t11-py.out 2>&1; tail -3 /tmp/t11-py.out
 ```
 
-Expected: `958 passed, 2 skipped` — Task 0's 944 plus the 14 new tests (6 closure + 8 budget). If the
-count is not exactly `944 + 14`, a test file is not being collected.
+Expected: `974 passed, 2 skipped` — Task 0's 944 plus the 30 new tests (22 closure, shipped in
+`de116cdd`; 8 budget from Task 10). If the count is not exactly `944 + 22 + <Task 10's count>`, a test
+file is not being collected. Task 2 landed 22 rather than the drafted 6 — see its SHIPPED note.
 
 **Caveat to state in the evidence note rather than paper over:** nothing runs `pytest` automatically —
 no CI, no hook, not `test.sh`. The two new checkers are gates only when someone runs the suite. That is
