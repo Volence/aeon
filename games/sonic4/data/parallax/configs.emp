@@ -31,7 +31,8 @@ use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, RASTER_OPS_END, R
 // `asm {}` splice helpers document), so raster_gradient_program's own constants must
 // be visible HERE or they degrade to unresolved label refs.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT}
-use engine.effects.palette.{cycle_channel, pal_cycle_channel, PalCycleScript1}
+use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
+use engine.effects.palette_dsl.{cycle_channel, cycle_script1}
 // raster_dsl is pure comptime and nothing HERE names it — this glob is the only
 // thing that makes the module reachable, and an unimported comptime module's
 // module-level `ensure`s are never evaluated at all (they do not fail; they do
@@ -359,10 +360,8 @@ pub data OJZ_TestPal: [u16; 48] = test_palette()
 // OJZ_ShimmerCycle — a per-section cycling band: rotate line-2 entries 8..11 every 8
 // frames. `sec_pal_cycle` finally gets a consumer; the controller reads CRAM per
 // frame to confirm the rotation period. Line 2 (not 0 — the character's).
-pub data OJZ_ShimmerCycle: PalCycleScript1 = PalCycleScript1{
-    pcs_count: 1,
-    pcs_ch: [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ],
-}
+pub data OJZ_ShimmerCycle: PalCycleScript1 = cycle_script1(
+    [ cycle_channel(line: 2, first: 8, count: 4, period: 8) ])
 
 // OJZ_WaterRaster — the water-cluster raster TEMPLATE (Task 7). init_count == 1
 // (WATER_TEMPLATE_ARM0_OFF depends on it). At the water line it (1) turns Shadow/
