@@ -578,6 +578,17 @@ and store it straight back — `Set_VDP_Reg` only writes, it does not read, so a
 reads/writes `VDP_Shadow_Table` inline rather than round-tripping through it. See
 `HBlank_Install` / `HBlank_Uninstall` (`engine/system/hblank.emp`).
 
+**`Set_VDP_Reg` currently has zero callers.** It is the mandated idiom and it ships unadopted: every
+whole-register settled-state write in the tree still stores to `VDP_Shadow_Table + VDP_*_OFF` inline
+— `engine/level/parallax.emp` (2), `engine/system/boot.emp`, `games/demo/demo_state.emp`,
+`games/sonic4/test/object_test_state.emp` (2), `games/sonic4/test/ojz_scroll_test.emp` (2). Those
+sites predate the helper and converting them moves bytes, so it is booked as its own parcel rather
+than smuggled into the one that introduced it. The two `hblank.emp` sites are read-modify-write and
+are *not* adoption debt — see the paragraph above. New code should call `Set_VDP_Reg`; the inline
+sites are the backlog, not the pattern. In the DEBUG shape it asserts `d0 <= $12` (unsigned, so
+negatives are caught too) — the shadow table sits immediately before the interrupt-dispatch block in
+`engine/ram.emp`, so an out-of-range index would otherwise corrupt RAM silently.
+
 ```asm
 ; VBlank flush — re-blits every shadowed register, unconditionally, ascending
 ; from reg 0. No dirty check: the whole point is that a mid-frame register
@@ -610,10 +621,20 @@ the implementing plan record explicitly flags its "~200 cycles cheaper" estimate
 The shadow idiom is the only sanctioned write path for **persistent** frame state on registers `$00-$12`. Direct writes to those registers (e.g., `move.w #$8Fxx, (VDP_CTRL).l`) are permitted **only** for transient setup that the caller fully controls and that does not represent shared frame state:
 
 1. **Pre-DMA autoincrement (`$0F`) configuration.** Caller sets `$8Fxx` immediately before a VRAM/CRAM/VSRAM transfer; subsequent transfers either tolerate the value or restore it. Examples: `engine/level/bg.emp`, `engine/level/section.emp`, `engine/level/plane_buffer.emp`. **This is no longer harmless by default.** `Flush_VDP_Shadow` re-blits reg `$0F` from the shadow (settled value `$02`) unconditionally, every VBlank — so a VBlank landing mid-excursion flushes `$02` back over the caller's `$80` out from under it, and the rest of the excursion's column-mode writes silently stride by 2 instead of `$80`. All three sites MUST keep interrupts masked (`IPL >= 6`) across the whole excursion for exactly this reason; each carries a DEBUG-shape assert checking it. An unmasked `$8F80` excursion is a silent VRAM-stride bug the flush no longer has any dirty gate to prevent.
+
+   **The census is four sites, not three.** `engine/system/boot.emp:109` makes the same excursion — `move.w #vdp_reg($0F, $01), (a4)`, autoincrement 1 for the byte-by-byte VRAM DMA fill, restored via `AUTO_INC_2_CMD` (`engine/system/boot_data.emp:184`). It carries **no assert, deliberately**: it is safe by *context* rather than by masking discipline. Boot runs masked at `$2700` from the first instruction, VInt is not enabled in the VDP until `boot.emp:300` (`move.b #$34, VDP_Shadow_Table + VDP_MODE2_OFF` followed by the flush at `:303`) and the SR is not lowered to `$2300` until `:307` — so there is no VBlank handler in existence, and therefore no flush, while the excursion is open. An IPL assert there would measure the boot mask a few lines above it and be vacuous. It is listed here because a census that omits it invites the next reader to "discover" an unguarded site and add a vacuous assert, or worse, to conclude the invariant is unenforced.
 2. **HInt-handler-internal raster effects (future §7.2).** HInt handlers may freely write VDP registers during the active line — that's the entire point of raster effects. They MUST NOT update the shadow. The shadow represents settled frame state, not transient mid-frame VDP changes. When the section's HInt program exits, hardware register state is whatever the last write left; the next VBlank's `Flush_VDP_Shadow` re-asserts the settled value for every shadowed register unconditionally, and HInt handlers re-establish their own per-line program from scratch.
 3. **DMA register writes (`$13-$17`)** are not shadowed and are set per-transfer by the DMA queue. This is by design — the shadow only covers `$00-$12`.
 
-**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST use the shadow idiom above. Bypassing the shadow for settled state risks the next flush overwriting a hardware-only change with a stale shadow value — more certain now than under the old design, since the flush no longer needs a dirty bit to trigger the overwrite; it happens every frame regardless. Audit grep: `grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]' engine/` periodically; classify each new hit as transient (OK) or settled (use the shadow). The sanctioned transient hits today are the `$8F02` autoincrement restores in `engine/level/bg.emp`, `engine/level/plane_buffer.emp` and `engine/level/section.emp`.
+**Hard rule:** any direct VDP write to `$00-$12` that represents settled state (display enable, scroll mode, plane base, etc.) MUST use the shadow idiom above. Bypassing the shadow for settled state risks the next flush overwriting a hardware-only change with a stale shadow value — more certain now than under the old design, since the flush no longer needs a dirty bit to trigger the overwrite; it happens every frame regardless. Audit grep, run periodically; classify each new hit as transient (OK) or settled (use the shadow):
+
+```
+grep -rEn 'move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]|vdp_reg\(|Set_VDP_Reg' engine/
+```
+
+The `vdp_reg\(` and `Set_VDP_Reg` alternatives are not decoration — **the literal-word pattern alone has a structural blind spot.** A register write spelled through the comptime constructor (`move.w #vdp_reg($0F, $01), (a4)` — `engine/system/boot.emp:109`, and `AUTO_INC_2_CMD` at `engine/system/boot_data.emp:94`) folds to `$8F01` only at assembly time; no source line ever contains `#$8F`, so the old grep could never find it and the census above was silently short by one site. `Set_VDP_Reg` is matched so the audit also enumerates the sanctioned *shadow* path in the same pass.
+
+The sanctioned transient hits today are the `$8F02`/`$8F80` autoincrement excursions in `engine/level/bg.emp`, `engine/level/plane_buffer.emp` and `engine/level/section.emp` (masked, asserted), plus boot's `vdp_reg($0F, $01)` fill excursion (safe by context, no assert — see above). `engine/system/release_fault.emp`'s two direct writes are the lean-shape fault path, which by design runs after the engine has stopped.
 
 ### 0.5 Z80 Initialization & Sound System Bootstrap
 

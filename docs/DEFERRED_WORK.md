@@ -3747,7 +3747,19 @@ reasons so the next session does not re-walk them:
 
 REVISIT only if a second stride-switching writer ever appears outside the current three
 files (plane_buffer / bg / section — full 9-site inventory in the defect-batch scoping
-notes). The runtime re-assert stays correct regardless.
+notes).
+
+**SUPERSEDED 2026-08-14 — the runtime re-assert is gone, and NEW-1 is closed by a stronger
+mechanism.** `Flush_VDP_Shadow` now re-blits every shadowed register including `$0F`
+unconditionally at the top of both VBlank paths (§0.4 blanket restore), and reg `$0F`'s shadow
+byte is `$02` from `BootData_VDPRegs` with no writer anywhere. On the `VInt_Lag` path nothing
+between the flush and the Critical drain touches the VDP at all — `Enqueue_Dirty_Buffers` is
+RAM-only — so the 8-byte `move.w #$8F02, VDP_CTRL` was provably dead and was deleted rather
+than kept as a dormant scaffold. The ambient invariant NEW-1 distrusted is no longer what the
+lag path rests on. `VInt_DrawLevel`'s own `.done` restore is a different case and stays: it
+sits *between* the flush and the drain on the `VInt_Level` path, downstream of a real `$8F80`
+excursion, so it is load-bearing. The structural-close reasoning above still stands as the
+verdict on declared contexts for stride switching.
 
 ### `Palette_Dirty` drop-retained analog — RECORDED, not fixed
 

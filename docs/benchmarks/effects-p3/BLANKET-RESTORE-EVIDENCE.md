@@ -71,10 +71,11 @@ the three sites, ~55-60 cycles each.
 
 ## The reg `$0F` invariant, and its gate
 
-The flush now writes reg `$0F` (autoincrement) every frame. Three routines make mid-frame `$8F80`
-autoincrement excursions that bypass the shadow entirely, and they are safe only because interrupts
-are masked across them. Previously that safety was *structural* — nothing marked `$0F` dirty, so the
-flush provably could not touch it. This parcel spends that guarantee, so it replaces it with a gate:
+The flush now writes reg `$0F` (autoincrement) every frame. Three in-game routines make mid-frame
+`$8F80` autoincrement excursions that bypass the shadow entirely, and they are safe only because
+interrupts are masked across them. Previously that safety was *structural* — nothing marked `$0F`
+dirty, so the flush provably could not touch it. This parcel spends that guarantee, so it replaces
+it with a gate:
 
 ```emp
 if DEBUG == 1 {
@@ -99,6 +100,26 @@ Two placement constraints, both found by building rather than by reading:
 
 None is placed immediately after its proc's own `move.w #$2700, sr`; that would measure the line
 above it and be vacuous. Each sits far enough from the mask that a refactor moving either gets caught.
+
+### The fourth site, and why it has no gate
+
+There is a **fourth** `$0F` excursion, and the three-site census above is incomplete without it:
+`engine/system/boot.emp:109` writes `move.w #vdp_reg($0F, $01), (a4)` — autoincrement 1, so the
+VRAM DMA fill steps byte by byte — and restores it from `AUTO_INC_2_CMD` (`boot_data.emp:184`).
+
+It carries **no assert, on purpose.** It is safe by *context*, not by masking discipline: boot runs
+masked at `$2700` from its first instruction, VInt is not enabled in the VDP until `boot.emp:300`
+(`move.b #$34, VDP_Shadow_Table + VDP_MODE2_OFF`, flushed at `:303`), and the SR is not lowered to
+`$2300` until `:307`. No VBlank handler can run while the excursion is open, so no flush exists to
+land in it. An IPL assert here would re-measure the boot mask a few lines above and be exactly the
+vacuous check the three placements above were careful to avoid.
+
+It is recorded because of **how it was missed**: the audit grep this parcel inherited
+(`move\.w\s+#\$8[0-9A-Fa-f]|#\$9[0-2][0-9A-Fa-f]`) *structurally cannot* find it. The word is
+spelled `vdp_reg($0F, $01)` and folded at comptime, so no source line contains `#$8F`. The grep in
+`ENGINE_ARCHITECTURE.md` §0.4 now also matches `vdp_reg\(` and `Set_VDP_Reg`, which finds both boot
+sites (`boot.emp:109`, `boot_data.emp:94`). A census tool that cannot see a whole spelling class is
+worse than no census, because it reads as exhaustive.
 
 ## The offset that the pins caught
 
