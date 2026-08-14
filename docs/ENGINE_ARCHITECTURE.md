@@ -12,14 +12,14 @@ This is the **design bible**. This document describes the engine we're building 
 
 | # | System | Key Decisions |
 |---|--------|---------------|
-| 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (Batman — only changed registers written during VBlank), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, soft-reset detection + DMA-safe warm path (warm boot falls through to full init; nothing is preserved by design — §0.11), region detection with region-adaptive DMA budget (NTSC-only), 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
+| 0 | Hardware Init & Boot | SSP at $FFFFFF00 (Treasure/Vectorman — stack isolated from game data), RAM-patched HBlank+VBlank vectors (interrupt dispatch table — modern event system), VDP shadow table with dirty tracking (NOVEL Aeon design — only changed registers written during VBlank; the "Batman" credit was wrong, corrected 2026-08-14, see §0.4), DMA-parallel init (VRAM fill runs while CPU clears RAM/inits Z80 — modern async I/O), compile-time VDP register table with AS validation, soft-reset detection + DMA-safe warm path (warm boot falls through to full init; nothing is preserved by design — §0.11), region detection with region-adaptive DMA budget (NTSC-only), 6-button controller port init, Z80 init with YM2612-safe timing, build-time sine table generation |
 | 1 | Core VDP Pipeline | 3 priority sub-queue DMA, hybrid unrolled/looped drain, static DMA for fixed transfers, variable hscroll dirty tracking, adaptive byte budget, DPLC lookahead, deferred plane buffer, HUD dirty flags |
 | 2 | Art & Compression Pipeline | Two-tier compression (measured 2026-06-11): S4LZ v3 (word-aligned LZ + per-section block dictionaries, ~510-640 KB/s) for the runtime block path; ZX0 (~76 KB/s, zlib-class ratio) for load-time tile art. The FG act art pool ships as ZX0 pages; S4LZ remains the runtime block-stream format. Uncompressed sprite art + improved DPLC/DMA (zero CPU, proven by every commercial Genesis game — UFTC dropped after 0.82-0.86 ratio on real data, see `docs/research/tile-format-survey.md`). Raw tilemaps (menu/level select). **Unified VRAM art pool $000-$5BF (1,472 tiles)**, **64×64 scroll planes** ($9011 — validated by Vectorman, enables ±288px vertical buffer + VSRAM deformation), **build-time tile deduplication + spatial pool ordering + paging** (globally-deduped, spatially-ordered, paged act art pool — no per-section allocation), **character DPLC art in the pool ($3C0) + SAT/HScroll in a sub-Plane-A region ($5C0-$5FF) — off-screen-row embedding retired so both 64-row planes stream freely**. Whole-act paged art pool as a **VRAM residency cache** (§9.7): small 64-tile ZX0/raw pages streamed in on demand + prefetch via the supervisor-bookmark idle-time decoder, capped by ROM not VRAM — degenerates to fully-resident for acts whose window fits the pool (e.g. OJZ). Per-section BG support. DPLC improvements: lookahead (NOVEL — predictive pre-load), priority integration, generic Perform_DPLC, build-time contiguous art layout. Nemesis/Kosinski/Comper/Enigma/UFTC not used |
 | 3 | Object System | $50 SST with hot/cold reorder (novel), free slot stack O(1) allocation (beats all references), data-driven child creation (4 strategies from S.C.E.), collision_response type dispatch with width/height from SST (novel — more modular than any reference), animation events as behavior sequencer (novel), per-frame delays, multi-sprite animation, per-frame art via DPLC/DMA from uncompressed ROM, **sprite link-order cycling (overflow fairness)**, **sprite X=0 masking (hardware clipping)**, **scanline-aware sprite budgeting** |
 | 4 | Level / World | 2D section grid with signed Y (novel), **continuous world-space camera over a 64×64 wrapping VDP plane (classic S2/S3K — no slots, no teleport, no rebase)**, full-height vertical streaming with a grid-derived camera clamp, **per-act vertical `edge_mode` (CLAMP shipped / WRAP_V + KILL deferred hooks)**, edge streaming into the wrapping plane (always-on "see into the next section"), block-based 2D tile cache (Batman — eliminates chunks/blocks from RAM), deferred plane buffer (S.C.E.+overflow fix), 8-layer computed parallax with dual FG/BG deformation + per-block linear interpolation (TF4+S.C.E.), per-section everything (snapped on section-boundary crossing), **camera-driven entity window with 3×3 rolling collected bitmask (novel)**, **section-local entity ROM data (positions relative to section, respawn/kill memory keyed by section_id — coordinate-invariant)**, per-section type tables, flat X-sorted ring lists, unified ring buffer with 3×3 rolling collected bitmask, player position history buffer, state-dependent camera speed caps, dynamic terrain override, scroll table pre-computation over HInt where possible, **collision embedded in block data (S.C.E.-style per-placement, zero separate maps)**, **per-section full palette copies (128 bytes, instant load)**, floating-origin rebase as the future unbounded-level path (coarse/invisible/atomic — replaces the deleted leapfrog) |
 | 5 | Player / Character | **SHIPPED (§5, branch player-system):** flat explicit PSTATE_* state machine + Player_SetState enter/exit hooks (hierarchical was evaluated and REJECTED), classic motion-quadrant + angle-band landing axis-select (the "vector projection on landing" claim was a verified S3K myth — NOT used), effective-physics-table-in-RAM (a4 convention; per-section *plumbing* shipped with an identity modifier — the modifier/Lerp system itself is deferred), air drag apex-only (classic-wide, not an S3K fix), roll-jump lockout kept classic, 2-frame jump buffer + jump-delay fix (the two modern concessions), −$FC0 up-cap REMOVED (feel deviation, PHYS_GSP_CAP coupling), angle continuity for loop stability, level bounds, spindash charge curve (table-based), slope factor muls→shift, landing camera lock + spindash freeze, 3-character shared-code structure via Player_Common (Sonic-only shipped), **SWAP-based 16.16 fixed point (Treasure)**. **SHIPPED (feat/sonic-animations):** shared ANIM_* id contract (11 ids, build-time assert), Player_Animate read-only classifier (priority-ordered, display-conditions not new state bits), DUR_DYNAMIC speed-scaled timing in AnimateSprite, shared spindash in player_spindash.emp, Player_AtLedgeEdge balance probe, _pl_look_offset zero-seam, DEBUG anim viewer. **DEFERRED:** 6-button mappings, the per-section physics modifier system, multi-character dispatch, shields, dropdash, instashield, get-up trigger, duck/look-up camera pan. See the §5 body + DEFERRED_WORK.md §5. |
 | 6 | Audio | **From-scratch custom Z80-autonomous driver** (NOT Flamedriver — the import plan was superseded by the 2026-06-16 master sound spec). **SHIPPED (Plans 1A/1B/1C/1D + Phase 3a):** Z80 shell + mailbox + Timer-A scheduler primitives (1A), DMA-survival single-channel DAC (1B, MegaPCM-2 free-running every-path-equal-cost streaming loop), FM/PSG music sequencer (1C — event-list song format v0, per-channel stream interpreters, FM voice writer with log-volume LUT + per-algorithm carrier mask, PSG tone/noise + pause silence, Timer-A one-overflow-per-tick scheduler, DAC drums via the 1B path, PlayMusic/StopMusic). **Phase 3a FM depth + 1D Moving Trucks (merged `c89bea3`, 2026-06-19):** per-frame modulation engine (write-on-change ModUpdate at ~59.06 Hz, per-channel tempo accumulator over a fixed Timer-A clock), per-song pitch table + pitch envelopes (trills/arps), pan, signed per-op TL bias, voice-stepping via build-time register deltas, hardware LFO ($22=$08), note-fill gate articulation, and a faithful native-sequencer port of B&R 'Moving Trucks'. **ALSO SHIPPED (DAC-drum revision + SFX engine + music-expression spine, through 2026-06-27):** one-shot PCM drums with adaptive FM6 time-share; the **SFX engine** (steal/priority/ducking, `Sound_PlaySFX`); and the **music-expression spine** — software vibrato/`MEV_MODSET` for music, per-frame FM-TL volume envelope (`MEV_FMENV`), inline raw-register write (`MEV_REGWRITE`, $2A/$2B-guarded), SSG-EG load-time per-op patch (`FmPatch` $90 group), dual-stream macro automation (`MEV_MACRO`/`MacroTick` on `sc_mod_ptr` slot[1]), PSG volume envelopes. **ALSO SHIPPED (music-expression Phase 2 + sound-perf phase, through 2026-07-02):** per-note portamento (`MEV_PORTA`, resident) + detune/fine-pitch, global fade (`SND_REQ_FADE`) + S3K-exact tempo (`MEV_TEMPO` accumulator+skip) + hardware-LFO opcode (`MEV_LFO`), measured 59.9227 Hz frame-clock pin, envelope write-on-change. **DEFERRED:** ~~N-channel DAC mixer~~ (REJECTED — single-voice + pre-mixed composites RATIFIED by user 2026-07-03, see §6.2); ~~runtime SSG-EG 7th-RegDelta-group~~ (**SHIPPED 2026-08-10, package 4** — `RegDeltaGroupBase` group 6 = `$90`, `REGDELTA_GROUP_COUNT` 7; E5 now closed at both load time and runtime), Ch3 special/CSM, detune-unison (Ph3b residuals); Phase-4 richer content-adaptive FM6/DAC modes (basic dedicate/adaptive Echo toggle already SHIPPED); ~~game-feel moments~~ (**SHIPPED 2026-08-09, package 1** — pause/unpause scopes with freeze-in-place resume, jingle push/pop, song-finished/comm status contract, composed fade terminals + 8 spread-bit fade rates, 68k API v2; see §6.1's game-feel paragraph); section-aware banking (§6.4); continuous SFX (→ SFX Stage C, §6.7); distance attenuation DEMOTED (§6.5); procedural ambient CUT (§6.6); MegaDAW compiler/export (Ph6, blocked on content sourcing). See §6 body + the 2026-06-16 master sound spec. |
-| 7 | Visual Effects | **Unified raster command table (Batman — stackable per-scanline VDP register changes)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
+| 7 | Visual Effects | **Unified raster command table (NOVEL Aeon design — stackable per-scanline VDP register changes; the "Batman" credit was wrong, corrected 2026-08-14, see §7.2)**, Shadow/Highlight hardware lighting (novel for platformers — zero CPU cost), per-scanline palette gradients (Sonic 3 technique, **CRAM/VSRAM 2x active-display DMA speed**), computed water palette (novel), palette cross-fading, white/negative flash effects, window plane HUD + dynamic letterboxing, 16-oscillator system (S.C.E.), screen shake, 512-entry sine table, compound rotation (Batman), effect sequencer, line+column pseudo-rotation, display-disable burst DMA (advanced), mid-frame nametable register swapping (Batman — multi-layer Plane B), mid-frame VSRAM manipulation (Batman — per-scanline column deformation), **FIFO slot-precise mid-scanline writes (Titan Overdrive)**, hit-stop/freeze frames, SNES-style S/H transparency (2024), **sprite cache table-switching (Bloodlines — free water reflections)**, **vertical border opening (Kabuto — 19 extra NTSC scanlines)**, **sprite mapping format — VDP-order reorder (8 bytes/piece)**, **palette cycling animation (Jon Burton — 4x frames from CRAM cycling)**, **Project MD reflection floor**, **interlace Mode 2 (320x448, available for high-res overlays)** |
 | 8 | Tooling & Build | **Authoring pipeline (tile/block/chunk editor stamps → build tool: flatten, deduplicate, spatially-order and page the global act art pool, generate block data with embedded collision + S4LZ art)**, **level editor tile budget UI (per-section shared/unique counts, per-corner budget view, warning system)**, pre-computed nametable build tool, **debug system architecture (S.C.E. two-phase gating + 10 per-subsystem toggles)**, **MD Debugger v2.6 error handler (backtrace, symbol resolution, console programs)**, **per-module debug assertions (S.C.E. + Vectorman pointer bounds/breadcrumbs/corruption detection + CHK instruction)**, **frame profiler (raster bars + VDP window lagometer + KDebug + lag detection + stack guard + watchdog)**, RAM layout documentation, build system improvements (jump sizing 10-50x speedup, dual build targets, convsym pipeline, assembly pass checking, compile-time validation), Exodus MCP integration, level editor integration |
 | 9 | Cross-Cutting Systems | Level database (unified descriptors, S.C.E. levartptrs evolution), object communication (Treasure parent-child links + S.C.E. trigger array + boss event buffer), error handler with stack guard (Batman high-byte vector IDs + watchdog), 6-button controller (rapid TH cycling protocol + detection), **soft-reset detection + DMA-safe warm path (persistence RULED OUT 2026-08-05 — SRAM is the mechanism, §9.5/§9.6)**, SRAM save system (Sonic 3 dual-copy checksums), **idle-time deferred work (§9.7 — pre-chunked pages + VBlank supervisor bookmark, resumable ZX0 art-page decode; SHIPPED)**, **ROM banking awareness (SSF2 mapper, conditional on ROM >4MB)**, **128KB VRAM mode (investigated, Kabuto byte-wide DMA)**, **PC-relative addressing audit (Batman leads with 986 refs)**, **clearRAM performance variants (3 S.C.E. macros + MOVEM bulk clear)**, **game state machine (function pointer dispatch, 11 states)**, **text/font rendering (96-char ASCII, DrawString/DrawHex/DrawDecimal)**, **screen/menu system (lifecycle init/update, title cards, credits)** |
 
@@ -463,9 +463,45 @@ ensure(PLANE_H_CELLS * PLANE_V_CELLS <= 4096, "Plane exceeds 8KB")
         move.w  d0, (a3)            ; trigger fill (fill byte = 0)
 ```
 
-### 0.4 VDP Shadow Table — RAM-Resident Register Mirror (from Batman & Robin)
+### 0.4 VDP Shadow Table — RAM-Resident Register Mirror (NOVEL Aeon design)
 
-**Source:** Batman & Robin (`main_loop.asm:4579-4584`) bulk-writes all 19 gameplay VDP registers from a RAM table every VBlank. Alien Soldier does the same. This is the GPU state object pattern from modern 3D engines, adapted for VDP.
+> **PROVENANCE CORRECTED 2026-08-14.** This section previously read "(from Batman & Robin)" and
+> sourced the design to `main_loop.asm:4579-4584`. **Both were wrong, and the error was already
+> visible inside this document** — §1.7 below has always said "vs Batman's bulk-write-all
+> approach", and the dirty-tracking paragraph further down has always been marked
+> "(NOVEL — no reference game does this)". Re-verified against the disassembly at
+> `/home/volence/sonic_hacks/The Adventures of Batman and Robin/disasm/`:
+>
+> - **The cited lines are not a VDP routine at all.** `code/engine/main_loop.asm:4570-4595` is a
+>   nibble-expansion / bitplane loop (`lsr.l #$4` + table lookups), no VDP access anywhere in it.
+> - **What Batman actually does** is `sub_00AE2C` (`code/engine/main_loop.asm:5400-5409`):
+>   `moveq #$12, d7` (19 iterations), `move.w #$8000, d0`, then per iteration
+>   `move.b (a0)+, d0` / `move.w d0, $c00004.l` / `addi.w #$100, d0` / `dbra`. That is an
+>   **unconditional bulk write of 19 registers from a byte table** — no readback, no compare,
+>   no dirty bit, and no per-register skip. Its two callers
+>   (`code/engine/main_loop.asm:3601`, `:3864`) are scene/level setup, not the VBlank handler;
+>   the second passes `lea $155bc.l, a0`, a **ROM** table, not a RAM one.
+> - **There is no register shadow in Batman.** `grep -rin f81e` over every Batman `.asm` source
+>   and companion doc returns **zero** hits (the only hits anywhere are four incidental ones in
+>   the generated listing `disasm/batman.lst` — a branch displacement and three address-column
+>   values, none of them a RAM reference). `shadow` / `dirty` / `mirror` likewise return zero
+>   hits across its companion documents. The VDP register mirror at `$FFFFF81E` that this credit
+>   describes belongs to a **different ROM** that happens to live in a sibling directory:
+>   *The Chaos Layer*, which reads it (`the_chaos_layer/code/disasm.asm:490-515`:
+>   `move.w ($fffff81e).w,d0` / `ori.b #$10,d0` / write back) and bulk re-pushes it
+>   (`the_chaos_layer/code/disasm.asm:327-334`); see also
+>   `the_chaos_layer/notes/BOOT_AND_FRAME.md:468-492` and `notes/GRAPHICS.md:765`.
+>   Note TCL's mirror is **19 words** — the same $00-$12 span Aeon shadows, a coincidence of
+>   scope, not a shared design — and TCL has **no dirty tracking either**: its `$000534` loop
+>   unconditionally re-pushes all 19.
+>
+> **The shadow-plus-dirty-tracking design below is therefore ours.** The RAM mirror is a
+> convergent, common technique (the VDP control port is write-only, so anything that needs to
+> read a register back must keep a copy); the **dirty-tracked flush** — `SetVDPReg` sets a bit,
+> `Flush_VDP_Shadow` writes only the changed registers in ascending order — is a novel Aeon
+> design and was already labelled as such further down this section.
+
+**What the pattern is:** a GPU state object, from modern 3D engines, adapted for the VDP.
 
 **Design:**
 
@@ -1333,7 +1369,7 @@ The design below is preserved as an unimplemented proposal:
 
 ### 1.7 VDP Register & VSRAM Management
 
-**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.emp`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach.
+**VDP register shadow:** Full 19-register shadow table with dirty tracking (§0.4, `VDP_Shadow` struct, `engine/structs.emp`). Game code is *supposed* to never write VDP registers directly — all changes should go through `SetVDPReg`, which updates the RAM shadow and sets a dirty bit. `Flush_VDP_Shadow` in VBlank writes only the changed registers via a per-register `btst`/`beq .skip` gate in ascending register order. Most frames, 0-3 registers change, so the dirty-tracking approach skips 16-19 register writes vs Batman's bulk-write-all approach (verified 2026-08-14: `sub_00AE2C`, `The Adventures of Batman and Robin/disasm/code/engine/main_loop.asm:5400-5409` — 19 unconditional register writes from a byte table, no readback; see the §0.4 provenance note).
 
 **Known exception (2026-07-16 review):** OJZ test/game-shell code has a direct `$8B` VDP write for HScroll mode that bypasses `SetVDPReg`, violating the invariant above. This is tracked as a bug, not a supported pattern — the engine-level convention still holds; the violation is game-side content, not engine code.
 
@@ -3414,7 +3450,61 @@ load is an instant snap. Otherwise only the **dirty-line DMA upload** is impleme
 
 **Per-scanline palette gradient :** Cycle-exact CRAM writes during HInt — 3 colors per scanline pushed into overscan (Sonic 3 technique). Enables smooth 224-step sky/water gradients. Pre-computed gradient table: 224 × 6 bytes = 1,344 bytes RAM. **Key timing detail:** DMA to CRAM and VSRAM during active display runs at 2x the speed of VRAM DMA (36 bytes/scanline in H40 vs 18 bytes/scanline). This doubled bandwidth makes mid-frame palette gradient writes and VSRAM column-scroll updates significantly more practical than VRAM transfers during active display.
 
-### 7.2 Unified Raster Command Table (from Batman & Robin)
+### 7.2 Unified Raster Command Table (NOVEL Aeon design)
+
+> **PROVENANCE CORRECTED 2026-08-14.** This section and the §7 index row previously read
+> "(from Batman & Robin — stackable per-scanline VDP register changes)". Batman & Robin has no
+> such thing. Re-verified against
+> `/home/volence/sonic_hacks/The Adventures of Batman and Robin/disasm/`:
+>
+> - **Its HBlank handler lives in RAM and is a copied, self-modifying routine — not a table
+>   walker.** The IRQ4 vector points at `$FFFFE560`
+>   (`code/init/vectors.asm:33`), and the game *copies a whole routine* into that slot:
+>   `lea $b15e.l, a0` / `lea $ffffe560.l, a1` / `moveq #$45, d7` / `move.w (a0)+, (a1)+` / `dbra`
+>   (`code/engine/misc.asm:71-77`, a 70-word body), with a shorter 38-word variant at
+>   `code/engine/misc.asm:136-142`. It then patches words *inside* the copied code — the source
+>   pointer at `code/engine/misc.asm:83`, `:91`, `:101`, and the routine's own `bcs` displacement
+>   at `:104`, `:117`, `:120`, `:123`, `:159`, which is how it chains page-carry stages and
+>   eventually shuts HInt off. Textbook self-modifying code, running from RAM.
+>   Elsewhere the slot is armed the same way Aeon's is, by writing a `jmp`:
+>   `move.w #$4ef9, $ffffe560.l` + `move.l #$24526, $ffffe562.l`
+>   (`code/objects/objects_1.asm:550`, again at `:598`).
+> - **What the handler consumes is a value table, not a command table.** The handler at
+>   `$0245E0` issues a VSRAM write command and then streams longwords straight from a RAM array
+>   (`code/objects/objects_1.asm:613`, `:616-620`; the array at `$FFFFF576` is built by a
+>   20-iteration copy loop at `:585-592` — 20 entries, i.e. per-column VSRAM). There is **no
+>   opcode field, no register selector and no scanline compare** anywhere in that stream. The
+>   two other handler variants stream a 4-byte-per-scanline and a 2-byte-per-scanline value
+>   table respectively (`code/engine/misc.asm:78-79`, `:143-144` name the double-buffered
+>   table pairs) — values only, in both cases.
+> - **The thing that *is* a command table in Batman is a frame-level effect bytecode**, not a
+>   raster one: a 16-opcode interpreter with a 4-deep call stack at `$FFFFF4FC`, whose opcodes
+>   are reset / start / continue / push / pop / set-repeat / loop / computed-jump and eight
+>   palette-set loads (`disasm/EFFECTS_ENGINE.md:213-270`). Loops and palette swaps — no
+>   scanlines, no VDP register selection.
+> - **What Batman has where we have a program is a 16-mode dispatcher.** A RAM word
+>   (`$FFE55A`, pre-multiplied by 4) indexes a 16-entry `jmp (pc,d0.w)` table
+>   (`code/engine/main_loop.asm:5423-5441`, with a parallel table for the lag path at
+>   `:5443-5461`), called from VBlank (`code/engine/interrupts.asm:708`). Each mode sets up a
+>   whole frame's raster shape — mode 11 for instance arms per-line HSCROLL DMA plus
+>   per-column VSRAM DMA (`code/engine/main_loop.asm:5520-5524`). **Mode 1 is an
+>   arbitrary-routine hook**: `movea.l $ffe55c.w, a4` / `jmp (a4)`
+>   (`code/engine/main_loop.asm:5467-5469`). That is a mode selector plus an escape hatch —
+>   a coarser and different thing from a schedule of typed per-scanline ops.
+>
+> **So the format described below — a header, fire records in fire order carrying a precomputed
+> reg-$0A arm word plus an op count, and typed ops (`OP_SET_REG` / `OP_CRAM` / `OP_PAL_REGION` /
+> `OP_RUN_GRADIENT`) that stack arbitrarily on one scanline — is a novel Aeon design.** Nothing
+> in the surveyed corpus schedules per-scanline VDP work as a stackable typed-op program.
+> What Batman genuinely does contribute is credited accurately elsewhere in §7: mid-frame
+> nametable-register swapping and mid-frame VSRAM manipulation, both of which its RAM HBlank
+> handler really does (`code/objects/objects_1.asm:611` writes `$8406`, i.e. reg $04 = Plane B base, from inside
+> the handler; `:613` issues the VSRAM write command).
+>
+> The RAM `jmp`-slot trampoline (§0.10, §1.8) is a separate matter and Batman *is* a genuine
+> precedent for it — it patches `$4EF9` + target into its HBlank slot exactly as we do
+> (`code/objects/objects_1.asm:549-550`). That precedent is worth recording; it is not the
+> command table.
 
 > **Sparse tier SHIPPED 2026-08-12** (`engine/system/hblank.emp`). The as-built
 > format and its timing model are below; the rest of this subsection is the
