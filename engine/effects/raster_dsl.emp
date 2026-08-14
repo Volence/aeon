@@ -16,8 +16,10 @@
 // module to import engine.effects.raster's constants or get `unknown name` — and in
 // struct-literal position a missing import degrades SILENTLY to a label reference. The
 // module-level ensures immediately below keep the single source of truth without
-// imposing that on callers. This is the pattern water_arm0 established
-// (engine/effects/raster.emp:585-597).
+// imposing that on callers. Those pins ARE the codebase's reference example of the
+// pattern now: the sparse-tier helper it was originally taken from was deleted along
+// with the rest of the authoring block this module replaced, so the rule outlived its
+// exemplar. Follow the pins below.
 //
 // vdp_comm / VdpTarget / VdpOp ARE safe to name in a body: engine.vdp is itself a
 // COMPTIME_HELPERS member, so it is glob-injected at every call site.
@@ -155,8 +157,8 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
 //
 // `sh` HAS NO DEFAULT, deliberately. sh:0 yields a program with ZERO init words, which
 // moves the priming arm word off word 3 — and Raster_PatchWaterLine writes byte offset
-// 6 (WATER_TEMPLATE_ARM0_OFF, raster.emp:572) unconditionally at three sites
-// (:656, :665, :668). On a patched template that would overwrite the priming record's
+// 6 (WATER_TEMPLATE_ARM0_OFF, raster.emp:561) unconditionally at three sites
+// (:635, :644, :647). On a patched template that would overwrite the priming record's
 // op_count with an arm word, and Raster_HInt would then loop tens of thousands of times
 // over garbage. A `= 0` default made the corrupt case the one an author gets by simply
 // not thinking about Shadow/Highlight, so the parameter is required instead. The

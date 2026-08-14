@@ -35,6 +35,16 @@ use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // EMISSION site's scope, not the definition site (the same late-binding rule the
 // `asm {}` splice helpers document), so raster_gradient_program's own constants must
 // be visible HERE or they degrade to unresolved label refs.
+//
+// WHETHER THAT DEGRADATION IS LOUD DEPENDS ON THE DESTINATION FIELD'S TYPE, and that,
+// not the degradation itself, is the real hazard. Measured 2026-08-13 by deleting
+// RASTER_ARM_PARK + RASTER_OPS_END from the import above: the build failed with
+// `[emit.type] expected an integer for u16, got label` — the names DID silently become
+// label references, and it was `rgp_end_arm`/`rgp_end_ops` being declared `u16` that
+// turned that into an error. `rgp_stream` is `*u8`. A bare name degrading into a
+// POINTER-typed field is a well-typed label reference, so it emits a plausible address
+// and the build stays green with the program changed. Prune this list only against the
+// golden ROMs.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
 use engine.effects.palette_dsl.{cycle_channel, cycle_script1}
@@ -505,7 +515,7 @@ ensure(RASTER_CRAM_MAX == 3,
 // OJZ_TestRaster note) and the effect is visible as well as measurable.
 const OJZ_GRAD_CRAM_ADDR = $48
 ensure(vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
-       "CRAM write command encoding drifted — OJZ_TestGradient's command is stale")
+       "vdp_comm's CRAM encoding changed — raster_gradient_program is handed this very call's result as rgp_cmd, so a drift here moves the emitted program")
 
 // Genesis CRAM is 3 bits per channel, so 8 levels is the hardware's whole range: the
 // ramp steps every 12 lines and a "monotonic ramp" claim means non-decreasing with

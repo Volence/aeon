@@ -1882,6 +1882,10 @@ non-zero; intermittently they read zero.
 **What:** No section-crossing palette code exists in `engine/level/` (verified 2026-08-08: no palette/CRAM/fade references there at all). `sec_pal` and `sec_pal_cycle` are reserved descriptor fields with no runtime consumer. The shipped palette path is game-poked only: game code writes `Palette_Buffer` + `Palette_Dirty` bits and `Enqueue_Dirty_Buffers` DMAs dirty lines to CRAM (§7.1). The planned design — descriptor-driven palette load on crossing, instant or ~16-frame RGB-lerp cross-fade, per-section cycling, blend cells (§4.8) — is future §7 work.
 **Blocked by:** §7 Visual Effects execution (palette-system design phase); nothing technical. The Deep-Forest-BG entry's "per-section palette variants" (below) is the cheap first step and depends on the same mechanism.
 
+### Pointer-typed struct fields make an import prune undetectable at build time — recorded 2026-08-13
+**Surfaced during:** effects P3 Parcel A, Task 9 (the import prune on `games/sonic4/data/parallax/configs.emp`).
+**What:** A comptime fn's free names resolve at the EMISSION site, so a constructor's returned struct literal needs its constant names imported into whatever module emits the `pub data`. A missing import does not error there — the bare name degrades to a label reference. Measured: dropping `RASTER_ARM_PARK` + `RASTER_OPS_END` failed only as `[emit.type] expected an integer for u16, got label`, i.e. the *field type* caught it, not the resolution. `RasterGradientProgram.rgp_stream` is `*u8`, and a label reference is well-typed there — such a prune emits a plausible address, builds green, and moves the emitted program. The golden ROMs are the only guard on that case; the build itself cannot see it. Documented in place at `configs.emp`'s dense-tier import comment.
+
 ---
 
 ## From §4.6 — Parallax (post-T17 backlog)
