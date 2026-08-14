@@ -92,6 +92,64 @@ content (moving boundaries, a world-anchored gradient) is exactly what those unl
 
 ---
 
+## What the corpus sweep changed (2026-08-14, nine disassemblies + web)
+
+Three items outrank most of the sequence above and are new:
+
+**RR — blanket register restore.** Gunstar re-blits regs `$01`-`$12` from a RAM shadow every
+VBlank in ~290 cycles (`gunstar_disasm/code/disasm.asm:636-655`); Alien Soldier does it
+selectively. That is *why* both Treasure engines clobber registers mid-frame with no per-effect
+cleanup. Aeon instead makes each author supply a frame-top `reset` per op, which means two presets
+touching one register must **agree** — composition as negotiation. Adopting the blanket restore
+deletes the `reset` parameter from the vocabulary. **This is the single biggest structural item for
+the SMPS-shaped goal** and it is byte-changing.
+
+**RAMP — an accumulator op.** Five engines independently converged on per-line values computed by a
+16.16 accumulator rather than streamed from a table: Ristar's perspective floor (one `divu` per
+frame, then `add.l step,acc / asr.l #8` per line, ROM `$061ACE`), Gunstar's `sec θ` fan, Alien
+Soldier's mirrored `$8000/amplitude`, Vectorman's centre-anchored DDA with **no table at all**, and
+Thunder Force IV's Bresenham DDA in reserved registers. Aeon's `OP_RUN_GRADIENT` streams fixed words
+from a baked pointer and has no accumulator and no runtime parameter. Adding `OP_RUN_RAMP` — roughly
+six instructions in `.dense_body`, with `(start, step)` as runtime words in `Raster_State` — buys
+vertical zoom, perspective floor, screen-melt, sweeping wave and hit-stop squash **as parameterised
+presets**. Highest capability-per-line-of-code found.
+
+**Only CRAM glitches.** A CRAM write during rasterisation recolours the pixel being drawn; VRAM,
+VSRAM and register writes produce no mid-line artifact (Nemesis, SpritesMind t=291). So `vsram()`
+inheriting `EFX_BLANK_DELAY` and the `RASTER_CRAM_MAX = 3` ceiling is pure loss — the hardware
+ceiling is ~6 VSRAM words/line and Ristar writes **42 in one fire**. Splitting the op class is a
+free capability increase.
+
+Also worth knowing: the corpus runs handlers at **84-230 cycles/line** against our 454, via three
+transferable levers — a globally reserved stream register, a VDP port pre-armed in VBlank with
+autoinc 0, and pre-fetching the next line's value inside this line's handler. That 3-5x is the
+difference between a few bands and a preset per band.
+
+### Cheapest genuinely-new effect on the machine
+**Per-line backdrop (reg `$07`).** Verified negative across the whole corpus — nobody does it
+per-line — yet register writes are not slot-bound and do not glitch. One 12-cycle write per line is
+the cheapest true raster bar available, and Aeon can author it **today** via `set_reg`; it simply
+has no consumer.
+
+### Traps recorded
+Mid-frame H32/H40 switching is supported by **Exodus only** — and oracle is Exodus-derived, so it is
+the one technique that would look fine here and be wrong everywhere else. The VDP debug register
+stays rejected (bus-conflict based, ~30% of Model 1 units glitch). Vertical border opening is
+incompatible with our per-frame arm-schedule rewind (HIRQ is not reset per frame). And re-arming
+reg `$0A` inside the handler can double-fire — Tanglewood ships a `btst.b #0` filter for it and
+**Aeon re-arms on every fire**, which is worth a look.
+
+### Corrections owed to our own docs
+- `docs/research/ristar-techniques.md` claim #4 is **false**: Ristar does not use cell-scroll as its
+  workhorse — reg `$0B` is only ever `$8B03`/`$8B07`, both per-line, and it DMAs a full 1024-byte
+  256-line HScroll table every frame. Claim #3 is correct and better than stated: the per-stage
+  table pairs each HInt handler with a matching VBlank setup hook, and the pairing is the part to copy.
+- The checked-in `ANALYSIS.md` raster sections for Thunder Force IV, Vectorman and Gunstar are wrong,
+  and those linear disassembly sweeps are desynced exactly where the handlers live.
+- `EFFECTS_AUTHORING.md` still calls the VSRAM landing line UNMEASURED while `DEFERRED_WORK.md`
+  records it MEASURED N+1. Reconcile — and note the mode may decide it, so pin it per reg-`$0B`
+  mode rather than globally.
+
 ## Technique worth taking from the corpus
 
 **HCZ's permutation-profile distortion.** `HCZ_WaterlineScroll_Data` is 9312 bytes = **97 × 96
