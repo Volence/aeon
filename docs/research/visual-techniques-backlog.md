@@ -167,6 +167,34 @@ the backdrop red before halting). A raster program is a frozen schedule; the per
 animation this entry describes would need either a staged word the program reads or a
 frame-level animator, and neither is built.
 
+**MEASURED 2026-08-14 — INERT ON OJZ, AND THE REASON IS THE ART. Do not re-run this.**
+The backdrop is only visible where plane A, plane B **and** sprites are all transparent.
+Measured directly, with raster taken out of the equation: the boot value at
+`engine/system/boot_data.emp:135` was changed from `$00` (pal 0, entry 0) to `$16`
+(pal 1, entry 6 = white) and the frame diffed against the unmodified build.
+
+> **Zero pixels differed, out of 71,680.**
+
+OJZ act 1 section 0 has **no transparent pixels on screen at all**. The 51% of the frame that
+reads as pure black is opaque black *art*, not the backdrop showing through. A four-band raster
+probe (white/yellow/blue/grey at lines 40/90/140/190) confirmed it from the other direction:
+the blue and grey bands scored 0 pixels, and the only white/yellow hits in frame were the HUD.
+
+**The consequence for planning.** This technique is **art-led, not engine-led**. Its payoff is
+gated on a zone deliberately authoring transparent regions — open sky behind a broken
+silhouette (ridge line, ruined skyline, a canopy with real gaps). OJZ is a dense foliage wall
+with no sky, so it is precisely the wrong host. File as *available when a zone wants sky*
+rather than sequencing engine work for it. Note also what it can do that painting cannot: the
+backdrop shows through **every** hole at once, and per-line it shades each hole by its own
+height — painting that needs a distinct tile per (hole shape x height), which explodes. That is
+the only case where it beats simply painting the gradient into the background art.
+
+Corpus note (2026-08-14 sweep): **no game in the nine-disassembly corpus animates reg $07
+per line** — verified negative for Batman & Robin, Thunder Force IV, Vectorman, Ristar, S3K and
+Alien Soldier; Gunstar only strobes it with the display off. The likely reason is the same one
+measured above: period backgrounds are opaque, so there is no surface for the effect to appear
+on. It is a genuine gap in the corpus rather than a technique anyone tried and rejected.
+
 ---
 
 ## 6. Operator sprites for lighting
