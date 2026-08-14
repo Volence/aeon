@@ -352,6 +352,60 @@ pub comptime fn compose(progs: array) -> array {
     return out
 }
 
+// ---- the starter preset library ----------------------------------------------
+// A preset is a comptime fn returning a FIRE LIST, so presets take parameters and
+// compose (see `compose`). No new type was needed for this — the language already
+// allowed it and only `compose` was missing.
+//
+// The `fx_` prefix is a namespace, not decoration: this module is a COMPTIME_HELPERS
+// member, so every public name here is glob-injected into EVERY module in the tree, and
+// tools/emp_helper_closure.py is the collision gate. Run it when adding a preset.
+
+// fx_sh_below — Shadow/Highlight ON from `line` down, H40 base restored at frame top.
+// The cheapest dramatic effect the hardware has: one register write, no CRAM traffic,
+// and it darkens everything below the line including sprites.
+pub comptime fn fx_sh_below(line: int) -> array {
+    return [ fire(line, [ sh_on() ]) ]
+}
+
+// fx_vscroll_split — plane B's vertical scroll snaps to `offset` from `line` down, so the
+// background stops tracking the camera below it. Vertical scroll BANDING.
+//
+// PICK THE OFFSET AGAINST THE ART. A shift equal to the background's vertical repeat
+// period is pixel-invisible: the OJZ trunks repeat every 64 px, and a $0040 shift showed
+// literally nothing while $0043 banded cleanly. That cost a full session on 2026-08-14 —
+// read the period off the nametable before choosing.
+//
+// PLANE B, NOT PLANE A. Mid-frame vertical scroll of plane A displays the streamer's
+// working margin (TILE_CACHE_ROWS = 60) as stale/half-written tiles.
+pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
+    return [ fire(line, [ vsram(2, [offset]) ]) ]
+}
+
+// fx_tint_band — from `line` down, swap `count` colours of the palette variant staged in
+// `slot` into CRAM, optionally turning Shadow/Highlight on at the same line. This is the
+// water-boundary shape generalised, and the CRAM destination is DERIVED from
+// pal_line/entry via pal_stage_off rather than asked for a second time — pal_region's
+// address/line/entry agreement checks then cannot fail, because there is only one source
+// of the fact. (slot 0 in the pal_stage_off call is deliberate: the CRAM destination is
+// slot-independent; `slot` selects the staging SOURCE and is passed through below.)
+//
+// UNCHECKABLE HERE, AND REAL: the variant bound to `slot` at runtime must cover
+// `pal_line` in its `lines` mask, or Palette_DeriveVariant never writes that staging line
+// and this streams whatever the buffer holds — zeros, or a previous variant's colours
+// after a rebind. Binding is a runtime call (Palette_SetVariant), so a comptime guard
+// cannot see it. Booked; see the vocabulary review §5.
+pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
+                             count: int, sh: int) -> array {
+    return [ region_boundary(line:     line,
+                             addr:     pal_stage_off(0, pal_line, entry),
+                             slot:     slot,
+                             pal_line: pal_line,
+                             entry:    entry,
+                             count:    count,
+                             sh:       sh) ]
+}
+
 // ===========================================================================
 // ENCODING
 // ===========================================================================
