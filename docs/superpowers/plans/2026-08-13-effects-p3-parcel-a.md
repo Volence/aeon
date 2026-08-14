@@ -53,6 +53,16 @@ stay in the byte-emitting modules; only constructors and validation move. The de
 7. **T-1 is a DENSE-tier fact** (`raster.emp:236-243`). The sparse authorities are `raster_arm` /
    `raster_fire_line` / `water_arm0`. Applying the dense off-by-one to sparse arithmetic fails the
    byte-compare in the most confusing possible direction.
+8. **Param type annotations are mandatory but NOT enforced** — measured by Task 1's probe, recorded in
+   `docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md`. An untyped `comptime fn` param is
+   a parse error (`expected ':', found RParen`), so every param must carry an annotation; but only
+   `where LO..HI`-refined params are checked at bind (`sigil-frontend-emp/src/eval/call.rs:309-318`).
+   In particular **`[T; N]` on a parameter is not a checked length** — a 4-element list binds happily
+   to an `[int; 3]` param. This plan therefore spells loose array params `array` and does its length
+   checking with explicit `ensure`s on `.len`. Do not read any param annotation here as a guarantee.
+9. **A glob-imported module must export at least one `pub` name**, so `raster_dsl.emp` carries a
+   `pub const RASTER_DSL_PLACEHOLDER = 0` from Task 1. **Task 6 deletes it** once the module has real
+   `pub` items.
 
 ---
 
@@ -910,11 +920,11 @@ pub comptime fn cycle_channel(line: int, first: int, count: int, period: int, di
 // The literal 4 is PAL_CYCLE_MAX_CHANNELS, INLINED on purpose: a body's free names
 // resolve at the CALL site, and a caller naming neither constant would otherwise get
 // `unknown name`. The module-level ensure below is the single source of truth.
-pub comptime fn cycle_script1(chs: int) -> PalCycleScript1 {
+pub comptime fn cycle_script1(chs: array) -> PalCycleScript1 {
     ensure(chs.len == 1, "cycle_script1: {chs.len} channels — use cycle_script{chs.len}")
     return PalCycleScript1{ pcs_count: 1, pcs_ch: chs }
 }
-pub comptime fn cycle_script2(chs: int) -> PalCycleScript2 {
+pub comptime fn cycle_script2(chs: array) -> PalCycleScript2 {
     ensure(chs.len == 2, "cycle_script2: {chs.len} channels — use cycle_script{chs.len}")
     return PalCycleScript2{ pcs_count: 2, pcs_ch: chs }
 }
@@ -1188,7 +1198,7 @@ pub comptime fn sh_on() -> RasterOp {
 }
 
 // cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
-pub comptime fn cram(addr: int, colours: int) -> RasterOp {
+pub comptime fn cram(addr: int, colours: array) -> RasterOp {
     ensure(addr >= 0 && addr <= 126, "cram: CRAM byte address {addr} outside 0..126")
     ensure((addr & 1) == 0, "cram: CRAM byte address {addr} is odd — colours are words")
     ensure((addr >> 5) != 0,
@@ -1227,7 +1237,7 @@ pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, coun
 // derives the fire line (line - 1) and the arm schedule. The floor of 3 is the priming
 // records': fires 0/1 prime on lines 0-1, so the earliest real fire is 2, landing on 3.
 // Lines 0-2 are the init words' job.
-pub comptime fn fire(line: int, ops: int) -> RasterFire {
+pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(line >= 3 && line <= 223,
            "fire: screen line {line} outside 3..223 (lines 0-2 belong to the priming records and the init words)")
     ensure(ops.len >= 1, "fire: a fire with no ops — drop the fire rather than authoring an empty one")
@@ -1318,7 +1328,7 @@ comptime fn op_is_set_reg(o: RasterOp) -> int {
 }
 
 // prog_mask — OR of every op's mask bit.
-comptime fn prog_mask(fires) -> int {
+comptime fn prog_mask(fires: array) -> int {
     comptime var m = 0
     for f in fires {
         for o in fire_ops(f) {
@@ -1329,7 +1339,7 @@ comptime fn prog_mask(fires) -> int {
 }
 
 // prog_init — the distinct frame-top reset words, in first-appearance order.
-comptime fn prog_init(fires) {
+comptime fn prog_init(fires: array) {
     comptime var out = []
     for f in fires {
         for o in fire_ops(f) {
@@ -1349,7 +1359,7 @@ comptime fn prog_init(fires) {
 // one per authored event at (screen line - 1). Ruling 1a: the event fire must be at
 // M-1 so its writes land on M. This is the SPARSE rule; the dense tier's T-1 setup
 // line is a different, measured fact and must not be applied here.
-comptime fn fire_lines(fires) {
+comptime fn fire_lines(fires: array) {
     comptime var out = [0, 1]
     comptime var prev = 1
     for f in fires {
@@ -1365,7 +1375,7 @@ comptime fn fire_lines(fires) {
 // arm_at — the arm word for record i. Ruling 1b: the word WRITTEN at record i is
 // consumed at the next reload and schedules gap(L[i+1] -> L[i+2]); past the end it
 // parks the counter 255 lines away, i.e. never within active display.
-comptime fn arm_at(L, i: int) -> int {
+comptime fn arm_at(L: array, i: int) -> int {
     if i + 2 >= L.len { return $8AFF }
     let gap = L[i + 2] - L[i + 1] - 1
     ensure(gap >= 0 && gap <= 255,
@@ -1402,7 +1412,7 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
 //     pub data P: [u16; raster_words(PROG)] = raster_program(PROG)
 // NOT `[u16; PROG.len] = PROG`, which is tautological. Note the guard only bites on a
 // `data` declaration — `const` does not enforce its declared array length.
-pub comptime fn raster_words(fires) -> int {
+pub comptime fn raster_words(fires: array) -> int {
     comptime var n = 2 + 4 + 2            // mask + init_count, two priming records, terminator
     n = n + prog_init(fires).len
     for f in fires {
@@ -1416,7 +1426,7 @@ pub comptime fn raster_words(fires) -> int {
 
 // raster_program — the flat program. Header, two priming records, one record per
 // authored fire in ascending screen-line order, terminator.
-pub comptime fn raster_program(fires) {
+pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
     let init = prog_init(fires)
@@ -1507,7 +1517,7 @@ The instrument spec §8.1 asks for. It reports *where* the divergence is, which 
 // differing element. The development instrument for re-expressing a hand-authored
 // program through the DSL (design spec 8.1); pair it with a separate length ensure,
 // because a length difference is a different failure than a value difference.
-pub comptime fn first_mismatch(a, b) -> int {
+pub comptime fn first_mismatch(a: array, b: array) -> int {
     for i in 0..a.len {
         if i < b.len {
             if a[i] != b[i] { return i }
