@@ -388,8 +388,16 @@ pub comptime fn raster_program(fires: array) {
 
 // first_mismatch — -1 when the two word lists are equal, else the index of the first
 // differing element. The development instrument for re-expressing a hand-authored
-// program through the DSL (design spec 8.1); pair it with a separate length ensure,
-// because a length difference is a different failure than a value difference.
+// program through the DSL (design spec 8.1).
+//
+// PRECONDITION — it MUST be paired with a separate `.len` ensure, and that is not just
+// "a length difference is a different failure than a value difference". It walks only
+// `a`'s indices and skips any index past the end of `b`, so it returns -1 whenever `a`
+// is a PREFIX of `b` — a DSL program that is short by a trailing record compares EQUAL
+// to its hand-word twin. Nothing inside this function can see that; only the length
+// check can. (In this codebase the chain also holds one rung deeper, because
+// raster_program asserts `out.len == raster_words(fires)` on every call, but callers
+// must not rely on that: it is a fact about raster_program, not about first_mismatch.)
 pub comptime fn first_mismatch(a: array, b: array) -> int {
     for i in 0..a.len {
         if i < b.len {

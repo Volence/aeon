@@ -405,21 +405,46 @@ const OJZ_WATER_CRAM_ADDR = $48                 // CRAM line 2, entry 4
 ensure(vdp_comm(OJZ_WATER_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
        "CRAM write command encoding drifted — OJZ_WaterRaster's split words are stale")
 
-pub data OJZ_WaterRaster: [u16; 18] = [
-    %0100,                              // pal_dirty_mask: re-assert line 2 (the region op's line)
-    1, $8C81,                           // init: S/H OFF at frame top (H40 base)
+// The default water line. Raster_InstallWater / Raster_PatchWaterLine overwrite the
+// priming arm word at runtime from Raster_Water_Line, so the boundary MOVES live; this
+// value is only what the template ships with.
+const OJZ_WATER_LINE = 120
 
-    water_arm0(120), 0,                 // fire 0 — priming; arm PATCHED at runtime (default line 120)
-    RASTER_ARM_PARK, 0,                 // fire 1 — priming; nothing after the event, so park
-
-    RASTER_ARM_PARK, 2,                 // fire 2 — the water line event, two ops
-      OP_SET_REG, $8C89,                //   S/H ON below the line
-      OP_PAL_REGION, $C048, $0000,      //   region: CRAM $48 (line 2 entry 4), command longword
-                 2,                     //   count-1 = 2 -> 3 colours (<= RASTER_CRAM_MAX)
-                 pal_stage_off(0, 2, 4),//   source: variant slot 0, line 2, entry 4
-
-    RASTER_ARM_PARK, RASTER_OPS_END,    // terminator
+const OJZ_WATER_PROG = [
+    region_boundary(line: OJZ_WATER_LINE,
+                    addr: OJZ_WATER_CRAM_ADDR,   // $48 — CRAM line 2, entry 4
+                    slot: 0, pal_line: 2, entry: 4, count: 3,
+                    sh:   1),
 ]
+
+// THE PATCH-OFFSET INVARIANT, previously carried only by prose. Raster_PatchWaterLine
+// writes the priming arm word at a FIXED byte offset into Buf_B
+// (WATER_TEMPLATE_ARM0_OFF = 6), which is word index 3 — and word 3 is arm0 only when
+// init_count is exactly 1. Any second init word would silently shift arm0 to index 4,
+// and the patch would then rewrite an init word every frame instead of the boundary.
+ensure(raster_program(OJZ_WATER_PROG)[3] == $8A00 | (OJZ_WATER_LINE - 3),
+       "OJZ_WaterRaster: word 3 is not the priming arm word — Raster_PatchWaterLine patches byte offset 6 (WATER_TEMPLATE_ARM0_OFF) unconditionally, which is word 3 only when init_count == 1")
+
+// THE PIN (design spec 8.1) — the words measured on hardware during P2. Retires in
+// Parcel D with the fixture.
+const OJZ_WATER_HAND = [
+    %0100,
+    1, $8C81,
+    $8A75, 0,
+    $8AFF, 0,
+    $8AFF, 2,
+      OP_SET_REG, $8C89,
+      OP_PAL_REGION, $C048, $0000,
+                 2,
+                 pal_stage_off(0, 2, 4),
+    $8AFF, RASTER_OPS_END,
+]
+ensure(raster_words(OJZ_WATER_PROG) == OJZ_WATER_HAND.len,
+       "OJZ_WaterRaster: DSL counts {raster_words(OJZ_WATER_PROG)} words, the hand program is {OJZ_WATER_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_WATER_PROG), OJZ_WATER_HAND) == -1,
+       "OJZ_WaterRaster: DSL output diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_WATER_PROG), OJZ_WATER_HAND)}")
+
+pub data OJZ_WaterRaster: [u16; raster_words(OJZ_WATER_PROG)] = raster_program(OJZ_WATER_PROG)
 
 // ---------------------------------------------------------------------------
 // OJZ_TestGradient — the DENSE-tier gate (Task 5 Step 4). A 96-line ramp across
