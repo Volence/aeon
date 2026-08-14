@@ -378,7 +378,8 @@ pub comptime fn raster_program(fires: array) {
     // Raster_VBlank and Raster_InstallWater both copy a FIXED RASTER_BUF_SIZE bytes
     // into Buf_A / Buf_B, so a program longer than the buffer would be truncated live.
     // (The converse over-read of a short template is pre-existing and harmless — the
-    // walker never reaches past the terminator. NOT yet in docs/BUGS.md — Task 10 books it.)
+    // walker never reaches past the terminator. Booked as EFX-4 in docs/BUGS.md; the
+    // ensure below closes that entry's overflow half and the over-read half stays open.)
     ensure(out.len * 2 <= 128,
            "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
     ensure(out.len == raster_words(fires),

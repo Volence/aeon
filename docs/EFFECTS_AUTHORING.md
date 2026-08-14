@@ -66,8 +66,10 @@ screen line M fires at **M-1** because a register write in the handler for fire 
 at the earliest. That is a **documented hardware rule** — the Sega manual's "the CPU can control the
 display of the next line but not the line on which the interrupt occurs", plus hardware-verified sources
 and the one corroborating disassembly (survey `:29-40`, Ruling 1a) — not a measurement taken against our
-own code. The sparse authorities in the tree are `raster_arm` and `raster_fire_line`
-(`raster.emp:197-213`) and `water_arm0` (`raster.emp:592-595`).
+own code. The sparse authorities in the tree are `engine.effects.raster_dsl`'s `fire`
+(`raster_dsl.emp:135-151`), which enforces the 3..223 floor, and `fire_lines` / `arm_at`
+(`:293-304`, `:306-315`), which own the `-1` and the arm schedule. `raster_arm`
+(`raster.emp:196-204`) survives in `raster.emp` for the DENSE tier's schedule only.
 
 **Applying the dense off-by-one to sparse arithmetic fails the byte-compare in the most confusing
 possible direction** — every word is plausible, the program assembles, the length matches, and the
@@ -119,16 +121,16 @@ from inside handler `i` is not consumed by the gap it is sitting in — it is co
 therefore schedules `gap(i+1 -> i+2)`. The full argument is at `raster.emp:24-40`.
 
 **For a single-event program at screen line M this reduces to `$8A00 | (M - 3)`** — exactly what
-`water_arm0(M)` produces (`raster.emp:592-595`), which is what lets `OJZ_WaterRaster` come out
-byte-identical.
+`arm_at` produces for that case (`raster_dsl.emp:306-315`), which is what lets
+`OJZ_WaterRaster` come out byte-identical.
 
 ### Worked check against both shipped fixtures
 
 Both fixtures are one event at screen line 120, so `L = [0, 1, 119]` for both.
 
-| | `OJZ_TestRaster` (`configs.emp:316-335`) | `OJZ_WaterRaster` (`configs.emp:395-409`) |
+| | `OJZ_TestRaster` (`configs.emp:346-375`) | `OJZ_WaterRaster` (`configs.emp:438-491`) |
 |---|---|---|
-| record 0 arm | `$8A00 \| (119 - 1 - 1)` = `$8A00 \| 117` = **`$8A75`** ✓ shipped `$8A75` | same = **`$8A75`** ✓ shipped `water_arm0(120)` |
+| record 0 arm | `$8A00 \| (119 - 1 - 1)` = `$8A00 \| 117` = **`$8A75`** ✓ shipped `$8A75` | same = **`$8A75`** ✓ derived by `region_boundary(line: 120, …)` |
 | single-event form | `$8A00 \| (120 - 3)` = `$8A00 \| 117` = `$8A75` ✓ | `120 - 3 = 117` ✓ |
 | record 1 arm | `i+2 = 3 = L.len` → park **`$8AFF`** ✓ | ✓ |
 | record 2 arm | `i+2 = 4 > L.len` → park **`$8AFF`** ✓ | ✓ |
@@ -364,15 +366,28 @@ Stated plainly rather than left for someone to discover on hardware:
 > module-level `ensure`.**
 
 This is not stylistic. A comptime fn's free names resolve at the **call site**, and in struct-literal
-position a missing import degrades **silently to a label reference** — the value compiles, the build is
-green, and the emitted word is an address. If a constructor body spelled `OP_CRAM`, then every author's
-module would have to import `engine.effects.raster`'s constants or get `unknown name` (or worse, the
-silent degradation). Inlining the number and pinning it with a co-located `ensure` keeps a single source
+position a missing import does not error there — the bare name **degrades to a label reference**. What
+catches it depends on the destination field's type, and the difference is worth knowing:
+
+- **Integer-typed field** — caught at emit, by name: `[emit.type] expected an integer for u16, got
+  label` (measured 2026-08-13 by pruning `RASTER_ARM_PARK` + `RASTER_OPS_END` from `configs.emp`).
+- **Pointer-typed field** — a label reference is well-typed, so emit accepts it and the reference
+  becomes a data fixup. The catch is **deferred to link**, where it surfaces positionally rather than
+  by name: `unresolved symbol … for fixup in section … at offset …` (`sigil-link/src/lib.rs:432`).
+  Comptime constants lower to zero link symbols, so a degraded constant name has no definition to find.
+  (The nicer frontend check, `resolve::report_unresolved`, does **not** run here — it is gated on
+  `closed`, and aeon's mixed AS + `.emp` build goes through `build_program_open_embed`.)
+
+So it is not silent — it is *deferred and de-named*. It is silent-green only in the one case where the
+degraded name happens to collide with an actually-defined label or `equ`. If a constructor body spelled
+`OP_CRAM`, every author's module would have to import `engine.effects.raster`'s constants or hit one of
+those two failures. Inlining the number and pinning it with a co-located `ensure` keeps a single source
 of truth without imposing that on callers.
 
-The established pattern is `water_arm0` (`raster.emp:587-597`): the body spells `3` and `223`, and the
-`ensure` immediately below asserts `RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223`. The pin
-is what makes the inlining safe; an inline without its pin is just a magic number.
+The reference example is `raster_dsl`'s own pin block (`raster_dsl.emp:33-48`): `fire`'s body spells
+`3` and `223`, and a module-level `ensure` asserts `RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE
+== 223`; the opcodes, terminator, park word and staging arithmetic are pinned the same way. The pin is
+what makes the inlining safe; an inline without its pin is just a magic number.
 
 Two corollaries:
 
@@ -392,9 +407,12 @@ two helpers.
 ## References
 
 - `engine/effects/raster.emp` — the runtime decoder, the timing model (`:24-45`), the opcode set
-  (`:87-143`), `pal_stage_off` (`:112-117`), the P1 sparse authoring helpers (`:197-213`), the dense tier
-  (`:244-286`), the water patch slot (`:572-597`).
-- `games/sonic4/data/parallax/configs.emp:284-459` — the shipped fixtures this vocabulary must reproduce.
+  (`:87-143`), `pal_stage_off` (`:112-117`), `raster_arm` (`:196-204`, dense tier only), the dense tier
+  (`:233-275`), the water patch slot (`:561-575`).
+- `engine/effects/raster_dsl.emp` — the sparse authoring vocabulary: the inlined-literal pins (`:33-48`),
+  the constructors (`:78-173`), the encoder (`:293-315` for the arm schedule, `:346-411` for the two
+  public entry points).
+- `games/sonic4/data/parallax/configs.emp:308-541` — the shipped fixtures this vocabulary must reproduce.
 - `docs/superpowers/specs/2026-08-13-effects-p3-design.md` §4.1, §4.4, §5.4, §6.1, §8.1 — and §1,
   where rulings 5 (constructor-guaranteed correctness) and 14 (`SET_REG` first) are stated. Those two
   are *design rulings*, not survey findings.
