@@ -451,6 +451,70 @@ comptime fn prog_init(fires: array) {
     return out
 }
 
+// ---- the measured density model (docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md) ----
+// Two measured points, 2026-08-14 on oracle, as DIFFERENTIALS within one shape so the
+// instrument's constant terms cancel:
+//     1-word vsram fire   454 cyc        3-colour cram fire   526 cyc
+// Those two determine a line in the number of CRAM-class words: 418 + 36*words.
+// An NTSC scanline is 128000/262 = 488.5; 488 is used, floored, so the comparison is
+// conservative in the direction that ADMITS rather than refuses.
+//
+// IT LUMPS VSRAM IN WITH CRAM, WHICH IS KNOWN TO BE PESSIMISTIC. The 2026-08-14 corpus
+// sweep found that only CRAM writes glitch — a CRAM write during rasterisation recolours
+// the pixel being drawn, while VRAM, VSRAM and register writes produce no mid-line
+// artifact at all. If that holds here, `vsram` inheriting EFX_BLANK_DELAY and the
+// RASTER_CRAM_MAX ceiling is pure loss (Ristar writes 42 VSRAM words in ONE fire).
+// Splitting the op class is booked and byte-changing. It only ever makes fires CHEAPER,
+// so nothing this model admits today becomes illegal under the split.
+//
+// WHAT IT DELIBERATELY DOES NOT COUNT: OP_SET_REG. Its dispatch cost is UNMEASURED — the
+// fire-ceiling comment above notes it is the compare chain's fall-through and therefore
+// the most expensive op to dispatch, but no number exists. Rather than invent one, a
+// set_reg contributes ZERO here, so the model UNDER-states cost and the guard fires only
+// on evidence. A set_reg-only fire is unmodelled and is never refused. Say so out loud
+// wherever this model is cited.
+pub const RASTER_FIRE_BASE_CYC  = 418
+pub const RASTER_CRAM_WORD_CYC  = 36
+pub const RASTER_SCANLINE_CYC   = 488
+ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 1 == 454,
+       "density model drifted from the measured 1-word vsram fire (454 cyc)")
+ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 3 == 526,
+       "density model drifted from the measured 3-colour cram fire (526 cyc)")
+
+// fire_cost_cycles — modelled cost of one fire. Each CRAM-class op pays its own dispatch
+// AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
+comptime fn fire_cost_cycles(f: RasterFire) -> int {
+    comptime var c = 0
+    for o in fire_ops(f) {
+        if op_is_set_reg(o) == 0 {
+            c = c + RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * op_cram_words(o)
+        }
+    }
+    return c
+}
+
+// check_density — a fire must finish before the next one is due. The budget between two
+// fires is the number of scanlines between them. Overrunning does NOT drop the next fire
+// (the counter is already armed) but pushes its writes into active display, which is
+// measured as a visible mid-row colour change (DENSITY-EVIDENCE rows 111-113, transitions
+// at x = 232/248/294 of 320). The last fire has nothing after it and is unconstrained.
+//
+// THIS CANNOT LIVE IN `fire`. Density is a property of the SCHEDULE — one fire cannot see
+// its neighbour — which is exactly why the per-fire ceilings above could not catch it.
+comptime fn check_density(fires: array) -> int {
+    comptime var i = 0
+    for f in fires {
+        if i + 1 < fires.len {
+            let gap  = fire_screen_line(fires[i + 1]) - fire_screen_line(f)
+            let cost = fire_cost_cycles(f)
+            ensure(cost <= gap * RASTER_SCANLINE_CYC,
+                   "raster program: the fire at screen line {fire_screen_line(f)} models at {cost} cycles but only {gap} scanline(s) = {gap * RASTER_SCANLINE_CYC} cycles remain before the fire at {fire_screen_line(fires[i + 1])}. MEASURED 2026-08-14: a 3-colour CRAM fire costs 526 cycles against a 488-cycle line, so consecutive colour fires overrun and paint a visible mid-line colour change. Either space these fires further apart, or move per-line colour work to the DENSE tier (raster_gradient_program), which stays inside ONE interrupt instead of paying an exception entry per line — that is how S3K writes 3 colours per line at 484. Note this model does not count OP_SET_REG at all, so the true cost is higher than the number above.")
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 // fire_lines — the full fire-line list: the two priming fires on lines 0 and 1, then
 // one per authored event at (screen line - 1). Ruling 1a: the event fire must be at
 // M-1 so its writes land on M. This is the SPARSE rule; the dense tier's T-1 setup
@@ -541,6 +605,7 @@ pub comptime fn raster_words(fires: array) -> int {
 pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
+    check_density(fires)
     let init = prog_init(fires)
     comptime var out = [prog_mask(fires), init.len] ++ init
     out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0
