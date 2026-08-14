@@ -12,6 +12,37 @@
 
 ---
 
+## Amendments (2026-08-14, at execution time — user-ruled)
+
+Two rulings taken before Task 1, both expanding the plan as written:
+
+**A. `VDP_Dirty_Mask` is DELETED, not kept.** The plan's Task 2 said to keep `clr.l VDP_Dirty_Mask`
+"so `Set_VDP_Reg` callers do not accumulate stale bits" — circular reasoning. Once the flush is
+unconditional the mask has **zero readers**; its only two were the `beq .done` early-out and the
+`lsr.l`/`bcc` gate, both of which Task 2 deletes. Verified writer sites that become dead:
+`parallax.emp:264,462` · `hblank.emp:62,67,83` · `boot.emp:301` · `demo_state.emp:54` ·
+`object_test_state.emp:122,312` · `ojz_scroll_test.emp:96,266`, plus both `clr.l`s in `vdp_init.emp`.
+Leaving it would be a dormant scaffold. This also **removes Task 1's flagged `bset` risk entirely** —
+`Set_VDP_Reg` no longer touches a mask, so there is no byte-only-`bset`-on-memory hazard to verify.
+
+Checked and NOT affected: raster effects never touch the mask (`set_reg` goes straight to `VDP_CTRL`,
+`raster_dsl.emp:119`); the `$8F80` autoincrement excursions bypass the shadow entirely; parallax's
+reg `$0B` write behaves identically under a blanket flush.
+
+**B. Reg `$0F` gets a DEBUG-shape assert, not just a comment.** The plan's closing note already said
+"if that ever needs to be real, the answer is an assert in the excursion sites" — do it now, in this
+parcel. Use the `assert.*` idiom that self-gates to zero bytes in the plain shape
+(`engine/sound/sound_api.emp:230`). The comment work in Task 2 Step 2 still happens; the assert is
+in addition to it, not instead.
+
+**Unverified claim carried into execution.** The header's "~200 cycles cheaper" has NOT been
+measured. It rests on today's loop being O(highest dirty bit) — it pays the shift/branch/increment
+per register *scanned*, even skipped ones. Plausible, but when the highest dirty bit is low
+(parallax alone dirties reg `$0B`) blanket could be a wash. **Do not repeat the number as fact in
+any commit message or doc until measured.** The parcel's justification is structural regardless.
+
+---
+
 ## Why this, and what it is NOT for
 
 The payoff is **structural, not performance**. It deletes ~24 bytes of ROM and ~56 cycles/frame — noise. What it actually buys:
@@ -34,7 +65,10 @@ A pleasant surprise from the feasibility study: the blanket restore is **~200 cy
 
 | File | Change |
 |---|---|
-| `engine/system/vdp_init.emp` | `Flush_VDP_Shadow` becomes unconditional; add `Set_VDP_Reg` |
+| `engine/system/vdp_init.emp` | `Flush_VDP_Shadow` becomes unconditional; add `Set_VDP_Reg`; drop both `clr.l` |
+| `engine/ram.emp` | delete `VDP_Dirty_Mask` (amendment A) |
+| `engine/level/parallax.emp`, `engine/system/hblank.emp`, `engine/system/boot.emp` | drop dead `ori.l` dirty-bit writes |
+| `games/demo/demo_state.emp`, `games/sonic4/test/object_test_state.emp`, `games/sonic4/test/ojz_scroll_test.emp` | drop dead `ori.l` dirty-bit writes |
 | `engine/effects/raster_dsl.emp` | `set_reg` loses `reset`; delete `op_init`, `prog_init`; `sh_on` collapses; `raster_words`/`raster_program` lose the init header |
 | `engine/effects/raster.emp` | delete the init loop; `WATER_TEMPLATE_ARM0_OFF` 6→4; `Raster_Program_None` shrinks; drop `rgp_init_*` and `rrp_init_*` |
 | `games/sonic4/data/parallax/configs.emp` | both hand pins re-authored; the `init_count == 1` invariant block deleted |
@@ -60,18 +94,21 @@ Register index → shadow byte offset is the identity (`VdpShadow` is one byte p
 
 ```emp
 // Set_VDP_Reg — the ONE way to change a VDP register outside VBlank and have it
-// survive to the next frame. Writes the shadow byte and marks it dirty; the flush
-// at frame top is what reaches the hardware.
+// survive to the next frame. Writes the shadow byte; the unconditional flush at
+// frame top is what reaches the hardware.
 //   d0.w = register index ($00..$12)   d1.b = value
-pub proc Set_VDP_Reg (d0: u16, d1: u8) clobbers(d0/a0) {
+pub proc Set_VDP_Reg (d0: u16, d1: u8) clobbers(a0) {
         lea     VDP_Shadow_Table, a0
         move.b  d1, (a0, d0.w)
-        bset    d0, VDP_Dirty_Mask + 2      // bits 0-18; +2 selects the low word half
         rts
 }
 ```
 
-**VERIFY the `bset` addressing before trusting it.** `VDP_Dirty_Mask` is `u32` and `bset` on memory is byte-only on 68000 — bit numbering across a longword in memory is not what the register form does. If in doubt use `ori.l #(1 << n)` built at comptime, or read how `HBlank_Install` sets its dirty bit (`engine/system/hblank.emp:61-67`) and copy that exactly.
+**Per amendment A there is no dirty bit and so no `bset` hazard** — the original plan's warning about
+byte-only `bset`-on-memory is void. Do not add a mask write "for symmetry"; Task 2 deletes the mask.
+
+Note the `clobbers` set shrinks to `a0` (`d0` is no longer modified). Match whatever the surrounding
+procs do for an index-into-table idiom.
 
 - [ ] **Step 3: Build**
 
@@ -102,11 +139,37 @@ debt noted at engine/level/parallax.emp:262."
 
 - [ ] **Step 1: Replace the gated walk with a straight 19-register blit**
 
-Delete the `beq .done` early-out and the `lsr.l/bcc` per-bit gate. Keep `clr.l VDP_Dirty_Mask` so `Set_VDP_Reg` callers do not accumulate stale bits.
+Delete the `beq .done` early-out and the `lsr.l/bcc` per-bit gate. **Per amendment A, also delete
+both `clr.l VDP_Dirty_Mask`** (here and in `VDP_Shadow_Init`), the `VDP_Dirty_Mask` field in
+`engine/ram.emp:149`, and all 11 dead `ori.l #(1 << …), VDP_Dirty_Mask` writer sites listed in the
+amendment. Grep for `VDP_Dirty_Mask` afterwards — the only surviving hits should be prose.
+
+Watch the drift-lock `ensure` at the top of `vdp_init.emp` and the comment above it: its whole
+argument is about the `.l` dirty mask holding 32 bits. With the mask gone that reasoning is void, but
+the `VDP_Shadow_len` bound still matters for the `dbf` counter — **re-author the comment to the real
+surviving constraint rather than deleting the ensure outright.**
 
 - [ ] **Step 2: Write the comment that carries the `$0F` invariant**
 
 This is the risk from the header and it must not live only in a plan. At the new loop, state: the restore now writes reg `$0F` every frame, so any routine that changes autoincrement mid-frame **must** mask IRQs for the duration; name the three sites (`bg.emp`, `section.emp`, `plane_buffer.emp`). Add a one-line pointer at each of those three sites naming the flush as a second consumer of their SR-mask invariant.
+
+- [ ] **Step 2b: Add the DEBUG-shape `$0F` assert (amendment B)**
+
+Make the invariant a real gate, not just prose. Use the `assert.*` idiom that self-gates to zero
+bytes in the plain shape (see `engine/sound/sound_api.emp:230` and `engine/debug/compression_selftest.emp:65`).
+
+**Research the shape before writing it — report findings before coding.** The invariant to test is
+"IRQs are masked for the duration of the excursion", so the natural assert is at each `$8F80` site
+checking the SR interrupt level is 7. Two things to resolve first:
+- Whether `assert.*` can test SR at all, or whether this needs a different construct.
+- **The VBlank-context site is NOT the same case.** The plan's header notes one site "restores before
+  yielding" rather than masking. Asserting level-7 there may be wrong — inside the VBlank handler the
+  flush cannot re-enter, so the invariant is satisfied differently. Do not paper over that difference
+  with a uniform assert; if the two cases need two different assertions, say so.
+
+If the research shows a clean SR assert is not achievable, **STOP and report BLOCKED** with what you
+found rather than silently downgrading to the comment-only version — the user explicitly chose the
+assert over the comment.
 
 - [ ] **Step 3: Build and boot**
 
