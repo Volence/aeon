@@ -149,8 +149,9 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
             // ceiling is coarse enough that a rare straddle accumulation is benign.
 
             // Raster (effects P1) MUST precede Flush_VDP_Shadow: HBlank_Install arms
-            // reg $0A through the VDP shadow + dirty mask, so the arm only reaches
-            // the hardware on THIS frame's flush — a post-flush position would delay
+            // reg $0A through the VDP shadow, so the arm only reaches the hardware
+            // on THIS frame's flush (unconditional, every register, every frame —
+            // see engine/system/vdp_init.emp) — a post-flush position would delay
             // every arm a frame. It also ORs the program's pal_dirty_mask into
             // Palette_Dirty, which Enqueue_Dirty_Buffers below must then see.
             jbsr    Raster_VBlank
