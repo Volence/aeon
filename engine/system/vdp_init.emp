@@ -63,3 +63,17 @@ pub proc Flush_VDP_Shadow () clobbers(d0-d3/a0-a1) {
     .done:
         rts
 }
+
+// -----------------------------------------------
+// Set_VDP_Reg — the ONE way to change a VDP register outside VBlank and have
+// it survive to the next frame. Writes the shadow byte only; the unconditional
+// flush at frame top is what reaches the hardware.
+// In:  d0.w = register index ($00-$12), d1.b = value
+// Out: none
+// Clobbers: a0
+// -----------------------------------------------
+pub proc Set_VDP_Reg (d0: u16, d1: u8) clobbers(a0) {
+        lea     VDP_Shadow_Table, a0
+        move.b  d1, (a0, d0.w)
+        rts
+}
