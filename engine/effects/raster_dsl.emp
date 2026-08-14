@@ -1,22 +1,374 @@
-// engine/effects/raster_dsl.emp — the comptime authoring vocabulary for raster
-// programs (filled in by Task 6).
+// engine/effects/raster_dsl.emp — the Phase-3 sparse-tier raster authoring vocabulary.
 //
-// This file carried the Parcel A capability probe; see
-// docs/superpowers/notes/2026-08-13-parcel-a-capability-probe.md for what was
-// established (payload-carrying `comptime enum` + `match` destructuring, `++`
-// accumulation into a fn-level `comptime var`, the `Label != 0` bound/unbound
-// witness, and the const-vs-data length-guard asymmetry), and for the three
-// grammar constraints the vocabulary has to live within — a `comptime fn`
-// parameter's type annotation is mandatory but unenforced (there is no slice
-// type), and a glob-imported module must export at least one `pub` name.
+// The general constructor covers the SPARSE tier only. A [u16; N] array cannot hold a
+// link-time symbol, so a program carrying the gradient's stream pointer is not
+// expressible as a word array at any spelling: the DENSE tier keeps
+// raster_gradient_program in engine.effects.raster. A program mixing sparse events
+// with a dense run is deliberately NOT authorable in Phase 3 (design spec 4.1) even
+// though the wire format permits it — a section takes one tier or the other.
+//
+// This module owns the encoding arithmetic and its validation; engine.effects.raster
+// owns only the decoding. Pure comptime — emits no ROM bytes; glob-imported into every
+// module (the native comptime-helper set).
+//
+// THE LITERALS IN THE FUNCTION BODIES BELOW ARE DELIBERATE. A comptime fn's free names
+// resolve at its CALL SITE, so a body spelling OP_CRAM would force every author's
+// module to import engine.effects.raster's constants or get `unknown name` — and in
+// struct-literal position a missing import degrades SILENTLY to a label reference. The
+// module-level ensures immediately below keep the single source of truth without
+// imposing that on callers. This is the pattern water_arm0 established
+// (engine/effects/raster.emp:585-597).
+//
+// vdp_comm / VdpTarget / VdpOp ARE safe to name in a body: engine.vdp is itself a
+// COMPTIME_HELPERS member, so it is glob-injected at every call site.
 module engine.effects.raster_dsl
 
-// PLACEHOLDER — delete in Task 6, once this module exports real vocabulary.
-// `configs.emp` glob-imports this module, and a glob over a module with no `pub`
-// name is a hard error ("matches no module with `pub` names"), so the reachability
-// the glob provides costs exactly one exported name until there is a real one.
-// The deletion is an obligation, not a tidy-up: if this module ever joins
-// COMPTIME_HELPERS, `publicize_helper_comptime` (sigil-harness/src/native.rs:1747)
-// force-publicizes every const here and glob-injects it into EVERY module, putting
-// this name into the duplicate-name surface Task 2's tool checks.
-pub const RASTER_DSL_PLACEHOLDER = 0
+use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
+                          RASTER_OPS_END, RASTER_ARM_PARK, RASTER_CRAM_MAX,
+                          RASTER_BUF_SIZE, RASTER_MIN_FIRE_LINE, RASTER_MAX_FIRE_LINE,
+                          pal_stage_off}
+
+// ---- the inlined-literal pins (see the module note above) -------------------
+ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6,
+       "raster_dsl's inlined opcodes drifted from engine.effects.raster")
+ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RASTER_OPS_END")
+ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
+ensure(RASTER_CRAM_MAX == 3, "raster_dsl's inlined per-fire colour ceiling drifted from RASTER_CRAM_MAX")
+ensure(RASTER_BUF_SIZE == 128, "raster_dsl's inlined buffer bound drifted from RASTER_BUF_SIZE")
+ensure(RASTER_MIN_FIRE_LINE == 3 && RASTER_MAX_FIRE_LINE == 223,
+       "raster_dsl's inlined screen-line bounds drifted from RASTER_{MIN,MAX}_FIRE_LINE")
+// pal_region inlines the staging arithmetic rather than calling pal_stage_off (a
+// call-site name); this pins the formula against its authority.
+ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
+       "raster_dsl's inlined Pal_Variant_Stage arithmetic drifted from pal_stage_off")
+
+// ===========================================================================
+// DESCRIPTORS
+//
+// The enum is plumbing; the AUTHORING surface is the constructors below it, which
+// are where every bound is checked. Payload TYPES are not checked by the evaluator
+// (they are declared `int` here even where the real payload is an array) — the
+// constructors' ensures are what actually enforce the shapes.
+// ===========================================================================
+
+pub comptime enum RasterOp {
+    SetReg(int, int),                     // (mid-frame $8xxx word, frame-top reset word)
+    Cram(int, int),                       // (CRAM byte address, colour-word ARRAY)
+    PalRegion(int, int, int, int, int),   // (CRAM byte address, slot, pal line, entry, count)
+}
+
+pub comptime enum RasterFire {
+    Fire(int, int),                       // (screen line the effect lands on, RasterOp ARRAY)
+}
+
+// ---- op constructors --------------------------------------------------------
+
+// set_reg — a mid-frame VDP register write, paired with the frame-top word that
+// restores the SAME register. Pairing them is what makes "a mode change cannot latch
+// past the frame" structural instead of a comment: raster_program derives the program's
+// init words from these resets, so an author cannot write the mid-frame half alone.
+pub comptime fn set_reg(word: int, reset: int) -> RasterOp {
+    ensure(word >= $8000 && word <= $97FF,
+           "set_reg: {word} is not a VDP register write word ($8000..$97FF)")
+    ensure(reset >= $8000 && reset <= $97FF,
+           "set_reg: frame-top reset {reset} is not a VDP register write word ($8000..$97FF)")
+    ensure((word >> 8) == (reset >> 8),
+           "set_reg: mid-frame word {word} writes VDP reg {(word >> 8) - $80} but its frame-top reset {reset} writes reg {(reset >> 8) - $80} — they must be the same register")
+    return RasterOp.SetReg(word, reset)
+}
+
+// sh_on — Shadow/Highlight ON below the fire line, H40 base restored at frame top.
+// $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30 quirk
+// ruling in the raster survey. $8C81 is boot's H40 base (engine/system/boot_data.emp:140).
+pub comptime fn sh_on() -> RasterOp {
+    return set_reg($8C89, $8C81)
+}
+
+// cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
+pub comptime fn cram(addr: int, colours: array) -> RasterOp {
+    ensure(addr >= 0 && addr <= 126, "cram: CRAM byte address {addr} outside 0..126")
+    ensure((addr & 1) == 0, "cram: CRAM byte address {addr} is odd — colours are words")
+    ensure((addr >> 5) != 0,
+           "cram: address {addr} is on CRAM line 0, the character's line (CharacterDef.cd_palette) — a raster write there repaints the active character")
+    ensure(colours.len >= 1 && colours.len <= 3,
+           "cram: {colours.len} colours exceeds RASTER_CRAM_MAX (3) — that is the ~60-cycle per-fire budget, not a FIFO limit")
+    ensure(((addr >> 1) & 15) + colours.len <= 16,
+           "cram: {colours.len} colours from entry {(addr >> 1) & 15} runs past the end of CRAM line {addr >> 5}")
+    return RasterOp.Cram(addr, colours)
+}
+
+// pal_region — a SCOPED colour swap streamed from a variant's Pal_Variant_Stage bytes.
+// The destination CRAM address and the staging source must name the same line and
+// entry; hand authoring had no such check.
+pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, count: int) -> RasterOp {
+    ensure(addr >= 0 && addr <= 126, "pal_region: CRAM byte address {addr} outside 0..126")
+    ensure((addr & 1) == 0, "pal_region: CRAM byte address {addr} is odd — colours are words")
+    ensure(slot >= 0 && slot < 2, "pal_region: slot {slot} outside 0..PAL_MAX_VARIANTS(2)")
+    ensure(pal_line >= 1 && pal_line <= 3,
+           "pal_region: staging line {pal_line} outside 1..3 (line 0 is the character's)")
+    ensure(entry >= 0 && entry <= 15, "pal_region: entry {entry} outside 0..15")
+    ensure(count >= 1 && count <= 3,
+           "pal_region: {count} colours exceeds RASTER_CRAM_MAX (3)")
+    ensure(entry + count <= 16,
+           "pal_region: {count} colours from entry {entry} runs past the end of line {pal_line}")
+    ensure((addr >> 5) == pal_line,
+           "pal_region: destination CRAM address {addr} is on line {addr >> 5} but the staging source is line {pal_line}")
+    ensure(((addr >> 1) & 15) == entry,
+           "pal_region: destination CRAM address {addr} is entry {(addr >> 1) & 15} but the staging source is entry {entry}")
+    return RasterOp.PalRegion(addr, slot, pal_line, entry, count)
+}
+
+// ---- fire constructors ------------------------------------------------------
+
+// fire — one scheduled event. `line` is the SCREEN line the effect lands on; the DSL
+// derives the fire line (line - 1) and the arm schedule. The floor of 3 is the priming
+// records': fires 0/1 prime on lines 0-1, so the earliest real fire is 2, landing on 3.
+// Lines 0-2 are the init words' job.
+pub comptime fn fire(line: int, ops: array) -> RasterFire {
+    ensure(line >= 3 && line <= 223,
+           "fire: screen line {line} outside 3..223 (lines 0-2 belong to the priming records and the init words)")
+    ensure(ops.len >= 1, "fire: a fire with no ops — drop the fire rather than authoring an empty one")
+    // RASTER_CRAM_MAX is a PER-FIRE cycle budget, not a per-op one (raster.emp:71-76):
+    // the handler must finish inside the ~60 cycles between HINT-pending and the next
+    // line's active display, and that ceiling is on the whole fire. `cram`/`pal_region`
+    // each bound their OWN colour count, which is necessary and not sufficient — three
+    // 3-colour ops in one fire satisfy every per-op guard and blow the budget by 3x.
+    comptime var cram_words = 0
+    for o in ops {
+        cram_words = cram_words + op_cram_words(o)
+    }
+    ensure(cram_words <= 3,
+           "fire at screen line {line}: {cram_words} CRAM words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line legitimately takes ceil(16/3) = 6 of them, one per scanline, which is S3K's actual technique.")
+    return RasterFire.Fire(line, ops)
+}
+
+// region_boundary — the composite the water cluster is: at `line`, optionally turn
+// Shadow/Highlight on, then swap the region. SET_REG comes first BY CONSTRUCTION here,
+// so the mixed-fire invariant is structural for this constructor and only checked for
+// hand-assembled fires.
+//
+// `sh` HAS NO DEFAULT, deliberately. sh:0 yields a program with ZERO init words, which
+// moves the priming arm word off word 3 — and Raster_PatchWaterLine writes byte offset
+// 6 (WATER_TEMPLATE_ARM0_OFF, raster.emp:572) unconditionally at three sites
+// (:656, :665, :668). On a patched template that would overwrite the priming record's
+// op_count with an arm word, and Raster_HInt would then loop tens of thousands of times
+// over garbage. A `= 0` default made the corrupt case the one an author gets by simply
+// not thinking about Shadow/Highlight, so the parameter is required instead. The
+// init_count == 1 assertion in Task 8 is the co-located half of this guard.
+pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
+                                entry: int, count: int, sh: int) -> RasterFire {
+    ensure(sh == 0 || sh == 1, "region_boundary: sh {sh} must be 0 or 1")
+    if sh == 1 {
+        return fire(line, [sh_on(), pal_region(addr, slot, pal_line, entry, count)])
+    }
+    return fire(line, [pal_region(addr, slot, pal_line, entry, count)])
+}
+
+// ===========================================================================
+// ENCODING
+// ===========================================================================
+
+comptime fn fire_line_of(f: RasterFire) -> int {
+    return match f { Fire(m, ops) => m }
+}
+comptime fn fire_ops(f: RasterFire) {
+    return match f { Fire(m, ops) => ops }
+}
+
+// op_words — the emitted body of one op.
+comptime fn op_words(o: RasterOp) {
+    return match o {
+        SetReg(w, reset) => [0, w],
+        Cram(a, cols)    => [2,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             cols.len - 1] ++ cols,
+        PalRegion(a, slot, pl, e, n) => [4,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             n - 1,
+                             slot * 128 + pl * 32 + e * 2],
+    }
+}
+
+// op_size — the SAME fact by an independent path. This is what makes
+// `data X: [u16; raster_words(P)] = raster_program(P)` a real guard rather than the
+// tautology `[u16; P.len] = P` would be: two expressions of the word count that must
+// agree. It catches header/record FRAMING drift; a wrong word VALUE inside a
+// correctly-sized body is caught by the pinned hand-word twins and by the goldens.
+comptime fn op_size(o: RasterOp) -> int {
+    return match o {
+        SetReg(w, reset)             => 2,
+        Cram(a, cols)                => 4 + cols.len,
+        PalRegion(a, slot, pl, e, n) => 5,
+    }
+}
+
+// op_cram_words — CRAM words this op writes, which `fire` sums against the per-fire
+// ceiling. Distinct from op_size (wire words): a PalRegion is 5 wire words but writes
+// `n` colours, and a SetReg is 2 wire words but writes no CRAM at all.
+comptime fn op_cram_words(o: RasterOp) -> int {
+    return match o {
+        SetReg(w, reset)             => 0,
+        Cram(a, cols)                => cols.len,
+        PalRegion(a, slot, pl, e, n) => n,
+    }
+}
+
+// op_mask — the pal_dirty_mask bit an op needs re-asserted at frame top. CRAM byte
+// address >> 5 is the palette line (32 bytes = 16 words per line). THIS is what makes
+// a mid-frame write transient; a mask naming any other line leaves the write latched
+// forever, which is the observed P1 bug (the red covered the whole ground, not just
+// below the split, when the mask said %0001 and the op wrote line 2).
+comptime fn op_mask(o: RasterOp) -> int {
+    return match o {
+        SetReg(w, reset)             => 0,
+        Cram(a, cols)                => 1 << (a >> 5),
+        PalRegion(a, slot, pl, e, n) => 1 << (a >> 5),
+    }
+}
+
+// op_init — the frame-top reset word an op requires, if any.
+comptime fn op_init(o: RasterOp) {
+    return match o {
+        SetReg(w, reset)             => [reset],
+        Cram(a, cols)                => [],
+        PalRegion(a, slot, pl, e, n) => [],
+    }
+}
+
+comptime fn op_is_set_reg(o: RasterOp) -> int {
+    return match o {
+        SetReg(w, reset)             => 1,
+        Cram(a, cols)                => 0,
+        PalRegion(a, slot, pl, e, n) => 0,
+    }
+}
+
+// prog_mask — OR of every op's mask bit.
+comptime fn prog_mask(fires: array) -> int {
+    comptime var m = 0
+    for f in fires {
+        for o in fire_ops(f) {
+            m = m | op_mask(o)
+        }
+    }
+    return m
+}
+
+// prog_init — the distinct frame-top reset words, in first-appearance order.
+comptime fn prog_init(fires: array) {
+    comptime var out = []
+    for f in fires {
+        for o in fire_ops(f) {
+            for w in op_init(o) {
+                comptime var seen = 0
+                for x in out {
+                    if x == w { seen = 1 }
+                }
+                if seen == 0 { out = out ++ [w] }
+            }
+        }
+    }
+    return out
+}
+
+// fire_lines — the full fire-line list: the two priming fires on lines 0 and 1, then
+// one per authored event at (screen line - 1). Ruling 1a: the event fire must be at
+// M-1 so its writes land on M. This is the SPARSE rule; the dense tier's T-1 setup
+// line is a different, measured fact and must not be applied here.
+comptime fn fire_lines(fires: array) {
+    comptime var out = [0, 1]
+    comptime var prev = 1
+    for f in fires {
+        let fl = fire_line_of(f) - 1
+        ensure(fl > prev,
+               "raster program: fires must be in strictly ascending screen-line order, and two events cannot share a fire line (fire line {fl} follows {prev})")
+        out = out ++ [fl]
+        prev = fl
+    }
+    return out
+}
+
+// arm_at — the arm word for record i. Ruling 1b: the word WRITTEN at record i is
+// consumed at the next reload and schedules gap(L[i+1] -> L[i+2]); past the end it
+// parks the counter 255 lines away, i.e. never within active display.
+comptime fn arm_at(L: array, i: int) -> int {
+    if i + 2 >= L.len { return $8AFF }
+    let gap = L[i + 2] - L[i + 1] - 1
+    ensure(gap >= 0 && gap <= 255,
+           "raster program: gap {L[i + 1]}->{L[i + 2]} does not fit one counter reload (0..255)")
+    return $8A00 | gap
+}
+
+// check_mixed_fire — ruling 14. In a fire mixing OP_SET_REG with a CRAM-class op,
+// OP_SET_REG must be FIRST. OP_SET_REG writes with no delay while every CRAM op burns
+// EFX_BLANK_DELAY first, so a SET_REG placed AFTER a CRAM op executes strictly later in
+// the line — a worse artifact than the measured one, and invisible to an author.
+comptime fn check_mixed_fire(f: RasterFire) -> int {
+    comptime var n_set = 0
+    comptime var n_cram = 0
+    comptime var first_set = -1
+    comptime var i = 0
+    for o in fire_ops(f) {
+        if op_is_set_reg(o) == 1 {
+            n_set = n_set + 1
+            if first_set < 0 { first_set = i }
+        }
+        if op_is_set_reg(o) == 0 { n_cram = n_cram + 1 }
+        i = i + 1
+    }
+    ensure(n_set == 0 || n_cram == 0 || first_set == 0,
+           "raster fire at screen line {fire_line_of(f)}: OP_SET_REG must be the FIRST op in a mixed fire (it is at index {first_set}). A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp:164-167); placing SET_REG after a CRAM op pushes it strictly later still, because CRAM ops burn EFX_BLANK_DELAY and SET_REG does not. Schedule a pixel-clean mode change a line earlier instead.")
+    return 0
+}
+
+// ---- the two public entry points --------------------------------------------
+
+// raster_words — the word count, computed from op_size. Use it as the length
+// annotation on the `pub data`:
+//     pub data P: [u16; raster_words(PROG)] = raster_program(PROG)
+// NOT `[u16; PROG.len] = PROG`, which is tautological. Note the guard only bites on a
+// `data` declaration — `const` does not enforce its declared array length.
+pub comptime fn raster_words(fires: array) -> int {
+    comptime var n = 2 + 4 + 2            // mask + init_count, two priming records, terminator
+    n = n + prog_init(fires).len
+    for f in fires {
+        n = n + 2                          // the record's arm word + op_count
+        for o in fire_ops(f) {
+            n = n + op_size(o)
+        }
+    }
+    return n
+}
+
+// raster_program — the flat program. Header, two priming records, one record per
+// authored fire in ascending screen-line order, terminator.
+pub comptime fn raster_program(fires: array) {
+    ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
+    let L = fire_lines(fires)
+    let init = prog_init(fires)
+    comptime var out = [prog_mask(fires), init.len] ++ init
+    out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0
+    out = out ++ [arm_at(L, 1), 0]        // fire 1 — priming, line 1
+    comptime var i = 0
+    for f in fires {
+        check_mixed_fire(f)
+        comptime var body = []
+        for o in fire_ops(f) {
+            body = body ++ op_words(o)
+        }
+        out = out ++ [arm_at(L, i + 2), fire_ops(f).len] ++ body
+        i = i + 1
+    }
+    out = out ++ [$8AFF, $FFFF]           // terminator — reached only by a stray fire
+    // Raster_VBlank and Raster_InstallWater both copy a FIXED RASTER_BUF_SIZE bytes
+    // into Buf_A / Buf_B, so a program longer than the buffer would be truncated live.
+    // (The converse over-read of a short template is pre-existing and harmless — the
+    // walker never reaches past the terminator. NOT yet in docs/BUGS.md — Task 10 books it.)
+    ensure(out.len * 2 <= 128,
+           "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
+    ensure(out.len == raster_words(fires),
+           "raster_program: emitted {out.len} words but raster_words counted {raster_words(fires)} — the two encoding paths disagree")
+    return out
+}
