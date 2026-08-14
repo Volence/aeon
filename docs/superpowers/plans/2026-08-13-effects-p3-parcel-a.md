@@ -69,6 +69,12 @@ stay in the byte-emitting modules; only constructors and validation move. The de
 9. **A glob-imported module must export at least one `pub` name**, so `raster_dsl.emp` carries a
    `pub const RASTER_DSL_PLACEHOLDER = 0` from Task 1. **Task 6 deletes it** once the module has real
    `pub` items.
+10. **An unreferenced `const` is never evaluated** — measured in Task 4. `const P = f(...)` where `f`
+    carries `ensure`s builds **green** with those `ensure`s never running; they fire only once
+    something *reads* `P`. This is the same hazard class as an unimported comptime module
+    (`configs.emp:38-42`), one level lower. It is why Tasks 7-8's retained hand-word twins are real
+    gates: each is read by a per-word `ensure`. **Any `const` added without a reader is inert** — if
+    you add one as a guard, add the reader in the same edit, and watch it fail once.
 
 ---
 
