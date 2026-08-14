@@ -5,6 +5,64 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ⚠ OPEN — the replay net was NOT verified for the blanket-register-restore parcel (2026-08-14)
+
+The parcel merged with every other gate green (four build shapes, sigil `3711/0`, refreeze
+chain 115, a three-checkpoint emulator A/B against master) but **the replay net was not
+validly measured**, and that is recorded here rather than left implied by silence.
+
+**Why it could not be measured.** Arming playback by hand — write `Input_Source = 1` and
+`Replay_Ptr = <fixture> + 20` (`HEADER_LEN`), then run — is **not reproducible**. Three
+attempts on the SAME branch ROM (`crc=c13412fc`) gave three different actual hashes at the
+desync trap:
+
+| arming point | actual `d0` |
+|---|---|
+| after ~20 s free-run, then pause | `0xBD37D0BF` |
+| at the first `Input_Tick` after reset (breakpoint `$2602`) | `0x10023248` |
+| armed too early | write wiped — state init zeroes `Input_Source` AND `Replay_Ptr` |
+
+So the fixture expects a **specific starting game state**, and the arming recipe for it is not
+written down anywhere found. `docs/superpowers/notes/2026-08-13-replay-net-restamp-ab.md` §3
+documents the harvest loop but assumes playback is already running.
+
+**What IS known.** Under comparable arming, branch and master both trap at **exactly tick 735**
+(`d1 = 0x2DF`) with the **same expected payload** (`d2 = 1D375066`) — i.e. the pre-existing
+lens-sweep debt below, not a new divergence. Read `d0` at breakpoint
+`$engine.replay$Input_Tick$desync` (`$26A2`, both builds) rather than off the crash screen: the
+MD Debugger's 8x8 font is not reliably readable at that density (an OCR of master's dump gave
+`DD37D08F` where the register actually held `0x0D37D0EB`).
+
+**Grounds for merging anyway:** the parcel changes VDP register writes only — the blanket
+flush, DEBUG-shape asserts, and one deleted dead `move.w #$8F02, VDP_CTRL`. Nothing touches
+player RAM, and `engine/system/replay.emp:7-16` states the hash is address-free by
+construction, so the RAM-layout shift from deleting `VDP_Dirty_Mask` cannot move it.
+
+**To close:** find or reconstruct the arming protocol, then re-measure. This is entangled with
+the tick-735 re-stamp below — both want the same missing recipe.
+
+---
+
+## ⚠ OPEN — a sigil test binary ABORTS and its tests vanish from the suite totals
+
+`sigil-frontend-emp --test deep_nesting_aborts` dies partway through with
+`fatal runtime error: stack overflow, aborting` (SIGABRT). It therefore never prints a
+`test result` line, and the standard aggregate command sums it as **0 passed, 0 failed** — it
+is invisible in both directions.
+
+**Pre-existing**, confirmed by stashing the parcel's changes and re-running; unrelated to the
+blanket restore. But it means every recent `TOTAL passed: N failed: 0` — including this
+parcel's `3711/0` — was computed with an unknown number of tests silently uncounted.
+
+The irony is the point: this is the regression test for *"sigil must always fail with a
+message, never a bare process abort"* (lens sweep seat SAFE, finding S19), and it is itself
+aborting.
+
+**To close:** fix the overflow so the binary reports, then re-baseline the expected total. Until
+then, treat any suite total as a lower bound rather than a complete count.
+
+---
+
 ## effects suite — 2026-08-13 Phase 3 design audit · EFX-5 FIXED · EFX-4 partially closed · EFX-1/2/3/6 OPEN (Parcel C)
 
 Source: `docs/superpowers/specs/2026-08-13-effects-p3-design.md` §10. Booked here by Effects
