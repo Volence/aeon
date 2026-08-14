@@ -183,9 +183,21 @@ renames a field in that same blob.
 
 ## 8. Verified pair
 
-| repo | branch head |
-|---|---|
-| aeon | `c1f36d28` |
-| sigil | `36093f0d` |
+| repo | branch head | merge commit |
+|---|---|---|
+| aeon | `c1f36d28` | **`f406d50b`** |
+| sigil | `36093f0d` | **`ae6ec13d`** |
 
-Merge SHAs appended below after the merge.
+**Merge order was aeon first, then sigil**, deliberately: sigil master naming
+`engine.effects.palette_dsl` / `engine.effects.raster_dsl` in `COMPTIME_HELPERS` before those modules
+exist in aeon master is the recorded failure mode that once made aeon master unbuildable.
+
+Post-merge verification from both masters, with the sigil binaries rebuilt from merged master:
+
+- all seven goldens re-captured: **identical** to the table in §1
+- `refreeze --check`: `OK (tip \`character-lens-sweep-postmerge\`, chain len 111)` — unchanged
+- `python3 -m pytest -q`: `983 passed, 2 skipped`
+- `emp_helper_closure`: `OK — 425 names across 14 helpers, no collisions`
+- `effects_budget_check`: `OK — 8 code-derived rows agree`
+
+Not pushed — this tree's convention is merge-to-master locally.
