@@ -80,7 +80,7 @@ ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
 // target inherit a bound that was only ever true for CRAM. Separate variants make the
 // match arms exhaustive-checked instead, which is what caught the op_mask trap.
 pub comptime enum RasterOp {
-    SetReg(int, int),                     // (mid-frame $8xxx word, frame-top reset word)
+    SetReg(int),                          // (mid-frame $8xxx word)
     Cram(int, array),                     // (CRAM byte address, colour-word ARRAY)
     PalRegion(int, int, int, int, int),   // (CRAM byte address, slot, pal line, entry, count)
     Vsram(int, array),                    // (VSRAM byte address, scroll-word ARRAY)
@@ -92,49 +92,54 @@ pub comptime enum RasterFire {
 
 // ---- op constructors --------------------------------------------------------
 
-// set_reg — a mid-frame VDP register write, paired with the frame-top word that
-// restores the SAME register. Pairing them is what makes "a mode change cannot latch
-// past the frame" structural instead of a comment: raster_program derives the program's
-// init words from these resets, so an author cannot write the mid-frame half alone.
-pub comptime fn set_reg(word: int, reset: int) -> RasterOp {
+// set_reg — a mid-frame VDP register write. It carries NO frame-top reset, because it
+// does not need one: Flush_VDP_Shadow re-blits all 19 shadowed registers from
+// VDP_Shadow_Table unconditionally at the top of every VBlank, so a mid-frame register
+// change is undone at frame top whichever register it named. "A mode change cannot latch
+// past the frame" is a property of the ENGINE now, not of this constructor's bookkeeping.
+//
+// That is also what makes presets compose. Two independently-authored effects touching
+// the same register used to have to AGREE on a reset word or fail the build (the old
+// prog_init disagreeing-resets check); now they simply layer.
+pub comptime fn set_reg(word: int) -> RasterOp {
     ensure(word >= $8000 && word <= $97FF,
            "set_reg: {word} is not a VDP register write word ($8000..$97FF)")
-    ensure(reset >= $8000 && reset <= $97FF,
-           "set_reg: frame-top reset {reset} is not a VDP register write word ($8000..$97FF)")
-    ensure((word >> 8) == (reset >> 8),
-           "set_reg: mid-frame word {word} writes VDP reg {(word >> 8) - $80} but its frame-top reset {reset} writes reg {(reset >> 8) - $80} — they must be the same register")
     // Reg $0A is the SCHEDULE's, not the author's. Raster_HInt writes the record's arm
     // word to reg $0A FIRST and only then runs the record's ops (engine/effects/raster.emp,
     // Raster_HInt: `move.w (a1)+, (a2)` before `.op_loop`), so an op that writes $8Axx
     // overwrites the arm the encoder just scheduled. The counter then reloads with the
     // author's value at the next HInt and every remaining fire in the frame lands on the
     // wrong line — silently, and only from that fire onward, which is the worst shape a
-    // schedule bug can take. The word-pair check above makes this one ensure cover the
-    // frame-top reset too.
+    // schedule bug can take.
     //
     // ONLY reg $0A is banned. Reg $0F (autoincrement) was considered and deliberately
     // NOT banned: Gunstar Heroes and Alien Soldier both change autoincrement mid-frame as
-    // ordinary technique, and set_reg's mandatory frame-top reset already bounds the
-    // change to the frame that made it.
-    // NOT ROUTED THROUGH VDP_Shadow_Table — both halves go straight to VDP_CTRL (the
-    // mid-frame word from Raster_HInt's .op_set_reg, the reset from Raster_VBlank's init
-    // loop). Harmless today and NOT a latent bug by luck: Flush_VDP_Shadow runs right
-    // after Raster_VBlank in the same VBlank but writes only registers whose dirty bit is
-    // set, and nothing in the tree ever marks reg $0C dirty. It becomes real the moment
-    // someone set_regs a register that IS shadowed and dirtied: the flush would override
-    // this op's frame-top reset for exactly those frames, and the shadow's idea of the
-    // register would permanently diverge from the hardware's. If you add one, write the
-    // reset through the shadow instead of here.
+    // ordinary technique, and the blanket frame-top restore bounds the change to the frame
+    // that made it.
+    //
+    // NOT ROUTED THROUGH VDP_Shadow_Table, and that is now correct BY CONSTRUCTION. The
+    // word goes straight to VDP_CTRL from Raster_HInt's .op_set_reg and nothing here
+    // touches the shadow, so the shadow keeps describing the SETTLED frame-top state —
+    // exactly what it is for — while this op describes a transient excursion from it. The
+    // old hazard is not merely absent, it is unrepresentable: there is no per-program reset
+    // word for the flush to fight and no dirty bit for it to miss, so a set_reg on a
+    // shadowed register can no longer diverge the shadow from the hardware.
+    //
+    // A register change meant to PERSIST is not a raster op at all. Call Set_VDP_Reg
+    // (engine/system/vdp_init.emp): it writes the shadow byte and the frame-top flush
+    // delivers it.
     ensure((word >> 8) != $8A,
            "set_reg: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
-    return RasterOp.SetReg(word, reset)
+    return RasterOp.SetReg(word)
 }
 
-// sh_on — Shadow/Highlight ON below the fire line, H40 base restored at frame top.
-// $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30 quirk
-// ruling in the raster survey. $8C81 is boot's H40 base (engine/system/boot_data.emp:140).
+// sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
+// the shadow holds for reg $0C at the top of the next frame, which is boot's H40 base
+// $8C81 (engine/system/boot_data.emp:140) unless a section deliberately changed it via
+// Set_VDP_Reg. $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30
+// quirk ruling in the raster survey.
 pub comptime fn sh_on() -> RasterOp {
-    return set_reg($8C89, $8C81)
+    return set_reg($8C89)
 }
 
 // cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
@@ -225,10 +230,12 @@ pub comptime fn vsram(addr: int, values: array) -> RasterOp {
 // fire — one scheduled event. `line` is the SCREEN line the effect lands on; the DSL
 // derives the fire line (line - 1) and the arm schedule. The floor of 3 is the priming
 // records': fires 0/1 prime on lines 0-1, so the earliest real fire is 2, landing on 3.
-// Lines 0-2 are the init words' job.
+// An effect that must cover lines 0-2 as well is not a raster op — it is settled frame
+// state, so set it with Set_VDP_Reg (engine/system/vdp_init.emp) and let the frame-top
+// flush deliver it.
 pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(line >= 3 && line <= 223,
-           "fire: screen line {line} outside 3..223 (lines 0-2 belong to the priming records and the init words)")
+           "fire: screen line {line} outside 3..223 (lines 0-2 belong to the priming records)")
     ensure(ops.len >= 1, "fire: a fire with no ops — drop the fire rather than authoring an empty one")
     // ---- THE THREE PER-FIRE CEILINGS, AND WHAT THEY DO NOT DO -------------------
     // These are STRUCTURAL COUNTS — the same class of guard as RASTER_CRAM_MAX itself —
@@ -279,14 +286,14 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
 // so the mixed-fire invariant is structural for this constructor and only checked for
 // hand-assembled fires.
 //
-// `sh` HAS NO DEFAULT, deliberately. sh:0 yields a program with ZERO init words, which
-// moves the priming arm word off word 3 — and Raster_PatchWaterLine writes byte offset
-// 6 (WATER_TEMPLATE_ARM0_OFF, raster.emp:561) unconditionally at three sites
-// (:635, :644, :647). On a patched template that would overwrite the priming record's
-// op_count with an arm word, and Raster_HInt would then loop tens of thousands of times
-// over garbage. A `= 0` default made the corrupt case the one an author gets by simply
-// not thinking about Shadow/Highlight, so the parameter is required instead. The
-// init_count == 1 assertion in Task 8 is the co-located half of this guard.
+// `sh` HAS NO DEFAULT, and the reason has changed. It used to be a SAFETY requirement:
+// sh:0 yielded a program with zero init words, which moved the priming arm word off the
+// word Raster_PatchWaterLine patches unconditionally, and a patched template then had an
+// arm word written over a record's op_count. That failure is gone — the header is one
+// word for every program now, so arm0 is always word 1 and WATER_TEMPLATE_ARM0_OFF is
+// structural rather than conditional. The parameter stays required because whether an
+// effect changes a mode register is worth stating at the call site, not because omitting
+// it can corrupt anything.
 pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
                                 entry: int, count: int, sh: int) -> RasterFire {
     ensure(sh == 0 || sh == 1, "region_boundary: sh {sh} must be 0 or 1")
@@ -314,14 +321,13 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
 // COMPOSITION and not merely to its parts — composing two legal presets into an illegal
 // fire is a build error, not a surprise at runtime.
 //
-// WHAT IT CANNOT RECONCILE, and this is the current limit of composability: two presets
-// that touch the SAME VDP register with DIFFERENT frame-top resets are refused by
-// prog_init. That guard is correct (the later reset silently won and left the register
-// wrong for the whole frame), but it means presets must AGREE about registers, i.e.
-// composition is a negotiation. The corpus answer is a blanket VBlank register restore
-// (Gunstar re-blits regs $01-$12 from a RAM shadow in ~290 cycles), which would delete
-// the `reset` parameter entirely. Byte-changing; booked. Do not treat this limit as
-// permanent when designing presets.
+// THE REGISTER NEGOTIATION IS GONE. Two presets touching the same VDP register used to
+// be refused unless they agreed on a frame-top reset word, so composition was a
+// negotiation between preset authors. The blanket VBlank register restore (the corpus
+// answer — Gunstar re-blits its whole shadow every frame) made per-op resets unnecessary,
+// `set_reg` lost its `reset` parameter, and presets now layer without having to know
+// about each other. What composition still cannot reconcile is two ops writing the same
+// register on the SAME line: they both execute, in preset order, and the last one wins.
 pub comptime fn compose(progs: array) -> array {
     ensure(progs.len >= 1, "compose: nothing to compose")
     comptime var out = []
@@ -429,7 +435,7 @@ comptime fn fire_ops(f: RasterFire) {
 // op_words — the emitted body of one op.
 comptime fn op_words(o: RasterOp) {
     return match o {
-        SetReg(w, reset) => [0, w],
+        SetReg(w) => [0, w],
         Cram(a, cols)    => [2,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
@@ -460,7 +466,7 @@ comptime fn op_words(o: RasterOp) {
 // with the goldens behind them.
 comptime fn op_size(o: RasterOp) -> int {
     return match o {
-        SetReg(w, reset)             => 2,
+        SetReg(w)             => 2,
         Cram(a, cols)                => 4 + cols.len,
         PalRegion(a, slot, pl, e, n) => 5,
         Vsram(a, vals)               => 4 + vals.len,
@@ -474,7 +480,7 @@ comptime fn op_size(o: RasterOp) -> int {
 // because the ceiling is a CYCLE budget and a VSRAM word costs exactly what a colour does.
 comptime fn op_cram_words(o: RasterOp) -> int {
     return match o {
-        SetReg(w, reset)             => 0,
+        SetReg(w)             => 0,
         Cram(a, cols)                => cols.len,
         PalRegion(a, slot, pl, e, n) => n,
         Vsram(a, vals)               => vals.len,
@@ -488,7 +494,7 @@ comptime fn op_cram_words(o: RasterOp) -> int {
 // below the split, when the mask said %0001 and the op wrote line 2).
 comptime fn op_mask(o: RasterOp) -> int {
     return match o {
-        SetReg(w, reset)             => 0,
+        SetReg(w)             => 0,
         Cram(a, cols)                => 1 << (a >> 5),
         PalRegion(a, slot, pl, e, n) => 1 << (a >> 5),
         // ZERO, and not by omission: a VSRAM op writes no palette, so there is no line to
@@ -500,23 +506,13 @@ comptime fn op_mask(o: RasterOp) -> int {
     }
 }
 
-// op_init — the frame-top reset word an op requires, if any.
-comptime fn op_init(o: RasterOp) {
-    return match o {
-        SetReg(w, reset)             => [reset],
-        Cram(a, cols)                => [],
-        PalRegion(a, slot, pl, e, n) => [],
-        Vsram(a, vals)               => [],
-    }
-}
-
 // op_is_set_reg — 1 for the one op that writes a register with NO blanking delay, 0 for
 // every "CRAM-class" op (cram / pal_region / vsram: command longword, EFX_BLANK_DELAY,
 // word loop). That split is the runtime's, not a taxonomy: it is what makes both the
 // ordering rule (check_mixed_fire) and the CRAM-class op ceiling (fire) mean something.
 comptime fn op_is_set_reg(o: RasterOp) -> int {
     return match o {
-        SetReg(w, reset)             => 1,
+        SetReg(w)             => 1,
         Cram(a, cols)                => 0,
         PalRegion(a, slot, pl, e, n) => 0,
         Vsram(a, vals)               => 0,
@@ -532,42 +528,6 @@ comptime fn prog_mask(fires: array) -> int {
         }
     }
     return m
-}
-
-// prog_init — the distinct frame-top reset words, in first-appearance order.
-//
-// THE DEDUPE KEY IS THE REGISTER, NOT THE WORD. Keying on the whole word looks like the
-// same thing and is not: two set_regs on the SAME register with DIFFERENT resets are two
-// distinct words, so both were emitted, and Raster_HInt writes init words in array order
-// (`move.w (a1)+, (a2)` / `dbf`) — so the later one silently won and the earlier op's
-// intended reset was discarded for the whole frame. `set_reg` already guarantees a word
-// and its own reset name the same register; nothing compared two different set_regs.
-//
-// Example that used to build green: fire(100, [set_reg($8C89, $8C81)]) with
-// fire(140, [set_reg($8C8B, $8C83)]) emitted init = [$8C81, $8C83], leaving reg $0C at
-// $8C83 — interlace ON, permanently, from a program that only asked for Shadow/Highlight.
-//
-// It also mattered structurally: init_count is the water patch offset's input
-// (WATER_TEMPLATE_ARM0_OFF is valid only at init_count == 1), so a silently duplicated
-// register moved the arm word the runtime patches unconditionally.
-comptime fn prog_init(fires: array) {
-    comptime var out = []
-    for f in fires {
-        for o in fire_ops(f) {
-            for w in op_init(o) {
-                comptime var seen = 0
-                for x in out {
-                    if (x >> 8) == (w >> 8) {
-                        seen = 1
-                        ensure(x == w,
-                               "raster program: two frame-top resets for VDP reg {(w >> 8) - $80} disagree ({x} and {w}). Every set_reg on one register must carry the SAME reset word — the init words are written in order at frame top, so the last one silently wins and the other op's restore never happens.")
-                    }
-                }
-                if seen == 0 { out = out ++ [w] }
-            }
-        }
-    }
-    return out
 }
 
 // ---- the measured density model (docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md) ----
@@ -708,8 +668,7 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
 // NOT `[u16; PROG.len] = PROG`, which is tautological. Note the guard only bites on a
 // `data` declaration — `const` does not enforce its declared array length.
 pub comptime fn raster_words(fires: array) -> int {
-    comptime var n = 2 + 4 + 2            // mask + init_count, two priming records, terminator
-    n = n + prog_init(fires).len
+    comptime var n = 1 + 4 + 2            // mask, two priming records, terminator
     for f in fires {
         n = n + 2                          // the record's arm word + op_count
         for o in fire_ops(f) {
@@ -725,8 +684,9 @@ pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
     check_density(fires)
-    let init = prog_init(fires)
-    comptime var out = [prog_mask(fires), init.len] ++ init
+    // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
+    // program without exception — which is what WATER_TEMPLATE_ARM0_OFF depends on.
+    comptime var out = [prog_mask(fires)]
     out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0
     out = out ++ [arm_at(L, 1), 0]        // fire 1 — priming, line 1
     comptime var i = 0

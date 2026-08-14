@@ -36,8 +36,8 @@ use engine.irq.{ints_off}
 //   2. The program opens with TWO PRIMING records. Raster_VBlank leaves reg $0A = 0,
 //      so cheap no-op fires land on lines 0 and 1 and load the first two real arm
 //      words; every fire from the third onward lands exactly on its authored line.
-//      Real events therefore start at line >= 2 — lines 0-1 belong to the VBlank
-//      init words anyway.
+//      Real events therefore start at line >= 2 — lines 0-1 belong to the priming
+//      records. State that must cover them is settled state, set with Set_VDP_Reg.
 //
 // Fire lines are one line EARLY by construction: a register write in the handler
 // for fire-line L takes effect from L+1 (Ruling 1a/3a), so an effect authored to
@@ -47,12 +47,20 @@ use engine.irq.{ints_off}
 // A compiled raster program is DATA — the Phase-3 `raster_dsl` and Aurora both
 // compile to exactly this layout:
 //
-//   Header
+//   Header — ONE word, so a fire record's arm word is always at word 1
 //     dc.w pal_dirty_mask   bits 0-3: palette lines Raster_VBlank re-asserts into
 //                           Palette_Dirty EVERY frame, so mid-frame CRAM writes are
 //                           transient (the base palette is restored at frame top)
-//     dc.w init_count       N pre-composed $8xxx words applied in VBlank
-//     dc.w init[N]          frame-top VDP state (e.g. S/H OFF before a mid-frame ON)
+//
+//   A program carries NO frame-top register words. It used to: every OP_SET_REG was
+//   paired with a reset word in an `init[]` header block that Raster_VBlank replayed at
+//   frame top. Flush_VDP_Shadow now re-blits ALL 19 shadowed VDP registers from
+//   VDP_Shadow_Table unconditionally every VBlank, which restores every register a
+//   mid-frame op touched, for free and without the program having to name it. Deleting
+//   the mechanism is what lets two independently-authored effects touch the same register
+//   and simply compose, instead of having to agree on a reset word to build at all.
+//   A register change meant to SURVIVE the frame is settled state, not a raster op:
+//   Set_VDP_Reg (engine/system/vdp_init.emp) writes the shadow and the flush delivers it.
 //   Fire records, in FIRE ORDER (first two are the priming no-ops)
 //     dc.w arm_word         $8A00 | delta — written at THIS fire, schedules the gap
 //                           after next; RASTER_ARM_PARK on the last two real records
@@ -270,8 +278,6 @@ pub comptime fn raster_arm(next_fire: int, after_fire: int) -> int {
 // docs/benchmarks/effects-p2/GATE-EVIDENCE.md, dense-tier section.
 pub struct RasterGradientProgram {
     rgp_mask:       u16,    // pal_dirty_mask — DERIVED from rgp_cmd's CRAM address
-    rgp_init_count: u16,
-    rgp_init_word:  u16,
     rgp_arm0:       u16, rgp_ops0: u16,     // fire 0 — priming
     rgp_arm1:       u16, rgp_ops1: u16,     // fire 1 — priming
     rgp_arm2:       u16, rgp_ops2: u16,     // fire 2 — the setup record, one op
@@ -298,9 +304,15 @@ pub struct RasterGradientProgram {
 // alternative was a co-located hand-written ensure at each call site (the shipped fixture
 // carried one), which every future dense program would have to remember to copy — the
 // ritual this codebase keeps discovering it has not copied.
+//
+// THERE IS NO `init_word` PARAMETER ANY MORE. A dense program used to carry one frame-top
+// register word (defaulting to boot's H40 base $8C81) that Raster_VBlank replayed; the
+// unconditional Flush_VDP_Shadow now restores every shadowed register at frame top, so the
+// header word had nothing left to do. A section that wants a register CHANGED globally —
+// Shadow/Highlight permanently on, say — calls Set_VDP_Reg (engine/system/vdp_init.emp)
+// instead: it writes the shadow byte, and the frame-top flush is what delivers it.
 pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
-                                        stream: Label, stream_words: int,
-                                        init_word: int = $8C81) -> RasterGradientProgram {
+                                        stream: Label, stream_words: int) -> RasterGradientProgram {
     // Floor is 3, matching `raster_dsl.fire`: the setup fire sits at T-1 and must still
     // land after the two priming fires on lines 0-1.
     ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
@@ -319,15 +331,8 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
            "raster_gradient_program: the run writes CRAM line 0, the CHARACTER's palette line — a dense run re-asserts its line every frame, so this would fight the player's palette for the whole section")
     ensure(stream_words == lines * RASTER_CRAM_MAX,
            "raster_gradient_program: stream is {stream_words} words but the run needs lines * RASTER_CRAM_MAX = {lines * RASTER_CRAM_MAX}. A short stream is read past its end into whatever ROM follows, for the rest of the run, every frame.")
-    ensure(init_word >= $8000 && init_word <= $97FF,
-           "raster_gradient_program: frame-top init {init_word} is not a VDP register write word ($8000..$97FF)")
     return RasterGradientProgram{
         rgp_mask:       1 << (addr >> 5),
-        rgp_init_count: 1,
-        // Default $8C81 is boot's H40 base with S/H OFF. It is a PARAMETER because every
-        // dense program asserting it unconditionally silently turns Shadow/Highlight off
-        // at frame top for any section that wanted it globally.
-        rgp_init_word:  init_word,
         rgp_arm0:       raster_arm(1, top - 1),
         rgp_ops0:       0,
         rgp_arm1:       raster_arm(top - 1, top),       // == RASTER_ARM_EVERY_LINE
@@ -348,8 +353,6 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
 // terminator); the body differs only in what the setup record carries.
 pub struct RasterRampProgram {
     rrp_mask:       u16,    // pal_dirty_mask — see the constructor; 0 for a non-CRAM target
-    rrp_init_count: u16,
-    rrp_init_word:  u16,
     rrp_arm0:       u16, rrp_ops0: u16,     // fire 0 — priming
     rrp_arm1:       u16, rrp_ops1: u16,     // fire 1 — priming
     rrp_arm2:       u16, rrp_ops2: u16,     // fire 2 — the setup record, one op
@@ -389,15 +392,18 @@ pub struct RasterRampProgram {
 // ruling `vsram`'s op_mask carries in the sparse tier, and it is NOT an omission: a
 // CRAM-style `1 << (addr >> 5)` computed from a VSRAM address is a palette line derived
 // from a scroll offset, and at offset 0 it names the CHARACTER's line.
+//
+// THERE IS NO `init_word` PARAMETER ANY MORE, for the same reason the gradient constructor
+// lost its one: Flush_VDP_Shadow re-blits every shadowed register from VDP_Shadow_Table at
+// the top of every VBlank, so a program-carried frame-top word is redundant. A section
+// wanting a globally-changed register (Shadow/Highlight permanently on, for instance)
+// calls Set_VDP_Reg (engine/system/vdp_init.emp) and lets the flush deliver it.
 pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
-                                    start: int, step: int,
-                                    init_word: int = $8C81) -> RasterRampProgram {
+                                    start: int, step: int) -> RasterRampProgram {
     ensure(top >= 3, "raster_ramp_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_ramp_program: line count {lines} must be positive")
     ensure(top + lines <= 224,
            "raster_ramp_program: run {top}..{top + lines - 1} runs past screen line 223")
-    ensure(init_word >= $8000 && init_word <= $97FF,
-           "raster_ramp_program: frame-top init {init_word} is not a VDP register write word ($8000..$97FF)")
     let addr = vdp_comm_addr(cmd)
     // Exactly one of the two supported targets, and the mask follows from which. INT
     // flags, not booleans, and the mask is built in a comptime var rather than an
@@ -420,8 +426,6 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
     if is_cram == 1 { mask = 1 << (addr >> 5) }
     return RasterRampProgram{
         rrp_mask:       mask,
-        rrp_init_count: 1,
-        rrp_init_word:  init_word,
         rrp_arm0:       raster_arm(1, top - 1),
         rrp_ops0:       0,
         rrp_arm1:       raster_arm(top - 1, top),       // == RASTER_ARM_EVERY_LINE
@@ -479,9 +483,10 @@ pub proc Raster_Clear () clobbers(a0) {
 // before Enqueue_Dirty_Buffers reads the mask — Flush precedes Enqueue, so a
 // pre-Flush position satisfies both orderings.
 //
-// Consumes a pending install, re-asserts frame-top register state, rewinds the
+// Consumes a pending install, re-asserts the program's palette lines, rewinds the
 // cursor to the first (priming) record, and leaves reg $0A = 0 so the pipeline
-// primes on lines 0 and 1.
+// primes on lines 0 and 1. Frame-top REGISTER state is not its job — the
+// unconditional Flush_VDP_Shadow immediately after does that for all 19 registers.
 // -----------------------------------------------
 pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         move.l  Raster_Pending, d0
@@ -508,14 +513,9 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         // --- header ---
         move.w  (a1)+, d1               // pal_dirty_mask
         or.b    d1, Palette_Dirty       // re-assert the base palette every frame
-        move.w  (a1)+, d1               // init_count
-        beq.s   .init_done
-        subq.w  #1, d1
-        lea     VDP_CTRL, a2
-    .init:
-        move.w  (a1)+, (a2)             // frame-top $8xxx register words
-        dbf     d1, .init
-    .init_done:
+        // The whole header. There is no frame-top register replay here any more:
+        // Flush_VDP_Shadow runs right after this and re-blits every shadowed VDP
+        // register unconditionally, which restores anything a mid-frame op changed.
         move.l  a1, Raster_Cursor       // first (priming) fire record
         // reg $0A = 0 primes the pipeline: no-op fires on lines 0 and 1 load the
         // first two real arm words. Re-installed every frame on purpose — it is
@@ -762,9 +762,9 @@ pub proc Raster_InstallSection (a0: u32) clobbers(d0) {
 }
 
 // The canonical "explicitly no raster effects here" program: no palette
-// re-assert, no init words, and a terminator that parks the counter. Installing
-// it is how a section turns a neighbour's effect OFF.
-pub data Raster_Program_None: [u16; 4] = [0, 0, RASTER_ARM_PARK, RASTER_OPS_END]
+// re-assert and a terminator that parks the counter. Installing it is how a
+// section turns a neighbour's effect OFF.
+pub data Raster_Program_None: [u16; 3] = [0, RASTER_ARM_PARK, RASTER_OPS_END]
 
 // ===========================================================================
 // WATER_LEVEL PATCH SLOT (effects P2 Task 7) — a raster program whose boundary line
@@ -774,10 +774,14 @@ pub data Raster_Program_None: [u16; 4] = [0, 0, RASTER_ARM_PARK, RASTER_OPS_END]
 // Raster_Active_Buf points at Buf_B. Only the arm word moves, so a line change is one
 // word write.
 //
-// The template MUST be laid out with init_count == 1 (one frame-top init word), so its
-// priming record 0's arm word sits at byte offset 6:
-//   [pal_dirty_mask 0][init_count 2][init[0] 4][arm0 6][opc0 8]...
-pub const WATER_TEMPLATE_ARM0_OFF = 6
+// The header is ONE word, so priming record 0's arm word sits at byte offset 2 in EVERY
+// program — there is no longer a layout precondition on the template:
+//   [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6][opc1 8]...
+// It used to be offset 6, valid only while a template carried exactly one frame-top init
+// word ([mask 0][init_count 2][init[0] 4][arm0 6]). The init header is gone — the blanket
+// Flush_VDP_Shadow restores every register at frame top — so what was a coupling an
+// author could break is now structural.
+pub const WATER_TEMPLATE_ARM0_OFF = 2
 
 // Raster_WaterArm — the priming arm word that lands the water fire at screen line M.
 // FORMULA (survey Ruling 1b — the one-interrupt arm lag): priming fires 0 and 1 land on
@@ -796,7 +800,7 @@ pub const RASTER_MAX_FIRE_LINE = 223
 // -----------------------------------------------
 // Raster_InstallWater — install a water template into Raster_Buf_B and make it the
 // live program, with the boundary at screen line d0.
-//   a0 = water template (init_count must be 1)   d0.w = water screen line
+//   a0 = water template   d0.w = water screen line
 // After this, Raster_VBlank walks Buf_B every frame; Raster_PatchWaterLine moves the
 // line. Bypasses Raster_Pending (which drives the ROM-program Buf_A path) — the water
 // program is the runtime-patched Buf_B, not a static ROM program.
@@ -857,8 +861,9 @@ pub proc Raster_PatchWaterLine (d0: i16) clobbers(d0) {
         // Earliest legal fire. Screen lines 0..MIN-1 are the priming records' own lines
         // and cannot carry the effect, so a fully-submerged view keeps a MIN-line sliver
         // of un-effected pixels at the very top. Authors wanting a seamless full-screen
-        // state must put it in the program's frame-top init words instead, which is a
-        // content decision rather than something this proc can fix.
+        // state must set it as settled state instead (Set_VDP_Reg for a register, the
+        // section palette for colours), which is a content decision rather than something
+        // this proc can fix.
         move.w  #$8A00 | (RASTER_MIN_FIRE_LINE - RASTER_MIN_FIRE_LINE), d0
         move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
         rts
