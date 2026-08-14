@@ -97,10 +97,22 @@ pub const OP_CRAM       = 2
 // a full 16-colour line CANNOT swap in one fire (3 CRAM words/fire is a cycle budget,
 // not a FIFO one). So a region is a SCOPED swap: the few visually-dominant entries of
 // a line (<= RASTER_CRAM_MAX), streamed in one fire. A full-line region is authored as
-// CONSECUTIVE OP_PAL_REGION fires on successive lines — S3K's actual technique (it
-// writes 3 colours per scanline precisely to push the CRAM dots offscreen), so such a
-// boundary takes ceil(N/3) lines to complete. The water cluster (Task 7) uses the
-// scoped form: swap the handful of body colours at the water line, not the whole line.
+// CONSECUTIVE OP_PAL_REGION fires on successive lines, so such a boundary takes ceil(N/3)
+// lines to complete.
+//
+// THAT IS OUR CHOICE, NOT A REFERENCE'S — an earlier revision of this comment credited it
+// to S3K, which is false and was corrected against the disassembly. S3K's HInt3
+// (sonic3k.asm:1008-1046) swaps the whole water palette inside ONE interrupt: it parks the
+// counter ($8AFF), stops the Z80, then loops {fresh CRAM command + 3 colours, then a
+// cycle-counted ~370-cycle dbf spin}. The spacing that pushes the CRAM dots offscreen is
+// the SPIN, not multiple interrupts. S3K's HInt2 (:1230), Sonic 2's PalToCRAM and S.C.E.'s
+// HInt each write 64 CRAM words in a single fire with no delay at all. Ours trades six
+// exception entries for a handler that stays inside the ~60-cycle budget with no Z80 stop
+// and no long in-handler spin: EFX_BLANK_DELAY below is the same idea as S3K's spin at
+// ~40 cycles instead of ~370, because it has to cover three words, not sixteen colours.
+//
+// The water cluster (Task 7) uses the scoped form: swap the handful of body colours at
+// the water line, not the whole line.
 pub const OP_PAL_REGION = 4
 
 // pal_stage_off — the comptime offset into Pal_Variant_Stage an OP_PAL_REGION streams
