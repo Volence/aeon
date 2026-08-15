@@ -35,6 +35,34 @@ pub struct EffectsPreset (size: 36) {
     ep_transition:     u16      @ $1E,   // cross-fade arm; unused by every C2 fixture
 }
 
+// ⚠ THE TOP-LEVEL `ensure` BELOW IS CURRENTLY DEAD, AND THAT IS MEASURED, NOT FEARED.
+//
+// This module is parsed but NOT EVALUATED while nothing references it. Measured
+// 2026-08-14, on this file, with all four shapes building clean throughout:
+//
+//   * `ensure(PAL_MAX_VARIANTS == 99, ...)` — two comptime ints, trivially FALSE —
+//     BUILT SUCCESSFULLY. So it is not that the predicate is subtle; no top-level
+//     `ensure` here is evaluated at all.
+//   * A deliberate syntax error in this same file DID fail the build, so the file is
+//     genuinely parsed. Parsed, not evaluated.
+//
+// It comes alive when the module becomes reachable — Task 8 (`Effects_InstallPreset`
+// called from the crossing) and Task 12 (game data naming presets). **Re-run the
+// inversion probe then**: flip the `== 2` to `== 99`, confirm the build FAILS, flip it
+// back. Until someone does that, treat this guard as documentation.
+//
+// `preset()`'s OWN ensures are a different story and ARE live: they were verified at
+// authoring time by deliberately violating each one from a real call site in
+// configs.emp and confirming the build failed with the intended message. A comptime
+// fn's body evaluates where it is CALLED, so it does not share this module's problem.
+//
+// A witness for the Label-vs-int comparison the exclusivity ensure depends on was
+// attempted here and REMOVED: `ensure(Raster_Program_None != 0, ...)` and its exact
+// inverse `== 0` BOTH built clean, so an `ensure` comparing an imported data symbol
+// to an integer is unevaluable and silently always-passes. That construct is a
+// vacuous-guard generator; do not reach for it. The live proof of that mechanism
+// remains the call-site violation probe described above.
+//
 // PAL_MAX_VARIANTS cannot be raised past 2 without a fix first: palette.emp's
 // `andi.w #(PAL_MAX_VARIANTS - 1), d0` (Palette_SetVariant) is a power-of-two mask,
 // so 3 would silently fold slot 2 onto slot 0 — and ep_variants's fixed [*u8; 2]
@@ -60,3 +88,4 @@ pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
                           ep_patched: patched, ep_cycle: cycle, ep_variants: variants,
                           ep_patch_world_y: patch_world_y, ep_transition: transition }
 }
+
