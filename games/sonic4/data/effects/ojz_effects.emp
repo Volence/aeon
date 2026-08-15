@@ -20,6 +20,17 @@ use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // The water patch-offset invariant below names these directly (an ensure at THIS
 // file's scope, so they must resolve here — see the late-binding note above).
 use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
+// pal_stage_off — NOT named anywhere in this file, and required anyway. It is called in
+// the BODY of raster_dsl's fx_tint_band, and a comptime fn's free names resolve at the
+// CALL SITE's scope (the same late-binding rule the block above documents), so the OJZ_TC
+// fixture below cannot construct its tint band without this visible HERE. raster_dsl's own
+// `use` of it does not travel to the caller.
+//
+// This gap was LATENT until now: OJZ_TwoChannel is the first fx_tint_band call site
+// anywhere in the repo (the water fixture above calls region_boundary directly with a
+// literal addr, so it never reached this path). Measured, not assumed — omitting this line
+// fails the build with four copies of "unknown function `pal_stage_off`".
+use engine.effects.raster.{pal_stage_off}
 // RASTER_ARM_EVERY_LINE + OP_RUN_GRADIENT are imported even though nothing in THIS
 // file names them: a comptime fn's struct-literal field values are resolved at the
 // EMISSION site's scope, not the definition site (the same late-binding rule the
@@ -542,3 +553,74 @@ pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: OJZ_ShimmerCycle,  variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
+
+// ===========================================================================
+// OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE
+// program, which is exactly what the Phase-3 design declared out of scope for Parcel C
+// ("two independently patched effects in one section — Raster_Buf_B is single").
+//
+// It has NO runtime behaviour in this parcel: nothing installs it. Its whole job is to be
+// compared word-for-word against the hand twins below, so that the runtime patcher parcel
+// inherits a table whose every offset is already proved at build time.
+//
+// Channel 0 — the water shape: S/H on plus a 3-colour region swap, band 40..120.
+// Channel 1 — a plane B vertical scroll split, band 130..200.
+// The bands are 10 lines apart at their closest, which is what makes channel 0's modelled
+// 526 cycles fit: the density guard measures band edge to band edge, not authored line to
+// authored line.
+const OJZ_TC_PROG = compose([
+    patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
+              ch: 0, lo: 40,  hi: 120),
+    patchable(fx_vscroll_split(line: 160, offset: $0043),
+              ch: 1, lo: 130, hi: 200),
+])
+
+// THE BODY PIN. Literals on purpose: a pin sharing symbols with the encoder it pins is
+// weaker. 72 is pal_stage_off(0, 2, 4) = 0*128 + 2*32 + 4*2.
+// Fire lines are screen minus 1: priming 0 and 1, then 99 and 159.
+//   arm0 = $8A00 | (99 - 1 - 1)   = $8A61
+//   arm1 = $8A00 | (159 - 99 - 1) = $8A3B
+//   records 2 and 3 park: nothing follows them.
+const OJZ_TC_HAND = [
+    %0100,                      // pal_dirty_mask — CRAM line 2, from the pal_region only
+    $8A61, 0,                   // fire 0 — priming; THE word channel 0's patch rewrites
+    $8A3B, 0,                   // fire 1 — priming; THE word channel 1's patch rewrites
+    $8AFF, 2,                   // fire 2 — channel 0, two ops
+      0, $8C89,                 //   OP_SET_REG — S/H on
+      4, $C048, $0000,          //   OP_PAL_REGION, command longword split
+                 2,             //   count-1
+                 72,            //   Pal_Variant_Stage offset
+    $8AFF, 1,                   // fire 3 — channel 1, one op
+      2, $4002, $0010,          //   OP_CRAM opcode with a VSRAM WRITE command longword
+                 0,             //   count-1
+                 $0043,         //   the scroll value
+    $8AFF, $FFFF,               // park + RASTER_OPS_END
+]
+ensure(raster_words(OJZ_TC_PROG) == OJZ_TC_HAND.len,
+       "OJZ_TwoChannel: DSL counts {raster_words(OJZ_TC_PROG)} body words, the hand program is {OJZ_TC_HAND.len}")
+ensure(first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND) == -1,
+       "OJZ_TwoChannel: DSL body diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND)}")
+
+// THE TABLE PIN — the words the runtime patcher parcel will walk. Checked separately from
+// the body so a failure names which half moved. Every field is in FIRE-LINE space.
+const OJZ_TC_TABLE_HAND = [
+    2,                          // count — two authored records
+    2, $8000, 39,  119,         // channel 0: rewrites the arm at byte 2, band 39..119
+    6, $8001, 129, 199,         // channel 1: rewrites the arm at byte 6, band 129..199
+]
+// The separate .len ensure is REQUIRED, not belt-and-braces: first_mismatch walks only a's
+// indices and returns -1 whenever a is a PREFIX of b, so a table short by a trailing entry
+// compares EQUAL. Nothing inside first_mismatch can see that.
+ensure(patched_words(OJZ_TC_PROG) == 64 + OJZ_TC_TABLE_HAND.len,
+       "OJZ_TwoChannel: patched_words says {patched_words(OJZ_TC_PROG)} but 64 padded body words plus the hand table is {64 + OJZ_TC_TABLE_HAND.len}")
+
+pub data OJZ_TwoChannel: [u16; patched_words(OJZ_TC_PROG)] = patched_program(OJZ_TC_PROG)
+
+// The whole emitted image in one comparison — body, padding and table. A padding-length
+// error shows up here as a divergence at the first table word.
+const OJZ_TC_PAD = comptime for i in 0..(64 - 23) { 0 }
+ensure(OJZ_TC_HAND.len == 23,
+       "OJZ_TwoChannel: the padding length above is written against a 23-word body, but the hand body is {OJZ_TC_HAND.len} words")
+ensure(first_mismatch(patched_program(OJZ_TC_PROG),
+                      OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND) == -1,
+       "OJZ_TwoChannel: the emitted patched image diverges from the hand twin at index {first_mismatch(patched_program(OJZ_TC_PROG), OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND)}")
