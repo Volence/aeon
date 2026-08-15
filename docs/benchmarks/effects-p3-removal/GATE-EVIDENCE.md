@@ -231,6 +231,39 @@ subsequent call, including `emulator_status`, hangs). Recovery is `kill -9` plus
 `pkill -x` was not enough. Presses in this session were kept to <= 200 frames afterwards with no
 recurrence.
 
+---
+
+## Task 9 — the ritual, and what the suite said
+
+**Before the refreeze: 3634 passed / 83 failed.** Every one of the 83 is the byte-drift family a
+byte-CHANGING parcel produces — `*_region_matches_reference`, `*_full_file`,
+`*_anchor_matches_golden`, `pins_rs_is_current`, `native_full_sonic4_*`, `two_module_*_flip_*`.
+
+Worth recording because it looked alarming and was not: `a_doctored_indexed_mode_changes_the_bytes`
+in `raster_negative_probes.rs` failed on its **control** ("the CLEAN build must match the
+reference"), not on its doctoring logic. That probe deliberately doctors a register field inside
+what used to be `Raster_PatchAll`'s indexed load, so a genuine possibility was that it had been
+aimed at a deleted proc and gone vacuous. It had not — its reference window simply moved with the
+bytes, which is what the refreeze exists to update.
+
+**The ritual:** `refreeze --freeze hint-schedule-local-removal --ab <this file>`, which captures the
+six golden ROMs, re-derives the off-canonical size tables, repins `pins.rs`, and appends the
+provenance entry. **Chain length 127.** `RASTER_V_BLANK` moved +0x4 and the engine tail +0x70;
+the OJZ section pins moved +0x10 in the debug shape only.
+
+**Four shapes built and BOOTED**, not merely built — the release-shape blackout of 2026-08-14
+happened because a gate looked only at a debug build:
+
+| shape | CRC | boot check |
+|---|---|---|
+| `s4.bin` | `f0e45751` | PC in `Enqueue_Dirty_Buffers`, frame counter advancing |
+| `s4.debug.bin` | `3da516e4` | exercised throughout the Task 2/4/6/7 gates above |
+| `demo.bin` | `dca06660` | PC in `Read_Controllers` (demo's own symbol table), advancing |
+| `demo.debug.bin` | `6c5e1875` | PC in `Read_Controllers`, advancing |
+
+The demo CRCs moved because engine bytes moved; the demo game itself was not touched, and it boots —
+which is the standing proof the engine stays game-agnostic.
+
 ### A sigil finding worth booking separately
 
 `lea -RASTER_BUF_SIZE(a2), a2` — a NEGATED NAMED CONSTANT in a displacement — is DROPPED by sigil's
