@@ -53,6 +53,12 @@ use engine.effects.palette_dsl.{cycle_channel, cycle_script1, variant}
 // EffectsPreset / preset() — the Phase-3 total-binding format Task 12 switches
 // OJZ act 1's sections onto (engine/effects/preset.emp).
 use engine.effects.preset.{EffectsPreset, preset}
+// Parcel W: section 0 binds its parallax config through the PRESET (ep_parallax) rather
+// than inheriting the act default, because the overlay's anchor channel has to be the same
+// channel the patched palette boundary rides. This is also the first ep_parallax binding in
+// the tree — the field existed since C2 and was 0 in every preset, i.e. an authoring surface
+// that had never once executed.
+use games.sonic4.parallax_configs.{ParallaxConfig_OJZ_Underwater}
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
 // is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base
@@ -561,7 +567,8 @@ pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)      
 // which is what lets the gate assert absolute predicted rows AND both clamp directions
 // without a debug hook. Channels 2 and 3 are unused; their anchors are 0.
 pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_TwoChannel,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0],
-                                                  patch_world_ys: [224, 314, 0, 0])
+                                                  parallax: ParallaxConfig_OJZ_Underwater,
+                                                  patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE])
 pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: OJZ_ShimmerCycle,  variants: [Variant_Water_Deep, 0])

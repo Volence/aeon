@@ -2,7 +2,7 @@
 module engine.buffers in buffers
 
 use engine.structs.{DMAEntry, parallax_config}
-use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length}
 use engine.irq.{vblank}
 
@@ -250,16 +250,24 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
     .no_spr:
         // §4.6: enqueue HScroll DMA when a parallax_config is active.
         // Mode auto-selected: any H-deform table -> per-line (896B), else per-cell (112B).
+        // Since Parcel W a world-anchored overlay ALSO forces per-line, because an anchored
+        // boundary lands on an arbitrary scanline and per-cell can only place a cell edge.
         // Length keys off the ACTIVE config (Target during a transition) so the DMA
         // byte count matches the mode the buffer was built + the VDP was told to
         // render in — otherwise a mode-differing transition ships a cell-length DMA
         // for a line-mode buffer (or vice versa) = the ≤16-frame tear.
+        //
+        // THIS IS THE TWIN of parallax.emp's Step-4 mode select, keyed off the SAME fields.
+        // The two must be changed together or the length and the buffer disagree.
         jbsr    Parallax_Active_Config          // d0 = active config; Z reflects d0
         beq     .hs_cell                        // NULL -> per-cell default
         movea.l d0, a1
         move.l  parallax_config.pcfg_deform_table_fg(a1), d0
         or.l    parallax_config.pcfg_deform_table_bg(a1), d0
+        bne     .hs_line
+        cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch(a1)
         beq     .hs_cell
+    .hs_line:
         queue_static_dma(Static_Hscroll_Line)
         jbra    .hs_done
     .hs_cell:

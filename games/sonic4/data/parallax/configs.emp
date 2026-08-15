@@ -21,6 +21,10 @@ module games.sonic4.parallax_configs in parallax_configs
 use engine.structs.{parallax_config}
 use engine.parallax.{band_entry}
 use engine.level.parallax_dsl.*
+// For hdr()'s anchored-overlay guards (Parcel W): the shadow-view capacity the split
+// consumes an entry of, the "no overlay" sentinel, and the anchor-bank width.
+use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
+use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
@@ -58,7 +62,18 @@ comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center: in
                 v_factor_fg: int = 0, transition: int = 0,
                 deform_fg: Label = 0, deform_bg: Label = 0,
                 deform_speed_fg: int = 1, deform_speed_bg: int = 1,
-                v_deform_bg: Label = 0, v_deform_speed_bg: int = 0, v_deform_shift_bg: int = 4) -> parallax_config {
+                v_deform_bg: Label = 0, v_deform_speed_bg: int = 0, v_deform_shift_bg: int = 4,
+                anchor_ch: int = PARALLAX_ANCHOR_NONE,
+                anchor_dsa: int = 15, anchor_dsb: int = 15) -> parallax_config {
+    // Both guards compare INTS inside a comptime fn CALLED from this file, so both actually
+    // evaluate. The rejected alternative — "an anchored config must declare a deform table" —
+    // would have compared a `Label` to an integer, which preset.emp:105-111 proves is
+    // unevaluable and silently always-passes. That requirement is enforced structurally
+    // instead: the per-line mode key tests anchor_ch directly (parallax.emp Step 4).
+    ensure(anchor_ch == PARALLAX_ANCHOR_NONE || band_count + 1 <= MAX_PARALLAX_BANDS,
+           "parallax hdr(): an anchored config SPLITS a band at runtime, so the shadow view needs band_count+1 entries — {band_count}+1 exceeds MAX_PARALLAX_BANDS ({MAX_PARALLAX_BANDS}) and the split would write past Parallax_Shadow_Bands")
+    ensure(anchor_ch == PARALLAX_ANCHOR_NONE || anchor_ch < RASTER_MAX_PATCH,
+           "parallax hdr(): anchor_ch {anchor_ch} is not a patch channel — the overlay indexes Effects_World_Y[RASTER_MAX_PATCH], so a wider index reads past the anchor bank")
     return parallax_config{
         pcfg_band_count:        band_count,
         pcfg_v_factor_bg:       v_factor_bg,
@@ -69,13 +84,14 @@ comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center: in
         pcfg_transition:        transition,
         pcfg_deform_speed_fg:   deform_speed_fg,
         pcfg_deform_speed_bg:   deform_speed_bg,
-        pcfg_pad:               0,
+        pcfg_anchor_ch:         anchor_ch,
         pcfg_deform_table_fg:   deform_fg,
         pcfg_deform_table_bg:   deform_bg,
         pcfg_v_deform_table_bg: v_deform_bg,
         pcfg_v_deform_speed_bg: v_deform_speed_bg,
         pcfg_v_deform_shift_bg: v_deform_shift_bg,
-        pcfg_pad2:              [0, 0],
+        pcfg_anchor_dsa:        anchor_dsa,
+        pcfg_anchor_dsb:        anchor_dsb,
     }
 }
 
@@ -91,6 +107,32 @@ pub data DeformTable_Zero: [i8; 256] = deform_zero()
 pub data ParallaxConfig_OJZ_Default: ParallaxCfg4 = ParallaxCfg4{
     hdr: hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
              deform_bg: DeformTable_Zero),
+    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             band(cell: 8,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             band(cell: 40, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             band(cell: 48, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15) ],
+}
+
+// =====================================================================
+// OJZ underwater — THE Parcel W fixture, and the first config in the tree with a
+// world-anchored deform overlay.
+//
+// Same four bands as OJZ_Default and the same factors, so anything that changes between
+// the two is the overlay and nothing else. Every authored band carries dsa/dsb = 15 (no
+// deform), so ABOVE the anchored line the screen is exactly OJZ_Default. At the line, the
+// overlay splits whichever band contains it and forces dsb = 2 from there down — a +/-2 px
+// plane-B wobble against DeformTable_Shimmer.
+//
+// anchor_ch 0 is the SAME channel OJZ_TwoChannel's palette boundary rides (band 40..120),
+// so one anchor — and one Effects_SetWorldY(0, y) — moves the tint and the shimmer together.
+// That is the whole claim of this parcel, and it is only testable because this config is
+// bound through a preset's ep_parallax rather than the act default.
+// =====================================================================
+
+pub data ParallaxConfig_OJZ_Underwater: ParallaxCfg4 = ParallaxCfg4{
+    hdr: hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
+             deform_bg: DeformTable_Shimmer, deform_speed_bg: 3,
+             anchor_ch: 0, anchor_dsa: 15, anchor_dsb: 2),
     bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
              band(cell: 8,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
              band(cell: 40, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),

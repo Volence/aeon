@@ -696,6 +696,16 @@ pub const RASTER_MAX_PATCH = 4
 ensure((RASTER_MAX_PATCH & (RASTER_MAX_PATCH - 1)) == 0,
        "RASTER_MAX_PATCH must be a power of two — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, which only bounds the index for a power of two")
 
+// PATCH_ANCHOR_NONE — the world Y a preset gives a patch channel it does not use.
+//
+// LARGE AND POSITIVE, not 0, and the reason is Parcel W's parallax overlay: it derives a
+// screen line as `anchor - Camera_Y`, so a 0 anchor reads as -Camera_Y, i.e. ABOVE the
+// screen top, i.e. "fully submerged" — the most invasive possible state as the default for
+// a channel nobody asked for. $7FFF keeps the subtraction positive for every real camera Y
+// (no sign flip) and lands in the off-screen-below branch, which is the inert answer.
+// The raster patcher itself is indifferent: it only walks channels a live patch table names.
+pub const PATCH_ANCHOR_NONE = $7FFF
+
 // fire_cost_cycles — modelled cost of one fire. Each CRAM-class op pays its own dispatch
 // AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
 comptime fn fire_cost_cycles(f: RasterFire) -> int {
