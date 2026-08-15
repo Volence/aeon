@@ -728,7 +728,26 @@ Once all sections are presets, the three keep-current consumers are dead **for s
 
 **The trap that makes this task bigger than it looks:** `Raster_Install` (`raster.emp:462`, a two-instruction proc with no `jbsr` caller anywhere) is `raster.emp`'s **section head**, named in `games/sonic4/map.toml:64` and `games/demo/map.toml:24`. Deleting it re-heads the section to `Raster_Clear` (`:470`) or `Raster_VBlank` (`:492`) and requires an order edit in BOTH map files. `Raster_Clear` itself has zero callers and zero order entries. `Palette_LoadCycle` (`:293`) has zero callers.
 
-- [ ] **Step 1: Establish reachability per proc, across BOTH games,** before deleting anything. Report the finding as a table (proc, callers, is-a-section-head, order entries).
+- [ ] **Step 1: reachability — ALREADY MEASURED 2026-08-14, re-confirm rather than re-derive**
+
+```
+proc                          callers  section head?
+Palette_LoadSection              1     YES — sonic4 AND demo map.toml
+Palette_InstallCycleSection      1     no
+Raster_InstallSection            1     no
+Raster_Install                   4     YES — sonic4 AND demo map.toml
+Raster_Clear                     0     no
+Palette_LoadCycle                1     no
+```
+
+Two things this settles:
+
+- **`Raster_Install` and `Palette_LoadCycle` are NOT dead any more.** They had 0 callers before this parcel; the preset path revived them (`Effects_InstallPreset` uses both). Do not delete them on the strength of a stale "zero callers" note.
+- **The three legacy installers' single caller is the `.legacy` branch itself.** `OJZ_Act1_Sections` is the ONLY `[Sec; N]` array in the entire tree, and `Parallax_CheckBoundary` has exactly ONE caller (`games/sonic4/test/ojz_scroll_test.emp:371`). So once Task 12 gives all nine sections a preset, `.legacy` is unreachable **tree-wide**, not merely for sonic4 — which is the bar this task set for deleting anything.
+
+- [ ] **Step 1b: the blast radius, so it is a decision and not a surprise.** Deleting `.legacy` leaves `Palette_LoadSection`, `Palette_InstallCycleSection` and `Raster_InstallSection` uncalled. Removing them is right — leaving uncalled procs alive purely to anchor a section head is exactly the dormant scaffold this codebase's conventions forbid — but `Palette_LoadSection` is a **section head in BOTH games' `map.toml`** and the `repin.toml` `palette` region's `start`. So the deletion is a PAIRED change: it re-heads that section (to `Palette_LoadPal`) in two map files and in sigil's `repin.toml`.
+
+  That is affordable because Task 14 pays for a repin/refreeze anyway. **But if the re-head needs anything beyond `map.toml` + `repin.toml` edits, STOP and report** rather than reshaping sigil to fit.
 - [ ] **Step 2: Delete only what is provably unreachable tree-wide.** If a proc is dead only for sonic4, LEAVE IT and record why. An unreferenced proc that is a section head is not free to delete.
 - [ ] **Step 3: Build all four shapes; replay net; commit.**
 
