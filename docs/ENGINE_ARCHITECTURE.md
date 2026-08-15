@@ -3942,13 +3942,23 @@ never partially dragged into the working buffer by the fixed-size copy.
 already begins with:
 
 ```
-[n (word)][n x (channel, stage offset, colour count, CRAM byte address)]
+[n (word)][n x (channel, stage offset, colour count, CRAM addr, reg count, reg words...)]
 ```
 
 `n` is emitted **always**, zero included, so a reader takes one fixed shape and never branches
 on whether a program has a trailer. `n <= 1` is a comptime `ensure`, not a wire fact: the count
 word already lets a reader loop, so a second shipping channel needs the guard relaxed and
 `Enqueue_Dirty_Buffers`' single test turned into a walk, with no format change.
+
+**It re-issues the WHOLE fire, not just its colours.** A fire is an op LIST, and the ship's job
+is "apply this fire from line 0", so every `SetReg` the fire carries travels in the trailer too
+and is replayed at frame top — a direct VDP write from `Enqueue_Dirty_Buffers`, which runs AFTER
+`Flush_VDP_Shadow`, so it survives the frame and next frame's unconditional flush restores the
+shadow value. Transient by construction, exactly like the palette half, with no restore path.
+Shipping only the `pal_region` was the first version's defect: OJZ's water fire also carries
+`sh_on()`, so the rows above the clamped fire line came out tinted but with Shadow/Highlight
+still OFF — measurably lighter (row brightness 46/65/49 against 22/32/35 once fixed), found in
+play rather than by a gate.
 
 **It carries PARAMETERS, not a built `DMAEntry`, and that is forced rather than chosen.** The
 first design emitted the finished 14-byte entry, folding `Pal_Variant_Stage`'s absolute address

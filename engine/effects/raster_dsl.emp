@@ -688,6 +688,15 @@ comptime fn op_ship_stage_off(o: RasterOp) -> int {
         Vsram(a, vals)                 => -1,
     }
 }
+// The SetReg word itself, for the ops the ship re-issues at frame top.
+comptime fn op_set_reg_word(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                      => w,
+        Cram(a, cols)                  => 0,
+        PalRegion(a, slot, pl, e, cnt) => 0,
+        Vsram(a, vals)                 => 0,
+    }
+}
 comptime fn op_ship_count(o: RasterOp) -> int {
     return match o {
         SetReg(w)                      => 0,
@@ -1044,7 +1053,7 @@ comptime fn patch_table(fires: array) -> array {
 
 // ship_trailer — the off-screen ship descriptors, appended AFTER the patch table.
 //
-//     [n (word)][n x (channel, stage offset, colour count, CRAM byte address)]
+//     [n (word)][n x (channel, stage offset, colour count, CRAM addr, reg count, reg words...)]
 //
 // The count word is emitted ALWAYS, zero included, so the runtime reads one fixed shape and
 // never branches on whether a program has a trailer.
@@ -1060,6 +1069,12 @@ comptime fn patch_table(fires: array) -> array {
 // It is also the better shape for an unrelated reason: the runtime already owns ONE DMAEntry
 // builder (BuildStaticDMA's movep sequence), so building there means no second site knows the
 // interleaved byte layout. The emitter version needed a third one, and a pin to hold it.
+//
+// IT RE-ISSUES THE WHOLE FIRE, not just its colours. A fire is an op LIST, and the ship's job
+// is "apply this fire from line 0" — so every SetReg the fire carries travels here too and is
+// replayed at frame top. Shipping only the pal_region was the first version's defect: OJZ's
+// water fire also carries sh_on(), so the rows above the clamped fire line came out tinted but
+// UNSHADOWED. Found in play, not by a gate.
 //
 // THE CHANNEL TRAVELS WITH THE ENTRY because nothing else carries it: the preset deliberately
 // has no field naming the shipping channel (a cell that is a pure function of the installed
@@ -1079,10 +1094,21 @@ comptime fn ship_trailer(fires: array) -> array {
             n = n + 1
             for o in fire_ops(f) {
                 if op_ship_cram_addr(o) >= 0 {
+                    // The fire's SetReg ops ride WITH the palette parameters, because the ship
+                    // has to re-issue the WHOLE fire at frame top, not just its colours. The
+                    // OJZ water fire is the worked example: it carries sh_on() as well as the
+                    // pal_region, and a ship that moved only the colours left the rows above
+                    // the clamped fire line tinted but UNSHADOWED — reported from play as
+                    // "the top row has the jiggle but not the shadow, it's still lighter".
+                    comptime var regs = []
+                    for r in fire_ops(f) {
+                        if op_is_set_reg(r) == 1 { regs = regs ++ [op_set_reg_word(r)] }
+                    }
                     entries = entries ++ [fire_channel(f),
                                           op_ship_stage_off(o),
                                           op_ship_count(o),
-                                          op_ship_cram_addr(o)]
+                                          op_ship_cram_addr(o),
+                                          regs.len] ++ regs
                 }
             }
         }
@@ -1097,9 +1123,15 @@ comptime fn ship_trailer(fires: array) -> array {
 
 // ship_trailer_words — the trailer's emitted word count, by an independent path.
 comptime fn ship_trailer_words(fires: array) -> int {
-    comptime var n = 0
-    for f in fires { if fire_offscreen_ship(f) == 1 { n = n + 1 } }
-    return 1 + 4 * n
+    comptime var w = 0
+    for f in fires {
+        if fire_offscreen_ship(f) == 1 {
+            comptime var regs = 0
+            for r in fire_ops(f) { if op_is_set_reg(r) == 1 { regs = regs + 1 } }
+            w = w + 5 + regs
+        }
+    }
+    return 1 + w
 }
 
 // check_arm_layout — GUARD 6. Every arm_off the table hands the runtime must point at a word

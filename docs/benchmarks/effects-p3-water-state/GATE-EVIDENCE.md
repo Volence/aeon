@@ -167,3 +167,41 @@ the guarantee the retired "demo CRCs unchanged" criterion carried.
 Declared spans: `BuildStaticDMA`, `Build_DMA_Entry`, `Enqueue_Dirty_Buffers`,
 `Effects_LatchWorldLines`, `Raster_PatchAll`, `Raster_InstallPatched`, `Raster_BuildShipEntry`,
 `Effects_InstallPreset`, `Parallax_Step4_Fill`.
+
+---
+
+## 7. FOLLOW-UP: the ship was shipping only half the fire (2026-08-15, same day)
+
+**Found in play by the owner, not by any gate here:** fully submerged, the top rows had the
+shimmer and the colour tint but **no Shadow/Highlight** — "it's still lighter".
+
+**Cause.** A fire is an op LIST. OJZ channel 0 carries TWO ops: `sh_on()` (`set_reg $8C89`, VDP
+reg $0C bit 3) and the `pal_region`. The trailer described only the palette transfer, so the
+S/H register write still happened when the FIRE ran — at its clamped line, screen row 3. Rows
+0-2 therefore rendered with S/H off. Confirmed on the machine: `VDP_Shadow_Table` reg $0C reads
+`$81` (bit 3 clear) at frame top, and the fire writes `$89`.
+
+**This is a gap the §1-§4 evidence could not have caught**, and that is the lesson worth keeping:
+every instrument here asked "is the palette right?" — the entry decode, the CRAM poison test, the
+breakpoint. None asked "is the whole fire applied?" A gate built around the mechanism you
+implemented cannot see the part of the requirement you did not implement.
+
+**Fix.** The trailer carries the fire's `set_reg` words too, and `Enqueue_Dirty_Buffers` replays
+them straight to `VDP_CTRL`. The position is what makes that safe: it runs AFTER
+`Flush_VDP_Shadow` in the same VBlank, so the write survives the frame and next frame's
+unconditional flush restores the shadow value — transient by construction, no restore path, the
+same property the palette side already had.
+
+**Evidence, same-run poison (submerged, camera 400):**
+
+| row | ship ON | ship OFF | |
+|---|---|---|---|
+| 0 | 22 | 46 | mean row brightness |
+| 1 | 32 | 65 | |
+| 2 | 35 | 49 | |
+| 3, 4, 5 | 33, 23, 42 | 33, 24, 42 | **unchanged** — below the clamped fire line |
+| 10 | 39 | 39 | **unchanged** |
+
+The effect is confined to exactly rows 0-2, which is the span the clamp could never reach. A
+breakpoint on the replay loop (`$2244`) fires while submerged and stays silent with the boundary
+on screen.
