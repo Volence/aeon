@@ -487,7 +487,7 @@ pub proc Raster_Install (a0: u32) clobbers() {
 // primes on lines 0 and 1. Frame-top REGISTER state is not its job — the
 // unconditional Flush_VDP_Shadow immediately after does that for all 19 registers.
 // -----------------------------------------------
-pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
+pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         move.l  Raster_Pending, d0
         beq.s   .no_install
         clr.l   Raster_Pending
@@ -516,6 +516,13 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         dbf     d1, .copy
 
     .no_install:
+        // Re-derive every patchable boundary's arm gap from its world anchor, BEFORE the
+        // cursor is rewound to the priming record. This is the only place it may run: the
+        // arm words are RELATIVE gaps, so a half-updated set desynchronises the whole tail
+        // of the chain — from the main loop it would race Raster_HInt walking this same
+        // buffer during active display, every frame the camera moves. Early-outs on
+        // Raster_Patch_Tab == 0, so a section with no patched effect pays one move.l/beq.
+        jbsr    Raster_PatchAll
         move.l  Raster_Program, d0
         beq.s   .done                   // no program armed: one tst per frame
         movea.l Raster_Active_Buf, a1
@@ -851,7 +858,7 @@ pub proc Raster_InstallPatchedWorldY (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
 // (or 0 at first install, which would read the vector table as a record count) inside that
 // window is exactly the race Raster_PatchAll's VBlank timing would otherwise expose.
 // -----------------------------------------------
-pub proc Raster_InstallPatched (a0: u32, a2: u32) clobbers(d0-d5/a0-a2) {
+pub proc Raster_InstallPatched (a0: u32, a2: u32) clobbers(d0-d4/a0-a2) {
         lea     RASTER_BUF_SIZE(a0), a1
         move.l  a1, Raster_Patch_Tab            // table first
         // Seed the anchors from the preset's inline array.
@@ -895,7 +902,12 @@ pub proc Raster_InstallPatched (a0: u32, a2: u32) clobbers(d0-d5/a0-a2) {
 // above the previous record's reachable ceiling. A -1 gap would store $FF, and $8AFF is
 // RASTER_ARM_PARK — it would kill every remaining fire in the frame with no other symptom.
 // -----------------------------------------------
-proc Raster_PatchAll () clobbers(d0-d5/a0-a2) {
+// REGISTER BUDGET, and it is a constraint rather than a preference: this runs under
+// Raster_VBlank, whose callers VInt_Level and VInt_Lag declare clobbers reaching only d4. A
+// d5 scratch for the gap would have to be declared all the way up through both of them. It
+// buys nothing — the gap is computable in place by subtracting the new line FROM prev and
+// negating, which is the same two instructions as a copy-then-subtract.
+proc Raster_PatchAll () clobbers(d0-d4/a0-a2) {
         move.l  Raster_Patch_Tab, d0
         beq     .none                       // liveness: the TABLE, never Active_Buf
         movea.l d0, a0
@@ -923,10 +935,10 @@ proc Raster_PatchAll () clobbers(d0-d5/a0-a2) {
         move.w  2(a0), d2                   // clamp down to band_hi_fl
     .static:
         addq.l  #4, a0                      // step past the two band words
-        move.w  d2, d5
-        sub.w   d0, d5
-        subq.w  #1, d5                      // gap = L[k] - L[k-1] - 1
-        move.b  d5, 1(a1, d1.w)             // the low byte IS the counter
+        sub.w   d2, d0                      // prev - line
+        neg.w   d0                          // line - prev
+        subq.w  #1, d0                      // gap = L[k] - L[k-1] - 1
+        move.b  d0, 1(a1, d1.w)             // the low byte IS the counter
         move.w  d2, d0                      // prev = this record's fire line
         dbf     d4, .entry
     .none:
