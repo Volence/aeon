@@ -783,3 +783,21 @@ pub data Variant_Water_Murky: pal_variant = variant(shift_b: 1, bias_r: 1)      
 pub data Variant_Poison:      pal_variant = variant(shift_r: 1, shift_b: 1, bias_g: 1)      // halve R+B, green push
 pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shift_b: 1)     // halve all
 pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias
+
+// ---- Pal_Cycle_None — the "cycling OFF" sentinel that TOTAL BINDING needs.
+//
+// A preset writes EVERY channel on section entry, so "no cycling here" has to be a
+// value it can WRITE, not an absence. NULL cannot serve: Palette_InstallCycleSection
+// reads NULL as "keep whatever the last section installed", which is exactly the
+// keep-current semantics the preset system exists to remove. So the sentinel is a
+// non-NULL script with ZERO channels.
+//
+// THIS IS WHY EFX-3 HAD TO BE FIXED FIRST. Before that fix, both cycle installers
+// armed PAL_ACT_CYCLE before reading the channel count, so installing this very
+// value would have left cycling ACTIVE over an empty script — and Palette_Compose's
+// `.cycling` arm then sets PAL_ACT_VARIANT_STALE every frame, re-arming the
+// ~19,332-cycle (15.1%-of-frame) variant re-derive that ff0720ff recovered. The
+// count-0 path was documented but never exercised; this symbol is what exercises it.
+// Verified on oracle after the fix: installing a count-0 script leaves Pal_Active
+// bit 1 CLEAR ($10), where the pre-fix instruction order left it SET ($12).
+pub data Pal_Cycle_None: [u16; 1] = [ 0 ]
