@@ -924,8 +924,10 @@ proc Raster_PatchAll () clobbers(d0-d4/a0-a2) {
 // place a scroll boundary. If it clamped anywhere else, then outside the record's band the
 // palette boundary would pin while the scroll boundary kept following the camera — the two
 // separating, which is the exact defect that parcel exists to remove. Not hypothetical:
-// OJZ channel 0 is authored with band 40..120 and clamps to lo once the camera descends
-// past world Y 184, on the ordinary scroll path.
+// OJZ channel 0 is authored with band 3..120 and clamps at BOTH edges on the ordinary scroll
+// path — to lo on descent, and to hi whenever the camera sits more than ~104 px above the
+// water line (a plain jump from spawn reaches that). The band was 40..120 until the lo clamp
+// was seen pinning the boundary 40 lines down; see the note at that `patchable` call.
 //
 // READING THE TABLE BEATS DUPLICATING THE BAND. The alternative was carrying the band in
 // parallax data and keeping the two copies in step with a shared comptime const — still two
