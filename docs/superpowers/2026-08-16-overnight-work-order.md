@@ -226,7 +226,17 @@ oracle, which is precisely the coverage P-b's runtime rewrite wants.
 Either write the port test or delete the pins and record why. **Do not leave pins that look like
 coverage and are not** — that is the exact failure class this project keeps re-finding.
 
-### 5. Parcel W — the world anchor gets an owner (DESIGN FIRST, byte-changing)
+### 5. ~~Parcel W — the world anchor gets an owner~~ — **DONE 2026-08-15, merged (aeon `06cca2e0` / sigil `2de8d860`, chain 122).**
+
+Spec `docs/superpowers/specs/2026-08-15-effects-p3-parcel-w-design.md` (revision 2), plan
+`docs/superpowers/plans/2026-08-15-effects-p3-parcel-w.md`, evidence
+`docs/benchmarks/effects-p3-w/GATE-EVIDENCE.md`. W0 shipped first as its own micro-parcel
+(chain 121). **Read the brief below for what the premise got wrong — twice — before trusting any
+of this order's remaining framing.**
+
+*The original text follows, kept because the brief answers it point by point:*
+
+### 5-original. Parcel W — the world anchor gets an owner (DESIGN FIRST, byte-changing)
 
 Raster owns `Effects_World_Y[]` after P-b; the parallax deformation system owns per-line HScroll
 wave and ripple; they share no seam, so a complete underwater section — palette boundary **plus**
@@ -366,7 +376,31 @@ blocked on a mid-screen band today.
 
 ---
 
-## Parcel W (queue item 5) — the world anchor gets an owner. **STOPPED. The premise is wrong.**
+## Parcel W (queue item 5) — **RESOLVED AND MERGED 2026-08-15.** The brief below stopped it once;
+## a SECOND premise error was found afterwards. Both are recorded here.
+
+**What shipped:** aeon `06cca2e0` / sigil `2de8d860`, chain 122, preceded by W0 (chain 121).
+One anchor, two readers, proven by moving `Effects_World_Y[0]` and reading both boundaries back
+through independent mechanisms: anchor 184 gave palette arm `$8A25` (fire line 39 = screen 40)
+and shadow split top 40; anchor 264 gave `$8A75` (fire line 119 = screen 120) and split top 120.
+
+**The second premise error.** This order justifies W with *"S3K anchors ripple phase to world
+quantities in three separate places"*. **S3K has no per-line water ripple at all** — HCZ's
+waterline is DMA'd tile animation, and the S1 ripple table is a dead leftover the disassembly
+comments on. The S1/S2 ripple that exists is frame-counter indexed, i.e. SCREEN-anchored: it is
+the defect, not the model. Aeon's camera-folded phase is ahead of all four Sonic references.
+
+**What the design became**, against the brief below: the coordinate mismatch is real but is NOT
+the blocker, because band TOP and wave PHASE are separate registers. The mechanism is an additive
+overlay (split the shadow band at the anchored line, override deform shifts below it) rather than
+the terminal band the first draft proposed — that one discarded the bands underneath and
+contradicted its own answer to question 3. The clamp is read from the raster patch table, so the
+two sides clamp at one fact rather than two authored copies.
+
+*The original STOP brief follows. Its ground truth is all still correct; only its conclusion that
+W had no design was overtaken.*
+
+## Parcel W — the original brief. **STOPPED. The premise is wrong.**
 
 I did the research step and stopped before the design draft, because what I found changes what W
 *is*, and "anything that changes engine DIRECTION" is a STOP by this order's own table. Every claim
