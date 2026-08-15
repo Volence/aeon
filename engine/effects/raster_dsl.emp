@@ -367,6 +367,12 @@ pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int) -> array {
 // `set_reg` lost its `reset` parameter, and presets now layer without having to know
 // about each other. What composition still cannot reconcile is two ops writing the same
 // register on the SAME line: they both execute, in preset order, and the last one wins.
+//
+// PATCHABILITY SURVIVES MERGING, and it takes explicit work. This function rebuilds every
+// merged fire, so a mark carried only in the input variant is lost by construction —
+// exhaustive matching cannot catch it, because the loss is in reconstruction, not
+// destructuring. Merging patchable with static yields PATCHABLE (the static op layers onto
+// the moving line); merging two patchables requires identical channel and band (guard 9).
 pub comptime fn compose(progs: array) -> array {
     ensure(progs.len >= 1, "compose: nothing to compose")
     comptime var out = []
@@ -382,10 +388,28 @@ pub comptime fn compose(progs: array) -> array {
     for line in 3..224 {
         comptime var ops   = []
         comptime var found = 0
+        comptime var is_p  = 0
+        comptime var p_ch  = 0
+        comptime var p_lo  = 0
+        comptime var p_hi  = 0
         for p in progs {
             for f in p {
                 if fire_screen_line(f) == line {
                     found = 1
+                    if fire_is_patch(f) == 1 {
+                        // Guard 9. Two patchable fires merged onto one line become ONE record
+                        // and therefore ONE moving boundary, so they must agree on which
+                        // channel drives it and how far it may travel. Disagreement is not
+                        // reconcilable at runtime: the record has a single arm word.
+                        if is_p == 1 {
+                            ensure(p_ch == fire_channel(f) && p_lo == fire_band_lo(f) && p_hi == fire_band_hi(f),
+                                   "compose: two patchable fires merged onto screen line {line} disagree about channel or band — a merged fire is ONE record with ONE arm word, so it can only have one anchor and one band. Give them the same channel and band, or author them on different lines.")
+                        }
+                        is_p = 1
+                        p_ch = fire_channel(f)
+                        p_lo = fire_band_lo(f)
+                        p_hi = fire_band_hi(f)
+                    }
                     for o in fire_ops(f) {
                         if op_is_set_reg(o) == 1 { ops = ops ++ [o] }
                     }
@@ -401,7 +425,15 @@ pub comptime fn compose(progs: array) -> array {
                 }
             }
         }
-        if found == 1 { out = out ++ [fire(line, ops)] }
+        if found == 1 {
+            // fire() FIRST, unconditionally: it is what applies the per-fire ceilings and the
+            // mixed-fire ordering rule to the COMPOSITION rather than merely to its parts. The
+            // patchable case then re-wraps the same op list, so it inherits every one of those
+            // checks instead of quietly bypassing them.
+            comptime var merged = fire(line, ops)
+            if is_p == 1 { merged = RasterFire.Patch(line, p_ch, p_lo, p_hi, ops) }
+            out = out ++ [merged]
+        }
     }
     return out
 }
