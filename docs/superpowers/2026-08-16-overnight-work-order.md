@@ -363,3 +363,91 @@ is how the engine acquires a mechanism it then has to remove. Nothing in R is ur
 blocked on a mid-screen band today.
 
 **What I did NOT do, deliberately:** no code, no RAM, no op number reserved. R is untouched.
+
+---
+
+## Parcel W (queue item 5) — the world anchor gets an owner. **STOPPED. The premise is wrong.**
+
+I did the research step and stopped before the design draft, because what I found changes what W
+*is*, and "anything that changes engine DIRECTION" is a STOP by this order's own table. Every claim
+below is re-derived from the tree, not from a spec.
+
+### What this order asked me to design around
+
+> "Raster owns `Effects_World_Y[]` after P-b; the parallax deformation system owns per-line HScroll
+> wave and ripple; **they share no seam** … S3K anchors ripple *phase* to world quantities in three
+> separate places precisely because a wave keyed to a frame counter slides when the camera moves."
+
+### What is actually in the tree
+
+**1. The deformation wave is ALREADY world-anchored, and has been since before this parcel was
+proposed.** `engine/level/parallax.emp:937-944`:
+
+```
+// LAYER-anchor the sample index (Harmony study defect #2): fold the FG
+// plane's vscroll (= camY, Step 5) into the base so the wave rides the
+// ART, not the screen — without this a vertical scroll slides the art
+// under a screen-fixed wave.
+move.l  Camera_Y, d1
+swap    d1
+add.w   d1, d6
+```
+
+The exact defect this order cites S3K for — "a wave keyed to a frame counter slides when the camera
+moves" — was found and fixed here, credited to the Harmony study, and the fix is folding `Camera_Y`
+into the sample index. **W does not need to give the wave a world anchor. It has one.**
+
+**2. Parallax BANDS are already anchored to the art too, in a different coordinate system.**
+`parallax.emp:611-625`: band tops are authored in **Plane B cell rows 0..63** and rotated into
+screen space every frame by `vshift = (Parallax_Current_Vscroll_BG mod 512) >> 3`.
+
+### The real gap — and it is not a missing seam, it is a coordinate mismatch
+
+Three separate spaces, and W's premise assumes two of them are one:
+
+| | raster patch channel | parallax band |
+|---|---|---|
+| anchored in | **absolute act-space world Y** | **Plane B cell row**, 0..63 |
+| granularity | 1 scanline | 1 cell = **8 px** |
+| wraps? | no | **yes, every 512 px** (`and.w #$1FF`) |
+| follows | `Camera_Y`, 1:1 | `Vscroll_BG`, i.e. the camera **times the BG parallax factor** |
+
+The last row is the one that matters and the one no amount of shared storage fixes. **A boundary
+that holds a fixed place in the level cannot simultaneously hold a fixed place in a plane that
+scrolls at a fraction of the camera's rate.** Those are different points as soon as the camera moves
+vertically. So "a palette boundary AND a shimmer at the same line" is not one anchor read by two
+consumers; it is a question about *which* of the two the author means, and about what happens to the
+other one.
+
+### Consequently, the naming assumption this order told me to check is TRUE but does not buy what
+### was expected
+
+P-b named the RAM `Effects_World_Y` (not `Raster_*`) so W could add a reader rather than relocate
+storage. **That still holds** — the bank is owner-neutral and nothing prevents parallax reading it
+(`Effects_World_Y` has exactly four consumers, all in `engine/effects/raster.emp` plus the one test
+call site; verified). But a second reader is not the hard part, and W's design should not be shaped
+around the assumption that it is. Parallax reading `Effects_World_Y` would need a documented
+conversion from act-space Y to Plane-B cell space, at 8-px granularity, with a defined answer for
+the 512-px wrap.
+
+### What the owner needs to decide before W has a design
+
+1. **Which coordinate system is authoritative for a "shared" boundary** — act-space world Y (the
+   raster channel's), plane space (the band's), or a third thing the author writes once and both
+   derive from.
+2. **What happens to the 8-px vs 1-px granularity mismatch.** A raster boundary lands on a scanline;
+   a band boundary lands on a cell. An underwater surface where the tint starts at line 100 and the
+   shimmer starts at 96 is a visible seam, not a rounding detail.
+3. **What a shared boundary MEANS when the BG parallax factor is not 1.** If the BG scrolls slower
+   than the camera, the "same" boundary in the two systems separates as soon as the camera moves.
+   Either the shimmer stops riding the BG art (undoing Harmony defect #2's fix), or the shimmer and
+   the tint separate, or bands for effect-bearing sections are constrained to factor 1.
+
+Question 3 is the design-direction one and is why I stopped. Answering it wrong quietly re-breaks a
+defect that was already found and fixed once.
+
+### What I did NOT do
+
+No design draft, no lens sweep, no plan, no code. The lens sweep this order prescribes should run on
+a draft written from the **corrected** premise; running it on the original would have three lenses
+arguing about a seam that already exists.
