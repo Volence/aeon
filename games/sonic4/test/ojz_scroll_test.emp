@@ -312,6 +312,15 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         .skip_camera_update:
         }
 
+        // -- latch every patch channel's screen line from its world anchor. HERE, between
+        //    Camera_Update and Parallax_Update, and not in VBlank: the parallax overlay reads
+        //    it below in this same frame while Raster_PatchAll reads it from the VBlank that
+        //    follows, so a VBlank-computed latch would reach the two of them one camera apart
+        //    and pop every boundary transition. It runs OUTSIDE the Debug_Scene_Freeze gate on
+        //    purpose — a hand-written Camera_Y still has to be latched, or the frozen scene
+        //    renders against the camera it had before the write. --
+        jbsr    Effects_LatchWorldLines
+
         // -- fill tile cache with new blocks as camera scrolls --
         jbsr    Tile_Cache_Fill
 

@@ -332,6 +332,31 @@ pub vars upper_ram {
     // between this literal and the constant fails the build there rather than going quiet.
     Effects_World_Y:    [u16; 4],
 
+    // The LATCHED, UNCLAMPED screen line of each patch channel: world_y - Camera_Y, signed,
+    // recomputed once per frame in the MAIN LOOP (Effects_LatchWorldLines) after Camera_Update
+    // and before Parallax_Update.
+    //
+    // IT EXISTS TO BE THE ONLY DERIVATION OF L. Three places used to compute anchor - Camera_Y
+    // independently: Raster_PatchAll in VBlank, the parallax overlay in the main loop, and now
+    // the frame-top ship. On a VInt_Lag frame VBlank runs twice against one main-loop update, so
+    // independent derivations put the fire line and the boundary state on DIFFERENT cameras and
+    // every transition pops. One latch, three readers, one camera.
+    //
+    // UNCLAMPED IS THE WHOLE POINT. Raster_PatchAll clamps the fire line into the record's
+    // authored band because a negative inter-record gap stores as $FF, which IS the park word and
+    // would kill every later fire in the frame. That clamp is load-bearing and stays — but it also
+    // means the fire line cannot express "the boundary is above the screen", which is exactly the
+    // state the off-screen ship responds to. These are the values the clamp cannot see.
+    //
+    // The 4 mirrors RASTER_MAX_PATCH as a literal, for the ram-harvest reason above.
+    Effects_Screen_L:   [u16; 4],
+
+    // -> the live program's off-screen ship entry (the 14-byte DMAEntry inside its ROM trailer),
+    // or 0 when the installed program declares none. Written UNCONDITIONALLY by every preset
+    // install, which is what keeps it from becoming a side channel: a cell that is a pure
+    // function of the installed program cannot express "the previous section's effect survived".
+    Effects_Offscreen_Entry: u32,
+
     // -> the ROM patch table, at (patched template + RASTER_BUF_SIZE).
     //
     // ZERO MEANS "no patched program is live", and this is the ONLY liveness test
@@ -391,6 +416,12 @@ pub vars upper_ram {
     Static_Pal_Line0:       [u8; sizeof(DMAEntry)],
     Static_Pal_Line1:       [u8; sizeof(DMAEntry)],
     Static_Pal_Line2:       [u8; sizeof(DMAEntry)],
+    // The off-screen ship's entry (engine.effects.raster). Unlike its neighbours it is NOT
+    // built at boot: its source, length and destination come from the installed patched
+    // program's ROM trailer, so Raster_InstallPatched rebuilds it on every install. It lives
+    // here rather than beside the raster state because it is a DMAEntry like the rest of this
+    // block, built by the same one builder.
+    Static_Pal_Ship:        [u8; sizeof(DMAEntry)],
     Static_Pal_Line3:       [u8; sizeof(DMAEntry)],
     Static_Sprite_DMA:      [u8; sizeof(DMAEntry)],
     Static_Hscroll_Cell:    [u8; sizeof(DMAEntry)],   // §4.6 — 112-byte HScroll per-cell mode

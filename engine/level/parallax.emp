@@ -739,13 +739,29 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         cmpi.w  #PARALLAX_ANCHOR_NONE, d2
         beq     .bands_ready                        // no overlay: byte-identical to before
 
-        // L = anchor - camera, in SCREEN lines. May go negative, meaningfully.
+        // L = the channel's screen line, LATCHED this frame by Effects_LatchWorldLines
+        // (main loop, after Camera_Update, before this proc). May be negative, meaningfully.
+        // Reading the latch rather than recomputing `anchor - Camera_Y` here is what keeps
+        // this boundary and Raster_PatchAll's fire line on the SAME camera on a lag frame,
+        // where VBlank runs twice against one main-loop update.
         move.w  d2, d0
         add.w   d0, d0                              // channel -> word index
-        lea     Effects_World_Y, a4                 // (Effects_World_Y).w
-        move.w  (a4,d0.w), d0                       // authored world Y
-        move.w  Camera_Y, d1                        // 16.16 -> the integer word
-        sub.w   d1, d0                              // d0 = L
+        lea     Effects_Screen_L, a4                // (Effects_Screen_L).w
+        move.w  (a4,d0.w), d0                       // d0 = L
+
+        // OFF THE TOP OF THE SCREEN: split at line 0 and DO NOT CLAMP TO THE BAND.
+        // The band clamp below is what keeps this boundary pinned to the palette boundary while
+        // both are on screen — but the palette side answers L <= 0 with a frame-top ship that
+        // covers the WHOLE screen, not with its clamped fire. Clamping here too would split the
+        // bands at the band floor (screen line 3) while the palette went wet from line 0, so the
+        // two would disagree across exactly the rows this parcel exists to fix.
+        //
+        // The threshold is L <= 0 on BOTH sides and must stay that way. Widening one side to
+        // L <= 3 to also cover the rows the fire cannot reach would make them disagree through
+        // the 1..3 window instead — a smaller version of the same defect. That residual (a
+        // boundary rendering at screen 3 while the world says 1..3) is ACCEPTED.
+        tst.w   d0
+        ble     .anchor_top
 
         // Clamp L to the channel's own raster band, so the palette boundary and this one
         // pin TOGETHER. Raster_PatchAll clamps its fire line to the same pair; if this side
@@ -772,15 +788,28 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     .anchor_unclamped:
         movea.l (sp)+, a0                           // config back, on EVERY path below
 
-        // Clamp to the screen. L <= 0 is "fully submerged" — the split lands at line 0 and
-        // every band takes the anchored shifts, which is S3K's whole-screen water state
-        // reached structurally instead of as a special case.
+        // Clamp to the screen. L <= 0 is the whole-screen state — the split lands at line 0 and
+        // every band takes the anchored shifts, reached structurally instead of as a special
+        // case. The early `ble .anchor_top` above is now the live route here; this test is the
+        // total-contract backstop for the no-band-declared path (d0 = 0 out of
+        // Raster_GetChannelBand), which returns L unclamped.
         tst.w   d0
         bpl     .anchor_nonneg
+    .anchor_top:
         moveq   #0, d0
     .anchor_nonneg:
         cmpi.w  #224, d0
         bge     .bands_ready                        // entirely below the screen: nothing to do
+                                                    // (the DRY direction — knowingly unfixed, and
+                                                    // unreachable while the band clamp above runs.
+                                                    // Suppressing a fire needs per-record parking,
+                                                    // which the relative-gap encoding cannot do;
+                                                    // blocked on the Ristar linked-list schedule.
+                                                    // Both boundaries clamp together today, so
+                                                    // they are wrong TOGETHER — fixing only this
+                                                    // side would trade a consistent error for a
+                                                    // disagreement, which is the defect Parcel W
+                                                    // exists to remove.)
 
         // --- find k = the last shadow band whose top <= L (the band being split) ---
         lea     Parallax_Shadow_Bands, a4

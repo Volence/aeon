@@ -88,10 +88,15 @@ pub comptime enum RasterOp {
 
 pub comptime enum RasterFire {
     Fire(int, array),                     // (screen line the effect lands on, RasterOp ARRAY)
-    // (screen line, channel, band lo, band hi, RasterOp ARRAY) — a fire whose line MOVES at
-    // runtime within [lo, hi]. The band is in SCREEN lines, like `line`; the encoder converts
-    // to fire lines exactly once, in patch_table.
-    Patch(int, int, int, int, array),
+    // (screen line, channel, band lo, band hi, offscreen_ship, RasterOp ARRAY) — a fire whose
+    // line MOVES at runtime within [lo, hi]. The band is in SCREEN lines, like `line`; the
+    // encoder converts to fire lines exactly once, in patch_table.
+    //
+    // offscreen_ship (0/1): when this channel's anchor leaves the TOP of the screen, re-ship
+    // this fire's colours at frame top so they cover the whole screen instead of the fire
+    // pinning at the band floor. Named for the GEOMETRY, not for water: the mechanism is
+    // "the boundary is above the screen", and water is only its first client.
+    Patch(int, int, int, int, int, array),
 }
 
 // ---- op constructors --------------------------------------------------------
@@ -322,7 +327,7 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
 // The screen-line bounds below are inlined literals per this module's opening note (3 and 223
 // are held by the module-level RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE pin near the top of
 // this file); RASTER_MAX_PATCH is DEFINED in this module and so is safe to name.
-pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int) -> array {
+pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int, offscreen_ship: int = 0) -> array {
     ensure(fires.len == 1,
            "patchable: got {fires.len} fires — mark exactly one. Marking a multi-fire preset would clamp all of its fires onto one line, because they would share a single world anchor.")
     ensure(ch >= 0 && ch < RASTER_MAX_PATCH,
@@ -339,7 +344,19 @@ pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int) -> array {
     // move the boundary somewhere the author never saw.
     ensure(line >= lo && line <= hi,
            "patchable: the authored line {line} is outside its own band {lo}..{hi}")
-    return [ RasterFire.Patch(line, ch, lo, hi, fire_ops(f)) ]
+    ensure(offscreen_ship == 0 || offscreen_ship == 1,
+           "patchable: offscreen_ship {offscreen_ship} must be 0 or 1")
+    // The ship re-issues THIS FIRE'S colours as a frame-top DMA, so the fire has to have
+    // colours to re-issue — exactly one pal_region op, which is what carries the staging
+    // source, the CRAM address and the count the entry is built from. A fire without one
+    // (a bare vscroll split, say) has nothing to ship, and a fire with two would need two
+    // entries and a rule about which wins. Both fail the BUILD here rather than producing a
+    // garbage DMA entry or silently shipping nothing.
+    if offscreen_ship == 1 {
+        ensure(count_pal_region_ops(fire_ops(f)) == 1,
+               "patchable: offscreen_ship needs exactly ONE pal_region op on the fire to re-ship at frame top, but this fire has {count_pal_region_ops(fire_ops(f))}. The frame-top entry is BUILT from that op's staging source, CRAM address and count — there is nothing else for it to ship.")
+    }
+    return [ RasterFire.Patch(line, ch, lo, hi, offscreen_ship, fire_ops(f)) ]
 }
 
 // ---- composition -------------------------------------------------------------
@@ -392,6 +409,7 @@ pub comptime fn compose(progs: array) -> array {
         comptime var p_ch  = 0
         comptime var p_lo  = 0
         comptime var p_hi  = 0
+        comptime var p_sh  = 0
         for p in progs {
             for f in p {
                 if fire_screen_line(f) == line {
@@ -404,11 +422,20 @@ pub comptime fn compose(progs: array) -> array {
                         if is_p == 1 {
                             ensure(p_ch == fire_channel(f) && p_lo == fire_band_lo(f) && p_hi == fire_band_hi(f),
                                    "compose: two patchable fires merged onto screen line {line} disagree about channel or band — a merged fire is ONE record with ONE arm word, so it can only have one anchor and one band. Give them the same channel and band, or author them on different lines.")
+                            // Same argument, one field over: a merged fire is ONE record and
+                            // the trailer carries at most one entry per record, so "ship at
+                            // frame top" is not a property two merged fires can hold different
+                            // opinions about. It sits INSIDE the is_p test with its sibling:
+                            // outside, it would compare the FIRST patchable fire against the
+                            // initial p_sh of 0 and refuse every legitimate shipped fire.
+                            ensure(p_sh == fire_offscreen_ship(f),
+                                   "compose: two patchable fires merged onto screen line {line} disagree about offscreen_ship — the merged fire is ONE record and gets at most ONE frame-top entry, so both must declare it the same way.")
                         }
                         is_p = 1
                         p_ch = fire_channel(f)
                         p_lo = fire_band_lo(f)
                         p_hi = fire_band_hi(f)
+                        p_sh = fire_offscreen_ship(f)
                     }
                     for o in fire_ops(f) {
                         if op_is_set_reg(o) == 1 { ops = ops ++ [o] }
@@ -431,7 +458,7 @@ pub comptime fn compose(progs: array) -> array {
             // patchable case then re-wraps the same op list, so it inherits every one of those
             // checks instead of quietly bypassing them.
             comptime var merged = fire(line, ops)
-            if is_p == 1 { merged = RasterFire.Patch(line, p_ch, p_lo, p_hi, ops) }
+            if is_p == 1 { merged = RasterFire.Patch(line, p_ch, p_lo, p_hi, p_sh, ops) }
             out = out ++ [merged]
         }
     }
@@ -512,13 +539,13 @@ pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
 comptime fn fire_screen_line(f: RasterFire) -> int {
     return match f {
         Fire(m, ops) => m,
-        Patch(m, ch, lo, hi, ops) => m,
+        Patch(m, ch, lo, hi, sh, ops) => m,
     }
 }
 comptime fn fire_ops(f: RasterFire) {
     return match f {
         Fire(m, ops) => ops,
-        Patch(m, ch, lo, hi, ops) => ops,
+        Patch(m, ch, lo, hi, sh, ops) => ops,
     }
 }
 // fire_band_lo / fire_band_hi return a STATIC fire's own line, so its interval is the
@@ -528,25 +555,33 @@ comptime fn fire_ops(f: RasterFire) {
 comptime fn fire_band_lo(f: RasterFire) -> int {
     return match f {
         Fire(m, ops) => m,
-        Patch(m, ch, lo, hi, ops) => lo,
+        Patch(m, ch, lo, hi, sh, ops) => lo,
     }
 }
 comptime fn fire_band_hi(f: RasterFire) -> int {
     return match f {
         Fire(m, ops) => m,
-        Patch(m, ch, lo, hi, ops) => hi,
+        Patch(m, ch, lo, hi, sh, ops) => hi,
     }
 }
 comptime fn fire_is_patch(f: RasterFire) -> int {
     return match f {
         Fire(m, ops) => 0,
-        Patch(m, ch, lo, hi, ops) => 1,
+        Patch(m, ch, lo, hi, sh, ops) => 1,
     }
 }
 comptime fn fire_channel(f: RasterFire) -> int {
     return match f {
         Fire(m, ops) => -1,
-        Patch(m, ch, lo, hi, ops) => ch,
+        Patch(m, ch, lo, hi, sh, ops) => ch,
+    }
+}
+// A static fire can never carry the off-screen ship: it has no channel, so there is no
+// anchor to be off-screen. Returning 0 rather than -1 keeps callers' `== 1` tests total.
+comptime fn fire_offscreen_ship(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => 0,
+        Patch(m, ch, lo, hi, sh, ops) => sh,
     }
 }
 
@@ -610,6 +645,58 @@ comptime fn op_cram_words(o: RasterOp) -> int {
 // a mid-frame write transient; a mask naming any other line leaves the write latched
 // forever, which is the observed P1 bug (the red covered the whole ground, not just
 // below the split, when the mask said %0001 and the op wrote line 2).
+// ---- the off-screen frame-top ship -------------------------------------------
+// A patched fire marked `offscreen_ship` gets a ready-made DMAEntry emitted into the
+// program's ROM trailer, re-issuing that fire's OWN pal_region as a frame-top transfer.
+// The runtime ships it on the frames the channel's anchor is above the screen, which is
+// where the fire itself can only pin at its band floor.
+//
+// EVERYTHING BELOW IS DERIVED FROM THE FIRE'S OP, NEVER AUTHORED A SECOND TIME. That is the
+// whole design: the entry and the op words are two generated artifacts of ONE set of
+// arguments, produced in the same pass, so they cannot drift. The rejected alternative was a
+// runtime walk that decoded the op words at install — which would have made a SECOND reader
+// of the variable-length op format (today only Raster_HInt decodes ops) that had to track it
+// forever.
+comptime fn count_pal_region_ops(ops: array) -> int {
+    comptime var n = 0
+    for o in ops {
+        n = n + match o {
+            SetReg(w)                      => 0,
+            Cram(a, cols)                  => 0,
+            PalRegion(a, slot, pl, e, cnt) => 1,
+            Vsram(a, vals)                 => 0,
+        }
+    }
+    return n
+}
+// The three facts an entry needs, each read off the op that already carries it. -1 / 0 for
+// the non-PalRegion arms are unreachable in practice — patchable's guard refuses a shipped
+// fire without exactly one — but the match must be total.
+comptime fn op_ship_cram_addr(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                      => -1,
+        Cram(a, cols)                  => -1,
+        PalRegion(a, slot, pl, e, cnt) => a,
+        Vsram(a, vals)                 => -1,
+    }
+}
+comptime fn op_ship_stage_off(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                      => -1,
+        Cram(a, cols)                  => -1,
+        PalRegion(a, slot, pl, e, cnt) => slot * 128 + pl * 32 + e * 2,
+        Vsram(a, vals)                 => -1,
+    }
+}
+comptime fn op_ship_count(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                      => 0,
+        Cram(a, cols)                  => 0,
+        PalRegion(a, slot, pl, e, cnt) => cnt,
+        Vsram(a, vals)                 => 0,
+    }
+}
+
 comptime fn op_mask(o: RasterOp) -> int {
     return match o {
         SetReg(w)             => 0,
@@ -955,6 +1042,66 @@ comptime fn patch_table(fires: array) -> array {
     return out
 }
 
+// ship_trailer — the off-screen ship descriptors, appended AFTER the patch table.
+//
+//     [n (word)][n x (channel, stage offset, colour count, CRAM byte address)]
+//
+// The count word is emitted ALWAYS, zero included, so the runtime reads one fixed shape and
+// never branches on whether a program has a trailer.
+//
+// IT CARRIES PARAMETERS, NOT A BUILT DMAEntry, and that is forced rather than chosen. The
+// first version emitted the finished 14-byte entry, folding Pal_Variant_Stage's absolute
+// address in through extern(). It cannot work: an address is a LINK-time value, and putting
+// one inside the emitted image makes the whole image non-comptime — which breaks
+// `first_mismatch(patched_program(...), hand_twin)`, the existing whole-image pin. Measured
+// three ways (a const, an equ, and a const bound to patched_program's result); all three
+// produced `here.provisional` errors. The install-time builder adds the base instead.
+//
+// It is also the better shape for an unrelated reason: the runtime already owns ONE DMAEntry
+// builder (BuildStaticDMA's movep sequence), so building there means no second site knows the
+// interleaved byte layout. The emitter version needed a third one, and a pin to hold it.
+//
+// THE CHANNEL TRAVELS WITH THE ENTRY because nothing else carries it: the preset deliberately
+// has no field naming the shipping channel (a cell that is a pure function of the installed
+// program cannot express "the previous section's effect survived", which a field would need a
+// guard for), so the runtime learns which channel to test for off-screen from right here.
+//
+// IT GOES AFTER THE PATCH TABLE, not before: P-b resolves the table at a CONSTANT +128, and
+// the runtime's fixed 128-byte template copy stops exactly at that boundary. The trailer's own
+// offset is 128 + 2 + 8*records, which the runtime computes from the count word it already
+// reads. Nothing here is ever patched — the descriptor is static — so it must be read through
+// the ROM template and never through the RAM working copy.
+comptime fn ship_trailer(fires: array) -> array {
+    comptime var entries = []
+    comptime var n = 0
+    for f in fires {
+        if fire_offscreen_ship(f) == 1 {
+            n = n + 1
+            for o in fire_ops(f) {
+                if op_ship_cram_addr(o) >= 0 {
+                    entries = entries ++ [fire_channel(f),
+                                          op_ship_stage_off(o),
+                                          op_ship_count(o),
+                                          op_ship_cram_addr(o)]
+                }
+            }
+        }
+    }
+    // ONE per program today, and the limit is this ensure rather than the wire format: the
+    // count word already lets a reader loop, so a second shipping channel needs this relaxed
+    // and the runtime's single test turned into a walk — no format change.
+    ensure(n <= 1,
+           "patched_program: {n} fires declare offscreen_ship, and the runtime tests exactly one. The WIRE FORMAT already carries a count and could hold more — relax this ensure and turn Enqueue_Dirty_Buffers' single test into a loop if a second shipping channel is real content.")
+    return [n] ++ entries
+}
+
+// ship_trailer_words — the trailer's emitted word count, by an independent path.
+comptime fn ship_trailer_words(fires: array) -> int {
+    comptime var n = 0
+    for f in fires { if fire_offscreen_ship(f) == 1 { n = n + 1 } }
+    return 1 + 4 * n
+}
+
 // check_arm_layout — GUARD 6. Every arm_off the table hands the runtime must point at a word
 // the emitter actually wrote as an arm word, AND at the RIGHT one. Both halves are needed: a
 // wrong offset that happens to land on an op_count fails the $8A00 test, while an offset
@@ -981,7 +1128,7 @@ comptime fn check_arm_layout(fires: array, out: array) -> int {
 // is the table's framing — one count word plus four per record — and it pins the declared ROM
 // footprint at the linker seam.
 pub comptime fn patched_words(fires: array) -> int {
-    return 64 + 1 + 4 * fires.len
+    return 64 + 1 + 4 * fires.len + ship_trailer_words(fires)
 }
 
 // patched_program — a raster program a runtime patcher can move. The ordinary program, padded
@@ -1000,6 +1147,7 @@ pub comptime fn patched_program(fires: array) -> array {
            "patched_program: the program body is {out.len} words, which does not fit the 64-word buffer the runtime copies")
     for i in 0..pad { out = out ++ [0] }
     out = out ++ patch_table(fires)
+    out = out ++ ship_trailer(fires)
     ensure(out.len == patched_words(fires),
            "patched_program: emitted {out.len} words but patched_words counted {patched_words(fires)} — the emitter and the length annotation disagree")
     return out

@@ -350,7 +350,7 @@ Re-entering a section **resets** an animated anchor to the preset's authored val
 `OP_RUN_RAMP` seed philosophy. The preset's array is the seed, not the storage.
 
 ```
-patchable(fires, ch, lo, hi) -> array
+patchable(fires, ch, lo, hi, offscreen_ship = 0) -> array
 ```
 
 **It takes and returns a fire LIST, not a fire**, and that is the whole ergonomic point: every `fx_`
@@ -370,6 +370,32 @@ The authored `line` inside the wrapped fire is the template's default schedule, 
 its own band — `patchable` refuses a fire authored outside `[lo, hi]`, because a shipped template that
 violates the invariant it declares would have its first runtime patch move the boundary somewhere the
 author never saw it.
+
+**`offscreen_ship: 1` says what happens when the anchor leaves the TOP of the screen.** Without
+it, the fire simply clamps to `lo` and every row above that keeps the base palette — for a water
+surface, that is "fully submerged with a permanently dry stripe across the top of the screen",
+which is what the OJZ fixture rendered for two parcels (measured: rows 0..1 identical to a fully
+dry frame). With it, the encoder emits a ready-made frame-top DMA into the program's trailer and
+the runtime ships it on the frames the channel's latched line is `<= 0`, so the fire's colours
+cover the whole screen instead.
+
+Everything about that transfer is DERIVED from the fire's own `pal_region` op — the staging
+source, the CRAM address and the colour count — so there is no second place to author the
+underwater look and nothing to keep in step. Two guards follow from that, both build errors:
+the fire must carry **exactly one** `pal_region` op (a bare vscroll split has nothing to ship),
+and at most **one** fire per program may declare it.
+
+**It is named for its GEOMETRY, not for water.** The mechanism is "this channel's anchor is
+above the screen"; water is only its first client. A `submerge:` spelling would have installed
+water vocabulary in the engine's DSL, which constrains every future patched effect — the exact
+fault a design sweep raised against an earlier draft of this parcel.
+
+**The DRY direction is NOT the mirror of this**, and do not expect it to be: when the anchor
+falls below the screen bottom the fire still clamps to `hi` and paints up to ~10 rows that
+should be dry. Suppressing a fire needs a way to park ONE record, which the array-of-relative-
+gaps encoding cannot do (parking one kills every later fire in the frame). It is blocked on the
+Ristar self-rewriting linked-list schedule. The parallax side deliberately clamps the same way,
+so the two boundaries are wrong TOGETHER rather than disagreeing.
 
 Worked example, the shipped gate fixture (`games/sonic4/data/effects/ojz_effects.emp`, search
 `OJZ_TwoChannel`):

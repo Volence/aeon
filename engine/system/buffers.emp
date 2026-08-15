@@ -97,39 +97,39 @@ pub proc Init_SpriteTable () clobbers(d0-d2/a0) {
 // Called once at boot after Init_DMA_Queue.
 // In:  none
 // Out: none
-// Clobbers: d0-d3, d5, a0
+// Clobbers: d0-d4, a0
 // -----------------------------------------------
-pub proc BuildStaticDMA () clobbers(d0-d3/d5/a0) {
+pub proc BuildStaticDMA () clobbers(d0-d4/a0) {
         moveq   #-$6C, d0                       // $94 sign-extended
-        move.l  #$93979695, d5                  // reg markers $93/$97/$96/$95 — one movep.l lands all four at offsets 2/4/6/8
+        move.l  #$93979695, d4                  // reg markers $93/$97/$96/$95 — one movep.l lands all four at offsets 2/4/6/8
 
         // Palette line 0: Palette_Buffer+$00 -> CRAM $0000, 32 bytes
         lea     Static_Pal_Line0, a0            // (Static_Pal_Line0).w
         move.l  #SRC_PAL_LINE0, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm(0, VdpTarget.Cram, VdpOp.Dma), d2
-        jbsr    .build_entry
+        jbsr    Build_DMA_Entry
 
         // Palette line 1: Palette_Buffer+$20 -> CRAM $0020, 32 bytes
         lea     Static_Pal_Line1, a0
         move.l  #SRC_PAL_LINE1, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm($20, VdpTarget.Cram, VdpOp.Dma), d2
-        jbsr    .build_entry
+        jbsr    Build_DMA_Entry
 
         // Palette line 2: Palette_Buffer+$40 -> CRAM $0040, 32 bytes
         lea     Static_Pal_Line2, a0
         move.l  #SRC_PAL_LINE2, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm($40, VdpTarget.Cram, VdpOp.Dma), d2
-        jbsr    .build_entry
+        jbsr    Build_DMA_Entry
 
         // Palette line 3: Palette_Buffer+$60 -> CRAM $0060, 32 bytes
         lea     Static_Pal_Line3, a0
         move.l  #SRC_PAL_LINE3, d1
         move.w  #dma_length(32), d3
         move.l  #vdp_comm($60, VdpTarget.Cram, VdpOp.Dma), d2
-        jbsr    .build_entry
+        jbsr    Build_DMA_Entry
 
         // Sprite table: Sprite_Table_Buffer -> VRAM sprite table. 640 bytes is
         // the boot default only — Render_Sprites (sprites H3) re-patches the
@@ -139,25 +139,49 @@ pub proc BuildStaticDMA () clobbers(d0-d3/d5/a0) {
         move.l  #SRC_SPRITE_TABLE, d1
         move.w  #dma_length(640), d3
         move.l  #vdp_comm(VRAM_SPRITE_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
-        jbsr    .build_entry
+        jbsr    Build_DMA_Entry
 
         // §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
         lea     Static_Hscroll_Cell, a0
         move.l  #SRC_HSCROLL, d1
         move.w  #dma_length(112), d3
         move.l  #vdp_comm(VRAM_HSCROLL_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
-        jbsr    .build_entry
+        jbsr    Build_DMA_Entry
 
         // §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
-        // (falls through into .build_entry — the seventh entry's build IS the tail)
+        // (tail-calls the shared builder — the seventh entry's build IS the tail)
         lea     Static_Hscroll_Line, a0
         move.l  #SRC_HSCROLL, d1
         move.w  #dma_length(896), d3
         move.l  #vdp_comm(VRAM_HSCROLL_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
+        jbra    Build_DMA_Entry
+}
 
-    .build_entry:
+// -----------------------------------------------
+// Build_DMA_Entry — lay one 14-byte DMAEntry. THE only place that knows the interleaved
+// byte layout, which is why it is a proc rather than the local label it used to be:
+// the off-screen ship (engine.effects.raster) builds its entry at INSTALL time from
+// parameters carried in the program's ROM trailer, and a second copy of this movep
+// sequence would be a second thing to keep in step with the struct.
+//
+//   a0 = destination DMAEntry   d1 = source (address >> 1)   d2 = VDP command longword
+//   d3 = length in WORDS        d0 = $94 sign-extended       d4 = $93979695 markers
+//
+// d0/d4 are inputs rather than locals because BuildStaticDMA sets them once and builds
+// seven entries; a caller building ONE must set them itself.
+//
+// THE MARKER REGISTER IS d4, NOT d5, and that is a contract-closure fact rather than taste:
+// the off-screen ship builds its entry under Raster_InstallPatched, whose caller chain
+// (Effects_InstallPreset, Parallax_CheckBoundary) declares only d0-d4. A d5 here propagates
+// as `transitive d5` up all three and fails the closure gate — restoring it around the call
+// does not help, because the declaration is what the analysis reads.
+//
+// Offset 3 is written TWICE and the order is load-bearing: movep.l lays the source's top
+// byte there, then movep.w's length low byte overwrites it. The settled value at 3 is SizeL.
+// -----------------------------------------------
+proc Build_DMA_Entry (a0: u32, d0: u16, d1: u32, d2: u32, d3: u16, d4: u32) {
         move.b  d0, DMAEntry.Reg94(a0)
-        movep.l d5, DMAEntry.Reg93(a0)
+        movep.l d4, DMAEntry.Reg93(a0)
         movep.l d1, DMAEntry.SizeL(a0)          // source -> offsets 3,5,7,9
         movep.w d3, DMAEntry.SizeH(a0)          // length -> offsets 1,3
         move.l  d2, DMAEntry.Command(a0)
@@ -237,6 +261,36 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         bclr    #3, Palette_Dirty
     .skip_pal3:
     .no_pal:
+        // ---- the off-screen frame-top ship (patched programs that declare one) ----
+        // When a patch channel's world anchor is ABOVE the screen, its fire can only pin at
+        // its band floor, leaving the rows above that floor showing the base palette — fully
+        // submerged with a permanently dry stripe at the top. This re-issues the fire's OWN
+        // colours as a frame-top DMA so they cover the whole screen instead.
+        //
+        // The entry is pre-built in the program's ROM trailer and the pointer is install-time
+        // state, so this costs a test and a taken branch on every frame that does not need it.
+        //
+        // IT SITS AFTER THE PALETTE BLOCK, and the ORDER against line 2's base ship is the
+        // point: the base ship reloads Palette_Buffer over these same CRAM entries, so a ship
+        // queued BEFORE it would be undone in the same frame. DMA-queue order is what matters,
+        // not source-line order, and everything above is already queued by here.
+        //
+        // d0 is free at this point — its Palette_Dirty snapshot is dead after the bit-3 test.
+        move.l  Effects_Offscreen_Entry, d0
+        beq     .no_ship
+        // btst instead of a saved carry: bit 2 CLEAR means line 2 either shipped this frame or
+        // was not dirty, and both are legal. Bit 2 still SET means the base ship DROPPED (queue
+        // full), and shipping over a line that did not get reloaded is not a state to add to.
+        btst    #2, Palette_Dirty               // (Palette_Dirty).w
+        bne     .no_ship
+        movea.l d0, a2
+        move.w  (a2), d0                        // the channel this entry belongs to
+        add.w   d0, d0
+        lea     Effects_Screen_L, a1            // (Effects_Screen_L).w
+        tst.w   (a1, d0.w)                      // the LATCHED line — never recomputed here
+        bgt     .no_ship                        // still on screen: the fire owns the boundary
+        queue_static_dma(Static_Pal_Ship)       // built at install from the trailer's params
+    .no_ship:
         tst.b   Sprite_Table_Dirty              // (Sprite_Table_Dirty).w
         beq     .no_spr
         tst.b   Sprite_Emit_Active              // NEW-3: a drop-retained dirty +
