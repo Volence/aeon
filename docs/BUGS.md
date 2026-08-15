@@ -5,6 +5,62 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ⚠ OPEN — `.lst` symbol addresses are 4 bytes stale for `boot_head` in the DEMO shapes (2026-08-14)
+
+**A sigil listing/image skew, sound-off shapes only.** `demo.lst` reports
+`BootData : 392`, `BootData_VDPRegs : 3AC`, `Z80_Sound_Start : 3C8`, but the emitted image
+places them at `$38E` / `$3A8` / `$3C4` — a consistent **-4** on `boot_head` symbols in both
+demo shapes. `BootData_PostBlob` (`$3F8`) matches exactly, and the s4 shapes are not skewed;
+pc-relative references in the image resolve to the IMAGE addresses, so the ROM is correct and
+only the listing lies.
+
+**Why it matters:** anything consuming `.lst`/deb2 addresses for that section reads 4 bytes
+off — the MD Debugger's symbol view, and any evidence-gathering that resolves a demo boot
+symbol before poking it. The boot-cursor investigation below hit exactly this class of trap
+from the other direction.
+
+**Suspected mechanism:** the same `packed_align_of` provisional-pin machinery that owns
+inter-section alignment, reporting a padded base the packer did not actually emit. Wants a
+sigil ledger row. Found by static whole-ROM disassembly diff during the
+`boot-cursor-section-seam` hunt; not chased, because the ROM bytes are right.
+
+---
+
+## ✅ FIXED — the RELEASE shape of both games rendered NOTHING (2026-08-14, aeon `f2adf85c` / sigil `7e1b70dd`, chain 116)
+
+Kept as a booked entry because it was **pre-existing and long-lived**, and because of what it
+says about the verification posture: every gate was green the whole time.
+
+`boot.emp` copied the Z80 blob with `move.b (a5)+,(a0)+` and then kept walking the SAME `a5`
+into `boot_tail`'s data. The blob ends a *section*, and the chainer aligns `boot_tail`'s base
+per `sigil native.rs::packed_align_of`, so a pad opens whose width is a function of blob
+length: **4 bytes in DEBUG, 6 in release**. Both shapes read the pad as their PSG-silence
+bytes. Debug's skew was survivable (the words still paired up). Release's put `$0000` in the
+auto-increment slot; the VDP takes `$0000` as a command's FIRST word, stranding the
+control-port flip-flop — after which **no VDP write in the entire ROM ever landed again**:
+blank backdrop, VRAM all zeros, CRAM at power-on `$0EEE`, in BOTH games, while game logic ran
+on normally. Fixed by naming the label (`lea BootData_PostBlob(pc), a5`).
+
+**Three lessons worth more than the fix:**
+
+1. **Every shape must actually be BOOTED.** This survived because verification runs on DEBUG.
+   The pre-merge commit `b2bb1c5a` is equally blank; so, almost certainly, is a long run of
+   ancestors. `refreeze --check`, the 3711-test suite and the byte goldens were all green
+   throughout — none of them looks at a screen.
+2. **The guard existed and checked the wrong property.** `boot_data.emp`'s
+   `ensure((Z80_SOUND_SIZE & 1) == 0)` called itself "THE NET the review asked for and never
+   got". The thing that shears the walk is the alignment PAD, and a pad is even — so the
+   parity check passed happily in both shapes. Another entry for the
+   gate-measures-something-adjacent-to-its-subject file.
+3. **A cross-section `(a5)+` walk is not a layout-independent construct.** `packed_align_of`'s
+   own doc comment records that a repin can change a section's alignment quantum with no
+   source change at all (it happened to the SFX section in `2c49f538`), so no `ensure` could
+   have pinned this durably — only naming the label removes the hazard.
+
+Evidence: `docs/benchmarks/boot-cursor-seam/AB-EVIDENCE.md`.
+
+---
+
 ## ⚠ OPEN — the replay net was NOT verified for the blanket-register-restore parcel (2026-08-14)
 
 The parcel merged with every other gate green (four build shapes, sigil `3711/0`, refreeze
