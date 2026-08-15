@@ -500,6 +500,10 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // reason the test is the table), so leaving it set here would keep the patcher
         // writing arm bytes into a buffer whose program has been torn down.
         clr.l   Raster_Patch_Tab
+        // The ship entry dies with the program that declared it, exactly as the patch table does.
+        // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
+        // program's trailer as a frame-top DMA whenever the (also stale) anchor reads L <= 0.
+        clr.l   Effects_Offscreen_Entry
         jbsr    HBlank_Uninstall
         rts
     .copy_program:
@@ -508,6 +512,10 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // stale table here would rewrite Buf_A's op_counts as if they were arm words, every
         // VBlank, and send the HInt walker through ROM as opcodes.
         clr.l   Raster_Patch_Tab
+        // The ship entry dies with the program that declared it, exactly as the patch table does.
+        // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
+        // program's trailer as a frame-top DMA whenever the (also stale) anchor reads L <= 0.
+        clr.l   Effects_Offscreen_Entry
         movea.l d0, a1
         lea     Raster_Buf_A, a2
         move.l  a2, Raster_Active_Buf

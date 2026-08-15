@@ -972,6 +972,32 @@ pub comptime fn raster_program(fires: array) {
     let L = fire_lines(fires)
     check_intervals(fires)
     check_density(fires)
+    // GUARD 11 — one patchable record per channel. Raster_GetChannelBand answers with the FIRST
+    // record matching a channel, so a second record on the same channel is invisible to the
+    // parallax overlay: past the first record's band the scroll boundary would follow one record
+    // while the palette follows the other. The runtime cannot disambiguate two answers to "where
+    // is channel N", so this is refused at build time rather than resolved at runtime.
+    //
+    // A BITMASK, NOT AN INDEXED ARRAY: this evaluator's `Assign` target is a bare path
+    // (parser.rs stmt(), the `path = expr` arm) with no indexing form, so `ch_seen[c] = 1`
+    // does not parse here — only a whole-variable reassignment does (the same reason
+    // `prog_mask` above accumulates through `m = m | ...` rather than into a table). A
+    // per-channel seen-bit folds into that same shape: `ch_mask | (1 << c)` is one plain
+    // reassignment, and the read is `(ch_mask & (1 << c)) == 0`, so no index-assignment is
+    // needed at all. RASTER_MAX_PATCH is small (4, asserted a power of two above) and
+    // `patchable`'s own guard already bounds every channel to 0..RASTER_MAX_PATCH-1
+    // (raster_dsl.emp, the `patchable` ensure against RASTER_MAX_PATCH), so the mask never
+    // needs more bits than that ceiling provides.
+    comptime var ch_mask = 0
+    for f in fires {
+        if fire_is_patch(f) == 1 {
+            let c = fire_channel(f)
+            let bit = 1 << c
+            ensure((ch_mask & bit) == 0,
+                   "raster program: two patchable records both drive channel {c}. Raster_GetChannelBand returns the first match, so the parallax overlay would follow one record while the palette follows the other. Give them separate channels.")
+            ch_mask = ch_mask | bit
+        }
+    }
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
     // program without exception — which is what patch_table's pre-resolved arm_offs depend on.
     comptime var out = [prog_mask(fires)]
