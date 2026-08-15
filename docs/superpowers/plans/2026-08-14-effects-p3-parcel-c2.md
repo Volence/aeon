@@ -58,6 +58,47 @@ Also verified: `sec_collision_s4lz` has exactly **three** references tree-wide �
 
 ---
 
+## KNOWN-RED BASELINE for this parcel — read before gating any task
+
+**Task 1 moved instruction bytes, so every whole-ROM golden test is stale from that point until Task 14 refreezes.** This is by design and must not be chased. Measured on the branch after Task 3:
+
+```
+3702 passed / 14 failed / 4 ignored, across 327 binaries
+```
+
+The 14, and ONLY these 14, are expected red:
+
+```
+config_a_anchor_matches_golden        config_b_anchor_matches_golden
+config_a_full_file                    config_b_full_file
+config_b_doctored_size_table_breaks_the_build
+demo_debug_anchor_matches_golden      demo_plain_anchor_matches_golden
+demo_debug_full_file                  demo_plain_full_file
+flipped_config_a_anchor_matches_golden
+lean_anchor_matches_golden            lean_full_file
+native_full_sonic4_debug              native_full_sonic4_plain
+```
+
+Goldens frozen at chain 116 vs the live branch:
+
+| shape | golden | branch (after Task 3) |
+|---|---|---|
+| `s4.debug.bin` | `3cffc29b` | `377407be` |
+| `s4.bin` | `a6efe203` | `ba056e11` |
+| `demo.bin` | `8c6abbfe` | `6c232c5d` |
+| `demo.debug.bin` | `fdda99a7` | `a47dc369` |
+
+**The per-task gate is therefore NOT "suite green".** It is:
+1. all four shapes BUILD,
+2. both replay-net fixtures PASS,
+3. the sigil suite shows **exactly** the 14 failures above and no others.
+
+A 15th failure, or a different name in the list, is a real regression. Count precisely — never tail the output.
+
+**A trap this already caused:** Task 3's implementer saw the 14 reds and attributed them to unrelated dirty editor JSON in the aeon tree, because stashing its own (byte-neutral) change did not make them go away. It could not have: the cause was Task 1's COMMITTED byte change. Byte-neutral tasks cannot clear a red the goldens inherited from an earlier task in the same parcel.
+
+---
+
 ## File structure
 
 | File | Responsibility | Task |
