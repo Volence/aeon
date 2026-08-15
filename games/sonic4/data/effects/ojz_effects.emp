@@ -668,11 +668,19 @@ const OJZ_TC_TABLE_HAND = [
                                 //    the whole screen; see the re-band note above)
     6, $8001, 215, 222,         // channel 1: rewrites the arm at byte 6, band 215..222
 ]
+// The off-screen ship trailer, after the patch table. Neither channel declares
+// offscreen_ship, so this is the bare count word — and pinning the EMPTY case is worth a line
+// on its own: it is what proves the count word is emitted unconditionally, so the runtime
+// reads one fixed shape instead of branching on whether a program has a trailer.
+const OJZ_TC_TRAILER_HAND = [
+    0,                          // no fire declares offscreen_ship
+]
+
 // The separate .len ensure is REQUIRED, not belt-and-braces: first_mismatch walks only a's
 // indices and returns -1 whenever a is a PREFIX of b, so a table short by a trailing entry
 // compares EQUAL. Nothing inside first_mismatch can see that.
-ensure(patched_words(OJZ_TC_PROG) == 64 + OJZ_TC_TABLE_HAND.len,
-       "OJZ_TwoChannel: patched_words says {patched_words(OJZ_TC_PROG)} but 64 padded body words plus the hand table is {64 + OJZ_TC_TABLE_HAND.len}")
+ensure(patched_words(OJZ_TC_PROG) == 64 + OJZ_TC_TABLE_HAND.len + OJZ_TC_TRAILER_HAND.len,
+       "OJZ_TwoChannel: patched_words says {patched_words(OJZ_TC_PROG)} but 64 padded body words plus the hand table and trailer is {64 + OJZ_TC_TABLE_HAND.len + OJZ_TC_TRAILER_HAND.len}")
 
 pub data OJZ_TwoChannel: [u16; patched_words(OJZ_TC_PROG)] = patched_program(OJZ_TC_PROG)
 
@@ -682,5 +690,5 @@ const OJZ_TC_PAD = comptime for i in 0..(64 - 23) { 0 }
 ensure(OJZ_TC_HAND.len == 23,
        "OJZ_TwoChannel: the padding length above is written against a 23-word body, but the hand body is {OJZ_TC_HAND.len} words")
 ensure(first_mismatch(patched_program(OJZ_TC_PROG),
-                      OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND) == -1,
-       "OJZ_TwoChannel: the emitted patched image diverges from the hand twin at index {first_mismatch(patched_program(OJZ_TC_PROG), OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND)}")
+                      OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND) == -1,
+       "OJZ_TwoChannel: the emitted patched image diverges from the hand twin at index {first_mismatch(patched_program(OJZ_TC_PROG), OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND)}")
