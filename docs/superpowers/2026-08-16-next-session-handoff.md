@@ -10,8 +10,8 @@ read its top third; its queue items 1-5 are all DONE.
 
 **Both repos on `master`, green, pushed, nothing in flight.**
 
-- aeon `467fec00` — Merge parcel/water-submerged-state: the off-screen frame-top ship
-- sigil `7ef97890` — refreeze for aeon's off-screen frame-top ship (chain 125)
+- aeon `2587e986` — Merge parcel/offscreen-ship-setreg: the ship re-issues the whole fire
+- sigil `1d89baf9` — refreeze for aeon's set_reg replay (chain 126)
 - Verified pair. Suite **3721 / 0** across 329 test-result lines · contract closure **0 firings**
 - Four shapes boot and render: s4, s4.debug, demo, demo.debug
 
@@ -20,7 +20,7 @@ export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
 export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
 ```
 
-ROM CRCs: s4 `6c2a1d9d` · s4.debug `9ed5fcea` · demo `f2a37230` · demo.debug `d9896c6f`
+ROM CRCs: s4 `5acff780` · s4.debug `34078a94` · demo `8bff76d8` · demo.debug `3ccb680c`
 
 ---
 
@@ -32,6 +32,19 @@ on frames where that channel's latched screen line is `<= 0`. Authored as
 `patchable(..., offscreen_ship: 1)`. Plan, before-measurement and gate evidence are in
 `docs/superpowers/plans/2026-08-15-water-offscreen-state.md` and
 `docs/benchmarks/effects-p3-water-state/`.
+
+### The follow-up owner testing found, and the lesson in it
+
+The ship first shipped covering only the fire's `pal_region`. OJZ's water fire also carries
+`sh_on()`, so fully submerged the top rows had the shimmer and the colour tint but **no
+Shadow/Highlight** — visibly lighter. Fixed the same day (the trailer carries the fire's
+`set_reg` words and `Enqueue_Dirty_Buffers` replays them after `Flush_VDP_Shadow`).
+
+**None of the parcel's own gates could have caught it.** The entry decode, the CRAM poison test
+and the enqueue breakpoint all asked *"is the palette right?"*, because that is the mechanism
+that got built. **A gate built around the mechanism you implemented cannot see the part of the
+requirement you did not implement.** When a parcel re-issues a composite thing — a fire is an op
+LIST — gate the composite, not the op you happened to wire up.
 
 ### READ THIS FIRST: oracle pixel capture is not a gate here
 
