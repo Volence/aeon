@@ -314,7 +314,7 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 
         // -- latch every patch channel's screen line from its world anchor. HERE, between
         //    Camera_Update and Parallax_Update, and not in VBlank: the parallax overlay reads
-        //    it below in this same frame while Raster_PatchAll reads it from the VBlank that
+        //    it below in this same frame while Raster_BuildSchedule reads it from the VBlank that
         //    follows, so a VBlank-computed latch would reach the two of them one camera apart
         //    and pop every boundary transition. It runs OUTSIDE the Debug_Scene_Freeze gate on
         //    purpose — a hand-written Camera_Y still has to be latched, or the frozen scene
@@ -377,7 +377,7 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         jbsr    Parallax_CheckBoundary
 
         // -- The per-frame Raster_PatchWaterWorldY call that used to sit here is GONE (P-b
-        //    Task 6). PATCHING moved INTO Raster_VBlank (Raster_PatchAll) and that move is
+        //    Task 6). PATCHING moved INTO Raster_VBlank (Raster_BuildSchedule) and that move is
         //    load-bearing, not tidying: every arm word is a RELATIVE gap, so a patch running
         //    from the main loop races Raster_HInt walking the same buffer during active
         //    display and desynchronises the whole tail of the chain. The single-word water
@@ -387,7 +387,7 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    WHAT REPLACES IT, below: the AFFORDANCE that call provided — move a boundary
         //    live and watch it track — restored through the only interface that is
         //    race-safe. Writing an ANCHOR from the main loop is safe precisely because it
-        //    is not a patch: it lands in RAM, and the next Raster_PatchAll converts every
+        //    is not a patch: it lands in RAM, and the next Raster_BuildSchedule converts every
         //    anchor to arm bytes in one pass at VBlank. That main-loop-write -> VBlank-
         //    conversion seam is the whole point of keeping anchors in RAM, and this is the
         //    only thing in the tree that crosses it.
@@ -430,7 +430,7 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         // Clamp the nudge to channel 0's own declared raster band, converted into world
         // space. Two reasons, and the second is the load-bearing one:
         //
-        //  1. Without it the hotkey drives the anchor somewhere Raster_PatchAll silently
+        //  1. Without it the hotkey drives the anchor somewhere Raster_BuildSchedule silently
         //     clamps anyway, so the palette boundary stops tracking while the anchor keeps
         //     moving — under the very instrument used to watch them track together.
         //  2. It is the ONLY call site of Raster_GetChannelBand. A `pub proc` is assembled

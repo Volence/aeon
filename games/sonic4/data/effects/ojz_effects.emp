@@ -587,7 +587,7 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // Channel 1 — a plane B vertical scroll split, band 216..223.
 //
 // THE WATER CHANNEL OWNS ALMOST THE WHOLE SCREEN, and that is the point of this layout.
-// The band is where Raster_PatchAll CLAMPS the boundary, so whatever the band cannot reach,
+// The band is where Raster_BuildSchedule CLAMPS the boundary, so whatever the band cannot reach,
 // the water line cannot reach either — it pins at the edge and stops tracking the world.
 // Channel 0 held 3..120 for exactly one reason: channel 1 sat at 130..200 in the middle of
 // the screen, and the intervals must be strictly ascending and disjoint (check_intervals,
@@ -612,7 +612,7 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // channel 0 costlier this is the first thing that will fail.
 //
 // LO WAS 40 UNTIL Parcel W SHIPPED AND SOMEBODY LOOKED AT IT. The band is where
-// Raster_PatchAll clamps the boundary, so a lo of 40 meant that once the camera descended
+// Raster_BuildSchedule clamps the boundary, so a lo of 40 meant that once the camera descended
 // past world Y 184 the water line stopped tracking the world and PINNED at screen line 40
 // — the top 40 lines (18% of the screen) never went under, no matter how far down you got,
 // and the boundary read as camera-locked. Observed immediately on the debug shape at
