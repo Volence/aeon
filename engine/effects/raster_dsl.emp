@@ -88,6 +88,10 @@ pub comptime enum RasterOp {
 
 pub comptime enum RasterFire {
     Fire(int, array),                     // (screen line the effect lands on, RasterOp ARRAY)
+    // (screen line, channel, band lo, band hi, RasterOp ARRAY) — a fire whose line MOVES at
+    // runtime within [lo, hi]. The band is in SCREEN lines, like `line`; the encoder converts
+    // to fire lines exactly once, in patch_table.
+    Patch(int, int, int, int, array),
 }
 
 // ---- op constructors --------------------------------------------------------
@@ -303,6 +307,41 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
     return fire(line, [pal_region(addr, slot, pal_line, entry, count)])
 }
 
+// patchable — mark a fire as one whose screen line MOVES at runtime, within [lo, hi].
+//
+// IT TAKES AND RETURNS A FIRE LIST, not a fire, and that is the whole ergonomic point:
+// every fx_ preset returns a LIST, so a fire-level spelling would be a type error at exactly
+// the call an author reaches for first — patchable(fx_tint_band(...), ...). List-level
+// composes with the preset library and feeds straight into compose.
+//
+// THE CHANNEL IS AUTHORED, not an encoder-assigned ordinal. `ch` selects which world-anchor
+// slot drives this fire at runtime (a later parcel). Ordinals would leave an author counting
+// patchable fires in program order to find their own slot, and the count changes under
+// compose merging.
+//
+// The screen-line bounds below are inlined literals per this module's opening note (3 and 223
+// are held by the module-level RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE pin near the top of
+// this file); RASTER_MAX_PATCH is DEFINED in this module and so is safe to name.
+pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int) -> array {
+    ensure(fires.len == 1,
+           "patchable: got {fires.len} fires — mark exactly one. Marking a multi-fire preset would clamp all of its fires onto one line, because they would share a single world anchor.")
+    ensure(ch >= 0 && ch < RASTER_MAX_PATCH,
+           "patchable: channel {ch} outside the legal range — the channel selects a runtime world-anchor slot, and RASTER_MAX_PATCH is the ceiling")
+    ensure(lo >= 3 && hi <= 223,
+           "patchable: band {lo}..{hi} outside screen lines 3..223 (lines 0-2 belong to the priming records)")
+    ensure(lo <= hi, "patchable: band {lo}..{hi} is inverted")
+    let f = fires[0]
+    ensure(fire_is_patch(f) == 0,
+           "patchable: this fire is already patchable — marking it twice would silently discard the first band")
+    let line = fire_screen_line(f)
+    // The authored line is the template's DEFAULT schedule. If it sits outside its own band the
+    // shipped template violates the invariant it declares, and the first runtime patch would
+    // move the boundary somewhere the author never saw.
+    ensure(line >= lo && line <= hi,
+           "patchable: the authored line {line} is outside its own band {lo}..{hi}")
+    return [ RasterFire.Patch(line, ch, lo, hi, fire_ops(f)) ]
+}
+
 // ---- composition -------------------------------------------------------------
 
 // compose — merge N fire lists into one program's fire list. THE point of a preset
@@ -328,6 +367,12 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
 // `set_reg` lost its `reset` parameter, and presets now layer without having to know
 // about each other. What composition still cannot reconcile is two ops writing the same
 // register on the SAME line: they both execute, in preset order, and the last one wins.
+//
+// PATCHABILITY SURVIVES MERGING, and it takes explicit work. This function rebuilds every
+// merged fire, so a mark carried only in the input variant is lost by construction —
+// exhaustive matching cannot catch it, because the loss is in reconstruction, not
+// destructuring. Merging patchable with static yields PATCHABLE (the static op layers onto
+// the moving line); merging two patchables requires identical channel and band (guard 9).
 pub comptime fn compose(progs: array) -> array {
     ensure(progs.len >= 1, "compose: nothing to compose")
     comptime var out = []
@@ -343,10 +388,28 @@ pub comptime fn compose(progs: array) -> array {
     for line in 3..224 {
         comptime var ops   = []
         comptime var found = 0
+        comptime var is_p  = 0
+        comptime var p_ch  = 0
+        comptime var p_lo  = 0
+        comptime var p_hi  = 0
         for p in progs {
             for f in p {
                 if fire_screen_line(f) == line {
                     found = 1
+                    if fire_is_patch(f) == 1 {
+                        // Guard 9. Two patchable fires merged onto one line become ONE record
+                        // and therefore ONE moving boundary, so they must agree on which
+                        // channel drives it and how far it may travel. Disagreement is not
+                        // reconcilable at runtime: the record has a single arm word.
+                        if is_p == 1 {
+                            ensure(p_ch == fire_channel(f) && p_lo == fire_band_lo(f) && p_hi == fire_band_hi(f),
+                                   "compose: two patchable fires merged onto screen line {line} disagree about channel or band — a merged fire is ONE record with ONE arm word, so it can only have one anchor and one band. Give them the same channel and band, or author them on different lines.")
+                        }
+                        is_p = 1
+                        p_ch = fire_channel(f)
+                        p_lo = fire_band_lo(f)
+                        p_hi = fire_band_hi(f)
+                    }
                     for o in fire_ops(f) {
                         if op_is_set_reg(o) == 1 { ops = ops ++ [o] }
                     }
@@ -362,7 +425,15 @@ pub comptime fn compose(progs: array) -> array {
                 }
             }
         }
-        if found == 1 { out = out ++ [fire(line, ops)] }
+        if found == 1 {
+            // fire() FIRST, unconditionally: it is what applies the per-fire ceilings and the
+            // mixed-fire ordering rule to the COMPOSITION rather than merely to its parts. The
+            // patchable case then re-wraps the same op list, so it inherits every one of those
+            // checks instead of quietly bypassing them.
+            comptime var merged = fire(line, ops)
+            if is_p == 1 { merged = RasterFire.Patch(line, p_ch, p_lo, p_hi, ops) }
+            out = out ++ [merged]
+        }
     }
     return out
 }
@@ -400,10 +471,23 @@ pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
 // fx_tint_band — from `line` down, swap `count` colours of the palette variant staged in
 // `slot` into CRAM, optionally turning Shadow/Highlight on at the same line. This is the
 // water-boundary shape generalised, and the CRAM destination is DERIVED from
-// pal_line/entry via pal_stage_off rather than asked for a second time — pal_region's
-// address/line/entry agreement checks then cannot fail, because there is only one source
-// of the fact. (slot 0 in the pal_stage_off call is deliberate: the CRAM destination is
-// slot-independent; `slot` selects the staging SOURCE and is passed through below.)
+// pal_line/entry rather than asked for a second time — pal_region's address/line/entry
+// agreement checks then cannot fail, because there is only one source of the fact.
+//
+// THE STAGING ARITHMETIC IS INLINED, not a pal_stage_off call, and that is not style. A
+// comptime fn's free names resolve at the CALL SITE, and pal_stage_off is IMPORTED into
+// this module rather than defined here — so a call here compiled fine and then failed in
+// every author's module with `unknown function pal_stage_off` unless that author added an
+// import for a helper they never named. Measured 2026-08-15: OJZ_TwoChannel was the FIRST
+// call site of this preset anywhere in the tree, and it hit exactly that, four times over.
+// The preset shipped broken in Parcel C1 and nothing noticed for two parcels because
+// nothing had ever called it.
+//
+// This is the same rule the module header states and that pal_region already follows (see
+// its note near the top); the module-level ensure beside the other pins holds this copy of
+// the formula to pal_stage_off's authority, so there is still exactly one source of truth.
+// (The slot term is 0 deliberately: the CRAM destination is slot-independent; `slot`
+// selects the staging SOURCE and is passed through below.)
 //
 // UNCHECKABLE HERE, AND REAL: the variant bound to `slot` at runtime must cover
 // `pal_line` in its `lines` mask, or Palette_DeriveVariant never writes that staging line
@@ -413,7 +497,7 @@ pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
 pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
                              count: int, sh: int) -> array {
     return [ region_boundary(line:     line,
-                             addr:     pal_stage_off(0, pal_line, entry),
+                             addr:     0 * 128 + pal_line * 32 + entry * 2,
                              slot:     slot,
                              pal_line: pal_line,
                              entry:    entry,
@@ -426,10 +510,44 @@ pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
 // ===========================================================================
 
 comptime fn fire_screen_line(f: RasterFire) -> int {
-    return match f { Fire(m, ops) => m }
+    return match f {
+        Fire(m, ops) => m,
+        Patch(m, ch, lo, hi, ops) => m,
+    }
 }
 comptime fn fire_ops(f: RasterFire) {
-    return match f { Fire(m, ops) => ops }
+    return match f {
+        Fire(m, ops) => ops,
+        Patch(m, ch, lo, hi, ops) => ops,
+    }
+}
+// fire_band_lo / fire_band_hi return a STATIC fire's own line, so its interval is the
+// degenerate [L, L]. That is what lets the later interval and density walks run one formula
+// over both record classes with no branch — and it is why the density guard automatically
+// becomes a worst-case guard once a fire can move.
+comptime fn fire_band_lo(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => m,
+        Patch(m, ch, lo, hi, ops) => lo,
+    }
+}
+comptime fn fire_band_hi(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => m,
+        Patch(m, ch, lo, hi, ops) => hi,
+    }
+}
+comptime fn fire_is_patch(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => 0,
+        Patch(m, ch, lo, hi, ops) => 1,
+    }
+}
+comptime fn fire_channel(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => -1,
+        Patch(m, ch, lo, hi, ops) => ch,
+    }
 }
 
 // op_words — the emitted body of one op.
@@ -560,6 +678,24 @@ ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 1 == 454,
 ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 3 == 526,
        "density model drifted from the measured 3-colour cram fire (526 cyc)")
 
+// RASTER_MAX_PATCH — patchable channels per program. DEFINED HERE on purpose: this module
+// is a COMPTIME_HELPERS member, so a name defined here is glob-injected into every module
+// (engine.effects.raster and engine.ram included) AND is safe to spell inside a comptime fn
+// body. A constant imported FROM raster.emp would be neither — imports do not travel into a
+// body, and this codebase has a measured case of that collapsing a range to empty and
+// silently emitting zero fires.
+//
+// FOUR IS NOT A RAM DECISION. The binding constraint is the BAND BUDGET under density:
+// disjoint bands over screen lines 3..223 must satisfy sum(hi_i - lo_i + 1) + (N-1) <= 221,
+// so four channels each free to traverse the screen is not expressible — one water line with
+// 200px of travel spends the budget alone. Raising this without widening the band budget buys
+// nothing.
+pub const RASTER_MAX_PATCH = 4
+// The runtime patcher masks a channel index with RASTER_MAX_PATCH - 1, which is only an index
+// bound for a power of two.
+ensure((RASTER_MAX_PATCH & (RASTER_MAX_PATCH - 1)) == 0,
+       "RASTER_MAX_PATCH must be a power of two — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, which only bounds the index for a power of two")
+
 // fire_cost_cycles — modelled cost of one fire. Each CRAM-class op pays its own dispatch
 // AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
 comptime fn fire_cost_cycles(f: RasterFire) -> int {
@@ -572,6 +708,29 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
     return c
 }
 
+// check_intervals — GUARD 2, the invariant every other property rests on. Stated ONCE, in
+// FIRE-LINE space, matching fire_lines: each record has a possible fire-line interval, a
+// point [L, L] for a static fire and [lo-1, hi-1] for a patchable one, and the intervals
+// must be strictly ascending and disjoint. Priming records occupy fire lines 0 and 1, so the
+// walk starts at prev_hi = 1.
+//
+// WHAT A VIOLATION DOES, and why the message says so: the runtime patcher stores
+// L[k] - L[k-1] - 1 as the LOW BYTE of an $8Axx arm word. Two records able to reach the same
+// fire line make that -1, whose byte is $FF — and $8AFF is RASTER_ARM_PARK. So an overlap of
+// a single line does not merely mis-place a boundary, it parks the counter and kills every
+// remaining fire in the frame, with no other symptom.
+comptime fn check_intervals(fires: array) -> int {
+    comptime var prev_hi = 1                     // priming record 1 sits at fire line 1
+    for f in fires {
+        let lo_fl = fire_band_lo(f) - 1
+        let hi_fl = fire_band_hi(f) - 1
+        ensure(lo_fl > prev_hi,
+               "raster program: the record reachable at fire lines {lo_fl}..{hi_fl} can collide with the previous record, which reaches up to fire line {prev_hi}. Records must occupy STRICTLY ASCENDING, DISJOINT fire-line intervals (a static fire's interval is its own line; a patchable fire's is its band). This is not a tidiness rule: the arm gap is stored as the low byte of an $8Axx word, so two records on one fire line make the gap -1, whose byte is $FF — the PARK word. That kills every fire after it in the frame, silently.")
+        prev_hi = hi_fl
+    }
+    return 0
+}
+
 // check_density — a fire must finish before the next one is due. The budget between two
 // fires is the number of scanlines between them. Overrunning does NOT drop the next fire
 // (the counter is already armed) but pushes its writes into active display, which is
@@ -580,14 +739,36 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 //
 // THIS CANNOT LIVE IN `fire`. Density is a property of the SCHEDULE — one fire cannot see
 // its neighbour — which is exactly why the per-fire ceilings above could not catch it.
+//
+// IT IS NOW A WORST-CASE CHECK, and that took no branch. The gap is measured from this
+// record's HIGHEST reachable fire line to the next record's LOWEST — and because a static
+// fire's band is its own line, the formula reduces to exactly the old authored-line
+// difference for a program with no patchable records. Bytes for static programs are
+// unchanged.
+//
+// WITHOUT THIS, THE GUARD GOES VACUOUS THE MOMENT A FIRE CAN MOVE. Two channels banded
+// 40..120 and 121..200 with authored lines 100 apart pass the AUTHORED-line check trivially
+// (gap 100 lines) and then clamp to 120 and 121 at runtime — one scanline apart, two
+// 3-word CRAM fires at a measured 526 cycles against a 488-cycle line, which is precisely
+// the overrun this guard exists to refuse.
 comptime fn check_density(fires: array) -> int {
     comptime var i = 0
     for f in fires {
         if i + 1 < fires.len {
-            let gap  = fire_screen_line(fires[i + 1]) - fire_screen_line(f)
+            let this_hi = fire_band_hi(f) - 1
+            let next_lo = fire_band_lo(fires[i + 1]) - 1
+            let gap  = next_lo - this_hi
             let cost = fire_cost_cycles(f)
+            // The message names the BAND EDGES as well as the authored lines, because those
+            // are the two numbers that explain each other. Measured against the arithmetic
+            // alone the diagnostic reads absurdly for a patchable pair — "only 1 scanline
+            // remains" between fires authored 130 lines apart — since the 1 scanline is
+            // between the edges the records can actually reach, not between where they sit
+            // today. For an all-static program the edges ARE the authored lines and the two
+            // halves of the sentence agree, which is why this went unnoticed until a fire
+            // could move.
             ensure(cost <= gap * RASTER_SCANLINE_CYC,
-                   "raster program: the fire at screen line {fire_screen_line(f)} models at {cost} cycles but only {gap} scanline(s) = {gap * RASTER_SCANLINE_CYC} cycles remain before the fire at {fire_screen_line(fires[i + 1])}. MEASURED 2026-08-14: a 3-colour CRAM fire costs 526 cycles against a 488-cycle line, so consecutive colour fires overrun and paint a visible mid-line colour change. Either space these fires further apart, or move per-line colour work to the DENSE tier (raster_gradient_program), which stays inside ONE interrupt instead of paying an exception entry per line — that is how S3K writes 3 colours per line at 484. Note this model does not count OP_SET_REG at all, so the true cost is higher than the number above.")
+                   "raster program: the fire at screen line {fire_screen_line(f)} models at {cost} cycles but only {gap} scanline(s) = {gap * RASTER_SCANLINE_CYC} cycles remain before the fire at {fire_screen_line(fires[i + 1])}. The gap is measured WORST CASE, between the fire lines these two records can actually reach — {this_hi} and {next_lo} — which for a patchable record is its band edge, not the line it is authored at. MEASURED 2026-08-14: a 3-colour CRAM fire costs 526 cycles against a 488-cycle line, so consecutive colour fires overrun and paint a visible mid-line colour change. Either space these fires further apart, or move per-line colour work to the DENSE tier (raster_gradient_program), which stays inside ONE interrupt instead of paying an exception entry per line — that is how S3K writes 3 colours per line at 484. Note this model does not count OP_SET_REG at all, so the true cost is higher than the number above.")
         }
         i = i + 1
     }
@@ -683,6 +864,7 @@ pub comptime fn raster_words(fires: array) -> int {
 pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
+    check_intervals(fires)
     check_density(fires)
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
     // program without exception — which is what WATER_TEMPLATE_ARM0_OFF depends on.
@@ -712,6 +894,107 @@ pub comptime fn raster_program(fires: array) {
     return out
 }
 
+// ---- the patch table ----------------------------------------------------------
+
+// arm_word_index — the WORD index of record k's arm word inside the emitted program. The
+// header is one word; the two priming records are [arm, opc] pairs at words 1-2 and 3-4; each
+// authored record is [arm, opc] plus its op bodies. Records 0 and 1 are the priming pair.
+//
+// This is a SECOND, INDEPENDENT path to a fact raster_program computes while emitting, and
+// check_arm_layout below cross-checks them against each other. A layout function that merely
+// restated the emitter would prove nothing.
+comptime fn arm_word_index(fires: array, k: int) -> int {
+    if k == 0 { return 1 }
+    if k == 1 { return 3 }
+    comptime var idx = 5
+    comptime var j   = 2
+    for f in fires {
+        if j == k { return idx }
+        idx = idx + 2
+        for o in fire_ops(f) { idx = idx + op_size(o) }
+        j = j + 1
+    }
+    return idx
+}
+
+// patch_table — the self-describing patch descriptor appended at byte 128 of a patched
+// template. One entry per authored record, FOUR WORDS each, every field in FIRE-LINE space:
+//
+//     [arm_off][line_src][band_lo_fl][band_hi_fl]
+//
+//   arm_off     byte offset into the runtime's working buffer of the arm word this entry
+//               rewrites — the arm of record k-2, because the arm written at record i
+//               schedules the gap that LANDS record i+2. Pre-resolved here so the runtime
+//               keeps no offset history.
+//   line_src    a literal fire line (high bit clear) for a static record, or $8000|channel
+//               for a patchable one.
+//   band_lo_fl  the band in fire lines. A static record writes its own fire line into both,
+//   band_hi_fl  so every field of every entry is in ONE coordinate system.
+comptime fn patch_table(fires: array) -> array {
+    comptime var out = [fires.len]
+    comptime var k   = 2
+    for f in fires {
+        comptime var src = fire_screen_line(f) - 1
+        if fire_is_patch(f) == 1 { src = $8000 | fire_channel(f) }
+        out = out ++ [2 * arm_word_index(fires, k - 2),
+                      src,
+                      fire_band_lo(f) - 1,
+                      fire_band_hi(f) - 1]
+        k = k + 1
+    }
+    return out
+}
+
+// check_arm_layout — GUARD 6. Every arm_off the table hands the runtime must point at a word
+// the emitter actually wrote as an arm word, AND at the RIGHT one. Both halves are needed: a
+// wrong offset that happens to land on an op_count fails the $8A00 test, while an offset
+// landing on a DIFFERENT record's arm passes it — and would corrupt the schedule at runtime
+// in a way nothing else here can see. Testing the VALUE against arm_at closes that.
+comptime fn check_arm_layout(fires: array, out: array) -> int {
+    let L = fire_lines(fires)
+    for j in 0..fires.len {
+        let w = out[arm_word_index(fires, j)]
+        ensure((w & $FF00) == $8A00,
+               "patched_program: the word the patch table points at for record {j} is not a VDP reg $0A write. The runtime patcher stores a byte there sight-unseen, so a wrong offset silently rewrites a record's op_count and sends the walker through ROM as opcodes inside a raw interrupt handler.")
+        ensure(w == arm_at(L, j),
+               "patched_program: the patch table's offset for record {j} points at an arm word, but not that record's — the emitted word does not match the arm the schedule derives for it.")
+    }
+    return 0
+}
+
+// patched_words — the emitted word count of a patched template: the program padded to the
+// 64-word buffer, then the table. Use it as the length annotation on the `pub data`.
+//
+// HONEST SCOPE AS A CROSS-CHECK: the program body's own word count is checked by
+// raster_program's `out.len == raster_words(fires)`, which runs on every call and is the
+// independent-path check. Once padded the body is 64 words by construction, so what THIS adds
+// is the table's framing — one count word plus four per record — and it pins the declared ROM
+// footprint at the linker seam.
+pub comptime fn patched_words(fires: array) -> int {
+    return 64 + 1 + 4 * fires.len
+}
+
+// patched_program — a raster program a runtime patcher can move. The ordinary program, padded
+// to exactly the 64-word working buffer, then the patch table.
+//
+// WHY THE PADDING IS NOT WASTE. The runtime's copy routine copies a FIXED 128 bytes from every
+// template, so a patched template is already read to +128 — padding makes that read defined,
+// and it puts the table at a CONSTANT address (+128) so nothing needs a second symbol or a
+// descriptor field to find it. The copy stops exactly at the table boundary, so the table
+// itself is never partially copied into the working buffer.
+pub comptime fn patched_program(fires: array) -> array {
+    comptime var out = raster_program(fires)     // every existing guard runs here
+    check_arm_layout(fires, out)
+    comptime var pad = 64 - out.len
+    ensure(pad >= 0,
+           "patched_program: the program body is {out.len} words, which does not fit the 64-word buffer the runtime copies")
+    for i in 0..pad { out = out ++ [0] }
+    out = out ++ patch_table(fires)
+    ensure(out.len == patched_words(fires),
+           "patched_program: emitted {out.len} words but patched_words counted {patched_words(fires)} — the emitter and the length annotation disagree")
+    return out
+}
+
 // ---- development instruments -------------------------------------------------
 
 // first_mismatch — -1 when the two word lists are equal, else the index of the first
@@ -723,7 +1006,17 @@ pub comptime fn raster_program(fires: array) {
 // `a`'s indices and skips any index past the end of `b`, so it returns -1 whenever `a`
 // is a PREFIX of `b` — a DSL program that is short by a trailing record compares EQUAL
 // to its hand-word twin. Nothing inside this function can see that; only the length
-// check can. (In this codebase the chain also holds one rung deeper, because
+// check can.
+//
+// IT IS BLIND IN BOTH DIRECTIONS, which the paragraph above understated until it was
+// measured. `for i in 0..a.len` never visits an index past the end of `a`, and the
+// `i < b.len` test skips every index past the end of `b`, so a SHORTER `b` is equally
+// invisible — the comparison simply stops early and reports agreement. Measured
+// 2026-08-15 on the OJZ_TwoChannel gate: deleting the last four-word entry from the hand
+// TABLE produced no mismatch report at all, and only the separate length ensure caught it.
+// Read that as the general rule: this function answers "do the words they share agree",
+// never "are these the same array".
+// (In this codebase the chain also holds one rung deeper, because
 // raster_program asserts `out.len == raster_words(fires)` on every call, but callers
 // must not rely on that: it is a fact about raster_program, not about first_mismatch.)
 pub comptime fn first_mismatch(a: array, b: array) -> int {
