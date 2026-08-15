@@ -1,0 +1,62 @@
+// engine/effects/preset.emp — EffectsPreset: one struct naming every visual-effect
+// channel a level section binds (palette, parallax, raster program, a "patched"
+// template, cycling script, palette variants).
+//
+// A later task writes Effects_InstallPreset, which sets EVERY channel on section
+// entry — TOTAL BINDING. That replaces three legacy installers that each did "0
+// means keep whatever the last section had", a semantic that lets water render at
+// a stale line forever after one crossing (the section that turned it on is long
+// gone, but nothing ever turns it back off).
+//
+// This module is a TYPE-ONLY twin, same precedent as engine.objects.sst / Sst and
+// engine.objects.entity_window / EntityScanState: it emits ZERO bytes (no section,
+// no placement). EffectsPreset is read at runtime by a later task (through
+// Sec.sec_effects, engine/structs.emp:124), so — matching pal_variant
+// (engine/effects/palette.emp:126) and RasterGradientProgram (engine/effects/
+// raster.emp:279) — the wire-format struct and its comptime constructor both live
+// HERE in the CODE module, not in a *_dsl helper. Consumers import explicitly:
+// `use engine.effects.preset.{EffectsPreset, preset}`.
+//
+// Design: docs/superpowers/2026-08-11-effects-suite-design.md §5.
+module engine.effects.preset in preset
+
+use engine.effects.palette.{PAL_MAX_VARIANTS}
+
+// Field order deliberately avoids an odd run of u8 before a pointer — sigil does
+// NOT auto-align, and even alignment is all the 68000 needs.
+pub struct EffectsPreset (size: 36) {
+    ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
+    ep_parallax:       *u8      @ $04,   // 0 = act default (the one legal 0)
+    ep_raster:         *u8      @ $08,   // static program; 0 illegal, use Raster_Program_None
+    ep_patched:        *u8      @ $0C,   // patched template (water / world-anchored gradient); 0 = none
+    ep_cycle:          *u8      @ $10,   // 0 illegal, use Pal_Cycle_None
+    ep_variants:       [*u8; 2] @ $14,   // PAL_MAX_VARIANTS; unused slots 0 = clear
+    ep_patch_world_y:  u16      @ $1C,   // meaningful only when ep_patched != 0
+    ep_transition:     u16      @ $1E,   // cross-fade arm; unused by every C2 fixture
+}
+
+// PAL_MAX_VARIANTS cannot be raised past 2 without a fix first: palette.emp's
+// `andi.w #(PAL_MAX_VARIANTS - 1), d0` (Palette_SetVariant) is a power-of-two mask,
+// so 3 would silently fold slot 2 onto slot 0 — and ep_variants's fixed [*u8; 2]
+// shape would go stale under that raise too.
+ensure(PAL_MAX_VARIANTS == 2,
+       "EffectsPreset spells ep_variants as [*u8; 2]; palette.emp's andi.w #(PAL_MAX_VARIANTS-1) mask is power-of-two only, so raising this needs that mask fixed FIRST")
+
+// preset() — build an EffectsPreset. `pal` is required (the preset always carries a
+// palette); everything else defaults to 0/none.
+pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
+                       patched: Label = 0, cycle: Label = 0,
+                       variants: [Label; 2] = [0, 0],
+                       patch_world_y: int = 0, transition: int = 0) -> EffectsPreset {
+    // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
+    // DESTRUCTIVELY: Raster_InstallWater clears Raster_Pending (killing a staged
+    // static program), and the reverse order lets VBlank re-point Active_Buf at
+    // Buf_A while the patch keeps writing Buf_B.
+    ensure(raster == 0 || patched == 0,
+           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_InstallWater clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patch keeps writing Buf_B.")
+    ensure(patched != 0 || patch_world_y == 0,
+           "preset(): patch_world_y is meaningful only with a patched template")
+    return EffectsPreset{ ep_pal: pal, ep_parallax: parallax, ep_raster: raster,
+                          ep_patched: patched, ep_cycle: cycle, ep_variants: variants,
+                          ep_patch_world_y: patch_world_y, ep_transition: transition }
+}
