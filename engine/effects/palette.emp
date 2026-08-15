@@ -790,13 +790,11 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
 }
 
 
-// ---- starter variants (Task 2 Step 3) — the "give people ideas" seeds. DATA, so
-// placed LAST in the module to keep Palette_LoadSection as the section head. ----
-pub data Variant_Water_Deep:  pal_variant = variant(shift_r: 1, shift_g: 1)                 // halve R+G, keep B
-pub data Variant_Water_Murky: pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, warm bias
-pub data Variant_Poison:      pal_variant = variant(shift_r: 1, shift_b: 1, bias_g: 1)      // halve R+B, green push
-pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shift_b: 1)     // halve all
-pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias
+// The five starter variants MOVED to games/sonic4/data/effects/ojz_effects.emp
+// (Parcel C2 Task 11). They are emitted DATA, and an engine module has no business
+// emitting a game's data — the engine keeps the `variant()` CONSTRUCTOR in
+// palette_dsl (comptime, zero bytes, same shape as raster_dsl's fx_* presets) and
+// each game emits its own instances.
 
 // ---- Pal_Cycle_None — the "cycling OFF" sentinel that TOTAL BINDING needs.
 //

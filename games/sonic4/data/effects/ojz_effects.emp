@@ -37,8 +37,8 @@ use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
 // and de-named. The one genuinely silent case is a degraded name that collides with a
 // real label or `equ`.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
-use engine.effects.palette.{pal_cycle_channel, PalCycleScript1}
-use engine.effects.palette_dsl.{cycle_channel, cycle_script1}
+use engine.effects.palette.{pal_cycle_channel, PalCycleScript1, pal_variant}
+use engine.effects.palette_dsl.{cycle_channel, cycle_script1, variant}
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
 // is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base
@@ -448,3 +448,31 @@ pub data OJZ_TestRamp: RasterRampProgram = raster_ramp_program(
     cmd:   vdp_comm(2, VdpTarget.Vsram, VdpOp.Write),   // byte 2 = entry 1 = plane B
     start: 0,
     step:  OJZ_RAMP_STEP)
+
+// ===========================================================================
+// STARTER PALETTE VARIANTS — moved here from engine/effects/palette.emp in
+// Parcel C2 Task 11.
+//
+// WHY GAME-SIDE. These are emitted `pub data`, and an engine module has no
+// business emitting a game's data. The split that matters is constructor vs
+// instance: the ENGINE keeps `variant()` (comptime, zero bytes, exactly the shape
+// raster_dsl's `fx_*` presets already have) and each game emits its own instances
+// from it. Nothing in engine/ referenced any of these — checked before the move.
+//
+// FOUR OF THE FIVE ARE UNREFERENCED, and that is recorded rather than quietly
+// tidied away. Only Variant_Water_Deep has a consumer (games/sonic4/test/
+// ojz_scroll_test.emp:277); Murky, Poison, CaveDark and Dusk cost 32 emitted bytes
+// between them and are read by nothing. They are deliberate "give people ideas"
+// seeds, so they survive the move intact — but a later parcel deciding whether to
+// keep them now has the usage data instead of having to re-derive it.
+//
+// Variant_Water_Murky and Variant_Dusk are BYTE-IDENTICAL (both shift_b:1,
+// bias_r:1) — two names for the same 8 bytes. Kept as distinct names on purpose:
+// they document two different intents, and deduping them would save 8 bytes while
+// making the seed list read as if murk and dusk were the same idea.
+// ===========================================================================
+pub data Variant_Water_Deep:  pal_variant = variant(shift_r: 1, shift_g: 1)                 // halve R+G, keep B
+pub data Variant_Water_Murky: pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, warm bias
+pub data Variant_Poison:      pal_variant = variant(shift_r: 1, shift_b: 1, bias_g: 1)      // halve R+B, green push
+pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shift_b: 1)     // halve all
+pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias
