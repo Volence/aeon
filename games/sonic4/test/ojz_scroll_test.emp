@@ -267,15 +267,22 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share one instruction
 
         // -- effects P2 Task 7: install the OJZ water cluster (the phase gate).
-        //    Binds Variant_Water_Deep to staging slot 0 (Palette_Compose derives it
-        //    every frame) and installs the water raster TEMPLATE into Raster_Buf_B with
-        //    the boundary at screen line 120. The boundary MOVES at runtime: write
-        //    Raster_Water_Line and the update loop re-patches the priming arm. Active in
-        //    the spawn area (section 0); a section carrying its own sec_raster_table
-        //    swaps to the Buf_A path on crossing. --
-        moveq   #0, d0
-        lea     Variant_Water_Deep, a0
-        jbsr    Palette_SetVariant                  // variant slot 0 = deep water
+        //    Installs the water raster TEMPLATE into Raster_Buf_B with the boundary at
+        //    screen line 120. The boundary MOVES at runtime: write Raster_Water_Line and
+        //    the update loop re-patches the priming arm. Active in the spawn area
+        //    (section 0); a section carrying its own sec_raster_table swaps to the
+        //    Buf_A path on crossing.
+        //
+        //    The Variant_Water_Deep bind that used to sit here (variant slot 0 = deep
+        //    water) is gone (effects-P3-C2 Task 13): every OJZ preset already carries
+        //    `variants: [Variant_Water_Deep, 0]`, and Parallax_CheckBoundary's very
+        //    first call (Parallax_Prev_Sec_X/Y seeded to $FF by Parallax_Init, so section
+        //    (0,0) always reads as a crossing) runs Effects_InstallPreset for section 0
+        //    before the first Update frame renders, which binds it. This raster install,
+        //    however, has no preset equivalent — no OJZ preset sets ep_patched, so
+        //    Raster_InstallWater here is the ONLY installer of OJZ_WaterRaster/Buf_B
+        //    anywhere in the tree; deleting it would drop the P2 water fixture, which is
+        //    out of scope for this task. --
         lea     OJZ_WaterRaster, a0
         move.w  #120, d0
         jbsr    Raster_InstallWater

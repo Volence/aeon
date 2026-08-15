@@ -11,7 +11,6 @@ module engine.effects.raster in raster
 
 use engine.vdp.{VDP_HINT_OFF, vdp_comm, vdp_comm_addr, VdpTarget, VdpOp}
 use engine.constants.{VDP_CTRL, VDP_DATA}
-use engine.structs.{Sec}
 use engine.irq.{ints_off}
 
 // ===========================================================================
@@ -465,15 +464,6 @@ pub proc Raster_Install (a0: u32) clobbers() {
 }
 
 // -----------------------------------------------
-// Raster_Clear — remove any installed program at the next VBlank.
-// -----------------------------------------------
-pub proc Raster_Clear () clobbers(a0) {
-        suba.l  a0, a0
-        move.l  a0, Raster_Pending
-        rts
-}
-
-// -----------------------------------------------
 // Raster_VBlank — once per frame from VInt_Level AND VInt_Lag.
 //
 // MUST run BEFORE Flush_VDP_Shadow: HBlank_Install arms reg $0A through the VDP
@@ -736,30 +726,6 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         movem.l (sp)+, d0-d1/a1-a2
         }
         rte
-}
-
-// -----------------------------------------------
-// Raster_InstallSection — consume Sec.sec_raster_table on a boundary crossing.
-//   a0 = Sec*   (preserved — the boundary hook still needs it)
-//
-// Semantics match sec_parallax_config: NULL = "keep current program". A section
-// that must KILL a neighbour's raster effect points at Raster_Program_None rather
-// than NULL — an explicit empty program, not an absent one.
-//
-// Raster programs SNAP; they are never lerped. Perceptual smoothing across a
-// boundary is the palette engine's cross-fade job (Phase 2), not the raster
-// schedule's.
-// -----------------------------------------------
-pub proc Raster_InstallSection (a0: u32) clobbers(d0) {
-        move.l  Sec.sec_raster_table(a0), d0
-        beq.s   .keep
-        cmp.l   Raster_Program, d0          // already the live program? (re-cross churn)
-        beq.s   .keep
-        // Raster_Install's whole body is one store, so stage it straight from d0
-        // rather than routing through a0 — which would clobber the caller's Sec*.
-        move.l  d0, Raster_Pending
-    .keep:
-        rts
 }
 
 // The canonical "explicitly no raster effects here" program: no palette

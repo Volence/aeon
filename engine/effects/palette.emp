@@ -9,17 +9,20 @@
 // Timing/CRAM rules the region derive is built on: docs/research/2026-08-12-raster-hint-survey.md.
 module engine.effects.palette in palette
 
-use engine.structs.{Sec}
 // The constructors + validation live in the DSL; the wire-format structs below stay
 // here because runtime code reads them (moving them would invert the dependency).
 //
 // This line emits nothing: palette_dsl is a COMPTIME_HELPERS member, so
 // normalize_helper_imports drops this selective `use` and prepends a glob that is a
 // strict superset of it — measured, the ROM is byte-identical with the line deleted.
-// It survives as seam documentation, the convention `use engine.structs.{Sec}` above
-// already follows. Before palette_dsl joined the helper set it WAS load-bearing:
-// deleting it failed the five starter variants below with `unknown function variant`,
-// because a comptime fn's free names resolve at the CALL site, not where it is defined.
+// It survives as seam documentation. Before palette_dsl joined the helper set it WAS
+// load-bearing: deleting it failed the five starter variants below with `unknown
+// function variant`, because a comptime fn's free names resolve at the CALL site,
+// not where it is defined.
+//
+// `use engine.structs.{Sec}` — this module's former direct Sec field access
+// (Palette_LoadSection's sec_pal, Palette_InstallCycleSection's sec_pal_cycle) was
+// deleted with those procs (effects-P3-C2 Task 13); no code here names Sec anymore.
 use engine.effects.palette_dsl.{variant, cycle_channel}
 
 // ===========================================================================
@@ -198,36 +201,25 @@ comptime fn step_d3_toward_d4() -> Code {
 }
 
 // The starter variants (Task 2 Step 3) are DATA and emit bytes; they live at the
-// END of this module so the section head stays Palette_LoadSection (the map/order
+// END of this module so the section head stays Palette_LoadPal (the map/order
 // and repin `palette` region boundary), not a data label.
 
 // -----------------------------------------------
-// Palette_LoadSection — the pipeline's BASE-LAYER step. Load a section's palette
+// Palette_LoadPal — the pipeline's BASE-LAYER step. Load a section's palette
 // (CRAM lines 1-3) into Pal_Base, or into Pal_Target + arm a cross-fade when
 // Pal_Fade_Request is set. Request a recompose rather than writing Palette_Buffer
 // directly (P1 wrote the buffer here; the compose owns the buffer now).
-//   a0 = Sec*   (preserved — the boundary hook still needs it)
-// NULL sec_pal = "keep current" (the descriptor 0-convention).
 //
-// `sec_pal` is 96 bytes = lines 1-3, NEVER line 0 (the character's).
-// -----------------------------------------------
-pub proc Palette_LoadSection (a0: u32) clobbers(d0-d1/a1-a2) {
-        move.l  Sec.sec_pal(a0), d0
-        beq   .keep
-        movea.l d0, a1
-        jbra    Palette_LoadPal
-    .keep:
-        rts
-}
-
-// -----------------------------------------------
-// Palette_LoadPal — the pointer-taking core of Palette_LoadSection's base-layer
-// step, split out (Effects P3 C2 Task 6) so a preset carrying its own palette
-// pointer (ep_pal) can drive the same load without a Sec* to read sec_pal from.
+// The pointer-taking core of the pipeline's base-layer step, split out (Effects
+// P3 C2 Task 6) so a preset carrying its own palette pointer (ep_pal) can drive
+// the same load without a Sec* to read sec_pal from. Its former Sec*-taking
+// wrapper, Palette_LoadSection (NULL sec_pal = "keep current"), was the last
+// caller of the legacy per-field "keep current" path and was deleted with it
+// (effects-P3-C2 Task 13) — every section now goes through a preset, which
+// always supplies ep_pal.
 //   a1 = palette*  (96 bytes = CRAM lines 1-3, NEVER line 0 — the character's)
-// Behaviour is byte-identical to the fade/snap tail Palette_LoadSection used to
-// carry inline; see the ordering note above about Pal_Fade_Request being a
-// one-shot consumed here.
+// See the ordering note above about Pal_Fade_Request being a one-shot consumed
+// here.
 // -----------------------------------------------
 pub proc Palette_LoadPal (a1: u32) clobbers(d1/a1-a2) {
         // fade armed? -> load Target and start the lerp; else -> load Base (snap)
@@ -313,7 +305,7 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
         movea.l a0, a1
         move.w  (a1)+, d0                       // channel_count
         subq.w  #1, d0
-        bmi   .done                           // count 0: cycling stays OFF (see InstallCycleSection)
+        bmi   .done                           // count 0: cycling stays OFF (see Pal_Cycle_None)
         ori.b   #PAL_ACT_CYCLE, Pal_Active
         lea     Pal_Cycle_Timers, a1
         moveq   #0, d1
@@ -321,45 +313,6 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
         move.b  d1, (a1)+                       // 0 = rotate on the first compose
         dbf     d0, .zero
     .done:
-        rts
-}
-
-// -----------------------------------------------
-// Palette_InstallCycleSection — consume Sec.sec_pal_cycle on a boundary crossing
-// (Task 8). Wired beside Palette_LoadSection / Raster_InstallSection at the ONE
-// crossing-detection site (Parallax_CheckBoundary).
-//   a0 = Sec*   (PRESERVED — the boundary hook still needs it)
-// NULL = "keep current" (the descriptor 0-convention); a section that must STOP a
-// neighbour's cycling points sec_pal_cycle at an empty script (count 0), not NULL.
-// Only (re)installs when the script differs from the live one, so re-crossing churn
-// does not restart the rotation phase. Does its own timer reset inline (rather than
-// calling Palette_LoadCycle) to keep a0 = Sec* untouched.
-// -----------------------------------------------
-pub proc Palette_InstallCycleSection (a0: u32) clobbers(d0-d1/a1) {
-        move.l  Sec.sec_pal_cycle(a0), d0
-        beq   .keep                           // NULL = keep current
-        cmp.l   Pal_Cycle_Script, d0            // already live? (re-cross churn)
-        beq   .keep
-        move.l  d0, Pal_Cycle_Script
-        andi.b  #~PAL_ACT_CYCLE, Pal_Active
-        move.l  d0, d1
-        beq   .keep                           // empty install path (defensive)
-        movea.l d0, a1
-        move.w  (a1)+, d0                       // channel_count
-        subq.w  #1, d0
-        bmi   .keep                           // count 0: script recorded, cycling stays OFF
-        // ARM ONLY ONCE THE COUNT IS KNOWN NON-ZERO. Arming above the test left a
-        // non-NULL count-0 script with PAL_ACT_CYCLE set, and Palette_Compose's
-        // `.cycling` arm then sets PAL_ACT_VARIANT_STALE every frame forever — the
-        // 15.1%-of-frame full variant re-derive the ff0720ff gate fix recovered.
-        // Latent until Pal_Cycle_None, which IS a non-NULL count-0 script.
-        ori.b   #PAL_ACT_CYCLE, Pal_Active
-        lea     Pal_Cycle_Timers, a1
-        moveq   #0, d1
-    .zero:
-        move.b  d1, (a1)+                       // 0 = rotate on the first compose
-        dbf     d0, .zero
-    .keep:
         rts
 }
 

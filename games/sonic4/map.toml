@@ -61,7 +61,7 @@ order = [
   "InitSpriteSystem", "AnimateSprite", "TouchResponse", "RingBuffer_Add",
   "Collected_Init", "PopulateSpawnedPieceCount", "Load_Object", "Plane_Buffer_Reset",
   "Tile_Cache_GetTile", "Collision_GetType", "Collision_ProbeDown", "Debug_MusicToggle",
-  "Section_Init", "Camera_Init", "Parallax_Init", "Raster_Install", "Palette_LoadSection", "Effects_InstallPreset", "Level_LoadArt",
+  "Section_Init", "Camera_Init", "Parallax_Init", "Raster_Install", "Palette_LoadPal", "Effects_InstallPreset", "Level_LoadArt",
   "PageIn_Process", "PageCache_Init", "BG_Init", "BgAnim_Init", "CompressionSelfTest", "Sound_PostByte",
   "Sound_DebugMirror", "ObjCodeBase", "Player_Init", "PState_Ground",
   "PState_Air", "PState_Spindash", "PState_Fly", "PState_Glide", "Climb_WallDist",

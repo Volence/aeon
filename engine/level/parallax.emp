@@ -9,7 +9,7 @@
 module engine.parallax in parallax
 
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL}
-use engine.structs.{Act, Sec, parallax_config}
+use engine.structs.{Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
@@ -143,10 +143,11 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 // camera scrolls live in world space, so there is no teleport to hang the
 // config switch on; instead we watch the section under the camera CENTRE
 // (matching the active-section semantic used for the diagnostic tint) and
-// act the frame it changes. On a crossing we look up the new section's
-// Sec_sec_parallax_config (Act_act_parallax_config when NULL) and hand it
-// to Parallax_StartTransition, which decides snap vs. lerp from the new
-// config's pcfg_transition flag and no-ops when the config is unchanged.
+// act the frame it changes. On a crossing we hand the new section to
+// Effects_InstallPreset, which resolves ep_parallax (the act default when
+// NULL) and returns it, and hand THAT to Parallax_StartTransition, which
+// decides snap vs. lerp from the new config's pcfg_transition flag and
+// no-ops when the config is unchanged.
 //
 // Edge-triggered: the per-frame cost off a boundary is two shifts and a
 // byte compare. Out-of-grid sections (Section_GetSecPtrXY Z set) are left
@@ -154,9 +155,9 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 //
 // In:  none (reads Camera_X/Y, Current_Act_Ptr, Parallax_Prev_Sec_X/Y)
 // Out: config switched + transition staged iff a crossing changed it.
-// Clobbers: d0-d3, a0-a3 (a1 enters the union via Palette_LoadSection, the
-//   effects-P1 sec_pal consumer called on a crossing; a3 enters via
-//   Effects_InstallPreset, the effects-P3 preset path)
+// Clobbers: d0-d3, a0-a3 (a1/a3 enter the union via Effects_InstallPreset,
+//   the effects-P3 preset path — the sole per-section effect consumer since
+//   the legacy per-field installers were removed, effects-P3-C2 Task 13)
 // ----------------------------------------------------------------------
 pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a3) {
         // -- section under the camera centre (camX+160 / camY+112) --
@@ -183,36 +184,26 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a3) {
         move.b  d2, Parallax_Prev_Sec_X             // (Parallax_Prev_Sec_X).w
         move.b  d3, Parallax_Prev_Sec_Y             // (Parallax_Prev_Sec_Y).w
 
-        // -- the other per-section descriptor consumers (effects P1/P3) --
+        // -- the per-section effect consumer (effects P3) --
         // This is the ONE place the engine notices "the camera entered a new
-        // section", so the per-section effect consumers hang here beside the
-        // parallax one rather than duplicating the crossing detection. Both
-        // take a0 = Sec* and preserve it. Two disjoint paths:
-        //   sec_effects != 0 — TOTAL BINDING. Effects_InstallPreset writes
-        //     every channel (palette, cycle, variants, raster) itself and
-        //     returns the resolved parallax config in a0; running the legacy
-        //     installers alongside it would let a NULL descriptor field on
-        //     the preset's own channels re-apply "keep current" on top of a
-        //     preset that already decided.
-        //   sec_effects == 0 — legacy per-field installers, each of which
-        //     treats NULL as "keep current", followed by the config resolve.
+        // section", so the per-section effect consumer hangs here beside the
+        // parallax one rather than duplicating the crossing detection. Every
+        // section sets sec_effects (Task 12 converted the last OJZ act), so
+        // TOTAL BINDING is the only path left: Effects_InstallPreset writes
+        // every channel (palette, cycle, variants, raster) itself and returns
+        // the resolved parallax config in a0. The legacy per-field "NULL means
+        // keep whatever the previous section had" installers (Palette_LoadSection,
+        // Palette_InstallCycleSection, Raster_InstallSection) are deleted —
+        // effects-P3-C2 Task 13; a0 = Sec* with sec_effects == 0 reaching here
+        // is a content bug, not a runtime state to degrade gracefully into.
+    if DEBUG == 1 {
         tst.l   Sec.sec_effects(a0)                  // (Sec.sec_effects)(a0)
-        beq     .legacy
+        bne     .have_preset
+        raise_error "Parallax_CheckBoundary: section with sec_effects == 0 (the legacy per-field path was removed, effects-P3-C2 Task 13)"
+    .have_preset:
+    }
         jbsr    Effects_InstallPreset                // a0 = Sec* in, a0 = resolved parallax config out
         jbra    Parallax_StartTransition             // snap/lerp + mode shadow; no-op if unchanged
-    .legacy:
-        jbsr    Palette_LoadSection                 // sec_pal   -> Pal_Base + recompose
-        jbsr    Palette_InstallCycleSection          // sec_pal_cycle -> Pal_Cycle_Script
-        jbsr    Raster_InstallSection               // sec_raster_table -> Raster_Pending
-
-        // -- resolve config: section's own, else act default --
-        movea.l Sec.sec_parallax_config(a0), a0
-        cmpa.w  #0, a0
-        bne     .have_config
-        movea.l Current_Act_Ptr, a0                 // (Current_Act_Ptr).w
-        movea.l Act.act_parallax_config(a0), a0
-    .have_config:
-        jbra    Parallax_StartTransition            // snap/lerp + mode shadow; no-op if unchanged
     .no_crossing:
         rts
 }
