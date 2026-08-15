@@ -84,7 +84,47 @@ queue item 1 below the highest-leverage thing on the list.
 
 ## The queue
 
-### 1. `replay_runner` framebuffer dump — now clearly the top item
+### 0. OWNER RULING 2026-08-15: take the Ristar HBlank schedule NEXT
+
+Chosen over the framebuffer dump, Parcel R and Parcel D. The reasoning that decided it: it fixes
+a defect visible in play, it removes a structural limitation rather than working around one, and
+its gate is STRUCTURAL (arm words, chain walks) — which is where this lane's instruments are
+currently strong, given oracle pixel capture is not usable as a gate.
+
+**IT IS DESIGN-FIRST, AND THE DESIGN NEEDS OWNER SIGN-OFF BEFORE ANY CODE.** It changes the
+raster program's wire format, which is the "engine DIRECTION / freezes a format / hard to
+reverse" row of the standing rules table — that is a STOP-and-brief, not a decide-yourself. Do
+NOT go from research straight to a plan.
+
+Sequence: research → design draft → **three mixed-model adversarial lenses** on the draft →
+owner sign-off → plan → execute. The lens sweep is not optional here; the same method on Parcel
+P's draft found nine design-changing defects, three of which were flatly wrong claims that would
+otherwise have shipped behind a green-looking gate.
+
+**Research the whole corpus before drafting, not just Ristar:**
+
+| source | what it settled |
+|---|---|
+| Ristar (`ristar_disasm/code/disasm.asm:14556-14595`) | each node writes its own gap AND its own successor, so removal is LOCAL; two independently armed effects off one chain with separate thresholds; a disarmed effect costs interrupt entry + `tst`/`beq`/`rte` (~40 cyc) instead of its payload (`:16184-16199`, arm tests at `$00E142`/`$00E250`/`$00E2A0`/`$00E30E`) |
+| Sonic 2 (`s2.asm:5280-5292`) | clamps to 223 — **exactly what Aeon does today**, bug included |
+| S3K / S.C.E. | deliberately changed it to DISARM. The corpus has already ruled against the clamp |
+| S3K `HInt5` (`sonic3k.asm:1060-1108`) | Sega's own byte-for-byte water handler with base/water swapped, shipped DISABLED — read before proposing anything shaped like it |
+
+**What it must unblock**, and this is the acceptance criterion, not a nice-to-have: the DRY
+direction entry in `docs/DEFERRED_WORK.md`. Today a patch channel's fire clamps to `hi` and
+paints up to ~10 rows that should be dry, and the parallax side clamps the same way ON PURPOSE
+so the two are wrong together. When a record can be parked individually, BOTH sides get to stop
+— and they must be changed together, or a consistent error becomes a disagreement, which is the
+defect Parcel W exists to remove.
+
+**Traps carried in from this parcel:**
+- The clamp exists because a negative inter-record gap stores `$FF`, and `$8AFF` IS the park
+  word. Any new encoding has to answer what the old one could not express, not just re-spell it.
+- A new cross-seam reference is invisible to `build.sh` and breaks sigil port targets silently.
+- A link-time address cannot enter an emitted image that a comptime pin compares.
+- Gate the COMPOSITE, not the element you wired up (the `set_reg` lesson above).
+
+### 1. `replay_runner` framebuffer dump — the runner-up
 
 Unchanged from the previous order's item 2, where its design is fully settled (whole frames as
 the dump primitive, a separate `replay_framediff` binary, `--expect-identical` as the control,
