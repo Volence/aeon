@@ -625,7 +625,20 @@ Becomes: if `Sec.sec_effects(a0) != 0`, call `Effects_InstallPreset` **instead o
 
 `Parallax_Init` picks its config before the first `CheckBoundary`, so a section-0 preset with non-default parallax would lerp in over 16 frames at spawn. Resolve the preset in init as well.
 
-- [ ] **Step 3: Build + replay net. Commit.**
+- [ ] **Step 3: RE-VERIFY THE GUARD THAT IS STILL DEAD.** Task 4 measured `engine/effects/preset.emp`'s `ensure(PAL_MAX_VARIANTS == 2, ...)` as never evaluated. Task 8 re-checked after adding the module to `map.toml`'s `order` and it was STILL dead, which established the rule:
+
+> **`order` placement is not reachability.** It only says where a module's bytes land *if* it is lowered. A module is lowered only when something already in the target's `use` closure actually `use`s it.
+
+Sigil says so itself — `SIGIL_WARNINGS=full` emits `[module.unreachable] module ... is outside this profile's use closure, so its N ensure guard(s) are never evaluated for this target`. **This task adds the `use` and the call site, so it is the one that makes the module reachable.** Verify:
+1. Flip `== 2` to `== 99`; build; it MUST now FAIL with that ensure's message.
+2. Flip back, rebuild.
+3. Confirm `engine/effects/preset.emp` no longer appears in `SIGIL_WARNINGS=full ... | grep module.unreachable` for the sonic4 target.
+
+If it is still dead after wiring, STOP and report — a guard that no target ever evaluates is worse than no guard, because it reads as protection.
+
+(For calibration: 14 modules are unreachable in the sonic4 target and 40 in demo, but that is BY DESIGN — each evaluates in the target that uses it, and the Z80 sound modules evaluate through the seam-1/seam-2 blob path instead. `games/demo/config/constants.emp` is unreachable for sonic4 and reachable for demo, which is the shape of a healthy case. `preset.emp` is the only module currently unreachable in BOTH.)
+
+- [ ] **Step 4: Build + replay net. Commit.**
 
 ---
 
