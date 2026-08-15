@@ -119,7 +119,9 @@ ensure(PAL_MAX_VARIANTS == 2,
 pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
                        patched: Label = 0, cycle: Label = 0,
                        variants: [Label; 2] = [0, 0],
-                       patch_world_ys: array = [0, 0, 0, 0], transition: int = 0) -> EffectsPreset {
+                       patch_world_ys: array = [PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE,
+                                                PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
+                       transition: int = 0) -> EffectsPreset {
     // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
     // DESTRUCTIVELY: Raster_CopyPatchedTemplate clears Raster_Pending (killing a
     // staged static program), and the reverse order lets VBlank re-point Active_Buf at

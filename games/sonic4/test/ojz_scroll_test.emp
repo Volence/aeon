@@ -417,6 +417,45 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         tst.w   d1
         beq     .no_anchor_nudge                // C alone, or C with both: no move
         add.w   Effects_World_Y, d1             // channel 0's current anchor + step
+
+        // Clamp the nudge to channel 0's own declared raster band, converted into world
+        // space. Two reasons, and the second is the load-bearing one:
+        //
+        //  1. Without it the hotkey drives the anchor somewhere Raster_PatchAll silently
+        //     clamps anyway, so the palette boundary stops tracking while the anchor keeps
+        //     moving — under the very instrument used to watch them track together.
+        //  2. It is the ONLY call site of Raster_GetChannelBand. A `pub proc` is assembled
+        //     whether or not anything calls it; what an uncalled one cannot pin is its
+        //     CONTRACT — that d0 selects a channel, that d0=0 back means "no band declared",
+        //     and that the returned pair is FIRE lines needing the +1 to reach screen space.
+        //     Reshape any of those and an uncalled accessor rots silently until the first
+        //     content parcel inherits a broken handle. Same failure class as fx_tint_band.
+        //
+        // d0-d3 are dead here (Section_FlatIDXY's sec_x/sec_y are consumed); d6 holds
+        // flat_id for T15 below and is NOT touched.
+        move.w  d1, -(sp)                       // candidate world Y
+        moveq   #0, d0                          // channel 0
+        jbsr    Raster_GetChannelBand           // d0 = found; d1/d2 = lo/hi FIRE lines
+        tst.w   d0
+        beq     .anchor_pop_unclamped           // no band declared -> no clamp is correct
+        move.w  Camera_Y, d0                    // 16.16 -> the integer word
+        addq.w  #1, d0                          // fire line -> screen line, once for both
+        add.w   d0, d1                          // d1 = band lo in WORLD Y
+        add.w   d0, d2                          // d2 = band hi in WORLD Y
+        move.w  (sp)+, d0                       // d0 = candidate
+        cmp.w   d1, d0
+        bge     .anchor_lo_ok
+        move.w  d1, d0
+    .anchor_lo_ok:
+        cmp.w   d2, d0
+        ble     .anchor_hi_ok
+        move.w  d2, d0
+    .anchor_hi_ok:
+        move.w  d0, d1                          // d1 = clamped world Y
+        jbra    .anchor_do_set
+    .anchor_pop_unclamped:
+        move.w  (sp)+, d1
+    .anchor_do_set:
         moveq   #0, d0                          // channel 0
         jbsr    Effects_SetWorldY
     .no_anchor_nudge:

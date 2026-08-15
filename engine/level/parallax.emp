@@ -8,7 +8,7 @@
 
 module engine.parallax in parallax
 
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, PARALLAX_TRANS_DEFAULT, PARALLAX_LERP_SHIFT, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE, MAX_PARALLAX_BANDS}
 use engine.structs.{Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
@@ -57,9 +57,26 @@ pub struct band_entry {
     band_phase_offset:   u8,   // 0..255, added to deform sample index for desync
 }
 
-// Displacement to the NEXT band's band_top_cell (peek-ahead) — the .field-in-disp
-// sugar does not compose in displacement arithmetic (row 1068), so a named const.
-const band_top_cell_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
+// band_top_line / band_top_line_next — THE SAME BYTE at THE SAME OFFSET as
+// band_top_cell, named for the unit it carries in the per-frame SHADOW VIEW.
+//
+// Two populations of band_entry exist and they measure their top in different units:
+//   ROM entries (games/.../configs.emp)      -> Plane-B CELL ROWS 0..63
+//   Parallax_Shadow_Bands (rebuilt each frame) -> SCREEN LINES 0..224
+// Both fit a byte, so nothing moves; Step 4a's rebase is where cells become lines.
+//
+// Parcel W needed the shadow view line-exact (an 8-px-quantised boundary cannot agree
+// with a scanline-exact palette boundary), and the alternative spelling — renaming the
+// field to a unit-free `band_top` — was REJECTED: one name silently meaning two units
+// is worse than the status quo, because nothing at a call site tells you which
+// population you are holding. Two names at one offset make grep separate them.
+//
+// The peek-ahead form exists because the .field-in-disp sugar does not compose in
+// displacement arithmetic (row 1068), so the neighbour offset must be a named const.
+// It replaces `band_top_cell_next`, which had exactly these two readers and would now
+// be asserting the wrong unit at both.
+const band_top_line      = offsetof(band_entry, band_top_cell)
+const band_top_line_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
 
 // copy_band_entry — the Step-4a shadow-view entry copy, sized BY the struct:
 // the widest-first move run whose total advance is exactly sizeof(band_entry).
@@ -674,6 +691,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         ble     .write_top
         moveq   #28, d3                     // off-screen — zero-length fill
     .write_top:
+        // CLAMP IN CELLS, STORE IN LINES. The clamp stays at 28 cells because that is
+        // what stops the per-line filler emitting top×8 > 224 lines and spraying past
+        // Hscroll_Buffer (:618-622); only the stored UNIT changes. 28 cells -> 224
+        // lines, so the byte still holds it. The first-band path above reaches here
+        // with d3 = 0, and 0 << 3 is 0.
+        lsl.w   #3, d3                      // cells -> SCREEN LINES (band_top_line)
         move.b  d3, -sizeof(band_entry)(a4)
         // reorder the matching scroll words
         move.w  d2, d3
@@ -691,14 +714,193 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         lea     Parallax_Shadow_Bands, a1           // (Parallax_Shadow_Bands).w
         lea     Parallax_Shadow_Scroll_A, a2        // (Parallax_Shadow_Scroll_A).w
         lea     Parallax_Shadow_Scroll_B, a3        // (Parallax_Shadow_Scroll_B).w
+
+        // ================= Step 4b: world-anchored deform overlay (Parcel W) =========
+        // A palette boundary (raster patch channel) and a shimmer boundary (this) are
+        // driven by ONE act-space anchor, Effects_World_Y[ch], and must land on the SAME
+        // scanline. The band containing that line is SPLIT there, and every band from the
+        // split down takes the config's anchored deform shifts.
+        //
+        // SPLIT-AND-OVERRIDE, NOT TRUNCATE-AND-APPEND. An earlier design made the anchored
+        // region one terminal band owning the screen below the line; it was replaced because
+        // it DISCARDED the plane bands underneath, flattening everything below a water
+        // surface onto a single scroll factor — which contradicts the whole point of the
+        // boundary being a level feature while the art keeps riding its own plane. Ristar
+        // composes the two the same way this does (its surface is a predicate that ADDS to
+        // the other plane's word, not a list entry); we pay the cost once per frame here
+        // instead of once per scanline.
+        //
+        // WHAT IS NOT TOUCHED: the deform PHASE. The wave rides the art because the phase
+        // base folds Camera_Y / Vscroll_BG (Harmony defect #2, further down this file). Band
+        // TOP and wave PHASE are separate quantities in separate registers, which is exactly
+        // why anchoring a boundary to the camera cannot re-open that defect.
+        moveq   #0, d2
+        move.b  parallax_config.pcfg_anchor_ch(a0), d2
+        cmpi.w  #PARALLAX_ANCHOR_NONE, d2
+        beq     .bands_ready                        // no overlay: byte-identical to before
+
+        // L = anchor - camera, in SCREEN lines. May go negative, meaningfully.
+        move.w  d2, d0
+        add.w   d0, d0                              // channel -> word index
+        lea     Effects_World_Y, a4                 // (Effects_World_Y).w
+        move.w  (a4,d0.w), d0                       // authored world Y
+        move.w  Camera_Y, d1                        // 16.16 -> the integer word
+        sub.w   d1, d0                              // d0 = L
+
+        // Clamp L to the channel's own raster band, so the palette boundary and this one
+        // pin TOGETHER. Raster_PatchAll clamps its fire line to the same pair; if this side
+        // clamped anywhere else the two would separate exactly where the fixture reaches.
+        // The accessor clobbers a0 (our config) and d0-d2, so a0 and L cross the call on
+        // the stack; a1-a3 (the shadow bases) it leaves alone.
+        move.l  a0, -(sp)
+        move.w  d0, -(sp)
+        move.w  d2, d0                              // d0 = channel
+        jbsr    Raster_GetChannelBand               // d0 = found, d1/d2 = lo/hi FIRE lines
+        move.w  d0, d3                              // hold the found flag: the pop below
+        move.w  (sp)+, d0                           //   sets flags, so test AFTER restoring L
+        tst.w   d3
+        beq     .anchor_unclamped                   // no band declared -> [0,224] is correct
+        addq.w  #1, d1                              // fire line -> screen line, both bounds
+        addq.w  #1, d2
+        cmp.w   d1, d0
+        bge     .anchor_lo_ok
+        move.w  d1, d0
+    .anchor_lo_ok:
+        cmp.w   d2, d0
+        ble     .anchor_unclamped
+        move.w  d2, d0
+    .anchor_unclamped:
+        movea.l (sp)+, a0                           // config back, on EVERY path below
+
+        // Clamp to the screen. L <= 0 is "fully submerged" — the split lands at line 0 and
+        // every band takes the anchored shifts, which is S3K's whole-screen water state
+        // reached structurally instead of as a special case.
+        tst.w   d0
+        bpl     .anchor_nonneg
+        moveq   #0, d0
+    .anchor_nonneg:
+        cmpi.w  #224, d0
+        bge     .bands_ready                        // entirely below the screen: nothing to do
+
+        // --- find k = the last shadow band whose top <= L (the band being split) ---
+        lea     Parallax_Shadow_Bands, a4
+        moveq   #0, d1                              // d1 = k
+        moveq   #1, d3                              // probe index
+        cmp.w   d7, d3
+        bhs     .anchor_have_k                      // single band: k = 0
+        lea     sizeof(band_entry)(a4), a5
+    .anchor_find_k:
+        moveq   #0, d2
+        move.b  band_top_line(a5), d2
+        cmp.w   d0, d2
+        bhi     .anchor_have_k                      // top > L: previous band contains L
+        move.w  d3, d1
+        adda.w  #sizeof(band_entry), a5
+        addq.w  #1, d3
+        cmp.w   d7, d3
+        blo     .anchor_find_k
+    .anchor_have_k:
+
+        // --- shift entries (k+1 .. n-1) down one slot, from the END backwards ---
+        // The shadow view has room for exactly one more entry; hdr()'s
+        // `band_count + 1 <= MAX_PARALLAX_BANDS` guard is what reserves it.
+        move.w  d7, d3
+        sub.w   d1, d3
+        subq.w  #1, d3                              // entries strictly below band k
+        beq     .anchor_no_shift
+        subq.w  #1, d3                              // -> dbf count
+        move.w  d7, d2
+        mul_const.w d2, #sizeof(band_entry), d4     // d2 = n * entry size; d4 trashed
+        lea     Parallax_Shadow_Bands, a5
+        adda.w  d2, a5                              // a5 = &band[n], one past the last
+    .anchor_shift_band:
+        // Each -(a5) steps back inside the SOURCE entry while the displacement writes the
+        // matching word/long one whole entry forward. Source and destination never overlap
+        // (the gap IS one entry), so the order within an entry does not matter.
+        move.w  -(a5), sizeof(band_entry)(a5)
+        move.l  -(a5), sizeof(band_entry)(a5)
+        move.l  -(a5), sizeof(band_entry)(a5)
+        dbf     d3, .anchor_shift_band
+
+        // the matching scroll words: (k+1 .. n-1) -> (k+2 .. n), same backward walk
+        move.w  d7, d3
+        sub.w   d1, d3
+        subq.w  #2, d3                              // dbf count (>= 0 here)
+        move.w  d7, d2
+        add.w   d2, d2                              // word index of slot n
+        lea     Parallax_Shadow_Scroll_A, a5
+        adda.w  d2, a5
+        lea     Parallax_Shadow_Scroll_B, a6
+        adda.w  d2, a6
+    .anchor_shift_scroll:
+        move.w  -(a5), 2(a5)
+        move.w  -(a6), 2(a6)
+        dbf     d3, .anchor_shift_scroll
+    .anchor_no_shift:
+
+        // --- write the split entry at k+1: a copy of band k, retopped to L ---
+        // It INHERITS its parent's scroll factors and scroll words. That inheritance is the
+        // mechanism: the surface changes where the wave starts, not how the layer scrolls.
+        move.w  d1, d2
+        mul_const.w d2, #sizeof(band_entry), d4     // d2 = k * entry size
+        lea     Parallax_Shadow_Bands, a5
+        adda.w  d2, a5                              // a5 = &band[k]
+        lea     sizeof(band_entry)(a5), a6          // a6 = &band[k+1]
+        move.l  (a5)+, (a6)+
+        move.l  (a5)+, (a6)+
+        move.w  (a5)+, (a6)+
+        move.w  d1, d2
+        add.w   d2, d2                              // word index of slot k
+        lea     Parallax_Shadow_Scroll_A, a5
+        adda.w  d2, a5
+        move.w  (a5), 2(a5)                         // A[k+1] = A[k]
+        lea     Parallax_Shadow_Scroll_B, a5
+        adda.w  d2, a5
+        move.w  (a5), 2(a5)                         // B[k+1] = B[k]
+
+        addq.w  #1, d7                              // the shadow view is one band longer
+
+        // --- from the split entry down, override BOTH deform shifts ---
+        move.w  d1, d2
+        addq.w  #1, d2                              // first overridden index = k+1
+        move.w  d7, d3
+        sub.w   d2, d3
+        subq.w  #1, d3                              // dbf count over (k+1 .. n)
+        mul_const.w d2, #sizeof(band_entry), d4
+        lea     Parallax_Shadow_Bands, a5
+        adda.w  d2, a5                              // a5 = &band[k+1]
+        move.b  parallax_config.pcfg_anchor_dsa(a0), d4
+        move.b  parallax_config.pcfg_anchor_dsb(a0), d5
+    .anchor_shift_write:
+        move.b  d4, band_entry.band_deform_shift_a(a5)
+        move.b  d5, band_entry.band_deform_shift_b(a5)
+        adda.w  #sizeof(band_entry), a5
+        dbf     d3, .anchor_shift_write
+        // retop the split entry AFTER the override walk (which does not touch the top)
+        move.w  d1, d2
+        addq.w  #1, d2
+        mul_const.w d2, #sizeof(band_entry), d4
+        lea     Parallax_Shadow_Bands, a5
+        adda.w  d2, a5
+        move.b  d0, band_top_line(a5)               // the split lands exactly on L
     .bands_ready:
 
         // --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
-        //   mode_per_line if either H-deform table is non-NULL.
+        //   mode_per_line if either H-deform table is non-NULL, OR the config carries a
+        //   world-anchored overlay: an anchored boundary lands on an arbitrary SCANLINE,
+        //   and per-cell fill can only place it on a cell edge, so per-cell would silently
+        //   quantise the very thing Parcel W exists to make exact.
         //   a1/a2/a3 = band array + scroll arrays (config's own or shadow).
+        //
+        // THIS KEY HAS A TWIN in engine.buffers (Enqueue_Dirty_Buffers), which picks the
+        // HScroll DMA LENGTH off the same fields. The two must agree or a mode-differing
+        // config ships a 112-byte DMA for an 896-byte buffer; they are changed together.
         move.l  parallax_config.pcfg_deform_table_fg(a0), d0
         or.l    parallax_config.pcfg_deform_table_bg(a0), d0
+        bne     .fill_per_line
+        cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch(a0)
         beq     .fill_per_cell
+    .fill_per_line:
         // advance H-deform phase accumulators so animated tables (sine, etc.)
         // actually scroll their wave over time. Without this the wave is
         // static and effects like windy clouds / heat shimmer don't animate.
@@ -907,13 +1109,16 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         moveq   #0, d4                              // current line index (0..223)
 
     .next_band:
-        // --- end_line for this band: next band's top_cell×8, or 224 ---
+        // --- end_line for this band: the next band's top, or 224 ---
+        // The shadow view stores tops in SCREEN LINES (Parcel W), so the ×8 that used
+        // to live here is gone — it moved to Step 4a's rebase, which is the one place
+        // that knows it is converting cells. Reading a line-unit byte here is what lets
+        // an anchored boundary land on an arbitrary scanline instead of a cell edge.
         move.w  #224, d5
         subq.w  #1, d7
         beq     .have_end                           // last band
         moveq   #0, d5
-        move.b  band_top_cell_next(a1), d5  // band_top_cell+band_entry_len(a1)
-        lsl.w   #3, d5
+        move.b  band_top_line_next(a1), d5  // band_top+band_entry_len(a1), SCREEN LINES
     .have_end:
 
         // --- packed base scroll (constant per band) ---
@@ -1046,18 +1251,33 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         blo     .lg_line
         jbra    .band_done
 
-// --- FLAT: same longword for every line of the band (8x unrolled) ---
-    // Band line spans are ALWAYS multiples of 8: tops are Plane-B cell rows
-    // scaled ×8 (band_top_cell × 8 in both the config-own path and the Step4a
-    // screen-space shadow view — the clamp there is on cell values too), and
-    // the last band ends at 224 = 28×8. So `span >> 3` is exact — no remainder
-    // tail. The unroll drops the dbf overhead from per-line to per-8-lines.
+// --- FLAT: same longword for every line of the band (8x unrolled + tail) ---
+    // Band line spans USED to be guaranteed multiples of 8 — tops were Plane-B cell
+    // rows scaled ×8 in both readers, and the last band ends at 224 = 28×8 — so this
+    // path was a bare `span >> 3` unroll with NO remainder tail. Parcel W's
+    // world-anchored overlay splits a band at an ARBITRARY scanline, so that guarantee
+    // is gone and the tail below is what replaces it.
+    //
+    // WHY THE TAIL IS NOT OPTIONAL, in two failure modes, both silent at build time:
+    //   span 1..7  -> `lsr #3` = 0, `subq #1` = $FFFF, and dbf runs 65536 times × 8
+    //                 longwords = ~2 MB sprayed from Hscroll_Buffer forward, into the
+    //                 DMA queues — the frozen-VDP crash class the Step-4a clamp at
+    //                 :618-622 exists to prevent.
+    //   span 9..15 -> writes 8·floor(span/8) longwords while d4 jumps to the band end,
+    //                 so a4 and d4 desync PERMANENTLY: every band below lands at the
+    //                 wrong buffer offset and the buffer tail keeps last frame's words.
+    //
+    // d2/d3/d6 are dead on this path (they carry the deform paths' phase bases and
+    // shifts, and this is the no-deform branch), so the remainder counter is free.
     .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
         ble     .band_done                          // empty/malformed band
         move.w  d5, d4                              // line index jumps to band end
-        lsr.w   #3, d1                              // span/8 groups (span is ×8; >0 here → >=1)
+        move.w  d1, d2
+        andi.w  #7, d2                              // d2 = remainder lines 0..7
+        lsr.w   #3, d1                              // d1 = whole groups of 8
+        beq     .fl_tail                            // span < 8: tail only, no group
         subq.w  #1, d1
     .fl_line:
         move.l  d0, (a4)+
@@ -1069,6 +1289,16 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         move.l  d0, (a4)+
         move.l  d0, (a4)+
         dbf     d1, .fl_line
+    .fl_tail:
+        // A ZERO REMAINDER MUST BRANCH AROUND, never fall into the dbf: `subq #1` on 0
+        // gives $FFFF and re-creates the exact 65536-iteration spray this tail exists to
+        // fix — with the multiple-of-8 spans that are still the common case as the input.
+        tst.w   d2
+        beq     .band_done
+        subq.w  #1, d2
+    .fl_rem:
+        move.l  d0, (a4)+
+        dbf     d2, .fl_rem
 
     .band_done:
         lea     sizeof(band_entry)(a1), a1
@@ -1099,11 +1329,18 @@ proc Parallax_Fill_PerCell () clobbers(d0-d4/a1-a4) {
         addq.w  #1, d2
         cmp.w   d7, d2
         bhs     .last_band_end             // d2 >= d7 → this is last band
-        // not last: peek next band's top_cell
+        // not last: peek the next band's top. The shadow view measures in SCREEN LINES
+        // (Parcel W), and this filler counts CELLS, so it converts here — the exact
+        // inverse of the ×8 Step 4a's rebase applies, over the range the cell clamp
+        // permits (0..28 cells -> 0..224 lines -> 0..28 cells, lossless).
         moveq   #0, d4
-        move.b  band_top_cell_next(a1), d4  // band_top_cell+band_entry_len(a1)
+        move.b  band_top_line_next(a1), d4  // band_top+band_entry_len(a1), SCREEN LINES
+        lsr.w   #3, d4                      // -> cells
         jbra    .have_end
     .last_band_end:
+        // ALREADY in cells and STAYS — 224 >> 3 == 28, so this constant is unchanged by
+        // the unit switch. (An earlier draft of this parcel listed it as a change; it is
+        // not one, and touching it would double-convert the last band's end.)
         moveq   #28, d4
 
     .have_end:

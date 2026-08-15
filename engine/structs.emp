@@ -168,13 +168,25 @@ pub struct parallax_config {
     pcfg_transition:        u8,    // 0 = smooth lerp (default), 1 = instant snap
     pcfg_deform_speed_fg:   u8,    // FG H-deform table phase increment per frame
     pcfg_deform_speed_bg:   u8,    // BG H-deform table phase increment per frame
-    pcfg_pad:               u8,
+    // World-anchored deform overlay (Parcel W). PARALLAX_ANCHOR_NONE ($FF) = no overlay;
+    // otherwise a patch channel whose Effects_World_Y[] anchor places a SCREEN LINE at
+    // which the band under it is split, with every band from there down taking the two
+    // shifts below. Claimed from the former pcfg_pad — the overlay costs ZERO bytes and
+    // sizeof(parallax_config) stays 28, which is required: parallax.emp ensures it stays
+    // EVEN or copy_band_entry's move.l run address-errors on odd-indexed entries.
+    pcfg_anchor_ch:         u8,
     pcfg_deform_table_fg:   *u8,   // ROM ptr to 256-byte signed FG H-deform (0 = none)
     pcfg_deform_table_bg:   *u8,   // ROM ptr to 256-byte signed BG H-deform (0 = none)
     pcfg_v_deform_table_bg: *u8,   // ROM ptr to 256-byte signed BG V-column (0 = whole-plane)
     pcfg_v_deform_speed_bg: u8,    // 0 = static column shape, >0 = animated
     pcfg_v_deform_shift_bg: u8,    // amplitude shift on V-column samples
-    pcfg_pad2:              [u8; 2],
+    // The deform shifts the overlay writes into every band at or below the anchored line
+    // (15 = no deform on that plane, same sentinel as band_deform_shift_a/b). Claimed from
+    // the former pcfg_pad2 — see pcfg_anchor_ch above. Bands keep their own SCROLL factors;
+    // only the wave amplitude is overridden, which is what lets structure below a water
+    // surface survive instead of being flattened onto one band.
+    pcfg_anchor_dsa:        u8,    // Plane A deform shift below the anchored line
+    pcfg_anchor_dsb:        u8,    // Plane B deform shift below the anchored line
 }
 
 // -----------------------------------------------

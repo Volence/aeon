@@ -576,6 +576,10 @@ pub const SOLID_ALL  = 3
 // Parallax (§4.6).
 // -----------------------------------------------
 pub const MAX_PARALLAX_BANDS    = 8
+// pcfg_anchor_ch sentinel: this config has NO world-anchored deform overlay (Parcel W).
+// $FF and not 0, because 0 is a legal patch channel — the same reason RASTER_ARM_PARK is
+// a value no real arm can take rather than a zero.
+pub const PARALLAX_ANCHOR_NONE  = $FF
 pub const PARALLAX_TRANS_DEFAULT = 16   // default boundary lerp duration (frames)
 // Per-frame BG vscroll transition lerp: current += (target - current) >> 4.
 // CONVERGENCE (the exponential-lerp table in CODING_CONVENTIONS §2.6): each frame
