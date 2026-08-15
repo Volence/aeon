@@ -5,7 +5,7 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
-## ⚠ EFX-8 — OPEN. Total binding made the patched channel unreachable: NO patched program renders.
+## ✅ EFX-8 — CLOSED 2026-08-15 (Effects P3 Parcel P-b). A patched program renders again.
 
 **Booked 2026-08-15**, found while re-deriving the tree for Effects Parcel P, and confirmed
 independently by a review lens. This is the **EFX-1 successor**: EFX-1 recorded water surviving
@@ -32,10 +32,60 @@ that no preset sets `ep_patched` — it anticipated a later section swapping to 
 section 0's own preset doing it one frame after Init.
 
 **Consequence for gates, not just for pixels.** Any raster gate phrased around "the water boundary"
-currently measures nothing, and a broken patched-path implementation would measure identically to a
-correct one. Effects Parcel P-b owns the revival (converting an OJZ section's preset to `patched:`,
-which by `preset.emp:115`'s exclusivity ensure means that section surrenders its static program);
-this entry stays open until a patched program is observed rendering.
+measured nothing while this was open, and a broken patched-path implementation would have measured
+identically to a correct one.
+
+**CLOSED by P-b Task 7**, exactly as this entry anticipated: `OJZ_Preset_Sec0` now binds
+`patched: OJZ_TwoChannel`, and by `preset()`'s exclusivity ensure section 0 surrenders its static
+`OJZ_TestRamp` — a declared delta, not a regression. Observed rendering on oracle
+(`s4.debug.bin` crc `2318eef6`) **after the first section crossing**, which is the exact frame at
+which this defect used to kill it:
+
+- `Raster_Patch_Tab` = `$000130FC` (non-zero), `Raster_Active_Buf` = `$FFFF8A22` (= `Raster_Buf_B`)
+- `Raster_Buf_B[0..7]` = `0004 8A4D 0000 8A59` — the **predicted** arm words, not merely non-zero
+- three absolute framebuffer row bands, both clamp directions, in
+  `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`
+
+Two of the five reproduction steps above no longer exist at all: step 1's hand install and step 5's
+`Raster_PatchWaterWorldY` were deleted in P-b Task 6. Step 4 survives and is now a **feature with a
+live witness** — walking out of section 0 into section 1's static-raster preset leaves
+`Raster_Patch_Tab = 0` and `Active_Buf = Buf_A`, which is `.copy_program`'s teardown working.
+
+---
+
+## ⚠ EFX-9 — OPEN. `tools/effects_budget_check.py` is correct and is RUN BY NOTHING.
+
+**Booked 2026-08-15** during Effects P3 Parcel P-b Task 9, and it is the reason EFX-5's
+"gate-checked, which is precisely why it never drifted" claim above is **false**.
+
+`tools/effects_budget_model.toml` read `raster_state_bytes = 288`. The shipped
+`RASTER_STATE_SIZE` was **298** before this parcel touched it — a 10-byte drift, exactly the
+size of the OP_RUN_RAMP cells (`Dense_Kind` 2 + `Ramp_Acc` 4 + `Ramp_Step` 4) added by an
+earlier parcel that never updated the model. EFX-5 recorded this row as protected by the
+`[symbols]` gate. It is not protected, because **nothing runs the gate**:
+
+- `build.sh` does not invoke `effects_budget_check.py`. Neither does any tool script or CI.
+- The only references to it in the tree are its own unit-test file and two comments in the
+  model that describe the gate as though it ran.
+
+The checker itself is **fine**, and that is the point — this is not a broken tool, it is a
+correct tool nobody calls. Proved by inversion 2026-08-15: setting the row to 305 against a
+real 306 prints `ram.raster_state_bytes: model says 305, engine/effects/raster.emp:RASTER_STATE_SIZE is 306`
+and exits **1**; the correct value exits **0**. It would have caught the 10-byte drift on the
+day it happened.
+
+It was ALSO crashing rather than reporting, from the moment P-b put a helper constant into
+`RASTER_STATE_SIZE`: its resolver read only the named module, so `RASTER_MAX_PATCH` (a
+`*_dsl.emp` COMPTIME_HELPERS member, glob-injected into code modules by sigil) raised
+`unknown constant` as an unhandled traceback. Fixed in P-b — the resolver now folds in sibling
+`*_dsl.emp` constants, mirroring how sigil actually resolves those names. A gate that dies with
+a traceback instead of a verdict is worse than one that is merely unrun, because a caller
+wiring it in would have inherited a red build with no finding in it.
+
+**What is left open is the wiring**, which is deliberately NOT done here: making a checker
+build-fatal is a blast-radius decision, and the work order assigns the budget model to Parcel B.
+P-b's share was to correct the value (288 → 306), repair the crash, and prove the tool fires.
+This entry closes when something actually runs it.
 
 ---
 
@@ -50,9 +100,10 @@ installed in the spawn area persisted into sections that never asked for it, ren
 at a stale screen line indefinitely. **Fixed by total binding** — `Effects_InstallPreset`
 writes every channel, so a section without a patched template gets `Raster_Program_None`
 and the water stops. This is delta D2 in `docs/benchmarks/effects-p3-c2/DECLARED-DELTAS.md`.
-**⚠ But see EFX-8 above (2026-08-15): the same fix drove the patched channel past "off" into
-UNREACHABLE — no patched program renders at all now. The fix is real; the overshoot is the
-successor defect.**
+**⚠ EFX-8 above recorded the overshoot: the same fix drove the patched channel past "off" into
+UNREACHABLE, so for a time no patched program rendered at all. Both are now closed — the fix was
+real, the overshoot was the successor defect, and P-b's Task 7 restored the channel by giving a
+section preset a `patched:` binding rather than by weakening total binding.**
 
 ### ⚠ EFX-2 — OPEN (deliberately). The cross-fade layer is unreachable.
 `Palette_ArmFade` and `Palette_LoadCycle`'s fade sibling `Palette_DoFade` have no
@@ -72,18 +123,43 @@ recovered. Latent because the count-0 path was documented but never exercised �
 Verified on oracle in BOTH directions: pre-fix instruction order leaves `Pal_Active` bit
 1 SET (`$12`), fixed order leaves it CLEAR (`$10`).
 
-### ⚠ EFX-4 — HALF-FIXED, and the other half is a recorded decision, not an oversight.
-`Raster_InstallWater` copies a fixed `RASTER_BUF_SIZE` (128 bytes) from templates that
-are 34-36 bytes. The **overflow** half — a program LONGER than the buffer being silently
-truncated live — is guarded at `engine/effects/raster_dsl.emp:708`. The **over-read**
-half (a short template pulling ~94 bytes of adjacent ROM into `Buf_B`) is left open
-because the walker never reaches past the terminator, and that comment says so
-explicitly. Do not "fix" it with a second guard.
+### ✅ EFX-4 — CLOSED 2026-08-15 (Effects P3 Parcel P-b), and it has a SUCCESSOR below.
+It read: `Raster_InstallWater` copies a fixed `RASTER_BUF_SIZE` (128 bytes) from templates that
+are 34-36 bytes, so ~94 bytes of adjacent ROM land in `Buf_B` past the terminator.
 
-### ✅ EFX-5 — was ALREADY FIXED before the parcel looked.
-`tools/effects_budget_model.toml` reads `raster_state_bytes = 288`, and is gate-checked
-via `[symbols]` → `RASTER_STATE_SIZE` — which is precisely why it never drifted, while
-two ungated values beside it did. The spec's other two complaints
+**Closed because its subject no longer exists and its scope no longer applies.** `Raster_InstallWater`
+was deleted in P-b Task 6, and the copy that replaced it (`Raster_CopyPatchedTemplate`) reads only
+**patched** templates — which `patched_program` pads to exactly 64 words before appending the patch
+table at +128. The fixed 128-byte read is therefore fully defined for every template it can now
+receive: the copy stops exactly at the table boundary, and the padding is what makes that true. Its
+overflow half stays guarded by `raster_dsl.emp`'s `RASTER_BUF_SIZE` ensure.
+
+**Its citations were stale in both directions**, which is why this is a close rather than a
+carry-forward: the named subject was gone, and the site the over-read now actually lives at was
+never named. See the successor.
+
+### ⚠ EFX-4b — OPEN (successor to EFX-4). `Raster_VBlank .copy_program` over-reads SHORT STATIC programs.
+**Booked 2026-08-15**, splitting off the half of EFX-4 that survived the deletion of its subject.
+
+`Raster_VBlank`'s `.copy_program` path copies a fixed `RASTER_BUF_SIZE` (128 bytes) into
+`Raster_Buf_A` from any staged **static ROM program**, and static programs are NOT padded —
+`Raster_Program_None` is three words. So ~122 bytes of adjacent ROM land in `Buf_A` past the
+terminator on every static install.
+
+**Harmless today, for the same reason the original was**: the record walk stops at
+`RASTER_OPS_END` and never reaches the junk. Booked rather than hot-fixed.
+
+**It is strictly narrower than EFX-4 was**, and that is the point of splitting it: the patched
+path is now provably fine (padding), so this is about the static path alone, and the fix — a
+length word, or a bounded copy, or padding static programs the way patched ones already are — is
+a different change against a different routine than anything EFX-4 ever proposed.
+
+### ⚠ EFX-5 — was recorded FIXED, and the reasoning was WRONG. See EFX-9 above.
+It read: "`tools/effects_budget_model.toml` reads `raster_state_bytes = 288`, and is
+gate-checked via `[symbols]` → `RASTER_STATE_SIZE` — which is precisely why it never drifted,
+while two ungated values beside it did." **The value HAD drifted** (288 against a real 298) and
+the gate that was credited with preventing it is run by nothing. The row is corrected to 306 in
+P-b; the wiring is EFX-9. The spec's other two complaints
 (`full_line_fire_cost`, `sparse_tier_cycles_per_frame`) were likewise already renamed /
 superseded. One prose residual was corrected; see the note there about why the `8358`
 figure in the dense-tier comment is a legitimate DIFFERENTIAL and must not be swapped
@@ -309,7 +385,9 @@ and never consumed.
 (`act_descriptor.emp:198`), and no `Pal_Cycle_None` exists yet. **Parcel C must move the flag set
 after the count test** — `Pal_Cycle_None` would be the first thing ever to run this path.
 
-### EFX-4 — `Raster_InstallWater` over-reads a short template — PARTIALLY CLOSED (Parcel A)
+### EFX-4 — `Raster_InstallWater` over-reads a short template — **now CLOSED, see the live entry near the top of this file (2026-08-15); its surviving half is EFX-4b**
+
+*Historical record from the 2026-08-13 audit, kept for provenance. `Raster_InstallWater` no longer exists.*
 
 `Raster_InstallWater` (`raster.emp:585-593`) copies a fixed
 `move.w #(RASTER_BUF_SIZE / 2) - 1, d1` / `dbf` loop = 64 words = **128 bytes**, unconditionally,

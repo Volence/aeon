@@ -26,10 +26,13 @@ use engine.structs.{Sec, Act}
 // Field order deliberately avoids an odd run of u8 before a pointer — sigil does
 // NOT auto-align, and even alignment is all the 68000 needs.
 //
-// SIZE IS 32, AND IT WAS DECLARED 36 UNTIL 2026-08-14. The fields are contiguous
-// with no gaps — 5 pointers (20) + a 2-slot pointer array (8) + 2 u16 (4) = 32 —
-// so 36 was simply wrong. It came from the design spec's prose estimate ("roughly
-// 36 bytes"), copied into the plan beside offsets that add to 32.
+// SIZE IS 38 SINCE effects-P3 P-b, AND IT WAS DECLARED 36 WHILE IT WAS 32 UNTIL
+// 2026-08-14. The fields are contiguous with no gaps — 5 pointers (20) + a 2-slot
+// pointer array (8) + ep_patch_world_ys ([u16; RASTER_MAX_PATCH] = 8) + 1 u16 (2)
+// = 38. The old 36 was simply wrong: it came from the design spec's prose estimate
+// ("roughly 36 bytes"), copied into the plan beside offsets that added to 32. That
+// it landed near the value the struct would eventually reach is a coincidence and
+// not a defence — it was never checked against the fields.
 //
 // WHY NOBODY CAUGHT IT FOR TWO TASKS: this module was outside every target's `use`
 // closure, and sigil validates a struct's declared size only when something
@@ -41,15 +44,24 @@ use engine.structs.{Sec, Act}
 //
 // The lesson is the general one: in an unreachable module, `ensure`s do not fire
 // AND declared layouts are not validated. Treat everything in one as unverified.
-pub struct EffectsPreset (size: 32) {
+//
+// SPELT IN FULL, NEVER AS A DELTA — this struct's declared size has already gone stale once
+// (see the note below), and the only reason it was caught is that the layout checker woke up.
+//
+// ep_patch_world_ys is INLINE, not a pointer, and that is a ruling rather than a taste: a
+// `Label` carries no length, so an `ensure` comparing one to an integer is unevaluable and
+// passes silently (the vacuous-guard generator documented below). An inline [u16; N] gives
+// preset() a `.len` it can actually check, and gives Raster_InstallPatched an `lea` into the
+// preset instead of an indirection through a table nothing can size.
+pub struct EffectsPreset (size: 38) {
     ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
     ep_parallax:       *u8      @ $04,   // 0 = act default (the one legal 0)
     ep_raster:         *u8      @ $08,   // static program; 0 illegal, use Raster_Program_None
     ep_patched:        *u8      @ $0C,   // patched template (water / world-anchored gradient); 0 = none
     ep_cycle:          *u8      @ $10,   // 0 illegal, use Pal_Cycle_None
     ep_variants:       [*u8; 2] @ $14,   // PAL_MAX_VARIANTS; unused slots 0 = clear
-    ep_patch_world_y:  u16      @ $1C,   // meaningful only when ep_patched != 0
-    ep_transition:     u16      @ $1E,   // cross-fade arm; unused by every C2 fixture
+    ep_patch_world_ys: [u16; RASTER_MAX_PATCH] @ $1C,  // one authored world Y per patch channel
+    ep_transition:     u16      @ $24,   // cross-fade arm; unused by every C2 fixture
 }
 
 // ✅ THE `ensure` BELOW IS LIVE — verified by inversion on 2026-08-14, and it took
@@ -107,18 +119,24 @@ ensure(PAL_MAX_VARIANTS == 2,
 pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
                        patched: Label = 0, cycle: Label = 0,
                        variants: [Label; 2] = [0, 0],
-                       patch_world_y: int = 0, transition: int = 0) -> EffectsPreset {
+                       patch_world_ys: array = [0, 0, 0, 0], transition: int = 0) -> EffectsPreset {
     // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
-    // DESTRUCTIVELY: Raster_InstallWater clears Raster_Pending (killing a staged
-    // static program), and the reverse order lets VBlank re-point Active_Buf at
-    // Buf_A while the patch keeps writing Buf_B.
+    // DESTRUCTIVELY: Raster_CopyPatchedTemplate clears Raster_Pending (killing a
+    // staged static program), and the reverse order lets VBlank re-point Active_Buf at
+    // Buf_A while the patcher keeps writing Buf_B.
     ensure(raster == 0 || patched == 0,
-           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_InstallWater clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patch keeps writing Buf_B.")
-    ensure(patched != 0 || patch_world_y == 0,
-           "preset(): patch_world_y is meaningful only with a patched template")
+           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_CopyPatchedTemplate clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patcher keeps writing Buf_B.")
+    // REPLACES `patched != 0 || patch_world_y == 0`, which died under the rename and could not
+    // have survived it: comparing a Label to an integer is unevaluable and silently always
+    // passes (see the vacuous-guard note above). This one is evaluable — it reads a length off
+    // a comptime array — and it guards the thing that actually matters, since
+    // Raster_InstallPatched copies exactly RASTER_MAX_PATCH words out of this field and a short
+    // array would have it read whatever follows in ROM as an anchor.
+    ensure(patch_world_ys.len == RASTER_MAX_PATCH,
+           "preset(): patch_world_ys must name exactly one world Y per patch channel. Raster_InstallPatched seeds exactly RASTER_MAX_PATCH words out of this field, so a SHORT array makes it read the bytes that follow in ROM as anchors, and a LONG one silently drops the tail — the guard is stated as equality, not a minimum, because both directions are wrong and only one of them would ever look like an error.")
     return EffectsPreset{ ep_pal: pal, ep_parallax: parallax, ep_raster: raster,
                           ep_patched: patched, ep_cycle: cycle, ep_variants: variants,
-                          ep_patch_world_y: patch_world_y, ep_transition: transition }
+                          ep_patch_world_ys: patch_world_ys, ep_transition: transition }
 }
 
 // Displacements into ep_variants[0]/[1] — PAL_MAX_VARIANTS is locked to 2 by the
@@ -173,7 +191,7 @@ const EP_VARIANT_1 = EP_VARIANT_0 + 4
 // (`cmp.l Pal_Cycle_Script, d0 / beq .keep`) — so each slot is compared against
 // the live Pal_Variant_Ptr entry and the call is skipped when unchanged.
 // -----------------------------------------------
-pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d1/a0-a3) {
+pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset* — survives every callee below
 
         // ---- ep_transition: arm the cross-fade BEFORE the palette load ----
@@ -212,8 +230,11 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d1/a0-a3) {
         movea.l EffectsPreset.ep_patched(a3), a0
         cmpa.w  #0, a0
         beq     .no_patch
-        move.w  EffectsPreset.ep_patch_world_y(a3), d0
-        jbsr    Raster_InstallPatchedWorldY
+        // a2, not a1: Raster_CopyPatchedTemplate uses a1 as its Buf_B write pointer, so an
+        // anchor pointer in a1 is destroyed before Raster_InstallPatched can read it. a3 is
+        // untouched by the callee (it clobbers d0-d4/a0-a2) and survives to .raster_done.
+        lea     EffectsPreset.ep_patch_world_ys(a3), a2
+        jbsr    Raster_InstallPatched
         bra     .raster_done
     .no_patch:
         movea.l EffectsPreset.ep_raster(a3), a0

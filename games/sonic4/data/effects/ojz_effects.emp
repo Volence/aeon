@@ -17,9 +17,6 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm}
 // free names resolve at the EMISSION site's scope, so they must be visible HERE or
 // they degrade to unresolved label refs.
 use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
-// The water patch-offset invariant below names these directly (an ensure at THIS
-// file's scope, so they must resolve here — see the late-binding note above).
-use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
 // NOTE — no `use` of pal_stage_off is needed here, and briefly one was. fx_tint_band's body
 // called it, and a comptime fn's free names resolve at the CALL SITE, so constructing a tint
 // band from this file failed with four copies of "unknown function `pal_stage_off`" for a
@@ -180,8 +177,9 @@ pub data OJZ_ShimmerCycle: PalCycleScript1 = cycle_script1(
 // (1) turns Shadow/Highlight ON ($8C89 — bit 3 set, resolution bits unchanged per the survey V28/V30
 // ruling) and (2) swaps line-2 entries 4-6 to the deep-water variant's derived bytes
 // via OP_PAL_REGION streaming from Pal_Variant_Stage slot 0. The priming arm word
-// (arm0) is a DEFAULT here (water line 120); Raster_InstallWater/Raster_PatchWaterLine
-// overwrite it at runtime from Raster_Water_Line, so the boundary MOVES live.
+// (arm0) is what the template ships with (water line 120), and it is now a STATIC line:
+// the single-channel water patcher that used to overwrite it is deleted (P-b), and a
+// boundary that moves is authored as a `patchable` record instead — see OJZ_TwoChannel.
 //
 // pal_dirty_mask %0100 re-asserts CRAM line 2 every frame, so the mid-frame region
 // swap is transient (base restored at frame top -> above the line = base palette, below
@@ -203,9 +201,8 @@ const OJZ_WATER_CRAM_ADDR = $48                 // CRAM line 2, entry 4
 ensure(vdp_comm(OJZ_WATER_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
        "vdp_comm's CRAM encoding changed — the raster DSL now derives OJZ_WaterRaster's command words, so a drift here moves the emitted program")
 
-// The default water line. Raster_InstallWater / Raster_PatchWaterLine overwrite the
-// priming arm word at runtime from Raster_Water_Line, so the boundary MOVES live; this
-// value is only what the template ships with.
+// The water line. Static since P-b deleted the single-channel patcher; a moving boundary
+// is a `patchable` record with a world anchor now, not a runtime write to this program.
 const OJZ_WATER_LINE = 120
 
 const OJZ_WATER_PROG = [
@@ -215,35 +212,29 @@ const OJZ_WATER_PROG = [
                     sh:   1),
 ]
 
-// THE PATCH-OFFSET INVARIANT — the designated survivor, re-pointed at the offset.
+// THE PATCH-OFFSET INVARIANT IS DELETED HERE, and this note is what replaces it.
 //
-// Raster_PatchWaterLine writes ONE word into Buf_B at a FIXED byte offset
-// (WATER_TEMPLATE_ARM0_OFF) on all three of its exit paths, unconditionally. That
-// word had better be the priming arm word. The header is one word now, so the
-// offset is structural rather than conditional on an init-word count — which is
-// exactly why the old form of this guard (`[3] == ...`, valid only while
-// init_count == 1) was deleted with the init-word mechanism. Deleting the CHECK
-// along with the condition it happened to be phrased in terms of would have left
-// nothing at all asserting that the patched word is an arm word.
+// It asserted that the word at WATER_TEMPLATE_ARM0_OFF (a fixed byte offset 2) was the
+// priming arm word for OJZ_WATER_LINE, because Raster_PatchWaterLine wrote that byte
+// offset on all three of its exit paths, unconditionally and sight-unseen. Both the
+// constant and that proc are gone in P-b: there is no longer a runtime write to a fixed
+// offset in this program for anything to be wrong about.
 //
-// It is redundant TODAY, the same way its predecessor was: OJZ_WATER_HAND below
-// pins every word of the program, so a template whose word 1 is not $8A75 also
-// diverges from the twin. But OJZ_WATER_HAND retires in Parcel D with the fixture,
-// and at that moment this becomes the ONLY build-time guard on the one word the
-// runtime overwrites sight-unseen. Deleting a survivor during the change that
-// makes it load-bearing is the mistake to avoid; this is the second time this
-// parcel line has had the chance to make it.
+// IT IS SUPERSEDED, NOT MERELY OBSOLETE, and that distinction is the only thing that
+// makes deleting it safe. P-a's guard 6 (check_arm_layout, raster_dsl.emp) asserts the
+// identical property for EVERY record of EVERY patched template, and asserts it twice
+// over: that the word each patch-table offset points at is a VDP reg $0A write, and that
+// its VALUE equals the arm the schedule independently derives. That is strictly stronger
+// than one hand-written check on one program's word 1 — it scales with the content
+// instead of being re-written per fixture, and it is the guard that actually stands
+// between the runtime patcher and decrementing a record's op_count until `dbf` walks ROM
+// as opcodes inside a raw interrupt handler.
 //
-// It also carries what Raster_InstallWater's doc precondition used to say in
-// prose ("init_count must be 1") in the only form that cannot go stale: it names
-// the runtime constant (WATER_TEMPLATE_ARM0_OFF), the authored line
-// (OJZ_WATER_LINE) and the arm formula's base (RASTER_MIN_FIRE_LINE), so a drift
-// in ANY of the three fails the build here rather than painting a boundary in the
-// wrong place — or, at the offsets a header change could produce, decrementing a
-// record's op_count and sending `dbf` walking ROM as opcodes inside a raw
-// interrupt handler.
-ensure(raster_program(OJZ_WATER_PROG)[WATER_TEMPLATE_ARM0_OFF / 2] == $8A00 | (OJZ_WATER_LINE - RASTER_MIN_FIRE_LINE),
-       "OJZ_WaterRaster: the word at WATER_TEMPLATE_ARM0_OFF is not the priming arm word for line OJZ_WATER_LINE — Raster_PatchWaterLine overwrites that byte offset unconditionally, so it must be arm0")
+// This program is no longer patched at all, so guard 6 does not cover it — and does not
+// need to, because nothing writes it at runtime. OJZ_WATER_HAND below still pins every
+// word of it. The predecessor guard was kept through two parcels on the reasoning that
+// OJZ_WATER_HAND retires in Parcel D and this would then be the only build-time check on
+// a word the runtime overwrote; that reasoning expires with the overwrite itself.
 
 // THE PIN (design spec 8.1) — the words measured on hardware during P2. Retires in
 // Parcel D with the fixture.
@@ -544,7 +535,33 @@ pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)      
 // is game content. There is no game-agnostic "none" preset, so the "everything
 // else off" instance is named for what it actually is — OJZ's plain section —
 // rather than implying a universal empty preset that cannot exist.
-pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRamp,       cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+// SECTION 0 IS THE PATCHED SECTION (P-b Task 7), and this is what closes EFX-8.
+//
+// No patched program had RENDERED since Parcel C2: total binding drove ep_patched past
+// "off" into unreachable, because the only installer of a Buf_B program in the tree was a
+// hand install in the scroll test's Init, and C2 made the preset path the sole authority
+// over the raster channel. Every P-a guard was therefore proving properties of a program
+// nothing could display. Binding OJZ_TwoChannel here is what makes P-b's gate — and P-a's
+// thirteen guards — measure something.
+//
+// SECTION 0 SURRENDERS OJZ_TestRamp, and that is a DECLARED DELTA rather than a regression:
+// preset()'s exclusivity ensure makes ep_raster and ep_patched mutually exclusive, so the
+// OP_RUN_RAMP fixture cannot share a section with a patched template. Section 0 is the one
+// the scroll test spawns into, which is the whole reason it is the right section to convert —
+// the gate needs the boundaries on screen with no navigation. OJZ_TestRamp keeps its
+// build-time pins; what it loses is a live render, and it can be re-bound to any other
+// section the moment someone wants to look at it again.
+//
+// THE ANCHORS ARE MEASURED, NOT GUESSED. Camera_Y reads $0090 (144) at spawn on oracle, and
+// screen_line = world_y - Camera_Y, so:
+//   channel 0: 224 - 144 =  80  (band 40..120  — mid-band, and it clamps to lo once the
+//                                camera descends past world Y 184)
+//   channel 1: 314 - 144 = 170  (band 130..200 — mid-band)
+// Both boundaries are on screen at spawn, and both clamp edges are reachable by scrolling,
+// which is what lets the gate assert absolute predicted rows AND both clamp directions
+// without a debug hook. Channels 2 and 3 are unused; their anchors are 0.
+pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_TwoChannel,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0],
+                                                  patch_world_ys: [224, 314, 0, 0])
 pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: OJZ_ShimmerCycle,  variants: [Variant_Water_Deep, 0])

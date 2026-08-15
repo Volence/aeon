@@ -304,17 +304,50 @@ cost and the guard fires only on evidence.
 
 ---
 
-## `patchable` — a fire whose line moves at runtime (Parcel P-a, ENCODER ONLY)
+## `patchable` — a fire whose line moves at runtime
 
-> **This is the encoder half only.** Parcel P-a adds the authoring vocabulary and the wire format
-> below; it installs and moves nothing. No runtime patcher exists yet — `patchable` changes what a
-> program's *bytes* can express, not what happens on hardware. Nothing in the tree calls into a
-> "patchable install" today because there is no such call to make. The next parcel is the runtime
-> half; until it lands, a patchable program behaves exactly like a static one if it is ever installed
-> — its band and channel are inert metadata sitting past the copied 128-byte body.
+> **Both halves have shipped.** Parcel P-a added the authoring vocabulary and the wire format below;
+> **Parcel P-b added the runtime patcher** (`Raster_PatchAll`), so a patchable fire now actually
+> moves on hardware. Bind the template through a preset's `patched:` field with
+> `patch_world_ys:` naming one world Y per channel, and `Effects_InstallPreset` does the rest.
+> Evidence: `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`.
 
-`patchable(fires, ch, lo, hi)` marks a fire as one whose *fire line* can be moved by a future runtime
-patcher, within a screen-line band `[lo, hi]`, rather than being fixed at its authored line forever.
+`patchable(fires, ch, lo, hi)` marks a fire as one whose *fire line* is moved every VBlank by
+`Raster_PatchAll`, within a screen-line band `[lo, hi]`, rather than being fixed at its authored
+line forever.
+
+### The authoring model: a boundary belongs to the LEVEL, not the display
+
+Each channel carries a **world Y**, and the runtime derives `screen_line = world_y - Camera_Y` every
+frame. That is the whole point: a water surface, a lava line or a fog boundary is a property of the
+level, so it stays on a *place* rather than at a fixed height on screen. Author the world Y; never
+author a screen row and try to keep it corrected.
+
+Two consequences worth internalising before you author one:
+
+- **Two channels in one program hold a constant separation** as the camera moves, because both are
+  anchored. If you find yourself expecting their separation to change, you are thinking in screen
+  space.
+- **A boundary that scrolls out of its band clamps to the band edge**, it does not vanish. Below the
+  viewport it renders at `hi`. Choose `lo`/`hi` as the range you are willing to *see* the boundary
+  in, not merely as a sanity range.
+
+### Moving an anchor at runtime
+
+```
+    move.w  #0, d0              ; channel
+    move.w  d1, d1              ; world Y
+    jbsr    Effects_SetWorldY
+```
+
+`Effects_SetWorldY` is the named handle for every runtime-varying effect: rising lava, a flood line,
+a beat-driven pulse. Call it from the **main loop** — that is safe, and it is safe for a specific
+reason. It writes an *anchor* to RAM; it does not patch the program. Every arm byte is still derived
+in one pass inside VBlank, so the relative-gap chain is never observed half-updated. Writing arm
+words yourself from the main loop is the thing that is not safe.
+
+Re-entering a section **resets** an animated anchor to the preset's authored value, matching the
+`OP_RUN_RAMP` seed philosophy. The preset's array is the seed, not the storage.
 
 ```
 patchable(fires, ch, lo, hi) -> array
@@ -524,18 +557,18 @@ copied into prose (it reported 426 names across 14 helpers at `2dd5e35c`).
    **unreachable**, HInt is never disarmed, and `HBlank_Uninstall`'s only reference in the tree is the
    dead branch at `:330`. Verified in the 2026-08-14 review §1.3 and **unfixed at this commit**; both
    procs have zero callers, so it is latent. Use `Raster_Program_None` to turn effects off.
-3. **Runtime-patched (the water route).** `Raster_InstallWater` with `a0` = the template and `d0.w` =
-   the screen line (`raster.emp:597-613`) copies the program into `Raster_Buf_B` and makes it live; then
-   call `Raster_PatchWaterWorldY` once per frame (`:673-678`) to keep the boundary anchored to a **world
-   Y** as the camera moves, which is what makes the effect stay on a place in the level rather than at a
-   fixed height on the display. `Raster_PatchWaterLine` (`:639-661`) does the actual one-word arm
-   rewrite and owns the two off-screen semantics (above the viewport = fully submerged, fire as early as
-   possible; below it = park). The route used to carry an `init_count == 1` invariant on its template;
-   with a one-word header `arm0` is word 1 in every program and there is nothing left to get wrong.
+3. **Runtime-patched.** Give a section's preset `patched: <template>` plus
+   `patch_world_ys: [w0, w1, w2, w3]`. `Effects_InstallPreset` calls `Raster_InstallPatched`, which
+   points `Raster_Patch_Tab` at the template's patch table, seeds `Effects_World_Y[]` from the
+   preset's inline array, and copies the program into `Raster_Buf_B`. From then on `Raster_PatchAll`
+   re-derives every boundary at VBlank. `ep_raster` and `ep_patched` are **mutually exclusive** — a
+   section that takes a patched template surrenders its static program, enforced at comptime.
 
-Route 3's call sites are what Parcel C replaces: the imperative water install is deleted in favour of a
-single `sec_effects` preset pointer (spec ruling 2). The program format and this vocabulary are
-unaffected by that change — only who calls the installer.
+   The single-channel water route this replaces (`Raster_InstallWater`, `Raster_PatchWaterLine`,
+   `Raster_PatchWaterWorldY`, and the magic `WATER_TEMPLATE_ARM0_OFF`) was **deleted** in Parcel P-b.
+   It could move exactly one boundary per program, found by a fixed byte offset rather than
+   described; the patch table carries a resolved offset per record instead, so the number of moving
+   boundaries is a property of the content rather than of the runtime.
 
 ---
 

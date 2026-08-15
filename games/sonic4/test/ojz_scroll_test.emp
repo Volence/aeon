@@ -21,7 +21,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
-use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, INPUT_LIVE}
+use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, BUTTON_C, BUTTON_UP, BUTTON_DOWN, INPUT_LIVE}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -266,26 +266,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // -- set VInt_Ptr to level handler --
         move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share one instruction
 
-        // -- effects P2 Task 7: install the OJZ water cluster (the phase gate).
-        //    Installs the water raster TEMPLATE into Raster_Buf_B with the boundary at
-        //    screen line 120. The boundary MOVES at runtime: write Raster_Water_Line and
-        //    the update loop re-patches the priming arm. Active in the spawn area
-        //    (section 0); a section carrying its own sec_raster_table swaps to the
-        //    Buf_A path on crossing.
-        //
-        //    The Variant_Water_Deep bind that used to sit here (variant slot 0 = deep
-        //    water) is gone (effects-P3-C2 Task 13): every OJZ preset already carries
-        //    `variants: [Variant_Water_Deep, 0]`, and Parallax_CheckBoundary's very
-        //    first call (Parallax_Prev_Sec_X/Y seeded to $FF by Parallax_Init, so section
-        //    (0,0) always reads as a crossing) runs Effects_InstallPreset for section 0
-        //    before the first Update frame renders, which binds it. This raster install,
-        //    however, has no preset equivalent — no OJZ preset sets ep_patched, so
-        //    Raster_InstallWater here is the ONLY installer of OJZ_WaterRaster/Buf_B
-        //    anywhere in the tree; deleting it would drop the P2 water fixture, which is
-        //    out of scope for this task. --
-        lea     OJZ_WaterRaster, a0
-        move.w  #120, d0
-        jbsr    Raster_InstallWater
+        // The hand install of OJZ_WaterRaster that used to sit here is GONE (P-b Task 6),
+        // and the reason it could not go earlier is now closed. It survived C2 Task 13 —
+        // which deleted the Variant_Water_Deep bind beside it, since every OJZ preset
+        // carries `variants: [Variant_Water_Deep, 0]` and Parallax_CheckBoundary's first
+        // call binds section 0 before the first Update frame renders — purely because no
+        // OJZ preset set ep_patched, making this the ONLY installer of a Buf_B program
+        // anywhere in the tree. Task 7 gives a section preset a `patched:` binding, so the
+        // preset path is now that installer and a hand install here would be a second,
+        // competing one. Installing effects from a test's Init is exactly the "0 means keep
+        // whatever the last section had" shape total binding exists to remove.
 
         // -- transition to update loop --
         move.l  #GameState_OJZScroll_Update, (Game_State).w
@@ -377,11 +367,61 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    the section under the camera centre, same as flat_id above). --
         jbsr    Parallax_CheckBoundary
 
-        // -- effects P2 Task 7: re-patch the water boundary from Raster_Water_Line so
-        //    the controller can move the line live (write Raster_Water_Line, watch the
-        //    boundary track). Cheap (one word write); no-op visually when Buf_B is not
-        //    the active buffer. --
-        jbsr    Raster_PatchWaterWorldY
+        // -- The per-frame Raster_PatchWaterWorldY call that used to sit here is GONE (P-b
+        //    Task 6). PATCHING moved INTO Raster_VBlank (Raster_PatchAll) and that move is
+        //    load-bearing, not tidying: every arm word is a RELATIVE gap, so a patch running
+        //    from the main loop races Raster_HInt walking the same buffer during active
+        //    display and desynchronises the whole tail of the chain. The single-word water
+        //    patch got away with main-loop timing only because its one arm is consumed at
+        //    the frame-top rewind, which made it structurally a next-frame write.
+        //
+        //    WHAT REPLACES IT, below: the AFFORDANCE that call provided — move a boundary
+        //    live and watch it track — restored through the only interface that is
+        //    race-safe. Writing an ANCHOR from the main loop is safe precisely because it
+        //    is not a patch: it lands in RAM, and the next Raster_PatchAll converts every
+        //    anchor to arm bytes in one pass at VBlank. That main-loop-write -> VBlank-
+        //    conversion seam is the whole point of keeping anchors in RAM, and this is the
+        //    only thing in the tree that crosses it.
+        //
+        //    C+UP / C+DOWN nudge channel 0's world anchor by one pixel per held frame,
+        //    both directions so BOTH band clamps are reachable by hand. DEBUG-gated and
+        //    INPUT-gated on purpose: a free-running counter would perturb every frame of
+        //    every build of this scene, moving the visual baseline and risking a desync in
+        //    the replay fixtures for no benefit. Input-gated code is inert by default — a
+        //    replay that never presses the chord is bit-identical. C is unclaimed here
+        //    (A is the character-cycle hotkey, B the debug toggle).
+        //
+        //    It is ALSO the only call site of Effects_SetWorldY in the tree, and that is
+        //    why it exists rather than being convenience. The proc's four instructions are
+        //    assembled either way — what an uncalled `pub proc` cannot pin is its CONTRACT:
+        //    that d1 is WORLD space and not camera-relative, and that the proc and the
+        //    preset seed loop agree on Effects_World_Y's base and element size. Widen the
+        //    array or reshape the seed and an uncalled setter rots silently until the first
+        //    content parcel inherits a broken handle. This is the same failure class that
+        //    let fx_tint_band ship broken for two parcels, reached by drift instead of by
+        //    never being elaborated.
+    if DEBUG == 1 {
+        move.b  Ctrl_1_Held, d0                 // held, not press — nudge per frame
+        andi.b  #BUTTON_C, d0
+        beq     .no_anchor_nudge
+        moveq   #0, d1                          // d1 = signed step, 0 until a direction
+        move.b  Ctrl_1_Held, d0
+        btst    #BUTTON_UP_BIT, d0
+        beq     .anchor_not_up
+        moveq   #-1, d1
+    .anchor_not_up:
+        btst    #BUTTON_DOWN_BIT, d0
+        beq     .anchor_not_down
+        moveq   #1, d1
+    .anchor_not_down:
+        tst.w   d1
+        beq     .no_anchor_nudge                // C alone, or C with both: no move
+        add.w   Effects_World_Y, d1             // channel 0's current anchor + step
+        moveq   #0, d0                          // channel 0
+        jbsr    Effects_SetWorldY
+    .no_anchor_nudge:
+    }
+
 
         // -- T15 diagnostic: per-section sky-color marker --
         move.w  d6, d0                          // flat section_id

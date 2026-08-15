@@ -135,7 +135,10 @@ palette_compose_total_cycles  = 0        # was 19568 — see above
 [ram]
 # code-derived — the two effects RAM blocks (engine/ram.emp span guards).
 palette_state_bytes  = 472           # PALETTE_STATE_SIZE
-raster_state_bytes   = 288           # RASTER_STATE_SIZE (Program/Cursor/Pending/Line + Buf_A/Buf_B 128 each + Active_Buf + dense + water)
+raster_state_bytes   = 306           # RASTER_STATE_SIZE (Program/Cursor/Pending/Line + Buf_A/Buf_B 128 each + Active_Buf + dense + ramp + Effects_World_Y[4] + Patch_Tab)
+                                     # 288 -> 306 in effects-P3 P-b: -4 for the deleted single-channel water pair
+                                     # (Raster_Water_Line + Raster_Water_World_Y), +8 for Effects_World_Y[RASTER_MAX_PATCH],
+                                     # +4 for Raster_Patch_Tab, +10 for the ramp cells already present but never added here.
 variant_stage_bytes  = 256           # PAL_MAX_VARIANTS * 128 (part of palette_state)
 free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 

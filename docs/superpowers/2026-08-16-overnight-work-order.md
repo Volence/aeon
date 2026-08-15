@@ -70,13 +70,33 @@ its own gate. Nothing else leaves the machine.
 
 ## The queue
 
-### 1. Parcel P-b — the runtime (START HERE)
+### 1. ~~Parcel P-b — the runtime~~ — **DONE 2026-08-15, all ten tasks, merged.**
 
-Plan: `docs/superpowers/plans/2026-08-15-effects-p3-parcel-p-b.md`. Ten tasks, six rulings already
-made in the plan's preamble — do not re-litigate them.
+Plan: `docs/superpowers/plans/2026-08-15-effects-p3-parcel-p-b.md`. Evidence:
+`docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`. Chain 120.
 
-Note **Task 8 (the gate) is foreground oracle work** and is the slowest part of the parcel, not the
-code. Everything through Task 7 is delegable; Task 8 is not.
+Two rulings were taken to a Fable adviser and are recorded where they bind:
+
+- **The demo-CRC gate criterion is superseded** (recorded in the plan's Task 10). It is
+  unachievable for any parcel that adds engine RAM and therefore carried zero bits. Replaced by
+  `tools/demo_drift_classifier.py`, which requires the demo diff to classify with **zero
+  unclassified bytes**. Both demo shapes pass; proved non-vacuous by tampering one code byte.
+- **`Effects_SetWorldY` got a call site** (GATE-EVIDENCE §6). The adviser corrected the failure
+  class: `fx_tint_band` was a *comptime* helper that was never elaborated, whereas a `pub proc` is
+  assembled either way — what an uncalled one cannot pin is its **contract**.
+
+**Three things the next session should know:**
+
+1. **EFX-9 is new and it invalidates EFX-5's reasoning.** `tools/effects_budget_check.py` is
+   correct and is **run by nothing** — not `build.sh`, not CI. `raster_state_bytes` had drifted 10
+   bytes and the gate credited with preventing that never executes. P-b corrected the value and
+   repaired a crash in it; **the wiring is Parcel B's**, item 3 below.
+2. **`raster_port` is confirmed dead**, as item 4 suspected: it appears only in `repin.toml` and in
+   `pins.rs`'s generated doc comments, and `refreeze`'s own rerun hint still names it. P-b
+   deliberately did **not** add pins to it.
+3. **A better raster instrument exists than the one the gate used.** `ojz_scroll_test.emp` has
+   `Debug_Scene_Freeze`, which skips `Camera_Update` so a written `Camera_X/Y` stays put. It was
+   found only after the gate had been measured the hard way (lowering `Camera_Y_Max`). Use it.
 
 ### 2. `replay_runner` framebuffer dump — the highest-leverage item in this list
 
