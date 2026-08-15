@@ -494,9 +494,19 @@ pub proc Raster_VBlank () clobbers(d0-d2/a0-a2) {
         move.l  d0, Raster_Program
         bne.s   .copy_program
         // Pending was an explicit clear: idle the trampoline and drop IE1.
+        // The patch table dies WITH the program. Raster_PatchAll's only liveness test is
+        // Raster_Patch_Tab != 0 (Active_Buf is untouched on this path — that is the whole
+        // reason the test is the table), so leaving it set here would keep the patcher
+        // writing arm bytes into a buffer whose program has been torn down.
+        clr.l   Raster_Patch_Tab
         jbsr    HBlank_Uninstall
         rts
     .copy_program:
+        // A static ROM program is landing in Buf_A. The outgoing patched program's table
+        // described Buf_B's layout, and its arm_offs are meaningless against this one — a
+        // stale table here would rewrite Buf_A's op_counts as if they were arm words, every
+        // VBlank, and send the HInt walker through ROM as opcodes.
+        clr.l   Raster_Patch_Tab
         movea.l d0, a1
         lea     Raster_Buf_A, a2
         move.l  a2, Raster_Active_Buf
@@ -827,6 +837,35 @@ pub proc Raster_InstallPatchedWorldY (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
         jbsr    Raster_CopyPatchedTemplate
         move.w  d0, Raster_Water_World_Y
         jbra    Raster_PatchWaterWorldY
+}
+
+// -----------------------------------------------
+// Raster_InstallPatched — install a patched template and seed its world anchors.
+//   a0 = patched template   a2 = *u16 authored world Ys (RASTER_MAX_PATCH of them)
+//
+// a2 NOT a1: Raster_CopyPatchedTemplate declares clobbers(d1/a0-a1) and uses a1 as its Buf_B
+// write pointer, so an anchor pointer in a1 is destroyed before it can be read.
+//
+// ORDER IS LOAD-BEARING. Raster_Patch_Tab is set BEFORE the copy points Active_Buf at Buf_B:
+// the copy makes the buffer look live, and a Patch_Tab still holding the PREVIOUS template
+// (or 0 at first install, which would read the vector table as a record count) inside that
+// window is exactly the race Raster_PatchAll's VBlank timing would otherwise expose.
+// -----------------------------------------------
+pub proc Raster_InstallPatched (a0: u32, a2: u32) clobbers(d0-d5/a0-a2) {
+        lea     RASTER_BUF_SIZE(a0), a1
+        move.l  a1, Raster_Patch_Tab            // table first
+        // Seed the anchors from the preset's inline array.
+        lea     Effects_World_Y, a1
+        moveq   #RASTER_MAX_PATCH-1, d0
+    .seed:
+        move.w  (a2)+, (a1)+
+        dbf     d0, .seed
+        // A dense run in flight belongs to the OUTGOING program. Nothing else clears it, so
+        // crossing from the gradient section into a patched one mid-run leaves the handler in
+        // .dense_body streaming a stale cursor while this program's records are never walked.
+        clr.w   Raster_Dense_Lines
+        jbsr    Raster_CopyPatchedTemplate      // sets Active_Buf = Buf_B
+        jbra    Raster_PatchAll
 }
 
 // -----------------------------------------------
