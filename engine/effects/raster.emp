@@ -847,6 +847,14 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
 // Raster_PatchAll — move every patchable boundary to its world-anchored line. Walks the ROM
 // patch table P-a's patched_program emitted at template + RASTER_BUF_SIZE.
 //
+// IT NO LONGER DERIVES THE SCREEN LINE. `world_y - Camera_Y` moved out to
+// Effects_LatchWorldLines in the main loop, and this proc reads the latched result. That is
+// what makes the fire line and the parallax boundary and the frame-top ship agree on ONE
+// camera: a VInt_Lag frame runs VBlank twice against a single main-loop update, so a local
+// re-derivation here would put this proc's answer on a different camera than the overlay's.
+// The Camera_Y read and its `sub` are gone; d3 is consequently free and deliberately unused
+// (see the register-budget note below before reaching for it).
+//
 // CALLED FROM Raster_VBlank, NOT THE MAIN LOOP, and that is load-bearing. Every arm word is a
 // RELATIVE gap to the next fire, and this routine writes one byte per record scattered across
 // the buffer. From the main loop it would run while Raster_HInt is walking that same buffer
@@ -880,19 +888,17 @@ proc Raster_PatchAll () clobbers(d0-d4/a0-a2) {
         beq     .none                       // liveness: the TABLE, never Active_Buf
         movea.l d0, a0
         lea     Raster_Buf_B, a1
-        lea     Effects_World_Y, a2         // indexed access needs its own An
+        lea     Effects_Screen_L, a2        // indexed access needs its own An
         move.w  (a0)+, d4                   // count (a WORD)
         subq.w  #1, d4
         moveq   #1, d0                      // prev fire line = L[1] = 1, priming record 1
-        move.w  Camera_Y, d3                // 16.16 -> the integer word
     .entry:
         move.w  (a0)+, d1                   // arm_off
         move.w  (a0)+, d2                   // line_src
         bpl     .static                     // high bit clear -> a literal fire line
         andi.w  #RASTER_MAX_PATCH-1, d2     // channel index
         add.w   d2, d2                      // -> word offset
-        move.w  (a2, d2.w), d2              // authored world Y
-        sub.w   d3, d2                      // screen line; may go negative, meaningfully
+        move.w  (a2, d2.w), d2              // the LATCHED screen line; may be negative
         subq.w  #1, d2                      // -> fire line. ONE conversion, here.
         cmp.w   (a0), d2
         bge     .lo_ok

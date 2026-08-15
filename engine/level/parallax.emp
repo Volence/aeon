@@ -739,13 +739,15 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         cmpi.w  #PARALLAX_ANCHOR_NONE, d2
         beq     .bands_ready                        // no overlay: byte-identical to before
 
-        // L = anchor - camera, in SCREEN lines. May go negative, meaningfully.
+        // L = the channel's screen line, LATCHED this frame by Effects_LatchWorldLines
+        // (main loop, after Camera_Update, before this proc). May be negative, meaningfully.
+        // Reading the latch rather than recomputing `anchor - Camera_Y` here is what keeps
+        // this boundary and Raster_PatchAll's fire line on the SAME camera on a lag frame,
+        // where VBlank runs twice against one main-loop update.
         move.w  d2, d0
         add.w   d0, d0                              // channel -> word index
-        lea     Effects_World_Y, a4                 // (Effects_World_Y).w
-        move.w  (a4,d0.w), d0                       // authored world Y
-        move.w  Camera_Y, d1                        // 16.16 -> the integer word
-        sub.w   d1, d0                              // d0 = L
+        lea     Effects_Screen_L, a4                // (Effects_Screen_L).w
+        move.w  (a4,d0.w), d0                       // d0 = L
 
         // Clamp L to the channel's own raster band, so the palette boundary and this one
         // pin TOGETHER. Raster_PatchAll clamps its fire line to the same pair; if this side
