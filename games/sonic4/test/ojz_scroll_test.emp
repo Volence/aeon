@@ -430,9 +430,15 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         // Clamp the nudge to channel 0's own declared raster band, converted into world
         // space. Two reasons, and the second is the load-bearing one:
         //
-        //  1. Without it the hotkey drives the anchor somewhere Raster_BuildSchedule silently
-        //     clamps anyway, so the palette boundary stops tracking while the anchor keeps
-        //     moving — under the very instrument used to watch them track together.
+        //  1. Below the band the hotkey would otherwise drive the anchor somewhere
+        //     Raster_BuildSchedule silently clamps anyway, so the palette boundary would stop
+        //     tracking while the anchor kept moving — under the very instrument used to watch
+        //     them track together. That is still true at the LO edge and the clamp stays there.
+        //     IT IS NO LONGER TRUE AT THE HI EDGE. Past band_hi the builder does not clamp, it
+        //     DROPS the record (the whole point of the local-removal parcel), so a hi clamp here
+        //     would fence this instrument out of the one state it most needs to reach — the
+        //     hotkey could never show the boundary going away. The hi clamp is therefore gone
+        //     and the nudge may leave the band upward, into suppression.
         //  2. It is the ONLY call site of Raster_GetChannelBand. A `pub proc` is assembled
         //     whether or not anything calls it; what an uncalled one cannot pin is its
         //     CONTRACT — that d0 selects a channel, that d0=0 back means "no band declared",
@@ -454,12 +460,8 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         move.w  (sp)+, d0                       // d0 = candidate
         cmp.w   d1, d0
         bge     .anchor_lo_ok
-        move.w  d1, d0
+        move.w  d1, d0                          // LO only — see 1. above; hi must stay reachable
     .anchor_lo_ok:
-        cmp.w   d2, d0
-        ble     .anchor_hi_ok
-        move.w  d2, d0
-    .anchor_hi_ok:
         move.w  d0, d1                          // d1 = clamped world Y
         jbra    .anchor_do_set
     .anchor_pop_unclamped:

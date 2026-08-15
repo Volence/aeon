@@ -807,10 +807,15 @@ pub const RASTER_MAX_FIRE_LINE = 223
 // parallax overlay) that is NOT gated on a patched program, so the old placement was not
 // merely inconsistent — it was unsound for anything but the single reader it grew up with.
 //
-// ORDER IS LOAD-BEARING. Raster_Patch_Tab is set BEFORE the copy points Active_Buf at Buf_B:
-// the copy makes the buffer look live, and a Patch_Tab still holding the PREVIOUS template
-// (or 0 at first install, which would read the vector table as a record count) inside that
-// window is exactly the race Raster_BuildSchedule's VBlank timing would otherwise expose.
+// ORDER IS LOAD-BEARING, and it survived the copy's deletion with its reason intact but its
+// mechanism changed. Raster_Patch_Tab is set FIRST, before the stores below point Active_Buf and
+// Raster_Program at a buffer — because those two are what make the buffer look live to
+// Raster_VBlank, and a Patch_Tab still holding the PREVIOUS template (or 0 at first install, which
+// would read the vector table as a record count) inside that window is the race the builder's
+// VBlank timing would otherwise expose. It used to say "before the COPY points Active_Buf at
+// Buf_B"; there is no copy any more — the builder re-records from the ROM template every VBlank —
+// but the window between "looks live" and "has a valid table" is the same window, and the table
+// still has to win it.
 // -----------------------------------------------
 pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         lea     RASTER_BUF_SIZE(a0), a1
