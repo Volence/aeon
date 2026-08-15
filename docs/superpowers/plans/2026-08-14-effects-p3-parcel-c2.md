@@ -420,7 +420,9 @@ pub data Preset_None: EffectsPreset = preset(
     cycle:    Pal_Cycle_None)
 ```
 
-**Note the coupling this creates and state it in the comment:** `Preset_None` is not game-agnostic — it names a palette. If it must live in `engine/`, take the palette as a parameter instead and let each game define its own `Preset_None`. Decide this in the task and record which was chosen.
+**DECIDED (controller, 2026-08-14): `Preset_None` is GAME-SIDE.** It lives in `games/sonic4/data/effects/ojz_presets.emp` (Task 12), not in `engine/`. Reason: a preset must carry a palette (§5.2) and palettes are game content, so an engine-side `Preset_None` would either hardcode a game's palette or need a comptime fn manufacturing per-game data — indirection for no gain, across a wall `CLAUDE.md` calls hard. `Pal_Cycle_None` DOES stay engine-side: it is a zero-channel script with no game content in it.
+
+Therefore in this task create **only `Pal_Cycle_None`**. `Preset_None` is created in Task 12 beside the presets that use it.
 
 - [ ] **Step 3: Build. Bytes MOVE here** (two new `pub data`). Expect all four CRCs to change; that is correct and this is the first task where it happens.
 
