@@ -205,6 +205,52 @@ genuinely open; none of them can be closed from the tree alone.
 
 ---
 
+## PARKED FOR REVISIT — mid-line CRAM writes: a VERTICAL (left/right) palette boundary — 2026-08-15
+
+**Owner asked for this to be parked and retrievable, not dropped.** Raised while testing Parcel W's
+water line: *"can I do 389 cycles of nothing, then 100 cycles of a different palette for one line —
+does the right side of the screen become that palette?"*
+
+**The premise is correct.** The VDP reads CRAM as it draws each pixel, so a CRAM write part-way
+through a scanline changes the colours for the remainder of that line. We are already producing
+this effect BY ACCIDENT: channel 0's 3-word CRAM fire measures **526 cycles against a 489-cycle
+line** (`docs/superpowers/notes/` density measurement, 2026-08-14), so it spills past the line edge
+and repaints mid-line. That is the "cuts off halfway" the owner observed at the water boundary on
+2026-08-15 — the horizontal-boundary mechanism demonstrating itself unintentionally.
+
+**Three obstacles, in order of how much they hurt:**
+
+1. **The CRAM dot is not tunable away.** A CRAM write during active display corrupts the pixel
+   being output at that instant — the colour bus is hijacked. `EFX_BLANK_DELAY` exists precisely to
+   push our writes into HBlank so nobody sees it (`engine/effects/raster.emp`, the row-119 fix).
+   Titan's demos do not avoid the dot; they choreograph it. **Choosing a vertical boundary is
+   choosing to put a dot on it.**
+2. **Bus slots, not cycles, are the currency.** During active display the 68000 gets VDP access
+   only at scarce fixed slots, so a cycle-counted delay does not land where the arithmetic says —
+   it lands at the next slot. Horizontal positioning is therefore quantised much coarser than a
+   pixel, and the quantisation is not a round number.
+3. **No budget left.** 526 > 489 already. A second timed write per line means fewer colours per
+   fire, not extra work for free. Realistic ceiling: about ONE mid-line write per line.
+
+**Do not reach for this first — three cheaper mechanisms cover most vertical-boundary wants:**
+- **Per-tile palette lines** (four lines, free) — the right answer whenever the boundary follows
+  tile geometry.
+- **The window plane** (free rectangular region with its own tiles) — the right answer for a
+  status-bar-shaped split.
+- **Per-column VSRAM, which Aeon ALREADY SHIPS** — `pcfg_v_deform_table_bg`, 20 column-pairs
+  sampled per frame (ARCH §4.6). Vertical-boundary *scroll* effects are already free; it is only
+  *palette* on the vertical axis that is unsolved.
+
+**If it is built anyway**, the hook is the DENSE tier: `OP_RUN_GRADIENT` is the only mechanism with
+per-line control (it fires every line with reg `$0A`=0 and runs a minimal body), so a mid-line
+write would be a second timed store inside a dense-run body. It is a **set-piece effect, not a
+vocabulary op** — expensive, artifact-bearing, spectacular. Cost it as a demo, gate it on a pinned
+camera, and expect the dot to be part of the art direction rather than a defect to fix.
+
+**Unblocked already** — nothing is missing. This is parked on cost and taste, not dependencies.
+
+---
+
 ## MAINTENANCE PROTOCOL — in-place annotation is the convention (settled 2026-08-05)
 
 The "How to Use This Document" section at the bottom says to *move* completed items to the Done
