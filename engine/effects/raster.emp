@@ -913,6 +913,80 @@ proc Raster_PatchAll () clobbers(d0-d4/a0-a2) {
 }
 
 // -----------------------------------------------
+// Raster_GetChannelBand — report the fire-line band the LIVE patched program declares for
+// a world-anchor channel, so a SECOND consumer of that anchor clamps exactly where
+// Raster_PatchAll clamps it (:895-901).
+//
+// WHY THIS EXISTS AT ALL. Raster_PatchAll pins a patchable fire to its record's authored
+// band, and that clamp is load-bearing rather than cosmetic: a negative inter-record gap
+// would store $FF, which IS the park word, killing every remaining fire in the frame
+// (see the note above that proc). Parcel W's parallax overlay reads the same anchor to
+// place a scroll boundary. If it clamped anywhere else, then outside the record's band the
+// palette boundary would pin while the scroll boundary kept following the camera — the two
+// separating, which is the exact defect that parcel exists to remove. Not hypothetical:
+// OJZ channel 0 is authored with band 40..120 and clamps to lo once the camera descends
+// past world Y 184, on the ordinary scroll path.
+//
+// READING THE TABLE BEATS DUPLICATING THE BAND. The alternative was carrying the band in
+// parallax data and keeping the two copies in step with a shared comptime const — still two
+// authored numbers that agree only while every author remembers the const, which is the
+// failure mode copy_band_entry's note preaches against. Here the clamp IS the raster
+// record's own two words: change `patchable`'s band and both boundaries' clamp moves, with
+// no second author action possible.
+//
+//   d0.w = channel
+// Out: d0 = 0 -> no band; the caller must NOT clamp (see below). d0 = 1 -> d1.w = lo,
+//      d2.w = hi, both FIRE lines (screen line - 1, :894's coordinate system).
+//
+// A ZERO RESULT IS A SEMANTIC ANSWER, NOT A FAILURE. Raster_Patch_Tab == 0 means no patched
+// program is live — the anchored-parallax-without-a-patched-program case W0 legitimised — so
+// there is no palette boundary to diverge from and an unclamped [0,224] is correct. Same for
+// a channel with no patchable record in the live table.
+//
+// d1/d2 ARE ONLY MEANINGFUL WHEN d0 = 1. They are declared `out` unconditionally because
+// that is what the register contract can express; the d0 test is the caller's obligation.
+//
+// CLOBBERS a0, which the parallax caller holds its config pointer in; that caller saves it.
+// -----------------------------------------------
+// THE OUTS ARE TYPED, and that is required rather than decorative: a BARE `out(dN)` claims
+// all 32 bits, which only a `.l` write or a `moveq` satisfies, while the band words arrive
+// here through `move.w`. `out(dN: u16)` claims exactly the low word — the width these values
+// actually have — and sigil's out-verifier checks it at that width on every return path.
+pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: u16) {
+        move.l  Raster_Patch_Tab, d1
+        beq     .none                       // liveness: the TABLE, exactly as Raster_PatchAll
+        movea.l d1, a0
+        andi.w  #RASTER_MAX_PATCH-1, d0
+        ori.w   #$8000, d0                  // a patchable line_src is $8000|channel
+        move.w  (a0)+, d2                   // record count (a WORD)
+        beq     .none                       // malformed: raster_dsl ensures fires.len >= 1,
+                                            // so this is unreachable — but a 0 here would
+                                            // dbf 65536 times through ROM comparing garbage
+        subq.w  #1, d2
+    .entry:
+        addq.l  #2, a0                      // skip arm_off
+        move.w  (a0)+, d1                   // line_src
+        cmp.w   d0, d1
+        beq     .found
+        addq.l  #4, a0                      // skip the two band words
+        dbf     d2, .entry
+    .none:
+        // d1/d2 are zeroed on this path, not left as they fell, because `out(d1, d2)` is a
+        // TOTAL contract: the null-table entry never touches d2 and sigil's out-verifier
+        // says so (proc.out-unverified). Zeroing costs two instructions and makes the
+        // declaration true on every return path rather than on the interesting one.
+        moveq   #0, d0
+        moveq   #0, d1
+        moveq   #0, d2
+        rts
+    .found:
+        move.w  (a0)+, d1                   // band_lo_fl
+        move.w  (a0), d2                    // band_hi_fl
+        moveq   #1, d0
+        rts
+}
+
+// -----------------------------------------------
 // Effects_SetWorldY — move a patch channel's world anchor. THE named handle for every
 // runtime-varying effect: rising lava, a flood line, a beat-driven pulse. Without it the only
 // way to move a boundary is poking RAM at an index the author has to guess.
