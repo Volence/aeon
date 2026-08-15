@@ -97,6 +97,34 @@ construction, so the RAM-layout shift from deleting `VDP_Dirty_Mask` cannot move
 **To close:** find or reconstruct the arming protocol, then re-measure. This is entangled with
 the tick-735 re-stamp below — both want the same missing recipe.
 
+### ✅ CLOSED 2026-08-14 — measured with the headless runner; the net was GREEN all along
+
+The missing recipe was never found because it was not needed: the **headless replay runner**
+(`oracle-next/target/release/replay_runner`, wired as `test.sh` section 8 by `b64b896e`, which
+landed a few hours AFTER this entry was written) arms deterministically and grades the run
+itself. Measured on it:
+
+| ROM | `ojz_fixture` | `ojz_slide_fixture` |
+|---|---|---|
+| master post-boot-fix `3cffc29b` | **PASS** — 1721 ticks, `Replay_Done=$FF` | **PASS** — 2350 ticks |
+| pre-boot-fix `c13412fc` (this entry's ROM) | **PASS** | **PASS** |
+
+Both fixtures run to their declared end, `Input_Source` self-clears on the completion path,
+and the runner's **negative control** trips correctly (planting `$DEADBEEF` over the first
+checkpoint raises `REPLAY DESYNC` at Logic_Tick 2) — so the compare is live and the passes are
+not vacuous.
+
+**The tick-735 desync never existed.** It was an artifact of hand-arming, exactly as this entry
+suspected when it recorded three different hashes from three arming attempts on one ROM. The
+re-stamp this entry pointed at was ALREADY DONE and merged: `32a79e1d` (2026-08-13, "re-stamp
+ojz_fixture checkpoints stale since the Knuckles C4 merge") is on master and is the most recent
+change to `games/sonic4/test/replay_fixture.emp`. The Effects P3 roadmap's "Parcel 0 — shipped"
+row was right; the 2026-08-14 work order that reopened it was working from the bad measurement.
+
+**Lesson:** a manual measurement that yields a different answer every time is not weak evidence,
+it is ABSENT evidence, and it must not be written up as a finding. This entry booked
+"master desyncs at tick 735" as fact off three mutually-contradictory readings.
+
 ---
 
 ## ⚠ OPEN — a sigil test binary ABORTS and its tests vanish from the suite totals
