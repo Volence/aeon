@@ -108,12 +108,65 @@ gate has to be a manual pinned-camera oracle capture. That is why P-b's gate is 
 it will be the slow part of W, R and D too. A row-dump at checkpoints makes all of them
 deterministic and headless.
 
-Design decision to hand to a Fable adviser: dump **whole frames** (big, simple, diffable) versus
-**named row ranges** (small, needs the fixture to declare what it cares about). Give it the P-a and
-P-b gate documents as evidence of what the gates actually need to assert.
+**DESIGN SETTLED 2026-08-15 by Fable adviser** (briefed with the finished P-b gate as the
+requirements list). Not yet implemented — this is a ready-to-start parcel, not an open question.
 
-Note `ojz_fixture` is **red on master** (open re-stamp, desync at tick 735, `docs/BUGS.md`) — decide
-whether this parcel also re-stamps it or explicitly leaves it, and say which in the evidence.
+**Ruling: whole frames as the dump primitive, with the measuring instrument built ONCE into the
+harness. Named row ranges are REFUSED** — the load-bearing half of every P-b clamp result was
+"zero differing pixels at rows 120..223", an assertion about rows a fixture author would never
+have declared, so a declare-what-matters format structurally cannot express the gate.
+
+Build it in three stages, and keep them separate — the runner stays dumb, the instrument stays
+canonical, the gates stay thin:
+
+1. **`--dump-frames DIR`** on `replay_runner` (plus `--dump-at T1,T2,…` for ticks that are not
+   checkpoints, since effects gates will want moments the fixture does not name). The core
+   already renders every active scanline in its hot path, and `oracle-core/src/scanline_capture.rs`
+   already ships `ScanlineCapture` with `Retain::LastFrame` — documented as the thing that makes
+   **mid-frame CRAM effects visible**, which is precisely the subject. Sinks are opt-in via
+   `wants_scanlines`, so a run without the flag stays byte-identical to today.
+2. **`replay_framediff A_DIR B_DIR`** — a second binary, the canonical instrument. Per checkpoint:
+   differing rows grouped into bands with explicit edges; per differing row a pixel count and
+   `min_x`/`max_x`; and the identical ranges enumerated explicitly. Text plus a JSON sidecar.
+   Those fields are exactly what the P-b gate had to establish by hand.
+3. **`--expect-identical`**, a same-config re-run control that must report zero diffs. The
+   background-animation drift that contaminated a P-b measurement **dissolves** headlessly — two
+   runs of one config latch bit-identical frames because the animation phase is pinned by the
+   tick — and this control is what keeps that honest while also catching nondeterminism creeping
+   into the core.
+
+**No committed golden images.** Pixels never enter the repo; dumps go to scratch (~7-8 MB/run,
+disposable). The committed artifact is the small framediff **report**. A report-golden churns only
+when the effect's geometry actually moves — which is exactly when review should look — whereas a
+PNG golden churns on any pixel anywhere and would feed the freeze ritual for nothing.
+
+**The rule that stops every parcel re-inventing its instrument, and it is a hard line:** a gate
+script may select and assert on report fields; **it may never read pixels**. If a gate needs a
+question the report cannot answer, the *report format* gets extended in `oracle-replay` — once,
+reviewed, versioned with the harness — and every later gate inherits it. Do not add assertion
+flags to the runner.
+
+One constraint to write down: an A/B pair is two ROM builds under one fixture, so the config delta
+must not perturb the RAM the checkpoint hashes cover. Effect-config-only deltas (anchors, bands,
+palettes) do not touch player state, so this holds for W/R/D; if a future A/B desyncs, that is the
+gate telling you the delta was not effect-only.
+
+**Definition of done:** re-derive the P-b gate's row measurements through the tool. If it cannot
+reproduce the seven-for-seven arm-word table's row consequences and the row-59/99 fragment
+characterisation (`min_x` 127 and `max_x` 255), it is not finished.
+
+~~Note `ojz_fixture` is **red on master** (open re-stamp, desync at tick 735, `docs/BUGS.md`) —
+decide whether this parcel also re-stamps it or explicitly leaves it.~~ **STALE, CORRECTED
+2026-08-15 — do not act on it.** `ojz_fixture` is **GREEN**, and `docs/BUGS.md` has said so since
+2026-08-14: the tick-735 desync *never existed*, it was an artifact of hand-arming (three arming
+attempts on one ROM produced three different hashes), and the re-stamp it pointed at had already
+been merged as `32a79e1d`. Both fixtures pass, and the runner's negative control trips correctly,
+so the passes are not vacuous.
+
+**This is the second time that dead claim has been copied forward into a work order**, which is
+the reason for spelling it out rather than deleting the line: the parcel has no fixture-repair
+prerequisite, and the recorded lesson is that *a manual measurement giving a different answer
+every time is not weak evidence, it is ABSENT evidence*.
 
 ### 3. Parcel B — budget honesty (small, safe, mostly correction)
 
