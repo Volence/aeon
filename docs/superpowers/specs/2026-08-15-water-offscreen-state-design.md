@@ -1,3 +1,99 @@
+# Water off-screen state — REJECTED DRAFT + the sweep that replaced it
+
+**Status: THE MECHANISM BELOW WAS REJECTED.** Kept because the reasoning is load-bearing for
+whoever builds this next, and because knowing *why* a design was believed is worth more here than
+a clean page. Read §0 first; the draft body follows unedited beneath it.
+
+## 0. Outcome of the three-lens sweep, 2026-08-15
+
+**Verdict: DO SOMETHING ELSE.** Three lenses (two Opus, one Fable) plus a Fable premise audit.
+
+**The draft did not fix its own headline measurement.** Its worst case was Camera_Y 32, boundary
+rendered 72 lines too high. But `L = 224 - 32 = 192`, which is `< 224`, so by the draft's own rule
+that is the NORMAL state — "unchanged". The 72-line error is a **band** defect, not an off-screen
+one. The draft would have shipped without touching the thing that motivated it, and would have
+added a discontinuity: at Camera_Y 0 the dry state renders correctly, at Camera_Y 1 the normal
+state clamps to 120 and 103 lines snap wet — a full-lower-screen pop on one pixel of movement.
+
+**What actually fixed it: RE-BANDING** (aeon `8fcf4d2b`). ch0 3..214 / ch1 216..223. Worst dry-side
+error 72 -> 10 lines, zero new mechanism. The band was narrow only because a gate fixture sat
+mid-screen.
+
+**Three further defects in the draft's mechanism:**
+1. **"The fire becomes inert" is false.** Channel 0's record carries TWO ops; the `OP_SET_REG
+   $8C89` S/H write fires in every state regardless of what the palette buffers hold. Invisible
+   only while all OJZ art is high-priority — a content gap the fixture plans to close.
+2. **Writing water into `Palette_Buffer` is a compounding feedback loop.** `Palette_DeriveVariant`
+   READS that buffer (`palette.emp:688`), so the next stale frame derives `f(water)` and
+   `Variant_Water_Deep` halves R/G again — base R=6 -> 3 -> 1 -> 0 within three stale frames. And
+   nothing restores those words on exit; `Palette_Buffer` lines 1-3 are only rewritten from
+   `Pal_Base` on `Pal_Base_Dirty`. Also: the "offsets coincide" elegance does NOT extend to
+   `Pal_Base` — `Palette_Buffer + $20` maps to `Pal_Base + 0`, so the base twin of offset 72 is
+   `Pal_Base + 40`.
+3. **The abstraction is misplaced.** "Submerged" is meaningless for channel 1's vscroll split, so
+   water vocabulary would be installed at the raster level, constraining every future patched
+   effect. The *geometry* (unclamped L above/within/below screen, per channel) is generic and
+   belongs beside `Raster_GetChannelBand`; the *response* is per-effect and belongs in the
+   vocabulary/preset.
+
+## 1. WHAT TO BUILD INSTEAD — steal S3K's, which costs nothing
+
+`Handle_Onscreen_Water_Height` (`skdisasm/sonic3k.asm:8473-8519`) computes
+`Water_level - Camera_Y` and, when `<= 0`, sets `Water_full_screen_flag` and
+`H_int_counter = -1`. The flag's ONLY job is to pick a DMA source at frame top — four identical
+readers (`sonic3k.asm:595-603`, `:726`, `:800`, `:928`):
+
+```
+tst.b   (Water_full_screen_flag).w
+bne.s   VInt_0_FullyUnderwater
+dma68kToVDP Normal_palette,$0000,$80,CRAM
+VInt_0_FullyUnderwater:
+dma68kToVDP Water_palette,$0000,$80,CRAM
+```
+
+**Same DMA either way. Cost is one `tst.b`/`bne.s` (~16 cycles) per frame** plus a duplicated DMA
+macro in ROM. No transition machinery, no hysteresis, no re-derive, no buffer mutation — which
+sidesteps defect 2 entirely.
+
+**Aeon's form:** a second pre-built `DMAEntry` (`Static_Pal_Line2_Water`) sourcing
+`Pal_Variant_Stage + $40`, and `Enqueue_Dirty_Buffers` picking between it and `Static_Pal_Line2`
+on the flag. Ships all 16 entries of line 2 rather than the fire's 3, which is *more* correct for
+"fully submerged". This is the only option with an exact, side-effect-free restore.
+
+**Where the flag is computed (this one is subtle and Lens A caught it).** NOT in VBlank. Verified
+ordering: `Camera_Update` (`ojz_scroll_test.emp:310`) -> `Parallax_Update` (`:481`, overlay reads
+`Camera_Y` at `parallax.emp:747`) -> VBlank -> `Raster_PatchAll` (`raster.emp:886` reads
+`Camera_Y`). Both consumers already see the same tick's camera. A state computed in VBlank and
+stored would reach the parallax overlay one `Camera_Update` LATER — palette whole-screen wet while
+the shimmer still splits mid-screen, a guaranteed one-frame pop at every transition. **Latch in
+the main loop after `Camera_Update`, before `Parallax_Update`; `Raster_PatchAll` consumes the
+latch.** Latch L itself, not just the state, or a lag frame derives the fire line and the state
+from different cameras (`VInt_Lag` also calls `Raster_VBlank`, `vblank.emp:291`).
+
+**Register reality:** `Raster_PatchAll` has no free register (`clobbers(d0-d4/a0-a2)`, all live;
+`VInt_Lag` omits a3), so the latch must be a RAM cell written at `raster.emp:894` where the
+unclamped L briefly exists — which is the same conclusion the latch argument reaches.
+
+## 2. THE BIGGER PRIZE — Ristar dissolves the "cannot park one record" blocker
+
+§2 of the draft rejects genuine suppression because gaps are relative, so parking one record kills
+every later one. **That is an artifact of Aeon's array-of-gaps encoding, not of raster programs.**
+Ristar's HBlank is a self-rewriting linked list: each node writes its own gap AND its own successor
+(`ristar_disasm/code/disasm.asm:14556-14595`), so removing a node is a local edit. It runs two
+independently armed effects off one chain with separate thresholds, and a disarmed effect costs
+interrupt entry + `tst`/`beq`/`rte` (~40 cycles) instead of its payload
+(`disasm.asm:16184-16199`, and the arm tests at `$00E142`/`$00E250`/`$00E2A0`/`$00E30E`).
+
+Also worth knowing: **Sonic 2 clamps exactly as Aeon did** (`s2.asm:5280-5292`, clamping to 223),
+and S3K/S.C.E. deliberately changed it to disarm. Aeon independently reproduced S2's design and its
+bug. And `HInt5` (`sonic3k.asm:1060-1108`) is Sega's own byte-for-byte water handler with the base
+and water palettes swapped, shipped disabled — the draft's "invert which buffer holds water" idea,
+built and abandoned by its originators.
+
+---
+
+*The rejected draft follows unedited.*
+
 # Water off-screen state — design draft
 
 **Status:** DRAFT, 2026-08-15, for adversarial sweep. No code.
