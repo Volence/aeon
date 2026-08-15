@@ -91,9 +91,10 @@ Two rulings were taken to a Fable adviser and are recorded where they bind:
    correct and is **run by nothing** — not `build.sh`, not CI. `raster_state_bytes` had drifted 10
    bytes and the gate credited with preventing that never executes. P-b corrected the value and
    repaired a crash in it; **the wiring is Parcel B's**, item 3 below.
-2. **`raster_port` is confirmed dead**, as item 4 suspected: it appears only in `repin.toml` and in
-   `pins.rs`'s generated doc comments, and `refreeze`'s own rerun hint still names it. P-b
-   deliberately did **not** add pins to it.
+2. ~~**`raster_port` is confirmed dead**, as item 4 suspected.~~ **Superseded the same night** —
+   item 4 is done and `raster_port` now exists. P-b was right to add no pins to it at the time, and
+   the audit was right that five pins had no consumer, but "confirmed dead" was too strong: two of
+   the seven were live. See item 4.
 3. **A better raster instrument exists than the one the gate used.** `ojz_scroll_test.emp` has
    `Debug_Scene_Freeze`, which skips `Camera_Update` so a written `Camera_X/Y` stays put. It was
    found only after the gate had been measured the hard way (lowering `Camera_Y_Max`). Use it.
@@ -281,3 +282,84 @@ gradient — is exactly what those unlock.
   ask what a broken implementation would score on it.
 - **Docs in this tree drift.** Re-derive every concrete file:line reference against the tree; treat
   specs as INTENT.
+
+---
+
+# BRIEFS FOR THE OWNER — decisions I stopped on rather than took
+
+## Parcel R (queue item 6) — mid-screen restore. **STOPPED, not started.**
+
+Written 2026-08-15 as the work order directed: R "must settle [mid-frame buffer writes] on its own
+terms, and that is a design-direction question, so STOP and brief it rather than deciding it at
+4am." What follows is the ground truth I re-derived, then the decision, then a recommendation you
+can accept or overturn.
+
+### The gap, stated precisely
+
+A raster effect can be turned ON at any line. There is **no mechanism to turn one OFF at a lower
+line**, so a tint confined to lines 100-140 is inexpressible. Everything a program does persists to
+frame bottom and is undone only at frame top.
+
+### How "restore" actually works today — two separate mechanisms, neither of them mid-frame
+
+1. **Registers.** `Raster_VBlank` runs, then `Flush_VDP_Shadow` (`engine/system/vblank.emp:159`,
+   and again on the lag path at `:293`) re-blits **all 19 shadowed VDP registers unconditionally**,
+   every frame. A program carries no reset words at all; the blanket restore is what lets two
+   independently-authored effects touch the same register and simply compose. That was a deliberate
+   deletion of the old per-program `init[]` header, and it is why a raster op needs no undo.
+2. **Palette.** The program header's one word is `pal_dirty_mask`, which `Raster_VBlank` ORs into
+   `Palette_Dirty` **every frame** (`raster.emp:50-51`, `:513-514`). `Enqueue_Dirty_Buffers` then
+   re-ships those CRAM lines from `Palette_Buffer`. So a mid-frame CRAM write is **transient by
+   construction**: above the boundary you see the base palette, below it the modified one, and the
+   base is restored at frame top for the next frame.
+
+Both are FRAME-TOP mechanisms. Neither has a mid-frame form, and that is not an oversight — it is
+the design that made composition free.
+
+### Why the obvious implementation is blocked
+
+The natural way to end an effect at line 140 is "fire again at 140 and write the original values
+back". That is just another fire, and it costs what any fire costs, which is already modelled: a
+3-word CRAM fire is **526 cycles against a 488-cycle line** (measured 2026-08-14), so a restore
+fire is subject to the same density guard as the fire that set the effect. That much is fine.
+
+**What is NOT fine, and is the actual decision:** a restore fire has to know *what to restore to*.
+The values live in `Palette_Buffer`, which is RAM the main loop and the palette compose pipeline
+both write. Sourcing a restore fire's colours from there means either (a) baking a copy into the
+program at build time — which breaks the moment cycling, a variant or a cross-fade changes the base
+palette, i.e. exactly when the engine is doing something interesting; or (b) reading live RAM in the
+handler, which is what `OP_PAL_REGION` already does from `Pal_Variant_Stage`, and is therefore
+precedent — but it needs a staging buffer holding the *pre-effect* values, maintained by somebody.
+
+And **P-b's VBlank ruling is adjacent but does not decide it.** P-b forbids the *patcher* from
+writing the raster buffer outside VBlank, because every arm word is a relative gap and a
+half-updated chain desynchronises the whole tail. A restore fire does not rewrite arm words — it is
+an ordinary record — so the ruling does not forbid it. But if R wants to *stage restore values*
+mid-frame, that is a new mid-frame writer of engine state, and the reason P-b's ruling exists (the
+HInt handler and the main loop racing over shared state during active display) applies to it in
+spirit. R has to settle that itself; it cannot inherit P-b's answer.
+
+### The decision you own
+
+**Does "restore" become a first-class op with its own storage, or does the band become an
+authoring pattern over the ops that already exist?**
+
+- **(A) A restore op** — `op_pal_restore(line, pal_line, entry, count)` that streams from a
+  pre-effect staging buffer. Expressive, symmetric with `OP_PAL_REGION`, and it needs a new RAM
+  region plus an owner who keeps it truthful across cycling/variant/cross-fade. That owner question
+  is the real cost, and it is the same shape as the one Parcel W is about to answer for world
+  anchors.
+- **(B) A band is two fires and no new mechanism** — the author writes the "off" fire explicitly,
+  with its colours resolved the same way the "on" fire's were. Zero new engine state; the cost lands
+  on the author and on the density budget, and it degrades badly the moment the base palette is
+  itself animated.
+- **(C) Defer R until after W.** W is about to decide who owns shared per-effect state and whether a
+  second reader can hang off it. If W's answer generalises, R may get its staging buffer for free
+  and the question collapses.
+
+**My recommendation is (C), and I did not act on it.** R's hard part is *ownership of derived
+state*, which is the same question W exists to answer, and settling it twice — once badly at 4am —
+is how the engine acquires a mechanism it then has to remove. Nothing in R is urgent: no content is
+blocked on a mid-screen band today.
+
+**What I did NOT do, deliberately:** no code, no RAM, no op number reserved. R is untouched.
