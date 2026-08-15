@@ -1046,18 +1046,33 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         blo     .lg_line
         jbra    .band_done
 
-// --- FLAT: same longword for every line of the band (8x unrolled) ---
-    // Band line spans are ALWAYS multiples of 8: tops are Plane-B cell rows
-    // scaled ×8 (band_top_cell × 8 in both the config-own path and the Step4a
-    // screen-space shadow view — the clamp there is on cell values too), and
-    // the last band ends at 224 = 28×8. So `span >> 3` is exact — no remainder
-    // tail. The unroll drops the dbf overhead from per-line to per-8-lines.
+// --- FLAT: same longword for every line of the band (8x unrolled + tail) ---
+    // Band line spans USED to be guaranteed multiples of 8 — tops were Plane-B cell
+    // rows scaled ×8 in both readers, and the last band ends at 224 = 28×8 — so this
+    // path was a bare `span >> 3` unroll with NO remainder tail. Parcel W's
+    // world-anchored overlay splits a band at an ARBITRARY scanline, so that guarantee
+    // is gone and the tail below is what replaces it.
+    //
+    // WHY THE TAIL IS NOT OPTIONAL, in two failure modes, both silent at build time:
+    //   span 1..7  -> `lsr #3` = 0, `subq #1` = $FFFF, and dbf runs 65536 times × 8
+    //                 longwords = ~2 MB sprayed from Hscroll_Buffer forward, into the
+    //                 DMA queues — the frozen-VDP crash class the Step-4a clamp at
+    //                 :618-622 exists to prevent.
+    //   span 9..15 -> writes 8·floor(span/8) longwords while d4 jumps to the band end,
+    //                 so a4 and d4 desync PERMANENTLY: every band below lands at the
+    //                 wrong buffer offset and the buffer tail keeps last frame's words.
+    //
+    // d2/d3/d6 are dead on this path (they carry the deform paths' phase bases and
+    // shifts, and this is the no-deform branch), so the remainder counter is free.
     .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
         ble     .band_done                          // empty/malformed band
         move.w  d5, d4                              // line index jumps to band end
-        lsr.w   #3, d1                              // span/8 groups (span is ×8; >0 here → >=1)
+        move.w  d1, d2
+        andi.w  #7, d2                              // d2 = remainder lines 0..7
+        lsr.w   #3, d1                              // d1 = whole groups of 8
+        beq     .fl_tail                            // span < 8: tail only, no group
         subq.w  #1, d1
     .fl_line:
         move.l  d0, (a4)+
@@ -1069,6 +1084,16 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         move.l  d0, (a4)+
         move.l  d0, (a4)+
         dbf     d1, .fl_line
+    .fl_tail:
+        // A ZERO REMAINDER MUST BRANCH AROUND, never fall into the dbf: `subq #1` on 0
+        // gives $FFFF and re-creates the exact 65536-iteration spray this tail exists to
+        // fix — with the multiple-of-8 spans that are still the common case as the input.
+        tst.w   d2
+        beq     .band_done
+        subq.w  #1, d2
+    .fl_rem:
+        move.l  d0, (a4)+
+        dbf     d2, .fl_rem
 
     .band_done:
         lea     sizeof(band_entry)(a1), a1
