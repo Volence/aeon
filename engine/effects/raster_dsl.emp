@@ -972,8 +972,36 @@ pub comptime fn raster_program(fires: array) {
     let L = fire_lines(fires)
     check_intervals(fires)
     check_density(fires)
+    // GUARD 11 — one patchable record per channel. Raster_GetChannelBand answers with the FIRST
+    // record matching a channel, so a second record on the same channel is invisible to the
+    // parallax overlay: past the first record's band the scroll boundary would follow one record
+    // while the palette follows the other. The runtime cannot disambiguate two answers to "where
+    // is channel N", so this is refused at build time rather than resolved at runtime.
+    //
+    // A BITMASK, NOT AN INDEXED ARRAY: this evaluator's `Assign` target is a bare path
+    // (parser.rs stmt(), the `path = expr` arm) with no indexing form, so `ch_seen[c] = 1`
+    // does not parse here — only a whole-variable reassignment does (the same reason
+    // `prog_mask` above accumulates through `m = m | ...` rather than into a table). A
+    // per-channel seen-bit folds into that same shape: `ch_mask | (1 << c)` is one plain
+    // reassignment, and the read is `(ch_mask & (1 << c)) == 0`, so no index-assignment is
+    // needed at all. RASTER_MAX_PATCH is small (4, asserted a power of two above) and
+    // `patchable`'s own guard already bounds every channel to 0..RASTER_MAX_PATCH-1
+    // (raster_dsl.emp, the `patchable` ensure against RASTER_MAX_PATCH), so the mask never
+    // needs more bits than that ceiling provides.
+    comptime var ch_mask = 0
+    for f in fires {
+        if fire_is_patch(f) == 1 {
+            let c = fire_channel(f)
+            let bit = 1 << c
+            ensure((ch_mask & bit) == 0,
+                   "raster program: two patchable records both drive channel {c}. Raster_GetChannelBand returns the first match, so the parallax overlay would follow one record while the palette follows the other. Give them separate channels.")
+            ch_mask = ch_mask | bit
+        }
+    }
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
-    // program without exception — which is what patch_table's pre-resolved arm_offs depend on.
+    // program without exception — which is what lets patch_table pre-resolve a rec_off at all,
+    // and what makes the builder's fixed 5-word prologue (header + both priming records) a
+    // constant rather than a computed skip.
     comptime var out = [prog_mask(fires)]
     out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0
     out = out ++ [arm_at(L, 1), 0]        // fire 1 — priming, line 1
@@ -988,13 +1016,14 @@ pub comptime fn raster_program(fires: array) {
         i = i + 1
     }
     out = out ++ [$8AFF, $FFFF]           // terminator — reached only by a stray fire
-    // Raster_VBlank and Raster_CopyPatchedTemplate both copy a FIXED RASTER_BUF_SIZE bytes
-    // into Buf_A / Buf_B, so a program longer than the buffer would be truncated live.
+    // Raster_VBlank's static-program path copies a FIXED RASTER_BUF_SIZE bytes into Buf_A, and
+    // Raster_BuildSchedule re-records a patched program into the same fixed-size buffer every
+    // VBlank, so a program longer than the buffer would be truncated live on either path.
     // (The converse over-read of a short template is pre-existing and harmless — the
     // walker never reaches past the terminator. Booked as EFX-4 in docs/BUGS.md; the
     // ensure below closes that entry's overflow half and the over-read half stays open.)
     ensure(out.len * 2 <= 128,
-           "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_CopyPatchedTemplate copy a fixed 128 bytes")
+           "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_BuildSchedule both copy into a fixed 128-byte buffer")
     ensure(out.len == raster_words(fires),
            "raster_program: emitted {out.len} words but raster_words counted {raster_words(fires)} — the two encoding paths disagree")
     return out
@@ -1023,29 +1052,43 @@ comptime fn arm_word_index(fires: array, k: int) -> int {
     return idx
 }
 
-// patch_table — the self-describing patch descriptor appended at byte 128 of a patched
-// template. One entry per authored record, FOUR WORDS each, every field in FIRE-LINE space:
+// record_words — the WORD length of record k's emitted form: its arm word, its op_count, and
+// its op bodies. The builder copies exactly this many words, so this number and
+// arm_word_index's are the two halves of "where is this record and how big is it".
+comptime fn record_words(f: RasterFire) -> int {
+    comptime var n = 2                      // arm word + op_count
+    for o in fire_ops(f) { n = n + op_size(o) }
+    return n
+}
+
+// patch_table — the self-describing patch descriptor appended at byte 128 of a patched template.
+// One entry per authored record, FIVE WORDS each:
 //
-//     [arm_off][line_src][band_lo_fl][band_hi_fl]
+//     [line_src][band_lo_fl][band_hi_fl][rec_off][rec_len]
 //
-//   arm_off     byte offset into the runtime's working buffer of the arm word this entry
-//               rewrites — the arm of record k-2, because the arm written at record i
-//               schedules the gap that LANDS record i+2. Pre-resolved here so the runtime
-//               keeps no offset history.
-//   line_src    a literal fire line (high bit clear) for a static record, or $8000|channel
-//               for a patchable one.
-//   band_lo_fl  the band in fire lines. A static record writes its own fire line into both,
-//   band_hi_fl  so every field of every entry is in ONE coordinate system.
+//   line_src    a literal fire line (high bit clear) for a static record, or $8000|channel for a
+//               patchable one. FIRST because the builder decides emit-or-suppress from it before
+//               it needs anything else, and Raster_GetChannelBand matches on it.
+//   band_lo_fl  the band in fire lines. A static record writes its own fire line into both, so
+//   band_hi_fl  every field of every entry is in ONE coordinate system.
+//   rec_off     byte offset of THIS record's own arm word inside the emitted body.
+//   rec_len     the record's byte length, arm word through last op word.
+//
+// THERE IS NO arm_off ANY MORE. It named the arm word this entry REWRITES — the arm of record
+// k-2, pre-resolved into ROM because the in-place patcher kept no offset history. The builder
+// emits records itself and therefore knows where it put every arm word, so the pre-resolution
+// has nothing left to buy.
 comptime fn patch_table(fires: array) -> array {
     comptime var out = [fires.len]
     comptime var k   = 2
     for f in fires {
         comptime var src = fire_screen_line(f) - 1
         if fire_is_patch(f) == 1 { src = $8000 | fire_channel(f) }
-        out = out ++ [2 * arm_word_index(fires, k - 2),
-                      src,
+        out = out ++ [src,
                       fire_band_lo(f) - 1,
-                      fire_band_hi(f) - 1]
+                      fire_band_hi(f) - 1,
+                      2 * arm_word_index(fires, k),
+                      2 * record_words(f)]
         k = k + 1
     }
     return out
@@ -1134,11 +1177,19 @@ comptime fn ship_trailer_words(fires: array) -> int {
     return 1 + w
 }
 
-// check_arm_layout — GUARD 6. Every arm_off the table hands the runtime must point at a word
-// the emitter actually wrote as an arm word, AND at the RIGHT one. Both halves are needed: a
-// wrong offset that happens to land on an op_count fails the $8A00 test, while an offset
-// landing on a DIFFERENT record's arm passes it — and would corrupt the schedule at runtime
-// in a way nothing else here can see. Testing the VALUE against arm_at closes that.
+// check_arm_layout — GUARD 6. Every word `arm_word_index` names must be a word the emitter
+// actually wrote as an arm word, AND the RIGHT one. Both halves are needed: an index that
+// happens to land on an op_count fails the $8A00 test, while one landing on a DIFFERENT
+// record's arm passes it — and would corrupt the schedule in a way nothing else here can see.
+// Testing the VALUE against arm_at closes that.
+//
+// IT NO LONGER GUARDS A TABLE FIELD. The table used to carry a pre-resolved `arm_off` per
+// record and this guard checked it; local removal deleted that field, because the builder
+// emits the records itself and therefore knows where every arm word landed. What survives is
+// still worth its bytes: `arm_word_index` remains the layout authority `patch_table`'s
+// `rec_off` is computed from, so proving it against the emitted image proves the offsets the
+// table DOES carry. GUARD 10 (check_rec_layout) then checks the table's own two words against
+// that same derivation, and the emitted body against the fire — table -> derivation -> image.
 comptime fn check_arm_layout(fires: array, out: array) -> int {
     let L = fire_lines(fires)
     for j in 0..fires.len {
@@ -1151,16 +1202,62 @@ comptime fn check_arm_layout(fires: array, out: array) -> int {
     return 0
 }
 
+// check_rec_layout — GUARD 10. For every record the table describes, the emitted image at
+// [rec_off, rec_off+rec_len) must BE that record: an $8Axx-class arm word, the op_count, and the
+// op bodies, and the span must end exactly where the next record's arm word begins.
+//
+// WHY IT INDEXES `out` AND NOT JUST THE OFFSETS. Under the builder a wrong rec_off/rec_len does
+// not misplace one byte — it copies a MISALIGNED SLICE of the template into the live program, and
+// the handler then reads an op payload word as an opcode, falls through the compare chain to
+// OP_SET_REG, writes an arbitrary word to VDP_CTRL from inside a raw interrupt handler, and walks
+// arbitrary bytes for the rest of the frame. An offset-only cross-check cannot see any of that.
+//
+// IT READS THE EMITTED TABLE, NOT ONLY THE DERIVATION. Checking arm_word_index/record_words
+// against the image proves the image is self-consistent, but the runtime reads the TABLE — so a
+// patch_table that emitted something else entirely would sail through. The two table words are
+// therefore compared against the same derivation the image was checked with, which closes
+// table -> derivation -> image. Without this the only thing standing between a wrong rec_off and
+// the handler is a hand twin, and hand twins exist for pinned fixtures only.
+comptime fn check_rec_layout(fires: array, out: array) -> int {
+    let tab = patch_table(fires)
+    comptime var k = 2
+    for f in fires {
+        let off = arm_word_index(fires, k)
+        let len = record_words(f)
+        let e   = 1 + 5 * (k - 2)           // this record's entry: count word, then 5 per record
+        ensure(tab[e + 3] == 2 * off,
+               "raster program: the patch table says record {k} starts at byte {tab[e + 3]} but the emitted body puts its arm word at byte {2 * off}. The builder copies from the TABLE's offset, so this is the difference between copying the record and copying a misaligned slice of its neighbour.")
+        ensure(tab[e + 4] == 2 * len,
+               "raster program: the patch table says record {k} is {tab[e + 4]} bytes but the emitted record is {2 * len} bytes")
+        ensure((out[off] & $FF00) == $8A00,
+               "raster program: record {k}'s rec_off points at word {off}, which holds {out[off]} — not an $8Axx arm word. The builder copies rec_len bytes from here into the live program, so a misaligned rec_off feeds the HInt handler an op payload word as an opcode.")
+        ensure(out[off + 1] == fire_ops(f).len,
+               "raster program: record {k} at word {off} declares {out[off + 1]} ops but the fire has {fire_ops(f).len}")
+        comptime var body = []
+        for o in fire_ops(f) { body = body ++ op_words(o) }
+        comptime var i = 0
+        for w in body {
+            ensure(out[off + 2 + i] == w,
+                   "raster program: record {k}'s emitted body diverges from the fire at word {off + 2 + i} — image has {out[off + 2 + i]}, the fire says {w}")
+            i = i + 1
+        }
+        ensure(off + len == arm_word_index(fires, k + 1),
+               "raster program: record {k} spans words {off}..{off + len} but the next record's arm word is at {arm_word_index(fires, k + 1)} — rec_len and the emitted layout disagree, so the builder would copy a misaligned slice")
+        k = k + 1
+    }
+    return 0
+}
+
 // patched_words — the emitted word count of a patched template: the program padded to the
 // 64-word buffer, then the table. Use it as the length annotation on the `pub data`.
 //
 // HONEST SCOPE AS A CROSS-CHECK: the program body's own word count is checked by
 // raster_program's `out.len == raster_words(fires)`, which runs on every call and is the
 // independent-path check. Once padded the body is 64 words by construction, so what THIS adds
-// is the table's framing — one count word plus four per record — and it pins the declared ROM
+// is the table's framing — one count word plus five per record — and it pins the declared ROM
 // footprint at the linker seam.
 pub comptime fn patched_words(fires: array) -> int {
-    return 64 + 1 + 4 * fires.len + ship_trailer_words(fires)
+    return 64 + 1 + 5 * fires.len + ship_trailer_words(fires)
 }
 
 // patched_program — a raster program a runtime patcher can move. The ordinary program, padded
@@ -1174,6 +1271,7 @@ pub comptime fn patched_words(fires: array) -> int {
 pub comptime fn patched_program(fires: array) -> array {
     comptime var out = raster_program(fires)     // every existing guard runs here
     check_arm_layout(fires, out)
+    check_rec_layout(fires, out)
     comptime var pad = 64 - out.len
     ensure(pad >= 0,
            "patched_program: the program body is {out.len} words, which does not fit the 64-word buffer the runtime copies")

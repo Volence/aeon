@@ -587,7 +587,7 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // Channel 1 — a plane B vertical scroll split, band 216..223.
 //
 // THE WATER CHANNEL OWNS ALMOST THE WHOLE SCREEN, and that is the point of this layout.
-// The band is where Raster_PatchAll CLAMPS the boundary, so whatever the band cannot reach,
+// The band is where Raster_BuildSchedule CLAMPS the boundary, so whatever the band cannot reach,
 // the water line cannot reach either — it pins at the edge and stops tracking the world.
 // Channel 0 held 3..120 for exactly one reason: channel 1 sat at 130..200 in the middle of
 // the screen, and the intervals must be strictly ascending and disjoint (check_intervals,
@@ -602,8 +602,16 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // patchable channel preserves that proof; only its position is negotiable, and the bottom
 // of the screen costs the demo nothing.
 //
-// Budget is EXACTLY full: (214-3+1) + (223-216+1) + 1 = 212 + 8 + 1 = 221, the whole
-// disjoint-band allowance. Worst-case dry-side error falls from 72 lines to 10.
+// Budget is EXACTLY full: (220-3+1) + (223-222+1) + 1 = 218 + 2 + 1 = 221, the whole
+// disjoint-band allowance.
+//
+// CHANNEL 1 GAVE UP SIX MORE LINES WHEN LOCAL REMOVAL SHIPPED, and the reason changed shape.
+// Before, whatever the band could not reach was rendered WRONG: the fire pinned at band_hi and
+// painted rows wet that the world said were dry, so the band's reach bounded a lie. Now, past
+// band_hi the record is not emitted at all — the error is inert (a row that should be wet renders
+// dry) but its SIZE is still the distance between band_hi and the screen bottom. The fixture was
+// spending eight lines of that distance to sit at 216 rather than 222, which costs the demo
+// nothing and cost the water three rows of honesty. Worst-case dry-side error: 10 rows -> 3.
 //
 // The bands are now 2 fire lines apart rather than 10, and that is the number to watch: the
 // density guard measures band edge to band edge, and channel 0's fire is modelled at 526
@@ -612,37 +620,37 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // channel 0 costlier this is the first thing that will fail.
 //
 // LO WAS 40 UNTIL Parcel W SHIPPED AND SOMEBODY LOOKED AT IT. The band is where
-// Raster_PatchAll clamps the boundary, so a lo of 40 meant that once the camera descended
+// Raster_BuildSchedule clamps the boundary, so a lo of 40 meant that once the camera descended
 // past world Y 184 the water line stopped tracking the world and PINNED at screen line 40
 // — the top 40 lines (18% of the screen) never went under, no matter how far down you got,
 // and the boundary read as camera-locked. Observed immediately on the debug shape at
 // Camera_Y 451. 3 is the floor `patchable` allows (lines 0-2 belong to the priming
 // records), so this is as close to the screen top as the mechanism goes.
 //
-// IT IS A MITIGATION, NOT THE FIX. Three lines still never go under, and a boundary pinned
-// at a screen edge is still wrong versus a world that has moved past it. The real answer is
-// the whole-screen state S3K carries (Water_full_screen_flag, sonic3k.asm:8496-8505): above
-// the screen top the ENTIRE screen goes under and the HInt is disabled, rather than the fire
-// being clamped into a band it can no longer express. That needs a path around the fire
-// chain instead of a clamp inside it, so it is its own parcel.
+// THE LO EDGE IS STILL A MITIGATION; THE HI EDGE NO LONGER IS. Below lo the fire clamps up and
+// three lines never go under — but the frame-top ship covers the whole screen there, so the clamp
+// hides nothing (S3K's Water_full_screen_flag, sonic3k.asm:8489-8499, is the same answer). Above
+// hi the fire used to clamp down and paint a lie; now the record is dropped, which is what S3K
+// (loc_6C8E, :8509-8515) and S.C.E. (Water Effects.asm:38-41) both do by parking the counter.
+// The asymmetry is deliberate: clamping UP is covered, clamping DOWN was not.
 //
 const OJZ_TC_PROG = compose([
     patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
-              ch: 0, lo: 3,   hi: 214, offscreen_ship: 1),
-    patchable(fx_vscroll_split(line: 220, offset: $0043),
-              ch: 1, lo: 216, hi: 223),
+              ch: 0, lo: 3,   hi: 220, offscreen_ship: 1),
+    patchable(fx_vscroll_split(line: 222, offset: $0043),
+              ch: 1, lo: 222, hi: 223),
 ])
 
 // THE BODY PIN. Literals on purpose: a pin sharing symbols with the encoder it pins is
 // weaker. 72 is pal_stage_off(0, 2, 4) = 0*128 + 2*32 + 4*2.
-// Fire lines are screen minus 1: priming 0 and 1, then 99 and 219.
+// Fire lines are screen minus 1: priming 0 and 1, then 99 and 221.
 //   arm0 = $8A00 | (99 - 1 - 1)   = $8A61
-//   arm1 = $8A00 | (219 - 99 - 1) = $8A77
+//   arm1 = $8A00 | (221 - 99 - 1) = $8A79
 //   records 2 and 3 park: nothing follows them.
 const OJZ_TC_HAND = [
     %0100,                      // pal_dirty_mask — CRAM line 2, from the pal_region only
-    $8A61, 0,                   // fire 0 — priming; THE word channel 0's patch rewrites
-    $8A77, 0,                   // fire 1 — priming; THE word channel 1's patch rewrites
+    $8A61, 0,                   // fire 0 — priming; the slot channel 0's gap lands in
+    $8A79, 0,                   // fire 1 — priming; the slot channel 1's gap lands in
     $8AFF, 2,                   // fire 2 — channel 0, two ops
       0, $8C89,                 //   OP_SET_REG — S/H on
       4, $C048, $0000,          //   OP_PAL_REGION, command longword split
@@ -660,13 +668,14 @@ ensure(first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND) == -1,
        "OJZ_TwoChannel: DSL body diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND)}")
 
 // THE TABLE PIN — the words the runtime patcher parcel will walk. Checked separately from
-// the body so a failure names which half moved. Every field is in FIRE-LINE space.
+// the body so a failure names which half moved. line_src/band_lo_fl/band_hi_fl are FIRE-LINE
+// space; rec_off/rec_len are byte offsets into the emitted body.
 const OJZ_TC_TABLE_HAND = [
     2,                          // count — two authored records
-    2, $8000, 2,   213,         // channel 0: rewrites the arm at byte 2, band 2..213
-                                //   (fire lines = screen 3..214 — the water line owns almost
+    $8000, 2,   219,   10, 18,  // channel 0: band 2..219, record at byte 10, 18 bytes long
+                                //   (fire lines = screen 3..220 — the water line owns almost
                                 //    the whole screen; see the re-band note above)
-    6, $8001, 215, 222,         // channel 1: rewrites the arm at byte 6, band 215..222
+    $8001, 221, 222,   28, 14,  // channel 1: band 221..222, record at byte 28, 14 bytes long
 ]
 // The off-screen ship trailer, after the patch table. Neither channel declares
 // offscreen_ship, so this is the bare count word — and pinning the EMPTY case is worth a line

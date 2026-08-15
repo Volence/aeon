@@ -3889,57 +3889,84 @@ used.
 
 ---
 
-### 7.13 Patchable raster fires — the patch table and its runtime patcher
+### 7.13 Patchable raster fires — the patch table and the schedule builder
 
-> **SHIPPED — effects P3 Parcel P-a (encoder) + P-b (runtime), 2026-08-15.** A raster program
-> is a schedule of mid-frame VDP writes fired by HInt (§7.2). Until these parcels every fire
-> had a fixed screen line; an author can now declare a fire **patchable** — its line moves at
-> runtime within a declared band, driven by one of `RASTER_MAX_PATCH` (4) world-anchor
-> channels. P-a emits the bytes (`engine/effects/raster_dsl.emp`: `patchable`, `compose`,
-> `patch_table`, `patched_program`); P-b walks them (`Raster_PatchAll`). Gate evidence:
-> `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`.
+> **SHIPPED — effects P3 Parcel P-a (encoder, 2026-08-15) + P-b (runtime patcher, 2026-08-15) +
+> HInt schedule local-removal (2026-08-16).** A raster program is a schedule of mid-frame VDP
+> writes fired by HInt (§7.2). Before P-a/P-b every fire had a fixed screen line; an author can
+> now declare a fire **patchable** — its line is re-derived at runtime within a declared band,
+> driven by one of `RASTER_MAX_PATCH` (4) world-anchor channels. P-a emits the bytes
+> (`engine/effects/raster_dsl.emp`: `patchable`, `compose`, `patch_table`, `patched_program`).
+> P-b shipped the first runtime consumer, `Raster_PatchAll`, an in-place patcher that rewrote one
+> arm BYTE per record each VBlank inside the live raster buffer — it could MOVE a boundary but
+> could never REMOVE one, because arm words are relative gaps and a record is left behind only by
+> having been walked. The local-removal parcel replaced it with `Raster_BuildSchedule`, which
+> RE-RECORDS the whole schedule each VBlank from the ROM template into the INACTIVE buffer,
+> emitting only the records that are live, then swaps `Raster_Active_Buf` — so a suppressed record
+> is simply one that was never copied. `Raster_HInt` is byte-for-byte unchanged by this, which is
+> the reason this shape was chosen over porting Ristar's per-record linked-list schedule (below).
+> Gate evidence: `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md` (P-a/P-b);
+> `docs/superpowers/plans/2026-08-16-hint-schedule-local-removal.md` and
+> `docs/benchmarks/effects-p3-removal/GATE-EVIDENCE.md` (local removal).
 
 **`patched_program(fires)` emits the ordinary sparse program (§7.2's wire format),
 padded to exactly 64 words (128 bytes), then the patch table:**
 
 ```
-byte 128    count                      WORD — number of authored fires
-byte 130+   entry x count, 4 words:    [arm_off][line_src][band_lo_fl][band_hi_fl]
+byte 128    count                              WORD — number of authored fires
+byte 130+   entry x count, 5 words:    [line_src][band_lo_fl][band_hi_fl][rec_off][rec_len]
 ```
 
-Field meanings, one entry per authored record (`patch_table`, `raster_dsl.emp:933-946`):
+Field meanings, one entry per authored record (`patch_table`, `raster_dsl.emp:1062-1093`):
 
-- **`arm_off`** — the byte offset, into the runtime's 128-byte working buffer, of the arm
-  word this entry rewrites. It is **the arm word of record `k-2`**, not record `k`: the arm
-  written at record `i` is consumed at the next HInt counter reload and schedules the gap
-  that *lands* record `i+2` — the same reload-lag constraint §7.2 documents ("the
-  reload lag is the whole design constraint"; a write from handler `i` schedules
-  `gap(i+1 -> i+2)`). This is pre-resolved by the encoder — computed once at build time via
-  `arm_word_index` — so the runtime patcher keeps no offset history and does not have to
-  re-derive record layout at runtime.
 - **`line_src`** — a literal fire line (high bit clear) for a static record, or
-  `$8000 | channel` for a patchable one. The runtime reads the high bit to decide whether
-  to treat the low bits as a fire line or a channel index into the world-anchor table.
+  `$8000 | channel` for a patchable one. The builder reads the high bit to decide whether
+  to treat the low bits as a fire line or a channel index into the world-anchor table, and
+  it is FIRST in the entry because the builder decides emit-or-suppress from it before it
+  needs anything else; `Raster_GetChannelBand` also matches on it directly.
 - **`band_lo_fl` / `band_hi_fl`** — the record's band, in **fire lines** (screen line - 1),
   matching every other field in the table. A static record writes its own fire line into
   both, so every field of every table entry lives in the one coordinate system — a
   consumer never has to branch on whether an entry is patchable to know which space a
   number is in.
+- **`rec_off`** — the byte offset of THIS record's own arm word inside the emitted program
+  body (not the buffer the runtime builds into — the offset is relative to the template,
+  and the builder re-derives the live buffer's copy of the same offset from
+  `Raster_Patch_Tab` each VBlank).
+- **`rec_len`** — the record's byte length, arm word through its last op word. The builder
+  copies exactly this many bytes per record; there is no fixed-size per-record copy.
+
+**There is no `arm_off` any more.** P-b's table carried a fourth field, `arm_off`, naming the
+byte offset of the arm word an entry REWRITES — the arm of record `k-2`, pre-resolved into ROM
+because the in-place patcher kept no offset history of its own (the reload-lag constraint that
+made this necessary is unchanged and still documented in §7.2: "the reload lag is the whole
+design constraint"; a write from handler `i` schedules `gap(i+1 -> i+2)`). `Raster_BuildSchedule`
+emits every record itself and therefore always knows where it just wrote each arm word, so no
+pre-resolved offset needs to travel in ROM at all — it is replaced by an 8-byte SCRATCH region on
+the stack, two 4-byte pointers to the arm words of the two most-recently-emitted records (a
+2-deep slot history the builder shifts forward one record at a time). The word written at record
+`i` is consumed at the next HInt reload and schedules the gap that lands record `i+2` (Ruling 1b)
+— so the builder pairs each record's
+computed gap with the arm slot **two records back**, and the fire-line delta with the line **one
+record back**. Park is by construction: a record's arm slot is written only when a record two
+positions later is emitted, so the two youngest slots are never touched by the per-record walk and
+the builder parks them explicitly afterward — which is also why an all-suppressed schedule parks
+correctly (both youngest slots are the priming records) with no special-case emitter.
 
 **The table sits at a CONSTANT `+128` from the template start.** Nothing needs a second
 symbol, a length-prefixed descriptor, or a pointer field to find it — a patched template's
-address is enough. This constant offset is what the padding buys: `Raster_VBlank` and
-`Raster_InstallWater` already copy a fixed `RASTER_BUF_SIZE` (128) bytes from every
-template (§7.2's corrected "there IS a limit" note above; the full arithmetic is in
-`docs/EFFECTS_AUTHORING.md`'s program-size-ceiling section), so a patched template is
-already read to byte 128 regardless of how short its actual program body is. Padding the body out to the
-full 64 words makes that read **defined** rather than reading uninitialised trailing ROM,
-and it means the copy of the *body* stops exactly at the table boundary — the table is
-never partially dragged into the working buffer by the fixed-size copy.
+address is enough. This constant offset is what the padding buys: `Raster_BuildSchedule` copies
+the template's two priming records verbatim (a fixed 5-word prologue: the header word plus two
+`[arm][op_count]` pairs) and then walks the table, so nothing about the body's *actual* length is
+assumed past the priming records — every subsequent byte the builder reads comes from `rec_off`/
+`rec_len`, not from a fixed-size sweep. The 64-word pad still exists and still matters: it is what
+makes the table's `+128` address defined regardless of how short the authored program is, and it
+is what the static-program path (§8's "runtime half" below, EFX-4b) still copies a fixed
+`RASTER_BUF_SIZE` bytes from.
 
-**After the table sits the OFF-SCREEN SHIP TRAILER** (2026-08-15), at
-`128 + 2 + 8*records` — an offset the runtime computes from the record-count word the table
-already begins with:
+**After the table sits the OFF-SCREEN SHIP TRAILER** (2026-08-15, unaffected by the local-removal
+parcel), at `128 + 2 + 10*records` — ten bytes per entry now that entries are five words, not
+four; an offset the runtime computes from the record-count word the table already begins with:
 
 ```
 [n (word)][n x (channel, stage offset, colour count, CRAM addr, reg count, reg words...)]
@@ -3973,31 +4000,50 @@ builder — so no second site knows the interleaved `DMAEntry` byte layout.
 **The trailer is read through the ROM template, never the RAM working copy.** Nothing in it is
 ever patched, and the runtime's copy is a fixed 128 bytes that stops before the table.
 
-**What it is FOR:** a patch channel's fire clamps into its authored band, so when the anchor
-leaves the top of the screen the boundary pins at the band floor and the rows above it keep the
-base palette — fully submerged with a permanently dry stripe at the screen top. The trailer's
-entry re-ships that fire's own colours as a frame-top DMA on the frames the channel's latched
-line is `<= 0`. The DRY direction (anchor below the screen) is NOT covered: suppressing a fire
-needs per-record parking, which the array-of-relative-gaps encoding cannot express, and that is
-the Ristar linked-list schedule's parcel. Both boundaries clamp together today, so they are
-wrong together — a consistent error, deliberately preferred over a disagreement.
+**What it is FOR:** a patch channel's fire is bounded by its authored band, so when the anchor
+leaves the top of the screen the boundary pins at the band floor (`lo`) and the rows above it
+keep the base palette — fully submerged with a permanently dry stripe at the screen top. The
+trailer's entry re-ships that fire's own colours as a frame-top DMA on the frames the channel's
+latched line is `<= 0`, which covers that direction. **The DRY direction (anchor below the
+screen) is now covered too** (HInt schedule local-removal parcel, 2026-08-16): past `band_hi`
+`Raster_BuildSchedule` does not emit the record at all this frame, rather than clamping it to
+`hi` and painting rows the world says are dry. This is what the schedule-recording shape buys
+over the in-place patcher it replaced: suppressing a record needs the ability to leave it out of
+the walk entirely, which an in-place byte patch on a live buffer could never do (a negative gap
+stores as the park word and kills every later fire), and which a from-scratch re-record can,
+because "not copied" needs no encoding at all. There is still a residual — for
+`band_hi < L < 224` the boundary renders nowhere rather than where the world says it should be —
+narrowed, not eliminated; see `docs/DEFERRED_WORK.md`'s closed entry for the accounting. The
+parallax overlay (`engine/level/parallax.emp`, Parcel W's boundary-split code) applies the
+identical `L > band_hi` suppression, reading the same two band words via `Raster_GetChannelBand`,
+so the palette boundary and the scroll boundary still agree at every anchor state rather than
+merely erring the same way.
 
-**A schedule-recompute variant would need a new table version.** `arm_off` is pre-resolved
-per entry against the *emitted record order* at build time. A future variant that sorts
-fires at runtime, or re-links a schedule past a dropped record, could not reuse this table
-format as-is — the pre-resolved offsets would point at the wrong arm words the moment
-record order or count changes at runtime instead of build time. Price that as a new wire
-format, not an extension of this one, if it is ever proposed.
+**Why re-recording instead of a per-record link.** The obvious alternative — give each record its
+own successor pointer, Ristar's spelling (`ristar_disasm/code/disasm.asm:14556-14595`, each node
+writing its own gap AND its own successor so removing a node is a local edit) — was rejected on
+HBlank cycle budget, not on capability. `Raster_HInt` runs inside the ~60-cycle-per-line HBlank
+window every fire shares; a disarmed Ristar node still costs interrupt entry plus `tst`/`beq`/
+`rte` (~40 cycles) even when it contributes nothing, and that tax lands on *every* fire, every
+frame, forever — not only the ones a section happens to suppress. Re-recording the schedule from
+a ROM template moves that cost to VBlank, which already has slack, and leaves `Raster_HInt`
+byte-for-byte unchanged: zero added HBlank cycles for the whole feature. The tradeoff is doing
+the record walk twice as much work (build once per VBlank, walk once per HBlank) rather than
+once; VBlank has the room for it and HBlank does not.
 
-**What is checked at build time.** `check_arm_layout` (`raster_dsl.emp:953-963`) is a
-second, independent path to the arm offsets `patch_table` computes: for every entry it
-reads the word `arm_off` points at out of the *emitted* program and checks both that it is
-a `$8Axx` word (so a wrong offset landing on an `op_count` is caught rather than silently
-handed to a runtime patcher that stores a byte there sight-unseen) and that its value
-matches `arm_at`'s independently-derived arm word for that record (so an offset landing on
-the *wrong* record's arm — which would pass the `$8Axx` shape check — is caught too).
-`patched_words(fires)` (`:973-975`) is the length-annotation counterpart to `raster_words`
-(§7.2): `64 + 1 + 4 * fires.len`, checked against the emitter's own output on every build.
+**What is checked at build time.** `check_arm_layout` (GUARD 6, `raster_dsl.emp:1178-1193`)
+recomputes `arm_word_index` and `arm_at` independently for every record and checks the emitted
+program's own arm words against that derivation — an authoring-time guard on `raster_program`
+itself, unrelated to the patch table's fields and unaffected by the table format change.
+`check_rec_layout` (GUARD 10, `raster_dsl.emp:1211-1239`) is the table-specific guard the local-removal
+parcel added: for every record it reads `rec_off`/`rec_len` back out of the *emitted* image and
+checks that span both starts on a `$8Axx`-class arm word and ends exactly where the next record's
+arm word begins — closing table -> derivation -> image, so a wrong `rec_off`/`rec_len` (which
+would make the builder copy a misaligned slice, feeding `Raster_HInt` an op payload word as an
+opcode) is caught rather than reaching hardware. `patched_words(fires)` (`raster_dsl.emp:1249-1251`)
+is the length-annotation counterpart to `raster_words` (§7.2): `64 + 1 + 5 * fires.len +
+ship_trailer_words(fires)` — five words per record now that the table carries `rec_off`/`rec_len`
+instead of `arm_off` — checked against the emitter's own output on every build.
 
 Authoring rules for `patchable` — the band-interval disjointness requirement, the
 worst-case density measurement across a band, `compose` merge semantics, and the band
@@ -4014,39 +4060,66 @@ Build-time tools that convert human-friendly level data into optimized runtime f
 **Cross-reference (5 games + S.C.E.):** No commercial game has runtime profiling or assertions. Vectorman is the only game with runtime bounds checking (`illegal` on out-of-range pointers). Batman & Robin is the only game with lag frame detection (dual frame counter comparison). S.C.E. has the most comprehensive debug system: two-phase gating (`if DEBUG_xxx` + `ifdebug`), 10 per-subsystem debug toggles, Vladikcomper MD Debugger v2.6 with crash screen/backtrace/symbol resolution, and a VDP window plane lagometer.
 
 
-#### The runtime half (Parcel P-b)
+#### The runtime half (Parcel P-b's `Raster_PatchAll`, replaced by `Raster_BuildSchedule` — 2026-08-16)
 
-`Raster_PatchAll` runs **at VBlank**, from `Raster_VBlank`, and that is load-bearing rather than
-convenient. Every arm word is a **relative** gap to the next fire, and the patcher writes one byte
-per record scattered across the working buffer. From the main loop it would run while `Raster_HInt`
-is walking that same buffer during active display: records already passed keep this frame's gaps,
-records ahead get next frame's, and because the gaps are relative the **entire tail of the chain**
-desynchronises, every frame the camera moves. The single-word water patch this replaces got away
-with main-loop timing only because its one arm is consumed at the frame-top rewind, which made it
-structurally a next-frame write.
+> **P-b shipped `Raster_PatchAll`, an in-place patcher.** It ran at VBlank and rewrote one arm
+> BYTE per patchable record inside the *live* raster buffer — it could move a boundary but never
+> remove one, because arm words are relative gaps and a record is left behind only by having been
+> walked, and the in-place patcher never controlled which records got walked. The HInt schedule
+> local-removal parcel deleted it and put `Raster_BuildSchedule` in its place. The paragraphs below
+> describe the current mechanism; where behaviour changed from P-b it says so explicitly.
 
-Per record the patcher derives `screen_line = Effects_World_Y[ch] - Camera_Y`, converts once to a
-fire line (`-1`), clamps into the record's authored band, and stores the resulting gap as the **low
-byte** of the `$8Axx` arm word the table points at. The park word `$8AFF` is an `$8Axx` word too, so
-re-arming is one `move.b` with no `ori` and no masking, and park needs no special case — the S3K
-steal that makes the whole routine one pass with no branches per record beyond the clamp.
+`Raster_BuildSchedule` runs **at VBlank**, from `Raster_VBlank`, for the same reason `Raster_PatchAll`
+had to: every arm word is a **relative** gap to the next fire, and `Raster_HInt` walks the schedule
+during active display. Running from the main loop would race that walk — records already passed
+would keep stale data, records ahead would get a half-built frame, and because the gaps are
+relative the desync propagates down the **entire tail of the chain**. What changed is *what* runs at
+VBlank: instead of patching bytes into the buffer `Raster_HInt` is currently reading,
+`Raster_BuildSchedule` writes a complete fresh copy into whichever buffer is NOT currently active
+(`Raster_Buf_A`/`Raster_Buf_B` swap), then atomically repoints `Raster_Active_Buf` at it. `Raster_HInt`
+never observes a partially-built schedule, by construction rather than by timing discipline.
 
-- **Liveness is `Raster_Patch_Tab != 0`, never `Active_Buf == Buf_B`.** `Raster_VBlank`'s
-  explicit-clear path zeroes `Raster_Program` but never touches `Raster_Active_Buf`, so an
-  Active_Buf-gated patcher would keep writing a dead buffer forever after a clear. Both teardown
-  paths clear the table.
+Per record the builder derives `screen_line = Effects_World_Y[ch] - Camera_Y` (via the
+`Effects_Screen_L` latch — see `Effects_LatchWorldLines` below), converts once to a fire line
+(`-1`), and tests it against the record's authored band: past `band_hi` the record is **not
+copied into the new schedule at all**; below `band_lo` it clamps UP to `band_lo` (the frame-top
+ship covers what is above); inside the band it follows the anchor. For every record it DOES emit,
+it stores the resulting gap as the **low byte** of the `$8Axx` arm word belonging to the record
+**two positions back** (Ruling 1b — the word written at record `i` is consumed at the next HInt
+reload and schedules the gap landing record `i+2`), tracked through an 8-byte stack-resident
+2-deep slot history rather than registers or RAM (this proc runs under `Raster_VBlank`, whose
+callers `VInt_Level`/`VInt_Lag` only declare clobbers reaching `d4`/`a2`). The park word `$8AFF`
+is an `$8Axx` word too, so re-arming (and parking) is one `move.b`/`move.w` with no `ori` and no
+masking — the same low-byte-doubles-as-park-value idea S3K's water HInt counter uses (clamping
+`H_int_counter` to `$FF` at `loc_6C8E`, `sonic3k.asm:8509-8515`, rather than special-casing the
+disarm), adapted here to a per-record arm word instead of one shared counter variable. The two
+youngest slots have no record two positions later, so the builder parks them explicitly after the
+walk — which is also what makes the all-suppressed schedule (every record past the two priming
+ones dropped) park correctly with no special-case emitter.
+
+- **Liveness is `Raster_Patch_Tab != 0`, never `Active_Buf == Buf_B`.** Unchanged from P-b.
+  `Raster_VBlank`'s explicit-clear path zeroes `Raster_Program` but never touches
+  `Raster_Active_Buf`, so an Active_Buf-gated builder would keep writing a dead buffer forever
+  after a clear. Both teardown paths clear the table.
 - **Anchors live in RAM** (`Effects_World_Y[RASTER_MAX_PATCH]`), seeded on section entry from the
   preset's **inline** `ep_patch_world_ys` array. In RAM because that is what makes them movable —
   rising lava, a flood line, a beat-driven pulse all rewrite an anchor through `Effects_SetWorldY`.
   Inline in the preset because a `Label` carries no length, so an `ensure` comparing one to an
-  integer is unevaluable and passes silently.
-- **The bank is named `Effects_*`, not `Raster_*`, deliberately.** Parcel W gives the world anchor an
-  owner and the parallax deformation system is expected to become a second **reader** of these same
-  values — a complete underwater section is a palette boundary *and* a shimmer at the same line.
-- **Off-screen is a clamp, not a semantic.** The deleted `Raster_PatchWaterLine` had two off-screen
-  branches (above the viewport = fully submerged, fire as early as possible; below = park, not
-  visible). `Raster_PatchAll` clamps into the band in both directions instead, so a boundary below
-  the viewport renders at the band's `hi` edge rather than vanishing. **Declared delta**, measured.
+  integer is unevaluable and passes silently. Unchanged from P-b/Parcel W.
+- **The bank is named `Effects_*`, not `Raster_*`, deliberately.** The world anchor has two readers
+  today: `Raster_BuildSchedule` (VBlank) and the parallax overlay (main loop, Parcel W) — a
+  complete underwater section is a palette boundary *and* a shimmer at the same line, both driven
+  off one anchor via `Effects_LatchWorldLines`'s single per-frame derivation.
+- **Off-screen is now TWO different answers, not one clamp.** The deleted `Raster_PatchWaterLine`
+  (pre-P-a) had two off-screen branches (above the viewport = fully submerged, fire as early as
+  possible; below = park, not visible) that P-b flattened into a single symmetric clamp — a
+  **declared, measured delta** at the time, and the DEFERRED_WORK entry this section used to point
+  at. The local-removal parcel restored the asymmetry, but not by resurrecting
+  `Raster_PatchWaterLine`'s exact branches: **above** the band the record still **clamps** to
+  `band_lo` (covered by the separate frame-top-ship trailer mechanism, §7.13, which repaints the
+  whole screen above when the latched line reads `<= 0`); **past** the band it is **suppressed** —
+  not emitted into the schedule at all, which is closer to "park" than "clamp" but is a property of
+  a single VBlank's re-recorded schedule rather than a persistent per-record park flag.
 
 ### 8.1 Authoring Pipeline — Editor to ROM
 

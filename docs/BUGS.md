@@ -151,6 +151,18 @@ overflow half stays guarded by `raster_dsl.emp`'s `RASTER_BUF_SIZE` ensure.
 carry-forward: the named subject was gone, and the site the over-read now actually lives at was
 never named. See the successor.
 
+**UPDATE 2026-08-16 (HInt schedule local-removal parcel): `Raster_CopyPatchedTemplate` — the proc
+this closure's own rationale rested on — is now ALSO deleted.** There is no fixed 128-byte
+template-body read anywhere any more. `Raster_BuildSchedule` (the replacement for both the
+old `Raster_PatchAll` patcher and the deleted copy) reads the template's two priming records
+verbatim (a fixed 5-word prologue: 1 header word + 2 [arm/op_count] words each) and then, per
+authored record, copies exactly `rec_len` bytes starting at `rec_off` — both values read from the
+patch table, which `check_rec_layout` (GUARD 10, `raster_dsl.emp`) proves at build time match the
+emitted image. A short template is therefore not over-read by ANY fixed-size copy: the builder's
+per-record copy length is the record's own authored length, not a buffer constant. This closure's
+conclusion (no over-read on the patched path) still holds; only the mechanism that makes it true
+changed. The static-program path this entry never covered is unaffected — see EFX-4b, still open.
+
 ### ⚠ EFX-4b — OPEN (successor to EFX-4). `Raster_VBlank .copy_program` over-reads SHORT STATIC programs.
 **Booked 2026-08-15**, splitting off the half of EFX-4 that survived the deletion of its subject.
 

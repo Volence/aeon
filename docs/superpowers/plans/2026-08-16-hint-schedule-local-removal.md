@@ -413,19 +413,37 @@ where master put it.
 
 - [ ] **Step 7: GATE — the emitted buffer must be byte-identical to master's patched buffer**
 
-This is the strongest cheap gate in the parcel and it exists because the builder, when nothing is
-suppressed, must reproduce exactly what the patcher produced. With the camera at spawn
-(`Camera_Y = 144`, anchors 224/314 -> `L` = 80 and 170, both mid-band):
+This is the strongest cheap gate in the parcel: with nothing suppressed the builder must reproduce
+exactly what the patcher produced.
 
-1. `emulator_lookup_symbol` for `Raster_Buf_A`, `Raster_Buf_B`, `Raster_Active_Buf`.
-2. Read `Raster_Active_Buf`, then `emulator_read_memory` 64 bytes at that address.
-3. The first 23 words must be: `%0100`, `$8A61 0`, `$8A77 0`, `$8AFF 2`, `0 $8C89`, `4 $C048 $0000
-   2 72`, `$8AFF 1`, `2 $4002 $0010 0 $0043`, `$8AFF $FFFF` — i.e. exactly `OJZ_TC_HAND`
-   (`ojz_effects.emp:642-656`), which is the hand-authored truth for both channels mid-band.
-4. Record the read in the evidence file (Task 7 collects it).
+**Do NOT expect `OJZ_TC_HAND`'s arm words.** That twin is the TEMPLATE, authored at screen line 100
+for channel 0; the live buffer carries the RUNTIME lines, which come from the world anchors. At
+spawn (`Camera_Y = 144`, anchors 224 and 314, `ojz_effects.emp:561-571`) channel 0 latches
+`L = 80` -> fire line 79, and channel 1 latches `L = 170` -> fire line 169, which is BELOW its band
+floor and therefore clamps UP to fire line 215. Only the OP BODIES are the same as the twin.
+
+Pin the inputs instead of reading whatever the camera happens to be doing:
+
+1. `emulator_lookup_symbol` for `Raster_Buf_A`, `Raster_Buf_B`, `Raster_Active_Buf`,
+   `Effects_World_Y`, `Camera_Y`, `Debug_Scene_Freeze`.
+2. Freeze the camera (`Debug_Scene_Freeze` skips `Camera_Update`, so a written `Camera_Y` stays
+   put — `ojz_scroll_test.emp`), set `Camera_Y = 144`, and write `Effects_World_Y[0] = 244` and
+   `[1] = 380` so both records sit mid-band: `L0 = 100` -> fire 99, `L1 = 236`... which is past
+   channel 1's band and would SUPPRESS under Task 4. For this task pick `[1] = 360` -> `L1 = 216`
+   -> fire 215, inside the band. **Derive both fire lines from the values you actually wrote and
+   show the arithmetic in the evidence file** — a gate whose expectation was copied rather than
+   derived is how the last two parcels shipped an off-by-one.
+3. Read `Raster_Active_Buf`, then `emulator_read_memory` 46 bytes at that address.
+4. Expected, for fire lines 99 and 215: `arm0 = $8A00 | (99 - 1 - 1) = $8A61`,
+   `arm1 = $8A00 | (215 - 99 - 1) = $8A73`, records 2 and 3 both `$8AFF` (parked — nothing follows
+   them), terminator `$8AFF $FFFF`, and every op word identical to `OJZ_TC_HAND`'s bodies.
+5. **Cross-ROM control:** build master's ROM into a scratch path, run it with the SAME frozen camera
+   and the SAME written anchors, and read the same 46 bytes. The two buffers must be byte-identical.
+   This is sound in a way pixel comparison is not — the buffer is a pure function of (template,
+   anchors, camera), all three of which are pinned here.
 
 If the arm words differ, the arithmetic is wrong — re-read the "TWO records back / ONE record back"
-note before changing anything else.
+note before changing anything else. `$8A62`/`$8A74` specifically means the two-back LINE was used.
 
 - [ ] **Step 8: Commit**
 
@@ -585,18 +603,20 @@ and add the exit beside `.bands_ready`, restoring the saved `a0` first:
         jbra    .bands_ready
 ```
 
-Delete the now-dead `cmpi.w #224, d0 / bge .bands_ready` pair and its 11-line comment about the
-knowingly-unfixed DRY direction — that comment is the thing this task closes.
+**KEEP the `cmpi.w #224, d0 / bge .bands_ready` pair at `:801-802`.** It stops being the water
+channel's path but it does NOT become dead: the no-band-declared route (`beq .anchor_unclamped` at
+`:778`, taken when `Raster_GetChannelBand` reports no live table or no record for the channel) still
+falls through to it with `L` unclamped, and there below-screen is the only threshold available.
+What DOES go is its 11-line comment about the knowingly-unfixed DRY direction — that comment is the
+thing this task closes. Replace it with one line naming its real remaining job.
 
-- [ ] **Step 3: Keep the total-contract backstop honest**
+- [ ] **Step 3: Confirm both routes end somewhere correct**
 
-The `tst.w d0 / bpl .anchor_nonneg` backstop at `:796-800` exists for the no-band-declared path
-(`Raster_GetChannelBand` returned 0, `L` unclamped). That path has no band to compare against, so
-below-screen is still the right answer there: leave its `cmpi.w #224, d0 / bge .bands_ready`
-behaviour by routing the no-band case through the screen-edge test. Read `:788-802` and confirm the
-no-band path still reaches a `224` test; if Step 2's edit removed the only one, restore it on that
-path alone with the comment "no band declared: the record cannot be suppressed by band, so the
-screen edge is the only threshold available".
+Read the block from `.anchor_unclamped` (`:788`) to `.bands_ready` and confirm two things by
+tracing, not by assumption: (a) the band-found route now exits at `.anchor_off_below` before it can
+reach the clamp, and (b) the no-band route still reaches the `224` test with `a0` restored. `a0`
+holds the caller's config pointer and is popped on EVERY path — a missed pop is a corrupted
+parallax config, not a wrong boundary.
 
 - [ ] **Step 4: Build and boot**
 

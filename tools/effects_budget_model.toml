@@ -132,6 +132,35 @@ compose_variant_derive_when_stale_cycles = 19332
 compose_fade_step_cycles      = "NEEDS-MEASUREMENT"  # no fade was armed in the measured captures
 palette_compose_total_cycles  = 0        # was 19568 — see above
 
+[raster.schedule_build]
+# MEASURED 2026-08-16 on oracle, s4.debug.bin, OJZ section 0, Debug_Scene_Freeze=1,
+# Camera_Y=144, both patch anchors written so each record sits mid-band (nothing suppressed —
+# the worst case for the builder, since a suppressed record is work it skips). 100-frame
+# average, profiler on for both shapes.
+#
+# The parcel replaced Raster_PatchAll (rewrote one arm BYTE per record in the live buffer)
+# with Raster_BuildSchedule (re-records the whole schedule into the inactive buffer and
+# swaps). That is what makes a record REMOVABLE; this row is what it costs.
+#
+#   Raster_PatchAll        372 cyc   ->  Raster_BuildSchedule   1228 cyc   (+856)
+#   Raster_VBlank          634       ->                         1490      (+856, consistent)
+#   VInt_Level            7499       ->                         8421      (+922, the BRACKET)
+#
+# VInt_Level is the number that matters, not the proc: Raster_VBlank runs inside the
+# sound-ON DMA-flag / sound-OFF z80_stopped bracket, before Flush_VDP_Shadow and every DMA
+# drain, on BOTH VInt_Level and VInt_Lag. +922 cyc is ~1.9 scanlines of an ~18,200-cycle
+# NTSC VBlank window, and the bracket still sits under half of it.
+#
+# ZERO HBlank cost: Raster_HInt is byte-for-byte unchanged by this parcel, which is the
+# entire reason the re-record shape was chosen over a per-record NEXT link (Ristar's
+# spelling would have spent ~12 cycles of a ~60-cycle per-fire budget, forever).
+# NOTE: oracle's interrupts.hint counter INCLUDES VBlank, so its movement between these two
+# runs is the VBlank delta above, not an HBlank cost. Do not read it as one.
+build_schedule_cycles     = 1228     # 2 records, none suppressed
+build_schedule_prev_cycles = 372     # Raster_PatchAll, the proc this replaced
+vint_level_cycles         = 8421     # the bracket; was 7499
+records_measured          = 2
+
 [ram]
 # code-derived — the two effects RAM blocks (engine/ram.emp span guards).
 palette_state_bytes  = 472           # PALETTE_STATE_SIZE

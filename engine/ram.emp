@@ -292,7 +292,7 @@ pub vars upper_ram {
     // screen row, and Raster_Water_World_Y, the authored world Y) is DELETED in effects-P3
     // P-b. Its authored half generalised into Effects_World_Y[] below — one anchor per patch
     // channel instead of one per PROGRAM — and its derived half is not stored at all any
-    // more: Raster_PatchAll recomputes each screen line into a register and consumes it in
+    // more: Raster_BuildSchedule recomputes each screen line into a register and consumes it in
     // the same breath, so there is no derived cell left to go stale against the camera.
 
     // --- Dense RAMP state (OP_RUN_RAMP). The dense tier's second body: instead of
@@ -309,7 +309,7 @@ pub vars upper_ram {
     Raster_Ramp_Step:   u32,        // 16.16 per-line delta, signed
 
     // --- The patch channel bank (effects P3 Parcel P-b) -----------------------
-    // One authored world Y per patchable raster channel. Raster_PatchAll derives each
+    // One authored world Y per patchable raster channel. Raster_BuildSchedule derives each
     // boundary's screen line as world_y - Camera_Y every VBlank, so a boundary stays on a
     // place in the LEVEL rather than at a fixed height on the display.
     //
@@ -337,12 +337,12 @@ pub vars upper_ram {
     // and before Parallax_Update.
     //
     // IT EXISTS TO BE THE ONLY DERIVATION OF L. Three places used to compute anchor - Camera_Y
-    // independently: Raster_PatchAll in VBlank, the parallax overlay in the main loop, and now
+    // independently: Raster_BuildSchedule in VBlank, the parallax overlay in the main loop, and now
     // the frame-top ship. On a VInt_Lag frame VBlank runs twice against one main-loop update, so
     // independent derivations put the fire line and the boundary state on DIFFERENT cameras and
     // every transition pops. One latch, three readers, one camera.
     //
-    // UNCLAMPED IS THE WHOLE POINT. Raster_PatchAll clamps the fire line into the record's
+    // UNCLAMPED IS THE WHOLE POINT. Raster_BuildSchedule clamps the fire line into the record's
     // authored band because a negative inter-record gap stores as $FF, which IS the park word and
     // would kill every later fire in the frame. That clamp is load-bearing and stays — but it also
     // means the fire line cannot express "the boundary is above the screen", which is exactly the
@@ -360,7 +360,7 @@ pub vars upper_ram {
     // -> the ROM patch table, at (patched template + RASTER_BUF_SIZE).
     //
     // ZERO MEANS "no patched program is live", and this is the ONLY liveness test
-    // Raster_PatchAll may use. Raster_Active_Buf is NOT a substitute: Raster_VBlank's
+    // Raster_BuildSchedule may use. Raster_Active_Buf is NOT a substitute: Raster_VBlank's
     // explicit-clear path zeroes Raster_Program and idles the trampoline but never touches
     // Active_Buf, so after a Raster_Install(0) following a patched section Active_Buf still
     // reads Buf_B forever — and an Active_Buf-gated patcher would go on writing bytes into a

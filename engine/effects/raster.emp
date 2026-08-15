@@ -495,19 +495,27 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         move.l  d0, Raster_Program
         bne.s   .copy_program
         // Pending was an explicit clear: idle the trampoline and drop IE1.
-        // The patch table dies WITH the program. Raster_PatchAll's only liveness test is
+        // The patch table dies WITH the program. Raster_BuildSchedule's only liveness test is
         // Raster_Patch_Tab != 0 (Active_Buf is untouched on this path — that is the whole
         // reason the test is the table), so leaving it set here would keep the patcher
         // writing arm bytes into a buffer whose program has been torn down.
         clr.l   Raster_Patch_Tab
+        // The ship entry dies with the program that declared it, exactly as the patch table does.
+        // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
+        // program's trailer as a frame-top DMA whenever the (also stale) anchor reads L <= 0.
+        clr.l   Effects_Offscreen_Entry
         jbsr    HBlank_Uninstall
         rts
     .copy_program:
-        // A static ROM program is landing in Buf_A. The outgoing patched program's table
-        // described Buf_B's layout, and its arm_offs are meaningless against this one — a
-        // stale table here would rewrite Buf_A's op_counts as if they were arm words, every
-        // VBlank, and send the HInt walker through ROM as opcodes.
+        // A static ROM program is landing in Buf_A. A patch table left over from the outgoing
+        // patched program describes a DIFFERENT program's records, so the builder would keep
+        // re-recording that one over this buffer every VBlank and swap it live — the static
+        // program would never be walked at all.
         clr.l   Raster_Patch_Tab
+        // The ship entry dies with the program that declared it, exactly as the patch table does.
+        // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
+        // program's trailer as a frame-top DMA whenever the (also stale) anchor reads L <= 0.
+        clr.l   Effects_Offscreen_Entry
         movea.l d0, a1
         lea     Raster_Buf_A, a2
         move.l  a2, Raster_Active_Buf
@@ -517,13 +525,14 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         dbf     d1, .copy
 
     .no_install:
-        // Re-derive every patchable boundary's arm gap from its world anchor, BEFORE the
-        // cursor is rewound to the priming record. This is the only place it may run: the
-        // arm words are RELATIVE gaps, so a half-updated set desynchronises the whole tail
-        // of the chain — from the main loop it would race Raster_HInt walking this same
-        // buffer during active display, every frame the camera moves. Early-outs on
-        // Raster_Patch_Tab == 0, so a section with no patched effect pays one move.l/beq.
-        jbsr    Raster_PatchAll
+        // RE-RECORD the whole schedule from the ROM template into the INACTIVE buffer and
+        // swap, BEFORE the cursor is rewound to the priming record — which then picks up the
+        // buffer the swap just made live. This is the only place it may run: the arm words are
+        // RELATIVE gaps, so a half-built schedule desynchronises the whole tail of the chain —
+        // from the main loop it would race Raster_HInt walking a buffer during active display,
+        // every frame the camera moves. Early-outs on Raster_Patch_Tab == 0, so a section with
+        // no patched effect pays one move.l/beq.
+        jbsr    Raster_BuildSchedule
         move.l  Raster_Program, d0
         beq.s   .done                   // no program armed: one tst per frame
         movea.l Raster_Active_Buf, a1
@@ -763,19 +772,23 @@ pub data Raster_Program_None: [u16; 3] = [0, RASTER_ARM_PARK, RASTER_OPS_END]
 // PATCHED TEMPLATES (effects P2 Task 7, generalised in P3 P-a/P-b) — a raster program
 // whose boundary lines MOVE at runtime without rebuilding the program. The back buffer
 // Raster_Buf_B (reserved by P1 for exactly this) holds a runtime COPY of a template;
-// Raster_VBlank walks it because Raster_Active_Buf points at Buf_B, and Raster_PatchAll
-// rewrites one arm BYTE per patchable record each VBlank. A boundary move is one store.
+// Raster_BuildSchedule RE-RECORDS it from the ROM template each VBlank — into whichever of
+// Buf_A / Buf_B is not live, then swaps Raster_Active_Buf. A boundary move is a re-derived arm
+// word; a boundary that has left its band is a record the builder simply does not emit.
 //
 // P-b DELETED THE SINGLE-CHANNEL WATER SLOT that started this. WATER_TEMPLATE_ARM0_OFF
 // was a fixed byte offset 2 — the priming arm word of record 0 — which is where a
 // one-boundary program keeps its only moving part. That constant is gone because it was
 // the shape of the limit: one patch site per program, found by a magic offset rather
-// than described. P-a's patch table now carries a resolved arm_off PER RECORD and P-b's
-// patcher walks them, so the number of moving boundaries is a property of the content
-// rather than of the runtime. (The offset-2 fact itself survives, unnamed, inside
-// raster_dsl's arm_word_index: the header is ONE word, so record 0's arm is always
-// word 1 — [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6]... — which is what let the table
-// pre-resolve offsets at all.)
+// than described. P-a's patch table carried a resolved arm_off PER RECORD and P-b's patcher
+// walked them, so the number of moving boundaries became a property of the content rather
+// than of the runtime. Local removal then deleted arm_off outright — the builder emits the
+// records itself, so it knows where every arm word landed and needs nothing pre-resolved;
+// the table carries rec_off/rec_len instead, describing where each record IS rather than
+// which word to poke. (The offset-2 fact itself survives, unnamed, inside raster_dsl's
+// arm_word_index: the header is ONE word, so record 0's arm is always word 1 —
+// [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6]... — which is what lets a rec_off be
+// pre-resolved and what makes the builder's 5-word prologue a constant.)
 
 // Raster_WaterArm — the priming arm word that lands the water fire at screen line M.
 // FORMULA (survey Ruling 1b — the one-interrupt arm lag): priming fires 0 and 1 land on
@@ -786,32 +799,11 @@ pub data Raster_Program_None: [u16; 3] = [0, RASTER_ARM_PARK, RASTER_OPS_END]
 //
 // RASTER_MIN_FIRE_LINE is the `- 3` above, named ONCE: engine.effects.raster_dsl's
 // arm_at reduces to $8A00 | (M - 3) for a single-event program and pins itself against
-// this constant; Raster_PatchAll's `subq.w #1, d2` screen-line -> fire-line step is the
+// this constant; Raster_BuildSchedule's `subq.w #1, d2` screen-line -> fire-line step is the
 // runtime twin. They were previously two hand-synced literals with only a comment
 // holding them together.
 pub const RASTER_MIN_FIRE_LINE = 3
 pub const RASTER_MAX_FIRE_LINE = 223
-
-// -----------------------------------------------
-// Raster_CopyPatchedTemplate — install prologue: copy the template into Raster_Buf_B
-// and make it the live program. Bypasses Raster_Pending (which drives the ROM-program
-// Buf_A path) — a patched program is the runtime-patched Buf_B, not a static ROM one.
-// It had two callers while there were two install paths (screen-line and world-Y);
-// P-b collapsed them into Raster_InstallPatched, and it is kept separate because the
-// ORDER around it is load-bearing (see that proc's note on Raster_Patch_Tab).
-//   a0 = patched template
-// -----------------------------------------------
-proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
-        lea     Raster_Buf_B, a1
-        move.l  a1, Raster_Active_Buf
-        move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
-        clr.l   Raster_Pending
-        move.w  #(RASTER_BUF_SIZE / 2) - 1, d1
-    .copy:
-        move.w  (a0)+, (a1)+
-        dbf     d1, .copy
-        rts
-}
 
 // -----------------------------------------------
 // Raster_InstallPatched — install a patched template.
@@ -827,10 +819,15 @@ proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
 // parallax overlay) that is NOT gated on a patched program, so the old placement was not
 // merely inconsistent — it was unsound for anything but the single reader it grew up with.
 //
-// ORDER IS LOAD-BEARING. Raster_Patch_Tab is set BEFORE the copy points Active_Buf at Buf_B:
-// the copy makes the buffer look live, and a Patch_Tab still holding the PREVIOUS template
-// (or 0 at first install, which would read the vector table as a record count) inside that
-// window is exactly the race Raster_PatchAll's VBlank timing would otherwise expose.
+// ORDER IS LOAD-BEARING, and it survived the copy's deletion with its reason intact but its
+// mechanism changed. Raster_Patch_Tab is set FIRST, before the stores below point Active_Buf and
+// Raster_Program at a buffer — because those two are what make the buffer look live to
+// Raster_VBlank, and a Patch_Tab still holding the PREVIOUS template (or 0 at first install, which
+// would read the vector table as a record count) inside that window is the race the builder's
+// VBlank timing would otherwise expose. It used to say "before the COPY points Active_Buf at
+// Buf_B"; there is no copy any more — the builder re-records from the ROM template every VBlank —
+// but the window between "looks live" and "has a valid table" is the same window, and the table
+// still has to win it.
 // -----------------------------------------------
 pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         lea     RASTER_BUF_SIZE(a0), a1
@@ -838,8 +835,13 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
 
         // ---- the off-screen ship pointer, derived from the ROM template ----
         // Trailer layout: [n (word)][channel (word)][DMAEntry (14 bytes)], sitting after the
-        // patch table at RASTER_BUF_SIZE + 2 + 8*records. Read the record count the table
+        // patch table at RASTER_BUF_SIZE + 2 + 10*records. Read the record count the table
         // already starts with and step over it.
+        //
+        // TEN BYTES PER ENTRY, AND TEN IS NOT A SHIFT. The stride was a single `lsl.w #3`
+        // while entries were four words; the fifth word (rec_off/rec_len replacing arm_off)
+        // makes it 10n, and `mulu` is forbidden (CODING_CONVENTIONS.md). 8n + n + n is three
+        // instructions and no multiplier.
         //
         // FROM THE ROM TEMPLATE, NEVER THE RAM WORKING COPY. The descriptor is fully static —
         // nothing in it is ever patched — and the runtime's template copy is a fixed 128 bytes
@@ -848,7 +850,10 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         // Written on BOTH paths below, so no patched program can inherit the previous one's
         // entry. The preset's non-patched path clears it in Effects_InstallPreset.
         move.w  (a1), d0                        // record count
-        lsl.w   #3, d0                          // 8 bytes per table entry
+        move.w  d0, d1
+        lsl.w   #3, d0                          // 8n
+        add.w   d1, d0                          // 9n
+        add.w   d1, d0                          // 10n — the table's byte length
         addq.w  #2, d0                          // past the count word itself
         tst.w   (a1, d0.w)                      // the trailer's own count: 0 = no ship
         beq     .no_ship
@@ -863,15 +868,32 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         // crossing from the gradient section into a patched one mid-run leaves the handler in
         // .dense_body streaming a stale cursor while this program's records are never walked.
         clr.w   Raster_Dense_Lines
-        jbsr    Raster_CopyPatchedTemplate      // sets Active_Buf = Buf_B
-        // The ship entry is built AFTER the copy, not beside the pointer store above, purely
-        // for registers: the builder needs a0 and the copy still needs the template there.
+        // The install half of what Raster_CopyPatchedTemplate used to do. The COPY is gone — the
+        // builder re-records the whole schedule from the ROM template at the next VBlank — but
+        // these three stores are not the copy and nothing else performs them. Buf_B is named here
+        // only as a starting side; the builder swaps buffers from this frame on.
+        lea     Raster_Buf_B, a1
+        move.l  a1, Raster_Active_Buf
+        move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
+        clr.l   Raster_Pending                  // a staged static program loses (preset.emp's guard)
+        // The ship entry is built AFTER the install stores, not beside the pointer store above.
+        // That used to be a register constraint (Raster_BuildShipEntry needs a0, and the deleted
+        // copy loop was still running it as a template cursor until it returned); a0 is untouched
+        // by this proc since the initial `lea` and free the whole way through now, so the ordering
+        // is no longer forced — kept here to match the entry's installation site.
         move.l  Effects_Offscreen_Entry, d0
         beq     .no_build
         movea.l d0, a1
         jbsr    Raster_BuildShipEntry
     .no_build:
-        jbra    Raster_PatchAll
+        // NO TAIL CALL INTO THE BUILDER. Raster_PatchAll used to be invoked from here, i.e. from
+        // the MAIN LOOP, which was survivable while it wrote one byte per record and is not now:
+        // the builder re-records the entire buffer, and Raster_HInt walks that buffer during
+        // active display. The install lands at the next Raster_VBlank, which is the contract this
+        // proc always had ("it takes effect at the next Raster_VBlank, so an install can never
+        // tear a frame mid-walk"). This also removes a PRE-EXISTING hazard: the deleted copy blatted
+        // 128 bytes over the live buffer from the main loop.
+        rts
 }
 
 // -----------------------------------------------
@@ -917,87 +939,142 @@ proc Raster_BuildShipEntry (a1: u32) clobbers(d0-d4/a0-a1) {
 }
 
 // -----------------------------------------------
-// Raster_PatchAll — move every patchable boundary to its world-anchored line. Walks the ROM
-// patch table P-a's patched_program emitted at template + RASTER_BUF_SIZE.
+// Raster_BuildSchedule — RE-RECORD the frame's schedule from the ROM template into the INACTIVE
+// buffer, emitting only the records that are live this frame, then swap.
 //
-// IT NO LONGER DERIVES THE SCREEN LINE. `world_y - Camera_Y` moved out to
-// Effects_LatchWorldLines in the main loop, and this proc reads the latched result. That is
-// what makes the fire line and the parallax boundary and the frame-top ship agree on ONE
-// camera: a VInt_Lag frame runs VBlank twice against a single main-loop update, so a local
-// re-derivation here would put this proc's answer on a different camera than the overlay's.
-// The Camera_Y read and its `sub` are gone; d3 is consequently free and deliberately unused
-// (see the register-budget note below before reaching for it).
+// It replaces Raster_PatchAll, which rewrote one arm BYTE per record in the live buffer. The
+// patcher could move a boundary but could never REMOVE one: arm words are relative gaps and the
+// handler's cursor advance is implicit, so a record is left behind only by having been walked.
+// Emitting the schedule instead makes removal a matter of not copying it.
 //
-// CALLED FROM Raster_VBlank, NOT THE MAIN LOOP, and that is load-bearing. Every arm word is a
-// RELATIVE gap to the next fire, and this routine writes one byte per record scattered across
-// the buffer. From the main loop it would run while Raster_HInt is walking that same buffer
-// during active display: records already passed keep this frame's gaps, records ahead get next
-// frame's, and because the gaps are relative the entire tail of the chain desynchronises — every
-// frame the camera moves. The single-word water patch this replaces got away with main-loop
-// timing only because its one arm is consumed at the frame-top rewind, making it structurally a
-// next-frame write.
+// THE ARM SLOT IS TWO RECORDS BACK; THE LINE DELTA IS ONE RECORD BACK. Ruling 1b: the word written
+// at record i is consumed at the next fire and schedules the gap that LANDS record i+2. So the
+// value is `this fire line - the previous fire line - 1` while the slot it goes into belongs to
+// the record two back. Pairing the two-back slot with the two-back LINE is the mistake this design
+// was drafted with and a lens sweep caught; the hand pin is the witness
+// (games/sonic4/data/effects/ojz_effects.emp: arm0 = $8A00 | (99 - 1 - 1) = $8A61).
 //
-// THE S3K STEAL: every arm word is $8Axx INCLUDING the park word $8AFF, so the counter is the
-// LOW BYTE and re-arming is one move.b with no ori and no masking. Park needs no special case —
-// and the park word is the LAST record's own arm, which the table never addresses anyway (the
-// table has one entry per authored record, entry j addressing the arm of record j, which
-// schedules the fire that LANDS record j+2).
+// PARK IS BY CONSTRUCTION. A record's arm is written only when a record two later is emitted, so
+// the two youngest slots are never written by the loop — this proc parks them explicitly at the
+// end. That is what keeps the TEMPLATE's own arm words entirely non-load-bearing: they are copied
+// and then either overwritten or parked, so no patched template needs a special all-park emitter
+// and check_arm_layout keeps proving what it proves for static programs. It also makes the empty
+// schedule correct for the right reason: with every record suppressed the two youngest slots ARE
+// the priming records, both parked.
 //
-// Table entry: [arm_off][line_src][band_lo_fl][band_hi_fl], all in FIRE-LINE space, preceded by
-// a single word record count. See raster_dsl.emp's patch_table for the wire format.
+// IT WRITES THE INACTIVE BUFFER AND SWAPS. Building in place would move records under a
+// Raster_Cursor left from the previous frame. Today the buffer's LAYOUT is a frame invariant (only
+// arm bytes change), so a stale cursor always points at a record boundary; under compaction it
+// would not. Raster_Buf_A is free for the whole lifetime of a patched program, and P1 reserved the
+// pair for exactly this.
 //
-// THE GAP CANNOT GO NEGATIVE, and that is guard 2's doing, not luck: check_intervals walks the
-// band intervals from prev_hi = 1 requiring lo_fl > prev_hi, so every clamped line is strictly
-// above the previous record's reachable ceiling. A -1 gap would store $FF, and $8AFF is
-// RASTER_ARM_PARK — it would kill every remaining fire in the frame with no other symptom.
+// VBLANK ONLY, and that is inherited rather than new: the arm words are RELATIVE, so a half-built
+// schedule walked by Raster_HInt desynchronises the whole tail of the chain.
+//
+// STACK SCRATCH, DELIBERATELY. The two arm-slot back-pointers live in an 8-byte stack frame rather
+// than in registers or RAM: this proc runs under Raster_VBlank, whose callers VInt_Level and
+// VInt_Lag declare clobbers reaching only d4 and a2, and Raster_BuildShipEntry's note records that
+// saving a register does not buy back its declaration. Two longwords on the stack cost two memory
+// accesses per record in VBlank and no contract change anywhere.
+//
+// Table entry (raster_dsl.emp's patch_table): [line_src][band_lo_fl][band_hi_fl][rec_off][rec_len],
+// the first three in FIRE-LINE space, the last two byte offsets/lengths into the emitted body,
+// preceded by a single word record count.
 // -----------------------------------------------
-// REGISTER BUDGET, and it is a constraint rather than a preference: this runs under
-// Raster_VBlank, whose callers VInt_Level and VInt_Lag declare clobbers reaching only d4. A
-// d5 scratch for the gap would have to be declared all the way up through both of them. It
-// buys nothing — the gap is computable in place by subtracting the new line FROM prev and
-// negating, which is the same two instructions as a copy-then-subtract.
-proc Raster_PatchAll () clobbers(d0-d4/a0-a2) {
+proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
         move.l  Raster_Patch_Tab, d0
         beq     .none                       // liveness: the TABLE, never Active_Buf
-        movea.l d0, a0
+        subq.l  #8, sp                      // (sp) = arm slot two back, 4(sp) = one back
+        movea.l d0, a0                      // -> the patch table
+        // --- destination = whichever buffer is NOT live ---
+        move.l  Raster_Active_Buf, d3
+        lea     Raster_Buf_A, a1
+        cmpa.l  d3, a1
+        bne     .dst_ready
         lea     Raster_Buf_B, a1
-        lea     Effects_Screen_L, a2        // indexed access needs its own An
-        move.w  (a0)+, d4                   // count (a WORD)
+    .dst_ready:
+        // --- header word and the two priming records, verbatim ---
+        movea.l d0, a2
+        // suba.w, not `lea -RASTER_BUF_SIZE(a2)`: a NEGATED named const in a displacement is
+        // dropped by sigil's contract walk (measured — 2 dropped instructions, gate-fatal),
+        // and suba.w #CONST,aN is this tree's existing idiom for the same step anyway.
+        suba.w  #RASTER_BUF_SIZE, a2        // the template body sits before its table
+        move.w  (a2)+, (a1)+                // pal_dirty_mask
+        move.l  a1, (sp)                    // priming record 0's arm word
+        move.l  (a2)+, (a1)+                // [arm][op_count]
+        move.l  a1, 4(sp)                   // priming record 1's arm word
+        move.l  (a2)+, (a1)+
+        moveq   #1, d0                      // prev fire line = 1 (priming record 1)
+        move.w  (a0)+, d4                   // record count (a WORD)
         subq.w  #1, d4
-        moveq   #1, d0                      // prev fire line = L[1] = 1, priming record 1
     .entry:
-        move.w  (a0)+, d1                   // arm_off
         move.w  (a0)+, d2                   // line_src
-        bpl     .static                     // high bit clear -> a literal fire line
+        bpl     .have_line                  // high bit clear -> a literal fire line
         andi.w  #RASTER_MAX_PATCH-1, d2     // channel index
         add.w   d2, d2                      // -> word offset
+        lea     Effects_Screen_L, a2
         move.w  (a2, d2.w), d2              // the LATCHED screen line; may be negative
         subq.w  #1, d2                      // -> fire line. ONE conversion, here.
-        cmp.w   (a0), d2
-        bge     .lo_ok
-        move.w  (a0), d2                    // clamp up to band_lo_fl
-    .lo_ok:
-        cmp.w   2(a0), d2
-        ble     .static
-        move.w  2(a0), d2                   // clamp down to band_hi_fl
-    .static:
-        addq.l  #4, a0                      // step past the two band words
-        sub.w   d2, d0                      // prev - line
-        neg.w   d0                          // line - prev
-        subq.w  #1, d0                      // gap = L[k] - L[k-1] - 1
-        move.b  d0, 1(a1, d1.w)             // the low byte IS the counter
+        cmp.w   2(a0), d2                   // band_hi_fl
+        bgt     .suppress                   // past the band it can reach: REMOVE the record
+        cmp.w   (a0), d2                    // band_lo_fl
+        bge     .have_line
+        move.w  (a0), d2                    // clamp UP — the frame-top ship covers what is above
+    .have_line:
+        addq.l  #4, a0                      // past the two band words
+        // --- this record's gap goes into the slot TWO records back ---
+        move.w  d2, d3
+        sub.w   d0, d3
+        subq.w  #1, d3                      // gap = L[k] - L[k-1] - 1
+        movea.l (sp), a2
+        move.b  d3, 1(a2)                   // the low byte IS the counter (every arm word is $8Axx)
+        // --- shift the slot history, then remember where THIS record's arm lands ---
+        move.l  4(sp), (sp)
+        move.l  a1, 4(sp)
         move.w  d2, d0                      // prev = this record's fire line
+        // --- copy the record body out of the template ---
+        move.w  (a0)+, d3                   // rec_off
+        movea.l Raster_Patch_Tab, a2
+        suba.w  #RASTER_BUF_SIZE, a2
+        adda.w  d3, a2                      // adda.w, NOT add.w: add.w dN,aM mis-encodes
+        move.w  (a0)+, d3                   // rec_len, in BYTES
+        lsr.w   #1, d3                      // -> words
+        subq.w  #1, d3
+    .copy:
+        move.w  (a2)+, (a1)+
+        dbf     d3, .copy
+    .next:
         dbf     d4, .entry
+        // --- terminator, emitted rather than copied: nothing in the template holds it ---
+        move.w  #RASTER_ARM_PARK, (a1)+
+        move.w  #RASTER_OPS_END, (a1)+
+        // --- the two youngest arm slots have no record two later, so they park ---
+        movea.l (sp), a2
+        move.w  #RASTER_ARM_PARK, (a2)
+        movea.l 4(sp), a2
+        move.w  #RASTER_ARM_PARK, (a2)
+        addq.l  #8, sp
+        // --- swap: the buffer just built becomes the one Raster_HInt walks ---
+        move.l  Raster_Active_Buf, d3
+        lea     Raster_Buf_A, a1
+        cmpa.l  d3, a1
+        bne     .swap
+        lea     Raster_Buf_B, a1
+    .swap:
+        move.l  a1, Raster_Active_Buf
     .none:
         rts
+    .suppress:
+        addq.l  #8, a0                      // band words, rec_off, rec_len
+        jbra    .next
 }
 
 // -----------------------------------------------
 // Raster_GetChannelBand — report the fire-line band the LIVE patched program declares for
 // a world-anchor channel, so a SECOND consumer of that anchor clamps exactly where
-// Raster_PatchAll clamps it (:895-901).
+// Raster_BuildSchedule clamps it (:895-901).
 //
-// WHY THIS EXISTS AT ALL. Raster_PatchAll pins a patchable fire to its record's authored
+// WHY THIS EXISTS AT ALL. Raster_BuildSchedule pins a patchable fire to its record's authored
 // band, and that clamp is load-bearing rather than cosmetic: a negative inter-record gap
 // would store $FF, which IS the park word, killing every remaining fire in the frame
 // (see the note above that proc). Parcel W's parallax overlay reads the same anchor to
@@ -1036,7 +1113,7 @@ proc Raster_PatchAll () clobbers(d0-d4/a0-a2) {
 // actually have — and sigil's out-verifier checks it at that width on every return path.
 pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: u16) {
         move.l  Raster_Patch_Tab, d1
-        beq     .none                       // liveness: the TABLE, exactly as Raster_PatchAll
+        beq     .none                       // liveness: the TABLE, exactly as Raster_BuildSchedule
         movea.l d1, a0
         andi.w  #RASTER_MAX_PATCH-1, d0
         ori.w   #$8000, d0                  // a patchable line_src is $8000|channel
@@ -1046,11 +1123,10 @@ pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: 
                                             // dbf 65536 times through ROM comparing garbage
         subq.w  #1, d2
     .entry:
-        addq.l  #2, a0                      // skip arm_off
-        move.w  (a0)+, d1                   // line_src
+        move.w  (a0)+, d1                   // line_src — the FIRST word of an entry now
         cmp.w   d0, d1
         beq     .found
-        addq.l  #4, a0                      // skip the two band words
+        addq.l  #8, a0                      // skip band_lo, band_hi, rec_off, rec_len
         dbf     d2, .entry
     .none:
         // d1/d2 are zeroed on this path, not left as they fell, because `out(d1, d2)` is a
@@ -1076,18 +1152,18 @@ pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: 
 //
 // CALLED FROM THE MAIN LOOP, after Camera_Update and before Parallax_Update — and that
 // placement is a ruling, not a convenience. Put it in VBlank instead and the value reaches the
-// parallax overlay one Camera_Update LATER than it reaches Raster_PatchAll: the palette would
+// parallax overlay one Camera_Update LATER than it reaches Raster_BuildSchedule: the palette would
 // go whole-screen wet on the frame the shimmer still splits mid-screen, a guaranteed one-frame
 // pop at every transition. Verified ordering today has both consumers reading the same tick's
 // camera, and this latch is what keeps that true rather than re-deriving it three times.
 //
-// THAT IS THE OTHER HALF OF WHY IT EXISTS: it is the SINGLE derivation of L. Raster_PatchAll
+// THAT IS THE OTHER HALF OF WHY IT EXISTS: it is the SINGLE derivation of L. Raster_BuildSchedule
 // (VBlank), the parallax overlay (main loop) and the frame-top ship (VBlank) all read this
 // bank. On a VInt_Lag frame VBlank runs twice against one main-loop update, so three
 // independent `anchor - Camera_Y` computations would put the fire line and the boundary state
 // on different cameras.
 //
-// UNCLAMPED, DELIBERATELY. Raster_PatchAll clamps its fire line into each record's authored
+// UNCLAMPED, DELIBERATELY. Raster_BuildSchedule clamps its fire line into each record's authored
 // band and must (a negative inter-record gap stores as $FF, which IS the park word, and would
 // kill every later fire in the frame) — but the clamp therefore cannot express "this boundary
 // is above the screen entirely", which is precisely the state the off-screen ship answers.

@@ -175,7 +175,7 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 // Clobbers: d0-d4, a0-a3 (a1/a3 enter the union via Effects_InstallPreset,
 //   the effects-P3 preset path — the sole per-section effect consumer since
 //   the legacy per-field installers were removed, effects-P3-C2 Task 13; d4
-//   joined it in P-b, where Raster_PatchAll's table walk reaches d4. d2/d3 hold
+//   joined it in P-b, where Raster_BuildSchedule's table walk reaches d4. d2/d3 hold
 //   the section coords and are dead by the call, so nothing here needs saving.)
 // ----------------------------------------------------------------------
 pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
@@ -742,7 +742,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // L = the channel's screen line, LATCHED this frame by Effects_LatchWorldLines
         // (main loop, after Camera_Update, before this proc). May be negative, meaningfully.
         // Reading the latch rather than recomputing `anchor - Camera_Y` here is what keeps
-        // this boundary and Raster_PatchAll's fire line on the SAME camera on a lag frame,
+        // this boundary and Raster_BuildSchedule's fire line on the SAME camera on a lag frame,
         // where VBlank runs twice against one main-loop update.
         move.w  d2, d0
         add.w   d0, d0                              // channel -> word index
@@ -763,9 +763,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         tst.w   d0
         ble     .anchor_top
 
-        // Clamp L to the channel's own raster band, so the palette boundary and this one
-        // pin TOGETHER. Raster_PatchAll clamps its fire line to the same pair; if this side
-        // clamped anywhere else the two would separate exactly where the fixture reaches.
+        // Resolve L against the channel's own raster band, so the palette boundary and this one
+        // agree in ALL THREE anchor states. Raster_BuildSchedule reads the same two words from the
+        // same table and reaches the same verdict: above the band, clamp up (the frame-top ship
+        // covers the rest); inside it, follow the anchor; past it, the record is not emitted and
+        // this boundary does not split. If this side resolved anywhere else the two would
+        // separate exactly where the fixture reaches.
         // The accessor clobbers a0 (our config) and d0-d2, so a0 and L cross the call on
         // the stack; a1-a3 (the shadow bases) it leaves alone.
         move.l  a0, -(sp)
@@ -778,13 +781,25 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         beq     .anchor_unclamped                   // no band declared -> [0,224] is correct
         addq.w  #1, d1                              // fire line -> screen line, both bounds
         addq.w  #1, d2
-        cmp.w   d1, d0
-        bge     .anchor_lo_ok
-        move.w  d1, d0
-    .anchor_lo_ok:
+        // THE DRY DIRECTION, and the HI test comes first because it is no longer a clamp.
+        // Past band_hi the channel's raster record is not EMITTED at all this frame
+        // (Raster_BuildSchedule drops it), so there is no palette boundary for this one to pin
+        // to. Splitting the scroll bands here would leave the two disagreeing across exactly the
+        // rows the palette no longer covers — the defect Parcel W exists to remove, and the
+        // reason DEFERRED_WORK says never to change one side alone. The threshold is the
+        // RECORD'S OWN band, read from the table the builder clamps against, so the two cannot
+        // drift apart by editing one number.
         cmp.w   d2, d0
-        ble     .anchor_unclamped
-        move.w  d2, d0
+        ble     .anchor_hi_ok
+        movea.l (sp)+, a0                           // config back — this path leaves here
+        jbra    .bands_ready
+    .anchor_hi_ok:
+        // Below band_lo the record IS still emitted, clamped up to the floor, because the
+        // frame-top ship covers the rows above it. Asymmetric on purpose: clamping UP hides
+        // nothing, clamping DOWN would paint rows the world says are dry.
+        cmp.w   d1, d0
+        bge     .anchor_unclamped
+        move.w  d1, d0
     .anchor_unclamped:
         movea.l (sp)+, a0                           // config back, on EVERY path below
 
@@ -799,17 +814,15 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d0
     .anchor_nonneg:
         cmpi.w  #224, d0
-        bge     .bands_ready                        // entirely below the screen: nothing to do
-                                                    // (the DRY direction — knowingly unfixed, and
-                                                    // unreachable while the band clamp above runs.
-                                                    // Suppressing a fire needs per-record parking,
-                                                    // which the relative-gap encoding cannot do;
-                                                    // blocked on the Ristar linked-list schedule.
-                                                    // Both boundaries clamp together today, so
-                                                    // they are wrong TOGETHER — fixing only this
-                                                    // side would trade a consistent error for a
-                                                    // disagreement, which is the defect Parcel W
-                                                    // exists to remove.)
+        bge     .bands_ready                        // entirely below the screen: nothing to do.
+                                                    // NOT dead, and no longer the water channel's
+                                                    // route: the band test above owns that now.
+                                                    // This is the NO-BAND-DECLARED path's only
+                                                    // threshold (Raster_GetChannelBand answering 0
+                                                    // is a semantic answer — no live table, or no
+                                                    // record for this channel — and it returns L
+                                                    // unclamped), so the screen edge is all there
+                                                    // is to test against.
 
         // --- find k = the last shadow band whose top <= L (the band being split) ---
         lea     Parallax_Shadow_Bands, a4
