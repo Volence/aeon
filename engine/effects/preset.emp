@@ -133,7 +133,7 @@ pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
     // Raster_InstallPatched copies exactly RASTER_MAX_PATCH words out of this field and a short
     // array would have it read whatever follows in ROM as an anchor.
     ensure(patch_world_ys.len == RASTER_MAX_PATCH,
-           "preset(): patch_world_ys must name exactly one world Y per patch channel. Raster_InstallPatched seeds exactly RASTER_MAX_PATCH words out of this field, so a SHORT array makes it read the bytes that follow in ROM as anchors, and a LONG one silently drops the tail — the guard is stated as equality, not a minimum, because both directions are wrong and only one of them would ever look like an error.")
+           "preset(): patch_world_ys must name exactly one world Y per patch channel. Effects_InstallPreset seeds exactly RASTER_MAX_PATCH words out of this field on EVERY install (W0), so a SHORT array makes it read the bytes that follow in ROM as anchors, and a LONG one silently drops the tail — the guard is stated as equality, not a minimum, because both directions are wrong and only one of them would ever look like an error.")
     return EffectsPreset{ ep_pal: pal, ep_parallax: parallax, ep_raster: raster,
                           ep_patched: patched, ep_cycle: cycle, ep_variants: variants,
                           ep_patch_world_ys: patch_world_ys, ep_transition: transition }
@@ -194,6 +194,35 @@ const EP_VARIANT_1 = EP_VARIANT_0 + 4
 pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset* — survives every callee below
 
+        // ---- ep_patch_world_ys -> Effects_World_Y[], UNCONDITIONALLY (Parcel W0) ----
+        // This is the channel total binding forgot. The seed used to live inside
+        // Raster_InstallPatched, so it ran only when ep_patched != 0 — meaning a section
+        // without a patched program inherited the previous section's anchors, exactly the
+        // "0 means keep" semantic this proc exists to delete. Witnessed on the shipped ROM:
+        // crossing OJZ section 0 (patched, anchors 224/314) into section 1 (no patched
+        // program, ep_patch_world_ys = [0,0,0,0]) left the bank reading 224/314 while
+        // Raster_Patch_Tab had correctly gone to 0.
+        //
+        // THE CLEAR PRECEDES THE SEED, and the order is the whole point rather than tidiness.
+        // This proc runs from the MAIN LOOP (the crossing site) and the palette work below
+        // takes thousands of cycles, so a VBlank lands inside this window routinely. In that
+        // VBlank Raster_PatchAll re-derives every arm gap from Effects_World_Y using
+        // Raster_Patch_Tab ALONE as its liveness test (raster.emp:877-878) — so seeding the
+        // incoming section's anchors while the OUTGOING template's table is still live would
+        // re-patch the outgoing program's boundaries to the new section's world Ys for one
+        // frame: a visible one-frame boundary jump at every crossing. Clearing first makes
+        // that VBlank a no-op instead, so the outgoing program simply holds last frame's arms.
+        // `clr.l` is a single instruction, so a VBlank sees the old pointer or 0, never a torn
+        // one. On the patched path Raster_InstallPatched sets the new table below, still
+        // before its own copy, so that proc's documented order survives intact.
+        clr.l   Raster_Patch_Tab
+        lea     EffectsPreset.ep_patch_world_ys(a3), a0
+        lea     Effects_World_Y, a1
+        moveq   #RASTER_MAX_PATCH-1, d0
+    .seed_anchor:
+        move.w  (a0)+, (a1)+
+        dbf     d0, .seed_anchor
+
         // ---- ep_transition: arm the cross-fade BEFORE the palette load ----
         tst.w   EffectsPreset.ep_transition(a3)
         beq     .no_fade_arm
@@ -230,10 +259,9 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         movea.l EffectsPreset.ep_patched(a3), a0
         cmpa.w  #0, a0
         beq     .no_patch
-        // a2, not a1: Raster_CopyPatchedTemplate uses a1 as its Buf_B write pointer, so an
-        // anchor pointer in a1 is destroyed before Raster_InstallPatched can read it. a3 is
-        // untouched by the callee (it clobbers d0-d4/a0-a2) and survives to .raster_done.
-        lea     EffectsPreset.ep_patch_world_ys(a3), a2
+        // No anchor pointer to pass any more — the seed above is unconditional (W0), so the
+        // a2-not-a1 hazard this call used to carry is gone with it. a3 is still untouched by
+        // the callee (it clobbers d0-d4/a0-a2) and survives to .raster_done.
         jbsr    Raster_InstallPatched
         bra     .raster_done
     .no_patch:

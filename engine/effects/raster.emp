@@ -813,26 +813,27 @@ proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
 }
 
 // -----------------------------------------------
-// Raster_InstallPatched — install a patched template and seed its world anchors.
-//   a0 = patched template   a2 = *u16 authored world Ys (RASTER_MAX_PATCH of them)
+// Raster_InstallPatched — install a patched template.
+//   a0 = patched template
 //
-// a2 NOT a1: Raster_CopyPatchedTemplate declares clobbers(d1/a0-a1) and uses a1 as its Buf_B
-// write pointer, so an anchor pointer in a1 is destroyed before it can be read.
+// IT NO LONGER SEEDS THE ANCHORS (Parcel W0, 2026-08-15). The seed lived here while the
+// patched program was the anchor bank's only reader, and that made Effects_World_Y the one
+// channel a preset did NOT total-bind: a section without a patched program never wrote the
+// bank and silently inherited the previous section's anchors — measured on the shipped ROM
+// as 224/314 surviving the crossing from OJZ section 0 into section 1. Seeding now happens
+// unconditionally in Effects_InstallPreset, which is what "TOTAL BINDING" already meant for
+// every other channel (§7.12). The anchor bank has a second reader coming (Parcel W's
+// parallax overlay) that is NOT gated on a patched program, so the old placement was not
+// merely inconsistent — it was unsound for anything but the single reader it grew up with.
 //
 // ORDER IS LOAD-BEARING. Raster_Patch_Tab is set BEFORE the copy points Active_Buf at Buf_B:
 // the copy makes the buffer look live, and a Patch_Tab still holding the PREVIOUS template
 // (or 0 at first install, which would read the vector table as a record count) inside that
 // window is exactly the race Raster_PatchAll's VBlank timing would otherwise expose.
 // -----------------------------------------------
-pub proc Raster_InstallPatched (a0: u32, a2: u32) clobbers(d0-d4/a0-a2) {
+pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         lea     RASTER_BUF_SIZE(a0), a1
         move.l  a1, Raster_Patch_Tab            // table first
-        // Seed the anchors from the preset's inline array.
-        lea     Effects_World_Y, a1
-        moveq   #RASTER_MAX_PATCH-1, d0
-    .seed:
-        move.w  (a2)+, (a1)+
-        dbf     d0, .seed
         // A dense run in flight belongs to the OUTGOING program. Nothing else clears it, so
         // crossing from the gradient section into a patched one mid-run leaves the handler in
         // .dense_body streaming a stale cursor while this program's records are never walked.
