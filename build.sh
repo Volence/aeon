@@ -174,6 +174,24 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
         echo "Lint errors found — fix before assembling."
         exit 1
     fi
+
+    # Effects budget model vs the shipped code (closes EFX-9). This gate existed, was
+    # CORRECT, and was invoked by NOTHING — not this script, not CI — so the only
+    # references to it in the tree were its own unit test and two comments in the model
+    # describing the gate as though it ran. `raster_state_bytes` drifted 10 bytes past a
+    # bug-ledger entry that credited this very check with preventing drift.
+    #
+    # It reads .emp constants and compares them to tools/effects_budget_model.toml, so it
+    # depends on source only and is cheap. It sits under the same NO_LINT guard as the
+    # other source gates, so the escape hatch is `./build.sh <game> --no-lint` — note the
+    # GAME IS POSITIONAL ($1), so `./build.sh --no-lint` parses --no-lint as the game name
+    # and fails with `unknown --game`. That is pre-existing arg-parsing behaviour, not
+    # this gate's, but it is the first thing anyone reaching for the hatch will hit.
+    echo "Checking the effects budget model..."
+    if ! python3 "${TOOLS}/effects_budget_check.py"; then
+        echo "Budget-model drift — update tools/effects_budget_model.toml to match the code."
+        exit 1
+    fi
 fi
 
 # STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an
