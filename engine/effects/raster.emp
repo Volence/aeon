@@ -226,7 +226,8 @@ pub const RASTER_BUF_SIZE = 128
 //   Program 4 + Cursor 4 + Pending 4 + Line 2 + Buf_A + Buf_B + Active_Buf 4
 //   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4
 //   + Dense_Kind 2 + Ramp_Acc 4 + Ramp_Step 4
-//   + Effects_World_Y (2 * RASTER_MAX_PATCH) + Patch_Tab 4
+//   + Effects_World_Y (2 * RASTER_MAX_PATCH) + Effects_Screen_L (2 * RASTER_MAX_PATCH)
+//   + Effects_Offscreen_Entry 4 + Patch_Tab 4
 //
 // THIS ensure IS WHAT HOLDS ram.emp's LITERAL 4 TO RASTER_MAX_PATCH. ram.emp is built by a
 // separate ram-harvest pass outside the COMPTIME_HELPERS glob injection, so it cannot NAME
@@ -234,7 +235,7 @@ pub const RASTER_BUF_SIZE = 128
 // measures the real emitted span between the two marks, so raising RASTER_MAX_PATCH without
 // widening the RAM array fails the build HERE, which is the whole reason the span guard is
 // phrased against extern() marks rather than against a hand-added byte count.
-pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 4 + 4 + (2 * RASTER_MAX_PATCH) + 4
+pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 4 + 4 + (2 * RASTER_MAX_PATCH) + (2 * RASTER_MAX_PATCH) + 4 + 4
 ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
        "Raster_State RAM block drifted from hblank.emp's raster layout")
 
