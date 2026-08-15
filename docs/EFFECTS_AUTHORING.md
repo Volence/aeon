@@ -306,15 +306,18 @@ cost and the guard fires only on evidence.
 
 ## `patchable` — a fire whose line moves at runtime
 
-> **Both halves have shipped.** Parcel P-a added the authoring vocabulary and the wire format below;
-> **Parcel P-b added the runtime patcher** (`Raster_PatchAll`), so a patchable fire now actually
-> moves on hardware. Bind the template through a preset's `patched:` field with
-> `patch_world_ys:` naming one world Y per channel, and `Effects_InstallPreset` does the rest.
-> Evidence: `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`.
+> **All three parcels have shipped.** Parcel P-a added the authoring vocabulary and the wire format
+> below; Parcel P-b added the runtime patcher, so a patchable fire actually moved on hardware; the
+> HInt schedule local-removal parcel (2026-08-16) then replaced that patcher with
+> `Raster_BuildSchedule`, which re-records the whole schedule into the inactive buffer every VBlank
+> instead of rewriting one arm byte in place — the mechanism that finally let a boundary past its
+> band be REMOVED rather than only clamped (see "the DRY direction" below). Bind the template
+> through a preset's `patched:` field with `patch_world_ys:` naming one world Y per channel, and
+> `Effects_InstallPreset` does the rest. Evidence: `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`.
 
-`patchable(fires, ch, lo, hi)` marks a fire as one whose *fire line* is moved every VBlank by
-`Raster_PatchAll`, within a screen-line band `[lo, hi]`, rather than being fixed at its authored
-line forever.
+`patchable(fires, ch, lo, hi)` marks a fire as one whose *fire line* is re-derived every VBlank by
+`Raster_BuildSchedule` from a world anchor, within a screen-line band `[lo, hi]`, rather than being
+fixed at its authored line forever.
 
 ### The authoring model: a boundary belongs to the LEVEL, not the display
 
@@ -328,9 +331,15 @@ Two consequences worth internalising before you author one:
 - **Two channels in one program hold a constant separation** as the camera moves, because both are
   anchored. If you find yourself expecting their separation to change, you are thinking in screen
   space.
-- **A boundary that scrolls out of its band clamps to the band edge**, it does not vanish. Below the
-  viewport it renders at `hi`. Choose `lo`/`hi` as the range you are willing to *see* the boundary
-  in, not merely as a sanity range.
+- **The two edges of the band behave differently, on purpose.** Above `lo` (anchor higher on
+  screen than the band allows) the fire clamps UP to `lo` — it does not vanish — because the
+  frame-top ship (`offscreen_ship: 1`, below) already covers everything above with the fire's own
+  colours once the anchor reads `L <= 0`, so clamping there hides nothing. Past `hi` (anchor lower
+  on screen than the band reaches) the record is **not emitted at all** this frame — it does
+  vanish — because clamping down would paint rows the world says are dry as if they were wet, and
+  suppressing the record is the fix the local-removal parcel exists for. Choose `lo`/`hi` as the
+  range you are willing to *see* the boundary in: above it you still see it pinned at `lo`; below
+  it you see nothing where the boundary should be.
 
 ### Moving an anchor at runtime
 
@@ -396,12 +405,24 @@ above the screen"; water is only its first client. A `submerge:` spelling would 
 water vocabulary in the engine's DSL, which constrains every future patched effect — the exact
 fault a design sweep raised against an earlier draft of this parcel.
 
-**The DRY direction is NOT the mirror of this**, and do not expect it to be: when the anchor
-falls below the screen bottom the fire still clamps to `hi` and paints up to ~10 rows that
-should be dry. Suppressing a fire needs a way to park ONE record, which the array-of-relative-
-gaps encoding cannot do (parking one kills every later fire in the frame). It is blocked on the
-Ristar self-rewriting linked-list schedule. The parallax side deliberately clamps the same way,
-so the two boundaries are wrong TOGETHER rather than disagreeing.
+**The DRY direction IS NOW HANDLED, and it is not a mirror of the top — it is a removal, not a
+clamp.** When the anchor falls below `hi`, `Raster_BuildSchedule` does not emit the record at all
+this frame: the schedule it re-records into the inactive buffer each VBlank simply does not
+contain it. This is what unblocked the direction that used to be closed off by the
+array-of-relative-gaps encoding — parking a single record in place (the in-place patcher's only
+tool) stores a negative gap as `$FF`, which IS the park word, and would have killed every later
+fire in the frame. Re-recording the whole schedule sidesteps that: a suppressed record is one that
+was never copied, so nothing downstream ever sees its arm word at all. `Raster_HInt` itself did not
+change — no added HBlank cycles — which is why this shape was chosen over porting Ristar's
+per-record linked-list schedule (`ristar_disasm/code/disasm.asm:14556-14595`).
+
+The parallax overlay applies the identical rule — `L > band_hi` in screen space — reading the same
+two band words through `Raster_GetChannelBand`, so the palette boundary and the scroll boundary
+still agree at every anchor state; they no longer merely clamp the same way, they suppress the
+same way. There is a residual: past `hi` the boundary renders nowhere rather than pinned at the
+band edge, so for `band_hi < L < 224` the world says the boundary should be visible somewhere in
+that range and it is not (see `docs/DEFERRED_WORK.md`, closed 2026-08-16, for the full accounting
+and the measured 10-rows-to-3-rows reduction from re-banding the fixture below).
 
 Worked example, the shipped gate fixture (`games/sonic4/data/effects/ojz_effects.emp`, search
 `OJZ_TwoChannel`):
@@ -409,17 +430,22 @@ Worked example, the shipped gate fixture (`games/sonic4/data/effects/ojz_effects
 ```emp
 const OJZ_TC_PROG = compose([
     patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
-              ch: 0, lo: 40,  hi: 120),
-    patchable(fx_vscroll_split(line: 160, offset: $0043),
-              ch: 1, lo: 130, hi: 200),
+              ch: 0, lo: 3,   hi: 220, offscreen_ship: 1),
+    patchable(fx_vscroll_split(line: 222, offset: $0043),
+              ch: 1, lo: 222, hi: 223),
 ])
 pub data OJZ_TwoChannel: [u16; patched_words(OJZ_TC_PROG)] = patched_program(OJZ_TC_PROG)
 ```
 
-Two independently patchable boundaries in one program — a tint band on channel 0 banded 40..120, a
-plane B vertical-scroll split on channel 1 banded 130..200. `OJZ_TwoChannel` installs nowhere; its
-whole job is to be compared word-for-word against a hand-authored twin so a later runtime-patcher
-parcel inherits a table whose every offset is already proved at build time.
+Two independently patchable boundaries in one program — a tint band on channel 0 banded 3..220
+(almost the whole screen, so the water line keeps as much travel as the budget allows) and a plane
+B vertical-scroll split on channel 1 banded 222..223 at the very bottom, sized to prove two
+independently patched channels coexist in one program without costing the water channel any real
+travel. `OJZ_TwoChannel` installs nowhere; its whole job is to be compared word-for-word against a
+hand-authored twin so the runtime patcher inherits a table whose every offset is already proved at
+build time. (The bands were originally 40..120 / 130..200, split roughly in half for the P-a/P-b
+gate; they moved to their current split when the local-removal parcel re-banded the fixture to
+minimize the DRY-direction residual — see the note at `OJZ_TwoChannel` in the source.)
 
 ### Rules an author must know
 
@@ -591,16 +617,25 @@ copied into prose (it reported 426 names across 14 helpers at `2dd5e35c`).
    procs have zero callers, so it is latent. Use `Raster_Program_None` to turn effects off.
 3. **Runtime-patched.** Give a section's preset `patched: <template>` plus
    `patch_world_ys: [w0, w1, w2, w3]`. `Effects_InstallPreset` calls `Raster_InstallPatched`, which
-   points `Raster_Patch_Tab` at the template's patch table, seeds `Effects_World_Y[]` from the
-   preset's inline array, and copies the program into `Raster_Buf_B`. From then on `Raster_PatchAll`
-   re-derives every boundary at VBlank. `ep_raster` and `ep_patched` are **mutually exclusive** — a
-   section that takes a patched template surrenders its static program, enforced at comptime.
+   points `Raster_Patch_Tab` at the template's patch table and seeds `Effects_World_Y[]` from the
+   preset's inline array. It does **not** copy the program body — since the local-removal parcel
+   there is no install-time copy at all. `Raster_BuildSchedule` re-records the whole schedule from
+   the ROM template into the inactive raster buffer at every VBlank (emitting only the records that
+   are live that frame) and swaps `Raster_Active_Buf`, so the install just points the table and lets
+   the next VBlank build the first schedule the same way every later one is built. `ep_raster` and
+   `ep_patched` are **mutually exclusive** — a section that takes a patched template surrenders its
+   static program, enforced at comptime.
 
    The single-channel water route this replaces (`Raster_InstallWater`, `Raster_PatchWaterLine`,
    `Raster_PatchWaterWorldY`, and the magic `WATER_TEMPLATE_ARM0_OFF`) was **deleted** in Parcel P-b.
    It could move exactly one boundary per program, found by a fixed byte offset rather than
-   described; the patch table carries a resolved offset per record instead, so the number of moving
-   boundaries is a property of the content rather than of the runtime.
+   described. Parcel P-b's replacement (`Raster_PatchAll`) carried a resolved offset per record and
+   rewrote one arm byte in place each VBlank, which could move a boundary but never remove one — the
+   in-place patcher never controlled which records `Raster_HInt` walked, only what their arm words
+   said. The local-removal parcel (2026-08-16) replaced `Raster_PatchAll` with
+   `Raster_BuildSchedule` for exactly that reason: re-recording the schedule instead of patching it
+   in place makes "remove a record" a matter of not copying it. See `docs/ENGINE_ARCHITECTURE.md`
+   §7.13 for the wire format and §8's runtime-half section for the mechanism.
 
 ---
 

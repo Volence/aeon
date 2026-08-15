@@ -4572,7 +4572,43 @@ any measurement today would be on a garish test fixture rather than real content
 — the same caveat that already qualifies the dense-tier reserved-register ruling.
 Revisit when a section runs cycling or a fade continuously.
 
-### The DRY direction of a patch channel — blocked on Ristar's linked-list schedule
+### ~~The DRY direction of a patch channel — blocked on Ristar's linked-list schedule~~ — CLOSED 2026-08-16
+
+**Closed by:** the HInt schedule local-removal parcel. `Raster_PatchAll` (in-place, one arm BYTE
+patched per record per VBlank) is replaced by `Raster_BuildSchedule`, which RE-RECORDS the whole
+schedule each VBlank from the ROM template into the INACTIVE raster buffer — copying only the
+records that are live this frame — then swaps `Raster_Active_Buf`. A record is removed by simply
+not copying it, which is the local edit the array-of-relative-gaps encoding could never express
+through an in-place byte patch: an arm word can MOVE a boundary but a record is only left behind
+by having been walked, and the old patcher never controlled the walk. `Raster_HInt` itself is
+byte-for-byte unchanged, so this costs zero added HBlank cycles — the reason this shape was chosen
+over porting Ristar's per-record linked-list schedule (`ristar_disasm/code/disasm.asm:14556-14595`),
+which would have cost roughly 12 cycles of a ~60-cycle HBlank budget on every fire, forever, not
+only the ones that get suppressed.
+
+**The suppression rule:** `L > band_hi` (screen space) — past the record's authored band, the
+record is not emitted at all this frame. Applied identically by `Raster_BuildSchedule` and by the
+parallax overlay (`engine/level/parallax.emp`), both reading the same two band words through
+`Raster_GetChannelBand`, so the palette boundary and the scroll boundary agree in every anchor
+state rather than merely clamping the same way. Below `band_lo` the record still CLAMPS UP —
+that direction stays a clamp, not a removal, because the frame-top ship (the previous parcel,
+2026-08-15) already covers the rows above with the fire's own colours when the anchor reads
+`L <= 0`; clamping up hides nothing there, where clamping down used to paint a lie.
+
+**RESIDUAL:** for `band_hi < L < 224` the boundary now renders NOWHERE rather than pinned near the
+screen bottom — the record is suppressed, so the affected rows show whatever the underlying art
+already draws (dry), when the world says the boundary should still be visible there. This is
+inert rather than wrong-in-the-visible-sense (a row that should be wet renders dry, never the
+reverse), but it is not a true fix — it is the residual DEFERRED_WORK originally described,
+narrowed by re-banding the OJZ fixture from `3..120`/`130..200` to `3..220`/`222..223`. Worst-case
+dry-side error fell from ~10 rows to ~3 (`games/sonic4/data/effects/ojz_effects.emp`, search
+`OJZ_TwoChannel`). Fully removing the residual still needs a record whose band reaches all the way
+to the screen bottom with no channel sharing the tail of the screen — a content/authoring question
+now, not an encoding one.
+
+---
+
+**Original entry, kept for provenance:**
 
 **Surfaced during:** the off-screen frame-top ship parcel (2026-08-15). That parcel fixed the
 direction where a patch channel's anchor leaves the TOP of the screen; this is the other one.
