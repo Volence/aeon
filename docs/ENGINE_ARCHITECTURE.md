@@ -3881,6 +3881,80 @@ used.
 
 ---
 
+### 7.13 Patchable raster fires — the patch-table wire format (Parcel P-a, ENCODER ONLY)
+
+> **SHIPPED — effects P3 Parcel P-a, 2026-08-15. Encoder only: no runtime code installs or
+> moves a patched program yet.** A raster program is a schedule of mid-frame VDP writes
+> fired by HInt (§7.2). Until this parcel every fire had a fixed screen line; Parcel P-a
+> lets an author declare a fire **patchable** — its line can move at runtime within a
+> declared band, driven by one of `RASTER_MAX_PATCH` (4) world-anchor channels. That
+> runtime patcher does not exist yet. This section documents only the bytes Parcel P-a's
+> encoder (`engine/effects/raster_dsl.emp`: `patchable`, `compose`, `patch_table`,
+> `patched_program`) emits.
+
+**`patched_program(fires)` emits the ordinary sparse program (§7.2's wire format),
+padded to exactly 64 words (128 bytes), then the patch table:**
+
+```
+byte 128    count                      WORD — number of authored fires
+byte 130+   entry x count, 4 words:    [arm_off][line_src][band_lo_fl][band_hi_fl]
+```
+
+Field meanings, one entry per authored record (`patch_table`, `raster_dsl.emp:933-946`):
+
+- **`arm_off`** — the byte offset, into the runtime's 128-byte working buffer, of the arm
+  word this entry rewrites. It is **the arm word of record `k-2`**, not record `k`: the arm
+  written at record `i` is consumed at the next HInt counter reload and schedules the gap
+  that *lands* record `i+2` — the same reload-lag constraint §7.2 documents ("the
+  reload lag is the whole design constraint"; a write from handler `i` schedules
+  `gap(i+1 -> i+2)`). This is pre-resolved by the encoder — computed once at build time via
+  `arm_word_index` — so the runtime patcher keeps no offset history and does not have to
+  re-derive record layout at runtime.
+- **`line_src`** — a literal fire line (high bit clear) for a static record, or
+  `$8000 | channel` for a patchable one. The runtime reads the high bit to decide whether
+  to treat the low bits as a fire line or a channel index into the world-anchor table.
+- **`band_lo_fl` / `band_hi_fl`** — the record's band, in **fire lines** (screen line - 1),
+  matching every other field in the table. A static record writes its own fire line into
+  both, so every field of every table entry lives in the one coordinate system — a
+  consumer never has to branch on whether an entry is patchable to know which space a
+  number is in.
+
+**The table sits at a CONSTANT `+128` from the template start.** Nothing needs a second
+symbol, a length-prefixed descriptor, or a pointer field to find it — a patched template's
+address is enough. This constant offset is what the padding buys: `Raster_VBlank` and
+`Raster_InstallWater` already copy a fixed `RASTER_BUF_SIZE` (128) bytes from every
+template (§7.2's corrected "there IS a limit" note above; the full arithmetic is in
+`docs/EFFECTS_AUTHORING.md`'s program-size-ceiling section), so a patched template is
+already read to byte 128 regardless of how short its actual program body is. Padding the body out to the
+full 64 words makes that read **defined** rather than reading uninitialised trailing ROM,
+and it means the copy of the *body* stops exactly at the table boundary — the table is
+never partially dragged into the working buffer by the fixed-size copy.
+
+**A schedule-recompute variant would need a new table version.** `arm_off` is pre-resolved
+per entry against the *emitted record order* at build time. A future variant that sorts
+fires at runtime, or re-links a schedule past a dropped record, could not reuse this table
+format as-is — the pre-resolved offsets would point at the wrong arm words the moment
+record order or count changes at runtime instead of build time. Price that as a new wire
+format, not an extension of this one, if it is ever proposed.
+
+**What is checked at build time.** `check_arm_layout` (`raster_dsl.emp:953-963`) is a
+second, independent path to the arm offsets `patch_table` computes: for every entry it
+reads the word `arm_off` points at out of the *emitted* program and checks both that it is
+a `$8Axx` word (so a wrong offset landing on an `op_count` is caught rather than silently
+handed to a runtime patcher that stores a byte there sight-unseen) and that its value
+matches `arm_at`'s independently-derived arm word for that record (so an offset landing on
+the *wrong* record's arm — which would pass the `$8Axx` shape check — is caught too).
+`patched_words(fires)` (`:973-975`) is the length-annotation counterpart to `raster_words`
+(§7.2): `64 + 1 + 4 * fires.len`, checked against the emitter's own output on every build.
+
+Authoring rules for `patchable` — the band-interval disjointness requirement, the
+worst-case density measurement across a band, `compose` merge semantics, and the band
+budget that actually bounds channel count — are documented for authors in
+`docs/EFFECTS_AUTHORING.md` (search `patchable`), not repeated here: this section owns the
+wire format, that document owns what a call site can violate.
+
+---
+
 ## 8. Tooling & Build System
 
 Build-time tools that convert human-friendly level data into optimized runtime formats, plus runtime debug/profiling systems for data-driven optimization. Commercial Genesis games shipped with zero debug infrastructure; the community (Vladikcomper, Flamewing, S.C.E.) has since built what 90s studios lacked.

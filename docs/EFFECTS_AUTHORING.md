@@ -117,17 +117,24 @@ bits. The only thing that ever made those ops CRAM ops was `cram`/`pal_region` h
 VSRAM is 80 bytes = 40 word entries. In per-column vertical scroll mode entry `2n` is plane A and
 `2n+1` is plane B for the n-th 16-pixel column; in full-screen mode only entries 0 and 1 are read.
 
-> **UNMEASURED — content must not rely on the exact landing line.** Whether a VSRAM write issued from
-> the HInt handler first takes effect on line **N+1** or **N+2** has never been run. The VDP latches the
-> next line's render state ~36 cycles after HInt asserts while the 68000 needs ~44 cycles just to reach
-> the handler; CRAM and reg `$07` are unlatched and apply to N+1, which is what the whole
-> screen-line = fire-line + 1 rule encodes — but VSRAM may be latched. **Sources conflict and emulators
-> differ.** The constructor therefore ships with the same screen-line semantics as `cram` and says so at
-> `raster_dsl.emp:171-185`. Booked in `docs/DEFERRED_WORK.md:1899-1902`; it wants an oracle measurement
-> (author a `vsram` fire at a known line, screenshot, read where the scroll discontinuity actually
-> falls). If it measures as N+2 **the fix belongs in this constructor's line arithmetic** — schedule the
-> fire a line earlier, or carry a per-op line bias into `fire_lines` — never in the handler.
-> Target-agnosticism is the property that made the op free and it must stay.
+> **MEASURED N+1 (2026-08-14 on oracle).** A VSRAM write issued from the HInt handler first takes
+> effect on line **N+1**, the same as `cram` and reg `$07` — not N+2. `OJZ_TestVsram` authored at
+> screen line 112, checked against a control build differing only in the offset: the first differing
+> pixel row is exactly y=112 and rows 108-111 are pixel-identical, for both plane A and plane B.
+> The constructor's existing screen-line = fire-line + 1 arithmetic is therefore correct for VSRAM with
+> no separate rule. Evidence: `docs/benchmarks/effects-p3/GATE-EVIDENCE.md`; also recorded at
+> `docs/DEFERRED_WORK.md:1943`.
+>
+> **Caveat: this was measured under one scroll-mode configuration, not proved global.** The gate
+> fixture ran with VDP reg `$0B` set to HScroll mode `%11` (per-line) and V-scroll bit 2 = 0
+> (full-screen) — see `GATE-EVIDENCE.md`'s setup notes. Whether the same N+1 latch timing holds under
+> every other reg `$0B` scroll mode (per-cell HScroll, per-column VScroll) has not been separately
+> measured. Treat N+1 as pinned **for the mode it was measured under**, not as a mode-independent
+> hardware fact, and re-measure before relying on it in a section using a different scroll mode.
+>
+> Also open: emulator disagreement on mid-frame VSRAM latching (GensKMod latches at HBlank start;
+> Exodus/oracle consult continuously) and the absence of real hardware for this project mean N+1 is
+> the best available evidence rather than a silicon fact.
 
 `op_mask` returns **0** for a VSRAM op, and that is deliberate rather than an omission: a VSRAM op
 writes no palette, so there is no CRAM line to re-assert at frame top. Deriving `1 << (addr >> 5)` from
@@ -294,6 +301,100 @@ next fire. The model comes from two measured points (a 1-word `vsram` fire at **
 3-colour `cram` fire at **526**, against a **488**-cycle NTSC line) and it deliberately scores
 `set_reg` as **zero**, because its dispatch cost has never been measured — so the model *under*-states
 cost and the guard fires only on evidence.
+
+---
+
+## `patchable` — a fire whose line moves at runtime (Parcel P-a, ENCODER ONLY)
+
+> **This is the encoder half only.** Parcel P-a adds the authoring vocabulary and the wire format
+> below; it installs and moves nothing. No runtime patcher exists yet — `patchable` changes what a
+> program's *bytes* can express, not what happens on hardware. Nothing in the tree calls into a
+> "patchable install" today because there is no such call to make. The next parcel is the runtime
+> half; until it lands, a patchable program behaves exactly like a static one if it is ever installed
+> — its band and channel are inert metadata sitting past the copied 128-byte body.
+
+`patchable(fires, ch, lo, hi)` marks a fire as one whose *fire line* can be moved by a future runtime
+patcher, within a screen-line band `[lo, hi]`, rather than being fixed at its authored line forever.
+
+```
+patchable(fires, ch, lo, hi) -> array
+```
+
+**It takes and returns a fire LIST, not a fire**, and that is the whole ergonomic point: every `fx_`
+preset returns a list, so `patchable(fx_tint_band(...), ch: 0, lo: 40, hi: 120)` — the call an author
+actually reaches for first — has to typecheck. A fire-level spelling would make that a type error at
+the first real call site. `fires.len == 1` is enforced: marking a multi-fire preset patchable would
+clamp every one of its fires onto a single moving line, because they would share one world anchor.
+
+**`ch` is an AUTHORED channel, not an encoder-assigned ordinal.** It selects which runtime
+world-anchor slot drives the fire (`0..RASTER_MAX_PATCH-1`, `RASTER_MAX_PATCH = 4` today,
+`raster_dsl.emp:693`). Ordinals would leave an author counting patchable fires in program order to
+find their own slot, and that count changes under `compose` merging — naming the channel keeps it
+stable across edits.
+
+**`lo`/`hi` are a screen-line band**, in the same coordinate system every constructor already uses.
+The authored `line` inside the wrapped fire is the template's default schedule, and it must sit inside
+its own band — `patchable` refuses a fire authored outside `[lo, hi]`, because a shipped template that
+violates the invariant it declares would have its first runtime patch move the boundary somewhere the
+author never saw it.
+
+Worked example, the shipped gate fixture (`games/sonic4/data/effects/ojz_effects.emp`, search
+`OJZ_TwoChannel`):
+
+```emp
+const OJZ_TC_PROG = compose([
+    patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
+              ch: 0, lo: 40,  hi: 120),
+    patchable(fx_vscroll_split(line: 160, offset: $0043),
+              ch: 1, lo: 130, hi: 200),
+])
+pub data OJZ_TwoChannel: [u16; patched_words(OJZ_TC_PROG)] = patched_program(OJZ_TC_PROG)
+```
+
+Two independently patchable boundaries in one program — a tint band on channel 0 banded 40..120, a
+plane B vertical-scroll split on channel 1 banded 130..200. `OJZ_TwoChannel` installs nowhere; its
+whole job is to be compared word-for-word against a hand-authored twin so a later runtime-patcher
+parcel inherits a table whose every offset is already proved at build time.
+
+### Rules an author must know
+
+**1. Disjoint, ascending intervals — and a silent failure mode if you get it wrong.** Every record has
+a possible fire-line interval: a point for a static fire, `[lo-1, hi-1]` for a patchable one. Across
+the whole program these intervals must be strictly ascending and disjoint (`check_intervals`,
+`raster_dsl.emp:722-732`). This is not cosmetic. The runtime stores the arm gap between two records as
+the **low byte** of an `$8Axx` word; two records able to reach the *same* fire line make that gap `-1`,
+whose byte is `$FF` — which is `RASTER_ARM_PARK`, the park word. One line of overlap does not merely
+mis-place a boundary; it parks the HInt counter and kills every remaining fire in the frame, with no
+other symptom.
+
+**2. Density is measured band edge to band edge, worst case — not authored line to authored line.**
+`check_density` (`raster_dsl.emp:754-776`) measures the gap from a record's *highest* reachable fire
+line to the next record's *lowest*. Two channels banded `40..120` and `121..200` are only **1
+scanline** apart in the worst case — 488 cycles of budget against a 3-colour CRAM fire's measured 526
+— and are **refused**, even though their *authored* lines sit 130 apart. Without this, the guard goes
+vacuous the moment a fire can move: an authored-line-only check would pass that pair trivially and then
+overrun at runtime. Band your channels generously separated, not merely disjoint.
+
+**3. Merging.** `compose` (`raster_dsl.emp:376-439`) rebuilds every merged fire, so patchability
+survives merging only by explicit work, and it has rules of its own: merging a patchable fire with a
+static one on the same line yields **patchable** (the static op layers onto the moving line); merging
+**two patchable fires** onto the same line requires them to agree on **identical channel and band** —
+a merged fire is one record with one arm word, so it can only have one anchor and one band (guard 9,
+`compose`'s `ensure` on channel/lo/hi agreement).
+
+**4. The band budget is the real ceiling on channel count, not RAM.** `RASTER_MAX_PATCH = 4` is not a
+RAM decision (`raster_dsl.emp:688-692`) — the binding constraint is that disjoint bands over screen
+lines 3..223 must satisfy `sum(hi_i - lo_i + 1) + (N-1) <= 221`. One boundary with 200px of travel
+spends nearly the whole budget by itself; four channels each free to traverse the full screen is not
+expressible. Raising `RASTER_MAX_PATCH` without widening the band budget buys nothing.
+
+### The wire format, and why this document does not repeat it
+
+`patched_program(fires)` — the entry point that emits a patchable template — and the encoding it
+produces (the patch table appended at a fixed `+128` byte offset) are documented in
+`docs/ENGINE_ARCHITECTURE.md` §7.13, next to §7.12's effects binding model. That is the
+authority for the byte layout; this page stays about what an author writes and the rules above, which
+are the ones a call to `patchable`/`compose` can actually violate.
 
 ---
 
