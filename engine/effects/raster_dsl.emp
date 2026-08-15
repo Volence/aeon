@@ -1174,11 +1174,24 @@ comptime fn check_arm_layout(fires: array, out: array) -> int {
 // the handler then reads an op payload word as an opcode, falls through the compare chain to
 // OP_SET_REG, writes an arbitrary word to VDP_CTRL from inside a raw interrupt handler, and walks
 // arbitrary bytes for the rest of the frame. An offset-only cross-check cannot see any of that.
+//
+// IT READS THE EMITTED TABLE, NOT ONLY THE DERIVATION. Checking arm_word_index/record_words
+// against the image proves the image is self-consistent, but the runtime reads the TABLE — so a
+// patch_table that emitted something else entirely would sail through. The two table words are
+// therefore compared against the same derivation the image was checked with, which closes
+// table -> derivation -> image. Without this the only thing standing between a wrong rec_off and
+// the handler is a hand twin, and hand twins exist for pinned fixtures only.
 comptime fn check_rec_layout(fires: array, out: array) -> int {
+    let tab = patch_table(fires)
     comptime var k = 2
     for f in fires {
         let off = arm_word_index(fires, k)
         let len = record_words(f)
+        let e   = 1 + 5 * (k - 2)           // this record's entry: count word, then 5 per record
+        ensure(tab[e + 3] == 2 * off,
+               "raster program: the patch table says record {k} starts at byte {tab[e + 3]} but the emitted body puts its arm word at byte {2 * off}. The builder copies from the TABLE's offset, so this is the difference between copying the record and copying a misaligned slice of its neighbour.")
+        ensure(tab[e + 4] == 2 * len,
+               "raster program: the patch table says record {k} is {tab[e + 4]} bytes but the emitted record is {2 * len} bytes")
         ensure((out[off] & $FF00) == $8A00,
                "raster program: record {k}'s rec_off points at word {off}, which holds {out[off]} — not an $8Axx arm word. The builder copies rec_len bytes from here into the live program, so a misaligned rec_off feeds the HInt handler an op payload word as an opcode.")
         ensure(out[off + 1] == fire_ops(f).len,
