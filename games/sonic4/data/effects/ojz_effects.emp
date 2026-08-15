@@ -265,12 +265,31 @@ pub data OJZ_WaterRaster: [u16; raster_words(OJZ_WATER_PROG)] = raster_program(O
 // OJZ_TestGradient — the DENSE-tier gate (Task 5 Step 4). A 96-line ramp across
 // screen lines 96..191, rewriting CRAM line 2 entries 4-6 on EVERY line.
 //
-// Measurement is by per-scanline CRAM read (oracle run_to_scanline + read_cram),
-// NOT by counting screenshot pixels. The P1 gate had to count pixels because it was
-// proving an effect reached the screen; here the claim is "the handler writes the
-// authored stream value on every one of 96 consecutive lines", which CRAM answers
-// directly and which art coverage cannot confound (the GATE-EVIDENCE.md CORRECTION
-// is entirely about art swamping a pixel-count signal).
+// MEASUREMENT — corrected 2026-08-14, after the prescription below was tried and
+// found to be the wrong instrument.
+//
+// This used to read: "measurement is by per-scanline CRAM read (oracle
+// run_to_scanline + read_cram), NOT by counting screenshot pixels". **That does not
+// work for this fixture.** `emulator_read_cram` cannot see a mid-scanline CRAM write
+// during active display, and this program's whole point is that its writes are
+// TRANSIENT — the header's pal_dirty_mask re-asserts CRAM line 2 every frame, so by
+// the time any post-frame read happens the base palette is back. Sampling CRAM at
+// VBlank returns the BASE values and reads as "the gradient did nothing".
+// (`run_to_scanline` is also frame-granular in practice — polling lands a whole frame
+// past the target, not a scanline.)
+//
+// The FRAMEBUFFER is the correct instrument, because it records what each scanline
+// was rendered with. Measured that way on 2026-08-14, against a control with the
+// program uninstalled: 8 distinct monotonic levels, band boundaries landing exactly
+// on 96+12k, first differing row exactly 96, and all three channel mixes present on
+// every row.
+//
+// The art-swamping worry that motivated the CRAM prescription is real but does not
+// apply here: it bites a PIXEL-COUNT signal, and this is not one. Each row is
+// classified by the ramp LEVEL recovered from the changed pixels' colour, so art
+// coverage changes how many pixels carry the signal without changing what the signal
+// says. (`read_cram` remains valid for a whole-frame `sec_pal` base palette DMA'd at
+// VBlank — the correction is specific to mid-frame writes.)
 //
 // The three entries carry DELIBERATELY DIFFERENT words at the same ramp level —
 // blue, blue+green, blue+red. A stream desync of one word (the classic off-by-one in
