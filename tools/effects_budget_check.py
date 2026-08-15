@@ -38,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import ast
+import glob
 import os
 import re
 import sys
@@ -146,7 +147,20 @@ def make_resolver(aeon: str) -> Callable[[str], int]:
         if path not in cache:
             if not os.path.exists(path):
                 raise ValueError(f"[symbols] names a missing file: {rel}")
-            cache[path] = emp_constants(path)
+            # The scope is the named module's own consts PLUS every sibling `*_dsl.emp`
+            # in the same directory. That is not a convenience — it mirrors how sigil
+            # actually resolves these names: a *_dsl module is a COMPTIME_HELPERS member
+            # and is GLOB-INJECTED into code modules, so `raster.emp` legitimately names
+            # `RASTER_MAX_PATCH` without a `use`. Reading raster.emp alone made this
+            # checker die with `unknown constant RASTER_MAX_PATCH` the moment P-b put a
+            # helper constant into RASTER_STATE_SIZE — an unhandled traceback, not a
+            # verdict, which is the worst way for a gate to fail.
+            # Own-module consts win on a name clash, matching the injection's precedence.
+            scope: Dict[str, str] = {}
+            for sib in sorted(glob.glob(os.path.join(os.path.dirname(path), "*_dsl.emp"))):
+                scope.update(emp_constants(sib))
+            scope.update(emp_constants(path))
+            cache[path] = scope
         return eval_int_expr(expr, cache[path])
 
     return resolve
