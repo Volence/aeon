@@ -37,8 +37,18 @@ use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
 // and de-named. The one genuinely silent case is a degraded name that collides with a
 // real label or `equ`.
 use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
+// Raster_Program_None — the "raster OFF" sentinel, needed by the Parcel C2 Task 12
+// presets below (total binding: a preset that means "no raster" must say so
+// explicitly rather than leaving ep_raster at 0/"keep").
+use engine.effects.raster.{Raster_Program_None}
 use engine.effects.palette.{pal_cycle_channel, PalCycleScript1, pal_variant}
+// Pal_Cycle_None — the "cycling OFF" sentinel, same total-binding reasoning as
+// Raster_Program_None above.
+use engine.effects.palette.{Pal_Cycle_None}
 use engine.effects.palette_dsl.{cycle_channel, cycle_script1, variant}
+// EffectsPreset / preset() — the Phase-3 total-binding format Task 12 switches
+// OJZ act 1's sections onto (engine/effects/preset.emp).
+use engine.effects.preset.{EffectsPreset, preset}
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
 // is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base
@@ -476,3 +486,40 @@ pub data Variant_Water_Murky: pal_variant = variant(shift_b: 1, bias_r: 1)      
 pub data Variant_Poison:      pal_variant = variant(shift_r: 1, shift_b: 1, bias_g: 1)      // halve R+B, green push
 pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shift_b: 1)     // halve all
 pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias
+
+// ===========================================================================
+// PARCEL C2 TASK 12 — OJZ act 1 total-binding presets.
+//
+// The nine act_descriptor.emp sections today bind sec_pal/sec_raster_table/
+// sec_pal_cycle separately, each with "NULL means keep whatever the previous
+// section had" semantics. These five presets are the total-binding replacement:
+// ojz_sec() feeds each one into sec_effects, and Effects_InstallPreset writes
+// every channel on section entry, using the explicit _None sentinels for "off"
+// rather than leaving a field at 0/"keep".
+//
+// EVERY preset here carries `variants: [Variant_Water_Deep, 0]`, and that is
+// NOT incidental. games/sonic4/test/ojz_scroll_test.emp binds Variant_Water_Deep
+// to variant slot 0 once at GameState_OJZScroll_Init and nothing ever clears
+// it — so today that variant is live across all nine sections (it is why
+// Pal_Active reads $10, variant-only, everywhere; see engine/effects/
+// palette.emp's own comment on Pal_Active). A preset with an empty variants
+// array would CLEAR the slot under total binding, silently dropping the water
+// tint act-wide the moment a section crossing installs it — a real regression
+// dressed up as "the preset said nothing". Carrying the variant in every
+// preset instead reproduces today's live state exactly. Whether the variant
+// should be section-scoped is a content question for a later parcel, not
+// something to change while converting the binding mechanism.
+//
+// Sections 4-8 are identical (OJZ_Palette, no raster, no cycle), so they share
+// ONE preset instance (OJZ_Preset_Plain) instead of five copies.
+//
+// NOT NAMED Preset_None: a preset always carries a palette (EffectsPreset.ep_pal
+// is a required, non-defaulted field — see preset()'s signature), and a palette
+// is game content. There is no game-agnostic "none" preset, so the "everything
+// else off" instance is named for what it actually is — OJZ's plain section —
+// rather than implying a universal empty preset that cannot exist.
+pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRamp,       cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_TestRaster,     cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
+pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: OJZ_ShimmerCycle,  variants: [Variant_Water_Deep, 0])
+pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
