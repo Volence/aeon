@@ -881,6 +881,107 @@ pub comptime fn raster_program(fires: array) {
     return out
 }
 
+// ---- the patch table ----------------------------------------------------------
+
+// arm_word_index — the WORD index of record k's arm word inside the emitted program. The
+// header is one word; the two priming records are [arm, opc] pairs at words 1-2 and 3-4; each
+// authored record is [arm, opc] plus its op bodies. Records 0 and 1 are the priming pair.
+//
+// This is a SECOND, INDEPENDENT path to a fact raster_program computes while emitting, and
+// check_arm_layout below cross-checks them against each other. A layout function that merely
+// restated the emitter would prove nothing.
+comptime fn arm_word_index(fires: array, k: int) -> int {
+    if k == 0 { return 1 }
+    if k == 1 { return 3 }
+    comptime var idx = 5
+    comptime var j   = 2
+    for f in fires {
+        if j == k { return idx }
+        idx = idx + 2
+        for o in fire_ops(f) { idx = idx + op_size(o) }
+        j = j + 1
+    }
+    return idx
+}
+
+// patch_table — the self-describing patch descriptor appended at byte 128 of a patched
+// template. One entry per authored record, FOUR WORDS each, every field in FIRE-LINE space:
+//
+//     [arm_off][line_src][band_lo_fl][band_hi_fl]
+//
+//   arm_off     byte offset into the runtime's working buffer of the arm word this entry
+//               rewrites — the arm of record k-2, because the arm written at record i
+//               schedules the gap that LANDS record i+2. Pre-resolved here so the runtime
+//               keeps no offset history.
+//   line_src    a literal fire line (high bit clear) for a static record, or $8000|channel
+//               for a patchable one.
+//   band_lo_fl  the band in fire lines. A static record writes its own fire line into both,
+//   band_hi_fl  so every field of every entry is in ONE coordinate system.
+comptime fn patch_table(fires: array) -> array {
+    comptime var out = [fires.len]
+    comptime var k   = 2
+    for f in fires {
+        comptime var src = fire_screen_line(f) - 1
+        if fire_is_patch(f) == 1 { src = $8000 | fire_channel(f) }
+        out = out ++ [2 * arm_word_index(fires, k - 2),
+                      src,
+                      fire_band_lo(f) - 1,
+                      fire_band_hi(f) - 1]
+        k = k + 1
+    }
+    return out
+}
+
+// check_arm_layout — GUARD 6. Every arm_off the table hands the runtime must point at a word
+// the emitter actually wrote as an arm word, AND at the RIGHT one. Both halves are needed: a
+// wrong offset that happens to land on an op_count fails the $8A00 test, while an offset
+// landing on a DIFFERENT record's arm passes it — and would corrupt the schedule at runtime
+// in a way nothing else here can see. Testing the VALUE against arm_at closes that.
+comptime fn check_arm_layout(fires: array, out: array) -> int {
+    let L = fire_lines(fires)
+    for j in 0..fires.len {
+        let w = out[arm_word_index(fires, j)]
+        ensure((w & $FF00) == $8A00,
+               "patched_program: the word the patch table points at for record {j} is not a VDP reg $0A write. The runtime patcher stores a byte there sight-unseen, so a wrong offset silently rewrites a record's op_count and sends the walker through ROM as opcodes inside a raw interrupt handler.")
+        ensure(w == arm_at(L, j),
+               "patched_program: the patch table's offset for record {j} points at an arm word, but not that record's — the emitted word does not match the arm the schedule derives for it.")
+    }
+    return 0
+}
+
+// patched_words — the emitted word count of a patched template: the program padded to the
+// 64-word buffer, then the table. Use it as the length annotation on the `pub data`.
+//
+// HONEST SCOPE AS A CROSS-CHECK: the program body's own word count is checked by
+// raster_program's `out.len == raster_words(fires)`, which runs on every call and is the
+// independent-path check. Once padded the body is 64 words by construction, so what THIS adds
+// is the table's framing — one count word plus four per record — and it pins the declared ROM
+// footprint at the linker seam.
+pub comptime fn patched_words(fires: array) -> int {
+    return 64 + 1 + 4 * fires.len
+}
+
+// patched_program — a raster program a runtime patcher can move. The ordinary program, padded
+// to exactly the 64-word working buffer, then the patch table.
+//
+// WHY THE PADDING IS NOT WASTE. The runtime's copy routine copies a FIXED 128 bytes from every
+// template, so a patched template is already read to +128 — padding makes that read defined,
+// and it puts the table at a CONSTANT address (+128) so nothing needs a second symbol or a
+// descriptor field to find it. The copy stops exactly at the table boundary, so the table
+// itself is never partially copied into the working buffer.
+pub comptime fn patched_program(fires: array) -> array {
+    comptime var out = raster_program(fires)     // every existing guard runs here
+    check_arm_layout(fires, out)
+    comptime var pad = 64 - out.len
+    ensure(pad >= 0,
+           "patched_program: the program body is {out.len} words, which does not fit the 64-word buffer the runtime copies")
+    for i in 0..pad { out = out ++ [0] }
+    out = out ++ patch_table(fires)
+    ensure(out.len == patched_words(fires),
+           "patched_program: emitted {out.len} words but patched_words counted {patched_words(fires)} — the emitter and the length annotation disagree")
+    return out
+}
+
 // ---- development instruments -------------------------------------------------
 
 // first_mismatch — -1 when the two word lists are equal, else the index of the first
