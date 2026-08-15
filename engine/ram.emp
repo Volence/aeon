@@ -416,6 +416,12 @@ pub vars upper_ram {
     Static_Pal_Line0:       [u8; sizeof(DMAEntry)],
     Static_Pal_Line1:       [u8; sizeof(DMAEntry)],
     Static_Pal_Line2:       [u8; sizeof(DMAEntry)],
+    // The off-screen ship's entry (engine.effects.raster). Unlike its neighbours it is NOT
+    // built at boot: its source, length and destination come from the installed patched
+    // program's ROM trailer, so Raster_InstallPatched rebuilds it on every install. It lives
+    // here rather than beside the raster state because it is a DMAEntry like the rest of this
+    // block, built by the same one builder.
+    Static_Pal_Ship:        [u8; sizeof(DMAEntry)],
     Static_Pal_Line3:       [u8; sizeof(DMAEntry)],
     Static_Sprite_DMA:      [u8; sizeof(DMAEntry)],
     Static_Hscroll_Cell:    [u8; sizeof(DMAEntry)],   // §4.6 — 112-byte HScroll per-cell mode

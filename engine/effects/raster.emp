@@ -864,7 +864,56 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         // .dense_body streaming a stale cursor while this program's records are never walked.
         clr.w   Raster_Dense_Lines
         jbsr    Raster_CopyPatchedTemplate      // sets Active_Buf = Buf_B
+        // The ship entry is built AFTER the copy, not beside the pointer store above, purely
+        // for registers: the builder needs a0 and the copy still needs the template there.
+        move.l  Effects_Offscreen_Entry, d0
+        beq     .no_build
+        movea.l d0, a1
+        jbsr    Raster_BuildShipEntry
+    .no_build:
         jbra    Raster_PatchAll
+}
+
+// -----------------------------------------------
+// Raster_BuildShipEntry — lay the off-screen ship's DMAEntry from the trailer's parameters.
+//   a1 = trailer entry: [channel][stage offset][colour count][CRAM byte address]
+//
+// THE TRAILER CARRIES PARAMETERS RATHER THAN A BUILT ENTRY, and the reason is a language
+// constraint rather than a preference: Pal_Variant_Stage's address is a LINK-time value, and
+// folding one into the emitted program image makes that image non-comptime — which breaks
+// `first_mismatch(patched_program(...), hand_twin)`, the whole-image pin every patched
+// fixture rests on. So the base is added HERE, where an address is just an address.
+//
+// It also means no second site knows the DMAEntry byte layout: this fills in the parameters
+// and hands them to Build_DMA_Entry, the one builder.
+//
+// EVERY REGISTER IT TOUCHES IS INSIDE d0-d4/a0-a1, and that is a contract-closure constraint
+// rather than tidiness. The first version used d5 for Build_DMA_Entry's marker longword and
+// saved it around the call; the closure gate still failed, reporting `transitive d5` against
+// Effects_InstallPreset, Parallax_CheckBoundary and Raster_InstallPatched — the analysis reads
+// the DECLARATION, so restoring a register does not buy back its declaration, and declaring
+// it propagates up the whole caller chain. Build_DMA_Entry's marker register moved to d4,
+// which those callers already declare. a0 is free here because this runs AFTER the template
+// copy, which is what needed it.
+// -----------------------------------------------
+proc Raster_BuildShipEntry (a1: u32) clobbers(d0-d4/a0-a1) {
+        // source: Pal_Variant_Stage + the fire's own staging offset, as (address >> 1)
+        lea     Pal_Variant_Stage, a0
+        move.w  2(a1), d1
+        adda.w  d1, a0                          // adda.w, NOT add.w: add.w dN,aM mis-encodes
+        move.l  a0, d1
+        lsr.l   #1, d1
+        andi.l  #$7FFFFF, d1
+        // length: colour count -> words, which is what reg $93/$94 counts
+        move.w  4(a1), d3
+        // destination: CRAM byte address -> the command longword, through the shared builder
+        moveq   #0, d2
+        move.w  6(a1), d2
+        vdp_comm_reg(d2, VdpTarget.Cram, VdpOp.Dma)
+        lea     Static_Pal_Ship, a0
+        moveq   #-$6C, d0                       // $94 sign-extended
+        move.l  #$93979695, d4                  // reg markers $93/$97/$96/$95
+        jbra    Build_DMA_Entry
 }
 
 // -----------------------------------------------
