@@ -53,7 +53,7 @@ live witness** — walking out of section 0 into section 1's static-raster prese
 
 ---
 
-## ⚠ EFX-9 — OPEN. `tools/effects_budget_check.py` is correct and is RUN BY NOTHING.
+## ✅ EFX-9 — CLOSED 2026-08-15. `tools/effects_budget_check.py` was correct and was RUN BY NOTHING.
 
 **Booked 2026-08-15** during Effects P3 Parcel P-b Task 9, and it is the reason EFX-5's
 "gate-checked, which is precisely why it never drifted" claim above is **false**.
@@ -82,10 +82,23 @@ It was ALSO crashing rather than reporting, from the moment P-b put a helper con
 a traceback instead of a verdict is worse than one that is merely unrun, because a caller
 wiring it in would have inherited a red build with no finding in it.
 
-**What is left open is the wiring**, which is deliberately NOT done here: making a checker
-build-fatal is a blast-radius decision, and the work order assigns the budget model to Parcel B.
-P-b's share was to correct the value (288 → 306), repair the crash, and prove the tool fires.
-This entry closes when something actually runs it.
+**CLOSED by wiring it into `build.sh`**, beside `s4lint` and under the same `NO_LINT` guard, so
+the source gates share one escape hatch. P-b corrected the value (288 → 306) and repaired the
+crash; the wiring followed immediately after as the remainder of Parcel B.
+
+Proved build-fatal AND escapable, rather than assumed:
+
+| model | code | result |
+|---|---|---|
+| 306 | 306 | `effects_budget_check: OK — 8 code-derived rows agree`, build completes, crc `4c4cac75` |
+| 305 | 306 | `1 budget row(s) disagree with the shipped code`, build **exits 1** before assembling |
+| 305 + `sonic4 --no-lint` | 306 | builds anyway, crc `4c4cac75` |
+
+**The hatch invocation is not the obvious one.** `GAME` is positional (`$1`), so
+`./build.sh --no-lint` parses the flag AS THE GAME NAME and dies with
+`unknown --game '--no-lint'`. It must be `./build.sh sonic4 --no-lint`. Pre-existing
+arg-parsing behaviour, recorded here because it is the first thing anyone reaching for the
+hatch will hit.
 
 ---
 
