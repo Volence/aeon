@@ -307,6 +307,41 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
     return fire(line, [pal_region(addr, slot, pal_line, entry, count)])
 }
 
+// patchable — mark a fire as one whose screen line MOVES at runtime, within [lo, hi].
+//
+// IT TAKES AND RETURNS A FIRE LIST, not a fire, and that is the whole ergonomic point:
+// every fx_ preset returns a LIST, so a fire-level spelling would be a type error at exactly
+// the call an author reaches for first — patchable(fx_tint_band(...), ...). List-level
+// composes with the preset library and feeds straight into compose.
+//
+// THE CHANNEL IS AUTHORED, not an encoder-assigned ordinal. `ch` selects which world-anchor
+// slot drives this fire at runtime (a later parcel). Ordinals would leave an author counting
+// patchable fires in program order to find their own slot, and the count changes under
+// compose merging.
+//
+// The screen-line bounds below are inlined literals per this module's opening note (3 and 223
+// are held by the module-level RASTER_MIN_FIRE_LINE / RASTER_MAX_FIRE_LINE pin near the top of
+// this file); RASTER_MAX_PATCH is DEFINED in this module and so is safe to name.
+pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int) -> array {
+    ensure(fires.len == 1,
+           "patchable: got {fires.len} fires — mark exactly one. Marking a multi-fire preset would clamp all of its fires onto one line, because they would share a single world anchor.")
+    ensure(ch >= 0 && ch < RASTER_MAX_PATCH,
+           "patchable: channel {ch} outside the legal range — the channel selects a runtime world-anchor slot, and RASTER_MAX_PATCH is the ceiling")
+    ensure(lo >= 3 && hi <= 223,
+           "patchable: band {lo}..{hi} outside screen lines 3..223 (lines 0-2 belong to the priming records)")
+    ensure(lo <= hi, "patchable: band {lo}..{hi} is inverted")
+    let f = fires[0]
+    ensure(fire_is_patch(f) == 0,
+           "patchable: this fire is already patchable — marking it twice would silently discard the first band")
+    let line = fire_screen_line(f)
+    // The authored line is the template's DEFAULT schedule. If it sits outside its own band the
+    // shipped template violates the invariant it declares, and the first runtime patch would
+    // move the boundary somewhere the author never saw.
+    ensure(line >= lo && line <= hi,
+           "patchable: the authored line {line} is outside its own band {lo}..{hi}")
+    return [ RasterFire.Patch(line, ch, lo, hi, fire_ops(f)) ]
+}
+
 // ---- composition -------------------------------------------------------------
 
 // compose — merge N fire lists into one program's fire list. THE point of a preset
@@ -597,6 +632,24 @@ ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 1 == 454,
        "density model drifted from the measured 1-word vsram fire (454 cyc)")
 ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 3 == 526,
        "density model drifted from the measured 3-colour cram fire (526 cyc)")
+
+// RASTER_MAX_PATCH — patchable channels per program. DEFINED HERE on purpose: this module
+// is a COMPTIME_HELPERS member, so a name defined here is glob-injected into every module
+// (engine.effects.raster and engine.ram included) AND is safe to spell inside a comptime fn
+// body. A constant imported FROM raster.emp would be neither — imports do not travel into a
+// body, and this codebase has a measured case of that collapsing a range to empty and
+// silently emitting zero fires.
+//
+// FOUR IS NOT A RAM DECISION. The binding constraint is the BAND BUDGET under density:
+// disjoint bands over screen lines 3..223 must satisfy sum(hi_i - lo_i + 1) + (N-1) <= 221,
+// so four channels each free to traverse the screen is not expressible — one water line with
+// 200px of travel spends the budget alone. Raising this without widening the band budget buys
+// nothing.
+pub const RASTER_MAX_PATCH = 4
+// The runtime patcher masks a channel index with RASTER_MAX_PATCH - 1, which is only an index
+// bound for a power of two.
+ensure((RASTER_MAX_PATCH & (RASTER_MAX_PATCH - 1)) == 0,
+       "RASTER_MAX_PATCH must be a power of two — the runtime patcher masks the channel index with RASTER_MAX_PATCH minus 1, which only bounds the index for a power of two")
 
 // fire_cost_cycles — modelled cost of one fire. Each CRAM-class op pays its own dispatch
 // AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
