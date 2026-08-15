@@ -177,13 +177,33 @@ pub proc EntryPoint () clobbers(d0-d7/a0-a6/sr) {
         btst    #1, d2
         bne     .wait_fill
 
+        // RE-ANCHOR THE TABLE CURSOR ON boot_tail. Everything below reads the
+        // post-blob table with (a5)+, but a5 currently sits at Z80_Sound_End —
+        // the end of the BLOB, which is the end of a different SECTION. The
+        // chainer aligns boot_tail's base to the largest power of two in
+        // {16,8,4,2} dividing its frozen provisional pin (sigil
+        // native.rs::packed_align_of), so a pad of 0..15 bytes opens between the
+        // two and its width is a function of the blob's length. Walking a5
+        // across that seam read the pad as the PSG bytes and shifted every VDP
+        // command word after it: 4 bytes of pad in the DEBUG shape (survivable —
+        // the words still paired up), 6 in the release shape, where the
+        // auto-increment slot read $0000, the VDP took it as a command's FIRST
+        // word, and the control-port flip-flop was left stranded — after which
+        // no VDP write in the whole ROM ever landed again (blank screen, empty
+        // VRAM, untouched CRAM, both games).
+        //
+        // The pad is NOT something an `align` on the blob can fix: the quantum
+        // belongs to boot_tail's PIN, so a repin can change it with no source
+        // change at all (sigil's own packed_align_of comment records exactly
+        // that happening to the SFX section). Naming the label is the only
+        // spelling that cannot drift. pc-relative to stay placement-invariant,
+        // matching vdp_init.emp's cross-seam BootData_VDPRegs read.
+        lea     BootData_PostBlob(pc), a5
+
         // PSG silence (§0.6) — 4 bytes from data table. Deliberately AFTER
         // .wait_fill: the PSG is decoded inside the VDP, so a write here while
-        // the VRAM fill is still in flight is a real-hardware hazard. The
-        // (a5)+ table cursor is NOT disturbed by the move — .wait_fill touches
-        // only a4 (read) and d2, and the 4 PSG bytes still sit between the Z80
-        // blob and boot_tail's auto-increment word in the same sequential
-        // order. Do not move these back above .wait_fill.
+        // the VRAM fill is still in flight is a real-hardware hazard.
+        // Do not move these back above .wait_fill.
         moveq   #3, d2
     .silence_psg:
         move.b  (a5)+, PSG_DATA_OFF(a3)     // PSG_PORT-VDP_DATA off the data-port base
