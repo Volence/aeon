@@ -192,32 +192,21 @@ after) and the probe reverted."
 **Files:**
 - Modify: `tools/effects_budget_model.toml`
 
-- [ ] **Step 1: Confirm the discrepancy**
+**RESOLVED 2026-08-14 — EFX-5 was ALREADY FIXED; the only real work was a comment.** Recorded here because "the spec named a defect" is not evidence the defect exists.
 
-Run: `grep -n "raster_state_bytes" tools/effects_budget_model.toml && grep -rn "RASTER_STATE_SIZE" engine/effects/raster.emp | head -3`
+- `raster_state_bytes` already reads **288** (`:127`), and is gate-checked: `[symbols]:148` maps it to `engine/effects/raster.emp:RASTER_STATE_SIZE`, which is why it did not drift.
+- `full_line_fire_cost` was already renamed `full_line_fire_lines` (`:68`).
+- `sparse_tier_cycles_per_frame` is already `_SUPERSEDED` (`:41`) with the instrument bug documented at `:34-40`.
 
-Expected: the TOML says `286`; `RASTER_STATE_SIZE` resolves to `288`.
+**The one change made, and a trap avoided.** An earlier draft of this plan said to replace the "vs sparse 8358" citation at `:78`. That would have been WRONG. `(41579 - 8358) / 97 = ~342 cyc/line` is a **differential**: both figures came off the same profiler on the same day under the same instrument bug, so the constant per-frame VBlank contamination CANCELS in the subtraction. The derived 342 is sound even though neither absolute is a clean tier cost. Swapping in the `:44-58` differentials would have compared two different instruments and silently corrupted it.
 
-- [ ] **Step 2: Correct it, and say where the number comes from**
-
-```toml
-# Derived from engine/effects/raster.emp's RASTER_STATE_SIZE. Was 286 — a
-# hand-copy that went stale (EFX-5). This file is documentation, not a build
-# input: nothing cross-checks it, which is exactly how it drifted.
-raster_state_bytes = 288
-```
-
-- [ ] **Step 3: Fix the one stale-8358 residual**
-
-The spec's other two budget-model complaints are ALREADY FIXED in the tree — `full_line_fire_cost` was renamed `full_line_fire_lines` (`:68`, with the rationale that it read as a cycle cost while being `ceil(16/3)`, a line count), and `sparse_tier_cycles_per_frame = 8358` is now `sparse_tier_cycles_per_frame_SUPERSEDED` (`:41`) with the instrument bug documented at `:34-40`. **Do not "fix" either again.**
-
-What remains is one prose residual: **line 78** still says "vs sparse 8358 (6.5%)" inside a dense-tier comment. Replace that figure with the measured differentials (`sparse_fire_vsram1_cycles = 454`, `sparse_fire_cram3_cycles = 526`, `:44-58`) and cite `docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 1: Verify the three values above are still as described.** If any differs, re-derive before touching anything.
+- [ ] **Step 2: The only edit** — a comment at `:78` stating why the superseded figure is legitimately used there as a differential baseline, so the next reader does not "fix" it.
+- [ ] **Step 3: Commit**
 
 ```bash
 git add tools/effects_budget_model.toml
-git commit -m "docs(effects): EFX-5 — raster_state_bytes 286 -> 288; kill the last stale-8358 citation"
+git commit -m "docs(effects): EFX-5 was already fixed; pin why the 8358 differential is legitimate"
 ```
 
 ---
