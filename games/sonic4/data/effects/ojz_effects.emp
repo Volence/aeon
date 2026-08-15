@@ -20,17 +20,13 @@ use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // The water patch-offset invariant below names these directly (an ensure at THIS
 // file's scope, so they must resolve here — see the late-binding note above).
 use engine.effects.raster.{WATER_TEMPLATE_ARM0_OFF, RASTER_MIN_FIRE_LINE}
-// pal_stage_off — NOT named anywhere in this file, and required anyway. It is called in
-// the BODY of raster_dsl's fx_tint_band, and a comptime fn's free names resolve at the
-// CALL SITE's scope (the same late-binding rule the block above documents), so the OJZ_TC
-// fixture below cannot construct its tint band without this visible HERE. raster_dsl's own
-// `use` of it does not travel to the caller.
-//
-// This gap was LATENT until now: OJZ_TwoChannel is the first fx_tint_band call site
-// anywhere in the repo (the water fixture above calls region_boundary directly with a
-// literal addr, so it never reached this path). Measured, not assumed — omitting this line
-// fails the build with four copies of "unknown function `pal_stage_off`".
-use engine.effects.raster.{pal_stage_off}
+// NOTE — no `use` of pal_stage_off is needed here, and briefly one was. fx_tint_band's body
+// called it, and a comptime fn's free names resolve at the CALL SITE, so constructing a tint
+// band from this file failed with four copies of "unknown function `pal_stage_off`" for a
+// helper this file never names. OJZ_TwoChannel below was the FIRST fx_tint_band call site in
+// the tree, which is why the preset had shipped broken since Parcel C1 unnoticed. Fixed at
+// the source: fx_tint_band now inlines the staging arithmetic, pinned to pal_stage_off by a
+// module-level ensure in raster_dsl — so no author has to import a helper they never wrote.
 // RASTER_ARM_EVERY_LINE + OP_RUN_GRADIENT are imported even though nothing in THIS
 // file names them: a comptime fn's struct-literal field values are resolved at the
 // EMISSION site's scope, not the definition site (the same late-binding rule the

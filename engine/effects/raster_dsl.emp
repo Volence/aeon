@@ -471,10 +471,23 @@ pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
 // fx_tint_band — from `line` down, swap `count` colours of the palette variant staged in
 // `slot` into CRAM, optionally turning Shadow/Highlight on at the same line. This is the
 // water-boundary shape generalised, and the CRAM destination is DERIVED from
-// pal_line/entry via pal_stage_off rather than asked for a second time — pal_region's
-// address/line/entry agreement checks then cannot fail, because there is only one source
-// of the fact. (slot 0 in the pal_stage_off call is deliberate: the CRAM destination is
-// slot-independent; `slot` selects the staging SOURCE and is passed through below.)
+// pal_line/entry rather than asked for a second time — pal_region's address/line/entry
+// agreement checks then cannot fail, because there is only one source of the fact.
+//
+// THE STAGING ARITHMETIC IS INLINED, not a pal_stage_off call, and that is not style. A
+// comptime fn's free names resolve at the CALL SITE, and pal_stage_off is IMPORTED into
+// this module rather than defined here — so a call here compiled fine and then failed in
+// every author's module with `unknown function pal_stage_off` unless that author added an
+// import for a helper they never named. Measured 2026-08-15: OJZ_TwoChannel was the FIRST
+// call site of this preset anywhere in the tree, and it hit exactly that, four times over.
+// The preset shipped broken in Parcel C1 and nothing noticed for two parcels because
+// nothing had ever called it.
+//
+// This is the same rule the module header states and that pal_region already follows (see
+// its note near the top); the module-level ensure beside the other pins holds this copy of
+// the formula to pal_stage_off's authority, so there is still exactly one source of truth.
+// (The slot term is 0 deliberately: the CRAM destination is slot-independent; `slot`
+// selects the staging SOURCE and is passed through below.)
 //
 // UNCHECKABLE HERE, AND REAL: the variant bound to `slot` at runtime must cover
 // `pal_line` in its `lines` mask, or Palette_DeriveVariant never writes that staging line
@@ -484,7 +497,7 @@ pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
 pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
                              count: int, sh: int) -> array {
     return [ region_boundary(line:     line,
-                             addr:     pal_stage_off(0, pal_line, entry),
+                             addr:     0 * 128 + pal_line * 32 + entry * 2,
                              slot:     slot,
                              pal_line: pal_line,
                              entry:    entry,
@@ -993,7 +1006,17 @@ pub comptime fn patched_program(fires: array) -> array {
 // `a`'s indices and skips any index past the end of `b`, so it returns -1 whenever `a`
 // is a PREFIX of `b` — a DSL program that is short by a trailing record compares EQUAL
 // to its hand-word twin. Nothing inside this function can see that; only the length
-// check can. (In this codebase the chain also holds one rung deeper, because
+// check can.
+//
+// IT IS BLIND IN BOTH DIRECTIONS, which the paragraph above understated until it was
+// measured. `for i in 0..a.len` never visits an index past the end of `a`, and the
+// `i < b.len` test skips every index past the end of `b`, so a SHORTER `b` is equally
+// invisible — the comparison simply stops early and reports agreement. Measured
+// 2026-08-15 on the OJZ_TwoChannel gate: deleting the last four-word entry from the hand
+// TABLE produced no mismatch report at all, and only the separate length ensure caught it.
+// Read that as the general rule: this function answers "do the words they share agree",
+// never "are these the same array".
+// (In this codebase the chain also holds one rung deeper, because
 // raster_program asserts `out.len == raster_words(fires)` on every call, but callers
 // must not rely on that: it is a fact about raster_program, not about first_mismatch.)
 pub comptime fn first_mismatch(a: array, b: array) -> int {
