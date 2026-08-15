@@ -225,6 +225,18 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         move.w  (a0)+, (a1)+
         dbf     d0, .seed_anchor
 
+        // ---- and latch the derived screen lines from them, immediately ----
+        // Raster_InstallPatched below tail-calls Raster_PatchAll, which reads Effects_Screen_L
+        // rather than deriving it. Without this the first patch of a newly-installed program
+        // would run against the OUTGOING section's latched lines — the previous section's
+        // boundaries applied to this section's program for one frame.
+        //
+        // It sits HERE, beside the anchor seed and outside any ep_patched test, for W0's
+        // reason: state gated on a patched program is silently inherited by sections that have
+        // none. The latch is a pure function of the anchors, so seeding one without the other
+        // would re-open exactly the gap W0 closed.
+        jbsr    Effects_LatchWorldLines
+
         // ---- ep_transition: arm the cross-fade BEFORE the palette load ----
         tst.w   EffectsPreset.ep_transition(a3)
         beq     .no_fade_arm

@@ -990,6 +990,44 @@ pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: 
 }
 
 // -----------------------------------------------
+// Effects_LatchWorldLines — derive every patch channel's screen line from its world anchor,
+// ONCE per frame, and store it unclamped.
+//
+//   Effects_Screen_L[ch] = Effects_World_Y[ch] - Camera_Y      (signed, may be off-screen)
+//
+// CALLED FROM THE MAIN LOOP, after Camera_Update and before Parallax_Update — and that
+// placement is a ruling, not a convenience. Put it in VBlank instead and the value reaches the
+// parallax overlay one Camera_Update LATER than it reaches Raster_PatchAll: the palette would
+// go whole-screen wet on the frame the shimmer still splits mid-screen, a guaranteed one-frame
+// pop at every transition. Verified ordering today has both consumers reading the same tick's
+// camera, and this latch is what keeps that true rather than re-deriving it three times.
+//
+// THAT IS THE OTHER HALF OF WHY IT EXISTS: it is the SINGLE derivation of L. Raster_PatchAll
+// (VBlank), the parallax overlay (main loop) and the frame-top ship (VBlank) all read this
+// bank. On a VInt_Lag frame VBlank runs twice against one main-loop update, so three
+// independent `anchor - Camera_Y` computations would put the fire line and the boundary state
+// on different cameras.
+//
+// UNCLAMPED, DELIBERATELY. Raster_PatchAll clamps its fire line into each record's authored
+// band and must (a negative inter-record gap stores as $FF, which IS the park word, and would
+// kill every later fire in the frame) — but the clamp therefore cannot express "this boundary
+// is above the screen entirely", which is precisely the state the off-screen ship answers.
+// Consumers clamp for their own purposes; the bank holds the truth.
+// -----------------------------------------------
+pub proc Effects_LatchWorldLines () clobbers(d0-d2/a0-a1) {
+        move.w  Camera_Y, d1                // 16.16 -> the integer word
+        lea     Effects_World_Y, a0
+        lea     Effects_Screen_L, a1
+        moveq   #RASTER_MAX_PATCH-1, d0
+    .ch:
+        move.w  (a0)+, d2
+        sub.w   d1, d2                      // may go negative, meaningfully
+        move.w  d2, (a1)+
+        dbf     d0, .ch
+        rts
+}
+
+// -----------------------------------------------
 // Effects_SetWorldY — move a patch channel's world anchor. THE named handle for every
 // runtime-varying effect: rising lava, a flood line, a beat-driven pulse. Without it the only
 // way to move a boundary is poking RAM at an index the author has to guess.
