@@ -25,7 +25,23 @@ use engine.structs.{Sec, Act}
 
 // Field order deliberately avoids an odd run of u8 before a pointer — sigil does
 // NOT auto-align, and even alignment is all the 68000 needs.
-pub struct EffectsPreset (size: 36) {
+//
+// SIZE IS 32, AND IT WAS DECLARED 36 UNTIL 2026-08-14. The fields are contiguous
+// with no gaps — 5 pointers (20) + a 2-slot pointer array (8) + 2 u16 (4) = 32 —
+// so 36 was simply wrong. It came from the design spec's prose estimate ("roughly
+// 36 bytes"), copied into the plan beside offsets that add to 32.
+//
+// WHY NOBODY CAUGHT IT FOR TWO TASKS: this module was outside every target's `use`
+// closure, and sigil validates a struct's declared size only when something
+// reachable uses it — the same reason its `ensure` below was never evaluated. So
+// the layout checker was dead for exactly as long as the guard was, and a task
+// report even asserted "36 bytes, matching the intended layout exactly", which
+// nothing had actually checked. The moment Task 9's `use` made the module
+// reachable, the checker ran and failed the build immediately.
+//
+// The lesson is the general one: in an unreachable module, `ensure`s do not fire
+// AND declared layouts are not validated. Treat everything in one as unverified.
+pub struct EffectsPreset (size: 32) {
     ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
     ep_parallax:       *u8      @ $04,   // 0 = act default (the one legal 0)
     ep_raster:         *u8      @ $08,   // static program; 0 illegal, use Raster_Program_None
@@ -36,36 +52,41 @@ pub struct EffectsPreset (size: 36) {
     ep_transition:     u16      @ $1E,   // cross-fade arm; unused by every C2 fixture
 }
 
-// ⚠ THE TOP-LEVEL `ensure` BELOW IS CURRENTLY DEAD, AND THAT IS MEASURED, NOT FEARED.
+// ✅ THE `ensure` BELOW IS LIVE — verified by inversion on 2026-08-14, and it took
+// three tasks to get there. Worth reading before you add a guard to a new module.
 //
-// This module is parsed but NOT EVALUATED while nothing references it. Measured
-// 2026-08-14, on this file, with all four shapes building clean throughout:
+// It was DEAD from the moment it was written, for two different reasons in turn:
 //
-//   * `ensure(PAL_MAX_VARIANTS == 99, ...)` — two comptime ints, trivially FALSE —
-//     BUILT SUCCESSFULLY. So it is not that the predicate is subtle; no top-level
-//     `ensure` here is evaluated at all.
-//   * A deliberate syntax error in this same file DID fail the build, so the file is
-//     genuinely parsed. Parsed, not evaluated.
+//   1. Nothing referenced this module, so it was parsed but never EVALUATED.
+//      `ensure(PAL_MAX_VARIANTS == 99, ...)` — two comptime ints, trivially false —
+//      built clean, while a deliberate syntax error in the same file DID fail the
+//      build. Parsed, not evaluated.
+//   2. Adding `"Effects_InstallPreset"` to `games/sonic4/map.toml`'s `order` did NOT
+//      fix it. `order` says where a module's bytes land IF it is lowered; a module
+//      is lowered only once something already in the target's `use` closure `use`s
+//      it. An existing-but-uncalled proc is not a reference.
 //
-// RE-VERIFIED Task 8, still on this file, after Effects_InstallPreset existed AND
-// "Effects_InstallPreset" was added to games/sonic4/map.toml's `order` array: the
-// `== 99` inversion STILL built clean (`sigil build`'s own `module.unreachable`
-// warning names this file explicitly: "module engine.effects.preset is outside
-// this profile's use closure, so its 1 ensure guard(s) are never evaluated for
-// this target"). So `order` placement is NOT what reachability means here —
-// `order` only says where a module's bytes land IF it is lowered; a module is
-// lowered only once something in the `use` closure actually `use`s it. Nothing
-// does yet: Effects_InstallPreset exists and compiles but is uncalled, so no
-// reachable module names `engine.effects.preset`. It comes alive at Task 9, when
-// the crossing site adds `use engine.effects.preset.{...}` and calls
-// Effects_InstallPreset. **Re-run the inversion probe then**: flip the `== 2` to
-// `== 99`, confirm the build FAILS, flip it back. Until someone does that, treat
-// this guard as documentation.
+// What finally woke it: `engine/level/parallax.emp` adding
+// `use engine.effects.preset.{Effects_InstallPreset}` at the crossing site. The
+// `== 99` inversion then failed the build immediately, with this exact message.
 //
-// `preset()`'s OWN ensures are a different story and ARE live: they were verified at
+// SIGIL SAYS SO ITSELF — `SIGIL_WARNINGS=full` emits `[module.unreachable] module
+// ... is outside this profile's use closure, so its N ensure guard(s) are never
+// evaluated for this target`. Check that list before trusting any guard in a module
+// you are not sure is reached. (Do not misread the count: 14 modules are unreachable
+// for sonic4 and 40 for demo BY DESIGN — each evaluates in the target that uses it,
+// and the Z80 sound modules evaluate through the seam-1/seam-2 blob path instead.)
+//
+// AND IT IS NOT ONLY `ensure`s. This struct was declared `(size: 36)` while its
+// fields total 32, and the layout checker was dead for exactly as long — the same
+// `use`-closure that woke the guard is what failed the build on the size. In an
+// unreachable module, guards do not fire AND declared layouts are not validated:
+// treat everything in one as unverified, no matter what a report claims about it.
+//
+// `preset()`'s OWN ensures never had this problem and ARE live: they were verified at
 // authoring time by deliberately violating each one from a real call site in
 // configs.emp and confirming the build failed with the intended message. A comptime
-// fn's body evaluates where it is CALLED, so it does not share this module's problem.
+// fn's body evaluates where it is CALLED, not where it is defined.
 //
 // A witness for the Label-vs-int comparison the exclusivity ensure depends on was
 // attempted here and REMOVED: `ensure(Raster_Program_None != 0, ...)` and its exact

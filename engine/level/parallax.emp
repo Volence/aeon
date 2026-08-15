@@ -13,6 +13,7 @@ use engine.structs.{Act, Sec, parallax_config}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
+use engine.effects.preset.{Effects_InstallPreset}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -153,10 +154,11 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 //
 // In:  none (reads Camera_X/Y, Current_Act_Ptr, Parallax_Prev_Sec_X/Y)
 // Out: config switched + transition staged iff a crossing changed it.
-// Clobbers: d0-d3, a0-a2 (a1 enters the union via Palette_LoadSection, the
-//   effects-P1 sec_pal consumer called on a crossing)
+// Clobbers: d0-d3, a0-a3 (a1 enters the union via Palette_LoadSection, the
+//   effects-P1 sec_pal consumer called on a crossing; a3 enters via
+//   Effects_InstallPreset, the effects-P3 preset path)
 // ----------------------------------------------------------------------
-pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a2) {
+pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a3) {
         // -- section under the camera centre (camX+160 / camY+112) --
         move.w  Camera_X, d2                        // (Camera_X).w — world X px (high word)
         addi.w  #SCREEN_WIDTH/2, d2
@@ -181,11 +183,24 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a2) {
         move.b  d2, Parallax_Prev_Sec_X             // (Parallax_Prev_Sec_X).w
         move.b  d3, Parallax_Prev_Sec_Y             // (Parallax_Prev_Sec_Y).w
 
-        // -- the other per-section descriptor consumers (effects P1) --
+        // -- the other per-section descriptor consumers (effects P1/P3) --
         // This is the ONE place the engine notices "the camera entered a new
-        // section", so the palette and raster consumers hang here beside the
-        // parallax one rather than duplicating the crossing detection. Both take
-        // a0 = Sec* and preserve it; both treat NULL as "keep current".
+        // section", so the per-section effect consumers hang here beside the
+        // parallax one rather than duplicating the crossing detection. Both
+        // take a0 = Sec* and preserve it. Two disjoint paths:
+        //   sec_effects != 0 — TOTAL BINDING. Effects_InstallPreset writes
+        //     every channel (palette, cycle, variants, raster) itself and
+        //     returns the resolved parallax config in a0; running the legacy
+        //     installers alongside it would let a NULL descriptor field on
+        //     the preset's own channels re-apply "keep current" on top of a
+        //     preset that already decided.
+        //   sec_effects == 0 — legacy per-field installers, each of which
+        //     treats NULL as "keep current", followed by the config resolve.
+        tst.l   Sec.sec_effects(a0)                  // (Sec.sec_effects)(a0)
+        beq     .legacy
+        jbsr    Effects_InstallPreset                // a0 = Sec* in, a0 = resolved parallax config out
+        jbra    Parallax_StartTransition             // snap/lerp + mode shadow; no-op if unchanged
+    .legacy:
         jbsr    Palette_LoadSection                 // sec_pal   -> Pal_Base + recompose
         jbsr    Palette_InstallCycleSection          // sec_pal_cycle -> Pal_Cycle_Script
         jbsr    Raster_InstallSection               // sec_raster_table -> Raster_Pending
