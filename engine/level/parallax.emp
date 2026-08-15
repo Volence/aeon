@@ -57,9 +57,26 @@ pub struct band_entry {
     band_phase_offset:   u8,   // 0..255, added to deform sample index for desync
 }
 
-// Displacement to the NEXT band's band_top_cell (peek-ahead) — the .field-in-disp
-// sugar does not compose in displacement arithmetic (row 1068), so a named const.
-const band_top_cell_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
+// band_top_line / band_top_line_next — THE SAME BYTE at THE SAME OFFSET as
+// band_top_cell, named for the unit it carries in the per-frame SHADOW VIEW.
+//
+// Two populations of band_entry exist and they measure their top in different units:
+//   ROM entries (games/.../configs.emp)      -> Plane-B CELL ROWS 0..63
+//   Parallax_Shadow_Bands (rebuilt each frame) -> SCREEN LINES 0..224
+// Both fit a byte, so nothing moves; Step 4a's rebase is where cells become lines.
+//
+// Parcel W needed the shadow view line-exact (an 8-px-quantised boundary cannot agree
+// with a scanline-exact palette boundary), and the alternative spelling — renaming the
+// field to a unit-free `band_top` — was REJECTED: one name silently meaning two units
+// is worse than the status quo, because nothing at a call site tells you which
+// population you are holding. Two names at one offset make grep separate them.
+//
+// The peek-ahead form exists because the .field-in-disp sugar does not compose in
+// displacement arithmetic (row 1068), so the neighbour offset must be a named const.
+// It replaces `band_top_cell_next`, which had exactly these two readers and would now
+// be asserting the wrong unit at both.
+const band_top_line      = offsetof(band_entry, band_top_cell)
+const band_top_line_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
 
 // copy_band_entry — the Step-4a shadow-view entry copy, sized BY the struct:
 // the widest-first move run whose total advance is exactly sizeof(band_entry).
@@ -674,6 +691,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         ble     .write_top
         moveq   #28, d3                     // off-screen — zero-length fill
     .write_top:
+        // CLAMP IN CELLS, STORE IN LINES. The clamp stays at 28 cells because that is
+        // what stops the per-line filler emitting top×8 > 224 lines and spraying past
+        // Hscroll_Buffer (:618-622); only the stored UNIT changes. 28 cells -> 224
+        // lines, so the byte still holds it. The first-band path above reaches here
+        // with d3 = 0, and 0 << 3 is 0.
+        lsl.w   #3, d3                      // cells -> SCREEN LINES (band_top_line)
         move.b  d3, -sizeof(band_entry)(a4)
         // reorder the matching scroll words
         move.w  d2, d3
@@ -907,13 +930,16 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         moveq   #0, d4                              // current line index (0..223)
 
     .next_band:
-        // --- end_line for this band: next band's top_cell×8, or 224 ---
+        // --- end_line for this band: the next band's top, or 224 ---
+        // The shadow view stores tops in SCREEN LINES (Parcel W), so the ×8 that used
+        // to live here is gone — it moved to Step 4a's rebase, which is the one place
+        // that knows it is converting cells. Reading a line-unit byte here is what lets
+        // an anchored boundary land on an arbitrary scanline instead of a cell edge.
         move.w  #224, d5
         subq.w  #1, d7
         beq     .have_end                           // last band
         moveq   #0, d5
-        move.b  band_top_cell_next(a1), d5  // band_top_cell+band_entry_len(a1)
-        lsl.w   #3, d5
+        move.b  band_top_line_next(a1), d5  // band_top+band_entry_len(a1), SCREEN LINES
     .have_end:
 
         // --- packed base scroll (constant per band) ---
@@ -1124,11 +1150,18 @@ proc Parallax_Fill_PerCell () clobbers(d0-d4/a1-a4) {
         addq.w  #1, d2
         cmp.w   d7, d2
         bhs     .last_band_end             // d2 >= d7 → this is last band
-        // not last: peek next band's top_cell
+        // not last: peek the next band's top. The shadow view measures in SCREEN LINES
+        // (Parcel W), and this filler counts CELLS, so it converts here — the exact
+        // inverse of the ×8 Step 4a's rebase applies, over the range the cell clamp
+        // permits (0..28 cells -> 0..224 lines -> 0..28 cells, lossless).
         moveq   #0, d4
-        move.b  band_top_cell_next(a1), d4  // band_top_cell+band_entry_len(a1)
+        move.b  band_top_line_next(a1), d4  // band_top+band_entry_len(a1), SCREEN LINES
+        lsr.w   #3, d4                      // -> cells
         jbra    .have_end
     .last_band_end:
+        // ALREADY in cells and STAYS — 224 >> 3 == 28, so this constant is unchanged by
+        // the unit switch. (An earlier draft of this parcel listed it as a change; it is
+        // not one, and touching it would double-convert the last band's end.)
         moveq   #28, d4
 
     .have_end:
