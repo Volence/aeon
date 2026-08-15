@@ -123,11 +123,11 @@ pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
                                                 PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE],
                        transition: int = 0) -> EffectsPreset {
     // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
-    // DESTRUCTIVELY: Raster_CopyPatchedTemplate clears Raster_Pending (killing a
+    // DESTRUCTIVELY: Raster_InstallPatched clears Raster_Pending (killing a
     // staged static program), and the reverse order lets VBlank re-point Active_Buf at
     // Buf_A while the patcher keeps writing Buf_B.
     ensure(raster == 0 || patched == 0,
-           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_CopyPatchedTemplate clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patcher keeps writing Buf_B.")
+           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_InstallPatched clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patcher keeps writing Buf_B.")
     // REPLACES `patched != 0 || patch_world_y == 0`, which died under the rename and could not
     // have survived it: comparing a Label to an integer is unevaluable and silently always
     // passes (see the vacuous-guard note above). This one is evaluable — it reads a length off
@@ -233,8 +233,10 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         dbf     d0, .seed_anchor
 
         // ---- and latch the derived screen lines from them, immediately ----
-        // Raster_InstallPatched below tail-calls Raster_BuildSchedule, which reads Effects_Screen_L
-        // rather than deriving it. Without this the first patch of a newly-installed program
+        // Effects_LatchWorldLines is the SINGLE derivation of Effects_Screen_L (its own doc,
+        // raster.emp): one `anchor - Camera_Y` per channel, read by Raster_BuildSchedule in
+        // VBlank and the parallax overlay in the main loop, so both consumers see the same
+        // tick's camera. Without this call HERE the first patch of a newly-installed program
         // would run against the OUTGOING section's latched lines — the previous section's
         // boundaries applied to this section's program for one frame.
         //

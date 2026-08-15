@@ -794,27 +794,6 @@ pub const RASTER_MIN_FIRE_LINE = 3
 pub const RASTER_MAX_FIRE_LINE = 223
 
 // -----------------------------------------------
-// Raster_CopyPatchedTemplate — install prologue: copy the template into Raster_Buf_B
-// and make it the live program. Bypasses Raster_Pending (which drives the ROM-program
-// Buf_A path) — a patched program is the runtime-patched Buf_B, not a static ROM one.
-// It had two callers while there were two install paths (screen-line and world-Y);
-// P-b collapsed them into Raster_InstallPatched, and it is kept separate because the
-// ORDER around it is load-bearing (see that proc's note on Raster_Patch_Tab).
-//   a0 = patched template
-// -----------------------------------------------
-proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
-        lea     Raster_Buf_B, a1
-        move.l  a1, Raster_Active_Buf
-        move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
-        clr.l   Raster_Pending
-        move.w  #(RASTER_BUF_SIZE / 2) - 1, d1
-    .copy:
-        move.w  (a0)+, (a1)+
-        dbf     d1, .copy
-        rts
-}
-
-// -----------------------------------------------
 // Raster_InstallPatched — install a patched template.
 //   a0 = patched template
 //
@@ -872,15 +851,32 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         // crossing from the gradient section into a patched one mid-run leaves the handler in
         // .dense_body streaming a stale cursor while this program's records are never walked.
         clr.w   Raster_Dense_Lines
-        jbsr    Raster_CopyPatchedTemplate      // sets Active_Buf = Buf_B
-        // The ship entry is built AFTER the copy, not beside the pointer store above, purely
-        // for registers: the builder needs a0 and the copy still needs the template there.
+        // The install half of what Raster_CopyPatchedTemplate used to do. The COPY is gone — the
+        // builder re-records the whole schedule from the ROM template at the next VBlank — but
+        // these three stores are not the copy and nothing else performs them. Buf_B is named here
+        // only as a starting side; the builder swaps buffers from this frame on.
+        lea     Raster_Buf_B, a1
+        move.l  a1, Raster_Active_Buf
+        move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
+        clr.l   Raster_Pending                  // a staged static program loses (preset.emp's guard)
+        // The ship entry is built AFTER the install stores, not beside the pointer store above.
+        // That used to be a register constraint (Raster_BuildShipEntry needs a0, and the deleted
+        // copy loop was still running it as a template cursor until it returned); a0 is untouched
+        // by this proc since the initial `lea` and free the whole way through now, so the ordering
+        // is no longer forced — kept here to match the entry's installation site.
         move.l  Effects_Offscreen_Entry, d0
         beq     .no_build
         movea.l d0, a1
         jbsr    Raster_BuildShipEntry
     .no_build:
-        jbra    Raster_BuildSchedule
+        // NO TAIL CALL INTO THE BUILDER. Raster_PatchAll used to be invoked from here, i.e. from
+        // the MAIN LOOP, which was survivable while it wrote one byte per record and is not now:
+        // the builder re-records the entire buffer, and Raster_HInt walks that buffer during
+        // active display. The install lands at the next Raster_VBlank, which is the contract this
+        // proc always had ("it takes effect at the next Raster_VBlank, so an install can never
+        // tear a frame mid-walk"). This also removes a PRE-EXISTING hazard: the deleted copy blatted
+        // 128 bytes over the live buffer from the main loop.
+        rts
 }
 
 // -----------------------------------------------
