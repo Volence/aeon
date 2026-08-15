@@ -315,6 +315,41 @@ pub vars upper_ram {
     Raster_Dense_Kind:  u16,        // 0 = gradient (stream), 1 = ramp (accumulate)
     Raster_Ramp_Acc:    u32,        // 16.16 accumulator; high word is the emitted value
     Raster_Ramp_Step:   u32,        // 16.16 per-line delta, signed
+
+    // --- The patch channel bank (effects P3 Parcel P-b) -----------------------
+    // One authored world Y per patchable raster channel. Raster_PatchAll derives each
+    // boundary's screen line as world_y - Camera_Y every VBlank, so a boundary stays on a
+    // place in the LEVEL rather than at a fixed height on the display.
+    //
+    // NAMED FOR EFFECTS, NOT RASTER, deliberately. Parcel W gives the world anchor an
+    // owner, and the parallax deformation system is expected to become a second READER of
+    // these same values (a complete underwater section is a palette boundary AND a shimmer
+    // at the same line). Naming them Raster_* would force W to relocate storage rather than
+    // simply add a reader — the difference between a re-cut and an addition.
+    //
+    // They live in RAM, not in the preset's ROM array, because that is what makes them
+    // MOVABLE: rising lava, a flood line and a beat-driven pulse all rewrite an anchor at
+    // runtime through Effects_SetWorldY. The preset's inline array is the seed, not the
+    // storage. Re-entering a section therefore RESETS an animated anchor to its authored
+    // value — a declared delta, matching the OP_RUN_RAMP seed philosophy above.
+    // The 4 MIRRORS RASTER_MAX_PATCH as a literal, and must: ram.emp is built by a separate
+    // ram-harvest pass that is OUTSIDE the COMPTIME_HELPERS glob injection, so naming the
+    // constant here fails with `unknown name RASTER_MAX_PATCH` (measured 2026-08-15). Same
+    // rule the palette block below documents. raster.emp is the authority, and its
+    // RASTER_STATE_SIZE ensure measures the real emitted span of this region, so a drift
+    // between this literal and the constant fails the build there rather than going quiet.
+    Effects_World_Y:    [u16; 4],
+
+    // -> the ROM patch table, at (patched template + RASTER_BUF_SIZE).
+    //
+    // ZERO MEANS "no patched program is live", and this is the ONLY liveness test
+    // Raster_PatchAll may use. Raster_Active_Buf is NOT a substitute: Raster_VBlank's
+    // explicit-clear path zeroes Raster_Program and idles the trampoline but never touches
+    // Active_Buf, so after a Raster_Install(0) following a patched section Active_Buf still
+    // reads Buf_B forever — and an Active_Buf-gated patcher would go on writing bytes into a
+    // dead buffer every frame. Latent today only because the preset path installs
+    // Raster_Program_None rather than 0.
+    Raster_Patch_Tab:   u32,
     mark Raster_State_End,
 
     // --- Palette engine state (effects P2) — the composition pipeline's working
