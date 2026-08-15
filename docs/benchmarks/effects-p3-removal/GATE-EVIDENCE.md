@@ -108,6 +108,72 @@ a pure function of (template, anchors, camera), and all three are pinned.
    Buf_B for the whole lifetime of a patched program. Anything reading the buffer must go through
    `Raster_Active_Buf` rather than assuming Buf_B.
 
+---
+
+## Task 4 — suppression, on both boundaries
+
+One oracle session, `s4.debug.bin`, `Debug_Scene_Freeze = 1`, `Camera_Y = 144` throughout.
+`Effects_World_Y[1] = 360` throughout, so channel 1 latches to 216 — INSIDE its 216..223 band — in
+every state. That is deliberate: channel 1 is the witness that removing channel 0 does not kill the
+tail, which is the property the relative-gap encoding could never provide.
+
+Channel 0's band at the time of this run is 3..214 (`band_hi_fl` 213); Task 6 re-bands it.
+
+| state | `Effects_World_Y[0]` | latched `L` | raster buffer | parallax bands |
+|---|---|---|---|---|
+| above | 100 | `$FFD4` = -44 | record present, **clamped up** to fire line 2 | split inserted at line 0 |
+| mid | 244 | 100 | record present at fire line 99 | split at 100 |
+| below | 374 | 230 | **record ABSENT** | **no split** |
+
+**Below-band buffer** (live buffer `$FF8A22`), the parcel's whole point:
+
+```
+0004        mask — the base palette is still re-asserted every frame, which IS "dry"
+8AD5 0000   priming 0: $8A00 | (215 - 1 - 1) — schedules channel 1 DIRECTLY
+8AFF 0000   priming 1: parked
+8AFF 0001   channel 1's record, intact
+0002 4002 0010 0000 0043      OP_CRAM with the VSRAM command
+8AFF FFFF   terminator
+```
+
+No `0000 8C89` and no `0004 C048` anywhere: channel 0's record was not emitted. Channel 1 still
+fires. Master clamps channel 0 to fire line 213 here and paints screen rows 214-223 wet against a
+dry world.
+
+**Above-band buffer:** `0004 | 8A00 0000 | 8AD4 0000 | 8AFF 0002 [0000 8C89][0004 C048 0000 0002
+0048] | 8AFF 0001 [...] | 8AFF FFFF`. `arm0 = $8A00` is a gap of 0, landing the record on fire line
+2 = its band floor; `arm1 = $8AD4` = 215 - 2 - 1. The record is CLAMPED UP, not suppressed — correct,
+because the frame-top ship covers the rows above it. The asymmetry is the design's (§4.3).
+
+**Parallax band tops**, read in the same frames (`Parallax_Shadow_Bands`, 10-byte entries):
+
+| state | tops | anchored shift |
+|---|---|---|
+| above | 0, **0**, 48, 112, 224 | applied from the split down (`0F00` -> `0200`) |
+| mid | 0, 48, **100**, 112, 224 | applied from 100 down |
+| below | 0, 48, 112, 224 | **absent** — no anchored split at all |
+
+**Poison control, in the same run.** From the below state, `Effects_World_Y[0]` was written back to
+244 and the frame advanced: the raster buffer returned byte-for-byte to the mid-band form
+(`8A61`/`8A73`, record present with both ops) and the band table regained its split at 100. Both
+assertions flip; neither is vacuous.
+
+**Payload column.** In the above and mid states the record's op words are byte-identical to
+`OJZ_TC_HAND`'s bodies (`0000 8C89`, `0004 C048 0000 0002 0048`). The builder copies from
+`rec_off`/`rec_len`, so this is the axis that would catch a misaligned copy landing a record on the
+right line with the wrong bytes.
+
+**Stride cross-check, free.** `Effects_Offscreen_Entry` ($013158) sits at `Raster_Patch_Tab`
+($013140) + 24 = 2 + 10*2 + 2 — the count word, two FIVE-word entries, and the trailer's own count.
+A stale 8-byte stride would have landed at +18 and pointed the ship at the wrong words.
+
+### Operational note
+
+A 700-frame `emulator_press` WEDGED the oracle MCP (the documented StopSystem-race deadlock: every
+subsequent call, including `emulator_status`, hangs). Recovery is `kill -9` plus relaunch —
+`pkill -x` was not enough. Presses in this session were kept to <= 200 frames afterwards with no
+recurrence.
+
 ### A sigil finding worth booking separately
 
 `lea -RASTER_BUF_SIZE(a2), a2` — a NEGATED NAMED CONSTANT in a displacement — is DROPPED by sigil's
