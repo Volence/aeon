@@ -266,26 +266,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // -- set VInt_Ptr to level handler --
         move.l  #VInt_Level, (VInt_Ptr).w   // explicit .w: link-imm source + relaxable dest can't share one instruction
 
-        // -- effects P2 Task 7: install the OJZ water cluster (the phase gate).
-        //    Installs the water raster TEMPLATE into Raster_Buf_B with the boundary at
-        //    screen line 120. The boundary MOVES at runtime: write Raster_Water_Line and
-        //    the update loop re-patches the priming arm. Active in the spawn area
-        //    (section 0); a section carrying its own sec_raster_table swaps to the
-        //    Buf_A path on crossing.
-        //
-        //    The Variant_Water_Deep bind that used to sit here (variant slot 0 = deep
-        //    water) is gone (effects-P3-C2 Task 13): every OJZ preset already carries
-        //    `variants: [Variant_Water_Deep, 0]`, and Parallax_CheckBoundary's very
-        //    first call (Parallax_Prev_Sec_X/Y seeded to $FF by Parallax_Init, so section
-        //    (0,0) always reads as a crossing) runs Effects_InstallPreset for section 0
-        //    before the first Update frame renders, which binds it. This raster install,
-        //    however, has no preset equivalent — no OJZ preset sets ep_patched, so
-        //    Raster_InstallWater here is the ONLY installer of OJZ_WaterRaster/Buf_B
-        //    anywhere in the tree; deleting it would drop the P2 water fixture, which is
-        //    out of scope for this task. --
-        lea     OJZ_WaterRaster, a0
-        move.w  #120, d0
-        jbsr    Raster_InstallWater
+        // The hand install of OJZ_WaterRaster that used to sit here is GONE (P-b Task 6),
+        // and the reason it could not go earlier is now closed. It survived C2 Task 13 —
+        // which deleted the Variant_Water_Deep bind beside it, since every OJZ preset
+        // carries `variants: [Variant_Water_Deep, 0]` and Parallax_CheckBoundary's first
+        // call binds section 0 before the first Update frame renders — purely because no
+        // OJZ preset set ep_patched, making this the ONLY installer of a Buf_B program
+        // anywhere in the tree. Task 7 gives a section preset a `patched:` binding, so the
+        // preset path is now that installer and a hand install here would be a second,
+        // competing one. Installing effects from a test's Init is exactly the "0 means keep
+        // whatever the last section had" shape total binding exists to remove.
 
         // -- transition to update loop --
         move.l  #GameState_OJZScroll_Update, (Game_State).w
@@ -377,11 +367,13 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    the section under the camera centre, same as flat_id above). --
         jbsr    Parallax_CheckBoundary
 
-        // -- effects P2 Task 7: re-patch the water boundary from Raster_Water_Line so
-        //    the controller can move the line live (write Raster_Water_Line, watch the
-        //    boundary track). Cheap (one word write); no-op visually when Buf_B is not
-        //    the active buffer. --
-        jbsr    Raster_PatchWaterWorldY
+        // The per-frame Raster_PatchWaterWorldY call that used to sit here is GONE (P-b
+        // Task 6). Patching moved INTO Raster_VBlank (Raster_PatchAll) and that move is
+        // load-bearing, not tidying: every arm word is a RELATIVE gap, so a patch running
+        // from the main loop races Raster_HInt walking the same buffer during active
+        // display and desynchronises the whole tail of the chain. The single-word water
+        // patch got away with main-loop timing only because its one arm is consumed at the
+        // frame-top rewind, which made it structurally a next-frame write.
 
         // -- T15 diagnostic: per-section sky-color marker --
         move.w  d6, d0                          // flat section_id

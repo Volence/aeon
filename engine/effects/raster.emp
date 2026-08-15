@@ -224,7 +224,7 @@ pub const RASTER_BUF_SIZE = 128
 // Raster_State span guard — the RAM block (engine/ram.emp) is the twin of this
 // layout; a drift on either side must fail the build, not the frame.
 //   Program 4 + Cursor 4 + Pending 4 + Line 2 + Buf_A + Buf_B + Active_Buf 4
-//   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4 + Water_Line 2 + Water_World_Y 2
+//   + Dense_Lines 2 + Dense_Cursor 4 + Dense_Cmd 4
 //   + Dense_Kind 2 + Ramp_Acc 4 + Ramp_Step 4
 //   + Effects_World_Y (2 * RASTER_MAX_PATCH) + Patch_Tab 4
 //
@@ -234,7 +234,7 @@ pub const RASTER_BUF_SIZE = 128
 // measures the real emitted span between the two marks, so raising RASTER_MAX_PATCH without
 // widening the RAM array fails the build HERE, which is the whole reason the span guard is
 // phrased against extern() marks rather than against a hand-added byte count.
-pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 2 + 2 + 4 + 4 + (2 * RASTER_MAX_PATCH) + 4
+pub const RASTER_STATE_SIZE = 4 + 4 + 4 + 2 + RASTER_BUF_SIZE + RASTER_BUF_SIZE + 4 + 2 + 4 + 4 + 2 + 4 + 4 + (2 * RASTER_MAX_PATCH) + 4
 ensure((extern("Raster_State_End") - extern("Raster_State")) == RASTER_STATE_SIZE,
        "Raster_State RAM block drifted from hblank.emp's raster layout")
 
@@ -759,21 +759,22 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
 pub data Raster_Program_None: [u16; 3] = [0, RASTER_ARM_PARK, RASTER_OPS_END]
 
 // ===========================================================================
-// WATER_LEVEL PATCH SLOT (effects P2 Task 7) — a raster program whose boundary line
-// MOVES at runtime without rebuilding the whole program. The back buffer Raster_Buf_B
-// (reserved by P1 for exactly this) holds a runtime COPY of a template whose priming
-// arm word is recomputed from Raster_Water_Line; Raster_VBlank walks it because
-// Raster_Active_Buf points at Buf_B. Only the arm word moves, so a line change is one
-// word write.
+// PATCHED TEMPLATES (effects P2 Task 7, generalised in P3 P-a/P-b) — a raster program
+// whose boundary lines MOVE at runtime without rebuilding the program. The back buffer
+// Raster_Buf_B (reserved by P1 for exactly this) holds a runtime COPY of a template;
+// Raster_VBlank walks it because Raster_Active_Buf points at Buf_B, and Raster_PatchAll
+// rewrites one arm BYTE per patchable record each VBlank. A boundary move is one store.
 //
-// The header is ONE word, so priming record 0's arm word sits at byte offset 2 in EVERY
-// program — there is no longer a layout precondition on the template:
-//   [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6][opc1 8]...
-// It used to be offset 6, valid only while a template carried exactly one frame-top init
-// word ([mask 0][init_count 2][init[0] 4][arm0 6]). The init header is gone — the blanket
-// Flush_VDP_Shadow restores every register at frame top — so what was a coupling an
-// author could break is now structural.
-pub const WATER_TEMPLATE_ARM0_OFF = 2
+// P-b DELETED THE SINGLE-CHANNEL WATER SLOT that started this. WATER_TEMPLATE_ARM0_OFF
+// was a fixed byte offset 2 — the priming arm word of record 0 — which is where a
+// one-boundary program keeps its only moving part. That constant is gone because it was
+// the shape of the limit: one patch site per program, found by a magic offset rather
+// than described. P-a's patch table now carries a resolved arm_off PER RECORD and P-b's
+// patcher walks them, so the number of moving boundaries is a property of the content
+// rather than of the runtime. (The offset-2 fact itself survives, unnamed, inside
+// raster_dsl's arm_word_index: the header is ONE word, so record 0's arm is always
+// word 1 — [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6]... — which is what let the table
+// pre-resolve offsets at all.)
 
 // Raster_WaterArm — the priming arm word that lands the water fire at screen line M.
 // FORMULA (survey Ruling 1b — the one-interrupt arm lag): priming fires 0 and 1 land on
@@ -784,16 +785,19 @@ pub const WATER_TEMPLATE_ARM0_OFF = 2
 //
 // RASTER_MIN_FIRE_LINE is the `- 3` above, named ONCE: engine.effects.raster_dsl's
 // arm_at reduces to $8A00 | (M - 3) for a single-event program and pins itself against
-// this constant; Raster_PatchWaterLine below is the runtime twin. They were previously
-// two hand-synced literals with only a comment holding them together.
+// this constant; Raster_PatchAll's `subq.w #1, d2` screen-line -> fire-line step is the
+// runtime twin. They were previously two hand-synced literals with only a comment
+// holding them together.
 pub const RASTER_MIN_FIRE_LINE = 3
 pub const RASTER_MAX_FIRE_LINE = 223
 
 // -----------------------------------------------
-// Raster_CopyPatchedTemplate — shared prologue for both patched-template install
-// paths (screen-line and world-Y): copy the template into Raster_Buf_B and make it
-// the live program. Bypasses Raster_Pending (which drives the ROM-program Buf_A
-// path) — the water program is the runtime-patched Buf_B, not a static ROM program.
+// Raster_CopyPatchedTemplate — install prologue: copy the template into Raster_Buf_B
+// and make it the live program. Bypasses Raster_Pending (which drives the ROM-program
+// Buf_A path) — a patched program is the runtime-patched Buf_B, not a static ROM one.
+// It had two callers while there were two install paths (screen-line and world-Y);
+// P-b collapsed them into Raster_InstallPatched, and it is kept separate because the
+// ORDER around it is load-bearing (see that proc's note on Raster_Patch_Tab).
 //   a0 = patched template
 // -----------------------------------------------
 proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
@@ -806,44 +810,6 @@ proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
         move.w  (a0)+, (a1)+
         dbf     d1, .copy
         rts
-}
-
-// -----------------------------------------------
-// Raster_InstallWater — install a water template into Raster_Buf_B and make it the
-// live program, with the boundary at screen line d0.
-//   a0 = water template   d0.w = water screen line
-// After this, Raster_VBlank walks Buf_B every frame; Raster_PatchWaterLine moves the
-// line.
-// -----------------------------------------------
-pub proc Raster_InstallWater (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
-        jbsr    Raster_CopyPatchedTemplate
-        // Seed the AUTHORED world Y from the screen line the caller asked for, so an
-        // install still reads as "put the boundary here on screen" while every frame
-        // after it is world-anchored. world_y = screen_line + Camera_Y(int).
-        move.w  Camera_Y, d1
-        add.w   d1, d0
-        move.w  d0, Raster_Water_World_Y
-        jbra    Raster_PatchWaterWorldY
-}
-
-// -----------------------------------------------
-// Raster_InstallPatchedWorldY — install a patched template into Raster_Buf_B and make
-// it the live program, with the boundary at an AUTHORED world Y.
-//   a0 = patched template   d0.w = authored world Y
-//
-// NOT Raster_InstallWater with a different argument. A preset authors its patched
-// boundary as a world Y — a property of the level, not the screen. Raster_InstallWater
-// takes a SCREEN line and DERIVES world Y by adding Camera_Y (so an install still reads
-// as "put the boundary here on screen" while every frame after it is world-anchored).
-// Feeding an already-authored world Y through that same derivation would store
-// world_y + Camera_Y: wrong on install, and differently wrong on every re-entry
-// depending on where the camera happens to be at that moment. This entry point stores
-// the authored value directly, with no Camera_Y term.
-// -----------------------------------------------
-pub proc Raster_InstallPatchedWorldY (a0: u32, d0: u16) clobbers(d0-d1/a0-a1) {
-        jbsr    Raster_CopyPatchedTemplate
-        move.w  d0, Raster_Water_World_Y
-        jbra    Raster_PatchWaterWorldY
 }
 
 // -----------------------------------------------
@@ -959,81 +925,3 @@ pub proc Effects_SetWorldY (d0: u16, d1: u16) clobbers(d0/a0) {
         rts
 }
 
-// -----------------------------------------------
-// Raster_PatchWaterLine — move the water boundary to screen line d0 by recomputing
-// Buf_B's priming arm word (the runtime twin of raster_dsl's arm_at). Cheap enough
-// to call every frame from the main loop; the change lands at the next Raster_VBlank
-// rewind.
-//   d0.w = water screen line, SIGNED — it may legitimately be off-screen in either
-//          direction once the line is anchored to a WORLD Y (Raster_PatchWaterWorldY).
-//
-// OFF-SCREEN IS A SEMANTIC, NOT A CLAMP. The two directions mean opposite things and a
-// plain clamp gets one of them wrong:
-//   line < MIN  the surface is above the viewport -> the view is entirely BELOW it
-//               (fully submerged) -> fire as early as possible so the effect covers the
-//               whole screen.
-//   line > MAX  the surface is below the viewport -> the effect is not visible at all
-//               -> PARK the counter so the program never fires.
-// The previous version did neither: it masked the line to 8 bits, so a negative line
-// WRAPPED to an arbitrary on-screen row and painted a boundary in the wrong place. That
-// was invisible while the line was a build-time-validated constant (the comptime
-// constructor's screen-line bounds caught it at compile time) and becomes reachable on
-// every vertical scroll the moment the line is world-anchored.
-//
-// The RUNTIME twin of raster_dsl's arm_at (both spell RASTER_MIN_FIRE_LINE):
-//   arm0 = $8A00 | (line - RASTER_MIN_FIRE_LINE)
-// -----------------------------------------------
-pub proc Raster_PatchWaterLine (d0: i16) clobbers(d0) {
-        move.w  d0, Raster_Water_Line
-        cmpi.w  #RASTER_MIN_FIRE_LINE, d0
-        blt     .fully_submerged
-        cmpi.w  #RASTER_MAX_FIRE_LINE, d0
-        bgt     .not_visible
-        subi.w  #RASTER_MIN_FIRE_LINE, d0
-        ori.w   #$8A00, d0
-        move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
-        rts
-    .fully_submerged:
-        // Earliest legal fire. Screen lines 0..MIN-1 are the priming records' own lines
-        // and cannot carry the effect, so a fully-submerged view keeps a MIN-line sliver
-        // of un-effected pixels at the very top. Authors wanting a seamless full-screen
-        // state must set it as settled state instead (Set_VDP_Reg for a register, the
-        // section palette for colours), which is a content decision rather than something
-        // this proc can fix.
-        move.w  #$8A00 | (RASTER_MIN_FIRE_LINE - RASTER_MIN_FIRE_LINE), d0
-        move.w  d0, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
-        rts
-    .not_visible:
-        move.w  #RASTER_ARM_PARK, Raster_Buf_B + WATER_TEMPLATE_ARM0_OFF
-        rts
-}
-
-// -----------------------------------------------
-// Raster_PatchWaterWorldY — anchor the boundary to a WORLD y instead of a screen row.
-// This is what makes the effect stay on a place in the LEVEL rather than at a fixed
-// height on the display: screen_line = Raster_Water_World_Y - Camera_Y(int), recomputed
-// per frame. Takes no argument on purpose — the authored world Y lives in RAM so there
-// is exactly one place to set it and no way for a caller to pass a stale copy.
-// Call once per frame from the main loop, beside the other camera-derived work. The
-// subtraction can go negative or past the screen bottom, which is exactly the case
-// Raster_PatchWaterLine's two off-screen branches exist to handle.
-// -----------------------------------------------
-pub proc Raster_PatchWaterWorldY () clobbers(d0-d1/a0) {
-        // Early-out unless a patched channel is actually live. A later task calls this
-        // unconditionally from the engine loop, and a section with no patched effect
-        // must not pay for it. No new RAM flag needed: "patched channel live" already
-        // has a live-state representative — both install paths (Raster_InstallWater,
-        // Raster_InstallPatchedWorldY) point Raster_Active_Buf at Raster_Buf_B, and
-        // Raster_VBlank's .copy_program re-points it at Raster_Buf_A whenever a static
-        // Pending install is consumed, which is also why patched->static teardown needs
-        // nothing explicit here.
-        lea     Raster_Buf_B, a0
-        cmpa.l  Raster_Active_Buf, a0
-        bne.s   .not_patched
-        move.w  Raster_Water_World_Y, d0        // the AUTHORED value
-        move.w  Camera_Y, d1                    // (Camera_Y).w — 16.16, integer word
-        sub.w   d1, d0                          // may go negative; that is meaningful
-        jbra    Raster_PatchWaterLine
-    .not_patched:
-        rts
-}

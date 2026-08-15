@@ -288,20 +288,12 @@ pub vars upper_ram {
     Raster_Dense_Lines:  u16,       // scanlines remaining in the active dense run (0 = sparse)
     Raster_Dense_Cursor: u32,       // ROM stream cursor (3 words/line) for the run
     Raster_Dense_Cmd:    u32,       // constant CRAM write command for every line of the run
-    // Water_Level patch slot (effects P2 Task 7) — the runtime water-line screen row.
-    // The main loop patches Raster_Buf_B's priming arm word from this so the water
-    // boundary can move without rebuilding the program (Raster_PatchWaterLine).
-    // DERIVED, not authored: Raster_PatchWaterWorldY writes it each frame from
-    // Raster_Water_World_Y minus the camera. It may be negative or past the screen
-    // bottom — the two off-screen branches in Raster_PatchWaterLine are what give
-    // those meaning (fully submerged / not visible).
-    Raster_Water_Line:  u16,
-    // The AUTHORED half of the pair: the water surface's world Y. Water level is a
-    // property of the LEVEL, not of the display, so this is the value content sets and
-    // the screen row above is recomputed from it every frame. Anchoring it here rather
-    // than at a fixed screen row is what stops the boundary sliding around as the
-    // camera moves vertically.
-    Raster_Water_World_Y: u16,
+    // The single-channel water slot that used to sit here (Raster_Water_Line, the derived
+    // screen row, and Raster_Water_World_Y, the authored world Y) is DELETED in effects-P3
+    // P-b. Its authored half generalised into Effects_World_Y[] below — one anchor per patch
+    // channel instead of one per PROGRAM — and its derived half is not stored at all any
+    // more: Raster_PatchAll recomputes each screen line into a register and consumes it in
+    // the same breath, so there is no derived cell left to go stale against the camera.
 
     // --- Dense RAMP state (OP_RUN_RAMP). The dense tier's second body: instead of
     // streaming three baked words per line it COMPUTES one word per line from a 16.16

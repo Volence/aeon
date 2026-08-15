@@ -292,9 +292,9 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
 //
 // `sh` HAS NO DEFAULT, and the reason has changed. It used to be a SAFETY requirement:
 // sh:0 yielded a program with zero init words, which moved the priming arm word off the
-// word Raster_PatchWaterLine patches unconditionally, and a patched template then had an
+// word the old single-channel water patcher wrote unconditionally, and a patched template then had an
 // arm word written over a record's op_count. That failure is gone — the header is one
-// word for every program now, so arm0 is always word 1 and WATER_TEMPLATE_ARM0_OFF is
+// word for every program now, so arm0 is always word 1 and the old WATER_TEMPLATE_ARM0_OFF is
 // structural rather than conditional. The parameter stays required because whether an
 // effect changes a mode register is worth stating at the call site, not because omitting
 // it can corrupt anything.
@@ -867,7 +867,7 @@ pub comptime fn raster_program(fires: array) {
     check_intervals(fires)
     check_density(fires)
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
-    // program without exception — which is what WATER_TEMPLATE_ARM0_OFF depends on.
+    // program without exception — which is what patch_table's pre-resolved arm_offs depend on.
     comptime var out = [prog_mask(fires)]
     out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0
     out = out ++ [arm_at(L, 1), 0]        // fire 1 — priming, line 1
@@ -882,13 +882,13 @@ pub comptime fn raster_program(fires: array) {
         i = i + 1
     }
     out = out ++ [$8AFF, $FFFF]           // terminator — reached only by a stray fire
-    // Raster_VBlank and Raster_InstallWater both copy a FIXED RASTER_BUF_SIZE bytes
+    // Raster_VBlank and Raster_CopyPatchedTemplate both copy a FIXED RASTER_BUF_SIZE bytes
     // into Buf_A / Buf_B, so a program longer than the buffer would be truncated live.
     // (The converse over-read of a short template is pre-existing and harmless — the
     // walker never reaches past the terminator. Booked as EFX-4 in docs/BUGS.md; the
     // ensure below closes that entry's overflow half and the over-read half stays open.)
     ensure(out.len * 2 <= 128,
-           "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
+           "raster_program: {out.len} words = {out.len * 2} bytes exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_CopyPatchedTemplate copy a fixed 128 bytes")
     ensure(out.len == raster_words(fires),
            "raster_program: emitted {out.len} words but raster_words counted {raster_words(fires)} — the two encoding paths disagree")
     return out

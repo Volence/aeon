@@ -44,6 +44,7 @@ use engine.structs.{Sec, Act}
 //
 // The lesson is the general one: in an unreachable module, `ensure`s do not fire
 // AND declared layouts are not validated. Treat everything in one as unverified.
+//
 // SPELT IN FULL, NEVER AS A DELTA — this struct's declared size has already gone stale once
 // (see the note below), and the only reason it was caught is that the layout checker woke up.
 //
@@ -120,11 +121,11 @@ pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
                        variants: [Label; 2] = [0, 0],
                        patch_world_ys: array = [0, 0, 0, 0], transition: int = 0) -> EffectsPreset {
     // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
-    // DESTRUCTIVELY: Raster_InstallWater clears Raster_Pending (killing a staged
-    // static program), and the reverse order lets VBlank re-point Active_Buf at
-    // Buf_A while the patch keeps writing Buf_B.
+    // DESTRUCTIVELY: Raster_CopyPatchedTemplate clears Raster_Pending (killing a
+    // staged static program), and the reverse order lets VBlank re-point Active_Buf at
+    // Buf_A while the patcher keeps writing Buf_B.
     ensure(raster == 0 || patched == 0,
-           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_InstallWater clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patch keeps writing Buf_B.")
+           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_CopyPatchedTemplate clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patcher keeps writing Buf_B.")
     // REPLACES `patched != 0 || patch_world_y == 0`, which died under the rename and could not
     // have survived it: comparing a Label to an integer is unevaluable and silently always
     // passes (see the vacuous-guard note above). This one is evaluable — it reads a length off
