@@ -56,13 +56,25 @@ const ShapeBlob = if DEBUG == 1 { SoundBlobDebug } else { SoundBlobPlain }
 // sole consumer) is comptime-elided there anyway.
 pub equ Z80_SOUND_SIZE = extern("Z80_Sound_End") - extern("Z80_Sound_Start")
 
-// THE NET the review asked for and never got. The `align 2` inside the blob
-// brackets is what MAKES this true; this is what makes it STAY true — if that
-// pad is ever removed, or the blob ever reaches boot by another route, the build
-// fails here instead of address-erroring on hardware before the first frame.
-// Cheap to state, and the failure it replaces is invisible until you boot.
+// Parity net for the COPY LOOP's own cursor. `move.b (a5)+` is byte-wide so the
+// blob's own parity does not bother it, but Z80_SOUND_SIZE is also the width the
+// blob occupies in ROM, and keeping it even keeps every downstream `dc.w`/`dc.l`
+// in this file on an even address. The `align 2` inside the blob brackets is what
+// MAKES this true; this keeps it true.
+//
+// THIS ENSURE IS NOT THE BOOT-CURSOR NET, and used to claim it was. It said
+// "boot.emp walks a5 through the blob into boot_tail's word-wide VDP commands",
+// which was accurate about the CODE but guarded the wrong PROPERTY: the thing that
+// shears that walk is the ALIGNMENT PAD the chainer inserts before boot_tail (whose
+// width comes from boot_tail's frozen pin, not from the blob), and a pad is even, so
+// this parity check passed happily in both shapes while release booted to a blank
+// screen. Measured 2026-08-14: gap Z80_Sound_End -> BootData_PostBlob was 4 bytes in
+// DEBUG and 6 in release. The walk no longer crosses that seam — boot.emp re-anchors
+// a5 with `lea BootData_PostBlob(pc), a5` — so the hazard is gone by construction
+// rather than by a guard, which is why no continuity `ensure` replaces it here: with
+// the label named directly there is no longer an invariant for one to check.
 ensure((Z80_SOUND_SIZE & 1) == 0,
-       "Z80_SOUND_SIZE ({Z80_SOUND_SIZE}) is ODD — boot.emp walks a5 through the blob into boot_tail's word-wide VDP commands, so an odd blob address-errors at boot")
+       "Z80_SOUND_SIZE ({Z80_SOUND_SIZE}) is ODD — the blob would leave every following dc.w/dc.l in boot_data on an odd address")
 
 // The resident CODE blob grows up from Z80 $0000 and the playback STATE block
 // starts at SND_STATE_BASE. Nothing related them: the blob grows every time an
