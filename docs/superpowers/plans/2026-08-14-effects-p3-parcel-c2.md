@@ -595,7 +595,9 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d2/a1-a3) {
 
 Inheriting `Raster_InstallSection`'s keep-current semantics would leave a previous section's water rendering forever — the mirror of the defect this parcel exists to fix. `preset()` makes 0 illegal, but the installer must not silently treat a 0 as "keep" if one ever reaches it.
 
-- [ ] **Step 4: Build + replay net. Commit.**
+- [ ] **Step 4: RE-VERIFY THE GUARDS TASK 4 SHIPPED DEAD.** Task 4 measured that a top-level `ensure` in `engine/effects/preset.emp` is NOT evaluated while nothing references the module — `ensure(PAL_MAX_VARIANTS == 99, ...)`, trivially false, built clean, while a syntax error in the same file did fail. This task is what makes the module reachable, so the guard should come alive here. Flip the `== 2` to `== 99`, confirm the build now **FAILS**, flip it back. If it still builds, the module is STILL not evaluated and that is a finding — report it rather than leaving a documented-dead guard in the tree.
+
+- [ ] **Step 5: Build + replay net. Commit.**
 
 ---
 
