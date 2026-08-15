@@ -544,18 +544,21 @@ pub proc Raster_InstallPatchedWorldY (a0: u32, d0: u16) clobbers(d0-d2/a1-a2) {
 }
 ```
 
-- [ ] **Step 2: EFX-4 — bound the template copy**
+- [ ] **Step 2: EFX-4 — VERIFY ONLY, add nothing**
 
-The copy is a fixed `RASTER_BUF_SIZE` (128) from templates that are 34-36 bytes, over-reading ~94 bytes of adjacent ROM into Buf_B. Harmless today because it is never walked, but the DSL now makes template lengths author-controlled. Add:
-
+Already guarded. `engine/effects/raster_dsl.emp:708` carries
 ```
-ensure(template_words * 2 <= RASTER_BUF_SIZE,
-       "a patched template must fit Raster_Buf_B ({RASTER_BUF_SIZE} bytes) — the copy is fixed-length and over-reads adjacent ROM otherwise (EFX-4)")
+ensure(out.len * 2 <= 128, "raster_program: ... exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
 ```
+and its comment states the split deliberately: *"the ensure below closes that entry's overflow half and the over-read half stays open"* — the over-read of a SHORT template is harmless because the walker never reaches past the terminator.
 
-- [ ] **Step 3: Gate `Raster_PatchWaterWorldY` on a live patched channel**
+So the dangerous half (a program longer than the buffer being silently truncated live) is covered, and the benign half is a recorded decision, not an oversight. Confirm with `grep -n "RASTER_BUF_SIZE (128)" engine/effects/raster_dsl.emp` and **add no second guard** — the same mistake §5.4 would have caused with `check_mixed_fire`.
 
-It is currently called every frame from the test loop only (`games/sonic4/test/ojz_scroll_test.emp:379`). Promoting it to the engine loop requires a "a patched channel is live" guard, or a section with no patched effect pays the call every frame. Add the flag and the guard.
+- [ ] **Step 3: Gate `Raster_PatchWaterWorldY` on a live patched channel — with NO new RAM**
+
+It is currently called every frame from the test loop only (`games/sonic4/test/ojz_scroll_test.emp:379`). Promoting it to the engine loop needs a "is a patched channel live?" predicate, or every section without one pays the call each frame.
+
+**Do not add a RAM flag** — a new byte moves the RAM pins and forces a repin for nothing. The predicate already exists in live state: a patched channel is live exactly when `Raster_Active_Buf` points at `Raster_Buf_B`. Both install paths set it there, and `Raster_VBlank`'s `.copy_program` re-points it at `Raster_Buf_A` whenever a static `Pending` install is consumed — which is also why patched -> static teardown needs nothing explicit. Gate on that comparison.
 
 - [ ] **Step 4: Build + replay net. Commit.**
 
