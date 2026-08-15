@@ -1426,7 +1426,7 @@ The design below is preserved as an unimplemented proposal:
 
 **Purpose:** Execute per-scanline raster effects via a section-installable interrupt handler. The dispatch mechanism is simple — the raster command table system (§7.2) defines what actually runs.
 
-**RAM jmp-slot trampoline (§0.10) — mechanism built and wired, walker not yet built.** The HBlank vector in the exception table points *directly* at `HBlank_Vector_Slot` (`engine/system/hblank.emp`), a 6-byte executable RAM slot. There is no ROM dispatch stub and no pointer read: the slot holds an idle `rte` ($4E73) when nothing is armed, or `jmp handler.l` ($4EF9 + 4-byte target) once `HBlank_Install` arms a handler — the interrupt reaches the handler through a single `jmp`, and the handler owns its own save/restore and terminates with `rte`. `HBlank_Install(a0=handler, d0=line counter)` / `HBlank_Uninstall` are shipped and exported, and both program IE1 (reg $00 bit 4) and the HInt counter (reg $0A) through the VDP shadow. What's *not* shipped: the raster command table walker itself (§7.2) is design-stage — zero handlers exist today (nothing calls `HBlank_Install`; only the `sec_raster_table` struct field is defined), so the slot sits at the idle `rte` boot default. The trampoline is ready for the walker to be dropped in.
+**RAM jmp-slot trampoline (§0.10) — mechanism and walker both SHIPPED.** The HBlank vector in the exception table points *directly* at `HBlank_Vector_Slot` (`engine/system/hblank.emp`), a 6-byte executable RAM slot. There is no ROM dispatch stub and no pointer read: the slot holds an idle `rte` ($4E73) when nothing is armed, or `jmp handler.l` ($4EF9 + 4-byte target) once `HBlank_Install` arms a handler — the interrupt reaches the handler through a single `jmp`, and the handler owns its own save/restore and terminates with `rte`. `HBlank_Install(a0=handler, d0=line counter)` / `HBlank_Uninstall` are shipped and exported, and both program IE1 (reg $00 bit 4) and the HInt counter (reg $0A) through the VDP shadow. The walker SHIPPED with effects P1/P2 (corrected 2026-08-14; this sentence previously read "zero handlers exist today"). `Raster_VBlank` (`engine/effects/raster.emp`) calls `HBlank_Install` every frame it has a program armed, pointing the slot at `Raster_HInt` — which walks the compiled raster program, fires per-line CRAM/VSRAM/register writes, and re-arms reg $0A. The slot sits at the idle `rte` only when no program is installed.
 
 **Idle HBlank cost.** With no handler armed the slot decodes to a bare `rte` — a single ~20-cycle return, with no register save/restore, no pointer load, and no indirect `jsr`. (The RAM-trampoline design that earlier drafts flagged as "not yet applied" is now the shipped mechanism; the old ~180-cycle pointer-dispatch stub it replaced is gone.)
 
@@ -3459,16 +3459,41 @@ Palette management, raster effects, hardware-driven lighting, and a lightweight 
 
 ### 7.1 Palette System
 
-**Shipped vs planned.** As of effects P1 (2026-08-12) the **per-section palette
-load** ships too: `Palette_LoadSection` (`engine/system/buffers.emp`) consumes
-`Sec.sec_pal` on a boundary crossing, copying a full 128-byte CRAM image into
-`Palette_Buffer` and marking all four lines dirty. NOTE the contract this pins:
-`sec_pal` is a **full 4-line, 128-byte CRAM image**, not a partial palette — OJZ's
-two-half layout (shared/HUD 32 B at line 0 + act 96 B at lines 1-3) is concatenated
-into one conformant blob (`OJZ_FullPalette`) rather than the engine learning a
-game-specific split. A short or line-offset blob silently clobbers line 0 and
-over-reads; that was a real, verified failure. Cross-fade is still planned, so the
-load is an instant snap. Otherwise only the **dirty-line DMA upload** is implemented (see "Palette DMA via queue" below and §1.1's `Palette_Dirty` 4-bit mask + `Enqueue_Dirty_Buffers` in `engine/system/buffers.emp`): game code writes `Palette_Buffer` and flags dirty lines, which DMA to CRAM as Critical priority. Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design** (per the §7 banner); no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet.
+**Shipped vs planned.** *(Reconciled 2026-08-14 against the tree, Parcel C2. The
+paragraph this replaces described a superseded design and is corrected on four
+counts: the owning file, the `sec_pal` contract, what ships, and how a section binds
+it.)*
+
+The **per-section palette load** ships: `Palette_LoadSection`
+(`engine/effects/palette.emp` — split out of `buffers.emp`, which keeps only the CRAM
+upload machinery) consumes `Sec.sec_pal` on a boundary crossing and copies it into
+`Pal_Base` for the compose to pick up.
+
+**The contract is 96 bytes = CRAM lines 1-3, and NEVER line 0.** This inverted at
+some point after the paragraph above was written: line 0 is the CHARACTER's
+(`CharacterDef.cd_palette`), and a level palette that wrote it would revert the active
+character's colours on every crossing — Knuckles turning into Sonic mid-act. The old
+"full 4-line 128-byte image" contract, and the `OJZ_FullPalette` concatenated blob it
+required, are both GONE (that symbol no longer exists in the tree). The engine writes
+lines 1-3 only, and the compose ORs at most `%1110` into `Palette_Dirty`.
+
+**Shipped as of effects P2/P3:** per-section cycling (`sec_pal_cycle` →
+`Palette_InstallCycleSection` → `Palette_DoCycle`), palette VARIANTS (per-channel
+transforms derived into a staging image the raster tier streams), global operators
+(fade-to-black/white, white/negative flash), and per-scanline gradients (the dense
+raster tier, §7.2). The composition order is fixed: base → cycling → cross-fade →
+operators → variants, run once per frame by `Palette_Compose` from the game loop.
+
+**Still genuinely planned:** the **cross-fade** layer alone. `Palette_ArmFade` and
+`Palette_DoFade` exist and are correct, but have no caller — `Pal_Target` and
+`PAL_FADE_FRAMES` are dead in the shipped ROM (booked as EFX-2). `EffectsPreset`
+reserves `ep_transition` to claim it, deliberately unused by any Parcel-C2 fixture so
+that parcel's gate stays clean. So the load is still an instant snap in practice.
+
+**How a section binds all of this changed in Parcel C2.** `sec_pal` and `sec_pal_cycle`
+are no longer read directly on a crossing: a section names ONE `EffectsPreset` through
+`Sec.sec_effects`, and `Effects_InstallPreset` writes every channel — palette,
+parallax, raster, patched template, cycling, variants. See §7.12.
 
 **Shared effect-dust slots — the per-character line-0 convention (game-side).** CRAM line 0 is the **per-character** line: `Player_RefreshPhysics` swaps the active `Player_Chardef`'s `cd_palette` (Pal_SonicTails or Pal_Knuckles) into `Palette_Buffer` line 0 on a character change. The shared effect-dust art (skid / spindash / belly-slide — the `DustPuff`/`DustSpindash` children) draws on line 0 at **indices 4, 6, 7** (index 0 = transparent), authored as grays. Because line 0 changes with the character, those three slots must hold the **same grays in every character palette** or the dust inherits whatever that character carries there — Knuckles' reds gave red dust (user-reported, fixed 2026-08-12). The convention: **all character palettes agree with the dust's authoring reference (Pal_SonicTails) at idx 4/6/7.** Sonic/Tails carry the grays natively; Knuckles could not be re-indexed onto SonicTails' line (he uses an S3K colour it lacks) so he keeps his own line but is **permuted within it** (`KNUCKLES_LINE_PERMUTE` in `gen_characters.py` swaps his grays from 12/1/13 into 4/6/7, applied identically to his art and palette — a lossless relabel). HUD/rings live on line 1 and are unaffected; the Tails appendage rides line 0 only while Tails is active. Enforcement is build-time on both ends: `gen_characters.py` asserts the permuted Knuckles palette matches SonicTails at those slots, and `games/sonic4/data/characters/knuckles_data.emp` re-checks the invariant against the shipped blobs. A future 4th character whose palette stomps idx 4/6/7 fails the build rather than silently recolouring the dust. **Variant interaction:** a palette *variant* that tints line 0 (e.g. an underwater `Variant_Water_Deep`) tints these dust slots too, so the dust would darken/blue underwater along with the character — expected, since the dust is a line-0 citizen; a variant wanting neutral dust must preserve idx 4/6/7.
 
@@ -3544,7 +3569,9 @@ load is an instant snap. Otherwise only the **dirty-line DMA upload** is impleme
 > (`code/objects/objects_1.asm:549-550`). That precedent is worth recording; it is not the
 > command table.
 
-> **Sparse tier SHIPPED 2026-08-12** (`engine/system/hblank.emp`). The as-built
+> **Sparse tier SHIPPED 2026-08-12** (`engine/effects/raster.emp` — corrected
+> 2026-08-14; this line named `engine/system/hblank.emp`, which holds only the RAM
+> jmp-slot trampoline, not the tier). The as-built
 > format and its timing model are below; the rest of this subsection is the
 > remaining design.
 >
@@ -3794,6 +3821,63 @@ Oscillator System (7.5)
     → Objects read oscillator values (no per-object timer state)
       → Screen shake reads oscillator for natural amplitude variation
 ```
+
+### 7.12 Effect binding: one preset per section (TOTAL BINDING)
+
+> **SHIPPED — effects P3 Parcel C2, 2026-08-14.**
+
+A section binds every visual effect through ONE pointer: `Sec.sec_effects`
+(offset `$34`) names an `EffectsPreset` (`engine/effects/preset.emp`, 32 bytes),
+and `Effects_InstallPreset` writes **every channel** on the crossing.
+
+```
+EffectsPreset      $00 ep_pal            required — the preset CARRIES the palette
+                   $04 ep_parallax        0 = act default (the one legal 0)
+                   $08 ep_raster          static program; 0 illegal, use Raster_Program_None
+                   $0C ep_patched         patched template (water / world-anchored gradient)
+                   $10 ep_cycle           0 illegal, use Pal_Cycle_None
+                   $14 ep_variants[2]     unused slots 0 = clear
+                   $1C ep_patch_world_y   meaningful only with ep_patched
+                   $1E ep_transition      cross-fade arm (reserved; see §7.1)
+```
+
+**Why total binding, and what it fixed.** The three predecessors
+(`Palette_LoadSection`, `Palette_InstallCycleSection`, `Raster_InstallSection`) each
+read one descriptor field and treated NULL as *"keep whatever the previous section
+had"*. That is not a neutral default — it means an effect installed in one section
+persists into every later section that does not happen to overwrite it. The concrete
+failure: water installed in the spawn area survived the crossing and rendered at a
+stale screen line indefinitely, in sections that never asked for it. Writing every
+channel makes "off" expressible, which is why the `_None` sentinels exist:
+`Raster_Program_None` (a parked 3-word program) and `Pal_Cycle_None` (a non-NULL
+zero-channel script). A NULL cannot mean "off" while it also means "keep".
+
+**The field costs no bytes.** `sec_effects` is the RENAMED `sec_collision_s4lz` — a
+reserved `$34` slot with zero consumers. `sizeof(Sec)` stays 66, which matters because
+66 is pinned by three `ensure`s and spelled as a literal `#66` in two runtime
+multiplies (`section.emp`, `tile_cache.emp`).
+
+**One patched channel, generically named.** `ep_raster` and `ep_patched` are mutually
+exclusive, enforced at comptime by `preset()`, because they route through DIFFERENT
+buffers: a static program is staged into `Raster_Buf_A` via `Raster_Pending`, while a
+patched template is copied into `Raster_Buf_B` and has one arm word rewritten each
+frame to track the camera. Populating both means whichever installs last destroys the
+other's state. Water and a world-anchored gradient share the one channel because
+`RasterGradientProgram`'s `rgp_arm0` sits at the same byte offset with the same
+formula as the water template's — so "at most one patched effect per section" is
+structurally unrepresentable rather than merely checked.
+
+**Install ordering** has exactly one hard constraint: `ep_transition` must arm before
+the palette load, because `Pal_Fade_Request` is a one-shot the load consumes.
+`Effects_InstallPreset` returns the resolved parallax config in `a0` and does NOT call
+`Parallax_StartTransition` itself — that would make `engine/effects` depend on
+`engine/level`, cycling against the dependency the crossing site already creates.
+
+**Variant rebinds are guarded.** `Palette_SetVariant` sets `PAL_ACT_VARIANT_STALE` on
+every call, even re-binding an identical pointer, and a stale variant forces a
+~19,332-cycle (15.1%-of-frame) re-derive. The installer skips the write when the slot
+already holds the same pointer — matching the "already live?" guards its predecessors
+used.
 
 ---
 
