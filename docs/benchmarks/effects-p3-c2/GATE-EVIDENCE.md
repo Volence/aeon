@@ -5,7 +5,8 @@ with the replay net green and the P1/P2 captures re-run. The delta list is
 `DECLARED-DELTAS.md` in this directory, and it was committed BEFORE these captures
 (`887921b4`) so it grades them rather than describing them.
 
-Paired: aeon `parcel/effects-p3-c2` + sigil `parcel/effects-p3-c2`.
+Paired: aeon `parcel/effects-p3-c2` + sigil `parcel/effects-p3-c2`. Refreeze chain **118**.
+Sigil suite **3716 passed / 0 failed / 4 ignored** across 327 binaries.
 
 ---
 
@@ -26,10 +27,18 @@ the spawn area rendered at a stale screen line in sections that never asked for 
 
 | shape | crc | length |
 |---|---|---|
-| `s4.bin` | `8af05d8f` | 697033 |
-| `s4.debug.bin` | `b8201a7e` | 711656 |
-| `demo.bin` | `7226c833` | 95652 |
-| `demo.debug.bin` | `b7c6d641` | 99998 |
+| `s4.bin` | `0fcdcbaa` | 697033 |
+| `s4.debug.bin` | `50f6ae69` | 711656 |
+| `demo.bin` | `6af0112d` | 95652 |
+| `demo.debug.bin` | `fdc82cc0` | 99998 |
+
+**These are NOT the CRCs an earlier draft of this file carried** (`8af05d8f` etc.), and
+the reason is worth recording because it is a trap. Correcting two stale `repin.toml`
+REGION spans changed `pins.rs`, and those pins feed placement — so the ROM moved
+*after* the first refreeze, with lengths identical and content reordered. Every capture
+below was re-run against the ROMs in this table; the earlier ones were discarded rather
+than re-labelled. A gate document that cites a CRC it did not actually test is worse
+than one that cites none.
 
 ---
 
