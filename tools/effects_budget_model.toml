@@ -78,6 +78,17 @@ mode = "every-line"
 # Dense H-INT total 41579 cyc/frame (32.5%) vs sparse 8358 (6.5%); the marginal cost of
 # the 97 extra fires is (41579-8358)/97 = ~342 cyc/line. That INCLUDES profiler
 # instrumentation, autovector entry and rte, so it is an upper bound on the body.
+#
+# THE 8358 HERE IS DELIBERATE AND STILL VALID — do not "correct" it to the superseded
+# marker at :41. Both 41579 and 8358 came off the SAME profiler on the SAME day under
+# the SAME instrument bug (oracle's `interrupts.hint` bucket includes VBlank, because
+# it classifies by comparing entry PC against $78 and Aeon's IRQ6 vector is a ROM
+# address that never matches). This line uses them as a DIFFERENCE, so that constant
+# per-frame VBlank contamination CANCELS: 41579-8358 is a clean marginal cost even
+# though neither absolute figure is a clean tier cost. What :41 supersedes is the use
+# of 8358 as "what the sparse tier costs" — which is not what it is doing here.
+# Replacing it with the :44-58 differentials would compare figures from two different
+# instruments and silently corrupt the 342.
 per_line_body_cycles_upper = 342
 dense_run_cycles_per_frame = 41579   # a 96-line run
 dense_run_frame_pct        = 32.5

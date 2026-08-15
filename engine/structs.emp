@@ -121,7 +121,7 @@ pub struct Sec {
     sec_sound_bank:      *u8 = 0,       // $28 — DAC sample bank
     sec_block_dict:      *u8,           // $2C — raw dict region (LZ pre-seed)
     sec_anim_blocks:     *u8 = 0,       // $30 — animated tile script
-    sec_collision_s4lz:  *u8 = 0,       // $34 — reserved
+    sec_effects:         *u8 = 0,       // $34 — EffectsPreset* (0 = use the legacy fields)
     sec_flags:           u16 = 0,       // $38 — SF_* bitmask
     sec_music:           u16 = 0,       // $3A — music track (0 = keep current)
     sec_pcfg_pad_3C:     u8 = 0,        // $3C — reserved

@@ -1,0 +1,236 @@
+// engine/effects/preset.emp — EffectsPreset: one struct naming every visual-effect
+// channel a level section binds (palette, parallax, raster program, a "patched"
+// template, cycling script, palette variants).
+//
+// A later task writes Effects_InstallPreset, which sets EVERY channel on section
+// entry — TOTAL BINDING. That replaces three legacy installers that each did "0
+// means keep whatever the last section had", a semantic that lets water render at
+// a stale line forever after one crossing (the section that turned it on is long
+// gone, but nothing ever turns it back off).
+//
+// This module is a TYPE-ONLY twin, same precedent as engine.objects.sst / Sst and
+// engine.objects.entity_window / EntityScanState: it emits ZERO bytes (no section,
+// no placement). EffectsPreset is read at runtime by a later task (through
+// Sec.sec_effects, engine/structs.emp:124), so — matching pal_variant
+// (engine/effects/palette.emp:126) and RasterGradientProgram (engine/effects/
+// raster.emp:279) — the wire-format struct and its comptime constructor both live
+// HERE in the CODE module, not in a *_dsl helper. Consumers import explicitly:
+// `use engine.effects.preset.{EffectsPreset, preset}`.
+//
+// Design: docs/superpowers/2026-08-11-effects-suite-design.md §5.
+module engine.effects.preset in preset
+
+use engine.effects.palette.{PAL_MAX_VARIANTS}
+use engine.structs.{Sec, Act}
+
+// Field order deliberately avoids an odd run of u8 before a pointer — sigil does
+// NOT auto-align, and even alignment is all the 68000 needs.
+//
+// SIZE IS 32, AND IT WAS DECLARED 36 UNTIL 2026-08-14. The fields are contiguous
+// with no gaps — 5 pointers (20) + a 2-slot pointer array (8) + 2 u16 (4) = 32 —
+// so 36 was simply wrong. It came from the design spec's prose estimate ("roughly
+// 36 bytes"), copied into the plan beside offsets that add to 32.
+//
+// WHY NOBODY CAUGHT IT FOR TWO TASKS: this module was outside every target's `use`
+// closure, and sigil validates a struct's declared size only when something
+// reachable uses it — the same reason its `ensure` below was never evaluated. So
+// the layout checker was dead for exactly as long as the guard was, and a task
+// report even asserted "36 bytes, matching the intended layout exactly", which
+// nothing had actually checked. The moment Task 9's `use` made the module
+// reachable, the checker ran and failed the build immediately.
+//
+// The lesson is the general one: in an unreachable module, `ensure`s do not fire
+// AND declared layouts are not validated. Treat everything in one as unverified.
+pub struct EffectsPreset (size: 32) {
+    ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
+    ep_parallax:       *u8      @ $04,   // 0 = act default (the one legal 0)
+    ep_raster:         *u8      @ $08,   // static program; 0 illegal, use Raster_Program_None
+    ep_patched:        *u8      @ $0C,   // patched template (water / world-anchored gradient); 0 = none
+    ep_cycle:          *u8      @ $10,   // 0 illegal, use Pal_Cycle_None
+    ep_variants:       [*u8; 2] @ $14,   // PAL_MAX_VARIANTS; unused slots 0 = clear
+    ep_patch_world_y:  u16      @ $1C,   // meaningful only when ep_patched != 0
+    ep_transition:     u16      @ $1E,   // cross-fade arm; unused by every C2 fixture
+}
+
+// ✅ THE `ensure` BELOW IS LIVE — verified by inversion on 2026-08-14, and it took
+// three tasks to get there. Worth reading before you add a guard to a new module.
+//
+// It was DEAD from the moment it was written, for two different reasons in turn:
+//
+//   1. Nothing referenced this module, so it was parsed but never EVALUATED.
+//      `ensure(PAL_MAX_VARIANTS == 99, ...)` — two comptime ints, trivially false —
+//      built clean, while a deliberate syntax error in the same file DID fail the
+//      build. Parsed, not evaluated.
+//   2. Adding `"Effects_InstallPreset"` to `games/sonic4/map.toml`'s `order` did NOT
+//      fix it. `order` says where a module's bytes land IF it is lowered; a module
+//      is lowered only once something already in the target's `use` closure `use`s
+//      it. An existing-but-uncalled proc is not a reference.
+//
+// What finally woke it: `engine/level/parallax.emp` adding
+// `use engine.effects.preset.{Effects_InstallPreset}` at the crossing site. The
+// `== 99` inversion then failed the build immediately, with this exact message.
+//
+// SIGIL SAYS SO ITSELF — `SIGIL_WARNINGS=full` emits `[module.unreachable] module
+// ... is outside this profile's use closure, so its N ensure guard(s) are never
+// evaluated for this target`. Check that list before trusting any guard in a module
+// you are not sure is reached. (Do not misread the count: 14 modules are unreachable
+// for sonic4 and 40 for demo BY DESIGN — each evaluates in the target that uses it,
+// and the Z80 sound modules evaluate through the seam-1/seam-2 blob path instead.)
+//
+// AND IT IS NOT ONLY `ensure`s. This struct was declared `(size: 36)` while its
+// fields total 32, and the layout checker was dead for exactly as long — the same
+// `use`-closure that woke the guard is what failed the build on the size. In an
+// unreachable module, guards do not fire AND declared layouts are not validated:
+// treat everything in one as unverified, no matter what a report claims about it.
+//
+// `preset()`'s OWN ensures never had this problem and ARE live: they were verified at
+// authoring time by deliberately violating each one from a real call site in
+// configs.emp and confirming the build failed with the intended message. A comptime
+// fn's body evaluates where it is CALLED, not where it is defined.
+//
+// A witness for the Label-vs-int comparison the exclusivity ensure depends on was
+// attempted here and REMOVED: `ensure(Raster_Program_None != 0, ...)` and its exact
+// inverse `== 0` BOTH built clean, so an `ensure` comparing an imported data symbol
+// to an integer is unevaluable and silently always-passes. That construct is a
+// vacuous-guard generator; do not reach for it. The live proof of that mechanism
+// remains the call-site violation probe described above.
+//
+// PAL_MAX_VARIANTS cannot be raised past 2 without a fix first: palette.emp's
+// `andi.w #(PAL_MAX_VARIANTS - 1), d0` (Palette_SetVariant) is a power-of-two mask,
+// so 3 would silently fold slot 2 onto slot 0 — and ep_variants's fixed [*u8; 2]
+// shape would go stale under that raise too.
+ensure(PAL_MAX_VARIANTS == 2,
+       "EffectsPreset spells ep_variants as [*u8; 2]; palette.emp's andi.w #(PAL_MAX_VARIANTS-1) mask is power-of-two only, so raising this needs that mask fixed FIRST")
+
+// preset() — build an EffectsPreset. `pal` is required (the preset always carries a
+// palette); everything else defaults to 0/none.
+pub comptime fn preset(pal: Label, parallax: Label = 0, raster: Label = 0,
+                       patched: Label = 0, cycle: Label = 0,
+                       variants: [Label; 2] = [0, 0],
+                       patch_world_y: int = 0, transition: int = 0) -> EffectsPreset {
+    // ep_raster and ep_patched are mutually exclusive. Whichever installs last wins
+    // DESTRUCTIVELY: Raster_InstallWater clears Raster_Pending (killing a staged
+    // static program), and the reverse order lets VBlank re-point Active_Buf at
+    // Buf_A while the patch keeps writing Buf_B.
+    ensure(raster == 0 || patched == 0,
+           "preset(): ep_raster and ep_patched are mutually exclusive. Whichever installs last wins DESTRUCTIVELY — Raster_InstallWater clears Raster_Pending (killing a staged static program), and the reverse order lets VBlank re-point Active_Buf at Buf_A while the patch keeps writing Buf_B.")
+    ensure(patched != 0 || patch_world_y == 0,
+           "preset(): patch_world_y is meaningful only with a patched template")
+    return EffectsPreset{ ep_pal: pal, ep_parallax: parallax, ep_raster: raster,
+                          ep_patched: patched, ep_cycle: cycle, ep_variants: variants,
+                          ep_patch_world_y: patch_world_y, ep_transition: transition }
+}
+
+// Displacements into ep_variants[0]/[1] — PAL_MAX_VARIANTS is locked to 2 by the
+// ensure() above, so a fixed pair of named offsets (rather than an indexed loop)
+// matches how Palette_SetVariant's own slot pair is spelled.
+const EP_VARIANT_0 = offsetof(EffectsPreset, ep_variants)
+const EP_VARIANT_1 = EP_VARIANT_0 + 4
+
+// -----------------------------------------------
+// Effects_InstallPreset — TOTAL BINDING. Replaces the three legacy per-channel
+// installers (Palette_LoadSection / Palette_InstallCycleSection /
+// Raster_InstallSection), each of which read a NULL descriptor field as "keep
+// whatever the previous section had". A preset instead names EVERY channel,
+// using explicit _None sentinels to mean "off" — the semantic that stops water
+// (or any other effect) installed by one section from surviving forever past the
+// section that turned it on.
+//
+//   a0 = Sec*   (sec_effects is known non-zero — the caller already checked)
+//
+// Returns (a0) = the resolved parallax config pointer: ep_parallax, or the act
+// default when ep_parallax is 0 — mirrors the fallback parallax.emp:194-199 does
+// today. Returning the pointer rather than tail-calling Parallax_StartTransition
+// ourselves keeps the dependency one-way (parallax -> preset -> palette/raster);
+// the caller (the crossing site, Task 9) makes that tail call.
+//
+// Register hazard: Palette_LoadPal's own clobber list includes a2 (d1/a1-a2), so
+// the preset pointer is held in a3 instead — the only address register none of
+// the six callees below (Palette_ArmFade/LoadPal/LoadCycle/SetVariant,
+// Raster_Install/InstallPatchedWorldY) clobber.
+//
+// Order is load-bearing:
+//   1. ep_transition -> Palette_ArmFade BEFORE the palette load. Pal_Fade_Request
+//      is one-shot, consumed by Palette_LoadPal; arming after the load would
+//      apply to the NEXT crossing instead of this one.
+//   2. ep_raster / ep_patched are mutually exclusive (enforced at comptime by
+//      preset()'s own ensure). ep_raster == 0 in a present preset means OFF
+//      (Raster_Program_None), NEVER "keep" — Raster_Install(0) stages
+//      Raster_Pending = 0, which Raster_VBlank reads as "no install this frame",
+//      i.e. keep whatever program is already live. That is the exact stale-water
+//      defect this parcel exists to remove, so a bare 0 is redirected to the
+//      explicit off program rather than passed through.
+//
+// Everything else is a straight write: ep_pal -> Palette_LoadPal, ep_cycle ->
+// Palette_LoadCycle (its own a0=0 path already turns cycling off cleanly, so no
+// redirect is needed there), ep_variants[i] -> Palette_SetVariant(slot i, ptr).
+//
+// Variant guard (required, not an optimisation): Palette_SetVariant sets
+// PAL_ACT_VARIANT_STALE on EVERY call, even a rebind to an identical pointer,
+// forcing a full variant re-derive measured at ~19,332 cycles (15.1% of a frame).
+// Both sibling installers already guard this way — Raster_InstallSection
+// (`cmp.l Raster_Program, d0 / beq .keep`) and Palette_InstallCycleSection
+// (`cmp.l Pal_Cycle_Script, d0 / beq .keep`) — so each slot is compared against
+// the live Pal_Variant_Ptr entry and the call is skipped when unchanged.
+// -----------------------------------------------
+pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d1/a0-a3) {
+        movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset* — survives every callee below
+
+        // ---- ep_transition: arm the cross-fade BEFORE the palette load ----
+        tst.w   EffectsPreset.ep_transition(a3)
+        beq     .no_fade_arm
+        jbsr    Palette_ArmFade
+    .no_fade_arm:
+
+        // ---- ep_pal: required, always present ----
+        movea.l EffectsPreset.ep_pal(a3), a1
+        jbsr    Palette_LoadPal
+
+        // ---- ep_cycle: straight write, 0 already means "off" cleanly ----
+        movea.l EffectsPreset.ep_cycle(a3), a0
+        jbsr    Palette_LoadCycle
+
+        // ---- ep_variants[0]: write, but skip the call when already bound ----
+        move.l  EP_VARIANT_0(a3), d1
+        cmp.l   Pal_Variant_Ptr, d1
+        beq     .variant0_same
+        movea.l d1, a0
+        moveq   #0, d0
+        jbsr    Palette_SetVariant
+    .variant0_same:
+
+        // ---- ep_variants[1]: same guard, slot 1 ----
+        move.l  EP_VARIANT_1(a3), d1
+        cmp.l   Pal_Variant_Ptr + 4, d1
+        beq     .variant1_same
+        movea.l d1, a0
+        moveq   #1, d0
+        jbsr    Palette_SetVariant
+    .variant1_same:
+
+        // ---- ep_raster / ep_patched: mutually exclusive, whichever is set wins ----
+        movea.l EffectsPreset.ep_patched(a3), a0
+        cmpa.w  #0, a0
+        beq     .no_patch
+        move.w  EffectsPreset.ep_patch_world_y(a3), d0
+        jbsr    Raster_InstallPatchedWorldY
+        bra     .raster_done
+    .no_patch:
+        movea.l EffectsPreset.ep_raster(a3), a0
+        cmpa.w  #0, a0
+        bne     .have_raster
+        lea     Raster_Program_None, a0         // 0 here means OFF, never "keep"
+    .have_raster:
+        jbsr    Raster_Install
+    .raster_done:
+
+        // ---- resolve the return value: ep_parallax, or the act default ----
+        movea.l EffectsPreset.ep_parallax(a3), a0
+        cmpa.w  #0, a0
+        bne     .have_config
+        movea.l Current_Act_Ptr, a0
+        movea.l Act.act_parallax_config(a0), a0
+    .have_config:
+        rts
+}
+

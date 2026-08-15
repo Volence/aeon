@@ -15,9 +15,12 @@ module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 // validating constructor + field defaults below.
 use engine.structs.{Act, Sec}
 
-// Effects P1 gate fixtures live in the game-side effects library beside the
-// parallax configs (games/sonic4/data/parallax/configs.emp).
-use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
+// Effects P1 gate fixtures live in the game-side effects library
+// (games/sonic4/data/effects/ojz_effects.emp).
+use games.sonic4.ojz_effects.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
+// Parcel C2 Task 12 — total-binding presets. One per distinct section (0-3),
+// one shared instance for the five identical plain sections (4-8).
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -134,7 +137,15 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 // A section palette is 96 bytes = CRAM lines 1-3. Line 0 is the CHARACTER line
 // (CharacterDef.cd_palette) and the level must never write it — see
 // Palette_LoadSection in engine/system/buffers.emp.
-comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0, cycle: Label = 0) -> Sec {
+// `effects` (Parcel C2 Task 12): the total-binding EffectsPreset* for this
+// section (sec_effects, $34). Defaults to 0 = "no preset", matching the
+// pre-Task-12 shape while any section is left unconverted. The legacy
+// pal:/raster:/cycle: arguments are LEFT IN PLACE and still feed their fields —
+// they become inert once sec_effects != 0 (Parallax_CheckBoundary and the
+// crossing site take the preset path instead), but deleting them is Task 13's
+// job, once reachability of the preset path is established. Keeping them here
+// keeps this task's diff a pure addition.
+comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0, cycle: Label = 0, effects: Label = 0) -> Sec {
     return Sec{
         sec_block_index:      blocks,
         sec_objects:          objects,
@@ -149,7 +160,7 @@ comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Lab
         sec_sound_bank:       default,
         sec_block_dict:       dict,
         sec_anim_blocks:      default,
-        sec_collision_s4lz:   default,
+        sec_effects:          effects,      // effects P3 Task 12: total-binding preset
         sec_flags:            default,
         sec_music:            default,
         sec_pcfg_pad_3C:      default,
@@ -174,6 +185,9 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // shift is pixel-invisible. On section 0 so it is on screen at
             // spawn with no navigation.
             raster: OJZ_TestRamp,
+            // Parcel C2 Task 12: total-binding preset. Same content as the
+            // legacy pal:/raster: pair above (which stays, inert, for Task 13).
+            effects: OJZ_Preset_Sec0,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec1_Blocks,
@@ -183,6 +197,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // Effects P1 gate: section 1 carries the raster program (S/H + backdrop
             // split below screen line 120). Scroll right from spawn to reach it.
             raster: OJZ_TestRaster,
+            effects: OJZ_Preset_Sec1,
             dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC1_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec2_Blocks,
@@ -196,6 +211,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // raster section, so ONE sustained right-hold walks sparse -> dense and the
             // sparse tier is proven un-regressed on the same run.
             raster: OJZ_TestGradient,
+            effects: OJZ_Preset_Sec2,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec3_Blocks,
@@ -205,36 +221,42 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             // Effects P2 Task 8 gate: section 3 carries a palette-cycling band
             // (line 2 entries 8-11, 8-frame period). Read CRAM per frame to see it.
             cycle: OJZ_ShimmerCycle,
+            effects: OJZ_Preset_Sec3,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec4_Blocks,
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
             pal: OJZ_Palette,
+            effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
             pal: OJZ_Palette,
+            effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec6_Blocks,
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
             pal: OJZ_Palette,
+            effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
             pal: OJZ_Palette,
+            effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
     ojz_sec(blocks: OJZ_Sec8_Blocks,
             objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
             type_table: OJZ_Sec8_TypeTable,
             pal: OJZ_Palette,
+            effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec8_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC8_BLOCK_DICT_LEN),
 ]

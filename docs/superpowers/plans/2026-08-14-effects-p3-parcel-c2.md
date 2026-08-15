@@ -58,6 +58,47 @@ Also verified: `sec_collision_s4lz` has exactly **three** references tree-wide �
 
 ---
 
+## KNOWN-RED BASELINE for this parcel — read before gating any task
+
+**Task 1 moved instruction bytes, so every whole-ROM golden test is stale from that point until Task 14 refreezes.** This is by design and must not be chased. Measured on the branch after Task 3:
+
+```
+3702 passed / 14 failed / 4 ignored, across 327 binaries
+```
+
+The 14, and ONLY these 14, are expected red:
+
+```
+config_a_anchor_matches_golden        config_b_anchor_matches_golden
+config_a_full_file                    config_b_full_file
+config_b_doctored_size_table_breaks_the_build
+demo_debug_anchor_matches_golden      demo_plain_anchor_matches_golden
+demo_debug_full_file                  demo_plain_full_file
+flipped_config_a_anchor_matches_golden
+lean_anchor_matches_golden            lean_full_file
+native_full_sonic4_debug              native_full_sonic4_plain
+```
+
+Goldens frozen at chain 116 vs the live branch:
+
+| shape | golden | branch (after Task 3) |
+|---|---|---|
+| `s4.debug.bin` | `3cffc29b` | `377407be` |
+| `s4.bin` | `a6efe203` | `ba056e11` |
+| `demo.bin` | `8c6abbfe` | `6c232c5d` |
+| `demo.debug.bin` | `fdda99a7` | `a47dc369` |
+
+**The per-task gate is therefore NOT "suite green".** It is:
+1. all four shapes BUILD,
+2. both replay-net fixtures PASS,
+3. the sigil suite shows **exactly** the 14 failures above and no others.
+
+A 15th failure, or a different name in the list, is a real regression. Count precisely — never tail the output.
+
+**A trap this already caused:** Task 3's implementer saw the 14 reds and attributed them to unrelated dirty editor JSON in the aeon tree, because stashing its own (byte-neutral) change did not make them go away. It could not have: the cause was Task 1's COMMITTED byte change. Byte-neutral tasks cannot clear a red the goldens inherited from an earlier task in the same parcel.
+
+---
+
 ## File structure
 
 | File | Responsibility | Task |
@@ -192,32 +233,21 @@ after) and the probe reverted."
 **Files:**
 - Modify: `tools/effects_budget_model.toml`
 
-- [ ] **Step 1: Confirm the discrepancy**
+**RESOLVED 2026-08-14 — EFX-5 was ALREADY FIXED; the only real work was a comment.** Recorded here because "the spec named a defect" is not evidence the defect exists.
 
-Run: `grep -n "raster_state_bytes" tools/effects_budget_model.toml && grep -rn "RASTER_STATE_SIZE" engine/effects/raster.emp | head -3`
+- `raster_state_bytes` already reads **288** (`:127`), and is gate-checked: `[symbols]:148` maps it to `engine/effects/raster.emp:RASTER_STATE_SIZE`, which is why it did not drift.
+- `full_line_fire_cost` was already renamed `full_line_fire_lines` (`:68`).
+- `sparse_tier_cycles_per_frame` is already `_SUPERSEDED` (`:41`) with the instrument bug documented at `:34-40`.
 
-Expected: the TOML says `286`; `RASTER_STATE_SIZE` resolves to `288`.
+**The one change made, and a trap avoided.** An earlier draft of this plan said to replace the "vs sparse 8358" citation at `:78`. That would have been WRONG. `(41579 - 8358) / 97 = ~342 cyc/line` is a **differential**: both figures came off the same profiler on the same day under the same instrument bug, so the constant per-frame VBlank contamination CANCELS in the subtraction. The derived 342 is sound even though neither absolute is a clean tier cost. Swapping in the `:44-58` differentials would have compared two different instruments and silently corrupted it.
 
-- [ ] **Step 2: Correct it, and say where the number comes from**
-
-```toml
-# Derived from engine/effects/raster.emp's RASTER_STATE_SIZE. Was 286 — a
-# hand-copy that went stale (EFX-5). This file is documentation, not a build
-# input: nothing cross-checks it, which is exactly how it drifted.
-raster_state_bytes = 288
-```
-
-- [ ] **Step 3: Fix the one stale-8358 residual**
-
-The spec's other two budget-model complaints are ALREADY FIXED in the tree — `full_line_fire_cost` was renamed `full_line_fire_lines` (`:68`, with the rationale that it read as a cycle cost while being `ceil(16/3)`, a line count), and `sparse_tier_cycles_per_frame = 8358` is now `sparse_tier_cycles_per_frame_SUPERSEDED` (`:41`) with the instrument bug documented at `:34-40`. **Do not "fix" either again.**
-
-What remains is one prose residual: **line 78** still says "vs sparse 8358 (6.5%)" inside a dense-tier comment. Replace that figure with the measured differentials (`sparse_fire_vsram1_cycles = 454`, `sparse_fire_cram3_cycles = 526`, `:44-58`) and cite `docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 1: Verify the three values above are still as described.** If any differs, re-derive before touching anything.
+- [ ] **Step 2: The only edit** — a comment at `:78` stating why the superseded figure is legitimately used there as a differential baseline, so the next reader does not "fix" it.
+- [ ] **Step 3: Commit**
 
 ```bash
 git add tools/effects_budget_model.toml
-git commit -m "docs(effects): EFX-5 — raster_state_bytes 286 -> 288; kill the last stale-8358 citation"
+git commit -m "docs(effects): EFX-5 was already fixed; pin why the 8358 differential is legitimate"
 ```
 
 ---
@@ -301,7 +331,17 @@ Commit the sigil side separately on its own branch (the two repos merge as a pai
 ## Task 4: The `EffectsPreset` struct and the `preset()` constructor
 
 **Files:**
-- Create: `engine/effects/preset.emp`
+- Create: `engine/effects/preset.emp` — ONE new file, a CODE module (`module engine.effects.preset in preset`)
+
+**Module placement, settled 2026-08-14 (do not re-decide):** modules are NOT tree-walked; sigil places them from a fixed registry. Pure-comptime helper modules must be listed in `COMPTIME_HELPERS` (`sigil .../native.rs:1767`), which is order-sensitive (a later helper silently wins a duplicate name) and gated by `tools/emp_helper_closure.py`.
+
+We avoid that entirely. The established pattern is that **every runtime-read struct lives in the CODE module** — `pal_variant` and `PalCycleScript1` in `palette.emp:126,158`; `RasterGradientProgram` and `RasterRampProgram` in `raster.emp:279,354` — while only *constructors* live in `*_dsl`. `EffectsPreset` is read at runtime by `Effects_InstallPreset` (Task 8), so it belongs in a code module.
+
+Put **both** the struct and `preset()` in `engine/effects/preset.emp` and have consumers import explicitly (`use engine.effects.preset.{EffectsPreset, preset}`). A comptime fn in a code module is normal (`comptime fn test_palette()` lives in `configs.emp`, which emits plenty). This needs **no sigil change and no `COMPTIME_HELPERS` entry** in this task.
+
+**The vacuity trap this creates, and the required guard:** because `preset()` is NOT glob-injected, its free names resolve at the CALL SITE, and an unresolved name there fails SILENTLY (empty range / zero results — a recorded `.emp` hazard). **Defining `preset()` proves nothing.** Task 4 must include a real call site that exercises it, and the `ensure`s must be shown to actually evaluate — see Step 5.
+
+**If the build rejects a `module ... in preset` section that emits no bytes yet** (it has a struct but no procs until Task 8), STOP and report rather than inventing a placeholder byte. The map's `order` array excludes zero-byte sections, so it should be accepted, but verify rather than assume.
 
 - [ ] **Step 1: Write the struct with a size assertion**
 
@@ -420,7 +460,9 @@ pub data Preset_None: EffectsPreset = preset(
     cycle:    Pal_Cycle_None)
 ```
 
-**Note the coupling this creates and state it in the comment:** `Preset_None` is not game-agnostic — it names a palette. If it must live in `engine/`, take the palette as a parameter instead and let each game define its own `Preset_None`. Decide this in the task and record which was chosen.
+**DECIDED (controller, 2026-08-14): `Preset_None` is GAME-SIDE.** It lives in `games/sonic4/data/effects/ojz_presets.emp` (Task 12), not in `engine/`. Reason: a preset must carry a palette (§5.2) and palettes are game content, so an engine-side `Preset_None` would either hardcode a game's palette or need a comptime fn manufacturing per-game data — indirection for no gain, across a wall `CLAUDE.md` calls hard. `Pal_Cycle_None` DOES stay engine-side: it is a zero-channel script with no game content in it.
+
+Therefore in this task create **only `Pal_Cycle_None`**. `Preset_None` is created in Task 12 beside the presets that use it.
 
 - [ ] **Step 3: Build. Bytes MOVE here** (two new `pub data`). Expect all four CRCs to change; that is correct and this is the first task where it happens.
 
@@ -502,18 +544,21 @@ pub proc Raster_InstallPatchedWorldY (a0: u32, d0: u16) clobbers(d0-d2/a1-a2) {
 }
 ```
 
-- [ ] **Step 2: EFX-4 — bound the template copy**
+- [ ] **Step 2: EFX-4 — VERIFY ONLY, add nothing**
 
-The copy is a fixed `RASTER_BUF_SIZE` (128) from templates that are 34-36 bytes, over-reading ~94 bytes of adjacent ROM into Buf_B. Harmless today because it is never walked, but the DSL now makes template lengths author-controlled. Add:
-
+Already guarded. `engine/effects/raster_dsl.emp:708` carries
 ```
-ensure(template_words * 2 <= RASTER_BUF_SIZE,
-       "a patched template must fit Raster_Buf_B ({RASTER_BUF_SIZE} bytes) — the copy is fixed-length and over-reads adjacent ROM otherwise (EFX-4)")
+ensure(out.len * 2 <= 128, "raster_program: ... exceeds RASTER_BUF_SIZE (128) — Raster_VBlank and Raster_InstallWater copy a fixed 128 bytes")
 ```
+and its comment states the split deliberately: *"the ensure below closes that entry's overflow half and the over-read half stays open"* — the over-read of a SHORT template is harmless because the walker never reaches past the terminator.
 
-- [ ] **Step 3: Gate `Raster_PatchWaterWorldY` on a live patched channel**
+So the dangerous half (a program longer than the buffer being silently truncated live) is covered, and the benign half is a recorded decision, not an oversight. Confirm with `grep -n "RASTER_BUF_SIZE (128)" engine/effects/raster_dsl.emp` and **add no second guard** — the same mistake §5.4 would have caused with `check_mixed_fire`.
 
-It is currently called every frame from the test loop only (`games/sonic4/test/ojz_scroll_test.emp:379`). Promoting it to the engine loop requires a "a patched channel is live" guard, or a section with no patched effect pays the call every frame. Add the flag and the guard.
+- [ ] **Step 3: Gate `Raster_PatchWaterWorldY` on a live patched channel — with NO new RAM**
+
+It is currently called every frame from the test loop only (`games/sonic4/test/ojz_scroll_test.emp:379`). Promoting it to the engine loop needs a "is a patched channel live?" predicate, or every section without one pays the call each frame.
+
+**Do not add a RAM flag** — a new byte moves the RAM pins and forces a repin for nothing. The predicate already exists in live state: a patched channel is live exactly when `Raster_Active_Buf` points at `Raster_Buf_B`. Both install paths set it there, and `Raster_VBlank`'s `.copy_program` re-points it at `Raster_Buf_A` whenever a static `Pending` install is consumed — which is also why patched -> static teardown needs nothing explicit. Gate on that comparison.
 
 - [ ] **Step 4: Build + replay net. Commit.**
 
@@ -553,7 +598,9 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d2/a1-a3) {
 
 Inheriting `Raster_InstallSection`'s keep-current semantics would leave a previous section's water rendering forever — the mirror of the defect this parcel exists to fix. `preset()` makes 0 illegal, but the installer must not silently treat a 0 as "keep" if one ever reaches it.
 
-- [ ] **Step 4: Build + replay net. Commit.**
+- [ ] **Step 4: RE-VERIFY THE GUARDS TASK 4 SHIPPED DEAD.** Task 4 measured that a top-level `ensure` in `engine/effects/preset.emp` is NOT evaluated while nothing references the module — `ensure(PAL_MAX_VARIANTS == 99, ...)`, trivially false, built clean, while a syntax error in the same file did fail. This task is what makes the module reachable, so the guard should come alive here. Flip the `== 2` to `== 99`, confirm the build now **FAILS**, flip it back. If it still builds, the module is STILL not evaluated and that is a finding — report it rather than leaving a documented-dead guard in the tree.
+
+- [ ] **Step 5: Build + replay net. Commit.**
 
 ---
 
@@ -574,11 +621,28 @@ Today:
 
 Becomes: if `Sec.sec_effects(a0) != 0`, call `Effects_InstallPreset` **instead of** all three.
 
-- [ ] **Step 2: Resolve a preset at spawn too**
+- [ ] **Step 2: the spawn half MOVED TO TASK 12 (2026-08-14) — do not do it here**
 
-`Parallax_Init` picks its config before the first `CheckBoundary`, so a section-0 preset with non-default parallax would lerp in over 16 frames at spawn. Resolve the preset in init as well.
+The spec says `Parallax_Init` picks its config before the first `CheckBoundary`, so a section-0 preset with non-default parallax would lerp in over 16 frames at spawn instead of snapping. That is real, but it is not engine work: `Parallax_Init` takes the config from its CALLER, and its only caller is game-side — `games/sonic4/test/ojz_scroll_test.emp:248-256`, which does the `sec_parallax_config` → act-default resolve itself.
 
-- [ ] **Step 3: Build + replay net. Commit.**
+Task 12 converts that game state to presets and edits this exact file. Doing it here would mean editing it twice, for a preset that does not exist yet. **Task 12 owns it** — see the checklist item added there.
+
+Worth noting while here: `Parallax_Init` seeds `Parallax_Prev_Sec_X/Y` to `$FF,$FF` sentinels precisely so the first `CheckBoundary` re-selects the start section's config. So a section-0 preset's palette/cycle/raster/variants DO get installed on the first crossing check without any spawn change — it is only the parallax config that would arrive as a 16-frame lerp rather than a snap.
+
+- [ ] **Step 3: RE-VERIFY THE GUARD THAT IS STILL DEAD.** Task 4 measured `engine/effects/preset.emp`'s `ensure(PAL_MAX_VARIANTS == 2, ...)` as never evaluated. Task 8 re-checked after adding the module to `map.toml`'s `order` and it was STILL dead, which established the rule:
+
+> **`order` placement is not reachability.** It only says where a module's bytes land *if* it is lowered. A module is lowered only when something already in the target's `use` closure actually `use`s it.
+
+Sigil says so itself — `SIGIL_WARNINGS=full` emits `[module.unreachable] module ... is outside this profile's use closure, so its N ensure guard(s) are never evaluated for this target`. **This task adds the `use` and the call site, so it is the one that makes the module reachable.** Verify:
+1. Flip `== 2` to `== 99`; build; it MUST now FAIL with that ensure's message.
+2. Flip back, rebuild.
+3. Confirm `engine/effects/preset.emp` no longer appears in `SIGIL_WARNINGS=full ... | grep module.unreachable` for the sonic4 target.
+
+If it is still dead after wiring, STOP and report — a guard that no target ever evaluates is worse than no guard, because it reads as protection.
+
+(For calibration: 14 modules are unreachable in the sonic4 target and 40 in demo, but that is BY DESIGN — each evaluates in the target that uses it, and the Z80 sound modules evaluate through the seam-1/seam-2 blob path instead. `games/demo/config/constants.emp` is unreachable for sonic4 and reachable for demo, which is the shape of a healthy case. `preset.emp` is the only module currently unreachable in BOTH.)
+
+- [ ] **Step 4: Build + replay net. Commit.**
 
 ---
 
@@ -643,8 +707,14 @@ Conversion is all-or-nothing per neighbourhood: a legacy neighbour of a preset s
 
 - [ ] **Step 1: Write one preset per section**, preserving today's bindings exactly — section 0 `OJZ_TestRamp`, section 1 `OJZ_TestRaster`, section 2 `OJZ_TestPal` + `OJZ_TestGradient`, section 3 `OJZ_ShimmerCycle`, sections 4-8 plain. Sections with nothing get `Preset_None`.
 - [ ] **Step 2: Replace the legacy fields with `effects:` in `ojz_sec`.** The exclusivity `ensure` fires if any section keeps both.
-- [ ] **Step 3: Re-run the P1 and P2 GATE-EVIDENCE captures.** Section 1's sparse raster, section 2's palette snap + dense gradient, section 3's cycle. These must render as before.
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: the spawn resolve, inherited from Task 9.** `games/sonic4/test/ojz_scroll_test.emp:248-256` currently resolves the parallax config from `Sec.sec_parallax_config` → act default and hands it to `Parallax_Init`. Once section 0 is a preset that path reads the WRONG source: the preset carries `ep_parallax`, and `sec_parallax_config` will be 0, so init would seed the act default and then `CheckBoundary` would LERP to the preset's config over 16 frames instead of snapping at spawn.
+
+  Make the init resolve read the preset when `Sec.sec_effects != 0`: `ep_parallax`, else act default. Then `Parallax_Init` snaps to the right config on frame 0 and the first `CheckBoundary` is the intended no-op.
+
+  (Note `Parallax_Init` seeds `Prev_Sec_X/Y` to `$FF,$FF` so the first `CheckBoundary` always re-selects — which is why the palette/cycle/raster/variant channels need no spawn special-case, only the parallax config does.)
+
+- [ ] **Step 4: Re-run the P1 and P2 GATE-EVIDENCE captures.** Section 1's sparse raster, section 2's palette snap + dense gradient, section 3's cycle. These must render as before.
+- [ ] **Step 5: Commit**
 
 ---
 
@@ -658,7 +728,26 @@ Once all sections are presets, the three keep-current consumers are dead **for s
 
 **The trap that makes this task bigger than it looks:** `Raster_Install` (`raster.emp:462`, a two-instruction proc with no `jbsr` caller anywhere) is `raster.emp`'s **section head**, named in `games/sonic4/map.toml:64` and `games/demo/map.toml:24`. Deleting it re-heads the section to `Raster_Clear` (`:470`) or `Raster_VBlank` (`:492`) and requires an order edit in BOTH map files. `Raster_Clear` itself has zero callers and zero order entries. `Palette_LoadCycle` (`:293`) has zero callers.
 
-- [ ] **Step 1: Establish reachability per proc, across BOTH games,** before deleting anything. Report the finding as a table (proc, callers, is-a-section-head, order entries).
+- [ ] **Step 1: reachability — ALREADY MEASURED 2026-08-14, re-confirm rather than re-derive**
+
+```
+proc                          callers  section head?
+Palette_LoadSection              1     YES — sonic4 AND demo map.toml
+Palette_InstallCycleSection      1     no
+Raster_InstallSection            1     no
+Raster_Install                   4     YES — sonic4 AND demo map.toml
+Raster_Clear                     0     no
+Palette_LoadCycle                1     no
+```
+
+Two things this settles:
+
+- **`Raster_Install` and `Palette_LoadCycle` are NOT dead any more.** They had 0 callers before this parcel; the preset path revived them (`Effects_InstallPreset` uses both). Do not delete them on the strength of a stale "zero callers" note.
+- **The three legacy installers' single caller is the `.legacy` branch itself.** `OJZ_Act1_Sections` is the ONLY `[Sec; N]` array in the entire tree, and `Parallax_CheckBoundary` has exactly ONE caller (`games/sonic4/test/ojz_scroll_test.emp:371`). So once Task 12 gives all nine sections a preset, `.legacy` is unreachable **tree-wide**, not merely for sonic4 — which is the bar this task set for deleting anything.
+
+- [ ] **Step 1b: the blast radius, so it is a decision and not a surprise.** Deleting `.legacy` leaves `Palette_LoadSection`, `Palette_InstallCycleSection` and `Raster_InstallSection` uncalled. Removing them is right — leaving uncalled procs alive purely to anchor a section head is exactly the dormant scaffold this codebase's conventions forbid — but `Palette_LoadSection` is a **section head in BOTH games' `map.toml`** and the `repin.toml` `palette` region's `start`. So the deletion is a PAIRED change: it re-heads that section (to `Palette_LoadPal`) in two map files and in sigil's `repin.toml`.
+
+  That is affordable because Task 14 pays for a repin/refreeze anyway. **But if the re-head needs anything beyond `map.toml` + `repin.toml` edits, STOP and report** rather than reshaping sigil to fit.
 - [ ] **Step 2: Delete only what is provably unreachable tree-wide.** If a proc is dead only for sonic4, LEAVE IT and record why. An unreferenced proc that is a section head is not free to delete.
 - [ ] **Step 3: Build all four shapes; replay net; commit.**
 
@@ -680,7 +769,16 @@ Once all sections are presets, the three keep-current consumers are dead **for s
 
 ## Task 15: Documentation obligations
 
-- [ ] `docs/ENGINE_ARCHITECTURE.md` §7 — **reconcile the P2 drift**, which is an explicit Parcel-C obligation, not an incidental edit: the banner (`:3343-3380`) says P2 shipped cycling/cross-fade/gradients while §7.1 (`:3392-3396`) still calls them PLANNED with "no shipped code", and §7.2 (`:3417-3419`) still attributes the sparse tier to `engine/system/hblank.emp`.
+- [ ] `docs/ENGINE_ARCHITECTURE.md` §7 — **reconcile the P2 drift.** An explicit Parcel-C obligation, not an incidental edit. The spec's line numbers are stale; these were re-derived by content on 2026-08-14 (§7 now starts at `:3415`):
+
+  1. **`:3471`** — "Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design**; no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet." **All false since P2.** Cycling, gradients and variants shipped; `sec_pal` and `sec_pal_cycle` have had live consumers (`Palette_LoadSection`, `Palette_InstallCycleSection`) since P1, and as of this parcel a THIRD consumer path (`Effects_InstallPreset`).
+  2. **`:1429`** — "the raster command table walker itself (§7.2) is design-stage — zero handlers exist today (nothing calls `HBlank_Install`; only the `sec_raster_table` struct field is defined)". **False:** `Raster_VBlank` calls `HBlank_Install` every frame it has a program.
+  3. **`:3547`** — "Sparse tier SHIPPED 2026-08-12 (`engine/system/hblank.emp`)". **Wrong file:** the tier lives in `engine/effects/raster.emp`; `hblank.emp` holds only the RAM jmp-slot trampoline.
+  4. **`:3462`** — "As of effects P1 (2026-08-12)" framing is stale where the surrounding text now describes P2+P3 behaviour.
+
+  **Leave `:3475` alone** — "Palette cross-fading (planned)" is still ACCURATE: `Palette_ArmFade`/`Palette_DoFade` remain unreachable (EFX-2), and `ep_transition` deliberately goes unused by every C2 fixture. Do not "update" a statement that is still true.
+
+  Add the preset binding itself: `sec_effects` + `EffectsPreset` + total binding, and why it replaces the three keep-current installers.
 - [ ] `docs/DEFERRED_WORK.md` — the water/underwater hooks entry (cite by heading; the file has two independently numbered lists).
 - [ ] `docs/BUGS.md` — record EFX-1, EFX-2, EFX-4, EFX-6; mark EFX-3 and EFX-5 fixed here.
 - [ ] `configs.emp` — the stale `run_to_scanline` + `read_cram` comment on the gradient gate. `emulator_read_cram` is frame-latched and cannot see a mid-frame CRAM write, so it is invalid for `OP_CRAM`/`OP_PAL_REGION`/`OP_RUN_GRADIENT`; measure the framebuffer. It IS valid for a whole-frame `sec_pal` base palette DMA'd at VBlank.

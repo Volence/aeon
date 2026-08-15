@@ -278,6 +278,14 @@ engine code before then moves the pin target and grows the port surface for no d
    high-priority (baked into generated block data, no engine hook to clear); proving it
    needs low-priority water content, which is out of the effects-P2 parcel's scope. (ii)
    The oracle gate (variant boundary + moving line) is the controller's, not yet run.
+   **UPDATE 2026-08-14 (Effects P3 Parcel C2).** The water cluster is now bound through
+   an `EffectsPreset` rather than an imperative init call, and the patched channel got a
+   world-Y entry point (`Raster_InstallPatchedWorldY`) so a boundary can be authored as a
+   WORLD y instead of a screen line — the old path derived world Y from the camera, so
+   feeding it an authored value stored `world_y + Camera_Y` and re-anchored differently on
+   every re-entry. Also fixed here: EFX-1, water surviving exactly one crossing, which
+   total binding removes by writing every channel. Rider (i) — S/H visually UNPROVEN — is
+   unchanged and still needs low-priority water content.
    (b) per-section physics-modifier plumbing (engine hooks, game values) — **still
    deferred**, its own design pass when a level needs it.
 4. **Engine-default sound bank** — lift the split plan's v1 limitation that `games/demo/`
