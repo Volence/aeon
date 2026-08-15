@@ -5,6 +5,60 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## Effects suite defect ledger (EFX-1 … EFX-6) — booked 2026-08-14, Parcel C2
+
+Surfaced by the Effects P3 design audits. Recorded here with their real status after
+Parcel C2, because several were half-fixed or already fixed and the spec did not know.
+
+### ✅ EFX-1 — FIXED. Water survived exactly one section crossing.
+`Raster_InstallSection` read a NULL `sec_raster_table` as "keep current", so water
+installed in the spawn area persisted into sections that never asked for it, rendering
+at a stale screen line indefinitely. **Fixed by total binding** — `Effects_InstallPreset`
+writes every channel, so a section without a patched template gets `Raster_Program_None`
+and the water stops. This is delta D2 in `docs/benchmarks/effects-p3-c2/DECLARED-DELTAS.md`.
+
+### ⚠ EFX-2 — OPEN (deliberately). The cross-fade layer is unreachable.
+`Palette_ArmFade` and `Palette_LoadCycle`'s fade sibling `Palette_DoFade` have no
+callers; `Pal_Target` and `PAL_FADE_FRAMES` are dead in the shipped ROM. `EffectsPreset`
+reserves `ep_transition` to claim it, and **no Parcel-C2 fixture uses it on purpose** —
+wiring a cross-fade would have added a behavioural delta to a conversion parcel whose
+gate is "behaviour-identical against a declared list". Left for a content parcel.
+(Note `Palette_LoadCycle` itself is NO LONGER dead — `Effects_InstallPreset` calls it.)
+
+### ✅ EFX-3 — FIXED. A count-0 cycle script left cycling ACTIVE.
+Both `Palette_InstallCycleSection` and `Palette_LoadCycle` armed `PAL_ACT_CYCLE` BEFORE
+reading the channel count, so a non-NULL script with zero channels exited with cycling
+on. `Palette_Compose`'s `.cycling` arm then set `PAL_ACT_VARIANT_STALE` every frame,
+re-arming the ~19,332-cycle (15.1%-of-frame) variant re-derive that `ff0720ff` had
+recovered. Latent because the count-0 path was documented but never exercised — and
+`Pal_Cycle_None` is exactly what exercises it, which is why the fix was sequenced first.
+Verified on oracle in BOTH directions: pre-fix instruction order leaves `Pal_Active` bit
+1 SET (`$12`), fixed order leaves it CLEAR (`$10`).
+
+### ⚠ EFX-4 — HALF-FIXED, and the other half is a recorded decision, not an oversight.
+`Raster_InstallWater` copies a fixed `RASTER_BUF_SIZE` (128 bytes) from templates that
+are 34-36 bytes. The **overflow** half — a program LONGER than the buffer being silently
+truncated live — is guarded at `engine/effects/raster_dsl.emp:708`. The **over-read**
+half (a short template pulling ~94 bytes of adjacent ROM into `Buf_B`) is left open
+because the walker never reaches past the terminator, and that comment says so
+explicitly. Do not "fix" it with a second guard.
+
+### ✅ EFX-5 — was ALREADY FIXED before the parcel looked.
+`tools/effects_budget_model.toml` reads `raster_state_bytes = 288`, and is gate-checked
+via `[symbols]` → `RASTER_STATE_SIZE` — which is precisely why it never drifted, while
+two ungated values beside it did. The spec's other two complaints
+(`full_line_fire_cost`, `sparse_tier_cycles_per_frame`) were likewise already renamed /
+superseded. One prose residual was corrected; see the note there about why the `8358`
+figure in the dense-tier comment is a legitimate DIFFERENTIAL and must not be swapped
+for the newer numbers.
+
+### ✅ EFX-6 — FIXED. The `Sec` equ blob could go stale silently.
+`sigil/crates/sigil-harness/src/test_support.rs` supplies `Sec_*` equs to standalone port
+oracles, and nothing cross-checked them against `harvest_engine_struct_offsets`, so a
+renamed field left it supplying a DEAD equ. A test now asserts the two name sets agree.
+
+---
+
 ## ⚠ OPEN — `.lst` symbol addresses are 4 bytes stale for `boot_head` in the DEMO shapes (2026-08-14)
 
 **A sigil listing/image skew, sound-off shapes only.** `demo.lst` reports
