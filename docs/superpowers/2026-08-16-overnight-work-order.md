@@ -251,6 +251,38 @@ lenses** → plan → execute. P-b deliberately named the RAM `Effects_World_Y` 
 W adds a *reader* rather than relocating storage — check that assumption still holds before
 designing around it.
 
+### 5b. NEW — the water off-screen state (opened by owner testing, 2026-08-15)
+
+Designed, reference-proven, **not built**. Spec
+`docs/superpowers/specs/2026-08-15-water-offscreen-state-design.md` — read §0 and §1 only; the
+body is a REJECTED draft kept for its reasoning.
+
+**Symptom:** fully submerged, the top 3 screen lines stay dry. The patch band's floor is 3 (lines
+0-2 belong to the priming records), so no band value fixes it — the re-band that shipped
+(chain 124) fixed the other direction, 72 lines down to 10.
+
+**Build S3K's mechanism, which costs ~16 cycles/frame and mutates nothing**: a second pre-built
+`DMAEntry` sourcing `Pal_Variant_Stage + $40`, and `Enqueue_Dirty_Buffers` picking between it and
+`Static_Pal_Line2` on a flag (`sonic3k.asm:595-603`). Ships all 16 entries of line 2 rather than
+the fire's 3, and colours lines 0-2 because it happens at frame top.
+
+**The trap:** latch the flag in the MAIN LOOP after `Camera_Update`, before `Parallax_Update` —
+not in VBlank. Verified ordering has both consumers reading the same tick's camera today; a
+VBlank-computed state reaches the parallax overlay one update later and pops every transition,
+re-creating the boundary separation Parcel W exists to remove.
+
+**Do NOT** write water into `Palette_Buffer` — `Palette_DeriveVariant` reads it, so the variant
+compounds every stale frame.
+
+### 5c. The bigger prize — Ristar's linked-list HBlank schedule
+
+Aeon cannot disarm ONE patched channel because arm gaps are relative, so parking a record kills
+every later one. **That is our array-of-gaps encoding, not a property of raster programs.** Ristar
+self-rewrites: each node writes its own gap AND its own successor
+(`ristar_disasm/code/disasm.asm:14556-14595`), so removal is local; it runs two independently armed
+effects off one chain with separate thresholds, a disarmed one costing ~40 cycles instead of its
+payload. Biggest available win in this area, entirely unbuilt.
+
 ### 6. Parcel R — mid-screen restore
 
 There is a derived mechanism for restoring at frame top and **nothing** for restoring at a lower
