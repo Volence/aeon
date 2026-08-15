@@ -88,6 +88,10 @@ pub comptime enum RasterOp {
 
 pub comptime enum RasterFire {
     Fire(int, array),                     // (screen line the effect lands on, RasterOp ARRAY)
+    // (screen line, channel, band lo, band hi, RasterOp ARRAY) — a fire whose line MOVES at
+    // runtime within [lo, hi]. The band is in SCREEN lines, like `line`; the encoder converts
+    // to fire lines exactly once, in patch_table.
+    Patch(int, int, int, int, array),
 }
 
 // ---- op constructors --------------------------------------------------------
@@ -426,10 +430,44 @@ pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
 // ===========================================================================
 
 comptime fn fire_screen_line(f: RasterFire) -> int {
-    return match f { Fire(m, ops) => m }
+    return match f {
+        Fire(m, ops) => m,
+        Patch(m, ch, lo, hi, ops) => m,
+    }
 }
 comptime fn fire_ops(f: RasterFire) {
-    return match f { Fire(m, ops) => ops }
+    return match f {
+        Fire(m, ops) => ops,
+        Patch(m, ch, lo, hi, ops) => ops,
+    }
+}
+// fire_band_lo / fire_band_hi return a STATIC fire's own line, so its interval is the
+// degenerate [L, L]. That is what lets the later interval and density walks run one formula
+// over both record classes with no branch — and it is why the density guard automatically
+// becomes a worst-case guard once a fire can move.
+comptime fn fire_band_lo(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => m,
+        Patch(m, ch, lo, hi, ops) => lo,
+    }
+}
+comptime fn fire_band_hi(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => m,
+        Patch(m, ch, lo, hi, ops) => hi,
+    }
+}
+comptime fn fire_is_patch(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => 0,
+        Patch(m, ch, lo, hi, ops) => 1,
+    }
+}
+comptime fn fire_channel(f: RasterFire) -> int {
+    return match f {
+        Fire(m, ops) => -1,
+        Patch(m, ch, lo, hi, ops) => ch,
+    }
 }
 
 // op_words — the emitted body of one op.
