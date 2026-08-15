@@ -179,7 +179,12 @@ fi
 # -----------------------------------------------
 section "7. ROM Build"
 # -----------------------------------------------
-if ./build.sh -pe 2>&1; then
+# build.sh's first POSITIONAL is the GAME (engine/game split), so a bare
+# `./build.sh -pe` resolved GAME="-pe" and died in the lint on
+# games/-pe/game_root.asm — this gate had been RED-but-unbuilt, and the ROM
+# assertions below were silently grading a STALE s4.bin from whenever someone
+# last built by hand. Name the game explicitly; -pe stays as the (no-op) flag.
+if ./build.sh sonic4 -pe 2>&1; then
     pass_test "ROM build"
 else
     fail_test "ROM build"
@@ -233,6 +238,85 @@ if [ -f "s4.bin" ]; then
     fi
 else
     fail_test "s4.bin not found after build"
+fi
+
+# -----------------------------------------------
+section "8. Replay Net (headless oracle)"
+# -----------------------------------------------
+# The embedded input-replay regression net (engine/system/replay.emp + the two
+# committed fixtures) had NO automated runner — it was invisible to every gate we
+# own, and only a manual oracle procedure could detect a desync. That is how
+# master stayed red from the Knuckles C4 merge until 2026-08-13 with nothing
+# reporting it (docs/DEFERRED_WORK.md). The runner now exists in the sibling
+# oracle-next repo; this section is candidate fix (a), wired up.
+#
+# tools/test_replay_fixture.py still does its own separate job (fixture STRUCTURE:
+# length, tick count, checkpoint ring alignment). This gate is the other half —
+# it actually replays the stream on an emulator and compares the checkpoints.
+ORACLE_NEXT="${ORACLE_NEXT:-/home/volence/sonic_hacks/oracle-next}"
+REPLAY_RUNNER="${ORACLE_NEXT}/target/release/replay_runner"
+REPLAY_ROM="s4.debug.bin"
+REPLAY_LST="s4.debug.lst"
+REPLAY_READY=true
+
+# The DEBUG shape is REQUIRED, and it is built here rather than assumed.
+# `replay.emp` gates the checkpoint compare on `if DEBUG == 1` — the release
+# shape steps over the payload without comparing, so it replays to completion
+# having verified NOTHING (the runner refuses one for exactly that reason).
+# Symbols also bind per-shape, so the .lst must be this ROM's own.
+# Building it costs ~1.4 s (measured: sigil native build 1.0 s + ctags 0.4 s),
+# which is far cheaper than the false green of grading a stale s4.debug.bin.
+echo "  Building the DEBUG shape for the replay net..."
+if DEBUG=1 ./build.sh sonic4 -pe 2>&1; then
+    pass_test "DEBUG ROM build (replay net shape)"
+else
+    fail_test "DEBUG ROM build (replay net shape)"
+    REPLAY_READY=false
+fi
+
+# A named gate whose inputs are absent is a RED gate, not a silent one
+# (the lesson section 5 above paid for). No skips here.
+if [ ! -x "$REPLAY_RUNNER" ]; then
+    fail_test "replay runner missing or not executable: ${REPLAY_RUNNER}"
+    echo "         build it: cd ${ORACLE_NEXT} && cargo build --release -p oracle-replay"
+    echo "         (override the repo location with ORACLE_NEXT=/path/to/oracle-next)"
+    REPLAY_READY=false
+fi
+for f in "$REPLAY_ROM" "$REPLAY_LST"; do
+    if [ ! -f "$f" ]; then
+        fail_test "replay net input missing: $f"
+        REPLAY_READY=false
+    fi
+done
+
+if [ "$REPLAY_READY" = true ]; then
+    # Both committed fixtures. Exit 0 = PASS; 2 = DESYNC, 3 = FAULT, 4 = TIMEOUT,
+    # 1 = refusal (release ROM / mismatched .lst / unresolved symbol).
+    if "$REPLAY_RUNNER" --rom "$REPLAY_ROM" --lst "$REPLAY_LST" --fixture ojz_fixture; then
+        pass_test "Replay net: ojz_fixture"
+    else
+        fail_test "Replay net: ojz_fixture"
+    fi
+
+    if "$REPLAY_RUNNER" --rom "$REPLAY_ROM" --lst "$REPLAY_LST" --fixture ojz_slide_fixture; then
+        pass_test "Replay net: ojz_slide_fixture"
+    else
+        fail_test "Replay net: ojz_slide_fixture"
+    fi
+
+    # The negative control is NOT optional: a gate you have never seen fail is
+    # not a gate. It plants $DEADBEEF over the first checkpoint and REQUIRES the
+    # desync trap to fire — exit 5 means the compare is inverted/dead and the two
+    # passes above prove nothing.
+    if "$REPLAY_RUNNER" --rom "$REPLAY_ROM" --lst "$REPLAY_LST" --negative-control; then
+        pass_test "Replay net: negative control (desync trap fires)"
+    else
+        fail_test "Replay net: negative control did NOT trip — the gate is inverted"
+    fi
+else
+    fail_test "Replay net: ojz_fixture — NOT RUN (inputs above are missing)"
+    fail_test "Replay net: ojz_slide_fixture — NOT RUN (inputs above are missing)"
+    fail_test "Replay net: negative control — NOT RUN (inputs above are missing)"
 fi
 
 # -----------------------------------------------

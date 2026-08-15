@@ -110,19 +110,46 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   clobbers), and make a violation **build-fatal** — not a warning. This lives in the sigil repo
   (`/home/volence/sonic_hacks/sigil`), not here; recorded so the ask isn't lost.
 
-- **The replay net has NO automated runner — it is invisible to every gate we own.**
+- **The replay net had NO automated runner — ✅ candidate fix (a) DONE 2026-08-14; (b) still open.**
   Discovered 2026-08-13 while re-stamping it (`docs/superpowers/plans/2026-08-13-replay-net-restamp.md`).
-  Verified: it is not a pytest, not a cargo test in sigil, not in `test.sh`, and there is no CI.
-  The aeon suite's "2 skipped" are `test_s4lint.py` looking for a deleted `main.asm` — **not**
-  the replay net. The net fails only when a human runs a manual oracle procedure, which is
+  Verified at the time: it was not a pytest, not a cargo test in sigil, not in `test.sh`, and there
+  is no CI. The aeon suite's "2 skipped" are `test_s4lint.py` looking for a deleted `main.asm` —
+  **not** the replay net. The net failed only when a human ran a manual oracle procedure, which is
   precisely how master stayed red from the Knuckles C4 merge until 2026-08-13 with nothing
-  reporting it. `tools/test_replay_fixture.py` now gates fixture *structure* (length, tick
+  reporting it. `tools/test_replay_fixture.py` gates fixture *structure* (length, tick
   count, checkpoint ring alignment, and the BUTTON_C spindash runs that prove a re-stamp
   rather than a re-record), but it cannot detect a desync — that needs the emulator.
-  Two candidate fixes, neither scoped: (a) a headless oracle runner invoked from `test.sh`,
+  Two candidate fixes were named: (a) a headless oracle runner invoked from `test.sh`,
   (b) a committed re-stamp tool that makes the manual loop cheap enough to run routinely.
-  The manual loop currently costs ~7 full playbacks; each one replays from tick 0, and the
-  post-spindash section runs well under realtime under host CPU contention.
+
+  **(a) SHIPPED 2026-08-14 — `test.sh` section 8 "Replay Net (headless oracle)".** The runner is
+  a headless binary in the sibling oracle-next repo that boots the DEBUG ROM, arms the embedded
+  stream, replays it to completion and reports PASS / DESYNC / FAULT / TIMEOUT by exit code
+  (design + contract: `/home/volence/sonic_hacks/oracle-next/docs/2026-08-14-replay-runner-design.md`).
+  To run it:
+
+  ```bash
+  cd /home/volence/sonic_hacks/oracle-next && cargo build --release -p oracle-replay
+  cd /home/volence/sonic_hacks/aeon
+  export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
+  export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
+  ./test.sh                       # section 8 runs the net; ORACLE_NEXT=/path overrides the repo
+  ```
+
+  The section **builds the DEBUG shape itself** (`DEBUG=1 ./build.sh sonic4`, measured ~1.4 s) —
+  the checkpoint compare is `if DEBUG == 1` only and symbols bind per-shape, so grading a stale
+  or release ROM would be a false green (the runner refuses a release ROM outright). It runs
+  **both** committed fixtures *and* `--negative-control`, which plants `$DEADBEEF` over the first
+  checkpoint and requires the desync trap to fire — a gate never seen failing is not a gate.
+  Absent inputs (runner, ROM, `.lst`) are RED, never skipped. Cost: ~12 s on top of the ~1 s suite.
+
+  **What this does NOT cover.** It replays the two committed OJZ fixtures on the sonic4 DEBUG
+  shape only — no demo game, no other shapes, no new coverage of code the fixtures never touch.
+  `tools/test_replay_fixture.py` still does its own separate structural job and is not replaced.
+  **(b) is still open**: the manual re-stamp loop still costs ~7 full playbacks (each replays
+  from tick 0, and the post-spindash section runs well under realtime under host CPU contention).
+  The oracle-next design scopes (b) as a future `--restamp` flag on the same runner rather than a
+  second tool, so a desync that is a *legitimate* engine change still needs the manual loop today.
 
 ### 6. Sound package 4 — ✅ EXECUTED 2026-08-10 (historical text below)
 **D1, D4, D5, D6, D7** and **E5's 7th RegDelta group** are open, verified against the tree, and do
