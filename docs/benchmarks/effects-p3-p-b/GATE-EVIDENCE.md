@@ -150,11 +150,8 @@ a section boundary and the arms stopped tracking — which is a better test than
 
 ## 5. What is NOT proved
 
-- **The `Effects_SetWorldY` entry point is not exercised.** Every anchor change above was written
-  straight to `Effects_World_Y` RAM. The proc is three instructions and is pinned by nothing.
-  Per this lane's standing lesson (*an unexercised authoring surface is unverified* —
-  `fx_tint_band` shipped broken for two parcels because nothing had ever called it), **it should
-  be treated as unverified until something calls it.** It has no call site in the tree.
+- **`Effects_SetWorldY` is exercised, but only from test scaffolding** — see §6. What is *not*
+  proved is that any real content wants the surface; that is Parcel D's question.
 - **Channels 2 and 3 are never non-zero.** `RASTER_MAX_PATCH` is 4; the fixture uses 2. The seed
   loop copies all four, but only two are ever walked by a table.
 - **Only one program shape is measured.** `OJZ_TwoChannel` is `[patchable, patchable]`. A table
@@ -173,3 +170,69 @@ a section boundary and the arms stopped tracking — which is a better test than
   garbage), but proving S/H needs low-priority water content. Pre-existing, carried from P2.
 - **Frame cost is not measured.** `Raster_PatchAll` walks the table every VBlank; nothing here
   bounds what that costs. The budget model is Parcel B's subject.
+
+---
+
+## 6. `Effects_SetWorldY` — the main-loop-write → VBlank-conversion seam
+
+Sections 2-4 were measured before this call site existed, by writing `Effects_World_Y` RAM
+directly from the emulator — which does not execute `Effects_SetWorldY` at all. The proc had
+**no call site anywhere in the tree**, and the gate was silent about it.
+
+**Decided by Fable adviser, 2026-08-15: add the call site, DEBUG-gated and controller-driven,
+and extend the gate — not weakly.** The ruling also corrected the reasoning, and the correction
+is what changed the assertions:
+
+> "You're treating it as one failure class when it's two. `fx_tint_band` was a **comptime DSL
+> helper** — its body is only elaborated at a call site, so with zero call sites it was never
+> even compiled in the meaningful sense. `Effects_SetWorldY` is a **`pub proc`** — its four
+> instructions are assembled, encoded and byte-pinned in every build regardless of callers. The
+> 'shipped broken, nobody could know' form of the lesson does not apply here.
+>
+> What *does* apply is the lesson's second form: **rot and contract drift**. What you cannot read
+> off the listing is the contract — that `d1` is WORLD-space not camera-relative, that a
+> main-loop-time write is legal and gets picked up by the next VBlank's `Raster_PatchAll` (this
+> is the entire load-bearing claim of the P-b redesign), and that the proc and the preset seed
+> loop agree on `Effects_World_Y`'s element size and base."
+
+It ruled against deleting the setter on three grounds: the plan's ruling 4 names it explicitly,
+so removing it re-litigates a settled term rather than sitting adjacent to it; deferring to
+Parcel D does not remove the verification obligation, it re-creates it with the fixture cold and
+a content deadline attached; and seeded-only anchors leave nothing to *use* — the parcel's own
+comment names the alternative as "poking RAM at an index the author has to guess".
+
+**The call site** (`games/sonic4/test/ojz_scroll_test.emp`, `GameState_OJZScroll_Update`):
+C+UP / C+DOWN nudge channel 0's world anchor by ∓1 per held frame. **Input-gated, not a frame
+counter** — a free-running counter would perturb every frame of every build of this scene,
+moving the visual baseline and risking a replay-fixture desync for no benefit, whereas a replay
+that never presses the chord is bit-identical. C is unclaimed (A is the character-cycle hotkey,
+B the debug toggle).
+
+**Measured**, `s4.debug.bin` crc `df9d0015`:
+
+| step | expected | **measured** |
+|---|---|---|
+| seed on section entry | `Effects_World_Y` = 224, 314 | **224, 314** |
+| hold C+DOWN, 20 frames | ch0 224 → **244**, ch1 unchanged | **244**, ch1 **314** |
+| hold C+UP, 10 frames | ch0 244 → **234**, ch1 unchanged | **234**, ch1 **314** |
+| arms after the nudge, `Camera_Y` = 432 | ch0 244−432 = −188 → clamp lo 40 → `$8A25`; ch1 → clamp lo 130 → `$8A59` | **`$8A25` `$8A59`** |
+
+Both directions, exact per-frame step, channel 1 untouched (so the `RASTER_MAX_PATCH-1` index
+mask works), and the resulting arm words predicted exactly. **The last row is the seam the rest
+of this document never crossed**: an anchor written from the MAIN LOOP, converted to arm bytes by
+`Raster_PatchAll` at the next VBlank. That write is safe from the main loop for the precise
+reason a *patch* is not — it lands in RAM, and every arm byte is still derived in one pass
+inside VBlank, so the relative-gap chain is never observed half-updated.
+
+**Residue, stated rather than implied:** this is a *test-scaffold* call site. It proves the
+surface works; it does not prove content wants it.
+
+---
+
+## 7. Instrument note for whoever measures raster next
+
+`ojz_scroll_test.emp` already has **`Debug_Scene_Freeze`**, a DEBUG-shape flag that skips
+`Camera_Update` so a `write_memory` to `Camera_X/Y` stays put. That is the right tool for a
+pinned-camera raster capture and it was found only *after* §3 had been measured the hard way
+(lowering `Camera_Y_Max` to make the engine's own clamp hold the camera). Both work; the freeze
+is one write instead of two and does not perturb the act's clamp. Use it.
