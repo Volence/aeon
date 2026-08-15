@@ -3937,6 +3937,41 @@ full 64 words makes that read **defined** rather than reading uninitialised trai
 and it means the copy of the *body* stops exactly at the table boundary — the table is
 never partially dragged into the working buffer by the fixed-size copy.
 
+**After the table sits the OFF-SCREEN SHIP TRAILER** (2026-08-15), at
+`128 + 2 + 8*records` — an offset the runtime computes from the record-count word the table
+already begins with:
+
+```
+[n (word)][n x (channel, stage offset, colour count, CRAM byte address)]
+```
+
+`n` is emitted **always**, zero included, so a reader takes one fixed shape and never branches
+on whether a program has a trailer. `n <= 1` is a comptime `ensure`, not a wire fact: the count
+word already lets a reader loop, so a second shipping channel needs the guard relaxed and
+`Enqueue_Dirty_Buffers`' single test turned into a walk, with no format change.
+
+**It carries PARAMETERS, not a built `DMAEntry`, and that is forced rather than chosen.** The
+first design emitted the finished 14-byte entry, folding `Pal_Variant_Stage`'s absolute address
+in through `extern()`. It cannot work: an address is a **link-time** value, and putting one
+inside the emitted image makes the whole image non-comptime — which breaks
+`first_mismatch(patched_program(...), hand_twin)`, the whole-image pin every patched fixture
+rests on. Measured three spellings (a `const`, an `equ`, and a `const` bound to
+`patched_program`'s result); all three produced `here.provisional` errors.
+`Raster_BuildShipEntry` adds the base at install instead, through `Build_DMA_Entry` — the one
+builder — so no second site knows the interleaved `DMAEntry` byte layout.
+
+**The trailer is read through the ROM template, never the RAM working copy.** Nothing in it is
+ever patched, and the runtime's copy is a fixed 128 bytes that stops before the table.
+
+**What it is FOR:** a patch channel's fire clamps into its authored band, so when the anchor
+leaves the top of the screen the boundary pins at the band floor and the rows above it keep the
+base palette — fully submerged with a permanently dry stripe at the screen top. The trailer's
+entry re-ships that fire's own colours as a frame-top DMA on the frames the channel's latched
+line is `<= 0`. The DRY direction (anchor below the screen) is NOT covered: suppressing a fire
+needs per-record parking, which the array-of-relative-gaps encoding cannot express, and that is
+the Ristar linked-list schedule's parcel. Both boundaries clamp together today, so they are
+wrong together — a consistent error, deliberately preferred over a disagreement.
+
 **A schedule-recompute variant would need a new table version.** `arm_off` is pre-resolved
 per entry against the *emitted record order* at build time. A future variant that sorts
 fires at runtime, or re-links a schedule past a dropped record, could not reuse this table

@@ -4571,3 +4571,34 @@ Deferred because the only scene that exercises it has no continuous cycling, so
 any measurement today would be on a garish test fixture rather than real content
 — the same caveat that already qualifies the dense-tier reserved-register ruling.
 Revisit when a section runs cycling or a fade continuously.
+
+### The DRY direction of a patch channel — blocked on Ristar's linked-list schedule
+
+**Surfaced during:** the off-screen frame-top ship parcel (2026-08-15). That parcel fixed the
+direction where a patch channel's anchor leaves the TOP of the screen; this is the other one.
+
+**What is wrong:** `Raster_PatchAll` CLAMPS a patchable fire's line into the record's authored
+band rather than suppressing it, so when the anchor falls BELOW the screen bottom the fire pins
+at `hi` and paints up to ~10 rows that the world says should be dry. Measured on OJZ after the
+re-band; it was 72 rows before it.
+
+**Why the clamp cannot simply go:** a sub-band fire line yields a negative inter-record gap,
+which stores as `$FF` — and `$8AFF` is the park word, so it would kill every remaining fire in
+the frame. The clamp is load-bearing.
+
+**Why the top-of-screen fix does not mirror.** Above the screen, the answer was to ADD a
+frame-top DMA covering the whole screen — the fire keeps running and simply writes what is
+already there. Below the screen there is nothing to add: the fire has to STOP, and Aeon cannot
+park one record without killing the tail, because arm gaps are RELATIVE.
+
+**The unblock is Ristar's encoding**, and it is recorded as the bigger prize in the same work
+order: each node writes its own gap AND its own successor
+(`ristar_disasm/code/disasm.asm:14556-14595`), so removing a node is a LOCAL edit. Ristar runs
+two independently armed effects off one chain with separate thresholds, a disarmed one costing
+interrupt entry + `tst`/`beq`/`rte` (~40 cycles) instead of its payload. Sonic 2 clamps exactly
+as Aeon does (`s2.asm:5280-5292`); S3K and S.C.E. deliberately changed it to disarm.
+
+**Until then the parallax side clamps the SAME way on purpose** (`parallax.emp`, the
+`cmpi.w #224` branch). Fixing only the scroll boundary would trade a consistent 10-row error
+for a 9-row DISAGREEMENT between the palette and scroll boundaries — which is the exact defect
+Parcel W exists to remove. Do not "fix" one side alone.
