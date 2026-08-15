@@ -750,7 +750,16 @@ Once all sections are presets, the three keep-current consumers are dead **for s
 
 ## Task 15: Documentation obligations
 
-- [ ] `docs/ENGINE_ARCHITECTURE.md` §7 — **reconcile the P2 drift**, which is an explicit Parcel-C obligation, not an incidental edit: the banner (`:3343-3380`) says P2 shipped cycling/cross-fade/gradients while §7.1 (`:3392-3396`) still calls them PLANNED with "no shipped code", and §7.2 (`:3417-3419`) still attributes the sparse tier to `engine/system/hblank.emp`.
+- [ ] `docs/ENGINE_ARCHITECTURE.md` §7 — **reconcile the P2 drift.** An explicit Parcel-C obligation, not an incidental edit. The spec's line numbers are stale; these were re-derived by content on 2026-08-14 (§7 now starts at `:3415`):
+
+  1. **`:3471`** — "Everything else in this subsection — cross-fading, computed water palette, per-section cycling, fades, flashes, per-scanline gradients — is **PLANNED design**; no shipped code implements them, and the `sec_pal`/`sec_pal_cycle` descriptor fields have no runtime consumer yet." **All false since P2.** Cycling, gradients and variants shipped; `sec_pal` and `sec_pal_cycle` have had live consumers (`Palette_LoadSection`, `Palette_InstallCycleSection`) since P1, and as of this parcel a THIRD consumer path (`Effects_InstallPreset`).
+  2. **`:1429`** — "the raster command table walker itself (§7.2) is design-stage — zero handlers exist today (nothing calls `HBlank_Install`; only the `sec_raster_table` struct field is defined)". **False:** `Raster_VBlank` calls `HBlank_Install` every frame it has a program.
+  3. **`:3547`** — "Sparse tier SHIPPED 2026-08-12 (`engine/system/hblank.emp`)". **Wrong file:** the tier lives in `engine/effects/raster.emp`; `hblank.emp` holds only the RAM jmp-slot trampoline.
+  4. **`:3462`** — "As of effects P1 (2026-08-12)" framing is stale where the surrounding text now describes P2+P3 behaviour.
+
+  **Leave `:3475` alone** — "Palette cross-fading (planned)" is still ACCURATE: `Palette_ArmFade`/`Palette_DoFade` remain unreachable (EFX-2), and `ep_transition` deliberately goes unused by every C2 fixture. Do not "update" a statement that is still true.
+
+  Add the preset binding itself: `sec_effects` + `EffectsPreset` + total binding, and why it replaces the three keep-current installers.
 - [ ] `docs/DEFERRED_WORK.md` — the water/underwater hooks entry (cite by heading; the file has two independently numbered lists).
 - [ ] `docs/BUGS.md` — record EFX-1, EFX-2, EFX-4, EFX-6; mark EFX-3 and EFX-5 fixed here.
 - [ ] `configs.emp` — the stale `run_to_scanline` + `read_cram` comment on the gradient gate. `emulator_read_cram` is frame-latched and cannot see a mid-frame CRAM write, so it is invalid for `OP_CRAM`/`OP_PAL_REGION`/`OP_RUN_GRADIENT`; measure the framebuffer. It IS valid for a whole-frame `sec_pal` base palette DMA'd at VBlank.
