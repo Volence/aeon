@@ -264,6 +264,72 @@ happened because a gate looked only at a debug build:
 The demo CRCs moved because engine bytes moved; the demo game itself was not touched, and it boots —
 which is the standing proof the engine stays game-agnostic.
 
+---
+
+## Re-derived through `ab_runner` (2026-08-17)
+
+The hand-run oracle matrix above was a foreground ritual that nothing would ever re-run. It is now a
+committed scene set plus a gate. Harness change: `memory_read` capture in
+`oracle/linux-port/harness/ab_runner.py` (oracle `9428a56`) — the runner could hash a region but not
+show it, and these gates need to read an ARM WORD, not learn that a hash moved.
+
+Scenes: `aeon/tools/scenes/effects_raster_{mid_band,suppressed,above_screen}.json`.
+Gate: `aeon/tools/effects_scene_assert.py`. Derivations: `aeon/tools/scenes/README.md`.
+
+Each scene pins `Debug_Scene_Freeze`, `Camera_Y = 144` and channel 0's anchor, so every expected word
+is DERIVABLE before the run rather than read off afterwards. Channel 1 is deliberately not poked: its
+preset anchor (314) latches to 170, below its band floor, so it clamps up to fire line 221 in all
+three states — which keeps a second hard-coded RAM address out of the fixtures.
+
+**`--selfcheck` passed on all three scenes** (two runs of one ROM, gated captures EQUAL), so the
+scenes are deterministic and the byte captures are trustworthy. That is the control the 2026-08-16
+work order specified as `--expect-identical`; it already existed under another name.
+
+| scene | latched `L` (ch0, ch1) | live buffer, words 0-4 | derived from |
+|---|---|---|---|
+| mid_band | 100, 170 | `0004 8A61 0000 8A79 0000` | `$8A00\|(99-1-1)`, `$8A00\|(221-99-1)` |
+| suppressed | 230, 170 | `0004 8ADB 0000 8AFF 0000` | `$8A00\|(221-1-1)`, park |
+| above_screen | -44, 170 | `0004 8A00 0000 8ADA 0000` | `$8A00\|(2-1-1)`, `$8A00\|(221-2-1)` |
+
+**Nine expectations, all computed from the arm formula BEFORE the run, all confirmed.** The
+suppressed buffer carries no `$8C89` and no `$C048` — channel 0's record is absent — while channel
+1's record and the terminator follow immediately; the other two carry both. The full suppressed
+program:
+
+```
+0004 8ADB 0000 8AFF 0000 8AFF 0001 0002 4002 0010 0000 0043 8AFF FFFF
+```
+
+**The gate fails when it should.** Mid-band expectations asserted against the suppressed sidecar:
+
+```
+FAIL: word 1: expected 0x8a61, got 0x8adb
+FAIL: 0x8c89 must be PRESENT but does not appear
+```
+
+It also exits 2 — not 0 — when asked to assert nothing, and when the scene did not capture the
+regions it reads. A gate that asserted nothing must not report OK.
+
+### What this deliberately did NOT build, and why
+
+**Pixels are not gateable on oracle, by construction**, so no framediff instrument was written.
+`ab_runner`'s own docstring root-causes it: the VDP renders on a worker thread
+(`S315_5313::RenderThread`) draining an async queue, and the framebuffer the GUI copies is not
+anchored to the deterministic `ExecuteSystemStep` count. Measured independently while surveying —
+three identical `oracle_cli --frames-dir` runs of `s4.debug.bin` agreed on 26 of 28 frames and
+differed on frames 2 and 5 by **8.9%** and **25.0%** of pixels (rows 134-154 and 98-153), with frame
+tokens advancing by exactly 1 in all three runs, so the frames were correctly ALIGNED and the content
+differed. The named fix is emulator-side (`OpScreenshot` waits for `_pendingRenderOperationCount == 0`,
+or renders synchronously from committed VDP state); a framediff built before it would be a careful
+instrument pointed at a nondeterministic source.
+
+### A harness finding worth more than the task that produced it
+
+`load_scene` silently accepted UNRECOGNISED capture keys. That is why `memory_read` produced no error
+before it was implemented — and it means a scene with a typo'd key captures nothing while the run
+still reports a confident green verdict. Exactly the failure this parcel exists to remove. Closed
+with an allow-list plus a test that a typo now raises.
+
 ### A sigil finding worth booking separately
 
 `lea -RASTER_BUF_SIZE(a2), a2` — a NEGATED NAMED CONSTANT in a displacement — is DROPPED by sigil's

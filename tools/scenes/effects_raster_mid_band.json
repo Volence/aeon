@@ -1,0 +1,22 @@
+{
+  "name": "effects_raster_mid_band",
+  "symbols": "/home/volence/sonic_hacks/aeon/s4.debug.lst",
+  "reset": true,
+  "steps": [
+    {"run_frames": 180},
+    {"poke": {"symbol": "Debug_Scene_Freeze", "value": 1, "width": 1}},
+    {"poke": {"symbol": "Camera_Y", "value": 144, "width": 2}},
+    {"poke": {"symbol": "Effects_World_Y", "value": 244, "width": 2}},
+    {"run_frames": 3}
+  ],
+  "capture": {
+    "screenshot": false,
+    "state_hash": true,
+    "memory_read": [
+      {"name": "raster_buf_a", "symbol": "Raster_Buf_A", "len": 48},
+      {"name": "raster_buf_b", "symbol": "Raster_Buf_B", "len": 48},
+      {"name": "active_buf", "symbol": "Raster_Active_Buf", "len": 4},
+      {"name": "screen_l", "symbol": "Effects_Screen_L", "len": 8}
+    ]
+  }
+}
