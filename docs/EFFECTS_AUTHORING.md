@@ -379,9 +379,15 @@ dry frame). With it, the encoder emits a ready-made frame-top DMA into the progr
 the runtime ships it on the frames the channel's latched line is `<= 0`, so the fire's colours
 cover the whole screen instead.
 
-Everything about that transfer is DERIVED from the fire's own `pal_region` op — the staging
-source, the CRAM address and the colour count — so there is no second place to author the
-underwater look and nothing to keep in step. Two guards follow from that, both build errors:
+Everything about that transfer is DERIVED from the fire's own ops — the staging source, the CRAM
+address and the colour count from its `pal_region`, plus **every `set_reg` word it carries**, all
+replayed at frame top. So there is no second place to author the underwater look and nothing to
+keep in step.
+
+**The `set_reg` half matters and is easy to forget.** A tint band authored with `sh: 1` carries
+`sh_on()` as well as its colour swap. A ship that moved only the colours left the rows above the
+clamped fire line tinted but UNSHADOWED — visibly lighter, and it shipped that way for one
+parcel before play found it. Two guards follow from that, both build errors:
 the fire must carry **exactly one** `pal_region` op (a bare vscroll split has nothing to ship),
 and at most **one** fire per program may declare it.
 

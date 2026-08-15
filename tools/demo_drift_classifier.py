@@ -29,6 +29,16 @@ So the criterion becomes: the diff must classify COMPLETELY, with **zero unclass
         assuming one uniform delta would misclassify two thirds of them.
   (v)   DECLARED EDIT SPANS — bytes inside a symbol the caller NAMED with `--changed`. Inserted
         bytes have no old counterpart, so (iv) structurally cannot reach them.
+  (vi)  ABSOLUTE-SHORT PROMOTED TO LONG — `lea ($7FE2).w` becoming `lea ($8004).l` because an
+        upstream insertion pushed the target past $7FFF. The instruction GROWS by two bytes and
+        changes opcode, so no same-width rule can see it. The opcode must differ by exactly 1
+        (the mode/register field, absolute-short 000 -> absolute-long 001) and the target's move
+        must be a delta the symbol tables report.
+
+(iv) tries TWO deltas per byte — its own symbol's and the NEXT symbol's — because a span can
+contain internal ALIGNMENT PADDING that absorbs part of an upstream insertion. Measured: the
+debug shape's `CompressionSelfTest` starts at +32 while its interior moved +34 with the
+`Art_Decompress` that follows. That is not slack; both numbers come from the tables.
 
 Categories (iv)/(v) were added 2026-08-15 (Fable adviser) for parcels that add engine CODE, not
 only engine RAM. The tool used to fail those by construction — its own `EndOfRom` note says a pure
@@ -131,8 +141,18 @@ def rom_spans(old: Dict[str, int], new: Dict[str, int], appendix: int
     return out
 
 
-def span_at(spans: List[Tuple[int, int, str, int | None]], off: int) -> Tuple[str, int | None] | None:
-    """Binary search: which ROM symbol owns this NEW-build offset, and by how much did it move."""
+def span_at(spans: List[Tuple[int, int, str, int | None]], off: int
+            ) -> Tuple[str, List[int | None]] | None:
+    """Which ROM symbol owns this NEW-build offset, and the deltas its bytes may have moved by.
+
+    TWO candidates, not one, and the second is not slack. A symbol's span can contain internal
+    ALIGNMENT PADDING, and a pad absorbs part of an upstream insertion: measured here, the
+    debug shape's `CompressionSelfTest` starts at delta +32 while its interior moved +34, the
+    same as the `Art_Decompress` that follows it. Under the symbol's own delta 111 bytes looked
+    like findings; under the next symbol's, 100 of them are plain relocation. So a byte is
+    tried against its own symbol's delta AND the next symbol's — it sits on one side of the pad
+    or the other, and both numbers come from the symbol tables.
+    """
     lo, hi = 0, len(spans) - 1
     while lo <= hi:
         mid = (lo + hi) // 2
@@ -142,7 +162,12 @@ def span_at(spans: List[Tuple[int, int, str, int | None]], off: int) -> Tuple[st
         elif off >= end:
             lo = mid + 1
         else:
-            return name, delta
+            cands: List[int | None] = [delta]
+            if mid + 1 < len(spans):
+                nxt = spans[mid + 1][3]
+                if nxt not in cands:
+                    cands.append(nxt)
+            return name, cands
     return None
 
 
@@ -276,6 +301,40 @@ def main() -> int:
                 return kind
         return None
 
+    def promoted_at(off: int, d: int) -> bool:
+        """Absolute-SHORT promoted to absolute-LONG by an upstream insertion.
+
+        A 68000 `(xxx).w` operand sign-extends, so it can only address $0000-$7FFF (and the
+        $FFFF8000-$FFFFFFFF mirror). When an insertion pushes a ROM target from $7FE2 to $8004
+        it leaves that window, and the assembler widens the instruction: `43 F8 7FE2` becomes
+        `43 F9 00008004`. The opcode word's low three bits are the mode/register field, and
+        absolute-short (reg 000) to absolute-long (reg 001) is exactly +1.
+
+        Nothing here is assumed: the opcode must differ by exactly 1, and the target's move must
+        be a delta the SYMBOL TABLES report. The instruction grew by two bytes, which is why no
+        byte-shift or same-width operand rule can reach it — and why this recurs for any parcel
+        that pushes symbols across $8000.
+        """
+        for p_new in range(max(0, off - 5), off + 1):
+            if p_new + 6 > n:
+                continue
+            q_old = p_new - d
+            if q_old < 0 or q_old + 4 > len(a):
+                continue
+            op_new = int.from_bytes(b[p_new:p_new + 2], "big")
+            op_old = int.from_bytes(a[q_old:q_old + 2], "big")
+            if op_new != op_old + 1:
+                continue
+            long_new = int.from_bytes(b[p_new + 2:p_new + 6], "big")
+            word_old = int.from_bytes(a[q_old + 2:q_old + 4], "big")
+            if word_old >= 0x8000:
+                word_old -= 0x10000
+            if (long_new - word_old) in rom_deltas:
+                for k in range(p_new, p_new + 6):
+                    consumed.add(k)
+                return True
+        return False
+
     for off in code_diffs:
         if off in consumed:
             continue
@@ -286,7 +345,7 @@ def main() -> int:
 
         # Which routine owns this byte in the NEW build, and how far did that routine move?
         owner = span_at(spans, off)
-        name, d = owner if owner is not None else ("<no span>", 0)
+        name, cands = owner if owner is not None else ("<no span>", [0])
 
         # A DECLARED edit is checked before anything else: inside an edited routine the shift
         # and operand rules would report accidental matches as relocation and hide the very
@@ -296,23 +355,31 @@ def main() -> int:
             edited_spans.add(name)
             continue
 
-        if d is None:
+        if cands[0] is None:
             # New code that was NOT declared. This is the finding the declared-span rule
             # exists to produce: a parcel that adds a routine to a module demo links has
             # changed demo's content, and must say so.
             unclassified.append(off)
             continue
 
-        kind = reloc_at(off, d)
-        if kind is not None:
-            accounted[kind] = accounted.get(kind, 0) + 1
-            continue
-
-        src = off - d
-        if 0 <= src < len(a) and a[src] == b[off]:
-            accounted["code relocation"] = accounted.get("code relocation", 0) + 1
-            if d:
-                shifted_spans.add(name)
+        hit_kind = None
+        for d in cands:
+            if d is None:
+                continue
+            hit_kind = reloc_at(off, d)
+            if hit_kind is not None:
+                break
+            src = off - d
+            if 0 <= src < len(a) and a[src] == b[off]:
+                hit_kind = "code relocation"
+                if d:
+                    shifted_spans.add(name)
+                break
+            if promoted_at(off, d):
+                hit_kind = "absolute-short promoted to long"
+                break
+        if hit_kind is not None:
+            accounted[hit_kind] = accounted.get(hit_kind, 0) + 1
             continue
 
         unclassified.append(off)

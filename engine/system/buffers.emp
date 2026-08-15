@@ -289,6 +289,29 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         lea     Effects_Screen_L, a1            // (Effects_Screen_L).w
         tst.w   (a1, d0.w)                      // the LATCHED line — never recomputed here
         bgt     .no_ship                        // still on screen: the fire owns the boundary
+        // Replay the fire's SetReg ops BEFORE the DMA enqueue, while a2 still points into the
+        // trailer (queue_static_dma clobbers it). Entry layout after the channel word:
+        // [stage off][colour count][CRAM addr][reg count][reg words...].
+        //
+        // THIS WRITES THE VDP DIRECTLY, and the position is what makes that safe and
+        // self-restoring: Flush_VDP_Shadow has ALREADY run this VBlank (vblank.emp — Raster,
+        // then Flush, then here), so a register written now survives the frame, and NEXT
+        // frame's unconditional flush puts the shadow value back. Transient by construction,
+        // exactly like the palette side — no restore path, no state to leave behind.
+        //
+        // WHY IT IS NEEDED AT ALL: the ship exists because the fire's line clamps into its
+        // band, so the rows above that line never see the fire. The palette half was covered
+        // by the DMA; the register half was not, and OJZ's water fire carries sh_on() — the
+        // top rows came out tinted but with Shadow/Highlight still off, i.e. visibly lighter.
+        movea.l Effects_Offscreen_Entry, a2
+        move.w  8(a2), d0                       // reg count
+        beq     .ship_dma
+        lea     10(a2), a1                      // -> the reg words
+        subq.w  #1, d0
+    .ship_reg:
+        move.w  (a1)+, VDP_CTRL
+        dbf     d0, .ship_reg
+    .ship_dma:
         queue_static_dma(Static_Pal_Ship)       // built at install from the trailer's params
     .no_ship:
         tst.b   Sprite_Table_Dirty              // (Sprite_Table_Dirty).w

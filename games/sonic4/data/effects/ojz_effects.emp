@@ -679,6 +679,11 @@ const OJZ_TC_TABLE_HAND = [
 //   channel 0, stage offset 72 = pal_stage_off(0, 2, 4) = 0*128 + 2*32 + 4*2,
 //   count 3, CRAM byte address $48 (palette line 2, entry 4).
 //
+// THE SetReg WORDS RIDE HERE TOO, and that is the fix for what shipping only the colours
+// missed: this fire carries sh_on() as well as the pal_region, and the ship has to re-issue
+// the WHOLE fire from line 0. Without the register replay the rows above the clamped fire line
+// came out tinted but with Shadow/Highlight still off — visibly lighter, found in play.
+//
 // PARAMETERS, NOT A BUILT DMAEntry, and the constraint is worth knowing before anyone
 // "improves" it: the entry's source is Pal_Variant_Stage + 72, and a LINK-time address folded
 // into the emitted image makes the whole image non-comptime — which breaks the
@@ -690,6 +695,8 @@ const OJZ_TC_TRAILER_HAND = [
     72,                         // Pal_Variant_Stage offset — the fire's own
     3,                          // colour count
     $48,                        // CRAM byte address
+    1,                          // ...and ONE SetReg op to replay at frame top
+    $8C89,                      //   sh_on() — VDP reg $0C = $89, Shadow/Highlight ON
 ]
 
 // The separate .len ensure is REQUIRED, not belt-and-braces: first_mismatch walks only a's
