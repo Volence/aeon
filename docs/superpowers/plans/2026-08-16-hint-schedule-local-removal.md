@@ -585,18 +585,20 @@ and add the exit beside `.bands_ready`, restoring the saved `a0` first:
         jbra    .bands_ready
 ```
 
-Delete the now-dead `cmpi.w #224, d0 / bge .bands_ready` pair and its 11-line comment about the
-knowingly-unfixed DRY direction — that comment is the thing this task closes.
+**KEEP the `cmpi.w #224, d0 / bge .bands_ready` pair at `:801-802`.** It stops being the water
+channel's path but it does NOT become dead: the no-band-declared route (`beq .anchor_unclamped` at
+`:778`, taken when `Raster_GetChannelBand` reports no live table or no record for the channel) still
+falls through to it with `L` unclamped, and there below-screen is the only threshold available.
+What DOES go is its 11-line comment about the knowingly-unfixed DRY direction — that comment is the
+thing this task closes. Replace it with one line naming its real remaining job.
 
-- [ ] **Step 3: Keep the total-contract backstop honest**
+- [ ] **Step 3: Confirm both routes end somewhere correct**
 
-The `tst.w d0 / bpl .anchor_nonneg` backstop at `:796-800` exists for the no-band-declared path
-(`Raster_GetChannelBand` returned 0, `L` unclamped). That path has no band to compare against, so
-below-screen is still the right answer there: leave its `cmpi.w #224, d0 / bge .bands_ready`
-behaviour by routing the no-band case through the screen-edge test. Read `:788-802` and confirm the
-no-band path still reaches a `224` test; if Step 2's edit removed the only one, restore it on that
-path alone with the comment "no band declared: the record cannot be suppressed by band, so the
-screen edge is the only threshold available".
+Read the block from `.anchor_unclamped` (`:788`) to `.bands_ready` and confirm two things by
+tracing, not by assumption: (a) the band-found route now exits at `.anchor_off_below` before it can
+reach the clamp, and (b) the no-band route still reaches the `224` test with `a0` restored. `a0`
+holds the caller's config pointer and is popped on EVERY path — a missed pop is a corrupted
+parallax config, not a wrong boundary.
 
 - [ ] **Step 4: Build and boot**
 
