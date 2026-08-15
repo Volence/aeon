@@ -331,7 +331,17 @@ Commit the sigil side separately on its own branch (the two repos merge as a pai
 ## Task 4: The `EffectsPreset` struct and the `preset()` constructor
 
 **Files:**
-- Create: `engine/effects/preset.emp`
+- Create: `engine/effects/preset.emp` — ONE new file, a CODE module (`module engine.effects.preset in preset`)
+
+**Module placement, settled 2026-08-14 (do not re-decide):** modules are NOT tree-walked; sigil places them from a fixed registry. Pure-comptime helper modules must be listed in `COMPTIME_HELPERS` (`sigil .../native.rs:1767`), which is order-sensitive (a later helper silently wins a duplicate name) and gated by `tools/emp_helper_closure.py`.
+
+We avoid that entirely. The established pattern is that **every runtime-read struct lives in the CODE module** — `pal_variant` and `PalCycleScript1` in `palette.emp:126,158`; `RasterGradientProgram` and `RasterRampProgram` in `raster.emp:279,354` — while only *constructors* live in `*_dsl`. `EffectsPreset` is read at runtime by `Effects_InstallPreset` (Task 8), so it belongs in a code module.
+
+Put **both** the struct and `preset()` in `engine/effects/preset.emp` and have consumers import explicitly (`use engine.effects.preset.{EffectsPreset, preset}`). A comptime fn in a code module is normal (`comptime fn test_palette()` lives in `configs.emp`, which emits plenty). This needs **no sigil change and no `COMPTIME_HELPERS` entry** in this task.
+
+**The vacuity trap this creates, and the required guard:** because `preset()` is NOT glob-injected, its free names resolve at the CALL SITE, and an unresolved name there fails SILENTLY (empty range / zero results — a recorded `.emp` hazard). **Defining `preset()` proves nothing.** Task 4 must include a real call site that exercises it, and the `ensure`s must be shown to actually evaluate — see Step 5.
+
+**If the build rejects a `module ... in preset` section that emits no bytes yet** (it has a struct but no procs until Task 8), STOP and report rather than inventing a placeholder byte. The map's `order` array excludes zero-byte sections, so it should be accepted, but verify rather than assume.
 
 - [ ] **Step 1: Write the struct with a size assertion**
 
