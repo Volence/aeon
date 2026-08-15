@@ -583,14 +583,33 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // compared word-for-word against the hand twins below, so that the runtime patcher parcel
 // inherits a table whose every offset is already proved at build time.
 //
-// Channel 0 — the water shape: S/H on plus a 3-colour region swap, band 40..120.
+// Channel 0 — the water shape: S/H on plus a 3-colour region swap, band 3..120.
 // Channel 1 — a plane B vertical scroll split, band 130..200.
 // The bands are 10 lines apart at their closest, which is what makes channel 0's modelled
 // 526 cycles fit: the density guard measures band edge to band edge, not authored line to
-// authored line.
+// authored line. THE HI EDGE IS THEREFORE LOAD-BEARING and 120 is not free to raise; the
+// LO edge is not, and it moved.
+//
+// LO WAS 40 UNTIL Parcel W SHIPPED AND SOMEBODY LOOKED AT IT. The band is where
+// Raster_PatchAll clamps the boundary, so a lo of 40 meant that once the camera descended
+// past world Y 184 the water line stopped tracking the world and PINNED at screen line 40
+// — the top 40 lines (18% of the screen) never went under, no matter how far down you got,
+// and the boundary read as camera-locked. Observed immediately on the debug shape at
+// Camera_Y 451. 3 is the floor `patchable` allows (lines 0-2 belong to the priming
+// records), so this is as close to the screen top as the mechanism goes.
+//
+// IT IS A MITIGATION, NOT THE FIX. Three lines still never go under, and a boundary pinned
+// at a screen edge is still wrong versus a world that has moved past it. The real answer is
+// the whole-screen state S3K carries (Water_full_screen_flag, sonic3k.asm:8496-8505): above
+// the screen top the ENTIRE screen goes under and the HInt is disabled, rather than the fire
+// being clamped into a band it can no longer express. That needs a path around the fire
+// chain instead of a clamp inside it, so it is its own parcel.
+//
+// Budget re-derived, not assumed: (120-3+1) + (200-130+1) + (2-1) = 118 + 71 + 1 = 190,
+// against the 221 the disjoint-band rule allows.
 const OJZ_TC_PROG = compose([
     patchable(fx_tint_band(line: 100, slot: 0, pal_line: 2, entry: 4, count: 3, sh: 1),
-              ch: 0, lo: 40,  hi: 120),
+              ch: 0, lo: 3,   hi: 120),
     patchable(fx_vscroll_split(line: 160, offset: $0043),
               ch: 1, lo: 130, hi: 200),
 ])
@@ -625,7 +644,9 @@ ensure(first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND) == -1,
 // the body so a failure names which half moved. Every field is in FIRE-LINE space.
 const OJZ_TC_TABLE_HAND = [
     2,                          // count — two authored records
-    2, $8000, 39,  119,         // channel 0: rewrites the arm at byte 2, band 39..119
+    2, $8000, 2,   119,         // channel 0: rewrites the arm at byte 2, band 2..119
+                                //   (fire lines = screen 3..120; lo was 39 until the clamp
+                                //    was seen pinning the boundary at screen line 40)
     6, $8001, 129, 199,         // channel 1: rewrites the arm at byte 6, band 129..199
 ]
 // The separate .len ensure is REQUIRED, not belt-and-braces: first_mismatch walks only a's
