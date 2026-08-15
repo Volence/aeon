@@ -42,12 +42,15 @@ const VDP_CTRL_OFF = VDP_CTRL - VDP_DATA
 // masked core — mutual exclusion by containment. Exporting it to main-loop
 // context would open the slot race the core's mask closes.
 // -----------------------------------------------
-comptime fn queue_static_dma(entry: Label) -> Code {
+// The copy itself, with a2 ALREADY pointing at the entry. Split out so the static-Label
+// form below and the runtime-pointer form (the off-screen ship, whose entry lives in a ROM
+// program trailer and is only known at install) share ONE copy loop and ONE carry contract.
+// Forking a second copy would fork the 14-byte width pinned by the ensure below it.
+comptime fn queue_dma_entry_at_a2() -> Code {
     return asm {
         movea.w DMA_Critical_Slot, a1
         cmpa.w  #DMA_Critical_End, a1
         beq     .drop
-        lea     {entry}, a2
         move.l  (a2)+, (a1)+
         move.l  (a2)+, (a1)+
         move.l  (a2)+, (a1)+
@@ -58,6 +61,12 @@ comptime fn queue_static_dma(entry: Label) -> Code {
     .drop:
         ori.b   #1, ccr                 // queue full -> carry SET (dropped)
     .done:
+    }
+}
+comptime fn queue_static_dma(entry: Label) -> Code {
+    return asm {
+        lea     {entry}, a2
+        {queue_dma_entry_at_a2()}
     }
 }
 // The template's 3×move.l + move.w copy is spelled for 14-byte entries — pin
@@ -237,6 +246,36 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         bclr    #3, Palette_Dirty
     .skip_pal3:
     .no_pal:
+        // ---- the off-screen frame-top ship (patched programs that declare one) ----
+        // When a patch channel's world anchor is ABOVE the screen, its fire can only pin at
+        // its band floor, leaving the rows above that floor showing the base palette — fully
+        // submerged with a permanently dry stripe at the top. This re-issues the fire's OWN
+        // colours as a frame-top DMA so they cover the whole screen instead.
+        //
+        // The entry is pre-built in the program's ROM trailer and the pointer is install-time
+        // state, so this costs a test and a taken branch on every frame that does not need it.
+        //
+        // IT SITS AFTER THE PALETTE BLOCK, and the ORDER against line 2's base ship is the
+        // point: the base ship reloads Palette_Buffer over these same CRAM entries, so a ship
+        // queued BEFORE it would be undone in the same frame. DMA-queue order is what matters,
+        // not source-line order, and everything above is already queued by here.
+        //
+        // d0 is free at this point — its Palette_Dirty snapshot is dead after the bit-3 test.
+        move.l  Effects_Offscreen_Entry, d0
+        beq     .no_ship
+        // btst instead of a saved carry: bit 2 CLEAR means line 2 either shipped this frame or
+        // was not dirty, and both are legal. Bit 2 still SET means the base ship DROPPED (queue
+        // full), and shipping over a line that did not get reloaded is not a state to add to.
+        btst    #2, Palette_Dirty               // (Palette_Dirty).w
+        bne     .no_ship
+        movea.l d0, a2
+        move.w  (a2)+, d0                       // the channel this entry belongs to
+        add.w   d0, d0
+        lea     Effects_Screen_L, a1            // (Effects_Screen_L).w
+        tst.w   (a1, d0.w)                      // the LATCHED line — never recomputed here
+        bgt     .no_ship                        // still on screen: the fire owns the boundary
+        queue_dma_entry_at_a2()                 // a2 already past the channel word
+    .no_ship:
         tst.b   Sprite_Table_Dirty              // (Sprite_Table_Dirty).w
         beq     .no_spr
         tst.b   Sprite_Emit_Active              // NEW-3: a drop-retained dirty +

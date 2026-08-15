@@ -835,6 +835,30 @@ proc Raster_CopyPatchedTemplate (a0: u32) clobbers(d1/a0-a1) {
 pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         lea     RASTER_BUF_SIZE(a0), a1
         move.l  a1, Raster_Patch_Tab            // table first
+
+        // ---- the off-screen ship pointer, derived from the ROM template ----
+        // Trailer layout: [n (word)][channel (word)][DMAEntry (14 bytes)], sitting after the
+        // patch table at RASTER_BUF_SIZE + 2 + 8*records. Read the record count the table
+        // already starts with and step over it.
+        //
+        // FROM THE ROM TEMPLATE, NEVER THE RAM WORKING COPY. The descriptor is fully static —
+        // nothing in it is ever patched — and the runtime's template copy is a fixed 128 bytes
+        // that stops before the table, so the trailer exists only here.
+        //
+        // Written on BOTH paths below, so no patched program can inherit the previous one's
+        // entry. The preset's non-patched path clears it in Effects_InstallPreset.
+        move.w  (a1), d0                        // record count
+        lsl.w   #3, d0                          // 8 bytes per table entry
+        addq.w  #2, d0                          // past the count word itself
+        tst.w   (a1, d0.w)                      // the trailer's own count: 0 = no ship
+        beq     .no_ship
+        addq.w  #2, d0                          // past it, onto the channel word
+        lea     (a1, d0.w), a2
+        move.l  a2, Effects_Offscreen_Entry
+        jbra    .ship_done
+    .no_ship:
+        clr.l   Effects_Offscreen_Entry
+    .ship_done:
         // A dense run in flight belongs to the OUTGOING program. Nothing else clears it, so
         // crossing from the gradient section into a patched one mid-run leaves the handler in
         // .dense_body streaming a stale cursor while this program's records are never walked.
