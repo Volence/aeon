@@ -5,6 +5,40 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ⚠ EFX-8 — OPEN. Total binding made the patched channel unreachable: NO patched program renders.
+
+**Booked 2026-08-15**, found while re-deriving the tree for Effects Parcel P, and confirmed
+independently by a review lens. This is the **EFX-1 successor**: EFX-1 recorded water surviving
+exactly one crossing; total binding made it survive **zero**.
+
+The patched path (`Raster_Buf_B`) has had no runtime observability since Parcel C2 merged:
+
+1. `games/sonic4/test/ojz_scroll_test.emp:286-288` installs `OJZ_WaterRaster` in Init, so
+   `Raster_Active_Buf` = `Raster_Buf_B`.
+2. `Parallax_Init` seeds `Parallax_Prev_Sec_X/Y` to `$FF` (`engine/level/parallax.emp:126-128`), so
+   `Parallax_CheckBoundary` — called at `ojz_scroll_test.emp:378`, **before** the patch call at
+   `:384` — reports a crossing on Update frame 1.
+3. `Effects_InstallPreset` reads `OJZ_Preset_Sec0`, whose `ep_patched` is 0
+   (`games/sonic4/data/effects/ojz_effects.emp:540`), and stages the static `OJZ_TestRamp`
+   (`engine/effects/preset.emp:212-224`).
+4. `Raster_VBlank .copy_program` re-points `Raster_Active_Buf` at `Raster_Buf_A`
+   (`engine/effects/raster.emp:491-494`).
+5. From that frame on, `Raster_PatchWaterWorldY`'s liveness test (`raster.emp:892-894`) takes
+   `.not_patched` **forever**.
+
+**Why C2's gate did not catch it.** The declared deltas covered water becoming per-section; nothing
+was measuring `Buf_B`, and the scroll test's own comment (`ojz_scroll_test.emp:282-283`) records
+that no preset sets `ep_patched` — it anticipated a later section swapping to the Buf_A path, not
+section 0's own preset doing it one frame after Init.
+
+**Consequence for gates, not just for pixels.** Any raster gate phrased around "the water boundary"
+currently measures nothing, and a broken patched-path implementation would measure identically to a
+correct one. Effects Parcel P-b owns the revival (converting an OJZ section's preset to `patched:`,
+which by `preset.emp:115`'s exclusivity ensure means that section surrenders its static program);
+this entry stays open until a patched program is observed rendering.
+
+---
+
 ## Effects suite defect ledger (EFX-1 … EFX-6) — booked 2026-08-14, Parcel C2
 
 Surfaced by the Effects P3 design audits. Recorded here with their real status after
@@ -16,6 +50,9 @@ installed in the spawn area persisted into sections that never asked for it, ren
 at a stale screen line indefinitely. **Fixed by total binding** — `Effects_InstallPreset`
 writes every channel, so a section without a patched template gets `Raster_Program_None`
 and the water stops. This is delta D2 in `docs/benchmarks/effects-p3-c2/DECLARED-DELTAS.md`.
+**⚠ But see EFX-8 above (2026-08-15): the same fix drove the patched channel past "off" into
+UNREACHABLE — no patched program renders at all now. The fix is real; the overshoot is the
+successor defect.**
 
 ### ⚠ EFX-2 — OPEN (deliberately). The cross-fade layer is unreachable.
 `Palette_ArmFade` and `Palette_LoadCycle`'s fade sibling `Palette_DoFade` have no
