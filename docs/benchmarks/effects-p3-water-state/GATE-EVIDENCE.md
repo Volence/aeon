@@ -120,3 +120,50 @@ harness cut it. Read the whole list.
   today, so they are wrong TOGETHER — the consistent error is the deliberate choice.
 - **The 1..3 window** still renders the boundary at screen 3 when the world says 1..3. Accepted,
   same class as the dry side, and both sides agree there.
+
+---
+
+## 6. The byte-moving ritual
+
+| step | result |
+|---|---|
+| `repin` | 312 pins moved; `PAL_VARIANT_STAGE` +0xC, the object family +0x40 plain / +0x50 debug, `SOUND_API` +0xC0/+0xD0 |
+| `refreeze --freeze offscreen-frame-top-ship --ab <this file>` | **chain 125** |
+| sigil suite (`--workspace --no-fail-fast`) | **3721 passed / 0 failed**, 329 test-result lines, exit 0 |
+| contract closure | **0 firings** |
+| four shapes boot | s4 (release), s4.debug, demo, demo.debug — all render |
+
+CRCs: s4 `6c2a1d9d` · s4.debug `9ed5fcea` · demo `f2a37230` · demo.debug `d9896c6f`
+
+### The suite failed first, and what it caught was real
+
+Nine tests across five targets went red on the first run: `buffers_port`, `parallax_port`,
+`raster_port`, `raster_negative_probes` and `repin_pins`. Every one was the **cross-seam port
+trap** — a port test compiles its module STANDALONE, so a new reference to a symbol owned by
+another seam stops resolving. This parcel added three (`Effects_Screen_L`,
+`Effects_Offscreen_Entry`, `Static_Pal_Ship`) plus one outbound call (`Build_DMA_Entry`).
+
+They are declared now, in `repin.toml` and in each test's carrier table. Worth carrying forward:
+the aeon build was GREEN through all of this. Nothing in `build.sh` knows about the port oracles,
+so a cross-seam reference is invisible until the sigil suite runs.
+
+### The demo drift gate
+
+`tools/demo_drift_classifier.py` failed at **20,285 unclassified bytes**, because it modelled
+RAM-only growth and this parcel adds engine CODE. Ruled by a Fable adviser to extend the tool in
+this parcel rather than declare the parcel out of class. With categories (iv) code relocation and
+(v) declared edit spans:
+
+| run | unclassified |
+|---|---|
+| `demo` + full declaration | **0 — PASS** |
+| `demo.debug` + full declaration | **0 — PASS** |
+| one declared span dropped | 203 — FAIL |
+| no declarations at all | 851 — FAIL |
+
+The last two rows are the non-vacuity proof: the gate still refuses an undeclared edit, which is
+the guarantee the retired "demo CRCs unchanged" criterion carried.
+
+Declared spans: `BuildStaticDMA`, `Build_DMA_Entry`, `Enqueue_Dirty_Buffers`,
+`Effects_LatchWorldLines`, `Raster_PatchAll`, `Raster_InstallPatched`, `Raster_BuildShipEntry`,
+`Effects_InstallPreset`, `Parallax_Step4_Fill`.
