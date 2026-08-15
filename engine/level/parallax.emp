@@ -155,11 +155,13 @@ pub proc Parallax_Init () clobbers(d0-d7/a0-a6) {
 //
 // In:  none (reads Camera_X/Y, Current_Act_Ptr, Parallax_Prev_Sec_X/Y)
 // Out: config switched + transition staged iff a crossing changed it.
-// Clobbers: d0-d3, a0-a3 (a1/a3 enter the union via Effects_InstallPreset,
+// Clobbers: d0-d4, a0-a3 (a1/a3 enter the union via Effects_InstallPreset,
 //   the effects-P3 preset path — the sole per-section effect consumer since
-//   the legacy per-field installers were removed, effects-P3-C2 Task 13)
+//   the legacy per-field installers were removed, effects-P3-C2 Task 13; d4
+//   joined it in P-b, where Raster_PatchAll's table walk reaches d4. d2/d3 hold
+//   the section coords and are dead by the call, so nothing here needs saving.)
 // ----------------------------------------------------------------------
-pub proc Parallax_CheckBoundary () clobbers(d0-d3/a0-a3) {
+pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         // -- section under the camera centre (camX+160 / camY+112) --
         move.w  Camera_X, d2                        // (Camera_X).w — world X px (high word)
         addi.w  #SCREEN_WIDTH/2, d2
