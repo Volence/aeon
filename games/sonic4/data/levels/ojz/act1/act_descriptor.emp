@@ -15,9 +15,9 @@ module games.sonic4.act_descriptor_ojz_act1 in act_descriptor
 // validating constructor + field defaults below.
 use engine.structs.{Act, Sec}
 
-// Effects P1 gate fixtures live in the game-side effects library beside the
-// parallax configs (games/sonic4/data/parallax/configs.emp).
-use games.sonic4.parallax_configs.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
+// Effects P1 gate fixtures live in the game-side effects library
+// (games/sonic4/data/effects/ojz_effects.emp).
+use games.sonic4.ojz_effects.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
