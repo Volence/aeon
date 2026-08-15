@@ -660,13 +660,14 @@ ensure(first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND) == -1,
        "OJZ_TwoChannel: DSL body diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND)}")
 
 // THE TABLE PIN — the words the runtime patcher parcel will walk. Checked separately from
-// the body so a failure names which half moved. Every field is in FIRE-LINE space.
+// the body so a failure names which half moved. line_src/band_lo_fl/band_hi_fl are FIRE-LINE
+// space; rec_off/rec_len are byte offsets into the emitted body.
 const OJZ_TC_TABLE_HAND = [
     2,                          // count — two authored records
-    2, $8000, 2,   213,         // channel 0: rewrites the arm at byte 2, band 2..213
+    $8000, 2,   213,   10, 18,  // channel 0: band 2..213, record at byte 10, 18 bytes long
                                 //   (fire lines = screen 3..214 — the water line owns almost
                                 //    the whole screen; see the re-band note above)
-    6, $8001, 215, 222,         // channel 1: rewrites the arm at byte 6, band 215..222
+    $8001, 215, 222,   28, 14,  // channel 1: band 215..222, record at byte 28, 14 bytes long
 ]
 // The off-screen ship trailer, after the patch table. Neither channel declares
 // offscreen_ship, so this is the bare count word — and pinning the EMPTY case is worth a line
