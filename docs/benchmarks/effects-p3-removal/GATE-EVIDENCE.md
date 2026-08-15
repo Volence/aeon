@@ -167,6 +167,63 @@ right line with the wrong bytes.
 ($013140) + 24 = 2 + 10*2 + 2 — the count word, two FIVE-word entries, and the trailer's own count.
 A stale 8-byte stride would have landed at +18 and pointed the ship at the wrong words.
 
+---
+
+## Task 6 — the re-band, and the threshold measured to the line
+
+Channel 0 `3..214` -> `3..220`; channel 1 (a vscroll GATE FIXTURE whose position the file already
+documented as negotiable) `216..223` -> `222..223`. Budget stays exactly full:
+`(220-3+1) + (223-222+1) + 1 = 221`. `check_density` did NOT fire, so the 2-line separation between
+band edges (219 and 221 in fire lines) still covers channel 0's modelled 526 cycles.
+
+Re-derived twins: fire lines are now 99 and 221, so `arm1 = $8A00 | (221 - 99 - 1) = $8A79`
+(was `$8A77` at fire 219). Read back live, mid-band: `0004 8A61 0000 8A79 0000 ...` — matches.
+
+**The threshold is exact to the line.** Same session, `Camera_Y = 144`, moving only
+`Effects_World_Y[0]`:
+
+| `Effects_World_Y[0]` | latched `L` | result |
+|---|---|---|
+| 364 | **220** (= `band_hi`) | record PRESENT. `arm0 = $8AD9` (217 = 219-1-1), `arm1 = $8A01` (221-219-1) |
+| 365 | **221** (one past) | record ABSENT. `arm0 = $8ADB` (219 = 221-1-1) reaches channel 1 directly, priming 1 parked |
+
+One line of anchor movement flips the record in and out, with the surviving record's schedule
+re-derived correctly on both sides. Note the 220 case also exercises the tightest legal spacing in
+the program — two fires two lines apart — which is the case `check_density` adjudicates.
+
+---
+
+## Task 7 — what the builder costs
+
+Oracle profiler, 100-frame average, both shapes at an identical pinned camera and identical written
+anchors, nothing suppressed (the builder's worst case — a suppressed record is work it skips).
+
+| | master | this branch | delta |
+|---|---|---|---|
+| the proc | `Raster_PatchAll` 372 | `Raster_BuildSchedule` 1228 | **+856** |
+| `Raster_VBlank` | 634 | 1490 | +856 (consistent) |
+| `VInt_Level` — THE BRACKET | 7499 | 8421 | +922 |
+
+**The bracket is the number that matters**, not the proc: `Raster_VBlank` runs inside the sound-ON
+DMA-flag / sound-OFF `z80_stopped` bracket, before `Flush_VDP_Shadow` and every DMA drain, and on
+BOTH `VInt_Level` and `VInt_Lag`. +922 cycles is ~1.9 scanlines of an ~18,200-cycle NTSC VBlank
+window; the bracket still sits under half of it. As a share of the whole frame, +856 is 0.67% of
+128,000.
+
+**Zero HBlank cost**, which was the entire reason this shape was chosen over a per-record NEXT link:
+`Raster_HInt` is byte-for-byte unchanged. Ristar's spelling would have spent ~12 cycles of a
+~60-cycle per-fire budget forever.
+
+**A counter that must NOT be read as HBlank cost:** oracle's `interrupts.hint` moved 9446 -> 10307
+between these runs. That counter INCLUDES VBlank, so it is reporting the same VBlank delta as the
+rows above. The handler's code is identical, so its per-fire cost cannot have changed.
+
+Recorded in `tools/effects_budget_model.toml` under `[raster.schedule_build]`. **Honest limitation:**
+that is a MEASURED row, not a code-derived one, so `tools/effects_budget_check.py` (which does run on
+every build — `build.sh:191`, and reports "8 code-derived rows agree") does not validate it. The file
+has no generator by design; measured rows are documentation with provenance. If this number needs to
+be enforced rather than recorded, that needs a mechanism this parcel did not build.
+
 ### Operational note
 
 A 700-frame `emulator_press` WEDGED the oracle MCP (the documented StopSystem-race deadlock: every
