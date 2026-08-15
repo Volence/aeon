@@ -295,12 +295,12 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
         andi.b  #~PAL_ACT_CYCLE, Pal_Active
         move.l  a0, d0
         beq   .done
-        ori.b   #PAL_ACT_CYCLE, Pal_Active
         // reset each channel's frame timer to its period so cycling starts in phase
         movea.l a0, a1
         move.w  (a1)+, d0                       // channel_count
         subq.w  #1, d0
-        bmi   .done
+        bmi   .done                           // count 0: cycling stays OFF (see InstallCycleSection)
+        ori.b   #PAL_ACT_CYCLE, Pal_Active
         lea     Pal_Cycle_Timers, a1
         moveq   #0, d1
     .zero:
@@ -330,11 +330,16 @@ pub proc Palette_InstallCycleSection (a0: u32) clobbers(d0-d1/a1) {
         andi.b  #~PAL_ACT_CYCLE, Pal_Active
         move.l  d0, d1
         beq   .keep                           // empty install path (defensive)
-        ori.b   #PAL_ACT_CYCLE, Pal_Active
         movea.l d0, a1
         move.w  (a1)+, d0                       // channel_count
         subq.w  #1, d0
-        bmi   .keep
+        bmi   .keep                           // count 0: script recorded, cycling stays OFF
+        // ARM ONLY ONCE THE COUNT IS KNOWN NON-ZERO. Arming above the test left a
+        // non-NULL count-0 script with PAL_ACT_CYCLE set, and Palette_Compose's
+        // `.cycling` arm then sets PAL_ACT_VARIANT_STALE every frame forever — the
+        // 15.1%-of-frame full variant re-derive the ff0720ff gate fix recovered.
+        // Latent until Pal_Cycle_None, which IS a non-NULL count-0 script.
+        ori.b   #PAL_ACT_CYCLE, Pal_Active
         lea     Pal_Cycle_Timers, a1
         moveq   #0, d1
     .zero:
