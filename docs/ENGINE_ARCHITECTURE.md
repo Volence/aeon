@@ -3881,16 +3881,15 @@ used.
 
 ---
 
-### 7.13 Patchable raster fires — the patch-table wire format (Parcel P-a, ENCODER ONLY)
+### 7.13 Patchable raster fires — the patch table and its runtime patcher
 
-> **SHIPPED — effects P3 Parcel P-a, 2026-08-15. Encoder only: no runtime code installs or
-> moves a patched program yet.** A raster program is a schedule of mid-frame VDP writes
-> fired by HInt (§7.2). Until this parcel every fire had a fixed screen line; Parcel P-a
-> lets an author declare a fire **patchable** — its line can move at runtime within a
-> declared band, driven by one of `RASTER_MAX_PATCH` (4) world-anchor channels. That
-> runtime patcher does not exist yet. This section documents only the bytes Parcel P-a's
-> encoder (`engine/effects/raster_dsl.emp`: `patchable`, `compose`, `patch_table`,
-> `patched_program`) emits.
+> **SHIPPED — effects P3 Parcel P-a (encoder) + P-b (runtime), 2026-08-15.** A raster program
+> is a schedule of mid-frame VDP writes fired by HInt (§7.2). Until these parcels every fire
+> had a fixed screen line; an author can now declare a fire **patchable** — its line moves at
+> runtime within a declared band, driven by one of `RASTER_MAX_PATCH` (4) world-anchor
+> channels. P-a emits the bytes (`engine/effects/raster_dsl.emp`: `patchable`, `compose`,
+> `patch_table`, `patched_program`); P-b walks them (`Raster_PatchAll`). Gate evidence:
+> `docs/benchmarks/effects-p3-p-b/GATE-EVIDENCE.md`.
 
 **`patched_program(fires)` emits the ordinary sparse program (§7.2's wire format),
 padded to exactly 64 words (128 bytes), then the patch table:**
@@ -3960,6 +3959,41 @@ wire format, that document owns what a call site can violate.
 Build-time tools that convert human-friendly level data into optimized runtime formats, plus runtime debug/profiling systems for data-driven optimization. Commercial Genesis games shipped with zero debug infrastructure; the community (Vladikcomper, Flamewing, S.C.E.) has since built what 90s studios lacked.
 
 **Cross-reference (5 games + S.C.E.):** No commercial game has runtime profiling or assertions. Vectorman is the only game with runtime bounds checking (`illegal` on out-of-range pointers). Batman & Robin is the only game with lag frame detection (dual frame counter comparison). S.C.E. has the most comprehensive debug system: two-phase gating (`if DEBUG_xxx` + `ifdebug`), 10 per-subsystem debug toggles, Vladikcomper MD Debugger v2.6 with crash screen/backtrace/symbol resolution, and a VDP window plane lagometer.
+
+
+#### The runtime half (Parcel P-b)
+
+`Raster_PatchAll` runs **at VBlank**, from `Raster_VBlank`, and that is load-bearing rather than
+convenient. Every arm word is a **relative** gap to the next fire, and the patcher writes one byte
+per record scattered across the working buffer. From the main loop it would run while `Raster_HInt`
+is walking that same buffer during active display: records already passed keep this frame's gaps,
+records ahead get next frame's, and because the gaps are relative the **entire tail of the chain**
+desynchronises, every frame the camera moves. The single-word water patch this replaces got away
+with main-loop timing only because its one arm is consumed at the frame-top rewind, which made it
+structurally a next-frame write.
+
+Per record the patcher derives `screen_line = Effects_World_Y[ch] - Camera_Y`, converts once to a
+fire line (`-1`), clamps into the record's authored band, and stores the resulting gap as the **low
+byte** of the `$8Axx` arm word the table points at. The park word `$8AFF` is an `$8Axx` word too, so
+re-arming is one `move.b` with no `ori` and no masking, and park needs no special case — the S3K
+steal that makes the whole routine one pass with no branches per record beyond the clamp.
+
+- **Liveness is `Raster_Patch_Tab != 0`, never `Active_Buf == Buf_B`.** `Raster_VBlank`'s
+  explicit-clear path zeroes `Raster_Program` but never touches `Raster_Active_Buf`, so an
+  Active_Buf-gated patcher would keep writing a dead buffer forever after a clear. Both teardown
+  paths clear the table.
+- **Anchors live in RAM** (`Effects_World_Y[RASTER_MAX_PATCH]`), seeded on section entry from the
+  preset's **inline** `ep_patch_world_ys` array. In RAM because that is what makes them movable —
+  rising lava, a flood line, a beat-driven pulse all rewrite an anchor through `Effects_SetWorldY`.
+  Inline in the preset because a `Label` carries no length, so an `ensure` comparing one to an
+  integer is unevaluable and passes silently.
+- **The bank is named `Effects_*`, not `Raster_*`, deliberately.** Parcel W gives the world anchor an
+  owner and the parallax deformation system is expected to become a second **reader** of these same
+  values — a complete underwater section is a palette boundary *and* a shimmer at the same line.
+- **Off-screen is a clamp, not a semantic.** The deleted `Raster_PatchWaterLine` had two off-screen
+  branches (above the viewport = fully submerged, fire as early as possible; below = park, not
+  visible). `Raster_PatchAll` clamps into the band in both directions instead, so a boundary below
+  the viewport renders at the band's `hi` edge rather than vanishing. **Declared delta**, measured.
 
 ### 8.1 Authoring Pipeline — Editor to ROM
 
