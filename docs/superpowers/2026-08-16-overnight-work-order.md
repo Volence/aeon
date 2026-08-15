@@ -168,7 +168,23 @@ the reason for spelling it out rather than deleting the line: the parcel has no 
 prerequisite, and the recorded lesson is that *a manual measurement giving a different answer
 every time is not weak evidence, it is ABSENT evidence*.
 
-### 3. Parcel B — budget honesty (small, safe, mostly correction)
+### 3. ~~Parcel B — budget honesty~~ — **DONE 2026-08-15, merged (aeon `29bc1fe3`).**
+
+Almost all of the list below was **already stale when this order was written** — a live example
+of the "docs in this tree drift" warning at the bottom. `full_line_fire_cost` had already been
+renamed `full_line_fire_lines` and re-tagged as a LINE COUNT; `sparse_tier_cycles_per_frame` was
+already `_SUPERSEDED` with its differential note; the measured rows (vsram 454, cram3 526, line
+488) were already present. `raster_state_bytes` was corrected in P-b (288 → 306 — it had drifted
+**10 bytes**, which is EFX-9).
+
+What actually remained was the checker's **wiring**, now done: `effects_budget_check.py` runs from
+`build.sh` beside `s4lint`, under the same `NO_LINT` guard. Proved build-fatal AND escapable, all
+three states recorded in `docs/BUGS.md` EFX-9. Note the hatch is `./build.sh sonic4 --no-lint` —
+`GAME` is positional, so `./build.sh --no-lint` parses the flag as the game name.
+
+*The original text follows:*
+
+### 3-original. Parcel B — budget honesty (small, safe, mostly correction)
 
 `tools/effects_budget_model.toml`. P-a already shipped the density guard the roadmap asked for
 (guard 8, worst-case band edges), so B shrinks to: correct `full_line_fire_cost` (it is a LINE
@@ -180,7 +196,26 @@ before touching it), add the measured rows (vsram 454, cram-of-3 526, line 488),
 Also verify `tools/effects_budget_check.py` is not one of the **verified vacuous gates** — a prior
 audit found it reporting `RAM=0`. Prove it fires by inverting a value.
 
-### 4. The `raster_port` coverage hole (sigil-side, additive)
+### 4. ~~The `raster_port` coverage hole~~ — **DONE 2026-08-15, merged (sigil `4b48e6cd`).**
+
+`raster_port.rs` + `raster_negative_probes.rs` written; the pins are consumed. Suite 3721/0
+across 327 test-result lines, all four aeon CRCs unchanged.
+
+**Two of the seven pins were NOT dead**, and the audit below (mine) was wrong to call them all
+dead: `RASTER` is a live row in `native.rs`'s module registry, and `HBLANK_UNINSTALL_OFF` is
+consumed by `hblank_port.rs:276` and was merely MIS-TAGGED. Deleting the seven would have broken
+the build. The five that were dead were also **incomplete** — they described the module's
+Parcel-P1 surface, so thirteen pins were added to cover what the dense tier, the ramp op and P-b
+had since introduced.
+
+**Recorded in the test header and worth carrying forward:** a `*_port` test **cannot** catch the
+`add.w dN,aM` → ADDX silent mis-encoding class, because both sides of its comparison run through
+the same sigil encoder. That power existed only while the reference was `asl`-built; the Stage-2
+flip removed it. Hand-decoding emitted opcodes is still the only check for that class.
+
+*The original text follows, kept because its reasoning is still the rule:*
+
+### 4-original. The `raster_port` coverage hole (sigil-side, additive)
 
 The pins tagged `tests = ["raster_port"]` — `RASTER` region, `RASTER_PROGRAM`, `RASTER_CURSOR`,
 `RASTER_PENDING`, `RASTER_BUF_A`, `RASTER_ACTIVE_BUF`, `HBLANK_UNINSTALL_OFF` — are consumed by **no
