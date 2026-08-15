@@ -23,8 +23,12 @@ ROM CRCs: s4 `416be247` · s4.debug `9ef00c29` · demo `6af0112d` · demo.debug 
 
 Working tree carries only the pre-existing editor JSON churn — auto-commit-daemon territory.
 
-**UNPUSHED:** aeon is now **89 commits** ahead of `origin/master`, sigil **16**. Push remains the
-owner's call.
+**PUSHED.** aeon and sigil `master` both match `origin/master` as of this handoff.
+
+(Rev 1 of this file said "aeon is 78 commits ahead, sigil 14", and rev 2 initially did arithmetic on
+top of that to claim 89/16. Both were wrong — `git fetch` showed the true divergence was 14 and 2,
+so origin had been pushed in between. Verify divergence with `git fetch` before quoting it; a stale
+count copied forward reads as fact.)
 
 ---
 
