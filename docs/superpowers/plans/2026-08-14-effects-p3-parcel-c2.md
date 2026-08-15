@@ -621,9 +621,13 @@ Today:
 
 Becomes: if `Sec.sec_effects(a0) != 0`, call `Effects_InstallPreset` **instead of** all three.
 
-- [ ] **Step 2: Resolve a preset at spawn too**
+- [ ] **Step 2: the spawn half MOVED TO TASK 12 (2026-08-14) — do not do it here**
 
-`Parallax_Init` picks its config before the first `CheckBoundary`, so a section-0 preset with non-default parallax would lerp in over 16 frames at spawn. Resolve the preset in init as well.
+The spec says `Parallax_Init` picks its config before the first `CheckBoundary`, so a section-0 preset with non-default parallax would lerp in over 16 frames at spawn instead of snapping. That is real, but it is not engine work: `Parallax_Init` takes the config from its CALLER, and its only caller is game-side — `games/sonic4/test/ojz_scroll_test.emp:248-256`, which does the `sec_parallax_config` → act-default resolve itself.
+
+Task 12 converts that game state to presets and edits this exact file. Doing it here would mean editing it twice, for a preset that does not exist yet. **Task 12 owns it** — see the checklist item added there.
+
+Worth noting while here: `Parallax_Init` seeds `Parallax_Prev_Sec_X/Y` to `$FF,$FF` sentinels precisely so the first `CheckBoundary` re-selects the start section's config. So a section-0 preset's palette/cycle/raster/variants DO get installed on the first crossing check without any spawn change — it is only the parallax config that would arrive as a 16-frame lerp rather than a snap.
 
 - [ ] **Step 3: RE-VERIFY THE GUARD THAT IS STILL DEAD.** Task 4 measured `engine/effects/preset.emp`'s `ensure(PAL_MAX_VARIANTS == 2, ...)` as never evaluated. Task 8 re-checked after adding the module to `map.toml`'s `order` and it was STILL dead, which established the rule:
 
@@ -703,8 +707,14 @@ Conversion is all-or-nothing per neighbourhood: a legacy neighbour of a preset s
 
 - [ ] **Step 1: Write one preset per section**, preserving today's bindings exactly — section 0 `OJZ_TestRamp`, section 1 `OJZ_TestRaster`, section 2 `OJZ_TestPal` + `OJZ_TestGradient`, section 3 `OJZ_ShimmerCycle`, sections 4-8 plain. Sections with nothing get `Preset_None`.
 - [ ] **Step 2: Replace the legacy fields with `effects:` in `ojz_sec`.** The exclusivity `ensure` fires if any section keeps both.
-- [ ] **Step 3: Re-run the P1 and P2 GATE-EVIDENCE captures.** Section 1's sparse raster, section 2's palette snap + dense gradient, section 3's cycle. These must render as before.
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: the spawn resolve, inherited from Task 9.** `games/sonic4/test/ojz_scroll_test.emp:248-256` currently resolves the parallax config from `Sec.sec_parallax_config` → act default and hands it to `Parallax_Init`. Once section 0 is a preset that path reads the WRONG source: the preset carries `ep_parallax`, and `sec_parallax_config` will be 0, so init would seed the act default and then `CheckBoundary` would LERP to the preset's config over 16 frames instead of snapping at spawn.
+
+  Make the init resolve read the preset when `Sec.sec_effects != 0`: `ep_parallax`, else act default. Then `Parallax_Init` snaps to the right config on frame 0 and the first `CheckBoundary` is the intended no-op.
+
+  (Note `Parallax_Init` seeds `Prev_Sec_X/Y` to `$FF,$FF` so the first `CheckBoundary` always re-selects — which is why the palette/cycle/raster/variant channels need no spawn special-case, only the parallax config does.)
+
+- [ ] **Step 4: Re-run the P1 and P2 GATE-EVIDENCE captures.** Section 1's sparse raster, section 2's palette snap + dense gradient, section 3's cycle. These must render as before.
+- [ ] **Step 5: Commit**
 
 ---
 
