@@ -23,9 +23,31 @@ So the criterion becomes: the diff must classify COMPLETELY, with **zero unclass
   (ii)  the Genesis header's checksum ($18E) and ROM-end ($1A4-$1A7) fields, which must change.
   (iii) growth of the appended deb2 symbol table.
 
+  (iv)  CODE RELOCATION — a byte whose new value equals the old byte one ROM-symbol delta
+        earlier. The delta is per-symbol and read from the two tables, so the map is PIECEWISE:
+        a parcel with three insertion sites gives downstream symbols three different shifts, and
+        assuming one uniform delta would misclassify two thirds of them.
+  (v)   DECLARED EDIT SPANS — bytes inside a symbol the caller NAMED with `--changed`. Inserted
+        bytes have no old counterpart, so (iv) structurally cannot reach them.
+
+Categories (iv)/(v) were added 2026-08-15 (Fable adviser) for parcels that add engine CODE, not
+only engine RAM. The tool used to fail those by construction — its own `EndOfRom` note says a pure
+RAM-growth parcel must not change the code region's SIZE — and the first such parcel scored 20,285
+unclassified bytes, which is a shift signature, not a finding.
+
+WHY (v) IS THE LOAD-BEARING HALF. Shift-tolerance ALONE would assert the linker: "everything moved
+by the amount the linker says it moved" is true of any correct link and says nothing about the
+engine. The declared-span rule is what keeps this an engine-content instrument — every differing
+byte must be either pure relocation (cheap, mechanical, the linker's job) or inside a span the
+parcel EXPLICITLY claims to have edited. An undeclared same-size edit to a shared engine routine
+is still a finding, which is exactly the guarantee the retired "demo CRCs unchanged" criterion had.
+
+So `--changed` is not a waiver list. It is the parcel stating its own footprint, and the tool
+proving nothing else moved.
+
 Anything else is a finding. Engine-RAM parcels recur, so this is the standing gate for the class.
 
-  usage: demo_drift_classifier.py OLD.bin NEW.bin OLD.lst NEW.lst [--region-start HEX]
+  usage: demo_drift_classifier.py OLD.bin NEW.bin OLD.lst NEW.lst [--changed SYM,SYM,...]
 
 Exit 0 iff every differing byte in the common prefix is accounted for and the tail is deb2 only.
 """
@@ -83,8 +105,66 @@ def ram_moves(old: Dict[str, int], new: Dict[str, int]) -> Dict[int, Tuple[int, 
     return moves
 
 
+def rom_spans(old: Dict[str, int], new: Dict[str, int], appendix: int
+              ) -> List[Tuple[int, int, str, int | None]]:
+    """Sorted (new_start, new_end, name, delta) over ROM symbols present in BOTH builds.
+
+    The span of a symbol runs to the next symbol's address, which is how a byte offset is
+    attributed to the routine that owns it. `delta` is that symbol's own move — per-symbol,
+    never a single global shift, because a parcel with N insertion sites produces N different
+    downstream shifts and one assumed delta would misclassify most of them.
+    """
+    common = [(new[n], n) for n in new if new[n] < appendix and not (0xFF0000 <= new[n])]
+    common.sort()
+    out: List[Tuple[int, int, str, int | None]] = []
+    for i, (start, name) in enumerate(common):
+        end = common[i + 1][0] if i + 1 < len(common) else appendix
+        if end > start:
+            # A symbol the OLD build does not have is NEW CODE. Its delta is None rather than
+            # 0: there is no old counterpart to shift from, so the relocation rules cannot
+            # speak for it and it must be DECLARED. Leaving new-only symbols out of the span
+            # list entirely (the first version) silently attributed their bytes to whichever
+            # common symbol preceded them, which reported a brand-new proc as unclassified
+            # bytes inside its innocent neighbour.
+            delta = (new[name] - old[name]) if name in old else None
+            out.append((start, end, name, delta))
+    return out
+
+
+def span_at(spans: List[Tuple[int, int, str, int | None]], off: int) -> Tuple[str, int | None] | None:
+    """Binary search: which ROM symbol owns this NEW-build offset, and by how much did it move."""
+    lo, hi = 0, len(spans) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        start, end, name, delta = spans[mid]
+        if off < start:
+            hi = mid - 1
+        elif off >= end:
+            lo = mid + 1
+        else:
+            return name, delta
+    return None
+
+
 def main() -> int:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    argv = sys.argv[1:]
+    changed: set[str] = set()
+    args: List[str] = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "--changed" and i + 1 < len(argv):
+            # The VALUE is consumed here, not filtered by a `startswith("--")` test — a
+            # comma-separated list does not start with a dash and would otherwise be counted
+            # as a fifth positional and print the usage instead of running.
+            changed |= {x for x in argv[i + 1].split(",") if x}
+            i += 2
+            continue
+        if tok.startswith("--changed="):
+            changed |= {x for x in tok.split("=", 1)[1].split(",") if x}
+        elif not tok.startswith("--"):
+            args.append(tok)
+        i += 1
     if len(args) != 4:
         raise SystemExit(__doc__)
     old_bin, new_bin, old_lst, new_lst = args
@@ -142,6 +222,60 @@ def main() -> int:
     accounted: Dict[str, int] = {}
     unclassified: List[int] = []
     consumed = set()
+    spans = rom_spans(so, sn, appendix)
+    rom_deltas = {d for _, _, _, d in spans if d}
+    # PC-RELATIVE STRADDLE. A `bsr`/`bra` displacement is the DISTANCE between two symbols, so
+    # it changes by delta(target) - delta(branch), which is generally not any symbol's own
+    # delta. An insertion between the branch and its target moves the word by that difference
+    # while every byte around it shifts cleanly. The candidate set is still derived entirely
+    # from the two symbol tables; nothing is assumed.
+    pcrel_deltas = {x - y for x in rom_deltas | {0} for y in rom_deltas | {0}} - {0}
+    edited_spans: set[str] = set()
+    shifted_spans: set[str] = set()
+
+    def reloc_at(off: int, d: int) -> str | None:
+        """Is `off` inside an operand that moved by a table-derived delta?
+
+        THE OLD SIDE IS READ AT `off - d`, NOT AT `off`, and that is the correction that makes
+        this work on a code-adding parcel. Index-aligned comparison is only meaningful while
+        nothing shifts; once the code region grows, the instruction that USED to live at this
+        address is somewhere else entirely, and comparing same-index words compares unrelated
+        instructions. The first version of this extension did exactly that and left 1,750 bytes
+        unclassified inside routines the parcel never touched.
+        """
+        for width, kinds in ((4, ("ROM operand relocation",)), (2, ("RAM operand relocation",
+                                                                    "ROM operand relocation",
+                                                                    "PC-relative straddle"))):
+            for base in range(off - (width - 1), off + 1):
+                if base < 0 or base + width > n:
+                    continue
+                src = base - d
+                if src < 0 or src + width > len(a):
+                    continue
+                ov = int.from_bytes(a[src:src + width], "big")
+                nv = int.from_bytes(b[base:base + width], "big")
+                if nv == ov:
+                    continue
+                delta = nv - ov
+                if width == 2:
+                    if ov >= floor and delta in deltas:
+                        kind = "RAM operand relocation"
+                    elif delta in rom_deltas:
+                        kind = "ROM operand relocation"
+                    elif delta in pcrel_deltas:
+                        kind = "PC-relative straddle"
+                    else:
+                        continue
+                else:
+                    if ov < appendix and delta in rom_deltas:
+                        kind = "ROM operand relocation"
+                    else:
+                        continue
+                for k in range(base, base + width):
+                    consumed.add(k)
+                return kind
+        return None
+
     for off in code_diffs:
         if off in consumed:
             continue
@@ -149,20 +283,39 @@ def main() -> int:
             key = HEADER_FIELDS[off]
             accounted[key] = accounted.get(key, 0) + 1
             continue
-        hit = False
-        for base in (off - 1, off):
-            if base < 0 or base + 2 > n:
-                continue
-            ow = int.from_bytes(a[base:base + 2], "big")
-            nw = int.from_bytes(b[base:base + 2], "big")
-            if ow >= floor and (nw - ow) in deltas:
-                accounted["RAM operand relocation"] = accounted.get("RAM operand relocation", 0) + 1
-                consumed.add(base)
-                consumed.add(base + 1)
-                hit = True
-                break
-        if not hit:
+
+        # Which routine owns this byte in the NEW build, and how far did that routine move?
+        owner = span_at(spans, off)
+        name, d = owner if owner is not None else ("<no span>", 0)
+
+        # A DECLARED edit is checked before anything else: inside an edited routine the shift
+        # and operand rules would report accidental matches as relocation and hide the very
+        # bytes the parcel changed.
+        if name in changed:
+            accounted["declared edit span"] = accounted.get("declared edit span", 0) + 1
+            edited_spans.add(name)
+            continue
+
+        if d is None:
+            # New code that was NOT declared. This is the finding the declared-span rule
+            # exists to produce: a parcel that adds a routine to a module demo links has
+            # changed demo's content, and must say so.
             unclassified.append(off)
+            continue
+
+        kind = reloc_at(off, d)
+        if kind is not None:
+            accounted[kind] = accounted.get(kind, 0) + 1
+            continue
+
+        src = off - d
+        if 0 <= src < len(a) and a[src] == b[off]:
+            accounted["code relocation"] = accounted.get("code relocation", 0) + 1
+            if d:
+                shifted_spans.add(name)
+            continue
+
+        unclassified.append(off)
 
     print(f"\nlengths: old {len(a)}  new {len(b)}  (tail delta {len(b) - len(a)} bytes)")
     print(f"symbol appendix starts at EndOfRom = ${appendix:06X} "
@@ -177,15 +330,36 @@ def main() -> int:
     print("  encoder, not the engine. What IS asserted is that it is the ONLY region")
     print("  allowed to differ freely, and that the code/data region above reduces to zero.")
 
+    # --- the insertion map: what the parcel says it edited, and what that cost ---------
+    if changed:
+        print(f"\nDECLARED edit spans ({len(changed)} named, {len(edited_spans)} carried "
+              f"differing bytes):")
+        for name in sorted(changed):
+            hit = "touched" if name in edited_spans else "NO differing bytes"
+            old_a = so.get(name)
+            new_a = sn.get(name)
+            if old_a is None or new_a is None:
+                print(f"  {name:<32} NOT A SYMBOL IN BOTH BUILDS — check the name")
+            else:
+                print(f"  {name:<32} ${old_a:06X} -> ${new_a:06X}  ({hit})")
+        stale = sorted(n for n in changed if n in so and n in sn and n not in edited_spans)
+        if stale:
+            print("  NOTE: a declared span with no differing bytes is not an error, but it is")
+            print("  worth reading — either the edit was byte-neutral, or the name is wrong and")
+            print("  its real bytes are being counted somewhere else.")
+    if shifted_spans:
+        print(f"\nrelocated (unedited) ROM symbols carrying differing bytes: {len(shifted_spans)}")
+
     if unclassified:
         print("\nfirst unclassified offsets (each is a finding, not noise):")
         for off in unclassified[:24]:
             print(f"  ${off:06X}  {a[off]:02X} -> {b[off]:02X}")
-        print("\nFAIL — the demo code/data diff does not reduce to declared RAM growth.")
+        print("\nFAIL — the demo code/data diff does not reduce to declared growth.")
         return 1
 
     print("\nPASS — zero unclassified bytes in code/data: the demo diff reduces entirely to")
-    print("RAM-operand relocations, the header fields, and symbol-appendix growth.")
+    print("operand relocations, code relocation by per-symbol deltas, the DECLARED edit spans,")
+    print("the header fields, and symbol-appendix growth.")
     return 0
 
 
