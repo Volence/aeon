@@ -999,7 +999,9 @@ pub comptime fn raster_program(fires: array) {
         }
     }
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
-    // program without exception — which is what patch_table's pre-resolved arm_offs depend on.
+    // program without exception — which is what lets patch_table pre-resolve a rec_off at all,
+    // and what makes the builder's fixed 5-word prologue (header + both priming records) a
+    // constant rather than a computed skip.
     comptime var out = [prog_mask(fires)]
     out = out ++ [arm_at(L, 0), 0]        // fire 0 — priming, line 0
     out = out ++ [arm_at(L, 1), 0]        // fire 1 — priming, line 1
@@ -1175,11 +1177,19 @@ comptime fn ship_trailer_words(fires: array) -> int {
     return 1 + w
 }
 
-// check_arm_layout — GUARD 6. Every arm_off the table hands the runtime must point at a word
-// the emitter actually wrote as an arm word, AND at the RIGHT one. Both halves are needed: a
-// wrong offset that happens to land on an op_count fails the $8A00 test, while an offset
-// landing on a DIFFERENT record's arm passes it — and would corrupt the schedule at runtime
-// in a way nothing else here can see. Testing the VALUE against arm_at closes that.
+// check_arm_layout — GUARD 6. Every word `arm_word_index` names must be a word the emitter
+// actually wrote as an arm word, AND the RIGHT one. Both halves are needed: an index that
+// happens to land on an op_count fails the $8A00 test, while one landing on a DIFFERENT
+// record's arm passes it — and would corrupt the schedule in a way nothing else here can see.
+// Testing the VALUE against arm_at closes that.
+//
+// IT NO LONGER GUARDS A TABLE FIELD. The table used to carry a pre-resolved `arm_off` per
+// record and this guard checked it; local removal deleted that field, because the builder
+// emits the records itself and therefore knows where every arm word landed. What survives is
+// still worth its bytes: `arm_word_index` remains the layout authority `patch_table`'s
+// `rec_off` is computed from, so proving it against the emitted image proves the offsets the
+// table DOES carry. GUARD 10 (check_rec_layout) then checks the table's own two words against
+// that same derivation, and the emitted body against the fire — table -> derivation -> image.
 comptime fn check_arm_layout(fires: array, out: array) -> int {
     let L = fire_lines(fires)
     for j in 0..fires.len {

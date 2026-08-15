@@ -507,10 +507,10 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         jbsr    HBlank_Uninstall
         rts
     .copy_program:
-        // A static ROM program is landing in Buf_A. The outgoing patched program's table
-        // described Buf_B's layout, and its arm_offs are meaningless against this one — a
-        // stale table here would rewrite Buf_A's op_counts as if they were arm words, every
-        // VBlank, and send the HInt walker through ROM as opcodes.
+        // A static ROM program is landing in Buf_A. A patch table left over from the outgoing
+        // patched program describes a DIFFERENT program's records, so the builder would keep
+        // re-recording that one over this buffer every VBlank and swap it live — the static
+        // program would never be walked at all.
         clr.l   Raster_Patch_Tab
         // The ship entry dies with the program that declared it, exactly as the patch table does.
         // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
@@ -772,19 +772,23 @@ pub data Raster_Program_None: [u16; 3] = [0, RASTER_ARM_PARK, RASTER_OPS_END]
 // PATCHED TEMPLATES (effects P2 Task 7, generalised in P3 P-a/P-b) — a raster program
 // whose boundary lines MOVE at runtime without rebuilding the program. The back buffer
 // Raster_Buf_B (reserved by P1 for exactly this) holds a runtime COPY of a template;
-// Raster_VBlank walks it because Raster_Active_Buf points at Buf_B, and Raster_PatchAll
-// rewrites one arm BYTE per patchable record each VBlank. A boundary move is one store.
+// Raster_BuildSchedule RE-RECORDS it from the ROM template each VBlank — into whichever of
+// Buf_A / Buf_B is not live, then swaps Raster_Active_Buf. A boundary move is a re-derived arm
+// word; a boundary that has left its band is a record the builder simply does not emit.
 //
 // P-b DELETED THE SINGLE-CHANNEL WATER SLOT that started this. WATER_TEMPLATE_ARM0_OFF
 // was a fixed byte offset 2 — the priming arm word of record 0 — which is where a
 // one-boundary program keeps its only moving part. That constant is gone because it was
 // the shape of the limit: one patch site per program, found by a magic offset rather
-// than described. P-a's patch table now carries a resolved arm_off PER RECORD and P-b's
-// patcher walks them, so the number of moving boundaries is a property of the content
-// rather than of the runtime. (The offset-2 fact itself survives, unnamed, inside
-// raster_dsl's arm_word_index: the header is ONE word, so record 0's arm is always
-// word 1 — [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6]... — which is what let the table
-// pre-resolve offsets at all.)
+// than described. P-a's patch table carried a resolved arm_off PER RECORD and P-b's patcher
+// walked them, so the number of moving boundaries became a property of the content rather
+// than of the runtime. Local removal then deleted arm_off outright — the builder emits the
+// records itself, so it knows where every arm word landed and needs nothing pre-resolved;
+// the table carries rec_off/rec_len instead, describing where each record IS rather than
+// which word to poke. (The offset-2 fact itself survives, unnamed, inside raster_dsl's
+// arm_word_index: the header is ONE word, so record 0's arm is always word 1 —
+// [pal_dirty_mask 0][arm0 2][opc0 4][arm1 6]... — which is what lets a rec_off be
+// pre-resolved and what makes the builder's 5-word prologue a constant.)
 
 // Raster_WaterArm — the priming arm word that lands the water fire at screen line M.
 // FORMULA (survey Ruling 1b — the one-interrupt arm lag): priming fires 0 and 1 land on
