@@ -128,6 +128,26 @@ has no silicon to arbitrate.
 The pins live in `raster_dsl.emp` beside the constants, so the model is held to all seven shapes at
 build time. Perturbing `RASTER_STREAM_WORD_CYC` by ONE cycle fails five of them by name.
 
+### Out-of-sample validation: it predicts SHIPPED content to the cycle
+
+The fixtures above are synthetic, and a model that only reproduces its own training set has proved
+nothing about content. Two shipped programs were then measured **incidentally**, while verifying an
+unrelated fix (EFX-7), and neither was used to fit anything:
+
+| live program | model | measured |
+|---|---:|---:|
+| OJZ section 0's patched program: 2 priming + water fire + channel-1 VSRAM fire | 572 + 660 + 458 = **1690** | **1690** cyc / 4 calls |
+| `OJZ_TestVsram`: 2 priming + one 1-word VSRAM fire | 572 + 458 = **1030** | **1030** cyc / 3 calls |
+| `Raster_Program_None` (armed, pre-EFX-7) | two `.park` entries | **512** cyc / 2 calls |
+
+Exact on both. The `calls` counts confirm the fire composition independently — 4 and 3, matching
+two priming records plus two and one authored fires.
+
+The third row is the one the model does NOT cover and should not be read as if it did:
+`Raster_Program_None`'s two entries take the `.park` exit, which is neither a no-op record nor a
+fire, and 512/2 = 256 sits below the 286 a priming record costs because `.park` skips the cursor
+advance. **`fire_cost_cycles` models FIRES; the terminator is not one.**
+
 ---
 
 ## The correction to the record
