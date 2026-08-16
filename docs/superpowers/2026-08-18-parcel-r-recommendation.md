@@ -1,5 +1,12 @@
 # PARCEL R — re-read against what shipped since. **The decision has collapsed.**
 
+> **SUPERSEDED 2026-08-18 — THIS RECOMMENDATION IS WRONG.** Its central claim, that `Palette_Buffer`
+> needs no new owner and is safe to read mid-frame, is false: `Palette_Compose` runs from the MAIN
+> LOOP during active display (`game_loop.emp:43-49`), so the buffer is one compose-generation AHEAD
+> of the CRAM a restore must match. Two lens seats found it independently. See
+> `2026-08-18-parcel-r-sweep-adjudication.md`. The ground truth below about WHERE the values live is
+> still correct; the conclusion drawn from it is not.
+
 **Date:** 2026-08-18
 **Supersedes the recommendation in** `2026-08-16-overnight-work-order.md` ("Parcel R (queue item 6)"),
 whose ground truth is all still correct. Only its conclusion is overtaken.
