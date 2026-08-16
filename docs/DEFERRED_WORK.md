@@ -213,8 +213,9 @@ does the right side of the screen become that palette?"*
 
 **The premise is correct.** The VDP reads CRAM as it draws each pixel, so a CRAM write part-way
 through a scanline changes the colours for the remainder of that line. We are already producing
-this effect BY ACCIDENT: channel 0's 3-word CRAM fire measures **526 cycles against a 489-cycle
-line** (`docs/superpowers/notes/` density measurement, 2026-08-14), so it spills past the line edge
+this effect BY ACCIDENT: channel 0's 3-word CRAM fire measures **518 cycles against a 488-cycle
+line** (`docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`, re-measured 2026-08-16; the 526 it
+replaces was an `interrupts.hint` figure, i.e. HBlank plus VBlank), so it spills past the line edge
 and repaints mid-line. That is the "cuts off halfway" the owner observed at the water boundary on
 2026-08-15 — the horizontal-boundary mechanism demonstrating itself unintentionally.
 

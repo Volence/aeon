@@ -750,7 +750,10 @@ Stated plainly rather than left for someone to discover on hardware:
   and claimed the result was dot-free by construction. On 2026-08-14 that was measured on oracle for the
   first time (`docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`):
 
-  - a 3-colour CRAM fire costs **526 cycles**; an NTSC scanline is **~488**;
+  - a 3-colour CRAM fire costs **518 cycles**; an NTSC scanline is **~488**;
+    (re-measured 2026-08-16 on the per-routine profiler row; the 526 first published here came off
+    `interrupts.hint`, which in this ROM is HBlank **plus** VBlank summed. The verdict is unchanged
+    — it still overruns — and the two figures are 1.5% apart.)
   - so consecutive colour fires **overrun the line**. Nothing is dropped — the counter is already
     armed, and the profiler confirms all 8 records still run — but each write lands progressively later,
     **inside active display**, which is exactly the dot the idiom claimed to avoid. Measured directly:

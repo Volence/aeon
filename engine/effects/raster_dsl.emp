@@ -1009,8 +1009,8 @@ comptime fn check_intervals(fires: array) -> int {
 // WITHOUT THIS, THE GUARD GOES VACUOUS THE MOMENT A FIRE CAN MOVE. Two channels banded
 // 40..120 and 121..200 with authored lines 100 apart pass the AUTHORED-line check trivially
 // (gap 100 lines) and then clamp to 120 and 121 at runtime — one scanline apart, two
-// 3-word CRAM fires at a measured 526 cycles against a 488-cycle line, which is precisely
-// the overrun this guard exists to refuse.
+// 3-word stream_cram fires at a measured 518 cycles against a 488-cycle line, which is
+// precisely the overrun this guard exists to refuse.
 comptime fn check_density(fires: array) -> int {
     comptime var i = 0
     for f in fires {
