@@ -1,176 +1,278 @@
 # NEXT-SESSION WORK ORDER — 2026-08-16
 
-Supersedes `2026-08-16-overnight-work-order.md` for queue purposes. That file's standing rules
-(how to use a Fable adviser, what to decide vs STOP on, the byte-moving ritual) still apply —
-read its top third; its queue items 1-5 are all DONE.
+Supersedes `2026-08-18-next-session-handoff.md`.
 
 ---
 
 ## State at handoff
 
-**Both repos on `master`, green, pushed, nothing in flight.**
+| repo | branch | state |
+|---|---|---|
+| **aeon** | `master` | merged, green, all four shapes rebuilt |
+| **sigil** | `master` | merged, green — repin + refreeze done (chain 128, tip `raster-cost-model`) |
+| oracle | `main` | untouched this session |
 
-- aeon `2587e986` — Merge parcel/offscreen-ship-setreg: the ship re-issues the whole fire
-- sigil `1d89baf9` — refreeze for aeon's set_reg replay (chain 126)
-- Verified pair. Suite **3721 / 0** across 329 test-result lines · contract closure **0 firings**
-- Four shapes boot and render: s4, s4.debug, demo, demo.debug
+The two repos were merged **as a pair**; a sigil tree at chain 128 does not build a pre-parcel aeon
+tree to the frozen bytes and vice versa (`[[reference_sigil_byte_changing_parcel_ritual]]`).
 
 ```bash
 export SIGIL_BUILD=/home/volence/sonic_hacks/sigil/target/release/sigil
 export SIGIL_EMIT=/home/volence/sonic_hacks/sigil/target/release/emit_sound_blob
 ```
 
-ROM CRCs: s4 `5acff780` · s4.debug `34078a94` · demo `8bff76d8` · demo.debug `3ccb680c`
+### ROM CRCs
+
+| shape | master (before) | branch (after) |
+|---|---|---|
+| `s4.bin` | `f0e45751` | **`d5daa3e5`** |
+| `s4.debug.bin` | `3da516e4` | **`a4438c22`** |
+| `demo.bin` | `dca06660` | **`c199280f`** |
+| `demo.debug.bin` | `6c5e1875` | **`7aa1aae4`** |
+
+`demo` moves because it links `Raster_Install` and therefore the whole raster module. Total ROM
+length is UNCHANGED in every shape — the +4 bytes came out of inter-section padding.
+
+### One environment trap worth keeping
+
+**The `Bash` tool died mid-session and came back on its own.** Every call — including `/bin/echo` —
+returned exit 1 with empty output for several minutes, workspace-wide (a subagent hit the same
+wall). It recovered without intervention. When it did, `ps` showed **588 processes, 42 GB free**, so
+it was NOT the resource exhaustion it looked like; but it also showed **9 orphaned `Xvfb`
+processes** from the cost-model sweep's ~40 headless boots, and a long-lived `oracle_gui` that is
+the user's own live instance and must not be reaped.
+
+Practical rule: **check `pgrep -c -f Xvfb` between probe batches**, and if the shell goes silent,
+retry for a few minutes before concluding anything — and never blanket-`pkill oracle_gui`, because
+one of them is the user's.
+
+A second-order trap this exposed: a command that appears to fail with no output **may have
+completed its work**. The `refreeze --freeze` that returned exit 1 with no output had in fact
+written every golden and the provenance entry. Check the tree before re-running a mutating tool.
 
 ---
 
-## What shipped, and the one thing to read before the next effects parcel
+## What shipped (all on `raster-cost-model`)
 
-**The off-screen frame-top ship.** A patched program carries a trailer at `128 + 2 + 8*records`
-describing a frame-top DMA built from the marked fire's OWN `pal_region` op; the runtime ships it
-on frames where that channel's latched screen line is `<= 0`. Authored as
-`patchable(..., offscreen_ship: 1)`. Plan, before-measurement and gate evidence are in
-`docs/superpowers/plans/2026-08-15-water-offscreen-state.md` and
-`docs/benchmarks/effects-p3-water-state/`.
+### 1. Two live raster bugs, both found while auditing Parcel R
 
-### The follow-up owner testing found, and the lesson in it
+- **`Raster_InstallPatched` ship-entry publish race.** `Effects_Offscreen_Entry` was published ~10
+  instructions before `Raster_BuildShipEntry` filled the `Static_Pal_Ship` entry it names.
+  `Enqueue_Dirty_Buffers` tests only that pointer and then queues `Static_Pal_Ship`, so a VBlank in
+  the window shipped the PREVIOUS program's source/destination/length under this program's trailer.
+  Now: clear for the whole install window, build, publish last. 0 is the consumer's inert value, so
+  the worst case is one frame with no ship instead of one frame with the wrong one.
+- **`Raster_Dense_Lines` never reset per frame.** A dense run whose line count reached past line 223
+  never counted down to 0; left set, the next frame's first HInt took `.dense_body` and streamed
+  from a stale cursor across the top of the screen. Now rewound beside `Raster_Cursor` in
+  `Raster_VBlank`.
 
-The ship first shipped covering only the fire's `pal_region`. OJZ's water fire also carries
-`sh_on()`, so fully submerged the top rows had the shimmer and the colour tint but **no
-Shadow/Highlight** — visibly lighter. Fixed the same day (the trailer carries the fire's
-`set_reg` words and `Enqueue_Dirty_Buffers` replays them after `Flush_VDP_Shadow`).
+### 2. The measured per-fire cost model
 
-**None of the parcel's own gates could have caught it.** The entry decode, the CRAM poison test
-and the enqueue breakpoint all asked *"is the palette right?"*, because that is the mechanism
-that got built. **A gate built around the mechanism you implemented cannot see the part of the
-requirement you did not implement.** When a parcel re-issues a composite thing — a fire is an op
-LIST — gate the composite, not the op you happened to wire up.
+`fire_cost_cycles` was `418 + 36 x stream_words` summed over stream ops only. It is now
 
-### READ THIS FIRST: oracle pixel capture is not a gate here
+```
+FIRE_BASE + sum over ops of ( fetch + dispatch(depth) + class work + word slope x words + tail )
+```
 
-The planned gate was a screenshot A/B and it was **abandoned mid-parcel**. Three capture
-protocols were tried; each was killed by its own determinism control, not by a wrong-looking
-result (15,846 px → then 20,834 → then 12,972 between runs of ONE config). Two confirmed causes:
+Every constant measured on oracle AND independently confirmed by hand-counting the emitted 68000
+stream. Eight fixtures, four free parameters, **zero residual**. Dispatch depth derives from the
+opcode order, so inserting an opcode re-prices everything behind it.
 
-- **`emulator_reset` is DEFERRED.** The same "reset then 180 frames" gave `Frame_Counter` 175,
-  319 and 409. Always press ~2 frames and read the counter back to confirm the reset landed.
-- **`BgAnim_Update` drives from `Logic_Tick`, the LAG-IMMUNE tick** (`bg_anim.emp:124-140`), so
-  two builds — or one build after an emulator relaunch — sit at different animation phases at the
-  same frame number. **Cross-build pixel comparison is therefore unsound**; a provably no-op
-  refactor still differed by 13,270 canopy pixels.
-- **`run_to_scanline` polls at ~16 ms**, a whole frame. A CRAM sample through it appeared to show
-  a bug that a breakpoint then disproved.
+**Evidence: `docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`** — a file four places already cited
+and which did not exist. **Rig: `tools/raster_cost_probe.py`.**
 
-**Gate on structure: arm words in `Raster_Buf_B`, breakpoints at the code you mean, and CRAM
-sampled at a point you can defend — with the poison applied IN THE SAME RUN.** Same-ROM
-comparison is sound; cross-ROM is not. This is the second parcel to pay this cost, which makes
-queue item 1 below the highest-leverage thing on the list.
+---
 
-### Two traps this parcel paid for
+## THE FINDING THAT MATTERS MOST
 
-- **A cross-seam reference is invisible to `build.sh`.** Four new ones (`Effects_Screen_L`,
-  `Effects_Offscreen_Entry`, `Static_Pal_Ship`, `Build_DMA_Entry`) built green in aeon and broke
-  **five sigil port targets**, because a `*_port` test compiles its module standalone. Add the
-  symbol to `crates/sigil-harness/repin.toml` AND to each test's carrier table.
-- **A link-time address cannot enter an emitted image that a comptime pin compares.** Folding
-  `extern("Pal_Variant_Stage")` into the program trailer made the whole image non-comptime and
-  broke `first_mismatch(patched_program(...), hand_twin)`. Three spellings, three
-  `here.provisional` failures. Carry parameters and add the base at runtime.
-  The same rule killed an `extern()` inside a module-scope `ensure` in `raster_dsl.emp` — that
-  module is a COMPTIME_HELPERS member, glob-injected everywhere, so the guard evaluates wherever
-  the injection lands.
+**The parcel brief's central claim was FALSE, and the tree already contained the refutation.**
+
+The brief said `check_density` charged roughly HALF what a fire costs. That came from differencing
+oracle's `interrupts.hint`, which **in this ROM is HBlank plus VBlank, entire** — oracle classifies
+an interrupt by comparing its handler entry address against `$78` and a fixed ROM window, and
+`VBlank_Handler` at `$2310` matches neither. Proof from one live sample, to the cycle:
+`interrupts.hint` 9,370 = `VBlank_Handler` 5,690 + HBlank trampoline 3,680, `vint` 0.
+
+| fire | old model | brief's figure | actually |
+|---|---:|---:|---:|
+| `reg_sh_on` + 3-word `stream_pal_region` | 526 | ~1,002 | **660** |
+| 1-word `stream_vsram` | 454 | ~665 | **458** |
+
+**The old model was accurate to 1.5% on both shapes it was fitted to.** It was mis-STRUCTURED, not
+under-charging — and one of the four structural faults was that the per-fire base was charged once
+per STREAM OP rather than once per fire, so two errors in opposite directions cancelled on the one
+shape anyone had checked.
+
+Three things to carry forward from this:
+
+- **`tools/effects_budget_model.toml` had recorded the classifier bug on 2026-08-14**, in detail,
+  including the phrase "confirmed three times on live data, to the cycle". Two later sessions
+  measured against the broken counter anyway. `[[feedback_read_your_own_notes]]` again.
+- **A caveat that says "never compare two configs that differ in VBlank work" has already conceded
+  the counter is not measuring what its name says.** That was the moment to read
+  `OpGetProfilerFrames`; it took two minutes when finally done.
+- **The old model could not have failed its own pins**: two anchors, two parameters. Fitting a model
+  to exactly as many points as it has parameters proves nothing. The replacement is pinned to eight
+  measurements with four parameters, so the pins can fail — and a one-cycle perturbation of
+  `RASTER_STREAM_WORD_CYC` fails five of them by name.
+
+---
+
+## The measured numbers, for anyone costing a raster effect
+
+| what | cycles |
+|---|---:|
+| per-fire constant (prologue, arm write, decode, epilogue, `rte`) | **302** |
+| a `reg_set` op | 94 |
+| a `stream_cram` / `stream_vsram` op, 1 word | 156 |
+| a `stream_cram` op, 3 words | 216 |
+| a `stream_pal_region` op, 3 words | 264 |
+| one dispatch rung (failed compare) | 16 |
+| one streamed word | 30 |
+| NTSC scanline | 488 |
+
+Whole fires: one `reg_set` **396**; 1-word stream **458**; 3-word `stream_cram` **518**; 3-word
+`stream_pal_region` **566**; the OJZ water fire (`reg_sh_on` + 3-word region) **660**.
+
+**A `stream_vsram` word costs exactly what a colour word costs** — measured, not assumed. Same
+instruction path: a VSRAM op emits `OP_CRAM` with a different command longword.
+
+---
+
+## The instrument, and how to use it again
+
+```bash
+python3 tools/raster_cost_probe.py                 # the whole F-series
+python3 tools/raster_cost_probe.py --repeat 5      # the noise floor
+python3 tools/raster_cost_probe.py --dump --only F3 # every profiler routine row
+```
+
+- **Read the per-routine row, never `interrupts.hint`.** The probe keys on the HBlank trampoline's
+  entry address (`$FFB452`), which oracle prints as `$FFFFB452` — compare the low 24 bits, and note
+  the row carries no symbol name, so matching on `HBlank_Vector_Slot` finds nothing.
+- **Noise floor is ZERO.** Five independent boots per fixture, eight fixtures, spread 0 on all,
+  `calls` identical too. The "+/- 35" figure was the spread of `interrupts.hint` on live content
+  with the camera running. **Do not carry that number forward.**
+- **Fixtures install by RAM poke** — the program image straight into `Raster_Buf_A` with
+  `Raster_Patch_Tab` / `Effects_Offscreen_Entry` / `Raster_Active_Buf` / `Raster_Program` beside it.
+  No ROM bytes, no `map.toml` entry, no frozen-table work, no rebuild per fixture.
+- **`calls` is the install check** — it reports the fires the hardware actually took, so a
+  mis-encoded fixture shows up as a wrong fire count before any cycle figure is read.
+- **The profiler is driven by the GUI MAIN loop, not by `run_frames`.** `set_profiler` only flips a
+  flag; the main loop is what calls `SetProfilingEnabled(true)` and drains the event ring. Sleep
+  ~0.4 s after enabling AND after the run, or you get "no profiler frames recorded".
+- **`headless_emulator` launches oracle with `env -C <oracle repo>`**, so a RELATIVE ROM path
+  silently fails to load while every poke and read still answers `ok` against blank RAM. The only
+  symptom is "no profiler frames recorded", which reads like a profiler problem and is not.
+
+---
+
+## Emulator evidence behind the freeze
+
+The `--ab` string on chain entry 128, verbatim:
+
+> `aeon@af32aea7 — ab_runner A/B master vs branch on all three committed effects scenes (mid_band /
+> suppressed / above_screen), s4.debug.bin: ALL EQUAL on every gated capture including the whole-VDP
+> state_hash, --selfcheck deterministic on all three. Replay fixtures NOT run: the net desyncs on
+> MASTER at tick 735 (booked, docs/BUGS.md) and the arming recipe is a still-open queue item, so
+> they cannot discriminate this change. ROM effect is +4 bytes in RASTER, everything after shifted
+> 4; total ROM length unchanged.`
+
+The three scenes returning EQUAL is the CORRECT result: both bugs are a race window and a dense
+overrun, neither reachable in the scenes' normal path. What the A/B rules out is a regression in the
+path that IS reachable, and the whole-VDP `state_hash` covers it.
+
+**The replay net is not a usable gate right now and that is not this parcel's doing** — see the
+2026-08-14 order's "the arming recipe is missing" section. Do not let a freeze be blocked on it
+without saying so explicitly in the `--ab` string, which is what was done here.
+
+---
+
+## Also verified this session
+
+- `effects_budget_check` went from **8 gated rows to 19** — the cost model's constants now have a
+  machine-checked path from `effects_budget_model.toml` back to the shipped `.emp`. Poisoned in
+  both directions (a wrong TOML row fails; a one-cycle `.emp` change fails five fixture pins).
+- The density guard demonstrated **refusing and admitting** by building: two 3-colour fires one line
+  apart REFUSED; two lines apart ADMITTED with the ROM byte-identical; four `reg_set`s then a fire
+  one line later REFUSED at 678, where the old model scored it **0**.
+- Every program shipped in the tree still builds. Nothing is near the boundary —
+  `OJZ_TwoChannel`'s bands are 2 fire lines apart (976 cycles) against a heaviest fire of 660.
+- `repin` moved 6 pins, all +4: `RASTER` len, then `PALETTE` / `PRESET` /
+  `EFFECTS_INSTALL_PRESET` / `RASTER_GET_CHANNEL_BAND` / `PALETTE_COMPOSE` bases. After it,
+  `raster_port`, `raster_negative_probes`, `parallax_port`, `game_loop_port`, `soundbankhead_port`
+  all re-ran **green**.
+
+### A pre-existing sigil failure, NOT from this parcel
+
+`sigil-frontend-emp/tests/deep_nesting_aborts.rs::depth_diagnostic_does_not_flood` **overflows the
+stack** (SIGABRT) in a debug build. The test file has no aeon input at all — pure synthetic source —
+and the sigil tree was clean at `b30b136a` when it failed, so it is independent of everything here.
+A parser depth guard that is supposed to emit a bounded diagnostic is recursing to death instead.
+**This contradicts the 3717/0 baseline the previous order recorded**, so that baseline was either
+taken with a different runner or has since regressed. Worth 20 minutes.
 
 ---
 
 ## The queue
 
-### 0. OWNER RULING 2026-08-15: take the Ristar HBlank schedule NEXT
+### 1. Finish the freeze ritual (above). Then merge aeon + sigil as a pair.
 
-Chosen over the framebuffer dump, Parcel R and Parcel D. The reasoning that decided it: it fixes
-a defect visible in play, it removes a structural limitation rather than working around one, and
-its gate is STRUCTURAL (arm words, chain walks) — which is where this lane's instruments are
-currently strong, given oracle pixel capture is not usable as a gate.
+### 2. Parcel R — mid-screen restore. Now unblocked on the cost side.
 
-**IT IS DESIGN-FIRST, AND THE DESIGN NEEDS OWNER SIGN-OFF BEFORE ANY CODE.** It changes the
-raster program's wire format, which is the "engine DIRECTION / freezes a format / hard to
-reverse" row of the standing rules table — that is a STOP-and-brief, not a decide-yourself. Do
-NOT go from research straight to a plan.
+Its brief deferred it partly because a fourth stream op would enter a model that already
+under-charged the third. That is no longer true: the model charges every op class its measured cost
+including dispatch position, and **a new opcode automatically re-prices every op behind it** — so R
+can be costed honestly by adding one `match` arm and one measured work constant.
 
-Sequence: research → design draft → **three mixed-model adversarial lenses** on the draft →
-owner sign-off → plan → execute. The lens sweep is not optional here; the same method on Parcel
-P's draft found nine design-changing defects, three of which were flatly wrong claims that would
-otherwise have shipped behind a green-looking gate.
+**Read the adjudications before touching it**: `2026-08-18-parcel-r-sweep-adjudication.md`,
+`-sweep-2-adjudication.md`, `-review-of-the-review.md`. Settled: the palette mechanism is sound
+(snapshot `Palette_Buffer` per line at each `bclr` in `Enqueue_Dirty_Buffers`); `OP_RESTORE_REG` is
+dead (three independent kills); scroll needs its own derivation. Recommended scope: **one band SPAN
+per program, palette only, program-keyed ship refusal.**
 
-**Research the whole corpus before drafting, not just Ristar:**
+Two process lessons that killed both R drafts and still apply: **an adjudication MINTS fixes, and
+those fixes enter the next draft UNSWEPT** — treat a fix named in an adjudication as a claim to be
+swept, not a ruling to build on. And **positive claims need MORE redundancy than kills**: a kill
+needs one witness, soundness has to survive all of them.
 
-| source | what it settled |
-|---|---|
-| Ristar (`ristar_disasm/code/disasm.asm:14556-14595`) | each node writes its own gap AND its own successor, so removal is LOCAL; two independently armed effects off one chain with separate thresholds; a disarmed effect costs interrupt entry + `tst`/`beq`/`rte` (~40 cyc) instead of its payload (`:16184-16199`, arm tests at `$00E142`/`$00E250`/`$00E2A0`/`$00E30E`) |
-| Sonic 2 (`s2.asm:5280-5292`) | clamps to 223 — **exactly what Aeon does today**, bug included |
-| S3K / S.C.E. | deliberately changed it to DISARM. The corpus has already ruled against the clamp |
-| S3K `HInt5` (`sonic3k.asm:1060-1108`) | Sega's own byte-for-byte water handler with base/water swapped, shipped DISABLED — read before proposing anything shaped like it |
+### 3. EFX-7 — `Raster_VBlank`'s explicit-clear arm is unreachable
 
-**What it must unblock**, and this is the acceptance criterion, not a nice-to-have: the DRY
-direction entry in `docs/DEFERRED_WORK.md`. Today a patch channel's fire clamps to `hi` and
-paints up to ~10 rows that should be dry, and the parallax side clamps the same way ON PURPOSE
-so the two are wrong together. When a record can be parked individually, BOTH sides get to stop
-— and they must be changed together, or a consistent error becomes a disagreement, which is the
-defect Parcel W exists to remove.
+Independently re-derived twice now: `HBlank_Uninstall` has no live caller, so IE1 is never dropped.
+Byte-changing, deliberately open. Note it interacts with the dense-counter fix above — with no
+program armed the handler is still installed, so a stale cursor is still walkable.
 
-**Traps carried in from this parcel:**
-- The clamp exists because a negative inter-record gap stores `$FF`, and `$8AFF` IS the park
-  word. Any new encoding has to answer what the old one could not express, not just re-spell it.
-- A new cross-seam reference is invisible to `build.sh` and breaks sigil port targets silently.
-- A link-time address cannot enter an emitted image that a comptime pin compares.
-- Gate the COMPOSITE, not the element you wired up (the `set_reg` lesson above).
+### 4. Render anchoring in `oracle`, then the framediff instrument
 
-### 1. `replay_runner` framebuffer dump — the runner-up
+Unchanged and still in that order; the second is worthless before the first. **A gate may select and
+assert on REPORT fields; it may never read pixels.**
 
-Unchanged from the previous order's item 2, where its design is fully settled (whole frames as
-the dump primitive, a separate `replay_framediff` binary, `--expect-identical` as the control,
-no committed golden images, and gates may read the REPORT but never pixels). Repo: `oracle-next`.
+### 5. Also open
 
-Two parcels have now built their gates by hand because it does not exist, and this one had to
-abandon its pixel gate outright. The determinism causes above are exactly what a headless,
-tick-pinned runner dissolves.
-
-### 2. Ristar's self-rewriting linked-list HBlank schedule
-
-Also unchanged, and it is now load-bearing for a booked defect rather than only an optimisation:
-**the DRY direction of a patch channel is blocked on it** (written up in `docs/DEFERRED_WORK.md`
-under "The DRY direction of a patch channel"). Aeon cannot disarm ONE patched channel because arm
-gaps are relative, so parking a record kills every later fire in the frame. Ristar's nodes write
-their own gap AND their own successor (`ristar_disasm/code/disasm.asm:14556-14595`), making
-removal local; a disarmed effect costs ~40 cycles instead of its payload.
-
-### 3. Parcel R — mid-screen restore. STILL STOPPED, and its brief still stands
-
-See the previous order's brief. Its recommendation was **(C) defer R until after W**, on the
-grounds that R's hard part is ownership of derived state and W was about to answer it. W has now
-shipped, and so has this parcel — which added exactly such an owner (`Effects_Screen_L`, one
-producer, three readers). **Re-read the brief against that**: the question is whether the latch
-pattern generalises to a pre-effect staging buffer, which would collapse R's decision.
-
-### 4. Parcel D — starter pack + content.
-
-### Also open
-
+- The band-budget parcel (relax `check_intervals`) — worth ~3 rows, priced honestly.
+- Parcel D — starter pack + content. The visible one.
 - Sound packages **5** and **6**; the `STRESS_EVICT` famine root-cause.
-- **EFX-2** (cross-fade unreachable) and **EFX-7** (`Raster_Clear` no-op, `HBlank_Uninstall`
-  unreachable) — both byte-changing, both deliberately open.
-- **Splitting the VSRAM op class** off `RASTER_CRAM_MAX` — only CRAM writes glitch, so `vsram`
-  inheriting the 3-word ceiling is pure loss. It only ever makes fires cheaper.
-- **Spacing sweep 2/4/8 lines**, to find where the adjacent-`cram` dot disappears.
-- `tools/demo_drift_classifier.py` is still **run by nothing** — it is invoked by hand at ritual
-  time. Same class as EFX-9 was before Parcel B wired it into `build.sh`. Worth wiring, but note
-  it needs a `--changed` list per parcel, so the wiring is not a plain "add it to build.sh".
+- **EFX-2**; splitting the VSRAM op class off `RASTER_CRAM_MAX` (now known to only ever make fires
+  cheaper, so nothing the model admits today becomes illegal under it); the spacing sweep 2/4/8.
+- `tools/demo_drift_classifier.py` is still run by nothing.
+- **sigil:** `lea -NAMED_CONST(aN), aN` is silently DROPPED by the contract-closure walk.
+  Workaround: `suba.w #CONST, aN`.
 
 ---
 
-## Residuals this parcel accepted, on purpose
+## Traps banked this session
 
-- **The dry direction**: up to ~10 rows wrongly tinted when the anchor is below the screen.
-  Blocked on item 2. Both boundaries clamp together, so they are wrong TOGETHER — do not "fix"
-  the parallax side alone, that trades a consistent error for a disagreement.
-- **The 1..3 window**: with the anchor 1-3 rows below the screen top the boundary still renders
-  at screen 3. Both sides agree there, which is the property that matters.
+- **`.emp` expressions cannot span lines.** A multi-line `&&` inside an `ensure` condition, or a
+  multi-line `+` in a `return`, is a parse error — the line break ends the expression. Breaking
+  after the `,` between condition and message is fine, which is why the existing multi-line
+  `ensure`s look like they contradict this.
+- **A comptime fn's free names resolve at the CALL SITE**, so the cost model's constants had to be
+  DEFINED in `raster_dsl` and pinned to the imported opcodes at module level, not spelled as
+  arithmetic over the imports. This module's opening note already said so; it is worth re-reading
+  before adding anything to it.
+- **An unreferenced `const` is inert.** A poison probe needs an `ensure` that reads it, or the
+  program is never evaluated and the probe silently proves nothing.
+- **`git add` exact paths only.** `games/sonic4/data/editor/**` belongs to an auto-commit daemon.
+- **Subagents must never touch `mcp__oracle__*`.** The `ab_runner` harness and
+  `raster_cost_probe.py` are both safe — they isolate each instance under its own
+  `XDG_RUNTIME_DIR`.

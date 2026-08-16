@@ -1,9 +1,44 @@
 # BRIEF — a truthful per-fire cost model for the raster tier
 
 **Date:** 2026-08-18
-**Status:** scoped, not started. Prerequisite for Parcel R (which adds a fourth stream op into a
-model that already under-charges the third).
+**Status: DONE 2026-08-16.** Shipped as the measured model in `engine/effects/raster_dsl.emp`,
+measured by `tools/raster_cost_probe.py`, evidence in
+`docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`.
 **Vocabulary:** `docs/EFFECTS_OP_CLASSES.md` — reg / stream / run.
+
+> ## READ THIS BEFORE THE REST OF THE BRIEF
+>
+> **The central claim below — that the model charges roughly HALF what a fire costs — is FALSE,
+> and the brief itself contains the reason.** It records that `interrupts.hint` "includes some
+> VBlank work" and treats that as a usability caveat. It is not a caveat. In this ROM that counter
+> is HBlank **plus** VBlank, entire: oracle classifies an interrupt by comparing its handler's
+> entry address against `$78` and a fixed ROM window, and `VBlank_Handler` at `$2310` matches
+> neither, so the whole VBlank handler lands in the HInt bucket. Proof from one live sample, to the
+> cycle: `interrupts.hint` 9,370 = `VBlank_Handler` 5,690 + HBlank trampoline 3,680, `vint` 0.
+>
+> Every "measured" figure in the tables below is therefore two handlers summed. Suppressing a
+> record removes VBlank schedule-build work as well as the fire, so the ~1,002 and ~665 each carry
+> a few hundred cycles of VBlank. Re-measured on the **per-routine row**, where the two handlers
+> are separate rows:
+>
+> | fire | old model | this brief's figure | actually |
+> |---|---:|---:|---:|
+> | `reg_sh_on` + 3-word `stream_pal_region` | 526 | ~1,002 | **660** |
+> | 1-word `stream_vsram` | 454 | ~665 | **458** |
+>
+> **The old model was accurate to 1.5% on both shapes it was fitted to.** The parcel was still
+> worth doing — its other three findings are real and now measured (reg ops charged zero, all
+> stream ops charged alike, dispatch depth invisible), plus a fourth nobody named: the per-fire
+> base was charged once per STREAM OP rather than once per fire, so two errors in opposite
+> directions cancelled on the one shape anyone checked.
+>
+> The lesson is not "the instrument was noisy". It is that a caveat which says *do not compare
+> configs differing in VBlank work* had already established the counter was not measuring what its
+> name said, and the inference was drawn anyway. The fix was two minutes of reading
+> `OpGetProfilerFrames`, and the tree already recorded the same finding in
+> `tools/effects_budget_model.toml` on 2026-08-14.
+>
+> Everything from here down is the brief as written, kept for the record.
 
 ---
 
@@ -156,6 +191,61 @@ that would have caught the regression the reviewers found by hand.
 region fires are charged properly, an existing fixture may fail `check_density`. That is either a
 real latent overrun the guard should always have caught, or the model over-charging — and
 distinguishing the two is oracle work that belongs in this parcel, not a surprise during it.
+
+---
+
+---
+
+## WHAT WAS ACTUALLY DELIVERED (2026-08-16)
+
+Against the definition of done immediately below:
+
+1. **Noise floor: ZERO.** Five independent boots per fixture, eight fixtures, 30-frame samples —
+   spread 0 on every one, `calls` counts identical too. The instrument is the per-routine row from
+   a reset anchor with `Debug_Scene_Freeze = 1`; `cycles` and `calls` are divided by frame count
+   inside the emulator, so a multi-frame sample is exact rather than averaged. The "+/- 35" figure
+   was the spread of `interrupts.hint` on live content with the camera running.
+2. **Eight fixtures measured** (F0-F7; F7 added — a VSRAM word, to test the op-class assumption
+   rather than inherit it). Every difference is larger than the noise floor by construction.
+3. **`fire_cost_cycles` replaced** by `FIRE_BASE + sum(fetch + dispatch(depth) + class work +
+   word slope x words + tail)`. Four free parameters, eight measurements, **zero residual**. Every
+   op term confirmed a second way by hand-counting the emitted 68000 stream; only the per-fire base
+   is measurement-only. Dispatch depth derives from the opcode order, so inserting an opcode
+   re-prices everything behind it — the property the review asked for.
+4. **Every existing program still builds**, all four CRCs unchanged (the model is comptime). No
+   refusal to resolve: nothing shipped is near the boundary. `OJZ_TwoChannel`'s bands are 2 fire
+   lines apart (976 cycles) against a heaviest fire of 660.
+5. **Poison tests, both halves, demonstrated by building**: two 3-colour fires one line apart are
+   REFUSED with the derived message; two lines apart are ADMITTED with the ROM byte-identical; a
+   four-`reg_set` fire is REFUSED at 678 where the old model scored it **0**. Separately,
+   perturbing `RASTER_STREAM_WORD_CYC` by one cycle fails five fixture pins by name.
+
+Two things beyond the brief:
+
+- `docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md` **did not exist** while four files cited it. It
+  does now, and it is where the F-series lives.
+- `tools/effects_budget_model.toml` gained the model's constants as GATED rows —
+  `effects_budget_check` went from 8 code-derived rows to 19. The numbers a build-time guard
+  divides by now have a machine-checked path back to the code.
+
+### The rig, and why it is not an `ab_runner` scene
+
+`tools/raster_cost_probe.py`. The brief assumed the measurement would be a hand ritual bounded by
+the MCP wedging every 10-15 calls. It is a single scripted sweep instead, and it never touches the
+MCP: it drives the harness's own isolated headless instance. Two decisions carried it:
+
+- **Fixtures install by RAM poke.** A raster program is a flat `[u16]` that lives in `Raster_Buf_A`
+  once installed, so a fixture is written straight into the buffer with `Raster_Patch_Tab`,
+  `Effects_Offscreen_Entry`, `Raster_Active_Buf` and `Raster_Program` poked beside it. No ROM
+  bytes, no `map.toml` entry, no frozen-table work, no rebuild per fixture, and no engine change —
+  a rig that needed engine code would be measuring the rig.
+- **`calls` is the install check.** It reports the fires the hardware actually took, so a
+  mis-encoded program shows up as the wrong fire count before any cycle figure is read.
+
+One trap worth keeping: `headless_emulator` launches oracle with `env -C <oracle repo>`, so a
+RELATIVE ROM path silently fails to load while every poke and read still answers `ok` against blank
+RAM. The only symptom is `get_profiler_frames` reporting no frames, which reads like a profiler
+problem and is not. The probe resolves paths to absolute and says so.
 
 ---
 

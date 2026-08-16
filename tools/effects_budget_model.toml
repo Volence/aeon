@@ -41,21 +41,56 @@ movem_roundtrip_cycles = 40         # fixed — 4-register movem push+pop
 sparse_tier_cycles_per_frame_SUPERSEDED = 8358
 sparse_tier_frame_pct_SUPERSEDED        = 6.5
 
-# MEASURED 2026-08-14 (oracle, OJZ section 0, differentials within one shape so the
-# instrument's constant terms cancel). Evidence: docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md
-#   3 records (2 priming + 1 vsram event)  = 1026 cyc/frame
-#   8 records (2 priming + 6 vsram events) = 3296  -> marginal 454 cyc per fire
-#   8 records (2 priming + 6 cram3 events) = 3656  -> marginal 526 cyc per fire
-sparse_fire_vsram1_cycles = 454      # measured-differential
-sparse_fire_cram3_cycles  = 526      # measured-differential
+# RE-MEASURED 2026-08-16 on the PER-ROUTINE row (tools/raster_cost_probe.py), which reads
+# the HBlank trampoline alone. Evidence: docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md.
+# Noise floor ZERO — five independent boots per fixture, eight fixtures, spread 0 on all.
+#
+# The 2026-08-14 values these replace (454 / 526) came off `interrupts.hint`, which in this
+# ROM is HBlank + VBlank summed, so their differentials carried VBlank schedule-build work.
+# They were nonetheless close: 454 against 458, 526 against 518. The superseded pair is kept
+# below rather than deleted, because a later reader finding "454" in an old doc needs to be
+# able to tell which measurement it was.
+sparse_fire_vsram1_cycles = 458      # measured — fixture F7 (and F2, identical)
+sparse_fire_cram3_cycles  = 518      # measured — fixture F3
+sparse_fire_reg1_cycles   = 396      # measured — fixture F1; the old model scored this ZERO
+sparse_fire_region3_cycles = 566     # measured — fixture F4
+sparse_fire_water_cycles  = 660      # modelled — reg_sh_on + 3-word region, the OJZ water fire
+sparse_fire_vsram1_cycles_SUPERSEDED = 454   # interrupts.hint differential, 2026-08-14
+sparse_fire_cram3_cycles_SUPERSEDED  = 526   # interrupts.hint differential, 2026-08-14
 ntsc_scanline_cycles      = 488      # fixed — 128000 / 262, floored
+
 # The consequence, and the rule the density guard encodes: a 1-word vsram fire FITS
 # inside a scanline and adjacent vsram fires are clean; a 3-colour cram fire does NOT,
 # so consecutive colour fires overrun into active display and paint a mid-line colour
 # change. Nothing is dropped — `calls` stays 8 — the writes just land late.
 adjacent_fire_verdict = "vsram1 OK adjacent; cram3 must be spaced >= 2 lines"
-per_fire_cycles      = "see sparse_fire_* rows above (measured-differential)"
+per_fire_cycles      = "see sparse_fire_* rows above, and [raster.cost_model] for the model that predicts them"
 program_overhead_fires = 2           # code-derived — the two priming records
+
+# The cost model's own constants, gated against raster_dsl.emp by the [symbols] table below.
+# Structure: fire_base ONCE per fire, then per op fetch + dispatch(depth) + class work +
+# word slope x stream words + loop tail. Every constant confirmed twice — measured on oracle
+# AND hand-counted off the emitted 68000 stream at s4.debug.bin $79CC..$7A5C.
+#
+# NOTE this table is code-derived and therefore GATED, unlike the measured rows above it.
+# That is deliberate and it is the point of the parcel: the numbers a guard actually uses
+# now have a machine-checked path back to the shipped code, so a constant cannot drift out
+# from under this file the way `418 + 36x` did.
+[raster.cost_model]
+fire_base_cycles       = 302         # code-derived — RASTER_FIRE_BASE_CYC
+op_fetch_cycles        = 8           # code-derived — move.w (a1)+, d1
+dispatch_rung_cycles   = 16          # code-derived — a FAILED rung: cmpi.w + beq.s not taken
+dispatch_hit_cycles    = 18          # code-derived — the matching rung: cmpi.w + beq.s taken
+op_tail_cycles         = 10          # code-derived — dbf d0, .op_loop, taken
+stream_word_cycles     = 30          # code-derived — move.w to VDP_DATA + dbf
+work_reg_cycles        = 12          # code-derived — move.w (a1)+, (a2)
+work_cram_cycles       = 90          # code-derived — cmd move.l 20 + moveq 4 + blank spin 54 + count 8 + tail dbf 4
+work_region_cycles     = 122         # code-derived — the above + lea 8 + adda.w 8 + lea restore 12
+dispatch_rungs         = 4           # code-derived — chain length; OP_SET_REG falls through it
+scanline_cycles        = 488         # code-derived — RASTER_SCANLINE_CYC
+residual               = 0           # eight fixtures, four free parameters, zero residual
+noise_floor_cycles     = 0           # five boots per fixture, spread 0 on all eight
+instrument             = "the per-routine row for the HBlank trampoline — NEVER interrupts.hint, which is HBlank + VBlank summed in this ROM"
 
 [raster.op_pal_region]
 # A region is a SCOPED colour swap (<= cram_words_per_fire), streamed from a variant's
@@ -67,7 +102,7 @@ handler_extra_cycles = "NEEDS-MEASUREMENT"  # oracle: lea+adda.w+stream vs a pla
 # measurement's label. It is how many fires a 16-colour line needs, nothing more.
 full_line_fire_lines = 6             # code-derived — ceil(16 / 3)
 # And the measured consequence: six of them CONSECUTIVELY is refused by the density
-# guard, because a 3-colour cram fire is 526 cyc against a 488-cyc line. A full-line
+# guard, because a 3-colour cram fire is 518 cyc against a 488-cyc line. A full-line
 # swap belongs in the dense tier, which stays inside one interrupt.
 full_line_consecutive_verdict = "REFUSED — space them, or use the dense tier"
 
@@ -190,3 +225,19 @@ free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 "ram.palette_state_bytes"                   = "engine/effects/palette.emp:PALETTE_STATE_SIZE"
 "ram.raster_state_bytes"                    = "engine/effects/raster.emp:RASTER_STATE_SIZE"
 "ram.variant_stage_bytes"                   = "engine/effects/palette.emp:PAL_MAX_VARIANTS * 128"
+# The cost model. These are the constants a build-time GUARD divides by, so they are the ones
+# where a silent drift between this file and the code costs the most.
+"raster.cost_model.fire_base_cycles"        = "engine/effects/raster_dsl.emp:RASTER_FIRE_BASE_CYC"
+"raster.cost_model.op_fetch_cycles"         = "engine/effects/raster_dsl.emp:RASTER_OP_FETCH_CYC"
+"raster.cost_model.dispatch_rung_cycles"    = "engine/effects/raster_dsl.emp:RASTER_DISPATCH_RUNG_CYC"
+"raster.cost_model.dispatch_hit_cycles"     = "engine/effects/raster_dsl.emp:RASTER_DISPATCH_HIT_CYC"
+"raster.cost_model.op_tail_cycles"          = "engine/effects/raster_dsl.emp:RASTER_OP_TAIL_CYC"
+"raster.cost_model.stream_word_cycles"      = "engine/effects/raster_dsl.emp:RASTER_STREAM_WORD_CYC"
+"raster.cost_model.dispatch_rungs"          = "engine/effects/raster_dsl.emp:RASTER_DISPATCH_RUNGS"
+"raster.cost_model.scanline_cycles"         = "engine/effects/raster_dsl.emp:RASTER_SCANLINE_CYC"
+# The three class-work constants are private (`const`, not `pub`) in raster_dsl.emp; the
+# regex reads them anyway, and they belong here for the same reason as the rest — they are
+# the terms that separate a region fire from a cram fire.
+"raster.cost_model.work_reg_cycles"         = "engine/effects/raster_dsl.emp:RASTER_WORK_REG_CYC"
+"raster.cost_model.work_cram_cycles"        = "engine/effects/raster_dsl.emp:RASTER_WORK_CRAM_CYC"
+"raster.cost_model.work_region_cycles"      = "engine/effects/raster_dsl.emp:RASTER_WORK_REGION_CYC"

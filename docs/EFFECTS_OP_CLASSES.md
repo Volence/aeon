@@ -156,7 +156,15 @@ cost of a fire is not modelled:
 
 These ceilings bound the DAMAGE of a mistake. They do not certify the shapes they admit.
 
-**The gap this points at** is a truthful cost model: charge every op class its measured cost
-*including dispatch position*, so the density guard compares a real number against the scanlines
-available. The measurements exist — 526 cycles for a 3-word stream fire against a 488-cycle line,
-454 for a 1-word one — they are simply applied by a formula that does not know about half the cost.
+**This gap is CLOSED as of 2026-08-16.** `fire_cost_cycles` now charges every op class its measured
+cost including dispatch position: `FIRE_BASE + sum(fetch + dispatch(depth) + class work + word
+slope x words + tail)`, with dispatch depth derived from the opcode order so inserting an opcode
+re-prices everything behind it. Eight measured fixtures, four free parameters, zero residual —
+`docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md`.
+
+A `reg` op costs **94 cycles** and a whole reg-only fire **396**, where the retired model charged
+zero and could never refuse one. A `stream_pal_region` costs **48 more** than a `stream_cram` at
+equal word count. A dispatch rung is **16 cycles**. And a `stream_vsram` word was measured to cost
+exactly what a colour word costs — same instruction path, since a VSRAM op emits `OP_CRAM` with a
+different command longword — so the reg/stream/run vocabulary's claim that the ceiling is a CYCLE
+budget rather than a CRAM one is now measured rather than argued.

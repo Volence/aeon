@@ -25,13 +25,13 @@
 // COMPTIME_HELPERS member, so it is glob-injected at every call site.
 module engine.effects.raster_dsl
 
-use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
+use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT, OP_RUN_RAMP,
                           RASTER_OPS_END, RASTER_ARM_PARK, RASTER_CRAM_MAX,
                           RASTER_BUF_SIZE, RASTER_MIN_FIRE_LINE, RASTER_MAX_FIRE_LINE,
                           pal_stage_off}
 
 // ---- the inlined-literal pins (see the module note above) -------------------
-ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6,
+ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8,
        "raster_dsl's inlined opcodes drifted from engine.effects.raster")
 ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RASTER_OPS_END")
 ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
@@ -744,35 +744,129 @@ comptime fn prog_mask(fires: array) -> int {
     return m
 }
 
-// ---- the measured density model (docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md) ----
-// Two measured points, 2026-08-14 on oracle, as DIFFERENTIALS within one shape so the
-// instrument's constant terms cancel:
-//     1-word stream_vsram fire   454 cyc        3-colour stream_cram fire   526 cyc
-// Those two determine a line in the number of stream words: 418 + 36*words.
+// ============================================================================
+// THE MEASURED PER-FIRE COST MODEL
+// Evidence: docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md, "The F-series" (2026-08-16).
+// Rig: tools/raster_cost_probe.py.
+//
+//     fire_cost = RASTER_FIRE_BASE_CYC + sum over ops of
+//                 ( fetch + dispatch(depth) + class work + word slope x stream words + tail )
+//
+// WHAT THE PREDECESSOR GOT WRONG, and it is NOT what the parcel brief predicted. The old
+// model was `418 + 36 x stream_words`, summed OVER STREAM OPS ONLY, and it was believed to
+// under-charge by ~2x on the strength of a differencing measurement. That measurement was
+// contaminated: it read oracle's `interrupts.hint` counter, which in this ROM is
+// HBlank + VBlank summed (oracle classifies an interrupt by comparing the handler's entry
+// address against $78 and a fixed ROM window; Aeon's VBlank_Handler at $2310 matches
+// neither, so it lands in the HInt bucket). Suppressing a record removes VBlank schedule-
+// build work as well as the fire, so the "cost of a fire" it produced carried a few hundred
+// cycles of VBlank with it. Measured against the per-ROUTINE row instead — which oracle
+// keys by that same entry address, so the two handlers are separate rows — the old model's
+// two anchors are accurate to within 1.5%: 454 modelled against 458 measured, 526 against
+// 518. IT WAS NOT UNDER-CHARGING BY HALF.
+//
+// It was mis-STRUCTURED, which is a different fault and the one this replaces:
+//   1. `reg` ops were charged ZERO, so a reg-only fire was unmodelled and could never be
+//      refused. Measured: a fire of one reg_set costs 396 cycles.
+//   2. Every stream op was charged the same, though stream_pal_region costs 48 cycles more
+//      than stream_cram at equal word count (a second dispatch rung, a `lea`/`adda` source
+//      setup and a `lea` restore).
+//   3. Dispatch DEPTH was invisible, so adding an opcode silently re-priced every op behind
+//      it with nothing able to see the change.
+//   4. The per-fire BASE was charged once per STREAM OP rather than once per fire, so a
+//      two-stream-op fire was over-charged by a whole base while a reg-heavy one was charged
+//      nothing. Two errors in opposite directions is why the single shape it was fitted to
+//      came out right.
+//
+// EVERY CONSTANT BELOW IS CONFIRMED TWICE, by measurement and by hand-counting the emitted
+// 68000 instruction stream (s4.debug.bin $79CC..$7A5C). The dispatch chain is four `beq.s`
+// rungs, so a failed rung is `cmpi.w #imm,d1` (8) + `beq.s` not taken (8) = 16 and a matched
+// one is 8 + 10 = 18 — the two derivations agree to the cycle on every op term. Only
+// RASTER_FIRE_BASE_CYC is measurement-only: the hand count lands ~10 cycles off, inside the
+// exception-entry/`movem`/`rte` timings this emulator models and this project cannot check
+// against silicon. The measured number is the authority; the fixture pins below are what
+// hold it.
+//
 // An NTSC scanline is 128000/262 = 488.5; 488 is used, floored, so the comparison is
 // conservative in the direction that ADMITS rather than refuses.
 //
-// IT LUMPS VSRAM IN WITH CRAM, WHICH IS KNOWN TO BE PESSIMISTIC. The 2026-08-14 corpus
-// sweep found that only CRAM writes glitch — a CRAM write during rasterisation recolours
-// the pixel being drawn, while VRAM, VSRAM and register writes produce no mid-line
-// artifact at all. If that holds here, `stream_vsram` inheriting EFX_BLANK_DELAY and the
-// RASTER_CRAM_MAX ceiling is pure loss (Ristar writes 42 VSRAM words in ONE fire).
-// Splitting the op class is booked and byte-changing. It only ever makes fires CHEAPER,
-// so nothing this model admits today becomes illegal under the split.
+// IT STILL LUMPS VSRAM IN WITH CRAM, AND THAT IS NOW MEASURED RATHER THAN ASSUMED: fixture
+// F7 (a 1-word stream_vsram fire) read 458 cycles, byte-for-byte the same as F2's 1-word
+// stream_cram fire. The handler is target-agnostic — a VSRAM op IS an OP_CRAM with a
+// different command longword — so the two costs are the same instruction path and there is
+// nothing to split on the CYCLE side. The open op-class split (booked) is about
+// EFX_BLANK_DELAY and the RASTER_CRAM_MAX ceiling, i.e. whether a VSRAM write needs to be
+// parked in HBlank at all; if that lands it removes work and only makes fires CHEAPER, so
+// nothing this model admits today becomes illegal under it.
+pub const RASTER_SCANLINE_CYC       = 488
+
+// The per-fire constant: everything a fire costs that is not an op. The prologue (`ints_off`,
+// the movem, the VDP_CTRL lea, the dense-run test), the arm write, the op_count read, the
+// loop entry and exit, the epilogue and the `rte`. Measured as F0's two priming fires
+// (572 / 2 = 286) plus the 16 cycles a record WITH ops pays over a no-op record — a
+// not-taken `bmi` instead of a taken one (+2) and the last op's not-taken `dbf` plus the
+// `bra.s .advance` beyond the loop tail already charged per op (+14).
+pub const RASTER_FIRE_BASE_CYC      = 302
+
+// The per-op terms. Each op pays all four.
+pub const RASTER_OP_FETCH_CYC       = 8      // move.w (a1)+, d1
+pub const RASTER_DISPATCH_RUNG_CYC  = 16     // a FAILED rung: cmpi.w #imm,d1 + beq.s not taken
+pub const RASTER_DISPATCH_HIT_CYC   = 18     // the MATCHING rung: cmpi.w + beq.s taken
+pub const RASTER_OP_TAIL_CYC        = 10     // dbf d0, .op_loop, taken
+pub const RASTER_STREAM_WORD_CYC    = 30     // one streamed word: move.w to VDP_DATA + dbf
+
+// Per-class work, dispatch excluded — what the op's own arm does.
+//   reg    : move.w (a1)+, (a2)
+//   cram   : move.l command (20) + moveq (4) + EFX_BLANK_DELAY spin (54) + count read (8)
+//            + the stream loop's final not-taken dbf (4)
+//   region : all of the above plus lea Pal_Variant_Stage (8, short form) + adda.w (8)
+//            + lea VDP_CTRL restore (12)
+const RASTER_WORK_REG_CYC           = 12
+const RASTER_WORK_CRAM_CYC          = 90
+const RASTER_WORK_REGION_CYC        = 122
+
+// ---- dispatch depth ---------------------------------------------------------
+// Raster_HInt tests opcodes in ASCENDING order — OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
+// OP_RUN_RAMP — with OP_SET_REG as the fall-through, so an op's depth is derivable from its
+// opcode: (opcode - OP_CRAM) / 2 rungs failed before its own. THAT is what makes the model
+// re-price automatically when an opcode is inserted: a new dense op between the region and
+// gradient rungs pushes every later op one rung deeper AND lengthens the fall-through, and
+// both fall out of the pin below rather than needing an edit here.
 //
-// WHAT IT DELIBERATELY DOES NOT COUNT: OP_SET_REG. Its dispatch cost is UNMEASURED — the
-// fire-ceiling comment above notes it is the compare chain's fall-through and therefore
-// the most expensive op to dispatch, but no number exists. Rather than invent one, a
-// reg_set contributes ZERO here, so the model UNDER-states cost and the guard fires only
-// on evidence. A reg_set-only fire is unmodelled and is never refused. Say so out loud
-// wherever this model is cited.
-pub const RASTER_FIRE_BASE_CYC  = 418
-pub const RASTER_CRAM_WORD_CYC  = 36
-pub const RASTER_SCANLINE_CYC   = 488
-ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 1 == 454,
-       "density model drifted from the measured 1-word stream_vsram fire (454 cyc)")
-ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 3 == 526,
-       "density model drifted from the measured 3-colour stream_cram fire (526 cyc)")
+// LITERALS with a module-level pin, per this module's opening note — these are named inside
+// comptime fn bodies, and a body's free names resolve at the CALL SITE, so a value spelled
+// as an arithmetic expression over the IMPORTED opcodes would not resolve in an author's
+// module. The pin is what keeps the literals honest.
+pub const RASTER_DISPATCH_RUNGS     = 4      // chain length; OP_SET_REG falls through all of it
+const RASTER_DEPTH_CRAM             = 0      // rungs FAILED before this op matches
+const RASTER_DEPTH_REGION           = 1
+ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_RUN_RAMP - OP_CRAM) / 2 + 1,
+       "the raster cost model's dispatch depths no longer match the opcode order Raster_HInt tests in. The chain is ascending from OP_CRAM with OP_SET_REG as the fall-through, so depth = (opcode - OP_CRAM) / 2 and the fall-through pays every rung. If an opcode was inserted, update these three literals; if the chain was REORDERED so depth is no longer the opcode order, this derivation is gone and each depth has to be spelled against Raster_HInt's compare sequence by hand.")
+
+comptime fn op_dispatch_cyc(o: RasterOp) -> int {
+    return match o {
+        // The fall-through pays every rung and no matching branch at all.
+        SetReg(w)                    => RASTER_DISPATCH_RUNG_CYC * RASTER_DISPATCH_RUNGS,
+        Cram(a, cols)                => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
+        PalRegion(a, slot, pl, e, n) => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_REGION + RASTER_DISPATCH_HIT_CYC,
+        // A Vsram op EMITS OP_CRAM (see stream_vsram), so it dispatches at the cram rung.
+        Vsram(a, vals)               => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
+    }
+}
+
+comptime fn op_work_cyc(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                    => RASTER_WORK_REG_CYC,
+        Cram(a, cols)                => RASTER_WORK_CRAM_CYC,
+        PalRegion(a, slot, pl, e, n) => RASTER_WORK_REGION_CYC,
+        Vsram(a, vals)               => RASTER_WORK_CRAM_CYC,
+    }
+}
+
+// op_cost_cycles — one op's whole contribution, dispatch included.
+comptime fn op_cost_cycles(o: RasterOp) -> int {
+    return RASTER_OP_FETCH_CYC + op_dispatch_cyc(o) + op_work_cyc(o) + RASTER_STREAM_WORD_CYC * op_stream_words(o) + RASTER_OP_TAIL_CYC
+}
 
 // RASTER_MAX_PATCH — patchable channels per program. DEFINED HERE on purpose: this module
 // is a COMPTIME_HELPERS member, so a name defined here is glob-injected into every module
@@ -802,17 +896,77 @@ ensure((RASTER_MAX_PATCH & (RASTER_MAX_PATCH - 1)) == 0,
 // The raster patcher itself is indifferent: it only walks channels a live patch table names.
 pub const PATCH_ANCHOR_NONE = $7FFF
 
-// fire_cost_cycles — modelled cost of one fire. Each stream op pays its own dispatch
-// AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
+// fire_cost_cycles — modelled cost of one fire: the per-fire constant ONCE, plus every op.
+// EVERY op, reg_set included — the predecessor summed over stream ops only, which is why a
+// fire of nothing but register writes modelled at zero and could not be refused however many
+// it carried.
 comptime fn fire_cost_cycles(f: RasterFire) -> int {
-    comptime var c = 0
+    comptime var c = RASTER_FIRE_BASE_CYC
     for o in fire_ops(f) {
-        if op_is_reg(o) == 0 {
-            c = c + RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * op_stream_words(o)
-        }
+        c = c + op_cost_cycles(o)
     }
     return c
 }
+
+// ---- THE FIXTURE PINS -------------------------------------------------------
+// The model against every point it was built from. These are the whole reason the constants
+// above may be trusted: eight measurements, four free parameters, and ZERO residual — the
+// model reproduces all seven fire shapes exactly, so it is not a curve fitted through its own
+// anchors the way `418 + 36 x words` was (that one had two anchors and two parameters, so it
+// could not fail to reproduce them and had never been tested against a third shape).
+//
+// Rig: tools/raster_cost_probe.py, s4.debug.bin, oracle, 2026-08-16. Each figure is
+// (fixture total - F0 total) / fire count, read off the profiler's PER-ROUTINE row for the
+// HBlank trampoline — never `interrupts.hint`, which in this ROM is HBlank + VBlank summed.
+// FIVE independent boots per fixture agreed to the CYCLE (spread 0 on all eight), so there is
+// no noise floor to allow for and no difference here is within one.
+//
+// Each pin names its fixture so a failure says which measurement the change contradicts.
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 396,
+       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 396")
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 458,
+       "cost model vs fixture F2 (stream_cram, 1 word): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, measured 458")
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 518,
+       "cost model vs fixture F3 (stream_cram, 3 words): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, measured 518")
+ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 566,
+       "cost model vs fixture F4 (stream_pal_region, 3 words): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, measured 566")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 612,
+       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 612 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 614,
+       "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 614 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
+ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 458,
+       "cost model vs fixture F7 (stream_vsram, 1 word): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, measured 458 — identical to F2, which is the measurement behind charging a VSRAM word exactly what a colour word costs")
+// F0 is the per-fire base's own anchor and cannot be spelled as a `fire` (a fire with no ops
+// is refused). Its two priming records read 572 cycles, i.e. 286 per no-op record; the +16 to
+// RASTER_FIRE_BASE_CYC is derived in that constant's note above.
+ensure(RASTER_FIRE_BASE_CYC == 572 / 2 + 16,
+       "RASTER_FIRE_BASE_CYC no longer derives from fixture F0 (572 cycles for two priming records) plus the 16 cycles a record WITH ops pays over a no-op one")
+
+// ---- WHICH SIDE OF THE LINE, both directions ---------------------------------
+// A cost model is only a guard if something falls on each side of it. These state, as build-
+// time facts, exactly what check_density admits and refuses — so a change that quietly made
+// the guard accept everything (or nothing) fails HERE, with a sentence saying which case
+// moved, instead of showing up as content that renders wrong or content that stopped
+// building. Zero ROM bytes: `fire` and `fire_cost_cycles` are both comptime.
+//
+// REFUSED — a 3-colour stream_cram fire does not finish inside one scanline. This is the
+// measured overrun the guard exists for: the next fire's writes are pushed into active
+// display and paint a visible mid-row colour change (DENSITY-EVIDENCE rows 111-113).
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) > 1 * RASTER_SCANLINE_CYC,
+       "a 3-colour stream_cram fire now models at {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))} cycles, which FITS inside one {RASTER_SCANLINE_CYC}-cycle scanline — so check_density would admit two of them on consecutive lines, the exact overrun it was built to refuse")
+// ADMITTED — the same fire two scanlines apart. If this flips, the guard has become
+// unsatisfiable and every colour boundary in the tree is now a build error.
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) <= 2 * RASTER_SCANLINE_CYC,
+       "a 3-colour stream_cram fire now models at {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))} cycles, which does NOT fit in two scanlines — check_density has become unsatisfiable for the shape the whole sparse tier is built around")
+// REFUSED — and this one is the behaviour change. A fire of four register writes carries no
+// stream word at all, so the retired model scored it ZERO and could never refuse it however
+// many registers it wrote. It costs more than a scanline.
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)])) > RASTER_SCANLINE_CYC,
+       "a four-reg_set fire models at {fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)]))} cycles, inside one scanline — reg ops have stopped costing anything again, which is the exact hole this model was written to close")
+// ADMITTED — one register write is cheap, and must stay so: fx_sh_below is a single reg_set
+// and is the cheapest dramatic effect the hardware has.
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) <= RASTER_SCANLINE_CYC,
+       "a single reg_set fire models at {fire_cost_cycles(fire(3, [reg_set($8C81)]))} cycles, past a whole scanline — fx_sh_below would no longer compose with anything")
 
 // check_intervals — GUARD 2, the invariant every other property rests on. Stated ONCE, in
 // FIRE-LINE space, matching fire_lines: each record has a possible fire-line interval, a
@@ -855,8 +1009,8 @@ comptime fn check_intervals(fires: array) -> int {
 // WITHOUT THIS, THE GUARD GOES VACUOUS THE MOMENT A FIRE CAN MOVE. Two channels banded
 // 40..120 and 121..200 with authored lines 100 apart pass the AUTHORED-line check trivially
 // (gap 100 lines) and then clamp to 120 and 121 at runtime — one scanline apart, two
-// 3-word CRAM fires at a measured 526 cycles against a 488-cycle line, which is precisely
-// the overrun this guard exists to refuse.
+// 3-word stream_cram fires at a measured 518 cycles against a 488-cycle line, which is
+// precisely the overrun this guard exists to refuse.
 comptime fn check_density(fires: array) -> int {
     comptime var i = 0
     for f in fires {
@@ -874,7 +1028,7 @@ comptime fn check_density(fires: array) -> int {
             // halves of the sentence agree, which is why this went unnoticed until a fire
             // could move.
             ensure(cost <= gap * RASTER_SCANLINE_CYC,
-                   "raster program: the fire at screen line {fire_screen_line(f)} models at {cost} cycles but only {gap} scanline(s) = {gap * RASTER_SCANLINE_CYC} cycles remain before the fire at {fire_screen_line(fires[i + 1])}. The gap is measured WORST CASE, between the fire lines these two records can actually reach — {this_hi} and {next_lo} — which for a patchable record is its band edge, not the line it is authored at. MEASURED 2026-08-14: a 3-colour CRAM fire costs 526 cycles against a 488-cycle line, so consecutive colour fires overrun and paint a visible mid-line colour change. Either space these fires further apart, or move per-line colour work to the DENSE tier (raster_gradient_program), which stays inside ONE interrupt instead of paying an exception entry per line — that is how S3K writes 3 colours per line at 484. Note this model does not count OP_SET_REG at all, so the true cost is higher than the number above.")
+                   "raster program: the fire at screen line {fire_screen_line(f)} models at {cost} cycles but only {gap} scanline(s) = {gap * RASTER_SCANLINE_CYC} cycles remain before the fire at {fire_screen_line(fires[i + 1])}. The gap is measured WORST CASE, between the fire lines these two records can actually reach — {this_hi} and {next_lo} — which for a patchable record is its band edge, not the line it is authored at. MEASURED 2026-08-16: a 3-colour stream_cram fire costs 518 cycles against a 488-cycle line, so consecutive colour fires overrun and paint a visible mid-line colour change. The cost above counts EVERY op including reg_set, each op's dispatch depth in Raster_HInt's compare chain, and the per-fire constant exactly once — so it is a whole-fire figure and not a floor. Either space these fires further apart, drop an op from this fire, or move per-line colour work to the DENSE tier (raster_gradient_program), which stays inside ONE interrupt instead of paying an exception entry per line — that is how S3K writes 3 colours per line at 484.")
         }
         i = i + 1
     }
