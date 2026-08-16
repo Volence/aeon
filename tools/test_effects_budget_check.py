@@ -8,7 +8,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from effects_budget_check import (
-    emp_constants, eval_int_expr, check, main as budget_main,
+    emp_constants, eval_int_expr, check, make_resolver, main as budget_main,
 )
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -109,10 +109,43 @@ class TestLiveEmpFiles(unittest.TestCase):
     """The regex measured against the two shipped files, not a synthetic sample."""
 
     def test_resolves_the_two_state_size_constants(self):
-        raster = emp_constants(os.path.join(AEON, "engine/effects/raster.emp"))
-        palette = emp_constants(os.path.join(AEON, "engine/effects/palette.emp"))
-        self.assertEqual(eval_int_expr(raster["RASTER_STATE_SIZE"], raster), 288)
-        self.assertEqual(eval_int_expr(palette["PALETTE_STATE_SIZE"], palette), 472)
+        # Through `make_resolver` — the path the tool actually ships — NOT a hand-built
+        # scope. This test used to read raster.emp alone and evaluate against its own
+        # constants, which stopped working the moment RASTER_STATE_SIZE came to name
+        # RASTER_MAX_PATCH: that lives in the sibling raster_dsl.emp and is glob-injected
+        # by sigil rather than imported. The tool grew the sibling injection for exactly
+        # that reason (see make_resolver's comment); this test was never moved onto it,
+        # so it sat red in a suite nothing ran.
+        #
+        # NO LITERAL SIZE IS ASSERTED HERE, deliberately. The old form pinned 288, and by
+        # the time anyone ran it the real value was 318 — the number had grown legitimately
+        # and the stale literal was invisible behind the traceback above it. Both spans are
+        # ALREADY pinned at build time by an `ensure` against the linker's own
+        # `X_State_End - X_State`, so re-asserting a copy here adds no authority and one
+        # more thing to rot. What is genuinely this tool's job is that the expressions
+        # RESOLVE at all, cross-module names included.
+        resolve = make_resolver(AEON)
+        for ref in ("engine/effects/raster.emp:RASTER_STATE_SIZE",
+                    "engine/effects/palette.emp:PALETTE_STATE_SIZE"):
+            v = resolve(ref)
+            self.assertIsInstance(v, int)
+            self.assertGreater(v, 0, f"{ref} resolved to a non-positive size")
+
+    def test_cross_module_names_need_the_sibling_injection(self):
+        # The regression guard for the bug the test above was masking. RASTER_STATE_SIZE
+        # names RASTER_MAX_PATCH, which is NOT in raster.emp. Without the sibling
+        # *_dsl.emp injection the resolver must fail loudly rather than resolve to
+        # something plausible — and this test proves the injection is load-bearing rather
+        # than decorative, which the previous version never did.
+        import glob as _glob
+        real = _glob.glob
+        _glob.glob = lambda pattern: []
+        try:
+            with self.assertRaises(ValueError) as cm:
+                make_resolver(AEON)("engine/effects/raster.emp:RASTER_STATE_SIZE")
+            self.assertIn("RASTER_MAX_PATCH", str(cm.exception))
+        finally:
+            _glob.glob = real
 
 
 class TestCheck(unittest.TestCase):

@@ -192,6 +192,29 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
         echo "Budget-model drift — update tools/effects_budget_model.toml to match the code."
         exit 1
     fi
+
+    # The tool-suite unit tests. WIRED 2026-08-16, because they were the tree's largest
+    # run-by-nothing gate: 18 files, ~984 assertions, no pytest.ini, no conftest, no
+    # caller. When finally run, one was red — and the red one was MASKING a real 30-byte
+    # drift in RASTER_STATE_SIZE (it threw before reaching its own assertion, so the
+    # stale literal underneath was never evaluated). That is the exact failure mode this
+    # tree keeps rediscovering: a gate nobody runs is documentation with a shebang.
+    #
+    # It belongs in build.sh and not in effects_gates.py because it boots no emulator and
+    # costs ~2 s; the emulator-backed gates cannot go here for precisely the opposite
+    # reason. Same NO_LINT hatch as the source gates above.
+    #
+    # A missing pytest is a WARNING, not a failure: it is a dev-machine dependency, and
+    # hard-failing here would make the build unrunnable on a box that only wants a ROM.
+    if python3 -c "import pytest" 2>/dev/null; then
+        echo "Running the tool-suite unit tests..."
+        if ! python3 -m pytest "${TOOLS}" -q --no-header -p no:cacheprovider; then
+            echo "Tool-suite tests failed — the build tooling is broken, not just the ROM."
+            exit 1
+        fi
+    else
+        echo "  (pytest not installed — skipping tool-suite tests)"
+    fi
 fi
 
 # STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an
