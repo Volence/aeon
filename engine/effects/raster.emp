@@ -542,6 +542,17 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // The whole header. There is no frame-top register replay here any more:
         // Flush_VDP_Shadow runs right after this and re-blits every shadowed VDP
         // register unconditionally, which restores anything a mid-frame op changed.
+        // THE DENSE COUNTER IS FRAME STATE AND IS REWOUND WITH THE CURSOR. A dense run is
+        // authored to finish inside its frame, but nothing enforces that: the counter is written
+        // only by the ENTER ops and decremented only by .dense_body, so a run whose line count
+        // reaches past line 223 simply never reaches 0. Left set, the NEXT frame's very first
+        // HInt — the priming fire on line 0 — takes .dense_body instead of the record walk and
+        // streams from the previous frame's stale Raster_Dense_Cursor straight across the top of
+        // the screen, re-arming reg $0A = 0 every line so the whole sparse schedule is dead too.
+        // Clearing it here is the same act as rewinding the cursor below: both put the handler
+        // back at frame top, and a run that ENTERs this frame re-seeds cursor, command and count
+        // from its own op words anyway, so nothing legitimate is lost.
+        clr.w   Raster_Dense_Lines
         move.l  a1, Raster_Cursor       // first (priming) fire record
         // reg $0A = 0 primes the pipeline: no-op fires on lines 0 and 1 load the
         // first two real arm words. Re-installed every frame on purpose — it is
@@ -855,14 +866,27 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         add.w   d1, d0                          // 9n
         add.w   d1, d0                          // 10n — the table's byte length
         addq.w  #2, d0                          // past the count word itself
+        // THE POINTER IS INERT FOR THE WHOLE INSTALL WINDOW, and that ordering is a fix rather
+        // than tidiness. The pointer used to be published HERE, ~10 instructions before
+        // Raster_BuildShipEntry below fills Static_Pal_Ship from it. Enqueue_Dirty_Buffers tests
+        // only this pointer and then queues Static_Pal_Ship, so a VBlank landing in that window
+        // shipped the PREVIOUS program's source/destination/length under this program's trailer —
+        // wrong colours into CRAM, on a section crossing, on a frame the anchor happened to be
+        // off-screen. Not a narrow race either: preset.emp's install note records that a VBlank
+        // lands in this window ROUTINELY.
+        //
+        // Clearing first is what makes the window safe: 0 is the consumer's inert value (it is the
+        // same value the .no_ship path and Raster_VBlank's teardown write), so a VBlank mid-install
+        // ships nothing for one frame instead of shipping something wrong. The publish is a single
+        // move.l, which no interrupt can split, so the transition needs no ints_off bracket.
+        clr.l   Effects_Offscreen_Entry
         tst.w   (a1, d0.w)                      // the trailer's own count: 0 = no ship
         beq     .no_ship
         addq.w  #2, d0                          // past it, onto the channel word
-        lea     (a1, d0.w), a2
-        move.l  a2, Effects_Offscreen_Entry
+        lea     (a1, d0.w), a2                  // held in a2 until the entry behind it exists
         jbra    .ship_done
     .no_ship:
-        clr.l   Effects_Offscreen_Entry
+        suba.l  a2, a2                          // a2 = 0: nothing to publish
     .ship_done:
         // A dense run in flight belongs to the OUTGOING program. Nothing else clears it, so
         // crossing from the gradient section into a patched one mid-run leaves the handler in
@@ -876,16 +900,23 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         move.l  a1, Raster_Active_Buf
         move.l  a1, Raster_Program              // nonzero -> Raster_VBlank processes it
         clr.l   Raster_Pending                  // a staged static program loses (preset.emp's guard)
-        // The ship entry is built AFTER the install stores, not beside the pointer store above.
-        // That used to be a register constraint (Raster_BuildShipEntry needs a0, and the deleted
-        // copy loop was still running it as a template cursor until it returned); a0 is untouched
-        // by this proc since the initial `lea` and free the whole way through now, so the ordering
-        // is no longer forced — kept here to match the entry's installation site.
-        move.l  Effects_Offscreen_Entry, d0
+        // The ship entry is built AFTER the install stores, not beside the pointer computation
+        // above. That used to be a register constraint (Raster_BuildShipEntry needs a0, and the
+        // deleted copy loop was still running it as a template cursor until it returned); a0 is
+        // untouched by this proc since the initial `lea` and free the whole way through now, so the
+        // ordering is no longer forced — kept here to match the entry's installation site.
+        //
+        // a2 SURVIVES the call: Raster_BuildShipEntry declares clobbers(d0-d4/a0-a1), so the
+        // trailer pointer computed above is still live for the publish below. That is what lets the
+        // build precede the publish instead of the other way round.
+        move.l  a2, d0
         beq     .no_build
-        movea.l d0, a1
+        movea.l a2, a1
         jbsr    Raster_BuildShipEntry
     .no_build:
+        // PUBLISHED LAST, once Static_Pal_Ship actually describes THIS program. On the .no_ship
+        // path a2 is 0 and this is the clear the old code did up in the branch.
+        move.l  a2, Effects_Offscreen_Entry
         // NO TAIL CALL INTO THE BUILDER. Raster_PatchAll used to be invoked from here, i.e. from
         // the MAIN LOOP, which was survivable while it wrote one byte per record and is not now:
         // the builder re-records the entire buffer, and Raster_HInt walks that buffer during
