@@ -21,9 +21,15 @@ WHAT IT RUNS
      copied from a table: two gates in this tree were written against copied numbers and would have
      passed on incorrect code.
   3. handler teardown — `raster_off_gate`, which is the EFX-7 gate.
-  4. cost model vs reality — two fixtures from `raster_cost_probe`, asserted against the constants
-     `raster_dsl.emp` actually ships. This is what keeps the measured model MEASURED: the values in
-     the .emp are pinned to each other at build time, but only this checks them against hardware.
+  4. handler SOURCE — `raster_source_gate`. Everything above asserts the program's WORDS; this is
+     the only gate that observes the handler interpreting them, by breaking inside the region op
+     and reading the source pointer it computed. A build that encodes an offset correctly and
+     streams from the wrong base passes every other gate here.
+  5. cost model vs reality — three fixtures from `raster_cost_probe`, asserted against the
+     constants `raster_dsl.emp` actually ships. This is what keeps the measured model MEASURED:
+     the values in the .emp are pinned to each other at build time, but only this checks them
+     against hardware. F1 earns its place separately — it is the fall-through op, so it is the
+     only fixture that moves when the dispatch chain grows.
 
 Usage:
     python3 tools/effects_gates.py [--rom s4.debug.bin] [--lst s4.debug.lst] [--only NAME,...]
@@ -157,6 +163,11 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "raster_off")
         results.append(("raster_off (EFX-7 teardown)", ok, msg))
 
+    if wanted("raster_source"):
+        ok, msg = run(["python3", str(AEON / "tools/raster_source_gate.py"),
+                       "--rom", rom, "--lst", lst], "raster_source")
+        results.append(("raster_source (handler streams from the encoded address)", ok, msg))
+
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
         fetch = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_FETCH_CYC")
@@ -164,26 +175,39 @@ def main() -> int:
         tail = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_TAIL_CYC")
         word = emp_int("engine/effects/raster_dsl.emp", "RASTER_STREAM_WORD_CYC")
         cram = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_CRAM_CYC")
+        rung = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNG_CYC")
+        rungs = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNGS")
+        wreg = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REG_CYC")
         # F0 is two priming records; F3 adds six 3-word stream_cram fires. Both figures are
         # COMPUTED from the shipped constants, never typed in.
         f0 = 2 * (base - 16)                       # a no-op record is the fire base less the
                                                    # loop entry/exit a record WITH ops pays
         fire3 = base + fetch + hit + cram + 3 * word + tail
         expect_f3 = f0 + 6 * fire3
+        # F1 (six one-reg_set fires) is here for a reason F0 and F3 cannot cover: both of them
+        # dispatch at DEPTH 0, so neither moves when the compare chain grows. OP_SET_REG is the
+        # chain's FALL-THROUGH and pays every rung, so F1 is the only fixture in this gate that
+        # can see a dispatch-tax regression — exactly what appending an opcode costs. Without
+        # it, a parcel that adds an op recomputes these expectations and passes blind.
+        fire_reg = base + fetch + rung * rungs + wreg + tail
+        expect_f1 = f0 + 6 * fire_reg
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),
-                            "--rom", rom, "--lst", lst, "--only", "F0,F3", "--out", str(jf)],
+                            "--rom", rom, "--lst", lst, "--only", "F0,F1,F3", "--out", str(jf)],
                            capture_output=True, text=True)
         if p.returncode != 0 or not jf.exists():
             results.append(("cost_model vs hardware", False,
                             (p.stdout + p.stderr).strip().splitlines()[-1:] or ["probe failed"]))
         else:
             d = json.loads(jf.read_text())
-            got_f0, got_f3 = d["F0"]["cycles"][0], d["F3"]["cycles"][0]
-            ok = got_f0 == f0 and got_f3 == expect_f3
-            results.append((f"cost_model vs hardware (F0 {f0}, F3 {expect_f3} — both computed "
-                            f"from the shipped constants)", ok,
-                            f"measured F0={got_f0} F3={got_f3}"))
+            got_f0 = d["F0"]["cycles"][0]
+            got_f1 = d["F1"]["cycles"][0]
+            got_f3 = d["F3"]["cycles"][0]
+            ok = got_f0 == f0 and got_f1 == expect_f1 and got_f3 == expect_f3
+            results.append((f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3} — "
+                            f"all computed from the shipped constants; F1 is the fall-through "
+                            f"op, the only one that feels a dispatch-chain change)", ok,
+                            f"measured F0={got_f0} F1={got_f1} F3={got_f3}"))
 
     print()
     bad = 0
