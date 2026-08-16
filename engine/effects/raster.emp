@@ -464,7 +464,12 @@ pub comptime fn fp16(whole: int, frac256: int) -> int {
 // -----------------------------------------------
 // Raster_Install — stage a compiled program; it takes effect at the next
 // Raster_VBlank, so an install can never tear a frame mid-walk.
-//   a0 = program (0 = clear/uninstall)
+//   a0 = program. NOT 0 — Raster_VBlank reads a pending 0 as "nothing staged this frame",
+//   i.e. KEEP whatever is live, so a 0 here silently leaves the previous section's effect
+//   running. `preset.emp` refuses it at the call site by redirecting to Raster_Program_None.
+//   To turn the raster tier OFF, install an EMPTY program (Raster_Program_None): Raster_VBlank
+//   recognises one and uninstalls the handler outright. The "0 = clear/uninstall" convention
+//   this comment used to claim never worked — see EFX-7 and the note in Raster_VBlank.
 // Main-loop context only.
 // -----------------------------------------------
 pub proc Raster_Install (a0: u32) clobbers() {
@@ -492,9 +497,37 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         move.l  Raster_Pending, d0
         beq.s   .no_install
         clr.l   Raster_Pending
-        move.l  d0, Raster_Program
+        // AN EMPTY PROGRAM UNINSTALLS THE HANDLER — it does not arm one that parks.
+        //
+        // This is EFX-7's close, and it closes it by making the teardown arm REACHABLE rather
+        // than by deleting it. The arm used to be entered on `Raster_Pending == 0`, which the
+        // `beq.s` two lines up had already filtered as "nothing pending": the documented
+        // "0 = clear" convention could never fire, HBlank_Uninstall had no live caller, and IE1
+        // was never dropped for the life of the ROM.
+        //
+        // The test is SEMANTIC rather than a sentinel value, and that is what makes it live
+        // without a dormant scaffold. A program's second and third words are its first record's
+        // arm word and op_count; a program whose FIRST record is already the terminator has no
+        // records at all, which is exactly what Raster_Program_None is
+        // ([0, RASTER_ARM_PARK, RASTER_OPS_END]) and what every "raster OFF" preset installs
+        // today. So no authoring surface changes, no magic pending value exists to get wrong,
+        // and any future empty program inherits the same treatment for the same reason.
+        //
+        // WHAT IT BUYS, MEASURED (oracle, 2026-08-16, before/after on the same scene): armed,
+        // Raster_Program_None cost 512 cycles per frame across TWO HInt entries, forever, to
+        // accomplish nothing. Two, not one, because `.park` does not advance the cursor: the
+        // line-0 fire reads the terminator and parks, the counter still holds VBlank's 0 so
+        // line 1 re-reads the SAME record, and only then does the $8AFF reload push the next
+        // fire past the frame. After this change the handler is not entered at all — the
+        // profiler has no row for it — and Raster_Program = 0 short-circuits the rest of this
+        // proc every frame as well.
+        //
+        // Observationally equivalent otherwise: the program has no ops to run, and its
+        // pal_dirty_mask is 0, so the frame-top re-assert this path skips had nothing to assert.
+        movea.l d0, a1
+        cmpi.w  #RASTER_OPS_END, 4(a1)          // word 2 = first record's op_count
         bne.s   .copy_program
-        // Pending was an explicit clear: idle the trampoline and drop IE1.
+        clr.l   Raster_Program
         // The patch table dies WITH the program. Raster_BuildSchedule's only liveness test is
         // Raster_Patch_Tab != 0 (Active_Buf is untouched on this path — that is the whole
         // reason the test is the table), so leaving it set here would keep the patcher
@@ -507,6 +540,7 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         jbsr    HBlank_Uninstall
         rts
     .copy_program:
+        move.l  d0, Raster_Program
         // A static ROM program is landing in Buf_A. A patch table left over from the outgoing
         // patched program describes a DIFFERENT program's records, so the builder would keep
         // re-recording that one over this buffer every VBlank and swap it live — the static
@@ -516,7 +550,6 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
         // program's trailer as a frame-top DMA whenever the (also stale) anchor reads L <= 0.
         clr.l   Effects_Offscreen_Entry
-        movea.l d0, a1
         lea     Raster_Buf_A, a2
         move.l  a2, Raster_Active_Buf
         move.w  #(RASTER_BUF_SIZE / 2) - 1, d1
