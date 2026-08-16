@@ -51,9 +51,66 @@ extra VBlank work in that state (if the counter is not purely HInt), fire-positi
 run-to-run variance. A repeat of the identical config would have separated these; the MCP wedged
 before it completed (the documented StopSystem race — recovery is `kill -9` plus relaunch).
 
-**Conclusion: differencing live scenes cannot resolve a 36-cycle-per-word slope against a
-several-hundred-cycle uncertainty band.** Do not build the model on these numbers. They are recorded
-here so nobody re-derives them and mistakes them for measurements.
+**Conclusion at the time: unusable.** That conclusion was WRONG, and the correction is below.
+
+---
+
+## The instrument, characterised (2026-08-18, later the same session)
+
+The control that looked like noise was a real effect. Repeating one config established the floor
+first, as the plan below demands:
+
+| measurement | `hint` cycles |
+|---|---|
+| mid-band, sample 1 | 10,284 |
+| mid-band, sample 2 | 10,317 |
+| mid-band, sample 3 | 10,319 |
+
+**Noise floor: +/- 35 cycles** on a fixed config. The instrument is far more precise than the failed
+inference suggested — which means differences above ~35 cycles ARE real and attributable.
+
+Then the discriminating test. The suspect control differed from mid-band in two ways at once (the
+fire's line, and the off-screen ship being active). Separating them — put the fire on line 2 with the
+ship INACTIVE, by latching to screen line 3 instead of -44:
+
+| config | fire line | ship | `hint` |
+|---|---|---|---|
+| mid-band | 99 | inactive | ~10,307 |
+| **line 2, ship inactive** | **2** | **inactive** | **10,309** |
+| line 2, ship active | 2 | ACTIVE | 10,690 |
+
+**Two facts, both useful:**
+
+1. **Fire POSITION has no effect** — 10,309 against 10,307 is inside the noise floor. The handler is
+   position-independent, as its design claims.
+2. **The off-screen ship adds ~380 cycles to the `hint` counter**, despite the ship's work happening
+   in VBlank (`Enqueue_Dirty_Buffers`). **So the counter includes some VBlank work.** That is the
+   instrument's real caveat, and it is a usability constraint rather than a precision problem:
+   *never compare two configs that differ in VBlank work.*
+
+### What that rescues
+
+The original per-fire deltas were taken between configs where the ship was inactive on BOTH sides
+(latched lines 100 and 230, both above the `L <= 0` gate), so they are clean of ship contamination:
+
+| fire | modelled | measured | under-charge |
+|---|---|---|---|
+| `reg_sh_on` + 3-word `stream_pal_region` | 526 | ~1,002 | **+90%** |
+| 1-word `stream_vsram` | 454 | ~665 | **+46%** |
+
+Both are lower bounds: suppressing a record also removes the builder's work to emit it, which (if
+that VBlank saving is in the counter too) makes the true fire cost slightly higher still.
+
+**The model charges roughly half of what a fire actually costs.** That is the parcel's justification,
+now with numbers behind it.
+
+### The instrument's other limitation, which shapes the fixture work
+
+The oracle MCP **wedged three times** during this session's measurements (the documented StopSystem
+race; recovery is `kill -9` plus relaunch, `pkill -x` is not enough). It survives roughly 10-15 calls
+before wedging. So the fixture protocol must be economical: enable the profiler ONCE, then alternate
+short presses with samples, rather than toggling the profiler per measurement. A run needing 40 MCP
+calls will not complete.
 
 ---
 
