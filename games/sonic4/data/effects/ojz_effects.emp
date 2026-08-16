@@ -1,6 +1,6 @@
 // games/sonic4/data/effects/ojz_effects.emp — OJZ effects library.
 //
-// The raster/palette/vsram/ramp gate fixtures for OJZ, split out of
+// The raster/palette/stream_vsram/ramp gate fixtures for OJZ, split out of
 // data/parallax/configs.emp (which had grown into two unrelated halves: the
 // parallax config records and this effects library). This file IS the
 // game-side effects library (design suite §6): the Phase-3 preset format and
@@ -65,8 +65,8 @@ use games.sonic4.parallax_configs.{ParallaxConfig_OJZ_Underwater}
 // is a helper module, then prepends one glob per helper to every module
 // (`normalize_helper_imports`, sigil crates/sigil-harness/src/native.rs:1077-1126). So this
 // exact line is deleted and regenerated on every build; it cannot be load-bearing.
-// It stays because the fixtures below call raster_dsl's constructors (`fire`, `cram`,
-// `sh_on`, `region_boundary`, `raster_program`, `raster_words`, `first_mismatch`) as bare
+// It stays because the fixtures below call raster_dsl's constructors (`fire`, `stream_cram`,
+// `reg_sh_on`, `region_boundary`, `raster_program`, `raster_words`, `first_mismatch`) as bare
 // names, and this is the only place in the file that says where they come from. If
 // raster_dsl ever leaves the helper set, this line is what keeps the file building —
 // and what keeps the module's own `ensure`s evaluated, since an unimported comptime
@@ -112,8 +112,8 @@ ensure(vdp_comm(OJZ_TEST_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C04A0000,
 // against an op writing line 2 left the red latched over the whole ground instead of
 // only below the split.
 const OJZ_TEST_PROG = [
-    fire(120, [ sh_on(),                            // S/H ON below the line
-                cram($4A, [$000E]) ]),              // bright red at line 2 entry 5
+    fire(120, [ reg_sh_on(),                       // S/H ON below the line
+                stream_cram($4A, [$000E]) ]),      // bright red at line 2 entry 5
 ]
 
 // THE PIN (design spec 8.1). The hand-authored words are the ones measured on
@@ -345,7 +345,7 @@ pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
 // WHAT IT PROVES. Raster_HInt's CRAM op was never CRAM-specific: it writes
 // whatever VDP command longword the program carries (`move.l (a1)+, (a2)`) and
 // then streams words to VDP_DATA. Only the CONSTRUCTORS were locked to
-// VdpTarget.Cram. `vsram()` (2026-08-14) removes that lock, and this fixture is
+// VdpTarget.Cram. `stream_vsram()` (2026-08-14) removes that lock, and this fixture is
 // the first program to exercise it — no runtime change was needed for any of it.
 //
 // WHAT IT LOOKS LIKE. Below screen line OJZ_VSRAM_LINE, plane B's vertical
@@ -378,7 +378,7 @@ pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
 //      fire, and the DSL's existing `-1` fire-line arithmetic is CORRECT for
 //      VSRAM — no separate rule is needed. Same y=112 result as the earlier
 //      plane A (byte 0) measurement. This closes the N+1-vs-N+2 question
-//      DEFERRED_WORK booked when vsram() was added.
+//      DEFERRED_WORK booked when stream_vsram() was added.
 //
 //   2. EMULATOR CAVEAT, recorded rather than glossed. Emulators disagree about
 //      mid-frame VSRAM: GensKMod latches at HBlank start, Exodus/BizHawk consult
@@ -403,13 +403,13 @@ pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
 //
 // NOTE arm0 sits at word 1, as it does in every program — the header is a single
 // word. It used to depend on whether the program carried a frame-top init word
-// (this one carries none, having no set_reg), which is why it once had to be kept
+// (this one carries none, having no reg_set), which is why it once had to be kept
 // away from the water patch slot; that coupling is gone.
 const OJZ_VSRAM_LINE = 112              // split the 224-line display in half
 const OJZ_VSRAM_OFFSET = $0043          // 67 px — NOT 64: the BG art is 64 px-periodic (see above)
 
 const OJZ_VSRAM_PROG = [
-    fire(OJZ_VSRAM_LINE, [ vsram(2, [OJZ_VSRAM_OFFSET]) ]),   // byte 2 = VSRAM entry 1 = plane B
+    fire(OJZ_VSRAM_LINE, [ stream_vsram(2, [OJZ_VSRAM_OFFSET]) ]),   // byte 2 = VSRAM entry 1 = plane B
 ]
 
 // THE PIN. Hand-derived from the wire format, and read as the twin the DSL must
@@ -648,7 +648,7 @@ const OJZ_TC_PROG = compose([
 //   arm1 = $8A00 | (221 - 99 - 1) = $8A79
 //   records 2 and 3 park: nothing follows them.
 const OJZ_TC_HAND = [
-    %0100,                      // pal_dirty_mask — CRAM line 2, from the pal_region only
+    %0100,                      // pal_dirty_mask — CRAM line 2, from the stream_pal_region only
     $8A61, 0,                   // fire 0 — priming; the slot channel 0's gap lands in
     $8A79, 0,                   // fire 1 — priming; the slot channel 1's gap lands in
     $8AFF, 2,                   // fire 2 — channel 0, two ops
@@ -683,13 +683,13 @@ const OJZ_TC_TABLE_HAND = [
 // reads one fixed shape instead of branching on whether a program has a trailer.
 // Channel 0 declares offscreen_ship, so the trailer carries the PARAMETERS of its frame-top
 // entry — the same three colours the fire writes, re-issued as a DMA when the anchor is above
-// the screen. Every field is read off the fire's own pal_region op, so this pins the encoder
+// the screen. Every field is read off the fire's own stream_pal_region op, so this pins the encoder
 // against the authored arguments rather than restating them:
 //   channel 0, stage offset 72 = pal_stage_off(0, 2, 4) = 0*128 + 2*32 + 4*2,
 //   count 3, CRAM byte address $48 (palette line 2, entry 4).
 //
 // THE SetReg WORDS RIDE HERE TOO, and that is the fix for what shipping only the colours
-// missed: this fire carries sh_on() as well as the pal_region, and the ship has to re-issue
+// missed: this fire carries reg_sh_on() as well as the stream_pal_region, and the ship has to re-issue
 // the WHOLE fire from line 0. Without the register replay the rows above the clamped fire line
 // came out tinted but with Shadow/Highlight still off — visibly lighter, found in play.
 //
@@ -705,7 +705,7 @@ const OJZ_TC_TRAILER_HAND = [
     3,                          // colour count
     $48,                        // CRAM byte address
     1,                          // ...and ONE SetReg op to replay at frame top
-    $8C89,                      //   sh_on() — VDP reg $0C = $89, Shadow/Highlight ON
+    $8C89,                      //   reg_sh_on() — VDP reg $0C = $89, Shadow/Highlight ON
 ]
 
 // The separate .len ensure is REQUIRED, not belt-and-braces: first_mismatch walks only a's

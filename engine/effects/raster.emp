@@ -383,7 +383,7 @@ pub struct RasterRampProgram {
 // assumed (docs/benchmarks/effects-p3/RAMP-EVIDENCE.md, 74 of 74 rows):
 //   CRAM target  — value j displays on screen line top + j     (like the gradient tier)
 //   VSRAM target — value j displays on screen line top + j + 1
-// The extra line is the same N+1 behaviour measured for a sparse `vsram` write on
+// The extra line is the same N+1 behaviour measured for a sparse `stream_vsram` write on
 // 2026-08-14: a VSRAM write issued in line N's HBlank takes effect on N+1, while CRAM
 // applies to the line being set up. So a VSRAM ramp's `top` line renders with whatever
 // scroll was live BEFORE the run, and the ramp proper starts one line down.
@@ -397,7 +397,7 @@ pub struct RasterRampProgram {
 // THE MASK IS DERIVED, exactly as the gradient constructor derives it, and for the same
 // reason — a pal_dirty_mask naming the wrong line leaves a mid-frame write latched
 // forever. A ramp pointed at VSRAM writes no palette, so its mask is 0; that is the same
-// ruling `vsram`'s op_mask carries in the sparse tier, and it is NOT an omission: a
+// ruling `stream_vsram`'s op_mask carries in the sparse tier, and it is NOT an omission: a
 // CRAM-style `1 << (addr >> 5)` computed from a VSRAM address is a palette line derived
 // from a scroll offset, and at offset 0 it names the CHARACTER's line.
 //

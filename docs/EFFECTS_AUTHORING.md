@@ -81,17 +81,17 @@ Signatures and bounds below are read from `engine/effects/raster_dsl.emp` at `91
 
 | Constructor | Parameters | Emits | `op_size` |
 |---|---|---|---|
-| `set_reg(word)` | `word` = mid-frame `$8xxx` VDP register write, `$8000..$97FF`. **No frame-top reset** — the unconditional `Flush_VDP_Shadow` restores every shadowed register at frame top. Reg `$0A` is refused — it is the schedule's | `OP_SET_REG, word` | 2 |
-| `sh_on()` | none | `set_reg($8C89)` — Shadow/Highlight ON **starting at the landing line M** (the fire is at M-1, so the register write takes effect from M). The frame-top flush restores whatever the shadow holds for reg `$0C`, boot's H40 base `$8C81` (`engine/system/boot_data.emp:140`) unless a section changed it with `Set_VDP_Reg` | 2 |
-| `cram(addr, colours)` (`:121-131`) | `addr` = CRAM **byte** address 0..126, even, not on line 0; `colours` = 1..3 colour words, inline; `entry + colours.len <= 16` | `OP_CRAM, cmd>>16, cmd&$FFFF, colours.len-1, <colours>` | `4 + colours.len` |
-| `pal_region(addr, slot, pal_line, entry, count)` (`:136-152`) | `addr` = destination CRAM byte address; `slot` 0..1, `pal_line` 1..3, `entry` 0..15 = the `Pal_Variant_Stage` source; `count` = 1..3. `addr` must agree with `pal_line`/`entry` | `OP_PAL_REGION, cmd>>16, cmd&$FFFF, count-1, slot*128 + pal_line*32 + entry*2` | 5 |
-| `vsram(addr, values)` (`:186-195`) | `addr` = VSRAM **byte** address 0..78, even; `values` = 1..3 scroll words, inline; `addr + 2*values.len <= 80` | `OP_CRAM, cmd>>16, cmd&$FFFF, values.len-1, <values>` — the same opcode with a **VSRAM** command longword | `4 + values.len` |
-| `fire(line, ops)` (`:203-249`) | `line` = screen line 3..223 the effect lands on; `ops` = 1..4 descriptors, at most 2 of them CRAM-class, at most 3 CRAM-class words total | one record: `arm, ops.len, <bodies>` | `2 + Σ op_size` |
-| `region_boundary(line, addr, slot, pal_line, entry, count, sh)` (`:264-271`) | thin composite. **`sh` is required — deliberately no default**, see below | `fire(line, [sh_on(), pal_region(…)])` when `sh == 1`, else the region alone | as above |
+| `reg_set(word)` | `word` = mid-frame `$8xxx` VDP register write, `$8000..$97FF`. **No frame-top reset** — the unconditional `Flush_VDP_Shadow` restores every shadowed register at frame top. Reg `$0A` is refused — it is the schedule's | `OP_SET_REG, word` | 2 |
+| `reg_sh_on()` | none | `reg_set($8C89)` — Shadow/Highlight ON **starting at the landing line M** (the fire is at M-1, so the register write takes effect from M). The frame-top flush restores whatever the shadow holds for reg `$0C`, boot's H40 base `$8C81` (`engine/system/boot_data.emp:140`) unless a section changed it with `Set_VDP_Reg` | 2 |
+| `stream_cram(addr, colours)` (`:121-131`) | `addr` = CRAM **byte** address 0..126, even, not on line 0; `colours` = 1..3 colour words, inline; `entry + colours.len <= 16` | `OP_CRAM, cmd>>16, cmd&$FFFF, colours.len-1, <colours>` | `4 + colours.len` |
+| `stream_pal_region(addr, slot, pal_line, entry, count)` (`:136-152`) | `addr` = destination CRAM byte address; `slot` 0..1, `pal_line` 1..3, `entry` 0..15 = the `Pal_Variant_Stage` source; `count` = 1..3. `addr` must agree with `pal_line`/`entry` | `OP_PAL_REGION, cmd>>16, cmd&$FFFF, count-1, slot*128 + pal_line*32 + entry*2` | 5 |
+| `stream_vsram(addr, values)` (`:186-195`) | `addr` = VSRAM **byte** address 0..78, even; `values` = 1..3 scroll words, inline; `addr + 2*values.len <= 80` | `OP_CRAM, cmd>>16, cmd&$FFFF, values.len-1, <values>` — the same opcode with a **VSRAM** command longword | `4 + values.len` |
+| `fire(line, ops)` (`:203-249`) | `line` = screen line 3..223 the effect lands on; `ops` = 1..4 descriptors, at most 2 of them stream, at most 3 stream words total | one record: `arm, ops.len, <bodies>` | `2 + Σ op_size` |
+| `region_boundary(line, addr, slot, pal_line, entry, count, sh)` (`:264-271`) | thin composite. **`sh` is required — deliberately no default**, see below | `fire(line, [reg_sh_on(), stream_pal_region(…)])` when `sh == 1`, else the region alone | as above |
 | `raster_words(fires)` (`:477-487`) | descriptor array | the word count, computed from `op_size` — **independently of** `raster_program`'s concatenation | — |
 | `raster_program(fires)` (`:491-519`) | descriptor array | the flat `[u16]` | — |
 
-`cmd` is `vdp_comm(addr, VdpTarget.Cram, VdpOp.Write)` — or `VdpTarget.Vsram` for `vsram`. `vdp_comm` is
+`cmd` is `vdp_comm(addr, VdpTarget.Cram, VdpOp.Write)` — or `VdpTarget.Vsram` for `stream_vsram`. `vdp_comm` is
 a `COMPTIME_HELPERS` member and is therefore glob-injected at every call site, so naming it inside a
 constructor body is safe.
 
@@ -102,23 +102,23 @@ The opcode values themselves (`OP_SET_REG = 0` at `raster.emp:87`, `OP_CRAM = 2`
 literals and pins each with a module-level `ensure` (`raster_dsl.emp:33-48`) — see "The discipline rule"
 for why.
 
-### `vsram` — per-band vertical scroll, and what is not yet known about it
+### `stream_vsram` — per-band vertical scroll, and what is not yet known about it
 
-`vsram` is the newest constructor and the only one that reaches a capability the engine did not
+`stream_vsram` is the newest constructor and the only one that reaches a capability the engine did not
 otherwise have: Aeon has **one vertical scroll factor for the whole BG plane and no vertical banding at
 all** without it.
 
 It needed **zero runtime change**, and that is a fact about the decoder rather than luck.
 `Raster_HInt`'s `.op_cram` path (`raster.emp:461-473`) does `move.l (a1)+, (a2)` with *whatever command
 longword the program carries* and then streams `count` words to `VDP_DATA`; it never inspects the target
-bits. The only thing that ever made those ops CRAM ops was `cram`/`pal_region` hardcoding
-`VdpTarget.Cram` in the encoder. So `vsram` emits `OP_CRAM` with a VSRAM command instead.
+bits. The only thing that ever made those ops CRAM ops was `stream_cram`/`stream_pal_region` hardcoding
+`VdpTarget.Cram` in the encoder. So `stream_vsram` emits `OP_CRAM` with a VSRAM command instead.
 
 VSRAM is 80 bytes = 40 word entries. In per-column vertical scroll mode entry `2n` is plane A and
 `2n+1` is plane B for the n-th 16-pixel column; in full-screen mode only entries 0 and 1 are read.
 
 > **MEASURED N+1 (2026-08-14 on oracle).** A VSRAM write issued from the HInt handler first takes
-> effect on line **N+1**, the same as `cram` and reg `$07` — not N+2. `OJZ_TestVsram` authored at
+> effect on line **N+1**, the same as `stream_cram` and reg `$07` — not N+2. `OJZ_TestVsram` authored at
 > screen line 112, checked against a control build differing only in the offset: the first differing
 > pixel row is exactly y=112 and rows 108-111 are pixel-identical, for both plane A and plane B.
 > The constructor's existing screen-line = fire-line + 1 arithmetic is therefore correct for VSRAM with
@@ -165,7 +165,7 @@ choice, no longer a guard.
 
 Spec §4.1 sketches `region_boundary(line:, variant:, sh:)`. That signature presumes a **preset binding
 that does not exist until Parcel C** — there is no `variant:` handle to name yet. Parcel A therefore
-shipped the primitives (`fire`, `set_reg` / `sh_on`, `cram`, `pal_region`, `vsram`) plus a
+shipped the primitives (`fire`, `reg_set` / `reg_sh_on`, `stream_cram`, `stream_pal_region`, `stream_vsram`) plus a
 `region_boundary` whose parameters are the ones `OJZ_WaterRaster` actually needs. Parcel D re-shapes the
 signature once it knows the pack. This is a deviation from a spec *sketch*, not from a ruling.
 
@@ -179,14 +179,14 @@ CRAM line 1 entries 8-10 to a dusk-tinted variant, with no Shadow/Highlight.
 
 **1. Pick the palette entries, and derive the CRAM byte address.** CRAM line 1 starts at byte
 `1 * 32 = 32`; entry 8 is `+ 8 * 2 = 16`. So `addr = 48 = $30`. (You supply this *and* the
-`pal_line`/`entry` pair; `pal_region` checks your arithmetic rather than doing it. That is the
+`pal_line`/`entry` pair; `stream_pal_region` checks your arithmetic rather than doing it. That is the
 vocabulary's largest remaining friction and it is named as such in the 2026-08-14 review §6.)
 
 **2. Write the program.** In the game-side effects library, `games/sonic4/data/parallax/configs.emp`:
 
 ```
 const DUSK_PROG = [
-    fire(96, [ pal_region(addr: $30, slot: 1, pal_line: 1, entry: 8, count: 3) ]),
+    fire(96, [ stream_pal_region(addr: $30, slot: 1, pal_line: 1, entry: 8, count: 3) ]),
 ]
 
 pub data OJZ_DuskBand: [u16; raster_words(DUSK_PROG)] = raster_program(DUSK_PROG)
@@ -197,7 +197,7 @@ arm word, the CRAM command, the `count-1`, the staging offset, the `pal_dirty_ma
 all derived. Self-check if you want one: 1 header word + 4 priming + (2 + 5) + 2
 terminator = **14 words**, and the single event at screen line 96 gives arm `$8A00 | (96 - 3)` = `$8A5D`.
 
-**3. Bind a variant to the slot the program names.** A `pal_region` streams from
+**3. Bind a variant to the slot the program names.** A `stream_pal_region` streams from
 `Pal_Variant_Stage[slot]`, which is empty until something binds a descriptor to that slot. At level init:
 
 ```
@@ -244,7 +244,7 @@ already allowed that; the only thing missing was a way to merge two of them.
 
 ```emp
 pub comptime fn fx_sh_below(line: int) -> array {
-    return [ fire(line, [ sh_on() ]) ]
+    return [ fire(line, [ reg_sh_on() ]) ]
 }
 ```
 
@@ -264,7 +264,7 @@ pub data OJZ_Dusk: [u16; raster_words(OJZ_DUSK)] = raster_program(OJZ_DUSK)
 It walks screen lines in ascending order rather than sorting, which gets three things for free:
 the result is in the strictly ascending order `fire_lines` demands; two presets firing on the
 **same line become one fire** rather than a duplicate-line error, which is what "layer these two"
-has to mean; and every `set_reg` is emitted before every CRAM-class op, so the ruling-14 prefix
+has to mean; and every `reg_set` is emitted before every stream op, so the ruling-14 prefix
 invariant holds by construction. Each merged op list goes back through `fire`, so **the per-fire
 ceilings bind the composition, not just its parts** — composing two legal presets into an illegal
 fire is a build error rather than a surprise on screen.
@@ -285,7 +285,7 @@ before anyone read the period off the nametable. `$0043` bands cleanly.
 
 **Presets no longer have to agree about registers.** Two presets touching the same VDP register used
 to be **refused** unless they carried the same frame-top reset word, which made composition a
-negotiation between preset authors. The blanket VBlank register restore landed, `set_reg` lost its
+negotiation between preset authors. The blanket VBlank register restore landed, `reg_set` lost its
 `reset` parameter, and presets now simply layer. What composition still cannot reconcile is two ops
 writing the same register on the **same line**: both execute, in preset order, and the last wins.
 
@@ -297,9 +297,9 @@ guard can see it.
 ### Density is now checked
 
 `raster_program` refuses a schedule whose modelled cost exceeds the scanlines available before the
-next fire. The model comes from two measured points (a 1-word `vsram` fire at **454** cycles, a
-3-colour `cram` fire at **526**, against a **488**-cycle NTSC line) and it deliberately scores
-`set_reg` as **zero**, because its dispatch cost has never been measured — so the model *under*-states
+next fire. The model comes from two measured points (a 1-word `stream_vsram` fire at **454** cycles, a
+3-colour `stream_cram` fire at **526**, against a **488**-cycle NTSC line) and it deliberately scores
+`reg_set` as **zero**, because its dispatch cost has never been measured — so the model *under*-states
 cost and the guard fires only on evidence.
 
 ---
@@ -389,15 +389,15 @@ the runtime ships it on the frames the channel's latched line is `<= 0`, so the 
 cover the whole screen instead.
 
 Everything about that transfer is DERIVED from the fire's own ops — the staging source, the CRAM
-address and the colour count from its `pal_region`, plus **every `set_reg` word it carries**, all
+address and the colour count from its `stream_pal_region`, plus **every `reg_set` word it carries**, all
 replayed at frame top. So there is no second place to author the underwater look and nothing to
 keep in step.
 
-**The `set_reg` half matters and is easy to forget.** A tint band authored with `sh: 1` carries
-`sh_on()` as well as its colour swap. A ship that moved only the colours left the rows above the
+**The `reg_set` half matters and is easy to forget.** A tint band authored with `sh: 1` carries
+`reg_sh_on()` as well as its colour swap. A ship that moved only the colours left the rows above the
 clamped fire line tinted but UNSHADOWED — visibly lighter, and it shipped that way for one
 parcel before play found it. Two guards follow from that, both build errors:
-the fire must carry **exactly one** `pal_region` op (a bare vscroll split has nothing to ship),
+the fire must carry **exactly one** `stream_pal_region` op (a bare vscroll split has nothing to ship),
 and at most **one** fire per program may declare it.
 
 **It is named for its GEOMETRY, not for water.** The mechanism is "this channel's anchor is
@@ -509,9 +509,9 @@ design change to raise, not something to assemble by hand-editing a program arra
 
 ---
 
-## Palette variants — what `pal_region` reaches into
+## Palette variants — what `stream_pal_region` reaches into
 
-`pal_region`'s `slot` / `pal_line` / `entry` are not raster concepts; they are coordinates into the
+`stream_pal_region`'s `slot` / `pal_line` / `entry` are not raster concepts; they are coordinates into the
 palette system's staging buffer. You cannot author a *new* variant effect without this model.
 
 **A variant is a cheap per-channel transform of the live composed palette.** Per channel:
@@ -543,17 +543,17 @@ frame yields the *same answer*, not an approximation. Measured before the gate o
 19332 cyc/frame = **15.1% of every frame**, larger than the whole sparse raster tier, entirely spent
 recomputing a constant.
 
-**`pal_region` is the raster side of that buffer.** It carries a comptime *offset* —
+**`stream_pal_region` is the raster side of that buffer.** It carries a comptime *offset* —
 `slot*128 + pal_line*32 + entry*2`, the arithmetic `raster.emp:124-129`'s `pal_stage_off` owns and
 `raster_dsl.emp:47-48` pins itself against — and the handler (`raster.emp:474-495`) streams `count`
 words from `Pal_Variant_Stage + offset` to CRAM. An offset rather than a pointer is what keeps a sparse
 program a flat `[u16]` of comptime literals with no link-time symbol in it.
 
 So the three-part model is: **`variant()` describes the transform, `Palette_SetVariant` binds it to a
-slot and the compose derives it each frame, and `pal_region` scopes it to a screen band.** Nothing about
+slot and the compose derives it each frame, and `stream_pal_region` scopes it to a screen band.** Nothing about
 the variant itself knows about scanlines; nothing about the raster program knows about colour maths.
 
-**The hole to know about:** nothing cross-checks `pal_region`'s `pal_line` against the bound variant's
+**The hole to know about:** nothing cross-checks `stream_pal_region`'s `pal_line` against the bound variant's
 `v_lines`. If the variant does not cover that line, `Palette_DeriveVariant` never writes those staging
 bytes and `OP_PAL_REGION` streams **uninitialised RAM straight to CRAM mid-frame**. Safe today only
 because `variant()`'s `lines` defaults to `%1110`. (2026-08-14 review §5, ARGUED — reasoned from the
@@ -572,7 +572,7 @@ permutes; the raster tier is how either one becomes scoped to a band.
 
 **Imports — there are none, and that has a cost.** `engine.effects.raster_dsl` and
 `engine.effects.palette_dsl` are members of sigil's `COMPTIME_HELPERS`, so every `pub` item in them —
-`fire`, `cram`, `set_reg`, `sh_on`, `vsram`, `pal_region`, `region_boundary`, `raster_words`,
+`fire`, `stream_cram`, `reg_set`, `reg_sh_on`, `stream_vsram`, `stream_pal_region`, `region_boundary`, `raster_words`,
 `raster_program`, `variant`, `cycle_channel`, … — is **ambient in every module**. No `use` is required
 to call them, and `normalize_helper_imports` strips an explicit helper `use` at build time anyway.
 Writing one regardless is the house convention where it documents a seam worth naming
@@ -585,13 +585,13 @@ and therefore can never be helpers.
 
 **Helper membership also force-publicises a module's PRIVATE comptime items.** That is a real
 consequence, not a footnote, and it is why the four internal helpers below are described as *internal by
-convention* and not as private: `op_size`, `op_cram_words`, `op_mask`, `op_words`,
-`op_is_set_reg`, `prog_mask`, `fire_lines`, `arm_at` and `check_mixed_fire` are all
+convention* and not as private: `op_size`, `op_stream_words`, `op_mask`, `op_words`,
+`op_is_reg`, `prog_mask`, `fire_lines`, `arm_at` and `check_mixed_fire` are all
 **ambient names in every module in the tree**, whatever their declared visibility. An author never calls
 them; nothing stops one.
 
 The practical consequence for *you*: this parcel injected roughly twenty short generic names — `fire`,
-`cram`, `set_reg`, `vsram`, `variant`, `op_size`, `op_mask`, `op_words`, … — into every
+`stream_cram`, `reg_set`, `stream_vsram`, `variant`, `op_size`, `op_mask`, `op_words`, … — into every
 module. **Do not shadow them with a module-local name.** `python3 tools/emp_helper_closure.py` catches
 helper-vs-helper collisions and fails on any name exported by two helpers; it does **not** catch a
 collision against a module-local name. Run it before and after any change to the helper list; it also
@@ -672,8 +672,8 @@ Stated plainly rather than left for someone to discover on hardware:
 - ~~**The patched-water template's `init_count == 1` requirement.**~~ **Closed.** The header is one
   word, so `WATER_TEMPLATE_ARM0_OFF = 2` names `arm0` in every program and there is no layout
   precondition on a template destined for the water patch slot. The invariant, the co-located `ensure`
-  in `configs.emp` that carried it, and the `set_reg($8C81, $8C81)` escape hatch are all deleted.
-- **Nothing checks a `pal_region` against the bound variant's covered lines.** See the palette variant
+  in `configs.emp` that carried it, and the `reg_set($8C81, $8C81)` escape hatch are all deleted.
+- **Nothing checks a `stream_pal_region` against the bound variant's covered lines.** See the palette variant
   section: an uncovered line streams uninitialised staging RAM to CRAM.
 - **Parameter type annotations.** They are mandatory to parse but mostly not enforced: `[T; N]` on a
   parameter is *not* a checked length (a 4-element list binds to an `[int; 3]` param), which is why
@@ -693,25 +693,25 @@ Stated plainly rather than left for someone to discover on hardware:
 
 ## New correctness the constructors guarantee (ruling 5)
 
-- **`set_reg`**: a mode change can never latch past the frame — but that is now the *engine's*
+- **`reg_set`**: a mode change can never latch past the frame — but that is now the *engine's*
   guarantee, not this constructor's. `Flush_VDP_Shadow` re-blits all 19 shadowed VDP registers from
   `VDP_Shadow_Table` unconditionally at the top of every VBlank, so a mid-frame write is undone at frame
   top whichever register it named. The old paired `reset` parameter, the header words it fed and
   `prog_init`'s disagreeing-resets check are all gone. A register change meant to **persist** is settled
   state, not a raster op: call `Set_VDP_Reg` (`engine/system/vdp_init.emp`) and let the flush deliver it.
-- **`set_reg` refuses reg `$0A`.** That register is the *schedule's*. `Raster_HInt` writes the record's
+- **`reg_set` refuses reg `$0A`.** That register is the *schedule's*. `Raster_HInt` writes the record's
   arm word to reg `$0A` **first** and only then runs the record's ops (`raster.emp:436` before `:442`),
   so an op writing `$8Axx` would overwrite the arm the encoder just scheduled; the counter then reloads
   with the author's value at the next HInt and every remaining fire in the frame lands on the wrong line
   — silently, and only from that fire onward. Reg `$0F` (autoincrement) was considered and **deliberately
   not** banned: Gunstar Heroes and Alien Soldier both change autoincrement mid-frame as ordinary
   technique, and the blanket frame-top restore already bounds the change to the frame that made it.
-- **`pal_region`**: the destination CRAM address must name the **same line and entry** as the staging
+- **`stream_pal_region`**: the destination CRAM address must name the **same line and entry** as the staging
   source (`(addr >> 5) == pal_line` and `((addr >> 1) & 15) == entry`). Hand authoring had no such check
   — the two were independent literals.
 - **`pal_dirty_mask` is derived** from the CRAM addresses rather than typed. A mask naming the wrong
   line is the observed P1 bug (`configs.emp:343-345`); it is now unrepresentable.
-- **Palette line 0 is refused.** `cram` rejects an address on CRAM line 0 and `pal_region` bounds
+- **Palette line 0 is refused.** `stream_cram` rejects an address on CRAM line 0 and `stream_pal_region` bounds
   `pal_line` to 1..3. Line 0 is the character's (`CharacterDef.cd_palette`); a raster write there
   repaints the active character.
 - **`raster_program`**: `words * 2 <= RASTER_BUF_SIZE` (spec §10 rider 4, `raster_dsl.emp:514-515`).
@@ -726,10 +726,10 @@ Stated plainly rather than left for someone to discover on hardware:
   | Ceiling | Value | Why that quantity |
   |---|---|---|
   | ops per fire | 4 | every op walks `Raster_HInt`'s compare chain before doing any work, and `OP_SET_REG` — the op with no other cost — is that chain's **fall-through** (`raster.emp:451-459`), so it is the most expensive op to *dispatch* |
-  | CRAM-class ops per fire | 2 | each of `cram` / `pal_region` / `vsram` issues its own command longword **and** burns its own `EFX_BLANK_DELAY` spin (`raster.emp:465-467`, `:484-486`), and that spin is the entire mechanism that parks a write in HBlank. Only the **first** op's writes are measured to land there (row 119, 1px → 0px, `docs/benchmarks/effects-p2/GATE-EVIDENCE.md`) |
-  | CRAM-class words per fire | `RASTER_CRAM_MAX` = 3 | the writes themselves; `op_cram_words` sums `cram`/`pal_region`/`vsram` alike, because a VSRAM word costs the same as a colour |
+  | stream ops per fire | 2 | each of `stream_cram` / `stream_pal_region` / `stream_vsram` issues its own command longword **and** burns its own `EFX_BLANK_DELAY` spin (`raster.emp:465-467`, `:484-486`), and that spin is the entire mechanism that parks a write in HBlank. Only the **first** op's writes are measured to land there (row 119, 1px → 0px, `docs/benchmarks/effects-p2/GATE-EVIDENCE.md`) |
+  | stream words per fire | `RASTER_CRAM_MAX` = 3 | the writes themselves; `op_stream_words` sums `stream_cram`/`stream_pal_region`/`stream_vsram` alike, because a VSRAM word costs the same as a colour |
 
-  The per-op bounds inside `cram` / `pal_region` / `vsram` are *necessary but not sufficient*: three
+  The per-op bounds inside `stream_cram` / `stream_pal_region` / `stream_vsram` are *necessary but not sufficient*: three
   3-word ops satisfy every per-op check.
 
   **What is still NOT enforced — read no cycle guarantee into the above.** These are **structural
@@ -737,13 +737,13 @@ Stated plainly rather than left for someone to discover on hardware:
   measured figures in the tree (`docs/benchmarks/effects-p2/GATE-EVIDENCE.md`) are per-frame upper bounds
   that include profiler instrumentation and exception entry, so a per-op cycle table derived from them
   would be authoritative-looking fiction. The *cost* of a fire is not modelled at all — a 4-op fire of
-  `set_reg`s and a 1-op fire of one `cram` both pass, and the first is certainly slower. Whether even
+  `reg_set`s and a 1-op fire of one `stream_cram` both pass, and the first is certainly slower. Whether even
   the permitted maxima finish before active display is **unmeasured**: nothing in this tree has ever run
-  more than two ops or more than one CRAM-class op in a single fire, and adjacent-fire density is
+  more than two ops or more than one stream op in a single fire, and adjacent-fire density is
   unmeasured too. These ceilings bound the *damage* of a mistake; they do not certify the shapes they
   admit. (This paragraph replaces an earlier one that claimed a fire blowing the ~60-cycle budget had
-  been made impossible. It had not: the guard then counted only CRAM words and scored `set_reg` as free,
-  so a twenty-`set_reg` fire passed everything. 2026-08-14 review §1.2, VERIFIED.)
+  been made impossible. It had not: the guard then counted only CRAM words and scored `reg_set` as free,
+  so a twenty-`reg_set` fire passed everything. 2026-08-14 review §1.2, VERIFIED.)
 
   **THE SIX-CONSECUTIVE-FIRE IDIOM IS RETIRED. It was measured, and it does not work.** This document
   used to prescribe consecutive fires on successive lines — `ceil(16/3) = 6` for a full 16-colour line —
@@ -764,7 +764,7 @@ Stated plainly rather than left for someone to discover on hardware:
   counter, stopping the Z80, and repeating {fresh CRAM command, 3 colours, a cycle-counted `dbf` spin} —
   the spacing that pushes dots offscreen comes from the *spin*, not from multiple interrupts. S3K's
   `HInt2`, Sonic 2's `PalToCRAM` and S.C.E.'s `HInt` each write 64 CRAM words in a single fire with no
-  delay at all. Sparse adjacent fires remain fine for ops that fit under a scanline — a 1-word `vsram`
+  delay at all. Sparse adjacent fires remain fine for ops that fit under a scanline — a 1-word `stream_vsram`
   fire measures **454** and six of them adjacent were verified clean, every fire landing on its own line.
 
   *(An earlier revision attributed the six-fire idiom to S3K; that was checked against the disassembly
@@ -772,14 +772,14 @@ Stated plainly rather than left for someone to discover on hardware:
 - **Fire ordering**: fires must be in strictly ascending screen-line order and no two events may share a
   fire line (`raster_dsl.emp:418-419`); the schedule *is* the program order, since the runtime never
   compares a line number.
-- **Mixed fires**: every `OP_SET_REG` must precede every CRAM-class op (ruling 14, spec §5.4). Not a
-  style rule. `OP_SET_REG` writes with no delay (`raster.emp:457-459`) while every CRAM-class op first
+- **Mixed fires**: every `OP_SET_REG` must precede every stream op (ruling 14, spec §5.4). Not a
+  style rule. `OP_SET_REG` writes with no delay (`raster.emp:457-459`) while every stream op first
   burns `EFX_BLANK_DELAY` (`:465-467`, `:484-486`), so a `SET_REG` placed *after* a CRAM op executes
   strictly later in the line — worse than the measured ~45%-across-line-119 mode switch a mixed fire
   already costs (`raster.emp:175-180`), and invisible to an author. A pixel-clean mode change must be
   scheduled a line earlier instead. The guard is a **prefix test** (`last_set < first_cram`,
   `raster_dsl.emp:465`); an earlier spelling tested only that *a* `SetReg` was first, which passed
-  `[sh_on(), pal_region(…), set_reg(…)]` — the exact ordering the rule forbids — and then reported "it
+  `[reg_sh_on(), stream_pal_region(…), reg_set(…)]` — the exact ordering the rule forbids — and then reported "it
   is at index 0", pointing at the one op that was fine.
 
 ---
@@ -805,10 +805,10 @@ program touches. What that leaves, by fire shape:
 | Fire shape | words per fire | max fires |
 |---|---|---|
 | `region_boundary(…, sh: 1)` — the water shape | 9 | **6** |
-| `fire(M, [cram(a, [c1, c2, c3])])` | 9 | **6** |
-| `fire(M, [pal_region(…)])` | 7 | **8** |
-| `fire(M, [vsram(a, [v])])` | 7 | **8** |
-| `fire(M, [set_reg(w)])` | 4 | **14** |
+| `fire(M, [stream_cram(a, [c1, c2, c3])])` | 9 | **6** |
+| `fire(M, [stream_pal_region(…)])` | 7 | **8** |
+| `fire(M, [stream_vsram(a, [v])])` | 7 | **8** |
+| `fire(M, [reg_set(w)])` | 4 | **14** |
 
 So **roughly 6-8 events for anything that writes colour**, and the ceiling is on the *program*, not on
 the frame. Plan for six if your fires carry a mode change; if you need more bands than that, the answer
@@ -829,8 +829,8 @@ someone else's arithmetic.
 ### Sparse program wire format
 
 ```
-word 0            pal_dirty_mask          DERIVED — OR of (1 << (cram_addr >> 5)) over every CRAM-class
-                                          op; 0 for a vsram op. The WHOLE header: one word, so a
+word 0            pal_dirty_mask          DERIVED — OR of (1 << (cram_addr >> 5)) over every stream
+                                          op; 0 for a stream_vsram op. The WHOLE header: one word, so a
                                           program's arm0 is always word 1 (byte offset 2, which is
                                           what WATER_TEMPLATE_ARM0_OFF names)
                   ---- records ----
@@ -893,7 +893,7 @@ Both fixtures are one event at screen line 120, so `L = [0, 1, 119]` for both.
 | CRAM addr decode | `$4A` → line `2`, entry `5` | `$48` → line `2`, entry `4`; the staging source `pal_stage_off(0, 2, 4)` separately evaluates to 72 |
 
 Word-count breakdown, identical for both: 1 header word (`pal_dirty_mask`) + 4 for the two priming
-records + 9 for the event record (2 for `arm`/`op_count`, 2 for the `set_reg`, 5 for the CRAM-class op)
+records + 9 for the event record (2 for `arm`/`op_count`, 2 for the `reg_set`, 5 for the stream op)
 + 2 for the terminator = 16.
 
 **A coincidence to not read as a rule.** In `OJZ_WaterRaster` two different numbers are both 72
@@ -906,7 +906,7 @@ the same address space:
 
 They agree here *only because the slot is 0*, which makes the `slot*128` term vanish. For slot 1 the
 same region would stage from offset `1*128 + 2*32 + 4*2` = **200** while the CRAM address stayed `$48`.
-`pal_region` checks that the two name the same *line and entry*, not that they are the same number.
+`stream_pal_region` checks that the two name the same *line and entry*, not that they are the same number.
 
 **The verification method behind this table**, named rather than asserted: both fixtures carry a
 `raster_words(PROG) == HAND.len` ensure and a `first_mismatch(raster_program(PROG), HAND) == -1` ensure
@@ -944,21 +944,21 @@ constructor authors it at `top - 1` (`raster.emp:276`). 2026-08-14 review §1.4,
 ### Four per-op quantities, deliberately distinct
 
 The encoding asks three different questions of one op, and the answers are **not** interchangeable. This
-is where a plausible-looking simplification does real damage: a `pal_region` occupies 5 wire words but
-writes `count` colours, and a `set_reg` occupies 2 wire words but writes no CRAM at all — so counting
+is where a plausible-looking simplification does real damage: a `stream_pal_region` occupies 5 wire words but
+writes `count` colours, and a `reg_set` occupies 2 wire words but writes no CRAM at all — so counting
 either one with the other's function silently mis-sizes a program or mis-budgets a fire.
 
 | Helper | Answers | `SetReg(w)` | `Cram(a, cols)` | `PalRegion(a, slot, pl, e, n)` | `Vsram(a, vals)` |
 |---|---|---|---|---|---|
 | `op_size` (`:316-323`) | wire words the op occupies | 2 | `4 + cols.len` | 5 | `4 + vals.len` |
-| `op_cram_words` (`:330-337`) | **data words streamed to the VDP** — what `fire` sums against the per-fire ceiling | 0 | `cols.len` | `n` | `vals.len` |
-| `op_mask` (`:344-356`) | the `pal_dirty_mask` bit the op needs re-asserted at frame top | 0 | `1 << (a >> 5)` | `1 << (a >> 5)` | **0** — deliberately; see the `vsram` note above |
+| `op_stream_words` (`:330-337`) | **data words streamed to the VDP** — what `fire` sums against the per-fire ceiling | 0 | `cols.len` | `n` | `vals.len` |
+| `op_mask` (`:344-356`) | the `pal_dirty_mask` bit the op needs re-asserted at frame top | 0 | `1 << (a >> 5)` | `1 << (a >> 5)` | **0** — deliberately; see the `stream_vsram` note above |
 
 There is no `op_init` any more — it answered "which frame-top reset words does this op contribute", and
 the blanket `Flush_VDP_Shadow` answers that for every register without asking the program.
 
-`op_size` feeds `raster_words`; `op_cram_words` feeds `fire`'s per-fire budget; `op_mask` feeds the
-header, OR'd across the program. A fourth, `op_is_set_reg`, feeds both the mixed-fire ordering guard and the CRAM-class op ceiling —
+`op_size` feeds `raster_words`; `op_stream_words` feeds `fire`'s per-fire budget; `op_mask` feeds the
+header, OR'd across the program. A fourth, `op_is_reg`, feeds both the mixed-fire ordering guard and the stream op ceiling —
 that split is the runtime's, not a taxonomy: `OP_SET_REG` is the one op that writes with no blanking
 delay.
 

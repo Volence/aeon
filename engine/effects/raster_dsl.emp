@@ -53,7 +53,7 @@ ensure((RASTER_MAX_FIRE_LINE - 1) - 1 <= 255,
 // its guards. It is `pub` and takes unconstrained fire lines, so its checks are dead only
 // for today's callers rather than structurally — the distinction that decides whether
 // removing a guard is a cleanup or a silent loss of coverage.
-// pal_region inlines the staging arithmetic rather than calling pal_stage_off (a
+// stream_pal_region inlines the staging arithmetic rather than calling pal_stage_off (a
 // call-site name); this pins the formula against its authority.
 ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
        "raster_dsl's inlined Pal_Variant_Stage arithmetic drifted from pal_stage_off")
@@ -72,7 +72,7 @@ ensure(pal_stage_off(1, 3, 5) == 1 * 128 + 3 * 32 + 5 * 2,
 
 // Vsram is its OWN variant rather than a target field on Cram, deliberately. The wire
 // body is byte-identical in SHAPE (same OP_CRAM opcode — the handler never inspects the
-// command longword, see `vsram` below), but every DERIVED fact differs: op_mask is 0 for
+// command longword, see `stream_vsram` below), but every DERIVED fact differs: op_mask is 0 for
 // VSRAM and `1 << (addr >> 5)` for CRAM, the address ceiling is 78 not 126, the "not line
 // 0" rule is meaningless off CRAM, and the run-past-the-end arithmetic counts bytes of an
 // 80-byte VSRAM instead of entries of a 16-colour line. A `Cram(addr, target, cols)` would
@@ -101,7 +101,7 @@ pub comptime enum RasterFire {
 
 // ---- op constructors --------------------------------------------------------
 
-// set_reg — a mid-frame VDP register write. It carries NO frame-top reset, because it
+// reg_set — a mid-frame VDP register write. It carries NO frame-top reset, because it
 // does not need one: Flush_VDP_Shadow re-blits all 19 shadowed registers from
 // VDP_Shadow_Table unconditionally at the top of every VBlank, so a mid-frame register
 // change is undone at frame top whichever register it named. "A mode change cannot latch
@@ -110,9 +110,9 @@ pub comptime enum RasterFire {
 // That is also what makes presets compose. Two independently-authored effects touching
 // the same register used to have to AGREE on a reset word or fail the build (the old
 // prog_init disagreeing-resets check); now they simply layer.
-pub comptime fn set_reg(word: int) -> RasterOp {
+pub comptime fn reg_set(word: int) -> RasterOp {
     ensure(word >= $8000 && word <= $97FF,
-           "set_reg: {word} is not a VDP register write word ($8000..$97FF)")
+           "reg_set: {word} is not a VDP register write word ($8000..$97FF)")
     // Reg $0A is the SCHEDULE's, not the author's. Raster_HInt writes the record's arm
     // word to reg $0A FIRST and only then runs the record's ops (engine/effects/raster.emp,
     // Raster_HInt: `move.w (a1)+, (a2)` before `.op_loop`), so an op that writes $8Axx
@@ -131,61 +131,61 @@ pub comptime fn set_reg(word: int) -> RasterOp {
     // touches the shadow, so the shadow keeps describing the SETTLED frame-top state —
     // exactly what it is for — while this op describes a transient excursion from it. The
     // old hazard is not merely absent, it is unrepresentable: there is no per-program reset
-    // word for the flush to fight and no dirty bit for it to miss, so a set_reg on a
+    // word for the flush to fight and no dirty bit for it to miss, so a reg_set on a
     // shadowed register can no longer diverge the shadow from the hardware.
     //
     // A register change meant to PERSIST is not a raster op at all. Call Set_VDP_Reg
     // (engine/system/vdp_init.emp): it writes the shadow byte and the frame-top flush
     // delivers it.
     ensure((word >> 8) != $8A,
-           "set_reg: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
+           "reg_set: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
     return RasterOp.SetReg(word)
 }
 
-// sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
+// reg_sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
 // the shadow holds for reg $0C at the top of the next frame, which is boot's H40 base
 // $8C81 (engine/system/boot_data.emp:140) unless a section deliberately changed it via
 // Set_VDP_Reg. $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30
 // quirk ruling in the raster survey.
-pub comptime fn sh_on() -> RasterOp {
-    return set_reg($8C89)
+pub comptime fn reg_sh_on() -> RasterOp {
+    return reg_set($8C89)
 }
 
-// cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
-pub comptime fn cram(addr: int, colours: array) -> RasterOp {
-    ensure(addr >= 0 && addr <= 126, "cram: CRAM byte address {addr} outside 0..126")
-    ensure((addr & 1) == 0, "cram: CRAM byte address {addr} is odd — colours are words")
+// stream_cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
+pub comptime fn stream_cram(addr: int, colours: array) -> RasterOp {
+    ensure(addr >= 0 && addr <= 126, "stream_cram: CRAM byte address {addr} outside 0..126")
+    ensure((addr & 1) == 0, "stream_cram: CRAM byte address {addr} is odd — colours are words")
     ensure((addr >> 5) != 0,
-           "cram: address {addr} is on CRAM line 0, the character's line (CharacterDef.cd_palette) — a raster write there repaints the active character")
+           "stream_cram: address {addr} is on CRAM line 0, the character's line (CharacterDef.cd_palette) — a raster write there repaints the active character")
     ensure(colours.len >= 1 && colours.len <= 3,
-           "cram: {colours.len} colours exceeds RASTER_CRAM_MAX (3) — that is the ~60-cycle per-fire budget, not a FIFO limit")
+           "stream_cram: {colours.len} colours exceeds RASTER_CRAM_MAX (3) — that is the ~60-cycle per-fire budget, not a FIFO limit")
     ensure(((addr >> 1) & 15) + colours.len <= 16,
-           "cram: {colours.len} colours from entry {(addr >> 1) & 15} runs past the end of CRAM line {addr >> 5}")
+           "stream_cram: {colours.len} colours from entry {(addr >> 1) & 15} runs past the end of CRAM line {addr >> 5}")
     return RasterOp.Cram(addr, colours)
 }
 
-// pal_region — a SCOPED colour swap streamed from a variant's Pal_Variant_Stage bytes.
+// stream_pal_region — a SCOPED colour swap streamed from a variant's Pal_Variant_Stage bytes.
 // The destination CRAM address and the staging source must name the same line and
 // entry; hand authoring had no such check.
-pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, count: int) -> RasterOp {
-    ensure(addr >= 0 && addr <= 126, "pal_region: CRAM byte address {addr} outside 0..126")
-    ensure((addr & 1) == 0, "pal_region: CRAM byte address {addr} is odd — colours are words")
-    ensure(slot >= 0 && slot < 2, "pal_region: slot {slot} outside 0..PAL_MAX_VARIANTS(2)")
+pub comptime fn stream_pal_region(addr: int, slot: int, pal_line: int, entry: int, count: int) -> RasterOp {
+    ensure(addr >= 0 && addr <= 126, "stream_pal_region: CRAM byte address {addr} outside 0..126")
+    ensure((addr & 1) == 0, "stream_pal_region: CRAM byte address {addr} is odd — colours are words")
+    ensure(slot >= 0 && slot < 2, "stream_pal_region: slot {slot} outside 0..PAL_MAX_VARIANTS(2)")
     ensure(pal_line >= 1 && pal_line <= 3,
-           "pal_region: staging line {pal_line} outside 1..3 (line 0 is the character's)")
-    ensure(entry >= 0 && entry <= 15, "pal_region: entry {entry} outside 0..15")
+           "stream_pal_region: staging line {pal_line} outside 1..3 (line 0 is the character's)")
+    ensure(entry >= 0 && entry <= 15, "stream_pal_region: entry {entry} outside 0..15")
     ensure(count >= 1 && count <= 3,
-           "pal_region: {count} colours exceeds RASTER_CRAM_MAX (3)")
+           "stream_pal_region: {count} colours exceeds RASTER_CRAM_MAX (3)")
     ensure(entry + count <= 16,
-           "pal_region: {count} colours from entry {entry} runs past the end of line {pal_line}")
+           "stream_pal_region: {count} colours from entry {entry} runs past the end of line {pal_line}")
     ensure((addr >> 5) == pal_line,
-           "pal_region: destination CRAM address {addr} is on line {addr >> 5} but the staging source is line {pal_line}")
+           "stream_pal_region: destination CRAM address {addr} is on line {addr >> 5} but the staging source is line {pal_line}")
     ensure(((addr >> 1) & 15) == entry,
-           "pal_region: destination CRAM address {addr} is entry {(addr >> 1) & 15} but the staging source is entry {entry}")
+           "stream_pal_region: destination CRAM address {addr} is entry {(addr >> 1) & 15} but the staging source is entry {entry}")
     return RasterOp.PalRegion(addr, slot, pal_line, entry, count)
 }
 
-// vsram — a mid-frame VERTICAL SCROLL write: `values` words starting at VSRAM byte
+// stream_vsram — a mid-frame VERTICAL SCROLL write: `values` words starting at VSRAM byte
 // address `addr`. Per-band vertical scroll, i.e. the effect the whole Genesis corpus
 // actually reaches for HInt to do (Batman & Robin's handlers write VSRAM and touch CRAM
 // zero times; Thunder Force IV writes VSRAM only). Aeon has one vertical scroll factor
@@ -194,13 +194,13 @@ pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, coun
 // IT NEEDED NO RUNTIME CHANGE, and that is a fact about the decoder, not luck:
 // Raster_HInt's `.op_cram` does `move.l (a1)+, (a2)` with whatever command longword the
 // program carries and then streams words to VDP_DATA — it never inspects the target bits.
-// The ONLY thing that made those ops CRAM ops was `cram`/`pal_region` hardcoding
+// The ONLY thing that made those ops CRAM ops was `stream_cram`/`stream_pal_region` hardcoding
 // VdpTarget.Cram in this encoder. So this constructor emits OP_CRAM (the literal 2, per
 // the module note on inlined literals) with a VSRAM command instead.
 //
 // VSRAM is 80 bytes = 40 word entries: in per-column vertical scroll mode entry 2n is
 // plane A and entry 2n+1 is plane B for the n-th 16-pixel column; in full-screen mode
-// only entries 0 and 1 are read. Addresses are BYTE addresses into that, like `cram`'s.
+// only entries 0 and 1 are read. Addresses are BYTE addresses into that, like `stream_cram`'s.
 //
 // ---------------------------------------------------------------------------------
 // MEASURED ON ORACLE 2026-08-14: A VSRAM WRITE FROM HINT LANDS ON N+1, LIKE CRAM.
@@ -223,14 +223,14 @@ pub comptime fn pal_region(addr: int, slot: int, pal_line: int, entry: int, coun
 //     period is pixel-invisible (the OJZ trunks repeat every 64 px — a $0040 shift
 //     showed literally nothing; $0043 banded cleanly).
 // ---------------------------------------------------------------------------------
-pub comptime fn vsram(addr: int, values: array) -> RasterOp {
+pub comptime fn stream_vsram(addr: int, values: array) -> RasterOp {
     ensure(addr >= 0 && addr <= 78,
-           "vsram: VSRAM byte address {addr} outside 0..78 (VSRAM is 80 bytes = 40 word entries; entry 2n is plane A of the n-th 16-pixel column, 2n+1 is plane B)")
-    ensure((addr & 1) == 0, "vsram: VSRAM byte address {addr} is odd — scroll values are words")
+           "stream_vsram: VSRAM byte address {addr} outside 0..78 (VSRAM is 80 bytes = 40 word entries; entry 2n is plane A of the n-th 16-pixel column, 2n+1 is plane B)")
+    ensure((addr & 1) == 0, "stream_vsram: VSRAM byte address {addr} is odd — scroll values are words")
     ensure(values.len >= 1 && values.len <= 3,
-           "vsram: {values.len} words exceeds RASTER_CRAM_MAX (3). The ceiling is the per-fire CYCLE budget, not a CRAM or FIFO limit, so a VSRAM write spends it exactly like a colour write does: same dispatch, same EFX_BLANK_DELAY, same word loop.")
+           "stream_vsram: {values.len} words exceeds RASTER_CRAM_MAX (3). The ceiling is the per-fire CYCLE budget, not a CRAM or FIFO limit, so a VSRAM write spends it exactly like a colour write does: same dispatch, same EFX_BLANK_DELAY, same word loop.")
     ensure(addr + 2 * values.len <= 80,
-           "vsram: {values.len} words from byte {addr} runs past the end of VSRAM (80 bytes)")
+           "stream_vsram: {values.len} words from byte {addr} runs past the end of VSRAM (80 bytes)")
     return RasterOp.Vsram(addr, values)
 }
 
@@ -257,36 +257,36 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     //                                 OP_SET_REG — the op with no other cost — is that
     //                                 chain's FALL-THROUGH (raster.emp, Raster_HInt
     //                                 .op_loop), so it is the most expensive to DISPATCH.
-    //   2. CRAM-class ops      <= 2   each of cram/pal_region/vsram pays its own dispatch
+    //   2. stream ops      <= 2   each of stream_cram/stream_pal_region/stream_vsram pays its own dispatch
     //                                 AND its own EFX_BLANK_DELAY spin (.op_cram /
     //                                 .op_region), and that spin is the whole mechanism
     //                                 that parks a write in HBlank.
-    //   3. CRAM-class words    <= 3   RASTER_CRAM_MAX — the writes themselves.
-    // All three are PER-FIRE. `cram`/`pal_region`/`vsram` also bound their OWN word count,
+    //   3. stream words    <= 3   RASTER_CRAM_MAX — the writes themselves.
+    // All three are PER-FIRE. `stream_cram`/`stream_pal_region`/`stream_vsram` also bound their OWN word count,
     // which is necessary and not sufficient: three 3-word ops satisfy every per-op guard.
     //
     // WHAT IS STILL NOT ENFORCED — read no cycle guarantee into the above. The COST of a
-    // fire is not modelled at all: a 4-op fire of set_regs and a 1-op fire of one cram both
+    // fire is not modelled at all: a 4-op fire of reg_sets and a 1-op fire of one stream_cram both
     // pass, and the first is certainly slower. Whether even the permitted maxima finish
     // before active display is UNMEASURED — nothing in this tree has ever run more than two
-    // ops or more than ONE CRAM-class op in a single fire (both shipped fixtures are
-    // set_reg + one CRAM-class op), and adjacent-fire density is unmeasured too. These
+    // ops or more than ONE stream op in a single fire (both shipped fixtures are
+    // reg_set + one stream op), and adjacent-fire density is unmeasured too. These
     // ceilings bound the DAMAGE of a mistake; they do not certify the shapes they admit.
     // The predecessor of this comment claimed RASTER_CRAM_MAX was "a PER-FIRE cycle budget
     // … on the whole fire" while the code counted only CRAM words and no ops at all; that
-    // gap is exactly why a 20-set_reg fire passed every guard.
-    comptime var cram_words = 0
-    comptime var cram_ops = 0
+    // gap is exactly why a 20-reg_set fire passed every guard.
+    comptime var stream_words = 0
+    comptime var stream_ops = 0
     for o in ops {
-        cram_words = cram_words + op_cram_words(o)
-        if op_is_set_reg(o) == 0 { cram_ops = cram_ops + 1 }
+        stream_words = stream_words + op_stream_words(o)
+        if op_is_reg(o) == 0 { stream_ops = stream_ops + 1 }
     }
     ensure(ops.len <= 4,
            "fire at screen line {line}: {ops.len} ops exceeds the per-fire ceiling of 4. Every op costs a walk of Raster_HInt's compare chain before it does any work, and OP_SET_REG — the cheap-looking one — is the chain's fall-through, so it is the most expensive op to dispatch. Four is a structural ceiling, not a measured one: the richest fire anything has ever run is two ops. Split the work across consecutive fires.")
-    ensure(cram_ops <= 2,
-           "fire at screen line {line}: {cram_ops} CRAM-class ops (cram / pal_region / vsram) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin, and that spin is what parks the write offscreen — only the FIRST op's writes are measured to land in HBlank (row 119, 1px -> 0px, docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Author ONE CRAM-class op per fire and use consecutive fires; a second one on the same line is admitted for the case where you have measured that you can live with its dot.")
-    ensure(cram_words <= 3,
-           "fire at screen line {line}: {cram_words} CRAM-class words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line takes ceil(16/3) = 6 of them, one per scanline. That six-fire idiom is OURS, not a reference's: S3K's HInt3 swaps a whole water palette in ONE interrupt (park the counter, stop the Z80, then repeat: fresh CRAM command, 3 colours, a cycle-counted ~370-cycle dbf spin), and S3K's HInt2, Sonic 2's PalToCRAM and S.C.E.'s HInt each write 64 CRAM words in a single fire with no delay at all. Ours is dot-free by construction and pays six exception entries for it; the spacing in S3K comes from the spin, not from multiple interrupts.")
+    ensure(stream_ops <= 2,
+           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin, and that spin is what parks the write offscreen — only the FIRST op's writes are measured to land in HBlank (row 119, 1px -> 0px, docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Author ONE stream op per fire and use consecutive fires; a second one on the same line is admitted for the case where you have measured that you can live with its dot.")
+    ensure(stream_words <= 3,
+           "fire at screen line {line}: {stream_words} stream words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line takes ceil(16/3) = 6 of them, one per scanline. That six-fire idiom is OURS, not a reference's: S3K's HInt3 swaps a whole water palette in ONE interrupt (park the counter, stop the Z80, then repeat: fresh CRAM command, 3 colours, a cycle-counted ~370-cycle dbf spin), and S3K's HInt2, Sonic 2's PalToCRAM and S.C.E.'s HInt each write 64 CRAM words in a single fire with no delay at all. Ours is dot-free by construction and pays six exception entries for it; the spacing in S3K comes from the spin, not from multiple interrupts.")
     return RasterFire.Fire(line, ops)
 }
 
@@ -307,9 +307,9 @@ pub comptime fn region_boundary(line: int, addr: int, slot: int, pal_line: int,
                                 entry: int, count: int, sh: int) -> RasterFire {
     ensure(sh == 0 || sh == 1, "region_boundary: sh {sh} must be 0 or 1")
     if sh == 1 {
-        return fire(line, [sh_on(), pal_region(addr, slot, pal_line, entry, count)])
+        return fire(line, [reg_sh_on(), stream_pal_region(addr, slot, pal_line, entry, count)])
     }
-    return fire(line, [pal_region(addr, slot, pal_line, entry, count)])
+    return fire(line, [stream_pal_region(addr, slot, pal_line, entry, count)])
 }
 
 // patchable — mark a fire as one whose screen line MOVES at runtime, within [lo, hi].
@@ -347,14 +347,14 @@ pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int, offscreen_shi
     ensure(offscreen_ship == 0 || offscreen_ship == 1,
            "patchable: offscreen_ship {offscreen_ship} must be 0 or 1")
     // The ship re-issues THIS FIRE'S colours as a frame-top DMA, so the fire has to have
-    // colours to re-issue — exactly one pal_region op, which is what carries the staging
+    // colours to re-issue — exactly one stream_pal_region op, which is what carries the staging
     // source, the CRAM address and the count the entry is built from. A fire without one
     // (a bare vscroll split, say) has nothing to ship, and a fire with two would need two
     // entries and a rule about which wins. Both fail the BUILD here rather than producing a
     // garbage DMA entry or silently shipping nothing.
     if offscreen_ship == 1 {
-        ensure(count_pal_region_ops(fire_ops(f)) == 1,
-               "patchable: offscreen_ship needs exactly ONE pal_region op on the fire to re-ship at frame top, but this fire has {count_pal_region_ops(fire_ops(f))}. The frame-top entry is BUILT from that op's staging source, CRAM address and count — there is nothing else for it to ship.")
+        ensure(count_stream_pal_region_ops(fire_ops(f)) == 1,
+               "patchable: offscreen_ship needs exactly ONE stream_pal_region op on the fire to re-ship at frame top, but this fire has {count_stream_pal_region_ops(fire_ops(f))}. The frame-top entry is BUILT from that op's staging source, CRAM address and count — there is nothing else for it to ship.")
     }
     return [ RasterFire.Patch(line, ch, lo, hi, offscreen_ship, fire_ops(f)) ]
 }
@@ -370,7 +370,7 @@ pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int, offscreen_shi
 //   - the result is in strictly ascending line order, which fire_lines requires;
 //   - two presets firing on the SAME line become ONE fire rather than a duplicate-line
 //     error, which is what "layer these two effects" has to mean;
-//   - every SetReg is emitted before every CRAM-class op, so ruling 14's prefix
+//   - every SetReg is emitted before every stream op, so ruling 14's prefix
 //     invariant holds BY CONSTRUCTION for merged fires (check_mixed_fire still runs,
 //     but it can no longer be tripped by the act of composing).
 // Each merged op list goes back through `fire`, so the per-fire ceilings apply to the
@@ -381,7 +381,7 @@ pub comptime fn patchable(fires: array, ch: int, lo: int, hi: int, offscreen_shi
 // be refused unless they agreed on a frame-top reset word, so composition was a
 // negotiation between preset authors. The blanket VBlank register restore (the corpus
 // answer — Gunstar re-blits its whole shadow every frame) made per-op resets unnecessary,
-// `set_reg` lost its `reset` parameter, and presets now layer without having to know
+// `reg_set` lost its `reset` parameter, and presets now layer without having to know
 // about each other. What composition still cannot reconcile is two ops writing the same
 // register on the SAME line: they both execute, in preset order, and the last one wins.
 //
@@ -438,7 +438,7 @@ pub comptime fn compose(progs: array) -> array {
                         p_sh = fire_offscreen_ship(f)
                     }
                     for o in fire_ops(f) {
-                        if op_is_set_reg(o) == 1 { ops = ops ++ [o] }
+                        if op_is_reg(o) == 1 { ops = ops ++ [o] }
                     }
                 }
             }
@@ -447,7 +447,7 @@ pub comptime fn compose(progs: array) -> array {
             for f in p {
                 if fire_screen_line(f) == line {
                     for o in fire_ops(f) {
-                        if op_is_set_reg(o) == 0 { ops = ops ++ [o] }
+                        if op_is_reg(o) == 0 { ops = ops ++ [o] }
                     }
                 }
             }
@@ -478,7 +478,7 @@ pub comptime fn compose(progs: array) -> array {
 // The cheapest dramatic effect the hardware has: one register write, no CRAM traffic,
 // and it darkens everything below the line including sprites.
 pub comptime fn fx_sh_below(line: int) -> array {
-    return [ fire(line, [ sh_on() ]) ]
+    return [ fire(line, [ reg_sh_on() ]) ]
 }
 
 // fx_vscroll_split — plane B's vertical scroll snaps to `offset` from `line` down, so the
@@ -492,13 +492,13 @@ pub comptime fn fx_sh_below(line: int) -> array {
 // PLANE B, NOT PLANE A. Mid-frame vertical scroll of plane A displays the streamer's
 // working margin (TILE_CACHE_ROWS = 60) as stale/half-written tiles.
 pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
-    return [ fire(line, [ vsram(2, [offset]) ]) ]
+    return [ fire(line, [ stream_vsram(2, [offset]) ]) ]
 }
 
 // fx_tint_band — from `line` down, swap `count` colours of the palette variant staged in
 // `slot` into CRAM, optionally turning Shadow/Highlight on at the same line. This is the
 // water-boundary shape generalised, and the CRAM destination is DERIVED from
-// pal_line/entry rather than asked for a second time — pal_region's address/line/entry
+// pal_line/entry rather than asked for a second time — stream_pal_region's address/line/entry
 // agreement checks then cannot fail, because there is only one source of the fact.
 //
 // THE STAGING ARITHMETIC IS INLINED, not a pal_stage_off call, and that is not style. A
@@ -510,7 +510,7 @@ pub comptime fn fx_vscroll_split(line: int, offset: int) -> array {
 // The preset shipped broken in Parcel C1 and nothing noticed for two parcels because
 // nothing had ever called it.
 //
-// This is the same rule the module header states and that pal_region already follows (see
+// This is the same rule the module header states and that stream_pal_region already follows (see
 // its note near the top); the module-level ensure beside the other pins holds this copy of
 // the formula to pal_stage_off's authority, so there is still exactly one source of truth.
 // (The slot term is 0 deliberately: the CRAM destination is slot-independent; `slot`
@@ -599,7 +599,7 @@ comptime fn op_words(o: RasterOp) {
                              n - 1,
                              slot * 128 + pl * 32 + e * 2],
         // OP_CRAM (2) with a VSRAM command longword — the handler decodes the opcode,
-        // never the target bits inside the command (see `vsram`).
+        // never the target bits inside the command (see `stream_vsram`).
         Vsram(a, vals)   => [2,
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) & $FFFF,
@@ -626,12 +626,12 @@ comptime fn op_size(o: RasterOp) -> int {
     }
 }
 
-// op_cram_words — data words this op streams to the VDP data port, which `fire` sums
+// op_stream_words — data words this op streams to the VDP data port, which `fire` sums
 // against the per-fire ceiling. Distinct from op_size (wire words): a PalRegion is 5 wire
 // words but streams `n` colours, and a SetReg is 2 wire words but streams none. The name
 // says CRAM for the ceiling it feeds (RASTER_CRAM_MAX); a Vsram op counts here too,
 // because the ceiling is a CYCLE budget and a VSRAM word costs exactly what a colour does.
-comptime fn op_cram_words(o: RasterOp) -> int {
+comptime fn op_stream_words(o: RasterOp) -> int {
     return match o {
         SetReg(w)             => 0,
         Cram(a, cols)                => cols.len,
@@ -647,7 +647,7 @@ comptime fn op_cram_words(o: RasterOp) -> int {
 // below the split, when the mask said %0001 and the op wrote line 2).
 // ---- the off-screen frame-top ship -------------------------------------------
 // A patched fire marked `offscreen_ship` gets a ready-made DMAEntry emitted into the
-// program's ROM trailer, re-issuing that fire's OWN pal_region as a frame-top transfer.
+// program's ROM trailer, re-issuing that fire's OWN stream_pal_region as a frame-top transfer.
 // The runtime ships it on the frames the channel's anchor is above the screen, which is
 // where the fire itself can only pin at its band floor.
 //
@@ -657,7 +657,7 @@ comptime fn op_cram_words(o: RasterOp) -> int {
 // runtime walk that decoded the op words at install — which would have made a SECOND reader
 // of the variable-length op format (today only Raster_HInt decodes ops) that had to track it
 // forever.
-comptime fn count_pal_region_ops(ops: array) -> int {
+comptime fn count_stream_pal_region_ops(ops: array) -> int {
     comptime var n = 0
     for o in ops {
         n = n + match o {
@@ -689,7 +689,7 @@ comptime fn op_ship_stage_off(o: RasterOp) -> int {
     }
 }
 // The SetReg word itself, for the ops the ship re-issues at frame top.
-comptime fn op_set_reg_word(o: RasterOp) -> int {
+comptime fn op_reg_word(o: RasterOp) -> int {
     return match o {
         SetReg(w)                      => w,
         Cram(a, cols)                  => 0,
@@ -720,11 +720,11 @@ comptime fn op_mask(o: RasterOp) -> int {
     }
 }
 
-// op_is_set_reg — 1 for the one op that writes a register with NO blanking delay, 0 for
-// every "CRAM-class" op (cram / pal_region / vsram: command longword, EFX_BLANK_DELAY,
+// op_is_reg — 1 for the one op that writes a register with NO blanking delay, 0 for
+// every "stream" op (stream_cram / stream_pal_region / stream_vsram: command longword, EFX_BLANK_DELAY,
 // word loop). That split is the runtime's, not a taxonomy: it is what makes both the
-// ordering rule (check_mixed_fire) and the CRAM-class op ceiling (fire) mean something.
-comptime fn op_is_set_reg(o: RasterOp) -> int {
+// ordering rule (check_mixed_fire) and the stream op ceiling (fire) mean something.
+comptime fn op_is_reg(o: RasterOp) -> int {
     return match o {
         SetReg(w)             => 1,
         Cram(a, cols)                => 0,
@@ -747,15 +747,15 @@ comptime fn prog_mask(fires: array) -> int {
 // ---- the measured density model (docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md) ----
 // Two measured points, 2026-08-14 on oracle, as DIFFERENTIALS within one shape so the
 // instrument's constant terms cancel:
-//     1-word vsram fire   454 cyc        3-colour cram fire   526 cyc
-// Those two determine a line in the number of CRAM-class words: 418 + 36*words.
+//     1-word stream_vsram fire   454 cyc        3-colour stream_cram fire   526 cyc
+// Those two determine a line in the number of stream words: 418 + 36*words.
 // An NTSC scanline is 128000/262 = 488.5; 488 is used, floored, so the comparison is
 // conservative in the direction that ADMITS rather than refuses.
 //
 // IT LUMPS VSRAM IN WITH CRAM, WHICH IS KNOWN TO BE PESSIMISTIC. The 2026-08-14 corpus
 // sweep found that only CRAM writes glitch — a CRAM write during rasterisation recolours
 // the pixel being drawn, while VRAM, VSRAM and register writes produce no mid-line
-// artifact at all. If that holds here, `vsram` inheriting EFX_BLANK_DELAY and the
+// artifact at all. If that holds here, `stream_vsram` inheriting EFX_BLANK_DELAY and the
 // RASTER_CRAM_MAX ceiling is pure loss (Ristar writes 42 VSRAM words in ONE fire).
 // Splitting the op class is booked and byte-changing. It only ever makes fires CHEAPER,
 // so nothing this model admits today becomes illegal under the split.
@@ -763,16 +763,16 @@ comptime fn prog_mask(fires: array) -> int {
 // WHAT IT DELIBERATELY DOES NOT COUNT: OP_SET_REG. Its dispatch cost is UNMEASURED — the
 // fire-ceiling comment above notes it is the compare chain's fall-through and therefore
 // the most expensive op to dispatch, but no number exists. Rather than invent one, a
-// set_reg contributes ZERO here, so the model UNDER-states cost and the guard fires only
-// on evidence. A set_reg-only fire is unmodelled and is never refused. Say so out loud
+// reg_set contributes ZERO here, so the model UNDER-states cost and the guard fires only
+// on evidence. A reg_set-only fire is unmodelled and is never refused. Say so out loud
 // wherever this model is cited.
 pub const RASTER_FIRE_BASE_CYC  = 418
 pub const RASTER_CRAM_WORD_CYC  = 36
 pub const RASTER_SCANLINE_CYC   = 488
 ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 1 == 454,
-       "density model drifted from the measured 1-word vsram fire (454 cyc)")
+       "density model drifted from the measured 1-word stream_vsram fire (454 cyc)")
 ensure(RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * 3 == 526,
-       "density model drifted from the measured 3-colour cram fire (526 cyc)")
+       "density model drifted from the measured 3-colour stream_cram fire (526 cyc)")
 
 // RASTER_MAX_PATCH — patchable channels per program. DEFINED HERE on purpose: this module
 // is a COMPTIME_HELPERS member, so a name defined here is glob-injected into every module
@@ -802,13 +802,13 @@ ensure((RASTER_MAX_PATCH & (RASTER_MAX_PATCH - 1)) == 0,
 // The raster patcher itself is indifferent: it only walks channels a live patch table names.
 pub const PATCH_ANCHOR_NONE = $7FFF
 
-// fire_cost_cycles — modelled cost of one fire. Each CRAM-class op pays its own dispatch
+// fire_cost_cycles — modelled cost of one fire. Each stream op pays its own dispatch
 // AND its own EFX_BLANK_DELAY spin, so the base is per-OP, not per-fire.
 comptime fn fire_cost_cycles(f: RasterFire) -> int {
     comptime var c = 0
     for o in fire_ops(f) {
-        if op_is_set_reg(o) == 0 {
-            c = c + RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * op_cram_words(o)
+        if op_is_reg(o) == 0 {
+            c = c + RASTER_FIRE_BASE_CYC + RASTER_CRAM_WORD_CYC * op_stream_words(o)
         }
     }
     return c
@@ -914,17 +914,17 @@ comptime fn arm_at(L: array, i: int) -> int {
     return $8A00 | (L[i + 2] - L[i + 1] - 1)
 }
 
-// check_mixed_fire — ruling 14. In a fire mixing OP_SET_REG with a CRAM-class op, the
-// SET_REGs must form a PREFIX: every one of them before every CRAM-class op. OP_SET_REG
-// writes with no delay while every CRAM-class op burns EFX_BLANK_DELAY first, so a SET_REG
+// check_mixed_fire — ruling 14. In a fire mixing OP_SET_REG with a stream op, the
+// SET_REGs must form a PREFIX: every one of them before every stream op. OP_SET_REG
+// writes with no delay while every stream op burns EFX_BLANK_DELAY first, so a SET_REG
 // placed after one executes strictly later in the line — a worse artifact than the measured
 // one, and invisible to an author.
 //
 // THE PREDICATE IS A PREFIX TEST, not "a SetReg is first". The original spelling
-// (`first_set == 0`) passed `[sh_on(), pal_region(..), set_reg(..)]` — two SetRegs, the
+// (`first_set == 0`) passed `[reg_sh_on(), stream_pal_region(..), reg_set(..)]` — two SetRegs, the
 // first at index 0, the second running after the CRAM op, i.e. exactly the ordering this
 // guard exists to forbid — and then reported "it is at index 0", which pointed at the one
-// op that was fine. Test the LAST SetReg against the FIRST CRAM-class op.
+// op that was fine. Test the LAST SetReg against the FIRST stream op.
 comptime fn check_mixed_fire(f: RasterFire) -> int {
     comptime var n_set = 0
     comptime var n_cram = 0
@@ -932,18 +932,18 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
     comptime var first_cram = -1
     comptime var i = 0
     for o in fire_ops(f) {
-        if op_is_set_reg(o) == 1 {
+        if op_is_reg(o) == 1 {
             n_set = n_set + 1
             last_set = i
         }
-        if op_is_set_reg(o) == 0 {
+        if op_is_reg(o) == 0 {
             n_cram = n_cram + 1
             if first_cram < 0 { first_cram = i }
         }
         i = i + 1
     }
     ensure(n_set == 0 || n_cram == 0 || last_set < first_cram,
-           "raster fire at screen line {fire_screen_line(f)}: in a mixed fire EVERY OP_SET_REG must precede EVERY CRAM-class op, but the SET_REG at index {last_set} runs after the CRAM-class op at index {first_cram}. A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp, the row-119 note); a SET_REG placed after a CRAM-class op is pushed strictly later still, because those ops burn EFX_BLANK_DELAY and SET_REG does not. Move the register writes to the front of the op list, or schedule a pixel-clean mode change a line earlier.")
+           "raster fire at screen line {fire_screen_line(f)}: in a mixed fire EVERY OP_SET_REG must precede EVERY stream op, but the SET_REG at index {last_set} runs after the stream op at index {first_cram}. A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp, the row-119 note); a SET_REG placed after a stream op is pushed strictly later still, because those ops burn EFX_BLANK_DELAY and SET_REG does not. Move the register writes to the front of the op list, or schedule a pixel-clean mode change a line earlier.")
     return 0
 }
 
@@ -1115,8 +1115,8 @@ comptime fn patch_table(fires: array) -> array {
 //
 // IT RE-ISSUES THE WHOLE FIRE, not just its colours. A fire is an op LIST, and the ship's job
 // is "apply this fire from line 0" — so every SetReg the fire carries travels here too and is
-// replayed at frame top. Shipping only the pal_region was the first version's defect: OJZ's
-// water fire also carries sh_on(), so the rows above the clamped fire line came out tinted but
+// replayed at frame top. Shipping only the stream_pal_region was the first version's defect: OJZ's
+// water fire also carries reg_sh_on(), so the rows above the clamped fire line came out tinted but
 // UNSHADOWED. Found in play, not by a gate.
 //
 // THE CHANNEL TRAVELS WITH THE ENTRY because nothing else carries it: the preset deliberately
@@ -1139,13 +1139,13 @@ comptime fn ship_trailer(fires: array) -> array {
                 if op_ship_cram_addr(o) >= 0 {
                     // The fire's SetReg ops ride WITH the palette parameters, because the ship
                     // has to re-issue the WHOLE fire at frame top, not just its colours. The
-                    // OJZ water fire is the worked example: it carries sh_on() as well as the
-                    // pal_region, and a ship that moved only the colours left the rows above
+                    // OJZ water fire is the worked example: it carries reg_sh_on() as well as the
+                    // stream_pal_region, and a ship that moved only the colours left the rows above
                     // the clamped fire line tinted but UNSHADOWED — reported from play as
                     // "the top row has the jiggle but not the shadow, it's still lighter".
                     comptime var regs = []
                     for r in fire_ops(f) {
-                        if op_is_set_reg(r) == 1 { regs = regs ++ [op_set_reg_word(r)] }
+                        if op_is_reg(r) == 1 { regs = regs ++ [op_reg_word(r)] }
                     }
                     entries = entries ++ [fire_channel(f),
                                           op_ship_stage_off(o),
@@ -1170,7 +1170,7 @@ comptime fn ship_trailer_words(fires: array) -> int {
     for f in fires {
         if fire_offscreen_ship(f) == 1 {
             comptime var regs = 0
-            for r in fire_ops(f) { if op_is_set_reg(r) == 1 { regs = regs + 1 } }
+            for r in fire_ops(f) { if op_is_reg(r) == 1 { regs = regs + 1 } }
             w = w + 5 + regs
         }
     }
