@@ -1224,7 +1224,42 @@ against the paths that are actually live today: the **release-side ring-full dro
 in one frame, silent outside DEBUG) and the **same-id same-frame dedup** — both recorded as BY-DESIGN
 entries at the top of this file.
 
-### EFX-7 — `Raster_Clear` is a no-op and `HBlank_Uninstall` is unreachable — OPEN (byte-changing)
+### EFX-7 — `Raster_Clear` is a no-op and `HBlank_Uninstall` is unreachable — **CLOSED 2026-08-16**
+
+**Closed by** making the teardown arm REACHABLE, not by deleting it. `Raster_VBlank` now tests the
+staged program's SHAPE — a program whose first record is already the terminator has no records —
+and takes the uninstall arm for it. That is exactly `Raster_Program_None`, which every "raster OFF"
+preset already installs, so **no authoring surface changed and no sentinel value exists to get
+wrong**. `HBlank_Uninstall` has a live caller again and IE1 is dropped.
+
+**Two things in the booking below were already stale when it was closed**, and both are worth
+noting because they changed what the right fix was:
+- **`Raster_Clear` no longer exists.** It was deleted at some point after the booking, so the
+  "sentinel the clear" fix the booking proposes had nothing left to sentinel.
+- **`Raster_Install` has a caller** (`preset.emp`, via `Effects_InstallPreset`), which never passes
+  0 — it redirects a null `ep_raster` to `Raster_Program_None`. So the "both procs have zero
+  callers, it is latent" severity was only half true: the *clear* path was unreachable, but the
+  install path is live and every OFF section was paying for it.
+
+**What it was costing**, measured before/after on the same scene (oracle, 2026-08-16): an armed
+`Raster_Program_None` took **512 cycles per frame across TWO HInt entries**. Two, not one, because
+`.park` does not advance the cursor — the line-0 fire reads the terminator and parks, the counter
+still holds VBlank's 0 so line 1 re-reads the same record, and only then does the `$8AFF` reload
+push the next fire past the frame. After the fix the handler is not entered at all.
+
+**Gate:** `tools/raster_off_gate.py` — 12 assertions across armed / off / re-armed / off again,
+with `HBLANK_SLOT_RTE` and `HBLANK_IE1_BIT` read out of `hblank.emp` rather than hard-coded. It
+fails exactly the six OFF assertions when pointed at a pre-fix ROM.
+
+**A note on why an image gate could never have caught this:** nothing on screen changes when the
+handler is armed-but-parked. The defect is pure cost and pure dead code, and it survived from P1
+with a booking against it the whole time.
+
+*The original booking follows, unedited.*
+
+---
+
+### EFX-7 (original booking) — `Raster_Clear` is a no-op and `HBlank_Uninstall` is unreachable
 
 **Surfaced during:** the 2026-08-14 five-lens vocabulary review (runtime-surface lens), confirmed by
 the controller.

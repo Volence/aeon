@@ -609,12 +609,19 @@ copied into prose (it reported 426 names across 14 helpers at `2dd5e35c`).
 2. **Imperative.** `Raster_Install` with `a0` = the program (`raster.emp:295-298`). The install is
    *staged* and consumed at the next `Raster_VBlank`, so it can never tear a frame mid-walk. Main-loop
    context only.
-   **`Raster_Clear` (`raster.emp:303-307`) does not work and this document previously claimed it did.**
-   It stores 0 into `Raster_Pending`, which `Raster_VBlank`'s `beq.s .no_install` (`:325`) reads as
-   "nothing pending" — so `Raster_Install`'s documented "0 = clear/uninstall" convention is
-   **unreachable**, HInt is never disarmed, and `HBlank_Uninstall`'s only reference in the tree is the
-   dead branch at `:330`. Verified in the 2026-08-14 review §1.3 and **unfixed at this commit**; both
-   procs have zero callers, so it is latent. Use `Raster_Program_None` to turn effects off.
+   **Never pass 0.** `Raster_VBlank` reads a pending 0 as "nothing staged this frame", i.e. *keep*
+   whatever is live — so a 0 silently leaves the previous section's effect running. `preset.emp`
+   refuses one at the call site by redirecting to `Raster_Program_None`.
+   **To turn the raster tier off, install `Raster_Program_None`** — an explicit empty program.
+   `Raster_VBlank` recognises an empty program (its first record is already the terminator) and
+   **uninstalls the handler**: `Raster_Program` is cleared, the trampoline slot returns to the idle
+   `rte`, and IE1 is dropped. Measured before and after on the same scene (2026-08-16): an armed
+   `Raster_Program_None` cost **512 cycles per frame across two HInt entries** to accomplish nothing;
+   it now costs zero and the profiler has no row for the handler at all.
+   Gate: `tools/raster_off_gate.py` (12 assertions, and it fails the six OFF ones on a pre-fix ROM).
+   *History: this used to be a `Raster_Clear` proc storing 0, which `Raster_VBlank` filtered as
+   "nothing pending" — booked as EFX-7. `Raster_Clear` was deleted before the fix landed; what the
+   fix restored was the teardown arm, reached by a semantic test rather than a magic pending value.*
 3. **Runtime-patched.** Give a section's preset `patched: <template>` plus
    `patch_world_ys: [w0, w1, w2, w3]`. `Effects_InstallPreset` calls `Raster_InstallPatched`, which
    points `Raster_Patch_Tab` at the template's patch table and seeds `Effects_World_Y[]` from the
