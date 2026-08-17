@@ -126,10 +126,14 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // wrong line — silently, and only from that fire onward, which is the worst shape a
     // schedule bug can take.
     //
-    // ONLY reg $0A is banned. Reg $0F (autoincrement) was considered and deliberately
-    // NOT banned: Gunstar Heroes and Alien Soldier both change autoincrement mid-frame as
-    // ordinary technique, and the blanket frame-top restore bounds the change to the frame
-    // that made it.
+    // REG $0F (autoincrement) IS BANNED TOO, and the reason is this module's own
+    // arithmetic rather than the hardware's. Gunstar Heroes and Alien Soldier both change
+    // autoincrement mid-frame as ordinary technique and the blanket frame-top restore
+    // bounds the change to the frame that made it — which is why it was NOT banned until
+    // Parcel R1. What changed is that op_cram_span, op_mask and the ship destination all
+    // compute spans as `addr + 2 * count`, so a mid-frame stride change makes every one of
+    // them describe something other than what the VDP does, silently and only for the ops
+    // after it. Revocable behind a stride-aware span model (spec §4.2b, claim D-C).
     //
     // NOT ROUTED THROUGH VDP_Shadow_Table, and that is now correct BY CONSTRUCTION. The
     // word goes straight to VDP_CTRL from Raster_HInt's .op_set_reg and nothing here
@@ -144,6 +148,8 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // delivers it.
     ensure((word >> 8) != $8A,
            "reg_set: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
+    ensure((word >> 8) != $8F,
+           "reg_set: {word} writes reg $0F (autoincrement) — every span/mask computation in this module assumes stride 2 (op_cram_span, op_mask, the ship destination), so a mid-frame stride change silently voids them all. Revocable behind a stride-aware span model (spec §4.2b).")
     return RasterOp.SetReg(word)
 }
 
@@ -1246,6 +1252,23 @@ pub comptime fn raster_program(fires: array) {
             ch_mask = ch_mask | bit
         }
     }
+    // ---- E-D: the reg $0F scan, tree-wide (spec §4.2b) ------------------------
+    // UNCONDITIONAL — outside the band block below, because a stride change voids
+    // op_cram_span and op_mask for every program, band or no band. reg_set already
+    // refuses this word with a better sentence; this is the layer underneath it, for
+    // the ops that never went through reg_set. `RasterOp` is `pub` (the match arms are
+    // the wire contract), so `RasterOp.SetReg($8F04)` is a spelling the language admits
+    // and the constructor cannot see.
+    //
+    // op_reg_word is 0 for every non-SetReg op, and 0 >> 8 is 0, so this is total over
+    // the enum without a second match.
+    for f in fires {
+        for o in fire_ops(f) {
+            ensure((op_reg_word(o) >> 8) != $8F,
+                   "raster_program: an op writes reg $0F (autoincrement) — refused tree-wide; direct RasterOp.SetReg construction bypasses reg_set's ensure, this scan is the layer that cannot be dodged (spec §4.2b, claim E-D)")
+        }
+    }
+
     // ---- 8a: ONE BAND PER PROGRAM (spec §4.1) --------------------------------
     // The count comes FIRST of the band guards because every one that follows is
     // written in the singular: "the restore", "its partner", "the restore's line".
