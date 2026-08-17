@@ -82,7 +82,11 @@ use engine.effects.raster_dsl.*
 // The carrier's own canonical resting state emits zero bytes, so this edge is
 // inert outside a lane run. Remove alongside the carrier once `--extra-entry`
 // lands on `sigil build` (docs/BUGS.md EFX-10).
-use games.sonic4.test.poison_carrier
+use games.sonic4.test.poison_carrier.{ZZ_POISON_CARRIER_PRESENT}
+// The consuming ensure: a named import must be used, and this is also the live
+// proof the carrier is in the elaboration closure (its module-level ensures run
+// iff this edge holds — the lane's sentinel is the runtime check of the same fact).
+ensure(ZZ_POISON_CARRIER_PRESENT == 1, "the poison carrier's presence const drifted — the EFX-10 lane edge is broken")
 
 // ===========================================================================
 // EFFECTS P1 GATE FIXTURES — the first raster program and the first per-section

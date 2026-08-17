@@ -75,6 +75,12 @@ CANONICAL_CARRIER = """// games/sonic4/test/poison_carrier.emp — the expect-fa
 // fix named in docs/BUGS.md EFX-10, which elaborates a poison inside the real
 // profile without needing a host module's body rewritten out from under it.
 module games.sonic4.test.poison_carrier
+
+// The ONE exported name — the closure edge must be a NAMED import: the bare
+// whole-module `use` trips sigil's [import.no-names] in the warn-tier corpus,
+// and the glob form of a name-less module falls OUT of the closure entirely
+// (both measured 2026-08-17, the sentinel catching the second). Zero bytes.
+pub const ZZ_POISON_CARRIER_PRESENT = 1
 """
 
 SENTINEL_BODY = (
