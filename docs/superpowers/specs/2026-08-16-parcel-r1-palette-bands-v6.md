@@ -69,9 +69,11 @@ moment each palette line's frame-top DMA is enqueued. The restore op streams fro
 
 The snapshot for line 0 goes adjacent to the `bclr` at `:243` — downstream of both guard
 branches, so the copy happens iff the line was dirty and its DMA was accepted. Copy shape:
-eight unrolled `move.l (a1)+,(a2)+` per line, on cost grounds alone (160 vs 244 cyc — the
-register-contract justification was a census error; `buffers.emp:278` frees d0 at the line-3
-splice).
+eight unrolled `move.l (a1)+,(a2)+` per line. The shape is justified BOTH ways: 8×20 = 160 cyc
+unrolled beats a dbf loop at 244 at every splice, and at splices 0-2 d0 is still live (the dirty
+snapshot), so a dbf counter would widen the clobber contract — only the line-3 splice has d0
+free. (Task 2 review corrected an earlier over-correction here: "register availability aside"
+was wrong for three of the four sites.)
 
 ### 2.2 The invariant — stated at full strength `[S5-banked]`
 
