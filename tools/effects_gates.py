@@ -168,6 +168,12 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "raster_source")
         results.append(("raster_source (handler streams from the encoded address)", ok, msg))
 
+    if wanted("snapshot_poison"):
+        ok, msg = run(["python3", str(AEON / "tools/snapshot_poison_gate.py"),
+                       "--rom", rom, "--lst", lst], "snapshot_poison")
+        results.append(("snapshot_poison (E-B: splices copy what the captured mask says)",
+                        ok, msg))
+
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
         fetch = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_FETCH_CYC")
