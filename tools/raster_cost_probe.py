@@ -214,7 +214,7 @@ FIXTURES: dict[str, dict] = {
     # minima freeze. Model expectation at work=64: dispatch 82 (depth 4) + fetch 8 +
     # work 64 + 3*30 + tail 10 = 254 marginal + the 302 fire base = 556/fire.
     "F8": {
-        "what": "pal_restore, 3 words — claim 9: is the derived work constant (64) real?",
+        "what": "pal_restore, 3 words — claim 9 (work=212 calibrated: spinless 64 + EFX_RESTORE_DELAY 148)",
         "n": 6,
         "fires": _spread(6, lambda i: [pal_restore(34, 3)]),
     },

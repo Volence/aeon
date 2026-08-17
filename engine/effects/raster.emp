@@ -231,6 +231,12 @@ pub const RASTER_CRAM_MAX = 3
 // bracket's stack push already shifted it once; see P1 GATE-EVIDENCE's CORRECTION).
 const EFX_BLANK_DELAY = 4
 
+// The RESTORE body's own spin (R1, spec §3.2) — never shared with EFX_BLANK_DELAY: the
+// restore dispatches at depth 4 and carries no preceding op, so its pre-burst timing is
+// its own. Calibrated 2026-08-17 from the §7.3 first-datum capture (see the body comment
+// at .op_pal_restore); evidence docs/benchmarks/effects-r1/GATE-EVIDENCE.md.
+const EFX_RESTORE_DELAY = 13
+
 // Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
 // P1 runs entirely out of Buf_A.
 pub const RASTER_BUF_SIZE = 128
@@ -786,15 +792,22 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // Band OFF edge: stream base colours from the ship snapshot. .op_region's shape
         // with TWO deliberate differences: the source is Palette_Ship_Snap (whose offset
         // IS the CRAM byte address — BuildStaticDMA maps Palette_Buffer+$00/20/40/60 to
-        // CRAM $00/20/40/60 1:1), and there is NO blanking spin — not because depth-4
-        // dispatch replaces it (it does not: +48 cyc of rungs against the region path's
-        // 58-cyc spin leaves the first write landing ~10 cyc EARLIER), but because the
-        // knob starts at ZERO to BRACKET: this fire shape has no calibration datum,
-        // §7.3's capture is the first, and leading-edge dots are the expected first
-        // reading. EFX_RESTORE_DELAY is introduced here at the first nonzero calibration
-        // (spec §3.2 ladder: leading dots -> add moveq #0 + dbf; straddle -> narrow the
-        // stream count, no delay value exists).
+        // CRAM $00/20/40/60 1:1), and its delay spin is EFX_RESTORE_DELAY, its OWN knob —
+        // never EFX_BLANK_DELAY (depth-4 dispatch changes the arithmetic). CALIBRATED
+        // 2026-08-17, the §7.3 first-datum capture: at ZERO delay the burst completed at
+        // x~180 of the row ABOVE the authored edge (leading-early by ~150 cyc — and the
+        // bare single-op cram ON fire spilled identically at x~170, confirming sweep 4's
+        // anchor finding: the clean mixed-shape evidence never covered single-op fires;
+        // the measured restore-vs-cram offset, ~10 px, matched the pinned model within
+        // 2 cyc). The value below was JUMPED to from the measured deficit (the clean
+        // mixed shape carries ~152 cyc of pre-burst delay: SetReg 94 + spin 58) and then
+        // pixel-verified: authored edge row fully tinted, next row fully base.
+        // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
+        // neither adjacent value clean -> narrow the stream count (spec §3.2).
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
+        moveq   #EFX_RESTORE_DELAY, d1
+    .restore_delay:
+        dbf     d1, .restore_delay
         move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX — also bounds the (a2)+ reads inside the 128-byte snapshot)
         lea     Palette_Ship_Snap, a2   // snapshot base (was VDP_CTRL)
         // + offset == CRAM byte address (payload D-F; even + in-line by the pal_restore

@@ -1006,12 +1006,14 @@ pub const RASTER_STREAM_WORD_CYC    = 30     // one streamed word: move.w to VDP
 const RASTER_WORK_REG_CYC           = 12
 const RASTER_WORK_CRAM_CYC          = 90
 const RASTER_WORK_REGION_CYC        = 122
-// The restore body: region's shape minus the delay site (spin 54 + its moveq 4).
-// MEASURED 2026-08-17 (claim 9 CLOSED): probe fixture F8 read 556.0/fire over 3
-// independent boots, spread 0 — exactly the derived 122 - 58 = 64 (556 - 302 base -
-// 8 fetch - 82 dispatch - 90 stream - 10 tail). Hand-verified against the emitted
-// bytes too (Task 4 review: 20+8+8+12+4+12 = 64). Evidence: docs/benchmarks/effects-r1/.
-const RASTER_WORK_RESTORE_CYC = 64
+// The restore body: region's shape with its OWN spin, EFX_RESTORE_DELAY = 13.
+// MEASURED 2026-08-17 (claim 9 CLOSED), in two stages: the spinless body read 556.0/fire
+// (3 boots, spread 0 — work exactly the derived 122 - 58 = 64, hand-verified 20+8+8+12+
+// 4+12); the §7.3 landing capture then calibrated the spin (zero delay landed the burst
+// at x~180 of the row ABOVE the authored edge), so the shipped body carries
+// 64 + (moveq 4 + 13*10 + 14 expired) = 64 + 148 = 212 — F8 re-measured at 704/fire
+// after calibration, again spread 0. Evidence: docs/benchmarks/effects-r1/.
+const RASTER_WORK_RESTORE_CYC = 212
 
 // ---- dispatch depth ---------------------------------------------------------
 // Raster_HInt tests opcodes in ASCENDING order — OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
@@ -1133,8 +1135,8 @@ ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))
        "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 614 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
 ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 458,
        "cost model vs fixture F7 (stream_vsram, 1 word): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, measured 458 — identical to F2, which is the measurement behind charging a VSRAM word exactly what a colour word costs")
-ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 556,
-       "cost model vs fixture F8 (pal_restore, 3 words): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, measured 556 — claim 9 closed: the restore's work constant is the measured one, and this pin is what keeps the band() minima honest")  // measured 2026-08-17, 3 boots spread 0
+ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 704,
+       "cost model vs fixture F8 (pal_restore, 3 words): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, measured 704 (calibrated body; 556 spinless) — claim 9 closed: the restore's work constant is the measured one, and this pin is what keeps the band() minima honest")  // measured 2026-08-17, 3 boots spread 0
 // F0 is the per-fire base's own anchor and cannot be spelled as a `fire` (a fire with no ops
 // is refused). Its two priming records read 572 cycles, i.e. 286 per no-op record; the +16 to
 // RASTER_FIRE_BASE_CYC is derived in that constant's note above.

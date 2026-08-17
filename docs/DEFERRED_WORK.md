@@ -4649,3 +4649,29 @@ Parcel W exists to remove. Do not "fix" one side alone.
 RasterOp.Cram/PalRestore direct construction bypasses C-D's wrap/line-0 refusals (constructor-only
 refusals are not refusals — the $8F/$8A precedent); needs an op-level span scan in
 `raster_program`; found by the Task 8 review, booked not built.
+
+## R1 §7.3 measurement 2 — the +16 mixed-fire landing (booked 2026-08-17, Fable-ruled)
+
+The RUNGS 4→5 dispatch tax is hardware-confirmed exactly +16 (F5 = 628.0, spread 0); its
+PIXEL-LANDING consequence on the shipped water fire is UNMEASURED — four capture protocols
+have now failed their own controls (the record: docs/benchmarks/effects-r1/GATE-EVIDENCE.md
+§7.3-2). Re-measure ONLY with the render-anchoring parcel's framediff instrument
+(docs/superpowers/2026-08-18-oracle-render-anchoring-brief.md), with ALL of:
+- pinned camera AND Logic_Tick controlled (or anchored out by the instrument);
+- the boundary row re-derived at the capture camera (`Effects_Screen_L` ch 0) — the P2
+  baseline rows 118-120 are camera-stale, do NOT reuse them;
+- expected-harmless: seam drift ~14-15 px right; failure: tint spill into the visible row.
+On a measured failure: the §3.3 fallback slot is VACANT and the OWNER re-rules (per-fire
+delay word / stream-count narrowing / accept-if-sub-pixel). Never retune EFX_BLANK_DELAY.
+
+## CLAIM 7-N1 — a comptime-enforcing committer contract IS implementable in sigil (booked 2026-08-17, R1 Task 14)
+
+The two halves exist: z80_bus.rs keys diagnostics on resolved destination-operand symbols
+(is_vdp_write), and the context system propagates requires()/grants() per proc. A
+[palette.unregistered-committer] contract is the same machinery with a symbol allowlist.
+THE TRAP that makes this a claim, not a task: is_vdp_port punts on register-indirect
+operands, and every real Palette_Buffer writer goes lea+(a1)+ — a store-keyed contract
+catches ONE writer of ten (textbook vacuous gate). The non-vacuous form flags SYMBOL
+REFERENCES (lea/abs/extern), which also flags readers and needs an allowlist — that trade
+needs a sweep. Until then: the advisory census (buffers.emp) + the reference-count lint
+(tools/test_palette_census_lint.py) are the floor, and both are red-first-verified.

@@ -69,12 +69,71 @@ baseline ROM built in a temporary worktree at `d0710868` (RAM added, splices abs
   the `SND_CTRL_DMA_ACTIVE` bracket. No automated Z80-side instrument exists; an audible
   soak on the sound-ON shape is booked with the Task 13 capture session's notes.
 
-## §7.3 landing captures — pending (R1 Task 13)
+## §7.3 measurement 1 — the restore's landing — CLEAN, CALIBRATED (2026-08-17)
 
-1. The restore's landing — FIRST datum at its shape; delay ladder per spec §3.2 (leading
-   dots → step the knob; straddle → narrow stream count).
-2. The +16 mixed-fire capture on `OJZ_TC_PROG` ch 0 — S/H-seam method, 8 px buckets. On
-   failure: the fallback slot is VACANT and the owner re-rules (never a global retune).
+The first datum at this fire shape, ever. Fixture: `band`-shaped program poked into
+`Raster_Buf_A` on the GUI oracle (pokes must happen PAUSED — a running emulator's
+per-VBlank schedule re-record races the pokes and rewrites the buffer; one capture was
+lost to this before the pause discipline was adopted). Camera frozen at spawn
+(Camera_Y=144), tint `$0E0E`×3 on line 2 entries 4-6 ($48 — entries the trunk art
+heavily uses; line 1 entries 1-3 were tried first and are nearly unused at those rows,
+the P1-CORRECTION trap in the flesh). Per-row magenta-pixel analysis of the PNG.
+
+**Zero delay (the bracket start):** the burst completed at **x≈180 of row 139** — the row
+ABOVE the authored OFF edge (140): row 139's tint cut off at x=180, rows 140+ fully base.
+The bare single-op cram ON fire spilled identically (row 99 tinted from x≈170) —
+**sweep 4's anchor finding confirmed comprehensively: every single-op fire lands
+mid-previous-row; the calibrated evidence only ever covered the mixed shape.** The
+measured restore-vs-cram offset (~10 px ≈ 8 cyc) matched the pinned model's +6 within
+2 cyc — the dispatch/delay model is pixel-accurate.
+
+**The jump:** the clean mixed shape carries ~152 cyc of pre-burst delay (SetReg 94 +
+spin 58); `EFX_RESTORE_DELAY = 13` gives 4+130+14 = 148. **Verified clean in one step:**
+row 139 fully tinted to x=311 (same extent as 137/138), rows 140+ fully base. The OFF
+edge sits exactly on the authored line.
+
+**Model consequence applied:** the calibrated body's work = 64 + 148 = **212**
+(`RASTER_WORK_RESTORE_CYC` updated; F8 expectation 556 → **704**; TOML mirror synced;
+re-measure confirmation in the post-calibration gate run below). The restore fire at
+704 cyc still needs downstream gap ≥ 2 (704 ≤ 976) — the §6.2 tables hold.
+
+Captures: `band_capture3.png` (zero delay), `band_capture4.png` (calibrated), scratchpad;
+per-row tables in this file's history.
+
+## §7.3 measurement 2 — the +16 mixed-fire landing — ATTEMPTED: METHOD-CONFOUNDED, **NO VERDICT** (2026-08-17, Fable-ruled)
+
+**What IS hardware-confirmed: the tax itself.** F5 measures 628.0/fire (3 boots, spread
+0) — exactly the 5-rung model. Only the pixel-landing CONSEQUENCE is unmeasured.
+
+**Why no verdict exists:**
+- The P2 baseline rows (118-120) are camera-stale — at the current spawn the ch-0
+  boundary latches at screen row 80 (`Effects_Screen_L` = $50); no recorded row
+  corresponds.
+- The cross-ROM differential (pre-tax `82b10ffa` ROM vs current, both at the frozen
+  spawn) **failed its own negative control**: 116 differing rows INCLUDING rows 5-20,
+  which carry no raster ops — the boots sit at different `Logic_Tick` phases and
+  BgAnim/HUD animation dominates. Boundary-region diffs (11-59 px/row, rows 79-86) are
+  inside that noise band; the sought ~14-15 px seam drift is unresolvable. **This is the
+  FOURTH capture protocol to fail its own control** — preserved here as the
+  control-failure record for the next protocol designer.
+- `Logic_Tick` phase alignment is infeasible unthrottled: the emulator ran at 86-220
+  ticks/s of wall time across sleeps; exact-tick landing needs ~200 MCP round-trip
+  frame-steps per ROM against a press-wedge-prone socket.
+
+**The bound (what tonight DOES exclude):** the catastrophic failure form only. The S/H
+seam exists at row 80 on the current ROM, the arm-word scene gates pass, and no gross
+artifact (a visibly dry row below the boundary) appears in any capture. **Resolution of
+this bound: the 11-59 px/row animation noise floor — the ≤15 px precision question is
+fully open.**
+
+**Disposition (Fable ruling, 2026-08-17, owner-delegated):** spec §7.3 classifies the
+captures as "evidence, not gates"; the §3.3 fallback slot activates only on a MEASURED
+failure and none is evidenced — the instrument failed, not the parcel. Merge proceeds;
+`EFX_BLANK_DELAY` untouched; the fallback slot stays VACANT; the precision re-measure is
+booked concretely in `docs/DEFERRED_WORK.md` against the render-anchoring parcel (framediff
+at pinned camera, Logic_Tick controlled or anchored out, boundary re-derived at the
+capture camera — the P2 rows must not be reused). Sweep 5's corrected arithmetic (last
+word ~90 of ~97 window-cycles) is context, NOT a conclusion.
 
 ## Boot evidence log
 
