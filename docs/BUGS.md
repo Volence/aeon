@@ -5,10 +5,10 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
-## ⚠ EFX-10 — OPEN 2026-08-17. The negative-build lane cannot run any poison that reaches a real guard.
+## ⚠ EFX-10 — OPEN 2026-08-17, re-scoped 2026-08-17. Lane runs via the carrier backend (interim); the sigil-side fix is still open.
 
-**Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane
-(`tools/emp_expect_fail.py`, R1 Task 7) invokes `sigil emp <poison> --root <aeon>`. That path
+**Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane's
+direct invocation is `sigil emp <poison> --root <aeon>`. That path
 (`run_emp_program`, `sigil-cli/src/main.rs`) does **not** apply the two manifest rewrites
 `sigil build` applies (`sigil-harness/src/native.rs`, `build_emp`):
 
@@ -36,18 +36,27 @@ Measured 2026-08-17, three failures deep, each blocking the next:
 `ensure` names nothing outside itself. That is the shape it was verified with (CASES shipped
 empty), and it is the shape no real guard poison can take.
 
-**Scope of the hole.** Seven poison modules exist under `games/sonic4/test/poison/` and each is
-verified to trip its guard — by splicing its body into a module that IS in the real build's `use`
-closure and running `sigil build`. What is missing is only the automation: nothing re-runs those
-seven, so the five R1 band guards are protected by review and by this entry, not by a gate.
-`tools/emp_expect_fail.py` prints a loud SKIPPED listing all seven rather than "OK", so it cannot
-quietly read as coverage.
+**Current state (2026-08-17): the lane runs via the carrier backend** (temporary,
+aeon-side, Fable-ruled 2026-08-17). `tools/emp_expect_fail.py` no longer invokes `sigil
+emp --root` at all — it rewrites `games/sonic4/test/poison_carrier.emp` (a real module
+already in the build's `use` closure, via one edge from
+`games/sonic4/data/effects/ojz_effects.emp`) to each poison's body in turn and runs the
+real `sigil build --native` invocation, which does apply `publicize_helper_comptime` /
+`normalize_helper_imports`. All seven Task 8 poisons are gated this way (moved from
+`BLOCKED_CASES` into `CASES` verbatim), plus a permanent sentinel case that fails the
+lane loudly if the carrier ever falls out of the build's `use` closure. The five R1 band
+guards are now protected by a gate, not only by review and this entry.
 
-**Fix.** Sigil side, not aeon side. Either give `sigil emp --root` the helper treatment plus a way
-to seed extra reachability and the `-D` values, or — smaller and more faithful — add
-`--extra-entry <module>` to `sigil build`, appending the poison to `synthetic_entry_src`'s `use`
-list so it elaborates inside the REAL profile, in exactly the shape an author's module does. The
-seven rows are already written as `BLOCKED_CASES` in the lane, ready to move into `CASES` verbatim.
+**The carrier is a workaround, not the fix — it is explicitly named for removal.** The
+proper fix remains sigil-side: `--extra-entry <module>` on `sigil build`, appending the
+poison to `synthetic_entry_src`'s `use` list so it elaborates inside the REAL profile
+without any file's body being rewritten out from under it. (The alternative floated
+earlier — giving `sigil emp --root` the same helper treatment plus a way to seed extra
+reachability and the `-D` values — is the larger change; `--extra-entry` reuses the
+existing real-build path instead.) The removal condition is named in the carrier's own
+header comment (clean-not-bolted-on): the carrier file, its `use` edge, and the
+rewrite-per-case mechanism in `emp_expect_fail.py` all retire together the day
+`--extra-entry` lands.
 
 ---
 

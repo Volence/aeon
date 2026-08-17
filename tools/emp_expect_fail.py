@@ -2,60 +2,46 @@
 """emp_expect_fail — the tree's negative-build lane (Parcel R1, spec §10.4).
 
 Each case is a poison .emp module that MUST fail to build, with the expected guard
-message fragment. A case passes iff sigil exits nonzero AND its output contains the
-fragment. Known properties (spec [S5-10]): the manifest scan parses the WHOLE --root
-tree per invocation (CI cost, not soundness), and the message match is fragile against
-wording edits — a wrong/missing message still FAILS here (so drift is caught), but
-attribute failures to wording first. Poison modules live in games/sonic4/test/poison/:
-syntactically valid (the scan parses them on EVERY build), never imported by a real
-entry, evaluated only by this lane.
+message fragment. A case passes iff the real build exits nonzero AND its output
+contains the fragment. Poison modules live in games/sonic4/test/poison/: syntactically
+valid (the manifest scan parses them on EVERY build), never imported by a real entry,
+evaluated only by this lane.
 
-Invocation form (verified by experiment, R1 Task 7): `sigil emp <module.emp> --root
-<aeon-root>` evaluates the given module as the ENTRY of a whole-tree manifest scan —
-its own top-level `ensure`s always run (entry modules are exempt from the
-`module.unreachable` skip that applies to everything else NOT pulled in by `use`), no
-ROM is emitted, and the process exits nonzero iff any `ensure` in the entry module
-fired. `sigil emp` has no separate `--entry` flag; the input path itself IS the entry.
-
-THAT VERIFICATION WAS INCOMPLETE, and R1 Task 8 is where it broke. Everything above is
-true of a SELF-CONTAINED poison — one whose `ensure` names nothing outside itself. It is
-false of every poison that has to reach a real guard, because `sigil emp --root`
-(`run_emp_program`, sigil-cli/src/main.rs) does NOT apply the two manifest rewrites that
-`sigil build` applies (`sigil-harness/src/native.rs`, `build_emp`):
+BACKEND — the carrier (temporary, aeon-side, Fable-ruled 2026-08-17)
+----------------------------------------------------------------------
+R1 Task 7's invocation (`sigil emp <poison> --root <aeon-root>`) evaluates the given
+module as the entry of a whole-tree manifest scan, and its own top-level `ensure`s run
+regardless of reachability. THAT IS TRUE ONLY OF A SELF-CONTAINED POISON. R1 Task 8's
+seven poisons each reach a real guard in `engine/effects/raster_dsl.emp`, and `sigil emp
+--root` (`run_emp_program`, sigil-cli/src/main.rs) does NOT apply the two manifest
+rewrites `sigil build` applies (`sigil-harness/src/native.rs`, `build_emp`):
 
     publicize_helper_comptime(&mut manifest, COMPTIME_HELPERS)
     normalize_helper_imports(&mut manifest, COMPTIME_HELPERS, &[])
 
-Measured 2026-08-17, three failures deep, each one blocking the next:
+so the helper vocabulary raster_dsl's guards depend on is not in scope under that
+invocation. Measured 2026-08-17, full derivation in docs/BUGS.md (EFX-10).
 
-  1. A poison that names `raster_program` gets `unknown function raster_program` — the
-     helper globs are what put it in scope in an ordinary module.
-  2. Adding `use engine.effects.raster_dsl.*` fixes that name and NOT the guard, because
-     `raster_program`'s BODY resolves its free names at the CALL SITE and raster_dsl's
-     own helpers (`fire_ops`, `arm_at`, `check_intervals`, `op_stream_words`, …) are
-     PRIVATE. A glob imports only `pub` items; it is `publicize_helper_comptime` that
-     makes them importable in the real build. Result: 20+ `unknown function` errors
-     inside raster_dsl itself.
-  3. The `use` also drags `engine.effects.raster` into the closure, which resolves
-     `RASTER_MAX_PATCH` / `vdp_comm_reg` only through those same globs and its RAM
-     labels only because `engine.ram` is reachable via the real build's synthetic entry.
-     Seeding `engine.ram` from the poison then demands the build's `-D` interface values
-     (DEBUG, MAX_RING_BUFFER, COLLECTED_WINDOW_SLOTS), which this lane does not pass.
+The proper fix is sigil-side: `--extra-entry <module>` on `sigil build`, which would
+elaborate a poison inside the real profile by adding it to `synthetic_entry_src`'s `use`
+list. Until that lands, this lane runs each poison through a CARRIER module instead —
+`games/sonic4/test/poison_carrier.emp`, a real module already pulled into the real
+build's `use` closure (one edge from `games/sonic4/data/effects/ojz_effects.emp`, which
+is where R1 Task 8's splice verification already lived). Per case, this script REWRITES
+the carrier's body to the poison's body and runs the real `sigil build --native`
+invocation on the whole tree — the same shape an author's module would be checked in,
+because the carrier IS one. The carrier's canonical resting state (module line + a
+short header, nothing else) is restored after every case, on entry (self-heal against
+crash residue), and re-verified at the end of the run.
 
-So NO poison that reaches `raster_program` can be spelled under the current invocation.
-The seven Task 8 poisons are written and each is VERIFIED to trip its guard — by
-splicing its body into a module that IS in the real build's `use` closure and running
-`sigil build`. They are listed in BLOCKED_CASES below, ready to move into CASES verbatim
-the day the invocation can elaborate them. Booked as EFX-10 in docs/BUGS.md.
-
-WHAT UNBLOCKS IT (sigil side, not aeon side): give `sigil emp --root` the same helper
-treatment `build_emp` performs — the COMPTIME_HELPERS list plus a way to seed extra
-reachability (`engine.ram`) and the `-D` interface values. An `--extra-entry <module>`
-on `sigil build`, which would add the poison to `synthetic_entry_src`'s `use` list and
-elaborate it inside the REAL profile, is the smaller and more faithful change: the
-poison would then be checked in exactly the shape an author's module is.
+This backend is temporary. It retires — carrier file, use edge, and the mutation this
+docstring describes — the day `--extra-entry` lands (docs/BUGS.md EFX-10). A standalone
+run of this script has no clean-tree control beyond the self-heal below: build.sh's own
+subsequent real build is what actually proves the carrier was left canonical, since that
+build only succeeds if the carrier is inert. Running this script in isolation trusts the
+self-heal and the final re-read; it does not re-derive them with a second process.
 """
-import os, subprocess, sys, pathlib
+import os, subprocess, sys, pathlib, tempfile, time
 
 AEON = pathlib.Path(__file__).resolve().parent.parent
 SIGIL = os.environ.get("SIGIL_BUILD")
@@ -63,60 +49,160 @@ if not SIGIL:
     sys.exit("SIGIL_BUILD not set (same contract as build.sh)")
 
 POISON = "games/sonic4/test/poison"
+CARRIER = AEON / "games/sonic4/test/poison_carrier.emp"
+
+# The carrier's canonical resting state, embedded here so the lane can self-heal and
+# verify it without trusting the on-disk file to already be correct. Must match
+# games/sonic4/test/poison_carrier.emp byte-for-byte.
+CANONICAL_CARRIER = """// games/sonic4/test/poison_carrier.emp — the expect-fail lane's carrier backend (EFX-10).
+//
+// Temporary, aeon-side. Fable-ruled 2026-08-17 as the interim fix for EFX-10
+// (docs/BUGS.md): `sigil emp --root` cannot elaborate a poison that reaches a
+// real guard, because it skips the `publicize_helper_comptime` /
+// `normalize_helper_imports` manifest rewrites `sigil build` applies. This file
+// sidesteps that hole by being a REAL module inside the real build's `use`
+// closure — tools/emp_expect_fail.py REWRITES this file's body per case (the
+// canonical module line below plus one poison's body, verbatim) and invokes
+// `sigil build --native` on the whole tree, then restores this file to exactly
+// the form below.
+//
+// This is the file's CANONICAL RESTING STATE: the module line and this comment
+// block, nothing else. Zero bytes, ensures-only — outside a lane run this
+// module declares no data, no code, no `ensure`, and changes no build output.
+//
+// Removal condition: retire this file (and the mutation it exists to avoid)
+// the day `--extra-entry <module>` lands on `sigil build` — the properly-scoped
+// fix named in docs/BUGS.md EFX-10, which elaborates a poison inside the real
+// profile without needing a host module's body rewritten out from under it.
+module games.sonic4.test.poison_carrier
+"""
+
+SENTINEL_BODY = (
+    'ensure(false, "POISON_CARRIER_SENTINEL — if this builds clean the carrier fell '
+    'out of the build closure and every case below is vacuous")\n'
+)
 
 # (poison module path relative to AEON, entry id, expected message fragment)
+# Moved verbatim from BLOCKED_CASES — the Task 8 poisons, each independently verified
+# (by splicing into ojz_effects.emp and running `sigil build`) to trip its guard.
 CASES: list[tuple[str, str, str]] = [
-    # EMPTY, and not because Task 8 wrote no poisons — see the BLOCKED note in the
-    # module docstring. Every entry in BLOCKED_CASES below belongs here.
-]
-
-# The Task 8 poisons: written, each verified to trip its guard, none runnable through
-# this lane's invocation. Moving a row from here to CASES is the whole re-wiring.
-BLOCKED_CASES: list[tuple[str, str, str]] = [
-    (f"{POISON}/poison_direct_8f.emp",           "8d E-D",  "autoincrement"),
-    (f"{POISON}/poison_regset_8f.emp",           "8d D-C",  "autoincrement"),
-    (f"{POISON}/poison_two_restores.emp",        "8a",      "one band per program"),
-    (f"{POISON}/poison_band_buried_tint.emp",    "8b C-A",  "would bury"),
-    (f"{POISON}/poison_patchable_band_fire.emp", "8b rule6", "must be static"),
-    (f"{POISON}/poison_setreg_on_restore.emp",   "8c D-B",  "carries the restore ONLY"),
+    (f"{POISON}/poison_two_restores.emp",        "8a",        "one band per program"),
+    (f"{POISON}/poison_band_buried_tint.emp",    "8b C-A",    "would bury"),
+    (f"{POISON}/poison_patchable_band_fire.emp", "8b rule6",  "must be static"),
+    (f"{POISON}/poison_setreg_on_restore.emp",   "8c D-B",    "carries the restore ONLY"),
+    (f"{POISON}/poison_regset_8f.emp",           "8d D-C",    "autoincrement"),
+    (f"{POISON}/poison_direct_8f.emp",           "8d E-D",    "autoincrement"),
     (f"{POISON}/poison_ship_plus_restore.emp",   "8e claim6", "offscreen_ship"),
 ]
 
-def run_case(path: str, entry: str, expect: str) -> tuple[bool, str]:
-    p = subprocess.run([SIGIL, "emp", path, "--root", str(AEON)],
-                       capture_output=True, text=True, cwd=AEON)
-    out = p.stdout + p.stderr
-    if p.returncode == 0:
-        return False, f"BUILT CLEAN — the guard did not fire ({path})"
+
+def read_carrier() -> str:
+    return CARRIER.read_text()
+
+
+def write_carrier(body: str) -> None:
+    CARRIER.write_text(body)
+
+
+def poison_body(path: pathlib.Path) -> str:
+    """Everything after the poison's own `module ...` line, verbatim."""
+    lines = path.read_text().splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("module "):
+            return "".join(lines[i + 1:])
+    sys.exit(f"emp_expect_fail: {path} has no `module` line — cannot carry it")
+
+
+def run_build() -> tuple[int, str]:
+    with tempfile.TemporaryDirectory() as td:
+        out_bin = os.path.join(td, "probe.bin")
+        p = subprocess.run(
+            [SIGIL, "build", "--aeon", ".", "--native", "--game", "sonic4", "-o", out_bin],
+            capture_output=True, text=True, cwd=AEON,
+        )
+    return p.returncode, p.stdout + p.stderr
+
+
+def run_one(label: str, carrier_body: str, expect: str, want_clean: bool) -> tuple[bool, str, float, str]:
+    """Write carrier_body, run the real build, restore canonical, evaluate.
+
+    Returns (ok, why, elapsed_seconds, raw_output).
+    """
+    write_carrier(CANONICAL_CARRIER + carrier_body)
+    t0 = time.monotonic()
+    rc, out = run_build()
+    elapsed = time.monotonic() - t0
+    write_carrier(CANONICAL_CARRIER)
+
+    if want_clean:
+        # not used (kept for symmetry / future self-contained cases)
+        if rc == 0:
+            return True, "ok", elapsed, out
+        return False, f"expected a clean build, got exit {rc}", elapsed, out
+
+    if rc == 0:
+        return False, f"BUILT CLEAN — the guard did not fire ({label})", elapsed, out
     if expect not in out:
         tail = " | ".join(out.strip().splitlines()[-3:])
-        return False, f"failed WITHOUT the expected fragment {expect!r} — wording drift or wrong guard; got: {tail}"
-    return True, "ok"
+        return False, (
+            f"failed WITHOUT the expected fragment {expect!r} — wording drift or "
+            f"wrong guard; got: {tail}"
+        ), elapsed, out
+    return True, "ok", elapsed, out
+
 
 def main() -> int:
-    # A lane that runs nothing must SAY it runs nothing. Printing "OK" over an empty
-    # case list is the vacuous-gate shape this tree has a documented history of, so the
-    # skip is loud, names its blocker, and counts the poisons it is failing to run.
-    missing = [c for c in BLOCKED_CASES if not (AEON / c[0]).is_file()]
+    if not CARRIER.is_file():
+        print(f"emp_expect_fail: FAIL — carrier module missing: {CARRIER}")
+        return 1
+
+    # Trap 1: crash residue. A previous run that died mid-case (Ctrl-C, OOM, a sigil
+    # crash) can leave the carrier poisoned on disk. Self-heal before doing anything
+    # else, loudly, so a poisoned carrier is never silently mistaken for canonical.
+    on_disk = read_carrier()
+    if on_disk != CANONICAL_CARRIER:
+        print("emp_expect_fail: CRASH RESIDUE — carrier was left poisoned by a "
+              "previous run; self-healed")
+        write_carrier(CANONICAL_CARRIER)
+
+    missing = [c for c in CASES if not (AEON / c[0]).is_file()]
     if missing:
-        print("emp_expect_fail: FAIL — BLOCKED_CASES names poison modules that do not exist:")
+        print("emp_expect_fail: FAIL — CASES names poison modules that do not exist:")
         for path, entry, _ in missing:
             print(f"  {entry}: {path}")
         return 1
-    if not CASES:
-        print(f"emp_expect_fail: SKIPPED — 0 runnable cases, {len(BLOCKED_CASES)} poisons "
-              f"written and UNRUNNABLE through `sigil emp --root` (helper injection; "
-              f"docs/BUGS.md EFX-10). These guards are NOT gated here:")
-        for path, entry, expect in BLOCKED_CASES:
-            print(f"  {entry}: expects {expect!r} from {path}")
-        return 0
+
     bad = 0
+
+    # CASE 0, permanent, first: the sentinel. If this builds clean, the carrier is not
+    # actually in the build's `use` closure and every case below is testing nothing.
+    ok, why, elapsed, out = run_one("sentinel", SENTINEL_BODY, "POISON_CARRIER_SENTINEL", want_clean=False)
+    print(f"  {'PASS' if ok else 'FAIL'}  sentinel ({elapsed:.2f}s): {why}")
+    if not ok:
+        print("emp_expect_fail: FAIL — the sentinel did not fire. The carrier has "
+              "fallen out of the real build's `use` closure (check the `use` edge in "
+              "games/sonic4/data/effects/ojz_effects.emp); every case below would be "
+              "vacuous, so this run stops here.")
+        return 1
+
     for path, entry, expect in CASES:
-        ok, why = run_case(path, entry, expect)
-        print(f"  {'PASS' if ok else 'FAIL'}  {entry}: {why}")
+        body = poison_body(AEON / path)
+        ok, why, elapsed, out = run_one(entry, body, expect, want_clean=False)
+        print(f"  {'PASS' if ok else 'FAIL'}  {entry} ({elapsed:.2f}s): {why}")
         bad += 0 if ok else 1
+
+    # Final restore + verify. run_one already restores after every case, including the
+    # last one, but re-read the file rather than trust that write succeeded.
+    write_carrier(CANONICAL_CARRIER)
+    final = read_carrier()
+    if final != CANONICAL_CARRIER:
+        print("emp_expect_fail: FAIL — carrier did not return to canonical rest after "
+              "the run. DO NOT COMMIT the tree in this state.")
+        return 1
+
     print(f"emp_expect_fail: {'OK' if not bad else 'FAIL'} — {len(CASES) - bad}/{len(CASES)} cases")
     return 1 if bad else 0
+
 
 if __name__ == "__main__":
     sys.exit(main())
