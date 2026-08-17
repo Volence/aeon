@@ -1,6 +1,13 @@
 # DESIGN — the effects tail, revision 3.1 (post delta sweep + mini-sweep)
 
-**Status: r3.1, SWEPT (three rounds), awaiting owner sign-off.**
+**Status: r3.1, SWEPT (three rounds) — BANKED, owner ruling 2026-08-17 (demand-pull).**
+Not shipped: for shipped content Part A only swaps which effect is absent in rows 221-223,
+and its real payload (general two-channel freedom) had no authored consumer yet — unshipped
+collision arms would be gate-exercised only. **Revival condition: a real program that needs
+overlapping patchable bands** (expected: the Parcel D OJZ showcase). Revival = one
+plan+execute session against this document; nothing is open. Breadcrumbs: `check_intervals`'
+ensure message + comment (the build error an overlap author hits) and DEFERRED_WORK.md
+"Effects tail Part A" both point here.
 Supersedes `2026-08-17-effects-tail-design-v2.md` (r2). Delta-sweep adjudication:
 `../2026-08-17-effects-tail-delta-adjudication.md` (20/20 folded); mini-sweep adjudication
 on the adjudication-minted mechanisms: `../2026-08-17-effects-tail-mini-adjudication.md`

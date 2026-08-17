@@ -1180,13 +1180,22 @@ ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) <= RASTER_SCANLINE_CYC,
 // fire line make that -1, whose byte is $FF — and $8AFF is RASTER_ARM_PARK. So an overlap of
 // a single line does not merely mis-place a boundary, it parks the counter and kills every
 // remaining fire in the frame, with no other symptom.
+//
+// OVERLAP IS DESIGNED, NOT IMPOSSIBLE (owner ruling 2026-08-17: banked, demand-pull). If you
+// are here because you WANT two patchable bands to overlap: a complete, three-times-swept
+// runtime collision-resolution design exists and is revival-ready —
+// docs/superpowers/specs/2026-08-17-effects-tail-design-v3.md (r3.1). Do NOT weaken this
+// guard ad hoc; the design exists precisely because every naive relaxation was proven unsound
+// (three adjudications, 38 accepted defects, incl. two latent regressions a green test suite
+// would not have caught). Revival condition: a real program (Parcel D was the expected one)
+// that needs overlapping patchable bands. See also DEFERRED_WORK.md "Effects tail Part A".
 comptime fn check_intervals(fires: array) -> int {
     comptime var prev_hi = 1                     // priming record 1 sits at fire line 1
     for f in fires {
         let lo_fl = fire_band_lo(f) - 1
         let hi_fl = fire_band_hi(f) - 1
         ensure(lo_fl > prev_hi,
-               "raster program: the record reachable at fire lines {lo_fl}..{hi_fl} can collide with the previous record, which reaches up to fire line {prev_hi}. Records must occupy STRICTLY ASCENDING, DISJOINT fire-line intervals (a static fire's interval is its own line; a patchable fire's is its band). This is not a tidiness rule: the arm gap is stored as the low byte of an $8Axx word, so two records on one fire line make the gap -1, whose byte is $FF — the PARK word. That kills every fire after it in the frame, silently.")
+               "raster program: the record reachable at fire lines {lo_fl}..{hi_fl} can collide with the previous record, which reaches up to fire line {prev_hi}. Records must occupy STRICTLY ASCENDING, DISJOINT fire-line intervals (a static fire's interval is its own line; a patchable fire's is its band). This is not a tidiness rule: the arm gap is stored as the low byte of an $8Axx word, so two records on one fire line make the gap -1, whose byte is $FF — the PARK word. That kills every fire after it in the frame, silently. IF YOU NEED OVERLAPPING PATCHABLE BANDS: a swept runtime-resolution design is banked and revival-ready — docs/superpowers/specs/2026-08-17-effects-tail-design-v3.md (r3.1). Do not relax this guard by hand; every naive relaxation was proven unsound there.")
         prev_hi = hi_fl
     }
     return 0

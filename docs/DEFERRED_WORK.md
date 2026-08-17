@@ -4715,3 +4715,41 @@ recording path that drops a record outside its authored band each VBlank) is the
 analysis record the design inherits — any relaxation of rule 6 must re-derive why a suppressed
 partner or a suppressed restore can no longer desync silently, not merely re-permit the
 spelling.
+
+## Effects tail Part A — runtime patchable-overlap resolution (BANKED 2026-08-17, owner ruling: demand-pull)
+
+**What it is**: two patchable raster channels may overlap bands / traverse the whole screen;
+collisions resolved at runtime by a main-loop resolver (authored-order priority, push ≤
+spacing on near-collision, suppress on genuine inversion) publishing into a double-buffered
+per-channel bank. Deletes `check_intervals`' disjointness wall for patchable-vs-patchable
+pairs ONLY — statics stay sacrosanct via a symmetric comptime scan (G-A3).
+
+**State: design COMPLETE and three-times-swept** — r1 → sweep 1 (26 findings) → r2 → delta
+sweep (20 findings, incl. two latent regressions and a value-proposition inversion) → r3 →
+mini-sweep (12 findings, incl. the `resolved_rec[]` stale-slot divergence) → **r3.1, fully
+adjudicated, zero open mechanisms**:
+- design: `docs/superpowers/specs/2026-08-17-effects-tail-design-v3.md` (r3.1)
+- adjudications: `docs/superpowers/2026-08-17-effects-tail-sweep-adjudication.md`,
+  `…-delta-adjudication.md`, `…-mini-adjudication.md`
+- the D1-1 install window is MEASURED on the shipped build (3/3 crossings, no VBlank —
+  latent, phase-deterministic; the atomic-publish fix is in r3.1 regardless)
+
+**Why banked, not shipped** (owner sign-off 2026-08-17): for shipped OJZ content the parcel
+only swaps which effect is absent in screen rows 221-223 (tint vs vscroll split — a one-line
+content edit either way); its real payload — general two-channel freedom — had no authored
+consumer yet, and unshipped collision arms would be gate-exercised only (dormant-scaffold
+rule). **Revival condition: a real program that needs overlapping patchable bands** — the
+expected one is the Parcel D OJZ showcase (Aurora-authored multi-band). Revival cost is one
+plan+execute session against r3.1; the plan-facing surface (atomic landing cluster, +2 table
+readers, sigil cross-seam hand-edits, 18-byte RAM, poison list) is already enumerated in
+r3.1 §A5/§A7.
+
+**Breadcrumb placed at the failure site**: `check_intervals`' ensure message and comment
+block (engine/effects/raster_dsl.emp, GUARD 2) now point here and at r3.1 — a future author
+hitting the overlap build error lands on this trail. DO NOT relax the guard ad hoc; three
+adjudications exist because every naive relaxation was proven unsound.
+
+**Part B (VSRAM op-class split) is separately banked inside r3.1** — net +26 cyc/op loss
+today, payoff gated on an instrument that can bind mid-frame VSRAM visibility to hardware
+(none exists; the emulator-model known-unknown is recorded in
+`2026-08-14-vsram-planeb-handoff.md`). Its revival conditions live in r3.1 §B.
