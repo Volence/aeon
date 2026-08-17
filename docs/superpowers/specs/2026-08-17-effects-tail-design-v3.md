@@ -1,10 +1,11 @@
-# DESIGN — the effects tail, revision 3 (post delta sweep)
+# DESIGN — the effects tail, revision 3.1 (post delta sweep + mini-sweep)
 
-**Status: r3, mini-sweep pending on the adjudication-minted mechanisms, then owner sign-off.**
+**Status: r3.1, SWEPT (three rounds), awaiting owner sign-off.**
 Supersedes `2026-08-17-effects-tail-design-v2.md` (r2). Delta-sweep adjudication:
-`../2026-08-17-effects-tail-delta-adjudication.md` — 20/20 dispositions folded in here.
-Sections changed from r2 are marked **[r3]**; mechanisms minted DURING adjudication (not by a
-sweep seat) are additionally marked **[minted]** — they are the mini-sweep's subject.
+`../2026-08-17-effects-tail-delta-adjudication.md` (20/20 folded); mini-sweep adjudication
+on the adjudication-minted mechanisms: `../2026-08-17-effects-tail-mini-adjudication.md`
+(12/12 folded, marked **[r3.1]** below — headline: `resolved_rec[]` DELETED, the bank is
+per-channel only, 18 bytes). Sections changed from r2 are marked **[r3]**.
 
 ## The price, restated honestly for the third time [r3]
 
@@ -135,9 +136,21 @@ for each record k (table order):
     if L < prev + spacing_k:                                    // NEAR-COLLISION
         L = prev + spacing_k                                    // push: bound = spacing
         if L > band_hi_fl: resolved_ch[ch] = SUPPRESSED; next
-    resolved_ch[ch] = L;  resolved_rec[k] = L
+    resolved_ch[ch] = L
     prev = L;  spacing_k = program_spacing
 ```
+
+**[r3.1] There is no `resolved_rec[]` — the bank is per-channel ONLY.** The mini-sweep
+proved a record-indexed array unsound twice over: suppress paths and statics never wrote it,
+so under double-buffering a suppressed record's slot served a two-frame-stale IN-RANGE line
+the backstop provably cannot reject (palette/scroll divergence — the class this machinery
+exists to prevent), and a literal builder read of a static's slot suppressed statics as a
+class. Per-channel is total by construction: every resolver path writes `resolved_ch[ch]`
+(a line or SUPPRESSED) for every channel WITH a record, and channels without records stay
+NONE in both banks via the install reset. The builder already decodes the channel index
+from `line_src` (`raster.emp:1130-1131`); GUARD 11 makes channel→record unambiguous.
+Statics never touch the bank at all — they keep today's literal `line_src` path
+(`bpl .have_line`) untouched.
 
 - **Sentinels [r3, minted]: `RESOLVED_NONE = 0`, `RESOLVED_SUPPRESSED = 1`.** Legitimate
   resolved lines live in [2,222] (min: `patchable` lo >= 3 → fl 2; max: hi <= 223 → fl 222),
@@ -177,15 +190,30 @@ booked as the future knob if a program ever needs priority to disagree with scre
 
 ## A5. Consumers and lifecycle [r3]
 
-**Builder**: reads `resolved_rec[k]` via the selected bank; bounded backstop —
+**Builder [r3.1]**: for PATCHABLE records only, reads `resolved_ch[ch]` via the selected
+bank (ch decoded from `line_src` exactly as today); statics keep the literal path and never
+read the bank. Bounded backstop —
 **suppress unless `prev < L <= RASTER_MAX_FIRE_LINE - 1`** [r3: spelled from the constant
 (`raster.emp:903`) so a ceiling edit cannot silently un-bound it, D1-14c] — **placed at
 `.have_line`, BEFORE the `addq.l #4, a0`** (`raster.emp:1141`), where a0 still points at
 `band_lo` and the existing `.suppress` entry's `addq.l #8` bookkeeping is correct [r3: r2's
 "before the arm store" placement sat after the +4 and would have desynced the table walk by
-4 bytes, D1-13]. Statics pass through `.have_line` too — the backstop is redundant for them
-by construction, and free. Stored gap byte lands in [0, 220]; $FF is unreachable for ALL
-garbage including the `prev + 256` class and both sentinels. Two-back slot seam untouched.
+4 bytes, D1-13]. Statics pass through `.have_line` too — with their literal `line_src`
+value, never a bank read; the backstop is redundant for them by construction (mini-sweep
+verified: earlier patchables emit ≤ `S_fl - spacing` under symmetric G-A3; the shipped
+adjacent-static zero-gap case passes strict `prev < L` with gap byte 0), and free. Stored
+gap byte lands in [0, 220]; $FF is unreachable for ALL garbage including the `prev + 256`
+class and both sentinels. Two-back slot seam untouched.
+
+**Install-site plumbing [r3.1]**: the resolve call goes after `lea RASTER_BUF_SIZE(a0), a1`
+(`raster.emp:930`) and before the `:931` table store; a0 (template) is dead after `:930`.
+`Raster_ResolveLines` MUST fit `clobbers(d0-d4/a0-a2)` — the budget is exactly exhausted
+(table cursor, bank cursor, latch base, prev, spacing, L, line_src, count), so a1
+round-trips the call on the stack; widening the declaration propagates up the caller chain
+(the d5 precedent, `raster.emp:1029-1036`). On a crossing frame the table is resolved TWICE
+(install site, then the same frame's per-frame site) — idempotent by construction (both read
+the latch seeded at `preset.emp:247`), one extra walk + flip; crossing frames pay the cost
+envelope twice. Documented so nobody "fixes" it.
 
 **Parallax step 4b**: three-way read of `resolved_ch[ch]`: >= 2 → split at `line + 1`;
 1 (SUPPRESSED) → no split; 0 (NONE) → the EXISTING unclamped raw-L path
@@ -199,13 +227,18 @@ block + "only call site" comment rewritten; sigil carriers (pins.rs:359, repin.t
 parallax_port.rs:233) live through the ordinary repin.
 
 **Lifecycle [r3, both install paths]**:
-- **Unconditional reset**: both banks + selector are cleared in `Effects_InstallPreset`
-  beside `clr.l Raster_Patch_Tab` (`preset.emp:220`), inheriting that proc's total-binding
-  argument verbatim — gating it on `ep_patched` re-opens the stale-bank inheritance class
-  that `preset.emp:199-227` documents closing (the 224/314 crossing witness), one bank over
-  [D1-2]. Order: table cleared FIRST, then banks — a VBlank between sees table 0 → no-op.
-  With `RESOLVED_NONE = 0` the reset is `clr` × 3 words of state. This one site also covers
-  `Raster_Install` and the VBlank teardown paths.
+- **Unconditional reset [r3.1]**: BOTH banks + selector are cleared FULLY (18 bytes — 2
+  banks × 4 channel words + selector) in `Effects_InstallPreset` beside
+  `clr.l Raster_Patch_Tab` (`preset.emp:220`), inheriting that proc's total-binding argument
+  verbatim — gating it on `ep_patched` re-opens the stale-bank inheritance class that
+  `preset.emp:199-227` documents closing (the 224/314 crossing witness), one bank over
+  [D1-2]. Clearing only the SELECTED bank re-opens the stale-slot class through the other
+  bank's first flip — both, always. Two ordering constraints, both load-bearing: table
+  cleared FIRST, then banks (a VBlank between sees table 0 → no-op); and the clear strictly
+  PRECEDES the install call, which publishes into one of the banks being cleared. This one
+  site also covers `Raster_Install` and the VBlank teardown paths (verified: the only
+  runtime callers of both installers are `Effects_InstallPreset`; teardown runs over
+  already-cleared banks).
 - **Atomic publish**: `Raster_InstallPatched` resolves the incoming table (parameter, not
   the global) into the inactive bank and flips the selector BEFORE its
   `move.l a1, Raster_Patch_Tab` [minted, D1-1]. No window exists in which a live table has a
@@ -217,22 +250,37 @@ parallax_port.rs:233) live through the ordinary repin.
   itself; the per-frame resolver keeps it fresh from then on. No blank frame exists at
   install or crossing — now by construction, not by ordering luck.
 
-**Cross-seam [r3, D1-11]**: parallax reading `Effects_Resolved_*` + `Effects_Resolved_Sel`
-is a NEW cross-seam reference — declared in sigil's `parallax_port.rs` stub table (its own
-comment: "both had to be declared here or this gate stops resolving") plus new `pins.rs`
-entries. Port-flip ritual applies; `build.sh` will not warn.
+**Cross-seam [r3.1, D1-11 + M1-F6]**: parallax reading `Effects_Resolved_*` +
+`Effects_Resolved_Sel` is a NEW cross-seam reference — declared in sigil's
+`parallax_port.rs` stub table plus new `pins.rs` entries. The stub table is a HAND edit,
+not repin fallout: the `Raster_GetChannelBand` outbound stub is removed (its parallax call
+dies) in the same edit that adds the bank stubs. Port-flip ritual applies; `build.sh` will
+not warn.
 
-**RAM [r3]**: two banks × (8 record words + 4 channel words) + selector = **50 bytes**, added
-to `RASTER_STATE_SIZE`'s span ensure (`raster.emp:258-259`) — it measures the real emitted
-span, so this moves pins. Byte-changing parcel regardless.
+**RAM [r3.1]**: two banks × 4 channel words + selector = **18 bytes** (was 50 with
+`resolved_rec[]`), added to `RASTER_STATE_SIZE`'s span ensure (`raster.emp:258-259`) — it
+measures the real emitted span, so this moves pins. Byte-changing parcel regardless.
 
-**The spacing word [r3, minted — D2-4 ruling]**: lives in the PATCH TABLE header, beside the
-record count — NOT in the body template header, and never copied into the live buffer. It is
-a build-time constant consumed only by the resolver; the builder walks the table in ROM and
-pays one `addq.l #2, a0` past it. Consequences: `OJZ_TC_TABLE_HAND` gains one word (loud — a
-pinned hand twin); the body pin `OJZ_TC_HAND` untouched; live-buffer indices untouched — so
-r2's ENTIRE scene-index migration, its parity control, and the `effects_gates.py`
-`--expect-word` indices are unaffected (adjudication #13 retired, D2-3 dissolved).
+**The spacing word [r3.1 — full reader enumeration]**: lives in the PATCH TABLE header —
+layout PINNED as **`[count][spacing]`** (count stays word 0) — NOT in the body template, and
+never copied into the live buffer. The trailer MOVES: `ship_trailer` is emitted immediately
+after the patch table (`raster_dsl.emp:1771-1772`), so every reader below adjusts +2 in the
+SAME commit:
+  - `Raster_BuildSchedule`'s record walker (`raster.emp:1125`) — one `addq.l #2, a0`
+  - `Raster_ResolveLines` (new) — same skip
+  - `Raster_InstallPatched`'s trailer-offset arithmetic (`raster.emp:949-954` + the layout
+    comment at `:934-935`) — misreading this corrupts the ship entry of the ONLY shipped
+    patchable config (OJZ ch0 `offscreen_ship: 1`)
+  - `Raster_GetChannelBand`'s walker (`raster.emp:1237-1246`), retained as the debug accessor
+  - `patched_words` (`raster_dsl.emp:1751-1752`) and `check_rec_layout`'s entry index
+    (`:1719`)
+  - the ALREADY-stale trailer comment at `raster_dsl.emp:1623` ("8*records" — records are 10
+    bytes) — fixed here because it is precisely the copied-number class this change trips
+Consequences: `OJZ_TC_TABLE_HAND` gains one word (loud — three independent ensures trip on
+any table-shape change, `ojz_effects.emp:665-668/:714/:724-726`); the body pin `OJZ_TC_HAND`
+untouched; live-buffer indices untouched (verified: `effects_gates.py`'s `--expect-word`
+targets are live-buffer arm words the table header never enters; sigil carries no
+table-offset pins, symbol pins only) — r2's ENTIRE scene-index migration stays dissolved.
 
 ## A6. §5 re-proved (deltas only) [r3]
 
@@ -267,20 +315,25 @@ r2's ENTIRE scene-index migration, its parity control, and the `effects_gates.py
   gate could not fail for the right reason. Instrument: **instruction-precise
   `breakpoint_add` + `wait_for_break`** at the resolver's return (poke there) with the
   assert read after the next VBlank. Poison values include the `prev + 256` class and both
-  sentinels-in-rec-slots. Assert: suppression, no park in an emitted-successor slot, chain
-  tail intact.
+  sentinels poked into channel slots [r3.1]. Assert: suppression, no park in an
+  emitted-successor slot, chain tail intact.
 - **Scene-index migration: DISSOLVED** — the spacing word's table-header placement moves no
   live-buffer index (§A5). The table pin update is covered by the ordinary
   `OJZ_TC_TABLE_HAND` ensure, which is loud by construction.
 - **Cross-compare**: palette fire line (walked from arm gaps) vs `Parallax_Shadow_Bands`
   split, same frame, against each other; `Parallax_Shadow_Bands` is real, RAM-declared
   (`engine/ram.emp:266`) and precedented as a capture region (effects-p3-w GATE-EVIDENCE).
-- **Poisons for every guard**: G-A2 (descending band_lo), G-A3 (patchable touching a static,
-  BOTH sides — the later-side poison at `S_fl + 1` is the one r2's asymmetric guard would
-  have PASSED), G-A5 (9 records), G-A6 (wrong spacing constant), G-A7 (ceiling-breaking band
-  edit), retained-density (static-patchable at gap 1 — today's refusal, must stay a
-  refusal). One CASES row each, `emp_expect_fail.py` `--extra-entry` (sentinel-gated against
-  vacuity; verified real).
+- **Poisons for every guard [r3.1 — two added]**: G-A2 (descending band_lo), G-A3 two-record
+  (patchable touching a static, BOTH sides — the later-side poison at `S_fl + 1` is the one
+  r2's asymmetric guard would have PASSED), **G-A3 three-record [M2-2]** (two same-side
+  patchables with NON-MONOTONIC `band_hi` — `P_wide`, `P_narrow` — then a static: refused by
+  the full scan, wrongly ADMITTED by a single-`prev_hi` chain; the poison that catches a
+  regression to "extend check_intervals"), G-A5 (9 records), G-A6 (wrong spacing constant),
+  G-A7 (ceiling-breaking band edit), retained-density two-record (static-patchable at gap 1
+  — today's refusal, must stay a refusal), **retained-density three-record [M2-3]**
+  (`(S1, P, S2)` where S1↔S2 violates density only across the suppressible P — invisible to
+  an `i,i+1`-only walk). One CASES row each, `emp_expect_fail.py` `--extra-entry`
+  (sentinel-gated against vacuity; verified real).
 - **W0 regression scene**: anchored parallax config, NO patched program — split present at
   raw L. Under r2-as-written this scene would have been RED (stale-bank class, D1-2) — it is
   not vacuous; it stays.
@@ -293,6 +346,14 @@ r2's ENTIRE scene-index migration, its parity control, and the `effects_gates.py
   (`raster_dsl.emp:1076-1081` — "the binding constraint is the BAND BUDGET") is rewritten
   when the budget dies; the `preset.emp:199-227` window comment gains the bank-reset
   sentence; §A5's ensure guards the window's single-caller assumption.
+- **Atomic landing cluster [r3.1, M2-4]**: the RAM widening (`ram.emp` +
+  `RASTER_STATE_SIZE`), the resolver proc, BOTH call sites, the parallax consumer switch,
+  and the sigil `pins.rs`/`parallax_port.rs` declarations land as ONE commit. Staging the
+  main-loop site before the install site reproduces D1-1's regression exactly — the
+  intermediate commit would be red on this design's own install-crossing gate — and a
+  resolver landing before the sigil declarations breaks the port gate SILENTLY. (Single-op
+  landing precedent: Parcel R1.) The table-format +2 and its reader set are separable and
+  can land first.
 - Budget row for the resolver; the three-state captures stay valid (clamp-up floor does not
   move — confirmed by the delta sweep's F0 verification).
 
@@ -311,30 +372,19 @@ priced by F7.
 
 ---
 
-# Open items for the MINI-SWEEP (adjudication-minted mechanisms only)
+# Mini-sweep: CLOSED [r3.1]
 
-1. **Resolve-inside-install [minted]**: `Raster_InstallPatched` clobbers `d0-d4/a0-a2` and
-   its caller relies on a3 surviving (`preset.emp:286-288`). Calling `Raster_ResolveLines`
-   from inside it: register/stack feasibility, and the parameter-vs-global read discipline
-   (the per-frame site reads the global; the install site MUST NOT — verify no shared-code
-   path re-reads `Raster_Patch_Tab` mid-resolve).
-2. **Sentinels 0/1 [minted]**: any consumer or future code path where a resolved-line word
-   of 0 or 1 is ambiguous with "line 0/1"? (Fire lines 0 and 1 are the priming records —
-   never channel-owned — so no patchable can legitimately resolve there; verify nothing else
-   reads the bank.)
-3. **Spacing word in the table header [minted]**: every walker of the patch table
-   (`Raster_BuildSchedule` at `raster.emp:1125`, the resolver, any test scaffold) accounts
-   for the +2; the trailer offset arithmetic (`RASTER_BUF_SIZE + 2 + 10*records`,
-   `raster.emp:933-935`) — does the table header change move the TRAILER too?
-4. **Unconditional reset ordering [minted]**: `clr` table → `clr` banks, with a VBlank
-   between — re-verify no consumer reads banks under table 0.
-5. **Backstop at `.have_line` [minted]**: statics flow through it; confirm no static can
-   fail `prev < L` legitimately (suppressing a static is forbidden by definition — G-A3 +
-   fire_lines should make failure impossible; if a static CAN fail it, that is a design
-   contradiction to surface, not a code detail).
+All five minted-mechanism questions were answered by the mini-sweep (two seats, 12/12
+findings accepted — `../2026-08-17-effects-tail-mini-adjudication.md`): (1) install-site
+plumbing feasible, constraints now stated in §A5; (2) sentinels sound, and the one real
+defect found — the stale `resolved_rec[]` slot — is fixed by deleting the array (§A4);
+(3) the trailer DOES move — full reader enumeration in §A5; (4) reset topology verified
+closed, both-banks + ordering constraints stated; (5) statics cannot fail the backstop, and
+with the bank per-channel they never read it at all.
 
 # Open measurements (controller, foreground — not sweep work)
 
 - **D1-1 window width on the shipped ROM**: breakpoint at `raster.emp:931` + VCounter read
   across a scripted crossing — severity evidence for the record (the fix stands regardless).
-- The RAM figure (50 bytes) folded into `RASTER_STATE_SIZE` + pin churn at implementation.
+- The RAM figure (18 bytes, r3.1) folded into `RASTER_STATE_SIZE` + pin churn at
+  implementation.
