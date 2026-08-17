@@ -1315,6 +1315,24 @@ pub comptime fn raster_program(fires: array) {
         }
         ensure(partners == 1,
                "raster_program: {partners} equal-span partners for the restore at line {r_line} — a band needs exactly ONE (its own ON op; zero = base-over-base authoring nonsense, two+ = one of them gets buried) (spec §4.2)")
+
+        // ---- D-B: the restore's fire is a SINGLE-OP fire (spec §4.2a) ----------
+        // Not a tidiness rule and not covered by the per-fire ceilings above: two ops
+        // is legal for every other fire in the tree. What is special about this one is
+        // that the restore has no EFX_BLANK_DELAY of its own — its landing inside the
+        // blanking bracket is calibrated as the FIRST thing the record does (spec
+        // §3.2) — so anything ahead of it spends the bracket and nothing behind it can
+        // give the time back. This is also what deadens the same-line ensure above.
+        for f in fires {
+            comptime var has_r = 0
+            comptime var n_ops = 0
+            for o in fire_ops(f) {
+                has_r = has_r + op_is_restore(o)
+                n_ops = n_ops + 1
+            }
+            ensure(has_r == 0 || n_ops == 1,
+                   "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it costs 110 cyc no delay can recover, and a second stream op races it for the one measured HBlank slot (spec §4.2a, claim D-B). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
+        }
     }
 
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
