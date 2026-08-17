@@ -382,9 +382,21 @@ defect found — the stale `resolved_rec[]` slot — is fixed by deleting the ar
 closed, both-banks + ordering constraints stated; (5) statics cannot fail the backstop, and
 with the bank per-channel they never read it at all.
 
-# Open measurements (controller, foreground — not sweep work)
+# Measurements (controller, foreground) [r3.1 — D1-1 window MEASURED]
 
-- **D1-1 window width on the shipped ROM**: breakpoint at `raster.emp:931` + VCounter read
-  across a scripted crossing — severity evidence for the record (the fix stands regardless).
+- **D1-1 window: measured 2026-08-17 on the shipped build (s4.debug.bin crc ab1055d4,
+  oracle, fresh instance).** Method: breakpoint at the `Raster_Patch_Tab` store
+  (`Raster_InstallPatched`+4, $7B7E) armed via hold-left + resume + wait_for_break (NOT
+  press-with-breakpoint — that combination wedged the previous oracle instance, consistent
+  with the recorded StopSystem race); on break, race two breakpoints — `Raster_VBlank`
+  ($79CA) vs `Parallax_Update` ($73F6, the frame's next main-loop landmark past the would-be
+  resolver site) — across three real OJZ section 1→0 crossings. Result: **3/3 trials
+  `Parallax_Update` first, and the frame token at the store equals the frame token at
+  `Parallax_Update` (1454, 1623) — two independent witnesses that NO VBlank lands in the
+  store→resolver window on this build.** Interpretation: D1-1 is LATENT here — r2's design
+  would have tested green on today's build and content, which is precisely the
+  phase-deterministic trap class (green forever, then 100% reproducible after some unrelated
+  frame-cost change). The r3 fix (atomic resolve-before-publish) stands on the structural
+  argument; this measurement sets the severity record straight, not the disposition.
 - The RAM figure (18 bytes, r3.1) folded into `RASTER_STATE_SIZE` + pin churn at
   implementation.
