@@ -241,24 +241,71 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         queue_static_dma(Static_Pal_Line0)
         bcs     .skip_pal0                      // dropped -> leave bit 0 set
         bclr    #0, Palette_Dirty               // enqueued -> clear bit 0
+        // R1 splice: snapshot line 0 iff dirty AND accepted (both guard branches are
+        // upstream). Eight unrolled move.l on COST grounds (160 vs 244 cyc for a dbf
+        // loop) — not register pressure; this file's own line-3 note frees d0 there.
+        // Spec: docs/superpowers/specs/2026-08-16-parcel-r1-palette-bands-v6.md §2.1.
+        lea     Palette_Buffer, a1
+        lea     Palette_Ship_Snap, a2
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
     .skip_pal0:
         btst    #1, d0
         beq     .skip_pal1
         queue_static_dma(Static_Pal_Line1)
         bcs     .skip_pal1
         bclr    #1, Palette_Dirty
+        // R1 splice, line 1 — see line 0 above.
+        lea     Palette_Buffer+$20, a1
+        lea     Palette_Ship_Snap+$20, a2
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
     .skip_pal1:
         btst    #2, d0
         beq     .skip_pal2
         queue_static_dma(Static_Pal_Line2)
         bcs     .skip_pal2
         bclr    #2, Palette_Dirty
+        // R1 splice, line 2 — see line 0 above.
+        lea     Palette_Buffer+$40, a1
+        lea     Palette_Ship_Snap+$40, a2
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
     .skip_pal2:
         btst    #3, d0
         beq     .skip_pal3
         queue_static_dma(Static_Pal_Line3)
         bcs     .skip_pal3
         bclr    #3, Palette_Dirty
+        // R1 splice, line 3 — see line 0 above.
+        lea     Palette_Buffer+$60, a1
+        lea     Palette_Ship_Snap+$60, a2
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
+        move.l  (a1)+, (a2)+
     .skip_pal3:
     .no_pal:
         // ---- the off-screen frame-top ship (patched programs that declare one) ----
