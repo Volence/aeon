@@ -239,6 +239,23 @@ pub comptime fn stream_vsram(addr: int, values: array) -> RasterOp {
     return RasterOp.Vsram(addr, values)
 }
 
+// pal_restore — the band's OFF edge: stream `count` words of Palette_Ship_Snap (this
+// frame's base-DMA payload) back to CRAM at `addr`. The snapshot offset IS the CRAM
+// address (BuildStaticDMA's 1:1 mapping — claim D-F), so one field carries both.
+// Authors do not call this directly in normal content — band() (R1 Task 9) derives it
+// from the ON op so the composition guard's partner spans are equal by construction.
+pub comptime fn pal_restore(addr: int, count: int) -> RasterOp {
+    ensure(addr >= 0 && addr <= 126, "pal_restore: CRAM byte address {addr} outside 0..126")
+    ensure((addr & 1) == 0, "pal_restore: CRAM byte address {addr} is odd — colours are words (and the handler's (a2)+ reads would address-error)")
+    ensure((addr >> 5) != 0,
+           "pal_restore: address {addr} is on CRAM line 0, the character's line — a restore there repaints the active character AND forces a per-frame line-0 re-assert via op_mask")
+    ensure(count >= 1 && count <= 3,
+           "pal_restore: {count} colours exceeds RASTER_CRAM_MAX (3) — the per-fire cycle budget; a band restores at most 3 entries (spec §1)")
+    ensure(((addr >> 1) & 15) + count <= 16,
+           "pal_restore: {count} colours from entry {(addr >> 1) & 15} runs past the end of CRAM line {addr >> 5} — the span would WRAP into the next line (at $7C+3, into line 0, the character's) and op_mask marks only the START line")
+    return RasterOp.PalRestore(addr, count)
+}
+
 // ---- fire constructors ------------------------------------------------------
 
 // fire — one scheduled event. `line` is the SCREEN line the effect lands on; the DSL
@@ -756,8 +773,8 @@ comptime fn op_is_restore(o: RasterOp) -> int {
 // `comptime` keyword — see sigil's parser.rs item()), so the two facts are checked
 // inside a tiny helper and pulled to module level through its return value.
 comptime fn zz_elaboration_anchor() -> int {
-    let (zz_span_a, zz_span_n) = op_cram_span(RasterOp.PalRestore($40, 3))
-    ensure(zz_span_a == $40 && zz_span_n == 6 && op_is_restore(RasterOp.PalRestore($40, 3)) == 1 && op_is_restore(RasterOp.SetReg($8C89)) == 0,
+    let (zz_span_a, zz_span_n) = op_cram_span(pal_restore($40, 3))
+    ensure(zz_span_a == $40 && zz_span_n == 6 && op_is_restore(pal_restore($40, 3)) == 1 && op_is_restore(RasterOp.SetReg($8C89)) == 0,
            "op_cram_span/op_is_restore elaboration anchor broke — a helper arm is wrong")
     return 1
 }
