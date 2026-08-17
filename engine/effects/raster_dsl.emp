@@ -1356,6 +1356,16 @@ pub comptime fn raster_program(fires: array) {
             ensure(has_r == 0 || n_ops == 1,
                    "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it costs 110 cyc no delay can recover, and a second stream op races it for the one measured HBlank slot (spec §4.2a, claim D-B). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
         }
+
+        // ---- CLAIM 6: no band in a program that ships (spec §4.3) --------------
+        // NOT a span or interval property, which is why C-A cannot see it and this is
+        // a separate walk: the two can be disjoint in both and still be incompatible.
+        // On a shipping frame the frame-top DMA has already put VARIANT colours in
+        // CRAM while Palette_Ship_Snap — what the restore streams — still holds BASE.
+        for f in fires {
+            ensure(fire_offscreen_ship(f) == 0,
+                   "raster_program: a band cannot share a program with an offscreen_ship fire — on a shipping frame CRAM holds VARIANT colours while the snapshot holds BASE, so the restore would paint the dry palette over a submerged screen (spec §4.3). Note: this excludes Sec0 (OJZ_TwoChannel) from bands — doubly: its [3,220] channel band also leaves no legal interval (spec §4.3).")
+        }
     }
 
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
