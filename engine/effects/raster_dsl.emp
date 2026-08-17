@@ -153,13 +153,36 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     return RasterOp.SetReg(word)
 }
 
+// RASTER_SH_BASE / RASTER_SH_BIT — boot's H40 reg $0C word and the Shadow/Highlight
+// enable bit, spelled ONCE so the on/off pair below cannot drift apart. The base is
+// boot's own value ($0C = $81, engine/system/boot_data.emp — the VDP register table's
+// `dc.b $81 // $0C: H40 (320px), no interlace`); that table is a `.asm`-side byte blob
+// with no importable name, so this is a literal held by its comment the way the opcode
+// literals at the top of this module are held by their pins.
+const RASTER_SH_BASE = $8C81
+const RASTER_SH_BIT  = 8                        // reg $0C bit 3
+
 // reg_sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
 // the shadow holds for reg $0C at the top of the next frame, which is boot's H40 base
 // $8C81 (engine/system/boot_data.emp:140) unless a section deliberately changed it via
 // Set_VDP_Reg. $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30
 // quirk ruling in the raster survey.
 pub comptime fn reg_sh_on() -> RasterOp {
-    return reg_set($8C89)
+    return reg_set(RASTER_SH_BASE | RASTER_SH_BIT)
+}
+
+// reg_sh_off — the S/H band's OFF word, derived from the SAME boot base as reg_sh_on so
+// the pair cannot drift: one const carries the resolution bits and one bit-name carries
+// the mode, so a section that re-bases reg $0C moves both words together or neither.
+// It is what an S/H band's de-mix fire writes a line above the restore (spec §4.2a: the
+// restore's fire carries the restore ONLY, so the register write cannot ride with it).
+//
+// CENSUS, same CLAIM-2 class as the base itself: no live writer of reg $0C exists in the
+// tree today outside this pair, so "off" means boot's settled word and nothing else can
+// have moved it mid-frame. That is a census, not an invariant — a future Set_VDP_Reg($0C)
+// caller changes what the shadow restores at frame top, and this word with it.
+pub comptime fn reg_sh_off() -> RasterOp {
+    return reg_set(RASTER_SH_BASE)
 }
 
 // stream_cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
@@ -560,6 +583,79 @@ pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
                              entry:    entry,
                              count:    count,
                              sh:       sh) ]
+}
+
+// band — an effect that turns ON at screen line `top` and OFF at `bot`: the ON op, and a
+// restore streaming this frame's base-DMA payload back over exactly the ON op's span
+// (partner equality BY CONSTRUCTION — the composition guard's uniqueness rule is satisfied
+// structurally, never by author care; there is no second place to write the span, so the
+// two cannot disagree). `sh: 1` emits the full three-fire S/H shape, and the constructor
+// must see the WHOLE shape because the MERGED ON fire is what check_density charges
+// (claim E-C: v5's one-op band() admitted S/H programs the density guard then refused,
+// with a message about a fire pair band() had never mentioned).
+//
+// "Band height" = bot - top in SCREEN lines = the fire-line gap. NOT an inclusive row
+// count. The two spellings coincide because fire_lines applies a UNIFORM -1: the gap
+// check_density measures between two static fires is (bot - 1) - (top - 1) = bot - top.
+// A band restores at most 3 CRAM entries (the stream ceiling x one restore — spec §1).
+// Static by construction — BOTH fires (spec §4.2 rule 6); not handable to `patchable`.
+//
+// THE MINIMA BELOW ARE check_density's OWN ARITHMETIC, deliberately: `cost <= gap *
+// RASTER_SCANLINE_CYC` over the fires this function actually emits, with the gap spelled
+// the way check_density derives it. That is the whole claim — a band() that admits a
+// height check_density then refuses is worse than no check at all, because the refusal
+// names fires the author never wrote. They are cost-keyed rather than table-keyed (CLAIM
+// D-D) so they re-price themselves the day the model does; the F-series fixture pins are
+// what hold the model. Consequence worth stating at the call site: `fx_tint_band`'s
+// pal_region ON op costs 506 cyc even at ONE colour, so even a 1-colour tint band needs
+// height 2, and its S/H form needs 3.
+pub comptime fn band(top: int, bot: int, on: RasterOp, sh: int) -> array {
+    ensure(sh == 0 || sh == 1, "band: sh must be 0 or 1")
+    ensure(top < bot, "band: top {top} must be above bot {bot}")
+    // The restore's payload is the ON op's span, read back off the op. `sb` is a BYTE
+    // length (op_cram_span's contract) and pal_restore counts WORDS, hence sb / 2.
+    let (sa, sb) = op_cram_span(on)
+    ensure(sa >= 0,
+           "band: the ON op has no CRAM span (a reg-only or VSRAM band needs no restore — a register band is already two plain fires, spec §9)")
+    if sh == 0 {
+        // Bound ONCE and reused: `fire()` runs the per-fire ceilings, so constructing it
+        // twice (here and in the return) would report every ceiling violation twice.
+        let f_on = fire(top, [on])
+        ensure(fire_cost_cycles(f_on) <= (bot - top) * RASTER_SCANLINE_CYC,
+               "band: height {bot - top} is below this ON op's minimum — the ON fire costs {fire_cost_cycles(f_on)} cyc against {(bot - top) * RASTER_SCANLINE_CYC} available; a 1-word pal_region tint needs height 2 (spec §6.2, measured model)")
+        return [f_on, fire(bot, [pal_restore(sa, sb / 2)])]
+    }
+    ensure(bot - top >= 3,
+           "band: an S/H band needs height >= 3 — the merged [reg, tint] ON fire is charged against the gap to the S/H-off fire at bot-1 (spec §6.2, measured model)")
+    let f_on_sh = fire(top, [reg_sh_on(), on])
+    // GATED ON THE HEIGHT RULE ABOVE, the way raster_program's band block is gated on
+    // restore_n == 1 and for the same reason: `ensure` is non-aborting, so an ungated cost
+    // check would ALSO fire at height 2 — the merged fire is at minimum 568 cyc (a 1-word
+    // cram ON op) so it cannot fit a one-line gap for ANY legal ON op — and the author
+    // would read two band() sentences stating one fact. The height rule is the one written
+    // in the author's own numbers, so it speaks alone.
+    //
+    // AND IT CANNOT FIRE TODAY — stated rather than left to be rediscovered. band()'s
+    // merged fire is exactly two ops, `reg_sh_on` (110 cyc) plus the ON op, and the
+    // dearest ON op the constructors admit is a 3-word `stream_pal_region` at 264, so the
+    // merged fire tops out at 302 + 110 + 264 = 676 against the 2 x 488 = 976 that height
+    // 3 buys. It is kept anyway, and NOT as belt-and-braces: `>= 3` is a LITERAL and 676
+    // is a fact about six measured constants, two of which moved this week (the dispatch
+    // chain grew a rung, and RASTER_WORK_RESTORE_CYC was measured at all). This is the
+    // cost-keyed half CLAIM D-D asks for — the thing that notices when the model moves the
+    // real minimum past the literal — which is the opposite of an unreachable guard: it is
+    // reachable exactly when the number above it goes stale.
+    if bot - top >= 3 {
+        ensure(fire_cost_cycles(f_on_sh) <= (bot - top - 1) * RASTER_SCANLINE_CYC,
+               "band: S/H height {bot - top} is below this ON op's minimum — the merged ON fire costs {fire_cost_cycles(f_on_sh)} cyc against the gap to bot-1 (spec §6.2)")
+    }
+    // The de-mix fire sits at bot-1 and carries the register write ALONE, because the
+    // restore's fire may carry the restore only (spec §4.2a, claim D-B). Its own gap to
+    // the restore is one line and a single reg fire models at 412 cyc, inside a 488-cycle
+    // line — so that pair needs no minimum of its own beyond the height >= 3 above.
+    return [f_on_sh,
+            fire(bot - 1, [reg_sh_off()]),
+            fire(bot, [pal_restore(sa, sb / 2)])]
 }
 
 // ===========================================================================
@@ -1706,3 +1802,59 @@ pub comptime fn first_mismatch(a: array, b: array) -> int {
     }
     return -1
 }
+
+// ---- band()'s hand-word twin (spec §10 gate 5) --------------------------------
+//
+// The ONLY thing that elaborates `band` on an ordinary build. An uncalled comptime fn is
+// never elaborated (the op_cram_span anchor above learned this the hard way), so without
+// a call site every ensure inside band — and every wrong word it could emit — ships green.
+// This is that call site AND the value check, and it lives here rather than game-side
+// because band() has no content client yet: the OJZ programs are all patchable/shipping
+// fixtures, which §4.3 refuses a band. Zero ROM bytes: a `const` emits nothing and every
+// name below is comptime.
+//
+// THE WORDS ARE HAND-DERIVED FROM THE ENCODER RULES, never pasted from a run — a twin
+// generated by the thing it pins proves only that the encoder agrees with itself (the
+// Gate-3 sin the R1 sweeps killed). The derivation, for
+// `band(100, 140, stream_cram($48, [$0E42, $0A20, $0640]), 0)`:
+//
+//   fires        Fire(100, [Cram($48, 3 words)]), Fire(140, [PalRestore($48, 3)])
+//                the restore's (addr, count) is op_cram_span(on) = ($48, 6 bytes) -> 3 words
+//   fire lines   L = [0, 1, 99, 139]              (priming pair, then screen line - 1)
+//   header       op_mask is 1 << (addr >> 5) for both ops; $48 >> 5 = 2 -> %0100
+//   arm 0        $8A00 | (L[2] - L[1] - 1) = $8A00 | 97 = $8A61
+//   arm 1        $8A00 | (L[3] - L[2] - 1) = $8A00 | 39 = $8A27
+//   arms 2, 3    past the end of L -> $8AFF, the park word
+//   ON body      op_words(Cram) = [OP_CRAM, comm>>16, comm&$FFFF, len-1] ++ colours,
+//                vdp_comm($48, Cram, Write) = $C0480000 (pinned game-side, ojz_effects)
+//   restore body op_words(PalRestore) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, cnt-1, addr]
+//                — the snapshot offset IS the CRAM address (claim D-F), hence the $48 tail
+//   terminator   park + RASTER_OPS_END
+//
+// Height 40 is far above the 3-word cram ON op's minimum of 2 (518 cyc <= 2 x 488), so the
+// twin pins the ENCODING and leaves the minima to the poison lane, which is the split the
+// other twins in this tree use.
+const RASTER_BAND_TWIN = band(100, 140, stream_cram($48, [$0E42, $0A20, $0640]), 0)
+
+const RASTER_BAND_TWIN_HAND = [
+    %0100,                      // pal_dirty_mask — the WHOLE header, one word; CRAM line 2
+    $8A61, 0,                   // fire 0 — priming; arm = $8A00 | (99 - 1 - 1)
+    $8A27, 0,                   // fire 1 — priming; arm = $8A00 | (139 - 99 - 1)
+    $8AFF, 1,                   // fire 2 — the band's ON edge at screen 100, one op
+      2, $C048, $0000,          // OP_CRAM, command longword split
+                 2,             // count-1
+                 $0E42, $0A20, $0640,
+    $8AFF, 1,                   // fire 3 — the OFF edge at screen 140, the restore ALONE
+      10, $C048, $0000,         // OP_PAL_RESTORE, same command longword (same span)
+                 2,             // count-1
+                 $48,           // Palette_Ship_Snap offset == the CRAM address
+    $8AFF, $FFFF,               // park + RASTER_OPS_END
+]
+// The .len ensure is REQUIRED alongside first_mismatch, not belt-and-braces: first_mismatch
+// walks only its FIRST argument's indices and skips any index past the end of the second,
+// so a program that is a prefix of the twin — or a twin that is a prefix of the program —
+// compares EQUAL. Nothing inside it can see that.
+ensure(raster_words(RASTER_BAND_TWIN) == RASTER_BAND_TWIN_HAND.len,
+       "band(): the DSL counts {raster_words(RASTER_BAND_TWIN)} words, the hand twin is {RASTER_BAND_TWIN_HAND.len}")
+ensure(first_mismatch(raster_program(RASTER_BAND_TWIN), RASTER_BAND_TWIN_HAND) == -1,
+       "band(): the emitted program diverges from the hand twin at index {first_mismatch(raster_program(RASTER_BAND_TWIN), RASTER_BAND_TWIN_HAND)}")
