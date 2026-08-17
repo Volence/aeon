@@ -1246,6 +1246,20 @@ pub comptime fn raster_program(fires: array) {
             ch_mask = ch_mask | bit
         }
     }
+    // ---- 8a: ONE BAND PER PROGRAM (spec §4.1) --------------------------------
+    // The count comes FIRST of the band guards because every one that follows is
+    // written in the singular: "the restore", "its partner", "the restore's line".
+    // With two restores in a program those phrases name nothing, so the composition
+    // guard below is gated on this count being exactly 1 rather than trying to
+    // adjudicate a set. This is a REFUSAL, not a limitation of the encoder — the
+    // wire format would happily carry two — because a second band's ON op and its
+    // OFF edge cannot be checked against each other by span alone once two restores
+    // compete for the same partner candidates.
+    comptime var restore_n = 0
+    for f in fires { for o in fire_ops(f) { restore_n = restore_n + op_is_restore(o) } }
+    ensure(restore_n <= 1,
+           "raster_program: {restore_n} restore ops — one band per program (spec §4.1). The FIRST restore in authored order is the one every later diagnostic describes; ensure is non-aborting, so fix this count first.")
+
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
     // program without exception — which is what lets patch_table pre-resolve a rec_off at all,
     // and what makes the builder's fixed 5-word prologue (header + both priming records) a
