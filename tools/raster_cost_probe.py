@@ -92,6 +92,10 @@ def stream_pal_region(addr: int, slot: int, pal_line: int, entry: int, count: in
     return {"k": "region", "a": addr, "slot": slot, "pl": pal_line, "e": entry, "n": count}
 
 
+def pal_restore(addr: int, count: int) -> dict:
+    return {"k": "restore", "a": addr, "n": count}
+
+
 def op_words(o: dict) -> list[int]:
     k = o["k"]
     if k == "reg":
@@ -106,6 +110,11 @@ def op_words(o: dict) -> list[int]:
         c = CRAM_WRITE | _delta(o["a"])
         return [4, (c >> 16) & 0xFFFF, c & 0xFFFF, o["n"] - 1,
                 o["slot"] * 128 + o["pl"] * 32 + o["e"] * 2]
+    if k == "restore":
+        # R1: OP_PAL_RESTORE — the snapshot offset IS the CRAM byte address (claim D-F),
+        # so word 5 is the same `a` the command longword was derived from.
+        c = CRAM_WRITE | _delta(o["a"])
+        return [10, (c >> 16) & 0xFFFF, c & 0xFFFF, o["n"] - 1, o["a"]]
     raise ValueError(f"unknown op {k}")
 
 
@@ -199,6 +208,15 @@ FIXTURES: dict[str, dict] = {
         "what": "stream_vsram, 1 word — does a VSRAM word cost what a colour word costs?",
         "n": 6,
         "fires": _spread(6, lambda i: [stream_vsram(2, [0x0043])]),
+    },
+    # R1 (claim 9): the restore op's work constant is DERIVED (region 122 minus the 58-cyc
+    # delay site) and this fixture is what turns it into a measurement — BEFORE band()'s
+    # minima freeze. Model expectation at work=64: dispatch 82 (depth 4) + fetch 8 +
+    # work 64 + 3*30 + tail 10 = 254 marginal + the 302 fire base = 556/fire.
+    "F8": {
+        "what": "pal_restore, 3 words — claim 9: is the derived work constant (64) real?",
+        "n": 6,
+        "fires": _spread(6, lambda i: [pal_restore(34, 3)]),
     },
 }
 
