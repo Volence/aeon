@@ -172,6 +172,13 @@ pub const OP_RUN_GRADIENT = 6
 // none of them could parameterise it from a data file the way this can.
 pub const OP_RUN_RAMP = 8
 
+// OP_PAL_RESTORE (Parcel R1) — the band's OFF edge: stream `count` base colours from
+// Palette_Ship_Snap (this frame's base-DMA payload) back to CRAM. Appended LAST so the
+// shared .op_region body and its oracle-calibrated EFX_BLANK_DELAY stay byte-identical;
+// the SetReg fall-through pays the +16 rung tax (F1 396->412, F5 612->628, re-pinned in
+// raster_dsl.emp). specs/2026-08-16-parcel-r1-palette-bands-v6.md §3.
+pub const OP_PAL_RESTORE = 10
+
 // op_count sentinel: park the counter and do not advance the cursor. Reached only
 // by a stray fire (a counter that somehow wrapped), so it is defense, not flow.
 pub const RASTER_OPS_END = $FFFF
@@ -699,6 +706,8 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         beq     .op_run_gradient
         cmpi.w  #OP_RUN_RAMP, d1
         beq     .op_run_ramp
+        cmpi.w  #OP_PAL_RESTORE, d1
+        beq     .op_pal_restore
         // OP_SET_REG — one $8xxx word
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
@@ -766,6 +775,25 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
     .advance:
         move.l  a1, Raster_Cursor
         jbra    .out
+    .op_pal_restore:
+        // Band OFF edge: stream base colours from the ship snapshot. .op_region's shape
+        // with TWO deliberate differences: the source is Palette_Ship_Snap (whose offset
+        // IS the CRAM byte address — BuildStaticDMA maps Palette_Buffer+$00/20/40/60 to
+        // CRAM $00/20/40/60 1:1), and there is NO blanking spin — dispatch at depth 4
+        // already burned the region path's margin (+48 cyc). The spin site starts EMPTY;
+        // EFX_RESTORE_DELAY is introduced here at the first nonzero calibration
+        // (spec §3.2 ladder: leading dots -> add moveq #0 + dbf; straddle -> narrow the
+        // stream count, no delay value exists).
+        move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
+        move.w  (a1)+, d1               // count-1
+        lea     Palette_Ship_Snap, a2   // snapshot base (was VDP_CTRL)
+        adda.w  (a1)+, a2               // + offset == CRAM byte address (payload D-F)
+    .restore_loop:
+        move.w  (a2)+, VDP_DATA
+        dbf     d1, .restore_loop
+        lea     VDP_CTRL, a2            // restore the control-port cursor
+        dbf     d0, .op_loop
+        jbra    .advance
     .dense_body:
         // One dense line: keep firing every line, write the constant command + 3 stream
         // colours, advance the cursor, count down. When Raster_Dense_Lines reaches 0 the
