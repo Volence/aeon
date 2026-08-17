@@ -1,0 +1,36 @@
+// games/sonic4/test/poison/poison_direct_8a.emp — POISON (see README).
+//
+// TARGETS: the $8A direct-construction clause added to raster_program's tree-wide
+//          scan (spec §4.2b precedent: constructor-only refusals are not refusals —
+//          Task 8 review, review finding I-3).
+// EXPECTED FRAGMENT: "detonates the relative-arm chain"
+//
+// THE DODGE, spelled out — same shape as poison_direct_8f.emp, different register.
+// `RasterOp.SetReg($8A05)` is the enum variant reg_set returns, constructed by
+// hand — so reg_set's own $0A ensure never runs and the write reaches the encoder
+// with nothing having looked at it. The enum is `pub` (it has to be: the encoder's
+// match arms are the public wire contract), so this is not a hypothetical spelling,
+// it is one the language admits today.
+//
+// Reg $0A is the raster SCHEDULE's own register: Raster_HInt writes the record's
+// arm word to reg $0A FIRST and only then runs the record's ops
+// (engine/effects/raster.emp, Raster_HInt: `move.w (a1)+, (a2)` before `.op_loop`).
+// A `$8Axx` op in the record's own op list overwrites the arm the encoder just
+// scheduled, so the counter reloads with the author's value at the next HInt and
+// every remaining fire in the frame lands on the wrong line — detonating the
+// relative-arm chain from that fire down, silently.
+//
+// That is why the refusal is TWO layers here too. reg_set's constructor ensure is
+// the one that gives an author a good sentence at the call site; this scan is the
+// one that cannot be dodged, running on every program in the tree whether or not
+// it has a band.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_direct_8a
+
+const POISON_DIRECT_8A = [
+    fire(100, [RasterOp.SetReg($8A05)]),
+]
+
+ensure(raster_program(POISON_DIRECT_8A).len > 0,
+       "poison_direct_8a: raster_program returned nothing — this poison no longer reaches the guard it targets")

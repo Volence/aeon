@@ -1,0 +1,41 @@
+// games/sonic4/test/poison/poison_patchable_partner.emp — POISON (see README).
+//
+// TARGETS: rule 6 half 2 — the restore's PARTNER's carrying fire must be static
+//          (spec §4.2, Task 8 review — gate rule 6 half 2).
+// EXPECTED FRAGMENT: "must be static — a patchable partner"
+//
+// poison_patchable_band_fire.emp already covers rule 6 half 1 (the RESTORE's own
+// carrying fire marked patchable). This poison is the other half: the PARTNER —
+// the equal-span ON op the restore's diagnostics are written in the singular
+// against — marked patchable instead.
+//
+// A legal-looking band: a patchable ON op at line 60 (band 40..100, channel 0)
+// writing $48..$4D, and its equal-span static restore at line 140. Every span
+// check passes — the partner's span is $48..$4D and so is the restore's, and
+// check_intervals sees two disjoint fire-line intervals (39<60's reachable range,
+// which tops out at 99; the restore's own line 140 starts at 139 in fire-line
+// space) so nothing upstream refuses the shape on ordering grounds.
+//
+// What it spells is a band whose TOP edge moves. Past `lo` (40), Raster_BuildSchedule
+// does not emit the record at all (engine/effects/raster.emp, .suppress) — so the
+// restore at line 140 still runs and turns the tint off, but the ON op that was
+// supposed to turn it on never fired that frame. That is the base-over-base
+// authoring nonsense the composition guard exists to keep out, arrived at through
+// a runtime clamp instead of an authoring mistake — which is exactly why rule 6
+// refuses it at BUILD time rather than leaving it to be found on hardware.
+//
+// THE EQUAL SPAN IS DELIBERATE and load-bearing, same as poison_band_buried_tint's
+// note: an unequal-span intersecting op never reaches rule 6 at all — it trips the
+// "would bury" ensure first (the {isect_earlier} count ensure just below it does
+// NOT fire here, because this poison's only strictly-earlier intersecting op IS the
+// equal-span partner — the count is exactly 1).
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_patchable_partner
+
+const POISON_PATCHABLE_PARTNER = patchable([
+    fire(60, [stream_cram($48, [$0EEE, $0AAA, $0666])]),
+], ch: 0, lo: 40, hi: 100) ++ [fire(140, [pal_restore($48, 3)])]
+
+ensure(raster_program(POISON_PATCHABLE_PARTNER).len > 0,
+       "poison_patchable_partner: raster_program returned nothing — this poison no longer reaches the guard it targets")

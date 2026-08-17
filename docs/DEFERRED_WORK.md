@@ -4639,3 +4639,13 @@ as Aeon does (`s2.asm:5280-5292`); S3K and S.C.E. deliberately changed it to dis
 `cmpi.w #224` branch). Fixing only the scroll boundary would trade a consistent 10-row error
 for a 9-row DISAGREEMENT between the palette and scroll boundaries — which is the exact defect
 Parcel W exists to remove. Do not "fix" one side alone.
+
+---
+
+## Ledgered by the 2026-08-17 Parcel R1 Task 8 review batch (`feature/parcel-r1-palette-bands`)
+
+### R1 follow-up: RasterOp.Cram/PalRestore direct construction bypasses C-D's wrap/line-0 refusals — RECORDED, not fixed
+
+RasterOp.Cram/PalRestore direct construction bypasses C-D's wrap/line-0 refusals (constructor-only
+refusals are not refusals — the $8F/$8A precedent); needs an op-level span scan in
+`raster_program`; found by the Task 8 review, booked not built.

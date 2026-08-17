@@ -147,9 +147,9 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // (engine/system/vdp_init.emp): it writes the shadow byte and the frame-top flush
     // delivers it.
     ensure((word >> 8) != $8A,
-           "reg_set: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
+           "reg_set: writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
     ensure((word >> 8) != $8F,
-           "reg_set: {word} writes reg $0F (autoincrement) — every span/mask computation in this module assumes stride 2 (op_cram_span, op_mask, the ship destination), so a mid-frame stride change silently voids them all. Revocable behind a stride-aware span model (spec §4.2b).")
+           "reg_set: writes reg $0F (autoincrement) — every span/mask computation in this module assumes stride 2 (op_cram_span, op_mask, the ship destination), so a mid-frame stride change silently voids them all. Revocable behind a stride-aware span model (spec §4.2b).")
     return RasterOp.SetReg(word)
 }
 
@@ -1262,10 +1262,20 @@ pub comptime fn raster_program(fires: array) {
     //
     // op_reg_word is 0 for every non-SetReg op, and 0 >> 8 is 0, so this is total over
     // the enum without a second match.
+    //
+    // The same clause applies to reg $0A, the SCHEDULE's own register (Task 8 review,
+    // spec §4.2b precedent: constructor-only refusals are not refusals — the $8F/$8A
+    // precedent). `RasterOp.SetReg($8A05)` bypasses reg_set's ban exactly the way
+    // `RasterOp.SetReg($8F04)` does, and here the payload is not merely a voided span
+    // computation — it is the arm word Raster_HInt just wrote for THIS fire, clobbered
+    // before the next reload, which detonates the relative-arm chain for every fire
+    // remaining in the frame.
     for f in fires {
         for o in fire_ops(f) {
             ensure((op_reg_word(o) >> 8) != $8F,
-                   "raster_program: an op writes reg $0F (autoincrement) — refused tree-wide; direct RasterOp.SetReg construction bypasses reg_set's ensure, this scan is the layer that cannot be dodged (spec §4.2b, claim E-D)")
+                   "raster_program: an op writes reg $0F (autoincrement) at line {fire_screen_line(f)} — refused tree-wide; direct RasterOp.SetReg construction bypasses reg_set's ensure, this scan is the layer that cannot be dodged (spec §4.2b, claim E-D)")
+            ensure((op_reg_word(o) >> 8) != $8A,
+                   "raster_program: an op writes reg $0A — the SCHEDULE's register (the arm word the encoder just wrote); a direct RasterOp.SetReg($8Axx) bypasses reg_set's ban and detonates the relative-arm chain from that fire down (spec §4.2b precedent: constructor-only refusals are not refusals)")
         }
     }
 
@@ -1284,6 +1294,11 @@ pub comptime fn raster_program(fires: array) {
            "raster_program: {restore_n} restore ops — one band per program (spec §4.1). The FIRST restore in authored order is the one every later diagnostic describes; ensure is non-aborting, so fix this count first.")
 
     if restore_n == 1 {
+        // Gating on ==1 deviates from spec §4.1's "two clean diagnostics" sentence
+        // DELIBERATELY: a two-restore program reports only the count (one clean
+        // diagnostic beats two half-relevant ones); consequence: the r_line == -1
+        // first-restore selector below can never select among candidates —
+        // unreachable-by-construction, kept for the day the gate relaxes.
         // ---- C-A: the equal-span-partner composition guard (spec §4.2). ----
         // GROUNDING, load-bearing: patchable fire lines MOVE at runtime; this guard's
         // earlier/later comparison is sound ONLY because check_intervals forces strictly
@@ -1310,17 +1325,23 @@ pub comptime fn raster_program(fires: array) {
         // of the screen, silently (sweep 5 K1, raster.emp .suppress).
         ensure(r_patch == 0,
                "raster_program: the restore's carrying fire must be static — a patchable restore is the split spelling of a moving-bottom band, whose suppressed restore leaves the tint running to screen bottom (spec §4.2 rule 6)")
-        comptime var partners = 0
+        // isect_earlier — NOT a count of equal-span partners. It tallies every
+        // strictly-earlier op whose span INTERSECTS the restore's, whether or not it
+        // passed the equal-span ensure just above (ensure is non-aborting, so a failed
+        // ensure does not stop the increment). A true partner is one instance of this
+        // set; an intersecting-but-unequal "would bury" op is another. The final ensure
+        // below reports this raw count, not a partner count — see its message.
+        comptime var isect_earlier = 0
         for f in fires {
             for o in fire_ops(f) {
                 if op_is_restore(o) == 0 {
                     let (sa, sb) = op_cram_span(o)
                     if sa >= 0 && sa < r_a + r_b && r_a < sa + sb {
-                        // Same-line intersection: order-decided winner. DEAD once D-B
-                        // (8c) ships — nothing else can share the restore's fire, and
-                        // fire_lines forbids two records per line — kept per the
-                        // module's "a guard that cannot fire is not free" note, with
-                        // D-B named as what deadens it.
+                        // Same-line intersection: order-decided winner. REDUNDANT once
+                        // D-B ships — it can never refuse a program D-B does not already
+                        // refuse (both fire together; probed in the Task 8 review) —
+                        // kept because deleting it couples C-A's completeness to D-B's
+                        // continued existence.
                         ensure(fire_screen_line(f) != r_line,
                                "raster_program: a CRAM op on the restore's own line {r_line} — the merge order would decide which write wins (spec §4.2)")
                         if fire_screen_line(f) < r_line {
@@ -1330,14 +1351,14 @@ pub comptime fn raster_program(fires: array) {
                             // partner is the split spelling of a moving-TOP band).
                             ensure(fire_is_patch(f) == 0,
                                    "raster_program: the restore's partner at line {fire_screen_line(f)} must be static — a patchable partner is the split spelling of a moving-top band (spec §4.2 rule 6)")
-                            partners = partners + 1
+                            isect_earlier = isect_earlier + 1
                         }
                     }
                 }
             }
         }
-        ensure(partners == 1,
-               "raster_program: {partners} equal-span partners for the restore at line {r_line} — a band needs exactly ONE (its own ON op; zero = base-over-base authoring nonsense, two+ = one of them gets buried) (spec §4.2)")
+        ensure(isect_earlier == 1,
+               "raster_program: {isect_earlier} strictly-earlier op(s) intersect the restore's span at line {r_line} — at most one may exist and it must be the equal-span partner (its own ON op; zero = base-over-base authoring nonsense, two+ = one of them gets buried) (spec §4.2)")
 
         // ---- D-B: the restore's fire is a SINGLE-OP fire (spec §4.2a) ----------
         // Not a tidiness rule and not covered by the per-fire ceilings above: two ops

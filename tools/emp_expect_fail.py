@@ -82,17 +82,31 @@ SENTINEL_BODY = (
     'out of the build closure and every case below is vacuous")\n'
 )
 
-# (poison module path relative to AEON, entry id, expected message fragment)
+# (poison module path relative to AEON, entry id, expected message fragment, expected
+# [Error] count). Count defaults to 1 — one poison, one legitimately-firing guard — and
+# is stated explicitly only where a poison is known to trip more than one ensure.
 # Moved verbatim from BLOCKED_CASES — the Task 8 poisons, each independently verified
 # (by splicing into ojz_effects.emp and running `sigil build`) to trip its guard.
-CASES: list[tuple[str, str, str]] = [
-    (f"{POISON}/poison_two_restores.emp",        "8a",        "one band per program"),
-    (f"{POISON}/poison_band_buried_tint.emp",    "8b C-A",    "would bury"),
-    (f"{POISON}/poison_patchable_band_fire.emp", "8b rule6",  "must be static"),
-    (f"{POISON}/poison_setreg_on_restore.emp",   "8c D-B",    "carries the restore ONLY"),
-    (f"{POISON}/poison_regset_8f.emp",           "8d D-C",    "autoincrement"),
-    (f"{POISON}/poison_direct_8f.emp",           "8d E-D",    "autoincrement"),
-    (f"{POISON}/poison_ship_plus_restore.emp",   "8e claim6", "offscreen_ship"),
+# Task 8 review (2026-08-17) added poison_patchable_partner.emp (rule 6 half 2, review
+# I-2) and poison_direct_8a.emp (the $8A direct-construction clause, review I-3), and
+# corrected 8b C-A's count to 2: it legitimately trips BOTH the "would bury" ensure
+# (its own unequal-span intersecting op) AND the isect_earlier count ensure (2
+# strictly-earlier intersecting ops, only one of which is the equal-span partner) —
+# see the poison's own header comment. The two $8F cases (8d D-C and 8d E-D) now expect
+# DISTINCT fragments so a case passing does not merely mean "the string 'autoincrement'
+# appeared somewhere": D-C is the reg_set constructor's own ensure (fragment "assumes
+# stride 2"), E-D is the program-level scan that catches direct enum construction
+# (fragment "cannot be dodged").
+CASES: list[tuple[str, str, str, int]] = [
+    (f"{POISON}/poison_two_restores.emp",         "8a",         "one band per program", 1),
+    (f"{POISON}/poison_band_buried_tint.emp",     "8b C-A",     "would bury", 2),
+    (f"{POISON}/poison_patchable_band_fire.emp",  "8b rule6 half1", "must be static", 1),
+    (f"{POISON}/poison_patchable_partner.emp",    "8b rule6 half2", "must be static — a patchable partner", 1),
+    (f"{POISON}/poison_setreg_on_restore.emp",    "8c D-B",     "carries the restore ONLY", 1),
+    (f"{POISON}/poison_regset_8f.emp",            "8d D-C",     "assumes stride 2", 1),
+    (f"{POISON}/poison_direct_8f.emp",            "8d E-D",     "cannot be dodged", 1),
+    (f"{POISON}/poison_direct_8a.emp",            "8d E-D $0A", "detonates the relative-arm chain", 1),
+    (f"{POISON}/poison_ship_plus_restore.emp",    "8e claim6",  "offscreen_ship", 1),
 ]
 
 
@@ -123,16 +137,26 @@ def run_build() -> tuple[int, str]:
     return p.returncode, p.stdout + p.stderr
 
 
-def run_one(label: str, carrier_body: str, expect: str, want_clean: bool) -> tuple[bool, str, float, str]:
+def run_one(label: str, carrier_body: str, expect: str, want_clean: bool,
+            expect_count: int = 1) -> tuple[bool, str, float, str]:
     """Write carrier_body, run the real build, restore canonical, evaluate.
+
+    The canonical restore runs on ANY exit from the build step — normal return,
+    a raised exception, or KeyboardInterrupt — via try/finally, so a case that dies
+    mid-build (Ctrl-C, a sigil crash) cannot leave the carrier holding a poison's
+    body. This is belt-and-suspenders with main()'s own crash-residue self-heal
+    (that self-heal covers the NEXT run after a residue-leaving crash; this one is
+    what makes that residue rare in the first place).
 
     Returns (ok, why, elapsed_seconds, raw_output).
     """
     write_carrier(CANONICAL_CARRIER + carrier_body)
-    t0 = time.monotonic()
-    rc, out = run_build()
-    elapsed = time.monotonic() - t0
-    write_carrier(CANONICAL_CARRIER)
+    try:
+        t0 = time.monotonic()
+        rc, out = run_build()
+        elapsed = time.monotonic() - t0
+    finally:
+        write_carrier(CANONICAL_CARRIER)
 
     if want_clean:
         # not used (kept for symmetry / future self-contained cases)
@@ -147,6 +171,14 @@ def run_one(label: str, carrier_body: str, expect: str, want_clean: bool) -> tup
         return False, (
             f"failed WITHOUT the expected fragment {expect!r} — wording drift or "
             f"wrong guard; got: {tail}"
+        ), elapsed, out
+    got_count = out.count("[Error]")
+    if got_count != expect_count:
+        tail = " | ".join(out.strip().splitlines()[-3:])
+        return False, (
+            f"fragment {expect!r} present but got {got_count} [Error] diagnostic(s), "
+            f"expected {expect_count} — a diagnostic count drift can mean a guard "
+            f"stopped firing (or a NEW one started); got: {tail}"
         ), elapsed, out
     return True, "ok", elapsed, out
 
@@ -168,7 +200,7 @@ def main() -> int:
     missing = [c for c in CASES if not (AEON / c[0]).is_file()]
     if missing:
         print("emp_expect_fail: FAIL — CASES names poison modules that do not exist:")
-        for path, entry, _ in missing:
+        for path, entry, _, _ in missing:
             print(f"  {entry}: {path}")
         return 1
 
@@ -176,7 +208,8 @@ def main() -> int:
 
     # CASE 0, permanent, first: the sentinel. If this builds clean, the carrier is not
     # actually in the build's `use` closure and every case below is testing nothing.
-    ok, why, elapsed, out = run_one("sentinel", SENTINEL_BODY, "POISON_CARRIER_SENTINEL", want_clean=False)
+    ok, why, elapsed, out = run_one("sentinel", SENTINEL_BODY, "POISON_CARRIER_SENTINEL",
+                                     want_clean=False, expect_count=1)
     print(f"  {'PASS' if ok else 'FAIL'}  sentinel ({elapsed:.2f}s): {why}")
     if not ok:
         print("emp_expect_fail: FAIL — the sentinel did not fire. The carrier has "
@@ -185,9 +218,10 @@ def main() -> int:
               "vacuous, so this run stops here.")
         return 1
 
-    for path, entry, expect in CASES:
+    for path, entry, expect, expect_count in CASES:
         body = poison_body(AEON / path)
-        ok, why, elapsed, out = run_one(entry, body, expect, want_clean=False)
+        ok, why, elapsed, out = run_one(entry, body, expect, want_clean=False,
+                                         expect_count=expect_count)
         print(f"  {'PASS' if ok else 'FAIL'}  {entry} ({elapsed:.2f}s): {why}")
         bad += 0 if ok else 1
 
