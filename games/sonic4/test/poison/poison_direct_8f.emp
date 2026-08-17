@@ -1,0 +1,24 @@
+// games/sonic4/test/poison/poison_direct_8f.emp — POISON (see README).
+//
+// TARGETS: E-D — raster_program's tree-wide reg $0F scan (spec §4.2b).
+// EXPECTED FRAGMENT: "autoincrement"
+//
+// THE DODGE, spelled out. `RasterOp.SetReg($8F04)` is the enum variant reg_set
+// returns, constructed by hand — so reg_set's ensure never runs and the stride
+// change reaches the encoder with nothing having looked at it. The enum is `pub`
+// (it has to be: the encoder's match arms are the public wire contract), so this is
+// not a hypothetical spelling, it is one the language admits today.
+//
+// That is why the refusal is TWO layers. The constructor's ensure is the one that
+// gives an author a good sentence at the call site; this scan is the one that cannot
+// be dodged, and it runs on every program in the tree whether or not it has a band.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_direct_8f
+
+const POISON_DIRECT_8F = [
+    fire(100, [RasterOp.SetReg($8F04)]),
+]
+
+ensure(raster_program(POISON_DIRECT_8F).len > 0,
+       "poison_direct_8f: raster_program returned nothing — this poison no longer reaches the guard it targets")

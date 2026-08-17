@@ -1,0 +1,35 @@
+// games/sonic4/test/poison/poison_ship_plus_restore.emp — POISON (see README).
+//
+// TARGETS: CLAIM 6 — a band cannot share a program with an offscreen_ship fire
+//          (spec §4.3).
+// EXPECTED FRAGMENT: "offscreen_ship"
+//
+// EVERYTHING HERE IS INDIVIDUALLY LEGAL, which is the whole point: this is a
+// composition refusal, not a malformed anything. The band is textbook — a static
+// equal-span partner at line 100 and its single-op restore at 140, CRAM $48..$4D.
+// The shipping fire is OJZ's own shape (a patchable tint band declaring
+// offscreen_ship) on palette line 3, CRAM $68..$6D, banded 30..60. The two spans are
+// DISJOINT and the two line intervals are disjoint, so C-A has nothing to say and
+// the refusal under test is the only thing left that can fire.
+//
+// The incompatibility is about FRAME STATE, not overlap. On a shipping frame the
+// frame-top DMA has already put VARIANT colours in CRAM while Palette_Ship_Snap —
+// the restore's source — still holds BASE. The restore would then paint the dry
+// palette over a screen the ship just made submerged.
+//
+// This is also what excludes Sec0 (OJZ_TwoChannel) from carrying a band, doubly: its
+// channel-0 record declares offscreen_ship AND its [3,220] band leaves no legal
+// interval for a second pair (spec §4.3).
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_ship_plus_restore
+
+const POISON_SHIP_PLUS_RESTORE = compose([
+    patchable(fx_tint_band(line: 40, slot: 0, pal_line: 3, entry: 4, count: 3, sh: 0),
+              ch: 0, lo: 30, hi: 60, offscreen_ship: 1),
+    [ fire(100, [stream_cram($48, [$0EEE, $0AAA, $0666])]) ],
+    [ fire(140, [pal_restore($48, 3)]) ],
+])
+
+ensure(raster_program(POISON_SHIP_PLUS_RESTORE).len > 0,
+       "poison_ship_plus_restore: raster_program returned nothing — this poison no longer reaches the guard it targets")

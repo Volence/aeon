@@ -1,0 +1,27 @@
+// games/sonic4/test/poison/poison_setreg_on_restore.emp — POISON (see README).
+//
+// TARGETS: D-B — the restore's fire carries the restore ONLY (spec §4.2a).
+// EXPECTED FRAGMENT: "carries the restore ONLY"
+//
+// A well-formed band — static ON op at line 100, equal-span restore at 140 — with a
+// register write bolted onto the restore's own fire. It passes every OTHER guard,
+// which is the point: the ops are in prefix order (check_mixed_fire), two ops is
+// inside the per-fire ceiling of four, one stream op is inside the ceiling of two,
+// and three words is exactly RASTER_CRAM_MAX.
+//
+// It is still wrong. The restore has NO EFX_BLANK_DELAY spin — its landing in the
+// blanking bracket is calibrated as the first thing the fire does (spec §3.2) — so
+// a 110-cycle register write ahead of it pushes the restore out of the bracket with
+// no delay left anywhere to recover it. The de-mix pair for an S/H band is a
+// reg_set a line ABOVE and the restore alone on the bottom line.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_setreg_on_restore
+
+const POISON_SETREG_ON_RESTORE = [
+    fire(100, [stream_cram($48, [$0EEE, $0AAA, $0666])]),
+    fire(140, [reg_set($8C81), pal_restore($48, 3)]),
+]
+
+ensure(raster_program(POISON_SETREG_ON_RESTORE).len > 0,
+       "poison_setreg_on_restore: raster_program returned nothing — this poison no longer reaches the guard it targets")

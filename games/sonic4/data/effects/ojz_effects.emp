@@ -72,6 +72,21 @@ use games.sonic4.parallax_configs.{ParallaxConfig_OJZ_Underwater}
 // and what keeps the module's own `ensure`s evaluated, since an unimported comptime
 // module's module-level `ensure`s do not fail, they simply never run.
 use engine.effects.raster_dsl.*
+// EFX-10 carrier (temporary, aeon-side, Fable-ruled 2026-08-17): pulls
+// games/sonic4/test/poison_carrier.emp into the real build's `use` closure so
+// tools/emp_expect_fail.py's per-case rewrite of that file is reachable and its
+// `ensure`s actually run (module.unreachable skip applies to anything the real
+// build's synthetic entry cannot reach). This file is the closure's existing
+// splice victim for effects poisons (see poison/README.md); the carrier just
+// formalizes that into a standing edge instead of a body mutated in place.
+// The carrier's own canonical resting state emits zero bytes, so this edge is
+// inert outside a lane run. Remove alongside the carrier once `--extra-entry`
+// lands on `sigil build` (docs/BUGS.md EFX-10).
+use games.sonic4.test.poison_carrier.{ZZ_POISON_CARRIER_PRESENT}
+// The consuming ensure: a named import must be used, and this is also the live
+// proof the carrier is in the elaboration closure (its module-level ensures run
+// iff this edge holds — the lane's sentinel is the runtime check of the same fact).
+ensure(ZZ_POISON_CARRIER_PRESENT == 1, "the poison carrier's presence const drifted — the EFX-10 lane edge is broken")
 
 // ===========================================================================
 // EFFECTS P1 GATE FIXTURES — the first raster program and the first per-section

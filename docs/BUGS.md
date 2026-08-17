@@ -5,6 +5,73 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ⚠ EFX-10 — OPEN 2026-08-17, re-scoped 2026-08-17. Lane runs via the carrier backend (interim); the sigil-side fix is still open.
+
+**Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane's
+direct invocation is `sigil emp <poison> --root <aeon>`. That path
+(`run_emp_program`, `sigil-cli/src/main.rs`) does **not** apply the two manifest rewrites
+`sigil build` applies (`sigil-harness/src/native.rs`, `build_emp`):
+
+```
+publicize_helper_comptime(&mut manifest, COMPTIME_HELPERS)
+normalize_helper_imports(&mut manifest, COMPTIME_HELPERS, &[])
+```
+
+Measured 2026-08-17, three failures deep, each blocking the next:
+
+1. A poison naming `raster_program` gets `unknown function raster_program`. The helper globs are
+   what put it in scope in an ordinary module.
+2. Adding `use engine.effects.raster_dsl.*` fixes the NAME and not the guard: `raster_program`'s
+   body resolves free names at the **call site**, and raster_dsl's own helpers (`fire_ops`,
+   `arm_at`, `check_intervals`, `op_stream_words`, …) are private. A glob imports only `pub`
+   items; `publicize_helper_comptime` is what makes them importable in the real build. Result:
+   20+ `unknown function` errors *inside raster_dsl*.
+3. The `use` also drags `engine.effects.raster` into the closure, which resolves
+   `RASTER_MAX_PATCH` / `vdp_comm_reg` only through those globs, and its RAM labels only because
+   `engine.ram` is reachable via the real build's synthetic entry. Seeding `engine.ram` from the
+   poison then demands the build's `-D` interface values (`DEBUG`, `MAX_RING_BUFFER`,
+   `COLLECTED_WINDOW_SLOTS`), which the lane does not pass.
+
+**Task 7's "verified by experiment" claim is true only of a self-contained poison** — one whose
+`ensure` names nothing outside itself. That is the shape it was verified with (CASES shipped
+empty), and it is the shape no real guard poison can take.
+
+**Current state (2026-08-17): the lane runs via the carrier backend** (temporary,
+aeon-side, Fable-ruled 2026-08-17). `tools/emp_expect_fail.py` no longer invokes `sigil
+emp --root` at all — it rewrites `games/sonic4/test/poison_carrier.emp` (a real module
+already in the build's `use` closure, via one edge from
+`games/sonic4/data/effects/ojz_effects.emp`) to each poison's body in turn and runs the
+real `sigil build --native` invocation, which does apply `publicize_helper_comptime` /
+`normalize_helper_imports`. All seven Task 8 poisons are gated this way (moved from
+`BLOCKED_CASES` into `CASES` verbatim), plus a permanent sentinel case that fails the
+lane loudly if the carrier ever falls out of the build's `use` closure. The five R1 band
+guards are now protected by a gate, not only by review and this entry.
+
+**The edge must be a NAMED import, not a bare `use`** (commit `008523ec`, R1 Task 14
+repair). A bare `use games.sonic4.test.poison_carrier` trips sigil's `[import.no-names]`
+lint in the warn-tier corpus (2 suite failures the aeon build alone cannot see — the
+port-flip silent-breakage class); the glob form of a name-less module falls out of the
+elaboration closure entirely, which is the more dangerous failure — the lane's own
+sentinel went clean when this was measured, catching it. The fix: the carrier exports one
+`pub const ZZ_POISON_CARRIER_PRESENT = 1`, and the edge is
+`use games.sonic4.test.poison_carrier.{ZZ_POISON_CARRIER_PRESENT}` plus a consuming
+`ensure(ZZ_POISON_CARRIER_PRESENT == 1, ...)` — the named import is both what keeps the
+edge in the closure and the live proof the carrier is reachable (its module-level ensures
+run iff this edge holds).
+
+**The carrier is a workaround, not the fix — it is explicitly named for removal.** The
+proper fix remains sigil-side: `--extra-entry <module>` on `sigil build`, appending the
+poison to `synthetic_entry_src`'s `use` list so it elaborates inside the REAL profile
+without any file's body being rewritten out from under it. (The alternative floated
+earlier — giving `sigil emp --root` the same helper treatment plus a way to seed extra
+reachability and the `-D` values — is the larger change; `--extra-entry` reuses the
+existing real-build path instead.) The removal condition is named in the carrier's own
+header comment (clean-not-bolted-on): the carrier file, its `use` edge, and the
+rewrite-per-case mechanism in `emp_expect_fail.py` all retire together the day
+`--extra-entry` lands.
+
+---
+
 ## ✅ EFX-8 — CLOSED 2026-08-15 (Effects P3 Parcel P-b). A patched program renders again.
 
 **Booked 2026-08-15**, found while re-deriving the tree for Effects Parcel P, and confirmed

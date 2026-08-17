@@ -955,6 +955,16 @@ pub vars upper_ram {
     Ctrl_1_Ext_Held_Raw:    u8,         // 0000MXYZ, same discipline
     Ctrl_2_Ext_Held_Raw:    u8,
 
+    // --- Parcel R1: the band restore's source (engine/effects/raster.emp OP_PAL_RESTORE) ---
+    // Per-line copy of Palette_Buffer taken at each line's frame-top DMA enqueue
+    // (engine/system/buffers.emp, spliced at the bclr — copy iff dirty AND accepted).
+    // INVARIANT: Palette_Ship_Snap[line] == THIS FRAME'S base-DMA payload for that line
+    // (specs/2026-08-16-parcel-r1-palette-bands-v6.md §2.2 — stated at full strength there:
+    // a band's own line is dirty, enqueued, snapshotted and DELIVERED every frame).
+    // Placed at the RAM TAIL, before the @shape_divergent block: ripples ZERO engine-RAM
+    // addresses; Engine_RAM_End + all game RAM shift — a full game-side repin, routine.
+    Palette_Ship_Snap:      [u8; 128],
+
     // --- Replay recorder (engine/system/replay.emp, DEBUG only) ---
     // The 8 KB held-byte ring + the 2 KB (Logic_Tick, hash) checkpoint log. Placed
     // at the RAM TAIL and @shape_divergent (size-varying group — REQUIRED by the

@@ -1,0 +1,27 @@
+// games/sonic4/test/poison/poison_regset_8f.emp — POISON (see README).
+//
+// TARGETS: D-C — reg_set's own refusal of VDP reg $0F, autoincrement (spec §4.2b).
+// EXPECTED FRAGMENT: "autoincrement"
+//
+// $8F04 is a perfectly well-formed register write ($8000..$97FF, not reg $0A), so
+// nothing else in the module has an opinion about it. What it does is change the
+// VDP's address stride mid-frame, and EVERY span computation in raster_dsl assumes
+// stride 2: op_cram_span, op_mask, the ship destination. A band composed against a
+// span the hardware then writes at stride 4 is checked against arithmetic that no
+// longer describes what happens.
+//
+// IT DOES NOT CALL raster_program, deliberately. The program-level scan (E-D, its
+// own poison next door) would ALSO catch this word, and a poison that trips two
+// layers cannot tell you which one is still alive. raster_words walks the same fire
+// list without running the scan, so the only thing that can fail here is the
+// constructor's own ensure.
+//
+// NO IMPORTS — see poison_two_restores.emp's note.
+module games.sonic4.test.poison.poison_regset_8f
+
+const POISON_REGSET_8F = [
+    fire(100, [reg_set($8F04)]),
+]
+
+ensure(raster_words(POISON_REGSET_8F) > 0,
+       "poison_regset_8f: raster_words returned nothing — this poison no longer reaches the constructor it targets")

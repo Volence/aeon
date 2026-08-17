@@ -69,9 +69,11 @@ moment each palette line's frame-top DMA is enqueued. The restore op streams fro
 
 The snapshot for line 0 goes adjacent to the `bclr` at `:243` — downstream of both guard
 branches, so the copy happens iff the line was dirty and its DMA was accepted. Copy shape:
-eight unrolled `move.l (a1)+,(a2)+` per line, on cost grounds alone (160 vs 244 cyc — the
-register-contract justification was a census error; `buffers.emp:278` frees d0 at the line-3
-splice).
+eight unrolled `move.l (a1)+,(a2)+` per line. The shape is justified BOTH ways: 8×20 = 160 cyc
+unrolled beats a dbf loop at 244 at every splice, and at splices 0-2 d0 is still live (the dirty
+snapshot), so a dbf counter would widen the clobber contract — only the line-3 splice has d0
+free. (Task 2 review corrected an earlier over-correction here: "register availability aside"
+was wrong for three of the four sites.)
 
 ### 2.2 The invariant — stated at full strength `[S5-banked]`
 
@@ -169,8 +171,9 @@ TRAP: never retune `EFX_BLANK_DELAY` globally.
 
 Ensure in `raster_program` (covers `patched_program` via `:1426`), via new total
 `op_is_restore`. `ensure` is non-aborting (Poison; only `ensure_fatal` aborts —
-evaluator-verified), so C-A specs the deterministic **first restore** (authored order); sweep
-5 traced the double-violation case to two clean diagnostics with data intact.
+evaluator-verified), so C-A specs the deterministic **first restore** (authored order)
+(implementation gates C-A on `restore_n == 1`; the selector is unreachable until that gate
+relaxes); sweep 5 traced the double-violation case to two clean diagnostics with data intact.
 
 ### 4.2 The composition guard — CLAIM C-A + rule 6 (E-A)
 
@@ -180,8 +183,9 @@ is refused unless it is the **unique strictly-earlier op with an exactly equal s
 partner — `band()` guarantees equality by construction). Zero partners → refuse. Two+
 intersecting earlier → refuse. Same-line intersection → refuse — `[S5-7]` this arm is
 **unreachable once D-B ships** (D-B empties the restore's fire; `fire_lines` forbids two
-records per line); it stays with a comment naming D-B as what deadens it, per the module's
-"a guard that cannot fire is not free" doctrine. Later lines → unconstrained.
+records per line) (redundant-not-dead: it co-fires with D-B — Task 8 review); it stays with
+a comment naming D-B as what deadens it, per the module's "a guard that cannot fire is not
+free" doctrine. Later lines → unconstrained.
 
 **Grounding, load-bearing:** patchable fire lines move; C-A is sound because
 `check_intervals` forces strictly ascending disjoint band intervals, so every reachable line
@@ -413,10 +417,12 @@ residual risk otherwise. Not gating R1.
    the whole `--root` tree per run (`Manifest::scan` is unconditional — CI cost, not
    soundness); the message match is fragile against wording edits (a wrong/missing message
    still fails, so drift is caught, but attribute failures to wording first). Poisons:
-   two-restore (§4.1); band+overlapping-tint (C-A multiplicity); **rule-6 violation via a
-   DISJOINT-span patchable co-tenant** `[S5-6]` — the same-span spelling trips the
-   multiplicity arm first and never reaches rule 6 (working spelling in the sweep-5 seat
-   report); SetReg-on-restore-fire (D-B); `RasterOp.SetReg($8F04)` direct-construction (E-D
+   two-restore (§4.1); band+overlapping-tint (C-A multiplicity); **rule-6 violation** `[S5-6]`
+   — CORRECTED (Task 8 review): the disjoint-span co-tenant spelling this entry originally
+   prescribed gates NOTHING against the shipped guard (a disjoint span never enters the
+   intersect branch); the working poison is the patchable-partner-WITH-EQUAL-SPAN shape
+   (`poison_patchable_partner.emp`), recorded as the sixth instance of the minted-fix rule;
+   SetReg-on-restore-fire (D-B); `RasterOp.SetReg($8F04)` direct-construction (E-D
    — poisons the scan, not the constructor).
 5. **Comptime hand-twin** + separate `.len` ensure.
 

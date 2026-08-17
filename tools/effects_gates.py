@@ -168,6 +168,12 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "raster_source")
         results.append(("raster_source (handler streams from the encoded address)", ok, msg))
 
+    if wanted("snapshot_poison"):
+        ok, msg = run(["python3", str(AEON / "tools/snapshot_poison_gate.py"),
+                       "--rom", rom, "--lst", lst], "snapshot_poison")
+        results.append(("snapshot_poison (E-B: splices copy what the captured mask says)",
+                        ok, msg))
+
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
         fetch = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_FETCH_CYC")
@@ -191,9 +197,22 @@ def main() -> int:
         # it, a parcel that adds an op recomputes these expectations and passes blind.
         fire_reg = base + fetch + rung * rungs + wreg + tail
         expect_f1 = f0 + 6 * fire_reg
+        # F5 (reg_set + stream_cram 3 in ONE fire, R1 [S4-8]): the base is paid once, the
+        # per-op bundles sum. It carries the same fall-through SetReg as F1, so it is the
+        # SECOND fixture that can see a dispatch-chain change — and the only one that sees
+        # it displace a CRAM burst (the mixed-fire landing question, spec §3.3).
+        fire_mixed = base + (fetch + rung * rungs + wreg + tail) \
+                          + (fetch + hit + cram + 3 * word + tail)
+        expect_f5 = f0 + 5 * fire_mixed            # F5 authors 5 fires, not 6 (buffer cap)
+        # F8 (pal_restore, 3 words, R1 claim 9): the restore dispatches at depth 4 (four
+        # failed rungs + hit) with its own measured work constant.
+        wrest = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_RESTORE_CYC")
+        fire_rest = base + fetch + (rung * 4 + hit) + wrest + 3 * word + tail
+        expect_f8 = f0 + 6 * fire_rest
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),
-                            "--rom", rom, "--lst", lst, "--only", "F0,F1,F3", "--out", str(jf)],
+                            "--rom", rom, "--lst", lst, "--only", "F0,F1,F3,F5,F8",
+                            "--out", str(jf)],
                            capture_output=True, text=True)
         if p.returncode != 0 or not jf.exists():
             results.append(("cost_model vs hardware", False,
@@ -203,11 +222,15 @@ def main() -> int:
             got_f0 = d["F0"]["cycles"][0]
             got_f1 = d["F1"]["cycles"][0]
             got_f3 = d["F3"]["cycles"][0]
-            ok = got_f0 == f0 and got_f1 == expect_f1 and got_f3 == expect_f3
-            results.append((f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3} — "
-                            f"all computed from the shipped constants; F1 is the fall-through "
-                            f"op, the only one that feels a dispatch-chain change)", ok,
-                            f"measured F0={got_f0} F1={got_f1} F3={got_f3}"))
+            got_f5 = d["F5"]["cycles"][0]
+            got_f8 = d["F8"]["cycles"][0]
+            ok = (got_f0 == f0 and got_f1 == expect_f1 and got_f3 == expect_f3
+                  and got_f5 == expect_f5 and got_f8 == expect_f8)
+            results.append((f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3}, "
+                            f"F5 {expect_f5}, F8 {expect_f8} — all computed from the shipped "
+                            f"constants; F1/F5 carry the fall-through op that feels a "
+                            f"dispatch-chain change, F8 is the restore)", ok,
+                            f"measured F0={got_f0} F1={got_f1} F3={got_f3} F5={got_f5} F8={got_f8}"))
 
     print()
     bad = 0

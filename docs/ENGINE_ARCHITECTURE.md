@@ -4053,6 +4053,98 @@ wire format, that document owns what a call site can violate.
 
 ---
 
+### 7.14 Palette bands (mid-screen restore) — Parcel R1, SHIPPED 2026-08-17
+
+> An effect that turns ON at a scanline and turns back OFF at a lower one — a fog slab, a
+> top-half glow, a tinted band — over up to 3 CRAM entries (structural: the restore is one
+> stream op under the `stream_words <= 3` ceiling; wider bands are booked, see
+> `docs/DEFERRED_WORK.md`). Spec: `docs/superpowers/specs/2026-08-16-parcel-r1-palette-bands-v6.md`.
+> Evidence: `docs/benchmarks/effects-r1/GATE-EVIDENCE.md`.
+
+**The mechanism.** `Palette_Ship_Snap` (`engine/ram.emp`, 128 bytes, engine-owned) is a
+per-line copy of `Palette_Buffer`, one 32-byte slice per palette line. The copy is spliced
+into `Enqueue_Dirty_Buffers` (`engine/system/buffers.emp:236-263`) at the point downstream
+of BOTH guards for that line — the line was dirty AND its DMA was accepted (the `bclr` that
+clears the dirty bit) — so a dropped/skipped line's snapshot is never touched, and the
+restore op always streams from what was actually shipped. The invariant, at full strength:
+**`Palette_Ship_Snap[line]` equals this frame's base-DMA payload for that line — and for a
+band's own line, that payload is DELIVERED every frame**, because `Raster_VBlank` ORs the
+program's `pal_dirty_mask` into `Palette_Dirty` before `Enqueue_Dirty_Buffers` runs, so the
+band's line is always dirty and always snapshotted. Nothing in VBlank writes
+`Palette_Buffer` (an exhaustive writer census lives at the splice site, `buffers.emp:236-`
+region, with a pinned entry count guarding drift).
+
+**`OP_PAL_RESTORE`** is an appended `RasterOp` opcode (value 10, dispatch depth 4 —
+`RASTER_DEPTH_RESTORE`, `engine/effects/raster_dsl.emp:1033`). Its payload is
+`(CRAM byte address, count)`; the snapshot offset IS the CRAM address (`Palette_Buffer+
+$00/$20/$40/$60 -> CRAM $0000/$20/$40/$60`), so no separate translation exists between "which
+line" and "where in CRAM." The restore has its own delay knob, `EFX_RESTORE_DELAY = 13`
+(`engine/effects/raster.emp:238`), never shared with `EFX_BLANK_DELAY` — calibrated
+2026-08-17 against the first datum ever taken at this fire shape. The calibration run found
+that **every single-op raster fire lands mid-previous-row** (the restore's zero-delay bracket
+start and a bare single-op CRAM fire spilled identically), so the restore needing its own
+knob was never optional; `EFX_RESTORE_DELAY = 13` lands the OFF edge exactly on the authored
+line (verified clean: the authored row renders fully tinted to its right edge, the row below
+fully base).
+
+**The guard set** (`raster_dsl.emp`, `raster_program`):
+- **One band per program** — at most one restore op per program (a non-aborting `ensure`;
+  the first-authored restore is the deterministic representative under a violation).
+- **The equal-span-partner composition guard** — every earlier-or-same-line CRAM-span op
+  intersecting the restore's span is refused unless it is the unique strictly-earlier op
+  with an EXACTLY EQUAL span (the ON op `band()` paired it with). Grounded on
+  `check_intervals`, which forces every program's fire-line intervals strictly ascending and
+  disjoint — the guard that makes a patchable record's moving line provably stay on one side
+  of the restore.
+- **Both of a band's fires must be static** — neither the restore's own carrying fire nor
+  its partner's carrying fire may be `patchable`. A moving fire on either side can reach
+  `.suppress` in `raster.emp` (the schedule-recording path that drops a record outside its
+  authored band) and silently un-pair the restore from its partner — closing both directions
+  is what makes a band's ON/OFF pairing hold in every anchor state.
+- **Single-op restore fire** — the fire carrying `OP_PAL_RESTORE` carries nothing else; no
+  `SetReg` or other stream op may compose onto the band's bottom line.
+- **Tree-wide `$8F` (autoincrement) and `$8A` (the schedule's own arm register) refusal** —
+  a program-level scan over every op's register word (`raster_dsl.emp:1374-1381`) refuses
+  both, closing the gap a direct `RasterOp.SetReg($8F04)`/`RasterOp.SetReg($8A05)`
+  construction leaves open past the constructor-level (`reg_set`) refusal — a constructor
+  refusal alone is not a refusal, since `RasterOp` is `pub`.
+- **Program-keyed ship refusal** — a band cannot coexist with an off-screen-ship trailer
+  (§7.13) on the same program; verified against both encoder output and runtime install
+  state. Section 0 is excluded from bands twice over — by its ship AND because its `[3,220]`
+  channel band leaves no legal disjoint interval for a restore.
+
+**The authoring surface.** `band(top, bot, on: RasterOp, sh: 0|1)` owns the whole shape
+(`raster_dsl.emp:612`): `sh: 0` emits `[fire(top,[on]), fire(bot,[restore])]`; `sh: 1` emits
+the Shadow/Highlight three-fire form (`reg_sh_on()+on` at `top`, `reg_sh_off()` at `bot-1`,
+`restore` at `bot`), with the restore's `(addr, count)` derived from the ON op's span so the
+equal-span pairing is guaranteed by construction rather than authored twice. Minimum band
+height (screen lines from `top` to `bot`, the fire-line gap) is cost-keyed from the real
+merged fire cost of the shape `band()` emits: a `pal_region` (or 1-2 word `cram`) ON fire
+needs height >= 2; the S/H shape's merged `[reg, tint]` ON fire is measured against the gap
+to `bot-1`, so it needs height >= 3. A band is structurally capped at <= 3 CRAM entries (the
+`stream_words <= 3` ceiling both the ON op and the restore share).
+
+**Costs (measured, `docs/benchmarks/effects-r1/GATE-EVIDENCE.md`):**
+- The restore fire itself: 704 cyc (calibrated body, `RASTER_WORK_RESTORE_CYC = 212` work
+  plus dispatch/fetch/tail) — hardware-confirmed via `raster_cost_probe` (F8 fixture, 556 cyc
+  pre-calibration / 3 boots, spread 0) and the pixel-landing capture. A fire below a band
+  needs a downstream gap of >= 2 fire-lines.
+- The snapshot splices: **+347 cyc/frame steady state** (2 dirty lines), **+704 cyc worst
+  case** (all 4 lines dirty, e.g. a section transition) — **3.8% of the ~18,565-cyc NTSC
+  VBlank window**, confirmed differentially against a splice-free baseline ROM (same scene,
+  frozen camera). `VInt_Level`'s own row is unchanged; the cost lives entirely in
+  `Enqueue_Dirty_Buffers`.
+- **The +16 mixed-fire dispatch tax** (a patchable fire composing `SetReg` + `cram`, e.g.
+  OJZ's water channel, going from 4 to 5 dispatch rungs) is hardware-confirmed exactly
+  (F5 = 628.0 cyc/fire, 3 boots, spread 0) — but its PIXEL-LANDING consequence is
+  **unmeasured**: four independent capture protocols failed their own controls (camera/
+  `Logic_Tick` phase drift dominated the boundary-region signal). The `docs/superpowers/
+  2026-08-16-parcel-r1-palette-bands-v6.md` §3.3 fallback slot stays **VACANT** (owner
+  ruling: measure first, rule only on a measured failure — none is evidenced) and the
+  precision re-measure is booked against the render-anchoring parcel (`docs/DEFERRED_WORK.md`).
+
+---
+
 ## 8. Tooling & Build System
 
 Build-time tools that convert human-friendly level data into optimized runtime formats, plus runtime debug/profiling systems for data-driven optimization. Commercial Genesis games shipped with zero debug infrastructure; the community (Vladikcomper, Flamewing, S.C.E.) has since built what 90s studios lacked.

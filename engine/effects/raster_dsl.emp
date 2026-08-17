@@ -26,12 +26,13 @@
 module engine.effects.raster_dsl
 
 use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT, OP_RUN_RAMP,
+                          OP_PAL_RESTORE,
                           RASTER_OPS_END, RASTER_ARM_PARK, RASTER_CRAM_MAX,
                           RASTER_BUF_SIZE, RASTER_MIN_FIRE_LINE, RASTER_MAX_FIRE_LINE,
                           pal_stage_off}
 
 // ---- the inlined-literal pins (see the module note above) -------------------
-ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8,
+ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8 && OP_PAL_RESTORE == 10,
        "raster_dsl's inlined opcodes drifted from engine.effects.raster")
 ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RASTER_OPS_END")
 ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
@@ -84,6 +85,10 @@ pub comptime enum RasterOp {
     Cram(int, array),                     // (CRAM byte address, colour-word ARRAY)
     PalRegion(int, int, int, int, int),   // (CRAM byte address, slot, pal line, entry, count)
     Vsram(int, array),                    // (VSRAM byte address, scroll-word ARRAY)
+    PalRestore(int, int),                 // (CRAM byte address, count) — the snapshot
+                                          // offset IS the address (BuildStaticDMA's 1:1
+                                          // mapping); one fact, one field (claim D-F)
+                                          // no hand-building: use pal_restore() (C-D ensures live there)
 }
 
 pub comptime enum RasterFire {
@@ -121,10 +126,14 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // wrong line — silently, and only from that fire onward, which is the worst shape a
     // schedule bug can take.
     //
-    // ONLY reg $0A is banned. Reg $0F (autoincrement) was considered and deliberately
-    // NOT banned: Gunstar Heroes and Alien Soldier both change autoincrement mid-frame as
-    // ordinary technique, and the blanket frame-top restore bounds the change to the frame
-    // that made it.
+    // REG $0F (autoincrement) IS BANNED TOO, and the reason is this module's own
+    // arithmetic rather than the hardware's. Gunstar Heroes and Alien Soldier both change
+    // autoincrement mid-frame as ordinary technique and the blanket frame-top restore
+    // bounds the change to the frame that made it — which is why it was NOT banned until
+    // Parcel R1. What changed is that op_cram_span, op_mask and the ship destination all
+    // compute spans as `addr + 2 * count`, so a mid-frame stride change makes every one of
+    // them describe something other than what the VDP does, silently and only for the ops
+    // after it. Revocable behind a stride-aware span model (spec §4.2b, claim D-C).
     //
     // NOT ROUTED THROUGH VDP_Shadow_Table, and that is now correct BY CONSTRUCTION. The
     // word goes straight to VDP_CTRL from Raster_HInt's .op_set_reg and nothing here
@@ -138,9 +147,20 @@ pub comptime fn reg_set(word: int) -> RasterOp {
     // (engine/system/vdp_init.emp): it writes the shadow byte and the frame-top flush
     // delivers it.
     ensure((word >> 8) != $8A,
-           "reg_set: {word} writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
+           "reg_set: writes VDP reg $0A, the HInt line counter the raster SCHEDULE owns — Raster_HInt writes the record's arm word before running the ops, so this op would overwrite it and desynchronise every later fire in the frame. Change the SCHEDULE instead: the fires' screen lines are the input, and the encoder derives every arm word from them.")
+    ensure((word >> 8) != $8F,
+           "reg_set: writes reg $0F (autoincrement) — every span/mask computation in this module assumes stride 2 (op_cram_span, op_mask, the ship destination), so a mid-frame stride change silently voids them all. Revocable behind a stride-aware span model (spec §4.2b).")
     return RasterOp.SetReg(word)
 }
+
+// RASTER_SH_BASE / RASTER_SH_BIT — boot's H40 reg $0C word and the Shadow/Highlight
+// enable bit, spelled ONCE so the on/off pair below cannot drift apart. The base is
+// boot's own value ($0C = $81, engine/system/boot_data.emp — the VDP register table's
+// `dc.b $81 // $0C: H40 (320px), no interlace`); that table is a `.asm`-side byte blob
+// with no importable name, so this is a literal held by its comment the way the opcode
+// literals at the top of this module are held by their pins.
+const RASTER_SH_BASE = $8C81
+const RASTER_SH_BIT  = 8                        // reg $0C bit 3
 
 // reg_sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
 // the shadow holds for reg $0C at the top of the next frame, which is boot's H40 base
@@ -148,7 +168,21 @@ pub comptime fn reg_set(word: int) -> RasterOp {
 // Set_VDP_Reg. $8C89 is $8C81 | bit 3: the resolution bits are untouched, per the V28/V30
 // quirk ruling in the raster survey.
 pub comptime fn reg_sh_on() -> RasterOp {
-    return reg_set($8C89)
+    return reg_set(RASTER_SH_BASE | RASTER_SH_BIT)
+}
+
+// reg_sh_off — the S/H band's OFF word, derived from the SAME boot base as reg_sh_on so
+// the pair cannot drift: one const carries the resolution bits and one bit-name carries
+// the mode, so a section that re-bases reg $0C moves both words together or neither.
+// It is what an S/H band's de-mix fire writes a line above the restore (spec §4.2a: the
+// restore's fire carries the restore ONLY, so the register write cannot ride with it).
+//
+// CENSUS, same CLAIM-2 class as the base itself: no live writer of reg $0C exists in the
+// tree today outside this pair, so "off" means boot's settled word and nothing else can
+// have moved it mid-frame. That is a census, not an invariant — a future Set_VDP_Reg($0C)
+// caller changes what the shadow restores at frame top, and this word with it.
+pub comptime fn reg_sh_off() -> RasterOp {
+    return reg_set(RASTER_SH_BASE)
 }
 
 // stream_cram — an inline CRAM write: `colours` words starting at CRAM byte address `addr`.
@@ -234,6 +268,23 @@ pub comptime fn stream_vsram(addr: int, values: array) -> RasterOp {
     return RasterOp.Vsram(addr, values)
 }
 
+// pal_restore — the band's OFF edge: stream `count` words of Palette_Ship_Snap (this
+// frame's base-DMA payload) back to CRAM at `addr`. The snapshot offset IS the CRAM
+// address (BuildStaticDMA's 1:1 mapping — claim D-F), so one field carries both.
+// Authors do not call this directly in normal content — band() (R1 Task 9) derives it
+// from the ON op so the composition guard's partner spans are equal by construction.
+pub comptime fn pal_restore(addr: int, count: int) -> RasterOp {
+    ensure(addr >= 0 && addr <= 126, "pal_restore: CRAM byte address {addr} outside 0..126")
+    ensure((addr & 1) == 0, "pal_restore: CRAM byte address {addr} is odd — colours are words (and the handler's (a2)+ reads would address-error)")
+    ensure((addr >> 5) != 0,
+           "pal_restore: address {addr} is on CRAM line 0, the character's line — a restore there repaints the active character AND forces a per-frame line-0 re-assert via op_mask")
+    ensure(count >= 1 && count <= 3,
+           "pal_restore: {count} colours exceeds RASTER_CRAM_MAX (3) — the per-fire cycle budget; a band restores at most 3 entries (spec §1)")
+    ensure(((addr >> 1) & 15) + count <= 16,
+           "pal_restore: {count} colours from entry {(addr >> 1) & 15} runs past the end of CRAM line {addr >> 5} — the span would WRAP into the next line (at $7C+3, into line 0, the character's) and op_mask marks only the START line")
+    return RasterOp.PalRestore(addr, count)
+}
+
 // ---- fire constructors ------------------------------------------------------
 
 // fire — one scheduled event. `line` is the SCREEN line the effect lands on; the DSL
@@ -257,12 +308,14 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     //                                 OP_SET_REG — the op with no other cost — is that
     //                                 chain's FALL-THROUGH (raster.emp, Raster_HInt
     //                                 .op_loop), so it is the most expensive to DISPATCH.
-    //   2. stream ops      <= 2   each of stream_cram/stream_pal_region/stream_vsram pays its own dispatch
-    //                                 AND its own EFX_BLANK_DELAY spin (.op_cram /
+    //   2. stream ops      <= 2   each of stream_cram/stream_pal_region/stream_vsram/pal_restore pays its own
+    //                                 dispatch AND its own EFX_BLANK_DELAY spin (.op_cram /
     //                                 .op_region), and that spin is the whole mechanism
-    //                                 that parks a write in HBlank.
+    //                                 that parks a write in HBlank (the restore op deliberately
+    //                                 has NO spin — its landing is bracket-calibrated separately,
+    //                                 spec §3.2).
     //   3. stream words    <= 3   RASTER_CRAM_MAX — the writes themselves.
-    // All three are PER-FIRE. `stream_cram`/`stream_pal_region`/`stream_vsram` also bound their OWN word count,
+    // All three are PER-FIRE. `stream_cram`/`stream_pal_region`/`stream_vsram`/`pal_restore` also bound their OWN word count,
     // which is necessary and not sufficient: three 3-word ops satisfy every per-op guard.
     //
     // WHAT IS STILL NOT ENFORCED — read no cycle guarantee into the above. The COST of a
@@ -284,7 +337,7 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(ops.len <= 4,
            "fire at screen line {line}: {ops.len} ops exceeds the per-fire ceiling of 4. Every op costs a walk of Raster_HInt's compare chain before it does any work, and OP_SET_REG — the cheap-looking one — is the chain's fall-through, so it is the most expensive op to dispatch. Four is a structural ceiling, not a measured one: the richest fire anything has ever run is two ops. Split the work across consecutive fires.")
     ensure(stream_ops <= 2,
-           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin, and that spin is what parks the write offscreen — only the FIRST op's writes are measured to land in HBlank (row 119, 1px -> 0px, docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Author ONE stream op per fire and use consecutive fires; a second one on the same line is admitted for the case where you have measured that you can live with its dot.")
+           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram / pal_restore) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin (the restore op deliberately has NO spin — its landing is bracket-calibrated separately, spec §3.2), and that spin is what parks the write offscreen — only the FIRST op's writes are measured to land in HBlank (row 119, 1px -> 0px, docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Author ONE stream op per fire and use consecutive fires; a second one on the same line is admitted for the case where you have measured that you can live with its dot.")
     ensure(stream_words <= 3,
            "fire at screen line {line}: {stream_words} stream words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line takes ceil(16/3) = 6 of them, one per scanline. That six-fire idiom is OURS, not a reference's: S3K's HInt3 swaps a whole water palette in ONE interrupt (park the counter, stop the Z80, then repeat: fresh CRAM command, 3 colours, a cycle-counted ~370-cycle dbf spin), and S3K's HInt2, Sonic 2's PalToCRAM and S.C.E.'s HInt each write 64 CRAM words in a single fire with no delay at all. Ours is dot-free by construction and pays six exception entries for it; the spacing in S3K comes from the spin, not from multiple interrupts.")
     return RasterFire.Fire(line, ops)
@@ -532,6 +585,82 @@ pub comptime fn fx_tint_band(line: int, slot: int, pal_line: int, entry: int,
                              sh:       sh) ]
 }
 
+// band — an effect that turns ON at screen line `top` and OFF at `bot`: the ON op, and a
+// restore streaming this frame's base-DMA payload back over exactly the ON op's span
+// (partner equality BY CONSTRUCTION — the composition guard's uniqueness rule is satisfied
+// structurally, never by author care; there is no second place to write the span, so the
+// two cannot disagree). `sh: 1` emits the full three-fire S/H shape, and the constructor
+// must see the WHOLE shape because the MERGED ON fire is what check_density charges
+// (claim E-C: v5's one-op band() admitted S/H programs the density guard then refused,
+// with a message about a fire pair band() had never mentioned).
+//
+// "Band height" = bot - top in SCREEN lines = the fire-line gap. NOT an inclusive row
+// count. The two spellings coincide because fire_lines applies a UNIFORM -1: the gap
+// check_density measures between two static fires is (bot - 1) - (top - 1) = bot - top.
+// A band restores at most 3 CRAM entries (the stream ceiling x one restore — spec §1).
+// Static by construction — BOTH fires (spec §4.2 rule 6); not handable to `patchable`.
+//
+// THE MINIMA BELOW ARE check_density's OWN ARITHMETIC, deliberately: `cost <= gap *
+// RASTER_SCANLINE_CYC` over the fires this function actually emits, with the gap spelled
+// the way check_density derives it. That is the whole claim — a band() that admits a
+// height check_density then refuses is worse than no check at all, because the refusal
+// names fires the author never wrote. They are cost-keyed rather than table-keyed (CLAIM
+// D-D) so they re-price themselves the day the model does; the F-series fixture pins are
+// what hold the model. Consequence worth stating at the call site: `fx_tint_band`'s
+// pal_region ON op costs 506 cyc even at ONE colour, so even a 1-colour tint band needs
+// height 2, and its S/H form needs 3.
+pub comptime fn band(top: int, bot: int, on: RasterOp, sh: int) -> array {
+    ensure(sh == 0 || sh == 1, "band: sh must be 0 or 1")
+    ensure(top < bot, "band: top {top} must be above bot {bot}")
+    // The restore's payload is the ON op's span, read back off the op. `sb` is a BYTE
+    // length (op_cram_span's contract) and pal_restore counts WORDS, hence sb / 2.
+    let (sa, sb) = op_cram_span(on)
+    ensure(sa >= 0,
+           "band: the ON op has no CRAM span (a reg-only or VSRAM band needs no restore — a register band is already two plain fires, spec §9)")
+    // inert on the refused path: without this, the poisoned pal_restore(-1, 0) cascades five more diagnostics incl. a raw evaluator shift error — the ensure above already said the true thing (Task 9 review, measured 6 -> 1).
+    if sa < 0 { return [fire(top, [on])] }
+    if sh == 0 {
+        // Bound ONCE and reused: `fire()` runs the per-fire ceilings, so constructing it
+        // twice (here and in the return) would report every ceiling violation twice.
+        let f_on = fire(top, [on])
+        ensure(fire_cost_cycles(f_on) <= (bot - top) * RASTER_SCANLINE_CYC,
+               "band: height {bot - top} is below this ON op's minimum — the ON fire costs {fire_cost_cycles(f_on)} cyc against {(bot - top) * RASTER_SCANLINE_CYC} available; a 1-word pal_region tint needs height 2 (spec §6.2, measured model)")
+        return [f_on, fire(bot, [pal_restore(sa, sb / 2)])]
+    }
+    let min_sh_height = 3
+    ensure(bot - top >= min_sh_height,
+           "band: an S/H band needs height >= {min_sh_height} — the merged [reg, tint] ON fire is charged against the gap to the S/H-off fire at bot-1 (spec §6.2, measured model)")
+    let f_on_sh = fire(top, [reg_sh_on(), on])
+    // GATED ON THE HEIGHT RULE ABOVE, the way raster_program's band block is gated on
+    // restore_n == 1 and for the same reason: `ensure` is non-aborting, so an ungated cost
+    // check would ALSO fire at height 2 — the merged fire is at minimum 568 cyc (a 1-word
+    // cram ON op) so it cannot fit a one-line gap for ANY legal ON op — and the author
+    // would read two band() sentences stating one fact. The height rule is the one written
+    // in the author's own numbers, so it speaks alone.
+    //
+    // AND IT CANNOT FIRE TODAY — stated rather than left to be rediscovered. band()'s
+    // merged fire is exactly two ops, `reg_sh_on` (110 cyc) plus the ON op, and the
+    // dearest ON op the constructors admit is a 3-word `stream_pal_region` at 264, so the
+    // merged fire tops out at 302 + 110 + 264 = 676 against the 2 x 488 = 976 that height
+    // 3 buys. It is kept anyway, and NOT as belt-and-braces: `>= 3` is a LITERAL and 676
+    // is a fact about six measured constants, two of which moved this week (the dispatch
+    // chain grew a rung, and RASTER_WORK_RESTORE_CYC was measured at all). This is the
+    // cost-keyed half CLAIM D-D asks for — the thing that notices when the model moves the
+    // real minimum past the literal — which is the opposite of an unreachable guard: it is
+    // reachable exactly when the number above it goes stale.
+    if bot - top >= min_sh_height {
+        ensure(fire_cost_cycles(f_on_sh) <= (bot - top - 1) * RASTER_SCANLINE_CYC,
+               "band: S/H height {bot - top} is below this ON op's minimum — the merged ON fire costs {fire_cost_cycles(f_on_sh)} cyc against the gap to bot-1 (spec §6.2)")
+    }
+    // The de-mix fire sits at bot-1 and carries the register write ALONE, because the
+    // restore's fire may carry the restore only (spec §4.2a, claim D-B). Its own gap to
+    // the restore is one line and a single reg fire models at 412 cyc, inside a 488-cycle
+    // line — so that pair needs no minimum of its own beyond the height >= 3 above.
+    return [f_on_sh,
+            fire(bot - 1, [reg_sh_off()]),
+            fire(bot, [pal_restore(sa, sb / 2)])]
+}
+
 // ===========================================================================
 // ENCODING
 // ===========================================================================
@@ -604,6 +733,10 @@ comptime fn op_words(o: RasterOp) {
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) & $FFFF,
                              vals.len - 1] ++ vals,
+        PalRestore(a, cnt) => [10,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             cnt - 1, a],
     }
 }
 
@@ -623,6 +756,7 @@ comptime fn op_size(o: RasterOp) -> int {
         Cram(a, cols)                => 4 + cols.len,
         PalRegion(a, slot, pl, e, n) => 5,
         Vsram(a, vals)               => 4 + vals.len,
+        PalRestore(a, cnt)           => 5,
     }
 }
 
@@ -637,6 +771,7 @@ comptime fn op_stream_words(o: RasterOp) -> int {
         Cram(a, cols)                => cols.len,
         PalRegion(a, slot, pl, e, n) => n,
         Vsram(a, vals)               => vals.len,
+        PalRestore(a, cnt)           => cnt,
     }
 }
 
@@ -665,6 +800,7 @@ comptime fn count_stream_pal_region_ops(ops: array) -> int {
             Cram(a, cols)                  => 0,
             PalRegion(a, slot, pl, e, cnt) => 1,
             Vsram(a, vals)                 => 0,
+            PalRestore(a, cnt)             => 0,
         }
     }
     return n
@@ -678,6 +814,7 @@ comptime fn op_ship_cram_addr(o: RasterOp) -> int {
         Cram(a, cols)                  => -1,
         PalRegion(a, slot, pl, e, cnt) => a,
         Vsram(a, vals)                 => -1,
+        PalRestore(a, cnt)             => -1,
     }
 }
 comptime fn op_ship_stage_off(o: RasterOp) -> int {
@@ -686,6 +823,7 @@ comptime fn op_ship_stage_off(o: RasterOp) -> int {
         Cram(a, cols)                  => -1,
         PalRegion(a, slot, pl, e, cnt) => slot * 128 + pl * 32 + e * 2,
         Vsram(a, vals)                 => -1,
+        PalRestore(a, cnt)             => -1,
     }
 }
 // The SetReg word itself, for the ops the ship re-issues at frame top.
@@ -695,6 +833,7 @@ comptime fn op_reg_word(o: RasterOp) -> int {
         Cram(a, cols)                  => 0,
         PalRegion(a, slot, pl, e, cnt) => 0,
         Vsram(a, vals)                 => 0,
+        PalRestore(a, cnt)             => 0,
     }
 }
 comptime fn op_ship_count(o: RasterOp) -> int {
@@ -703,8 +842,48 @@ comptime fn op_ship_count(o: RasterOp) -> int {
         Cram(a, cols)                  => 0,
         PalRegion(a, slot, pl, e, cnt) => cnt,
         Vsram(a, vals)                 => 0,
+        PalRestore(a, cnt)             => 0,
     }
 }
+
+// op_cram_span — (CRAM byte address, byte length) of the entries an op WRITES; (-1, 0)
+// for ops with no CRAM span. ADDRESS-keyed, never class-keyed: Vsram dispatches at the
+// CRAM rung but its address is scroll space, not palette space (the op_mask precedent).
+// The composition guard (raster_program) is the only consumer. Claim C-A.
+// DESTRUCTURE ONLY — let (a, n) = op_cram_span(o); tuples are not indexable in .emp and this is the tree's only tuple-returning fn.
+comptime fn op_cram_span(o: RasterOp) -> (int, int) {
+    return match o {
+        SetReg(w)                      => (-1, 0),
+        Cram(a, cols)                  => (a, 2 * cols.len),
+        PalRegion(a, slot, pl, e, cnt) => (a, 2 * cnt),
+        Vsram(a, vals)                 => (-1, 0),
+        PalRestore(a, cnt)             => (a, 2 * cnt),
+    }
+}
+// op_is_restore — 1 for the restore op only. The one-band count (spec §4.1).
+comptime fn op_is_restore(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                      => 0,
+        Cram(a, cols)                  => 0,
+        PalRegion(a, slot, pl, e, cnt) => 0,
+        Vsram(a, vals)                 => 0,
+        PalRestore(a, cnt)             => 1,
+    }
+}
+
+// ELABORATION ANCHOR — uncalled comptime fns are never elaborated, so without this a
+// broken arm in either helper ships green (proven by poison, Task 4 review). Zero bytes.
+// Module-level `let (a, b) = ...` tuple destructuring is not a valid top-level item
+// (item() only accepts `comptime enum` / `comptime test` / `comptime fn` after the
+// `comptime` keyword — see sigil's parser.rs item()), so the two facts are checked
+// inside a tiny helper and pulled to module level through its return value.
+comptime fn zz_elaboration_anchor() -> int {
+    let (zz_span_a, zz_span_n) = op_cram_span(pal_restore($40, 3))
+    ensure(zz_span_a == $40 && zz_span_n == 6 && op_is_restore(pal_restore($40, 3)) == 1 && op_is_restore(RasterOp.SetReg($8C89)) == 0,
+           "op_cram_span/op_is_restore elaboration anchor broke — a helper arm is wrong")
+    return 1
+}
+ensure(zz_elaboration_anchor() == 1, "op_cram_span/op_is_restore elaboration anchor broke — a helper arm is wrong")
 
 comptime fn op_mask(o: RasterOp) -> int {
     return match o {
@@ -717,11 +896,13 @@ comptime fn op_mask(o: RasterOp) -> int {
         // CHARACTER's CRAM line, which would force a spurious full re-assert of the
         // character palette every single frame. Silent, and per-frame.
         Vsram(a, vals)               => 0,
+        // start-line-only is EXACT for a restore because pal_restore() (C-D) refuses spans crossing a 32-byte line — the same reasoning as the Vsram note below, but enforced at the constructor.
+        PalRestore(a, cnt)           => 1 << (a >> 5),
     }
 }
 
 // op_is_reg — 1 for the one op that writes a register with NO blanking delay, 0 for
-// every "stream" op (stream_cram / stream_pal_region / stream_vsram: command longword, EFX_BLANK_DELAY,
+// every "stream" op (stream_cram / stream_pal_region / stream_vsram / pal_restore: command longword, EFX_BLANK_DELAY,
 // word loop). That split is the runtime's, not a taxonomy: it is what makes both the
 // ordering rule (check_mixed_fire) and the stream op ceiling (fire) mean something.
 comptime fn op_is_reg(o: RasterOp) -> int {
@@ -730,6 +911,7 @@ comptime fn op_is_reg(o: RasterOp) -> int {
         Cram(a, cols)                => 0,
         PalRegion(a, slot, pl, e, n) => 0,
         Vsram(a, vals)               => 0,
+        PalRestore(a, cnt)           => 0,
     }
 }
 
@@ -819,11 +1001,19 @@ pub const RASTER_STREAM_WORD_CYC    = 30     // one streamed word: move.w to VDP
 //   reg    : move.w (a1)+, (a2)
 //   cram   : move.l command (20) + moveq (4) + EFX_BLANK_DELAY spin (54) + count read (8)
 //            + the stream loop's final not-taken dbf (4)
-//   region : all of the above plus lea Pal_Variant_Stage (8, short form) + adda.w (8)
+//   region : all of the above plus lea Pal_Variant_Stage (8, short form) + adda.w (12)
 //            + lea VDP_CTRL restore (12)
 const RASTER_WORK_REG_CYC           = 12
 const RASTER_WORK_CRAM_CYC          = 90
 const RASTER_WORK_REGION_CYC        = 122
+// The restore body: region's shape with its OWN spin, EFX_RESTORE_DELAY = 13.
+// MEASURED 2026-08-17 (claim 9 CLOSED), in two stages: the spinless body read 556.0/fire
+// (3 boots, spread 0 — work exactly the derived 122 - 58 = 64, hand-verified 20+8+8+12+
+// 4+12); the §7.3 landing capture then calibrated the spin (zero delay landed the burst
+// at x~180 of the row ABOVE the authored edge), so the shipped body carries
+// 64 + (moveq 4 + 13*10 + 14 expired) = 64 + 148 = 212 — F8 re-measured at 704/fire
+// after calibration, again spread 0. Evidence: docs/benchmarks/effects-r1/.
+const RASTER_WORK_RESTORE_CYC = 212
 
 // ---- dispatch depth ---------------------------------------------------------
 // Raster_HInt tests opcodes in ASCENDING order — OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
@@ -837,11 +1027,18 @@ const RASTER_WORK_REGION_CYC        = 122
 // comptime fn bodies, and a body's free names resolve at the CALL SITE, so a value spelled
 // as an arithmetic expression over the IMPORTED opcodes would not resolve in an author's
 // module. The pin is what keeps the literals honest.
-pub const RASTER_DISPATCH_RUNGS     = 4      // chain length; OP_SET_REG falls through all of it
+pub const RASTER_DISPATCH_RUNGS     = 5      // chain length; OP_SET_REG falls through all of it
 const RASTER_DEPTH_CRAM             = 0      // rungs FAILED before this op matches
 const RASTER_DEPTH_REGION           = 1
-ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_RUN_RAMP - OP_CRAM) / 2 + 1,
-       "the raster cost model's dispatch depths no longer match the opcode order Raster_HInt tests in. The chain is ascending from OP_CRAM with OP_SET_REG as the fall-through, so depth = (opcode - OP_CRAM) / 2 and the fall-through pays every rung. If an opcode was inserted, update these three literals; if the chain was REORDERED so depth is no longer the opcode order, this derivation is gone and each depth has to be spelled against Raster_HInt's compare sequence by hand.")
+const RASTER_DEPTH_RESTORE          = 4      // rungs FAILED before this op matches
+// TRAP for opcode 12's author: this pin names the LAST opcode BY NAME. Appending
+// past OP_PAL_RESTORE leaves it green while the chain grows — it must be re-spelled
+// against the new last opcode, and F1/F5 re-measured, or every SetReg is silently
+// under-charged by 16 cyc/rung (the exact miss the R1 sweeps caught here once already).
+// AND check the new rung's beq still assembles .s — the restore target sits at disp $76 of $7F; opcode 12's own rung will be past the byte cliff (Bcc.w not-taken = 20, a 4-cyc mispricing the pin cannot see).
+// If the chain is ever REORDERED (not appended), this whole derivation dies — each depth must be spelled by hand against Raster_HInt's compare sequence.
+ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DEPTH_RESTORE == (OP_PAL_RESTORE - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_PAL_RESTORE - OP_CRAM) / 2 + 1,
+       "dispatch depth pins drifted from the opcode chain — update these FOUR literals together (and re-measure F1/F5: the SetReg fall-through pays every rung)")
 
 comptime fn op_dispatch_cyc(o: RasterOp) -> int {
     return match o {
@@ -851,6 +1048,7 @@ comptime fn op_dispatch_cyc(o: RasterOp) -> int {
         PalRegion(a, slot, pl, e, n) => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_REGION + RASTER_DISPATCH_HIT_CYC,
         // A Vsram op EMITS OP_CRAM (see stream_vsram), so it dispatches at the cram rung.
         Vsram(a, vals)               => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
+        PalRestore(a, cnt)           => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_RESTORE + RASTER_DISPATCH_HIT_CYC,
     }
 }
 
@@ -860,6 +1058,7 @@ comptime fn op_work_cyc(o: RasterOp) -> int {
         Cram(a, cols)                => RASTER_WORK_CRAM_CYC,
         PalRegion(a, slot, pl, e, n) => RASTER_WORK_REGION_CYC,
         Vsram(a, vals)               => RASTER_WORK_CRAM_CYC,
+        PalRestore(a, cnt)           => RASTER_WORK_RESTORE_CYC,
     }
 }
 
@@ -922,20 +1121,22 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 // no noise floor to allow for and no difference here is within one.
 //
 // Each pin names its fixture so a failure says which measurement the change contradicts.
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 396,
-       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 396")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 412,
+       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 412")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 396 at RUNGS=4)
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 458,
        "cost model vs fixture F2 (stream_cram, 1 word): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, measured 458")
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 518,
        "cost model vs fixture F3 (stream_cram, 3 words): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, measured 518")
 ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 566,
        "cost model vs fixture F4 (stream_pal_region, 3 words): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, measured 566")
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 612,
-       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 612 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 628,
+       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 628 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 612 at RUNGS=4)
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 614,
        "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 614 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
 ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 458,
        "cost model vs fixture F7 (stream_vsram, 1 word): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, measured 458 — identical to F2, which is the measurement behind charging a VSRAM word exactly what a colour word costs")
+ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 704,
+       "cost model vs fixture F8 (pal_restore, 3 words): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, measured 704 (calibrated body; 556 spinless) — claim 9 closed: the restore's work constant is the measured one, and this pin is what keeps the band() minima honest")  // measured 2026-08-17, 3 boots spread 0
 // F0 is the per-fire base's own anchor and cannot be spelled as a `fire` (a fire with no ops
 // is refused). Its two priming records read 572 cycles, i.e. 286 per no-op record; the +16 to
 // RASTER_FIRE_BASE_CYC is derived in that constant's note above.
@@ -1152,6 +1353,143 @@ pub comptime fn raster_program(fires: array) {
             ch_mask = ch_mask | bit
         }
     }
+    // ---- E-D: the reg $0F scan, tree-wide (spec §4.2b) ------------------------
+    // UNCONDITIONAL — outside the band block below, because a stride change voids
+    // op_cram_span and op_mask for every program, band or no band. reg_set already
+    // refuses this word with a better sentence; this is the layer underneath it, for
+    // the ops that never went through reg_set. `RasterOp` is `pub` (the match arms are
+    // the wire contract), so `RasterOp.SetReg($8F04)` is a spelling the language admits
+    // and the constructor cannot see.
+    //
+    // op_reg_word is 0 for every non-SetReg op, and 0 >> 8 is 0, so this is total over
+    // the enum without a second match.
+    //
+    // The same clause applies to reg $0A, the SCHEDULE's own register (Task 8 review,
+    // spec §4.2b precedent: constructor-only refusals are not refusals — the $8F/$8A
+    // precedent). `RasterOp.SetReg($8A05)` bypasses reg_set's ban exactly the way
+    // `RasterOp.SetReg($8F04)` does, and here the payload is not merely a voided span
+    // computation — it is the arm word Raster_HInt just wrote for THIS fire, clobbered
+    // before the next reload, which detonates the relative-arm chain for every fire
+    // remaining in the frame.
+    for f in fires {
+        for o in fire_ops(f) {
+            ensure((op_reg_word(o) >> 8) != $8F,
+                   "raster_program: an op writes reg $0F (autoincrement) at line {fire_screen_line(f)} — refused tree-wide; direct RasterOp.SetReg construction bypasses reg_set's ensure, this scan is the layer that cannot be dodged (spec §4.2b, claim E-D)")
+            ensure((op_reg_word(o) >> 8) != $8A,
+                   "raster_program: an op writes reg $0A — the SCHEDULE's register (the arm word the encoder just wrote); a direct RasterOp.SetReg($8Axx) bypasses reg_set's ban and detonates the relative-arm chain from that fire down (spec §4.2b precedent: constructor-only refusals are not refusals)")
+        }
+    }
+
+    // ---- 8a: ONE BAND PER PROGRAM (spec §4.1) --------------------------------
+    // The count comes FIRST of the band guards because every one that follows is
+    // written in the singular: "the restore", "its partner", "the restore's line".
+    // With two restores in a program those phrases name nothing, so the composition
+    // guard below is gated on this count being exactly 1 rather than trying to
+    // adjudicate a set. This is a REFUSAL, not a limitation of the encoder — the
+    // wire format would happily carry two — because a second band's ON op and its
+    // OFF edge cannot be checked against each other by span alone once two restores
+    // compete for the same partner candidates.
+    comptime var restore_n = 0
+    for f in fires { for o in fire_ops(f) { restore_n = restore_n + op_is_restore(o) } }
+    ensure(restore_n <= 1,
+           "raster_program: {restore_n} restore ops — one band per program (spec §4.1). The FIRST restore in authored order is the one every later diagnostic describes; ensure is non-aborting, so fix this count first.")
+
+    if restore_n == 1 {
+        // Gating on ==1 deviates from spec §4.1's "two clean diagnostics" sentence
+        // DELIBERATELY: a two-restore program reports only the count (one clean
+        // diagnostic beats two half-relevant ones); consequence: the r_line == -1
+        // first-restore selector below can never select among candidates —
+        // unreachable-by-construction, kept for the day the gate relaxes.
+        // ---- C-A: the equal-span-partner composition guard (spec §4.2). ----
+        // GROUNDING, load-bearing: patchable fire lines MOVE at runtime; this guard's
+        // earlier/later comparison is sound ONLY because check_intervals forces strictly
+        // ascending disjoint band intervals, so every reachable line of a patchable
+        // record stays on one side of the restore. FALSIFIER: any relaxation of
+        // check_intervals silently voids this guard.
+        comptime var r_line = -1
+        comptime var r_a = -1
+        comptime var r_b = 0
+        comptime var r_patch = 0
+        for f in fires {
+            for o in fire_ops(f) {
+                if op_is_restore(o) == 1 && r_line == -1 {
+                    r_line = fire_screen_line(f)
+                    let (sa, sb) = op_cram_span(o)
+                    r_a = sa
+                    r_b = sb
+                    r_patch = fire_is_patch(f)
+                }
+            }
+        }
+        // Rule 6 half 1 (claim E-A): the restore's OWN fire is static — a patchable
+        // restore record hits .suppress above band_hi and the tint runs to the bottom
+        // of the screen, silently (sweep 5 K1, raster.emp .suppress).
+        ensure(r_patch == 0,
+               "raster_program: the restore's carrying fire must be static — a patchable restore is the split spelling of a moving-bottom band, whose suppressed restore leaves the tint running to screen bottom (spec §4.2 rule 6)")
+        // isect_earlier — NOT a count of equal-span partners. It tallies every
+        // strictly-earlier op whose span INTERSECTS the restore's, whether or not it
+        // passed the equal-span ensure just above (ensure is non-aborting, so a failed
+        // ensure does not stop the increment). A true partner is one instance of this
+        // set; an intersecting-but-unequal "would bury" op is another. The final ensure
+        // below reports this raw count, not a partner count — see its message.
+        comptime var isect_earlier = 0
+        for f in fires {
+            for o in fire_ops(f) {
+                if op_is_restore(o) == 0 {
+                    let (sa, sb) = op_cram_span(o)
+                    if sa >= 0 && sa < r_a + r_b && r_a < sa + sb {
+                        // Same-line intersection: order-decided winner. REDUNDANT once
+                        // D-B ships — it can never refuse a program D-B does not already
+                        // refuse (both fire together; probed in the Task 8 review) —
+                        // kept because deleting it couples C-A's completeness to D-B's
+                        // continued existence.
+                        ensure(fire_screen_line(f) != r_line,
+                               "raster_program: a CRAM op on the restore's own line {r_line} — the merge order would decide which write wins (spec §4.2)")
+                        if fire_screen_line(f) < r_line {
+                            ensure(sa == r_a && sb == r_b,
+                                   "raster_program: the op at line {fire_screen_line(f)} intersects the restore's span but is not its equal-span partner — the restore writes BASE and would bury it from line {r_line} down (spec §4.2)")
+                            // Rule 6 half 2: the partner is static too (a patchable
+                            // partner is the split spelling of a moving-TOP band).
+                            ensure(fire_is_patch(f) == 0,
+                                   "raster_program: the restore's partner at line {fire_screen_line(f)} must be static — a patchable partner is the split spelling of a moving-top band (spec §4.2 rule 6)")
+                            isect_earlier = isect_earlier + 1
+                        }
+                    }
+                }
+            }
+        }
+        ensure(isect_earlier == 1,
+               "raster_program: {isect_earlier} strictly-earlier op(s) intersect the restore's span at line {r_line} — at most one may exist and it must be the equal-span partner (its own ON op; zero = base-over-base authoring nonsense, two+ = one of them gets buried) (spec §4.2)")
+
+        // ---- D-B: the restore's fire is a SINGLE-OP fire (spec §4.2a) ----------
+        // Not a tidiness rule and not covered by the per-fire ceilings above: two ops
+        // is legal for every other fire in the tree. What is special about this one is
+        // that the restore has no EFX_BLANK_DELAY of its own — its landing inside the
+        // blanking bracket is calibrated as the FIRST thing the record does (spec
+        // §3.2) — so anything ahead of it spends the bracket and nothing behind it can
+        // give the time back. This is also what deadens the same-line ensure above.
+        for f in fires {
+            comptime var has_r = 0
+            comptime var n_ops = 0
+            for o in fire_ops(f) {
+                has_r = has_r + op_is_restore(o)
+                n_ops = n_ops + 1
+            }
+            ensure(has_r == 0 || n_ops == 1,
+                   "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it costs 110 cyc no delay can recover, and a second stream op races it for the one measured HBlank slot (spec §4.2a, claim D-B). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
+        }
+
+        // ---- CLAIM 6: no band in a program that ships (spec §4.3) --------------
+        // NOT a span or interval property, which is why C-A cannot see it and this is
+        // a separate walk: the two can be disjoint in both and still be incompatible.
+        // On a shipping frame the frame-top DMA has already put VARIANT colours in
+        // CRAM while Palette_Ship_Snap — what the restore streams — still holds BASE.
+        for f in fires {
+            ensure(fire_offscreen_ship(f) == 0,
+                   "raster_program: a band cannot share a program with an offscreen_ship fire — on a shipping frame CRAM holds VARIANT colours while the snapshot holds BASE, so the restore would paint the dry palette over a submerged screen (spec §4.3). Note: this excludes Sec0 (OJZ_TwoChannel) from bands — doubly: its [3,220] channel band also leaves no legal interval (spec §4.3).")
+        }
+    }
+
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
     // program without exception — which is what lets patch_table pre-resolve a rec_off at all,
     // and what makes the builder's fixed 5-word prologue (header + both priming records) a
@@ -1469,3 +1807,134 @@ pub comptime fn first_mismatch(a: array, b: array) -> int {
     }
     return -1
 }
+
+// ---- band()'s hand-word twin (spec §10 gate 5) --------------------------------
+//
+// The ONLY thing that elaborates `band` on an ordinary build. An uncalled comptime fn is
+// never elaborated (the op_cram_span anchor above learned this the hard way), so without
+// a call site every ensure inside band — and every wrong word it could emit — ships green.
+// This is that call site AND the value check, and it lives here rather than game-side
+// because band() has no content client yet: the OJZ programs are all patchable/shipping
+// fixtures, which §4.3 refuses a band. Zero ROM bytes: a `const` emits nothing and every
+// name below is comptime.
+//
+// THE WORDS ARE HAND-DERIVED FROM THE ENCODER RULES, never pasted from a run — a twin
+// generated by the thing it pins proves only that the encoder agrees with itself (the
+// Gate-3 sin the R1 sweeps killed). The derivation, for
+// `band(100, 140, stream_cram($48, [$0E42, $0A20, $0640]), 0)`:
+//
+//   fires        Fire(100, [Cram($48, 3 words)]), Fire(140, [PalRestore($48, 3)])
+//                the restore's (addr, count) is op_cram_span(on) = ($48, 6 bytes) -> 3 words
+//   fire lines   L = [0, 1, 99, 139]              (priming pair, then screen line - 1)
+//   header       op_mask is 1 << (addr >> 5) for both ops; $48 >> 5 = 2 -> %0100
+//   arm 0        $8A00 | (L[2] - L[1] - 1) = $8A00 | 97 = $8A61
+//   arm 1        $8A00 | (L[3] - L[2] - 1) = $8A00 | 39 = $8A27
+//   arms 2, 3    past the end of L -> $8AFF, the park word
+//   ON body      op_words(Cram) = [OP_CRAM, comm>>16, comm&$FFFF, len-1] ++ colours,
+//                vdp_comm($48, Cram, Write) = $C0480000 (pinned game-side, ojz_effects)
+//   restore body op_words(PalRestore) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, cnt-1, addr]
+//                — the snapshot offset IS the CRAM address (claim D-F), hence the $48 tail
+//   terminator   park + RASTER_OPS_END
+//
+// Height 40 is far above the 3-word cram ON op's minimum of 2 (518 cyc <= 2 x 488), so the
+// twin pins the ENCODING and leaves the minima to the poison lane, which is the split the
+// other twins in this tree use.
+const RASTER_BAND_TWIN = band(100, 140, stream_cram($48, [$0E42, $0A20, $0640]), 0)
+
+const RASTER_BAND_TWIN_HAND = [
+    %0100,                      // pal_dirty_mask — the WHOLE header, one word; CRAM line 2
+    $8A61, 0,                   // fire 0 — priming; arm = $8A00 | (99 - 1 - 1)
+    $8A27, 0,                   // fire 1 — priming; arm = $8A00 | (139 - 99 - 1)
+    $8AFF, 1,                   // fire 2 — the band's ON edge at screen 100, one op
+      2, $C048, $0000,          // OP_CRAM, command longword split
+                 2,             // count-1
+                 $0E42, $0A20, $0640,
+    $8AFF, 1,                   // fire 3 — the OFF edge at screen 140, the restore ALONE
+      10, $C048, $0000,         // OP_PAL_RESTORE, same command longword (same span)
+                 2,             // count-1
+                 $48,           // Palette_Ship_Snap offset == the CRAM address
+    $8AFF, $FFFF,               // park + RASTER_OPS_END
+]
+// The .len ensure is REQUIRED alongside first_mismatch, not belt-and-braces: first_mismatch
+// walks only its FIRST argument's indices and skips any index past the end of the second,
+// so a program that is a prefix of the twin — or a twin that is a prefix of the program —
+// compares EQUAL. Nothing inside it can see that.
+ensure(raster_words(RASTER_BAND_TWIN) == RASTER_BAND_TWIN_HAND.len,
+       "band(): the DSL counts {raster_words(RASTER_BAND_TWIN)} words, the hand twin is {RASTER_BAND_TWIN_HAND.len}")
+ensure(first_mismatch(raster_program(RASTER_BAND_TWIN), RASTER_BAND_TWIN_HAND) == -1,
+       "band(): the emitted program diverges from the hand twin at index {first_mismatch(raster_program(RASTER_BAND_TWIN), RASTER_BAND_TWIN_HAND)}")
+
+// ---- band()'s sh:1 hand-word twin (Task 9 review, I-1) ------------------------
+//
+// The sh:0 twin above elaborates ONE of band()'s two shapes. sh:1 is a different code
+// path start to finish — three fires instead of two, a merged [reg, ON] fire, a bare
+// de-mix fire carrying reg_sh_off() alone, and a THIRD arm word (the fire-record arm for
+// the merged ON fire itself, not one of the two priming arms) — so the sh:0 twin proves
+// nothing about it; it needs its own hand-derived pin.
+//
+// THE WORDS ARE HAND-DERIVED FROM THE ENCODER RULES, never pasted from a run, for the same
+// reason the sh:0 twin gives (a twin generated by the thing it pins proves only that the
+// encoder agrees with itself). The derivation, for
+// `band(100, 140, stream_cram($48, [$0E42, $0A20, $0640]), 1)`:
+//
+//   fires        Fire(100, [SetReg($8C89), Cram($48, 3 words)]),
+//                Fire(139, [SetReg($8C81)]),
+//                Fire(140, [PalRestore($48, 3)])
+//                — reg_sh_on() = reg_set($8C81 | 8) = SetReg($8C89); reg_sh_off() = SetReg($8C81);
+//                the restore's (addr, count) is op_cram_span(on) = ($48, 6 bytes) -> 3 words
+//   fire lines   L = [0, 1, 99, 138, 139]          (priming pair, then screen line - 1 per fire:
+//                100-1=99, 139-1=138, 140-1=139)
+//   header       op_mask is 1 << (addr >> 5) for every non-reg op; $48 >> 5 = 2 -> %0100
+//                (SetReg contributes 0, so the merged fire's reg op does not touch it)
+//   arm 0        arm_at(L,0) = $8A00 | (L[2] - L[1] - 1) = $8A00 | (99 - 1 - 1) = $8A00 | 97 = $8A61
+//   arm 1        arm_at(L,1) = $8A00 | (L[3] - L[2] - 1) = $8A00 | (138 - 99 - 1) = $8A00 | 38 = $8A26
+//   arm 2        arm_at(L,2) = $8A00 | (L[4] - L[3] - 1) = $8A00 | (139 - 138 - 1) = $8A00 | 0 = $8A00
+//                — THE ZERO-RELOAD ARM. L[3]=138 and L[4]=139 are ADJACENT fire lines (the
+//                de-mix fire at bot-1=139 and the restore fire at bot=140, both one line apart
+//                in fire-line space), so arm_at computes a gap of exactly 0 and reloads $8A00 —
+//                not $8AFF (past-end park) and not some larger gap. This is the fire-record
+//                arm word for fire 0 (the merged ON fire), not a priming arm; no other twin in
+//                this tree exercises an adjacent-fire zero reload.
+//   arms 3, 4    i+2 >= L.len(5) for i=3,4 -> $8AFF (past the end -> the park word), covering
+//                fire 1 (the de-mix reg-off fire) and fire 2 (the restore fire)
+//   fire 0 body  op_words(SetReg($8C89)) ++ op_words(Cram($48, [$0E42,$0A20,$0640]))
+//                = [OP_SET_REG, $8C89] ++ [OP_CRAM, comm>>16, comm&$FFFF, len-1] ++ colours
+//                vdp_comm($48, Cram, Write) = $C0480000 (same pinned command as the sh:0 twin)
+//   fire 1 body  op_words(SetReg($8C81)) = [OP_SET_REG, $8C81]                — the bare de-mix
+//   fire 2 body  op_words(PalRestore($48, 3)) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, cnt-1, addr]
+//   terminator   park + RASTER_OPS_END, hardcoded (not arm_at-derived)
+//
+// Word count: 1 (mask) + 4 (two priming records) + 2 (terminator)
+//           + (2 + 2 + 7)   fire 0: arm+count, SetReg(2 words), Cram(7 words)
+//           + (2 + 2)       fire 1: arm+count, SetReg(2 words)
+//           + (2 + 5)       fire 2: arm+count, PalRestore(5 words)
+//           = 7 + 11 + 4 + 7 = 29
+//
+// Height 40 is far above the S/H minimum of 3 (spec §6.2), so this twin pins the ENCODING
+// and leaves the minima to the poison lane, matching the split the sh:0 twin uses.
+const RASTER_BAND_TWIN_SH1 = band(100, 140, stream_cram($48, [$0E42, $0A20, $0640]), 1)
+
+const RASTER_BAND_TWIN_SH1_HAND = [
+    %0100,                       // pal_dirty_mask — CRAM line 2; the reg ops contribute nothing
+    $8A61, 0,                    // fire 0 — priming; arm = $8A00 | (99 - 1 - 1)
+    $8A26, 0,                    // fire 1 — priming; arm = $8A00 | (138 - 99 - 1)
+    $8A00, 2,                    // fire 2 — the merged S/H-on + ON edge at screen 100, two ops;
+                                  // arm = $8A00 | (139 - 138 - 1) = $8A00 | 0 — the zero-reload arm
+      0, $8C89,                  // OP_SET_REG, reg_sh_on() = $8C81 | bit 3
+      2, $C048, $0000,           // OP_CRAM, command longword split
+                 2,              // count-1
+                 $0E42, $0A20, $0640,
+    $8AFF, 1,                    // fire 3 — the de-mix fire at screen 139, reg write ALONE
+      0, $8C81,                  // OP_SET_REG, reg_sh_off() = $8C81
+    $8AFF, 1,                    // fire 4 — the OFF edge at screen 140, the restore ALONE
+      10, $C048, $0000,          // OP_PAL_RESTORE, same command longword (same span)
+                 2,              // count-1
+                 $48,            // Palette_Ship_Snap offset == the CRAM address
+    $8AFF, $FFFF,                // park + RASTER_OPS_END
+]
+// Same requirement as the sh:0 twin: the .len ensure catches what first_mismatch structurally
+// cannot (a program that is a prefix of the twin, or vice versa, compares equal to it).
+ensure(raster_words(RASTER_BAND_TWIN_SH1) == RASTER_BAND_TWIN_SH1_HAND.len,
+       "band(sh:1): the DSL counts {raster_words(RASTER_BAND_TWIN_SH1)} words, the hand twin is {RASTER_BAND_TWIN_SH1_HAND.len}")
+ensure(first_mismatch(raster_program(RASTER_BAND_TWIN_SH1), RASTER_BAND_TWIN_SH1_HAND) == -1,
+       "band(sh:1): the emitted program diverges from the hand twin at index {first_mismatch(raster_program(RASTER_BAND_TWIN_SH1), RASTER_BAND_TWIN_SH1_HAND)}")

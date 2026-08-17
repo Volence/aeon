@@ -172,6 +172,20 @@ pub const OP_RUN_GRADIENT = 6
 // none of them could parameterise it from a data file the way this can.
 pub const OP_RUN_RAMP = 8
 
+// OP_PAL_RESTORE (Parcel R1) — the band's OFF edge: stream `count` base colours from
+// Palette_Ship_Snap (this frame's base-DMA payload) back to CRAM.
+//   dc.l <CRAM write command longword>    target, derived from the same addr field
+//   dc.w count-1                          count <= RASTER_CRAM_MAX
+//   dc.w addr                             snapshot offset == CRAM byte address
+// Appended LAST for two invariants, neither of them body bytes: (1) .op_region keeps
+// dispatch DEPTH 1, so the EFX_BLANK_DELAY=4 calibration measured at that depth stays
+// valid (renumbering would add rungs ahead of an oracle-tuned landing); (2) F1=396
+// proved the chain assembles byte-displacement Bcc — a mid-chain insertion risks a
+// silent word-relaxation (+4/rung) failing the pins while blaming the cost model.
+// The SetReg fall-through pays the +16 rung tax (F1 396->412, F5 612->628, re-pinned
+// in raster_dsl.emp by the encoder task). specs/2026-08-16-parcel-r1-palette-bands-v6.md §3.
+pub const OP_PAL_RESTORE = 10
+
 // op_count sentinel: park the counter and do not advance the cursor. Reached only
 // by a stray fire (a counter that somehow wrapped), so it is defense, not flow.
 pub const RASTER_OPS_END = $FFFF
@@ -216,6 +230,12 @@ pub const RASTER_CRAM_MAX = 3
 // Region-tunable — recalibrate on oracle if the handler's prologue changes (the ints_off
 // bracket's stack push already shifted it once; see P1 GATE-EVIDENCE's CORRECTION).
 const EFX_BLANK_DELAY = 4
+
+// The RESTORE body's own spin (R1, spec §3.2) — never shared with EFX_BLANK_DELAY: the
+// restore dispatches at depth 4 and carries no preceding op, so its pre-burst timing is
+// its own. Calibrated 2026-08-17 from the §7.3 first-datum capture (see the body comment
+// at .op_pal_restore); evidence docs/benchmarks/effects-r1/GATE-EVIDENCE.md.
+const EFX_RESTORE_DELAY = 13
 
 // Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
 // P1 runs entirely out of Buf_A.
@@ -699,6 +719,8 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         beq     .op_run_gradient
         cmpi.w  #OP_RUN_RAMP, d1
         beq     .op_run_ramp
+        cmpi.w  #OP_PAL_RESTORE, d1
+        beq     .op_pal_restore
         // OP_SET_REG — one $8xxx word
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
@@ -766,6 +788,37 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
     .advance:
         move.l  a1, Raster_Cursor
         jbra    .out
+    .op_pal_restore:
+        // Band OFF edge: stream base colours from the ship snapshot. .op_region's shape
+        // with TWO deliberate differences: the source is Palette_Ship_Snap (whose offset
+        // IS the CRAM byte address — BuildStaticDMA maps Palette_Buffer+$00/20/40/60 to
+        // CRAM $00/20/40/60 1:1), and its delay spin is EFX_RESTORE_DELAY, its OWN knob —
+        // never EFX_BLANK_DELAY (depth-4 dispatch changes the arithmetic). CALIBRATED
+        // 2026-08-17, the §7.3 first-datum capture: at ZERO delay the burst completed at
+        // x~180 of the row ABOVE the authored edge (leading-early by ~150 cyc — and the
+        // bare single-op cram ON fire spilled identically at x~170, confirming sweep 4's
+        // anchor finding: the clean mixed-shape evidence never covered single-op fires;
+        // the measured restore-vs-cram offset, ~10 px, matched the pinned model within
+        // 2 cyc). The value below was JUMPED to from the measured deficit (the clean
+        // mixed shape carries ~152 cyc of pre-burst delay: SetReg 94 + spin 58) and then
+        // pixel-verified: authored edge row fully tinted, next row fully base.
+        // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
+        // neither adjacent value clean -> narrow the stream count (spec §3.2).
+        move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
+        moveq   #EFX_RESTORE_DELAY, d1
+    .restore_delay:
+        dbf     d1, .restore_delay
+        move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX — also bounds the (a2)+ reads inside the 128-byte snapshot)
+        lea     Palette_Ship_Snap, a2   // snapshot base (was VDP_CTRL)
+        // + offset == CRAM byte address (payload D-F; even + in-line by the pal_restore
+        // constructor's ensures — an odd word here would address-error the (a2)+ reads)
+        adda.w  (a1)+, a2
+    .restore_loop:
+        move.w  (a2)+, VDP_DATA
+        dbf     d1, .restore_loop
+        lea     VDP_CTRL, a2            // restore the control-port cursor
+        dbf     d0, .op_loop
+        jbra    .advance
     .dense_body:
         // One dense line: keep firing every line, write the constant command + 3 stream
         // colours, advance the cursor, count down. When Raster_Dense_Lines reaches 0 the
