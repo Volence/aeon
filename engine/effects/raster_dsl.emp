@@ -32,7 +32,7 @@ use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT, 
                           pal_stage_off}
 
 // ---- the inlined-literal pins (see the module note above) -------------------
-ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8,
+ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8 && OP_PAL_RESTORE == 10,
        "raster_dsl's inlined opcodes drifted from engine.effects.raster")
 ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RASTER_OPS_END")
 ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
@@ -88,6 +88,7 @@ pub comptime enum RasterOp {
     PalRestore(int, int),                 // (CRAM byte address, count) — the snapshot
                                           // offset IS the address (BuildStaticDMA's 1:1
                                           // mapping); one fact, one field (claim D-F)
+                                          // no hand-building: use pal_restore() (C-D ensures live there)
 }
 
 pub comptime enum RasterFire {
@@ -261,12 +262,14 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     //                                 OP_SET_REG — the op with no other cost — is that
     //                                 chain's FALL-THROUGH (raster.emp, Raster_HInt
     //                                 .op_loop), so it is the most expensive to DISPATCH.
-    //   2. stream ops      <= 2   each of stream_cram/stream_pal_region/stream_vsram pays its own dispatch
-    //                                 AND its own EFX_BLANK_DELAY spin (.op_cram /
+    //   2. stream ops      <= 2   each of stream_cram/stream_pal_region/stream_vsram/pal_restore pays its own
+    //                                 dispatch AND its own EFX_BLANK_DELAY spin (.op_cram /
     //                                 .op_region), and that spin is the whole mechanism
-    //                                 that parks a write in HBlank.
+    //                                 that parks a write in HBlank (the restore op deliberately
+    //                                 has NO spin — its landing is bracket-calibrated separately,
+    //                                 spec §3.2).
     //   3. stream words    <= 3   RASTER_CRAM_MAX — the writes themselves.
-    // All three are PER-FIRE. `stream_cram`/`stream_pal_region`/`stream_vsram` also bound their OWN word count,
+    // All three are PER-FIRE. `stream_cram`/`stream_pal_region`/`stream_vsram`/`pal_restore` also bound their OWN word count,
     // which is necessary and not sufficient: three 3-word ops satisfy every per-op guard.
     //
     // WHAT IS STILL NOT ENFORCED — read no cycle guarantee into the above. The COST of a
@@ -288,7 +291,7 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(ops.len <= 4,
            "fire at screen line {line}: {ops.len} ops exceeds the per-fire ceiling of 4. Every op costs a walk of Raster_HInt's compare chain before it does any work, and OP_SET_REG — the cheap-looking one — is the chain's fall-through, so it is the most expensive op to dispatch. Four is a structural ceiling, not a measured one: the richest fire anything has ever run is two ops. Split the work across consecutive fires.")
     ensure(stream_ops <= 2,
-           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin, and that spin is what parks the write offscreen — only the FIRST op's writes are measured to land in HBlank (row 119, 1px -> 0px, docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Author ONE stream op per fire and use consecutive fires; a second one on the same line is admitted for the case where you have measured that you can live with its dot.")
+           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram / pal_restore) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin (the restore op deliberately has NO spin — its landing is bracket-calibrated separately, spec §3.2), and that spin is what parks the write offscreen — only the FIRST op's writes are measured to land in HBlank (row 119, 1px -> 0px, docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Author ONE stream op per fire and use consecutive fires; a second one on the same line is admitted for the case where you have measured that you can live with its dot.")
     ensure(stream_words <= 3,
            "fire at screen line {line}: {stream_words} stream words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line takes ceil(16/3) = 6 of them, one per scanline. That six-fire idiom is OURS, not a reference's: S3K's HInt3 swaps a whole water palette in ONE interrupt (park the counter, stop the Z80, then repeat: fresh CRAM command, 3 colours, a cycle-counted ~370-cycle dbf spin), and S3K's HInt2, Sonic 2's PalToCRAM and S.C.E.'s HInt each write 64 CRAM words in a single fire with no delay at all. Ours is dot-free by construction and pays six exception entries for it; the spacing in S3K comes from the spin, not from multiple interrupts.")
     return RasterFire.Fire(line, ops)
@@ -725,6 +728,7 @@ comptime fn op_ship_count(o: RasterOp) -> int {
 // for ops with no CRAM span. ADDRESS-keyed, never class-keyed: Vsram dispatches at the
 // CRAM rung but its address is scroll space, not palette space (the op_mask precedent).
 // The composition guard (raster_program) is the only consumer. Claim C-A.
+// DESTRUCTURE ONLY — let (a, n) = op_cram_span(o); tuples are not indexable in .emp and this is the tree's only tuple-returning fn.
 comptime fn op_cram_span(o: RasterOp) -> (int, int) {
     return match o {
         SetReg(w)                      => (-1, 0),
@@ -745,6 +749,20 @@ comptime fn op_is_restore(o: RasterOp) -> int {
     }
 }
 
+// ELABORATION ANCHOR — uncalled comptime fns are never elaborated, so without this a
+// broken arm in either helper ships green (proven by poison, Task 4 review). Zero bytes.
+// Module-level `let (a, b) = ...` tuple destructuring is not a valid top-level item
+// (item() only accepts `comptime enum` / `comptime test` / `comptime fn` after the
+// `comptime` keyword — see sigil's parser.rs item()), so the two facts are checked
+// inside a tiny helper and pulled to module level through its return value.
+comptime fn zz_elaboration_anchor() -> int {
+    let (zz_span_a, zz_span_n) = op_cram_span(RasterOp.PalRestore($40, 3))
+    ensure(zz_span_a == $40 && zz_span_n == 6 && op_is_restore(RasterOp.PalRestore($40, 3)) == 1 && op_is_restore(RasterOp.SetReg($8C89)) == 0,
+           "op_cram_span/op_is_restore elaboration anchor broke — a helper arm is wrong")
+    return 1
+}
+ensure(zz_elaboration_anchor() == 1, "op_cram_span/op_is_restore elaboration anchor broke — a helper arm is wrong")
+
 comptime fn op_mask(o: RasterOp) -> int {
     return match o {
         SetReg(w)             => 0,
@@ -756,12 +774,13 @@ comptime fn op_mask(o: RasterOp) -> int {
         // CHARACTER's CRAM line, which would force a spurious full re-assert of the
         // character palette every single frame. Silent, and per-frame.
         Vsram(a, vals)               => 0,
+        // start-line-only is EXACT for a restore because pal_restore() (C-D) refuses spans crossing a 32-byte line — the same reasoning as the Vsram note below, but enforced at the constructor.
         PalRestore(a, cnt)           => 1 << (a >> 5),
     }
 }
 
 // op_is_reg — 1 for the one op that writes a register with NO blanking delay, 0 for
-// every "stream" op (stream_cram / stream_pal_region / stream_vsram: command longword, EFX_BLANK_DELAY,
+// every "stream" op (stream_cram / stream_pal_region / stream_vsram / pal_restore: command longword, EFX_BLANK_DELAY,
 // word loop). That split is the runtime's, not a taxonomy: it is what makes both the
 // ordering rule (check_mixed_fire) and the stream op ceiling (fire) mean something.
 comptime fn op_is_reg(o: RasterOp) -> int {
@@ -860,11 +879,16 @@ pub const RASTER_STREAM_WORD_CYC    = 30     // one streamed word: move.w to VDP
 //   reg    : move.w (a1)+, (a2)
 //   cram   : move.l command (20) + moveq (4) + EFX_BLANK_DELAY spin (54) + count read (8)
 //            + the stream loop's final not-taken dbf (4)
-//   region : all of the above plus lea Pal_Variant_Stage (8, short form) + adda.w (8)
+//   region : all of the above plus lea Pal_Variant_Stage (8, short form) + adda.w (12)
 //            + lea VDP_CTRL restore (12)
 const RASTER_WORK_REG_CYC           = 12
 const RASTER_WORK_CRAM_CYC          = 90
 const RASTER_WORK_REGION_CYC        = 122
+// The restore body: region's shape minus the delay site (spin 54 + its moveq 4).
+// DERIVED = 122 - 58 (claim 9) — raster_cost_probe measures it in the R1 measurement
+// task BEFORE the band() minima freeze; hand-verified against the emitted bytes
+// (Task 4 review: 20+8+8+12+4+12 = 64).
+const RASTER_WORK_RESTORE_CYC = 64
 
 // ---- dispatch depth ---------------------------------------------------------
 // Raster_HInt tests opcodes in ASCENDING order — OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
@@ -886,6 +910,8 @@ const RASTER_DEPTH_RESTORE          = 4      // rungs FAILED before this op matc
 // past OP_PAL_RESTORE leaves it green while the chain grows — it must be re-spelled
 // against the new last opcode, and F1/F5 re-measured, or every SetReg is silently
 // under-charged by 16 cyc/rung (the exact miss the R1 sweeps caught here once already).
+// AND check the new rung's beq still assembles .s — the restore target sits at disp $76 of $7F; opcode 12's own rung will be past the byte cliff (Bcc.w not-taken = 20, a 4-cyc mispricing the pin cannot see).
+// If the chain is ever REORDERED (not appended), this whole derivation dies — each depth must be spelled by hand against Raster_HInt's compare sequence.
 ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DEPTH_RESTORE == (OP_PAL_RESTORE - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_PAL_RESTORE - OP_CRAM) / 2 + 1,
        "dispatch depth pins drifted from the opcode chain — update these FOUR literals together (and re-measure F1/F5: the SetReg fall-through pays every rung)")
 
@@ -907,7 +933,7 @@ comptime fn op_work_cyc(o: RasterOp) -> int {
         Cram(a, cols)                => RASTER_WORK_CRAM_CYC,
         PalRegion(a, slot, pl, e, n) => RASTER_WORK_REGION_CYC,
         Vsram(a, vals)               => RASTER_WORK_CRAM_CYC,
-        PalRestore(a, cnt)           => 64,  // = RASTER_WORK_REGION_CYC(122) - the delay site(58: spin 54 + its moveq 4). DERIVED (claim 9) — raster_cost_probe measures it in the R1 measurement task BEFORE the band() minima freeze.
+        PalRestore(a, cnt)           => RASTER_WORK_RESTORE_CYC,
     }
 }
 
@@ -971,7 +997,7 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 //
 // Each pin names its fixture so a failure says which measurement the change contradicts.
 ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 412,
-       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 412")  // re-derived for RUNGS=5; hardware-confirmed in the R1 measurement task
+       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, 412 (DERIVED from RUNGS=5 — hardware-measured in R1 Task 6)")  // derived; probe-confirmed in R1 Task 6
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 458,
        "cost model vs fixture F2 (stream_cram, 1 word): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, measured 458")
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 518,
@@ -979,7 +1005,7 @@ ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 518,
 ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 566,
        "cost model vs fixture F4 (stream_pal_region, 3 words): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, measured 566")
 ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 628,
-       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 628 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")  // re-derived for RUNGS=5; hardware-confirmed in the R1 measurement task
+       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, 628 (DERIVED from RUNGS=5 — hardware-measured in R1 Task 6) — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")  // derived; probe-confirmed in R1 Task 6
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 614,
        "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 614 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
 ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 458,
