@@ -240,7 +240,9 @@ stream-class), layout checks. `check_intervals` untouched — now C-A's stated g
 
 ## 5. The 14 match sites
 
-12 existing `RasterOp` sites (grep-pinned) + `op_cram_span` + `op_is_restore`. Arms for
+12 existing `RasterOp` sites (grep-pinned at `raster_dsl.emp:590, 621, 635, 663, 676, 684,
+693, 701, 710, 728, 847, 858` — re-verified by the diff seat) + `op_cram_span` +
+`op_is_restore`. Arms for
 `PalRestore(addr, count)`:
 
 | site | arm |
@@ -293,7 +295,10 @@ no `entry`, so the writable form is `stream_cram`'s pair, verbatim:
   NEVER 0 by standing rule).
 
 **Minimum band height — CLAIM D-D**, cost-keyed via `fire_cost_cycles` of the fires `band()`
-actually emits (E-C):
+actually emits (E-C). **Definition: "band height" = `bot − top` in screen lines = the
+fire-line gap** (uniform −1 conversion, ordering-identical) — NOT an inclusive row count.
+Content consequence, stated plainly: `fx_tint_band` — the primary band content — is
+`pal_region`, so **even a 1-colour tint band needs height ≥ 2**, and its S/H form needs 3.
 
 | ON fire (as emitted) | modelled cyc | min height |
 |---|---|---|
@@ -317,7 +322,8 @@ after the measurement, which the plan orders FIRST.
 64-word ceiling, 7 fixed. `[S5-3]` Band cost by shape: `pal_region` or 1-word `cram` ON —
 **14** words (remainder 43); 2-3-word `cram` ON — **15-16** (remainder 42-41, `Cram` op_size
 is `4+len`); the S/H shape — **20** (the ON fire gains the reg op's 2, plus the bot-1 reg
-fire's 2+2). A 3-word band cannot share either fire line with any other stream op.
+fire's 2+2 — 20 is exact for the 14-word base shape; a 2-3-word `cram` S/H band is 21-22).
+A 3-word band cannot share either fire line with any other stream op.
 
 ---
 
@@ -372,7 +378,10 @@ residual risk otherwise. Not gating R1.
 - **Moving bands, BOTH directions, explicitly refused**: moving-top (patchable partner) and
   moving-bottom (patchable restore fire) are both closed by rule 6/E-A. When moving bands
   are designed, E-A is the seam to reopen — and sweep 5's suppress-path trace
-  (`raster.emp:1083`) is the hazard analysis that design inherits.
+  (`raster.emp:1083`) is the hazard analysis that design inherits. In SPELLING space the two
+  doors rule 6 closes are: compose-merging `band()`'s fires onto a patchable line, and
+  list-indexing a band fire into `patchable(...)` (via `band()` the partner is always
+  band()'s own ON op — there is no third spelling).
 - De-mix for patchable fires — dead (recorded).
 - EFX-4b — adjacent, untouched.
 
@@ -384,8 +393,8 @@ residual risk otherwise. Not gating R1.
    exact stop-PC, `deterministic=False`, own offset arithmetic (`addr`). **Breakpoint
    placement lesson applied: probe at the instruction AFTER the one whose effect is read.**
 2. **F1/F5 re-measured, F5 wired** — the two-op formula (both ops' fetch+dispatch+work+tail
-   over one `RASTER_FIRE_BASE_CYC`; direction sweep-5-confirmed against the existing
-   one-op derivation). "Only F1 sees the fall-through" corrected: only among wired F0/F1/F3.
+   over one `RASTER_FIRE_BASE_CYC`; direction consistent with the existing one-op
+   derivation). "Only F1 sees the fall-through" corrected: only among wired F0/F1/F3.
 3. **The poison gate — CLAIM E-B (sweep-5-minted, corrected D-A).** Breakpoint at
    **`buffers.emp:238`** — one instruction AFTER the `d0` load (oracle checks breakpoints
    BEFORE execution; v5's `:237` captured pre-entry garbage — the fourth
@@ -440,12 +449,13 @@ poisoned neighbours and pick deterministic representatives.
 | C-D | Wrap guard + line-0 refusal, re-spelled for `(addr,count)` | re-derivation | — |
 | D-B | Single-op restore fire | survived sweep 5 | content needing a multi-op restore fire |
 | D-D | Cost-keyed minima; cram/region rows fixture-pinned, freezable now | third derivation matched | the CLAIM 9 measurement (restore row only) |
+| D-C | `$8Fxx` refusal, tree-wide (census clean; $0F the only stride-affecting reg in range) | sweep-5-CONFIRMED; enforcement layer moved by E-D | content needing mid-frame autoinc before a stride-aware model |
 | D-F | `(addr, count)` — offset IS the address | sweep-5-verified, all four lines | a mapping change |
 | E-A | Rule 6: BOTH band fires static | **UNSWEPT (sweep-5-minted)** — diff-seat priority | a spelling that reaches `.suppress` on either band fire |
 | E-B | Corrected poison gate (`:238`, same-stop read, non-program line) | **UNSWEPT** — diff-seat priority | a broken build it passes in-scope |
 | E-C | `band(sh:)` owns the shape; minima from merged costs | **UNSWEPT** | an emitted shape whose real minimum differs from the constructor's |
 | E-D | Program-level `$8F` scan closes the construction door | **UNSWEPT** | a CRAM-stride mutation the scan misses |
-| — | v3 CLAIM 5; v4 C-C; v4 C-B analysis; de-mix-for-patchable; v5 rule-6-partner-only; v5 `:237` breakpoint; v5 work=68 | **KILLED — recorded** | — |
+| — | v3 CLAIM 5; v4 C-C; v4 C-B analysis; de-mix-for-patchable; v5 rule-6-partner-only; v5 `:237` breakpoint (D-A retired into E-B); v5 work=68; v5 "trailing dots mean the previous step was the answer"; v5 "14 words, never 16" | **KILLED — recorded** | — |
 
 Ordered small fixes riding the implementation: the cost-table comment's `adda.w` attribution
 (12, not 8); the stale `ojz_effects.emp:617-618` comment; §10.1's probe-PC discipline note.
