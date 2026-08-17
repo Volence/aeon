@@ -200,7 +200,48 @@ wanted for the parallax phase and Aurora's preview round-trip, both of which wan
 ("why is this dot this colour"), not just difference; and oracle is scheduled to retire under its
 own charter, so gate infrastructure built on it is written twice.
 
-## 6. Riders discovered, not yet actioned
+## 6. Requested bus surface (for the oracle-next session) — measured gap, 2026-08-17
+
+Enumerated from a live `oracle-aether` handshake (28 methods), not guessed. Already present and
+NOT needed: `run_to`, watchpoints (add/clear/list/hits), full checkpoint/restore/list/drop,
+`sprites`, `registers`, `read`/`read_memory`/`read_vram`, `press`/`hold`/`play_input`/
+`release_all`, `state_hash`, `screenshot` (raster-labelled), `pixel_attribution`, symbols,
+`reload_rom`.
+
+**Tier 1 — unblocks the pixel gate (the current aeon queue item):**
+1. `emulator/write_memory` — the poke primitive. All three committed scenes
+   (`aeon/tools/scenes/*.json`) poke; mechanism exists (`mega_bus().write8`, in production use by
+   `replay_runner` at `oracle-replay/src/runner.rs:606-609`). THE blocker.
+2. `emulator/reset` — cold-start scene preambles; `System::reset()` exists (`system.rs:443`),
+   just not exposed.
+3. `emulator/memory_hash` — named-region hashing for gates; FNV code already in `state_hash.rs`.
+
+With these three, `ab_runner` re-points at a `--socket` spawn, `_settle_frame_token` is deleted,
+and the screenshot is gated — Parcel 1's entire outcome with no C++ surgery.
+
+**Tier 2 — the daily interactive debug loop (day-one parity with `mcp__oracle__*`):**
+4. Instruction stepping: `step`, `step_over`, `step_out`. Nothing on the bus steps by
+   instruction; `run_to` covers breakpoint-stops only.
+5. `run_to_scanline`, and **attribution-at-a-scanline** — §2's measured blind spot:
+   `pixel_attribution` re-derives from frame-boundary register state and reports `normal`
+   across a live raster band (55/55 dots, this doc). The per-scanline capture path is the
+   sanctioned reconciliation; expose it as an attribution surface.
+6. Z80: `z80_read`, `z80_registers` — sound work is untouchable without them.
+7. CRAM/VSRAM **write**; and confirm the unified `read` reads CRAM **live** (oracle's CRAM read
+   was frame-latched and therefore a vacuous instrument — [[reference_oracle_gate_instruments]];
+   committed-state reads would retire that trap wholesale).
+
+**Tier 3 — instruments, later:**
+8. Frames-dir-equivalent multi-frame rastered dump on the bus (feeds `replay_framediff`).
+9. Aeon-aware conveniences (`object_list`, `object_slot`, `player_state`), `log_tail`, layer
+   toggles (masking S/H operator flags correctly — see rider below), profiler.
+
+Standing caveats for the switch, neither blocking: absolute band-edge claims (the
+`EFFECTS_AUTHORING.md` landing-line numbers) keep oracle as reference until the
+instruction-granularity slop closes — A/B gates cancel the slop, absolute measurements don't;
+and the S/H exhibit (§2) is open against oracle-next's renderer/frontend, not oracle's.
+
+## 7. Riders discovered, not yet actioned
 
 - oracle-next ships `replay_runner`, which runs aeon's replay net against `s4.debug.bin` and
   **passes today** (`crates/oracle-replay/src/lib.rs`, written against aeon's own
