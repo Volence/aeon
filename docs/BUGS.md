@@ -5,10 +5,10 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
-## ⚠ EFX-10 — OPEN 2026-08-17, re-scoped 2026-08-17. Lane runs via the carrier backend (interim); the sigil-side fix is still open.
+## ✅ EFX-10 — CLOSED 2026-08-17 (`sigil build --extra-entry`). The expect-fail lane elaborates a poison inside the real profile.
 
 **Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane's
-direct invocation is `sigil emp <poison> --root <aeon>`. That path
+original invocation was `sigil emp <poison> --root <aeon>`. That path
 (`run_emp_program`, `sigil-cli/src/main.rs`) does **not** apply the two manifest rewrites
 `sigil build` applies (`sigil-harness/src/native.rs`, `build_emp`):
 
@@ -36,18 +36,19 @@ Measured 2026-08-17, three failures deep, each blocking the next:
 `ensure` names nothing outside itself. That is the shape it was verified with (CASES shipped
 empty), and it is the shape no real guard poison can take.
 
-**Current state (2026-08-17): the lane runs via the carrier backend** (temporary,
-aeon-side, Fable-ruled 2026-08-17). `tools/emp_expect_fail.py` no longer invokes `sigil
-emp --root` at all — it rewrites `games/sonic4/test/poison_carrier.emp` (a real module
-already in the build's `use` closure, via one edge from
-`games/sonic4/data/effects/ojz_effects.emp`) to each poison's body in turn and runs the
+**The interim backend (2026-08-17 → 2026-08-17): the carrier.** Fable-ruled the same day,
+aeon-side, and explicitly named for removal. `tools/emp_expect_fail.py` stopped invoking
+`sigil emp --root` and instead rewrote `games/sonic4/test/poison_carrier.emp` (a real
+module in the build's `use` closure, via one edge from
+`games/sonic4/data/effects/ojz_effects.emp`) to each poison's body in turn, running the
 real `sigil build --native` invocation, which does apply `publicize_helper_comptime` /
-`normalize_helper_imports`. All seven Task 8 poisons are gated this way (moved from
-`BLOCKED_CASES` into `CASES` verbatim), plus a permanent sentinel case that fails the
-lane loudly if the carrier ever falls out of the build's `use` closure. The five R1 band
-guards are now protected by a gate, not only by review and this entry.
+`normalize_helper_imports`. That is what first moved the Task 8 poisons out of
+`BLOCKED_CASES` into `CASES` verbatim, with a permanent sentinel case guarding against
+the carrier falling out of the closure — the point at which the five R1 band guards were
+protected by a gate rather than by review and this entry.
 
-**The edge must be a NAMED import, not a bare `use`** (commit `008523ec`, R1 Task 14
+**While the carrier existed, the edge had to be a NAMED import, not a bare `use`** (commit
+`008523ec`, R1 Task 14
 repair). A bare `use games.sonic4.test.poison_carrier` trips sigil's `[import.no-names]`
 lint in the warn-tier corpus (2 suite failures the aeon build alone cannot see — the
 port-flip silent-breakage class); the glob form of a name-less module falls out of the
@@ -59,16 +60,35 @@ sentinel went clean when this was measured, catching it. The fix: the carrier ex
 edge in the closure and the live proof the carrier is reachable (its module-level ensures
 run iff this edge holds).
 
-**The carrier is a workaround, not the fix — it is explicitly named for removal.** The
-proper fix remains sigil-side: `--extra-entry <module>` on `sigil build`, appending the
-poison to `synthetic_entry_src`'s `use` list so it elaborates inside the REAL profile
-without any file's body being rewritten out from under it. (The alternative floated
-earlier — giving `sigil emp --root` the same helper treatment plus a way to seed extra
-reachability and the `-D` values — is the larger change; `--extra-entry` reuses the
-existing real-build path instead.) The removal condition is named in the carrier's own
-header comment (clean-not-bolted-on): the carrier file, its `use` edge, and the
-rewrite-per-case mechanism in `emp_expect_fail.py` all retire together the day
-`--extra-entry` lands.
+**CLOSED 2026-08-17 by the properly-scoped fix, sigil-side.** `sigil build --extra-entry
+<module|path.emp>` (repeatable) evaluates the named module inside the REAL profile —
+appended to `synthetic_entry_src`'s `use` list, so the manifest rewrites and the build's
+`-D` interface values apply — and refuses a module that would contribute bytes. (The
+alternative floated earlier, giving `sigil emp --root` the same helper treatment plus a
+way to seed extra reachability and the `-D` values, was the larger change; `--extra-entry`
+reuses the existing real-build path instead.) The aeon side of the retirement landed as
+one parcel:
+
+- `tools/emp_expect_fail.py` runs one `sigil build --native --extra-entry <poison>` per
+  case. The `CASES` rows — paths, fragments, `[Error]` counts — carried over verbatim, and
+  the rewrite / restore / crash-residue self-heal machinery is gone: nothing mutates the
+  tree during a run, so a Ctrl-C or a sigil crash can no longer leave residue behind.
+- The sentinel survives with a new mechanism: `games/sonic4/test/poison/poison_sentinel.emp`,
+  one self-contained always-firing `ensure` the lane runs first and requires to fail
+  (fragment `EMP_EXPECT_FAIL_SENTINEL`). A clean build there means `--extra-entry`
+  evaluated nothing and the lane stops rather than report vacuous greens. Proved in both
+  directions: flipping the guard to `ensure(true, …)` fails the lane at case 0, exit 1.
+- `games/sonic4/test/poison_carrier.emp`, its named import + consuming `ensure` in
+  `games/sonic4/data/effects/ojz_effects.emp`, and the `[import.no-names]` hazard the
+  paragraph above records all retire with it.
+
+The carrier was zero-byte, and its deletion is **measured** byte-neutral, not assumed: all
+four canonical shapes are byte-identical across the flip — `s4.bin` crc `7e4dc5de`
+(697,868 B), `s4.debug.bin` `ab1055d4` (712,752 B), `demo.bin` `2ecd1031` (96,451 B),
+`demo.debug.bin` `10aad76c` (100,805 B). Lane: 11/11 cases plus the sentinel, standalone
+and under `./build.sh`. The one visible delta is the warning tally — `module.unreachable`
+25 → 26 (sonic4) and 51 → 52 (demo), the sentinel module being unreachable from any real
+entry where the carrier was reachable. Nothing in the tree pins those counts.
 
 ---
 

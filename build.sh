@@ -218,15 +218,14 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
 
     # The expect-fail lane (Parcel R1 Task 7): poison .emp modules under
     # games/sonic4/test/poison/ that MUST fail to build, asserted by
-    # tools/emp_expect_fail.py. Task 8 populated CASES; the Task 8 review batch
-    # (2026-08-17) added a second rule-6 poison and the $8A direct-construction
-    # poison, so the lane now gates 9 poisons plus the permanent sentinel case,
-    # each with its own expected diagnostic-message fragment AND expected
-    # [Error] count. It runs through the carrier backend
-    # (games/sonic4/test/poison_carrier.emp, EFX-10 interim, Fable-ruled
-    # 2026-08-17) rather than a direct `sigil emp` invocation — see that file's
-    # header and tools/emp_expect_fail.py's docstring for why. Same NO_LINT
-    # hatch as the other source gates.
+    # tools/emp_expect_fail.py. It gates 11 poisons plus the permanent sentinel
+    # case, each with its own expected diagnostic-message fragment AND expected
+    # [Error] count. Each case is one real build invocation with the poison named
+    # as `sigil build --extra-entry <module>`, so the poison elaborates inside
+    # the real profile (same manifest rewrites, same -D values) without any
+    # file's body being rewritten — see tools/emp_expect_fail.py's docstring and
+    # games/sonic4/test/poison/README.md. Same NO_LINT hatch as the other source
+    # gates.
     echo "Running the expect-fail lane..."
     if ! python3 "${TOOLS}/emp_expect_fail.py"; then
         echo "expect-fail lane failed — a poison module built clean or a guard's message drifted."

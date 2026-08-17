@@ -1,0 +1,20 @@
+// games/sonic4/test/poison/poison_sentinel.emp — POISON (see README), and the
+// expect-fail lane's anti-vacuity sentinel: case 0, permanent, run first.
+//
+// TARGETS: the lane's own mechanism, not a guard in the engine.
+// EXPECTED FRAGMENT: "EMP_EXPECT_FAIL_SENTINEL"
+//
+// tools/emp_expect_fail.py hands this module to `sigil build --extra-entry` before any
+// real poison and REQUIRES the build to fail with the message below. A clean build here
+// means --extra-entry is not evaluating the module it names, so every case after it
+// would pass for the wrong reason — the lane stops there instead of reporting green.
+//
+// Self-contained on purpose: the guard names nothing outside this file, so a failure
+// proves exactly one thing (the named module was resolved and its module-level `ensure`s
+// were evaluated) without depending on helper vocabulary or on any engine guard.
+//
+// Zero bytes, ensures-only — like every module in this directory it is unreachable from
+// any real entry, so an ordinary build parses it and never runs this guard.
+module games.sonic4.test.poison.poison_sentinel
+
+ensure(false, "EMP_EXPECT_FAIL_SENTINEL — this guard always fires; a clean build here means --extra-entry evaluated nothing and every case after it is vacuous")

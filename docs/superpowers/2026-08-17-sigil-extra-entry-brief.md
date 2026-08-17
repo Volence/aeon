@@ -1,5 +1,10 @@
 # BRIEF — `--extra-entry` on `sigil build`: retire the EFX-10 carrier
 
+> **STATUS: EXECUTED 2026-08-17.** The flag is live in sigil; the aeon-side retirement
+> landed with it (EFX-10 CLOSED in `docs/BUGS.md`). The carrier file, its `use` edge, and
+> the lane's rewrite machinery are gone — every mention of them below is the work order,
+> not the current tree.
+
 **For:** an agent working in the sigil repo with no prior context on Parcel R1.
 **One small parcel.** A new CLI flag, its tests, and the aeon-side retirement of a
 workaround. The workaround is live and well-guarded, so this is not urgent — but it is
