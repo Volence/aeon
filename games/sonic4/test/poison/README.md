@@ -24,3 +24,28 @@ Three properties every module in this directory must hold:
    <aeon-root>`) so their own top-level `ensure`s run regardless of reachability from
    any other entry. They are otherwise inert data as far as `sigil build` is
    concerned.
+
+## The lane cannot run these yet — EFX-10
+
+Property 3 above holds only for a **self-contained** poison, one whose `ensure` names
+nothing outside itself. Every poison here reaches a guard in
+`engine/effects/raster_dsl.emp`, and `sigil emp --root` cannot elaborate those: it skips
+the `publicize_helper_comptime` / `normalize_helper_imports` rewrites that `sigil build`
+applies, so the helper vocabulary is not in scope and raster_dsl's private helpers are
+not importable at any spelling. Full derivation in `docs/BUGS.md` (EFX-10) and in
+`tools/emp_expect_fail.py`'s docstring.
+
+Consequences for anyone writing a module here:
+
+- **Write it in the ambient spelling**, with no `use` lines, exactly as an author's
+  module is written. That is the shape the lane will need once EFX-10 closes, and
+  adding imports to chase the current invocation makes the poison resolve names
+  differently from the build it is supposed to be modelling.
+- **Verify it by splicing**, until the lane runs. Append the poison's body (everything
+  after its `module` line) to a module that IS in the real build's `use` closure —
+  `games/sonic4/data/effects/ojz_effects.emp` is the natural victim for effects work —
+  run `sigil build --aeon . --native` (sub-second), read the diagnostic, restore the
+  file. Red-first still means red-first: confirm the splice builds CLEAN *before* the
+  guard exists.
+- **Register the row in `BLOCKED_CASES`**, not `CASES`, and give the module the exact
+  `EXPECTED FRAGMENT` header comment the row quotes.

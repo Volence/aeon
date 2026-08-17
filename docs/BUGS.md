@@ -5,6 +5,52 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ⚠ EFX-10 — OPEN 2026-08-17. The negative-build lane cannot run any poison that reaches a real guard.
+
+**Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane
+(`tools/emp_expect_fail.py`, R1 Task 7) invokes `sigil emp <poison> --root <aeon>`. That path
+(`run_emp_program`, `sigil-cli/src/main.rs`) does **not** apply the two manifest rewrites
+`sigil build` applies (`sigil-harness/src/native.rs`, `build_emp`):
+
+```
+publicize_helper_comptime(&mut manifest, COMPTIME_HELPERS)
+normalize_helper_imports(&mut manifest, COMPTIME_HELPERS, &[])
+```
+
+Measured 2026-08-17, three failures deep, each blocking the next:
+
+1. A poison naming `raster_program` gets `unknown function raster_program`. The helper globs are
+   what put it in scope in an ordinary module.
+2. Adding `use engine.effects.raster_dsl.*` fixes the NAME and not the guard: `raster_program`'s
+   body resolves free names at the **call site**, and raster_dsl's own helpers (`fire_ops`,
+   `arm_at`, `check_intervals`, `op_stream_words`, …) are private. A glob imports only `pub`
+   items; `publicize_helper_comptime` is what makes them importable in the real build. Result:
+   20+ `unknown function` errors *inside raster_dsl*.
+3. The `use` also drags `engine.effects.raster` into the closure, which resolves
+   `RASTER_MAX_PATCH` / `vdp_comm_reg` only through those globs, and its RAM labels only because
+   `engine.ram` is reachable via the real build's synthetic entry. Seeding `engine.ram` from the
+   poison then demands the build's `-D` interface values (`DEBUG`, `MAX_RING_BUFFER`,
+   `COLLECTED_WINDOW_SLOTS`), which the lane does not pass.
+
+**Task 7's "verified by experiment" claim is true only of a self-contained poison** — one whose
+`ensure` names nothing outside itself. That is the shape it was verified with (CASES shipped
+empty), and it is the shape no real guard poison can take.
+
+**Scope of the hole.** Seven poison modules exist under `games/sonic4/test/poison/` and each is
+verified to trip its guard — by splicing its body into a module that IS in the real build's `use`
+closure and running `sigil build`. What is missing is only the automation: nothing re-runs those
+seven, so the five R1 band guards are protected by review and by this entry, not by a gate.
+`tools/emp_expect_fail.py` prints a loud SKIPPED listing all seven rather than "OK", so it cannot
+quietly read as coverage.
+
+**Fix.** Sigil side, not aeon side. Either give `sigil emp --root` the helper treatment plus a way
+to seed extra reachability and the `-D` values, or — smaller and more faithful — add
+`--extra-entry <module>` to `sigil build`, appending the poison to `synthetic_entry_src`'s `use`
+list so it elaborates inside the REAL profile, in exactly the shape an author's module does. The
+seven rows are already written as `BLOCKED_CASES` in the lane, ready to move into `CASES` verbatim.
+
+---
+
 ## ✅ EFX-8 — CLOSED 2026-08-15 (Effects P3 Parcel P-b). A patched program renders again.
 
 **Booked 2026-08-15**, found while re-deriving the tree for Effects Parcel P, and confirmed
