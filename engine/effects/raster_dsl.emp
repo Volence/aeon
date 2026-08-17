@@ -26,6 +26,7 @@
 module engine.effects.raster_dsl
 
 use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT, OP_RUN_RAMP,
+                          OP_PAL_RESTORE,
                           RASTER_OPS_END, RASTER_ARM_PARK, RASTER_CRAM_MAX,
                           RASTER_BUF_SIZE, RASTER_MIN_FIRE_LINE, RASTER_MAX_FIRE_LINE,
                           pal_stage_off}
@@ -84,6 +85,9 @@ pub comptime enum RasterOp {
     Cram(int, array),                     // (CRAM byte address, colour-word ARRAY)
     PalRegion(int, int, int, int, int),   // (CRAM byte address, slot, pal line, entry, count)
     Vsram(int, array),                    // (VSRAM byte address, scroll-word ARRAY)
+    PalRestore(int, int),                 // (CRAM byte address, count) — the snapshot
+                                          // offset IS the address (BuildStaticDMA's 1:1
+                                          // mapping); one fact, one field (claim D-F)
 }
 
 pub comptime enum RasterFire {
@@ -604,6 +608,10 @@ comptime fn op_words(o: RasterOp) {
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) & $FFFF,
                              vals.len - 1] ++ vals,
+        PalRestore(a, cnt) => [10,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
+                             vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             cnt - 1, a],
     }
 }
 
@@ -623,6 +631,7 @@ comptime fn op_size(o: RasterOp) -> int {
         Cram(a, cols)                => 4 + cols.len,
         PalRegion(a, slot, pl, e, n) => 5,
         Vsram(a, vals)               => 4 + vals.len,
+        PalRestore(a, cnt)           => 5,
     }
 }
 
@@ -637,6 +646,7 @@ comptime fn op_stream_words(o: RasterOp) -> int {
         Cram(a, cols)                => cols.len,
         PalRegion(a, slot, pl, e, n) => n,
         Vsram(a, vals)               => vals.len,
+        PalRestore(a, cnt)           => cnt,
     }
 }
 
@@ -665,6 +675,7 @@ comptime fn count_stream_pal_region_ops(ops: array) -> int {
             Cram(a, cols)                  => 0,
             PalRegion(a, slot, pl, e, cnt) => 1,
             Vsram(a, vals)                 => 0,
+            PalRestore(a, cnt)             => 0,
         }
     }
     return n
@@ -678,6 +689,7 @@ comptime fn op_ship_cram_addr(o: RasterOp) -> int {
         Cram(a, cols)                  => -1,
         PalRegion(a, slot, pl, e, cnt) => a,
         Vsram(a, vals)                 => -1,
+        PalRestore(a, cnt)             => -1,
     }
 }
 comptime fn op_ship_stage_off(o: RasterOp) -> int {
@@ -686,6 +698,7 @@ comptime fn op_ship_stage_off(o: RasterOp) -> int {
         Cram(a, cols)                  => -1,
         PalRegion(a, slot, pl, e, cnt) => slot * 128 + pl * 32 + e * 2,
         Vsram(a, vals)                 => -1,
+        PalRestore(a, cnt)             => -1,
     }
 }
 // The SetReg word itself, for the ops the ship re-issues at frame top.
@@ -695,6 +708,7 @@ comptime fn op_reg_word(o: RasterOp) -> int {
         Cram(a, cols)                  => 0,
         PalRegion(a, slot, pl, e, cnt) => 0,
         Vsram(a, vals)                 => 0,
+        PalRestore(a, cnt)             => 0,
     }
 }
 comptime fn op_ship_count(o: RasterOp) -> int {
@@ -703,6 +717,31 @@ comptime fn op_ship_count(o: RasterOp) -> int {
         Cram(a, cols)                  => 0,
         PalRegion(a, slot, pl, e, cnt) => cnt,
         Vsram(a, vals)                 => 0,
+        PalRestore(a, cnt)             => 0,
+    }
+}
+
+// op_cram_span — (CRAM byte address, byte length) of the entries an op WRITES; (-1, 0)
+// for ops with no CRAM span. ADDRESS-keyed, never class-keyed: Vsram dispatches at the
+// CRAM rung but its address is scroll space, not palette space (the op_mask precedent).
+// The composition guard (raster_program) is the only consumer. Claim C-A.
+comptime fn op_cram_span(o: RasterOp) -> (int, int) {
+    return match o {
+        SetReg(w)                      => (-1, 0),
+        Cram(a, cols)                  => (a, 2 * cols.len),
+        PalRegion(a, slot, pl, e, cnt) => (a, 2 * cnt),
+        Vsram(a, vals)                 => (-1, 0),
+        PalRestore(a, cnt)             => (a, 2 * cnt),
+    }
+}
+// op_is_restore — 1 for the restore op only. The one-band count (spec §4.1).
+comptime fn op_is_restore(o: RasterOp) -> int {
+    return match o {
+        SetReg(w)                      => 0,
+        Cram(a, cols)                  => 0,
+        PalRegion(a, slot, pl, e, cnt) => 0,
+        Vsram(a, vals)                 => 0,
+        PalRestore(a, cnt)             => 1,
     }
 }
 
@@ -717,6 +756,7 @@ comptime fn op_mask(o: RasterOp) -> int {
         // CHARACTER's CRAM line, which would force a spurious full re-assert of the
         // character palette every single frame. Silent, and per-frame.
         Vsram(a, vals)               => 0,
+        PalRestore(a, cnt)           => 1 << (a >> 5),
     }
 }
 
@@ -730,6 +770,7 @@ comptime fn op_is_reg(o: RasterOp) -> int {
         Cram(a, cols)                => 0,
         PalRegion(a, slot, pl, e, n) => 0,
         Vsram(a, vals)               => 0,
+        PalRestore(a, cnt)           => 0,
     }
 }
 
@@ -837,11 +878,16 @@ const RASTER_WORK_REGION_CYC        = 122
 // comptime fn bodies, and a body's free names resolve at the CALL SITE, so a value spelled
 // as an arithmetic expression over the IMPORTED opcodes would not resolve in an author's
 // module. The pin is what keeps the literals honest.
-pub const RASTER_DISPATCH_RUNGS     = 4      // chain length; OP_SET_REG falls through all of it
+pub const RASTER_DISPATCH_RUNGS     = 5      // chain length; OP_SET_REG falls through all of it
 const RASTER_DEPTH_CRAM             = 0      // rungs FAILED before this op matches
 const RASTER_DEPTH_REGION           = 1
-ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_RUN_RAMP - OP_CRAM) / 2 + 1,
-       "the raster cost model's dispatch depths no longer match the opcode order Raster_HInt tests in. The chain is ascending from OP_CRAM with OP_SET_REG as the fall-through, so depth = (opcode - OP_CRAM) / 2 and the fall-through pays every rung. If an opcode was inserted, update these three literals; if the chain was REORDERED so depth is no longer the opcode order, this derivation is gone and each depth has to be spelled against Raster_HInt's compare sequence by hand.")
+const RASTER_DEPTH_RESTORE          = 4      // rungs FAILED before this op matches
+// TRAP for opcode 12's author: this pin names the LAST opcode BY NAME. Appending
+// past OP_PAL_RESTORE leaves it green while the chain grows — it must be re-spelled
+// against the new last opcode, and F1/F5 re-measured, or every SetReg is silently
+// under-charged by 16 cyc/rung (the exact miss the R1 sweeps caught here once already).
+ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DEPTH_RESTORE == (OP_PAL_RESTORE - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_PAL_RESTORE - OP_CRAM) / 2 + 1,
+       "dispatch depth pins drifted from the opcode chain — update these FOUR literals together (and re-measure F1/F5: the SetReg fall-through pays every rung)")
 
 comptime fn op_dispatch_cyc(o: RasterOp) -> int {
     return match o {
@@ -851,6 +897,7 @@ comptime fn op_dispatch_cyc(o: RasterOp) -> int {
         PalRegion(a, slot, pl, e, n) => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_REGION + RASTER_DISPATCH_HIT_CYC,
         // A Vsram op EMITS OP_CRAM (see stream_vsram), so it dispatches at the cram rung.
         Vsram(a, vals)               => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
+        PalRestore(a, cnt)           => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_RESTORE + RASTER_DISPATCH_HIT_CYC,
     }
 }
 
@@ -860,6 +907,7 @@ comptime fn op_work_cyc(o: RasterOp) -> int {
         Cram(a, cols)                => RASTER_WORK_CRAM_CYC,
         PalRegion(a, slot, pl, e, n) => RASTER_WORK_REGION_CYC,
         Vsram(a, vals)               => RASTER_WORK_CRAM_CYC,
+        PalRestore(a, cnt)           => 64,  // = RASTER_WORK_REGION_CYC(122) - the delay site(58: spin 54 + its moveq 4). DERIVED (claim 9) — raster_cost_probe measures it in the R1 measurement task BEFORE the band() minima freeze.
     }
 }
 
@@ -922,16 +970,16 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 // no noise floor to allow for and no difference here is within one.
 //
 // Each pin names its fixture so a failure says which measurement the change contradicts.
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 396,
-       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 396")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 412,
+       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 412")  // re-derived for RUNGS=5; hardware-confirmed in the R1 measurement task
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 458,
        "cost model vs fixture F2 (stream_cram, 1 word): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, measured 458")
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 518,
        "cost model vs fixture F3 (stream_cram, 3 words): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, measured 518")
 ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 566,
        "cost model vs fixture F4 (stream_pal_region, 3 words): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, measured 566")
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 612,
-       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 612 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 628,
+       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 628 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")  // re-derived for RUNGS=5; hardware-confirmed in the R1 measurement task
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 614,
        "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 614 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
 ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 458,
