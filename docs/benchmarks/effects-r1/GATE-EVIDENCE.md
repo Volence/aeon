@@ -46,12 +46,28 @@ width" — pin rationales must state the mechanical source only.
 
 ---
 
-## CLAIM 8 — snapshot VBlank cost — pending (R1 Task 12)
+## CLAIM 8 — snapshot VBlank cost — MEASURED, CLOSED (2026-08-17)
 
-Scope per the Task 2 quality review: per-routine profiler rows (`VInt_Level`;
-`Enqueue_Dirty_Buffers` if it is a row — confirm via `--dump`), steady state + synthetic
-4-dirty-line worst case, AND the Z80 DRAIN window (the splice sits inside the
-`SND_CTRL_DMA_ACTIVE` bracket; ~704 cyc ≈ 92 µs of extra ring-only DAC coverage).
+`Enqueue_Dirty_Buffers` IS a distinct per-routine profiler row (confirmed via `--dump`).
+Same scene (OJZ, camera frozen at settle 180), branch ROM (`04882b94`, splices) vs a
+baseline ROM built in a temporary worktree at `d0710868` (RAM added, splices absent).
+
+| condition | baseline | branch | splice delta |
+|---|---:|---:|---:|
+| steady state (mask %0101, 2 dirty lines/frame) | 971 | 1318 | **+347** (~173.5/line) |
+| forced worst case (`Palette_Dirty = $0F`, single frame) | 1400 | 2104 | **+704 — the derived figure EXACTLY** |
+
+- The estimate (~176/line, ~704 worst) is confirmed: 704/4 = 176.0/line on the clean
+  4-line measurement; the steady-state 347 vs 352 sits inside per-path `lea`-form variance.
+- Window headroom: the worst forced frame's `VBlank_Handler` row reads 10,028 cyc against
+  the ≈18,565-cyc NTSC blanking window — the +704 is 3.8% of the window and end-of-window
+  overrun is nowhere near (≈8.5k cyc of slack on the heaviest frame measured).
+- `VInt_Level`'s self-time row is identical (5328) on both ROMs — the cost lives entirely
+  in the `Enqueue_Dirty_Buffers` row, as placed.
+- **Z80 DRAIN scope (Task 2 review I3): derivation only, booked.** 704 cyc ≈ 92 µs at
+  7.67 MHz of additional ring-only DAC coverage (sound-ON) / held bus (sound-OFF) inside
+  the `SND_CTRL_DMA_ACTIVE` bracket. No automated Z80-side instrument exists; an audible
+  soak on the sound-ON shape is booked with the Task 13 capture session's notes.
 
 ## §7.3 landing captures — pending (R1 Task 13)
 
