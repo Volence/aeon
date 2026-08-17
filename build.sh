@@ -215,6 +215,17 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
     else
         echo "  (pytest not installed — skipping tool-suite tests)"
     fi
+
+    # The expect-fail lane (Parcel R1 Task 7): poison .emp modules under
+    # games/sonic4/test/poison/ that MUST fail to build, asserted by
+    # tools/emp_expect_fail.py. Ships EMPTY here — Task 8 populates CASES. It needs
+    # SIGIL_BUILD (same contract as the real build below) to invoke `sigil emp
+    # <module> --root .` per case. Same NO_LINT hatch as the other source gates.
+    echo "Running the expect-fail lane..."
+    if ! python3 "${TOOLS}/emp_expect_fail.py"; then
+        echo "expect-fail lane failed — a poison module built clean or a guard's message drifted."
+        exit 1
+    fi
 fi
 
 # STRESS_ART throwaway re-bake: regenerate the uniquified act pool IN PLACE under an
