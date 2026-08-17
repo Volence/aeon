@@ -97,6 +97,13 @@ SENTINEL_BODY = (
 # appeared somewhere": D-C is the reg_set constructor's own ensure (fragment "assumes
 # stride 2"), E-D is the program-level scan that catches direct enum construction
 # (fragment "cannot be dodged").
+# R1 Task 9 added the two band() minima cases, both count 2 and both for the same
+# structural reason: band() refuses the height AND returns its fires anyway (ensure is
+# non-aborting), so check_density refuses the same overrun a second time in its own
+# words. That pair IS claim E-C — with band()'s minima removed, both poisons fail on
+# check_density ALONE, with a message naming fires band() synthesised and the author
+# never wrote. A drop to 1 on either case means one of the two stopped firing; the
+# constructor's is the one that matters.
 CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_two_restores.emp",         "8a",         "one band per program", 1),
     (f"{POISON}/poison_band_buried_tint.emp",     "8b C-A",     "would bury", 2),
@@ -107,6 +114,8 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_direct_8f.emp",            "8d E-D",     "cannot be dodged", 1),
     (f"{POISON}/poison_direct_8a.emp",            "8d E-D $0A", "detonates the relative-arm chain", 1),
     (f"{POISON}/poison_ship_plus_restore.emp",    "8e claim6",  "offscreen_ship", 1),
+    (f"{POISON}/poison_band_h1_region.emp",       "9 D-D sh0",  "below this ON op's minimum", 2),
+    (f"{POISON}/poison_band_h2_sh.emp",           "9 E-C sh1",  "needs height >= 3", 2),
 ]
 
 

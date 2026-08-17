@@ -1,0 +1,35 @@
+// games/sonic4/test/poison/poison_band_h2_sh.emp — POISON (see README).
+//
+// TARGETS: band()'s S/H minimum-height ensure (spec §6.1/§6.2, CLAIM E-C).
+// EXPECTED FRAGMENT: "needs height >= 3"
+//
+// The same one-colour tint band, this time with `sh: 1`, at height 2. The S/H shape is
+// THREE fires — the merged [reg, tint] ON fire at `top`, the de-mix reg fire at `bot-1`,
+// and the restore alone at `bot` — so its ON fire is charged against the gap to bot-1,
+// one line shorter than the band. At height 2 that gap is a single scanline and the
+// merged fire models at 616 cycles.
+//
+// THIS IS THE CASE THAT MINTED CLAIM E-C. A band() that only knew about the ON op could
+// not see this shape at all: it would emit the three fires, admit the height, and hand
+// the author check_density's message about "the fire at screen line 101" — a fire band()
+// synthesised and never mentioned. Verified by removing band()'s minima and re-running
+// this poison: it failed on exactly that sentence, "the fire at screen line 100 models at
+// 616 cycles but only 1 scanline(s) ... before the fire at 101". The constructor owns the
+// whole shape precisely so the refusal names `bot - top` instead.
+//
+// COUNT 2: band()'s height rule, then check_density refusing the same overrun in its own
+// words about the synthesised pair. band()'s S/H COST ensure is deliberately gated behind
+// the height rule and so does NOT fire here — see its note in raster_dsl.emp. If this case
+// ever drops to 1, read which one survived: losing check_density's is fine, losing
+// band()'s is the regression.
+//
+// NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
+// COMPTIME_HELPERS members, glob-injected into every module by the real build. See
+// the README on why the lane cannot reproduce that injection yet.
+module games.sonic4.test.poison.poison_band_h2_sh
+
+const POISON_BAND_H2_SH = band(100, 102, stream_pal_region($48, 0, 2, 4, 1), 1)
+
+// THE ELABORATION HOOK — see poison_band_h1_region.emp for the full note.
+ensure(raster_program(POISON_BAND_H2_SH).len > 0,
+       "poison_band_h2_sh: raster_program returned nothing — this poison no longer reaches the guard it targets")

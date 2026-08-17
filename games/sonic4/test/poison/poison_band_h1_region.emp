@@ -1,0 +1,35 @@
+// games/sonic4/test/poison/poison_band_h1_region.emp — POISON (see README).
+//
+// TARGETS: band()'s sh:0 minimum-height ensure (spec §6.2, CLAIM D-D / E-C).
+// EXPECTED FRAGMENT: "below this ON op's minimum"
+//
+// A one-colour tint band of height 1. The ON op is the cheapest pal_region there is —
+// ONE colour — and it still models at 506 cycles against a 488-cycle scanline, so a
+// band whose OFF edge is the very next line cannot finish before its own restore is
+// due. This is the row of §6.2's table that surprises authors: `fx_tint_band`'s op is
+// a pal_region, so even a single-colour tint band needs height 2.
+//
+// WHY THE COUNT IS 2, and why that is the point of this poison rather than an
+// annoyance. band() refuses the height, and the program it returns anyway then reaches
+// check_density, which refuses the SAME overrun in its own words. That pair IS claim
+// E-C: before band() owned the minima the author saw only the second diagnostic, which
+// talks about "the fire at screen line 100" and "the fire at 101" — fires the author
+// never wrote, because band() synthesised them. The first diagnostic is the one that
+// names what the author actually typed. If this case ever drops to 1, read which one
+// survived: losing check_density's is fine, losing band()'s is the regression.
+//
+// NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
+// COMPTIME_HELPERS members, glob-injected into every module by the real build. See
+// the README on why the lane cannot reproduce that injection yet.
+module games.sonic4.test.poison.poison_band_h1_region
+
+const POISON_BAND_H1_REGION = band(100, 101, stream_pal_region($48, 0, 2, 4, 1), 0)
+
+// THE ELABORATION HOOK. A comptime fn is only elaborated when it is CALLED and an
+// unreferenced const is inert, so the guard under test runs only because this
+// module-level ensure forces band()'s body (and, through it, raster_program's). The
+// predicate is deliberately trivially-true: the diagnostic under test comes from INSIDE
+// the call, and this ensure's own message is what you would see if the poison ever
+// stopped reaching it.
+ensure(raster_program(POISON_BAND_H1_REGION).len > 0,
+       "poison_band_h1_region: raster_program returned nothing — this poison no longer reaches the guard it targets")
