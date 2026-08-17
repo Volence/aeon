@@ -47,6 +47,18 @@ real `sigil build --native` invocation, which does apply `publicize_helper_compt
 lane loudly if the carrier ever falls out of the build's `use` closure. The five R1 band
 guards are now protected by a gate, not only by review and this entry.
 
+**The edge must be a NAMED import, not a bare `use`** (commit `008523ec`, R1 Task 14
+repair). A bare `use games.sonic4.test.poison_carrier` trips sigil's `[import.no-names]`
+lint in the warn-tier corpus (2 suite failures the aeon build alone cannot see — the
+port-flip silent-breakage class); the glob form of a name-less module falls out of the
+elaboration closure entirely, which is the more dangerous failure — the lane's own
+sentinel went clean when this was measured, catching it. The fix: the carrier exports one
+`pub const ZZ_POISON_CARRIER_PRESENT = 1`, and the edge is
+`use games.sonic4.test.poison_carrier.{ZZ_POISON_CARRIER_PRESENT}` plus a consuming
+`ensure(ZZ_POISON_CARRIER_PRESENT == 1, ...)` — the named import is both what keeps the
+edge in the closure and the live proof the carrier is reachable (its module-level ensures
+run iff this edge holds).
+
 **The carrier is a workaround, not the fix — it is explicitly named for removal.** The
 proper fix remains sigil-side: `--extra-entry <module>` on `sigil build`, appending the
 poison to `synthetic_entry_src`'s `use` list so it elaborates inside the REAL profile

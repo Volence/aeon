@@ -4675,3 +4675,43 @@ catches ONE writer of ten (textbook vacuous gate). The non-vacuous form flags SY
 REFERENCES (lea/abs/extern), which also flags readers and needs an allowlist — that trade
 needs a sweep. Until then: the advisory census (buffers.emp) + the reference-count lint
 (tools/test_palette_census_lint.py) are the floor, and both are red-first-verified.
+
+## R1 booking: N bands (more than one restore per program)
+
+Parcel R1 shipped exactly one band per program (`docs/superpowers/specs/
+2026-08-16-parcel-r1-palette-bands-v6.md` §1, §9) — `raster_program` refuses a second
+`OP_PAL_RESTORE` outright. The blocker is representational, not a guard tweak: the
+composition guard (C-A, §4.2) and the single-op-restore-fire guard (D-B, §4.2a) both reason
+in the singular — "the restore," "its partner," "the restore's line" — because with one
+restore, ownership of a CRAM span between an ON fire and its OFF fire is unambiguous. With
+two+ restores in one program, a second band's ON op and OFF edge cannot be checked against
+each other by span alone once two restores compete for the same partner candidates (the
+equal-span-partner guard as written cannot disambiguate which restore owns which ON op).
+N bands need an **entry-ownership representation** — each restore record naming which ON
+record it closes, rather than the guard inferring it from span equality and fire order —
+before the guard set generalizes past `restore_n == 1`. Until that representation exists,
+the equal-span-partner guard is single-restore by construction, and adding a second band is
+a refusal, not a silent bug.
+
+## R1 booking: moving bands (patchable ON and/or OFF edges)
+
+Both directions are explicitly refused by rule 6 (CLAIM E-A, spec §4.2): a band's ON fire
+and its restore (OFF) fire must BOTH be static (`fire_is_patch == 0`). Sweep 5 found the
+open door by splicing `band()`'s restore fire into `patchable(...)` — every existing guard
+passed, and above `band_hi` the record hit `raster.emp:1083`'s `.suppress` path and was
+silently dropped: the tint ran to the bottom of the screen rather than turning off where
+authored. Rule 6 closes both spellings that reach `.suppress` — compose-merging `band()`'s
+fires onto a patchable line, and list-indexing a band fire into `patchable(...)` directly
+(via `band()` the partner is always its own ON op, so there is no third spelling) — and both
+are now guard-refused at build time, not merely undocumented.
+
+**The blocker is the same representation question as N-bands, not a separate one.** A moving
+band needs the restore to track its partner's *current* line every frame (the ON fire may be
+patchable, the OFF fire may be patchable, or both), which is exactly the entry-ownership link
+N-bands need to disambiguate "which restore closes which ON" — a moving single band is the
+N=1 case of the same missing mechanism. When this is designed, **rule 6/E-A is the seam to
+reopen**, and sweep 5's `.suppress` trace (`engine/effects/raster.emp:~1083`, the schedule-
+recording path that drops a record outside its authored band each VBlank) is the hazard
+analysis record the design inherits — any relaxation of rule 6 must re-derive why a suppressed
+partner or a suppressed restore can no longer desync silently, not merely re-permit the
+spelling.
