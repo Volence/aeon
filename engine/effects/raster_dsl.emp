@@ -1260,6 +1260,63 @@ pub comptime fn raster_program(fires: array) {
     ensure(restore_n <= 1,
            "raster_program: {restore_n} restore ops — one band per program (spec §4.1). The FIRST restore in authored order is the one every later diagnostic describes; ensure is non-aborting, so fix this count first.")
 
+    if restore_n == 1 {
+        // ---- C-A: the equal-span-partner composition guard (spec §4.2). ----
+        // GROUNDING, load-bearing: patchable fire lines MOVE at runtime; this guard's
+        // earlier/later comparison is sound ONLY because check_intervals forces strictly
+        // ascending disjoint band intervals, so every reachable line of a patchable
+        // record stays on one side of the restore. FALSIFIER: any relaxation of
+        // check_intervals silently voids this guard.
+        comptime var r_line = -1
+        comptime var r_a = -1
+        comptime var r_b = 0
+        comptime var r_patch = 0
+        for f in fires {
+            for o in fire_ops(f) {
+                if op_is_restore(o) == 1 && r_line == -1 {
+                    r_line = fire_screen_line(f)
+                    let (sa, sb) = op_cram_span(o)
+                    r_a = sa
+                    r_b = sb
+                    r_patch = fire_is_patch(f)
+                }
+            }
+        }
+        // Rule 6 half 1 (claim E-A): the restore's OWN fire is static — a patchable
+        // restore record hits .suppress above band_hi and the tint runs to the bottom
+        // of the screen, silently (sweep 5 K1, raster.emp .suppress).
+        ensure(r_patch == 0,
+               "raster_program: the restore's carrying fire must be static — a patchable restore is the split spelling of a moving-bottom band, whose suppressed restore leaves the tint running to screen bottom (spec §4.2 rule 6)")
+        comptime var partners = 0
+        for f in fires {
+            for o in fire_ops(f) {
+                if op_is_restore(o) == 0 {
+                    let (sa, sb) = op_cram_span(o)
+                    if sa >= 0 && sa < r_a + r_b && r_a < sa + sb {
+                        // Same-line intersection: order-decided winner. DEAD once D-B
+                        // (8c) ships — nothing else can share the restore's fire, and
+                        // fire_lines forbids two records per line — kept per the
+                        // module's "a guard that cannot fire is not free" note, with
+                        // D-B named as what deadens it.
+                        ensure(fire_screen_line(f) != r_line,
+                               "raster_program: a CRAM op on the restore's own line {r_line} — the merge order would decide which write wins (spec §4.2)")
+                        if fire_screen_line(f) < r_line {
+                            ensure(sa == r_a && sb == r_b,
+                                   "raster_program: the op at line {fire_screen_line(f)} intersects the restore's span but is not its equal-span partner — the restore writes BASE and would bury it from line {r_line} down (spec §4.2)")
+                            // Rule 6 half 2: the partner is static too (a patchable
+                            // partner is the split spelling of a moving-TOP band).
+                            ensure(fire_is_patch(f) == 0,
+                                   "raster_program: the restore's partner at line {fire_screen_line(f)} must be static — a patchable partner is the split spelling of a moving-top band (spec §4.2 rule 6)")
+                            partners = partners + 1
+                        }
+                    }
+                }
+            }
+        }
+        ensure(partners == 1,
+               "raster_program: {partners} equal-span partners for the restore at line {r_line} — a band needs exactly ONE (its own ON op; zero = base-over-base authoring nonsense, two+ = one of them gets buried) (spec §4.2)")
+    }
+
     // The header is ONE word. arm0 therefore sits at word 1 (byte offset 2) for every
     // program without exception — which is what lets patch_table pre-resolve a rec_off at all,
     // and what makes the builder's fixed 5-word prologue (header + both priming records) a
