@@ -101,6 +101,38 @@ stays full-brightness while a low-priority BG darkens. If OJZ's FG tiles carry t
 "line on BG, none on FG" is the emulator being right and the effect's assumption being wrong.
 Not separable from a real bug without the intent.
 
+### Measured, 2026-08-17: the priority hypothesis is DEAD, and attribution cannot answer this
+
+Probed a live headless `oracle-aether` on `s4.debug.bin` at frame 600 (own socket, the owner's
+interactive instance untouched), 55 dots — 11 rows × 5 columns, straddling line 120 at
+118/119/120/121/125 — via `emulator/pixel_attribution`. Script:
+`scratchpad/sh_probe.py`. Two results, both negative, both useful:
+
+1. **No plane pixel carries the priority bit.** Every planeA and planeB candidate at all 55 dots
+   reported `priority = 0` (P1=0 / P0=10 on every row). The only P1 pixel found anywhere was
+   `sprite 0`. So "the FG plane is high-priority and therefore stays bright under S/H" is
+   **false for OJZ** — that explanation for "line on BG, none on FG" is dead. (Bound: 55 dots on
+   one frame, not a proof of absence across the act.)
+2. **`pixel_attribution` cannot attribute raster banding — the aeon use case.** Every dot reported
+   `state: "normal"`, including rows 121-215, even though the ROM fires `reg_sh_on()` at line 120.
+   This is by design and documented in-tree (`engine.rs`, the method's own doc comment): it
+   "answers about the VDP's state *now*", re-deriving the scanline from current registers and
+   reading no framebuffer, so at a frame-boundary pause it sees the frame-top-flushed `$8C81` and
+   reports normal everywhere. The doc names the reconciliation path: per-scanline capture, **not**
+   pause.
+
+Result (2) is a material qualification of §5's ceiling argument and is recorded as such: the
+instrument that most distinguishes oracle-next has a blind spot exactly on per-line register
+effects. It does not sink the case — the gate would ride the rastered frame + framediff, and
+`ScanlineCapture` is the sanctioned path — but "attribution tells you *why* this dot is this
+colour" is true of whole-frame state and **not** of raster bands until an attribution-at-a-given-
+scanline surface exists. Treat that as a requirement to add, not a feature to assume.
+
+The S/H exhibit therefore remains UNEXPLAINED and stays open. What is now excluded: plane
+priority bits, and shadow arithmetic error. What is not yet excluded: lens/layer-view semantics
+in oracle-next's frontend (its layer-removal flags do not mask S/H operator flags — see §6), and
+whether the water fire is armed at all in the sampled section.
+
 ---
 
 ## 3. oracle-next is materially closer than its own README claims
