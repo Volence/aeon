@@ -12,6 +12,17 @@
 > session over engine/effects/* + bg_anim) must have its findings adjudicated and any fixes
 > LANDED before Task 9 onward executes — the migration freezes those bytes as the identity
 > baseline. Tasks 1–8 (new modules, no engine edits) may proceed in parallel with the sweep.
+>
+> **DEPENDENCY STATUS 2026-08-18 (measured, premise FALSE): the sweep was never launched.**
+> No `review/raster-*` branch or worktree exists, and the string "raster-substrate" appears
+> nowhere in the repo except the line above — so "running in a parallel session" was an
+> assumption, not a fact. The existing lens worktrees (`sound-lens`, `system-lens`,
+> `tools-lens`) are the 2026-08-13 sweeps and do not cover this surface.
+> **Consequence: TASK 9 IS BLOCKED, tasks 4–8 are not.** Task 9 is where the migration
+> freezes engine/effects bytes as the identity baseline; freezing over an unswept substrate
+> is what the gate exists to prevent. Owner decision required before Task 9: launch the
+> sweep, or ratify proceeding without it and accept that a later sweep finding costs a
+> deliberate repin/refreeze rather than being free.
 
 **Goal:** Introduce the authored scene model (`layer()`/`scene()` constructors), the
 per-game scene registry with capability-mask fold, and migrate all 20 shipped parallax
@@ -283,6 +294,26 @@ pub comptime fn scene_caps(s: Scene) -> int {
 - [ ] **Step 4:** Build all four shapes green (no engine consumer yet — pure contract).
   Commit all three files.
 
+> **TASK 4 SEQUENCING + DERIVED VALUE (controller, 2026-08-18) — read before executing:**
+> - **Forward dependency, resolved:** Step 3's preferred binding
+>   (`SCANLINE_CAPS = SceneRegistry_CapsFolded`) imports from the registry, which does not
+>   exist until Task 5. Adding a const to the Game interface obliges BOTH games to bind it
+>   or the contract-closure gate fails, so Task 4 cannot wait. Ruling: Task 4 binds sonic4
+>   to the **declared literal** with the registry ensure named in a comment as its pending
+>   verifier; **Task 5 adds the `folded ⊆ declared` ensure** and may then flip the binding
+>   to computed. This is the spec's derive-and-verify posture, not hand-maintained-unchecked
+>   — but it means **Task 5 must not be skipped or reordered**, because until its ensure
+>   lands the declared word is unverified. Task 1's spike proved computed consts work, so
+>   the flip is available; it is a preference, not a blocker.
+> - **The declared word is `$001F`,** derived from the shipped configs (do NOT copy the
+>   plan's illustrative "`$001D`-style" literal in Step 3 — it is wrong by one bit):
+>   `CAP_PER_LINE $01` (deform tables throughout) | `CAP_PER_COL_VSRAM $02`
+>   (`v_deform_bg` at configs.emp:216 Rocking, :236 Perspective — the bit `$001D` omits) |
+>   `CAP_DEFORM $04` (live non-15 amplitudes, e.g. anchor_dsb 2 at :135, Windy dsa 4) |
+>   `CAP_ANCHORS $08` (anchor_ch 0 at :135, Underwater) | `CAP_TRANSITIONS $10` (registry
+>   holds 20 > 1). Re-derive rather than trusting this; it is recorded so a mismatch is a
+>   conversation, not a silent overwrite.
+
 ### Task 5: Scene registry
 
 **Files:** Create `games/sonic4/data/effects/scene_registry.emp`
@@ -361,6 +392,35 @@ pub const Scene_OJZ_Underwater = scene(
   `PAD` = `layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1, enabled: 0)` slots beyond
   sc_count — never lowered (sc_count bounds every fold; an ensure in scene() confirms
   pads beyond count are untouched by lowering).
+
+> **TASK 6 AUTHORING FACTS (controller, 2026-08-18 — established by Task 3 + its two
+> reviews; four correct the text above):**
+> - **`PAD` is spelled `no_layer()`**, a constructor Task 3 added because `sc_layers` is a
+>   fixed `[SceneLayer; 8]` and every author must spell 8 elements. Do NOT hand-write
+>   `layer(..., enabled: 0)` as the pad: the pad ensure discriminates on `ly_fa == 0`, and
+>   `FACTOR_1` is nonzero, so a `layer()`-built pad FAILS the guard. `no_layer()` is the
+>   only thing in the model with `fa == 0`.
+> - **`OJZ_LockedClouds` must NOT use the mask bridge.** The roster row above prescribes
+>   `mask_raw $1E`; that is over-prescription. `$1E` **derives** from `enabled: 0` on layer
+>   0, and the byte-identity probe confirmed the derived path reproduces it exactly. Author
+>   it derived and leave `layer_mask_raw` unset — a bridge used where derivation works is a
+>   guard surrendered for nothing.
+> - **The mask bridge is needed TWICE, not once.** `OJZ_Underwater` (configs.emp:132-134)
+>   has the same `band_count: 4, layer_mask: $1F` shape as `OJZ_Default`. Those two configs
+>   are the complete set of mask-bridge users.
+> - **`precision: PRECISION_LINE` does not synthesize a table.** Spec §2 reads as though it
+>   lowers to a DeformTable_Zero attachment; the implemented constructor instead *fences*
+>   it (line precision requires an attached BG table). So the zero-table configs must
+>   **explicitly spell `deform_bg: SceneDeform.Shared(DeformTable_Zero, 1)`** alongside
+>   `precision: PRECISION_LINE`. Byte-identical either way; the fence fails loud, so a
+>   miss cannot ship silently.
+> - **Scene modules MUST glob-import: `use engine.level.scene_dsl.*`** — never selective.
+>   `scene_dsl` is not in sigil's `COMPTIME_HELPERS`, so its bodies' free names resolve at
+>   the game call site. A selective import fails loud (~217 `unknown function` errors), so
+>   this cannot ship broken, but it will waste a build cycle.
+> - **Enum variants are PascalCase** (`SceneDeform.None`/`.Shared`, `SceneVDeform.None`/
+>   `.Columns`, `SceneAnchor.None`/`.At`) — the lowercase spelling in the sketches above is
+>   not the real surface.
 - [ ] **Step 3:** Register all 20 in scene_registry SCENES; emission produces
   `SceneOut_ParallaxConfig_*` records.
 - [ ] **Step 4:** Build both sonic4 shapes green (both old and SceneOut_ symbols linked —
@@ -490,6 +550,29 @@ expected trivially green; any diff = investigate the harness, not the ROM).
   a deliberate refreeze).
 - [ ] **Step 2:** Commit docs. Merge branch → master (all four shapes green at merge
   point; verify branch first). Push if remote configured.
+
+> **TASK 12 ADDITIONS (controller, 2026-08-18 — booked out of Task 3's reviews):**
+> - [ ] **Step 3:** Book the `COMPTIME_HELPERS` move as a paired aeon+sigil follow-up
+>   (DEFERRED_WORK entry). `engine.level.scene_dsl` is the only authoring DSL in its family
+>   NOT in sigil's helper set (`crates/sigil-harness/src/native.rs:1942` — `parallax_dsl`,
+>   `palette_dsl`, `raster_dsl` all are). Joining it deletes the glob-import requirement,
+>   lets Task 3's ten `pub` accessors go private, returns the inlined literals to names, and
+>   — the real argument — subjects the set to `tools/emp_helper_closure.py`, which exists
+>   to prove helper names are disjoint. Nothing currently gates a hand-written glob against
+>   collisions, and this injects names as generic as `layer`, `scene`, `no_layer` into game
+>   modules. Staying out is the ungated option; joining is the gated one. Correctly declined
+>   mid-parcel (paired change), correctly owed at the tail.
+> - [ ] **Step 4:** Book the sigil language defect: **an `if` in block-tail position
+>   evaluates to unit with no diagnostic**, so nested if-expressions silently yield `()`.
+>   Measured twice; it mis-folded a capability mask to 0 during Task 3 and was caught only
+>   by an independently-derived expected value. General trap for every `comptime fn` in the
+>   tree, not a scene_dsl issue.
+> - **MERGE SAFETY (blocks Step 2):** `scene_dsl.emp` must NOT reach master without a
+>   module that `use`s it. Unreached, it has parse+scan coverage and **zero body-elaboration
+>   coverage** (measured: undefined names inside an uncalled `pub comptime fn` build green),
+>   so all of its guards and drift pins are dead. Task 6 supplies the caller and Task 7 the
+>   permanent witness — if the parcel is descoped after Task 4/5, do not merge the DSL
+>   alone.
 
 ---
 
