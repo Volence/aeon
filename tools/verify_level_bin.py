@@ -289,6 +289,87 @@ def verify_bininclude_targets():
             check(os.path.isfile(tp), f"{head}: BINCLUDE/embed target missing: {tgt}")
 
 
+# Generated files that are legitimately unreferenced. Each needs a REASON, because
+# the whole point of the orphan check is that "nothing references it" is normally a
+# defect. Do not add a line here to silence a real orphan.
+_ORPHAN_ALLOWLIST = {
+    # The only embedder sits inside `if anims:` and the committed bg_anim.emp is the
+    # else-branch stub, so this is referenced by a code path that is not currently
+    # taken (tools lens sweep D10). Real input, not detritus — keep it.
+    "bg_anim_banks.bin",
+}
+
+
+def verify_no_orphans():
+    """Every committed generated artifact should be referenced by something.
+
+    THE GAP THIS CLOSES. verify_level_bin checks embed -> file (does every embedded
+    path exist?) and never file -> embed (does every file have an embedder?). So
+    18 orphans totalling 240 KB — sec{0..8}_tiles.{bin,zx0}, whose writer had been
+    removed from ojz_strip_gen.py — sat committed for 45 days with zero references
+    anywhere in the tree, having been swept in as untracked build detritus by a
+    commit that meant to track the real generated tree (tools lens sweep D10).
+
+    That is the cleanest available proof that "review git status before committing"
+    is not a gate. This is the gate.
+
+    WARN, not fail: an orphan is a housekeeping defect, not a broken ROM, and a
+    build that refuses to produce a working image over dead weight would get
+    switched off. It is loud, in the output people read, and it names each file.
+    """
+    gen_root = os.path.join(ROOT, "games", "sonic4", "data", "generated")
+    if not os.path.isdir(gen_root):
+        return
+    # Everything that could name a generated file.
+    haystack = []
+    for sub in ("engine", "games", "tools"):
+        for dirpath, _d, filenames in os.walk(os.path.join(ROOT, sub)):
+            # Do NOT skip generated/ — the generated manifests (.emp) are the very
+            # things that embed the generated blobs, so excluding them reported 74
+            # false orphans on the first run, act_pool_page*.bin among them.
+            if os.sep + ".git" in dirpath:
+                continue
+            for fn in filenames:
+                if fn.endswith((".emp", ".asm", ".toml", ".py", ".sh", ".json")):
+                    try:
+                        with open(os.path.join(dirpath, fn), "r",
+                                  encoding="utf-8", errors="ignore") as fh:
+                            haystack.append(fh.read())
+                    except OSError:
+                        pass
+    blob = "\n".join(haystack)
+
+    orphans = []
+    for dirpath, _d, filenames in os.walk(gen_root):
+        for fn in filenames:
+            if fn in _ORPHAN_ALLOWLIST:
+                continue
+            stem = os.path.splitext(fn)[0]
+            # A file is "referenced" if its NAME, its stem, or its DIGIT-STRIPPED
+            # skeleton appears. The skeleton matters because tools build these names
+            # with f-strings -- `f"sec{sec}_strips_a.bin"` -- so the literal
+            # "sec0_strips_a.bin" appears nowhere. Without it this reported 19 false
+            # orphans on its first run, which is the failure mode that makes a
+            # warning get ignored.
+            # The tail AFTER the leading index is what survives an f-string:
+            # `f"sec{sec}_strips_a.bin"` contains "_strips_a.bin" but neither
+            # "sec0_strips_a.bin" nor the digit-stripped "sec_strips_a.bin".
+            tail = re.sub(r"^[A-Za-z]*\d+", "", fn)
+            cands = [fn, stem]
+            if tail and tail != fn and len(tail) > 4:
+                cands.append(tail)
+            if not any(c in blob for c in cands):
+                orphans.append(os.path.relpath(os.path.join(dirpath, fn), ROOT))
+
+    if orphans:
+        print(f"verify_level_bin: WARNING — {len(orphans)} generated artifact(s) "
+              f"referenced by NOTHING (no embed, no BINCLUDE, no tool). Either wire "
+              f"them up, delete them, or add them to _ORPHAN_ALLOWLIST with a reason:",
+              file=sys.stderr)
+        for o in sorted(orphans):
+            print(f"  - {o}", file=sys.stderr)
+
+
 def verify_collision_is_interned():
     """The ROM-consumed collision tables must NOT be the raw base S&K bank.
 
@@ -341,8 +422,9 @@ def main():
     verify_block_blobs()
     verify_bininclude_targets()
     verify_collision_is_interned()
+    verify_no_orphans()
     checks_run = ("act-pool+content+sidecar / local-maps / block-blobs / "
-                  "bininclude-targets / collision-interned")
+                  "bininclude-targets / collision-interned / orphans")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:
