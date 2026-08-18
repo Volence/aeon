@@ -1,0 +1,82 @@
+// engine/level/scene_dsl.emp — the authored scene model (spec 2026-08-17 §2/§3).
+//
+// Pure comptime: constructors, capability fold, lowering to parallax_config/band_entry.
+// GUARDS LIVE HERE: this module is in the use closure of every scene author, so its
+// ensures always evaluate (the preset.emp reachability lesson).
+//
+// Pure comptime — this module emits no ROM bytes.
+module engine.level.scene_dsl
+
+use engine.structs.{parallax_config}
+use engine.parallax.{band_entry}
+use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
+use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
+
+// ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
+pub const CAP_PER_LINE       = $0001
+pub const CAP_PER_COL_VSRAM  = $0002
+pub const CAP_DEFORM         = $0004
+pub const CAP_ANCHORS        = $0008
+pub const CAP_TRANSITIONS    = $0010
+// Reserved (P3+): CAP_MULTI_DEFORM_TABLE=$0020, CAP_FACTOR_CURVE=$0040,
+// CAP_FG_SPRITE_STRIPS=$0080, CAP_BGANIM_BOUND=$0100, CAP_DENSE_TIER=$0200,
+// CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
+
+// ---- attachment enums (spec §2) ----
+// Comptime enums with payloads, per the RasterOp precedent: variants are the
+// authoring vocabulary; every attachment defaults to its explicit None variant,
+// never to a `Label = 0` sentinel (a Label compared to an int is silently
+// unevaluable — the preset.emp lesson — so 0-sentinels can never be guarded).
+// Payload slots are positional; the order is documented per variant.
+
+pub comptime enum SceneDeform {
+    None,                       // no H-deform on this scene
+    Shared(Label, int),         // (deform table Label, sample speed) — one table both planes
+}
+
+pub comptime enum SceneVDeform {
+    None,                       // no per-column V-deform
+    Columns(Label, int, int),   // (column table Label, sample speed, amplitude shift)
+}
+
+pub comptime enum SceneAnchor {
+    None,                       // no world-anchored band split
+    At(int, int, int),          // (patch channel, anchored dsa, anchored dsb)
+}
+
+// ---- lowering-tier and transition selectors ----
+pub const PRECISION_CELL = 0    // band tops land on 8-px plane cells (P1 tier)
+pub const PRECISION_LINE = 1    // per-line band tops (reserved: P2+)
+pub const TRANS_SMOOTH   = 0    // lerp the section transition
+pub const TRANS_INSTANT  = 1    // snap on the promote frame
+
+// -----------------------------------------------
+// SceneLayer — one authored world-Y layer (comptime-only; never emitted:
+// the Task-3 lowering folds SceneLayers into parallax_config/band_entry).
+// -----------------------------------------------
+pub struct SceneLayer {
+    ly_world_y:  int,
+    ly_fa:       int,
+    ly_fb:       int,
+    ly_dsa:      int,
+    ly_dsb:      int,
+    ly_phase:    int,
+    ly_enabled:  int,
+}
+
+// -----------------------------------------------
+// layer — one scene layer at an authored world-Y top.
+// world_y: layer top in world pixels (8-px cell grid, < 512 in P1)
+// fa/fb:   packed FACTOR_* scroll factors for planes A/B (parallax_dsl)
+// dsa/dsb: per-plane deform-amplitude shifts (15 = no deform on that plane)
+// phase:   deform sample-index desync; enabled: 0 authors a dormant layer
+// -----------------------------------------------
+pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 15,
+                      phase: int = 0, enabled: int = 1) -> SceneLayer {
+    ensure(world_y % 8 == 0,
+           "layer(): world_y {world_y} is not on the 8-px cell grid — P1 lowering requires cell alignment (spec 3.1); off-grid tops arrive with world-Y re-glue (P3)")
+    ensure(world_y >= 0 && world_y < 512,
+           "layer(): world_y {world_y} outside the 512-px BG plane span (P1 keeps plane-cell anchoring; act-tall world-Y arrives in P3)")
+    return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: dsa,
+                       ly_dsb: dsb, ly_phase: phase, ly_enabled: enabled }
+}
