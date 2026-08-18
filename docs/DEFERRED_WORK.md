@@ -5126,15 +5126,32 @@ but it is now loud at the next build instead of silent for two months. The other
 (separating editor-owned from build-consumed fields; making the daemon flag such a change)
 remain open and would address the mechanism itself rather than alarming on it.
 
-### Also still open from the same packet
+### Also from the same packet — ALL THREE CLOSED 2026-08-18
 
-- **D4** — the "ROM Build" gate has never built the ROM it asserts about. `test.sh:182` runs
-  `./build.sh -pe`, but `-pe` is POSITIONAL and consumed as the game name (`GAME=-pe` →
-  `games/-pe/game_root.asm`), so the build fails; then `test.sh:189`'s `if [ -f "s4.bin" ]`
-  runs six sanity checks against whatever `s4.bin` a previous manual build left on disk. On
-  any machine that has ever built by hand, `test.sh` prints six confident PASS lines about a
-  ROM that run did not produce.
-- **D5** — the build-fatal lint gate lints one file that emits no bytes; root cause is a path bug.
-- **The collision gate gap** — `verify_level_bin.py` does not mention collision at all, which
-  is why D1 could destroy the tables invisibly. The preflight prevents the known destructive
-  path; it does not detect a clobber from any other source.
+- **D4 CLOSED.** Its first half had already been fixed (test.sh names the game explicitly).
+  The second half had not: the ROM sanity checks were gated on `[ -f "s4.bin" ]` alone, so a
+  failed build left six confident PASS lines grading whatever ROM a previous manual build had
+  left on disk. The prior ROM is now REMOVED before building and the checks require THIS run
+  to have produced one. Verified by simulating a failing build: two FAILs, no stale PASSes.
+- **D5 CLOSED, with a correction to the packet.** The real defect was that
+  `discover_files` had **no else branch** — main() passed `base_dir = dirname(entry)`, so for
+  a top-level entry both include candidates collapsed to the same wrong directory and the
+  include vanished silently. base_dir is now the PROJECT ROOT (what AS uses, and what the
+  code's own comment always claimed), an unresolvable include now RAISES, and `_SKIP_FILES`
+  paths were corrected — they were dead code exactly as the packet said, and fixing
+  resolution immediately produced 44 style warnings against the vendored MD Debugger, which
+  is what those entries always existed to prevent.
+  **The correction:** the packet says this leaves "142 `.emp` files unlinted". It does not.
+  `s4lint` is an AS assembler linter (`discover_files` returns `.asm` files) and the tree now
+  has 165 `.emp` files against essentially one meaningful `.asm`. The `.emp` corpus is covered
+  by sigil's own warning tiers. This gate's honest scope is small BY CONSTRUCTION, not
+  because of the bug; what the bug did was hide that smallness behind a confident green line.
+- **The collision gate gap CLOSED.** `verify_level_bin.py` now asserts the ROM-consumed
+  tables are NOT byte-identical to `collision/base/`. Property, not checksum pin: the tables
+  legitimately change on every re-bake, so a pin would be silenced rather than obeyed.
+  Poison-verified with D1's exact clobber. This is the detector for every route to that state
+  OTHER than the one the preflight now blocks — a hand-run of `import_sk_collision.py`, a bad
+  merge, a partial revert, a restored backup.
+
+**The tools packet is now fully worked** apart from D6 (two producers write `zone_bg.bin`
+with incompatible geometry — HIGH, latent) and anything below it in that file.
