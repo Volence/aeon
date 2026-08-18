@@ -5076,3 +5076,52 @@ first FM6 patch event).
 The tools CRITICALs are first and are **not** blocked on anything — they are the only findings
 here that can destroy authored data. Everything else is ordinary parcel work. None of it is
 blocked by scanline P1.
+
+---
+
+## Tools lens CRITICALs — D1/D3 FIXED, D2 CURED, the DRIFT VECTOR still open (2026-08-18)
+
+Landed today, each verified rather than assumed:
+
+- **D1 CLOSED.** `tools/regenerate-level.sh` now runs a write-free
+  `ojz_strip_gen.py preflight` FIRST. Poison-verified both destructive paths: missing
+  `sonic_hack` and missing `skdisasm` each exit 1 with the collision tables' md5
+  **unchanged**. Keep every new precondition in the preflight rather than at its point of
+  use, or the defect returns.
+- **D3 CLOSED at the root.** `editor_data_available()` required only `isfile`; a ZERO-BYTE
+  tileset passed and baked a blank level every gate accepted. Now requires non-empty, and
+  the refusal distinguishes ABSENT from PRESENT-BUT-EMPTY because they send an author to
+  different places. Verified both directions (0-byte refused, 32-byte accepted — not
+  over-broad).
+- **D2 CURED.** `games/sonic4/data/editor/ojz_tiles.bin` is now tracked (explicit
+  `.gitignore` negation, not a silent force-add). Verified in a FRESH worktree: the file is
+  present and preflight passes end-to-end with the documented donor env vars. `STRESS_ART=1`
+  should be alive again with it.
+
+### ⚠ STILL OPEN — the drift vector, which is the real finding behind D2
+
+**The editor rewrites `project.json` wholesale on save, so any repo-side correction to an
+editor-owned field has a shelf life of ONE editing session.** That is what reverted the
+2026-06-11 fix the very next day (`f2371ca0` → `586cd3fa`), via an editor state save the
+auto-commit daemon landed unreviewed. Tracking the tileset removes the CONSEQUENCE that
+made it fatal, not the mechanism.
+
+It will bite again on the next editor-owned field that needs a repo-side value. Options,
+unranked: keep editor-owned fields and build-consumed fields in SEPARATE files so the editor
+never rewrites the latter; have the daemon refuse (or flag) a commit that changes a
+build-consumed field; or add a gate asserting `project.json`'s resolved tileset is tracked
+AND non-empty, so a revert fails the build rather than the next re-bake two months later.
+**The third is the cheapest and is a real gate, not a convention.**
+
+### Also still open from the same packet
+
+- **D4** — the "ROM Build" gate has never built the ROM it asserts about. `test.sh:182` runs
+  `./build.sh -pe`, but `-pe` is POSITIONAL and consumed as the game name (`GAME=-pe` →
+  `games/-pe/game_root.asm`), so the build fails; then `test.sh:189`'s `if [ -f "s4.bin" ]`
+  runs six sanity checks against whatever `s4.bin` a previous manual build left on disk. On
+  any machine that has ever built by hand, `test.sh` prints six confident PASS lines about a
+  ROM that run did not produce.
+- **D5** — the build-fatal lint gate lints one file that emits no bytes; root cause is a path bug.
+- **The collision gate gap** — `verify_level_bin.py` does not mention collision at all, which
+  is why D1 could destroy the tables invisibly. The preflight prevents the known destructive
+  path; it does not detect a clobber from any other source.
