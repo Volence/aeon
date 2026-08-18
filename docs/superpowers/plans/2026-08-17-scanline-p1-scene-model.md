@@ -437,10 +437,10 @@ until Task 9 — both exist during Tasks 6–8; the DUPLICATE data symbols must 
 linked, so ojz_scenes' emitted data uses temporary `SceneOut_` prefixes until Task 9 swaps
 names atomically. The equivalence proof compares SceneOut_* against the live ParallaxConfig_*.)
 
-- [ ] **Step 1:** Move the 6 deform tables verbatim (same generator calls, same names —
+- [x] **Step 1:** Move the 6 deform tables verbatim (same generator calls, same names —
   these are data, not constructors: `DeformTable_Zero`, `_Shimmer`, `_OJZ_Calm`, `_Haze`,
   `_Rocking`, `_Perspective`) — temporary names `SceneOut_DeformTable_*` until Task 9.
-- [ ] **Step 2:** Author all 20 scenes. Complete mapping (source: configs.emp @ current
+- [x] **Step 2:** Author all 20 scenes. Complete mapping (source: configs.emp @ current
   master; `cell: N` → `world_y: N*8`):
 
 ```
@@ -509,10 +509,59 @@ pub const Scene_OJZ_Underwater = scene(
 > - **Enum variants are PascalCase** (`SceneDeform.None`/`.Shared`, `SceneVDeform.None`/
 >   `.Columns`, `SceneAnchor.None`/`.At`) — the lowercase spelling in the sketches above is
 >   not the real surface.
-- [ ] **Step 3:** Register all 20 in scene_registry SCENES; emission produces
+- [x] **Step 3:** Register all 20 in scene_registry SCENES; emission produces
   `SceneOut_ParallaxConfig_*` records.
-- [ ] **Step 4:** Build both sonic4 shapes green (both old and SceneOut_ symbols linked —
+- [x] **Step 4:** Build both sonic4 shapes green (both old and SceneOut_ symbols linked —
   ROM grows temporarily; that's fine mid-branch, Task 9 restores). Commit.
+
+> **TASK 6 FINDINGS (2026-08-18, commit e8babd62). Bind Tasks 7-10:**
+> - **THE FOLD OVER ALL 20 REAL SCENES IS `$001F`** — hand-derived AND measured (a temporary
+>   poison printed `folded=31 declared=31`, reverted before commit). The capability word is
+>   now COMPUTED from the migrated data, not asserted. Per bit: CAP_PER_LINE all 20 ·
+>   CAP_PER_COL_VSRAM Rocking x3 + Perspective x3 · CAP_DEFORM 17 (not OJZ_Default, Caves,
+>   LockedClouds) · CAP_ANCHORS OJZ_Underwater alone · CAP_TRANSITIONS len > 1.
+>   **OJZ_Underwater raises CAP_DEFORM only through its ANCHOR `dsb 2`** — all four of its
+>   layers sit at 15 — which is exactly the case `scene_caps()`'s cross-plane anchor scan
+>   exists for. That scan is now load-bearing, not defensive.
+> - **NOTHING in the 20 source configs was inexpressible in the scene model, and no layer
+>   count outside 1/2/4/5 was needed.** The model is complete for the shipped corpus.
+> - **Exactly two mask bridges** (OJZ_Default, OJZ_Underwater) and one shift bridge
+>   (SkyHaze). **LockedClouds derived `$1E` with no bridge**, as ruled. **No third bridge
+>   species exists** — Task 3's finding now confirmed at full scale.
+> - **THE ROSTER TABLE IN THIS PLAN WAS WRONG FOUR TIMES.** Transcribe from `configs.emp`,
+>   never from the roster: (1) **Haze** — the roster says "dsa/dsb per gradient arm"; `dsb`
+>   is **4 on every layer in both arms** and only `dsa` varies (`15/15/15/4/3` vs
+>   `3/3/3/3/3`). Following the roster literally produces a WRONG Haze_Uniform. (2) Rocking's
+>   `shift` does not vary — all three take the default. (3) Perspective omits the per-layer
+>   `dsb` ramp `15/15/15/4/2` and the uniform `dsa 4`, which is the only thing distinguishing
+>   its layers. (4) OJZ_Windy `$01` / OJZ_Caves `$1F` are listed as prescribed masks; both
+>   derive.
+> - **ROM growth: +684 debug / +671 plain** (s4.debug `89dc4c54` len 713436, s4
+>   `72ef55f1` len 698539). Both demo shapes UNCHANGED at `10aad76c` / `2ecd1031` — nothing
+>   leaked across the game wall. **`EndOfRom` is UNMOVED at `$A30D0` in both shapes**: the
+>   2766 bytes of new records absorbed into the padding before the fixed sound-bank anchors,
+>   so the whole image delta is the deb2 appendix for 26 new symbols. **Task 10 should expect
+>   the post-swap ROM to return to the pre-Task-6 crcs exactly, not merely to a similar size.**
+> - **LANGUAGE TRAP — `d0`-`d7` / `a0`-`a7` are REGISTER TOKENS.** A comptime `let d0 = ...`
+>   binds a register, not an int. It fails loud (`a register is not a valid int argument`)
+>   but the diagnostic points at the CALL SITE, not the binding, so the message does not name
+>   the cause. Caught by the expect-fail lane's sentinel via diagnostic-count drift — that
+>   guard earned its keep. Name comptime bindings `dsa0..dsa3`, never a register spelling.
+>
+> **CONTROLLER RULING — `precision` is a DEFAULT, not a claim (2026-08-18).** Task 6 asked
+> whether the five flat-pathed configs (OJZ_Caves, OJZ_LockedClouds, Rocking x3) should join
+> OJZ_Default/Underwater at `PRECISION_LINE`, since all seven use the identical
+> zero-table-selects-per-line idiom. **Ruling: leave them, and BOOK the ambiguity instead** —
+> `scene_dsl.emp` documents TWO different meanings for the field (the constants say band-top
+> granularity; the fence says per-line HScroll pipeline selection) and they are not the same
+> claim. In P1 the field is inert (not emitted, not read by `scene_caps()`, and `layer()`
+> forces every top onto the 8-px grid anyway, so no shipped scene can want per-line tops).
+> Marking five more scenes LINE would invent an unverifiable claim; leaving it undocumented
+> would let the freeze enshrine a default as evidence. The ambiguity is now written at the
+> constants in `scene_dsl.emp`, with the instruction that P2/P3 must settle the reading and
+> RE-DERIVE all 20. Deriving it is the likely right answer — a hand-authored field with no
+> consumer and no derivation is exactly how the capability mask started, and the mask now has
+> both.
 
 ### Task 7: Equivalence proof module (the permanent witness)
 

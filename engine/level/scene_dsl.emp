@@ -94,6 +94,28 @@ pub comptime enum SceneAnchor {
 // ---- lowering-tier and transition selectors ----
 pub const PRECISION_CELL = 0    // band tops land on 8-px plane cells (P1 tier)
 pub const PRECISION_LINE = 1    // per-line band tops (reserved: P2+)
+
+// WHAT `precision` MEANS IS NOT SETTLED, AND IN P1 IT DOES NOT MATTER — BUT IT WILL.
+// Two readings are documented in this file and they are not the same claim:
+//   (a) the two lines above — the granularity of BAND TOPS (8-px cells vs per-line);
+//   (b) the scene() fence below — whether the scene rides the per-line HSCROLL PIPELINE,
+//       which today is selected by a non-NULL BG deform table, not by this field.
+// They coincide only because a per-line pipeline is what would ALLOW per-line tops.
+//
+// In P1 the field is inert: `sc_precision` is not emitted, not read by scene_caps(), and
+// `layer()` requires every top on the 8-px grid anyway, so NO shipped scene can want (a).
+// The 20 migrated scenes therefore carry values that are NOT a considered tier claim —
+// two are PRECISION_LINE because the migration plan said so, eighteen are PRECISION_CELL
+// by default, and five of those eighteen (OJZ_Caves, OJZ_LockedClouds, Rocking x3) use the
+// identical flat-pathed-zero-table idiom as the two that are marked LINE. Nothing
+// distinguishes them today.
+//
+// SO: whoever gives precision a standalone lowering (P2/P3, the same event that retires
+// the fence) must FIRST settle which reading is meant and then RE-DERIVE all 20 — these
+// values are a default, not evidence. Deriving it outright is the likelier right answer,
+// since (b) is already computable from the BG table and (a) from the tops; a hand-authored
+// field with no consumer and no derivation is how the mask started, and the mask now has
+// both a derivation and a verify ensure.
 pub const TRANS_SMOOTH   = 0    // lerp the section transition
 pub const TRANS_INSTANT  = 1    // snap on the promote frame
 // These four are DEFINED here, but scene()'s defaults and the fence that tests them are
