@@ -28,7 +28,14 @@ status = "fixed"
 cram_words_per_fire  = 3             # code-derived — RASTER_CRAM_MAX (engine/effects/raster.emp)
 cram_words_reason    = "cycle budget, not FIFO (Ruling 2a); a 16-colour line cannot swap in one fire"
 save_set_registers   = 4            # code-derived — movem d0-d1/a1-a2 in Raster_HInt
-movem_roundtrip_cycles = 40         # fixed — 4-register movem push+pop
+movem_roundtrip_cycles = 84         # fixed — 4-register movem push+pop: 68000 movem is
+                                    # 8 + 8n register-to-memory and 12 + 8n back, so at n = 4
+                                    # the push is 40 and the pop 44. CORRECTED 2026-08-18 from
+                                    # 40, which is the PUSH ONLY — half of the round trip the
+                                    # row names. Same defect as raster.emp's header note, fixed
+                                    # in the same parcel; this row is not read by anything
+                                    # either, so nothing downstream moves.
+movem_roundtrip_cycles_SUPERSEDED = 40  # push only, mislabelled as the round trip
 # Per-fire handler cost (arm write + op parse + one OP_CRAM of 3 colours). The corpus
 # lower bound is ~26 cyc (zero-save, Ruling 4c); ours saves 4 registers.
 # SUPERSEDED 2026-08-14 — DO NOT USE. The 8358 figure was read from the profiler's
@@ -52,11 +59,26 @@ sparse_tier_frame_pct_SUPERSEDED        = 6.5
 # able to tell which measurement it was.
 sparse_fire_vsram1_cycles = 458      # measured — fixture F7 (and F2, identical)
 sparse_fire_cram3_cycles  = 518      # measured — fixture F3
-sparse_fire_reg1_cycles   = 396      # measured — fixture F1; the old model scored this ZERO
+sparse_fire_reg1_cycles   = 412      # measured — fixture F1; the old model scored this ZERO
 sparse_fire_region3_cycles = 566     # measured — fixture F4
-sparse_fire_water_cycles  = 660      # modelled — reg_sh_on + 3-word region, the OJZ water fire
+sparse_fire_water_cycles  = 676      # modelled — reg_sh_on + 3-word region, the OJZ water fire
 sparse_fire_vsram1_cycles_SUPERSEDED = 454   # interrupts.hint differential, 2026-08-14
 sparse_fire_cram3_cycles_SUPERSEDED  = 526   # interrupts.hint differential, 2026-08-14
+# CORRECTED 2026-08-18 — these two contradicted a LIVE `ensure` and this file said nothing,
+# because no gate reads the sparse_fire_* rows (only [symbols] rows are checked). Found
+# independently by three seats of the raster-substrate lens sweep. Both were the RUNGS=4
+# figures, superseded when R1 added the fifth dispatch rung and every SetReg got 16 cyc
+# dearer; the _SUPERSEDED convention this file already uses simply was not applied.
+#   reg1:  raster_dsl.emp's fixture F1 `ensure` pins 412 and says so in its own trailing
+#          note, "was 396 at RUNGS=4". Model derivation: fire_base 302 + SetReg
+#          (fetch 8 + dispatch 16*5 + work 12 + tail 10 = 110) = 412.
+#   water: raster_dsl.emp derives it in that arithmetic — "merged fire tops out at
+#          302 + 110 + 264 = 676". The 264 is the region op: fetch 8 + dispatch
+#          (16*1 + hit 18 = 34) + work 122 + 30*3 stream words + tail 10.
+# The other three rows were re-checked against the same pins and are correct as they stand
+# (F7/F2 458, F3 518, F4 566).
+sparse_fire_reg1_cycles_SUPERSEDED   = 396   # RUNGS=4, pre-R1 dispatch chain
+sparse_fire_water_cycles_SUPERSEDED  = 660   # RUNGS=4, pre-R1 dispatch chain
 ntsc_scanline_cycles      = 488      # fixed — 128000 / 262, floored
 
 # The consequence, and the rule the density guard encodes: a 1-word vsram fire FITS
