@@ -19,6 +19,29 @@ pub interface Game {
     // gets the plain deadzone follow).
     const CAMERA_JUMP_LOCK: bool
 
+    // The parallax capability mask (Scanline Services §3): which scanline services
+    // ANY scene in this game demands, ORed across the game's whole scene registry.
+    // A GAME-level fact by construction — one tier above acts, two above sections —
+    // because the P2 lowering has to decide what machinery to OMIT before any section
+    // is known, and a per-section value cannot answer that question.
+    //
+    // Derived-and-verified, never hand-maintained-unchecked: a game's scene registry
+    // folds its scenes through fold_caps() (engine/level/scene_dsl.emp) and an ensure
+    // there proves the fold is a SUBSET of this declaration. The direction is the
+    // safety property — a declared SUPERSET only forgoes a specialisation, while a
+    // declared subset would drop machinery a scene still demands.
+    //
+    // Typed u16 for the end state, not for today's reach: P1 defines five bits up to
+    // $0010, and the P3+ bits reserved in scene_dsl.emp reach $0800. Note the width is
+    // documentary — sigil's contract checker range-checks no const member, only that
+    // the bound value is int-ish — so the registry's ensure is the whole guard.
+    //
+    // NO ENGINE CONSUMER EXISTS YET. Unlike every other member here, nothing reads
+    // `Game.SCANLINE_CAPS`, so it lowers to nothing and moves no ROM byte; it is
+    // contract surface that the scene registry can be checked against. The comptime
+    // arms that make these bits load-bearing arrive in P2.
+    const SCANLINE_CAPS: u16
+
     // The boot handoff: the first game-state routine and its state id. Boot ends
     // with `move.l #Game.entry, (Game_State).w` + `move.b #Game.ENTRY_ID, ...`.
     const ENTRY_ID: u8
