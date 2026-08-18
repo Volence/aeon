@@ -1,0 +1,41 @@
+// games/sonic4/data/effects/parallax_configs_retired.emp — A RETIRED MODULE ID, NOTHING ELSE.
+//
+// THIS FILE HAS NO CONTENT AND MUST NEVER GAIN ANY. It emits zero bytes, declares no
+// symbol, and holds no authoring surface. It exists for exactly one reason: to keep the
+// module id `games.sonic4.parallax_configs` RESOLVABLE until the paired sigil edit lands.
+//
+// WHAT IT REPLACES. games/sonic4/data/parallax/configs.emp — the pre-scene-model parallax
+// authoring surface (six deform tables, twenty hand-written `hdr()`/`cfg_band()` records) —
+// was DELETED by scanline-P1 Task 9. Its records are now lowered from the authored scenes:
+// data/effects/ojz_scenes.emp authors them, engine/level/scene_dsl.emp lowers them,
+// data/effects/scene_registry.emp emits them (byte for byte, in the same ROM order). Its
+// two constructors survive only as the test-only oracle in
+// games/sonic4/test/scene_equiv_proof.emp.
+//
+// WHY DELETING THE FILE IS NOT ENOUGH, AND WHY THIS IS A PAIRED CHANGE. sigil builds the
+// entry closure from a SYNTHESIZED root source: one `use <module_id>` line per row of the
+// harness's ModuleSpec list (sigil crates/sigil-harness/src/native.rs:1710, list at :294).
+// Row :518 is `m!("games.sonic4.parallax_configs", "parallax_configs", pins::PARALLAX_CONFIGS)`.
+// A row whose module no longer exists is not a dangling nicety — it is a hard resolve
+// error on EVERY sonic4 build:
+//
+//     [Error] no module `games.sonic4.parallax_configs` found under the scan root
+//
+// (measured, plain and debug). The aeon side cannot retire a spec'd module by itself.
+//
+// TO RETIRE THIS FILE (the paired sigil edit, owed with the P1 repin/refreeze ritual —
+// it moves no bytes, so the ROM is unaffected either way):
+//   1. sigil crates/sigil-harness/src/native.rs:518 — drop the ModuleSpec row, or re-point
+//      it at `games.sonic4.scene_registry` / section `scene_registry`.
+//   2. sigil crates/sigil-harness/src/pins.rs:211 — `PARALLAX_CONFIGS` (the
+//      `DeformTable_Zero .. OJZ_TestRaster` region, len 0xACE) describes the SAME bytes
+//      under the registry's section now; rename or re-home it with the row.
+//   3. sigil crates/sigil-harness/repin.toml — the `[[region]] name = "parallax_configs"`
+//      entry (start `DeformTable_Zero`, tests `parallax_configs_port`).
+//   4. sigil crates/sigil-cli/tests/parallax_configs_port.rs — the port test links the
+//      `parallax_configs` SECTION by name and byte-compares it; it must follow the section.
+//   5. Delete this file in the same pair.
+//
+// The block it names is byte-identical across the migration (all four shapes returned to
+// their pre-migration crcs at Task 9), so every one of those is a rename, not a re-measure.
+module games.sonic4.parallax_configs in parallax_configs

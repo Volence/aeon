@@ -8,9 +8,16 @@
 //
 // WHAT IT PROVES. For each of the twenty shipped scenes: the authored scene model, lowered
 // through engine/level/scene_dsl.emp's `scene_hdr()` / `scene_band()`, produces FIELD FOR
-// FIELD the same `parallax_config` header and `band_entry` bands that
-// games/sonic4/data/parallax/configs.emp's shipped `hdr()` / `cfg_band()` constructors
-// produce from the shipped parameters. Plus the six deform tables, array-element-wise.
+// FIELD the same `parallax_config` header and `band_entry` bands that the shipped
+// `hdr()` / `cfg_band()` constructors produce from the shipped parameters. Plus the six
+// deform tables, array-element-wise.
+//
+// THOSE TWO CONSTRUCTORS NOW LIVE IN THIS FILE (Task 9). They were
+// games/sonic4/data/parallax/configs.emp's, and that file — the pre-scene-model authoring
+// surface — is deleted; the migration moved them here rather than deleting them so the
+// oracle stays an INDEPENDENT spelling of the packing rules rather than a second call into
+// the lowering it is checking. Their `configs.emp` heritage is why the citations below name
+// that path: read them against `git show <pre-P1>:games/sonic4/data/parallax/configs.emp`.
 //
 // IT IS A COMPTIME VALUE PROOF, NOT A BYTE COMPARISON. It compares struct values during
 // elaboration; nothing here reads a ROM offset, and it cannot: this module emits zero
@@ -22,12 +29,13 @@
 // THE ORACLE IS A TRANSCRIPTION, AND THAT IS THE ONE THING TO KNOW BEFORE TRUSTING IT.
 // Every `hdr(...)` / `cfg_band(...)` call below is a HAND COPY of the corresponding call
 // in configs.emp, with that file's own line number cited beside it. The CONSTRUCTORS are
-// imported (one definition, two consumers — a stale copy of the packing rules is
-// impossible), but the ARGUMENTS are typed here. So this module proves
-// "scene model == the shipped parameters as transcribed here"; the remaining link,
-// "as transcribed here == what configs.emp actually holds", is what Task 10's byte
-// identity closes. The plan's roster table was WRONG FOUR TIMES over these same values,
-// which is exactly why every argument below was read off configs.emp and not off a table.
+// the shipped ones (moved, not re-typed), but the ARGUMENTS are typed here. So this module
+// proves "scene model == the shipped parameters as transcribed here"; the remaining link,
+// "as transcribed here == what configs.emp actually held", is what Task 10's byte
+// identity closes — and that link is now the ONLY reason configs.emp's parameters are still
+// a checkable fact, since the file itself is gone. The plan's roster table was WRONG FOUR
+// TIMES over these same values, which is exactly why every argument below was read off
+// configs.emp and not off a table.
 //
 // REACHABILITY — READ THIS BEFORE EDITING ANY `use` LINE IN THIS FILE OR IN
 // games/sonic4/test/ojz_scroll_test.emp. An .emp module that nothing reaches gets parse +
@@ -71,11 +79,12 @@ use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
 // The twenty authored scenes + the six table source arrays (Task 6).
 use games.sonic4.ojz_scenes.*
-// THE ORACLE. A name list, not a glob, and `cfg_band` rather than `band`: a glob here
-// collides with `engine.effects.raster_dsl.band` (glob-injected into every module by the
-// harness), and .emp has no `as` alias, so configs.emp's constructor carries the
-// disambiguating name. Task 9 MOVES these two functions into this file.
-use games.sonic4.parallax_configs.{hdr, cfg_band}
+// The six emitted table LABELS, which the oracle's `deform_*` arguments name. They are
+// declared in scene_registry.emp (with the records, in shipped ROM order — see that file's
+// emission banner), so the glob above does not carry them; and ojz_scenes' scene consts
+// re-evaluate HERE through that glob, so these names have to resolve here anyway.
+use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformTable_Shimmer,
+                                 DeformTable_Haze, DeformTable_Rocking, DeformTable_Perspective}
 
 // =====================================================================
 // CFG FIELD INDEX — what a header failure message's number means. The order is
@@ -96,6 +105,95 @@ use games.sonic4.parallax_configs.{hdr, cfg_band}
 //   3 band_factor_a_op         7 band_deform_shift_a
 // =====================================================================
 
+// =====================================================================
+// THE ORACLE'S TWO CONSTRUCTORS — `hdr()` and `cfg_band()`, moved here VERBATIM from
+// games/sonic4/data/parallax/configs.emp when Task 9 deleted that file.
+//
+// THIS FILE IS NOW THEIR ONLY HOME, AND THAT IS THE POINT (spec §3.1, "authoring entry
+// points deleted"). No game data module can reach them any more: the shipped records are
+// authored as scenes (data/effects/ojz_scenes.emp) and lowered by engine/level/scene_dsl.emp,
+// so a second way to hand-assemble a `parallax_config` would be a second authoring surface
+// with none of the model's guards. What survives here is a WITNESS, not a surface — the
+// independent spelling of the packing rules the lowering has to keep reproducing.
+//
+// THEY ARE STILL THE SHIPPED CONSTRUCTORS, BIT FOR BIT. Everything below is the deleted
+// file's text, including its parameter defaults (`deform_speed_* = 1`,
+// `v_deform_shift_bg = 4`, `anchor_ch = PARALLAX_ANCHOR_NONE`, `anchor_ds* = 15`), which is
+// what makes the twenty oracle calls below able to omit fields the shipped records set by
+// default. Change a default here and the proof stops proving the shipped bytes.
+//
+// `cfg_band`, NOT `band`: `engine.effects.raster_dsl.band` is glob-injected into every
+// module by the harness (raster_dsl is a sigil COMPTIME_HELPER) and .emp has no `as` alias,
+// so `band` would collide on import at games/sonic4/test/poison/poison_scene_proof.emp,
+// which imports both constructors from here. A local `band` would be legal in this file
+// now that the import is gone, but the poison's import is not, and keeping the two
+// vocabularies (record constructor vs raster band) apart costs nothing.
+//
+// BOTH ARE `pub` FOR THAT POISON. games/sonic4/test/poison/poison_scene_proof.emp plants a
+// deliberate one-field-off oracle call to prove `cfg_eq` can fail; it imports `hdr`,
+// `cfg_band`, `cfg_eq` and `band_eq` from this module in one name list.
+// =====================================================================
+
+// cfg_band — one band entry. Splits the packed FACTOR_* values (parallax_dsl) into
+// the three per-plane bytes the runtime reconstructs the scroll factor from.
+// dsa/dsb are the per-band deform-amplitude shifts (15 = no deform on that
+// plane); phase desyncs the deform sample index.
+pub comptime fn cfg_band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase: int = 0) -> band_entry {
+    return band_entry{
+        band_top_cell:       cell,
+        band_factor_a_s1:    fa & 15,
+        band_factor_a_s2:    (fa >> 4) & 15,
+        band_factor_a_op:    (fa >> 8) & 1,
+        band_factor_b_s1:    fb & 15,
+        band_factor_b_s2:    (fb >> 4) & 15,
+        band_factor_b_op:    (fb >> 8) & 1,
+        band_deform_shift_a: dsa,
+        band_deform_shift_b: dsb,
+        band_phase_offset:   phase,
+    }
+}
+
+// hdr — the 28-byte section header. The four required fields (band_count,
+// layer_mask, v_factor_bg, v_center/v_offset) plus the optional deform + tuning
+// fields, defaulted exactly as the AS `parallax_section` macro did. Table
+// pointers are `Label` (0 = no table).
+pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center: int, v_offset: int,
+                v_factor_fg: int = 0, transition: int = 0,
+                deform_fg: Label = 0, deform_bg: Label = 0,
+                deform_speed_fg: int = 1, deform_speed_bg: int = 1,
+                v_deform_bg: Label = 0, v_deform_speed_bg: int = 0, v_deform_shift_bg: int = 4,
+                anchor_ch: int = PARALLAX_ANCHOR_NONE,
+                anchor_dsa: int = 15, anchor_dsb: int = 15) -> parallax_config {
+    // Both guards compare INTS inside a comptime fn CALLED from this file, so both actually
+    // evaluate. The rejected alternative — "an anchored config must declare a deform table" —
+    // would have compared a `Label` to an integer, which preset.emp:105-111 proves is
+    // unevaluable and silently always-passes. That requirement is enforced structurally
+    // instead: the per-line mode key tests anchor_ch directly (parallax.emp Step 4).
+    ensure(anchor_ch == PARALLAX_ANCHOR_NONE || band_count + 1 <= MAX_PARALLAX_BANDS,
+           "parallax hdr(): an anchored config SPLITS a band at runtime, so the shadow view needs band_count+1 entries — {band_count}+1 exceeds MAX_PARALLAX_BANDS ({MAX_PARALLAX_BANDS}) and the split would write past Parallax_Shadow_Bands")
+    ensure(anchor_ch == PARALLAX_ANCHOR_NONE || anchor_ch < RASTER_MAX_PATCH,
+           "parallax hdr(): anchor_ch {anchor_ch} is not a patch channel — the overlay indexes Effects_World_Y[RASTER_MAX_PATCH], so a wider index reads past the anchor bank")
+    return parallax_config{
+        pcfg_band_count:        band_count,
+        pcfg_v_factor_bg:       v_factor_bg,
+        pcfg_v_factor_fg:       v_factor_fg,
+        pcfg_layer_mask:        layer_mask,
+        pcfg_v_center_y:        v_center,
+        pcfg_v_offset:          v_offset,
+        pcfg_transition:        transition,
+        pcfg_deform_speed_fg:   deform_speed_fg,
+        pcfg_deform_speed_bg:   deform_speed_bg,
+        pcfg_anchor_ch:         anchor_ch,
+        pcfg_deform_table_fg:   deform_fg,
+        pcfg_deform_table_bg:   deform_bg,
+        pcfg_v_deform_table_bg: v_deform_bg,
+        pcfg_v_deform_speed_bg: v_deform_speed_bg,
+        pcfg_v_deform_shift_bg: v_deform_shift_bg,
+        pcfg_anchor_dsa:        anchor_dsa,
+        pcfg_anchor_dsb:        anchor_dsb,
+    }
+}
+
 // ---------------------------------------------------------------------
 // cfg_eq — -1 when the two headers are equal, else the index of the FIRST field that
 // differs. An index rather than a bool because the message is the deliverable: "field 11"
@@ -110,12 +208,12 @@ use games.sonic4.parallax_configs.{hdr, cfg_band}
 // leaves the lowest differing index standing.
 //
 // THE THREE Label FIELDS (10, 11, 12) ARE COMPARED, AND THE COMPARISON IS LIVE — measured,
-// not assumed: swapping the oracle's BG table to a different SceneOut_ table reports field
+// not assumed: swapping the oracle's BG table to a different table reports field
 // 11. Two properties of that axis are worth knowing. (a) Label equality is SYMBOL
-// IDENTITY, not content: `DeformTable_Zero` and `SceneOut_DeformTable_Zero` hold the same
-// 256 bytes and compare UNEQUAL (measured), which is why every oracle call below spells
-// the SceneOut_ name while Tasks 6-8 emit both sets, and why table CONTENT is a separate,
-// array-wise proof at the bottom of this file. (b) An UNKNOWN name in a Label position
+// IDENTITY, not content: while Tasks 6-8 emitted BOTH record sets, `DeformTable_Zero` and
+// its `SceneOut_DeformTable_Zero` twin held the same 256 bytes and compared UNEQUAL
+// (measured). Both sides now name the one surviving symbol, and table CONTENT remains a
+// separate, array-wise proof at the bottom of this file. (b) An UNKNOWN name in a Label position
 // does not error — it silently becomes a link extern and compares unequal (measured) — so
 // a typo'd table name shows up as a field-10/11/12 mismatch, not as "unknown name". Read
 // those three indices as "wrong table OR misspelled table".
@@ -179,7 +277,7 @@ pub comptime fn band_eq(a: band_entry, b: band_entry) -> int {
 // ---- OJZ_Default — configs.emp:138 (4 bands, mask bridge $1F, flat-pathed zero table) --
 const EQ_OJZ_Default_h = cfg_eq(scene_hdr(Scene_OJZ_Default),
     hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Zero))
+        deform_bg: DeformTable_Zero))
 ensure(EQ_OJZ_Default_h == -1, "scene equivalence: Scene_OJZ_Default's lowered HEADER differs from ParallaxConfig_OJZ_Default's at cfg field {EQ_OJZ_Default_h} (index table at the top of this file)")
 const EQ_OJZ_Default_b0 = band_eq(scene_band(Scene_OJZ_Default, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15))
@@ -197,7 +295,7 @@ ensure(EQ_OJZ_Default_b3 == -1, "scene equivalence: Scene_OJZ_Default BAND 3 dif
 // ---- OJZ_Underwater — configs.emp:163 (the anchored overlay; Parcel W fixture) --------
 const EQ_OJZ_Underwater_h = cfg_eq(scene_hdr(Scene_OJZ_Underwater),
     hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 3,
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 3,
         anchor_ch: 0, anchor_dsa: 15, anchor_dsb: 2))
 ensure(EQ_OJZ_Underwater_h == -1, "scene equivalence: Scene_OJZ_Underwater's lowered HEADER differs from ParallaxConfig_OJZ_Underwater's at cfg field {EQ_OJZ_Underwater_h}")
 const EQ_OJZ_Underwater_b0 = band_eq(scene_band(Scene_OJZ_Underwater, 0),
@@ -216,7 +314,7 @@ ensure(EQ_OJZ_Underwater_b3 == -1, "scene equivalence: Scene_OJZ_Underwater BAND
 // ---- OJZ_Windy — configs.emp:181 (one band, full-amplitude BG wave) -------------------
 const EQ_OJZ_Windy_h = cfg_eq(scene_hdr(Scene_OJZ_Windy),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_OJZ_Calm, deform_speed_bg: 1))
+        deform_bg: DeformTable_OJZ_Calm, deform_speed_bg: 1))
 ensure(EQ_OJZ_Windy_h == -1, "scene equivalence: Scene_OJZ_Windy's lowered HEADER differs from ParallaxConfig_OJZ_Windy's at cfg field {EQ_OJZ_Windy_h}")
 const EQ_OJZ_Windy_b0 = band_eq(scene_band(Scene_OJZ_Windy, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 4, dsb: 0))
@@ -227,7 +325,7 @@ ensure(EQ_OJZ_Windy_b0 == -1, "scene equivalence: Scene_OJZ_Windy BAND 0 differs
 // because the oracle calls hdr()/cfg_band() directly, never shimmer_bg().
 const EQ_Shimmer_Slow_h = cfg_eq(scene_hdr(Scene_Shimmer_Slow),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 1))
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 1))
 ensure(EQ_Shimmer_Slow_h == -1, "scene equivalence: Scene_Shimmer_Slow's lowered HEADER differs from ParallaxConfig_Shimmer_Slow's at cfg field {EQ_Shimmer_Slow_h}")
 const EQ_Shimmer_Slow_b0 = band_eq(scene_band(Scene_Shimmer_Slow, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2, dsb: 2))
@@ -235,7 +333,7 @@ ensure(EQ_Shimmer_Slow_b0 == -1, "scene equivalence: Scene_Shimmer_Slow BAND 0 d
 
 const EQ_Shimmer_h = cfg_eq(scene_hdr(Scene_Shimmer),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 3))
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 3))
 ensure(EQ_Shimmer_h == -1, "scene equivalence: Scene_Shimmer's lowered HEADER differs from ParallaxConfig_Shimmer's at cfg field {EQ_Shimmer_h}")
 const EQ_Shimmer_b0 = band_eq(scene_band(Scene_Shimmer, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2, dsb: 2))
@@ -243,7 +341,7 @@ ensure(EQ_Shimmer_b0 == -1, "scene equivalence: Scene_Shimmer BAND 0 differs at 
 
 const EQ_Shimmer_Fast_h = cfg_eq(scene_hdr(Scene_Shimmer_Fast),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 6))
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 6))
 ensure(EQ_Shimmer_Fast_h == -1, "scene equivalence: Scene_Shimmer_Fast's lowered HEADER differs from ParallaxConfig_Shimmer_Fast's at cfg field {EQ_Shimmer_Fast_h}")
 const EQ_Shimmer_Fast_b0 = band_eq(scene_band(Scene_Shimmer_Fast, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2, dsb: 2))
@@ -255,7 +353,7 @@ ensure(EQ_Shimmer_Fast_b0 == -1, "scene equivalence: Scene_Shimmer_Fast BAND 0 d
 // it is wrong, and Haze is the fixture that catches it (Task 6 finding 1).
 const EQ_Haze_Slow_h = cfg_eq(scene_hdr(Scene_Haze_Slow),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_fg: SceneOut_DeformTable_Haze, deform_speed_fg: 1))
+        deform_fg: DeformTable_Haze, deform_speed_fg: 1))
 ensure(EQ_Haze_Slow_h == -1, "scene equivalence: Scene_Haze_Slow's lowered HEADER differs from ParallaxConfig_Haze_Slow's at cfg field {EQ_Haze_Slow_h}")
 const EQ_Haze_Slow_b0 = band_eq(scene_band(Scene_Haze_Slow, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 4))
@@ -275,7 +373,7 @@ ensure(EQ_Haze_Slow_b4 == -1, "scene equivalence: Scene_Haze_Slow BAND 4 differs
 
 const EQ_Haze_h = cfg_eq(scene_hdr(Scene_Haze),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_fg: SceneOut_DeformTable_Haze, deform_speed_fg: 2))
+        deform_fg: DeformTable_Haze, deform_speed_fg: 2))
 ensure(EQ_Haze_h == -1, "scene equivalence: Scene_Haze's lowered HEADER differs from ParallaxConfig_Haze's at cfg field {EQ_Haze_h}")
 const EQ_Haze_b0 = band_eq(scene_band(Scene_Haze, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 4))
@@ -295,7 +393,7 @@ ensure(EQ_Haze_b4 == -1, "scene equivalence: Scene_Haze BAND 4 differs at band f
 
 const EQ_Haze_Fast_h = cfg_eq(scene_hdr(Scene_Haze_Fast),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_fg: SceneOut_DeformTable_Haze, deform_speed_fg: 4))
+        deform_fg: DeformTable_Haze, deform_speed_fg: 4))
 ensure(EQ_Haze_Fast_h == -1, "scene equivalence: Scene_Haze_Fast's lowered HEADER differs from ParallaxConfig_Haze_Fast's at cfg field {EQ_Haze_Fast_h}")
 const EQ_Haze_Fast_b0 = band_eq(scene_band(Scene_Haze_Fast, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 4))
@@ -316,7 +414,7 @@ ensure(EQ_Haze_Fast_b4 == -1, "scene equivalence: Scene_Haze_Fast BAND 4 differs
 // Haze_Uniform — haze_fg(speed: 2, gradient: 0): every band dsa 3, dsb still 4.
 const EQ_Haze_Uniform_h = cfg_eq(scene_hdr(Scene_Haze_Uniform),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_fg: SceneOut_DeformTable_Haze, deform_speed_fg: 2))
+        deform_fg: DeformTable_Haze, deform_speed_fg: 2))
 ensure(EQ_Haze_Uniform_h == -1, "scene equivalence: Scene_Haze_Uniform's lowered HEADER differs from ParallaxConfig_Haze_Uniform's at cfg field {EQ_Haze_Uniform_h}")
 const EQ_Haze_Uniform_b0 = band_eq(scene_band(Scene_Haze_Uniform, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 4))
@@ -341,7 +439,7 @@ ensure(EQ_Haze_Uniform_b4 == -1, "scene equivalence: Scene_Haze_Uniform BAND 4 d
 // the two defaults having opposite polarity is exactly why both are spelled here.
 const EQ_Rocking_Slow_h = cfg_eq(scene_hdr(Scene_Rocking_Slow),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Zero, v_deform_bg: SceneOut_DeformTable_Rocking,
+        deform_bg: DeformTable_Zero, v_deform_bg: DeformTable_Rocking,
         v_deform_speed_bg: 0, v_deform_shift_bg: 0))
 ensure(EQ_Rocking_Slow_h == -1, "scene equivalence: Scene_Rocking_Slow's lowered HEADER differs from ParallaxConfig_Rocking_Slow's at cfg field {EQ_Rocking_Slow_h}")
 const EQ_Rocking_Slow_b0 = band_eq(scene_band(Scene_Rocking_Slow, 0),
@@ -350,7 +448,7 @@ ensure(EQ_Rocking_Slow_b0 == -1, "scene equivalence: Scene_Rocking_Slow BAND 0 d
 
 const EQ_Rocking_h = cfg_eq(scene_hdr(Scene_Rocking),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Zero, v_deform_bg: SceneOut_DeformTable_Rocking,
+        deform_bg: DeformTable_Zero, v_deform_bg: DeformTable_Rocking,
         v_deform_speed_bg: 1, v_deform_shift_bg: 0))
 ensure(EQ_Rocking_h == -1, "scene equivalence: Scene_Rocking's lowered HEADER differs from ParallaxConfig_Rocking's at cfg field {EQ_Rocking_h}")
 const EQ_Rocking_b0 = band_eq(scene_band(Scene_Rocking, 0),
@@ -359,7 +457,7 @@ ensure(EQ_Rocking_b0 == -1, "scene equivalence: Scene_Rocking BAND 0 differs at 
 
 const EQ_Rocking_Fast_h = cfg_eq(scene_hdr(Scene_Rocking_Fast),
     hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Zero, v_deform_bg: SceneOut_DeformTable_Rocking,
+        deform_bg: DeformTable_Zero, v_deform_bg: DeformTable_Rocking,
         v_deform_speed_bg: 3, v_deform_shift_bg: 0))
 ensure(EQ_Rocking_Fast_h == -1, "scene equivalence: Scene_Rocking_Fast's lowered HEADER differs from ParallaxConfig_Rocking_Fast's at cfg field {EQ_Rocking_Fast_h}")
 const EQ_Rocking_Fast_b0 = band_eq(scene_band(Scene_Rocking_Fast, 0),
@@ -371,8 +469,8 @@ ensure(EQ_Rocking_Fast_b0 == -1, "scene equivalence: Scene_Rocking_Fast BAND 0 d
 // five bands (the plan's roster omits both — Task 6 finding 3).
 const EQ_Perspective_Subtle_h = cfg_eq(scene_hdr(Scene_Perspective_Subtle),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 1,
-        v_deform_bg: SceneOut_DeformTable_Perspective, v_deform_speed_bg: 0, v_deform_shift_bg: 2))
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 1,
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 0, v_deform_shift_bg: 2))
 ensure(EQ_Perspective_Subtle_h == -1, "scene equivalence: Scene_Perspective_Subtle's lowered HEADER differs from ParallaxConfig_Perspective_Subtle's at cfg field {EQ_Perspective_Subtle_h}")
 const EQ_Perspective_Subtle_b0 = band_eq(scene_band(Scene_Perspective_Subtle, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -392,8 +490,8 @@ ensure(EQ_Perspective_Subtle_b4 == -1, "scene equivalence: Scene_Perspective_Sub
 
 const EQ_Perspective_h = cfg_eq(scene_hdr(Scene_Perspective),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 2,
-        v_deform_bg: SceneOut_DeformTable_Perspective, v_deform_speed_bg: 1, v_deform_shift_bg: 0))
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 2,
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 1, v_deform_shift_bg: 0))
 ensure(EQ_Perspective_h == -1, "scene equivalence: Scene_Perspective's lowered HEADER differs from ParallaxConfig_Perspective's at cfg field {EQ_Perspective_h}")
 const EQ_Perspective_b0 = band_eq(scene_band(Scene_Perspective, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -413,8 +511,8 @@ ensure(EQ_Perspective_b4 == -1, "scene equivalence: Scene_Perspective BAND 4 dif
 
 const EQ_Perspective_Dramatic_h = cfg_eq(scene_hdr(Scene_Perspective_Dramatic),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_bg: SceneOut_DeformTable_Shimmer, deform_speed_bg: 3,
-        v_deform_bg: SceneOut_DeformTable_Perspective, v_deform_speed_bg: 2, v_deform_shift_bg: 0))
+        deform_bg: DeformTable_Shimmer, deform_speed_bg: 3,
+        v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: 2, v_deform_shift_bg: 0))
 ensure(EQ_Perspective_Dramatic_h == -1, "scene equivalence: Scene_Perspective_Dramatic's lowered HEADER differs from ParallaxConfig_Perspective_Dramatic's at cfg field {EQ_Perspective_Dramatic_h}")
 const EQ_Perspective_Dramatic_b0 = band_eq(scene_band(Scene_Perspective_Dramatic, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15))
@@ -435,8 +533,8 @@ ensure(EQ_Perspective_Dramatic_b4 == -1, "scene equivalence: Scene_Perspective_D
 // ---- WindyHaze — configs.emp:284 (two tables, one per plane; per-band phase desync) ----
 const EQ_WindyHaze_h = cfg_eq(scene_hdr(Scene_WindyHaze),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_fg: SceneOut_DeformTable_Haze, deform_speed_fg: 2,
-        deform_bg: SceneOut_DeformTable_OJZ_Calm, deform_speed_bg: 1))
+        deform_fg: DeformTable_Haze, deform_speed_fg: 2,
+        deform_bg: DeformTable_OJZ_Calm, deform_speed_bg: 1))
 ensure(EQ_WindyHaze_h == -1, "scene equivalence: Scene_WindyHaze's lowered HEADER differs from ParallaxConfig_WindyHaze's at cfg field {EQ_WindyHaze_h}")
 const EQ_WindyHaze_b0 = band_eq(scene_band(Scene_WindyHaze, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 0, phase: 0))
@@ -457,8 +555,8 @@ ensure(EQ_WindyHaze_b4 == -1, "scene equivalence: Scene_WindyHaze BAND 4 differs
 // ---- SkyHaze — configs.emp:300 (the v_deform_shift bridge: shift 0 with NO table) -----
 const EQ_SkyHaze_h = cfg_eq(scene_hdr(Scene_SkyHaze),
     hdr(band_count: 2, layer_mask: $03, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        deform_fg: SceneOut_DeformTable_Haze, deform_speed_fg: 2,
-        deform_bg: SceneOut_DeformTable_OJZ_Calm, deform_speed_bg: 1, v_deform_shift_bg: 0))
+        deform_fg: DeformTable_Haze, deform_speed_fg: 2,
+        deform_bg: DeformTable_OJZ_Calm, deform_speed_bg: 1, v_deform_shift_bg: 0))
 ensure(EQ_SkyHaze_h == -1, "scene equivalence: Scene_SkyHaze's lowered HEADER differs from ParallaxConfig_SkyHaze's at cfg field {EQ_SkyHaze_h} (field 14 here means the v_deform_shift_raw bridge stopped reproducing the shipped byte)")
 const EQ_SkyHaze_b0 = band_eq(scene_band(Scene_SkyHaze, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 2))
@@ -470,7 +568,7 @@ ensure(EQ_SkyHaze_b1 == -1, "scene equivalence: Scene_SkyHaze BAND 1 differs at 
 // ---- OJZ_Caves — configs.emp:314 (transition flag; mask $1F DERIVES) -----------------
 const EQ_OJZ_Caves_h = cfg_eq(scene_hdr(Scene_OJZ_Caves),
     hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        transition: 1, deform_bg: SceneOut_DeformTable_Zero))
+        transition: 1, deform_bg: DeformTable_Zero))
 ensure(EQ_OJZ_Caves_h == -1, "scene equivalence: Scene_OJZ_Caves's lowered HEADER differs from ParallaxConfig_OJZ_Caves's at cfg field {EQ_OJZ_Caves_h}")
 const EQ_OJZ_Caves_b0 = band_eq(scene_band(Scene_OJZ_Caves, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15))
@@ -493,7 +591,7 @@ ensure(EQ_OJZ_Caves_b4 == -1, "scene equivalence: Scene_OJZ_Caves BAND 4 differs
 // stopped producing $1E and the near-miss became a real bridge after all.
 const EQ_OJZ_LockedClouds_h = cfg_eq(scene_hdr(Scene_OJZ_LockedClouds),
     hdr(band_count: 5, layer_mask: $1E, v_factor_bg: 15, v_center: 0, v_offset: 0,
-        transition: 1, deform_bg: SceneOut_DeformTable_Zero))
+        transition: 1, deform_bg: DeformTable_Zero))
 ensure(EQ_OJZ_LockedClouds_h == -1, "scene equivalence: Scene_OJZ_LockedClouds's lowered HEADER differs from ParallaxConfig_OJZ_LockedClouds's at cfg field {EQ_OJZ_LockedClouds_h} (field 3 = the derived layer mask is no longer $1E)")
 const EQ_OJZ_LockedClouds_b0 = band_eq(scene_band(Scene_OJZ_LockedClouds, 0),
     cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 15))
@@ -518,7 +616,7 @@ ensure(EQ_OJZ_LockedClouds_b4 == -1, "scene equivalence: Scene_OJZ_LockedClouds 
 // WHICH table a scene attaches; they cannot prove WHAT IS IN IT, because Label equality is
 // symbol identity and a Label's bytes are not readable at comptime. These six close that
 // half: `SceneSrc_DeformTable_*` (ojz_scenes.emp — the named generator call each emitted
-// `SceneOut_DeformTable_*` initialises from) against the generator call transcribed from
+// `DeformTable_*` initialises from) against the generator call transcribed from
 // configs.emp beside each shipped table.
 //
 // WHAT THIS CATCHES AND WHAT IT DOES NOT. It catches a wrong generator or a wrong argument
@@ -533,24 +631,24 @@ ensure(EQ_OJZ_LockedClouds_b4 == -1, "scene equivalence: Scene_OJZ_LockedClouds 
 // =====================================================================
 const EQ_TBL_Zero = first_mismatch(SceneSrc_DeformTable_Zero, deform_zero())
 ensure(SceneSrc_DeformTable_Zero.len == 256, "scene equivalence: SceneSrc_DeformTable_Zero is {SceneSrc_DeformTable_Zero.len} entries, not 256 — first_mismatch passes a short table as a prefix")
-ensure(EQ_TBL_Zero == -1, "scene equivalence: SceneOut_DeformTable_Zero's source diverges from configs.emp:136's deform_zero() at index {EQ_TBL_Zero}")
+ensure(EQ_TBL_Zero == -1, "scene equivalence: DeformTable_Zero's source diverges from configs.emp:136's deform_zero() at index {EQ_TBL_Zero}")
 
 const EQ_TBL_OJZ_Calm = first_mismatch(SceneSrc_DeformTable_OJZ_Calm, deform_sine(amplitude: 96, period: 64))
 ensure(SceneSrc_DeformTable_OJZ_Calm.len == 256, "scene equivalence: SceneSrc_DeformTable_OJZ_Calm is {SceneSrc_DeformTable_OJZ_Calm.len} entries, not 256")
-ensure(EQ_TBL_OJZ_Calm == -1, "scene equivalence: SceneOut_DeformTable_OJZ_Calm's source diverges from configs.emp:179's deform_sine(amplitude: 96, period: 64) at index {EQ_TBL_OJZ_Calm}")
+ensure(EQ_TBL_OJZ_Calm == -1, "scene equivalence: DeformTable_OJZ_Calm's source diverges from configs.emp:179's deform_sine(amplitude: 96, period: 64) at index {EQ_TBL_OJZ_Calm}")
 
 const EQ_TBL_Shimmer = first_mismatch(SceneSrc_DeformTable_Shimmer, deform_sine(amplitude: 8, period: 32))
 ensure(SceneSrc_DeformTable_Shimmer.len == 256, "scene equivalence: SceneSrc_DeformTable_Shimmer is {SceneSrc_DeformTable_Shimmer.len} entries, not 256")
-ensure(EQ_TBL_Shimmer == -1, "scene equivalence: SceneOut_DeformTable_Shimmer's source diverges from configs.emp:192's deform_sine(amplitude: 8, period: 32) at index {EQ_TBL_Shimmer}")
+ensure(EQ_TBL_Shimmer == -1, "scene equivalence: DeformTable_Shimmer's source diverges from configs.emp:192's deform_sine(amplitude: 8, period: 32) at index {EQ_TBL_Shimmer}")
 
 const EQ_TBL_Haze = first_mismatch(SceneSrc_DeformTable_Haze, deform_sine(amplitude: 16, period: 64))
 ensure(SceneSrc_DeformTable_Haze.len == 256, "scene equivalence: SceneSrc_DeformTable_Haze is {SceneSrc_DeformTable_Haze.len} entries, not 256")
-ensure(EQ_TBL_Haze == -1, "scene equivalence: SceneOut_DeformTable_Haze's source diverges from configs.emp:210's deform_sine(amplitude: 16, period: 64) at index {EQ_TBL_Haze}")
+ensure(EQ_TBL_Haze == -1, "scene equivalence: DeformTable_Haze's source diverges from configs.emp:210's deform_sine(amplitude: 16, period: 64) at index {EQ_TBL_Haze}")
 
 const EQ_TBL_Rocking = first_mismatch(SceneSrc_DeformTable_Rocking, deform_sine(amplitude: 20, period: 64))
 ensure(SceneSrc_DeformTable_Rocking.len == 256, "scene equivalence: SceneSrc_DeformTable_Rocking is {SceneSrc_DeformTable_Rocking.len} entries, not 256")
-ensure(EQ_TBL_Rocking == -1, "scene equivalence: SceneOut_DeformTable_Rocking's source diverges from configs.emp:242's deform_sine(amplitude: 20, period: 64) at index {EQ_TBL_Rocking}")
+ensure(EQ_TBL_Rocking == -1, "scene equivalence: DeformTable_Rocking's source diverges from configs.emp:242's deform_sine(amplitude: 20, period: 64) at index {EQ_TBL_Rocking}")
 
 const EQ_TBL_Perspective = first_mismatch(SceneSrc_DeformTable_Perspective, v_column_floor(center: 20, max_offset: 24))
 ensure(SceneSrc_DeformTable_Perspective.len == 256, "scene equivalence: SceneSrc_DeformTable_Perspective is {SceneSrc_DeformTable_Perspective.len} entries, not 256")
-ensure(EQ_TBL_Perspective == -1, "scene equivalence: SceneOut_DeformTable_Perspective's source diverges from configs.emp:261's v_column_floor(center: 20, max_offset: 24) at index {EQ_TBL_Perspective}")
+ensure(EQ_TBL_Perspective == -1, "scene equivalence: DeformTable_Perspective's source diverges from configs.emp:261's v_column_floor(center: 20, max_offset: 24) at index {EQ_TBL_Perspective}")

@@ -58,7 +58,17 @@ use engine.effects.preset.{EffectsPreset, preset}
 // channel the patched palette boundary rides. This is also the first ep_parallax binding in
 // the tree — the field existed since C2 and was 0 in every preset, i.e. an authoring surface
 // that had never once executed.
-use games.sonic4.parallax_configs.{ParallaxConfig_OJZ_Underwater}
+// TWO LINES, AND BOTH ARE LOAD-BEARING (scanline-P1 Task 9). The name list is the symbol;
+// the WHOLE-PATH line is the CLOSURE EDGE. games.sonic4.scene_registry is not in sigil's
+// module registry (crates/sigil-harness/src/native.rs) — it is placed by being reached —
+// and a selective import alone injects a clone of the imported name into THIS scope without
+// elaborating the callee (Task 5's probe). Cut the whole-path line and the registry's
+// capability-subset ensure, every guard in engine/level/scene_dsl.emp behind it, and the
+// twenty records themselves go dark: an unreached module gets parse + scan coverage and
+// ZERO body elaboration. This edge replaces the temporary one that lived in the now-deleted
+// data/parallax/configs.emp.
+use games.sonic4.scene_registry
+use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Underwater}
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
 // is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base

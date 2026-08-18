@@ -40,17 +40,16 @@
 // default would degrade silently and the oracle would differ at field 9 as well as field
 // 4, which field 4 would then mask. All three are named below for that reason.
 //
-// TASK 9 NOTE: `hdr` and `cfg_band` move out of games/sonic4/data/parallax/configs.emp and
-// into scene_equiv_proof.emp when that directory is deleted. This module's two oracle
-// imports collapse into one at that point; nothing else here changes.
+// TASK 9 LANDED: `hdr` and `cfg_band` moved out of games/sonic4/data/parallax/configs.emp
+// (deleted with the whole directory) and into scene_equiv_proof.emp, so this module's two
+// oracle imports are now one. Nothing else here changed.
 module games.sonic4.test.poison.poison_scene_proof
 
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
-use games.sonic4.parallax_configs.{hdr, cfg_band}
-use games.sonic4.scene_equiv_proof.{cfg_eq, band_eq}
+use games.sonic4.scene_equiv_proof.{cfg_eq, band_eq, hdr, cfg_band}
 
 // The fixture: one layer, no attachments, whole-plane V-scroll. Deliberately the simplest
 // scene the model admits, so every oracle default below is the constructor's own default

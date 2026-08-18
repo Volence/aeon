@@ -4,22 +4,26 @@
 // Cross-scene checks and the capability fold live here (they need VALUES, not Labels).
 //
 // ---------------------------------------------------------------------------
-// STATUS (Task 6): LIVE. `SCENES` holds THE TWENTY SHIPPED SCENES, authored in
+// STATUS (Task 9): LIVE AND SOLE. `SCENES` holds THE TWENTY SHIPPED SCENES, authored in
 // games/sonic4/data/effects/ojz_scenes.emp, and this module emits all twenty lowered
-// records. The four synthetic placeholders Task 5 shipped are gone.
+// records under their SHIPPED names plus the six deform tables they attach.
+// games/sonic4/data/parallax/configs.emp — the hdr()/cfg_band() authoring surface these
+// records replace — is DELETED; its two constructors survive only as the test-only oracle
+// in games/sonic4/test/scene_equiv_proof.emp, where no game data module can reach them.
 //
-// AND THIS MODULE IS NOW PLACED AND REACHED — which is what makes every guard below
-// REAL. Task 5's temporary probe became the permanent (for Tasks 6-8) arrangement:
-//   1. `use games.sonic4.scene_registry` (WHOLE-PATH, no name list) from the already-placed
-//      data/parallax/configs.emp. The name-list form is a trap here: a selective
+// AND THIS MODULE IS PLACED AND REACHED — which is what makes every guard below REAL. The
+// reach is now the real consumers, not Task 5's backwards probe edge out of configs.emp:
+//   1. `use games.sonic4.scene_registry` (WHOLE-PATH, no name list) from
+//      data/effects/ojz_effects.emp, which binds ParallaxConfig_OJZ_Underwater through a
+//      preset. The name-list form alone is a trap for the CLOSURE: a selective
 //      `use ...{SceneRegistry_CapsFolded}` injects a CLONE of the const whose initializer
 //      re-evaluates in the CONSUMER's scope, so it reports `unknown function fold_caps`
-//      at a span inside THIS file while never elaborating this module at all.
-//   2. `games/sonic4/map.toml` `order` entries for the two new section head labels —
-//      without them a reachable module fails `[map.order-undeclared]`.
-// Both are TEMPORARY in the same sense the `SceneOut_` prefixes are: Task 9 deletes
-// data/parallax/ and gives the registry its real consumers (act_descriptor, ojz_effects,
-// ojz_scroll_test), at which point the backwards edge disappears with the file that holds it.
+//      at a span inside THIS file while never elaborating this module at all. Keep the
+//      whole-path edge even though the name lists beside it read as sufficient.
+//   2. `games/sonic4/map.toml` `order` entry for this module's section head label
+//      (`DeformTable_Zero`, inherited from the deleted configs.emp section, which is what
+//      keeps the object-bank budget `cursor` resolving) — without it a reachable module
+//      fails `[map.order-undeclared]`.
 //
 // WHY THAT MATTERS: an unreached .emp module gets parse + scan coverage and ZERO body
 // elaboration (measured from both sides in Task 3; see the banner in
@@ -29,10 +33,10 @@
 // drive `layer()`, `scene()`, `derived_mask()`, `scene_caps()`, `fold_caps()`,
 // `scene_hdr()`, `scene_band()` and all four `lowerN` on every build.
 //
-// DUPLICATE SYMBOLS ARE AVOIDED BY PREFIX, NOT BY ABSENCE. configs.emp still emits the
-// shipped `ParallaxConfig_*` / `DeformTable_*` names; everything here carries a temporary
-// `SceneOut_` prefix so BOTH SETS LINK AT ONCE. That is the Task-7 gate, not an accident —
-// see the emission block at the bottom of this file.
+// THE EMISSION ORDER AT THE BOTTOM OF THIS FILE IS LOAD-BEARING. It reproduces the shipped
+// ROM block byte for byte — tables interleaved with the records that attach them — and the
+// P1 image-identity gate is decided by it. Read that block's banner before reordering
+// anything, including "tidying" the six tables into one run.
 // ---------------------------------------------------------------------------
 module games.sonic4.scene_registry in scene_registry
 
@@ -260,38 +264,57 @@ ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: t
 // left out of SCENES emits nothing and any section that references it fails at link
 // with a missing symbol.
 //
-// THE `SceneOut_` PREFIX IS TEMPORARY AND IT IS DELIBERATE (Tasks 6-8).
+// THE SIX DEFORM TABLES ARE EMITTED HERE TOO, AND THE DECLARATION ORDER BELOW IS THE
+// SHIPPED ROM ORDER — table, then the records that attach it, exactly as the deleted
+// data/parallax/configs.emp authored them. Neither half of that is cosmetic:
 //
-// Task 5 established that an unreached module's `pub data` symbols do not enter the
-// symbol table, and concluded Task 6 could therefore author the SHIPPED names here and
-// leave Task 9 a pure placement change. That finding is real; it is NOT taken, and the
-// reason is the gate. Task 7 proves these records byte-equal to the live
-// ParallaxConfig_* records IN THE SAME ROM at .lst offsets, which requires both sets
-// emitted SIMULTANEOUSLY, which requires distinct symbol names. Trading the strongest
-// gate this parcel has for a cheaper rename is the wrong trade; Task 9's rename is
-// mechanical and is itself protected by that proof.
+//   * A SECTION IS CONTIGUOUS PER MODULE. The shipped block interleaves tables and records
+//     ($121C8 DeformTable_Zero, $122C8 OJZ_Default, $1230C OJZ_Underwater, $12350
+//     DeformTable_OJZ_Calm, ...). Tables emitted from ojz_scenes.emp would form one
+//     1536-byte run ahead of the records, which moves every table address, which changes
+//     the `pcfg_deform_table_fg/bg` and `pcfg_v_deform_table_bg` words INSIDE every record.
+//     Measured on the Task-6 both-sets ROM: each duplicate record differed from its shipped
+//     twin in exactly the table-pointer bytes and nowhere else. So the P1 image-identity
+//     gate (spec §8.1) is decided by this ordering and nothing else.
+//   * THE TABLE VALUES STILL BELONG TO THE SCENES. Each `data` initialises from
+//     ojz_scenes' `SceneSrc_DeformTable_*` const — the named generator call that lives
+//     beside the scenes attaching it — so this module holds placement, not authorship, and
+//     the witness can still compare the array VALUE (a Label's bytes are not comptime
+//     readable). ojz_scenes imports the six Labels back for its attachments.
 //
 // The record shape (lower1/2/4/5) is hand-picked per config and each lowerN asserts its
 // own arity — see their banner. Counts used: seven 1-band, one 2-band, two 4-band, ten
 // 5-band. No shipped config needs a 3/6/7/8-band shape.
 // =====================================================================
-pub data SceneOut_ParallaxConfig_OJZ_Default:          SceneCfg4 = lower4(SCENES[0])
-pub data SceneOut_ParallaxConfig_OJZ_Underwater:       SceneCfg4 = lower4(SCENES[1])
-pub data SceneOut_ParallaxConfig_OJZ_Windy:            SceneCfg1 = lower1(SCENES[2])
-pub data SceneOut_ParallaxConfig_Shimmer_Slow:         SceneCfg1 = lower1(SCENES[3])
-pub data SceneOut_ParallaxConfig_Shimmer:              SceneCfg1 = lower1(SCENES[4])
-pub data SceneOut_ParallaxConfig_Shimmer_Fast:         SceneCfg1 = lower1(SCENES[5])
-pub data SceneOut_ParallaxConfig_Haze_Slow:            SceneCfg5 = lower5(SCENES[6])
-pub data SceneOut_ParallaxConfig_Haze:                 SceneCfg5 = lower5(SCENES[7])
-pub data SceneOut_ParallaxConfig_Haze_Fast:            SceneCfg5 = lower5(SCENES[8])
-pub data SceneOut_ParallaxConfig_Haze_Uniform:         SceneCfg5 = lower5(SCENES[9])
-pub data SceneOut_ParallaxConfig_Rocking_Slow:         SceneCfg1 = lower1(SCENES[10])
-pub data SceneOut_ParallaxConfig_Rocking:              SceneCfg1 = lower1(SCENES[11])
-pub data SceneOut_ParallaxConfig_Rocking_Fast:         SceneCfg1 = lower1(SCENES[12])
-pub data SceneOut_ParallaxConfig_Perspective_Subtle:   SceneCfg5 = lower5(SCENES[13])
-pub data SceneOut_ParallaxConfig_Perspective:          SceneCfg5 = lower5(SCENES[14])
-pub data SceneOut_ParallaxConfig_Perspective_Dramatic: SceneCfg5 = lower5(SCENES[15])
-pub data SceneOut_ParallaxConfig_WindyHaze:            SceneCfg5 = lower5(SCENES[16])
-pub data SceneOut_ParallaxConfig_SkyHaze:              SceneCfg2 = lower2(SCENES[17])
-pub data SceneOut_ParallaxConfig_OJZ_Caves:            SceneCfg5 = lower5(SCENES[18])
-pub data SceneOut_ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])
+pub data DeformTable_Zero:                    [i8; 256] = SceneSrc_DeformTable_Zero
+pub data ParallaxConfig_OJZ_Default:          SceneCfg4 = lower4(SCENES[0])
+pub data ParallaxConfig_OJZ_Underwater:       SceneCfg4 = lower4(SCENES[1])
+
+pub data DeformTable_OJZ_Calm:                [i8; 256] = SceneSrc_DeformTable_OJZ_Calm
+pub data ParallaxConfig_OJZ_Windy:            SceneCfg1 = lower1(SCENES[2])
+
+pub data DeformTable_Shimmer:                 [i8; 256] = SceneSrc_DeformTable_Shimmer
+pub data ParallaxConfig_Shimmer_Slow:         SceneCfg1 = lower1(SCENES[3])
+pub data ParallaxConfig_Shimmer:              SceneCfg1 = lower1(SCENES[4])
+pub data ParallaxConfig_Shimmer_Fast:         SceneCfg1 = lower1(SCENES[5])
+
+pub data DeformTable_Haze:                    [i8; 256] = SceneSrc_DeformTable_Haze
+pub data ParallaxConfig_Haze_Slow:            SceneCfg5 = lower5(SCENES[6])
+pub data ParallaxConfig_Haze:                 SceneCfg5 = lower5(SCENES[7])
+pub data ParallaxConfig_Haze_Fast:            SceneCfg5 = lower5(SCENES[8])
+pub data ParallaxConfig_Haze_Uniform:         SceneCfg5 = lower5(SCENES[9])
+
+pub data DeformTable_Rocking:                 [i8; 256] = SceneSrc_DeformTable_Rocking
+pub data ParallaxConfig_Rocking_Slow:         SceneCfg1 = lower1(SCENES[10])
+pub data ParallaxConfig_Rocking:              SceneCfg1 = lower1(SCENES[11])
+pub data ParallaxConfig_Rocking_Fast:         SceneCfg1 = lower1(SCENES[12])
+
+pub data DeformTable_Perspective:             [i8; 256] = SceneSrc_DeformTable_Perspective
+pub data ParallaxConfig_Perspective_Subtle:   SceneCfg5 = lower5(SCENES[13])
+pub data ParallaxConfig_Perspective:          SceneCfg5 = lower5(SCENES[14])
+pub data ParallaxConfig_Perspective_Dramatic: SceneCfg5 = lower5(SCENES[15])
+
+pub data ParallaxConfig_WindyHaze:            SceneCfg5 = lower5(SCENES[16])
+pub data ParallaxConfig_SkyHaze:              SceneCfg2 = lower2(SCENES[17])
+pub data ParallaxConfig_OJZ_Caves:            SceneCfg5 = lower5(SCENES[18])
+pub data ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])
