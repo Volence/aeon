@@ -4753,3 +4753,75 @@ adjudications exist because every naive relaxation was proven unsound.
 today, payoff gated on an instrument that can bind mid-frame VSRAM visibility to hardware
 (none exists; the emulator-model known-unknown is recorded in
 `2026-08-14-vsram-planeb-handoff.md`). Its revival conditions live in r3.1 §B.
+
+---
+
+## Raster substrate lens sweep — 7 confirmed defects awaiting a parcel (booked 2026-08-18)
+
+**Packet:** `docs/superpowers/2026-08-18-raster-substrate-sweep-adjudication.md`
+(+ `…-packet.jsonl`, 16 seats raw). Review SHA `48ca8b5d`. 15 seats, 117 raw findings
+(31 major / 51 minor / 35 note), overseer-verified; **one major REFUTED** (see below).
+
+**Charter:** sweep the substrate scanline-services P1 freezes as its byte-identity baseline.
+**Parallax walker + fill internals were EXPLICITLY OUT OF SCOPE** (P3 rewrites them); `bg_anim`
+was in scope. So this sweep says nothing about the parallax config records P1 re-authors —
+neither clean nor dirty, just unexamined.
+
+**None of it is in P1's removal set.** P1 deletes only `games/sonic4/data/parallax/`; every
+subject here (`raster.emp`, `raster_dsl.emp`, `palette.emp`, `buffers.emp`, `bg_anim`, `tools/`)
+survives untouched, so no finding expires.
+
+### Sequencing — the deadline is Task 9 of scanline P1, not "before P1"
+
+Byte-moving fixes are FREE before P1's Task 9 (they just become part of the baseline) and cost a
+deliberate repin + `refreeze --freeze --ab` with emulator evidence afterwards. That is a real but
+modest cost — **do not let it become a reason to leave a defect in place.** The gate is
+differential (did the migration change anything), not a claim that these bytes are good.
+
+**Do NOT land these inside the scanline-P1 branch.** Two byte-moving changes in one branch make a
+crc diff unattributable — the confounding that voided the prebatch A/B measurement. Land as its
+own parcel off master, then merge master into the P1 branch before Task 9.
+
+| # | Site | Bytes | Notes |
+|---|---|---|---|
+| 1 | `engine/effects/raster.emp:232` | moves | **top finding.** `EFX_BLANK_DELAY=4` was fitted to the 152-cyc two-op (SetReg-prefixed) shape; a SINGLE-op CRAM/region fire carries 58 cyc and lands at x~170 of 320 — mid-active-display. The DSL freely admits that shape (`band(sh: 0)`, `region_boundary(sh: 0)`, `fx_tint_band`). Deficit ~4 → ~21. Latent (all shipped OJZ fires are two-op). **Also: the author-facing guard text at `raster_dsl.emp:340` asserts the OPPOSITE of the measurement recorded at `raster.emp:797-804`** — the row-119 fixture has the stream op second. Fix: split the constant by op position (`_FIRST` / `_AFTER_REG`) + re-pin the F-series, or refuse single-stream-op CRAM fires without a measured opt-out. Correct :340 either way. |
+| 2 | `engine/effects/palette.emp:356` | moves | **costs cycles today.** `.cycling` sets `PAL_ACT_VARIANT_STALE` before `Palette_DoCycle` decides whether anything rotated (rotation is timer-gated at `:419`), so any section binding a cycle script AND a variant pays the full ~19,332-cyc re-derive every frame — the exact regression the stale bit exists to kill ("the 15.1%-of-frame gate"). `OJZ_Preset_Sec3` is that combination. `.fade` same shape, smaller scale. Fix: move the stale-set into DoCycle's rotation branch gated on `d7 != 0` — one instruction (DoCycle already accumulates the touched-line mask in d7). |
+| 3 | `engine/effects/raster.emp:609` | **zero** | No interlock between a deferred IRQ4 and `Raster_VBlank`'s unconditional frame rewind. A dense run ending at line 223 is authorable (both constructors `ensure(top + lines <= 224)`), HINT raises on the same line as VINT, IRQ6 masks level 4, so the pending IRQ4 runs after the rewind, consumes priming record 0, overwrites the flushed `$0A=0` and shifts the whole next frame by one record — a stuck state, not a blip. Source-confirmed, NOT emulator-confirmed. Cheap fix: tighten to `<= 223` (shipped gradient top=96/96 lines passes). Structural: a one-byte frame-epoch flag. |
+| 4 | `engine/system/buffers.emp:402` | moves | Off-screen ship's dropped-base guard hardcodes `btst #2, Palette_Dirty` (CRAM line 2) but the ship's palette line is authored data in the trailer — for a ship on line 1 or 3 the guard tests a bit nothing sets and is fully vacuous. Latent (shipped content is line 2). |
+| 5 | `tools/effects_gates.py:11` | zero ROM | **`effects_gates.py` is UNWIRED** — no build, no test runner, no CI, no hook; the only mention in build.sh is inside a comment. It is the SOLE invoker of `raster_off_gate`, `raster_source_gate`, `snapshot_poison_gate`, `effects_scene_assert` (3 scenes) and every cost fixture. That entire emulator-backed lane has only ever run when a human typed the command. build.sh *does* wire the source-level lane (`effects_budget_check.py`, pytest suite, 11-poison expect-fail) — the gap is precisely the emulator-backed half. Expect it to FAIL on first wiring. Same species as `reference_verified_vacuous_gates`. |
+| 6 | `tools/effects_gates.py:214` | zero ROM | Cost gate hardcodes `--only F0,F1,F3,F5,F8`, omitting **F4** — the sole `stream_pal_region` fixture — so `RASTER_WORK_REGION_CYC = 122` (`raster_dsl.emp:1008`), the constant gating the shipped OJZ water band, never reaches hardware. The list grew `F0,F1,F3` → `+F5,F8` with F4 simply never added. |
+| 7 | `tools/effects_budget_model.toml:55` | zero | Per-fire rows contradict a live `ensure`: `sparse_fire_reg1_cycles = 396` vs `raster_dsl.emp:1124` pinning F1 at **412**; water fire 660 vs 676. `effects_budget_check.py` gates only the `[symbols]` table and `sparse_fire_*` is read by NOTHING. The file has a `_SUPERSEDED` convention it failed to apply. Three seats found this independently. |
+
+**Tier 3 perf — deliberately AFTER the freeze, as byte-moving parcels** (ranked by leverage):
+`raster.emp:736` 30 cyc/streamed word vs 16 via `-4(a2)` — **highest leverage, this constant is
+what sets `RASTER_CRAM_MAX = 3`** · `raster.emp:714` OP_SET_REG pays all 5 compare rungs (80 of
+110 cyc; a leading `tst.w d1 / beq` decimates it) · `raster.emp:834` dense kind re-tested per
+scanline, ~2,300 cyc/frame, run-invariant · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
+(`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
+change AND a novel mechanism: owner sign-off required, do not assume** · `palette.emp` ×6
+`lsl.w #1` → `add.w dN,dN` ~768 cyc/derive · 4 missed mandatory tail calls
+(`raster.emp:560,622`, `palette.emp:386,666`).
+
+**Tier 4 — drift the baseline would enshrine as documentation** (zero-byte, land with the parcel):
+10 major comment-truth defects incl. `raster_dsl.emp:1630` trailer offset documented `8n` where
+the runtime steps `10n` · `raster.emp:934` trailer described as a built 14-byte DMAEntry when it
+holds parameters · `palette.emp:323` header describes a d7 dirty accumulator that does not exist ·
+`raster.emp:803` EFX_RESTORE_DELAY arithmetic uses the pre-R1 SetReg cost (94, now 110) ·
+`raster.emp:82` movem round trip priced at 40, actually 84 · four stale `ojz_effects.emp` fixture
+notes. Plus hand-synced duplication with no gate: `BGANIM_MAX_BANDS` in four places with **no span
+guard** (unlike `RASTER_MAX_PATCH`), so raising it in the generator alone lets `BgAnim_Update` walk
+past the array · `RASTER_SH_BASE` a hand copy of boot's reg `$0C` byte held only by a comment
+claiming pin parity it does not have · `RASTER_BUF_SIZE/2` as a bare `64` in four encoder sites ·
+`raster_cost_probe.py` re-implements the wire format unpinned — and it is the instrument that
+calibrates the constants `band()` enforces. Also: the effects corpus uses **zero** `assert.*`
+though the engine ships that zero-byte-in-release construct at 47 sites, leaving
+`Raster_BuildSchedule`'s record walk unbounded where `bg_anim` asserts the identical shape.
+
+**DO NOT RE-LITIGATE (refuted):** "`RASTER_FIRE_BASE_CYC` omits the 44-cyc IRQ4 entry, so
+check_density is unsound" (`raster_dsl.emp:991`, filed major) is **REFUTED** — 302 is not a
+post-entry figure; it derives from fixture F0's *absolute measured* 572 cyc for two priming
+records (`docs/benchmarks/effects-p3/DENSITY-EVIDENCE.md:73`). An HInt invocation inherently
+includes its own exception entry; the model is entry-inclusive.
+
+**New angle on booked EFX-4b:** static programs may need no RAM copy at all — walk the ROM
+template directly, dissolving the over-read rather than patching it.
