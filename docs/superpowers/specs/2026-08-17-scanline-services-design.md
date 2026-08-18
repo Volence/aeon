@@ -440,6 +440,25 @@ tallies are untracked — never gate on a warning (§6/§8.2); registry-emission
 
 ## 9. Non-goals (explicit)
 
+**Owner revisit notes (2026-08-17) — deferred effects we KNOW can be done, in plain
+terms, with caveats:**
+- **Sprites reflecting/cutting off at a waterline** (Castlevania Bloodlines dual-SAT
+  trick): doable on this hardware, visually striking for water scenes. Caveats: blocked on
+  VRAM headroom + SAT-binning work (visual-techniques backlog §20), timing-critical
+  mid-frame SAT-base swaps, and it is all-or-nothing per scanline. Nothing in this design
+  obstructs it; it would be its own parcel.
+- **See-through foreground over full parallax background in the same scanlines**: only
+  sprites can do this (plane B is busy being the foreground there). Caveat: sprite-strip
+  coverage is SAT-budgeted; dense full-width see-through FG is effectively out of reach —
+  design content so dense FG bands are opaque.
+- **Perspective floor + ripple on one layer**: formally disallowed (curve∧deform), but
+  achievable by baking ramp+wave into one custom `points[256]` deform table. Caveat: the
+  baked ramp's amplitude is fixed (camera-independent) — fine for water floors, wrong for
+  speed-proportional perspective.
+- **Plane-A foreground strips**: only if a static plane-A sub-window with its own vertical
+  handling is ever carved out, or in acts/regions where plane A is not streamed — both are
+  real engine work, not config.
+
 - **Plane-A FG strips** — unbuildable on this engine as-is (plane A = streamed playfield,
   camera-locked vscroll). Preconditions if ever revisited: a reserved static plane-A
   sub-window with its own vertical handling, or restriction to non-streamed regions.
