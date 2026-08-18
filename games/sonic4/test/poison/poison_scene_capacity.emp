@@ -1,0 +1,49 @@
+// games/sonic4/test/poison/poison_scene_capacity.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp's ANCHORED capacity ceiling in `scene()` — the
+// first of the two guards ported by name from configs.emp's `hdr()` (spec §3.1).
+// EXPECTED FRAGMENT: "the shadow view needs count+1 entries — 8+1"
+//
+// EIGHT REAL LAYERS PLUS AN ANCHOR. Eight layers alone is legal — it is exactly
+// MAX_PARALLAX_BANDS — and an anchor alone is legal. The pair is not: a world-anchored
+// scene SPLITS whichever layer holds the anchored line at runtime, so the shadow view
+// needs count+1 entries and the ninth writes past `Parallax_Shadow_Bands`.
+//
+// EVERY OTHER GUARD IN scene() PASSES, deliberately, so the lane's diagnostic count means
+// something:
+//   - `count >= 1 && count <= 8` — 8 is the ceiling, not past it.
+//   - `anchor_ch < 4` — channel 0 indexes the patch bank fine (the OTHER ported hdr()
+//     guard; tripping it too would put two anchor diagnostics in one build).
+//   - the pad-slot loop — `for i in 8..8` is empty, so no slot is checked and none needs
+//     to be a no_layer().
+//   - every `layer()` — all eight tops are on the 8-px grid and inside the 512-px span.
+//   - both raw bridges default to -1 (derive) and both selectors default to 0.
+// The ONLY thing wrong with this scene is that it wants nine shadow entries.
+//
+// THE ELABORATION HOOK. A comptime fn is only elaborated when it is CALLED and an
+// unreferenced const is inert, so the guard under test runs because this module-level
+// ensure reads the const and forces `scene()`'s body. The predicate is trivially true
+// against what `scene()` returns ANYWAY (`ensure` is non-aborting, so the constructor
+// still hands back the Scene it built); this ensure's own message is what you would see
+// if the poison ever stopped reaching its target.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+module games.sonic4.test.poison.poison_scene_capacity
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+const POISON_CAPACITY_SCENE: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 8,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 16, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 24, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 32, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 40, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 48, fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 56, fa: FACTOR_1, fb: FACTOR_1_2) ],
+    count: 8, v_factor: 3,
+    anchor: SceneAnchor.At(0, 15, 2))
+
+ensure(POISON_CAPACITY_SCENE.sc_count == 8,
+       "poison_scene_capacity: the fixture scene no longer carries eight real layers — this poison no longer reaches the guard it targets")

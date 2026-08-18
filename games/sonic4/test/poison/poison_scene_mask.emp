@@ -1,0 +1,84 @@
+// games/sonic4/test/poison/poison_scene_mask.emp — POISON (see README).
+//
+// TARGETS: the capability fold — engine/level/scene_dsl.emp's `scene_caps()` /
+// `fold_caps()` — under the `folded ⊆ declared` subset test that
+// games/sonic4/data/effects/scene_registry.emp applies to `Game.SCANLINE_CAPS`.
+// EXPECTED FRAGMENT: "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4"
+//
+// THE TWO-FIXTURE DIFFERENTIAL (spec §8.2). This is not "a scene that fails" — it is a
+// PAIR, and the pair is the point. An `ensure` that always fires is indistinguishable
+// from one that works if only the failing side is ever exercised, so this module proves
+// the same property BOTH WAYS in one build:
+//
+//   FIXTURE A — one layer, a table attached, every deform shift at 15. Folds to $0001
+//               (CAP_PER_LINE) and nothing else: flat-pathed, so it demands the per-line
+//               HScroll pipeline but not the deform math. A PASSES against the declared
+//               word below, twice — once on the value pin, once on the subset test.
+//   FIXTURE B — THE SAME SCENE with `dsb: 2` on its one layer. Folds to $0005
+//               (CAP_PER_LINE | CAP_DEFORM). B is declared against A's word and FAILS.
+//
+// A AND B DIFFER IN EXACTLY ONE AUTHORED FIELD — layer 0's `dsb`, 15 vs 2 — and therefore
+// in exactly one capability bit, CAP_DEFORM ($0004). Same layer count, same factors, same
+// table, same speed, same v_factor, no anchor and no V-deform on either, and both are
+// folded as a ONE-ELEMENT registry so neither picks up CAP_TRANSITIONS ($0010, which
+// `fold_caps()` adds only when a registry holds more than one scene). The undeclared-bit
+// number in the failing message is the whole differential, and the lane's expected
+// fragment quotes all three numbers so a case can only pass when the fold really did
+// produce 1 for A, 5 for B, and 4 as the difference.
+//
+// WHY THE DECLARED WORD IS A LITERAL, NOT `fold_caps([A])`. Writing the declaration as
+// the fold of A would make A's subset test `(x & ~x) == 0` — true for every x, and
+// therefore evidence of nothing. `$0001` is derived by hand from `scene_caps()`'s rules
+// (a table is attached, so CAP_PER_LINE; no live amplitude anywhere, so no CAP_DEFORM;
+// no column table and no anchor) and the pin below is what checks the derivation.
+//
+// THE TABLE PAYLOAD IS DELIBERATELY THE NULL LABEL. `scene_deform_is_none()` discriminates
+// on the enum VARIANT, never on the payload, so `SceneDeform.Shared(0, 1)` is a scene with
+// a table attached as far as every capability rule is concerned. Naming a real
+// `DeformTable_*` symbol would tie this poison to a module Task 9 deletes and would prove
+// nothing extra — the fold never reads the Label.
+//
+// THE ELABORATION HOOK is the three ensures themselves: they read the consts, which forces
+// `scene()`, `scene_caps()` and `fold_caps()` to elaborate. Two of the three MUST PASS —
+// that is fixture A — so this poison's expected `[Error]` count is 1. A count of 2 means
+// fixture A stopped passing and the ensure is no longer discriminating; a count of 0 means
+// the fold stopped distinguishing the two fixtures at all.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+module games.sonic4.test.poison.poison_scene_mask
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — flat-pathed: table attached, every shift at 15.
+const POISON_MASK_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// FIXTURE B — byte-for-byte fixture A except for the `dsb` on layer 0.
+const POISON_MASK_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// The declared word: fixture A's capabilities, derived by hand (CAP_PER_LINE alone).
+const POISON_MASK_DECLARED  = $0001
+const POISON_MASK_FOLDED_A  = fold_caps([POISON_MASK_SCENE_A])
+const POISON_MASK_FOLDED_B  = fold_caps([POISON_MASK_SCENE_B])
+const POISON_MASK_UNDEC_A   = POISON_MASK_FOLDED_A & ~POISON_MASK_DECLARED
+const POISON_MASK_UNDEC_B   = POISON_MASK_FOLDED_B & ~POISON_MASK_DECLARED
+
+// ---- FIXTURE A, THE PASSING HALF (both of these must stay green) ----
+ensure(POISON_MASK_FOLDED_A == POISON_MASK_DECLARED,
+       "poison_scene_mask: FIXTURE A folds to {POISON_MASK_FOLDED_A}, not the hand-derived {POISON_MASK_DECLARED} — the passing half of the differential no longer holds, so the failing half below proves nothing about CAP_DEFORM")
+ensure(POISON_MASK_UNDEC_A == 0,
+       "poison_scene_mask: FIXTURE A is NOT a subset of its own declared word (undeclared {POISON_MASK_UNDEC_A}) — the subset test can no longer pass, so it is not discriminating")
+
+// ---- FIXTURE B, THE POISON (this is the diagnostic the lane matches) ----
+ensure(POISON_MASK_UNDEC_B == 0,
+       "poison_scene_mask: FIXTURE B folds to {POISON_MASK_FOLDED_B} against fixture A's declared {POISON_MASK_DECLARED}; the UNDECLARED bits are {POISON_MASK_UNDEC_B} — one layer's dsb went 15 -> 2 and raised CAP_DEFORM ($0004), which is exactly the subset failure games/sonic4/data/effects/scene_registry.emp reports against Game.SCANLINE_CAPS")
