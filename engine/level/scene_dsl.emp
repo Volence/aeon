@@ -1,0 +1,653 @@
+// engine/level/scene_dsl.emp — the authored scene model (spec 2026-08-17 §2/§3).
+//
+// Pure comptime: constructors, capability fold, lowering to parallax_config/band_entry.
+// GUARDS LIVE HERE: this module belongs in the use closure of every scene author, so
+// its ensures evaluate on every authored scene (the preset.emp reachability lesson).
+//
+// THAT CLOSURE DOES NOT EXIST YET, AND THE COVERAGE BOUNDARY IS EXACTLY THIS: the file
+// has PARSE + SCAN coverage today and ZERO body-elaboration coverage. Measured from both
+// sides. A syntax error here fails the build (`error: expected an expression, found
+// AndAnd`), so the file cannot rot into garbage unnoticed — but `return unknown_name +
+// MISSING_CONST` inside an uncalled `pub comptime fn` builds GREEN with an identical CRC,
+// and so does a module-level `ensure(1 == 0)`. So every ensure in this file, module-level
+// pins included, is dead until something reaches it: Task 5's registry, or Task 7's
+// permanent equivalence witness, whichever lands first. Nothing here may be trusted on
+// the strength of a green build; every guard below was red-first verified through a
+// temporary probe that forced elaboration from a placed module.
+//
+// Pure comptime — this module emits no ROM bytes.
+module engine.level.scene_dsl
+
+use engine.structs.{parallax_config}
+use engine.parallax.{band_entry}
+use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
+use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
+
+// ---- the inlined-literal pins (the call-site resolution rule) ----
+// A comptime fn's free names resolve at the CALL SITE, and this module is NOT a
+// COMPTIME_HELPERS member (sigil crates/sigil-harness/src/native.rs:1942 holds that
+// list; scene_dsl is not on it), so nothing here is glob-injected. Names IMPORTED
+// above therefore do NOT travel into a body a GAME module calls: spelled as constants
+// inside scene()/scene_hdr(), MAX_PARALLAX_BANDS / PARALLAX_ANCHOR_NONE /
+// RASTER_MAX_PATCH would resolve to nothing at a game call site — exactly the failure
+// raster_dsl.emp:449-457 records, where an imported bound collapsed a range to empty
+// and compose() emitted ZERO fires with no diagnostic. Every body below spells the
+// NUMBER; these three pins hold the numbers to their authorities.
+//
+// Names DEFINED here (the CAP_*/PRECISION_*/TRANS_* consts, the enums, and every helper
+// below) ARE safe to name in a body — but only because a scene author reaches them
+// through a GLOB import. THAT IS A REQUIREMENT ON CALLERS: a scene module must
+// `use engine.level.scene_dsl.*`, never a selective `use ...{scene, layer}`.
+//
+// THE TWO AXES FAIL VERY DIFFERENTLY, which is the whole reason bodies inline numbers
+// but keep calling helpers by name. A selective import is LOUD on the function axis —
+// one `unknown function` error per call site (measured twice, at 217 and 152 errors; the
+// count is a property of the probe, the SHAPE is the fact), so that constraint enforces
+// itself and no build can slip past it. It is SILENT on the constant axis: a name that resolves to
+// nothing inside a body does not error, it degrades (raster_dsl.emp:449-457 — an
+// imported bound collapsed a range to empty and compose() emitted zero fires). Loud is
+// tolerable; silent is not. Hence: helpers by name (all `pub`, for this reason and no
+// other), constants as literals held by the pins below.
+//
+// TWO SPECIES OF PIN, kept apart on purpose. These three watch constants owned by OTHER
+// modules, where drift is a real event nobody editing this file would see:
+ensure(MAX_PARALLAX_BANDS == 8, "scene_dsl's inlined band ceiling (8) drifted from MAX_PARALLAX_BANDS")
+ensure(PARALLAX_ANCHOR_NONE == $FF, "scene_dsl's inlined no-anchor sentinel ($FF) drifted from PARALLAX_ANCHOR_NONE")
+ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drifted from RASTER_MAX_PATCH")
+// The other two sit beside their own definitions below and watch a RENUMBERING of the
+// selectors this file both defines and inlines — a smaller risk, but a live one: adding
+// a `PRECISION_DENSE` between CELL and LINE is exactly the edit that would silently
+// re-point scene()'s `precision != 1` fence at the wrong tier.
+
+// ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
+pub const CAP_PER_LINE       = $0001
+pub const CAP_PER_COL_VSRAM  = $0002
+pub const CAP_DEFORM         = $0004
+pub const CAP_ANCHORS        = $0008
+pub const CAP_TRANSITIONS    = $0010
+// Reserved (P3+): CAP_MULTI_DEFORM_TABLE=$0020, CAP_FACTOR_CURVE=$0040,
+// CAP_FG_SPRITE_STRIPS=$0080, CAP_BGANIM_BOUND=$0100, CAP_DENSE_TIER=$0200,
+// CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
+
+// ---- attachment enums (spec §2) ----
+// Comptime enums with payloads, per the RasterOp precedent: variants are the
+// authoring vocabulary; every attachment defaults to its explicit None variant,
+// never to a `Label = 0` sentinel (a Label compared to an int is silently
+// unevaluable — the preset.emp lesson — so 0-sentinels can never be guarded).
+// Payload slots are positional; the order is documented per variant.
+
+pub comptime enum SceneDeform {
+    None,                       // no H-deform on this scene
+    Shared(Label, int),         // (deform table Label, sample speed) — one table both planes
+}
+
+pub comptime enum SceneVDeform {
+    None,                       // no per-column V-deform
+    Columns(Label, int, int),   // (column table Label, sample speed, amplitude shift)
+}
+
+pub comptime enum SceneAnchor {
+    None,                       // no world-anchored band split
+    At(int, int, int),          // (patch channel, anchored dsa, anchored dsb)
+}
+
+// ---- lowering-tier and transition selectors ----
+pub const PRECISION_CELL = 0    // band tops land on 8-px plane cells (P1 tier)
+pub const PRECISION_LINE = 1    // per-line band tops (reserved: P2+)
+
+// WHAT `precision` MEANS IS NOT SETTLED, AND IN P1 IT DOES NOT MATTER — BUT IT WILL.
+// Two readings are documented in this file and they are not the same claim:
+//   (a) the two lines above — the granularity of BAND TOPS (8-px cells vs per-line);
+//   (b) the scene() fence below — whether the scene rides the per-line HSCROLL PIPELINE,
+//       which today is selected by a non-NULL BG deform table, not by this field.
+// They coincide only because a per-line pipeline is what would ALLOW per-line tops.
+//
+// In P1 the field is inert: `sc_precision` is not emitted, not read by scene_caps(), and
+// `layer()` requires every top on the 8-px grid anyway, so NO shipped scene can want (a).
+// The 20 migrated scenes therefore carry values that are NOT a considered tier claim —
+// two are PRECISION_LINE because the migration plan said so, eighteen are PRECISION_CELL
+// by default, and five of those eighteen (OJZ_Caves, OJZ_LockedClouds, Rocking x3) use the
+// identical flat-pathed-zero-table idiom as the two that are marked LINE. Nothing
+// distinguishes them today.
+//
+// SO: whoever gives precision a standalone lowering (P2/P3, the same event that retires
+// the fence) must FIRST settle which reading is meant and then RE-DERIVE all 20 — these
+// values are a default, not evidence. Deriving it outright is the likelier right answer,
+// since (b) is already computable from the BG table and (a) from the tops; a hand-authored
+// field with no consumer and no derivation is how the mask started, and the mask now has
+// both a derivation and a verify ensure.
+pub const TRANS_SMOOTH   = 0    // lerp the section transition
+pub const TRANS_INSTANT  = 1    // snap on the promote frame
+// These four are DEFINED here, but scene()'s defaults and the fence that tests them are
+// spelled `0` / `1` so a caller's import style cannot change what a defaulted argument
+// means. Same pin discipline as the imported-name block above.
+ensure(PRECISION_CELL == 0 && PRECISION_LINE == 1, "scene_dsl's inlined precision selectors drifted from PRECISION_CELL / PRECISION_LINE")
+ensure(TRANS_SMOOTH == 0 && TRANS_INSTANT == 1, "scene_dsl's inlined transition selectors drifted from TRANS_SMOOTH / TRANS_INSTANT")
+
+// -----------------------------------------------
+// SceneLayer — one authored world-Y layer (comptime-only; never emitted:
+// the Task-3 lowering folds SceneLayers into parallax_config/band_entry).
+//
+// no hand-building: use layer() or no_layer() (the grid + span ensures live there).
+// This type has to be `pub` — it is the element type in scene()'s signature — so the
+// back door is open by construction: `SceneLayer{ ly_world_y: 5, .. }` type-checks and
+// then truncates to a band top 5 px off, because the `>> 3` in scene_band() is exact
+// only for a world_y that layer() already checked. Same convention as
+// raster_dsl.emp:90, and for the same reason: the guards are in the constructor.
+// -----------------------------------------------
+pub struct SceneLayer {
+    ly_world_y:  u16,   // authored layer top, world pixels
+    ly_fa:       u16,   // packed FACTOR_* (9 bits), plane A
+    ly_fb:       u16,   // packed FACTOR_* (9 bits), plane B
+    ly_dsa:      u8,    // deform-amplitude shift, plane A (15 = none)
+    ly_dsb:      u8,    // deform-amplitude shift, plane B (15 = none)
+    ly_phase:    u8,    // deform sample-index desync
+    ly_enabled:  u8,    // 0 = dormant layer
+}
+
+// -----------------------------------------------
+// layer — one scene layer at an authored world-Y top.
+// world_y: layer top in world pixels (8-px cell grid, < 512 in P1)
+// fa/fb:   packed FACTOR_* scroll factors for planes A/B (parallax_dsl)
+// dsa/dsb: per-plane deform-amplitude shifts (15 = no deform on that plane)
+// phase:   deform sample-index desync; enabled: 0 authors a dormant layer
+// -----------------------------------------------
+pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 15,
+                      phase: int = 0, enabled: int = 1) -> SceneLayer {
+    ensure(world_y % 8 == 0,
+           "layer(): world_y {world_y} is not on the 8-px cell grid — P1 lowering requires cell alignment (spec 3.1); off-grid tops arrive with world-Y re-glue (P3)")
+    ensure(world_y >= 0 && world_y < 512,
+           "layer(): world_y {world_y} outside the 512-px BG plane span (P1 keeps plane-cell anchoring; act-tall world-Y arrives in P3)")
+    return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: dsa,
+                       ly_dsb: dsb, ly_phase: phase, ly_enabled: enabled }
+}
+
+// no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 8] (a
+// struct field needs a concrete type; `array` is a parameter type only), so an author
+// with four real layers still spells eight elements. This is the fifth through eighth:
+// dormant, factor-locked, at world-Y 0. It is never lowered — scene_band() only ever
+// indexes 0..sc_count — so its field values are inert with ONE exception: `ly_fa == 0`
+// is load-bearing, and it is what scene()'s pad guard discriminates on. Every FACTOR_*
+// is nonzero (parallax_dsl.emp:25-40; even FACTOR_LOCKED is $0FF), so a zero fa cannot
+// come from any authored layer. Do not "tidy" it to FACTOR_LOCKED.
+pub comptime fn no_layer() -> SceneLayer {
+    return SceneLayer{ ly_world_y: 0, ly_fa: 0, ly_fb: 0, ly_dsa: 15,
+                       ly_dsb: 15, ly_phase: 0, ly_enabled: 0 }
+}
+
+// derived_mask — the layer mask the model implies: bit i per enabled layer below count.
+//
+// SHARED BY scene() AND scene_hdr() ON PURPOSE, not for brevity. scene() checks the
+// sc_mask_raw bridge against it and scene_hdr() emits it; two copies of the loop could
+// drift into a guard that approves a mask the lowering then does not produce, which is
+// the one failure this pair of call sites exists to make impossible.
+//
+// Takes the ARRAY, not a Scene: scene() has no Scene yet when it needs this.
+pub comptime fn derived_mask(layers: [SceneLayer; 8], count: int) -> int {
+    comptime var mask = 0
+    for i in 0..count {
+        let l = layers[i]
+        if l.ly_enabled != 0 {
+            mask = mask | (1 << i)
+        }
+    }
+    return mask
+}
+
+// =====================================================================
+// Attachment accessors — the ONLY way a body reads an enum payload.
+//
+// `match` in .emp is EXPRESSION-form (ast.rs Expr::Match; there is no statement
+// match), so a guard cannot be written inside an arm the way the spec sketch drew it.
+// These accessors are the shape that survives: each destructures exhaustively into a
+// plain int/Label, and scene() then does its `ensure`s at the top level over INTS.
+//
+// That is not merely a workaround, it is the correct spelling for the guards: an
+// `ensure` comparing a `Label` to an int is silently unevaluable and always passes
+// (preset.emp:105-111; configs.emp's hdr() says the same at its own guards). Every
+// guard below therefore reads exactly like hdr()'s — `anchor_ch == $FF || ...` — which
+// is also what keeps Task 7's hdr()/scene_hdr() equivalence proof honest: the two are
+// comparing the same integers, not two different encodings of "no anchor".
+//
+// Each accessor's None arm returns hdr()'s OWN DEFAULT for that field, so the lowering
+// is a straight copy and the byte-identity contract lives in one place per field.
+// =====================================================================
+
+// deform table Label; hdr() default 0 (= no table).
+pub comptime fn scene_deform_table(d: SceneDeform) -> Label {
+    return match d {
+        None                => 0,
+        Shared(tbl, speed)  => tbl,
+    }
+}
+// deform sample speed; hdr() default ONE, not zero — a speed of 0 is a static table,
+// which is a different (and shipped: v_deform_speed_bg) meaning.
+pub comptime fn scene_deform_speed(d: SceneDeform) -> int {
+    return match d {
+        None                => 1,
+        Shared(tbl, speed)  => speed,
+    }
+}
+// 1 when no table is attached. Exists so the P1 precision fence and the capability
+// fold can test "is there a table?" without ever touching the Label.
+pub comptime fn scene_deform_is_none(d: SceneDeform) -> int {
+    return match d {
+        None                => 1,
+        Shared(tbl, speed)  => 0,
+    }
+}
+
+// V-column table Label; hdr() default 0 (= whole-plane V-scroll).
+pub comptime fn scene_vdeform_table(v: SceneVDeform) -> Label {
+    return match v {
+        None                       => 0,
+        Columns(tbl, speed, shift) => tbl,
+    }
+}
+// V-column sample speed; hdr() default ZERO (static column shape). Note this is the
+// opposite default from the H-deform speed above — both are reproduced literally.
+pub comptime fn scene_vdeform_speed(v: SceneVDeform) -> int {
+    return match v {
+        None                       => 0,
+        Columns(tbl, speed, shift) => speed,
+    }
+}
+// V-column amplitude shift; hdr() default 4.
+pub comptime fn scene_vdeform_shift(v: SceneVDeform) -> int {
+    return match v {
+        None                       => 4,
+        Columns(tbl, speed, shift) => shift,
+    }
+}
+pub comptime fn scene_vdeform_is_none(v: SceneVDeform) -> int {
+    return match v {
+        None                       => 1,
+        Columns(tbl, speed, shift) => 0,
+    }
+}
+
+// Anchor patch channel; hdr() default PARALLAX_ANCHOR_NONE = $FF (inlined per the pin
+// block at the top of this file). THE INT THE GUARDS COMPARE.
+pub comptime fn scene_anchor_ch(a: SceneAnchor) -> int {
+    return match a {
+        None              => $FF,
+        At(ch, dsa, dsb)  => ch,
+    }
+}
+// Deform shifts the overlay writes into every band at/below the anchored line;
+// hdr() default 15 = no deform on that plane.
+pub comptime fn scene_anchor_dsa(a: SceneAnchor) -> int {
+    return match a {
+        None              => 15,
+        At(ch, dsa, dsb)  => dsa,
+    }
+}
+pub comptime fn scene_anchor_dsb(a: SceneAnchor) -> int {
+    return match a {
+        None              => 15,
+        At(ch, dsa, dsb)  => dsb,
+    }
+}
+
+// -----------------------------------------------
+// Scene — one authored world-Y scene (comptime-only, never emitted).
+//
+// TWO FIELDS ARE BYTE-IDENTITY BRIDGES, not model. They exist because shipped configs
+// carry header values the authored model cannot derive, and P1's whole contract is that
+// the ROM does not move a byte:
+//
+//   sc_mask_raw            ParallaxConfig_OJZ_Default AND ParallaxConfig_OJZ_Underwater
+//                          (configs.emp:107, :132) both declare band_count 4 with
+//                          layer_mask $1F — FIVE bits for FOUR bands. A mask derived
+//                          from ly_enabled can only ever produce $0F, so Task 6 spells
+//                          this bridge TWICE, once per config. -1 = derive.
+//   sc_v_deform_shift_raw  ParallaxConfig_SkyHaze (configs.emp:269) passes
+//                          v_deform_shift_bg: 0 while attaching NO v-deform table;
+//                          SceneVDeform.None lowers to hdr()'s default 4, which is a
+//                          different byte. -1 = derive. ONE config, one bridge.
+//
+// THE NEAR MISS, because it will be mistaken for a third: ParallaxConfig_OJZ_LockedClouds
+// (configs.emp:299) declares band_count 5 with layer_mask $1E, and that is NOT a bridge —
+// it DERIVES, from `enabled: 0` on layer 0, which is precisely the authored model working.
+// Spell it as a dormant layer; a mask_raw there would hide the one fact the config exists
+// to express. (The plan's Task-6 table over-prescribes `mask_raw $1E` here. Derive it.)
+//
+// Both bridges are SIGNED (i16) precisely because -1 is the "derive" sentinel — a u8/u16
+// field cannot hold it, and a 0 sentinel is unusable here since 0 is a legal value for
+// both. Neither is a feature: normalising the two shipped records away is a post-P1
+// cleanup that costs a deliberate repin/refreeze, and until then a bridge that reproduces
+// the authored byte beats a model that quietly changes it. A THIRD bridge species would
+// be a spec reconciliation, not an addition — none was needed for the 20 shipped configs
+// (nine independently byte-verified through this lowering at review).
+//
+// no hand-building: use scene() (every guard lives there). A literal `Scene{ .. }`
+// type-checks and bypasses the pad guard, the mask-superset guard, both ported anchor
+// guards and the precision fence in one go — same convention as SceneLayer above and
+// raster_dsl.emp:90.
+// -----------------------------------------------
+pub struct Scene {
+    sc_layers:             [SceneLayer; 8],  // padded to 8; sc_count says how many are real
+    sc_count:              u8,
+    sc_v_factor:           u8,               // whole-plane Plane-B vshift (pcfg_v_factor_bg)
+    sc_v_center:           u16,
+    sc_v_offset:           u16,
+    sc_v_factor_fg:        u8,               // RESERVED in the v1 runtime; authored for identity
+    sc_deform_fg:          SceneDeform,
+    sc_deform_bg:          SceneDeform,
+    sc_v_deform:           SceneVDeform,
+    sc_anchor:             SceneAnchor,
+    sc_precision:          u8,               // PRECISION_CELL / PRECISION_LINE
+    sc_transition:         u8,               // TRANS_SMOOTH / TRANS_INSTANT
+    // Pad so the two i16 bridges land on EVEN offsets (94, 96). `Scene` is comptime-only —
+    // it never reaches ROM, so an odd 2-byte field could not fault a 68000 today, and
+    // sigil's [layout.odd-field] is a false positive here in the strict sense. Padded
+    // anyway, for one cheap reason: the day anything emits a Scene, an odd word field is
+    // an address error, and a warning that has been explained away in a baseline is not
+    // there to catch it. Zero cost — this struct emits nothing either way.
+    sc_pad_5D:             u8 = 0,
+    sc_mask_raw:           i16,              // -1 = derive from ly_enabled (bridge, see above)
+    sc_v_deform_shift_raw: i16,              // -1 = derive from sc_v_deform (bridge, see above)
+}
+
+// -----------------------------------------------
+// scene — the authored scene constructor.
+//
+// Ports hdr()'s two load-bearing guards BY NAME (spec §3.1) plus the layer-count
+// ceiling and the P1 precision fence. All four compare INTS, extracted through the
+// accessors above, for the reason stated in their banner.
+//
+// The `layers` array is always eight elements; pad with no_layer(). `count` is the
+// authority on how many are real — sc_layers is never scanned past it.
+// -----------------------------------------------
+pub comptime fn scene(layers: [SceneLayer; 8], count: int,
+                      v_factor: int, v_center: int = 0, v_offset: int = 0,
+                      v_factor_fg: int = 0,
+                      deform_fg: SceneDeform = SceneDeform.None,
+                      deform_bg: SceneDeform = SceneDeform.None,
+                      v_deform: SceneVDeform = SceneVDeform.None,
+                      anchor: SceneAnchor = SceneAnchor.None,
+                      precision: int = 0,
+                      transition: int = 0,
+                      layer_mask_raw: int = -1,
+                      v_deform_shift_raw: int = -1) -> Scene {
+    // 8 = MAX_PARALLAX_BANDS, 0 = PRECISION_CELL, 0 = TRANS_SMOOTH: inlined per the pin
+    // block at the top of this file (the first is imported and would not travel; the
+    // other two are defaults, evaluated wherever the call site puts them).
+    ensure(count >= 1 && count <= 8,
+           "scene(): {count} layers exceeds MAX_PARALLAX_BANDS (8) — the shadow view is sized for eight entries and a ninth writes past Parallax_Shadow_Bands")
+    let anchor_ch = scene_anchor_ch(anchor)
+    // Ported hdr() guard 1: an anchored scene SPLITS a layer at runtime, so the shadow
+    // view needs count+1 entries. Same reasoning, same ceiling, same failure mode as
+    // configs.emp's hdr(); this is one of the two pairs Task 7 proves equal.
+    ensure(anchor_ch == $FF || count + 1 <= 8,
+           "scene(): an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — {count}+1 exceeds MAX_PARALLAX_BANDS (8) and the split would write past Parallax_Shadow_Bands")
+    // Ported hdr() guard 2: the anchor channel must index the patch bank.
+    ensure(anchor_ch == $FF || anchor_ch < 4,
+           "scene(): anchor ch {anchor_ch} is not a patch channel — the overlay indexes Effects_World_Y[RASTER_MAX_PATCH] (4), so a wider index reads past the anchor bank")
+    // THE PAD GUARD. `count` is the sole authority on how many layers are real, and both
+    // folds (derived_mask and scene_band) stop there — so a fifth authored layer under
+    // `count: 4` is lowered by nothing AND masked by nothing. Silent, and invisible until
+    // a word-level compare. This closes it.
+    //
+    // BOTH CONJUNCTS ARE REQUIRED. `ly_enabled == 0` alone would reject a legal shipped
+    // shape: OJZ_LockedClouds (configs.emp:299) is five real layers with layer 0 dormant,
+    // so a masked-off REAL layer inside the count must keep passing. `ly_fa == 0` is what
+    // separates the two — no authored layer can have it (see no_layer()'s note).
+    for i in count..8 {
+        let p = layers[i]
+        ensure(p.ly_enabled == 0 && p.ly_fa == 0 && p.ly_fb == 0,
+               "scene(): slot {i} is past count {count} but is not a no_layer() pad — count is the authority on how many layers are real, and a real layer beyond it is lowered by nothing and masked by nothing")
+    }
+    // THE MASK BRIDGE IS A SUPERSET, NEVER A CONTRADICTION. sc_mask_raw exists to ADD
+    // bits the model cannot derive (OJZ_Default: $1F over a derived $0F, which passes),
+    // not to CLEAR one that ly_enabled set. Clearing is an authoring contradiction with a
+    // correct spelling one field over — `enabled: 0` on that layer — and left unguarded it
+    // is a mask the lowering emits while the model says otherwise.
+    ensure(layer_mask_raw < 0 || (layer_mask_raw | derived_mask(layers, count)) == layer_mask_raw,
+           "scene(): layer_mask_raw {layer_mask_raw} CLEARS a bit the enabled layers set — the raw mask is a byte-identity bridge that may only ADD bits the model cannot derive; to disable a layer, author it with enabled: 0")
+    // Width AND sentinel in one range. pcfg_layer_mask is a u8 (structs.emp:165), and the
+    // i16 sentinel field is only safe BECAUSE the mask is 8 bits: a raw $FFFF would
+    // round-trip through i16 to -1 and read back as "derive", silently. Any negative other
+    // than -1 is caught for the same reason — it would also read as "derive".
+    ensure(layer_mask_raw >= -1 && layer_mask_raw <= $FF,
+           "scene(): layer_mask_raw {layer_mask_raw} outside -1 (derive) .. $FF — pcfg_layer_mask is a u8, and a wider value would wrap through the i16 bridge field and silently read back as derive")
+    // Same shape, same reason. The runtime samples with `asr.w d3, d5` (parallax.emp:1038),
+    // so a shift past 15 saturates to the sign bit: a wrong picture, not a fault, which is
+    // exactly the class of error that belongs to the build.
+    ensure(v_deform_shift_raw >= -1 && v_deform_shift_raw <= 15,
+           "scene(): v_deform_shift_raw {v_deform_shift_raw} outside -1 (derive) .. 15 — the runtime samples the column table with asr.w, so a wider shift saturates to sign instead of failing")
+    // THE SELECTORS ARE RANGE-CHECKED AS ARGUMENTS, not just pinned as constants. Both
+    // are stored raw and read by a one-bit test, so an out-of-range value does not fail,
+    // it MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp:259) and
+    // therefore silently means INSTANT, and `precision: 7` sails through the fence below.
+    ensure(precision == 0 || precision == 1,
+           "scene(): precision {precision} is neither PRECISION_CELL (0) nor PRECISION_LINE (1) — the value is stored and read as a tier selector, so an out-of-range one silently selects a tier rather than failing")
+    ensure(transition == 0 || transition == 1,
+           "scene(): transition {transition} is neither TRANS_SMOOTH (0) nor TRANS_INSTANT (1) — the runtime tests this byte with tst.b, so anything nonzero silently means instant")
+    // P1 SCOPE FENCE. PRECISION_LINE is not yet a standalone lowering: today the
+    // per-line HScroll pipeline is selected by a NON-NULL BG deform table, which is why
+    // OJZ_Default ships an all-zero table with every band shift at 15 (a flat-pathed
+    // table, byte-identical output, no sample math). Authoring PRECISION_LINE without
+    // one would silently lower to the per-cell pipeline, so it fails loud instead.
+    ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
+           "P1: precision line rides a zero-deform table (DeformTable_Zero pattern); standalone precision lowering lands with the forcer-set derivation (P2/P3)")
+    return Scene{
+        sc_layers:             layers,
+        sc_count:              count,
+        sc_v_factor:           v_factor,
+        sc_v_center:           v_center,
+        sc_v_offset:           v_offset,
+        sc_v_factor_fg:        v_factor_fg,
+        sc_deform_fg:          deform_fg,
+        sc_deform_bg:          deform_bg,
+        sc_v_deform:           v_deform,
+        sc_anchor:             anchor,
+        sc_precision:          precision,
+        sc_transition:         transition,
+        sc_pad_5D:             default,
+        sc_mask_raw:           layer_mask_raw,
+        sc_v_deform_shift_raw: v_deform_shift_raw,
+    }
+}
+
+// =====================================================================
+// Capability fold (spec §3) — what a scene DEMANDS of the runtime.
+//
+// CAP_TRANSITIONS IS DELIBERATELY ABSENT HERE, and its absence is the ruling, not an
+// omission: the P1 rule is "set when the registry holds more than one scene", and a
+// single Scene cannot see the registry's size. The registry-level fold (Task 5) ORs
+// scene_caps() over its scenes and adds CAP_TRANSITIONS itself when its count > 1.
+// sc_transition is still authored and still lowered — it is the pcfg byte — it just
+// does not raise a capability on its own.
+//
+// The P1 forcer set is deform tables + anchors. Curves, FG sprite strips, off-grid
+// tops and the dense tier arrive WITH their capability bits (CAP_* reserved above);
+// nothing here should be widened to guess at them.
+//
+// sc_precision IS NOT CONSULTED, and that is correct for P1 rather than an oversight. The
+// fence in scene() ties PRECISION_LINE to a BG deform table, and it is the TABLE that
+// selects the per-line pipeline — so reading sc_precision here would be a second spelling
+// of the CAP_PER_LINE bit `has_table` already sets. It becomes load-bearing when precision
+// gets a standalone lowering (P2/P3), which is the same event that retires the fence.
+// =====================================================================
+pub comptime fn scene_caps(s: Scene) -> int {
+    comptime var caps = 0
+    // Bit literals, not the CAP_* names: this fn is elaborated at a game call site and
+    // only a glob import puts those names there. See the pin block at the top.
+    //   $0001 CAP_PER_LINE  $0002 CAP_PER_COL_VSRAM  $0004 CAP_DEFORM  $0008 CAP_ANCHORS
+    // NESTED `if`-EXPRESSIONS DO NOT EVALUATE HERE. The first spelling of this was
+    // `if a { 1 } else { if b { 1 } else { 0 } }` and it returned 0 whenever only the
+    // INNER test was true — measured: a BG-only deform scene folded to caps 0, so
+    // OJZ_Default would have shipped claiming it needs nothing per-line. A flat
+    // accumulator over statement `if`s is the shape that holds. (A single-level
+    // if-expression IS fine; `anchored` below is one.)
+    //
+    // has_table IS DELIBERATELY PLANE-AGNOSTIC — "is there a table anywhere", not "is
+    // there one on the plane that needs it". The pipeline is per-frame and per-line for
+    // the whole screen; there is no half-per-line.
+    comptime var has_table = 0
+    if scene_deform_is_none(s.sc_deform_fg) == 0 {
+        has_table = 1
+    }
+    if scene_deform_is_none(s.sc_deform_bg) == 0 {
+        has_table = 1
+    }
+    let anchored = if scene_anchor_ch(s.sc_anchor) == $FF { 0 } else { 1 }
+    // Per-line: a non-NULL deform table selects the per-line HScroll pipeline, and an
+    // anchor splits a band at a SCANLINE (an 8-px-quantised boundary cannot agree with
+    // a scanline-exact one — parallax.emp's shadow-view note).
+    if has_table == 1 || anchored == 1 {
+        caps = caps | $0001
+    }
+    // Deform proper needs a table AND a live amplitude somewhere. A table whose every
+    // consumer sits at shift 15 is flat-pathed: the sample loop is skipped and the
+    // emitted HScroll is identical to the no-deform case, so it demands the per-line
+    // pipeline but not the deform math. OJZ_Default is exactly that scene.
+    //
+    // THE SCAN IS CROSS-PLANE ON PURPOSE — every layer shift and both anchor shifts,
+    // regardless of which plane holds a table — and the asymmetry is not a bug to tidy.
+    // ParallaxConfig_Haze (configs.emp:181-199) attaches a table on the FG ONLY while
+    // every band carries a live `dsb: 4`; a scan that paired dsa with deform_fg and dsb
+    // with deform_bg would fold Haze to no-deform. The runtime's shift sentinel is per
+    // band and per plane, not per attachment.
+    comptime var live_amp = 0
+    // THE ONE-DOT RULE (Task-1 spike). This three-step split — field, then index, then
+    // field — is not indirection for its own sake and must not be collapsed to
+    // `s.sc_layers[i].ly_dsa`: chained access past one dot NEVER resolves, and it does
+    // not error, it silently yields nothing. Every `ls` / `l` split in this file
+    // (scene_hdr, scene_band, derived_mask) is here for that reason.
+    let ls = s.sc_layers
+    let n  = s.sc_count
+    for i in 0..n {
+        let l = ls[i]
+        if l.ly_dsa != 15 {
+            live_amp = 1
+        }
+        if l.ly_dsb != 15 {
+            live_amp = 1
+        }
+    }
+    if anchored == 1 {
+        if scene_anchor_dsa(s.sc_anchor) != 15 {
+            live_amp = 1
+        }
+        if scene_anchor_dsb(s.sc_anchor) != 15 {
+            live_amp = 1
+        }
+    }
+    if has_table == 1 && live_amp == 1 {
+        caps = caps | $0004
+    }
+    if scene_vdeform_is_none(s.sc_v_deform) == 0 {
+        caps = caps | $0002
+    }
+    if anchored == 1 {
+        caps = caps | $0008
+    }
+    return caps
+}
+
+// fold_caps — the REGISTRY-level capability mask: every scene's demands, ORed, plus the
+// one bit no single scene can raise.
+//
+// It lives here rather than in Task 5's registry module because it is the other half of
+// scene_caps() and the two must be read together — split across files, the reason
+// CAP_TRANSITIONS is missing upstairs stops being visible from where it is added. The
+// registry module supplies the LIST; the rule for turning a list into a mask is model,
+// and model lives with the model.
+//
+// CAP_TRANSITIONS ($0010) on count > 1: a transition is a property of the EDGE between
+// two scenes, so a game with one scene never crosses one no matter what its sc_transition
+// byte says. This is the P1 ruling as written; a later phase that learns which section
+// pairs are actually adjacent can tighten it, and the tightening is a strict subset.
+pub comptime fn fold_caps(scenes: array) -> int {
+    ensure(scenes.len >= 1, "fold_caps(): an empty scene registry has no capabilities to fold — a game with no scenes should not be declaring a cap mask")
+    comptime var caps = 0
+    for s in scenes {
+        caps = caps | scene_caps(s)
+    }
+    if scenes.len > 1 {
+        caps = caps | $0010
+    }
+    return caps
+}
+
+// =====================================================================
+// Lowering — the authored scene becomes the records the runtime already reads.
+//
+// scene_hdr()/scene_band() must produce, FIELD FOR FIELD, what configs.emp's
+// hdr()/band() produce for the same authoring. That is the P1 gate: Task 7 keeps the
+// two constructors alive side by side and proves them word-equal, and Task 6's twenty
+// migrated configs are only correct if the ROM does not move a byte. Every default
+// below is hdr()'s default, transcribed, not re-derived.
+// =====================================================================
+
+// scene_hdr — the 28-byte parallax_config header.
+pub comptime fn scene_hdr(s: Scene) -> parallax_config {
+    let n        = s.sc_count
+    let mask_raw = s.sc_mask_raw
+    let ls       = s.sc_layers
+    // The layer mask: the raw bridge when authored, else the derived one. scene() has
+    // already checked that a raw mask is a SUPERSET of this exact derivation, which is
+    // why both call sites must share derived_mask() rather than each carrying a loop.
+    let mask = if mask_raw >= 0 { mask_raw } else { derived_mask(ls, n) }
+    // The V-deform amplitude shift: the raw bridge when authored (>= 0 wins outright,
+    // including over an attached table — SkyHaze is the only case and attaches none),
+    // else the attachment's own shift, else hdr()'s default 4 via the accessor.
+    let vds_raw = s.sc_v_deform_shift_raw
+    let vds = if vds_raw >= 0 { vds_raw } else { scene_vdeform_shift(s.sc_v_deform) }
+    return parallax_config{
+        pcfg_band_count:        n,
+        pcfg_v_factor_bg:       s.sc_v_factor,
+        pcfg_v_factor_fg:       s.sc_v_factor_fg,
+        pcfg_layer_mask:        mask,
+        pcfg_v_center_y:        s.sc_v_center,
+        pcfg_v_offset:          s.sc_v_offset,
+        pcfg_transition:        s.sc_transition,
+        pcfg_deform_speed_fg:   scene_deform_speed(s.sc_deform_fg),
+        pcfg_deform_speed_bg:   scene_deform_speed(s.sc_deform_bg),
+        pcfg_anchor_ch:         scene_anchor_ch(s.sc_anchor),
+        pcfg_deform_table_fg:   scene_deform_table(s.sc_deform_fg),
+        pcfg_deform_table_bg:   scene_deform_table(s.sc_deform_bg),
+        pcfg_v_deform_table_bg: scene_vdeform_table(s.sc_v_deform),
+        pcfg_v_deform_speed_bg: scene_vdeform_speed(s.sc_v_deform),
+        pcfg_v_deform_shift_bg: vds,
+        pcfg_anchor_dsa:        scene_anchor_dsa(s.sc_anchor),
+        pcfg_anchor_dsb:        scene_anchor_dsb(s.sc_anchor),
+    }
+}
+
+// scene_band — the 10-byte band entry for layer `i`.
+//
+// THE ONE UNIT CONVERSION IN THE WHOLE LOWERING: layer() authors world_y in PIXELS,
+// band_top_cell is a Plane-B CELL ROW, so `cell = world_y >> 3`. The shift is exact for
+// any layer built through the constructor — layer() ensures the 8-px grid — and lossy for
+// a hand-built `SceneLayer{ .. }`, which is why that back door is called out at the
+// struct (there is no way to re-check it here: the grid fact does not travel with the value).
+//
+// The three-byte factor split is band()'s, transcribed inline (a shared helper would
+// be an imported name inside a body — see the pin block): bits 0-3 shift1, bits 4-7
+// shift2, bit 8 op. See parallax_dsl.packed() for the encoding's authority.
+pub comptime fn scene_band(s: Scene, i: int) -> band_entry {
+    let n = s.sc_count
+    ensure(i >= 0 && i < n,
+           "scene_band(): layer index {i} is outside the scene's {n} real layers — the padding entries past sc_count are not lowerable")
+    // The one-dot split again — see the note in scene_caps().
+    let ls = s.sc_layers
+    let l  = ls[i]
+    let fa = l.ly_fa
+    let fb = l.ly_fb
+    let wy = l.ly_world_y
+    return band_entry{
+        band_top_cell:       wy >> 3,
+        band_factor_a_s1:    fa & 15,
+        band_factor_a_s2:    (fa >> 4) & 15,
+        band_factor_a_op:    (fa >> 8) & 1,
+        band_factor_b_s1:    fb & 15,
+        band_factor_b_s2:    (fb >> 4) & 15,
+        band_factor_b_op:    (fb >> 8) & 1,
+        band_deform_shift_a: l.ly_dsa,
+        band_deform_shift_b: l.ly_dsb,
+        band_phase_offset:   l.ly_phase,
+    }
+}

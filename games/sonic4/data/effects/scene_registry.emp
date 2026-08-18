@@ -1,0 +1,320 @@
+// games/sonic4/data/effects/scene_registry.emp — the game's scene registry.
+// THE ONLY module that lowers scenes to ROM records. A scene value not listed in
+// SCENES emits nothing — its section reference fails at link with a missing symbol.
+// Cross-scene checks and the capability fold live here (they need VALUES, not Labels).
+//
+// ---------------------------------------------------------------------------
+// STATUS (Task 9): LIVE AND SOLE. `SCENES` holds THE TWENTY SHIPPED SCENES, authored in
+// games/sonic4/data/effects/ojz_scenes.emp, and this module emits all twenty lowered
+// records under their SHIPPED names plus the six deform tables they attach.
+// games/sonic4/data/parallax/configs.emp — the hdr()/cfg_band() authoring surface these
+// records replace — is DELETED; its two constructors survive only as the test-only oracle
+// in games/sonic4/test/scene_equiv_proof.emp, where no game data module can reach them.
+//
+// AND THIS MODULE IS PLACED AND REACHED — which is what makes every guard below REAL. The
+// reach is now the real consumers, not Task 5's backwards probe edge out of configs.emp:
+//   1. `use games.sonic4.scene_registry` (WHOLE-PATH, no name list) from
+//      data/effects/ojz_effects.emp, which binds ParallaxConfig_OJZ_Underwater through a
+//      preset. The name-list form alone is a trap for the CLOSURE: a selective
+//      `use ...{SceneRegistry_CapsFolded}` injects a CLONE of the const whose initializer
+//      re-evaluates in the CONSUMER's scope, so it reports `unknown function fold_caps`
+//      at a span inside THIS file while never elaborating this module at all. Keep the
+//      whole-path edge even though the name lists beside it read as sufficient.
+//   2. `games/sonic4/map.toml` `order` entry for this module's section head label
+//      (`DeformTable_Zero`, inherited from the deleted configs.emp section, which is what
+//      keeps the object-bank budget `cursor` resolving) — without it a reachable module
+//      fails `[map.order-undeclared]`.
+//
+// WHY THAT MATTERS: an unreached .emp module gets parse + scan coverage and ZERO body
+// elaboration (measured from both sides in Task 3; see the banner in
+// engine/level/scene_dsl.emp). A module-level `ensure(1 == 0)` in an unreached module
+// builds GREEN with an identical CRC. Until Task 6 this file, and every guard in
+// scene_dsl.emp behind it, was in exactly that state. It no longer is: the twenty scenes
+// drive `layer()`, `scene()`, `derived_mask()`, `scene_caps()`, `fold_caps()`,
+// `scene_hdr()`, `scene_band()` and all four `lowerN` on every build.
+//
+// THE EMISSION ORDER AT THE BOTTOM OF THIS FILE IS LOAD-BEARING. It reproduces the shipped
+// ROM block byte for byte — tables interleaved with the records that attach them — and the
+// P1 image-identity gate is decided by it. Read that block's banner before reordering
+// anything, including "tidying" the six tables into one run.
+// ---------------------------------------------------------------------------
+module games.sonic4.scene_registry in scene_registry
+
+// The two ROM record types the lowering targets. `parallax_config` is the 28-byte
+// header; `band_entry` is the 10-byte band.
+use engine.structs.{parallax_config}
+use engine.parallax.{band_entry}
+// GLOB IMPORTS, BOTH MANDATORY, AND NOT A STYLE CHOICE. A comptime fn's free names
+// resolve at the CALL SITE, so scene()/scene_caps()/scene_hdr() bodies reach their
+// helpers through whatever is in scope HERE. A selective `use ...{scene, layer}` is
+// LOUD on the function axis (one `unknown function` per call) but SILENT on the
+// constant axis — a constant that resolves to nothing degrades instead of erroring.
+// See the pin block at the top of engine/level/scene_dsl.emp for the full rule.
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// =====================================================================
+// Record shapes — a header followed by N band entries.
+//
+// The runtime never reads these wrapper types; it walks bytes off the header pointer
+// and takes the band count from the header. One shape per band count is all the layout
+// needs, and per-count typed `data` bindings are the ONLY enforcement that a lowering
+// produced the right number of bands (Task-1 probe B: a comptime fn's return annotation
+// is documentation; the typed `data` binding is what raises `array length mismatch`).
+//
+// FOUR SHAPES BECAUSE THE TWENTY SHIPPED CONFIGS USE FOUR BAND COUNTS — 1, 2, 4 and 5
+// (data/parallax/configs.emp: fourteen ParallaxCfg1/2, six ParallaxCfg4/5). scene()
+// admits up to MAX_PARALLAX_BANDS (8); counts 3, 6, 7 and 8 have no shipped author, so
+// their shape + lowering are not written. Adding one is a mechanical copy of the pair
+// below — a struct line and a lowerN with N `scene_band` terms.
+// =====================================================================
+struct SceneCfg1 { hdr: parallax_config, bands: [band_entry; 1] }
+struct SceneCfg2 { hdr: parallax_config, bands: [band_entry; 2] }
+struct SceneCfg4 { hdr: parallax_config, bands: [band_entry; 4] }
+struct SceneCfg5 { hdr: parallax_config, bands: [band_entry; 5] }
+
+// ---------------------------------------------------------------------
+// lowerN — the emission fold for a scene with exactly N real layers.
+//
+// THE COUNT GUARD IS THE POINT OF THESE FOUR FUNCTIONS, not the array literal. The
+// typed `data` binding catches a lowerN whose band array is the wrong length, but it
+// canNOT catch `lower4(a_five_layer_scene)`: that emits a 4-band record whose HEADER
+// still says band_count 5, and the runtime — which indexes bands at
+// `sizeof(parallax_config)(a0)` and trusts the header count — then reads its fifth band
+// out of whatever record the packer put next. Silent, shipped, and a wrong picture
+// rather than a fault. Task 6 hand-picks a lowerN for each of twenty configs, which is
+// exactly where that slip happens, so each function asserts its own arity.
+//
+// scene_band() carries the mirror-image guard (`i < sc_count`), so the OTHER slip —
+// lower5 on a four-layer scene — fails there. Both directions are covered; only this
+// direction needed a new guard.
+//
+// PROVEN RED (Task 5): all four rotated one place around SCENES in a single probe build,
+// which reported all four — `[Error] lower1(): scene has 2 real layers, not 1 — …`
+// through `lower5(): scene has 1 real layers, not 5 — …` — plus four
+// `scene_band(): layer index N is outside the scene's 1 real layers` from the mirror
+// guard. Eight diagnostics from one build, which re-confirms `ensure` is non-aborting:
+// an early guard does not mask a later one.
+// ---------------------------------------------------------------------
+comptime fn lower1(s: Scene) -> SceneCfg1 {
+    ensure(s.sc_count == 1, "lower1(): scene has {s.sc_count} real layers, not 1 — the header would declare its own count while the record carries one band, and the runtime indexes bands off the header count")
+    return SceneCfg1{ hdr: scene_hdr(s), bands: [ scene_band(s, 0) ] }
+}
+comptime fn lower2(s: Scene) -> SceneCfg2 {
+    ensure(s.sc_count == 2, "lower2(): scene has {s.sc_count} real layers, not 2 — the header would declare its own count while the record carries two bands, and the runtime indexes bands off the header count")
+    return SceneCfg2{ hdr: scene_hdr(s), bands: [ scene_band(s, 0), scene_band(s, 1) ] }
+}
+comptime fn lower4(s: Scene) -> SceneCfg4 {
+    ensure(s.sc_count == 4, "lower4(): scene has {s.sc_count} real layers, not 4 — the header would declare its own count while the record carries four bands, and the runtime indexes bands off the header count")
+    return SceneCfg4{ hdr: scene_hdr(s),
+                      bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
+                               scene_band(s, 3) ] }
+}
+comptime fn lower5(s: Scene) -> SceneCfg5 {
+    ensure(s.sc_count == 5, "lower5(): scene has {s.sc_count} real layers, not 5 — the header would declare its own count while the record carries five bands, and the runtime indexes bands off the header count")
+    return SceneCfg5{ hdr: scene_hdr(s),
+                      bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
+                               scene_band(s, 3), scene_band(s, 4) ] }
+}
+
+// =====================================================================
+// THE TWENTY SCENES (Task 6 — the placeholders are gone).
+//
+// The scene VALUES are authored in games/sonic4/data/effects/ojz_scenes.emp; this module
+// owns the LIST and nothing else. The import is a glob for the reason in the header note
+// above — and note that a `use` edge RE-EVALUATES an imported const's initializer in this
+// module's scope (Task 5's probe finding), so ojz_scenes' four family helpers
+// (shimmer_scene / haze_scene / rocking_scene / perspective_scene) are `pub` and arrive
+// through the same glob. A private helper there would report `unknown function` here.
+// =====================================================================
+use games.sonic4.ojz_scenes.*
+
+// ---------------------------------------------------------------------
+// SCENES — THE REGISTRY. Every scene this game ships, and the sole input to the
+// capability fold.
+//
+// THE ORDER IS THE EMISSION ORDER (the packer's order inside a section), and it is
+// data/parallax/configs.emp's declaration order transcribed, so the Task-7 equivalence
+// proof and the Task-9 swap both read straight down. The index beside each name is the
+// `SCENES[i]` the emission block below indexes — a record can only exist for a scene the
+// fold has already seen.
+// ---------------------------------------------------------------------
+pub const SCENES: [Scene; 20] = [
+    Scene_OJZ_Default,             //  0  lower4
+    Scene_OJZ_Underwater,          //  1  lower4
+    Scene_OJZ_Windy,               //  2  lower1
+    Scene_Shimmer_Slow,            //  3  lower1
+    Scene_Shimmer,                 //  4  lower1
+    Scene_Shimmer_Fast,            //  5  lower1
+    Scene_Haze_Slow,               //  6  lower5
+    Scene_Haze,                    //  7  lower5
+    Scene_Haze_Fast,               //  8  lower5
+    Scene_Haze_Uniform,            //  9  lower5
+    Scene_Rocking_Slow,            // 10  lower1
+    Scene_Rocking,                 // 11  lower1
+    Scene_Rocking_Fast,            // 12  lower1
+    Scene_Perspective_Subtle,      // 13  lower5
+    Scene_Perspective,             // 14  lower5
+    Scene_Perspective_Dramatic,    // 15  lower5
+    Scene_WindyHaze,               // 16  lower5
+    Scene_SkyHaze,                 // 17  lower2
+    Scene_OJZ_Caves,               // 18  lower5
+    Scene_OJZ_LockedClouds,        // 19  lower5
+]
+
+// =====================================================================
+// The capability fold and its verify.
+//
+// fold_caps() lives in engine/level/scene_dsl.emp beside scene_caps() (the rule for
+// turning a list into a mask is model); the LIST is the registry's, so the fold is
+// evaluated here. It ORs every scene's demands and adds CAP_TRANSITIONS ($0010) when
+// the registry holds more than one scene — the one bit no single scene can raise,
+// because a transition is a property of the EDGE between two scenes.
+//
+// THE EXPECTATION, DERIVED BY HAND OVER THE TWENTY (Task 6), bit by bit. Each bit is
+// listed with the scenes that raise it, so a future edit that drops the last raiser of a
+// bit is visible here rather than only in a changed number:
+//
+//   $0001 CAP_PER_LINE       ALL TWENTY. Every shipped config attaches a BG or FG deform
+//                            table (the flat-pathed DeformTable_Zero counts — a non-NULL
+//                            pointer is what selects the per-line pipeline), and
+//                            OJZ_Underwater would raise it again through its anchor.
+//   $0002 CAP_PER_COL_VSRAM  Rocking_Slow/Rocking/Rocking_Fast (SceneVDeform.Columns on
+//                            DeformTable_Rocking) + Perspective_Subtle/Perspective/
+//                            Perspective_Dramatic (on DeformTable_Perspective). SIX.
+//                            Rocking_Slow counts: v_speed 0 is a STATIC tilt with the
+//                            table attached, not an absent attachment.
+//   $0004 CAP_DEFORM         Table AND a live amplitude somewhere. Fourteen: Windy,
+//                            Shimmer x3, Haze x4, Rocking x3, Perspective x3 — plus
+//                            SkyHaze and WindyHaze, and OJZ_Underwater via its ANCHOR
+//                            dsb 2 (every one of its four authored layers is at 15, so
+//                            the anchor shifts are the only live amplitude it has; this
+//                            is exactly why scene_caps() scans them).
+//                            CLEAR on OJZ_Default, OJZ_Caves, OJZ_LockedClouds — all
+//                            three are flat-pathed zero tables with every shift at 15.
+//   $0008 CAP_ANCHORS        OJZ_Underwater ALONE — the only world-anchored config in
+//                            the tree (SceneAnchor.At(0, 15, 2)).
+//   $0010 CAP_TRANSITIONS    fold_caps() adds it because SCENES.len (20) > 1. No single
+//                            scene can raise it; the sc_transition byte on OJZ_Caves and
+//                            OJZ_LockedClouds is lowered but does not fold.
+//
+// $0001|$0002|$0004|$0008|$0010 = $001F, which is EXACTLY the declared
+// Game.SCANLINE_CAPS — the subset test below passes with zero slack. The slack the
+// one-sided test was built for was consumed as the twenty landed; it stays one-sided
+// because a declared subset would be a wrong picture on hardware and a declared superset
+// only forgoes a P2 specialisation.
+// =====================================================================
+pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
+
+// THE VERIFY. `folded ⊆ declared`, never equality.
+//
+// DIRECTION IS THE SAFETY PROPERTY. A declared SUPERSET only forgoes a P2
+// specialisation the game could have had; a declared SUBSET would omit machinery a
+// scene still demands, which is a wrong picture on hardware. So the test is one-sided
+// on purpose, and the slack it leaves is deliberate twice over: it also lets Task 6
+// migrate the twenty configs ONE AT A TIME without an intermediate red build, since a
+// partially-populated registry folds to a subset of the finished mask.
+//
+// AND IT IS THE ONLY REAL CHECK ON THAT WORD. `const SCANLINE_CAPS: u16` on the Game
+// interface enforces NOTHING beyond int-ish-ness — sigil's contract checker range-checks
+// no const member, so the `u16` is documentary. Nothing else in the tree reads
+// Game.SCANLINE_CAPS (the comptime arms that consume it arrive in P2), so if this ensure
+// is removed or goes dead, that word is unverified.
+//
+// THE MESSAGE NAMES BOTH NUMBERS AND BOTH FIXES because the reader has a real choice:
+// widen games/sonic4/config/game.emp's declaration if the new capability is wanted, or
+// stop authoring it if it is not. Which one is right is not a fact the build can know.
+// It also names the UNDECLARED BITS — the difference, not just the two operands — since
+// that is the number the reader actually has to act on. Interpolation renders DECIMAL
+// (`25`, `16`, `9`), which is a wart: read them as $0019 / $0010 / $0009 against the
+// CAP_* block. There is no comptime hex formatter to reach for.
+//
+// PROVEN RED (Task 5): narrowing the declaration to $0010 under the probe reported
+// `[Error] scene registry: the folded capability mask 25 is NOT a subset of
+// Game.SCANLINE_CAPS 16; the UNDECLARED bits are 9 — …`. 25 is $0019, matching the
+// derivation above exactly, and 9 is $0009 = CAP_PER_LINE|CAP_ANCHORS, which is PH4's
+// contribution and nothing else. `~` is a real comptime operator on ints (sigil
+// eval/expr.rs, `UnOp::BitNot => Value::Int(!n)`); the alternative spelling
+// `folded & declared == folded` is equivalent and unused.
+ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
+
+// NO OTHER CROSS-SCENE CHECK IS WRITTEN HERE, and the absence is a ruling.
+//
+// The fold is the only cross-scene FACT P1 has. Three candidates were considered and
+// each was dropped for want of a failure mode it could actually catch:
+//   - a SCENES.len == (number of `pub data` lines) coupling pin: the uncovered
+//     direction is a scene folded but never emitted, which only INFLATES the cap mask —
+//     i.e. lands on the safe side of the subset test — while the unsafe direction (a
+//     record emitted whose caps were never folded) is impossible by construction, since
+//     every `pub data` below initialises from `SCENES[i]` and nothing else. The pin
+//     would guard nothing and would cost Task 6 an edit per config.
+//   - a duplicate-scene check: two identical scenes are legal (the shipped set has
+//     near-twins by design, e.g. the three Shimmer speeds) and cost only bytes.
+//   - a transition-compatibility check between adjacent scenes: P1 does not know which
+//     sections are adjacent. fold_caps()'s own note records that a later phase which
+//     learns adjacency tightens CAP_TRANSITIONS, and that tightening is a strict subset.
+// An unfalsifiable guard reads as coverage and is worse than none.
+
+// =====================================================================
+// EMISSION — the lowered ROM records.
+//
+// EVERY RECORD INITIALISES FROM `SCENES[i]`, never from a scene const directly, and
+// that is what makes the module header's claim structural instead of aspirational: a
+// record can only exist for a scene the fold has already seen. A scene authored but
+// left out of SCENES emits nothing and any section that references it fails at link
+// with a missing symbol.
+//
+// THE SIX DEFORM TABLES ARE EMITTED HERE TOO, AND THE DECLARATION ORDER BELOW IS THE
+// SHIPPED ROM ORDER — table, then the records that attach it, exactly as the deleted
+// data/parallax/configs.emp authored them. Neither half of that is cosmetic:
+//
+//   * A SECTION IS CONTIGUOUS PER MODULE. The shipped block interleaves tables and records
+//     ($121C8 DeformTable_Zero, $122C8 OJZ_Default, $1230C OJZ_Underwater, $12350
+//     DeformTable_OJZ_Calm, ...). Tables emitted from ojz_scenes.emp would form one
+//     1536-byte run ahead of the records, which moves every table address, which changes
+//     the `pcfg_deform_table_fg/bg` and `pcfg_v_deform_table_bg` words INSIDE every record.
+//     Measured on the Task-6 both-sets ROM: each duplicate record differed from its shipped
+//     twin in exactly the table-pointer bytes and nowhere else. So the P1 image-identity
+//     gate (spec §8.1) is decided by this ordering and nothing else.
+//   * THE TABLE VALUES STILL BELONG TO THE SCENES. Each `data` initialises from
+//     ojz_scenes' `SceneSrc_DeformTable_*` const — the named generator call that lives
+//     beside the scenes attaching it — so this module holds placement, not authorship, and
+//     the witness can still compare the array VALUE (a Label's bytes are not comptime
+//     readable). ojz_scenes imports the six Labels back for its attachments.
+//
+// The record shape (lower1/2/4/5) is hand-picked per config and each lowerN asserts its
+// own arity — see their banner. Counts used: seven 1-band, one 2-band, two 4-band, ten
+// 5-band. No shipped config needs a 3/6/7/8-band shape.
+// =====================================================================
+pub data DeformTable_Zero:                    [i8; 256] = SceneSrc_DeformTable_Zero
+pub data ParallaxConfig_OJZ_Default:          SceneCfg4 = lower4(SCENES[0])
+pub data ParallaxConfig_OJZ_Underwater:       SceneCfg4 = lower4(SCENES[1])
+
+pub data DeformTable_OJZ_Calm:                [i8; 256] = SceneSrc_DeformTable_OJZ_Calm
+pub data ParallaxConfig_OJZ_Windy:            SceneCfg1 = lower1(SCENES[2])
+
+pub data DeformTable_Shimmer:                 [i8; 256] = SceneSrc_DeformTable_Shimmer
+pub data ParallaxConfig_Shimmer_Slow:         SceneCfg1 = lower1(SCENES[3])
+pub data ParallaxConfig_Shimmer:              SceneCfg1 = lower1(SCENES[4])
+pub data ParallaxConfig_Shimmer_Fast:         SceneCfg1 = lower1(SCENES[5])
+
+pub data DeformTable_Haze:                    [i8; 256] = SceneSrc_DeformTable_Haze
+pub data ParallaxConfig_Haze_Slow:            SceneCfg5 = lower5(SCENES[6])
+pub data ParallaxConfig_Haze:                 SceneCfg5 = lower5(SCENES[7])
+pub data ParallaxConfig_Haze_Fast:            SceneCfg5 = lower5(SCENES[8])
+pub data ParallaxConfig_Haze_Uniform:         SceneCfg5 = lower5(SCENES[9])
+
+pub data DeformTable_Rocking:                 [i8; 256] = SceneSrc_DeformTable_Rocking
+pub data ParallaxConfig_Rocking_Slow:         SceneCfg1 = lower1(SCENES[10])
+pub data ParallaxConfig_Rocking:              SceneCfg1 = lower1(SCENES[11])
+pub data ParallaxConfig_Rocking_Fast:         SceneCfg1 = lower1(SCENES[12])
+
+pub data DeformTable_Perspective:             [i8; 256] = SceneSrc_DeformTable_Perspective
+pub data ParallaxConfig_Perspective_Subtle:   SceneCfg5 = lower5(SCENES[13])
+pub data ParallaxConfig_Perspective:          SceneCfg5 = lower5(SCENES[14])
+pub data ParallaxConfig_Perspective_Dramatic: SceneCfg5 = lower5(SCENES[15])
+
+pub data ParallaxConfig_WindyHaze:            SceneCfg5 = lower5(SCENES[16])
+pub data ParallaxConfig_SkyHaze:              SceneCfg2 = lower2(SCENES[17])
+pub data ParallaxConfig_OJZ_Caves:            SceneCfg5 = lower5(SCENES[18])
+pub data ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])

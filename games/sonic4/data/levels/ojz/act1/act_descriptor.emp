@@ -21,6 +21,13 @@ use games.sonic4.ojz_effects.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ
 // Parcel C2 Task 12 — total-binding presets. One per distinct section (0-3),
 // one shared instance for the five identical plain sections (4-8).
 use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain}
+// The act-default parallax record (`act_parallax_config` below — the fallback for sections
+// that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
+// Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
+// an extern, so a misspelling here would have surfaced as a runtime wrong-picture instead
+// of a build failure. The record is emitted by the scene registry now — it is
+// `lower4(SCENES[0])` off Scene_OJZ_Default, not a hand-written header.
+use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).

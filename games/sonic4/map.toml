@@ -71,7 +71,16 @@ order = [
   "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",
-  "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "OJZ_TestRaster", "ObjDef_Static",
+  "TestChurnObj", "ObjDef_PathSwap",
+  # Scanline-P1 Task 9: `DeformTable_Zero` is still the head of the OJZ parallax block and
+  # still the object-bank budget `cursor` below — but the section behind it is now
+  # `scene_registry` (data/effects/scene_registry.emp), not the deleted
+  # `parallax_configs` (data/parallax/configs.emp). The block's CONTENTS are unchanged:
+  # the six deform tables interleaved with the twenty records in the shipped order, now
+  # lowered from the authored scenes instead of hand-written headers. The two temporary
+  # `SceneOut_*` entries Task 6 added are gone with the prefixes.
+  "DeformTable_Zero",
+  "OJZ_TestRaster", "ObjDef_Static",
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj", "Map_DustSpindash",
   "Ani_Sonic", "Ani_Tails", "Ani_Knuckles", "Ani_Particle", "Ani_DustSpindash", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",

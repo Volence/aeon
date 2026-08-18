@@ -77,6 +77,37 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_ship_plus_restore.emp",    "8e claim6",  "offscreen_ship", 1),
     (f"{POISON}/poison_band_h1_region.emp",       "9 D-D sh0",  "below this ON op's minimum", 2),
     (f"{POISON}/poison_band_h2_sh.emp",           "9 E-C sh1",  "needs height >= 3", 2),
+    # ---- Scanline P1 Task 8: the scene model's guards (spec 2026-08-17 §8.2) ----
+    # Every fragment below quotes an INTERPOLATED NUMBER as well as the guard's wording,
+    # because these four guards have near-twins the wording alone would not separate.
+    #  - "scene grid": `layer()`'s ensure is the only one in the tree that speaks of the
+    #    8-px cell grid, and "world_y 4" pins the offending value, so a poison that
+    #    started failing on the span guard one line below (a different message) or on a
+    #    different world_y cannot match.
+    #  - "scene capacity": games/sonic4/data/parallax/configs.emp's `hdr()` carries the
+    #    SAME guard, ported by name, and its message differs only in the nouns — "an
+    #    anchored CONFIG splits a BAND ... needs BAND_COUNT+1". Quoting scene()'s own
+    #    "anchored scene SPLITS a layer" plus "count+1" is what distinguishes the scene
+    #    model's copy from the legacy one, and "8+1" pins the arity.
+    #  - "scene mask A/B": the TWO-FIXTURE DIFFERENTIAL, and the count of 1 is half the
+    #    assertion. The module holds THREE ensures: two for fixture A (its fold equals the
+    #    hand-derived $0001, and it is a subset of the declared word) which MUST PASS, and
+    #    one for fixture B which must fail. A count of 2 or 3 means fixture A stopped
+    #    passing, i.e. the subset test is no longer proven able to pass and fail on the
+    #    same property; a count of 0 means the fold stopped distinguishing the fixtures.
+    #    The fragment quotes all three numbers (5 folded, 1 declared, 4 undeclared) so a
+    #    case can only pass when scene_caps()/fold_caps() really produced them.
+    #  - "scene proof": `cfg_eq` tests fields in REVERSE order so the LOWEST differing
+    #    index survives — which means an extra mismatch at a higher index would be masked
+    #    by the planted field 4 and the poison would go red for a reason indistinguishable
+    #    from the intended one (a misspelled Label lands at field 10/11/12 and does not
+    #    error). "band field -1" is the other half: the band oracle is transcribed
+    #    correctly, so a comparator that invented a difference would change that number.
+    #    Both halves are reported by one ensure, hence one diagnostic.
+    (f"{POISON}/poison_scene_grid.emp",           "P1 grid",    "world_y 4 is not on the 8-px cell grid", 1),
+    (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
+    (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4", 1),
+    (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),
 ]
 
 

@@ -11,6 +11,14 @@ pub implement Game {
     // deadzone-follow arm.
     const CAMERA_JUMP_LOCK = false
 
+    // No authored scenes: the demo has no parallax and must not acquire a dependency on
+    // it — it is the permanent engine-is-game-agnostic proof. Zero is both the honest
+    // value and the maximal specialisation (P2 may drop every scanline service here).
+    // Nothing to derive and nothing to verify: fold_caps() REFUSES an empty registry
+    // rather than folding it to 0, so the demo deliberately has no scene registry to
+    // check this against, and this binding is the whole statement.
+    const SCANLINE_CAPS = 0
+
     // Boot enters the demo's GameState_Demo_Init.
     const ENTRY_ID = GS_DEMO
     proc entry = GameState_Demo_Init

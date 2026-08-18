@@ -1,0 +1,37 @@
+// games/sonic4/test/poison/poison_scene_grid.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp's `layer()` 8-px cell-grid ensure (spec §3.1).
+// EXPECTED FRAGMENT: "is not on the 8-px cell grid"
+//
+// ONE layer, at world_y 4. Everything else about the call is legal: 4 is inside the
+// 0..511 span guard that sits directly under the grid guard, and both factors are real
+// FACTOR_* words, so the ONLY thing wrong here is the alignment. That matters because
+// `ensure` is non-aborting — a poison that also broke the span would report two
+// diagnostics and the lane's count check could no longer tell which guard fired.
+//
+// WHY THE MISALIGNMENT IS NOT COSMETIC: `scene_band()` converts an authored pixel top to
+// a Plane-B cell row with `wy >> 3`, and that shift is exact ONLY because `layer()` has
+// already checked the grid. A world_y of 4 lowers to cell 0 — the band silently moves 4
+// px up and nothing downstream can detect it, since the grid fact does not travel with
+// the value.
+//
+// THE ELABORATION HOOK. `layer()` is a comptime fn and is only elaborated when it is
+// CALLED, so the guard under test runs because this module-level ensure forces the call.
+// The predicate is deliberately trivially-true against the value `layer()` returns
+// ANYWAY (a non-aborting ensure does not stop the constructor): `enabled` defaults to 1.
+// This ensure's own message is what you would see if the poison stopped reaching its
+// target.
+//
+// THE GLOB IMPORT IS MANDATORY AND IS THE AUTHOR'S OWN SPELLING. `engine.level.scene_dsl`
+// is NOT a member of sigil's COMPTIME_HELPERS set (crates/sigil-harness/src/native.rs), so
+// unlike `raster_dsl` nothing it defines is glob-injected into a module by the build. Every
+// scene author writes this exact pair of globs (see games/sonic4/data/effects/ojz_scenes.emp),
+// and a selective `use ...{layer}` is silent on the constant axis — so the glob is what
+// makes this poison model an author's module rather than a special case.
+module games.sonic4.test.poison.poison_scene_grid
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+ensure(layer(world_y: 4, fa: FACTOR_1, fb: FACTOR_1_2).ly_enabled == 1,
+       "poison_scene_grid: layer() did not return the enabled layer it always returns — this poison no longer reaches the guard it targets")

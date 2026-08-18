@@ -2392,6 +2392,38 @@ The dispatch lives in `Player_LevelBound` (bottom guard); `EDGE_CLAMP` is byte-f
 
 ### 4.6 Multi-Band Computed Parallax — As Shipped
 
+> **AUTHORING CHANGED 2026-08-18 (Scanline Services P1). The RUNTIME below did not.**
+> Everything in this section still describes exactly what executes — P1 made no runtime
+> change, and its gate was that all four ROM images stayed byte-for-byte identical. What
+> changed is where the records come from.
+>
+> - **`engine/level/scene_dsl.emp`** holds the authored vocabulary: `layer()` / `scene()`
+>   constructors, payload-carrying attachment enums (`SceneDeform`, `SceneVDeform`,
+>   `SceneAnchor`), the capability fold, and the comptime lowering to the SAME
+>   `parallax_config` / `band_entry` records described below. Pure comptime; emits nothing.
+> - **`games/sonic4/data/effects/ojz_scenes.emp`** authors the 20 scenes and **emits zero
+>   bytes**.
+> - **`games/sonic4/data/effects/scene_registry.emp`** is the SOLE emission path — a scene
+>   not listed in its `SCENES` emits nothing and its section reference fails at link. It
+>   also holds the capability fold and the ensure verifying it against
+>   `Game.SCANLINE_CAPS` (subset form: folded ⊆ declared).
+> - **`games/sonic4/data/parallax/` is DELETED.** Its `hdr()` / `cfg_band()` constructors
+>   survive ONLY as the test-only oracle in `games/sonic4/test/scene_equiv_proof.emp`, the
+>   permanent witness proving all 20 headers, 67 bands and 6 tables lower to the shipped
+>   values.
+> - **A parallax config is now a LOWERED ARTIFACT, not an authored one.** Do not hand-write
+>   one; author a scene. The record layout documented below is the lowering TARGET and stays
+>   authoritative for the runtime.
+> - **Emission ORDER is load-bearing and non-obvious:** the shipped block INTERLEAVES deform
+>   tables with the records that attach them, and an `.emp` section is contiguous per module,
+>   so the tables live in the registry beside the records. Grouping them elsewhere moves every
+>   table address and rewrites `pcfg_deform_table_*` inside all 20 records.
+> - Two `_raw` fields on `Scene` (`layer_mask_raw`, `v_deform_shift_raw`) are **byte-identity
+>   bridges**, not features — see DEFERRED_WORK before normalizing either.
+>
+> Spec: `docs/superpowers/specs/2026-08-17-scanline-services-design.md` (§2, §3).
+> Evidence: `docs/benchmarks/scanline-p1/GATE-EVIDENCE.md`.
+
 **Foundation:** S.C.E.'s `HScroll_Deform` deformation script extended with TF4's per-band model. Replaces per-zone hardcoded scroll routines with a data-driven system that auto-selects mode per section, supports per-band gradients, and lerps smoothly across section boundaries.
 
 **Multiply-free shift-add factor encoding.** Each band has a `factor_a` (FG) and `factor_b` (BG) packed into 24 bits: `s1` (4 bits, 0..14 = shift; 15 = "term zero"), `s2` (4 bits, same semantics), `op` (1 bit: 0 = ADD second term, 1 = SUB). Scroll = `(camX >> s1) op (camX >> s2)` per term — pure shift+add, no `muls`. Pre-defined factors: `FACTOR_0` (locked), `FACTOR_1`, `FACTOR_1_2`, `FACTOR_1_4`, `FACTOR_1_8`, `FACTOR_1_16`, `FACTOR_3_4`, `FACTOR_3_8`, `FACTOR_3_16`, `FACTOR_5_8`, `FACTOR_5_16`, `FACTOR_7_8`, `FACTOR_7_16`, `FACTOR_15_16`. New factors added by composing two shifts.

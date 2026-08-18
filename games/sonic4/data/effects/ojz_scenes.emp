@@ -1,0 +1,326 @@
+// games/sonic4/data/effects/ojz_scenes.emp — the AUTHORED scenes (spec 2026-08-17 §2/§3).
+//
+// The twenty shipped parallax configurations, re-authored in the scene model: world-Y
+// layers plus attachments, with the lowering to parallax_config/band_entry owned by
+// engine/level/scene_dsl.emp and the emission owned by data/effects/scene_registry.emp.
+// This module holds NO record shapes and NO hdr()/band() calls — that is the point.
+//
+// THE SWAP LANDED (Task 9). games/sonic4/data/parallax/configs.emp is DELETED; the six
+// tables and the twenty records carry their shipped names, and this module plus
+// data/effects/scene_registry.emp are the only authoring surface for either. The
+// temporary `SceneOut_` prefixes that let both record sets link at once during Tasks 6-8
+// are gone with the file that made them necessary.
+//
+// GLOB IMPORTS ARE MANDATORY (both of them). A comptime fn's free names resolve at the
+// CALL SITE, and engine.level.scene_dsl is NOT a member of sigil's COMPTIME_HELPERS set
+// (crates/sigil-harness/src/native.rs:1942 — parallax_dsl IS, scene_dsl is not), so
+// nothing it defines is ambient. A selective `use ...{scene, layer}` is loud on the
+// function axis and SILENT on the constant axis. See the pin block at the top of
+// engine/level/scene_dsl.emp for the whole rule.
+//
+// EVERY VALUE BELOW IS TRANSCRIBED FROM games/sonic4/data/parallax/configs.emp, with the
+// cited line number beside each scene, and ONE unit conversion: configs.emp's `cell: N` is
+// a Plane-B cell row, scene layers are authored in world PIXELS, so `world_y = cell * 8`.
+// scene_band() reverses it with `>> 3`.
+//
+// THE FAMILY HELPERS BELOW ARE `pub` FOR A MECHANICAL REASON, not for reuse: a `use` edge
+// re-evaluates an imported const's initializer in the CONSUMER's scope (Task 5's probe
+// finding, recorded in scene_registry.emp's banner), so scene_registry's glob import of
+// this module re-runs `haze_scene(speed: 1)` there. A private helper would report
+// `unknown function haze_scene` at a span inside THIS file. Same reason every helper in
+// scene_dsl.emp is `pub`.
+//
+// PURE COMPTIME — this module emits ZERO bytes. Both the twenty records and the six
+// deform tables they attach are emitted by data/effects/scene_registry.emp, the sole
+// emission path (see the import note below for why the tables live there and not here).
+module games.sonic4.ojz_scenes in ojz_scenes
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+// THE SIX DEFORM TABLES ARE EMITTED BY THE REGISTRY, AND THAT IS A ROM-LAYOUT FACT, not a
+// preference. The shipped record block INTERLEAVES tables and records (DeformTable_Zero,
+// OJZ_Default, OJZ_Underwater, DeformTable_OJZ_Calm, OJZ_Windy, ...), and a section is
+// contiguous per module, so tables emitted from HERE would land as one 1536-byte run ahead
+// of the records — same bytes, different addresses, and therefore different
+// `pcfg_deform_table_*` pointers inside every record. That is the whole image-identity gate
+// (spec §8.1). The tables are declared in scene_registry.emp in the shipped order and
+// imported back here as Labels; their VALUES are the `SceneSrc_*` consts below, which stay
+// with the scenes that attach them.
+//
+// The import must be a name list, and it is not a const import: these are `pub data`
+// LABELS. (The Task-5 clone-injection trap is a CONST-axis trap — an imported const's
+// initializer re-evaluates in the consumer's scope. A label import is a symbol reference.)
+use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformTable_Shimmer,
+                                 DeformTable_Haze, DeformTable_Rocking, DeformTable_Perspective}
+
+// =====================================================================
+// The six deformation tables, verbatim from configs.emp — same generators, same
+// arguments, same 256 signed bytes. These are DATA, not authored model: a scene attaches
+// one through SceneDeform / SceneVDeform and never looks inside it.
+//
+//   DeformTable_Zero         deform_zero()
+//   DeformTable_OJZ_Calm     deform_sine(amplitude: 96, period: 64)
+//   DeformTable_Shimmer      deform_sine(amplitude: 8,  period: 32)
+//   DeformTable_Haze         deform_sine(amplitude: 16, period: 64)
+//   DeformTable_Rocking      deform_sine(amplitude: 20, period: 64)
+//   DeformTable_Perspective  v_column_floor(center: 20, max_offset: 24)
+//
+// Declared in configs.emp's own order so a diff against the deleted file reads straight
+// across (`git show <pre-P1>:games/sonic4/data/parallax/configs.emp`; the `configs.emp:NNN`
+// citations throughout this file and the witness are that file at its final revision).
+// The equivalence witness proves each one byte-equal to its generator call independently
+// of the records.
+// =====================================================================
+// THE GENERATOR CALL IS NAMED, AND THE EMITTED `data` INITIALISES FROM THE NAME (Task 7).
+// A `pub data` symbol is a LABEL — its bytes are not readable at comptime — so the only
+// way the equivalence witness (games/sonic4/test/scene_equiv_proof.emp) can compare the
+// emitted tables against the generator calls is if the array VALUE has a name it can
+// import. These six consts are that name; scene_registry.emp's `data` lines initialise
+// from them, and the emitted bytes are the same call's output either way.
+pub const SceneSrc_DeformTable_Zero        = deform_zero()
+pub const SceneSrc_DeformTable_OJZ_Calm    = deform_sine(amplitude: 96, period: 64)
+pub const SceneSrc_DeformTable_Shimmer     = deform_sine(amplitude: 8,  period: 32)
+pub const SceneSrc_DeformTable_Haze        = deform_sine(amplitude: 16, period: 64)
+pub const SceneSrc_DeformTable_Rocking     = deform_sine(amplitude: 20, period: 64)
+pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)
+
+// =====================================================================
+// OJZ_Default — configs.emp:107-114.
+//
+// Four bands, uniform BG 1/2 depth, whole-plane V-scroll (v_factor_bg 3, v_center 512),
+// every band shift 15. The all-zero BG table is what selects the per-line HScroll
+// pipeline while the 15-sentinels skip the (0 >> shift) sample loop — flat-pathed, so
+// `precision: PRECISION_LINE` is the honest authoring and scene()'s P1 fence accepts it
+// only BECAUSE the table is attached. PRECISION_LINE does not synthesize the table.
+//
+// THE MASK BRIDGE, USE 1 OF 2. The shipped header declares band_count 4 with
+// layer_mask $1F — five bits for four bands. `derived_mask` can only ever produce $0F
+// from four enabled layers, so the fifth bit is unreachable from the model and is carried
+// as `layer_mask_raw`. scene() checks it is a SUPERSET of the derivation ($1F | $0F ==
+// $1F, passes), which is the only thing that can be checked about it.
+// =====================================================================
+pub const Scene_OJZ_Default: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 64,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 320, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 384, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 4, v_factor: 3, v_center: 512, v_offset: 0,
+    deform_bg: SceneDeform.Shared(DeformTable_Zero, 1),
+    precision: PRECISION_LINE,
+    layer_mask_raw: $1F)
+
+// =====================================================================
+// OJZ_Underwater — configs.emp:132-140. THE Parcel W fixture.
+//
+// The same four layers and factors as OJZ_Default, so anything that differs between the
+// two records is the overlay and nothing else. Every authored layer stays at shift 15;
+// the world-anchored overlay on patch channel 0 splits whichever layer holds the line and
+// forces dsb 2 from there down against the shimmer table.
+//
+// THE MASK BRIDGE, USE 2 OF 2 — same shape as OJZ_Default (band_count 4, layer_mask $1F).
+// These two configs are the complete set of bridge users.
+// =====================================================================
+pub const Scene_OJZ_Underwater: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 64,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 320, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 384, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 4, v_factor: 3, v_center: 512, v_offset: 0,
+    deform_bg: SceneDeform.Shared(DeformTable_Shimmer, 3),
+    anchor: SceneAnchor.At(0, 15, 2),
+    precision: PRECISION_LINE,
+    layer_mask_raw: $1F)
+
+// =====================================================================
+// OJZ_Windy — configs.emp:150-154. One layer, whole plane B at full sine amplitude.
+// BG factor 1/4 matches SkyHaze so a Sec0<->Sec1 transition lerps only the deform
+// amplitude. layer_mask $01 DERIVES from the single enabled layer — no bridge.
+// =====================================================================
+pub const Scene_OJZ_Windy: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 4, dsb: 0),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_center: 0, v_offset: 0,
+    deform_bg: SceneDeform.Shared(DeformTable_OJZ_Calm, 1))
+
+// =====================================================================
+// Shimmer — configs.emp:163-172. Mirrors `shimmer_bg(speed, shift = 2, fg = FACTOR_1,
+// bg = FACTOR_1_4)`; all three shipped call sites take the three defaults and vary only
+// the speed, so the helper here carries the defaults as literals rather than re-exposing
+// parameters no config uses.
+// =====================================================================
+pub comptime fn shimmer_scene(speed: int) -> Scene {
+    return scene(
+        layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2, dsb: 2),
+                  no_layer(), no_layer(), no_layer(),
+                  no_layer(), no_layer(), no_layer(), no_layer() ],
+        count: 1, v_factor: 15, v_center: 0, v_offset: 0,
+        deform_bg: SceneDeform.Shared(DeformTable_Shimmer, speed))
+}
+pub const Scene_Shimmer_Slow: Scene = shimmer_scene(speed: 1)   // configs.emp:170
+pub const Scene_Shimmer:      Scene = shimmer_scene(speed: 3)   // configs.emp:171 (default)
+pub const Scene_Shimmer_Fast: Scene = shimmer_scene(speed: 6)   // configs.emp:172
+
+// =====================================================================
+// Haze — configs.emp:181-203. FG heat wobble over the five-band BG gradient.
+//
+// `gradient: 1` skips the sky/mountain layers (dsa 15) and ramps the near ones (4 then
+// 3); `gradient: 0` puts every layer at dsa 3. dsb is 4 on every layer in BOTH arms —
+// which is why scene_caps()' live-amplitude scan is cross-plane: the table is attached to
+// the FG only, and a scan pairing dsb with deform_bg would fold Haze to no-deform.
+//
+// The two arms differ in exactly four of the five authored dsa shifts, so they are carried
+// as four single-level `if` bindings rather than two whole layer arrays. Flat `let`-level
+// ifs only: an `if` in BLOCK-TAIL position evaluates to unit silently.
+//
+// THE BINDINGS ARE NAMED `dsa0..dsa3`, NOT `d0..d3`, AND THAT IS NOT COSMETIC. `d0`-`d7`
+// and `a0`-`a7` are REGISTER tokens in .emp, so `dsa: d0` passes a register where an int
+// is wanted. It fails loud (`a register is not a valid int argument — only a Reg parameter
+// accepts a register`), but the diagnostic points at the CALL, not at the `let`, so the
+// cause is not obvious from the message. Never bind a comptime local to a register name.
+// =====================================================================
+pub comptime fn haze_scene(speed: int, gradient: int) -> Scene {
+    // gradient arm: 15 / 15 / 15 / 4 / 3 — uniform arm: 3 / 3 / 3 / 3 / 3.
+    let dsa0 = if gradient == 1 { 15 } else { 3 }
+    let dsa1 = if gradient == 1 { 15 } else { 3 }
+    let dsa2 = if gradient == 1 { 15 } else { 3 }
+    let dsa3 = if gradient == 1 { 4 }  else { 3 }
+    return scene(
+        layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_8, dsa: dsa0, dsb: 4),  // clouds
+                  layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: dsa1, dsb: 4),  // far mtns
+                  layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_3_8, dsa: dsa2, dsb: 4),  // mid mtns
+                  layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_2, dsa: dsa3, dsb: 4),  // hills
+                  layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3,  dsb: 4),  // ground
+                  no_layer(), no_layer(), no_layer() ],
+        count: 5, v_factor: 15, v_center: 0, v_offset: 0,
+        deform_fg: SceneDeform.Shared(DeformTable_Haze, speed))
+}
+pub const Scene_Haze_Slow:    Scene = haze_scene(speed: 1, gradient: 1)   // configs.emp:200
+pub const Scene_Haze:         Scene = haze_scene(speed: 2, gradient: 1)   // configs.emp:201
+pub const Scene_Haze_Fast:    Scene = haze_scene(speed: 4, gradient: 1)   // configs.emp:202
+pub const Scene_Haze_Uniform: Scene = haze_scene(speed: 2, gradient: 0)   // configs.emp:203
+
+// =====================================================================
+// Rocking — configs.emp:213-223. Plane B rocks via per-column V-scroll off a sine table;
+// BG H-scroll locked (FACTOR_0) to dodge the leftmost-partial-column VDP artifact, and
+// the all-zero BG H-table forces the per-line pipeline.
+//
+// All three shipped call sites take `shift`'s default 0, so the amplitude shift rides the
+// SceneVDeform payload (Columns' third slot) — NOT the v_deform_shift_raw bridge. The
+// bridge exists only for SkyHaze, which sets the shift while attaching no table.
+// Rocking_Slow's v_speed 0 is a STATIC tilt, not "no V-deform": the table is attached,
+// so CAP_PER_COL_VSRAM is raised.
+// =====================================================================
+pub comptime fn rocking_scene(speed: int, shift: int) -> Scene {
+    return scene(
+        layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4),
+                  no_layer(), no_layer(), no_layer(),
+                  no_layer(), no_layer(), no_layer(), no_layer() ],
+        count: 1, v_factor: 15, v_center: 0, v_offset: 0,
+        deform_bg: SceneDeform.Shared(DeformTable_Zero, 1),
+        v_deform: SceneVDeform.Columns(DeformTable_Rocking, speed, shift))
+}
+pub const Scene_Rocking_Slow: Scene = rocking_scene(speed: 0, shift: 0)   // configs.emp:221 static tilt
+pub const Scene_Rocking:      Scene = rocking_scene(speed: 1, shift: 0)   // configs.emp:222
+pub const Scene_Rocking_Fast: Scene = rocking_scene(speed: 3, shift: 0)   // configs.emp:223 stormy
+
+// =====================================================================
+// Perspective — configs.emp:232-246. V-column floor curve plus a per-layer BG H-shimmer
+// that skips sky/mountains (dsb 15), goes faint on the hills (4) and strong on the
+// ground (2). Every layer is H-locked (FACTOR_0) for the same VDP quirk as Rocking, and
+// every layer carries dsa 4.
+// =====================================================================
+pub comptime fn perspective_scene(v_shift: int, h_speed: int, v_speed: int) -> Scene {
+    return scene(
+        layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+                  layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+                  layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+                  layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4),
+                  layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 2),
+                  no_layer(), no_layer(), no_layer() ],
+        count: 5, v_factor: 15, v_center: 0, v_offset: 0,
+        deform_bg: SceneDeform.Shared(DeformTable_Shimmer, h_speed),
+        v_deform: SceneVDeform.Columns(DeformTable_Perspective, v_speed, v_shift))
+}
+pub const Scene_Perspective_Subtle:   Scene = perspective_scene(v_shift: 2, h_speed: 1, v_speed: 0)  // :244
+pub const Scene_Perspective:          Scene = perspective_scene(v_shift: 0, h_speed: 2, v_speed: 1)  // :245
+pub const Scene_Perspective_Dramatic: Scene = perspective_scene(v_shift: 0, h_speed: 3, v_speed: 2)  // :246
+
+// =====================================================================
+// WindyHaze — configs.emp:253-262. Composite: a windy multi-band BG gradient (clouds get
+// the full wave at dsb 0, the ground none at 15) with a per-layer phase desync, under a
+// uniform FG haze at dsa 3. TWO tables, one per plane — the only pair in the set besides
+// SkyHaze. The phase column (0/64/128/192/0) is authored per layer.
+// =====================================================================
+pub const Scene_WindyHaze: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 0,  phase: 0),
+              layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 3, dsb: 1,  phase: 64),
+              layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_3_8, dsa: 3, dsb: 2,  phase: 128),
+              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 3, dsb: 3,  phase: 192),
+              layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3, dsb: 15, phase: 0),
+              no_layer(), no_layer(), no_layer() ],
+    count: 5, v_factor: 15, v_center: 0, v_offset: 0,
+    deform_fg: SceneDeform.Shared(DeformTable_Haze, 2),
+    deform_bg: SceneDeform.Shared(DeformTable_OJZ_Calm, 1))
+
+// =====================================================================
+// SkyHaze — configs.emp:269-275. A REGIONAL split at world-Y 112, not a gradient: the top
+// layer takes the windy BG with a steady FG, the bottom layer the reverse.
+//
+// THE V-DEFORM SHIFT BRIDGE, ITS ONE AND ONLY USE. The shipped header passes
+// `v_deform_shift_bg: 0` while attaching NO v-deform table, and SceneVDeform.None lowers
+// to hdr()'s default 4 — a different byte. `v_deform_shift_raw: 0` reproduces it. The
+// value is inert at runtime (no table means the column sampler never runs), which is
+// exactly why it is a byte-identity bridge and not model.
+// =====================================================================
+pub const Scene_SkyHaze: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 2),
+              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2,  dsb: 15),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15, v_center: 0, v_offset: 0,
+    deform_fg: SceneDeform.Shared(DeformTable_Haze, 2),
+    deform_bg: SceneDeform.Shared(DeformTable_OJZ_Calm, 1),
+    v_deform_shift_raw: 0)
+
+// =====================================================================
+// OJZ_Caves — configs.emp:283-291. Slow BG parallax (the far layers barely move at
+// FACTOR_1_16) with the section-transition flag set. Same five-layer shape as the
+// LockedClouds scene; only the B-plane factors differ. All-zero flat-pathed H-deform, and
+// layer_mask $1F DERIVES from five enabled layers.
+// =====================================================================
+pub const Scene_OJZ_Caves: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
+              layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
+              layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_1_8,  dsa: 15, dsb: 15),
+              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_4,  dsa: 15, dsb: 15),
+              layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_1,    dsa: 15, dsb: 15),
+              no_layer(), no_layer(), no_layer() ],
+    count: 5, v_factor: 15, v_center: 0, v_offset: 0,
+    transition: TRANS_INSTANT,
+    deform_bg: SceneDeform.Shared(DeformTable_Zero, 1))
+
+// =====================================================================
+// OJZ_LockedClouds — configs.emp:299-307. The shipped header's layer_mask $1E clears
+// bit 0, so the cloud band falls through the band-inheritance path and scrolls locked
+// while the rest of plane B parallaxes.
+//
+// THIS IS THE NEAR MISS, AND IT IS NOT A BRIDGE. $1E DERIVES — from `enabled: 0` on
+// layer 0 of five real layers — and the derived path was byte-verified. Authoring it as
+// `layer_mask_raw: $1E` would type-check and produce the same byte while hiding the one
+// fact this config exists to express, and would surrender the superset guard for nothing.
+// The layer stays REAL (inside count: 5, so it is still lowered as band 0 with its own
+// factors); only its mask bit is clear.
+// =====================================================================
+pub const Scene_OJZ_LockedClouds: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 15, enabled: 0),
+              layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 15),
+              layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_3_8, dsa: 15, dsb: 15),
+              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_1,   dsa: 15, dsb: 15),
+              no_layer(), no_layer(), no_layer() ],
+    count: 5, v_factor: 15, v_center: 0, v_offset: 0,
+    transition: TRANS_INSTANT,
+    deform_bg: SceneDeform.Shared(DeformTable_Zero, 1))

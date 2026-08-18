@@ -19,6 +19,42 @@ pub implement Game {
     // _pl_state / PSTATE_JUMP / PSTATE_ROLLJUMP the camera's =1 arm reads).
     const CAMERA_JUMP_LOCK = true
 
+    // The parallax capability mask — every scanline service any of the twenty shipped
+    // parallax configs demands. DECLARED as a literal rather than computed because the
+    // registry it would fold (SceneRegistry_CapsFolded) does not exist until Task 5,
+    // while adding the interface member obliges BOTH games to bind it immediately or
+    // contract closure fails. Derived by hand from
+    // games/sonic4/data/parallax/configs.emp against scene_caps()/fold_caps()
+    // (engine/level/scene_dsl.emp):
+    //
+    //   $0001 CAP_PER_LINE       a deform table is attached throughout; the weakest case
+    //                            is OJZ_Default's DeformTable_Zero (configs.emp:109) —
+    //                            flat-pathed, but a non-NULL table still selects the
+    //                            per-line HScroll pipeline. Anchors also raise this bit.
+    //   $0002 CAP_PER_COL_VSRAM  v_deform_bg on Rocking (configs.emp:216, three variants)
+    //                            and Perspective (:236, three variants). SkyHaze's
+    //                            `v_deform_shift_bg: 0` (:272) attaches NO table — it is
+    //                            the shift bridge, and it does NOT raise this bit.
+    //   $0004 CAP_DEFORM         a table AND a live (non-15) amplitude somewhere:
+    //                            OJZ_Windy's `dsa: 4, dsb: 0` (:153), and OJZ_Underwater
+    //                            reaches it through `anchor_dsb: 2` (:135) alone, since
+    //                            all four of its authored bands sit at 15.
+    //   $0008 CAP_ANCHORS        `anchor_ch: 0` on OJZ_Underwater (:135) — the only
+    //                            anchored config in the tree.
+    //   $0010 CAP_TRANSITIONS    no single scene can raise it; fold_caps() adds it when
+    //                            the registry holds more than one scene, and this one
+    //                            holds twenty.
+    //
+    // NOTHING CHECKS THIS WORD YET. Task 5 adds the verifying ensure beside the
+    // registry's own fold_caps() call — folded ⊆ declared, spelled as an OR-identity
+    // over ints — and until that lands this literal is PENDING VERIFICATION. Task 5
+    // must not be skipped or reordered past this task. A partial registry en route stays
+    // legal: a subset folds clean against a superset declaration. Once the registry
+    // exists the binding MAY flip to `= SceneRegistry_CapsFolded` (Task 1's spike proved
+    // computed consts bind here); that is a readability preference, not a correctness
+    // fix — the ensure is what makes either spelling honest.
+    const SCANLINE_CAPS = $001F
+
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST
     proc entry = GameState_OJZScroll_Init
