@@ -4899,3 +4899,50 @@ includes its own exception entry; the model is entry-inclusive.
 
 **New angle on booked EFX-4b:** static programs may need no RAM copy at all — walk the ROM
 template directly, dissolving the over-read rather than patching it.
+
+---
+
+## `.emp` has no spelling for a CLOSURE EDGE — the bare `use` idiom collides with a lint (booked 2026-08-18, scanline-P1 Task 10)
+
+**The idiom.** A zero-emitting module (a guard module, a witness, an equivalence proof) can
+never take a row in sigil's ModuleSpec registry — that list carries byte-EMITTING modules
+only, and it is what seeds the synthesized entry closure. So the ONLY way to pull such a
+module into a profile's `use` closure is a **bare whole-path `use <module>`** from a module
+already in the closure. `--extra-entry` does not do it: that adds an edge to one invocation
+(the expect-fail lane's per-poison build), leaving the module dark on a normal build.
+
+Two ship today, both deliberate, both irreplaceable:
+- `games/sonic4/data/effects/ojz_effects.emp` → `use games.sonic4.scene_registry`
+- `games/sonic4/test/ojz_scroll_test.emp` → `use games.sonic4.scene_equiv_proof`
+
+**Why neither can be spelled another way** (both measured, not assumed):
+- A **name list** does not create the edge. Without the bare `use`, the registry's
+  capability-subset ensure and everything in `scene_dsl.emp` behind it go dark.
+- A **glob** on the witness would re-evaluate its twenty `EQ_*` consts in the CONSUMER's
+  scope — the const-clone behaviour Task 5 measured (a selective/glob import of a const
+  injects a clone whose initializer re-runs at the consumer, producing diagnostics at a span
+  inside a module that never elaborated).
+
+**The gap.** sigil's `[import.no-names]` lint reads a bare whole-path `use` as "you probably
+meant to import names" — reasonable for the accidental case, wrong for this one. It is now
+**baselined for all five sonic4 shapes** (sigil `crates/sigil-cli/tests/warn_tier_corpus.rs`,
+`WARN_ID_BASELINE`), which means **a genuinely accidental bare `use` in sonic4 now hides
+behind these two.** Demo authors no scenes, so its rows stay empty and remain a live control
+on the id.
+
+**The fix is a SPELLING FOR THE IDIOM, not a wider baseline.** Options, unranked:
+1. A distinct syntax (`use <module> for closure` / an attribute) the lint recognises and the
+   resolver treats as an edge-only import — most honest, sigil-side parser work.
+2. Let the registry carry zero-emitting modules with a null section, so a witness takes a row
+   like any other module and needs no edge at all. Removes the idiom rather than naming it.
+3. A per-site suppression comment. Cheapest, weakest — it makes each site auditable without
+   making the intent expressible.
+
+Until one lands, **treat a new `import.no-names` firing in sonic4 as unreviewed**: the id-set
+gate can no longer tell you about it. The bidirectional gate still catches a shape that STOPS
+firing, so a removed closure edge is still loud.
+
+**Related, same session:** `[layout.odd-field]` fired on `Scene`'s two `i16` bridges once the
+module reached the closure. Padded rather than baselined (`engine/level/scene_dsl.emp`) — the
+struct is comptime-only so it cannot fault today, but a baselined warning would not be there
+on the day something emits a `Scene`.
