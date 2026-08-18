@@ -5153,5 +5153,42 @@ remain open and would address the mechanism itself rather than alarming on it.
   OTHER than the one the preflight now blocks — a hand-run of `import_sk_collision.py`, a bad
   merge, a partial revert, a restored backup.
 
-**The tools packet is now fully worked** apart from D6 (two producers write `zone_bg.bin`
-with incompatible geometry — HIGH, latent) and anything below it in that file.
+**THE TOOLS PACKET IS NOW FULLY WORKED — D1 through D10 all closed 2026-08-18.**
+
+- **D6** — `zone_bg.bin`'s two producers. Fixed by TYPING the embed
+  (`[u8; BG_LAYOUT_SIZE]`) so the length IS the guard and cannot drift from the
+  declaration; `BG_LAYOUT_SIZE` is now `pub` because it is an engine↔data contract.
+  Poison-verified with producer 1's exact geometry: `[emit.size-mismatch] declared type is
+  8192 byte(s), initializer produced 4096`.
+- **D7** — `s4budget` gated nothing, four ways: no threshold (main returned 0 on every path,
+  the limits only formatted percentages), the exit code discarded by `|| true` anyway,
+  UNMEASURED printed as `0KB/64KB (0%)`, and retired VRAM fallbacks 0x2000 off. All fixed;
+  a real ROM/object-bank breach now fails the build. **STILL OPEN: the listing parser
+  itself** — `_PAGE_BREAK_RE` keys on the AS page header, which a sigil `.lst` does not
+  emit, so RAM and the section rows are genuinely unmeasurable until it is rewritten. It now
+  says so loudly instead of printing 0. Its 40-test suite cannot catch this: every fixture
+  is hand-authored WITH `AS V1.42` headers, so fixture and parser were co-designed and the
+  suite is green forever.
+- **D8** — `./test.sh` wrote committed ROM data, and it was ARMED by the D2 fix exactly as
+  the packet predicted. `ojz_entity_gen.generate()` now takes `out_path`. Proven by MTIME,
+  because the generator is deterministic and `git status` stayed clean throughout — a
+  content check would have been green for the whole life of the bug. Regression gate:
+  `tools/test_generator_sandbox.py`.
+- **D9** — DPLC `tile_start` silently masked to 12 bits while `tile_count` on the SAME LINE
+  had a loud assert. Now asserted. `knuckles_data.emp` records 25 entries that already
+  wrapped silently in an earlier layout — the wrap is how that was discovered, not how it
+  was caught.
+- **D10** — 18 orphans (240 KB) deleted and the missing direction added to
+  `verify_level_bin`: it checked embed→file and never file→embed. **NOT deleted and not to
+  be: `knuckles.bin`** has no producer AND no input (`art/uncompressed/characters/knuckles.bin`
+  does not exist), so it is irreplaceable.
+
+### What remains open across the tools surface
+
+- **The `s4budget` listing parser** (above) — the one real gap left in that tool.
+- **The drift MECHANISM behind D2** — the editor still rewrites `project.json` wholesale, so
+  the gate added for it is an alarm, not a cure.
+- **Donor revisions are recorded nowhere.** Neither `sonic_hack` nor `skdisasm` has its
+  revision captured, so even the authoring machine cannot prove it would reproduce the
+  committed bytes. Cheap to fix (stamp both SHAs into a generated provenance file during a
+  re-bake) and worth doing before anyone relies on reproducibility.
