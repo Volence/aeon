@@ -2035,7 +2035,11 @@ def generate(stress_uniquify=0):
     # ---- Pass 8: entity data (rings/objects) from editor JSONs ----
     # TODO: promote to its own build.sh line once the in-flight build.sh changes land.
     import ojz_entity_gen
-    ojz_entity_gen.generate()
+    # Pass OUR output dir. ojz_entity_gen's OUTPUT_PATH is a module constant
+    # aimed at the committed tree, so calling it bare made this function's own
+    # smoke test a producer of committed data (tools lens sweep D8) -- the test
+    # redirects OUTPUT_DIR, and Pass 8 wrote straight past the redirect.
+    ojz_entity_gen.generate(out_path=os.path.join(out_dir, "entity_data.emp"))
 
     # Print a brief sanity summary for the first section's first strip
     if first_strips:

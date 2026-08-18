@@ -321,7 +321,22 @@ def emit_section(lines: list[str], sec_idx: int,
     lines.append("")
 
 
-def generate() -> None:
+def generate(out_path: str | None = None) -> None:
+    """Emit entity_data.emp. *out_path* overrides the module default.
+
+    The parameter exists because OUTPUT_PATH is a module CONSTANT pointing at the
+    committed tree, and ojz_strip_gen.generate() calls this as its Pass 8. That
+    made ojz_strip_gen's own smoke test a PRODUCER: the test redirects OUTPUT_DIR
+    to a tempdir, but this module ignored that entirely and wrote the real
+    games/sonic4/data/generated/ojz/act1/entity_data.emp. `./test.sh` runs that
+    test, so a TEST mutated committed ROM data (tools lens sweep D8).
+
+    It was invisible because the generator is deterministic: with unchanged inputs
+    it rewrote byte-identical content, so only the mtime moved. The moment editor
+    data or a donor changes, a test run silently rewrites committed data instead.
+    import_sk_collision.py:59-67 documents that exact incident class -- a test
+    reverting a committed bake and turning ~10 sigil port targets red.
+    """
     """Generate entity_data.asm from the editor JSONs. Exits nonzero on errors."""
     cfg = load_act_config()
     grid_w, grid_h = cfg["grid_w"], cfg["grid_h"]
@@ -394,13 +409,14 @@ def generate() -> None:
                      per_section_types[sec_idx], library,
                      per_section_rings[sec_idx])
 
-    os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, "w") as f:
+    dest = out_path or OUTPUT_PATH
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w") as f:
         f.write("\n".join(lines))
         f.write("\n")
 
     print(f"ojz_entity_gen: {num_sections} sections, {total_rings} rings, "
-          f"{total_objects} objects -> {os.path.normpath(OUTPUT_PATH)}")
+          f"{total_objects} objects -> {os.path.normpath(dest)}")
     print(f"ojz_entity_gen: ring pressure global worst = {global_worst} "
           f"(band {PRESSURE_BAND_HEIGHT}px, capacity {MAX_LIST_ENTRIES})")
     if global_worst > MAX_LIST_ENTRIES:
