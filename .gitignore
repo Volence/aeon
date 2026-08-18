@@ -1,5 +1,14 @@
 # Build outputs
 *.bin
+# ...but SOURCE .bin data must be tracked. `*.bin` above is aimed at ROMs and
+# build artifacts; the editor/collision blobs the generators CONSUME are inputs.
+# Most were force-added silently over time, which is how the one below got missed:
+# tools lens sweep D2 found that the entire level re-bake path hangs off
+# ojz_tiles.bin, present on the authoring checkout and carried by nothing, so
+# `tools/regenerate-level.sh` could not run in any fresh clone or worktree — and
+# the STRESS_ART=1 build shape was dead with it. Negate explicitly rather than
+# force-add, so the intent is visible the next time someone reads this file.
+!games/sonic4/data/editor/ojz_tiles.bin
 *.lst
 *.log
 *.p
