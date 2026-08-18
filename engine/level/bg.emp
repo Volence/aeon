@@ -44,7 +44,11 @@ use engine.structs.{Act}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_reg}
 use engine.z80_bus.{z80_stopped}
 
-const BG_LAYOUT_SIZE      = 64*64*2     // 8192 bytes (full Plane B nametable)
+// `pub` because it is a CONTRACT, not an internal: the act's BG blob must be
+// exactly this long, and games/sonic4/data/levels/ojz/act1/act_assets.emp now
+// types its embed with it so a wrong-sized blob is an `array length mismatch` at
+// build time rather than a transposed background at runtime (tools lens sweep D6).
+pub const BG_LAYOUT_SIZE  = 64*64*2     // 8192 bytes (full Plane B nametable)
 // The shared BG tile region runs from BG_TILE_BASE_VRAM up to the relocated
 // sprite attr table at $B800 — so $8000..$B7FF = 448 tiles is the hard ceiling
 // (NOT the stale BG_TILE_CAPACITY=512 nominal; see DEFERRED_WORK reconciliation).

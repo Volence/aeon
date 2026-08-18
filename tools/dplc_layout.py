@@ -160,6 +160,19 @@ def write_dplc(frames):
             assert 1 <= tile_count <= MAX_TILES_PER_ENTRY, (
                 f"DPLC tile_count={tile_count} out of range 1..{MAX_TILES_PER_ENTRY} "
                 f"(4-bit field wraps) at tile_start={tile_start}")
+            # Same defense for the OTHER half of the word, which had none:
+            # tile_start is the low 12 bits, so anything >= 0x1000 silently wraps
+            # and the frame loads art from the wrong place (tools lens sweep D9).
+            # This is not theoretical headroom — knuckles_data.emp records that an
+            # earlier optimized layout produced 4,383 tiles and "25 of its entries
+            # across frames 234-250 silently wrapped", which is why Knuckles ships
+            # the raw pair instead. The wrap is how that was DISCOVERED, not how it
+            # was caught: nothing failed, the art was just wrong.
+            assert 0 <= tile_start < 0x1000, (
+                f"DPLC tile_start={tile_start} out of range 0..4095 (12-bit field "
+                f"wraps silently, loading art from tile {tile_start & 0xFFF} instead). "
+                f"The character's tile budget has crossed the $1000 cliff — re-split "
+                f"or shrink the layout; do NOT mask it.")
             word = ((tile_count - 1) & 0xF) << 12 | (tile_start & 0xFFF)
             frame_bytes += struct.pack('>H', word)
         frame_data_parts.append(frame_bytes)

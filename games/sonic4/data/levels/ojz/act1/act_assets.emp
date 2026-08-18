@@ -7,7 +7,23 @@
 //   OJZ_Act1_BG_Tiles   — shared BG tile blob, act_descriptor.emp
 module games.sonic4.ojz_act_assets_act1 in ojz_act_assets
 
+use engine.bg.{BG_LAYOUT_SIZE}
+
 pub data OJZ_Palette        = embed("games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
 pub data BGND_Palette       = embed("art/palettes/SonicAndTails.bin")
-pub data OJZ_Act1_BG_Layout = embed("games/sonic4/data/generated/ojz/act1/zone_bg.bin")
+
+// TYPED on purpose — the length IS the guard (tools lens sweep D6). BG_Init blits
+// exactly BG_LAYOUT_SIZE bytes from here, and TWO generators write this file with
+// INCOMPATIBLE geometry: ojz_strip_gen emits PLANE_B_H=32 -> 4096 bytes row-major,
+// tools/inject_editor_bg.py emits 64x64 -> 8192 bytes column-major. The committed
+// blob is correct only because the injector runs SECOND, and it is conditional on
+// editor_bg_override.json existing (regenerate-level.sh). Rename that file, add a
+// second act, or bake any act with no editor BG, and the engine blits 8192 bytes
+// out of a 4096-byte blob: a transposed background over the first half and
+// whatever the linker placed next over the second.
+//
+// bg.emp said "No length guard needed" — the guarantee it rested on was a shell
+// script `if`. This annotation is the guard: a wrong-sized blob is now an
+// `array length mismatch` at build time instead of garbage on screen.
+pub data OJZ_Act1_BG_Layout: [u8; BG_LAYOUT_SIZE] = embed("games/sonic4/data/generated/ojz/act1/zone_bg.bin")
 pub data OJZ_Act1_BG_Tiles  = embed("games/sonic4/data/generated/ojz/act1/bg_tiles.bin")
