@@ -4771,6 +4771,45 @@ neither clean nor dirty, just unexamined.
 subject here (`raster.emp`, `raster_dsl.emp`, `palette.emp`, `buffers.emp`, `bg_anim`, `tools/`)
 survives untouched, so no finding expires.
 
+### LANDED 2026-08-18 — the zero-byte subset (branch `feature/raster-substrate-fixes`)
+
+Four commits, each gated on all four ROM shapes staying **bit-for-bit identical** to master
+(`s4.debug` crc=ab1055d4 len=712752 · `s4` crc=7e4dc5de len=697868 · `demo.debug`
+crc=10aad76c len=100805 · `demo` crc=2ecd1031 len=96451). Every claim was re-verified against
+the code before being acted on.
+
+**CLOSED:**
+- **Item 3** — MITIGATED, not structurally closed. Both dense constructors now
+  `ensure(top + lines <= 223)`, so the last-line-223 hazard is no longer authorable through
+  them. Swept every caller: only `OJZ_TestGradient` (96+96 = 192) and `OJZ_TestRamp`
+  (112+96 = 208), so it was never live. Poison-proved (a 224 run fails the build). **The
+  structural fix — a one-byte frame-epoch flag so a pre-rewind fire retires as a park —
+  REMAINS OPEN**, and the bound does not cover any future non-constructor path into a dense
+  run. Interrupt-priority reasoning is still source-confirmed, not emulator-confirmed.
+- **Item 7** — budget-model rows corrected (`sparse_fire_reg1` 396→412,
+  `sparse_fire_water` 660→676), values re-derived from the live model rather than copied, and
+  the file's `_SUPERSEDED` convention applied. Also corrected `movem_roundtrip_cycles` 40→84
+  (the row named a round trip and carried the push only). These rows remain **UNGATED** — they
+  are measured/modelled, so they do not fit the `[symbols]` resolver, which cannot evaluate a
+  comptime call.
+- **Tier 4 / A2 comment truth** — all 10 corrected across `raster.emp`, `raster_dsl.emp`,
+  `palette.emp`, `ojz_effects.emp`. Note `raster_dsl.emp`'s row-119 guard text was corrected
+  into an explicit **warning** about item 1's single-op hazard, pointing here; it must not be
+  read as though item 1 were handled.
+- **Tier 4 / B2 `BGANIM_MAX_BANDS`** — guard added
+  (`tools/test_bg_emit.py::TestBgAnimBandCeiling`, on build.sh's pytest lane), comparing the
+  three real authorities (`constants.emp`, `bg_anim.emp`'s deliberate module-local mirror, the
+  emitter's cap, now a named constant). All three agreed at 4, so there was no live drift.
+  Four poisons proved it non-vacuous. The span-`ensure` shape of `RASTER_MAX_PATCH` was
+  deliberately NOT copied: `ram.emp` *names* `BGANIM_MAX_BANDS`, so a span guard would have
+  measured itself. The three mirrors are still not collapsible to one authority.
+
+**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving), 5, 6
+(gate wiring), all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
+`RASTER_BUF_SIZE/2` as a bare 64, `palette_dsl`'s self-test-only variant mirror,
+`raster_cost_probe.py`'s unpinned wire format), plus C5 footprint, the EFX-4b angle, and the
+zero-`assert.*` observation.
+
 ### Sequencing — the deadline is Task 9 of scanline P1, not "before P1"
 
 Byte-moving fixes are FREE before P1's Task 9 (they just become part of the baseline) and cost a
