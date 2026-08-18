@@ -460,9 +460,62 @@ def load_editor_tile_art(path: str) -> bytes:
 
 
 def editor_data_available() -> bool:
-    """Check if editor section data exists for OJZ act1."""
+    """Check if editor section data exists for OJZ act1.
+
+    NON-EMPTY, not merely present. This used to test `isfile` alone, and that is
+    exactly how the tools lens sweep's D3 detonates: point the tileset at a
+    0-byte file and every downstream stage SUCCEEDS while baking a blank level.
+    `collect_referenced_tiles` substitutes a zero tile for every out-of-range
+    index with no warning, so 733 referenced tiles become 733 zero tiles, dedupe
+    to ONE, and the act ships a 1-page 32-byte pool. Every gate passes it:
+    verify_act_pool (pages==1 is legal), verify_local_maps (nothing >= pool_tiles),
+    art_rom_report (~0.0 KB against a 24 KB budget reads as `ok`, and its liveness
+    guards fire on ZERO pages, not on an absurdly small one). The only trace is the
+    generator printing "Deduped: 1 (99.9% reduction)" — a catastrophe rendered as a
+    success metric.
+
+    A zero-byte tileset is not a degenerate input to handle gracefully; it is a
+    broken working tree. Refuse it here, where the diagnosis is still cheap.
+    """
     sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
-    return os.path.isfile(sec0) and os.path.isfile(CHUNKS_TILES_PATH)
+    for p in (sec0, CHUNKS_TILES_PATH):
+        if not os.path.isfile(p) or os.path.getsize(p) == 0:
+            return False
+    return True
+
+
+def preflight() -> None:
+    """Validate every precondition a re-bake needs, WITHOUT writing anything.
+
+    Exists because tools/regenerate-level.sh used to discover a missing donor
+    only AFTER import_sk_collision.py had already overwritten the ROM-consumed
+    collision tables (tools lens sweep D1) — `set -euo pipefail` with no trap, so
+    it aborted having already destroyed the interned collision/strip pairing. The
+    script now calls this FIRST. Keep it write-free: that property is the whole
+    point, and it is what makes the destructive step unreachable on a bad tree.
+    """
+    require_donor()
+    # The skdisasm donor is import_sk_collision.py's input, not ours — but it is
+    # the FIRST thing regenerate-level.sh runs and the only destructive one, so
+    # its precondition has to be checked here, before that write. Same resolution
+    # as import_sk_collision.py:28-30; kept in step deliberately (a divergence
+    # would make this preflight pass for a run that then fails destructively).
+    sk_root = os.environ.get("AEON_SKDISASM_DIR") or os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "skdisasm"))
+    sk = os.path.join(sk_root, "Levels", "Misc")
+    if not os.path.isdir(sk):
+        raise SystemExit(
+            f"ojz_strip_gen preflight: skdisasm donor not found at {sk}. "
+            f"import_sk_collision.py needs it for the 252-shape collision vocabulary; "
+            f"set AEON_SKDISASM_DIR. Stopping BEFORE anything is written — the tables "
+            f"under games/sonic4/data/collision/ are INTERNED build inputs, and a "
+            f"partial re-bake replaces them with the base S&K bank while the strips "
+            f"keep interned indices, so every solid surface resolves to the wrong "
+            f"height, angle and solidity class.")
+    print(f"preflight OK — sonic_hack = {SONIC_HACK}")
+    print(f"               skdisasm   = {sk}")
+    print(f"               tileset    = {CHUNKS_TILES_PATH} "
+          f"({os.path.getsize(CHUNKS_TILES_PATH)} bytes)")
 
 
 def write_strips_to_file(
@@ -1586,12 +1639,26 @@ def require_donor():
             f"The build does NOT run this — it uses the committed level tree under "
             f"games/sonic4/data/generated/.")
     if not editor_data_available():
+        # Name the ACTUAL cause. "Absent" and "present but empty" send an author
+        # to completely different places, and the empty case is the one that used
+        # to bake a blank level silently (tools lens sweep D3).
+        sec0 = os.path.join(EDITOR_DIR, "ojz", "act1", "section_0.tiles.bin")
+        why = []
+        for label, p in (("section_0.tiles.bin", sec0), ("zone tileset", CHUNKS_TILES_PATH)):
+            if not os.path.isfile(p):
+                why.append(f"{label} MISSING at {p}")
+            elif os.path.getsize(p) == 0:
+                why.append(
+                    f"{label} is ZERO BYTES at {p} — present but empty. This is the "
+                    f"input that bakes a BLANK LEVEL that every gate passes: every "
+                    f"nametable index falls out of range, each is silently replaced by "
+                    f"tile 0, and the act dedupes to a 1-page 32-byte pool reported as "
+                    f"'Deduped: 1 (99.9% reduction)'. Point project.json's "
+                    f"zones[0].tileset at a real tile blob")
         raise SystemExit(
-            "ojz_strip_gen: editor section data absent (need editor/ojz/act1/"
-            "section_0.tiles.bin + editor/ojz/chunks_tiles.bin). Refusing the "
-            "silent legacy-air fallback — a re-bake without editor data would "
-            "emit a ~131 KB wrong level tree. Restore the editor working data "
-            "(committed for the shipped act) or point the editor at real data.")
+            "ojz_strip_gen: editor data unusable — " + "; ".join(why) + ". Refusing the "
+            "silent legacy-air fallback: a re-bake without real editor data emits a "
+            "~131 KB wrong level tree. Nothing has been written.")
 
 
 def generate(stress_uniquify=0):
@@ -1992,12 +2059,18 @@ def generate(stress_uniquify=0):
 def main():
     args = sys.argv[1:]
     mode = args[0] if args else None
-    if mode not in ("test", "generate"):
-        print(f"Usage: {sys.argv[0]} test | generate [--stress-uniquify N]")
+    if mode not in ("preflight", "test", "generate"):
+        print(f"Usage: {sys.argv[0]} preflight | test | generate [--stress-uniquify N]")
         sys.exit(1)
 
     if mode == "test":
         run_tests()
+        return
+
+    # preflight — validate every precondition and WRITE NOTHING. regenerate-level.sh
+    # runs this before its first destructive step (tools lens sweep D1).
+    if mode == "preflight":
+        preflight()
         return
 
     stress_uniquify = 0

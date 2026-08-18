@@ -31,6 +31,24 @@ if [[ ! -x "${TOOLS}/bin/salvador" ]]; then
     cp "${TOOLS}/salvador/salvador" "${TOOLS}/bin/salvador"
 fi
 
+# PREFLIGHT — validate EVERY precondition before the first destructive step.
+#
+# tools lens sweep D1 (CRITICAL): this script used to run import_sk_collision.py
+# first, which unconditionally overwrites the ROM-consumed
+# data/collision/{heightmaps,heightmaps_rot,angles,solidity}.bin with the base
+# S&K bank — and only THEN reach ojz_strip_gen, which aborts on a missing donor
+# or absent editor data. `set -euo pipefail` with no trap, so the script exited
+# having already destroyed the pairing between those tables and the interned
+# strip indices. The tree is normally in the interned state (data/collision/
+# DIFFERS from collision/base/), so one invocation on a machine missing a donor
+# left every solid surface resolving to the wrong height, angle and solidity —
+# and nothing caught it: verify_level_bin.py does not look at collision at all.
+#
+# The preflight writes nothing. Keep it FIRST, and keep every new precondition
+# in it rather than at the point of use, or this defect comes straight back.
+echo "Preflight: checking donors + editor data before anything is written..."
+python3 "${TOOLS}/ojz_strip_gen.py" preflight
+
 echo "Importing Sonic & Knuckles collision shape set (fixed 252-shape vocabulary)..."
 python3 "${TOOLS}/import_sk_collision.py"
 
