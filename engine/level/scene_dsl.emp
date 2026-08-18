@@ -338,6 +338,13 @@ pub struct Scene {
     sc_anchor:             SceneAnchor,
     sc_precision:          u8,               // PRECISION_CELL / PRECISION_LINE
     sc_transition:         u8,               // TRANS_SMOOTH / TRANS_INSTANT
+    // Pad so the two i16 bridges land on EVEN offsets (94, 96). `Scene` is comptime-only —
+    // it never reaches ROM, so an odd 2-byte field could not fault a 68000 today, and
+    // sigil's [layout.odd-field] is a false positive here in the strict sense. Padded
+    // anyway, for one cheap reason: the day anything emits a Scene, an odd word field is
+    // an address error, and a warning that has been explained away in a baseline is not
+    // there to catch it. Zero cost — this struct emits nothing either way.
+    sc_pad_5D:             u8 = 0,
     sc_mask_raw:           i16,              // -1 = derive from ly_enabled (bridge, see above)
     sc_v_deform_shift_raw: i16,              // -1 = derive from sc_v_deform (bridge, see above)
 }
@@ -437,6 +444,7 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
         sc_anchor:             anchor,
         sc_precision:          precision,
         sc_transition:         transition,
+        sc_pad_5D:             default,
         sc_mask_raw:           layer_mask_raw,
         sc_v_deform_shift_raw: v_deform_shift_raw,
     }
