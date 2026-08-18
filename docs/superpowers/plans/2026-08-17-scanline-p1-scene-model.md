@@ -338,15 +338,15 @@ pub comptime fn scene_caps(s: Scene) -> int {
 **Files:** Modify `engine/system/game_contract.emp`, `games/sonic4/config/game.emp`,
 `games/demo/config/game.emp`
 
-- [ ] **Step 1:** Add to the Game interface: `const SCANLINE_CAPS` with a doc comment
+- [x] **Step 1:** Add to the Game interface: `const SCANLINE_CAPS` with a doc comment
   ("packed capability mask; derived-and-verified from the game's scene registry; engine
   consumers arrive in P2 — until then this is contract surface only").
-- [ ] **Step 2:** demo binds `const SCANLINE_CAPS = 0`.
-- [ ] **Step 3:** sonic4 binds per the Task-1 spike: computed
+- [x] **Step 2:** demo binds `const SCANLINE_CAPS = 0`.
+- [x] **Step 3:** sonic4 binds per the Task-1 spike: computed
   (`const SCANLINE_CAPS = SceneRegistry_CapsFolded` imported from the registry) or the
   RULED fallback (hand-written `$001D`-style literal; the registry ensure in Task 5
   verifies it — derive-and-verify, never hand-maintained-unchecked).
-- [ ] **Step 4:** Build all four shapes green (no engine consumer yet — pure contract).
+- [x] **Step 4:** Build all four shapes green (no engine consumer yet — pure contract).
   Commit all three files.
 
 > **TASK 4 SEQUENCING + DERIVED VALUE (controller, 2026-08-18) — read before executing:**
@@ -373,7 +373,7 @@ pub comptime fn scene_caps(s: Scene) -> int {
 
 **Files:** Create `games/sonic4/data/effects/scene_registry.emp`
 
-- [ ] **Step 1:** The registry module — the SOLE emission path (spec §3.2):
+- [x] **Step 1:** The registry module — the SOLE emission path (spec §3.2):
 
 ```
 // games/sonic4/data/effects/scene_registry.emp — the game's scene registry.
@@ -390,12 +390,45 @@ module games.sonic4.scene_registry in scene_registry
   {Game.SCANLINE_CAPS} != folded {SceneRegistry_CapsFolded} — update the declared word")`.
   Force-enable semantics (spec §3.2): the ensure becomes `folded ⊆ declared`:
   `ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, ...)`.
-- [ ] **Step 2:** Emission fold: per registry entry, emit the lowered records under the
+- [x] **Step 2:** Emission fold: per registry entry, emit the lowered records under the
   entry's declared symbol name (per Task-1 probe B shape — per-count `if` chains are
   acceptable; ugly beats unbuildable).
-- [ ] **Step 3:** Build: green (registry not yet in map order — verify it participates
+- [x] **Step 3:** Build: green (registry not yet in map order — verify it participates
   once ojz_scenes lands in Task 6; if module placement is needed NOW, coordinate with
   Task 9's map.toml step and note it in the task report). Commit.
+
+> **TASKS 4-5 FINDINGS (2026-08-18, build-proven; commits b14fa113 + 42e3e0f7). Bind Tasks 6-9:**
+> - **The Game const is `const SCANLINE_CAPS: u16`**, sonic4 `$001F`, demo `0`. `$001F` was
+>   independently re-derived twice (the plan's `$001D` was missing `CAP_PER_COL_VSRAM $0002`,
+>   set by `v_deform_bg` at configs.emp:216/236). Contract closure is REAL — poison-probed:
+>   `required member Game.SCANLINE_CAPS (a const) is not bound by the implement block`.
+> - **A declared interface const type ENFORCES NOTHING.** sigil's `check_const_type` only
+>   checks int-ish — no width or range check — so `ENTRY_ID: u8` is not range-guarded either.
+>   `u16` documents intent only, which makes the registry's subset ensure the ONLY real check
+>   on that word. (Booked for upstream in Task 12.)
+> - **The registry's verify is the SUBSET form** `(folded & ~declared) == 0`, so a partially
+>   populated registry stays legal while Task 6 migrates configs one at a time. `~` confirmed
+>   present. **`ensure` messages interpolate ARBITRARY EXPRESSIONS** (`{folded & ~declared}`),
+>   so a message can name the offending bits, not just the two operands — decimal only.
+> - **REACHING AN UNPLACED MODULE: use the WHOLE PATH, never a name list.** A selective
+>   `use games.sonic4.scene_registry.{Name}` makes sigil inject a CLONE of the const whose
+>   initializer re-evaluates in the CONSUMER's scope — producing bogus errors (`unknown
+>   function fold_caps`) at a span inside the registry while the module never elaborates at
+>   all. `use games.sonic4.scene_registry` (no list) is what pulls it into placement. **This
+>   will bite Task 7's oracle wiring.**
+> - **An unreached module's `pub data` symbols do NOT enter the symbol table** — measured by
+>   naming a placeholder `ParallaxConfig_OJZ_Default` while `configs.emp` still emits that
+>   symbol: build green, crc unmoved. **So Task 6 may use the 20 SHIPPED names immediately,
+>   which makes Task 9 a pure placement change with no rename step.**
+> - **Emission must index `SCENES[i]`, never a scene const directly** — that is what makes
+>   "every emitted record has been folded" structural instead of guarded.
+> - **`lower1/2/4/5` exist and are proven by real emission** at 38/48/68/78 bytes. `lower3`,
+>   `lower6/7/8` and their `SceneCfgN` DO NOT EXIST — the 20 shipped configs use only counts
+>   1, 2, 4, 5 (14x Cfg1/2, 6x Cfg4/5). Adding a count is a struct line plus a `lowerN`.
+> - Deform tables stay in `data/parallax/configs.emp` for Task 6 (they are Labels); **Task 9
+>   rehomes them.**
+> - Spelling trap: `./build.sh --no-lint` must be `./build.sh sonic4 --no-lint` — the game is
+>   positional, so a bare flag parses as the game name.
 
 ### Task 6: Migrate the 20 configs — ojz_scenes.emp
 
