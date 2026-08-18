@@ -4799,7 +4799,7 @@ build.sh agrees in its comment beside the pytest lane — so "unwired" is not a 
 is a manual ritual that nothing enforces. Closing it means choosing an enforcement point (merge
 checklist / parcel-completion ritual), which is an owner call, not a code fix.
 
-Four commits, each gated on all four ROM shapes staying **bit-for-bit identical** to master
+Six commits, each gated on all four ROM shapes staying **bit-for-bit identical** to master
 (`s4.debug` crc=ab1055d4 len=712752 · `s4` crc=7e4dc5de len=697868 · `demo.debug`
 crc=10aad76c len=100805 · `demo` crc=2ecd1031 len=96451). Every claim was re-verified against
 the code before being acted on.
@@ -4830,8 +4830,8 @@ the code before being acted on.
   deliberately NOT copied: `ram.emp` *names* `BGANIM_MAX_BANDS`, so a span guard would have
   measured itself. The three mirrors are still not collapsible to one authority.
 
-**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving), 5, 6
-(gate wiring), all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
+**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving), item 5
+(gate ENFORCEMENT — the lane itself passes, see above), all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
 `RASTER_BUF_SIZE/2` as a bare 64, `palette_dsl`'s self-test-only variant mirror,
 `raster_cost_probe.py`'s unpinned wire format), plus C5 footprint, the EFX-4b angle, and the
 zero-`assert.*` observation.
@@ -4849,6 +4849,15 @@ own parcel off master, then merge master into the P1 branch before Task 9.
 
 | # | Site | Bytes | Notes |
 |---|---|---|---|
+> **RE-DERIVE ITEM 1's DEFICIT — the packet's "~21" does not reconcile (found in review
+> 2026-08-18).** Each `dbf` spin iteration is 10 cycles (the shipped spin is 4 taken x 10 +
+> 14 not-taken = 54). Covering the 110-cycle single-op-vs-two-op gap needs about +11
+> iterations, i.e. `EFX_BLANK_DELAY` ~= **15**; against the stale 94-cycle gap it would be
+> ~14. Neither reaches the packet's ~21. The landed comment corrections deliberately restate
+> NO number, saying only that the gap is bigger — so nothing in the tree inherited this.
+> Whoever lands item 1 must re-derive from the shipped constants and pin the result, not
+> adopt ~21.
+
 | 1 | `engine/effects/raster.emp:232` | moves | **top finding.** `EFX_BLANK_DELAY=4` was fitted to the 152-cyc two-op (SetReg-prefixed) shape; a SINGLE-op CRAM/region fire carries 58 cyc and lands at x~170 of 320 — mid-active-display. The DSL freely admits that shape (`band(sh: 0)`, `region_boundary(sh: 0)`, `fx_tint_band`). Deficit ~4 → ~21. Latent (all shipped OJZ fires are two-op). **Also: the author-facing guard text at `raster_dsl.emp:340` asserts the OPPOSITE of the measurement recorded at `raster.emp:797-804`** — the row-119 fixture has the stream op second. Fix: split the constant by op position (`_FIRST` / `_AFTER_REG`) + re-pin the F-series, or refuse single-stream-op CRAM fires without a measured opt-out. Correct :340 either way. |
 | 2 | `engine/effects/palette.emp:356` | moves | **costs cycles today.** `.cycling` sets `PAL_ACT_VARIANT_STALE` before `Palette_DoCycle` decides whether anything rotated (rotation is timer-gated at `:419`), so any section binding a cycle script AND a variant pays the full ~19,332-cyc re-derive every frame — the exact regression the stale bit exists to kill ("the 15.1%-of-frame gate"). `OJZ_Preset_Sec3` is that combination. `.fade` same shape, smaller scale. Fix: move the stale-set into DoCycle's rotation branch gated on `d7 != 0` — one instruction (DoCycle already accumulates the touched-line mask in d7). |
 | 3 | `engine/effects/raster.emp:609` | **zero** | No interlock between a deferred IRQ4 and `Raster_VBlank`'s unconditional frame rewind. A dense run ending at line 223 is authorable (both constructors `ensure(top + lines <= 224)`), HINT raises on the same line as VINT, IRQ6 masks level 4, so the pending IRQ4 runs after the rewind, consumes priming record 0, overwrites the flushed `$0A=0` and shifts the whole next frame by one record — a stuck state, not a blip. Source-confirmed, NOT emulator-confirmed. Cheap fix: tighten to `<= 223` (shipped gradient top=96/96 lines passes). Structural: a one-byte frame-epoch flag. |

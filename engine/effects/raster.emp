@@ -841,17 +841,23 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // bare single-op cram ON fire spilled identically at x~170, confirming sweep 4's
         // anchor finding: the clean mixed-shape evidence never covered single-op fires;
         // the measured restore-vs-cram offset, ~10 px, matched the pinned model within
-        // 2 cyc). The value below was JUMPED to from the measured deficit (the clean
-        // mixed shape carries ~168 cyc of pre-burst delay: SetReg 110 + spin 58 — the
-        // 94 this line used to give was the RUNGS=4 figure, superseded by R1's fifth
-        // dispatch rung. Derivation from the live model in raster_dsl.emp: an OP_SET_REG
-        // costs RASTER_OP_FETCH_CYC 8 + RASTER_DISPATCH_RUNG_CYC 16 * RASTER_DISPATCH_RUNGS 5
-        // + RASTER_WORK_REG_CYC 12 + RASTER_OP_TAIL_CYC 10 = 110, which is also what
-        // fixture F1's pin measures, 412 = base 302 + 110, "was 396 at RUNGS=4".
+        // 2 cyc). The value below was JUMPED to from the measured deficit, and then
+        // pixel-verified: authored edge row fully tinted, next row fully base.
+        //
+        // THE PRE-BURST DELAY THIS WAS FITTED TO. The clean mixed shape carries ~168 cyc:
+        // SetReg 110 + spin 58. The 94 this line used to give was the RUNGS=4 figure,
+        // superseded by R1's fifth dispatch rung. Derivation from the live model in
+        // raster_dsl.emp: an OP_SET_REG costs RASTER_OP_FETCH_CYC 8 +
+        // RASTER_DISPATCH_RUNG_CYC 16 * RASTER_DISPATCH_RUNGS 5 + RASTER_WORK_REG_CYC 12 +
+        // RASTER_OP_TAIL_CYC 10 = 110, which is also what fixture F1's pin measures:
+        // 412 = base 302 + 110, "was 396 at RUNGS=4". (~168 is not a complete pre-burst
+        // accounting — it omits the CRAM op's own fetch/dispatch/move.l, ~46 cyc — but the
+        // stale ~152 omitted the identical terms, so the load-bearing quantity, the
+        // 110-cycle single-op-vs-two-op gap, is invariant to that.)
+        //
         // NOTE THIS WIDENS RATHER THAN NARROWS the open single-op defect: a leading
         // stream op still carries only ~58 cyc, so the gap against this shape is bigger
-        // than the stale 152 implied. Booked in docs/DEFERRED_WORK.md, sweep item 1) and then
-        // pixel-verified: authored edge row fully tinted, next row fully base.
+        // than the stale 152 implied. Booked in docs/DEFERRED_WORK.md, sweep item 1.
         // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
         // neither adjacent value clean -> narrow the stream count (spec §3.2).
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
