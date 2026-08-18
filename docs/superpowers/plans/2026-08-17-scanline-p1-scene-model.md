@@ -91,6 +91,20 @@ with a compiling (or cleanly-failing) probe; report findings verbatim in the tas
 - [ ] **Step 4:** Delete the scratch module. Report: A yes/no, B shape chosen, C
   computed-vs-fallback. Commit nothing except the report (no files remain).
 
+> **TASK 1 SPIKE FINDINGS (2026-08-17, all build-proven; bind later tasks):**
+> - **A:** `pub const X: [T; N] = [ctor(), ctor()]` + `for b in bands { acc + b.field }`
+>   folds work. **One-dot rule:** chained access (`c.bands.len`) NEVER resolves — split
+>   through a `comptime var`. Unwired modules' ensures are DEAD — wire via `use` before
+>   trusting any guard.
+> - **B:** comptime fn return annotations are documentation; enforcement is the typed
+>   `data X: CfgN = fn()` binding (`array length mismatch` on wrong count). Per-count
+>   typed `data` is the emission shape. A NEW emitting module needs `module … in <sect>`
+>   AND a `map.toml` order entry for its head label (build fails loud without both).
+> - **C:** computed `const SCANLINE_CAPS = fold()` in `implement Game` WORKS and the
+>   engine reads `Game.SCANLINE_CAPS` in comptime `if`. CATCH: the manifest call site
+>   re-evaluates the whole chain — game.emp must `use` every pub helper + const the fold
+>   touches, transitively (misses fail LOUD). Keep the fold's helper chain small.
+
 ### Task 2: scene_dsl — enums + `layer()` constructor
 
 **Files:** Create `engine/level/scene_dsl.emp`
