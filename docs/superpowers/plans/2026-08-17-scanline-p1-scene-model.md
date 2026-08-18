@@ -1,5 +1,20 @@
 # Scanline Services P1 — Scene Model + Registry + Byte-Identical Migration
 
+> ## ✅ COMPLETE — merged 2026-08-18 as an aeon+sigil PAIR
+> aeon master `d673bad0` · sigil master `e9299d79`. **Neither half builds without the
+> other.** All 12 tasks done; all four ROM images byte-for-byte identical (`cmp`) to the
+> pre-migration merge-base `eeba0ae5`: `ab1055d4` / `7e4dc5de` / `10aad76c` / `2ecd1031`.
+> Evidence: `docs/benchmarks/scanline-p1/GATE-EVIDENCE.md`.
+>
+> Task 11 was **ruled vacuous and not run** — byte-identical files cannot behave
+> differently in a deterministic emulator (see GATE-EVIDENCE §8 for when it becomes real).
+> Task 10's freeze ritual was a **no-op**: only the module name moved, so `repin` reported
+> "0 pin(s) changed".
+>
+> The findings blocks below are the durable output — each records what a later phase must
+> bind to, and several correct this plan's own text. **The roster table in Task 6 was wrong
+> four times; transcribe from source, never from it.**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps
 > use checkbox (`- [ ]`) syntax for tracking.
@@ -813,17 +828,17 @@ expected trivially green; any diff = investigate the harness, not the ROM).
 
 ### Task 12: Docs sync + merge
 
-- [ ] **Step 1:** ENGINE_ARCHITECTURE §4.6: add the scene-model authoring paragraph
+- [x] **Step 1:** ENGINE_ARCHITECTURE §4.6: add the scene-model authoring paragraph
   (constructors live in scene_dsl, registry is the emission path, configs are lowered
   artifacts; pointer to the spec). DEFERRED_WORK: update the per-band-deform/frequency
   entries to point at the spec's P3 (mechanism now scheduled), add the layer_mask_raw /
   v_deform_shift_raw byte-identity bridges as a hygiene note (normalize post-P1 only with
   a deliberate refreeze).
-- [ ] **Step 2:** Commit docs. Merge branch → master (all four shapes green at merge
+- [x] **Step 2:** Commit docs. Merge branch → master (all four shapes green at merge
   point; verify branch first). Push if remote configured.
 
 > **TASK 12 ADDITIONS (controller, 2026-08-18 — booked out of Task 3's reviews):**
-> - [ ] **Step 3:** Book the `COMPTIME_HELPERS` move as a paired aeon+sigil follow-up
+> - [x] **Step 3:** Book the `COMPTIME_HELPERS` move as a paired aeon+sigil follow-up
 >   (DEFERRED_WORK entry). `engine.level.scene_dsl` is the only authoring DSL in its family
 >   NOT in sigil's helper set (`crates/sigil-harness/src/native.rs:1942` — `parallax_dsl`,
 >   `palette_dsl`, `raster_dsl` all are). Joining it deletes the glob-import requirement,
@@ -833,7 +848,7 @@ expected trivially green; any diff = investigate the harness, not the ROM).
 >   collisions, and this injects names as generic as `layer`, `scene`, `no_layer` into game
 >   modules. Staying out is the ungated option; joining is the gated one. Correctly declined
 >   mid-parcel (paired change), correctly owed at the tail.
-> - [ ] **Step 4:** Book the sigil language defect: **an `if` in block-tail position
+> - [x] **Step 4:** Book the sigil language defect: **an `if` in block-tail position
 >   evaluates to unit with no diagnostic**, so nested if-expressions silently yield `()`.
 >   Measured twice; it mis-folded a capability mask to 0 during Task 3 and was caught only
 >   by an independently-derived expected value. General trap for every `comptime fn` in the
