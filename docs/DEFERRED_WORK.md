@@ -5010,3 +5010,69 @@ register and the error points at the CALL SITE, not the binding · an unknown na
 position does not error, it becomes a link extern and compares unequal (a typo surfaces as a
 field mismatch, never as "unknown name") · Label equality at comptime is SYMBOL IDENTITY, not
 content, so two byte-identical tables under different names compare unequal.
+
+---
+
+## THREE 2026-08-13 LENS PACKETS — landed 2026-08-18, findings UNADJUDICATED
+
+Merged from `review/{sound,system,tools}-lens-sweep`, where they had been invisible for five
+days. **Landing them made them discoverable; NOTHING in them is fixed.** Review SHA
+`ffe05158`, 15 seats each, overseer-verified.
+
+- `docs/superpowers/notes/2026-08-13-sound-lens-sweep.md`
+- `docs/superpowers/notes/2026-08-13-system-lens-sweep.md`
+- `docs/superpowers/notes/2026-08-13-tools-lens-sweep.md`
+
+### ⚠ THREE CRITICALs in the tools packet, and they threaten the LEVEL DATA
+
+**tools D1 — `regenerate-level.sh` is a DESTRUCTIVE NO-OP. Do not run it.** It runs
+`import_sk_collision.py` FIRST, which unconditionally overwrites the ROM-consumed
+`data/collision/{heightmaps,angles,solidity}.bin` with the base S&K bank, and only THEN hits
+`ojz_strip_gen.py generate` → `require_donor()` → `SystemExit`. `set -euo pipefail` with **no
+trap**, so it aborts having already clobbered the tables. Verified: `data/collision/` DIFFERS
+from `collision/base/` today, i.e. the tree is in the interned state and one invocation of
+the documented re-bake destroys the pairing. Player result: every solid surface resolves to a
+different height profile, angle and solidity class. `grep -c collision tools/verify_level_bin.py`
+= **0** — the gate never looks. The in-file safety story ("only DEFAULTS —
+`gen_collision_data.generate()` overwrites them") is wrong twice: that function does not
+exist, and the tool that would overwrite them cannot run.
+
+**tools D2 — the re-bake cannot run at all, and the PROVENANCE is the finding.**
+`project.json`'s tileset points at `ojz_tiles.bin`, which is missing and `.gitignore`d. A
+deliberate fix (`f2371ca0`, 2026-06-11) was reverted the NEXT DAY by an editor state save
+(`586cd3fa`) that the **auto-commit daemon landed unreviewed**. The editor rewrites
+`project.json` wholesale on save, so **any repo-side correction to an editor-owned field has
+a shelf life of one editing session.** That is an active drift vector, not a stale file — two
+months of a dead re-bake path followed from it. `build.sh`'s `STRESS_ART=1` shape is dead too.
+
+**tools D3 — the obvious repair of D2 detonates a silent blank-level bake that every gate
+passes.** So the naive fix is worse than the bug. Read D3 before touching D2.
+
+**tools D4/D5:** the "ROM Build" gate has never built the ROM it asserts about; the
+build-fatal lint gate lints one file that emits no bytes (path bug).
+
+### System packet — S2 is the SAME defect Parcel R independently found
+
+**S2 — `Pal_Variant_Stage` is streamed to CRAM by IRQ4 while the main loop rewrites it.**
+This is the one-compose-generation skew that `2026-08-18-parcel-r-sweep-adjudication.md`
+found from the other direction and that killed the mid-screen-restore design. **Two
+independent sweeps, five days apart, converging on it** raises its priority above its tier.
+Also: S1 (DMA jump-table stride guard measures a struct, not the emitted slot), S3 (the
+"dirty flag set only after a complete write" lemma is FALSE — the palette path lacks the
+bracket the sprite path has), S4 (the replay net records inputs but not the scenario, so
+Tails and Knuckles are structurally unreachable — corroborates the character-lens finding),
+S5 (a second Critical-enqueue path bypasses the byte cap and both drop counters).
+
+### Sound packet
+
+D1 (SFX instance cap kills one slot of a multi-slot SFX, substitution then stacks the rest —
+**LIVE TODAY**), D2 (the DAC/DMA guard pair leaves the ring with no producer for the whole
+VDP window), D3 (`RegDeltaGroupBase` length guard verifies nothing), D4 ("BUILD-ENFORCED" PSG
+env ceiling is not in the build), D5 (adaptive songs leave FM6's output gate closed until the
+first FM6 patch event).
+
+### Sequencing
+
+The tools CRITICALs are first and are **not** blocked on anything — they are the only findings
+here that can destroy authored data. Everything else is ordinary parcel work. None of it is
+blocked by scanline P1.
