@@ -99,7 +99,51 @@ default, and the dangling module id after the deletion.
 Tool suite `990 passed, 2 skipped` · `s4lint: no issues` ·
 `effects_budget_check: OK — 20 rows` · `verify_level_bin: OK`.
 
-## 7. What this evidence does NOT cover
+## 7. Emulator-backed lane — 10/10 on the migrated ROM
+
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` → **OK, 10 gates**:
+three committed scenes (determinism + raster-program shape), `raster_off` (EFX-7
+teardown), `raster_source` (the only gate that observes the handler INTERPRETING the
+program rather than asserting its words), `snapshot_poison`, and the cost model vs
+hardware — `F0 572 · F1 3044 · F3 3680 · F4 3968 · F5 3712 · F8 4796`, every expectation
+computed from the shipped constants, never typed in.
+
+F4 is new this session (raster-substrate sweep item 6): it was the one fixture the
+`--only` list never named, leaving `RASTER_WORK_REGION_CYC` — the constant gating the
+shipped OJZ water band — with no path to hardware at all. Its first-ever measurement
+matched the computed expectation exactly, so the constant had been correct the whole time
+nothing was checking it.
+
+## 8. Task 11 (runtime spot-verification) — RULED VACUOUS BY CONSTRUCTION
+
+The plan budgeted a motion test: boot the branch ROM, hold right 300+ frames across a
+section boundary, read `Parallax_Current_Scroll_B`, `memory_hash` the HScroll buffer, and
+compare against the pre-migration ROM. It anticipated the result would be "trivially
+green" and framed it as a harness blind-spot catch.
+
+**It is not merely trivially green — it is tautological, and it was not run.** The four
+images are identical by `cmp`, not just by crc:
+
+```
+s4.bin          IDENTICAL (cmp, byte-for-byte)
+s4.debug.bin    IDENTICAL
+demo.bin        IDENTICAL
+demo.debug.bin  IDENTICAL
+```
+
+Two byte-identical files executed by a deterministic emulator cannot produce different
+register values or different memory hashes. There is no blind spot for the check to
+catch, because there is no difference for it to detect. Running it would have produced a
+green line that testifies to nothing — the "gate that cannot fail" this tree keeps
+rediscovering — and a reader would reasonably mistake it for independent confirmation.
+
+**What WOULD make it meaningful:** if the images ever diverge (a future parcel that moves
+bytes deliberately, e.g. the substrate byte-moving items or P2 specialization), this test
+becomes a real differential and should be run then, against the last byte-identical
+reference. The procedure is worth keeping for that; it is only this instance that is
+empty.
+
+## 9. What this evidence does NOT cover
 
 - **Runtime behaviour** beyond image identity — Task 11's spot-check. Identical images
   imply identical behaviour, so that check is a harness sanity test, not a second gate.
