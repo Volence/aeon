@@ -289,12 +289,60 @@ def verify_bininclude_targets():
             check(os.path.isfile(tp), f"{head}: BINCLUDE/embed target missing: {tgt}")
 
 
+def verify_collision_is_interned():
+    """The ROM-consumed collision tables must NOT be the raw base S&K bank.
+
+    THE GAP THIS CLOSES. The tools lens sweep (2026-08-13, D1) found that
+    tools/regenerate-level.sh ran import_sk_collision.py FIRST -- which
+    unconditionally overwrites data/collision/{heightmaps,heightmaps_rot,angles,
+    solidity}.bin with the base S&K bank -- and only THEN reached a step that
+    aborts on a missing donor. `set -euo pipefail` with no trap, so it exited
+    having already clobbered them. The strips keep INTERNED indices, so every
+    solid surface then resolves to a different height profile, angle and solidity
+    class: the player falls through terrain, or is stopped by nothing.
+
+    Nobody noticed because this file -- the level-tree drift gate -- did not
+    mention collision at all. The clobber was invisible until someone played it.
+
+    regenerate-level.sh now preflights, so the KNOWN destructive path is closed.
+    This is the detector for every other path to the same state: a hand-run of
+    import_sk_collision.py, a bad merge, a partial revert, a restored backup.
+
+    The property is deliberately "differs from base/" rather than a checksum pin:
+    these tables legitimately change whenever the level is re-baked, so a pin
+    would demand an update on every bake and would be silenced rather than
+    obeyed. "Not the raw donor bank" is drift-tolerant and is exactly the state
+    the clobber produces.
+    """
+    live_dir = os.path.join(ROOT, "games", "sonic4", "data", "collision")
+    base_dir = os.path.join(live_dir, "base")
+    if not os.path.isdir(base_dir):
+        return  # no base bank vendored here; nothing to compare against
+    for name in ("heightmaps.bin", "heightmaps_rot.bin", "angles.bin", "solidity.bin"):
+        live = os.path.join(live_dir, name)
+        base = os.path.join(base_dir, name)
+        if not (os.path.isfile(live) and os.path.isfile(base)):
+            continue
+        check(
+            read(live) != read(base),
+            f"collision/{name} is byte-identical to collision/base/{name} — the "
+            f"ROM-consumed table is the RAW S&K BANK, not the interned one. This is "
+            f"the state tools/regenerate-level.sh used to leave behind when it "
+            f"aborted after import_sk_collision.py (lens D1): the strips still carry "
+            f"interned indices, so every solid surface resolves to the wrong height, "
+            f"angle and solidity class. Restore these four files from git "
+            f"(`git checkout -- games/sonic4/data/collision/`) rather than re-baking.",
+        )
+
+
 def main():
     verify_act_pool()
     verify_local_maps()
     verify_block_blobs()
     verify_bininclude_targets()
-    checks_run = "act-pool+content+sidecar / local-maps / block-blobs / bininclude-targets"
+    verify_collision_is_interned()
+    checks_run = ("act-pool+content+sidecar / local-maps / block-blobs / "
+                  "bininclude-targets / collision-interned")
     if _fail:
         print(f"verify_level_bin: FAIL ({len(_fail)} issue(s)) [{checks_run}]", file=sys.stderr)
         for m in _fail:
