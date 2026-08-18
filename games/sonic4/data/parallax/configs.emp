@@ -53,11 +53,24 @@ struct ParallaxCfg2 { hdr: parallax_config, bands: [band_entry; 2] }
 struct ParallaxCfg4 { hdr: parallax_config, bands: [band_entry; 4] }
 struct ParallaxCfg5 { hdr: parallax_config, bands: [band_entry; 5] }
 
-// band — one band entry. Splits the packed FACTOR_* values (parallax_dsl) into
+// cfg_band — one band entry. Splits the packed FACTOR_* values (parallax_dsl) into
 // the three per-plane bytes the runtime reconstructs the scroll factor from.
 // dsa/dsb are the per-band deform-amplitude shifts (15 = no deform on that
 // plane); phase desyncs the deform sample index.
-comptime fn band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase: int = 0) -> band_entry {
+//
+// NAMED `cfg_band`, NOT `band`, AND BOTH CONSTRUCTORS ARE `pub` (Task 7). The
+// equivalence witness (games/sonic4/test/scene_equiv_proof.emp) IMPORTS these two as its
+// oracle — one definition, two consumers, so the proof cannot compare the lowering
+// against a stale copy. `pub` is what an import needs; the rename is what an import
+// SURVIVES: `engine.effects.raster_dsl` is a sigil COMPTIME_HELPER and is glob-injected
+// into every module, so a plain `band` here is fine at its own call sites (a local
+// definition wins over the injected glob) but `use ...{band}` in the witness fails with
+// "collides with engine.effects.raster_dsl.band". There is no `as` alias in .emp — the
+// parser's use_decl takes a path, a glob or a name list and nothing else — so the
+// disambiguation has to be the definition's name. Task 9 moves both fns into the witness,
+// where a local `band` would be legal again; keeping `cfg_band` there costs nothing and
+// keeps the two vocabularies (record constructor vs raster band) visibly apart.
+pub comptime fn cfg_band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase: int = 0) -> band_entry {
     return band_entry{
         band_top_cell:       cell,
         band_factor_a_s1:    fa & 15,
@@ -76,7 +89,7 @@ comptime fn band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase: int = 0
 // layer_mask, v_factor_bg, v_center/v_offset) plus the optional deform + tuning
 // fields, defaulted exactly as the AS `parallax_section` macro did. Table
 // pointers are `Label` (0 = no table).
-comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center: int, v_offset: int,
+pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center: int, v_offset: int,
                 v_factor_fg: int = 0, transition: int = 0,
                 deform_fg: Label = 0, deform_bg: Label = 0,
                 deform_speed_fg: int = 1, deform_speed_bg: int = 1,
@@ -125,10 +138,10 @@ pub data DeformTable_Zero: [i8; 256] = deform_zero()
 pub data ParallaxConfig_OJZ_Default: ParallaxCfg4 = ParallaxCfg4{
     hdr: hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
              deform_bg: DeformTable_Zero),
-    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 8,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 40, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 48, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15) ],
+    bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 8,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 40, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 48, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15) ],
 }
 
 // =====================================================================
@@ -151,10 +164,10 @@ pub data ParallaxConfig_OJZ_Underwater: ParallaxCfg4 = ParallaxCfg4{
     hdr: hdr(band_count: 4, layer_mask: $1F, v_factor_bg: 3, v_center: 512, v_offset: 0,
              deform_bg: DeformTable_Shimmer, deform_speed_bg: 3,
              anchor_ch: 0, anchor_dsa: 15, anchor_dsb: 2),
-    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 8,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 40, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 48, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15) ],
+    bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 8,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 40, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 48, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15) ],
 }
 
 // =====================================================================
@@ -168,7 +181,7 @@ pub data DeformTable_OJZ_Calm: [i8; 256] = deform_sine(amplitude: 96, period: 64
 pub data ParallaxConfig_OJZ_Windy: ParallaxCfg1 = ParallaxCfg1{
     hdr: hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
              deform_bg: DeformTable_OJZ_Calm, deform_speed_bg: 1),
-    bands: [ band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 4, dsb: 0) ],
+    bands: [ cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 4, dsb: 0) ],
 }
 
 // =====================================================================
@@ -182,7 +195,7 @@ comptime fn shimmer_bg(speed: int, shift: int = 2, fg: int = FACTOR_1, bg: int =
     return ParallaxCfg1{
         hdr: hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
                  deform_bg: DeformTable_Shimmer, deform_speed_bg: speed),
-        bands: [ band(cell: 0, fa: fg, fb: bg, dsa: shift, dsb: shift) ],
+        bands: [ cfg_band(cell: 0, fa: fg, fb: bg, dsa: shift, dsb: shift) ],
     }
 }
 pub data ParallaxConfig_Shimmer_Slow: ParallaxCfg1 = shimmer_bg(speed: 1)
@@ -201,17 +214,17 @@ comptime fn haze_fg(speed: int, gradient: int = 1) -> ParallaxCfg5 {
         hdr: hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
                  deform_fg: DeformTable_Haze, deform_speed_fg: speed),
         bands: if gradient == 1 {
-            [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 4),   // clouds
-              band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 4),   // far mtns
-              band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 15, dsb: 4),   // mid mtns
-              band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 4,  dsb: 4),   // hills (+/-1 px)
-              band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3,  dsb: 4) ]  // ground (+/-2 px)
+            [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 4),   // clouds
+              cfg_band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 4),   // far mtns
+              cfg_band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 15, dsb: 4),   // mid mtns
+              cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 4,  dsb: 4),   // hills (+/-1 px)
+              cfg_band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3,  dsb: 4) ]  // ground (+/-2 px)
         } else {
-            [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 4),
-              band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 3, dsb: 4),
-              band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 3, dsb: 4),
-              band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 3, dsb: 4),
-              band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3, dsb: 4) ]
+            [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 4),
+              cfg_band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 3, dsb: 4),
+              cfg_band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 3, dsb: 4),
+              cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 3, dsb: 4),
+              cfg_band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3, dsb: 4) ]
         },
     }
 }
@@ -233,7 +246,7 @@ comptime fn rocking(speed: int, shift: int = 0) -> ParallaxCfg1 {
         hdr: hdr(band_count: 1, layer_mask: $01, v_factor_bg: 15, v_center: 0, v_offset: 0,
                  deform_bg: DeformTable_Zero, v_deform_bg: DeformTable_Rocking,
                  v_deform_speed_bg: speed, v_deform_shift_bg: shift),
-        bands: [ band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4) ],
+        bands: [ cfg_band(cell: 0, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4) ],
     }
 }
 pub data ParallaxConfig_Rocking_Slow: ParallaxCfg1 = rocking(speed: 0)   // static tilt
@@ -252,11 +265,11 @@ comptime fn perspective(v_shift: int, h_speed: int, v_speed: int) -> ParallaxCfg
         hdr: hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
                  deform_bg: DeformTable_Shimmer, deform_speed_bg: h_speed,
                  v_deform_bg: DeformTable_Perspective, v_deform_speed_bg: v_speed, v_deform_shift_bg: v_shift),
-        bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
-                 band(cell: 4,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
-                 band(cell: 10, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
-                 band(cell: 14, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4),
-                 band(cell: 20, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 2) ],
+        bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+                 cfg_band(cell: 4,  fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+                 cfg_band(cell: 10, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 15),
+                 cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 4),
+                 cfg_band(cell: 20, fa: FACTOR_1, fb: FACTOR_0, dsa: 4, dsb: 2) ],
     }
 }
 pub data ParallaxConfig_Perspective_Subtle:   ParallaxCfg5 = perspective(v_shift: 2, h_speed: 1, v_speed: 0)
@@ -272,11 +285,11 @@ pub data ParallaxConfig_WindyHaze: ParallaxCfg5 = ParallaxCfg5{
     hdr: hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
              deform_fg: DeformTable_Haze, deform_speed_fg: 2,
              deform_bg: DeformTable_OJZ_Calm, deform_speed_bg: 1),
-    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 0,  phase: 0),
-             band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 3, dsb: 1,  phase: 64),
-             band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 3, dsb: 2,  phase: 128),
-             band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 3, dsb: 3,  phase: 192),
-             band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3, dsb: 15, phase: 0) ],
+    bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 3, dsb: 0,  phase: 0),
+             cfg_band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 3, dsb: 1,  phase: 64),
+             cfg_band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 3, dsb: 2,  phase: 128),
+             cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 3, dsb: 3,  phase: 192),
+             cfg_band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 3, dsb: 15, phase: 0) ],
 }
 
 // =====================================================================
@@ -288,8 +301,8 @@ pub data ParallaxConfig_SkyHaze: ParallaxCfg2 = ParallaxCfg2{
     hdr: hdr(band_count: 2, layer_mask: $03, v_factor_bg: 15, v_center: 0, v_offset: 0,
              deform_fg: DeformTable_Haze, deform_speed_fg: 2,
              deform_bg: DeformTable_OJZ_Calm, deform_speed_bg: 1, v_deform_shift_bg: 0),
-    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 2),
-             band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2,  dsb: 15) ],
+    bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 2),
+             cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 2,  dsb: 15) ],
 }
 
 // =====================================================================
@@ -301,11 +314,11 @@ pub data ParallaxConfig_SkyHaze: ParallaxCfg2 = ParallaxCfg2{
 pub data ParallaxConfig_OJZ_Caves: ParallaxCfg5 = ParallaxCfg5{
     hdr: hdr(band_count: 5, layer_mask: $1F, v_factor_bg: 15, v_center: 0, v_offset: 0,
              transition: 1, deform_bg: DeformTable_Zero),
-    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
-             band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
-             band(cell: 10, fa: FACTOR_1, fb: FACTOR_1_8,  dsa: 15, dsb: 15),
-             band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_4,  dsa: 15, dsb: 15),
-             band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,    dsa: 15, dsb: 15) ],
+    bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
+             cfg_band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_16, dsa: 15, dsb: 15),
+             cfg_band(cell: 10, fa: FACTOR_1, fb: FACTOR_1_8,  dsa: 15, dsb: 15),
+             cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_4,  dsa: 15, dsb: 15),
+             cfg_band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,    dsa: 15, dsb: 15) ],
 }
 
 // =====================================================================
@@ -317,10 +330,10 @@ pub data ParallaxConfig_OJZ_Caves: ParallaxCfg5 = ParallaxCfg5{
 pub data ParallaxConfig_OJZ_LockedClouds: ParallaxCfg5 = ParallaxCfg5{
     hdr: hdr(band_count: 5, layer_mask: $1E, v_factor_bg: 15, v_center: 0, v_offset: 0,
              transition: 1, deform_bg: DeformTable_Zero),
-    bands: [ band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 15),
-             band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 15),
-             band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 15, dsb: 15),
-             band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-             band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 15, dsb: 15) ],
+    bands: [ cfg_band(cell: 0,  fa: FACTOR_1, fb: FACTOR_1_8, dsa: 15, dsb: 15),
+             cfg_band(cell: 4,  fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 15),
+             cfg_band(cell: 10, fa: FACTOR_1, fb: FACTOR_3_8, dsa: 15, dsb: 15),
+             cfg_band(cell: 14, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+             cfg_band(cell: 20, fa: FACTOR_1, fb: FACTOR_1,   dsa: 15, dsb: 15) ],
 }
 

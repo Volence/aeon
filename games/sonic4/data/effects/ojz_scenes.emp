@@ -55,12 +55,25 @@ use engine.level.parallax_dsl.*
 // Declared in configs.emp's own order so the diff reads straight across. Task 7 proves
 // each one byte-equal to its generator call independently of the records.
 // =====================================================================
-pub data SceneOut_DeformTable_Zero:        [i8; 256] = deform_zero()
-pub data SceneOut_DeformTable_OJZ_Calm:    [i8; 256] = deform_sine(amplitude: 96, period: 64)
-pub data SceneOut_DeformTable_Shimmer:     [i8; 256] = deform_sine(amplitude: 8,  period: 32)
-pub data SceneOut_DeformTable_Haze:        [i8; 256] = deform_sine(amplitude: 16, period: 64)
-pub data SceneOut_DeformTable_Rocking:     [i8; 256] = deform_sine(amplitude: 20, period: 64)
-pub data SceneOut_DeformTable_Perspective: [i8; 256] = v_column_floor(center: 20, max_offset: 24)
+// THE GENERATOR CALL IS NAMED, AND THE `data` INITIALISES FROM THE NAME (Task 7). A
+// `pub data` symbol is a LABEL — its bytes are not readable at comptime — so the only way
+// the equivalence witness (games/sonic4/test/scene_equiv_proof.emp) can compare THESE
+// tables against configs.emp's is if the array VALUE has a name it can import. Splitting
+// the generator call out of the `data` line is that name, and nothing else changes: the
+// emitted bytes are the same call's output either way.
+pub const SceneSrc_DeformTable_Zero        = deform_zero()
+pub const SceneSrc_DeformTable_OJZ_Calm    = deform_sine(amplitude: 96, period: 64)
+pub const SceneSrc_DeformTable_Shimmer     = deform_sine(amplitude: 8,  period: 32)
+pub const SceneSrc_DeformTable_Haze        = deform_sine(amplitude: 16, period: 64)
+pub const SceneSrc_DeformTable_Rocking     = deform_sine(amplitude: 20, period: 64)
+pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offset: 24)
+
+pub data SceneOut_DeformTable_Zero:        [i8; 256] = SceneSrc_DeformTable_Zero
+pub data SceneOut_DeformTable_OJZ_Calm:    [i8; 256] = SceneSrc_DeformTable_OJZ_Calm
+pub data SceneOut_DeformTable_Shimmer:     [i8; 256] = SceneSrc_DeformTable_Shimmer
+pub data SceneOut_DeformTable_Haze:        [i8; 256] = SceneSrc_DeformTable_Haze
+pub data SceneOut_DeformTable_Rocking:     [i8; 256] = SceneSrc_DeformTable_Rocking
+pub data SceneOut_DeformTable_Perspective: [i8; 256] = SceneSrc_DeformTable_Perspective
 
 // =====================================================================
 // OJZ_Default — configs.emp:107-114.

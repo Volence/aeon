@@ -43,6 +43,26 @@ use games.sonic4.dust_data.{DUST_PUFF_ART_OFF, DUST_PUFF_ART_LEN}
 // splice expands in THIS module's scope, so the type has to resolve here.
 use games.sonic4.ram.{PlayerBlock}
 
+// THE SCENE EQUIVALENCE WITNESS'S REACHABILITY EDGE (scanline-P1 Task 7), and the reason
+// it hangs off THIS module: an .emp module nothing reaches gets parse + scan coverage and
+// ZERO body elaboration, so every `ensure` in games/sonic4/test/scene_equiv_proof.emp
+// would be dead — `ensure(1 == 0)` in an unreached module builds GREEN with an unchanged
+// CRC (measured, Task 3). Placement is the sigil registry (a Rust list in
+// crates/sigil-harness/src/native.rs), which only carries byte-emitting modules; the
+// witness emits nothing and must never take a registry row. So its reachability has to
+// come from a `use` edge out of an already-placed module, and this is the only PLACED
+// test-lane module in the game — the witness stays in the test lane rather than being
+// dragged into shipped game data.
+//
+// WHOLE PATH, NO NAME LIST, deliberately: a selective `use ...{cfg_eq}` injects a CLONE
+// whose initializer re-evaluates in THIS module's scope and never elaborates the callee
+// (Task 5's probe). The edge, not the name, is what pulls a module into the closure.
+// Nothing here calls into it — the witness is all module-level `ensure`s, which is exactly
+// what an edge and nothing else is needed for. Verified red-first on a plain
+// `DEBUG=1 ./build.sh` (Task 7 report): flipping one expected field in the witness fails
+// the build and names the config and the differing field index.
+use games.sonic4.scene_equiv_proof
+
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
 // player's SST overlay (the hotkey reads debug_flag off it). Both are
 // player_common's, imported the way the player state files import them.

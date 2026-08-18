@@ -569,12 +569,12 @@ pub const Scene_OJZ_Underwater = scene(
 `hdr()`/`band()` from configs.emp INTO this module at Task 9 — during Tasks 7–8 the proof
 imports them from configs.emp.
 
-- [ ] **Step 1:** Field-wise compare helpers:
+- [x] **Step 1:** Field-wise compare helpers:
   `cfg_eq(a: parallax_config, b: parallax_config) -> int` returning the FIRST differing
   field index (-1 = equal; mirrors the "COMPOSITION EQUIVALENCE PROOF" localization idea
   at ojz_effects.emp:443-456 but field-wise, since these are structs not word arrays) and
   `band_eq(a, b, i)` likewise.
-- [ ] **Step 2:** Per-config proof, all 20 — pattern (full code for each in the file):
+- [x] **Step 2:** Per-config proof, all 20 — pattern (full code for each in the file):
 
 ```
 // Proof: Scene_OJZ_Default lowers to exactly the shipped record.
@@ -590,13 +590,72 @@ ensure(band_eq(scene_band(Scene_OJZ_Default, 0), band(cell: 0, fa: FACTOR_1,
   table CONTENT equality is proven separately by one
   `ensure(first_mismatch_i8(SceneOut_DeformTable_Zero_src, deform_zero()) == -1, …)`
   per table against the generator call (both sides comptime arrays).
-- [ ] **Step 3:** Reachability: wire the proof module into the test lane the way the
+- [x] **Step 3:** Reachability: wire the proof module into the test lane the way the
   existing test modules reach the build (check how `ojz_scroll_test.emp` and the poison
   sentinel enter the closure — `--extra-entry` lane per BUGS.md EFX-10 replacement; use
   the same mechanism). Verify it actually evaluates: temporarily flip one expected field,
   see the build FAIL, flip back (red-first, recorded in the task report).
-- [ ] **Step 4:** Build green. Commit. **This module is permanent** (spec §8.1 standing
+- [x] **Step 4:** Build green. Commit. **This module is permanent** (spec §8.1 standing
   witness) — its banner says so and names the spec.
+
+
+> **TASK 7 FINDINGS (2026-08-18, build-proven, all four crcs unchanged). Bind Tasks 8-10:**
+> - **REACHABILITY IS ONE `use` EDGE, AND `--extra-entry` WOULD HAVE BEEN THE WRONG ANSWER.**
+>   Placement is the sigil REGISTRY — a hardcoded Rust list (`registry()` in
+>   crates/sigil-harness/src/native.rs), whose ids seed the synthetic entry module — so a
+>   zero-emitting module can never be "placed" and `--extra-entry` only adds an edge to
+>   THAT invocation (the expect-fail lane's per-poison build), leaving the witness dark on a
+>   normal build. The witness therefore hangs off a whole-path
+>   `use games.sonic4.scene_equiv_proof` in `games/sonic4/test/ojz_scroll_test.emp` — the
+>   game's one PLACED test-lane module, which survives Task 9. No `in <section>`, no
+>   map.toml entry, no registry row, no sigil change.
+> - **A SECOND, CHEAP REACHABILITY INSTRUMENT EXISTS AND NOBODY WAS USING IT:** sigil's
+>   `[module.unreachable]` warning names every module outside the profile's use closure AND
+>   COUNTS ITS DEAD ENSURES (`SIGIL_WARNINGS=full`). 25 fire on a sonic4 debug build (the
+>   Z80 seam modules, demo constants, the 12 poisons). scene_equiv_proof is absent from the
+>   list = in the closure. Necessary, not sufficient — it proves the closure, not that a
+>   given ensure ran — but it is a free standing check for every future guard module.
+> - **RED-FIRST ON A PLAIN `DEBUG=1 ./build.sh`, five flips, five different fixtures, all
+>   correct:** OJZ_Default hdr v_center -> `cfg field 4`; Haze_Uniform BAND 0 dsa -> `band
+>   field 7`; Rocking_Fast hdr v_deform_shift -> `cfg field 14`; SkyHaze BAND 1 dsa -> `band
+>   field 7`; Shimmer table amplitude 8->9 -> `diverges ... at index 3`. A sixth flip
+>   perturbed TWO header fields at once and reported the LOWER index (0), confirming the
+>   reverse-order accumulator really yields the FIRST differing field.
+> - **NO MISMATCH ANYWHERE.** All 20 headers, all 67 bands and all 6 tables passed on the
+>   first green build, against an oracle transcribed independently from configs.emp. Task 6's
+>   twenty scenes and the roster corrections in its findings block are confirmed value-wise.
+> - **`band` COLLIDES ON IMPORT with `engine.effects.raster_dsl.band`** (a COMPTIME_HELPER,
+>   glob-injected into every module), and .emp has NO `as` alias (parser `use_decl` takes a
+>   path, a glob or a name list). A local definition wins over the injected glob, which is
+>   why configs.emp itself was fine — only the IMPORT breaks, on both the glob and the
+>   name-list spelling. configs.emp's constructor is therefore renamed `cfg_band` (44 sites,
+>   byte-neutral) and both it and `hdr` are now `pub`. **Task 9 moves `hdr`/`cfg_band`, not
+>   `hdr`/`band`.**
+> - **Label FIELDS ARE COMPARABLE AT COMPTIME, and the comparison is SYMBOL IDENTITY, not
+>   content** (measured both ways): pointing the oracle at a different SceneOut_ table
+>   reports cfg field 11, and `DeformTable_Zero` vs `SceneOut_DeformTable_Zero` — same 256
+>   bytes — compares UNEQUAL. So the pcfg table pointers ARE proven (which table is
+>   attached), the oracle must spell the SceneOut_ names while both sets are emitted, and
+>   table CONTENT needs its own array-wise proof. **Also measured: an UNKNOWN name in a
+>   Label position does not error — it silently becomes a link extern and compares unequal.**
+>   A typo'd table name shows up as a field-10/11/12 mismatch, never as "unknown name".
+> - **A `pub data` SYMBOL IS NOT READABLE AT COMPTIME**, so the plan's table proof
+>   (`first_mismatch_i8(SceneOut_DeformTable_Zero_src, deform_zero())`) has no such `_src`
+>   to name. ojz_scenes.emp now splits each generator call out as
+>   `pub const SceneSrc_DeformTable_*` and initialises the `pub data` from it (byte-neutral);
+>   the witness compares those six against the generator calls transcribed from configs.emp.
+>   Task 9 keeps the split when it drops the `SceneOut_` prefixes.
+> - **THE ORACLE IS A TRANSCRIPTION and the module says so.** The CONSTRUCTORS are imported
+>   (no stale copy of the packing rules), but the ARGUMENTS are hand-copied from configs.emp
+>   with line citations. So this gate proves "scene model == the shipped parameters as
+>   transcribed"; "as transcribed == what configs.emp holds" is Task 10's byte identity.
+>   Neither gate substitutes for the other.
+> - **`band_eq` TAKES TWO ARGUMENTS, not the sketched `(a, b, i)`** — the band index has no
+>   work inside a field-wise compare and belongs in the failure message, where it is already
+>   a literal. **Task 8's proof poison should trip `cfg_eq`/`band_eq` in this two-arg shape.**
+> - Each comparison is bound to a `const` before the `ensure` so the oracle call is
+>   transcribed ONCE (the message interpolates the index); a second inline copy inside the
+>   message would be a second hand transcription free to drift.
 
 ### Task 8: Poisons
 
