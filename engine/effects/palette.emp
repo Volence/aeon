@@ -320,9 +320,22 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
 // Palette_Compose — the once-per-frame composition, called from GameLoop.
 //
 // Order is FIXED (base -> cycling -> cross-fade -> operators -> variants). Each
-// layer that runs ORs the CRAM lines it changed into d7; the accumulated mask is
-// OR'd into Palette_Dirty at the end so Enqueue_Dirty_Buffers ships only the lines
-// that moved. A fully static frame costs one `tst.b Pal_Active` and returns.
+// layer that runs publishes the CRAM lines it changed STRAIGHT into Palette_Dirty,
+// so Enqueue_Dirty_Buffers ships only the lines that moved. A fully static frame
+// costs one `tst.b Pal_Active` and returns.
+//
+// THERE IS NO d7 ACCUMULATOR IN THIS PROC. This header used to claim one ("each layer
+// ORs the CRAM lines it changed into d7; the accumulated mask is OR'd into
+// Palette_Dirty at the end") and no such register exists here — nor could it: the layer
+// sub-procs all declare clobbers(...d7...), so a mask held across those calls would not
+// survive them. That is exactly what the body note below has always said, so the file
+// contradicted itself; the body was right.
+//
+// DO NOT CONFUSE THIS WITH Palette_DoCycle, which genuinely does keep a d7 touched-line
+// accumulator INTERNALLY (`moveq #0, d7` ... `bset d0, d7` ... `or.b d7, Palette_Dirty`)
+// and publishes it itself before returning. That one is real and load-bearing: a booked
+// fix depends on it (docs/DEFERRED_WORK.md, raster substrate sweep item 2 — moving the
+// PAL_ACT_VARIANT_STALE set into DoCycle's rotation branch gated on `d7 != 0`).
 // ===========================================================================
 pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
         tst.b   Pal_Active

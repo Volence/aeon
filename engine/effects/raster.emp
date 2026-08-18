@@ -79,7 +79,11 @@ use engine.irq.{ints_off}
 // active display, less ~44 for autovector exception entry — about 60 usable. A CRAM
 // write outside that window paints a visible dot (single-ported CRAM, Ruling 2b),
 // which is why RASTER_CRAM_MAX is 3 and why the save set below is deliberately
-// small: a 4-register movem round trip alone would be 40 of those cycles.
+// small: a 4-register movem ROUND TRIP alone is 84 of those cycles. Derivation, from
+// the 68000 movem timings — register-to-memory predecrement is 8 + 8n and
+// memory-to-register postincrement is 12 + 8n, so at n = 4 the push
+// (movem.l d0-d1/a1-a2, -(sp)) is 8 + 32 = 40 and the pop is 12 + 32 = 44. This note
+// used to say 40, which is the PUSH ONLY — it charged half the round trip it names.
 //
 // VDP-access invariant (the HBlankHandler note above): the handler runs in raw
 // interrupt context and writes the VDP control port, so it can corrupt a two-word
@@ -838,7 +842,15 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // anchor finding: the clean mixed-shape evidence never covered single-op fires;
         // the measured restore-vs-cram offset, ~10 px, matched the pinned model within
         // 2 cyc). The value below was JUMPED to from the measured deficit (the clean
-        // mixed shape carries ~152 cyc of pre-burst delay: SetReg 94 + spin 58) and then
+        // mixed shape carries ~168 cyc of pre-burst delay: SetReg 110 + spin 58 — the
+        // 94 this line used to give was the RUNGS=4 figure, superseded by R1's fifth
+        // dispatch rung. Derivation from the live model in raster_dsl.emp: an OP_SET_REG
+        // costs RASTER_OP_FETCH_CYC 8 + RASTER_DISPATCH_RUNG_CYC 16 * RASTER_DISPATCH_RUNGS 5
+        // + RASTER_WORK_REG_CYC 12 + RASTER_OP_TAIL_CYC 10 = 110, which is also what
+        // fixture F1's pin measures, 412 = base 302 + 110, "was 396 at RUNGS=4".
+        // NOTE THIS WIDENS RATHER THAN NARROWS the open single-op defect: a leading
+        // stream op still carries only ~58 cyc, so the gap against this shape is bigger
+        // than the stale 152 implied. Booked in docs/DEFERRED_WORK.md, sweep item 1) and then
         // pixel-verified: authored edge row fully tinted, next row fully base.
         // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
         // neither adjacent value clean -> narrow the stream count (spec §3.2).
@@ -969,9 +981,21 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         move.l  a1, Raster_Patch_Tab            // table first
 
         // ---- the off-screen ship pointer, derived from the ROM template ----
-        // Trailer layout: [n (word)][channel (word)][DMAEntry (14 bytes)], sitting after the
-        // patch table at RASTER_BUF_SIZE + 2 + 10*records. Read the record count the table
-        // already starts with and step over it.
+        // Trailer layout: [n (word)] then, per shipping channel, [channel][stage offset]
+        // [colour count][CRAM byte address][reg count][reg words...] — sitting after the patch
+        // table at RASTER_BUF_SIZE + 2 + 10*records. Read the record count the table already
+        // starts with and step over it.
+        //
+        // IT HOLDS PARAMETERS, NOT A BUILT DMAEntry. This line used to read
+        // "[channel (word)][DMAEntry (14 bytes)]"; there is no DMAEntry anywhere in the ROM
+        // trailer. Pal_Variant_Stage's address is a LINK-time value, and folding one into the
+        // emitted program image makes that image non-comptime, which breaks the whole-image
+        // `first_mismatch(patched_program(...), hand_twin)` pin every patched fixture rests on —
+        // so Raster_BuildShipEntry (below) adds the base and builds the 14-byte entry into
+        // Static_Pal_Ship at install time instead. Its own header, buffers.emp's replay site
+        // ("Entry layout after the channel word: [stage off][colour count][CRAM addr][reg
+        // count][reg words...]") and ship_trailer's emitter all described this correctly
+        // already; only this line disagreed.
         //
         // TEN BYTES PER ENTRY, AND TEN IS NOT A SHIFT. The stride was a single `lsl.w #3`
         // while entries were four words; the fifth word (rec_off/rec_len replacing arm_off)
