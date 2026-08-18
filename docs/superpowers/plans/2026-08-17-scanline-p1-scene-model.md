@@ -84,22 +84,22 @@ Where this plan and the spec disagree, the spec wins — stop and reconcile.
 Three feasibility questions the spec left to P1. Build a throwaway module answering each
 with a compiling (or cleanly-failing) probe; report findings verbatim in the task report.
 
-- [ ] **Step 1:** Probe A — can a `pub const` (or comptime array) hold an array of struct
+- [x] **Step 1:** Probe A — can a `pub const` (or comptime array) hold an array of struct
   values (`[parallax_config; 2]`-of-values built by a comptime fn) and can a comptime fn
   fold over it (`for` + field access) into an int? Mirror the shape `RasterOp` arrays use
   in `raster_dsl.emp` (comptime enum arrays exist — confirm the same works for plain
   structs).
-- [ ] **Step 2:** Probe B — can one comptime fn return different wrapper types
+- [x] **Step 2:** Probe B — can one comptime fn return different wrapper types
   (ParallaxCfg1 vs ParallaxCfg5)? Expected NO (no generics) — confirm, so the lowering
   keeps per-count emission (`if` chains or per-count fns). Also probe: `data X: T = <call>`
   where the call returns the nested struct — this is exactly how configs.emp works today,
   so it must pass.
-- [ ] **Step 3:** Probe C — in `implement Game`, can a const bind a computed comptime
+- [x] **Step 3:** Probe C — in `implement Game`, can a const bind a computed comptime
   expression (e.g. `const SCANLINE_CAPS = caps_fold()` where caps_fold is imported)?
   Precedent is only an imported literal (`ENTRY_ID = GS_OJZ_SCROLL_TEST`,
   games/sonic4/config/game.emp:23). If NO: the fallback is RULED (spec §3.2) — game
   hand-writes the mask word; a registry-side `ensure(mask == folded)` verifies it.
-- [ ] **Step 4:** Delete the scratch module. Report: A yes/no, B shape chosen, C
+- [x] **Step 4:** Delete the scratch module. Report: A yes/no, B shape chosen, C
   computed-vs-fallback. Commit nothing except the report (no files remain).
 
 > **TASK 1 SPIKE FINDINGS (2026-08-17, all build-proven; bind later tasks):**
@@ -124,7 +124,7 @@ Pure-comptime module (emits zero bytes itself — mirror the `parallax_dsl.emp:9
 banner). All ensures live HERE (always in the use closure of any game that authors scenes
 — the dead-guard rule).
 
-- [ ] **Step 1:** Module skeleton + capability-bit consts:
+- [x] **Step 1:** Module skeleton + capability-bit consts:
 
 ```
 // engine/level/scene_dsl.emp — the authored scene model (spec 2026-08-17 §2/§3).
@@ -149,7 +149,7 @@ pub const CAP_TRANSITIONS    = $0010
 // CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
 ```
 
-- [ ] **Step 2:** Attachment enums — comptime enums with payloads (the `RasterOp`
+- [x] **Step 2:** Attachment enums — comptime enums with payloads (the `RasterOp`
   precedent, raster_dsl.emp:83-105). NO `Label = 0` defaults anywhere (spec §3.1):
 
 ```
@@ -174,7 +174,7 @@ pub const TRANS_SMOOTH = 0
 pub const TRANS_INSTANT = 1
 ```
 
-- [ ] **Step 3:** `SceneLayer` + `layer()` — world-Y authored, cell-quantum ensured:
+- [x] **Step 3:** `SceneLayer` + `layer()` — world-Y authored, cell-quantum ensured:
 
 ```
 pub struct SceneLayer {
@@ -199,15 +199,15 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
 }
 ```
 
-- [ ] **Step 4:** Build both sonic4 shapes (module not yet used — must not break
+- [x] **Step 4:** Build both sonic4 shapes (module not yet used — must not break
   anything). Expected: green, ROM bytes unchanged.
-- [ ] **Step 5:** Commit `engine/level/scene_dsl.emp`.
+- [x] **Step 5:** Commit `engine/level/scene_dsl.emp`.
 
 ### Task 3: scene_dsl — `scene()`, capability fold, lowering
 
 **Files:** Modify `engine/level/scene_dsl.emp`
 
-- [ ] **Step 1:** The `Scene` value + `scene()` constructor. Ports the two load-bearing
+- [x] **Step 1:** The `Scene` value + `scene()` constructor. Ports the two load-bearing
   hdr() guards BY NAME (spec §3.1). `layer_mask_raw` exists solely because shipped configs
   carry mask bits beyond band_count (OJZ_Default: 4 bands, mask $1F) that derived masks
   cannot reproduce — byte-identity bridge, documented:
@@ -255,7 +255,7 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
   (The `...match` sketches above are written out fully in the file — exhaustive match on
   every enum, no default arms.)
 
-- [ ] **Step 2:** Capability fold — one scene → mask, and the registry-level OR:
+- [x] **Step 2:** Capability fold — one scene → mask, and the registry-level OR:
 
 ```
 pub comptime fn scene_caps(s: Scene) -> int {
@@ -270,13 +270,13 @@ pub comptime fn scene_caps(s: Scene) -> int {
 }
 ```
 
-- [ ] **Step 3:** Lowering — `scene_hdr(s) -> parallax_config` and
+- [x] **Step 3:** Lowering — `scene_hdr(s) -> parallax_config` and
   `scene_band(s, i) -> band_entry`, producing field-for-field what configs.emp's `hdr()`
   and `band()` produce today (same packing: `fa & 15`, `(fa >> 4) & 15`, `(fa >> 8) & 1`;
   mask = raw override or derived; enum matches map to the pcfg_* fields, `SceneDeform.none`
   → table 0 speed 1, exactly hdr()'s defaults). All literal packing INLINE in the fn body
   (call-site resolution rule).
-- [ ] **Step 4:** Build both sonic4 shapes: green, bytes unchanged. Commit.
+- [x] **Step 4:** Build both sonic4 shapes: green, bytes unchanged. Commit.
 
 > **TASK 3 FINDINGS (2026-08-18, all build-proven; commits a82cab59 + c9029388; two
 > review stages passed). Bind later tasks:**

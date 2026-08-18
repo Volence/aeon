@@ -41,8 +41,9 @@ use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 //
 // THE TWO AXES FAIL VERY DIFFERENTLY, which is the whole reason bodies inline numbers
 // but keep calling helpers by name. A selective import is LOUD on the function axis —
-// measured at 217 `unknown function` errors, so that constraint enforces itself and no
-// build can slip past it. It is SILENT on the constant axis: a name that resolves to
+// one `unknown function` error per call site (measured twice, at 217 and 152 errors; the
+// count is a property of the probe, the SHAPE is the fact), so that constraint enforces
+// itself and no build can slip past it. It is SILENT on the constant axis: a name that resolves to
 // nothing inside a body does not error, it degrades (raster_dsl.emp:449-457 — an
 // imported bound collapsed a range to empty and compose() emitted zero fires). Loud is
 // tolerable; silent is not. Hence: helpers by name (all `pub`, for this reason and no
