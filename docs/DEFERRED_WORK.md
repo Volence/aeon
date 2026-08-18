@@ -4773,6 +4773,32 @@ survives untouched, so no finding expires.
 
 ### LANDED 2026-08-18 — the zero-byte subset (branch `feature/raster-substrate-fixes`)
 
+**Item 6 — CLOSED 2026-08-18, and the constant it left unverified turns out to be CORRECT.**
+`effects_gates.py`'s cost gate now names **F4** in its `--only` list, with the expectation
+computed from the shipped constants like every other row (never typed in):
+`fire_region = base + fetch + rung + hit + REGION + 3*word + tail`, `expect_f4 = f0 + 6*fire_region`.
+
+The **first ever hardware measurement** of that fixture (s4.debug.bin `ab1055d4`):
+**F4 = 3968 cyc/frame, 566/fire** — matching the computed expectation exactly. So
+`RASTER_WORK_REGION_CYC = 122` was right for the entire time nothing was checking it. The gap
+the sweep found was real; the drift it feared never happened.
+
+**The 16 cycles that make it look broken.** The model puts region 32 cycles over cram (122 vs
+90) while hardware measures a 48-cycle per-fire gap. The difference is ONE failed dispatch rung
+(`RASTER_DISPATCH_RUNG_CYC = 16`): `OP_PAL_REGION` sits at **depth 1**, not depth 0 like
+`OP_CRAM` — `raster.emp:711` orders the chain OP_CRAM, then OP_PAL_REGION, with OP_SET_REG as
+the fall-through. Anyone re-deriving this and getting 32 has forgotten the rung, not found a bug.
+
+**Poison-proved, so the new row is not inert:** perturbing `RASTER_WORK_REGION_CYC` 122→123
+moves the expectation to 3974 against an unchanged measured 3968 and the gate FAILS. Restored.
+
+**Item 5 remains OPEN — and it is a PROCESS gap, not hidden rot.** The full lane was run by hand
+2026-08-18 and passed **10/10 gates, exit 0**, so nothing had drifted. Note the script's own
+docstring argues these gates *cannot* live in `build.sh` (each boots a headless emulator), and
+build.sh agrees in its comment beside the pytest lane — so "unwired" is not a forgotten line, it
+is a manual ritual that nothing enforces. Closing it means choosing an enforcement point (merge
+checklist / parcel-completion ritual), which is an owner call, not a code fix.
+
 Four commits, each gated on all four ROM shapes staying **bit-for-bit identical** to master
 (`s4.debug` crc=ab1055d4 len=712752 · `s4` crc=7e4dc5de len=697868 · `demo.debug`
 crc=10aad76c len=100805 · `demo` crc=2ecd1031 len=96451). Every claim was re-verified against
