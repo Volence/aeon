@@ -345,8 +345,39 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
     // land after the two priming fires on lines 0-1.
     ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
-    ensure(top + lines <= 224,
-           "raster_gradient_program: run {top}..{top + lines - 1} runs past screen line 223")
+    // THE CEILING IS 223, NOT 224, AND THE MISSING LINE IS DELIBERATE — do not "fix" it back.
+    //
+    // DERIVATION. Raster_VBlank rewinds the frame unconditionally (`clr.w Raster_Dense_Lines`
+    // + `move.l a1, Raster_Cursor`, this file ~:608), and Raster_HInt carries no frame or line
+    // test. The HInt counter decrements for lines 0..224, so `top + lines == 224` is exactly
+    // the authorable case that puts a fire on line 223 — the same line VINT fires. IRQ6 masks
+    // level 4, so that IRQ4 is DEFERRED past the rewind rather than lost: it then consumes
+    // priming record 0, overwrites the reg $0A = 0 the rewind just flushed, and shifts every
+    // record by one for the whole next frame. Because the rewind repeats, so does the shift —
+    // a STUCK state, not a one-frame blip. (With top=96/96 lines the run would render at
+    // 189..223 instead of 96..191, every frame.)
+    //
+    // 224 was never reachable as a LAST line (`top + lines` is one past the end), so the only
+    // thing this bound removes is the last-line-223 case. Nothing shipped is near it: the two
+    // callers in the tree are OJZ_TestGradient (96+96 = 192) and OJZ_TestRamp (112+96 = 208).
+    //
+    // THIS IS A MITIGATION OF THE AUTHORABLE CASE, NOT THE STRUCTURAL FIX. The structural fix —
+    // a one-byte frame-epoch flag so a pre-rewind fire retires as a park — remains booked in
+    // docs/DEFERRED_WORK.md ("Raster substrate lens sweep", item 3), and this bound does not
+    // close it: it only makes the hazard unauthorable through these two constructors.
+    //
+    // HONESTY ABOUT THE EVIDENCE: the interrupt-priority reasoning above is SOURCE-CONFIRMED
+    // (the project's own HInt survey + the 68000 mask rules), NOT emulator-confirmed. No
+    // measurement of a line-223 dense run exists. Do not relax this without one.
+    //
+    // A literal 223 and not a named constant ON PURPOSE. This is a comptime fn body, so its
+    // free names resolve at the EMISSION site's scope (the import note at the head of
+    // games/sonic4/data/effects/ojz_effects.emp documents the rule and its failure modes).
+    // A new name here would have to be imported by every present and future call site, and a
+    // degraded name that collides with a real label or `equ` is the one SILENT case — which in
+    // a guard means the guard stops guarding. The literal cannot degrade.
+    ensure(top + lines <= 223,
+           "raster_gradient_program: run {top}..{top + lines - 1} must END at screen line 222 or above. Line 223 is barred and this is not an off-by-one: a fire on 223 raises HINT on the same line VINT fires, IRQ6 masks level 4, so the deferred IRQ4 runs AFTER Raster_VBlank's unconditional frame rewind, consumes priming record 0 and shifts every record by one for the whole NEXT frame — and it repeats every frame, so it is a stuck state, not a blip. Shorten the run or raise nothing: see the derivation above this ensure.")
     // The command must BE a CRAM write, or the derived mask is a palette line computed
     // from something that is not a palette address. The round trip proves target, op and
     // address in one comparison, and it subsumes the pin each call site used to carry.
@@ -430,8 +461,15 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
                                     start: int, step: int) -> RasterRampProgram {
     ensure(top >= 3, "raster_ramp_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_ramp_program: line count {lines} must be positive")
-    ensure(top + lines <= 224,
-           "raster_ramp_program: run {top}..{top + lines - 1} runs past screen line 223")
+    // THE CEILING IS 223, NOT 224 — the full derivation is above raster_gradient_program's
+    // matching ensure, and it applies verbatim here: a fire on line 223 raises HINT on the
+    // same line VINT fires, IRQ6 defers that IRQ4 past Raster_VBlank's unconditional frame
+    // rewind, and the resulting one-record shift repeats every frame. Mitigation of the
+    // authorable case only; the frame-epoch structural fix stays booked in
+    // docs/DEFERRED_WORK.md. Source-confirmed, NOT emulator-confirmed. Literal, not a named
+    // constant, for the comptime-emission-scope reason given there.
+    ensure(top + lines <= 223,
+           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. Line 223 is barred and this is not an off-by-one: a fire on 223 raises HINT on the same line VINT fires, IRQ6 masks level 4, so the deferred IRQ4 runs AFTER Raster_VBlank's unconditional frame rewind, consumes priming record 0 and shifts every record by one for the whole NEXT frame — and it repeats every frame, so it is a stuck state, not a blip. See the derivation at raster_gradient_program's matching ensure.")
     let addr = vdp_comm_addr(cmd)
     // Exactly one of the two supported targets, and the mask follows from which. INT
     // flags, not booleans, and the mask is built in a comptime var rather than an
