@@ -6,6 +6,12 @@ These conventions encode lessons from: S.C.E. (Sonic Clean Engine), Batman & Rob
 
 ---
 
+> **Before writing nontrivial comptime code, read `docs/EMP_PITFALLS.md`** — the measured
+> silent-failure traps in the language (nested if-exprs yield unit, helper imports don't
+> travel, dead guards in unreachable modules, register-token names, `extern()` comptime
+> poisoning, `assert.*` context traps, `adda` spelling). Every entry was hit live in this
+> tree; the failure mode is silence, and the countermeasure is inversion.
+
 ## 1. Sigil & the `.emp` Language — Use It to the Fullest
 
 This engine is assembled by **sigil** from `.emp` source; the spellings below are
