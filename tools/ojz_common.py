@@ -30,6 +30,25 @@ LAYOUT_DIR = os.path.join(SONIC_HACK, "level/layout")
 CHUNK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/128x128/OJZ.bin")
 BLOCK_MAP_PATH = os.path.join(SONIC_HACK, "mappings/16x16/OJZ.bin")
 
+
+def skdisasm_root() -> str:
+    """The skdisasm donor checkout root — the SECOND out-of-repo donor.
+
+    Lives here (beside SONIC_HACK) because three call sites need the same
+    answer and a divergence between them is a real failure mode, not a style
+    point: `ojz_strip_gen.preflight()` checks it BEFORE the destructive
+    `import_sk_collision.py` write (tools lens sweep D1), and
+    `donor_provenance` records the revision of whatever was actually read. If
+    preflight resolved a different root than the importer, the preflight would
+    pass for a run that then fails destructively — and the provenance would
+    name a checkout that never contributed a byte.
+
+    Resolved as a function, not a module constant, because the tests need to
+    vary AEON_SKDISASM_DIR within one process.
+    """
+    return os.environ.get("AEON_SKDISASM_DIR") or os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "skdisasm"))
+
 # ---------------------------------------------------------------------------
 # Block / chunk geometry (needed by the loaders below)
 # ---------------------------------------------------------------------------
