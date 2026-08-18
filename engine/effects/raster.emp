@@ -79,7 +79,11 @@ use engine.irq.{ints_off}
 // active display, less ~44 for autovector exception entry — about 60 usable. A CRAM
 // write outside that window paints a visible dot (single-ported CRAM, Ruling 2b),
 // which is why RASTER_CRAM_MAX is 3 and why the save set below is deliberately
-// small: a 4-register movem round trip alone would be 40 of those cycles.
+// small: a 4-register movem ROUND TRIP alone is 84 of those cycles. Derivation, from
+// the 68000 movem timings — register-to-memory predecrement is 8 + 8n and
+// memory-to-register postincrement is 12 + 8n, so at n = 4 the push
+// (movem.l d0-d1/a1-a2, -(sp)) is 8 + 32 = 40 and the pop is 12 + 32 = 44. This note
+// used to say 40, which is the PUSH ONLY — it charged half the round trip it names.
 //
 // VDP-access invariant (the HBlankHandler note above): the handler runs in raw
 // interrupt context and writes the VDP control port, so it can corrupt a two-word
@@ -345,8 +349,39 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
     // land after the two priming fires on lines 0-1.
     ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
-    ensure(top + lines <= 224,
-           "raster_gradient_program: run {top}..{top + lines - 1} runs past screen line 223")
+    // THE CEILING IS 223, NOT 224, AND THE MISSING LINE IS DELIBERATE — do not "fix" it back.
+    //
+    // DERIVATION. Raster_VBlank rewinds the frame unconditionally (`clr.w Raster_Dense_Lines`
+    // + `move.l a1, Raster_Cursor`, this file ~:608), and Raster_HInt carries no frame or line
+    // test. The HInt counter decrements for lines 0..224, so `top + lines == 224` is exactly
+    // the authorable case that puts a fire on line 223 — the same line VINT fires. IRQ6 masks
+    // level 4, so that IRQ4 is DEFERRED past the rewind rather than lost: it then consumes
+    // priming record 0, overwrites the reg $0A = 0 the rewind just flushed, and shifts every
+    // record by one for the whole next frame. Because the rewind repeats, so does the shift —
+    // a STUCK state, not a one-frame blip. (With top=96/96 lines the run would render at
+    // 189..223 instead of 96..191, every frame.)
+    //
+    // 224 was never reachable as a LAST line (`top + lines` is one past the end), so the only
+    // thing this bound removes is the last-line-223 case. Nothing shipped is near it: the two
+    // callers in the tree are OJZ_TestGradient (96+96 = 192) and OJZ_TestRamp (112+96 = 208).
+    //
+    // THIS IS A MITIGATION OF THE AUTHORABLE CASE, NOT THE STRUCTURAL FIX. The structural fix —
+    // a one-byte frame-epoch flag so a pre-rewind fire retires as a park — remains booked in
+    // docs/DEFERRED_WORK.md ("Raster substrate lens sweep", item 3), and this bound does not
+    // close it: it only makes the hazard unauthorable through these two constructors.
+    //
+    // HONESTY ABOUT THE EVIDENCE: the interrupt-priority reasoning above is SOURCE-CONFIRMED
+    // (the project's own HInt survey + the 68000 mask rules), NOT emulator-confirmed. No
+    // measurement of a line-223 dense run exists. Do not relax this without one.
+    //
+    // A literal 223 and not a named constant ON PURPOSE. This is a comptime fn body, so its
+    // free names resolve at the EMISSION site's scope (the import note at the head of
+    // games/sonic4/data/effects/ojz_effects.emp documents the rule and its failure modes).
+    // A new name here would have to be imported by every present and future call site, and a
+    // degraded name that collides with a real label or `equ` is the one SILENT case — which in
+    // a guard means the guard stops guarding. The literal cannot degrade.
+    ensure(top + lines <= 223,
+           "raster_gradient_program: run {top}..{top + lines - 1} must END at screen line 222 or above. Line 223 is barred and this is not an off-by-one: a fire on 223 raises HINT on the same line VINT fires, IRQ6 masks level 4, so the deferred IRQ4 runs AFTER Raster_VBlank's unconditional frame rewind, consumes priming record 0 and shifts every record by one for the whole NEXT frame — and it repeats every frame, so it is a stuck state, not a blip. Shorten the run or raise nothing: see the derivation above this ensure.")
     // The command must BE a CRAM write, or the derived mask is a palette line computed
     // from something that is not a palette address. The round trip proves target, op and
     // address in one comparison, and it subsumes the pin each call site used to carry.
@@ -430,8 +465,15 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
                                     start: int, step: int) -> RasterRampProgram {
     ensure(top >= 3, "raster_ramp_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_ramp_program: line count {lines} must be positive")
-    ensure(top + lines <= 224,
-           "raster_ramp_program: run {top}..{top + lines - 1} runs past screen line 223")
+    // THE CEILING IS 223, NOT 224 — the full derivation is above raster_gradient_program's
+    // matching ensure, and it applies verbatim here: a fire on line 223 raises HINT on the
+    // same line VINT fires, IRQ6 defers that IRQ4 past Raster_VBlank's unconditional frame
+    // rewind, and the resulting one-record shift repeats every frame. Mitigation of the
+    // authorable case only; the frame-epoch structural fix stays booked in
+    // docs/DEFERRED_WORK.md. Source-confirmed, NOT emulator-confirmed. Literal, not a named
+    // constant, for the comptime-emission-scope reason given there.
+    ensure(top + lines <= 223,
+           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. Line 223 is barred and this is not an off-by-one: a fire on 223 raises HINT on the same line VINT fires, IRQ6 masks level 4, so the deferred IRQ4 runs AFTER Raster_VBlank's unconditional frame rewind, consumes priming record 0 and shifts every record by one for the whole NEXT frame — and it repeats every frame, so it is a stuck state, not a blip. See the derivation at raster_gradient_program's matching ensure.")
     let addr = vdp_comm_addr(cmd)
     // Exactly one of the two supported targets, and the mask follows from which. INT
     // flags, not booleans, and the mask is built in a comptime var rather than an
@@ -799,9 +841,23 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // bare single-op cram ON fire spilled identically at x~170, confirming sweep 4's
         // anchor finding: the clean mixed-shape evidence never covered single-op fires;
         // the measured restore-vs-cram offset, ~10 px, matched the pinned model within
-        // 2 cyc). The value below was JUMPED to from the measured deficit (the clean
-        // mixed shape carries ~152 cyc of pre-burst delay: SetReg 94 + spin 58) and then
+        // 2 cyc). The value below was JUMPED to from the measured deficit, and then
         // pixel-verified: authored edge row fully tinted, next row fully base.
+        //
+        // THE PRE-BURST DELAY THIS WAS FITTED TO. The clean mixed shape carries ~168 cyc:
+        // SetReg 110 + spin 58. The 94 this line used to give was the RUNGS=4 figure,
+        // superseded by R1's fifth dispatch rung. Derivation from the live model in
+        // raster_dsl.emp: an OP_SET_REG costs RASTER_OP_FETCH_CYC 8 +
+        // RASTER_DISPATCH_RUNG_CYC 16 * RASTER_DISPATCH_RUNGS 5 + RASTER_WORK_REG_CYC 12 +
+        // RASTER_OP_TAIL_CYC 10 = 110, which is also what fixture F1's pin measures:
+        // 412 = base 302 + 110, "was 396 at RUNGS=4". (~168 is not a complete pre-burst
+        // accounting — it omits the CRAM op's own fetch/dispatch/move.l, ~46 cyc — but the
+        // stale ~152 omitted the identical terms, so the load-bearing quantity, the
+        // 110-cycle single-op-vs-two-op gap, is invariant to that.)
+        //
+        // NOTE THIS WIDENS RATHER THAN NARROWS the open single-op defect: a leading
+        // stream op still carries only ~58 cyc, so the gap against this shape is bigger
+        // than the stale 152 implied. Booked in docs/DEFERRED_WORK.md, sweep item 1.
         // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
         // neither adjacent value clean -> narrow the stream count (spec §3.2).
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
@@ -931,9 +987,21 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         move.l  a1, Raster_Patch_Tab            // table first
 
         // ---- the off-screen ship pointer, derived from the ROM template ----
-        // Trailer layout: [n (word)][channel (word)][DMAEntry (14 bytes)], sitting after the
-        // patch table at RASTER_BUF_SIZE + 2 + 10*records. Read the record count the table
-        // already starts with and step over it.
+        // Trailer layout: [n (word)] then, per shipping channel, [channel][stage offset]
+        // [colour count][CRAM byte address][reg count][reg words...] — sitting after the patch
+        // table at RASTER_BUF_SIZE + 2 + 10*records. Read the record count the table already
+        // starts with and step over it.
+        //
+        // IT HOLDS PARAMETERS, NOT A BUILT DMAEntry. This line used to read
+        // "[channel (word)][DMAEntry (14 bytes)]"; there is no DMAEntry anywhere in the ROM
+        // trailer. Pal_Variant_Stage's address is a LINK-time value, and folding one into the
+        // emitted program image makes that image non-comptime, which breaks the whole-image
+        // `first_mismatch(patched_program(...), hand_twin)` pin every patched fixture rests on —
+        // so Raster_BuildShipEntry (below) adds the base and builds the 14-byte entry into
+        // Static_Pal_Ship at install time instead. Its own header, buffers.emp's replay site
+        // ("Entry layout after the channel word: [stage off][colour count][CRAM addr][reg
+        // count][reg words...]") and ship_trailer's emitter all described this correctly
+        // already; only this line disagreed.
         //
         // TEN BYTES PER ENTRY, AND TEN IS NOT A SHIFT. The stride was a single `lsl.w #3`
         // while entries were four words; the fifth word (rec_off/rec_len replacing arm_off)

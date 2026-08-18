@@ -565,7 +565,12 @@ pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)      
 //   channel 1: 314 - 144 = 170  (band 130..200 — mid-band)
 // Both boundaries are on screen at spawn, and both clamp edges are reachable by scrolling,
 // which is what lets the gate assert absolute predicted rows AND both clamp directions
-// without a debug hook. Channels 2 and 3 are unused; their anchors are 0.
+// without a debug hook. Channels 2 and 3 are unused; their anchors are PATCH_ANCHOR_NONE
+// ($7FFF), NOT 0 — this line said 0 until 2026-08-18 while the call below has always passed
+// the sentinel. The difference is the whole reason the sentinel exists: the parallax overlay
+// derives a screen line as `anchor - Camera_Y`, so a 0 anchor reads as ABOVE the screen top,
+// i.e. "fully submerged", the most invasive possible default for a channel nobody asked for
+// (see PATCH_ANCHOR_NONE in raster_dsl.emp).
 pub data OJZ_Preset_Sec0:  EffectsPreset = preset(pal: OJZ_Palette, patched: OJZ_TwoChannel,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0],
                                                   parallax: ParallaxConfig_OJZ_Underwater,
                                                   patch_world_ys: [224, 314, PATCH_ANCHOR_NONE, PATCH_ANCHOR_NONE])
@@ -583,8 +588,13 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // compared word-for-word against the hand twins below, so that the runtime patcher parcel
 // inherits a table whose every offset is already proved at build time.
 //
-// Channel 0 — the water shape: S/H on plus a 3-colour region swap, band 3..214.
-// Channel 1 — a plane B vertical scroll split, band 216..223.
+// Channel 0 — the water shape: S/H on plus a 3-colour region swap, band 3..220.
+// Channel 1 — a plane B vertical scroll split, band 222..223.
+//
+// (Those bands read 3..214 and 216..223 until 2026-08-18, two supersessions behind the
+// constructor call below — the re-band note further down already describes channel 1 moving to
+// the bottom and then giving up six more lines to 222. The authored values are lo: 3, hi: 220
+// and lo: 222, hi: 223, and the budget line below only balances at 221 with those.)
 //
 // THE WATER CHANNEL OWNS ALMOST THE WHOLE SCREEN, and that is the point of this layout.
 // The band is where Raster_BuildSchedule CLAMPS the boundary, so whatever the band cannot reach,
@@ -614,10 +624,19 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // nothing and cost the water three rows of honesty. Worst-case dry-side error: 10 rows -> 3.
 //
 // The bands are now 2 fire lines apart rather than 10, and that is the number to watch: the
-// density guard measures band edge to band edge, and channel 0's fire is modelled at 526
-// cycles against a 489-cycle line, so it spills about one line past its own. Two lines of
+// density guard measures band edge to band edge, and channel 0's fire is modelled at 676
+// cycles against a 488-cycle line, so it spills about one line past its own. Two lines of
 // separation is the margin; the guard adjudicates it at build time, and if a future op makes
 // channel 0 costlier this is the first thing that will fail.
+//
+// THE MARGIN WAS OVERSTATED BY ~150 CYCLES until 2026-08-18, and both numbers were wrong.
+// 526 was an `interrupts.hint` differential that tools/effects_budget_model.toml itself files
+// as `sparse_fire_cram3_cycles_SUPERSEDED` — and it was never this fire's cost anyway, being a
+// bare 3-word stream_cram. The live model derives this fire (reg_sh_on + 3-word region) as
+// base 302 + SetReg 110 + PalRegion 264 = 676, stated in that arithmetic at raster_dsl.emp's
+// `merged fire tops out at` note. The line is RASTER_SCANLINE_CYC = 488, floored from
+// 128000/262 = 488.5, not 489. The conclusion ("spills about one line") survives — 676 - 488 =
+// 188 cycles into the following line — but the headroom this note implied did not exist.
 //
 // LO WAS 40 UNTIL Parcel W SHIPPED AND SOMEBODY LOOKED AT IT. The band is where
 // Raster_BuildSchedule clamps the boundary, so a lo of 40 meant that once the camera descended
@@ -677,10 +696,16 @@ const OJZ_TC_TABLE_HAND = [
                                 //    the whole screen; see the re-band note above)
     $8001, 221, 222,   28, 14,  // channel 1: band 221..222, record at byte 28, 14 bytes long
 ]
-// The off-screen ship trailer, after the patch table. Neither channel declares
-// offscreen_ship, so this is the bare count word — and pinning the EMPTY case is worth a line
-// on its own: it is what proves the count word is emitted unconditionally, so the runtime
-// reads one fixed shape instead of branching on whether a program has a trailer.
+// The off-screen ship trailer, after the patch table. The count word is emitted
+// unconditionally, so the runtime reads one fixed shape instead of branching on whether a
+// program has a trailer at all.
+//
+// (This paragraph opened with "Neither channel declares offscreen_ship, so this is the bare
+// count word" until 2026-08-18 — contradicted two lines later by its own continuation, and by
+// the constructor above, where channel 0 passes offscreen_ship: 1. It described the fixture as
+// it stood before the ship shipped. The unconditional-count-word point was the half worth
+// keeping, so it survives above; the empty case is no longer what this pins.)
+//
 // Channel 0 declares offscreen_ship, so the trailer carries the PARAMETERS of its frame-top
 // entry — the same three colours the fire writes, re-issued as a DMA when the anchor is above
 // the screen. Every field is read off the fire's own stream_pal_region op, so this pins the encoder

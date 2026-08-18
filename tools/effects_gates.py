@@ -184,12 +184,29 @@ def main() -> int:
         rung = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNG_CYC")
         rungs = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNGS")
         wreg = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REG_CYC")
+        region = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REGION_CYC")
         # F0 is two priming records; F3 adds six 3-word stream_cram fires. Both figures are
         # COMPUTED from the shipped constants, never typed in.
         f0 = 2 * (base - 16)                       # a no-op record is the fire base less the
                                                    # loop entry/exit a record WITH ops pays
         fire3 = base + fetch + hit + cram + 3 * word + tail
         expect_f3 = f0 + 6 * fire3
+        # F4 (stream_pal_region, 3 words) — WIRED 2026-08-18 by the raster-substrate sweep, which
+        # found it was the one fixture the --only list never named, leaving RASTER_WORK_REGION_CYC
+        # the only work constant with NO path to hardware. It is not a spare: it is the sole
+        # fixture covering the op the shipped OJZ water band fires.
+        #
+        # OP_PAL_REGION dispatches at DEPTH 1, so this pays ONE failed rung on top of the hit —
+        # raster.emp:711 orders the chain OP_CRAM first, then OP_PAL_REGION, with OP_SET_REG as
+        # the fall-through. That rung is the whole reason a naive reading looks broken: the model
+        # puts region 32 cycles over cram (122 vs 90) while hardware measures a 48-cycle gap, and
+        # the missing 16 is the rung, not an error in the constant.
+        #
+        # First measurement (2026-08-18, s4.debug.bin ab1055d4): F4 = 3968 cyc/frame, 566/fire,
+        # against this expectation exactly. So the constant was right for the whole time nothing
+        # was checking it — the gap was real, the drift never happened.
+        fire_region = base + fetch + rung + hit + region + 3 * word + tail
+        expect_f4 = f0 + 6 * fire_region
         # F1 (six one-reg_set fires) is here for a reason F0 and F3 cannot cover: both of them
         # dispatch at DEPTH 0, so neither moves when the compare chain grows. OP_SET_REG is the
         # chain's FALL-THROUGH and pays every rung, so F1 is the only fixture in this gate that
@@ -211,7 +228,7 @@ def main() -> int:
         expect_f8 = f0 + 6 * fire_rest
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),
-                            "--rom", rom, "--lst", lst, "--only", "F0,F1,F3,F5,F8",
+                            "--rom", rom, "--lst", lst, "--only", "F0,F1,F3,F4,F5,F8",
                             "--out", str(jf)],
                            capture_output=True, text=True)
         if p.returncode != 0 or not jf.exists():
@@ -222,15 +239,18 @@ def main() -> int:
             got_f0 = d["F0"]["cycles"][0]
             got_f1 = d["F1"]["cycles"][0]
             got_f3 = d["F3"]["cycles"][0]
+            got_f4 = d["F4"]["cycles"][0]
             got_f5 = d["F5"]["cycles"][0]
             got_f8 = d["F8"]["cycles"][0]
             ok = (got_f0 == f0 and got_f1 == expect_f1 and got_f3 == expect_f3
-                  and got_f5 == expect_f5 and got_f8 == expect_f8)
+                  and got_f4 == expect_f4 and got_f5 == expect_f5 and got_f8 == expect_f8)
             results.append((f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3}, "
-                            f"F5 {expect_f5}, F8 {expect_f8} — all computed from the shipped "
-                            f"constants; F1/F5 carry the fall-through op that feels a "
-                            f"dispatch-chain change, F8 is the restore)", ok,
-                            f"measured F0={got_f0} F1={got_f1} F3={got_f3} F5={got_f5} F8={got_f8}"))
+                            f"F4 {expect_f4}, F5 {expect_f5}, F8 {expect_f8} — all computed from "
+                            f"the shipped constants; F1/F5 carry the fall-through op that feels a "
+                            f"dispatch-chain change, F4 is the region op at dispatch depth 1, "
+                            f"F8 is the restore)", ok,
+                            f"measured F0={got_f0} F1={got_f1} F3={got_f3} F4={got_f4} "
+                            f"F5={got_f5} F8={got_f8}"))
 
     print()
     bad = 0

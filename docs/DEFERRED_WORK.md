@@ -4771,6 +4771,71 @@ neither clean nor dirty, just unexamined.
 subject here (`raster.emp`, `raster_dsl.emp`, `palette.emp`, `buffers.emp`, `bg_anim`, `tools/`)
 survives untouched, so no finding expires.
 
+### LANDED 2026-08-18 — the zero-byte subset (branch `feature/raster-substrate-fixes`)
+
+**Item 6 — CLOSED 2026-08-18, and the constant it left unverified turns out to be CORRECT.**
+`effects_gates.py`'s cost gate now names **F4** in its `--only` list, with the expectation
+computed from the shipped constants like every other row (never typed in):
+`fire_region = base + fetch + rung + hit + REGION + 3*word + tail`, `expect_f4 = f0 + 6*fire_region`.
+
+The **first ever hardware measurement** of that fixture (s4.debug.bin `ab1055d4`):
+**F4 = 3968 cyc/frame, 566/fire** — matching the computed expectation exactly. So
+`RASTER_WORK_REGION_CYC = 122` was right for the entire time nothing was checking it. The gap
+the sweep found was real; the drift it feared never happened.
+
+**The 16 cycles that make it look broken.** The model puts region 32 cycles over cram (122 vs
+90) while hardware measures a 48-cycle per-fire gap. The difference is ONE failed dispatch rung
+(`RASTER_DISPATCH_RUNG_CYC = 16`): `OP_PAL_REGION` sits at **depth 1**, not depth 0 like
+`OP_CRAM` — `raster.emp:711` orders the chain OP_CRAM, then OP_PAL_REGION, with OP_SET_REG as
+the fall-through. Anyone re-deriving this and getting 32 has forgotten the rung, not found a bug.
+
+**Poison-proved, so the new row is not inert:** perturbing `RASTER_WORK_REGION_CYC` 122→123
+moves the expectation to 3974 against an unchanged measured 3968 and the gate FAILS. Restored.
+
+**Item 5 remains OPEN — and it is a PROCESS gap, not hidden rot.** The full lane was run by hand
+2026-08-18 and passed **10/10 gates, exit 0**, so nothing had drifted. Note the script's own
+docstring argues these gates *cannot* live in `build.sh` (each boots a headless emulator), and
+build.sh agrees in its comment beside the pytest lane — so "unwired" is not a forgotten line, it
+is a manual ritual that nothing enforces. Closing it means choosing an enforcement point (merge
+checklist / parcel-completion ritual), which is an owner call, not a code fix.
+
+Six commits, each gated on all four ROM shapes staying **bit-for-bit identical** to master
+(`s4.debug` crc=ab1055d4 len=712752 · `s4` crc=7e4dc5de len=697868 · `demo.debug`
+crc=10aad76c len=100805 · `demo` crc=2ecd1031 len=96451). Every claim was re-verified against
+the code before being acted on.
+
+**CLOSED:**
+- **Item 3** — MITIGATED, not structurally closed. Both dense constructors now
+  `ensure(top + lines <= 223)`, so the last-line-223 hazard is no longer authorable through
+  them. Swept every caller: only `OJZ_TestGradient` (96+96 = 192) and `OJZ_TestRamp`
+  (112+96 = 208), so it was never live. Poison-proved (a 224 run fails the build). **The
+  structural fix — a one-byte frame-epoch flag so a pre-rewind fire retires as a park —
+  REMAINS OPEN**, and the bound does not cover any future non-constructor path into a dense
+  run. Interrupt-priority reasoning is still source-confirmed, not emulator-confirmed.
+- **Item 7** — budget-model rows corrected (`sparse_fire_reg1` 396→412,
+  `sparse_fire_water` 660→676), values re-derived from the live model rather than copied, and
+  the file's `_SUPERSEDED` convention applied. Also corrected `movem_roundtrip_cycles` 40→84
+  (the row named a round trip and carried the push only). These rows remain **UNGATED** — they
+  are measured/modelled, so they do not fit the `[symbols]` resolver, which cannot evaluate a
+  comptime call.
+- **Tier 4 / A2 comment truth** — all 10 corrected across `raster.emp`, `raster_dsl.emp`,
+  `palette.emp`, `ojz_effects.emp`. Note `raster_dsl.emp`'s row-119 guard text was corrected
+  into an explicit **warning** about item 1's single-op hazard, pointing here; it must not be
+  read as though item 1 were handled.
+- **Tier 4 / B2 `BGANIM_MAX_BANDS`** — guard added
+  (`tools/test_bg_emit.py::TestBgAnimBandCeiling`, on build.sh's pytest lane), comparing the
+  three real authorities (`constants.emp`, `bg_anim.emp`'s deliberate module-local mirror, the
+  emitter's cap, now a named constant). All three agreed at 4, so there was no live drift.
+  Four poisons proved it non-vacuous. The span-`ensure` shape of `RASTER_MAX_PATCH` was
+  deliberately NOT copied: `ram.emp` *names* `BGANIM_MAX_BANDS`, so a span guard would have
+  measured itself. The three mirrors are still not collapsible to one authority.
+
+**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving), item 5
+(gate ENFORCEMENT — the lane itself passes, see above), all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
+`RASTER_BUF_SIZE/2` as a bare 64, `palette_dsl`'s self-test-only variant mirror,
+`raster_cost_probe.py`'s unpinned wire format), plus C5 footprint, the EFX-4b angle, and the
+zero-`assert.*` observation.
+
 ### Sequencing — the deadline is Task 9 of scanline P1, not "before P1"
 
 Byte-moving fixes are FREE before P1's Task 9 (they just become part of the baseline) and cost a
@@ -4784,6 +4849,15 @@ own parcel off master, then merge master into the P1 branch before Task 9.
 
 | # | Site | Bytes | Notes |
 |---|---|---|---|
+> **RE-DERIVE ITEM 1's DEFICIT — the packet's "~21" does not reconcile (found in review
+> 2026-08-18).** Each `dbf` spin iteration is 10 cycles (the shipped spin is 4 taken x 10 +
+> 14 not-taken = 54). Covering the 110-cycle single-op-vs-two-op gap needs about +11
+> iterations, i.e. `EFX_BLANK_DELAY` ~= **15**; against the stale 94-cycle gap it would be
+> ~14. Neither reaches the packet's ~21. The landed comment corrections deliberately restate
+> NO number, saying only that the gap is bigger — so nothing in the tree inherited this.
+> Whoever lands item 1 must re-derive from the shipped constants and pin the result, not
+> adopt ~21.
+
 | 1 | `engine/effects/raster.emp:232` | moves | **top finding.** `EFX_BLANK_DELAY=4` was fitted to the 152-cyc two-op (SetReg-prefixed) shape; a SINGLE-op CRAM/region fire carries 58 cyc and lands at x~170 of 320 — mid-active-display. The DSL freely admits that shape (`band(sh: 0)`, `region_boundary(sh: 0)`, `fx_tint_band`). Deficit ~4 → ~21. Latent (all shipped OJZ fires are two-op). **Also: the author-facing guard text at `raster_dsl.emp:340` asserts the OPPOSITE of the measurement recorded at `raster.emp:797-804`** — the row-119 fixture has the stream op second. Fix: split the constant by op position (`_FIRST` / `_AFTER_REG`) + re-pin the F-series, or refuse single-stream-op CRAM fires without a measured opt-out. Correct :340 either way. |
 | 2 | `engine/effects/palette.emp:356` | moves | **costs cycles today.** `.cycling` sets `PAL_ACT_VARIANT_STALE` before `Palette_DoCycle` decides whether anything rotated (rotation is timer-gated at `:419`), so any section binding a cycle script AND a variant pays the full ~19,332-cyc re-derive every frame — the exact regression the stale bit exists to kill ("the 15.1%-of-frame gate"). `OJZ_Preset_Sec3` is that combination. `.fade` same shape, smaller scale. Fix: move the stale-set into DoCycle's rotation branch gated on `d7 != 0` — one instruction (DoCycle already accumulates the touched-line mask in d7). |
 | 3 | `engine/effects/raster.emp:609` | **zero** | No interlock between a deferred IRQ4 and `Raster_VBlank`'s unconditional frame rewind. A dense run ending at line 223 is authorable (both constructors `ensure(top + lines <= 224)`), HINT raises on the same line as VINT, IRQ6 masks level 4, so the pending IRQ4 runs after the rewind, consumes priming record 0, overwrites the flushed `$0A=0` and shifts the whole next frame by one record — a stuck state, not a blip. Source-confirmed, NOT emulator-confirmed. Cheap fix: tighten to `<= 223` (shipped gradient top=96/96 lines passes). Structural: a one-byte frame-epoch flag. |
