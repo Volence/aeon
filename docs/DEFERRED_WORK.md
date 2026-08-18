@@ -5113,6 +5113,19 @@ build-consumed field; or add a gate asserting `project.json`'s resolved tileset 
 AND non-empty, so a revert fails the build rather than the next re-bake two months later.
 **The third is the cheapest and is a real gate, not a convention.**
 
+**CLOSED 2026-08-18 — the third option shipped.** `tools/test_editor_inputs.py`, on
+build.sh's pytest lane (992 -> 996 passed). It asserts a PROPERTY rather than a filename —
+whatever `zones[0].tileset` names must be TRACKED and NON-EMPTY (plus a whole number of
+32-byte tiles) — so it covers both ways this one field has already broken, and it resolves
+the path exactly as `ojz_strip_gen._project_tileset_path` does so it cannot pass for a file
+the consumer never reads. Poison-verified against all three: the 0-byte `chunks_tiles.bin`
+(D3's exact detonation), a tracked non-tileset, and an untracked blob (D2's original state).
+
+The drift MECHANISM is still there — the editor will still rewrite the field on any save —
+but it is now loud at the next build instead of silent for two months. The other two options
+(separating editor-owned from build-consumed fields; making the daemon flag such a change)
+remain open and would address the mechanism itself rather than alarming on it.
+
 ### Also still open from the same packet
 
 - **D4** — the "ROM Build" gate has never built the ROM it asserts about. `test.sh:182` runs
