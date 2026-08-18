@@ -278,6 +278,45 @@ pub comptime fn scene_caps(s: Scene) -> int {
   (call-site resolution rule).
 - [ ] **Step 4:** Build both sonic4 shapes: green, bytes unchanged. Commit.
 
+> **TASK 3 FINDINGS (2026-08-18, all build-proven; commits a82cab59 + c9029388; two
+> review stages passed). Bind later tasks:**
+> - **The authored surface** is `scene(layers, count, v_factor, v_center, v_offset,
+>   v_factor_fg, deform_fg, deform_bg, v_deform, anchor, precision, transition,
+>   layer_mask_raw, v_deform_shift_raw)`, lowering through `scene_hdr(s)` /
+>   `scene_band(s, i)`, folding through `scene_caps(s)` / `fold_caps(scenes)`.
+> - **`match` is expression-form only** (`Expr::Match` exists, no statement form), so the
+>   spec's `match anchor { at(..) => ensure(..) }` sketch is unwritable. Enum payloads are
+>   read through ten exhaustive `pub` accessors and every `ensure` compares INTS at the top
+>   level of `scene()` — which is also the only *correct* spelling, since an `ensure`
+>   comparing a `Label` to an int is silently unevaluable. The two `hdr()` guards are ported
+>   by name and read identically to the originals, which is what keeps Task 7 a proof.
+> - **LANGUAGE TRAP — an `if` in block-tail position evaluates to UNIT, not a value.**
+>   `if a {1} else { if b {1} else {0} }` yields `()` whenever only the inner test is true.
+>   No diagnostic. This silently folded a BG-only-deform scene to `caps = 0` and was caught
+>   only by an independently-derived expected value. Use a flat accumulator over statement
+>   `if`s. Single-level if-expressions are fine; a *call* in block-tail position is fine.
+>   General trap for every `comptime fn` in the tree — booked for upstream in Task 12.
+> - **An unreached module has parse + scan coverage and ZERO body-elaboration coverage.**
+>   Measured: a syntax error in the file fails the build, but `return unknown_name +
+>   MISSING_CONST` inside an uncalled `pub comptime fn` builds green with an unchanged CRC.
+>   So Task 2's banner claim that these guards "always evaluate" was false, and every guard
+>   here stays dead until Task 6 supplies a caller. Red-first via a temporary probe wired
+>   from a placed module is the only evidence that a guard in this file can fail.
+> - **`derived_mask(layers, count)` works as a SHARED helper** called from both `scene()`
+>   (superset guard) and `scene_hdr()` (emitted mask) — one derivation, no drift. The
+>   one-dot rule is not violated: `layers[i]` then `l.ly_enabled` is index-then-one-dot.
+> - **`for i in count..8` is valid** (variable lower bound). Degenerate case is benign:
+>   `ensure` is non-aborting, so `count: 9` runs `for i in 9..8`, an empty reverse range
+>   with no spurious diagnostic — no clamp needed.
+> - **Byte identity is MEASURED, not assumed.** Nine shipped configs were re-authored
+>   through this surface, emitted beside the originals and byte-compared at `.lst` offsets:
+>   all identical, covering both bridges, the anchored case, split FG/BG tables, and the
+>   opposite-polarity deform-speed defaults. **No third bridge species exists.**
+> - **The int surface is closed:** five `ensure`s in `scene()` cover the pad slots, the mask
+>   superset (`raw` may only ADD bits), `layer_mask_raw` in `-1..$FF` (a wider value wraps
+>   the i16 bridge and silently reads back as derive), `v_deform_shift_raw` in `-1..15`, and
+>   both selectors pinned to `0 || 1`.
+
 ### Task 4: Game contract — SCANLINE_CAPS
 
 **Files:** Modify `engine/system/game_contract.emp`, `games/sonic4/config/game.emp`,
