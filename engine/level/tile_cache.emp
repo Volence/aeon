@@ -28,7 +28,7 @@ use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HO
 // (Act/Sec field-offset drift guards now live in engine.structs' per-field wall.)
 // TileCache_DecompressBlock multiplies the flat section id by sizeof(Sec) = 66;
 // the `ensure` keeps 66 the real stride.
-ensure(sizeof(Sec) == 66, "tile_cache multiplies by #66 — keep sizeof(Sec)=66 or the stride is wrong")
+ensure(sizeof(Sec) == 66, "tile_cache's stride pin: sizeof(Sec) moved off 66. The walk now spells #sizeof(Sec) so the STRIDE follows automatically — this pin exists because the section GRID and its generated tables assume 66, so a struct change is a data-format change, not just a stride change")
 
 // coll_src_row_base — staged-block collision-row byte base from an intra-block
 // tile row (mirrors the AS `collSrcRowBase` macro). Parity-safe: halve the tile
@@ -290,7 +290,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         //    flat section id. Every map's [0] entry is the blank tile (global
         //    0) — generator-guaranteed + verify-gated — so the shared zero
         //    page's $0000 words read as blank through ANY section's map. --
-        move.w  d3, d5                         // d5 = flat id (the #66 multiply clobbers d3)
+        move.w  d3, d5                         // d5 = flat id (the stride multiply clobbers d3)
         movea.l Act.act_sec_local_maps(a0), a2 // a2 = [*u8;N] local-map pointer table
         add.w   d5, d5
         add.w   d5, d5                         // flat id * 4
@@ -299,7 +299,7 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         move.l  d7, (a2, d6.w)                 // per-slot map (FindStagedBlock republishes it)
         move.l  d7, Cache_Cur_LocalMap         // current-block map (the patch runs read this)
 
-        mul_const.w d3, #66, d4                // d3 = flat × sizeof(Sec) = 66 (d4 = multiply scratch)
+        mul_const.w d3, #sizeof(Sec), d4       // d3 = flat × the Sec stride (d4 = multiply scratch)
         adda.w  d3, a1                         // a1 = Sec struct pointer
 
         movea.l Sec.sec_block_index(a1), a2    // a2 = block index table base (ROM)
