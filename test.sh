@@ -184,14 +184,24 @@ section "7. ROM Build"
 # games/-pe/game_root.asm — this gate had been RED-but-unbuilt, and the ROM
 # assertions below were silently grading a STALE s4.bin from whenever someone
 # last built by hand. Name the game explicitly; -pe stays as the (no-op) flag.
+# REMOVE THE PRIOR ROM FIRST. The sanity checks below used to be gated on
+# `[ -f "s4.bin" ]` alone, so when the build failed they graded whatever s4.bin a
+# previous manual build had left on disk — six confident PASS lines about a ROM
+# this run did not produce (tools lens sweep D4). Deleting it first makes that
+# impossible rather than merely unlikely: no build, no file, no checks.
+rm -f s4.bin
+
 if ./build.sh sonic4 -pe 2>&1; then
     pass_test "ROM build"
+    ROM_BUILT=1
 else
     fail_test "ROM build"
+    ROM_BUILT=0
 fi
 
-# ROM sanity checks
-if [ -f "s4.bin" ]; then
+# ROM sanity checks — only meaningful if THIS run built the ROM. Both conditions
+# are kept: ROM_BUILT is the honest gate, and -f survives someone reordering this.
+if [ "$ROM_BUILT" = "1" ] && [ -f "s4.bin" ]; then
     ROM_SIZE=$(stat -c%s "s4.bin")
 
     # Check ROM is not empty
@@ -237,7 +247,10 @@ if [ -f "s4.bin" ]; then
         fail_test "Vector table: Reset PC is zero"
     fi
 else
-    fail_test "s4.bin not found after build"
+    # Reached when THIS run did not produce a ROM. Previously unreachable in the
+    # case that mattered: a stale s4.bin from an earlier manual build satisfied
+    # `-f` and the six checks above graded it (tools lens sweep D4).
+    fail_test "s4.bin not produced by this run — ROM sanity checks SKIPPED (not passed)"
 fi
 
 # -----------------------------------------------

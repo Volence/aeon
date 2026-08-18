@@ -173,10 +173,18 @@ _LABEL_BEFORE_DIRECTIVE: frozenset = frozenset({
     "struct", "endstruct", "macro", "endm", "function",
 })
 
-# File-level skips
+# File-level skips — VENDORED code we do not style-police.
+#
+# Paths are relative to the PROJECT ROOT, because that is the base_dir main()
+# passes (AS resolves includes from the cwd it assembles from). They previously
+# read "debug/..." and were DEAD CODE: main() passed base_dir = dirname(entry), so
+# includes never resolved at all and these files were never discovered in order to
+# be skipped (tools lens sweep D5). Fixing the resolution made them reachable and
+# immediately produced 44 style warnings against the vendored MD Debugger, which is
+# what these entries were always meant to prevent.
 _SKIP_FILES: frozenset = frozenset({
-    "debug/debugger.asm",
-    "debug/error_handler.asm",
+    "engine/debug/debugger.asm",
+    "engine/debug/error_handler.asm",
 })
 
 # ---------------------------------------------------------------------------
@@ -573,7 +581,7 @@ def discover_files(entry_path: str, follow_includes: bool = True,
         except OSError:
             return
 
-        for raw_line in lines:
+        for raw_line_no, raw_line in enumerate(lines, 1):
             tok = tokenize_line(raw_line)
             if tok.instruction.lower() in ("include",) and tok.operands:
                 # Operand is a quoted string: `"path/to/file.asm"`
@@ -590,6 +598,19 @@ def discover_files(entry_path: str, follow_includes: bool = True,
                     _visit(candidate_from_root)
                 elif os.path.isfile(candidate_from_file):
                     _visit(candidate_from_file)
+                else:
+                    # NEVER drop silently. This branch did not exist, and its
+                    # absence is what made the gate near-vacuous without saying so:
+                    # main() passed base_dir = dirname(entry), so for a TOP-LEVEL
+                    # entry both candidates collapsed to the same wrong directory
+                    # and every include vanished. `s4lint: no issues found` then
+                    # reported on one file while reading as whole-tree coverage.
+                    raise SystemExit(
+                        f"s4lint: {path}:{raw_line_no} includes {inc_arg!r}, which "
+                        f"resolves to NEITHER {candidate_from_root} nor "
+                        f"{candidate_from_file}. AS resolves includes from the "
+                        f"project root, so base_dir must BE the project root. "
+                        f"Refusing to lint a silently-truncated file set.")
 
     _visit(entry_abs)
     return ordered
@@ -2299,7 +2320,12 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     for entry in args.files:
         abs_entry = os.path.abspath(entry)
-        base_dir = os.path.dirname(abs_entry)
+        # THE PROJECT ROOT, not the entry's directory. AS resolves includes
+        # relative to the cwd it assembles from (build.sh runs from the repo
+        # root), and the comment in discover_files has always said so — this line
+        # is what failed to do it. With dirname(entry) here, a top-level entry
+        # made both include candidates identical and wrong.
+        base_dir = os.getcwd()
         files = discover_files(abs_entry, follow_includes=follow, base_dir=base_dir)
         for f in files:
             if f not in seen:
