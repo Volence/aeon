@@ -4,36 +4,35 @@
 // Cross-scene checks and the capability fold live here (they need VALUES, not Labels).
 //
 // ---------------------------------------------------------------------------
-// STATUS: MACHINERY ONLY. `SCENES` HOLDS FOUR PLACEHOLDER SCENES — SEE THE
-// "TASK 6 FILL-IN POINT" BANNER BELOW. NOTHING HERE IS SHIPPED DATA YET.
+// STATUS (Task 6): LIVE. `SCENES` holds THE TWENTY SHIPPED SCENES, authored in
+// games/sonic4/data/effects/ojz_scenes.emp, and this module emits all twenty lowered
+// records. The four synthetic placeholders Task 5 shipped are gone.
 //
-// AND THIS MODULE IS NOT PLACED. It carries a `in scene_registry` section clause but
-// deliberately has NO `games/sonic4/map.toml` order entry, so nothing reaches it, it
-// emits zero bytes, and the four canonical CRCs are unmoved by its existence. That is
-// on purpose and it is not a loose end: placing it while games/sonic4/data/parallax/
-// configs.emp still emits the same twenty records would be a duplicate-symbol build
-// failure. Placement is Task 9's atomic swap — add the head label to map.toml's `order`
-// in the SAME commit that deletes data/parallax/.
-//
-// THE PRICE OF BEING UNPLACED IS THAT EVERY GUARD BELOW IS DEAD. An unreached .emp
-// module gets parse + scan coverage and ZERO body elaboration (measured from both sides
-// in Task 3; see the banner in engine/level/scene_dsl.emp). A syntax error here fails
-// the build, but a module-level `ensure(1 == 0)` builds GREEN with an identical CRC. So
-// a green build says NOTHING about the ensures in this file.
-//
-// THE PROBE THAT MADE THEM LIVE (Task 5, temporary, deleted before commit) — recorded
-// because the next person who has to re-verify this file will otherwise rediscover it:
-//   1. `use games.sonic4.scene_registry` (WHOLE-PATH, no name list) in the already-placed
+// AND THIS MODULE IS NOW PLACED AND REACHED — which is what makes every guard below
+// REAL. Task 5's temporary probe became the permanent (for Tasks 6-8) arrangement:
+//   1. `use games.sonic4.scene_registry` (WHOLE-PATH, no name list) from the already-placed
 //      data/parallax/configs.emp. The name-list form is a trap here: a selective
 //      `use ...{SceneRegistry_CapsFolded}` injects a CLONE of the const whose initializer
 //      re-evaluates in the CONSUMER's scope, so it reports `unknown function fold_caps`
 //      at a span inside THIS file while never elaborating this module at all.
-//   2. A temporary `map.toml` `order` entry for the section head label — without it the
-//      reachable module fails `[map.order-undeclared]`, which is itself the proof that a
-//      whole-path use edge really does pull this module into placement.
-// Under that probe the whole file elaborates and emits: all four records at their exact
-// sizes (38/48/68/78 bytes) and every guard green against the declared $001F. Each guard
-// was then driven red on purpose; the observed message is recorded beside it.
+//   2. `games/sonic4/map.toml` `order` entries for the two new section head labels —
+//      without them a reachable module fails `[map.order-undeclared]`.
+// Both are TEMPORARY in the same sense the `SceneOut_` prefixes are: Task 9 deletes
+// data/parallax/ and gives the registry its real consumers (act_descriptor, ojz_effects,
+// ojz_scroll_test), at which point the backwards edge disappears with the file that holds it.
+//
+// WHY THAT MATTERS: an unreached .emp module gets parse + scan coverage and ZERO body
+// elaboration (measured from both sides in Task 3; see the banner in
+// engine/level/scene_dsl.emp). A module-level `ensure(1 == 0)` in an unreached module
+// builds GREEN with an identical CRC. Until Task 6 this file, and every guard in
+// scene_dsl.emp behind it, was in exactly that state. It no longer is: the twenty scenes
+// drive `layer()`, `scene()`, `derived_mask()`, `scene_caps()`, `fold_caps()`,
+// `scene_hdr()`, `scene_band()` and all four `lowerN` on every build.
+//
+// DUPLICATE SYMBOLS ARE AVOIDED BY PREFIX, NOT BY ABSENCE. configs.emp still emits the
+// shipped `ParallaxConfig_*` / `DeformTable_*` names; everything here carries a temporary
+// `SceneOut_` prefix so BOTH SETS LINK AT ONCE. That is the Task-7 gate, not an accident —
+// see the emission block at the bottom of this file.
 // ---------------------------------------------------------------------------
 module games.sonic4.scene_registry in scene_registry
 
@@ -115,91 +114,49 @@ comptime fn lower5(s: Scene) -> SceneCfg5 {
 }
 
 // =====================================================================
-// ############   TASK 6 FILL-IN POINT — THE PLACEHOLDER SCENES   ############
+// THE TWENTY SCENES (Task 6 — the placeholders are gone).
 //
-// EVERYTHING BETWEEN THIS BANNER AND THE ONE THAT CLOSES IT IS SCAFFOLDING AND IS
-// MEANT TO BE DELETED, not extended. It exists so the registry machinery above and the
-// fold + verify below are real, exercised code rather than an untested sketch: Task 5
-// landed before any scene existed to register (`games/sonic4/data/effects/ojz_scenes.emp`
-// is Task 6's file and does not exist yet, which is why SCENES cannot import from it).
-//
-// The four placeholders are chosen for COVERAGE, not for meaning — one per record shape,
-// so all four lowerN paths elaborate — and their factors/tops are arbitrary. They are
-// synthetic; none of them reproduces a shipped config.
-//
-// WHAT TASK 6 DOES:
-//   1. Authors the twenty scenes in games/sonic4/data/effects/ojz_scenes.emp (a pure
-//      comptime module, `use engine.level.scene_dsl.*` — GLOB, see the import note above).
-//   2. Replaces the four PH_* consts here with `use games.sonic4.ojz_scenes.*` (or a
-//      selective import of the twenty scene consts — either is safe for VALUES named at
-//      module level in THIS file; the glob rule binds fn BODIES, and a scene const is
-//      not one).
-//   3. Rewrites SCENES as the twenty scene values, in the order the records must be
-//      emitted (the packer's order inside a section is emission order).
-//   4. Replaces the four placeholder `pub data` lines with twenty, one per config,
-//      RENAMED TO THE TWENTY SHIPPED SYMBOL NAMES (ParallaxScene_Placeholder1, …) so
-//      Task 9's swap is a placement change and not a rename. Verified safe: an unreached
-//      module's `pub data` symbols do NOT enter the symbol table, so the registry may
-//      carry the shipped names while data/parallax/configs.emp still emits them (probed
-//      by naming a placeholder `ParallaxScene_Placeholder1` — build green, CRC unmoved).
-//   5. Leaves the six deform tables where they are for now; they are Labels, they are
-//      still owned by data/parallax/configs.emp, and a scene attaches one through
-//      SceneDeform/SceneVDeform. Task 9 rehomes them with the swap.
-//   6. Re-derives the expected fold by hand and updates the two numbers in the verify
-//      ensure's comment. `Game.SCANLINE_CAPS` in games/sonic4/config/game.emp is
-//      declared $001F; the twenty scenes are expected to fold to exactly that, but the
-//      ensure is a SUBSET test, so each of the twenty may be migrated one at a time
-//      without an intermediate red build.
+// The scene VALUES are authored in games/sonic4/data/effects/ojz_scenes.emp; this module
+// owns the LIST and nothing else. The import is a glob for the reason in the header note
+// above — and note that a `use` edge RE-EVALUATES an imported const's initializer in this
+// module's scope (Task 5's probe finding), so ojz_scenes' four family helpers
+// (shimmer_scene / haze_scene / rocking_scene / perspective_scene) are `pub` and arrive
+// through the same glob. A private helper there would report `unknown function` here.
 // =====================================================================
-
-// PH1 — one layer, no attachments. scene_caps() = 0.
-const PH_Scene1: Scene = scene(
-    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_4),
-              no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
-    count: 1, v_factor: 15)
-
-// PH2 — two layers, no attachments. scene_caps() = 0.
-const PH_Scene2: Scene = scene(
-    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_4),
-              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_4),
-              no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
-    count: 2, v_factor: 15)
-
-// PH4 — four layers plus a world-anchored overlay on patch channel 0, forcing a live
-// plane-B deform shift below the anchored line. THE ONLY PLACEHOLDER THAT RAISES A
-// CAPABILITY, and it raises two: an anchor splits a band at a SCANLINE, which no 8-px
-// cell boundary can agree with, so CAP_PER_LINE ($0001) rides CAP_ANCHORS ($0008).
-// CAP_DEFORM ($0004) stays clear — scene_caps() requires a table AND a live amplitude,
-// and this scene attaches no table (which is also why no placeholder needs a deform
-// Label: those are still owned by data/parallax/configs.emp until Task 9).
-const PH_Scene4: Scene = scene(
-    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 64,  fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 320, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 384, fa: FACTOR_1, fb: FACTOR_1_2),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
-    count: 4, v_factor: 3, v_center: 512,
-    anchor: SceneAnchor.At(0, 15, 2))
-
-// PH5 — five layers, no attachments. scene_caps() = 0.
-const PH_Scene5: Scene = scene(
-    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_8),
-              layer(world_y: 32,  fa: FACTOR_1, fb: FACTOR_1_4),
-              layer(world_y: 80,  fa: FACTOR_1, fb: FACTOR_3_8),
-              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_2),
-              layer(world_y: 160, fa: FACTOR_1, fb: FACTOR_1),
-              no_layer(), no_layer(), no_layer() ],
-    count: 5, v_factor: 15)
+use games.sonic4.ojz_scenes.*
 
 // ---------------------------------------------------------------------
 // SCENES — THE REGISTRY. Every scene this game ships, and the sole input to the
-// capability fold. Task 6 replaces these four with the twenty.
+// capability fold.
+//
+// THE ORDER IS THE EMISSION ORDER (the packer's order inside a section), and it is
+// data/parallax/configs.emp's declaration order transcribed, so the Task-7 equivalence
+// proof and the Task-9 swap both read straight down. The index beside each name is the
+// `SCENES[i]` the emission block below indexes — a record can only exist for a scene the
+// fold has already seen.
 // ---------------------------------------------------------------------
-pub const SCENES: [Scene; 4] = [ PH_Scene1, PH_Scene2, PH_Scene4, PH_Scene5 ]
-
-// ############   END TASK 6 FILL-IN POINT   ############
+pub const SCENES: [Scene; 20] = [
+    Scene_OJZ_Default,             //  0  lower4
+    Scene_OJZ_Underwater,          //  1  lower4
+    Scene_OJZ_Windy,               //  2  lower1
+    Scene_Shimmer_Slow,            //  3  lower1
+    Scene_Shimmer,                 //  4  lower1
+    Scene_Shimmer_Fast,            //  5  lower1
+    Scene_Haze_Slow,               //  6  lower5
+    Scene_Haze,                    //  7  lower5
+    Scene_Haze_Fast,               //  8  lower5
+    Scene_Haze_Uniform,            //  9  lower5
+    Scene_Rocking_Slow,            // 10  lower1
+    Scene_Rocking,                 // 11  lower1
+    Scene_Rocking_Fast,            // 12  lower1
+    Scene_Perspective_Subtle,      // 13  lower5
+    Scene_Perspective,             // 14  lower5
+    Scene_Perspective_Dramatic,    // 15  lower5
+    Scene_WindyHaze,               // 16  lower5
+    Scene_SkyHaze,                 // 17  lower2
+    Scene_OJZ_Caves,               // 18  lower5
+    Scene_OJZ_LockedClouds,        // 19  lower5
+]
 
 // =====================================================================
 // The capability fold and its verify.
@@ -210,10 +167,38 @@ pub const SCENES: [Scene; 4] = [ PH_Scene1, PH_Scene2, PH_Scene4, PH_Scene5 ]
 // the registry holds more than one scene — the one bit no single scene can raise,
 // because a transition is a property of the EDGE between two scenes.
 //
-// PLACEHOLDER EXPECTATION (derived, for Task 6 to replace): PH1/PH2/PH5 fold to 0;
-// PH4 folds to CAP_PER_LINE|CAP_ANCHORS = $0009; four scenes > 1 adds CAP_TRANSITIONS
-// = $0010. Total $0019 — a strict subset of the declared $001F, which is exactly the
-// state the subset test below is built to accept.
+// THE EXPECTATION, DERIVED BY HAND OVER THE TWENTY (Task 6), bit by bit. Each bit is
+// listed with the scenes that raise it, so a future edit that drops the last raiser of a
+// bit is visible here rather than only in a changed number:
+//
+//   $0001 CAP_PER_LINE       ALL TWENTY. Every shipped config attaches a BG or FG deform
+//                            table (the flat-pathed DeformTable_Zero counts — a non-NULL
+//                            pointer is what selects the per-line pipeline), and
+//                            OJZ_Underwater would raise it again through its anchor.
+//   $0002 CAP_PER_COL_VSRAM  Rocking_Slow/Rocking/Rocking_Fast (SceneVDeform.Columns on
+//                            DeformTable_Rocking) + Perspective_Subtle/Perspective/
+//                            Perspective_Dramatic (on DeformTable_Perspective). SIX.
+//                            Rocking_Slow counts: v_speed 0 is a STATIC tilt with the
+//                            table attached, not an absent attachment.
+//   $0004 CAP_DEFORM         Table AND a live amplitude somewhere. Fourteen: Windy,
+//                            Shimmer x3, Haze x4, Rocking x3, Perspective x3 — plus
+//                            SkyHaze and WindyHaze, and OJZ_Underwater via its ANCHOR
+//                            dsb 2 (every one of its four authored layers is at 15, so
+//                            the anchor shifts are the only live amplitude it has; this
+//                            is exactly why scene_caps() scans them).
+//                            CLEAR on OJZ_Default, OJZ_Caves, OJZ_LockedClouds — all
+//                            three are flat-pathed zero tables with every shift at 15.
+//   $0008 CAP_ANCHORS        OJZ_Underwater ALONE — the only world-anchored config in
+//                            the tree (SceneAnchor.At(0, 15, 2)).
+//   $0010 CAP_TRANSITIONS    fold_caps() adds it because SCENES.len (20) > 1. No single
+//                            scene can raise it; the sc_transition byte on OJZ_Caves and
+//                            OJZ_LockedClouds is lowered but does not fold.
+//
+// $0001|$0002|$0004|$0008|$0010 = $001F, which is EXACTLY the declared
+// Game.SCANLINE_CAPS — the subset test below passes with zero slack. The slack the
+// one-sided test was built for was consumed as the twenty landed; it stays one-sided
+// because a declared subset would be a wrong picture on hardware and a declared superset
+// only forgoes a P2 specialisation.
 // =====================================================================
 pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 
@@ -275,10 +260,38 @@ ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: t
 // left out of SCENES emits nothing and any section that references it fails at link
 // with a missing symbol.
 //
-// Placeholder names — Task 6 replaces these four lines with twenty carrying the shipped
-// ParallaxConfig_* names (step 4 of the fill-in banner).
+// THE `SceneOut_` PREFIX IS TEMPORARY AND IT IS DELIBERATE (Tasks 6-8).
+//
+// Task 5 established that an unreached module's `pub data` symbols do not enter the
+// symbol table, and concluded Task 6 could therefore author the SHIPPED names here and
+// leave Task 9 a pure placement change. That finding is real; it is NOT taken, and the
+// reason is the gate. Task 7 proves these records byte-equal to the live
+// ParallaxConfig_* records IN THE SAME ROM at .lst offsets, which requires both sets
+// emitted SIMULTANEOUSLY, which requires distinct symbol names. Trading the strongest
+// gate this parcel has for a cheaper rename is the wrong trade; Task 9's rename is
+// mechanical and is itself protected by that proof.
+//
+// The record shape (lower1/2/4/5) is hand-picked per config and each lowerN asserts its
+// own arity — see their banner. Counts used: seven 1-band, one 2-band, two 4-band, ten
+// 5-band. No shipped config needs a 3/6/7/8-band shape.
 // =====================================================================
-pub data ParallaxScene_Placeholder1: SceneCfg1 = lower1(SCENES[0])
-pub data ParallaxScene_Placeholder2: SceneCfg2 = lower2(SCENES[1])
-pub data ParallaxScene_Placeholder4: SceneCfg4 = lower4(SCENES[2])
-pub data ParallaxScene_Placeholder5: SceneCfg5 = lower5(SCENES[3])
+pub data SceneOut_ParallaxConfig_OJZ_Default:          SceneCfg4 = lower4(SCENES[0])
+pub data SceneOut_ParallaxConfig_OJZ_Underwater:       SceneCfg4 = lower4(SCENES[1])
+pub data SceneOut_ParallaxConfig_OJZ_Windy:            SceneCfg1 = lower1(SCENES[2])
+pub data SceneOut_ParallaxConfig_Shimmer_Slow:         SceneCfg1 = lower1(SCENES[3])
+pub data SceneOut_ParallaxConfig_Shimmer:              SceneCfg1 = lower1(SCENES[4])
+pub data SceneOut_ParallaxConfig_Shimmer_Fast:         SceneCfg1 = lower1(SCENES[5])
+pub data SceneOut_ParallaxConfig_Haze_Slow:            SceneCfg5 = lower5(SCENES[6])
+pub data SceneOut_ParallaxConfig_Haze:                 SceneCfg5 = lower5(SCENES[7])
+pub data SceneOut_ParallaxConfig_Haze_Fast:            SceneCfg5 = lower5(SCENES[8])
+pub data SceneOut_ParallaxConfig_Haze_Uniform:         SceneCfg5 = lower5(SCENES[9])
+pub data SceneOut_ParallaxConfig_Rocking_Slow:         SceneCfg1 = lower1(SCENES[10])
+pub data SceneOut_ParallaxConfig_Rocking:              SceneCfg1 = lower1(SCENES[11])
+pub data SceneOut_ParallaxConfig_Rocking_Fast:         SceneCfg1 = lower1(SCENES[12])
+pub data SceneOut_ParallaxConfig_Perspective_Subtle:   SceneCfg5 = lower5(SCENES[13])
+pub data SceneOut_ParallaxConfig_Perspective:          SceneCfg5 = lower5(SCENES[14])
+pub data SceneOut_ParallaxConfig_Perspective_Dramatic: SceneCfg5 = lower5(SCENES[15])
+pub data SceneOut_ParallaxConfig_WindyHaze:            SceneCfg5 = lower5(SCENES[16])
+pub data SceneOut_ParallaxConfig_SkyHaze:              SceneCfg2 = lower2(SCENES[17])
+pub data SceneOut_ParallaxConfig_OJZ_Caves:            SceneCfg5 = lower5(SCENES[18])
+pub data SceneOut_ParallaxConfig_OJZ_LockedClouds:     SceneCfg5 = lower5(SCENES[19])

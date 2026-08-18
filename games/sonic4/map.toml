@@ -71,7 +71,15 @@ order = [
   "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",
-  "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero", "OJZ_TestRaster", "ObjDef_Static",
+  "TestChurnObj", "ObjDef_PathSwap", "DeformTable_Zero",
+  # Scanline-P1 Task 6, TEMPORARY: the authored-scene tables + the twenty lowered records,
+  # emitted ALONGSIDE the parallax_configs section above so Task 7 can prove them byte-equal
+  # at .lst offsets in one ROM. Task 9 deletes `DeformTable_Zero`'s section (data/parallax/)
+  # and drops the `SceneOut_` prefixes, leaving these two entries as the survivors. Placed
+  # immediately AFTER parallax_configs so the object-bank budget `cursor` below —
+  # `DeformTable_Zero`, the head of the first section past the bank — is unmoved.
+  "SceneOut_DeformTable_Zero", "SceneOut_ParallaxConfig_OJZ_Default",
+  "OJZ_TestRaster", "ObjDef_Static",
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj", "Map_DustSpindash",
   "Ani_Sonic", "Ani_Tails", "Ani_Knuckles", "Ani_Particle", "Ani_DustSpindash", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",

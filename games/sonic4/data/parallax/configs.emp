@@ -25,6 +25,24 @@ use engine.level.parallax_dsl.*
 // consumes an entry of, the "no overlay" sentinel, and the anchor-bank width.
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
+// TEMPORARY, TASKS 6-8 ONLY — DELETED WITH THIS WHOLE FILE AT TASK 9.
+//
+// The scene registry has no consumer yet (act_descriptor / ojz_effects / ojz_scroll_test
+// still bind the ParallaxConfig_* symbols below; they move at Task 9), and an .emp module
+// nothing `use`s is NOT REACHED: it gets parse + scan coverage and ZERO body elaboration,
+// so every ensure in the registry and in engine/level/scene_dsl.emp would be dead and the
+// twenty lowered records would not be emitted at all. This edge is what makes the Task-6
+// gate real — it is why both record sets link and why the ROM grows on this branch.
+//
+// WHOLE-PATH ON PURPOSE, no name list. A selective `use ...{SceneRegistry_CapsFolded}`
+// injects a CLONE of the const whose initializer re-evaluates in THIS module's scope, which
+// reports `unknown function fold_caps` at a span inside the registry while never elaborating
+// it (Task 5's probe). The edge, not the name, is what pulls the module into placement.
+//
+// It reads backwards — the file being replaced importing its replacement — and that is
+// exactly why it is safe: the edge cannot outlive the migration, because Task 9 deletes
+// data/parallax/ in the same commit that gives the registry its real consumers.
+use games.sonic4.scene_registry
 
 // ---- record shapes: a header followed by N band entries ----
 // The runtime never reads these wrapper types — it walks bytes off the header
