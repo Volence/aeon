@@ -13,16 +13,32 @@
 > LANDED before Task 9 onward executes — the migration freezes those bytes as the identity
 > baseline. Tasks 1–8 (new modules, no engine edits) may proceed in parallel with the sweep.
 >
-> **DEPENDENCY STATUS 2026-08-18 (measured, premise FALSE): the sweep was never launched.**
-> No `review/raster-*` branch or worktree exists, and the string "raster-substrate" appears
-> nowhere in the repo except the line above — so "running in a parallel session" was an
-> assumption, not a fact. The existing lens worktrees (`sound-lens`, `system-lens`,
-> `tools-lens`) are the 2026-08-13 sweeps and do not cover this surface.
-> **Consequence: TASK 9 IS BLOCKED, tasks 4–8 are not.** Task 9 is where the migration
-> freezes engine/effects bytes as the identity baseline; freezing over an unswept substrate
-> is what the gate exists to prevent. Owner decision required before Task 9: launch the
-> sweep, or ratify proceeding without it and accept that a later sweep finding costs a
-> deliberate repin/refreeze rather than being free.
+> **DEPENDENCY STATUS 2026-08-18 — RESOLVED. The sweep exists; it had run in a session that
+> wrote its packet only to `/tmp`.** My earlier note here said "never launched" on the
+> evidence that no `review/raster-*` branch or worktree existed and the string appeared
+> nowhere in the repo. That evidence was sound and the conclusion was wrong — a scratchpad
+> artifact is invisible to every other session. Now imported to master:
+> `docs/superpowers/2026-08-18-raster-substrate-sweep-adjudication.md` (+ `…-packet.jsonl`,
+> 16 seats raw), and booked in `docs/DEFERRED_WORK.md` under "Raster substrate lens sweep".
+>
+> **What it means for Task 9.** 15 seats, 117 raw findings, **7 confirmed defects** (4
+> substrate + 3 gate-soundness), 1 major refuted. Two facts change the shape of the gate:
+> - **The charter EXCLUDED the parallax walker and fill internals** (P3 rewrites them);
+>   `bg_anim` was in scope. So the sweep says nothing about the config records THIS parcel
+>   re-authors — unexamined, not cleared. Do not read it as blessing the migration's subject.
+> - **Nothing it found is in P1's removal set.** P1 deletes only
+>   `games/sonic4/data/parallax/`; `raster.emp`, `raster_dsl.emp`, `palette.emp`,
+>   `buffers.emp`, `bg_anim` and `tools/` all survive untouched, so no finding expires and
+>   none of it needs folding into this parcel's diff.
+>
+> **RULING: the substrate fixes land as their OWN parcel off master, NOT in this branch.**
+> Two byte-moving changes in one branch make a crc diff unattributable (the confounding that
+> voided the prebatch A/B). Sequence: tasks 4–8 here (new modules, byte-neutral) ∥ substrate
+> parcel on master → merge master into this branch → **then** Task 9 freezes against the
+> corrected baseline. Byte-moving fixes are free before Task 9 and cost a deliberate repin +
+> `refreeze --freeze --ab` after; that cost is modest and is explicitly NOT a reason to leave
+> a defect standing — this gate is differential (did the migration change anything), never a
+> claim that the frozen bytes are good.
 
 **Goal:** Introduce the authored scene model (`layer()`/`scene()` constructors), the
 per-game scene registry with capability-mask fold, and migrate all 20 shipped parallax
