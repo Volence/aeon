@@ -663,7 +663,7 @@ ensure(band_eq(scene_band(Scene_OJZ_Default, 0), band(cell: 0, fa: FACTOR_1,
 `poison_scene_capacity.emp`, `poison_scene_mask.emp`, `poison_scene_proof.emp`; modify
 `tools/emp_expect_fail.py` CASES
 
-- [ ] **Step 1:** Four poison modules (syntactically valid, unreachable except via the
+- [x] **Step 1:** Four poison modules (syntactically valid, unreachable except via the
   expect-fail lane — the house pattern per `games/sonic4/test/poison/README.md`):
   grid = `layer(world_y: 4, …)` (trips the %8 ensure); capacity = 8 layers + anchor;
   mask = a registry fixture pair for the fold — fixture A: one scene, no deform →
@@ -672,10 +672,10 @@ ensure(band_eq(scene_band(Scene_OJZ_Default, 0), band(cell: 0, fa: FACTOR_1,
   two-fixture differential form (spec §8.2) — A also exists as a PASSING fixture so the
   ensure is proven able to pass and fail on the same property;
   proof = a deliberate one-field-off oracle call (trips cfg_eq).
-- [ ] **Step 2:** Register 4 CASES rows in `tools/emp_expect_fail.py` with matched message
+- [x] **Step 2:** Register 4 CASES rows in `tools/emp_expect_fail.py` with matched message
   fragments. Run the lane: all four RED for the right reason, then confirm the lane is
   green overall (expected-fail = pass).
-- [ ] **Step 3:** Commit poisons + CASES.
+- [x] **Step 3:** Commit poisons + CASES.
 
 ### Task 9: The swap — consumers, deletion, map.toml (ATOMIC)
 
@@ -687,24 +687,72 @@ Delete `games/sonic4/data/parallax/` (configs.emp)
 
 One commit — master-facing state is never half-migrated (the branch protects mid-task).
 
-- [ ] **Step 1:** Enumerate every consumer NOW (do not trust this list — regenerate):
+- [x] **Step 1:** Enumerate every consumer NOW (do not trust this list — regenerate):
   `grep -rn "parallax_configs\|ParallaxConfig_\|DeformTable_" games/ engine/ tools/ --include='*.emp' --include='*.toml' --include='*.py'`
   Known: act_descriptor.emp:113 (`ParallaxConfig_OJZ_Default` act fallback),
   ojz_effects.emp (preset ep_parallax bindings + `use …parallax_configs`),
   map.toml:74 ("DeformTable_Zero" in order) + :149 (budget cursor), ojz_scroll_test.emp.
   Anything NEW found → add to this task, note in report.
-- [ ] **Step 2:** Move `hdr()`/`band()` + the record-shape structs (ParallaxCfg1/2/4/5)
+- [x] **Step 2:** Move `hdr()`/`band()` + the record-shape structs (ParallaxCfg1/2/4/5)
   from configs.emp into scene_equiv_proof.emp (test-only oracle now — the spec's
   "authoring entry points DELETED" is satisfied: no game data module can reach them).
-- [ ] **Step 3:** Rename SceneOut_* → the shipped names (ParallaxConfig_*, DeformTable_*)
+- [x] **Step 3:** Rename SceneOut_* → the shipped names (ParallaxConfig_*, DeformTable_*)
   in ojz_scenes + registry emission; delete `games/sonic4/data/parallax/`; update all
   `use` lines (consumers now import from the scenes/registry module); update map.toml:
   the `parallax_configs` module entry → the scenes module, verify "DeformTable_Zero" and
   the budget `cursor = "DeformTable_Zero"` still resolve (same symbol name, new module —
   if the chainer keys on module-qualified names, update; subsequence check will fail loud).
-- [ ] **Step 4:** Build ALL FOUR shapes green. Run the full tool-suite test block
+- [x] **Step 4:** Build ALL FOUR shapes green. Run the full tool-suite test block
   (`./build.sh` runs it) + the expect-fail lane + the proof module (still red-first-proven).
-- [ ] **Step 5:** Commit (exact paths: the 6 modified + 1 deleted dir + map.toml).
+- [x] **Step 5:** Commit (exact paths: the 6 modified + 1 deleted dir + map.toml).
+
+> **TASKS 7-9 FINDINGS (2026-08-18; commits edb1ecc1, c21fb8c6, 92fafc3e). Bind Tasks 10-12:**
+> - **THE SWAP IS BYTE-IDENTICAL AND MEASURED STRONGER THAN CRC.** All four shapes returned
+>   to their exact pre-migration values (`ab1055d4` / `7e4dc5de` / `10aad76c` / `2ecd1031`),
+>   AND the 2766-byte record block at `$121C8` is byte-equal to the pre-migration block
+>   (extracted before editing, diffed after), with all 26 symbols at their original `.lst`
+>   addresses.
+> - **EMISSION ORDER WAS THE WHOLE GAME, and the plan had it wrong.** The shipped block
+>   INTERLEAVES tables with the records that attach them (`$121C8` Zero, `$122C8` Default,
+>   `$1230C` Underwater, `$12350` Calm, ...). An `.emp` section is contiguous per module, so
+>   leaving the six tables in `ojz_scenes.emp` emits them as one 1536-byte run AHEAD of the
+>   records, moving every table address and rewriting `pcfg_deform_table_*` inside all 20.
+>   Diagnosed by measuring the Task-6 both-sets ROM: each duplicate record differed from its
+>   shipped twin **in exactly bytes 18-19 (the BG table pointer) and nowhere else**. Fix: the
+>   six `pub data` tables live in `scene_registry.emp`, interleaved in shipped order;
+>   `ojz_scenes.emp` keeps only the `SceneSrc_*` generator consts and **emits ZERO bytes**.
+>   The registry is now literally the sole emission path, as §3.2 intended.
+> - **A PAIRED SIGIL EDIT IS OWED — Task 10 owns it.** sigil synthesizes its entry root as
+>   one `use <module_id>` per ModuleSpec row (`crates/sigil-harness/src/native.rs`, row at
+>   `:518`), so deleting `configs.emp` broke EVERY sonic4 build with `no module
+>   games.sonic4.parallax_configs found under the scan root`. Held by a deliberate zero-byte
+>   shim, `games/sonic4/data/effects/parallax_configs_retired.emp`, whose banner names all
+>   five retirement edits (native.rs row, `pins::PARALLAX_CONFIGS`, `repin.toml` region, the
+>   `parallax_configs_port` test, delete the shim). **All are renames, not re-measures — the
+>   bytes did not move.** DO NOT make these on sigil master: the registry is global, and
+>   removing that row would break every aeon branch that still has `configs.emp`. The paired
+>   sigil branch `feature/scanline-p1-scene-model` already exists at
+>   `sigil/.worktrees/scanline-p1`; **aeon and sigil merge as a pair.**
+> - **`act_descriptor.emp` had NO import for `ParallaxConfig_OJZ_Default`** — it was
+>   resolving as a silent link extern. Now explicit. Latent hazard, found by the swap.
+> - **`ojz_effects.emp` carries TWO `use` lines for the registry** — a name list for the
+>   symbol AND a whole-path line as the closure edge that `configs.emp` used to hold.
+>   Without the whole-path edge the registry's subset ensure and all of `scene_dsl.emp`
+>   behind it go dark.
+> - **The whole-path rule is about CONSTS, not functions** (correcting the Task 4-5 block
+>   above): a selective import of a CONST clones its initializer into the consumer's scope;
+>   for FUNCTIONS the name list is the working form and is what the witness uses. A glob on
+>   the witness would re-evaluate all 20 proof consts in the consumer's scope.
+> - `ParallaxCfg1/2/4/5` were DELETED, not moved — the registry's `SceneCfgN` supersede them.
+> - **Witness re-verified red-first AFTER the rewiring** (`v_center 512 -> 513` fails a plain
+>   debug build at cfg field 4). `[module.unreachable]` baseline is **29** modules; the
+>   witness, `ojz_scenes` and `scene_registry` are all absent from it. Lane 15/15; tool suite
+>   990 passed / 2 skipped; s4lint clean; budget check 20 rows.
+> - **Task 8's method is the standard to hold later tasks to:** every poison was verified
+>   against a CONTROL build with the planted defect removed, which is what separates "the
+>   intended guard fired" from "something failed". And the mask fixture's declared word had
+>   to be a HAND-DERIVED literal — `fold_caps([A])` would make the subset test
+>   `(x & ~x) == 0`, true for every input and evidence of nothing.
 
 ### Task 10 (CONTROLLER-ONLY): Image identity ×4 + repin ritual
 
