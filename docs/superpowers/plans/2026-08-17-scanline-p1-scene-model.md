@@ -756,19 +756,19 @@ One commit — master-facing state is never half-migrated (the branch protects m
 
 ### Task 10 (CONTROLLER-ONLY): Image identity ×4 + repin ritual
 
-- [ ] **Step 1:** Record pre-migration reference: master SHA before the branch
+- [x] **Step 1:** Record pre-migration reference: master SHA before the branch
   (`git merge-base master HEAD`). Build all four shapes at THAT ref into scratch
   (worktree), record crc32s.
-- [ ] **Step 2:** Build all four shapes at branch head. Placement moved (module
+- [x] **Step 2:** Build all four shapes at branch head. Placement moved (module
   restructure) → run the frozen-table repin, then
   `cargo run --release -p sigil-harness --bin refreeze -- --freeze <table> --ab <pre-migration-ref>`
   per the byte-changing ritual (rebuild BOTH sigil binaries first if sigil changed —
   it should NOT have in P1; if it did, STOP/BLOCKED). **`--check` is not evidence.**
-- [ ] **Step 3:** Evidence bar (spec §8.1): the `--ab` run's emulator prose note ×
+- [x] **Step 3:** Evidence bar (spec §8.1): the `--ab` run's emulator prose note ×
   both replay fixtures green × demo.bin/demo.debug.bin crc UNCHANGED from the
   pre-migration ref (demo links no scenes — its image must not move AT ALL; if it moved,
   a lowering leak exists — STOP/BLOCKED).
-- [ ] **Step 4:** Write `docs/benchmarks/scanline-p1/GATE-EVIDENCE.md`: the four crc
+- [x] **Step 4:** Write `docs/benchmarks/scanline-p1/GATE-EVIDENCE.md`: the four crc
   pairs, the ab prose, replay results, proof-module red-first note, poison lane output.
   Commit.
 
@@ -782,7 +782,34 @@ the HScroll buffer at a pinned camera state, compare against the same reads on t
 pre-migration ROM (identical images ⇒ identical values — this is a harness sanity check,
 expected trivially green; any diff = investigate the harness, not the ROM).
 
-- [ ] Run it; append results to GATE-EVIDENCE.md; commit.
+- [x] Run it; append results to GATE-EVIDENCE.md; commit.
+
+> **TASKS 10-11 FINDINGS (2026-08-18). Evidence: `docs/benchmarks/scanline-p1/GATE-EVIDENCE.md`.**
+> - **All four images are IDENTICAL BY `cmp`**, not merely crc-equal, against the TRUE
+>   pre-migration merge-base `eeba0ae5` built in its own worktree. That reference predates
+>   the raster-substrate parcel too, so one measurement tests both parcels' byte claims.
+> - **THE FREEZE RITUAL WAS A NO-OP.** The plan assumed placement moved; only the module
+>   NAME did. `repin` → "0 pin(s) changed"; the regenerated `pins.rs` differs only in the
+>   renamed constant. Nothing to re-freeze, no `--ab` prose to write. `refreeze --check` was
+>   green but is NOT the evidence (it has passed with 16 golden ROM tests red) — the golden
+>   suite is: **3733 passed, 0 failed, ZERO skips**, with `provenance.toml` encoding all four
+>   crcs and `native_full_rom` / `native_offcanonical_full` actively comparing them.
+> - **TASK 11 WAS RULED VACUOUS AND NOT RUN.** Byte-identical files in a deterministic
+>   emulator cannot produce different values; the check had no blind spot to catch and would
+>   have produced a green line testifying to nothing. It becomes a REAL differential the
+>   moment images diverge deliberately (substrate byte-moving items, P2 specialization) and
+>   should be run then, against the last byte-identical reference.
+> - **A PAIRED SIGIL COMMIT EXISTS AND MUST MERGE WITH THIS BRANCH:** sigil
+>   `37732afe` on `feature/scanline-p1-scene-model` re-homes the ModuleSpec row
+>   (`parallax_configs` → `scene_registry`), renames the pin/region/port test, and carries
+>   two adjudications. **Neither half builds without the other.** Merge as a pair.
+> - Two sigil-side gates needed adjudication, both caused by this parcel: a test whose stated
+>   premise ("the corpus hand-writes no bare `use`") the closure-edge idiom invalidated — now
+>   discriminating on LOCATION, which is what it always meant to check — and `import.no-names`
+>   baselined for the five sonic4 shapes, with the cost booked in `DEFERRED_WORK.md`.
+> - `[layout.odd-field]` on `Scene`'s two i16 bridges was PADDED, not baselined: the struct is
+>   comptime-only so it cannot fault today, but a baselined warning would not be there on the
+>   day something emits a `Scene`.
 
 ### Task 12: Docs sync + merge
 
