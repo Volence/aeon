@@ -325,7 +325,16 @@ echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM
 
 # Budget summary
 if [[ -f "${ROM_NAME}.lst" ]]; then
-    python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary || true
+    # NOT `|| true`. It was, and that mattered: s4budget returned 0 on every path
+    # anyway (tools lens sweep D7), so the budgets were gated by nothing twice over
+    # — no threshold in the tool, and its exit code discarded here. The tool now
+    # returns 1 on a real ROM / object-bank breach, so let that fail the build.
+    # Axes it cannot measure (RAM, sections) warn loudly and do NOT fail, because
+    # hard-failing on a dead parser is how a gate gets re-wrapped in `|| true`.
+    if ! python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary; then
+        echo "Budget exceeded — see the s4budget output above."
+        exit 1
+    fi
 fi
 
 # Update ctags symbol index

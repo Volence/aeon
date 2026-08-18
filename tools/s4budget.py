@@ -361,8 +361,12 @@ def compute_vram_layout(constants: Dict[str, int]) -> Optional[VRAMLayout]:
     v_cells = constants["PLANE_V_CELLS"]
     plane_size = h_cells * v_cells * 2
 
-    sprite_addr = constants.get("VRAM_SPRITE_TABLE", 0xD800)
-    hscroll_addr = constants.get("VRAM_HSCROLL_TABLE", 0xDC00)
+    # Fallbacks are the POST-relocation addresses. They read 0xD800/0xDC00 until
+    # 2026-08-18 — the retired pre-relocation pair, off by 0x2000, which handed the
+    # art-tile budget 256 phantom tiles of headroom whenever the symbols were
+    # missing (tools lens sweep D7). The live values are `ensure`d at $B800/$BC00.
+    sprite_addr = constants.get("VRAM_SPRITE_TABLE", 0xB800)
+    hscroll_addr = constants.get("VRAM_HSCROLL_TABLE", 0xBC00)
     window_addr = constants.get("VRAM_WINDOW", 0xF000)
     window_size = plane_size
 
@@ -515,15 +519,21 @@ def format_summary(regions: List[Region], rom_file_size: int,
         ob_pct = int(objbank.size / _OBJBANK_LIMIT * 100)
         ob_str = f" | ObjBank: {ob_kb}KB/64KB ({ob_pct}%)"
 
-    ram_kb = ram.total_used // 1024
-    ram_total_kb = 64
-    ram_pct = int(ram.total_used / (64 * 1024) * 100)
+    # RAM 0 is IMPOSSIBLE in a real build, so it means the parser read nothing.
+    # Printing "0KB/64KB (0%)" for that is the whole defect: it reads as a healthy
+    # measurement of an empty budget (tools lens sweep D7). Say UNMEASURED.
+    if ram.total_used == 0:
+        ram_str = "RAM: UNMEASURED (listing parser read no ram labels)"
+    else:
+        ram_kb = ram.total_used // 1024
+        ram_pct = int(ram.total_used / (64 * 1024) * 100)
+        ram_str = f"RAM: {ram_kb}KB/64KB ({ram_pct}%)"
     free_kb = ram.free_before_stack / 1024
 
     return (
         f"ROM: {rom_kb}KB/4MB ({rom_pct}%)"
         f"{ob_str}"
-        f" | RAM: {ram_kb}KB/{ram_total_kb}KB ({ram_pct}%)"
+        f" | {ram_str}"
         f" | Free: {free_kb:.1f}KB before stack"
     )
 
@@ -573,6 +583,32 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     ram = compute_ram_layout(symbols.ram_labels, symbols.constants)
     vram = compute_vram_layout(symbols.constants)
+
+    # UNMEASURED IS NOT ZERO. `_PAGE_BREAK_RE` keys on the AS page header
+    # (`AS V1.42 ...`), which a sigil-emitted .lst does not carry, so on the real
+    # listing this parses NO sections and NO ram labels — and then printed
+    # "RAM: 0KB/64KB (0%)", which reads as a healthy measurement rather than a
+    # dead parser (tools lens sweep D7). Its 40-test suite stayed green forever
+    # because every fixture was hand-authored WITH those AS headers, so fixture
+    # and parser were co-designed.
+    #
+    # Say so instead. This is deliberately a WARNING, not a failure: the ROM axis
+    # below is real and worth gating today, and hard-failing on the dead axis
+    # would only get this call re-wrapped in `|| true`, which is how it got
+    # ignored in the first place.
+    _unmeasured = []
+    if not symbols.ram_labels:
+        _unmeasured.append("RAM (no ram labels parsed)")
+    if not source.regions:
+        _unmeasured.append("object bank / sections (no section rows parsed)")
+    if _unmeasured:
+        print(
+            "s4budget: WARNING — UNMEASURED, not zero: " + "; ".join(_unmeasured)
+            + ". The listing parser keys on the AS page header, which a sigil .lst "
+              "does not emit. Treat any RAM/ObjBank figure below as ABSENT, not as "
+              "0%. Booked in docs/DEFERRED_WORK.md.",
+            file=sys.stderr,
+        )
 
     if args.json:
         data = {
@@ -625,6 +661,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     print("\n\n".join(sections))
+
+    # THE THRESHOLD. Until 2026-08-18 main() returned 0 on every path and
+    # _ROM_MAX / _OBJBANK_LIMIT were used ONLY to format percentages — this tool
+    # could print "Object Bank ... 400.0% of 64 KB limit" and exit 0. The budgets
+    # were gated by nothing: not by a broken gate, by the ABSENCE of one (tools
+    # lens sweep D7). Gate the axes that actually measure; the unmeasured ones
+    # warn above and cannot be gated until the listing parser is rewritten.
+    breaches = []
+    if rom_file_size is not None and rom_file_size > _ROM_MAX:
+        breaches.append(
+            f"ROM {rom_file_size:,} bytes exceeds the {_ROM_MAX:,}-byte limit")
+    objbank = next((r for r in source.regions if r.name == "Object Bank"), None)
+    if objbank is not None and objbank.size > _OBJBANK_LIMIT:
+        breaches.append(
+            f"Object Bank {objbank.size:,} bytes exceeds the "
+            f"{_OBJBANK_LIMIT:,}-byte limit")
+    if breaches:
+        for b in breaches:
+            print(f"s4budget: BUDGET EXCEEDED — {b}", file=sys.stderr)
+        return 1
     return 0
 
 
