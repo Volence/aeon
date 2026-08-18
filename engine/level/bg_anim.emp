@@ -42,9 +42,18 @@ use engine.types.{VramAddr}
 // an EMPTY symbol table, so the module must stay self-contained: an engine.constants
 // value used as an immediate becomes a link fixup (the harvest makes those names
 // link equates, not comptime constants), and the standalone link then fails with
-// `unresolved symbol BGANIM_MAX_BANDS`. engine/ram.emp carries its own mirror with a
-// drift comment; a real single-authority fix needs a comptime path from ram.emp to a
-// CODE module's consts, which does not exist today.
+// `unresolved symbol BGANIM_MAX_BANDS`. A real single-authority fix needs a comptime path
+// from ram.emp to a CODE module's consts, which does not exist today.
+//
+// engine/ram.emp is NOT a third authority — it NAMES the constant (`[u16; BGANIM_MAX_BANDS]`),
+// so it is a CONSUMER and cannot drift. The three that CAN drift are this mirror,
+// engine/system/constants.emp, and tools/inject_editor_bg.py's literal.
+//
+// GATED, so this is not sync-by-hand: tools/test_bg_emit.py::TestBgAnimBandCeiling reads all
+// three and fails on any disagreement, on build.sh's pytest lane. A span `ensure` was
+// DELIBERATELY not used — unlike RASTER_MAX_PATCH (where ram.emp must spell a bare literal,
+// giving two independent sides), ram.emp CAN name this one, so a span ensure would compare
+// constants.emp against an array sized BY constants.emp: self-measuring, passing forever.
 const BGANIM_MAX_BANDS = 4
 
 const BGANIM_BANKS     = 8          // pre-shifted art banks, 1px apart (fine phase)
@@ -118,7 +127,8 @@ pub proc BgAnim_Update () clobbers(d0-d7/a1-a4) {
         assert.w d7, ls, #BGANIM_MAX_BANDS      // table wider than BgAnim_LastStep = a4 walk
                                                 // off the state array + garbage DMAs. DEBUG-ONLY
                                                 // backstop (asserts are zero bytes in plain) — the
-                                                // emitter's <= 4 assert is the release defense
+                                                // emitter's <= BGANIM_MAX_BANDS assert is the
+                                                // release defense
         beq     .exit
         subq.w  #1, d7
     .band_loop:

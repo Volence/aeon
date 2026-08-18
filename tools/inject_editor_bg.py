@@ -26,6 +26,32 @@ assert _VRAM_MAP_GAME == 'sonic4', (
     f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
     "regenerate: python3 tools/gen_vram_map.py --game sonic4 "
     "--toml games/sonic4/vram.toml --py tools/vram_map.py")
+# BGANIM_MAX_BANDS — the band ceiling this emitter enforces, and the RELEASE defense
+# for BgAnim_Update's walk over BgAnim_LastStep (bg_anim.emp's `assert.w d7, ls,
+# #BGANIM_MAX_BANDS` is a DEBUG-only backstop; asserts are zero bytes in the plain
+# shape). It was a bare `4` inside the assert message until 2026-08-18.
+#
+# THREE INDEPENDENT AUTHORITIES HOLD THIS NUMBER, and they must agree:
+#   engine/system/constants.emp   pub const BGANIM_MAX_BANDS — sizes engine/ram.emp's
+#                                 BgAnim_LastStep array (ram.emp names it, so the array
+#                                 cannot drift from THIS one on its own)
+#   engine/level/bg_anim.emp      a DELIBERATE module-local mirror — that file is lowered
+#                                 STANDALONE by `bg_anim_port` against an empty symbol
+#                                 table, so it may not import engine.constants (see the
+#                                 note at its own const); it bounds the runtime assert
+#   this file                     the emitter's cap, which is what actually keeps a
+#                                 too-wide table out of the ROM
+#
+# They are NOT collapsible: the standalone-port constraint is real and the ram-harvest
+# pass cannot reach a CODE module's consts. So this follows RASTER_MAX_PATCH's ruling
+# instead — KEEP THE MIRRORS, GATE THE DRIFT. The gate is
+# tools/test_bg_emit.py::TestBgAnimBandCeiling, which reads all three and fails on any
+# disagreement; before it existed, raising the ceiling HERE alone would have let
+# BgAnim_Update walk off the end of BgAnim_LastStep in the release shape with nothing
+# to catch it. Named rather than left inline so the gate can import it instead of
+# regex-scraping an assert message.
+BGANIM_MAX_BANDS = 4
+
 OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'generated', 'ojz', 'act1')
 OVERRIDE = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'editor_bg_override.json')
 
@@ -45,7 +71,13 @@ def main():
     if anims is None and data.get('anim'):
         anims = [data['anim']]                  # legacy single-band shape
     if anims:
-        assert len(anims) <= 4, 'engine supports at most BGANIM_MAX_BANDS=4 bands'
+        assert len(anims) <= BGANIM_MAX_BANDS, (
+            f'{len(anims)} animated bands authored but the engine sizes BgAnim_LastStep '
+            f'for at most BGANIM_MAX_BANDS={BGANIM_MAX_BANDS}. Raising it here is NOT '
+            f'enough: engine/system/constants.emp (which sizes the array) and '
+            f'engine/level/bg_anim.emp (which bounds the runtime assert) hold the same '
+            f'number and must be raised together, or BgAnim_Update walks past the array '
+            f'in the release shape. See BGANIM_MAX_BANDS at the head of this file.')
         banks = bytearray()
         bands = []
         slot_cursor = 0
