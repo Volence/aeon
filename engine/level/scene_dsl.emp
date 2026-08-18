@@ -55,13 +55,13 @@ pub const TRANS_INSTANT  = 1    // snap on the promote frame
 // the Task-3 lowering folds SceneLayers into parallax_config/band_entry).
 // -----------------------------------------------
 pub struct SceneLayer {
-    ly_world_y:  int,
-    ly_fa:       int,
-    ly_fb:       int,
-    ly_dsa:      int,
-    ly_dsb:      int,
-    ly_phase:    int,
-    ly_enabled:  int,
+    ly_world_y:  u16,   // authored layer top, world pixels
+    ly_fa:       u16,   // packed FACTOR_* (9 bits), plane A
+    ly_fb:       u16,   // packed FACTOR_* (9 bits), plane B
+    ly_dsa:      u8,    // deform-amplitude shift, plane A (15 = none)
+    ly_dsb:      u8,    // deform-amplitude shift, plane B (15 = none)
+    ly_phase:    u8,    // deform sample-index desync
+    ly_enabled:  u8,    // 0 = dormant layer
 }
 
 // -----------------------------------------------
