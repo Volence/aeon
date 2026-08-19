@@ -55,10 +55,23 @@ observable, and any difference between sweep points is the LINE and nothing else
 sweep runs a control far from the boundary alongside the candidates, so "the instrument
 sees a healthy frame" is proven in the same run as any claimed defect.
 
+WHAT IT MEASURED, 2026-08-19, so the next reader starts from the answer:
+
+  * THE LINE-223 DIAGNOSIS IS WRONG. Sparse fires at 222, 223 and 224, and the dense run
+    220..223 (exactly the `top + lines == 224` case both constructors were tightened to
+    forbid), ALL retire before the rewind, every frame, `[2,6,10]`. The VDP raises the last
+    active line's HINT far enough ahead of VINT that the 68000 takes IRQ4 first.
+  * THE MECHANISM IS REAL once the actual precondition is supplied, which is a MASK WINDOW
+    across the VINT instant rather than any line number. The `--stall` fixture supplies it:
+    pre-fix `[2,6] x3` and `[2,6,10] x2` alternating (a fire lost every other frame),
+    post-fix `[2,2,6,10]` uniform (the stale fire retiring on cursor 2 without advancing,
+    then the frame's own walk completing).
+
 Usage:
     python3 tools/raster_frame_epoch_probe.py --rom s4.debug.bin --lst s4.debug.lst
-    python3 tools/raster_frame_epoch_probe.py --lines 199,222,223 --json out.json
-Exit: 0 the sweep ran (read the verdicts) - 1 an assertion/control failed - 3 setup problem
+    python3 tools/raster_frame_epoch_probe.py --lines 199,222,223,224 \
+        --dense 220:3,220:4 --stall 222:224:2,222:224:400 --events 26 --json out.json
+Exit: 0 the sweep ran (read the verdicts) - 1 a poked image did not survive - 3 setup problem
 """
 import argparse
 import asyncio
