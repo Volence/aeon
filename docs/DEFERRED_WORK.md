@@ -4891,11 +4891,13 @@ Baseline for attribution (all four shapes, verified equal to master before the f
   every constructor that can produce the address (`stream_cram`, `stream_pal_region`,
   `pal_restore`) already ensures the span cannot run past the end of its CRAM line. Fits
   `clobbers(d0/a1-a2)` unchanged. Byte-verified in the ROM.
-- **Item 1 — 1a LANDED, 1b/1c OPEN (see below).** The blanking spin is now per-op PROGRAM
-  DATA read with `move.w (a1)+, d1`; `EFX_BLANK_DELAY` and `EFX_RESTORE_DELAY` are deleted.
-  Wire: `[op][cmd hi][cmd lo][SPIN][count-1][payload]`. **The emitted values are still the
-  hand-calibrated 4/4/13**, so timing is unchanged and the wire change was measurable in
-  isolation — a LEADING stream op is still mis-timed and `fire()`'s guard still says so.
+- **Item 1 — 1a LANDED; 1b and 1c CLOSED 2026-08-19 (see below).** The blanking spin is now
+  per-op PROGRAM DATA read with `move.w (a1)+, d1`; `EFX_BLANK_DELAY` and `EFX_RESTORE_DELAY`
+  are deleted. Wire: `[op][cmd hi][cmd lo][SPIN][count-1][payload]`. **At 1a the emitted
+  values were still the hand-calibrated 4/4/13**, so timing was unchanged and the wire change
+  was measurable in isolation — a LEADING stream op was still mis-timed and `fire()`'s guard
+  still said so. (Item 1c replaced those values with a solver; the paragraph below is 1a's
+  own record and its 4/4/13 are history, not the shipped numbers.)
   Every stream op is +2 bytes and +4 cycles and nothing else moved: predicted as a pure
   count of stream ops, then **confirmed on hardware, all eight fixtures to the cycle**
   (F1 412 unmoved — the control; F2/F7 462, F3 522, F4 570, F5 632, F6 622, F8 708).
@@ -4918,19 +4920,56 @@ Baseline for attribution (all four shapes, verified equal to master before the f
 post-1a — including the cost gate, whose expectations are computed from the shipped
 constants and matched hardware exactly.
 
+- **Item 1b — CLOSED 2026-08-19.** The window is MEASURED. Driver
+  `tools/hblank_window_sweep.py` against oracle-next's `emulator/scanlines`; full results in
+  `docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`. For a LEADING single-op
+  3-word CRAM the three burst words cross the line-start sampling instant at N = 22/25/28
+  (repeated at four consecutive line boundaries): **upper edge N = 21.5 MEASURED, lower edge
+  N = 15.21 DERIVED from the 122.9-cycle H40 blanking width, clean integers 16..21,
+  CENTRE 18.** Two by-products: `RASTER_STREAM_WORD_CYC = 30` is confirmed against hardware
+  for the first time (8 independent intervals), and the spec's own §4 fixture was measured
+  VACUOUS for two independent reasons, both fixed before any sweep number was recorded. The
+  instrument's own limit is booked there too — `emulator/scanlines` renders a row atomically
+  at line start, so a landing resolves to +/-1 scanline and the early edge is not observable.
+- **Item 1c — CLOSED 2026-08-19** (branch `fix/raster-spin-solver-1c`). The three hand-fitted
+  per-class anchors (`RASTER_SPIN_CRAM/REGION/RESTORE` = 4/4/13) are deleted. One measured
+  constant — `RASTER_HBLANK_END_CYC = 351`, the modelled cycles from a fire record's op-walk
+  origin to the sampling instant — plus a comptime solver that centres each op's burst in the
+  window **from the op's position in its fire**. Emitted spins old -> new: leading cram 1w
+  4 -> 21, leading cram 3w 4 -> 18, leading region 3w 4 -> 15, leading vsram 1w 4 -> 21,
+  leading restore 3w 13 -> 10, reg+cram 1w 4 -> 10, reg+cram 3w 4 -> 7, reg+region 3w 4 -> 4
+  (the one shipped shape that does not move — it is the shape the old constant was fitted to).
+  `check_landings` refuses any burst that misses the window with margin (EARLY 20 / LATE 10,
+  asymmetric because the early edge is derived rather than measured), naming the op, the fire
+  line, the landing and both edges. **Do not adopt the numbers this file used to carry** — the
+  packet's ~21 and the earlier ~15 were both anchored on inherited points and neither survived
+  the measurement; the §2 term that broke them was "3-word CRAM burst ~= 84 cycles", where what
+  must fit inside blanking is first-write-to-last-write, measured at 60.
+  Three independent corroborations are pinned beside the constant, and they are the reason to
+  trust it: the RESULTS doc's own "235 cycles before the instant" for the retired spin 4; the
+  retired restore 13 reproduced as the window's far edge; and the retired cram 4 reproduced as
+  2.1 cycles (1.8 px) short of the early edge — which is the "1px -> 0px" the P2 gate measured
+  on that exact fixture. F-series pins re-derived at 10 cyc/iteration (F1 412 unmoved, the
+  control). Ripple landed in the same parcel: `ojz_effects.emp`'s four hand pins, both band
+  twins, `raster_cost_probe.py`'s mirrored solver, the wire pin (expectations derived from the
+  .emp constants, not copied), and the cost gate.
+  **VERIFICATION.** Four shapes build. Tool suite 1044 passed / 2 skipped (baseline
+  1025/2; +19 wire-pin cases). Expect-fail lane 17/17 (was 15/15 — a poison per window
+  edge, one exactly-1-diagnostic and one exactly-2, the count being half the assertion).
+  Effects gate lane **10 PASS, exit 0**, and the load-bearing one is the cost gate: its
+  expectations are re-derived from the shipped constants including the solved spins, and
+  hardware measured F0 572 / F1 3044 / F3 3882 / F4 4652 / F5 3220 / F8 4640 — every one
+  exact, so the new iteration counts were verified on an emulator, not just in comptime.
+  The 1b driver re-run against the new ROM reproduces the boundary structure unchanged
+  ([22, 25, 28], window [15.21, 21.5], centre 18), which is the check that 1c touched no
+  handler code. **Byte accounting against the `.lst`: length delta 0, FOUR differing bytes
+  total** — the header checksum, `OJZ_TestRaster+0x19` (04 -> 0A), `OJZ_TestVsram+0x15`
+  (04 -> 15) and `OJZ_TwoChannel+0x29` (04 -> 15). Zero code bytes; no placer fill involved.
+  **STILL OPEN on 1c:** the sigil-side repin/refreeze for the moved bytes — s4.debug
+  `c97cc7b9 -> 8610557b` and s4 `eab1f9a0 -> d6bc3057`, both at UNCHANGED length (demo
+  byte-identical). Sequenced by the controller, not by this parcel.
+
 **STILL OPEN:**
-- **Item 1b/1c — the actual re-timing, and it needs the emulator.** 1a made the spin
-  authorable per op but did NOT change any value, so the leading-stream-op defect is
-  still live. 1c must point the solver at a single target; 1b has to locate that target
-  first. **Do not adopt a number from this file or the packet.** The packet's ~21 and the
-  earlier note's ~15 are both anchored on inherited points: re-derivation shows the
-  measured-clean CRAM shape lands at `P+222` and the measured-clean restore at `P+266`,
-  44 cycles apart, and BOTH are clean because H40 blanking is ~123 cycles wide while a
-  3-word burst is ~84 — roughly 39 cycles of slack, with the two anchors near opposite
-  edges. The correct target is the burst CENTERED in that window, which needs the window
-  edges measured (R1 §7.3 poke-sweep method, pokes PAUSED or the per-VBlank schedule
-  re-record races them). 1c should also add an ensure that every op's computed landing
-  sits inside the window with margin, and correct `raster_dsl.emp`'s `fire()` guard text.
 - Everything else: all of Tier 3 perf, the rest of Tier 4 / B2 (`palette_dsl`'s
   self-test-only variant mirror), plus C5 footprint, the EFX-4b angle, and the
   zero-`assert.*` observation. Item 3's structural frame-epoch fix also remains open

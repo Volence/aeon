@@ -13,7 +13,7 @@ programs that demonstrably run today (design spec 4.3).
 WHAT THE REGEX MATCHES, measured against the shipped tree rather than a sample:
 
   `[pub] const NAME [: TYPE] = <expr>` at any indentation. All four parts are real:
-  `pub` is optional (raster.emp's EFX_BLANK_DELAY is private), the name is not always
+  `pub` is optional (raster_dsl.emp's RASTER_PRE_CRAM_CYC is private), the name is not always
   ALL_CAPS (games/sonic4 has Act_grid_w_lo and friends), and the type annotation form
   is live in games/sonic4/config/sound_ids.emp (`pub const SONG_HCZ2 : SongId = 3`)
   and games/demo (`pub const VRAM_DEMO_OBJ : VramTile = $03E0`).

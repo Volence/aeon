@@ -108,6 +108,23 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
     (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4", 1),
     (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),
+    # ---- Substrate item 1c: check_landings, both edges of the measured window ----
+    # Two cases, not one, because the two edges have different evidentiary standing: the
+    # LATE edge is the sampling instant the sweep measured directly, the EARLY edge is
+    # derived from the H40 blanking width and could never be observed. A single poison
+    # would leave whichever edge it missed unproven.
+    #  - "landing late": exactly 1 diagnostic. Three reg_sets push a cram op past the
+    #    window before it spins at all, so the EARLY test passes and only the LATE one
+    #    fires. A count of 2 means a second guard started firing.
+    #  - "landing early": exactly 2, and the count is half the assertion — the solver
+    #    centres the COMBINED span of a two-stream-op fire, which puts op 0 before the
+    #    window opens AND op 1 after it closes. A count of 1 means the pair stopped being
+    #    solved together.
+    # Both fragments quote the guard's own wording rather than a number, because the
+    # numbers here move whenever a cost term does and the case would then fail for a
+    # reason unrelated to the guard.
+    (f"{POISON}/poison_landing_late.emp",         "1c late edge",  "past the latest legal", 1),
+    (f"{POISON}/poison_landing_early.emp",        "1c early edge", "EARLIER than the earliest legal", 2),
 ]
 
 

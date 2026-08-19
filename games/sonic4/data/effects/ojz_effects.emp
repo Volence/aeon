@@ -141,9 +141,17 @@ const OJZ_TEST_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       2, $C04A, $0000,          // OP_CRAM, command longword split
-                 4,             // spin — RASTER_SPIN_CRAM (substrate item 1: the blanking
-                                //   spin is per-op program data, no longer a constant in
-                                //   the handler). Sits between command and count-1.
+                 10,            // spin — SOLVED, not authored (substrate item 1c): the
+                                //   blanking spin is per-op program data whose value the
+                                //   lowering derives from the op's POSITION. Hand-derived
+                                //   here by the solver's own arithmetic, since this pin
+                                //   would be worthless if it shared a symbol with the
+                                //   encoder: a 1-word cram sitting SECOND after a reg_set
+                                //   reaches its delay site at p = 110 (the SetReg) + 8
+                                //   (fetch) + 18 (dispatch hit at depth 0) + 36 (pre-burst
+                                //   arm) = 172 cycles, its burst spans 0 (one word), and
+                                //   round((351 - 172 - 14 - 122.9/2) / 10) = round(10.355)
+                                //   = 10. Sits between command and count-1.
                  0, $000E,      // count-1, the colour
     $8AFF, $FFFF,               // park + RASTER_OPS_END
 ]
@@ -267,7 +275,15 @@ const OJZ_WATER_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       4, $C048, $0000,          // OP_PAL_REGION, command longword split
-                 4,             // spin — RASTER_SPIN_REGION (substrate item 1)
+                 4,             // spin — SOLVED (substrate item 1c), and it happens to
+                                //   land on the same 4 the retired per-class constant
+                                //   carried: a 3-word pal_region sitting SECOND reaches
+                                //   p = 110 + 8 + 34 (depth-1 dispatch) + 56 (pre-burst
+                                //   arm, the deeper lea/adda shape) = 208, spans 60, and
+                                //   round((351 - 208 - 14 - (122.9 + 60)/2) / 10) =
+                                //   round(3.755) = 4. Coincidence, not inheritance — the
+                                //   shipped OJZ water band was the shape the old constant
+                                //   was fitted to, which is why it does not move.
                  2,             // count-1
                  72,            // Pal_Variant_Stage offset
     $8AFF, $FFFF,               // park + RASTER_OPS_END
@@ -440,8 +456,15 @@ const OJZ_VSRAM_HAND = [
       2, $4002, $0010,                  //   OP_CRAM opcode, VSRAM write cmd @ byte 2 = $40020010
                                         //   (type&rwd = VSRAM&WRITE = %000101: bits 1-0 -> $40000000,
                                         //    addr -> high word, bits 7-2 -> $10 in the low word)
-                 4,                     //   spin — RASTER_SPIN_CRAM; a VSRAM op emits OP_CRAM
-                                        //   and takes the cram spin with it (substrate item 1)
+                 21,                    //   spin — SOLVED (substrate item 1c). A VSRAM op
+                                        //   emits OP_CRAM and dispatches at the cram rung,
+                                        //   so it solves exactly like one: LEADING, 1 word,
+                                        //   p = 8 + 18 + 36 = 62, span 0,
+                                        //   round((351 - 62 - 14 - 61.45) / 10) = 21.
+                                        //   Compare the OJZ_TestRaster pin's 10 for the
+                                        //   same one-word burst sitting after a reg_set —
+                                        //   11 iterations of difference, which is the
+                                        //   110-cycle SetReg the solver now accounts for
                  0, OJZ_VSRAM_OFFSET,   //   count-1 = 0, one scroll word
     $8AFF, $FFFF,                       // terminator
 ]
@@ -690,12 +713,16 @@ const OJZ_TC_HAND = [
     $8AFF, 2,                   // fire 2 — channel 0, two ops
       0, $8C89,                 //   OP_SET_REG — S/H on
       4, $C048, $0000,          //   OP_PAL_REGION, command longword split
-                 4,             //   spin — RASTER_SPIN_REGION (substrate item 1)
+                 4,             //   spin — SOLVED: 3-word region SECOND after a reg_set,
+                                //     p = 208, span 60 -> round(3.755) = 4 (item 1c)
                  2,             //   count-1
                  72,            //   Pal_Variant_Stage offset
     $8AFF, 1,                   // fire 3 — channel 1, one op
       2, $4002, $0010,          //   OP_CRAM opcode with a VSRAM WRITE command longword
-                 4,             //   spin — RASTER_SPIN_CRAM (a VSRAM op emits OP_CRAM)
+                 21,            //   spin — SOLVED: LEADING 1-word vsram, p = 62, span 0
+                                //     -> round(21.355) = 21 (item 1c). The two records in
+                                //     this ONE program now carry different spins for the
+                                //     first time, which is the whole point of the solver
                  0,             //   count-1
                  $0043,         //   the scroll value
     $8AFF, $FFFF,               // park + RASTER_OPS_END
