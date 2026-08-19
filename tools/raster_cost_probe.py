@@ -71,6 +71,19 @@ from launcher import headless_emulator  # noqa: E402
 CRAM_WRITE  = 0xC0000000     # (type & rwd) = 3 -> 3 << 30, no high bits
 VSRAM_WRITE = 0x40000010     # (type & rwd) = 5 -> 1 << 30 | 4 << 2
 
+# The per-op blanking spin (substrate item 1, 2026-08-18). Raster_HInt reads the dbf
+# iteration count from the PROGRAM now -- `move.w (a1)+, d1` where it used to be
+# `moveq #EFX_BLANK_DELAY, d1` -- so every stream op carries one extra word between its
+# command longword and its count-1. MUST MATCH raster_dsl.emp's RASTER_SPIN_* constants:
+# this file is a second implementation of that format, so a drift here silently changes
+# what the probe MEASURES rather than failing. The empirical guard the module note relies
+# on still applies -- a mis-encoded program reports the wrong `calls` before any cycle
+# figure is read -- and a wrong spin VALUE additionally shows up as a cycle delta of
+# exactly 10 per iteration against the .emp pins.
+SPIN_CRAM    = 4
+SPIN_REGION  = 4
+SPIN_RESTORE = 13
+
 
 def _delta(addr: int) -> int:
     return ((addr & 0x3FFF) << 16) | ((addr & 0xC000) >> 14)
@@ -102,19 +115,20 @@ def op_words(o: dict) -> list[int]:
         return [0, o["w"]]
     if k == "cram":
         c = CRAM_WRITE | _delta(o["a"])
-        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, len(o["v"]) - 1] + list(o["v"])
+        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_CRAM, len(o["v"]) - 1] + list(o["v"])
     if k == "vsram":
+        # A VSRAM op EMITS OP_CRAM, so it takes the cram spin with it.
         c = VSRAM_WRITE | _delta(o["a"])
-        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, len(o["v"]) - 1] + list(o["v"])
+        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_CRAM, len(o["v"]) - 1] + list(o["v"])
     if k == "region":
         c = CRAM_WRITE | _delta(o["a"])
-        return [4, (c >> 16) & 0xFFFF, c & 0xFFFF, o["n"] - 1,
+        return [4, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_REGION, o["n"] - 1,
                 o["slot"] * 128 + o["pl"] * 32 + o["e"] * 2]
     if k == "restore":
         # R1: OP_PAL_RESTORE — the snapshot offset IS the CRAM byte address (claim D-F),
-        # so word 5 is the same `a` the command longword was derived from.
+        # so the last word is the same `a` the command longword was derived from.
         c = CRAM_WRITE | _delta(o["a"])
-        return [10, (c >> 16) & 0xFFFF, c & 0xFFFF, o["n"] - 1, o["a"]]
+        return [10, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_RESTORE, o["n"] - 1, o["a"]]
     raise ValueError(f"unknown op {k}")
 
 
@@ -151,8 +165,12 @@ def program_words(fires: list[tuple[int, list[dict]]]) -> list[int]:
 # Each varies ONE thing from a neighbour. Fires REPEAT within a fixture so the measured
 # quantity is a marginal cost divided by the repeat count: the per-fire figure is
 # (fixture - F0) / n, which divides any instrument error by n as well. The repeat count is
-# capped by RASTER_BUF_SIZE (128 bytes), not by choice — a 3-word cram fire is 9 words, so
-# six of them plus the 7-word frame is the whole buffer.
+# capped by RASTER_BUF_SIZE (128 bytes), not by choice. Since the spin moved into the
+# program (substrate item 1) every stream op is one word wider, so a 3-word cram fire is 10
+# words where it was 9 and the caps DROPPED: F3 6 -> 5 fires, F5 5 -> 4. That is a real cost
+# of the fix, not a probe artifact -- shipped programs lost the same headroom against the
+# 128-byte buffer. program_words() raises rather than truncating, so an over-cap fixture
+# fails loudly; it is what caught these two.
 #
 # Fire lines are spaced 20 apart, far wider than any plausible cost, so no fixture is near
 # the density boundary and spacing cannot be a hidden variable. Fire POSITION was measured
@@ -186,8 +204,8 @@ FIXTURES: dict[str, dict] = {
     },
     "F3": {
         "what": "stream_cram, 3 words — the per-word slope against F2",
-        "n": 6,
-        "fires": _spread(6, lambda i: [stream_cram(34, COLS3)]),
+        "n": 5,
+        "fires": _spread(5, lambda i: [stream_cram(34, COLS3)]),
     },
     "F4": {
         "what": "stream_pal_region, 3 words — the region premium against F3",
@@ -196,8 +214,8 @@ FIXTURES: dict[str, dict] = {
     },
     "F5": {
         "what": "reg_set + stream_cram 3 — is a mixed fire additive?",
-        "n": 5,
-        "fires": _spread(5, lambda i: [reg_set(REGW), stream_cram(34, COLS3)]),
+        "n": 4,
+        "fires": _spread(4, lambda i: [reg_set(REGW), stream_cram(34, COLS3)]),
     },
     "F6": {
         "what": "two stream_cram 1-word ops in ONE fire — per-op cost without per-fire overhead",
@@ -214,7 +232,7 @@ FIXTURES: dict[str, dict] = {
     # minima freeze. Model expectation at work=64: dispatch 82 (depth 4) + fetch 8 +
     # work 64 + 3*30 + tail 10 = 254 marginal + the 302 fire base = 556/fire.
     "F8": {
-        "what": "pal_restore, 3 words — claim 9 (work=212 calibrated: spinless 64 + EFX_RESTORE_DELAY 148)",
+        "what": "pal_restore, 3 words — claim 9 (work = base 72 + spin_cyc(13) = 216)",
         "n": 6,
         "fires": _spread(6, lambda i: [pal_restore(34, 3)]),
     },

@@ -229,17 +229,24 @@ pub const RASTER_CRAM_MAX = 3
 // to OP_SET_REG would cost another ~40 cycles of a ~60-cycle budget and was not taken
 // without a cycle measurement to justify it.
 //
-// dbf iterations. Each dbf is ~10 cyc; 4 covers the ~40 cyc from mid-handler to the
-// active-display edge on an H40 line, and 4 is what the measurement above validates.
-// Region-tunable — recalibrate on oracle if the handler's prologue changes (the ints_off
-// bracket's stack push already shifted it once; see P1 GATE-EVIDENCE's CORRECTION).
-const EFX_BLANK_DELAY = 4
-
-// The RESTORE body's own spin (R1, spec §3.2) — never shared with EFX_BLANK_DELAY: the
-// restore dispatches at depth 4 and carries no preceding op, so its pre-burst timing is
-// its own. Calibrated 2026-08-17 from the §7.3 first-datum capture (see the body comment
-// at .op_pal_restore); evidence docs/benchmarks/effects-r1/GATE-EVIDENCE.md.
-const EFX_RESTORE_DELAY = 13
+// THE SPIN IS NO LONGER A CONSTANT HERE. It is a comptime-solved word carried by each
+// stream op in the program, read by the three delay sites below with `move.w (a1)+, d1`.
+// The authority is `op_spin_iters` in engine/effects/raster_dsl.emp.
+//
+// WHY THE CONSTANTS DIED (substrate sweep item 1, 2026-08-18). `EFX_BLANK_DELAY = 4` was
+// fitted to ONE shape: a CRAM op sitting SECOND, after an OP_SET_REG, which contributes
+// 110 cycles of pre-burst delay ahead of it. The same 4 applied to a LEADING stream op —
+// a shape `band(sh: 0)`, `region_boundary(sh: 0)` and `fx_tint_band(sh: 0)` all freely
+// produce — left it ~150 cycles early, landing at x~170 of 320, i.e. mid-active-display.
+// R1's §7.3 capture measured exactly that ("the bare single-op cram ON fire spilled
+// identically ... row 99 tinted from x~170"). A constant cannot be right for both shapes
+// because the distance to blanking depends on the op's POSITION and DISPATCH DEPTH, which
+// only the lowering knows. So the lowering computes it.
+//
+// The calibration history those two constants carried is preserved at op_spin_iters,
+// including the measured pixel/cycle conversion the whole solver rests on. The old
+// `EFX_RESTORE_DELAY = 13` and `EFX_BLANK_DELAY = 4` are now OUTPUTS of that solver for
+// their respective shapes, not inputs to it.
 
 // Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
 // P1 runs entirely out of Buf_A.
@@ -769,9 +776,13 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         jbra    .advance
     .op_cram:
         move.l  (a1)+, (a2)             // full CRAM command in ONE move.l (sets the address)
-        // Row-119 fix: burn a cycle-counted delay so the colour writes below land in
-        // HBlank (offscreen). d1 is free here, before it is loaded with count.
-        moveq   #EFX_BLANK_DELAY, d1
+        // Burn a cycle-counted delay so the colour writes below land in HBlank (offscreen).
+        // THE COUNT COMES FROM THE PROGRAM, not from a constant: what this delay has to
+        // cover is the distance from THIS op's position in THIS fire to the blanking window,
+        // and that distance depends on how many ops ran ahead of it and at what dispatch
+        // depth. One global constant could only ever be right for one shape — see the
+        // per-op solver in raster_dsl.emp. d1 is free here, before it is loaded with count.
+        move.w  (a1)+, d1               // spin iterations, comptime-solved for this op
     .cram_delay:
         dbf     d1, .cram_delay
         move.w  (a1)+, d1               // count-1
@@ -789,8 +800,11 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // absolute, which needs no a2), then restored for the arm write / next op — no
         // register is added to the movem save set (the ~60-cycle budget).
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
-        // Row-119 fix: same blanking delay as OP_CRAM (d1 free before count).
-        moveq   #EFX_BLANK_DELAY, d1
+        // Same stream-from-program blanking delay as OP_CRAM (d1 free before count). The
+        // region dispatches one rung DEEPER than cram, so it reaches here 16 cycles later
+        // and needs a correspondingly smaller spin — which is exactly the kind of thing a
+        // shared constant got wrong and the solver gets right.
+        move.w  (a1)+, d1               // spin iterations, comptime-solved for this op
     .region_delay:
         dbf     d1, .region_delay
         move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX)
@@ -861,7 +875,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
         // neither adjacent value clean -> narrow the stream count (spec §3.2).
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
-        moveq   #EFX_RESTORE_DELAY, d1
+        move.w  (a1)+, d1               // spin iterations, comptime-solved for this op
     .restore_delay:
         dbf     d1, .restore_delay
         move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX — also bounds the (a2)+ reads inside the 128-byte snapshot)

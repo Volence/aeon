@@ -57,13 +57,21 @@ sparse_tier_frame_pct_SUPERSEDED        = 6.5
 # They were nonetheless close: 454 against 458, 526 against 518. The superseded pair is kept
 # below rather than deleted, because a later reader finding "454" in an old doc needs to be
 # able to tell which measurement it was.
-sparse_fire_vsram1_cycles = 458      # measured — fixture F7 (and F2, identical)
-sparse_fire_cram3_cycles  = 518      # measured — fixture F3
-sparse_fire_reg1_cycles   = 412      # measured — fixture F1; the old model scored this ZERO
-sparse_fire_region3_cycles = 566     # measured — fixture F4
-sparse_fire_water_cycles  = 676      # modelled — reg_sh_on + 3-word region, the OJZ water fire
+# RE-MEASURED 2026-08-18 after substrate item 1 moved the blanking spin into the program:
+# every STREAM op pays +4 (move.w read replacing the moveq), so every row below except the
+# reg-only one moved by exactly that, and the reg-only row did not move at all. All eight
+# fixtures re-read on hardware and matched the prediction to the cycle.
+sparse_fire_vsram1_cycles = 462      # measured — fixture F7 (and F2, identical)
+sparse_fire_cram3_cycles  = 522      # measured — fixture F3
+sparse_fire_reg1_cycles   = 412      # measured — fixture F1; UNMOVED (SetReg streams nothing)
+sparse_fire_region3_cycles = 570     # measured — fixture F4
+sparse_fire_water_cycles  = 680      # modelled — reg_sh_on + 3-word region, the OJZ water fire
 sparse_fire_vsram1_cycles_SUPERSEDED = 454   # interrupts.hint differential, 2026-08-14
 sparse_fire_cram3_cycles_SUPERSEDED  = 526   # interrupts.hint differential, 2026-08-14
+sparse_fire_vsram1_cycles_SUPERSEDED2 = 458  # pre-item-1, spin folded into the work constant
+sparse_fire_cram3_cycles_SUPERSEDED2  = 518  # pre-item-1
+sparse_fire_region3_cycles_SUPERSEDED = 566  # pre-item-1
+sparse_fire_water_cycles_SUPERSEDED2  = 676  # pre-item-1
 # CORRECTED 2026-08-18 — these two contradicted a LIVE `ensure` and this file said nothing,
 # because no gate reads the sparse_fire_* rows (only [symbols] rows are checked). Found
 # independently by three seats of the raster-substrate lens sweep. Both were the RUNGS=4
@@ -106,9 +114,17 @@ dispatch_hit_cycles    = 18          # code-derived — the matching rung: cmpi.
 op_tail_cycles         = 10          # code-derived — dbf d0, .op_loop, taken
 stream_word_cycles     = 30          # code-derived — move.w to VDP_DATA + dbf
 work_reg_cycles        = 12          # code-derived — move.w (a1)+, (a2)
-work_cram_cycles       = 90          # code-derived — cmd move.l 20 + moveq 4 + blank spin 54 + count 8 + tail dbf 4
-work_region_cycles     = 122         # code-derived — the above + lea 8 + adda.w 12 + lea restore 12
-work_restore_cycles    = 212         # measured — spinless 64 + EFX_RESTORE_DELAY=13 spin (148); F8 704/fire
+# SPLIT 2026-08-18 (substrate item 1): the blanking spin is per-op DATA in the program,
+# not a constant folded into these rows, so the work terms are now SPINLESS BASES and a
+# fixture's work = base + spin_cyc(N) where spin_cyc(n) = n*10 + 14. The count read is
+# `move.w (a1)+, d1` (8) where it was `moveq #imm, d1` (4), so each base is +4 on the
+# spinless part of its predecessor.
+work_cram_cycles_SUPERSEDED    = 90  # folded EFX_BLANK_DELAY=4's spin (54) into the constant
+work_region_cycles_SUPERSEDED  = 122 # ditto, + lea 8 + adda.w 12 + lea restore 12
+work_restore_cycles_SUPERSEDED = 212 # spinless 64 + EFX_RESTORE_DELAY=13 spin (148)
+work_cram_base_cycles    = 40        # code-derived — cmd move.l 20 + spin read 8 + count 8 + tail dbf 4
+work_region_base_cycles  = 72        # code-derived — the above + lea 8 + adda.w 12 + lea restore 12
+work_restore_base_cycles = 72        # measured — R1's spinless 64 + the 4-cyc stream read
 dispatch_rungs         = 5           # code-derived — chain length; OP_SET_REG falls through it
 scanline_cycles        = 488         # code-derived — RASTER_SCANLINE_CYC
 residual               = 0           # eight fixtures, four free parameters, zero residual
@@ -262,6 +278,6 @@ free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 # regex reads them anyway, and they belong here for the same reason as the rest — they are
 # the terms that separate a region fire from a cram fire.
 "raster.cost_model.work_reg_cycles"         = "engine/effects/raster_dsl.emp:RASTER_WORK_REG_CYC"
-"raster.cost_model.work_cram_cycles"        = "engine/effects/raster_dsl.emp:RASTER_WORK_CRAM_CYC"
-"raster.cost_model.work_region_cycles"      = "engine/effects/raster_dsl.emp:RASTER_WORK_REGION_CYC"
-"raster.cost_model.work_restore_cycles"     = "engine/effects/raster_dsl.emp:RASTER_WORK_RESTORE_CYC"
+"raster.cost_model.work_cram_base_cycles"   = "engine/effects/raster_dsl.emp:RASTER_WORK_CRAM_BASE_CYC"
+"raster.cost_model.work_region_base_cycles" = "engine/effects/raster_dsl.emp:RASTER_WORK_REGION_BASE_CYC"
+"raster.cost_model.work_restore_base_cycles" = "engine/effects/raster_dsl.emp:RASTER_WORK_RESTORE_BASE_CYC"

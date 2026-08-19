@@ -141,6 +141,9 @@ const OJZ_TEST_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       2, $C04A, $0000,          // OP_CRAM, command longword split
+                 4,             // spin — RASTER_SPIN_CRAM (substrate item 1: the blanking
+                                //   spin is per-op program data, no longer a constant in
+                                //   the handler). Sits between command and count-1.
                  0, $000E,      // count-1, the colour
     $8AFF, $FFFF,               // park + RASTER_OPS_END
 ]
@@ -264,6 +267,7 @@ const OJZ_WATER_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       4, $C048, $0000,          // OP_PAL_REGION, command longword split
+                 4,             // spin — RASTER_SPIN_REGION (substrate item 1)
                  2,             // count-1
                  72,            // Pal_Variant_Stage offset
     $8AFF, $FFFF,               // park + RASTER_OPS_END
@@ -423,7 +427,8 @@ const OJZ_VSRAM_PROG = [
 ]
 
 // THE PIN. Hand-derived from the wire format, and read as the twin the DSL must
-// reproduce. 14 words: 1 header + 4 priming + 7 event + 2 terminator.
+// reproduce. 15 words: 1 header + 4 priming + 8 event + 2 terminator — the event body
+// grew a word when the blanking spin moved into the program (substrate item 1).
 //   arm0 = $8A00 | (112 - 3) = $8A00 | 109 = $8A6D
 //   cmd  = vdp_comm(2, Vsram, Write) — VSRAM write at byte 2 = entry 1 = plane B
 // Literals on purpose: a pin sharing symbols with the encoder it pins is weaker.
@@ -435,6 +440,8 @@ const OJZ_VSRAM_HAND = [
       2, $4002, $0010,                  //   OP_CRAM opcode, VSRAM write cmd @ byte 2 = $40020010
                                         //   (type&rwd = VSRAM&WRITE = %000101: bits 1-0 -> $40000000,
                                         //    addr -> high word, bits 7-2 -> $10 in the low word)
+                 4,                     //   spin — RASTER_SPIN_CRAM; a VSRAM op emits OP_CRAM
+                                        //   and takes the cram spin with it (substrate item 1)
                  0, OJZ_VSRAM_OFFSET,   //   count-1 = 0, one scroll word
     $8AFF, $FFFF,                       // terminator
 ]
@@ -683,10 +690,12 @@ const OJZ_TC_HAND = [
     $8AFF, 2,                   // fire 2 — channel 0, two ops
       0, $8C89,                 //   OP_SET_REG — S/H on
       4, $C048, $0000,          //   OP_PAL_REGION, command longword split
+                 4,             //   spin — RASTER_SPIN_REGION (substrate item 1)
                  2,             //   count-1
                  72,            //   Pal_Variant_Stage offset
     $8AFF, 1,                   // fire 3 — channel 1, one op
       2, $4002, $0010,          //   OP_CRAM opcode with a VSRAM WRITE command longword
+                 4,             //   spin — RASTER_SPIN_CRAM (a VSRAM op emits OP_CRAM)
                  0,             //   count-1
                  $0043,         //   the scroll value
     $8AFF, $FFFF,               // park + RASTER_OPS_END
@@ -701,10 +710,15 @@ ensure(first_mismatch(raster_program(OJZ_TC_PROG), OJZ_TC_HAND) == -1,
 // space; rec_off/rec_len are byte offsets into the emitted body.
 const OJZ_TC_TABLE_HAND = [
     2,                          // count — two authored records
-    $8000, 2,   219,   10, 18,  // channel 0: band 2..219, record at byte 10, 18 bytes long
+    // rec_off/rec_len re-derived for the per-op spin word (substrate item 1). Channel 0's
+    // record starts at the same byte — the growth is inside it, after its arm — but is one
+    // word longer; channel 1's record is pushed one word later AND is itself one longer.
+    $8000, 2,   219,   10, 20,  // channel 0: band 2..219, record at byte 10, 20 bytes long
+                                //   (body words 5..14: arm, count, SetReg x2, PalRegion x6)
                                 //   (fire lines = screen 3..220 — the water line owns almost
                                 //    the whole screen; see the re-band note above)
-    $8001, 221, 222,   28, 14,  // channel 1: band 221..222, record at byte 28, 14 bytes long
+    $8001, 221, 222,   30, 16,  // channel 1: band 221..222, record at byte 30, 16 bytes long
+                                //   (body words 15..22: arm, count, OP_CRAM x6)
 ]
 // The off-screen ship trailer, after the patch table. The count word is emitted
 // unconditionally, so the runtime reads one fixed shape instead of branching on whether a
@@ -753,9 +767,10 @@ pub data OJZ_TwoChannel: [u16; patched_words(OJZ_TC_PROG)] = patched_program(OJZ
 
 // The whole emitted image in one comparison — body, padding and table. A padding-length
 // error shows up here as a divergence at the first table word.
-const OJZ_TC_PAD = comptime for i in 0..(64 - 23) { 0 }
-ensure(OJZ_TC_HAND.len == 23,
-       "OJZ_TwoChannel: the padding length above is written against a 23-word body, but the hand body is {OJZ_TC_HAND.len} words")
+// 25, not 23, since substrate item 1: each of the two stream ops carries a spin word.
+const OJZ_TC_PAD = comptime for i in 0..(64 - 25) { 0 }
+ensure(OJZ_TC_HAND.len == 25,
+       "OJZ_TwoChannel: the padding length above is written against a 25-word body, but the hand body is {OJZ_TC_HAND.len} words")
 ensure(first_mismatch(patched_program(OJZ_TC_PROG),
                       OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND) == -1,
        "OJZ_TwoChannel: the emitted patched image diverges from the hand twin at index {first_mismatch(patched_program(OJZ_TC_PROG), OJZ_TC_HAND ++ OJZ_TC_PAD ++ OJZ_TC_TABLE_HAND ++ OJZ_TC_TRAILER_HAND)}")
