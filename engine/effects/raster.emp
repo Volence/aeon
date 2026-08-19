@@ -378,30 +378,37 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
     // land after the two priming fires on lines 0-1.
     ensure(top >= 3, "raster_gradient_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
-    // THE CEILING IS 223, NOT 224, AND THE MISSING LINE IS DELIBERATE — do not "fix" it back.
+    // THE CEILING IS 223, NOT 224, AND IT STAYS — but NOT for the reason it was added.
     //
-    // DERIVATION. Raster_VBlank rewinds the frame unconditionally (`clr.w Raster_Dense_Mode`
-    // + `move.l a1, Raster_Cursor`, this file ~:608), and Raster_HInt carries no frame or line
-    // test. The HInt counter decrements for lines 0..224, so `top + lines == 224` is exactly
-    // the authorable case that puts a fire on line 223 — the same line VINT fires. IRQ6 masks
-    // level 4, so that IRQ4 is DEFERRED past the rewind rather than lost: it then consumes
-    // priming record 0, overwrites the reg $0A = 0 the rewind just flushed, and shifts every
-    // record by one for the whole next frame. Because the rewind repeats, so does the shift —
-    // a STUCK state, not a one-frame blip. (With top=96/96 lines the run would render at
-    // 189..223 instead of 96..191, every frame.)
+    // WHAT IT WAS ADDED FOR, AND WHY THAT DERIVATION IS WRONG. The original argument ran: the
+    // HInt counter decrements for lines 0..224, so `top + lines == 224` is the authorable case
+    // that puts a fire on line 223, "the same line VINT fires"; IRQ6 masks level 4, so that
+    // IRQ4 defers past Raster_VBlank's rewind, consumes priming record 0 and shifts the whole
+    // next frame. Source-confirmed, never measured. It has now been measured
+    // (tools/raster_frame_epoch_probe.py, 2026-08-19) and the middle step does not hold:
+    // fires authored at 222, at 223 and at 224 ALL retire before the rewind, every frame, with
+    // an identical [2,6,10] cursor walk — including the dense run 220..223, i.e. exactly
+    // `top + lines == 224`. The VDP raises the last active line's HINT far enough ahead of
+    // VINT that the 68000 takes IRQ4 first. This bound was never what stood between the engine
+    // and the hazard.
     //
-    // 224 was never reachable as a LAST line (`top + lines` is one past the end), so the only
-    // thing this bound removes is the last-line-223 case. Nothing shipped is near it: the two
-    // callers in the tree are OJZ_TestGradient (96+96 = 192) and OJZ_TestRamp (112+96 = 208).
+    // WHAT DOES. The real precondition is the CPU sitting at IPL >= 4 across the VINT instant
+    // with an IRQ4 already raised, which is a MASK WINDOW and not a line number — reachable
+    // from any `ints_off` bracket straddling the end of active display, at any authored line.
+    // The interlock that closes it is in `Raster_HInt`'s `.priming` arm (read it for the
+    // mechanism and the measurements); docs/DEFERRED_WORK.md's substrate item 3 is closed
+    // there, structurally, not here.
     //
-    // THIS IS A MITIGATION OF THE AUTHORABLE CASE, NOT THE STRUCTURAL FIX. The structural fix —
-    // a one-byte frame-epoch flag so a pre-rewind fire retires as a park — remains booked in
-    // docs/DEFERRED_WORK.md ("Raster substrate lens sweep", item 3), and this bound does not
-    // close it: it only makes the hazard unauthorable through these two constructors.
+    // SO WHY KEEP 223? Because the interlock's discriminator IS the line: it retires any fire
+    // reaching `.priming` with V >= RASTER_VBLANK_V (224) as stale. A run authored to put a
+    // fire on 224 would be authoring real work into the region the interlock treats as stale.
+    // The bound and the threshold are one fact, pinned together by the `ensure` beside
+    // RASTER_MAX_FIRE_LINE. Relaxing it to 224 is therefore NOT a free follow-up: it would
+    // have to move the threshold too, and the threshold has nowhere to go — 224 is where
+    // active display ends. Booked as such rather than left looking like slack.
     //
-    // HONESTY ABOUT THE EVIDENCE: the interrupt-priority reasoning above is SOURCE-CONFIRMED
-    // (the project's own HInt survey + the 68000 mask rules), NOT emulator-confirmed. No
-    // measurement of a line-223 dense run exists. Do not relax this without one.
+    // Nothing shipped is near it either way: the two callers in the tree are OJZ_TestGradient
+    // (96+96 = 192) and OJZ_TestRamp (112+96 = 208).
     //
     // A literal 223 and not a named constant ON PURPOSE. This is a comptime fn body, so its
     // free names resolve at the EMISSION site's scope (the import note at the head of
@@ -410,7 +417,7 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
     // degraded name that collides with a real label or `equ` is the one SILENT case — which in
     // a guard means the guard stops guarding. The literal cannot degrade.
     ensure(top + lines <= 223,
-           "raster_gradient_program: run {top}..{top + lines - 1} must END at screen line 222 or above. Line 223 is barred and this is not an off-by-one: a fire on 223 raises HINT on the same line VINT fires, IRQ6 masks level 4, so the deferred IRQ4 runs AFTER Raster_VBlank's unconditional frame rewind, consumes priming record 0 and shifts every record by one for the whole NEXT frame — and it repeats every frame, so it is a stuck state, not a blip. Shorten the run or raise nothing: see the derivation above this ensure.")
+           "raster_gradient_program: run {top}..{top + lines - 1} must END at screen line 222 or above. The last dense line's LEAVE schedule puts trailing fires two lines below it, and the frame-rewind interlock (Raster_HInt's `.priming` arm) retires as stale any fire it reaches with the V counter at or past RASTER_VBLANK_V — so a run ending at 223 would be authoring work into the region the interlock treats as post-rewind. The bound and that threshold are one fact, pinned together beside RASTER_MAX_FIRE_LINE. Shorten the run: see the note above this ensure, including why the ORIGINAL derivation for this bound was measured and found wrong.")
     // The command must BE a CRAM write, or the derived mask is a palette line computed
     // from something that is not a palette address. The round trip proves target, op and
     // address in one comparison, and it subsumes the pin each call site used to carry.
@@ -494,15 +501,15 @@ pub comptime fn raster_ramp_program(top: int, lines: int, cmd: int,
                                     start: int, step: int) -> RasterRampProgram {
     ensure(top >= 3, "raster_ramp_program: top {top} below 3 (priming needs lines 0-1)")
     ensure(lines >= 1, "raster_ramp_program: line count {lines} must be positive")
-    // THE CEILING IS 223, NOT 224 — the full derivation is above raster_gradient_program's
-    // matching ensure, and it applies verbatim here: a fire on line 223 raises HINT on the
-    // same line VINT fires, IRQ6 defers that IRQ4 past Raster_VBlank's unconditional frame
-    // rewind, and the resulting one-record shift repeats every frame. Mitigation of the
-    // authorable case only; the frame-epoch structural fix stays booked in
-    // docs/DEFERRED_WORK.md. Source-confirmed, NOT emulator-confirmed. Literal, not a named
-    // constant, for the comptime-emission-scope reason given there.
+    // THE CEILING IS 223, NOT 224 — the full note is above raster_gradient_program's matching
+    // ensure and applies verbatim here, including the part where the ORIGINAL derivation for
+    // this bound (a fire on 223 raising HINT on the same line as VINT) was measured in 2026-08
+    // and found not to hold. The bound stays for a different reason: the frame-rewind
+    // interlock in Raster_HInt's `.priming` arm reads any fire at V >= RASTER_VBLANK_V as
+    // stale, so 223 is the last line a run may end on without authoring work into that region.
+    // Literal, not a named constant, for the comptime-emission-scope reason given there.
     ensure(top + lines <= 223,
-           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. Line 223 is barred and this is not an off-by-one: a fire on 223 raises HINT on the same line VINT fires, IRQ6 masks level 4, so the deferred IRQ4 runs AFTER Raster_VBlank's unconditional frame rewind, consumes priming record 0 and shifts every record by one for the whole NEXT frame — and it repeats every frame, so it is a stuck state, not a blip. See the derivation at raster_gradient_program's matching ensure.")
+           "raster_ramp_program: run {top}..{top + lines - 1} must END at screen line 222 or above. The last line's LEAVE schedule puts trailing fires two lines below it, and the frame-rewind interlock (Raster_HInt's `.priming` arm) retires as stale any fire it reaches with the V counter at or past RASTER_VBLANK_V — so a run ending at 223 would be authoring work into the region the interlock treats as post-rewind. See the note at raster_gradient_program's matching ensure.")
     let addr = vdp_comm_addr(cmd)
     // Exactly one of the two supported targets, and the mask follows from which. INT
     // flags, not booleans, and the mask is built in a comptime var rather than an
