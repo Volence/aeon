@@ -1244,13 +1244,46 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // above the branch: `move.w #imm, (a2)` and `move.l (xxx).L, (a2)` both set the
         // flags from the data they move, so the N flag the `tst.w` produced does not
         // survive them. Ten bytes, zero cycles.
+        //
+        // THE THREE STREAM WRITES ARE `-4(a2)`, the same spelling `.cram_loop` got in
+        // substrate Tier-3 item 1 and the rider that item booked against this body. a2 is
+        // VDP_CTRL ($C00004) here — `lea VDP_CTRL, a2` at the top of the handler, and
+        // nothing on the dense path touches it; the two writes immediately above go
+        // THROUGH it. VDP_DATA is $C00000, four bytes below, so the port is a `d16(An)`
+        // displacement off a register already in hand: MOVE.W `(An)+` -> `d16(An)` is 16
+        // cycles and 4 bytes against the absolute long form's 20 and 6.
+        //
+        // WHY THIS IS SAFE, and it is a statement about WHEN each write lands, not about
+        // how many cycles the body costs. The destination extension words are prefetched
+        // ahead of the write, so the cycles the short form stops paying land AFTER the
+        // write they belong to, not before it: the FIRST write does not move, and writes
+        // 2 and 3 move EARLIER by 4 and 8. All three therefore stay strictly inside
+        // [first write, old third write] — the burst contracts from its own tail and
+        // cannot leave the blanking window on either side. The dense body carries no
+        // solved spin (unlike every sparse stream op), so there is no blanking
+        // calibration to re-derive either.
+        //
+        // WHAT IT MEASURED, AND THE PREDICTION IT REFUTED. Nominal says 3 x 4 = 12 cycles
+        // a line. The note above warns that nominal OVER-predicts edits in this body — the
+        // hoist's nominal 12 measured 4, and the cost gate's poison inserted a nominally-12
+        // instruction for +4 — so this edit was predicted at ~4 on that same ratio. It
+        // measured the FULL 12: 328.0 -> 316.0 on the FD1/FD2 pair, intercept unchanged at
+        // 1512. The two results are not in conflict once the absorbed thing is named. The
+        // hoist removed a `tst.w (xxx).W`, an OPERAND read directly behind a control-port
+        // write, where the CPU was already stalled waiting on the VDP and the read rode
+        // that wait for free. This removes one INSTRUCTION-STREAM word per write, which the
+        // 68000 fetches on its own account and no VDP wait state pays for. So the warning
+        // stands but its scope is narrower than it read: the bus absorbs adjacent DATA
+        // accesses, not code size. Nothing here was booked before it was measured, and the
+        // FD pair remains the only thing that can settle either case
+        // (RASTER_DENSE_LINE_GRAD_CYC).
         bmi.s   .ramp_body
         move.w  #RASTER_ARM_EVERY_LINE, (a2)       // reg $0A=0: fire every line
         move.l  Raster_Dense_Cmd, (a2)             // constant command (sets the address)
         movea.l Raster_Dense_Cursor, a1
-        move.w  (a1)+, VDP_DATA
-        move.w  (a1)+, VDP_DATA
-        move.w  (a1)+, VDP_DATA
+        move.w  (a1)+, -4(a2)                      // == VDP_DATA; 16 cyc, not abs.L's 20
+        move.w  (a1)+, -4(a2)
+        move.w  (a1)+, -4(a2)
         move.l  a1, Raster_Dense_Cursor
         // The countdown's own Z flag ends the run — the `bra .out` this replaces cost the
         // same 10 cycles taken, so retiring the mode word is free on every line but the last.
@@ -1268,7 +1301,13 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         add.l   Raster_Ramp_Step, d1
         move.l  d1, Raster_Ramp_Acc
         swap    d1                                 // high word = integer part
-        move.w  d1, VDP_DATA
+        // `-4(a2)` == VDP_DATA, as in .dense_body above (a2 is still VDP_CTRL — the two
+        // writes at the top of this body went through it). MOVE.W `Dn` -> `d16(An)` is 12
+        // cycles and 4 bytes against the absolute long form's 16 and 6. There is only ONE
+        // write here, so the safety statement is even simpler than the gradient body's:
+        // the saved cycles are the destination extension word, prefetched ahead of the
+        // write, so the write itself does not move at all — only the retirement after it.
+        move.w  d1, -4(a2)                         // == VDP_DATA; 12 cyc, not abs.L's 16
         subq.w  #1, Raster_Dense_Lines
         bne.s   .out
     .dense_end:

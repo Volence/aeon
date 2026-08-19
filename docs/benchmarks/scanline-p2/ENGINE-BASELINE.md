@@ -313,6 +313,28 @@ The old reasoning was not wrong, and the toml keeps it: 342 was an honest upper 
 a DIFFERENCE (41579 − 8358) so that the constant per-frame VBlank contamination would cancel,
 and it came out 4% high. It simply no longer has to be a bound.
 
+### And superseded again the same day — `perf/dense-body-addressing`
+
+`.dense_body`'s three `move.w (a1)+, VDP_DATA` and `.ramp_body`'s one `move.w d1, VDP_DATA`
+became `d16(An)` writes off the VDP_CTRL already held in a2 (substrate Tier-3 item 1's rider).
+Everything above is unchanged as a record of the instrument; the live numbers are:
+
+| row | was | now | basis |
+|---|---|---|---|
+| `per_line_body_cycles` | 328 | **316** | the `FD1`/`FD2` slope, `(14152 − 4040) / 32` |
+| `dense_run_cycles_per_frame` | 32758 | **31665** | the HBlank row, same state, re-measured |
+| `dense_run_frame_pct` | 25.7% | **24.7%** | as above |
+| `full_frame_fraction_ntsc` | 0.574 | **0.553** | 224 x 316 / 128000 |
+
+The full 8 / 40 / 80 / 96 / 120 sweep was re-run rather than re-scaled and gives
+`1512 + 316 x lines` at every count, `lines + 5` fires at every count, every leg down by
+exactly `12 x lines` — so the intercept did not move and the whole delta is per-line.
+
+**The −242 gap above did not move either, and that is the point of re-measuring it.** The same
+script reads **32812** on the pre-parcel ROM where the row records 32758 (this state carries
+~50 cyc of boot-to-boot spread; the poked fixtures have none), so read on ONE instrument the
+gap is −188 before and **−183** after. The anomaly is not a function of the per-line cost.
+
 ### The line-count sweep behind the slope
 
 Poked fixtures at the same `top`, one boot each, to check that `lines + 5` and
