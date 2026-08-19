@@ -144,5 +144,33 @@ pub vars game_ram {
     Player_Stat_Ring:   [u8; 256],              // 64 × (input.w, status.b, pad.b)
     Player_Ring_Index:  u16,                    // byte offset into both rings — word-sized for (an,dn.w) index
 
+    // -----------------------------------------------
+    // Warp mailbox (DEBUG shapes only) — the supported EXTERNAL warp interface
+    // -----------------------------------------------
+    // Aurora's "play from cursor" writes a destination here and the level state's
+    // frame-top consumer (Debug_Warp_Consume, games/sonic4/test/ojz_scroll_test.emp)
+    // performs a coherent warp inside the frame boundary. Full protocol +
+    // rationale: docs/ENGINE_ARCHITECTURE.md, "§4.11 External warp mailbox".
+    //
+    // THE WRITE ORDER IS THE PROTOCOL: the external writer stores X, then Y, then
+    // the FLAG. The consumer only ever reads X/Y on a frame where the flag is
+    // already nonzero, so a write that is interrupted between the three stores is
+    // read on a later frame, never half-applied — there is no lock and none is
+    // needed. The cleared flag is the ACK the client polls; the consumer writes the
+    // CLAMPED destination back into X/Y before clearing it, so a client that read
+    // the pair after the ack learns where the engine actually put the player.
+    //
+    // RAM TAIL + @shape_divergent, deliberately: placed after every existing game
+    // var so the DEBUG-shape addition ripples ZERO addresses — engine RAM does not
+    // move at all (this is game RAM, chained after Engine_RAM_End) and no game
+    // symbol below it exists. Release carries none of it, which is the whole
+    // zero-release-bytes property restated in RAM terms.
+    if DEBUG == 1 @shape_divergent {
+        Warp_Req_X:         u16,    // destination PLAYER world X (px, flat world space)
+        Warp_Req_Y:         u16,    // destination PLAYER world Y (px, flat world space)
+        Warp_Req_Flag:      u8,     // 0 = idle / consumed (the ack); nonzero = pending
+        pad(1),                     // keep Game_RAM_End even
+    }
+
     mark Game_RAM_End,
 }

@@ -135,6 +135,7 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         rts
 }
 
+
 // -----------------------------------------------
 // PageCache_Request — enqueue a demand/prefetch page-in IF the page is neither
 // resident nor already queued (the queued-marker bitset stops the FIFO being
@@ -755,6 +756,87 @@ pub proc PageCache_Prefetch () clobbers() preserves(d0-d7/a0-a6) {
         rts
 }
 
+
+// -----------------------------------------------
+// PageCache_ResetRefcounts — the WARM-cache counterpart of PageCache_Init, and
+// the precondition TileCache_FillAll has been asking for in prose since P2b:
+//
+//   "requires all resident pf_refcount == 0 — guaranteed by PageCache_Init at
+//    boot. The .zero_nt bulk-zero here bypasses the patch runs' per-word unref,
+//    so a future WARM-cache refill must first reset refcounts and rebuild the
+//    LRU before calling this, or residency accounting double-counts."
+//                                        — engine/level/tile_cache.emp, FillAll
+//
+// That future arrived with the DEBUG warp mailbox: a warp re-runs Tile_Cache_Init
+// mid-act, on a cache whose every live nametable word still holds a reference.
+// PageCache_Init is the wrong tool there — it drops RESIDENCY too, and residency
+// can only be rebuilt by Level_LoadArt, which spins VSync_Wait with the display
+// off. This proc resets exactly the half FillAll invalidates and leaves the
+// page->frame map alone, so the refill re-references the pages already in VRAM.
+//
+// THE POST-STATE IS THE AUDIT'S POST-STATE, not an approximation of it — every
+// invariant PageCache_Audit checks is re-established here:
+//   * pf_refcount = 0 for every frame (FillAll is about to zero the nametable
+//     that justified them).
+//   * an ASSIGNED, unpinned frame becomes an eviction candidate NOW: PF_EVICTABLE
+//     set and pf_stamp = Frame_Counter, which is exactly what the patch runs'
+//     1->0 unref does. Skipping the stamp would hand the F-1 age scan a stale
+//     release time and evict the wrong frame first.
+//   * an UNASSIGNED frame (free list, or the in-flight decode frame, which is
+//     unassigned by construction since soak-fix chain 72) and a PINNED frame both
+//     get PF_EVICTABLE CLEARED — the audit raises on either flavour of a wrongly
+//     flagged frame ("unassigned frame flagged PF_EVICTABLE" / "pinned frame
+//     flagged PF_EVICTABLE"), and clearing is also simply true.
+// Tile_Cache_Init's own DEBUG tail calls PageCache_Audit after the refill, so the
+// warp path checks this proc's work on every warp in the shape that has it.
+//
+// The page-in FIFO is deliberately NOT flushed. PageIn_Flush would cancel the
+// queue but leave a mid-decode frame DETACHED and unassigned — reachable from
+// neither the free list nor the candidate scan, i.e. leaked, and invisible to the
+// audit (which skips unassigned frames). Letting an in-flight page-in complete
+// normally is strictly safer: Publish only marks residency, and the refill
+// re-references whatever it finds. The shipped act is fully resident (10 pages,
+// PAGE_FRAMES_CLAMP frames), so nothing is ever in flight at warp time anyway.
+//
+// DEBUG-SHAPE ONLY: the whole body, rts included, sits inside `if DEBUG == 1`, so
+// this emits ZERO bytes in release (the Debug_AssertObjLoop / Debug_CharacterHotkey
+// idiom). Its one caller is the DEBUG warp.
+//
+// PLACEMENT IS LOAD-BEARING — it sits immediately before PageCache_Audit, the last
+// proc in the module, and must stay there. Zero release bytes is not by itself zero
+// release CHANGE: both canonical shapes append the convsym deb2 symbol table, so a
+// zero-byte release LABEL still lands in the appendix and moves the ROM's CRC and
+// its header ROM-end/checksum words. Parked here, this proc's release label
+// coincides with PageCache_Audit's address and the appendix dedupes it away, so
+// s4.bin and demo.bin stay byte-identical (measured: both CRCs unchanged). Anywhere
+// a real emitting symbol follows it — including end-of-file, where nothing does —
+// the appendix grows and the release ROM changes. Being the LAST proc also means
+// the `if DEBUG == 1` scope below cannot renumber any release-visible anonymous asm
+// scope (the pc_patch_run_loop splices all sit above it).
+// In: none   Out: none   Clobbers: d0-d2/a0
+// -----------------------------------------------
+pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
+    if DEBUG == 1 {
+        move.w  Frame_Counter, d2               // one release time for the whole sweep
+        lea     Page_Frames, a0
+        move.w  #PAGE_FRAMES-1, d0
+    .frame:
+        clr.w   PF_RC(a0)
+        move.b  PF_FLAGS(a0), d1
+        bclr    #PF_EVICTABLE_BIT, d1           // default: NOT a candidate
+        cmpi.w  #$FFFF, PF_PAGE(a0)
+        beq     .store                          // unassigned (free / in-flight decode)
+        btst    #PF_PINNED_BIT, d1
+        bne     .store                          // pinned frames are never victims
+        bset    #PF_EVICTABLE_BIT, d1           // assigned + rc0 + unpinned = candidate
+        move.w  d2, PF_STAMP(a0)                // released NOW (F-1 age scan origin)
+    .store:
+        move.b  d1, PF_FLAGS(a0)
+        lea     sizeof(PageFrame)(a0), a0
+        dbf     d0, .frame
+        rts
+    }
+}
 
 // -----------------------------------------------
 // PageCache_Audit — DEBUG residency invariant check (spec §5). Recomputes every
