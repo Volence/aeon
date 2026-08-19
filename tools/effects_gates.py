@@ -149,6 +149,15 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         ("raster_source", True, GATE_EMU_BUDGET),
         ("palette_variant", True, GATE_EMU_BUDGET),
         ("snapshot_poison", True, GATE_EMU_BUDGET),
+        # warp_mailbox is not an EFFECTS gate; it rides this lane because this is the
+        # tree's ONLY emulator-gate runner, and the machinery it needs — per-gate
+        # segmentation, a wedge timeout, one retry, ROM-scoped process reaping — is
+        # exactly the machinery an emulator gate needs regardless of subject. It boots
+        # oracle-AETHER rather than oracle_gui (it needs `emulator/scanlines`), so
+        # `oracle_pids_for` cannot see or reap its processes; it manages its own via
+        # the Server context manager, and its own RPC deadlines mean a wedge surfaces
+        # as its exit 2 before this lane's budget expires.
+        ("warp_mailbox", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -601,6 +610,12 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "snapshot_poison")
         results.append(("snapshot_poison (E-B: splices copy what the captured mask says)",
                         ok, msg))
+
+    if wanted("warp_mailbox"):
+        ok, msg = run(["python3", str(AEON / "tools/warp_mailbox_gate.py"),
+                       "--rom", rom, "--lst", lst], "warp_mailbox")
+        results.append(("warp_mailbox (the DEBUG warp lands the walked reference; a bare "
+                        "camera poke does not)", ok, msg))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")

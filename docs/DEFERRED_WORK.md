@@ -176,6 +176,67 @@ under the mega-act itself.
 
 ---
 
+## From §4.12 — External Warp Mailbox (shipped 2026-08-19, `feat/debug-warp-mailbox`)
+
+The DEBUG warp mailbox is live and gated (`tools/warp_mailbox_gate.py`, 10/10). Full protocol +
+ladder in **ARCH §4.12** — Aurora consumes that section. These are the riders it deliberately
+left open, each recorded with what it would take to close.
+
+- **The warp is a ~21-frame hitch, not a seamless jump.** Measured (gate: ack after 21 frames).
+  The consumer re-runs `TileCache_FillAll` over the whole 80×60 window and forces
+  `Section_RedrawPlanes` (itself documented as a ~3-frame poke storm), all inside one game-state
+  call, so the frame overruns and the display holds the pre-warp picture until it finishes.
+  Correct for an editor jump and deliberately off every gameplay path. **To close** (only if a
+  gameplay-facing teleport is ever wanted): slice the refill across frames behind a "warp
+  pending" state, or blank the display for the duration. Do not do it speculatively — the
+  seamless version is the floating-origin rebase (§4.11), which is a *different* mechanism.
+
+- **Objects spawned before the warp are not despawned.** The ladder calls `EntityWindow_Init`,
+  which clears the loaded masks, the collected window and the scan state, and re-centres on the
+  destination — but it does not walk Object RAM, and boot only gets away with that because
+  `InitObjectRAM` runs *before* the player is placed. So an object that was live at the origin
+  stays allocated at its old world position after the warp. Harmless today (test-scene objects,
+  and the slot pool is far from full) but it is a slot leak across repeated warps. **To close:**
+  a "despawn every dynamic object except the leader" walk, which does not exist yet and which
+  `InitObjectRAM` cannot be reused for (it would wipe `Player_1`).
+
+- **Streaming acts (pool > `PAGE_FRAMES_CLAMP`) are untested through a warp.** OJZ act 1 is 10
+  pages against 15 frames, i.e. permanently fully resident, so `TileCache_FillAll` after a warp
+  never misses. On a streaming act the refill would take demand misses, set `Cache_Art_Stall`,
+  and `FillAll` has no resume path (it is an init-only routine). `PageCache_ResetRefcounts`
+  deliberately does *not* flush the page-in FIFO (a flush would strand a mid-decode frame,
+  detached and invisible to `PageCache_Audit`), so an in-flight page-in completes normally. **To
+  close:** the first streaming act, plus a decision on whether the warp should spin frames until
+  the demand set lands (the `Level_LoadArt` shape) or accept a few frames of blank art.
+
+- **The consumer lives game-side, and that is a constraint, not a preference.** `Debug_Warp_Consume`
+  is called from `GameState_OJZScroll_Update`, not `engine/system/game_loop.emp`, because `demo`
+  links every `engine.*` module: an ungated frame-top consumer would compile into a game with no
+  act, and gating it needs a new **required** `Game` contract const — which both games must bind
+  and which breaks the 11 sigil port tests that lower `game_loop.emp` standalone against a
+  synthetic contract env. `Game.debug_tick`, the existing frame-top hook, is claimed by the
+  off-canonical Config-A profile, so binding it there would move that profile's frozen bytes.
+  **To close** (if a second level state ever wants the warp): add the contract member and the
+  sigil-side `test_support` + `repin.toml` entries as one aeon+sigil pair — the blast radius is
+  known and small, it was simply out of this parcel's scope.
+
+- **Two DEBUG-only labels ride in the RELEASE deb2 appendix.** `Debug_Warp_Consume` and
+  `PageCache_ResetRefcounts` emit zero release bytes, but a zero-byte label still lands in the
+  convsym symbol table both canonical shapes carry — which moves the ROM CRC. Both are therefore
+  parked immediately against an existing zero-byte label so the appendix dedupes them away, and
+  release stays byte-identical (verified: `s4.bin cdabf8a3`, `demo.bin f7806241`). **This is
+  fragile and load-bearing**: moving either proc changes the release ROM. The language offers no
+  module-level `if DEBUG == 1 { proc … }` (measured: `expected a declaration, found Ident("if")`),
+  and registry-side module gating — the `CompressionSelfTest` idiom — is the only clean fix, at
+  the cost of a sigil registry edit. **To close:** either a `.emp` module-level conditional, or
+  move both procs into a DEBUG-only module with a `native.rs` registry row.
+
+- **`Plane_Buffer_Reset` now has a caller, and it is DEBUG-only.** Its `@scaffolding("…unwired:
+  single-level harness")` annotation is still true of release, which is why it stayed. If a real
+  act transition ever wires it, drop the annotation then.
+
+---
+
 ## CANNOT BE SETTLED STATICALLY — needs an emulator run or an owner ruling
 
 Recorded so nobody burns another pass trying to re-verify these by reading code. Each is

@@ -27,9 +27,14 @@ const PLANE_ENTRY_COL_FLAG = $8000      // plane-buffer entry header bit 15: set
 // Plane_Buffer_Reset — clear the plane buffer (zero the write cursor).
 // The reset hook for level/act transitions: an undrained buffer left by a
 // pre-transition lag frame must NOT drain its stale (old-level) entries into
-// the new level's VRAM. NO CALLER yet — act transitions aren't wired (single-
+// the new level's VRAM. NO RELEASE CALLER — act transitions aren't wired (single-
 // level harness), and VInt_DrawLevel does the per-frame post-drain reset inline
 // (its .reset). Kept as the forward reset hook (§9 dead-code flag).
+// Its FIRST caller arrived in the DEBUG shape only: the warp mailbox's ladder
+// (Debug_Warp_Consume, ARCH §4.12) hits exactly the case the header describes —
+// a pre-warp lag frame's undrained entries describe the OLD locality and must
+// not reach the destination's VRAM. The @scaffolding annotation stays because it
+// is still true of release; drop it the day a real act transition wires this.
 // Clobbers: none
 // -----------------------------------------------
 @scaffolding("VInt_Lag race fix — forward reset hook for act transitions (unwired: single-level harness)")

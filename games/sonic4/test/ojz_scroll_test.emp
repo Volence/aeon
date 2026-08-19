@@ -32,7 +32,13 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, CHEAT_DEBUG_FLY, CHAR_COUNT}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR}
+
+// Sst — the object SST layout. The DEBUG warp consumer places the LEADER through
+// Camera_Target (an SST pointer), not through the Player_1 absolutes above: the
+// warp is a level-generic operation and the camera's own follow target is the
+// engine's name for "the slot this level is about".
+use engine.objects.sst.{Sst}
 
 // The puff block's byte offset/length inside Art_Dust — owned by the format's
 // module (data/dust_data.emp), so a re-export that moved the split is one edit
@@ -246,7 +252,13 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         jbsr    Tile_Cache_Init
 
         // -- synchronous plane fill: trigger Section_RedrawPlanes before display
-        //    on so the nametable is fully populated from frame 1. Without this,
+        //    on so the nametable is fully populated from frame 1.
+        //    WARP TWIN: Debug_Warp_Consume below repeats this two-line pair (and
+        //    the Parallax boundary resolution further down). Both sites are
+        //    ladders over the same pub procs; extracting the pair into a shared
+        //    proc was rejected for this parcel because it would move RELEASE bytes
+        //    and the parcel's hard gate is a byte-identical release ROM. If that
+        //    constraint ever lifts, these are the two lines to hoist. Without this,
         //    Section_UpdateColumns gradually fills over ~3 frames, causing a
         //    visible snap when starting at non-zero X. --
         //    Section_RedrawPlanes owns its own Z80 posture in both build shapes
@@ -306,6 +318,14 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 // GameState_OJZScroll_Update — per-frame update
 // -----------------------------------------------
 pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
+        // -- FRAME TOP: the external warp mailbox. First thing in the frame's game
+        //    work, before objects, camera follow and every streaming step, so a
+        //    consumed warp is whole before anything can read the state it moved.
+        //    Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_Warp_Consume
+        }
+
         // -- DEBUG character-cycle hotkey (A, while in debug mode). Polled before
         //    RunObjects, so the debug_flag it gates on is the state the player
         //    ENTERED this frame with — a B press later this same frame toggles
@@ -656,6 +676,223 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
         // growth this adds to a module that packs with zero slack as small as it
         // can be.
         jbra    TailsAppendage_Refresh
+    .done:
+        rts
+    }
+}
+
+// -----------------------------------------------
+// Debug_Warp_Consume — THE supported external warp entry point (DEBUG shapes).
+//
+// Aurora's "play from cursor" writes a destination into the warp mailbox
+// (games/sonic4/config/ram.emp: Warp_Req_X, Warp_Req_Y, then Warp_Req_Flag LAST)
+// and this consumer performs the whole warp at the top of a frame, then clears
+// the flag as the completion ack. Protocol prose: docs/ENGINE_ARCHITECTURE.md
+// "§4.12 External Warp Mailbox".
+//
+// WHY THE WARP IS NOT A CAMERA POKE. Everything downstream of the camera latches
+// PER-FRAME DELTAS off it. Tile_Cache_Fill reads Cache_Prev_Cam_X / Cache_Prev_
+// Cam_Row and, on a teleport-sized delta, blows straight through the 16px
+// hysteresis and latches a prefetch DIRECTION from the jump instead of from the
+// player's motion (engine/level/tile_cache.emp, the .cs_have_latch accumulator;
+// Tile_Cache_Init:562 names the same hazard for the boot baseline). Worse, the
+// cache WINDOW (Cache_Left_Col/Head_Col/Top_Row/Bottom_Row) still describes the
+// old locality and only crawls at 1 column / 2 rows per frame, while every plane
+// write is silently DROPPED outside it (Draw_TileColumn's bounds gate) — so the
+// nametable keeps the pre-jump content until the crawl arrives. Measured
+// client-side by Aurora (aurora master 64aee42, scratchpad/warp-tearing-
+// harness.mjs): a bare camera poke from world (96,429) leaves 0 differing plane-A
+// nametable words at 64/128/256 px, 73 at 512 px, 94 at 1024 px and 699 of 2048
+// at 2048 px, with Cache_Prev_Cam_X still reading 96 while Camera_X read 2144 —
+// the stale baseline, observed directly.
+//
+// THE LADDER IS THE BOOT LADDER. Every step below is a call to the same pub proc
+// GameState_OJZScroll_Init calls, in the same order, so the two stay in sync by
+// construction rather than by comment. The only steps spelled out rather than
+// called are the ones that are INLINE in the init too (the plane-dirty pair, the
+// parallax sentinel) — see the WARP TWIN note at the init's own copy.
+//
+// PLACEMENT (why the game state and not engine/system/game_loop.emp): the engine
+// loop's frame top is the natural host, but it cannot gate a level-only consumer
+// without a new REQUIRED Game contract const — demo links every engine.* module,
+// so an ungated consumer would compile into a game with no act — and a new const
+// member obliges both games to bind it AND breaks the sigil port harness (11
+// tests lower game_loop.emp standalone against a synthetic contract env), i.e. a
+// sigil change this parcel is not allowed to make. The other frame-top seam,
+// Game.debug_tick, is already claimed by the off-canonical Config-A profile, so
+// binding it here would move that profile's frozen bytes. The level state's first
+// instruction is the same frame boundary with none of that: strictly before the
+// object run, the camera follow, and every streaming step this warp reseeds.
+//
+// DEBUG-shape only: the body — the rts included — sits inside `if DEBUG == 1 {}`,
+// so the whole proc emits ZERO bytes in the plain shape (the Debug_CharacterHotkey
+// idiom above).
+//
+// PLACEMENT IS LOAD-BEARING — it sits immediately after Debug_CharacterHotkey, the
+// module's other zero-release-byte DEBUG proc, and must stay in that pair. Zero
+// release bytes is not by itself zero release CHANGE: both canonical shapes append
+// the convsym deb2 symbol table, so a zero-byte release LABEL still lands in the
+// appendix and moves the ROM CRC plus the header ROM-end/checksum words. Parked
+// against the already-zero-byte hotkey, this proc's release label coincides with an
+// address the appendix already carries and dedupes away, so s4.bin stays
+// byte-identical (measured: cdabf8a3 before and after). Move it anywhere a real
+// emitting symbol follows and the release ROM changes for a routine that emits
+// nothing.
+//
+// In:  none (reads the mailbox)
+// Out: leader + camera + streaming state coherent at the destination; the CLAMPED
+//      destination written back into Warp_Req_X/Y; Warp_Req_Flag cleared (the ack)
+// Clobbers: d0-d7/a0-a6 (Tile_Cache_Init / Section_UpdateColumns / Parallax_Update)
+// -----------------------------------------------
+proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
+    if DEBUG == 1 {
+        tst.b   Warp_Req_Flag                   // (Warp_Req_Flag).w
+        beq     .done                           // idle: two reads and a branch
+
+        // -- 1. clamp the request into the act (defence in depth: a warp must
+        //    never land the player in SEC_VOID, whatever the client sent).
+        //    Player_Bound_Right / Player_Bound_Bottom are the game's OWN act
+        //    clamp edges, precomputed once per act by Player_BoundsInit and used
+        //    every frame by Player_LevelBound — reused here rather than
+        //    re-deriving level_width/height, so one act-bounds formula stays.
+        //    Signed compares throughout: the act grid ceiling is asserted <=
+        //    $8000 px per axis (act_descriptor), so every legal world coordinate
+        //    is positive and a request with bit 15 set is out of range by
+        //    definition and clamps to 0. --
+        move.w  Warp_Req_X, d0                  // (Warp_Req_X).w
+        tst.w   d0
+        bpl     .wx_lo_ok
+        moveq   #0, d0
+    .wx_lo_ok:
+        cmp.w   Player_Bound_Right, d0          // (Player_Bound_Right).w
+        ble     .wx_hi_ok
+        move.w  Player_Bound_Right, d0
+    .wx_hi_ok:
+        move.w  d0, Warp_Req_X                  // publish the clamp: the client can
+                                                // read back where it actually landed
+        move.w  Warp_Req_Y, d1                  // (Warp_Req_Y).w
+        tst.w   d1
+        bpl     .wy_lo_ok
+        moveq   #0, d1
+    .wy_lo_ok:
+        cmp.w   Player_Bound_Bottom, d1         // (Player_Bound_Bottom).w
+        ble     .wy_hi_ok
+        move.w  Player_Bound_Bottom, d1
+    .wy_hi_ok:
+        move.w  d1, Warp_Req_Y
+
+        // -- 2. place the leader. A NARROW refresh, not Player_Init: Player_Init
+        //    is the LEVEL-ENTRY initializer and tail-calls Player_DebugEnter
+        //    whenever CHEAT_DEBUG_FLY is armed (which the DEBUG shape does at
+        //    boot), so warping while in physics would yank the player into free
+        //    flight. Same reasoning, same shape as Debug_CharacterHotkey's
+        //    "WHY A NARROW REFRESH AND NOT Player_Init" note below. What is
+        //    touched is exactly what a teleport invalidates: position, both
+        //    velocities, the terrain-derived status/angle, and the three carried
+        //    ground quantities. PSTATE_AIR through Player_SetState is Player_Init's
+        //    own seed — airborne, lands on frame 1 at the destination. --
+        movea.w Camera_Target, a0               // (Camera_Target).w — the leader SST
+        move.w  d0, d2
+        pixels_to_coord(d2)                     // px -> 16.16, fraction cleared
+        move.l  d2, Sst.x_pos(a0)
+        move.w  d1, d2
+        pixels_to_coord(d2)
+        move.l  d2, Sst.y_pos(a0)
+        clr.w   Sst.x_vel(a0)
+        clr.w   Sst.y_vel(a0)
+        clr.b   Sst.status(a0)                  // ST_ROLLING etc. are terrain-derived
+        clr.b   Sst.angle(a0)
+        clr.w   PlayerV.ground_speed(a0)
+        clr.w   PlayerV.move_lock(a0)
+        clr.w   PlayerV.spindash_charge(a0)
+        moveq   #PSTATE_AIR, d0
+        jbsr    Player_SetState                 // d1/d2 clobbered from here — the
+                                                // mailbox holds the clamped target
+
+        // -- 3. camera: centre on the leader, then the camera's own clamp
+        //    against the ceilings Camera_Init precomputed for this act. This is
+        //    the camera's follow rule at rest (Camera_Update's deadzone is
+        //    centred on the same point), so the first post-warp Camera_Update
+        //    finds the player inside the deadzone and takes no step. --
+        move.w  Warp_Req_X, d0
+        subi.w  #CAM_SCREEN_HALF_W, d0
+        bpl     .cx_lo_ok
+        moveq   #0, d0
+    .cx_lo_ok:
+        cmp.w   Camera_X_Max, d0                // (Camera_X_Max).w — Camera_Init's ceiling
+        ble     .cx_hi_ok
+        move.w  Camera_X_Max, d0
+    .cx_hi_ok:
+        pixels_to_coord(d0)
+        move.l  d0, Camera_X                    // (Camera_X).w
+
+        move.w  Warp_Req_Y, d0
+        subi.w  #CAM_SCREEN_HALF_H, d0
+        bpl     .cy_lo_ok
+        moveq   #0, d0
+    .cy_lo_ok:
+        cmp.w   Camera_Y_Max, d0                // (Camera_Y_Max).w
+        ble     .cy_hi_ok
+        move.w  Camera_Y_Max, d0
+    .cy_hi_ok:
+        pixels_to_coord(d0)
+        move.l  d0, Camera_Y                    // (Camera_Y).w
+
+        clr.b   Camera_Hold_Frames              // a spindash freeze must not survive
+        clr.b   Camera_Art_Hold                 // the art soft-clamp; the refill below
+                                                // recomputes it from the destination
+
+        // -- 4. section trackers + entity window. Section_Init IS the pair (it
+        //    re-stamps Current_Act_Ptr, then Section_FillInitial seeds the four
+        //    Section_*_Written trackers one cell tight around the NEW camera, then
+        //    EntityWindow_Init recentres the 3x3 collected window and falls into
+        //    a scan). Same call, same act pointer, as the init ladder. --
+        movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
+        jbsr    Section_Init
+
+        // -- 5. tile cache. Tile_Cache_Init reseeds EVERY streaming latch the
+        //    teleport invalidated — the window bounds, the circular origins, the
+        //    four resume sentinels, Cache_Prev_Cam_Row AND Cache_Prev_Cam_X (the
+        //    stale baseline Aurora measured), the H-prefetch direction/accumulator,
+        //    the $FFFF ahead-target sentinels — then invalidates block staging and
+        //    refills the whole 80x60 window. It is the boot proc verbatim; the one
+        //    thing it cannot do on a WARM cache is fix the page refcounts its own
+        //    FillAll is about to orphan, which is what the call above it exists for
+        //    (see PageCache_ResetRefcounts' header — it quotes FillAll's precondition).
+        //    Tile_Cache_Init's DEBUG tail then runs PageCache_Audit, so the warp
+        //    checks its own residency bookkeeping on every warp. --
+        jbsr    PageCache_ResetRefcounts
+        jbsr    Tile_Cache_Init
+
+        // -- 6. planes. Drop any entry a pre-warp lag frame left undrained (it
+        //    describes the OLD locality and VInt_DrawLevel would ship it into the
+        //    new one), then force the synchronous full-plane redraw — the init
+        //    ladder's own two lines. --
+        jbsr    Plane_Buffer_Reset
+        st      Section_Plane_Dirty             // (Section_Plane_Dirty).w
+        jbsr    Section_UpdateColumns
+
+        // -- 7. the section CROSSING. Not a duplicate of the crossing logic: the
+        //    sentinel pair is exactly what Parallax_Init writes so the next
+        //    Parallax_CheckBoundary cannot match, which makes the destination
+        //    section read as a crossing and go through the ONE path a walked
+        //    crossing takes — Effects_InstallPreset (palette, cycle, variants,
+        //    raster) then Parallax_StartTransition. Snap_Pending on top so the
+        //    bands snap to the destination instead of lerping across the world
+        //    from the old section. BgAnim_Init forces a bank DMA on the next
+        //    Update; the final Parallax_Update primes HScroll/VSRAM so the first
+        //    displayed frame at the destination already scrolls correctly. --
+        move.b  #$FF, Parallax_Prev_Sec_X       // (Parallax_Prev_Sec_X).w
+        move.b  #$FF, Parallax_Prev_Sec_Y       // (Parallax_Prev_Sec_Y).w
+        st      Parallax_Snap_Pending           // (Parallax_Snap_Pending).w
+        jbsr    Parallax_CheckBoundary
+        jbsr    BgAnim_Init
+        jbsr    Parallax_Update
+
+        // -- 8. ACK, and it must be the last write: the client polls this byte to
+        //    learn the warp is complete, so clearing it earlier would publish a
+        //    half-warped frame. --
+        clr.b   Warp_Req_Flag                   // (Warp_Req_Flag).w
     .done:
         rts
     }
