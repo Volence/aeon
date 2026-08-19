@@ -238,6 +238,33 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // `folded & declared == folded` is equivalent and unused.
 ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
 
+// =====================================================================
+// THE REBASE STRUCTURAL CHECK (design §6, P2 Task 9b) — scoped explicitly to STRUCTURE.
+//
+// The fold lives in engine/level/scene_dsl.emp beside the model it classifies; the LIST
+// is the registry's, so it is evaluated here. It walks every scene's world-Y layer tops
+// and its anchor-bank reference and proves each sits in a rebase-CLASSIFIED coordinate
+// space — plane-relative for tops, act-relative-by-indirection for the anchor bank.
+//
+// IT DOES NOT VERIFY A REBASE, and the ensure messages say so themselves rather than
+// leaving it to this comment: §4.11 is FUTURE/Phase-4 and there is no rebase mechanism
+// to test against. Design §6 asked for the limitation to be stated plainly "so it cannot
+// be mistaken for runtime rebase verification"; it is stated in the failing text, where a
+// reader who trips it will actually see it.
+//
+// THE REFERENCE BELOW IS LOAD-BEARING. An unreferenced top-level `const X = f(...)` is
+// comptime-INERT (docs/EMP_PITFALLS.md §3) — the fold would never run and the guard would
+// be another entry in this tree's vacuous-gate history. The ensure is what evaluates it,
+// exactly as the capability fold above is evaluated by its subset test.
+//
+// PROVEN RED: replacing OJZ_Default's first `layer(world_y: 0, ...)` with a hand-built
+// `SceneLayer{ ly_world_y: 5, .. }` — the documented back door, which bypasses layer()'s
+// own grid guard and is precisely what this registry-level fold exists to close — fails
+// the build with `[Error] scene registry: a world-Y layer top (5) is not
+// act-relative-tagged ...`.
+pub const SceneRegistry_RebaseTagged = assert_act_relative_tagged(SCENES)
+ensure(SceneRegistry_RebaseTagged > 0, "scene registry: the rebase structural check classified nothing — assert_act_relative_tagged() returned {SceneRegistry_RebaseTagged}, so no world-Y top and no anchor bank was examined and the §6 declarative gate is vacuous")
+
 // NO OTHER CROSS-SCENE CHECK IS WRITTEN HERE, and the absence is a ruling.
 //
 // The fold is the only cross-scene FACT P1 has. Three candidates were considered and
