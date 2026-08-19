@@ -622,8 +622,12 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // Enqueue_Dirty_Buffers tests only this pointer, so a stale one keeps queueing a dead
         // program's trailer as a frame-top DMA whenever the (also stale) anchor reads L <= 0.
         clr.l   Effects_Offscreen_Entry
-        jbsr    HBlank_Uninstall
-        rts
+        // TAIL CALL (§10). Nothing follows the uninstall on this arm, no stack frame exists
+        // to unwind, and the `rts` this replaces was reached by fall-through only — no label,
+        // so no branch is orphaned. HBlank_Uninstall clobbers(d0), inside this proc's
+        // clobbers(d0-d4/a0-a2), so the caller's contract already covers it and the callee's
+        // own `rts` returns straight to VInt_Level / VInt_Lag.
+        jbra    HBlank_Uninstall
     .copy_program:
         move.l  d0, Raster_Program
         // A static ROM program is landing in Buf_A. A patch table left over from the outgoing
@@ -689,7 +693,12 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // the same section linked at two bases carries identical bytes), so an
         // absolute self-reference here would break a test for no gain.
         lea     Raster_HInt(pc), a0
-        jbsr    HBlank_Install
+        // TAIL CALL (§10). HBlank_Install clobbers(d1), inside clobbers(d0-d4/a0-a2); no stack
+        // frame, and nothing runs after the install on this arm. The `rts` below is KEPT — it
+        // is `.done`, the target of the `beq.s` on the no-program arm above, so folding it into
+        // the branch would orphan that path. Zero bytes move here as a result: `bsr.w` becomes
+        // `bra.w`, same width, and the retained `rts` is the one the other arm still needs.
+        jbra    HBlank_Install
     .done:
         rts
 }
