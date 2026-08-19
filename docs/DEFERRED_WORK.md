@@ -5301,11 +5301,47 @@ Three coherent options, recommended order:
 reads `raw.zones[].tileset` to decide whether zeroing `chunks_tiles.bin` would destroy live
 zone art. Re-derive that guard's meaning under whichever option wins.
 
-Also worth doing regardless, and independent of the ruling: there is **no test file for
-`s4-config.ts` at all**, so the raw-verbatim preservation contract — the one mechanism that
-does work — is currently only a docstring. A `load → buildAeonSavePlan → parse` round-trip
-asserting an unknown key survives at top, zone and act level would pin it.
+Also worth doing regardless, and independent of the ruling: the raw-verbatim preservation
+contract — the one mechanism that does work — is only ever asserted against a hand-written
+`JSON.stringify` standing in for the save (`test/config/s4-config.test.ts` exists; it never
+calls `buildAeonSavePlan`), so it could not catch the save itself dropping a key. A real
+`load → buildAeonSavePlan → parse` round-trip asserting an unknown key survives at top, zone
+and act level would pin it.
 
-Nothing was implemented in Aurora. Aeon-side, the D2 gate (`tools/test_editor_inputs.py`)
-still alarms on the specific field, so a recurrence fails the next build rather than hiding
-for two months.
+Aeon-side, the D2 gate (`tools/test_editor_inputs.py`) still alarms on the specific field,
+so a recurrence fails the next build rather than hiding for two months.
+
+#### RULED 2026-08-18 — option 1 + all three riders, implemented in Aurora
+
+Owner ruled **option 1 (repo-owned destination)** plus riders 2 (churn), the guard
+re-derivation, and the missing round-trip test. Implemented on the Aurora branch
+`feature/editor-dest-fields` (cut from Aurora master `bd7700b`), four commits:
+
+- `3830129f` — `S4ZoneConfig.editorTilesetPath`, `S4ActConfig.editorBgLayout` /
+  `editorBgTiles`, and `LoadedS4Config.rawTrailingNewline`.
+- `ae9b652f` — `buildAeonSavePlan` resolves each blob's destination from the raw config
+  first; a declared field is where the bytes go AND suppresses that pointer's rewrite. The
+  BG rewrite becomes per-field. project.json keeps the source file's trailing-newline state
+  (the loader carries the fact across the parse) at the same 2-space indent.
+- `dfb3267a` — the truncation guard re-derived: a path holds live zone art if it is the
+  pointer a reader follows **or** the destination this plan writes to, for any zone; the
+  guard tests both fields.
+- `bb3b61e0` — the round-trip test file (13 tests, each proven red-first). The
+  fields-absent case is pinned byte-for-byte against a plan captured *before* the mechanism
+  existed: 12 writes, same order, same lengths, same project.json text.
+
+Aurora suite after: 3138 passed / 3 skipped, `tsc --noEmit` clean, `npm run build` clean
+(3125 passed before).
+
+**The mechanism ships dormant.** No project.json in this repo declares any of the three
+fields, so Aurora's behaviour is unchanged until one does. Claiming the authority — setting
+`editorTilesetPath` on `zones[0]` so the bake owns `tileset` — is a separate data change,
+deliberately not made here.
+
+Remaining before close-out:
+
+1. Merging `feature/editor-dest-fields` into Aurora master — the controller's call, not
+   done by the implementing session.
+2. The aeon-side alarm gate `tools/test_editor_inputs.py` **stays in place regardless of
+   the ruling**. Option 1 removes the drift's cause only for fields a project actually
+   declares; the gate is what makes any recurrence fail the next build.
