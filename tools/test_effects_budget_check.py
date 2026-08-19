@@ -19,7 +19,7 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #   SIMPLE/HEXY/BINNY — the three integer literal bases `.emp` accepts
 #   SUM / SHIFTED     — expressions referencing other constants (RASTER_STATE_SIZE's shape)
 #   TYPED / NEWTYPED  — `const NAME : Type = v`, live in games/sonic4/config/sound_ids.emp
-#   PRIVATE           — no `pub`; RASTER_STATE_SIZE's neighbour EFX_BLANK_DELAY is one
+#   PRIVATE           — no `pub`; raster_dsl.emp's RASTER_PRE_CRAM_CYC is one
 #   Act_grid_w_lo     — a non-ALL_CAPS const name, which the tree does contain
 #   NO_VALUE          — a contract declaration with no `=`; not a constant
 #   ARRAY             — a multi-line array; its head is not an integer expression

@@ -18,7 +18,7 @@ mode, and it is invisible to word-assertions by construction.
 WHERE IT BREAKS, AND WHY THAT EXACT INSTRUCTION.
 
     .op_region:      move.l (a1)+, (a2)        CRAM write command
-                     moveq  #EFX_BLANK_DELAY, d1
+                     move.w (a1)+, d1          solved blanking spin, from the program
     .region_delay:   dbf    d1, .region_delay
                      move.w (a1)+, d1          count-1
                      lea    Pal_Variant_Stage, a2
