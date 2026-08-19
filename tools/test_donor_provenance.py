@@ -261,11 +261,20 @@ class TestWiring(unittest.TestCase):
         (tools lens D1) and the stamp names a checkout that contributed nothing.
         """
         import ojz_common
+        # RESTORE, do not delete: on an authoring machine AEON_SKDISASM_DIR is set,
+        # and deleting it here left every later test in the same pytest process
+        # unable to find the donor. Caught by running the whole lane rather than
+        # this file — a test that passes alone and poisons its neighbours is the
+        # worst kind.
+        prior = os.environ.get("AEON_SKDISASM_DIR")
         os.environ["AEON_SKDISASM_DIR"] = "/nonexistent/sk-probe"
         try:
             self.assertEqual(ojz_common.skdisasm_root(), "/nonexistent/sk-probe")
         finally:
-            del os.environ["AEON_SKDISASM_DIR"]
+            if prior is None:
+                os.environ.pop("AEON_SKDISASM_DIR", None)
+            else:
+                os.environ["AEON_SKDISASM_DIR"] = prior
         # Both consumers call the shared resolver rather than re-deriving it.
         for tool in ("ojz_strip_gen.py", "import_sk_collision.py"):
             src = open(os.path.join(REPO, "tools", tool)).read()
