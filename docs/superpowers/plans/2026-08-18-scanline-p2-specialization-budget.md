@@ -438,7 +438,16 @@ git commit -am "gate(p2): act-relative tagging check, scoped explicitly to struc
 - Modify: `engine/level/scene_dsl.emp`
 - Create: `tools/scene_budget_report.py`
 
-- [x] **Step 1: Spike the readback FIRST, before building the ledger on it** — **RUN 2026-08-19. IT FAILED.**
+- [x] **Step 1: Spike the readback FIRST, before building the ledger on it** — **FAILED, then PASSED after the sigil unblock (both 2026-08-19).**
+
+**SECOND RUN, on sigil `0df77f83`: it round-trips.** `pub equ SPIKE_LEDGER_EQU = SceneRegistry_CapsFolded * 7 + 3`
+appears in `s4.debug.lst` as `EQU SPIKE_LEDGER_EQU = $000000DC` — 220, the computed value, exactly.
+A negative control renders two's complement (`$FFFFFFFB` = -5), so the formatter does not assume
+signedness. CRC unchanged: ledger rows are zero-ROM. `pub equ` is the ledger spelling; `pub const`
+still mints no symbol and must not be used for a ledger row.
+
+*The original failing verdict is kept below, because the reason it failed is the reason the row
+shape is what it is.*
 
 **VERDICT: a computed comptime value cannot be read back, in any spelling available today.**
 `pub const` and `pub equ` were both spiked in a reached, section-carrying module with a
@@ -457,9 +466,9 @@ The spike is the risky half: a comptime const must be visible in the `.lst`/deb2
 
 Design §5 named this a spike precisely because it might not. Do not invent a second emission path — registry-emission exclusivity is a carried trap. Report and take a ruling.
 
-- [ ] **Step 3: Publish one axis for one scene, verify the report renders it**
+- [x] **Step 3: Publish one axis for one scene, verify the report renders it** — done; `tools/scene_budget_report.py --check` renders all 12 rows, exit 0
 
-- [ ] **Step 4: Fan out to all axes and all scenes**
+- [x] **Step 4: Fan out to all axes and all scenes** — all four gateable axes over all 20 scenes (axes 5/7 have no subject; booked in the toml)
 
 - [ ] **Step 5: Commit**
 
@@ -477,15 +486,15 @@ git commit -m "feat(p2): per-scene ledger consts + the symbol-readback formatter
 **Files:**
 - Modify: `engine/level/scene_dsl.emp`, `tools/effects_budget_model.toml`
 
-- [ ] **Step 1: Enforce one axis comptime, using Phase 0's measured reservation**
+- [x] **Step 1: Enforce one axis comptime, using Phase 0's measured reservation** — axis 2 first, as the plan directs
 
 Start with axis 2 (VBlank DMA bytes) — it has a hard pool (7524 B NTSC H40) and the clearest reservation.
 
-- [ ] **Step 2: Show the COMBINED per-line cost**
+- [x] **Step 2: Show the COMBINED per-line cost** — 1792 B AND 4270 cyc of drain, in the ensure text and the report. NOTE the plan's 896 B / 12% is HALF the measured value
 
 §5 is explicit: per-line forcers price 896 B, and the ledger must show DMA bytes **plus** axis-3 drain CPU together, so "12%" never reads as the whole tax.
 
-- [ ] **Step 3: Add the `[symbols]` provenance rows**
+- [x] **Step 3: Add the `[symbols]` provenance rows** — 9 rows added, `effects_budget_check` OK 31/31
 
 Provenance only. If a row here is doing enforcement, it is in the wrong place.
 
@@ -569,18 +578,18 @@ git commit -am "feat(p2): budgets gate on the transition frame of the worst adja
 - Create: `games/sonic4/test/poison/poison_budget_<axis>.emp` (one per axis)
 - Modify: the `emp_expect_fail` CASES table
 
-- [ ] **Step 1: For each axis, author a scene that exceeds it by exactly one unit**
+- [x] **Step 1: For each axis, author a scene that exceeds it by exactly one unit** — axis 1 only: unit = ONE BAND (115 passes / 116 fails by 82.01 cyc). Axes 2/3/4b are NOT falsifiable (measured; unlock conditions booked in the toml) so their poisons were booked, not faked
 
 One unit, not ten. A poison that blows the budget by an order of magnitude can pass for the wrong reason.
 
-- [ ] **Step 2: Verify each poison is RED FIRST**
+- [x] **Step 2: Verify each poison is RED FIRST** — verified before registration: 1 `[Error]`, the axis-1 message, cost 104188 vs budget 104106
 
 Run the expect-fail lane and confirm the new case fails *before* it is registered as expected-fail. A poison added straight to the expected list is never proven to bite.
 
 Run: `DEBUG=1 ./build.sh`
 Expected: `emp_expect_fail: OK — N/N cases` with N increased by the number of poisons added.
 
-- [ ] **Step 3: Confirm the sentinel still fires**
+- [x] **Step 3: Confirm the sentinel still fires** — sentinel PASS, lane `OK — 20/20 cases` (was 19/19)
 
 The lane's sentinel guard catches `--extra-entry` evaluating nothing, which would make every case vacuous. A diagnostic-count drift here means a guard stopped firing or a new one started — investigate, do not re-baseline.
 

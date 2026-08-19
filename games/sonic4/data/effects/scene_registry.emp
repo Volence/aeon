@@ -265,6 +265,62 @@ ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: t
 pub const SceneRegistry_RebaseTagged = assert_act_relative_tagged(SCENES)
 ensure(SceneRegistry_RebaseTagged > 0, "scene registry: the rebase structural check classified nothing — assert_act_relative_tagged() returned {SceneRegistry_RebaseTagged}, so no world-Y top and no anchor bank was examined and the §6 declarative gate is vacuous")
 
+// =====================================================================
+// THE BUDGET LEDGER (P2 Tasks 10 + 11 — design §5).
+//
+// The model, the pools and the reservations live in engine/level/scene_dsl.emp beside the
+// scene model they measure; the LIST is the registry's, so the fold is evaluated here — the
+// same split as the capability fold and the rebase check above.
+//
+// ENFORCEMENT IS THE `ensure`s INSIDE scene_budget_enforce(), not anything in this file and
+// not anything in the toml. design §5's ownership rule: the comptime DSL is the single
+// authority because it alone sees every scene through the registry; tools/effects_budget_model.toml's
+// `[symbols]` rows pin PROVENANCE (they detect drift between the file and the code) and must
+// never be doing enforcement. If a row there is deciding whether a build passes, it is in the
+// wrong place.
+//
+// THE REFERENCE BELOW IS LOAD-BEARING, for the third time in this file: an unreferenced
+// top-level `const X = f(...)` is comptime-INERT (docs/EMP_PITFALLS.md §3), so the ensure is
+// what actually evaluates the fold.
+//
+// PROVEN RED: four poison fixtures under games/sonic4/test/poison/, one per shipped axis,
+// each exceeding its budget by exactly ONE unit — poison_budget_axis1/2/3.emp here and
+// poison_budget_axis4b.emp against raster_program(). Registered in tools/emp_expect_fail.py.
+// =====================================================================
+pub const SceneRegistry_BudgetChecked = scene_budget_enforce(SCENES)
+ensure(SceneRegistry_BudgetChecked == 20, "scene registry: the budget fold checked {SceneRegistry_BudgetChecked} scenes, not the 20 in SCENES — a fold that examines fewer scenes than the registry holds is gating a subset, and the axis ensures inside it would be silently unasked for the remainder")
+
+// ---- THE LEDGER ROWS (Task 10) ----
+//
+// `pub equ` and NOT `pub const`, and the distinction is the whole parcel: an equ mints a
+// link-level symbol that reaches the build's listing (sigil 0df77f83, the equate table), so
+// tools/scene_budget_report.py can render the ledger from the ARTIFACT rather than from a
+// second transcription of the model. A `pub const` is a name-resolution-only item — no bytes,
+// no label, no deferred symbol — and is invisible to every tool. Both are zero-ROM; only one
+// is readable. (Task 10's spike proved exactly this, twice: before the sigil parcel neither
+// spelling reached the listing, and after it only the equ does. A `pub const` in a HARVESTED
+// constants module reaches the listing as a side effect of harvesting — that is
+// module-location-dependent and must not be relied on for ledger rows.)
+//
+// VALUES RENDER UNSIGNED 32-BIT in the listing, so a negative row would appear in two's
+// complement. Every row below is a non-negative cost or count by construction, and the
+// formatter does not assume signedness either.
+//
+// The AXIS-1 row is in HUNDREDTHS of a cycle (the walker's fitted constants are fractional
+// to two places); the formatter divides. Rows 2 and 3 are whole bytes and whole cycles.
+pub equ SceneBudget_Axis1_MaxCycles_X100 = scene_budget_max_axis1_x100(SCENES)
+pub equ SceneBudget_Axis1_Reservation    = SB_AXIS1_RESERVATION
+pub equ SceneBudget_Axis1_Pool           = SB_FRAME_CYCLES
+pub equ SceneBudget_Axis2_MaxBytes       = scene_budget_max_axis2(SCENES)
+pub equ SceneBudget_Axis2_Reservation    = SB_AXIS2_RESERVATION
+pub equ SceneBudget_Axis2_Pool           = SB_DMA_POOL_BYTES
+pub equ SceneBudget_Axis3_MaxCycles      = scene_budget_max_axis3(SCENES)
+pub equ SceneBudget_Axis3_Reservation    = SB_AXIS3_RESERVATION
+pub equ SceneBudget_Axis3_Pool           = SB_VBLANK_WINDOW_CYCLES
+pub equ SceneBudget_PerLineScenes        = scene_budget_per_line_count(SCENES)
+pub equ SceneBudget_SceneCount           = SceneRegistry_BudgetChecked
+pub equ SceneBudget_CapsFolded           = SceneRegistry_CapsFolded
+
 // NO OTHER CROSS-SCENE CHECK IS WRITTEN HERE, and the absence is a ruling.
 //
 // The fold is the only cross-scene FACT P1 has. Three candidates were considered and
