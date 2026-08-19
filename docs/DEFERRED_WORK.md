@@ -5554,6 +5554,27 @@ the interlock protects is the SCHEDULE, and it does: post-fix, the stall fixture
 `[2,2,6,10]` uniformly (the stale fire retiring on cursor 2 without advancing, then the frame's
 own `2 -> 6 -> 10` walk completing) on every frame instead of alternating.
 
+**VERIFICATION.** Four shapes, all building — `s4.debug` 896a35c8/713279 -> 72ab53aa/713295 ·
+`s4` cf54b017/698393 -> 1e230133/698411 · `demo.debug` 31a87100/100070 -> 25eaed93/100086 ·
+`demo` f16d1a50/95713 -> deacc756/95733. Per-proc: `Raster_HInt` +20 bytes, everything after it
+in the section +20 and the rest of the image +16 (placer fill absorbed 4); of 900 common
+symbols, 72 moved and **zero RAM symbols moved**. pytest **1074 passed / 2 skipped**.
+expect-fail **17/17**, plus the new `RASTER_VBLANK_V` pin verified red-first (at 225 the build
+fails with the named message and the lane reports the extra diagnostic). Effects gate lane
+**22/22 PASS, every segment exit 0**, cost row `F0 632 F1 2684 F3 3922 F4 4700 F5 3264 F8 4688`
+measured == expected and the dense row 350.0 cyc/line. `ab_runner` on all four committed
+scenes, pre-fix ROM vs post-fix: **ALL EQUAL (gated)**, `state_hash` included. The 1b blanking
+sweep's anchor captures are **byte-identical** pre vs post (39 comparable lines, 0 differing),
+which is the boundaries measured unchanged rather than merely predicted.
+
+**INSTRUMENT NOTE for whoever runs the gate lane next.** Two full-lane `effects_gates.py`
+invocations WEDGED — one inside `snapshot_poison`, one inside `raster_source` — while both of
+those gates pass in seconds run standalone on the same ROM, and `raster_source` then passed in
+the segmented re-run. That is the known intermittent oracle stop-race, not a gate failure, and
+a single 22-gate invocation loses every result to it. Running the lane as `--only` segments
+with a per-segment timeout and one retry recovers all 22; consider making that the lane's own
+shape rather than a thing each session rediscovers.
+
 ---
 
 ## `.emp` has no spelling for a CLOSURE EDGE — the bare `use` idiom collides with a lint (booked 2026-08-18, scanline-P1 Task 10)
