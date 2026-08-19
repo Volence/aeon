@@ -281,6 +281,12 @@ def _verdict(frames):
     verdict tests UNIFORMITY over the sample rather than looking for an H after a V.
     """
     shapes, cursors, order, complete = {}, {}, [], 0
+    # The FIRST and LAST groups are partial by construction — the trace starts and stops
+    # wherever the event budget lands, so the first group is missing however many fires
+    # happened before the breakpoints were armed and the last is missing its rewind. Only
+    # the tail was dropped at first, and the head then reported a lone "V" as a frame whose
+    # every fire had vanished. Both ends go.
+    frames = frames[1:-1] if len(frames) > 2 else []
     for ft, evs in frames:
         seq = "".join(e["kind"] for e in evs)
         cur = ",".join("-" if e["cur"] is None else str(e["cur"])
