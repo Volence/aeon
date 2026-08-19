@@ -4756,6 +4756,35 @@ today, payoff gated on an instrument that can bind mid-frame VSRAM visibility to
 
 ---
 
+## ojz_run_b port tests are RED on master — pre-existing, unowned (found 2026-08-19)
+
+`ojz_run_b_regions_match_reference` and `ojz_run_b_debug_regions_match_reference` in
+sigil (`crates/sigil-cli/tests/ojz_run_b_port.rs`) fail with
+**`unknown name BG_LAYOUT_SIZE`**.
+
+**Cause, and it is not the test's fault.** `games/sonic4/data/levels/ojz/act1/act_assets.emp`
+gained `use engine.bg.{BG_LAYOUT_SIZE}` in **5519ea54** ("guard the two silent cliffs — DPLC
+tile_start and the BG blob size"). `ojz_run_b_port` lowers a **single module in isolation**
+(`lower_module`, no dep list — by design, so the region comparison is not polluted by other
+modules' bytes), so a cross-seam import in the module under test has nothing to resolve
+against and the test cannot even compile its subject.
+
+**Verified pre-existing**, not caused by the raster-substrate parcel: `act_assets.emp` at
+`4452284b` (the pre-merge master) already carries the import.
+
+**This is the `reference_sigil_port_flip_ritual` trap for the third time** — a new
+cross-seam ref breaks `*_port` tests silently, `build.sh` stays green, and only
+`cargo test --workspace --no-fail-fast` sees it. The substrate parcel hit the same trap
+itself (five failures from importing `VDP_REG_0C_BOOT` out of `boot_data`) and fixed it by
+moving the constant into `engine.constants`, which every port harness already depends on.
+**That is likely the fix here too** — but `BG_LAYOUT_SIZE` is a genuine `engine.level.bg`
+concept, not a stray constant, so the call is whether to relocate it, teach the harness a
+companion module, or supply it through `LowerOptions.defines`. Not ruled; left for whoever
+owns 5519ea54.
+
+**Do not re-baseline around it.** The test is failing because it cannot build, not because
+a number moved.
+
 ## Raster substrate lens sweep — 7 confirmed defects awaiting a parcel (booked 2026-08-18)
 
 **Packet:** `docs/superpowers/2026-08-18-raster-substrate-sweep-adjudication.md`
