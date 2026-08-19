@@ -6,7 +6,7 @@
 
 **Architecture:** Three phases, each an atomic landing cluster (design spec §10's rule: gates + poisons in the same cluster, master never half-migrated). **Phase 0 is measurement and lands FIRST**, because P2's budget half is `pool − engine_reservation` and every one of those denominators is currently a NEEDS-MEASUREMENT row. Phase 1 adds `if Game.SCANLINE_CAPS & CAP_X` gating with the bracketing-label convention its span gates require. Phase 2 publishes per-scene ledger consts and checks them against the Phase-0 numbers.
 
-**Tech Stack:** sigil `.emp` (comptime lowering, `ensure`, `emp_expect_fail` poisons), Python gate tools under `tools/`, oracle-next profiler for runtime measurement (oracle retained as absolute-measure reference only, per design §8.3 and the 2026-08-17 switch).
+**Tech Stack:** sigil `.emp` (comptime lowering, `ensure`, `emp_expect_fail` poisons), Python gate tools under `tools/`, **oracle** for all Phase-0 profiling (oracle-next has no profiler instrument yet — see "Instrument" below; design §8.3's oracle-next target applies to Phases 1-2's runtime checks and to Phase 0 only once a profiler surface lands there).
 
 ---
 
@@ -16,11 +16,19 @@ The design doc lists the measurement program at §8.4 and the budget model at §
 
 Phase 0 produces data and nothing else. No gate in Phases 1-2 may reference a row Phase 0 did not measure.
 
-## Dependency: oracle-next
+## Instrument: PHASE 0 RUNS ON ORACLE
 
-Design §8.3 puts P2's runtime verification on **oracle-next**. Phase 0 is therefore gated on oracle-next being usable. Task 1 exists to prove the instrument before any number is trusted from it.
+Design §8.3 points P2's runtime verification at oracle-next. **For Phase 0 that is not yet possible and this plan does not pretend otherwise.**
 
-**If oracle-next is not ready:** oracle remains the absolute-measure reference. Phase 0 can run on oracle with one carried caveat that must be written into every row it produces — `interrupts.hint` in oracle is HBlank **plus** VBlank (oracle buckets by comparing handler entry PC against `0x78`; Aeon's `VBlank_Handler` is a ROM address that never matches), so per-routine rows are mandatory and `interrupts.hint` is never a valid source. This is documented at the top of `tools/raster_cost_probe.py`.
+Confirmed with the oracle-next session 2026-08-18: **oracle-next has no profiler instrument at all.** None of its 31 bus methods is profiler-shaped. So the HInt/VInt question is neither reproduced nor fixed there — it is absent, and there is nothing to migrate onto.
+
+**Phase 0 runs on oracle, full stop.** Every row it produces carries the standing oracle caveat: `interrupts.hint` is HBlank **plus** VBlank, because oracle buckets an interrupt by comparing handler entry PC against `0x78` and Aeon's `VBlank_Handler` is a ROM address that never matches — so both handlers land in one bucket and the counter reads as neither. **Per-routine rows keyed by entry address are mandatory; `interrupts.hint` is never a valid source.** Documented at the top of `tools/raster_cost_probe.py`.
+
+This is a silent wrong number rather than a missing one, which is why the discipline is non-negotiable rather than a preference.
+
+**When a profiler surface does land on oracle-next**, its design is already pinned on their side: HInt and VInt as separate buckets keyed by interrupt **cause**, never by handler-entry-PC matching, with Aeon's finding cited as the measured counterexample. At that point Task 1 becomes a genuine cross-instrument parity check. Until then it is a regression check of oracle against itself (see Task 1).
+
+**Standing caveat carried from oracle-next:** absolute cycle claims keep oracle as the reference while oracle-next's instruction-granularity slop is open. Do not assert oracle-next cycle parity in any row this plan produces.
 
 ## Trap ledger for this parcel
 
@@ -41,14 +49,16 @@ Design §8.5 requires each plan to enumerate which carried traps it touches. Thi
 
 # PHASE 0 — MEASUREMENT
 
-## Task 1: Prove the oracle-next profiler before trusting a number from it
+## Task 1: Re-confirm oracle's own figures before building budgets on them
 
-**Why this task exists:** an instrument is a claim until something checks it. We have an unusually good check available: the eight raster cost fixtures were re-measured on oracle on 2026-08-18 and every one matched its model to the cycle. Those exact values are a parity fixture for oracle-next.
+**Why this task exists:** an instrument is a claim until something checks it, and Phase 0's remaining four tasks all take numbers from this one. **This was originally written as an oracle-next parity check; it is not, because oracle-next has no profiler.** It is a regression check of oracle against a known-good reference — cheap, and it catches the case where something in the toolchain moved between the 2026-08-18 measurement and Phase 0's run.
+
+The reference is unusually good: the eight raster cost fixtures were re-measured on oracle on 2026-08-18 against the current (post-substrate-item-1) wire format, and every one matched its cost model to the cycle, 3 boots, spread 0.
 
 **Files:**
-- Create: `tools/oracle_next_parity.py`
 - Reference: `tools/raster_cost_probe.py` (the existing probe and its per-routine methodology)
-- Reference: `engine/effects/raster_dsl.emp:1186-1210` (the eight pinned fixture values)
+- Reference: `engine/effects/raster_dsl.emp` — the eight pinned fixture `ensure`s
+- Create: `docs/benchmarks/scanline-p2/INSTRUMENT-PARITY.md`
 
 - [ ] **Step 1: Record the reference values**
 
@@ -65,54 +75,37 @@ These are the oracle figures from 2026-08-18, marginal cost per fire, `(fixture 
 | F7 (stream_vsram 1w) | 6 | 462 |
 | F8 (pal_restore 3w) | 6 | 708 |
 
-- [ ] **Step 2: Write the parity check**
+- [ ] **Step 2: Re-run the existing probe unchanged**
 
-`tools/oracle_next_parity.py` reuses `raster_cost_probe`'s fixture table and encoder rather than re-implementing them (the wire format now has a pin, `tools/test_raster_wire_pin.py` — do not add a third transcription):
+No new tool. `tools/raster_cost_probe.py` already is this check — do not write a second one, and do not add a third wire-format transcription (the probe's encoder is pinned by `tools/test_raster_wire_pin.py`).
 
-```python
-#!/usr/bin/env python3
-"""Prove oracle-next's profiler against oracle's measured figures before P2 trusts it.
+Run: `python3 tools/raster_cost_probe.py --rom s4.debug.bin --lst s4.debug.lst --repeat 3`
 
-The eight raster cost fixtures were measured on oracle 2026-08-18 and every one matched
-its cost model to the cycle. That makes them an instrument-parity fixture: an emulator
-that reports different numbers for them is measuring something else, and every P2 budget
-row taken from it would inherit the discrepancy.
-"""
-import sys
-from pathlib import Path
+- [ ] **Step 3: Compare against the reference and record the verdict**
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import raster_cost_probe as probe          # noqa: E402
+Reference — oracle, 2026-08-18, per-routine row for the HBlank trampoline, 3 boots spread 0, marginal `(fixture − F0) / n`:
 
-# oracle, 2026-08-18, per-routine row, 3 boots spread 0. Marginal (fixture - F0)/n.
-ORACLE_REFERENCE = {
-    "F0": 572, "F1": 412, "F2": 462, "F3": 522,
-    "F4": 570, "F5": 632, "F6": 622, "F7": 462, "F8": 708,
-}
-```
+| | F0 | F1 | F2 | F3 | F4 | F5 | F6 | F7 | F8 |
+|---|---|---|---|---|---|---|---|---|---|
+| cyc | 572 | 412 | 462 | 522 | 570 | 632 | 622 | 462 | 708 |
+| n | — | 6 | 6 | 5 | 6 | 4 | 4 | 6 | 6 |
 
-The runner drives oracle-next through the same poke sequence the probe uses (`Raster_Patch_Tab = 0`, `Effects_Offscreen_Entry = 0`, `Raster_Active_Buf`/`Raster_Program` → `Raster_Buf_A`), reads the **per-routine row for the HBlank trampoline**, and compares each fixture to `ORACLE_REFERENCE`.
+Three outcomes, each with a different consequence — write the one you got into `INSTRUMENT-PARITY.md`:
+- **All nine match.** The instrument is stable since 2026-08-18. Phase 0 proceeds.
+- **A constant offset on every row.** Something in the toolchain shifted uniformly. Record the offset and find its cause; do NOT silently subtract it and carry on.
+- **Divergent per fixture.** Either the ROM changed or the instrument did. STOP and report — do not take budget rows until it is explained.
 
-- [ ] **Step 3: Run it and record the verdict**
+- [ ] **Step 4: Record the standing caveats in the evidence file**
 
-Run: `python3 tools/oracle_next_parity.py --rom s4.debug.bin --lst s4.debug.lst`
-
-Three possible outcomes, and each has a different consequence — write the one you got into the evidence file:
-- **All nine match.** oracle-next is cycle-parity for this workload. Phase 0 proceeds on it.
-- **A constant offset on every row.** The instrument has a fixed bias (e.g. a different exception-entry accounting). Record the offset; every Phase-0 row must state it. Do NOT silently subtract it.
-- **Divergent per fixture.** The instrument is measuring a different thing. STOP and report — do not take budget rows from it.
-
-- [ ] **Step 4: Verify the HInt/VInt separation explicitly**
-
-oracle's `interrupts.hint` conflates HBlank and VBlank. Assert oracle-next separates them: run a frame with a known VBlank cost and a known HBlank cost and check the two rows sum correctly and neither carries the other's work.
-
-Expected: `hint` row excludes `VBlank_Handler` cycles. If oracle-next reproduces oracle's conflation, the per-routine row remains mandatory — note it and continue.
+Two, both carried into every Phase-0 row:
+1. `interrupts.hint` is HBlank **plus** VBlank on oracle. Per-routine rows only.
+2. Absolute cycle claims keep oracle as the reference; no row may assert oracle-next parity while its instruction-granularity slop is open.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tools/oracle_next_parity.py docs/benchmarks/scanline-p2/INSTRUMENT-PARITY.md
-git commit -m "test(p2): prove oracle-next against oracle's eight measured cost fixtures"
+git add docs/benchmarks/scanline-p2/INSTRUMENT-PARITY.md
+git commit -m "measure(p2): re-confirm oracle's cost figures before budgets build on them"
 ```
 
 ---
@@ -145,7 +138,7 @@ idle_main_loop_cycles      = 0    # REPLACE with the measured figure
 max_diagonal_main_loop_cycles = 0 # REPLACE
 idle_vblank_cycles         = 0    # REPLACE
 max_diagonal_vblank_cycles = 0    # REPLACE
-instrument = "oracle-next per-routine rows; parity-proved against oracle in Task 1"
+instrument = "ORACLE per-routine rows (oracle-next has no profiler); interrupts.hint is NEVER a valid source here -- it sums HBlank and VBlank"
 ```
 
 - [ ] **Step 4: Commit**
