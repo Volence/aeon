@@ -224,7 +224,11 @@ def module_index(aeon: str) -> Dict[str, str]:
     """
     index: Dict[str, str] = {}
     for dirpath, dirnames, filenames in os.walk(aeon):
-        dirnames[:] = [d for d in dirnames if d not in (".git", ".worktrees")]
+        # Skip ALL dot-directories, not a name list: agent worktrees live at
+        # .claude/worktrees/<agent>/ and are full repo copies, so scanning them
+        # declares every module twice and fails the main tree's build while any
+        # concurrent worktree session exists (bit 2026-08-19).
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
         for fn in filenames:
             if not fn.endswith(".emp"):
                 continue

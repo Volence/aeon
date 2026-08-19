@@ -71,18 +71,111 @@ from launcher import headless_emulator  # noqa: E402
 CRAM_WRITE  = 0xC0000000     # (type & rwd) = 3 -> 3 << 30, no high bits
 VSRAM_WRITE = 0x40000010     # (type & rwd) = 5 -> 1 << 30 | 4 << 2
 
-# The per-op blanking spin (substrate item 1, 2026-08-18). Raster_HInt reads the dbf
-# iteration count from the PROGRAM now -- `move.w (a1)+, d1` where it used to be
-# `moveq #EFX_BLANK_DELAY, d1` -- so every stream op carries one extra word between its
-# command longword and its count-1. MUST MATCH raster_dsl.emp's RASTER_SPIN_* constants:
-# this file is a second implementation of that format, so a drift here silently changes
-# what the probe MEASURES rather than failing. The empirical guard the module note relies
-# on still applies -- a mis-encoded program reports the wrong `calls` before any cycle
-# figure is read -- and a wrong spin VALUE additionally shows up as a cycle delta of
-# exactly 10 per iteration against the .emp pins.
-SPIN_CRAM    = 4
-SPIN_REGION  = 4
-SPIN_RESTORE = 13
+# ---- the blanking-spin solver (substrate item 1c, 2026-08-19) ----------------
+# Raster_HInt reads the dbf iteration count from the PROGRAM (item 1a) and since item 1c
+# that count is SOLVED FROM THE OP'S POSITION IN ITS FIRE, not looked up per op class.
+# Everything below mirrors raster_dsl.emp's `fire_spins` / `solve_spin`. It is a SECOND
+# implementation on purpose (see the module note), so a drift here silently changes what
+# the probe MEASURES rather than failing -- which is exactly why
+# tools/test_raster_wire_pin.py pins every constant and every solved value against the
+# .emp, deriving its expectations from the same arithmetic rather than copying an output.
+#
+# The one measured constant: modelled cycles from a fire record's op-walk origin to the
+# line-start sampling instant that closes the blanking window (2026-08-19 sweep,
+# docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md). The width is arithmetic,
+# H40 NTSC, in TENTHS of a cycle: (3420 - 2560)/7 = 122.857.
+HBLANK_END_CYC   = 351
+HBLANK_WIDTH_X10 = 1229
+
+# The cost terms the solver needs, all mirrored from raster_dsl.emp's cost model.
+OP_FETCH_CYC      = 8
+DISPATCH_RUNG_CYC = 16
+DISPATCH_HIT_CYC  = 18
+DISPATCH_RUNGS    = 5
+OP_TAIL_CYC       = 10
+STREAM_WORD_CYC   = 30
+WORK_REG_CYC          = 12
+WORK_CRAM_BASE_CYC    = 40
+WORK_REGION_BASE_CYC  = 72
+WORK_RESTORE_BASE_CYC = 72
+# How much of an op's own arm runs BEFORE its first VDP_DATA write.
+PRE_CRAM_CYC    = 36
+PRE_REGION_CYC  = 56
+PRE_RESTORE_CYC = 56
+# Dispatch depth: rungs FAILED before this op's compare matches.
+DEPTH_CRAM    = 0
+DEPTH_REGION  = 1
+DEPTH_RESTORE = 4
+
+_PRE = {"cram": PRE_CRAM_CYC, "vsram": PRE_CRAM_CYC,
+        "region": PRE_REGION_CYC, "restore": PRE_RESTORE_CYC, "reg": 0}
+_BASE = {"cram": WORK_CRAM_BASE_CYC, "vsram": WORK_CRAM_BASE_CYC,
+         "region": WORK_REGION_BASE_CYC, "restore": WORK_RESTORE_BASE_CYC,
+         "reg": WORK_REG_CYC}
+_DEPTH = {"cram": DEPTH_CRAM, "vsram": DEPTH_CRAM,
+          "region": DEPTH_REGION, "restore": DEPTH_RESTORE}
+
+
+def spin_cyc(n: int) -> int:
+    return n * 10 + 14
+
+
+def op_stream_words(o: dict) -> int:
+    k = o["k"]
+    if k == "reg":
+        return 0
+    if k in ("cram", "vsram"):
+        return len(o["v"])
+    return o["n"]
+
+
+def op_dispatch_cyc(o: dict) -> int:
+    if o["k"] == "reg":                      # the chain's fall-through pays every rung
+        return DISPATCH_RUNG_CYC * DISPATCH_RUNGS
+    return DISPATCH_RUNG_CYC * _DEPTH[o["k"]] + DISPATCH_HIT_CYC
+
+
+def op_cost_cycles(o: dict, spin: int) -> int:
+    work = _BASE[o["k"]] + (0 if o["k"] == "reg" else spin_cyc(spin))
+    return (OP_FETCH_CYC + op_dispatch_cyc(o) + work
+            + STREAM_WORD_CYC * op_stream_words(o) + OP_TAIL_CYC)
+
+
+def solve_spin(p: int, span: int) -> int:
+    """Centre a burst of `span` cycles whose first write would otherwise fall at `p`."""
+    num = 20 * (HBLANK_END_CYC - p - 14) - (HBLANK_WIDTH_X10 + 10 * span)
+    return (num + 100) // 200 if num > 0 else 0
+
+
+def fire_burst_span(ops: list[dict]) -> int:
+    """First write of the first stream op to last write of the last one."""
+    idx = [i for i, o in enumerate(ops) if o["k"] != "reg"]
+    if not idx:
+        return 0
+    a, b = idx[0], idx[-1]
+    if a == b:
+        return STREAM_WORD_CYC * (op_stream_words(ops[a]) - 1)
+    s = ((_BASE[ops[a]["k"]] - _PRE[ops[a]["k"]])
+         + STREAM_WORD_CYC * op_stream_words(ops[a]) + OP_TAIL_CYC)
+    for o in ops[a + 1:b]:
+        s += op_cost_cycles(o, 0)
+    s += (OP_FETCH_CYC + op_dispatch_cyc(ops[b]) + _PRE[ops[b]["k"]] + spin_cyc(0)
+          + STREAM_WORD_CYC * (op_stream_words(ops[b]) - 1))
+    return s
+
+
+def fire_spins(ops: list[dict]) -> list[int]:
+    """One iteration count per op, in op order — raster_dsl.emp's `fire_spins`."""
+    idx = [i for i, o in enumerate(ops) if o["k"] != "reg"]
+    first = idx[0] if idx else -1
+    span = fire_burst_span(ops)
+    out, acc = [], 0
+    for i, o in enumerate(ops):
+        n = solve_spin(acc + OP_FETCH_CYC + op_dispatch_cyc(o) + _PRE[o["k"]], span) \
+            if i == first else 0
+        out.append(n)
+        acc += op_cost_cycles(o, n)
+    return out
 
 
 def _delta(addr: int) -> int:
@@ -109,27 +202,39 @@ def pal_restore(addr: int, count: int) -> dict:
     return {"k": "restore", "a": addr, "n": count}
 
 
-def op_words(o: dict) -> list[int]:
+def op_words(o: dict, spin: int = 0) -> list[int]:
+    """One op's wire body. `spin` is the solved iteration count for THIS op at THIS
+    position — see fire_spins; a register op has no delay site and ignores it."""
     k = o["k"]
     if k == "reg":
         return [0, o["w"]]
     if k == "cram":
         c = CRAM_WRITE | _delta(o["a"])
-        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_CRAM, len(o["v"]) - 1] + list(o["v"])
+        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, spin, len(o["v"]) - 1] + list(o["v"])
     if k == "vsram":
-        # A VSRAM op EMITS OP_CRAM, so it takes the cram spin with it.
+        # A VSRAM op EMITS OP_CRAM, so it dispatches — and solves — exactly like one.
         c = VSRAM_WRITE | _delta(o["a"])
-        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_CRAM, len(o["v"]) - 1] + list(o["v"])
+        return [2, (c >> 16) & 0xFFFF, c & 0xFFFF, spin, len(o["v"]) - 1] + list(o["v"])
     if k == "region":
         c = CRAM_WRITE | _delta(o["a"])
-        return [4, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_REGION, o["n"] - 1,
+        return [4, (c >> 16) & 0xFFFF, c & 0xFFFF, spin, o["n"] - 1,
                 o["slot"] * 128 + o["pl"] * 32 + o["e"] * 2]
     if k == "restore":
         # R1: OP_PAL_RESTORE — the snapshot offset IS the CRAM byte address (claim D-F),
         # so the last word is the same `a` the command longword was derived from.
         c = CRAM_WRITE | _delta(o["a"])
-        return [10, (c >> 16) & 0xFFFF, c & 0xFFFF, SPIN_RESTORE, o["n"] - 1, o["a"]]
+        return [10, (c >> 16) & 0xFFFF, c & 0xFFFF, spin, o["n"] - 1, o["a"]]
     raise ValueError(f"unknown op {k}")
+
+
+def fire_words(ops: list[dict]) -> list[int]:
+    """One fire's op bodies with the solved spins threaded in — the only path from ops to
+    words, mirroring raster_dsl.emp's `fire_body_words`."""
+    spins = fire_spins(ops)
+    out: list[int] = []
+    for o, n in zip(ops, spins):
+        out += op_words(o, n)
+    return out
 
 
 PIN_MASK = 0x0002            # see the module note: constant across every fixture
@@ -152,9 +257,7 @@ def program_words(fires: list[tuple[int, list[dict]]]) -> list[int]:
 
     out = [PIN_MASK, arm(0), 0, arm(1), 0]
     for i, (_, ops) in enumerate(fires):
-        out += [arm(i + 2), len(ops)]
-        for o in ops:
-            out += op_words(o)
+        out += [arm(i + 2), len(ops)] + fire_words(ops)
     out += [0x8AFF, 0xFFFF]
     if len(out) * 2 > 128:
         raise ValueError(f"program is {len(out) * 2} bytes, over RASTER_BUF_SIZE (128)")
@@ -232,7 +335,7 @@ FIXTURES: dict[str, dict] = {
     # minima freeze. Model expectation at work=64: dispatch 82 (depth 4) + fetch 8 +
     # work 64 + 3*30 + tail 10 = 254 marginal + the 302 fire base = 556/fire.
     "F8": {
-        "what": "pal_restore, 3 words — claim 9 (work = base 72 + spin_cyc(13) = 216)",
+        "what": "pal_restore, 3 words — claim 9 (work = base 72 + spin_cyc(solved 10) = 186)",
         "n": 6,
         "fires": _spread(6, lambda i: [pal_restore(34, 3)]),
     },

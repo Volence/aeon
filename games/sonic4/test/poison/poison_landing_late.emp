@@ -1,0 +1,36 @@
+// games/sonic4/test/poison/poison_landing_late.emp — POISON (see README).
+//
+// TARGETS: check_landings' LATE edge — a burst that is still writing when the next
+//          scanline is sampled (substrate item 1c).
+// EXPECTED FRAGMENT: "past the latest legal"
+//
+// Three register writes and then a one-word CRAM. Every OTHER guard passes, and that
+// is the point: four ops is exactly the per-fire ceiling, one stream op is inside the
+// ceiling of two, one word is inside RASTER_CRAM_MAX, and the SetRegs are all in
+// prefix order so check_mixed_fire is satisfied.
+//
+// It is still wrong, and no spin can fix it. Each OP_SET_REG costs 110 cycles, so the
+// cram op reaches its delay site 330 + 8 + 18 + 36 = 392 modelled cycles into the
+// record — past RASTER_HBLANK_END_CYC (351) before it has spun at all. The solver
+// clamps to zero iterations and check_landings reports the landing it could not place,
+// naming the op index, the fire line, the computed cycle and the window edge. This is
+// the shape a cycle-blind structural ceiling admits and a landing guard does not: the
+// four-op ceiling counts ops, and four ops is legal.
+//
+// EXACTLY ONE DIAGNOSTIC. The EARLY edge passes (the burst is late, not early) and the
+// three register ops carry no burst at all, so a count of 2 here would mean a second
+// guard started firing and this poison stopped naming one thing.
+//
+// NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
+// COMPTIME_HELPERS members, glob-injected into every module by the real build. See
+// the README on why the lane cannot reproduce that injection yet.
+module games.sonic4.test.poison.poison_landing_late
+
+const POISON_LANDING_LATE = [
+    fire(100, [reg_set($8C81), reg_set($8C81), reg_set($8C81), stream_cram($22, [$0EEE])]),
+]
+
+// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// the diagnostic under test comes from inside the call.
+ensure(raster_program(POISON_LANDING_LATE).len > 0,
+       "poison_landing_late: raster_program returned nothing — this poison no longer reaches the guard it targets")

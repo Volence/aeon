@@ -18,12 +18,21 @@ wrong spin VALUE leaves the fire count untouched and only shifts cycles, which i
 indistinguishable from a real cost change.
 
 WHAT IS PINNED, and each is a drift class that has actually occurred in this tree:
-  1. the three RASTER_SPIN_* values          (item 1 changed these; the probe copies them)
+  1. the SPIN SOLVER                         (item 1 moved the spin into the program, item
+                                              1c made its value a function of the op's
+                                              position; the probe re-implements the solver)
   2. the per-class body ARITY from op_size   (item 1 changed these; a length drift means
                                               the probe's later ops are read as garbage)
   3. the opcode literals                     (the dispatch chain has been appended to
                                               before -- see RASTER_DISPATCH_RUNGS' trap note)
   4. the spin word's POSITION in the body    (arity alone cannot see a transposition)
+
+HOW PIN 1 IS WRITTEN, and it is deliberate: the expected spins are DERIVED HERE, from the
+constants read out of raster_dsl.emp, by an arithmetic spelled out in this file. They are
+never copied from a build's output and never imported from the probe -- a pin that read the
+probe's own answer would be pinning the probe to itself, and a pin holding a typed-in `18`
+would go stale silently the day a cost term moves. What this file asserts is that TWO
+independent implementations of one published formula agree on every shipped op shape.
 
 Every pin below has a poison test beside it proving it bites.
 """
@@ -62,25 +71,168 @@ def op_size_arity(variant: str) -> int:
     return int(m.group(1))
 
 
-# ---- 1. the spin constants ---------------------------------------------------
+# ---- 1. the spin solver ------------------------------------------------------
 
-def test_probe_spin_constants_match_the_dsl():
+# The names the probe mirrors, and the .emp const each one copies. Every solved spin below
+# is computed FROM THESE, never typed in.
+SOLVER_CONSTS = [
+    ("HBLANK_END_CYC",        "RASTER_HBLANK_END_CYC"),
+    ("HBLANK_WIDTH_X10",      "RASTER_HBLANK_WIDTH_X10"),
+    ("OP_FETCH_CYC",          "RASTER_OP_FETCH_CYC"),
+    ("DISPATCH_RUNG_CYC",     "RASTER_DISPATCH_RUNG_CYC"),
+    ("DISPATCH_HIT_CYC",      "RASTER_DISPATCH_HIT_CYC"),
+    ("DISPATCH_RUNGS",        "RASTER_DISPATCH_RUNGS"),
+    ("OP_TAIL_CYC",           "RASTER_OP_TAIL_CYC"),
+    ("STREAM_WORD_CYC",       "RASTER_STREAM_WORD_CYC"),
+    ("WORK_REG_CYC",          "RASTER_WORK_REG_CYC"),
+    ("WORK_CRAM_BASE_CYC",    "RASTER_WORK_CRAM_BASE_CYC"),
+    ("WORK_REGION_BASE_CYC",  "RASTER_WORK_REGION_BASE_CYC"),
+    ("WORK_RESTORE_BASE_CYC", "RASTER_WORK_RESTORE_BASE_CYC"),
+    ("PRE_CRAM_CYC",          "RASTER_PRE_CRAM_CYC"),
+    ("PRE_REGION_CYC",        "RASTER_PRE_REGION_CYC"),
+    ("PRE_RESTORE_CYC",       "RASTER_PRE_RESTORE_CYC"),
+    ("DEPTH_CRAM",            "RASTER_DEPTH_CRAM"),
+    ("DEPTH_REGION",          "RASTER_DEPTH_REGION"),
+    ("DEPTH_RESTORE",         "RASTER_DEPTH_RESTORE"),
+]
+
+
+@pytest.mark.parametrize("probe_name,emp_name", SOLVER_CONSTS)
+def test_probe_solver_constants_match_the_dsl(probe_name, emp_name):
     import raster_cost_probe as probe
-    assert probe.SPIN_CRAM == emp_const(DSL, "RASTER_SPIN_CRAM")
-    assert probe.SPIN_REGION == emp_const(DSL, "RASTER_SPIN_REGION")
-    assert probe.SPIN_RESTORE == emp_const(DSL, "RASTER_SPIN_RESTORE")
+    assert getattr(probe, probe_name) == emp_const(DSL, emp_name), (
+        f"probe.{probe_name} = {getattr(probe, probe_name)} but raster_dsl.emp's "
+        f"{emp_name} = {emp_const(DSL, emp_name)}")
+
+
+def _expected_spins(ops):
+    """raster_dsl.emp's fire_spins, re-derived here from the .emp constants alone.
+
+    A third implementation of the published formula, written out longhand so a reader can
+    check it against the comment block in raster_dsl.emp:
+
+        n = round( (END - p - 14 - (width + span)/2) / 10 )
+
+    where `p` is the modelled cycles from the record's op-walk origin to where this op
+    would start its burst with a spin of zero, and `span` is the combined burst span.
+    """
+    k = {e: emp_const(DSL, e) for _, e in SOLVER_CONSTS}
+    pre = {"cram": k["RASTER_PRE_CRAM_CYC"], "vsram": k["RASTER_PRE_CRAM_CYC"],
+           "region": k["RASTER_PRE_REGION_CYC"], "restore": k["RASTER_PRE_RESTORE_CYC"],
+           "reg": 0}
+    base = {"cram": k["RASTER_WORK_CRAM_BASE_CYC"], "vsram": k["RASTER_WORK_CRAM_BASE_CYC"],
+            "region": k["RASTER_WORK_REGION_BASE_CYC"],
+            "restore": k["RASTER_WORK_RESTORE_BASE_CYC"], "reg": k["RASTER_WORK_REG_CYC"]}
+    depth = {"cram": k["RASTER_DEPTH_CRAM"], "vsram": k["RASTER_DEPTH_CRAM"],
+             "region": k["RASTER_DEPTH_REGION"], "restore": k["RASTER_DEPTH_RESTORE"]}
+
+    def words(o):
+        if o["k"] == "reg":
+            return 0
+        return len(o["v"]) if o["k"] in ("cram", "vsram") else o["n"]
+
+    def dispatch(o):
+        if o["k"] == "reg":
+            return k["RASTER_DISPATCH_RUNG_CYC"] * k["RASTER_DISPATCH_RUNGS"]
+        return (k["RASTER_DISPATCH_RUNG_CYC"] * depth[o["k"]]
+                + k["RASTER_DISPATCH_HIT_CYC"])
+
+    def cost(o, spin):
+        w = base[o["k"]] + (0 if o["k"] == "reg" else spin * 10 + 14)
+        return (k["RASTER_OP_FETCH_CYC"] + dispatch(o) + w
+                + k["RASTER_STREAM_WORD_CYC"] * words(o) + k["RASTER_OP_TAIL_CYC"])
+
+    idx = [i for i, o in enumerate(ops) if o["k"] != "reg"]
+    if not idx:
+        return [0] * len(ops)
+    a, b = idx[0], idx[-1]
+    if a == b:
+        span = k["RASTER_STREAM_WORD_CYC"] * (words(ops[a]) - 1)
+    else:
+        span = ((base[ops[a]["k"]] - pre[ops[a]["k"]])
+                + k["RASTER_STREAM_WORD_CYC"] * words(ops[a]) + k["RASTER_OP_TAIL_CYC"])
+        for o in ops[a + 1:b]:
+            span += cost(o, 0)
+        span += (k["RASTER_OP_FETCH_CYC"] + dispatch(ops[b]) + pre[ops[b]["k"]] + 14
+                 + k["RASTER_STREAM_WORD_CYC"] * (words(ops[b]) - 1))
+
+    out, acc = [], 0
+    for i, o in enumerate(ops):
+        n = 0
+        if i == a:
+            p = acc + k["RASTER_OP_FETCH_CYC"] + dispatch(o) + pre[o["k"]]
+            num = 20 * (k["RASTER_HBLANK_END_CYC"] - p - 14) - (
+                k["RASTER_HBLANK_WIDTH_X10"] + 10 * span)
+            n = (num + 100) // 200 if num > 0 else 0
+        out.append(n)
+        acc += cost(o, n)
+    return out
+
+
+def _shapes(p):
+    """Every op shape this tree emits, plus the two-stream-op shape only F6 exercises."""
+    return {
+        "leading cram 1w":      [p.stream_cram(34, [0x0EEE])],
+        "leading cram 3w":      [p.stream_cram(34, [0, 0, 0])],
+        "leading region 3w":    [p.stream_pal_region(34, 0, 1, 1, 3)],
+        "leading vsram 1w":     [p.stream_vsram(2, [0x0043])],
+        "leading restore 3w":   [p.pal_restore(34, 3)],
+        "reg + cram 1w":        [p.reg_set(0x8C89), p.stream_cram(34, [0x000E])],
+        "reg + cram 3w":        [p.reg_set(0x8C89), p.stream_cram(34, [0, 0, 0])],
+        "reg + region 3w":      [p.reg_set(0x8C89), p.stream_pal_region(34, 0, 1, 1, 3)],
+        "cram 1w + cram 1w":    [p.stream_cram(34, [0]), p.stream_cram(38, [0])],
+        "reg only":             [p.reg_set(0x8C81)],
+    }
+
+
+def test_probe_solver_matches_the_dsl_on_every_shipped_shape():
+    import raster_cost_probe as probe
+    for name, ops in _shapes(probe).items():
+        assert probe.fire_spins(ops) == _expected_spins(ops), (
+            f"{name}: probe solves {probe.fire_spins(ops)}, the .emp constants derive "
+            f"{_expected_spins(ops)}")
+
+
+def test_the_solver_is_position_dependent_at_all():
+    """The defect item 1c closed: the identical op must NOT get the identical spin when it
+    sits after a register write. A solver that lost its accumulator would pass every pin
+    above (both implementations would be equally wrong), so this asserts the property
+    directly, on the two shapes whose difference is exactly one leading reg_set."""
+    import raster_cost_probe as probe
+    lead = probe.fire_spins([probe.stream_cram(34, [0, 0, 0])])[0]
+    after = probe.fire_spins([probe.reg_set(0x8C89), probe.stream_cram(34, [0, 0, 0])])[1]
+    assert lead > after, (
+        f"a leading 3-word cram solves to {lead} and the same op after a reg_set to "
+        f"{after} — the second one must be SMALLER; it arrives 110 cycles later")
+    reg_cost = (emp_const(DSL, "RASTER_OP_FETCH_CYC")
+                + emp_const(DSL, "RASTER_DISPATCH_RUNG_CYC")
+                * emp_const(DSL, "RASTER_DISPATCH_RUNGS")
+                + emp_const(DSL, "RASTER_WORK_REG_CYC")
+                + emp_const(DSL, "RASTER_OP_TAIL_CYC"))
+    assert lead - after == reg_cost // 10, (
+        f"the gap is {lead - after} iterations but the reg_set ahead of it costs "
+        f"{reg_cost} cycles = {reg_cost // 10} iterations")
 
 
 def test_spin_pin_is_not_vacuous():
-    """Poison: a probe spin that disagrees with the .emp must fail the pin above."""
+    """Poison: a probe solver constant that disagrees with the .emp must fail the pins.
+
+    The subject perturbed is the WINDOW ANCHOR — the one measured constant — so this shows
+    both the constant pin and the derived-spin pin biting, not merely "something raised".
+    """
     import raster_cost_probe as probe
-    real = probe.SPIN_CRAM
+    real = probe.HBLANK_END_CYC
+    ops = [probe.stream_cram(34, [0, 0, 0])]
     try:
-        probe.SPIN_CRAM = real + 1
+        probe.HBLANK_END_CYC = real + 10        # one whole iteration later
         with pytest.raises(AssertionError):
-            assert probe.SPIN_CRAM == emp_const(DSL, "RASTER_SPIN_CRAM")
+            assert probe.HBLANK_END_CYC == emp_const(DSL, "RASTER_HBLANK_END_CYC")
+        assert probe.fire_spins(ops) != _expected_spins(ops), (
+            "moving the window anchor by a whole iteration did not change a solved spin — "
+            "the solver is not reading the constant this test claims to pin")
     finally:
-        probe.SPIN_CRAM = real
+        probe.HBLANK_END_CYC = real
+    assert probe.fire_spins(ops) == _expected_spins(ops)
 
 
 # ---- 2. the per-class body arity ---------------------------------------------
@@ -150,13 +302,17 @@ def test_spin_sits_between_command_and_count():
     count, so index 3 is the contract.
     """
     import raster_cost_probe as probe
-    # A 3-colour cram: count-1 is 2, and the spin is a value distinguishable from it.
-    w = probe.op_words(probe.stream_cram(34, [0x0EEE, 0x0E0E, 0x00EE]))
-    assert w[3] == emp_const(DSL, "RASTER_SPIN_CRAM"), "word 3 must be the spin"
+    # A 3-colour cram, as the LEADING op of its fire: count-1 is 2, and the solved spin is
+    # a value distinguishable from it. Both expectations are derived, never typed in.
+    ops = [probe.stream_cram(34, [0x0EEE, 0x0E0E, 0x00EE])]
+    w = probe.fire_words(ops)
+    assert w[3] == _expected_spins(ops)[0], "word 3 must be the spin"
     assert w[4] == 2, "word 4 must be count-1"
+    assert w[3] != w[4], "pick a fixture whose spin and count-1 differ, or this proves nothing"
     # The restore's tail word is the CRAM address (claim D-F), which must stay last.
-    r = probe.op_words(probe.pal_restore(34, 3))
-    assert r[3] == emp_const(DSL, "RASTER_SPIN_RESTORE")
+    rops = [probe.pal_restore(34, 3)]
+    r = probe.fire_words(rops)
+    assert r[3] == _expected_spins(rops)[0]
     assert r[4] == 2
     assert r[5] == 34
 
@@ -164,8 +320,9 @@ def test_spin_sits_between_command_and_count():
 def test_position_pin_is_not_vacuous():
     """Poison: transposing spin and count-1 keeps the LENGTH and must still be caught."""
     import raster_cost_probe as probe
-    w = list(probe.op_words(probe.stream_cram(34, [0x0EEE, 0x0E0E, 0x00EE])))
+    ops = [probe.stream_cram(34, [0x0EEE, 0x0E0E, 0x00EE])]
+    w = list(probe.fire_words(ops))
     w[3], w[4] = w[4], w[3]
     assert len(w) == 8, "the transposition must not change the length, or this proves nothing"
     with pytest.raises(AssertionError):
-        assert w[3] == emp_const(DSL, "RASTER_SPIN_CRAM"), "word 3 must be the spin"
+        assert w[3] == _expected_spins(ops)[0], "word 3 must be the spin"
