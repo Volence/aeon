@@ -1744,7 +1744,20 @@ pub const RASTER_PRIMING_GUARD_CYC  = 30
 // The dense tier fires NINETY-SIX times a frame per run, so the same 22 cycles are
 // 96 x 22 = 2,112 cycles/frame off a gradient run — an order of magnitude more than the
 // sparse side, and it was not in the booking at all.
-pub const RASTER_DENSE_LINE_GRAD_CYC = 328
+// AFTER the `-4(a2)` stream writes (the item-1 rider, 2026-08-19): FD1 4040, FD2 14152,
+// (14152 - 4040) / 32 = 316.0. Twelve cycles, and TWELVE IS THE FULL NOMINAL — three
+// `move.w (a1)+, VDP_DATA` at 20 becoming three `move.w (a1)+, -4(a2)` at 16. That is the
+// finding, because it CONTRADICTS the prediction this same constant's previous entry
+// justified: the hoist's nominal 12 measured 4, so this edit was predicted at ~4 on the
+// same ratio and paid 12. The absorption is not a property of "edits inside .dense_body",
+// it is a property of the operand bus: the hoist removed a `tst.w (xxx).W`'s DATA read
+// sitting immediately after a control-port write, where the CPU was already stalled on
+// the VDP; this removes one INSTRUCTION-STREAM word per write, which the 68000 fetches on
+// its own account and no VDP wait pays for. Same body, same neighbourhood, opposite
+// answer — which is exactly why the FD pair exists and why neither number was booked.
+// The intercept is the control: 4040 - 8*316 = 14152 - 40*316 = 1512, unchanged, so the
+// whole delta is per-LINE and the per-RUN fixed cost did not move.
+pub const RASTER_DENSE_LINE_GRAD_CYC = 316
 
 // A dense run fires EVERY line, so its per-line cost must fit inside a scanline or the run
 // eats the line it is supposed to be decorating and the next fire is already late. Nothing
