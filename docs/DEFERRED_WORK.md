@@ -4756,7 +4756,23 @@ today, payoff gated on an instrument that can bind mid-frame VSRAM visibility to
 
 ---
 
-## ojz_run_b port tests are RED on master — pre-existing, unowned (found 2026-08-19)
+## ojz_run_b port tests — CLOSED 2026-08-19 (owner-ruled, fixed harness-side)
+
+**CLOSED same day it was triaged.** Owner ruling (morning 2026-08-19): fix harness-side —
+`BG_LAYOUT_SIZE` already lives engine-side (`engine/level/bg.emp:51`) and is engine-fixed
+geometry (the full 64×64 Plane B nametable), not per-game, so nothing relocates. Sigil
+`ae7212a6` (merge `4af3f7d6`) extends the `cd5cb646` synthesized-dep idiom: a new
+`emp_const_rhs` helper copies the RHS **text** (`64*64*2`) verbatim into a synthesized
+`engine.bg_layout` module, so sigil's comptime folder does the arithmetic and no value is
+written down in Rust (poison: forcing 4096 fails both tests at lower, named). Both tests
+green with ZERO re-baselining — their region assertions passed against the current goldens
+on first compile. Full sigil suite: **3733 passed / 0 failed** — fully green for the first
+time since the booking. Note the two tests skip unless `SIGIL_STRICT_GATE=1` and the aeon
+ROMs exist; the targeted verification ran strict.
+
+The original booking follows for the record:
+
+## (record) ojz_run_b port tests were RED on master — pre-existing, unowned (found 2026-08-19)
 
 `ojz_run_b_regions_match_reference` and `ojz_run_b_debug_regions_match_reference` in
 sigil (`crates/sigil-cli/tests/ojz_run_b_port.rs`) fail with
