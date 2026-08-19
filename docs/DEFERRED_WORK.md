@@ -4840,11 +4840,72 @@ the code before being acted on.
   deliberately NOT copied: `ram.emp` *names* `BGANIM_MAX_BANDS`, so a span guard would have
   measured itself. The three mirrors are still not collapsible to one authority.
 
-**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving),
-all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
-`RASTER_BUF_SIZE/2` as a bare 64, `palette_dsl`'s self-test-only variant mirror,
-`raster_cost_probe.py`'s unpinned wire format), plus C5 footprint, the EFX-4b angle, and the
-zero-`assert.*` observation.
+### LANDED 2026-08-18 — the byte-moving parcel (branch `parcel/raster-substrate-byte-moving`)
+
+Baseline for attribution (all four shapes, verified equal to master before the first edit):
+`s4.debug ab1055d4/712752 · s4 7e4dc5de/697868 · demo.debug 10aad76c/100805 · demo 2ecd1031/96451`.
+
+- **Item 2 — CLOSED, and it was THREE sites, not one.** The sweep booked `.cycling`; the
+  identical shape is in `.fade` (odd-frame parity `rts`) and `.operators` (NEG_FLASH
+  every-4, `.fade_dir` every-2). All three announced `PAL_ACT_VARIANT_STALE` on the layer
+  being INSTALLED rather than having CHANGED. Fixed uniformly: `publish_compose_lines()`
+  is emitted at the paths that actually wrote colours and `Palette_Compose` announces
+  nothing; `DoCycle` keeps its per-line `d7` mask over the helper's blanket `%1110` and
+  gates both publishes on `d7 != 0`. **Checked before changing the dirty half:** suppressing
+  a redundant `Palette_Dirty` is safe against mid-frame CRAM writes because `Raster_VBlank`
+  re-asserts the program's own `pal_dirty_mask` every frame (`raster.emp:636`) — a band's
+  tint never depended on a compose layer's incidental re-ship. Code delta +40 bytes,
+  reconciled PER PROC against the `.lst`; the ROM length grew only 20, the other 20 went
+  into placer fill (do not read length as code delta here).
+- **Item 4 — CLOSED.** The dropped-base guard derives its palette line from the trailer's
+  CRAM destination (`addr >> 5`) instead of hardcoding `btst #2`. Exact, not approximate:
+  every constructor that can produce the address (`stream_cram`, `stream_pal_region`,
+  `pal_restore`) already ensures the span cannot run past the end of its CRAM line. Fits
+  `clobbers(d0/a1-a2)` unchanged. Byte-verified in the ROM.
+- **Item 1 — 1a LANDED, 1b/1c OPEN (see below).** The blanking spin is now per-op PROGRAM
+  DATA read with `move.w (a1)+, d1`; `EFX_BLANK_DELAY` and `EFX_RESTORE_DELAY` are deleted.
+  Wire: `[op][cmd hi][cmd lo][SPIN][count-1][payload]`. **The emitted values are still the
+  hand-calibrated 4/4/13**, so timing is unchanged and the wire change was measurable in
+  isolation — a LEADING stream op is still mis-timed and `fire()`'s guard still says so.
+  Every stream op is +2 bytes and +4 cycles and nothing else moved: predicted as a pure
+  count of stream ops, then **confirmed on hardware, all eight fixtures to the cycle**
+  (F1 412 unmoved — the control; F2/F7 462, F3 522, F4 570, F5 632, F6 622, F8 708).
+  Work constants split into spinless bases + `spin_cyc(n) = n*10 + 14`.
+  **A real cost, not a probe artifact:** programs lost buffer headroom (a 3-word cram fire
+  is 10 words, was 9), which forced probe fixtures F3 6→5 and F5 5→4 fires against
+  `RASTER_BUF_SIZE`. Shipped programs still fit, but P3 authors denser ones.
+- **Tier 4 riders — three CLOSED.** `raster_cost_probe.py`'s wire transcription is now
+  PINNED (`tools/test_raster_wire_pin.py`, on build.sh's pytest lane): spin constants,
+  per-class arity, opcodes, and the spin word's POSITION (arity alone cannot see a
+  transposition). Item 1a is the proof it was needed — the probe's encoder had to be
+  hand-edited, and a wrong edit would have measured garbage while `calls` looked healthy.
+  `RASTER_SH_BASE` has a real pin against boot's newly-named `VDP_REG_0C_BOOT` instead of a
+  comment claiming parity, plus a second ensure that boot's byte does not already have S/H
+  set (which would make every band's OFF edge a no-op). `RASTER_BUF_WORDS` replaces the
+  bare `64` at four encoder sites. All three byte-neutral; all poison-proved by perturbing
+  the SUBJECT, not by asserting "something raised".
+
+**Effects gate lane (mandatory ritual):** 10 gates PASS, exit 0, on `s4.debug.bin`
+post-1a — including the cost gate, whose expectations are computed from the shipped
+constants and matched hardware exactly.
+
+**STILL OPEN:**
+- **Item 1b/1c — the actual re-timing, and it needs the emulator.** 1a made the spin
+  authorable per op but did NOT change any value, so the leading-stream-op defect is
+  still live. 1c must point the solver at a single target; 1b has to locate that target
+  first. **Do not adopt a number from this file or the packet.** The packet's ~21 and the
+  earlier note's ~15 are both anchored on inherited points: re-derivation shows the
+  measured-clean CRAM shape lands at `P+222` and the measured-clean restore at `P+266`,
+  44 cycles apart, and BOTH are clean because H40 blanking is ~123 cycles wide while a
+  3-word burst is ~84 — roughly 39 cycles of slack, with the two anchors near opposite
+  edges. The correct target is the burst CENTERED in that window, which needs the window
+  edges measured (R1 §7.3 poke-sweep method, pokes PAUSED or the per-VBlank schedule
+  re-record races them). 1c should also add an ensure that every op's computed landing
+  sits inside the window with margin, and correct `raster_dsl.emp`'s `fire()` guard text.
+- Everything else: all of Tier 3 perf, the rest of Tier 4 / B2 (`palette_dsl`'s
+  self-test-only variant mirror), plus C5 footprint, the EFX-4b angle, and the
+  zero-`assert.*` observation. Item 3's structural frame-epoch fix also remains open
+  (only MITIGATED by the `<= 223` bound).
 
 ### Sequencing — the deadline is Task 9 of scanline P1, not "before P1"
 
