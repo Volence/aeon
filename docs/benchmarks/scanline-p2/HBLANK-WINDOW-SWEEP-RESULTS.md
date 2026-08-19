@@ -638,3 +638,103 @@ touch `.cram_loop` — and the derived word cost is still the cycle table's 26.
 The register write itself. It carries no burst, so this instrument has nothing to see; its
 70-cycle drop is measured on hardware by the cost probe as fixture **F1, 3044 -> 2624 cycles
 over six fires** (`tools/effects_gates.py`, cost_model gate, exit 0 with 18/18).
+
+## Run 2026-08-19 — the 4-word CRAM burst (the `RASTER_CRAM_MAX` raise)
+
+Everything above sweeps the burst width the constructors admit. This run sweeps a width they
+do **not**, because that is the only way to answer whether they should: `RASTER_CRAM_MAX = 3`
+was never a hardware limit, it was Ruling 2a's pre-measurement estimate of "~60 usable
+cycles", and the window this document measured at 122.9 is twice that. The proposal in
+`docs/DEFERRED_WORK.md` came with arithmetic and an explicit instruction not to raise the
+ceiling on the strength of it. This is the fixture that arithmetic asked for.
+
+`--words N` authors the burst directly in wire. The DSL constructors' `ensure` refuses more
+than the ceiling, and this driver never calls them — it pokes the program image, exactly as
+it already pokes a spin the lowering would never solve.
+
+```bash
+python3 tools/hblank_window_sweep.py --rom s4.debug.bin --lst s4.debug.lst --only sweep \
+        --lo 0 --hi 200 --rows 12 --words 3     # the control, same ROM, same session
+python3 tools/hblank_window_sweep.py ... --words 4    # the subject
+python3 tools/hblank_window_sweep.py ... --words 5    # the refusal, measured
+```
+
+### The three runs, side by side
+
+All three are the same ROM (`s4.debug.bin`, crc 72ab53aa), the same fixture at `$50` on line
+100, the same session. Only the burst width differs.
+
+| | 3 words (control) | **4 words** | 5 words |
+|---|---|---|---|
+| boundaries at N | `22,25,27 · 70,73,76 · 120,123,125 · 169,171,174` | `19,22,25,28 · 68,71,74,76 · 118,120,122,125 · 166,169,172,173` | `17,20,23,24,27 · 66,68,71,74,77 · 115,117,120,122,125 · 164,166,168,171,174` |
+| boundaries per group | 3 | **4** | 5 |
+| within-group step | 26.25 cyc/word | **25.83 cyc/word** | 25.62 cyc/word |
+| between-group step | 490.0 cyc | 490.0 cyc | 490.0 cyc |
+| folded first-word crossing | 26.50 N | **26.50 N** | 26.75 N |
+| folded burst span | 52.5 cyc (derived 2x26 = 52) | **77.5 cyc (derived 3x26 = 78)** | 102.5 cyc (derived 4x26 = 104) |
+| clean band, folded | N in [14.21, 21.25] | **N in [14.21, 18.75]** | N in [14.46, 16.50] |
+| band width | 7.04 N | **4.54 N** | 2.04 N |
+| solver's spin for the fixture | 18 | **17** | 15 |
+| band that satisfies both margins | [16.21, 20.25] | **[16.21, 17.75]** | [16.46, **15.50**] — EMPTY |
+| slack at the landing | 17.9 early / 22.5 late | **7.9 early / 7.5 late** | -14.6 early / 5.0 late |
+| verdict | GO | **GO** | **NO-GO** |
+
+### The control is the whole argument
+
+The number that decides this is not the 4-word band; it is that **the first word's crossing
+did not move**. A wider burst must not start later — if it did, the extra span would be
+partly an artifact of the fixture rather than of the burst, and every comparison in the table
+would be measuring two things at once. Folded over four sampling periods the crossing reads
+**26.50 N at three words and 26.50 N at four**, identical, which is the same control the
+item-1 re-run used (there it was the group's last boundary holding at 28/77/126/174).
+
+With the start pinned, the band's narrowing is entirely the burst's end moving earlier, and
+it moves by the amount the cycle table says: the span grows 52.5 -> 77.5 -> 102.5 as the width
+grows 3 -> 4 -> 5, against a derived 52 / 78 / 104. Three independent measurements of
+`RASTER_STREAM_WORD_CRAM_CYC = 26`, each inside a cycle and a half of the table.
+
+### Why the folded window, and why the single-group headline is not enough here
+
+The headline block every earlier section quotes derives BOTH edges from one integer — group
+0's last boundary, less a half. A boundary is the ceiling of a crossing, so that correction is
+right on average and off by up to ±0.5 N on any single reading. Five cycles of whole-band
+shift is fine for "the centre is 18" and is not fine for a go/no-go on margins of 10 and 20:
+the 4-word run's own single-group block reads `[15.21, 18.5]` because its group 0 happened to
+round the crossing up to 27.5, and against those edges the solver's N=17 would appear to miss
+the early margin by 2.1 cycles.
+
+The driver now also folds. The same crossing is observed once per sampling period, each with
+an independent rounding; subtracting the measured period puts them on one estimate:
+
+```
+   4 words: per-group crossing 27.50, 26.50, 26.50, 25.50  ->  mean 26.50 N
+   3 words: per-group crossing 26.50, 26.50, 26.50, 26.50  ->  mean 26.50 N
+```
+
+That is the same arithmetic the item-2 section does by hand when it averages twelve boundary
+deltas to −0.833, and it is what makes the two runs comparable at better than half an N. The
+single-group block is left printing exactly what it printed before; nothing earlier in this
+document is restated.
+
+### The 5-word row is a measured refusal, not an extrapolation
+
+The proposal's table said 5 words is refused on arithmetic — 4 x 26 = 104 against 122.9,
+leaving 18.9 for margins that want 30. The instrument says the same thing from the other
+side, and more sharply than the arithmetic does: the band that satisfies both margins comes
+out **empty**, its lower bound 16.46 above its upper bound 15.50. There is no spin at which a
+5-word cram burst is both inside blanking and clear of the sampling instant, and the driver's
+own `solver fit` block prints NO-GO without being told what to expect.
+
+`games/sonic4/test/poison/poison_cram_five_words.emp` is the build-time half of the same
+fact, and `poison_deep_four_words.emp` the half that keeps the SPLIT honest — a 4-word
+*region* burst, which passes the placeability ensure by 2.9 cycles and then fails
+`check_landings` because the solver quantizes to whole 10-cycle iterations.
+
+### What was NOT measured, and is therefore not raised
+
+The deep class (`OP_PAL_REGION`, `OP_PAL_RESTORE`). Its burst word is 30 cycles, so a 4-word
+deep burst spans 90 and leaves 32.9 for margins wanting 30 — a 2.9-cycle slack, against an
+instrument that localizes a boundary to ±5 cycles. **A fixture could not tell that margin from
+zero**, so `RASTER_BURST_MAX_DEEP` stays at 3. This is the parcel declining a raise its own
+arithmetic nominally permits, and the reason is the standard of evidence rather than the sign
+of the number.
