@@ -20,6 +20,23 @@ use engine.effects.preset.{Effects_InstallPreset}
 // none of the uses below are inside a comptime fn — they are `if` conditions in this
 // module's own instruction stream, where this module's own `use` is what resolves
 // them. Spelling the numbers here instead would give up the drift check for nothing.
+//
+// CAP_TRANSITIONS IS IMPORTED BUT NOT YET GATED, AND THAT IS A BLOCKED ITEM RATHER
+// THAN AN OVERSIGHT. Its three sites are marked below. Gating them elides ~40 more
+// bytes from demo's Parallax_* run, and that run sits immediately upstream of
+// `Level_LoadArt`, whose FROZEN provisional base is 0x6430 (demo_debug) / 0x53A0
+// (demo). sigil classifies a section as an ISLAND when its provisional base exceeds
+// the packed running end by more than ANCHOR_GAP = 0x400, and demands a declared
+// `[[anchor]]` for it. After the four capabilities that DID land, the measured gap is
+// 0x6430 - 0x6050 = 0x3E0 — 32 bytes of headroom. The next elision crosses it and
+// demo fails to build with `[map.undeclared-island] ROM section at 0x6430`.
+//
+// The remedy is a sigil-side repin/refreeze of the demo tables (the stale provisional
+// is the whole cause; declaring a 0x6430 anchor in games/demo/map.toml would be
+// WRONG — Level_LoadArt is a packed section, not an island, and pinning it there
+// would bake today's placer fill into the contract). That refreeze was out of scope
+// for this parcel, so the gates wait for it. Verified, not assumed: the failure was
+// reproduced, the frozen tables read, and the 0x3E0 gap measured.
 use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
@@ -263,12 +280,13 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         beq     .no_change                          // already transitioning to this → no-op
 
         // -- pick transition mode from the new config's pcfg_transition flag --
-        // CAP_TRANSITIONS span (P2 §3.3): a game whose registry holds one scene never
-        // crosses a scene edge, so nothing can ever STAGE a smooth transition. The
-        // whole staging arm is the elidable region and `.instant` is its structural
-        // fallthrough — eliding it makes every install instant, which is what a
-        // single-scene game already gets.
-    .cap_transitions_stage_begin:
+        // CAP_TRANSITIONS site (P2 §3.3), NOT YET GATED — BLOCKED, see the note at the
+        // capability import at the top of this file. The elidable region is the whole
+        // staging arm, with `.instant` as its structural fallthrough: a game whose
+        // registry holds one scene never crosses a scene edge, so nothing can ever
+        // STAGE a smooth transition. Brackets are deliberately ABSENT until the gate
+        // lands — an ungated bracket reports a specialisation that never happens, and
+        // tools/test_scene_span_labels.py fails on one.
         tst.b   parallax_config.pcfg_transition(a0)
         bne     .instant
 
@@ -276,7 +294,6 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         move.l  a0, Parallax_Target_Config          // (Parallax_Target_Config).w
         move.b  #PARALLAX_TRANS_DEFAULT, Parallax_Transition_Frames  // (Parallax_Transition_Frames).w
         jbra    .update_mode
-    .cap_transitions_stage_end:
 
     .instant:
         // -- instant: swap current immediately, clear target, AND snap
@@ -356,12 +373,11 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
 //      result, so it rides out(), not clobbers().
 // ----------------------------------------------------------------------
 pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
-        // CAP_TRANSITIONS span (P2 §3.3). Parallax_Target_Config is written ONLY by
-        // StartTransition's staging arm, so with that arm elided the target is
-        // permanently NULL and Transition_Frames permanently 0 — this selector
-        // collapses to "return Current_Config". The `else` arm at Task 7 is that
-        // collapse, not a second implementation.
-    .cap_transitions_select_begin:
+        // CAP_TRANSITIONS site (P2 §3.3), NOT YET GATED — BLOCKED, see the capability
+        // import note at the top of this file. Parallax_Target_Config is written ONLY
+        // by StartTransition's staging arm, so with that arm elided the target is
+        // permanently NULL and Transition_Frames permanently 0, and this selector
+        // collapses to "return Current_Config" (an `else` arm, not a second impl).
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
         bne     .use_target
         move.l  Parallax_Current_Config, d0         // (Parallax_Current_Config).w — Z from d0
@@ -369,7 +385,6 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
     .use_target:
         move.l  Parallax_Target_Config, d0          // (Parallax_Target_Config).w — Z from d0
         rts
-    .cap_transitions_select_end:
 }
 
 // ----------------------------------------------------------------------
@@ -1047,11 +1062,11 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
 
         tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
         bne     .v_snap
-        // CAP_TRANSITIONS span (P2 §3.3). Transition_Frames can only be nonzero
+        // CAP_TRANSITIONS site (P2 §3.3), NOT YET GATED — BLOCKED, see the capability
+        // import note at the top of this file. Transition_Frames can only be nonzero
         // downstream of StartTransition's staging arm, so with that elided this test
         // always takes `.v_snap` — the lerp is the elidable region and the snap is its
         // structural fallthrough.
-    .cap_transitions_lerp_begin:
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
         beq     .v_snap                             // no transition — lock to target
         move.w  Parallax_Current_Vscroll_BG, d2     // (Parallax_Current_Vscroll_BG).w
@@ -1059,7 +1074,6 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         asr.w   #PARALLAX_LERP_SHIFT, d0
         add.w   d0, d2                              // d2 = new current_vscroll_bg
         jbra    .v_pack
-    .cap_transitions_lerp_end:
     .v_snap:
         move.w  d0, d2                              // snap: current = target
         jbra    .v_pack
