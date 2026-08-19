@@ -5702,13 +5702,44 @@ scenes, pre-fix ROM vs post-fix: **ALL EQUAL (gated)**, `state_hash` included. T
 sweep's anchor captures are **byte-identical** pre vs post (39 comparable lines, 0 differing),
 which is the boundaries measured unchanged rather than merely predicted.
 
-**INSTRUMENT NOTE for whoever runs the gate lane next.** Two full-lane `effects_gates.py`
+**INSTRUMENT NOTE for whoever runs the gate lane next.** ~~Two full-lane `effects_gates.py`
 invocations WEDGED — one inside `snapshot_poison`, one inside `raster_source` — while both of
 those gates pass in seconds run standalone on the same ROM, and `raster_source` then passed in
 the segmented re-run. That is the known intermittent oracle stop-race, not a gate failure, and
 a single 22-gate invocation loses every result to it. Running the lane as `--only` segments
 with a per-segment timeout and one retry recovers all 22; consider making that the lane's own
-shape rather than a thing each session rediscovers.
+shape rather than a thing each session rediscovers.~~
+
+**CLOSED 2026-08-19** (`fix/gate-lane-segments`, tools-only, zero ROM bytes). The suggested
+shape IS the lane's shape now: a plain `effects_gates.py` invocation partitions the gates into
+**10 segments** — every emulator-backed gate on its own, the two listing-only gates sharing
+one — re-invokes ITSELF once per segment with `--only`, and aggregates into the identical
+`effects_gates: OK — 22 gates` line and exit code the single-run shape produced. Per segment:
+a timeout (~8-35x measured runtime), **ONE** retry, and a segment that wedges twice becomes its
+own named `WEDGED after retry` FAILURE row — loud on unmeasurable, never silence, never a pass.
+`--only` is untouched: it still runs in-process, and it is what the segments themselves use.
+
+Three details worth keeping:
+- **The partition is DERIVED** from `gate_registry()`, the same registration `--only` validates
+  against, and `wanted()` records every name the body asks about so any run fails on registry
+  drift. A hand-kept second list of gate names would have been the copied-expectation defect,
+  and its failure mode is the quiet one — an unscheduled gate looks exactly like a passing one.
+- **The pre-retry reap matches by argv TOKEN**, never `pkill oracle_gui` (that mistake was made
+  twice on 2026-08-19). Several worktrees run this lane at once; a bare pkill kills another
+  session's emulator mid-measurement, which looks exactly like the wedge it was cleaning up
+  after. Verified live against three concurrent foreign instances.
+- **The wedge reproduced during this parcel — twice, unprompted.** First while runtimes were
+  being measured: `snapshot_poison` hung for 642 s with its oracle_gui alive, then ran clean in
+  10 s minutes later. Then, better, DURING the verification run itself:
+
+      [ 6/10] raster_source   WEDGED at 240s — retrying once (reaped oracle_gui [3323042] for this ROM)
+      [ 6/10] raster_source   PASS   13.5s  1 gate(s)
+      ...
+      effects_gates: OK — 22 gates          (exit 0)
+
+  That is the fix working on the real disease rather than on the poison: the same invocation
+  that would have printed nothing and lost all 22 results under the old shape absorbed the
+  wedge, reaped the orphan, and reported a complete green lane.
 
 ---
 
