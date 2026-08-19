@@ -160,9 +160,14 @@ async def measure(b: BusClient, sym: dict, probe_pc: int, fx: dict, settle: int,
 
     await b.call("emulator/breakpoint_add", {"addr": hex(probe_pc)})
     await b.call("emulator/resume", {})
-    r = await b.call("emulator/wait_for_break", {"timeout_ms": 20000})
+    # 120 s, not 20: this is a WEDGE DETECTOR, not a performance assertion (the
+    # lane doctrine: budgets sit 8-35x above honest runtimes). The 20 s budget
+    # predated that doctrine and produced four load-induced false SETUP failures
+    # on 2026-08-19 alone (parallel agent lanes, load 8+), each passing clean on
+    # an unloaded retry. A real wedge hangs forever; 120 s still catches it.
+    r = await b.call("emulator/wait_for_break", {"timeout_ms": 120000})
     if r.get("running", False) is not False:
-        raise SetupError(f"fixture {fx['name']}: never reached the probe label within 20 s — "
+        raise SetupError(f"fixture {fx['name']}: never reached the probe label within 120 s — "
                          f"the handler did not run the op at all")
     regs = await b.call("emulator/registers", {})
     await b.call("emulator/breakpoint_clear", {"all": True})
