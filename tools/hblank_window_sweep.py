@@ -785,9 +785,14 @@ def solver_fit(report: dict, fx: dict) -> None:
     late = emp_int("engine/effects/raster_dsl.emp", "RASTER_HBLANK_MARGIN_LATE_CYC")
     n_lo, n_hi = w["n_lo_derived"], w["n_hi_measured"]
     need_lo, need_hi = n_lo + early / 10, n_hi - late / 10
-    # The instrument localizes a boundary to +-0.5 N; both edges descend from one, so the
-    # pessimistic band is half an N narrower at each end.
-    pess_lo, pess_hi = need_lo + 0.5, need_hi - 0.5
+    # HOW MUCH TO DISTRUST THE EDGES. A single boundary is localized to +-0.5 N, and that is
+    # the right figure for the single-group window. The folded window has an INTERCEPT whose
+    # uncertainty the fit measured for itself (the residual spread over sqrt(groups)), and
+    # using the single-boundary 0.5 there would be double-counting the very noise the fold
+    # removed -- it would call a landing marginal that is nothing of the kind. Take the
+    # measured one where the fit produced it.
+    unc = w.get("intercept_se_n", 0.5) if folded else 0.5
+    pess_lo, pess_hi = need_lo + unc, need_hi - unc
     ok = need_lo <= spin <= need_hi
     ok_pess = pess_lo <= spin <= pess_hi
     print(f"\n== solver fit ({fx['words']}-word burst)")
@@ -799,7 +804,7 @@ def solver_fit(report: dict, fx: dict) -> None:
     print(f"   guard margins (read from raster_dsl.emp): early {early} cyc, late {late} cyc")
     print(f"   band that satisfies both margins   : N in [{need_lo:.2f}, {need_hi:.2f}]"
           f"   -> solved N={spin} {'FITS' if ok else 'DOES NOT FIT'}")
-    print(f"   same, with the instrument's +-0.5 N: N in [{pess_lo:.2f}, {pess_hi:.2f}]"
+    print(f"   same, less the edge uncertainty {unc:.2f} N: N in [{pess_lo:.2f}, {pess_hi:.2f}]"
           f"   -> solved N={spin} {'FITS' if ok_pess else 'DOES NOT FIT'}")
     print(f"   slack at the landing: {10 * (spin - n_lo) - early:.1f} cyc early side, "
           f"{10 * (n_hi - spin) - late:.1f} cyc late side")
@@ -810,7 +815,7 @@ def solver_fit(report: dict, fx: dict) -> None:
         "margin_early_cyc": early, "margin_late_cyc": late,
         "n_lo_derived": n_lo, "n_hi_measured": n_hi,
         "need": [need_lo, need_hi], "need_pessimistic": [pess_lo, pess_hi],
-        "fits": ok, "fits_pessimistic": ok_pess,
+        "fits": ok, "fits_pessimistic": ok_pess, "edge_uncertainty_n": unc,
         "slack_early_cyc": 10 * (spin - n_lo) - early,
         "slack_late_cyc": 10 * (n_hi - spin) - late,
         "verdict": verdict}
@@ -970,28 +975,53 @@ def boundary_analysis(report: dict) -> None:
     # what a ceiling raise comes down to.
     #
     # When the sweep is wide enough to hold several sampling periods, the same crossing is
-    # observed once per group, each with an INDEPENDENT rounding. Subtracting the measured
-    # period folds them onto one estimate and divides the quantization noise by sqrt(groups).
-    # Nothing new is assumed: the period is the between-group step this function already
-    # measured, and the folding is the arithmetic the RESULTS doc does by hand when it
-    # averages twelve boundary deltas to -0.833.
-    if len(groups) > 1 and "measured_cycles_per_sampling_period" in report:
-        period = report["measured_cycles_per_sampling_period"] / 10
-        folded = [g[-1] - 0.5 - i * period for i, g in enumerate(groups)]
-        fw = sum(folded) / len(folded)
+    # observed once per group, each with an INDEPENDENT rounding. Folding them onto one
+    # estimate divides the quantization noise by sqrt(groups). That is the arithmetic the
+    # RESULTS doc does by hand when it averages twelve boundary deltas to -0.833.
+    #
+    # THE PERIOD COMES FROM THE CROSSINGS' OWN SPACING, by least squares, and NOT from
+    # `measured_cycles_per_sampling_period` -- which is the same quantity measured on a
+    # DIFFERENT statistic (the group FIRST boundaries, i.e. the last word). The two can
+    # disagree: post-SR the 3-word run read 486.7 there against 490.0 in the 4- and 5-word
+    # runs, and subtracting a period that is 0.33 N wrong accumulates 1 N of error by the
+    # fourth group -- which is exactly the scatter that made that run's fold disagree with
+    # its neighbours. Fitting a line through (group index, crossing) estimates the intercept
+    # and the period TOGETHER from one set of observations, and the residuals then say how
+    # much to trust the intercept instead of leaving that to be assumed.
+    if len(groups) > 1:
+        obs = [g[-1] - 0.5 for g in groups]
+        xs = list(range(len(obs)))
+        n = len(obs)
+        mx, my = sum(xs) / n, sum(obs) / n
+        den = sum((x - mx) ** 2 for x in xs)
+        period = sum((x - mx) * (y - my) for x, y in zip(xs, obs)) / den
+        fw = my - period * mx
+        resid = [y - (fw + period * x) for x, y in zip(xs, obs)]
+        folded = [y - period * x for x, y in zip(xs, obs)]
         # the burst span, likewise averaged over every group that saw the whole burst
         widths = [g[-1] - g[0] for g in groups if len(g) == max(len(x) for x in groups)]
         span_n = sum(widths) / len(widths)
         hi = fw - span_n
         lo = fw - BLANK_CYC / 10
-        print(f"\n   folded over {len(groups)} sampling periods (period {period:.2f} N):")
+        # The residual spread is the instrument's own answer to "how much is this intercept
+        # worth?", and it is PRINTED rather than assumed, because every margin verdict below
+        # is a comparison against it. Half the spread over sqrt(n) is the usable figure.
+        spread = max(resid) - min(resid)
+        se = spread / 2 / len(obs) ** 0.5
+        print(f"\n   folded over {len(groups)} sampling periods, least-squares:")
         print("      first-word crossing per group: "
-              + ", ".join(f"{v:.2f}" for v in folded) + f"   -> mean {fw:.2f} N")
+              + ", ".join(f"{v:.2f}" for v in folded) + f"   -> intercept {fw:.2f} N")
+        print(f"      fitted period {period:.2f} N = {10 * period:.1f} cyc   "
+              f"(H40 NTSC arithmetic {LINE_CYC / 10:.2f} N)")
+        print(f"      residuals {[round(v, 2) for v in resid]}  spread {spread:.2f} N "
+              f"= {10 * spread:.1f} cyc  -> s.e. on the intercept ~{se:.2f} N "
+              f"= {10 * se:.1f} cyc")
         print(f"      burst span {span_n:.2f} N = {10 * span_n:.1f} cyc over "
               f"{len(widths)} full groups")
         print(f"      => clean N in [{lo:.2f}, {hi:.2f}]   width {hi - lo:.2f} N")
         report["window_folded"] = {
             "groups": len(groups), "period_n": period, "per_group_crossing": folded,
+            "residuals": resid, "residual_spread_n": spread, "intercept_se_n": se,
             "first_word_crossing": fw, "burst_span_n": span_n,
             "burst_span_cyc": 10 * span_n, "n_lo_derived": lo, "n_hi_measured": hi}
 

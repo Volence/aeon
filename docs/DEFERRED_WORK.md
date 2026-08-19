@@ -5585,21 +5585,39 @@ fixture already takes when it pokes a spin the lowering would never solve. Three
 swept in one session on one ROM (`s4.debug.bin`, crc 72ab53aa), N = 0..200, 12 rows, so four
 sampling periods are in view for each.
 
+RE-MEASURED against the POST-SR base (`RASTER_HBLANK_END_CYC = 371`, master d5671e2f) after
+that parcel landed mid-run; the pre-SR numbers are superseded and are kept only in the RESULTS
+doc, where the two phases are compared. Least-squares fold, four sampling periods each:
+
 | | 3 words (control) | **4 words** | 5 words |
 |---|---|---|---|
-| folded first-word crossing | 26.50 N | **26.50 N — UNMOVED** | 26.75 N |
-| folded burst span | 52.5 cyc (derived 52) | **77.5 cyc (derived 78)** | 102.5 cyc (derived 104) |
-| clean band | [14.21, 21.25] | **[14.21, 18.75]** | [14.46, 16.50] |
-| solver's spin | 18 | **17** | 15 |
-| band satisfying both margins | [16.21, 20.25] | **[16.21, 17.75]** | [16.46, 15.50] EMPTY |
-| slack at the landing | 17.9 / 22.5 cyc | **7.9 early / 7.5 late** | -14.6 / 5.0 |
+| crossing (intercept) | 27.90 N | **28.30 N** | 28.40 N |
+| s.e. on the intercept | 2.7 cyc | **3.0 cyc** | 2.8 cyc |
+| burst span | 50.0 cyc (derived 52) | **80.0 cyc (derived 78)** | 105.0 cyc (derived 104) |
+| clean band | [15.61, 22.90] | **[16.01, 20.30]** | [16.11, 17.90] |
+| solver's spin | 20 | **19** | 17 |
+| slack at the landing | +23.9 / +19.0 cyc | **+9.9 early / +3.0 late** | -11.1 / -1.0 |
 | verdict | GO | **GO** | **NO-GO** |
 
 **The control is the argument.** A wider burst must not START later, or the extra span is
-partly the fixture's doing. The first word's crossing folded to 26.50 N at three words and
-26.50 at four — identical — so the band's narrowing is entirely the burst's end arriving
-earlier, by the amount the cycle table predicts. And the 5-word row is a MEASURED refusal
-rather than an extrapolation: the band that satisfies both margins comes out empty.
+partly the fixture's doing. The crossing reads 27.90 / 28.30 / 28.40 N across the three widths
+— a 0.5 N spread against a per-run s.e. of ~0.3 — so the band's narrowing is the burst's end
+arriving earlier, by the amount the cycle table predicts. And the 5-word row is a MEASURED
+refusal rather than an extrapolation: the band that satisfies both margins comes out empty.
+
+**FLAGGED FOR A RULING — the late margin is one standard error.** The 4-word fixture cleared
+the late margin by **7.5 cycles at the pre-SR base and 3.0 at the post-SR base**, with nothing
+about the burst changed. Pooling all twelve groups puts the crossing at **28.20 N** where
+`RASTER_HBLANK_END_CYC = 371` implies **28.7** — a 5-cycle, ~3-s.e. disagreement that did not
+exist at the previous phase (26.50 measured against 26.7 implied). So the ARITHMETIC supports
+this ceiling with 14.9 cycles of slack and the MEASUREMENT supports it by one sigma, which is
+thinner than the 2.9 cycles this same parcel refused the DEEP class on. The two positions are
+only consistent once the anchor is resolved. **Recommended: re-derive
+`RASTER_HBLANK_END_CYC` with the least-squares fold rather than a single group's boundary
+(the fold removes exactly the +-0.5 N bias a single reading carries). If it lands near 366,
+model and measurement agree and the 4-word margin reads the same in both.** Until then the
+raise is defensible on arithmetic and thin on evidence, and holding `RASTER_BURST_MAX_CRAM` at
+3 is a one-token change that costs only the ceiling — the SPLIT itself is correct regardless.
 
 **One instrument change was needed and is itself a finding.** The driver's published window
 derives BOTH edges from one integer boundary, and a boundary is the ceiling of a crossing —
@@ -5634,12 +5652,13 @@ wire words where a 3-word one is 8 — needed nothing: `raster_program` and `pat
 already bound the emitted image against the 128-byte buffer with their own sentences, and a
 program that outgrows it fails there rather than overrunning.
 
-**Zero bytes.** All four shipped shapes are byte-identical — s4.debug `72ab53aa`, s4
-`1e230133`, demo.debug `25eaed93`, demo `deacc756` — because nothing in `games/sonic4` or
-`games/demo` authors above three words. No repin, no refreeze. Verification: pytest
-1074 passed / 2 skipped; expect-fail **19/19** (two new poisons, `poison_cram_five_words`
-and `poison_deep_four_words`, one diagnostic each); `effects_budget_check` 22 rows
-(a `deep_words_per_fire` row was added and mapped to the new constant).
+**Zero bytes.** All four shipped shapes are byte-identical to post-SR master — s4.debug
+`b7960905`, s4 `209b5db4`, demo.debug `f9f8d0e5`, demo `f7806241` — because nothing in
+`games/sonic4` or `games/demo` authors above three words. No repin, no refreeze. Verification:
+pytest 1074 passed / 2 skipped; expect-fail **19/19** (two new poisons,
+`poison_cram_five_words` and `poison_deep_four_words`, one diagnostic each, both still
+red-first at the moved anchor); `effects_budget_check` 22 rows (a `deep_words_per_fire` row
+was added and mapped to the new constant).
 
 **Two things this did NOT do, deliberately.**
 1. The deep class stays at 3, above.

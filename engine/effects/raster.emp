@@ -255,14 +255,24 @@ pub const RASTER_VBLANK_V = 224
 //
 // AND THE CRAM ROW WAS MEASURED, NOT ARGUED. tools/hblank_window_sweep.py authored a
 // 4-word leading OP_CRAM directly in wire (the constructors below would refuse it) and
-// swept its spin across four sampling periods: the burst's FIRST word crossed at the
-// identical N as the 3-word fixture's (26.50, the control that says a wider burst does not
-// start later), the span read 77.5 cycles against the cycle table's 78, and the clean band
-// came out N in [14.21, 18.75] — inside which the solver's own answer for that fixture,
-// N = 17, sits with 7.9 cycles to spare at the early edge and 7.5 at the late one, both
-// beyond the margins. docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, "4-word
-// CRAM burst". The deep class was NOT measured and is held at 3 for exactly that reason:
-// its 2.9-cycle slack is smaller than the instrument that would have to confirm it.
+// swept its spin across four sampling periods. The burst's FIRST word crossed at the same N
+// as the 3-word fixture's, within the fit's own uncertainty (28.30 against 27.90, s.e. 0.3 N)
+// — the control that says a wider burst does not start later — the span read 80.0 cycles
+// against the cycle table's 78, and the clean band came out N in [16.01, 20.30]. The solver's
+// own answer for that fixture, N = 19, sits inside it, clearing the early margin by 9.9
+// cycles and the late one by 3.0.
+//
+// THE LATE FIGURE IS ONE STANDARD ERROR AND THAT IS NOT COMFORTABLE. The same fixture cleared
+// the late margin by 7.5 cycles one window-phase earlier (before the SR parcel moved
+// RASTER_HBLANK_END_CYC to 371). Nothing about the burst changed — the span is still 3 x 26
+// and the window is still 122.9 — so the shrinkage is entirely the anchor: pooled over twelve
+// groups the instrument puts the sampling instant at 28.20 N where 371 implies 28.7, a
+// 5-cycle disagreement that did not exist at the previous phase. Until that is resolved this
+// ceiling rests on a margin the instrument can barely see, and the honest reading is that the
+// ARITHMETIC supports 4 (slack 14.9) while the MEASUREMENT supports it by one sigma.
+// docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, "4-word CRAM burst".
+// The deep class was NOT measured and is held at 3 for the neighbouring reason: its 2.9-cycle
+// slack is smaller than the instrument that would have to confirm it.
 pub const RASTER_BURST_MAX_CRAM = 4
 pub const RASTER_BURST_MAX_DEEP = 3
 ensure(RASTER_BURST_MAX_CRAM >= RASTER_BURST_MAX_DEEP,

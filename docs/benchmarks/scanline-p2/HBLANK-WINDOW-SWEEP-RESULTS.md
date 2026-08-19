@@ -738,3 +738,71 @@ instrument that localizes a boundary to ±5 cycles. **A fixture could not tell t
 zero**, so `RASTER_BURST_MAX_DEEP` stays at 3. This is the parcel declining a raise its own
 arithmetic nominally permits, and the reason is the standard of evidence rather than the sign
 of the number.
+
+## Re-run 2026-08-19 (post-SR) — the 4-word fixture at the moved window phase
+
+The three runs above were taken at `RASTER_HBLANK_END_CYC = 351`. Tier-3 item 6 (the SR round
+trip) then moved the anchor to **371**, which shifts every solved spin by +2 and every measured
+boundary with it. The whole fixture was re-measured against the post-SR ROM — one pass at the
+final base, not a patch to the earlier numbers — and the re-run changed the instrument as well
+as the reading.
+
+### The estimator changed, and it had to
+
+The fold introduced above subtracted `measured_cycles_per_sampling_period`, which is the period
+measured on the group **first** boundaries — a different statistic from the crossings being
+folded. Post-SR the two disagree: the 3-word run read 486.7 there against 490.0 in the 4- and
+5-word runs, and subtracting a period that is 0.33 N wrong accumulates a full N of error by the
+fourth group. That is what made two runs disagree about a crossing they should measure
+identically (28.25 against 28.00).
+
+The fold is now a **least-squares line through (group index, crossing)**, which estimates the
+intercept and the period together from one set of observations and reports its own residuals.
+The fitted periods come out 48.90 / 48.80 / 48.90 N against the H40 NTSC arithmetic 48.86 —
+0.1% — which is the fit validating itself on a quantity it was not aimed at.
+
+### The three widths, post-SR
+
+| | 3 words (control) | **4 words** | 5 words |
+|---|---|---|---|
+| crossing (intercept) | 27.90 N | **28.30 N** | 28.40 N |
+| fitted period | 48.90 N | 48.80 N | 48.90 N |
+| residual spread -> s.e. | 1.10 N -> 2.7 cyc | 1.20 N -> **3.0 cyc** | 1.10 N -> 2.8 cyc |
+| burst span | 50.0 cyc (derived 52) | **80.0 cyc (derived 78)** | 105.0 cyc (derived 104) |
+| clean band | [15.61, 22.90] | **[16.01, 20.30]** | [16.11, 17.90] |
+| solver's spin | 20 | **19** | 17 |
+| early slack | +23.9 cyc | **+9.9 cyc** | -11.1 cyc |
+| late slack | +19.0 cyc | **+3.0 cyc** | -1.0 cyc |
+| verdict | GO | **GO** | **NO-GO** |
+
+The controls all still hold: the crossing does not move with width (27.90 / 28.30 / 28.40, a
+0.5 N spread against per-run s.e. of ~0.3), the spans track the 26-cycle word, and 5 words is
+refused with an empty band exactly as the arithmetic says.
+
+### THE FINDING: the late margin shrank, and not because of the burst
+
+The 4-word fixture cleared the late margin by **7.5 cycles pre-SR and 3.0 cycles post-SR**.
+Nothing about the burst changed — the span is still `3 x 26 = 78` and the window is still
+122.9 — so the difference is entirely in where the sampling instant is believed to be.
+
+Pooling all twelve groups across the three post-SR widths puts the crossing at **28.20 N**
+(period 48.87, max residual 0.70 N, s.e. ~0.2 N). The model's implied crossing is
+`(371 - 84) / 10 = 28.7 N`. That is a **5-cycle disagreement, about 3 s.e.** — and it did not
+exist at the previous phase, where the measured 26.50 sat against an implied 26.7.
+
+So one of two things is true, and this instrument cannot say which:
+
+* `RASTER_HBLANK_END_CYC = 371` is ~5 cycles high — plausible if it was re-derived from a
+  single group's boundary, which carries exactly the +-0.5 N bias the fold removes; or
+* the pre-burst path is ~5 cycles longer than the model's `8 + 26 + 36`.
+
+Either way the consequence is the same: **the arithmetic supports a 4-word cram ceiling with
+14.9 cycles of slack, and the measurement supports it by one standard error.** That is thinner
+than the evidence this parcel refused the DEEP class on (2.9 cycles, "smaller than the
+instrument that would have to confirm it"), and the two positions are only consistent if the
+anchor disagreement is resolved first.
+
+**Recommended before this ceiling is trusted:** re-derive `RASTER_HBLANK_END_CYC` with the
+least-squares fold rather than a single boundary. If it lands near 366, model and measurement
+agree, every solved spin moves by at most one iteration, and the 4-word late margin reads the
+same in both.
