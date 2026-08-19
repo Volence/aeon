@@ -214,6 +214,12 @@ pub const RASTER_ARM_PARK = $8AFF
 // reg $0A arm word for the dense tier: value 0 = fire EVERY line (Task 5).
 pub const RASTER_ARM_EVERY_LINE = $8A00
 
+// The first V-counter line OUTSIDE active display — the frame-rewind interlock's whole
+// discriminator (Raster_HInt `.priming`; read that arm for why the test has to be the beam).
+// Named rather than inlined because it is one half of a two-sided fact and the other half is
+// RASTER_MAX_FIRE_LINE; the pin below is what keeps them from drifting apart.
+pub const RASTER_VBLANK_V = 224
+
 // Colors per OP_CRAM entry — a CYCLE budget (Ruling 2a), not a FIFO one.
 pub const RASTER_CRAM_MAX = 3
 
@@ -1007,7 +1013,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // display, so even if a reload caught the clobbered value mid-repair, the last reload
         // before line 0 sees the restored 0.
         move.w  4(a2), d1                       // $C00008 — HV counter, V in the high byte
-        cmpi.w  #$E000, d1                      // V >= 224: outside active display
+        cmpi.w  #(RASTER_VBLANK_V << 8), d1     // V >= 224: outside active display
         bcs     .advance                        // in-frame fire: the normal priming walk
         move.w  #RASTER_ARM_EVERY_LINE, (a2)    // undo this record's arm write (== reg $0A = 0)
         jbra    .out                            // ... and do NOT advance the cursor
@@ -1189,6 +1195,21 @@ pub data Raster_Program_None: [u16; 3] = [0, RASTER_ARM_PARK, RASTER_OPS_END]
 // holding them together.
 pub const RASTER_MIN_FIRE_LINE = 3
 pub const RASTER_MAX_FIRE_LINE = 223
+
+// THE INTERLOCK'S THRESHOLD AND THE AUTHORING CEILING ARE ONE FACT, and this is where the two
+// halves are tied together. Raster_HInt's `.priming` arm retires a fire as stale when the V
+// counter reads >= RASTER_VBLANK_V, i.e. when the beam has left active display. That is only a
+// safe test while no fire can be AUTHORED to land there: raise RASTER_MAX_FIRE_LINE to 224 and
+// a legitimate last-line fire starts reading as stale, so the interlock would quietly retire
+// real work instead of stale work — a guard that has begun eating the thing it guards.
+//
+// It is stated as an equation rather than an inequality on purpose. `<=` would also admit a
+// ceiling far BELOW the threshold, which is not a drift worth allowing silently either: the
+// two numbers describe the same screen edge from opposite sides, so they move together or the
+// build stops. Nothing else in the tree relates them — raster_dsl pins its own inlined bounds
+// against RASTER_MAX_FIRE_LINE and has never heard of the V counter.
+ensure(RASTER_VBLANK_V == RASTER_MAX_FIRE_LINE + 1,
+       "the frame-rewind interlock's V threshold ({RASTER_VBLANK_V}) and the authoring ceiling ({RASTER_MAX_FIRE_LINE}) have drifted apart. Raster_HInt's `.priming` arm retires any fire reaching it with V >= {RASTER_VBLANK_V} as a stale post-rewind fire; a fire authored on line {RASTER_VBLANK_V} or later would be retired as stale even though it is real work the author asked for. Move both or neither.")
 
 // -----------------------------------------------
 // Raster_InstallPatched — install a patched template.
