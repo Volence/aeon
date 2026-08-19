@@ -2849,6 +2849,42 @@ It is invisible because everything moves by the same delta in one frame — ever
 
 **vs. the leapfrog.** Same good idea (keep the working coordinate bounded), done coarsely (every ~8 sections, not every boundary), uniformly (one shift of the live set — no slots, no per-section art swap), and invisibly (atomic, plane-aligned — no seam). Bookkeeping is one counter plus `+World_Section_Base` at the handful of section-lookup sites, versus the leapfrog's slot map + thresholds + edge flags + preview zone. **Cost:** one RAM counter, a per-frame threshold compare, and a rare entity-walk (tens of entities, a few hundred cycles, once per ~8 sections of travel).
 
+### 4.12 External Warp Mailbox — the supported "play from cursor" interface (DEBUG shapes)
+
+The editor (Aurora) needs to drop the running game at an arbitrary world position. This is the **one supported way to do that**, and the reason it is an engine feature rather than a client trick is that a bare camera/player poke *tears*.
+
+**Why a poke tears.** Everything downstream of the camera latches **per-frame deltas** off it. `Tile_Cache_Fill` reads `Cache_Prev_Cam_X` / `Cache_Prev_Cam_Row` and, on a teleport-sized delta, blows through the 16 px hysteresis and latches a prefetch *direction* from the jump rather than from the player's motion; the cache **window** (`Cache_Left_Col`/`Head_Col`/`Top_Row`/`Bottom_Row`) still describes the old locality and only crawls at 1 column / 2 rows per frame, while every plane write outside it is silently dropped by `Draw_TileColumn`'s bounds gate. The nametable therefore keeps showing pre-jump content until the crawl arrives. Measured from both sides: Aurora's client harness (aurora `64aee42`) sees **0 differing plane-A nametable words at 64/128/256 px, 73 at 512, 94 at 1024, 699 at 2048**, and `tools/warp_mailbox_gate.py` sees the same mechanism engine-side (`Cache_Prev_Cam_X = 96` while `Camera_X = 2144`). The tearing **self-heals in ~150 frames**, which is why it is easy to miss and why any test for it must sample early.
+
+**The protocol.** Three RAM cells, DEBUG shapes only, at the tail of `games/sonic4/config/ram.emp`:
+
+| symbol | type | meaning |
+|---|---|---|
+| `Warp_Req_X` | `u16` | destination **player** world X, in flat world pixels (`section.emp` coordinates) |
+| `Warp_Req_Y` | `u16` | destination **player** world Y |
+| `Warp_Req_Flag` | `u8` | `0` = idle/consumed; nonzero = request pending |
+
+- **The client writes X, then Y, then the FLAG — the flag last.** That ordering *is* the concurrency control: the consumer only reads X/Y on a frame where the flag is already nonzero, so a write interrupted between the three stores is read on a later frame, never half-applied. No lock, and none is needed.
+- **The cleared flag is the ack.** Poll `Warp_Req_Flag` until it reads 0. The whole warp is complete at that point.
+- **The engine writes the CLAMPED destination back into `Warp_Req_X`/`Warp_Req_Y` before clearing the flag**, so a client that reads the pair after the ack learns where the player actually landed. Clamping is against the game's own act edges (`Player_Bound_Right` / `Player_Bound_Bottom`, the same ones `Player_LevelBound` uses every frame) — defence in depth, so no client value can reach `SEC_VOID`.
+- **Cost:** the consumer refills the whole 80×60 tile cache and forces a full plane redraw, so the ack arrives ~21 frames after the request (measured). It is a visible hitch, not a seamless transition — appropriate for an editor jump, and deliberately not on any gameplay path.
+
+**The consumer** is `Debug_Warp_Consume` (`games/sonic4/test/ojz_scroll_test.emp`), called as the first instruction of the level state's per-frame update — before objects, camera follow and every streaming step, so a consumed warp is whole before anything can read the state it moved. It is a ladder of calls to the **same `pub proc`s the level init ladder calls, in the same order**, which is what keeps it in sync with the streaming rules by construction:
+
+1. clamp the request through the game's act edges, publish the clamp back;
+2. place the leader through `Camera_Target` (position with the subpixel fraction cleared, both velocities zeroed, status/angle/ground-speed/move-lock/spindash cleared, `Player_SetState(PSTATE_AIR)` so it lands on arrival) — a **narrow** refresh, not `Player_Init`, which would tail-call `Player_DebugEnter` under the DEBUG shape's armed cheat;
+3. centre the camera on the leader and clamp it against `Camera_X_Max`/`Camera_Y_Max` (the ceilings `Camera_Init` precomputed for the act); clear `Camera_Hold_Frames` / `Camera_Art_Hold`;
+4. `Section_Init` — re-stamps `Current_Act_Ptr`, reseeds the four `Section_*_Written` trackers via `Section_FillInitial`, recentres the entity window via `EntityWindow_Init`;
+5. `PageCache_ResetRefcounts` then `Tile_Cache_Init` — the latter reseeds *every* streaming latch (window bounds, circular origins, resume sentinels, `Cache_Prev_Cam_Row`/`Cache_Prev_Cam_X`, the H-prefetch direction and accumulator, the `$FFFF` ahead-target sentinels), invalidates block staging and refills;
+6. `Plane_Buffer_Reset`, `Section_Plane_Dirty`, `Section_UpdateColumns` — drop any stale pre-warp plane entry, then the synchronous full redraw;
+7. force a section crossing (`Parallax_Prev_Sec_X/Y = $FF`, `Parallax_Snap_Pending`, then `Parallax_CheckBoundary`) so the destination's palette / cycle / variants / raster install through the **one path a walked crossing takes** (`Effects_InstallPreset`), rather than a second copy of that logic; then `BgAnim_Init` + `Parallax_Update`;
+8. clear the flag.
+
+**`PageCache_ResetRefcounts`** (`engine/level/page_cache.emp`) is the piece the engine was missing. `TileCache_FillAll` has documented since P2b that a **warm-cache** refill must first reset refcounts, because its bulk nametable zero bypasses the patch runs' per-word unref; `PageCache_Init` could only provide that by also dropping *residency*, which is rebuildable only by `Level_LoadArt` with the display off. The new proc resets exactly the half `FillAll` invalidates — every `pf_refcount` to 0, every assigned unpinned frame stamped and flagged `PF_EVICTABLE`, free/pinned frames left unflagged — which is precisely the post-state `PageCache_Audit` checks. `Tile_Cache_Init`'s DEBUG tail runs that audit, so the warp verifies its own residency bookkeeping on every warp.
+
+**Shape rules.** Both new procs' bodies are wholly inside `if DEBUG == 1`, so they emit zero bytes in release, and both are **parked immediately against an existing zero-byte label** so their release deb2 symbol entries dedupe away: `s4.bin` and `demo.bin` stay byte-identical (`cdabf8a3` / `f7806241`). The consumer lives in the game state rather than `engine/system/game_loop.emp` because `demo` links every `engine.*` module — an ungated frame-top consumer would compile into a game with no act, and gating it would need a new required `Game` contract const, which both games must bind and which breaks the sigil port harness. The other frame-top seam, `Game.debug_tick`, is already claimed by the off-canonical Config-A profile.
+
+**The gate** is `tools/warp_mailbox_gate.py` (registered in `tools/effects_gates.py` as `warp_mailbox`). It builds its reference by *walking* to the destination in sub-threshold camera hops, proves that reference with a second walk at a different step size, then asserts the mailbox warp reproduces it exactly (0 differing visible-window nametable words) while a bare poke to the same place does not. See the module docstring for the full argument, including why the whole 64×64 plane is not a valid metric (three quarters of it is legitimately path-dependent) and why the negative control asserts bounded wrongness at a fixed early sample rather than permanence.
+
 ---
 
 ## 5. Player / Character System

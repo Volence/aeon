@@ -150,7 +150,7 @@ pub vars game_ram {
     // Aurora's "play from cursor" writes a destination here and the level state's
     // frame-top consumer (Debug_Warp_Consume, games/sonic4/test/ojz_scroll_test.emp)
     // performs a coherent warp inside the frame boundary. Full protocol +
-    // rationale: docs/ENGINE_ARCHITECTURE.md, "§4.11 External warp mailbox".
+    // rationale: docs/ENGINE_ARCHITECTURE.md, "§4.12 External Warp Mailbox".
     //
     // THE WRITE ORDER IS THE PROTOCOL: the external writer stores X, then Y, then
     // the FLAG. The consumer only ever reads X/Y on a frame where the flag is

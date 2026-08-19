@@ -688,7 +688,7 @@ proc Debug_CharacterHotkey () clobbers(d0-d2/a0-a2) {
 // (games/sonic4/config/ram.emp: Warp_Req_X, Warp_Req_Y, then Warp_Req_Flag LAST)
 // and this consumer performs the whole warp at the top of a frame, then clears
 // the flag as the completion ack. Protocol prose: docs/ENGINE_ARCHITECTURE.md
-// "§4.11 External warp mailbox".
+// "§4.12 External Warp Mailbox".
 //
 // WHY THE WARP IS NOT A CAMERA POKE. Everything downstream of the camera latches
 // PER-FRAME DELTAS off it. Tile_Cache_Fill reads Cache_Prev_Cam_X / Cache_Prev_
