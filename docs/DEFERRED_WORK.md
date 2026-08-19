@@ -6271,3 +6271,22 @@ Remaining before close-out:
 2. The aeon-side alarm gate `tools/test_editor_inputs.py` **stays in place regardless of
    the ruling**. Option 1 removes the drift's cause only for fields a project actually
    declares; the gate is what makes any recurrence fail the next build.
+
+## Sweep-driver sub-line mode — booked 2026-08-19 after the F-SCANLINE-SUBLINE acceptance run
+
+oracle-next shipped mid-line CRAM resolution (their 87c8e99/ff9e784; empyrean §11.15) and the
+acceptance re-run PASSED (flipX 219 in the predicted [205,225]; literal spec-A2 passes with 102
+differing columns; 19/20 distinct pictures; px/cyc 0.849 measured vs 0.875 arithmetic).
+`tools/hblank_window_sweep.py`'s flip-x columns are now REAL — but its boundary-crossing
+analysis and solver-fit sections are ATOMIC-ERA logic: on the new instrument they misread
+split rows as ~23 "boundaries", derive a nonsense 290-cyc span, and print a spurious NO-GO.
+Ignore those sections on sub-line servers until this lands.
+
+**The mode to build:** classify directly from flip-x (the landing pixel IS the measurement);
+the blanking window's EARLY edge becomes directly measurable for the FIRST time (always
+derived until now, and the asymmetric ensure margins — early 20 / late 10 — exist precisely
+because of that). Re-derive `RASTER_HBLANK_END_CYC` with both edges measured and a tighter
+s.e., then REVISIT the parked 4-word burst raise (it failed at +0.9 cyc early slack against
+a 2-s.e. bar of 4.0 — a direct early-edge measurement changes both numbers). Registered
+refinements on their side that bound precision: F-SUBLINE-ACCESSMCLK / F-SUBLINE-DMASPREAD
+(a burst shares one landing x — no smear).
