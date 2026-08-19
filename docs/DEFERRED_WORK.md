@@ -4980,7 +4980,8 @@ constants and matched hardware exactly.
   `raster-spin-solver-1c`, paired merge recorded in the sigil provenance chain.
 
 **STILL OPEN:**
-- Everything else: all of Tier 3 perf, the rest of Tier 4 / B2 (`palette_dsl`'s
+- Everything else: the rest of Tier 3 perf (the `palette.emp` shift-to-add item and the
+  `palette.emp` tail calls CLOSED 2026-08-19 — see the Tier 3 block below), Tier 4 / B2 (`palette_dsl`'s
   self-test-only variant mirror), plus C5 footprint, the EFX-4b angle, and the
   zero-`assert.*` observation. Item 3's structural frame-epoch fix also remains open
   (only MITIGATED by the `<= 223` bound).
@@ -5021,9 +5022,48 @@ what sets `RASTER_CRAM_MAX = 3`** · `raster.emp:714` OP_SET_REG pays all 5 comp
 110 cyc; a leading `tst.w d1 / beq` decimates it) · `raster.emp:834` dense kind re-tested per
 scanline, ~2,300 cyc/frame, run-invariant · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
 (`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
-change AND a novel mechanism: owner sign-off required, do not assume** · `palette.emp` ×6
-`lsl.w #1` → `add.w dN,dN` ~768 cyc/derive · 4 missed mandatory tail calls
-(`raster.emp:560,622`, `palette.emp:386,666`).
+change AND a novel mechanism: owner sign-off required, do not assume** · ~~`palette.emp` ×6
+`lsl.w #1` → `add.w dN,dN` ~768 cyc/derive~~ **CLOSED 2026-08-19** · 4 missed mandatory tail calls
+(`raster.emp:560,622` — OPEN, `raster.emp` is another parcel's subject; ~~`palette.emp:386,666`~~
+— **CLOSED 2026-08-19**).
+
+> **CLOSED 2026-08-19 — the palette half of both items** (branch `perf/palette-shift-to-add`,
+> commit `bfccde10`). All six `lsl.w #1` doublings are `add.w dN,dN` (8 cyc → 4), and both
+> palette tail calls (`Palette_Compose`.variants → `Palette_DoVariants`, `Palette_DoVariants`
+> `.slot1` → `Palette_DeriveVariant`) are `jbra`. Line numbers had drifted post-1c: the six
+> shifts landed at `:567,590,653,669,760,786` and the tail calls at `:421,718`.
+>
+> *Flag safety:* every one of the six is immediately followed by `or.w dN, dM`, which
+> recomputes the whole CCR — no consumer of the shifted-out flags exists at any site. Even
+> if one did, the two encodings agree here: each operand is a 0..7 channel already masked
+> (max `$0700` after the paired `lsl.w #8`), so nothing crosses bit 15 and C=X=V=0 under
+> either; N/Z are result-derived and identical by construction.
+>
+> *Size:* ZERO byte movement. The symbol maps of all four shapes are byte-identical to base
+> — 16 bytes change per ROM (six opcode words `E34B`→`D643` / `E349`→`D241`, two opcode bytes
+> `61`→`60` where sigil had already relaxed both `jbsr` to `bsr.b`, and the header checksum).
+> No pins move, so no repin/refreeze was needed.
+>
+> *Realized cycles.* The `~768 cyc/derive` booking assumed BOTH variant slots bound. Every
+> shipped OJZ preset carries `variants: [Variant_Water_Deep, 0]` — slot 1 is NULL — so the
+> derive covers one slot: `v_lines` defaults to `%1110`, 3 lines × 16 entries = 48 entries,
+> 2 sites × 4 cyc = **384 cyc per derive** today (768 the moment a second slot is bound).
+> Add 24 cyc for the Compose tail call (`bsr.b` 18 + returning `rts` 16 + Compose's own `rts`
+> 16 = 50 → `bra.b` 10 + callee `rts` 16 = 26) for **408 cyc per derive**. The `DoVariants`
+> `.slot1` tail call is LATENT — with slot 1 NULL the `beq .ret` above it always takes.
+> Cadence under shipped content: sections 0/1/2/Plain install the count-0 cycle sentinel, so
+> the only stale-setter is the base copy and the derive runs once per section ENTRY; section 3's
+> `OJZ_ShimmerCycle` (`period: 8` → 9-frame cadence) derives every 9th frame, i.e. ~45 cyc/frame
+> averaged, 408 of the derive's ~19,332 cyc (~2.1%) on the frame it fires. `Palette_DoFade`'s
+> `.word` and `Palette_DoOperator`'s `.fw_word` each save 8 cyc × 48 words = **384 cyc per step
+> frame**, but the shipped scroll test runs neither a fade nor an operator, so those two are
+> exercised only by their gates.
+>
+> *Evidence:* four shapes green; pytest 1066 passed / 2 skipped (baseline); effects gate lane
+> 18/18 PASS, exit 0, cost model unmoved (F0 572, F1 3044, F3 3882, F4 4652, F5 3220, F8 4640
+> — the model does not price the palette derive); `ab_runner --selfcheck` OLD-vs-NEW on all
+> three raster scenes (`mid_band`, `suppressed`, `above_screen`) = **ALL EQUAL (gated)**
+> including `state_hash`, as a value-identical parcel must be.
 
 **Tier 4 — drift the baseline would enshrine as documentation** (zero-byte, land with the parcel):
 10 major comment-truth defects incl. `raster_dsl.emp:1630` trailer offset documented `8n` where

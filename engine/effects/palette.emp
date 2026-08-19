@@ -418,7 +418,7 @@ pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
         btst    #5, Pal_Active                  // PAL_ACT_VARIANT_STALE
         beq   .done
         andi.b  #~PAL_ACT_VARIANT_STALE, Pal_Active
-        jbsr    Palette_DoVariants
+        jbra    Palette_DoVariants              // mandatory tail call — nothing follows
 
     .done:
         rts
@@ -564,7 +564,7 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         lsr.w   #1, d4
         andi.w  #7, d4
         step_d3_toward_d4()                   // d3 stepped toward d4
-        lsl.w   #1, d3
+        add.w   d3, d3                          // <<1 as an add: 4 cyc vs lsl.w #1's 8
         or.w    d3, d2
         // G (bits 5-7)
         move.w  d0, d3
@@ -587,7 +587,7 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         andi.w  #7, d4
         step_d3_toward_d4()
         lsl.w   #8, d3
-        lsl.w   #1, d3
+        add.w   d3, d3                          // the 9th shift as an add (4 vs 8 cyc)
         or.w    d3, d2
         move.w  d2, (a0)+
         dbf     d7, .word
@@ -650,7 +650,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         andi.w  #7, d3
         move.w  d6, d4
         step_d3_toward_d4()
-        lsl.w   #1, d3
+        add.w   d3, d3                          // <<1 as an add: 4 cyc vs lsl.w #1's 8
         or.w    d3, d2
         move.w  d0, d3
         lsr.w   #5, d3
@@ -666,7 +666,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         move.w  d6, d4
         step_d3_toward_d4()
         lsl.w   #8, d3
-        lsl.w   #1, d3
+        add.w   d3, d3                          // the 9th shift as an add (4 vs 8 cyc)
         or.w    d3, d2
         move.w  d2, (a0)+
         dbf     d7, .fw_word
@@ -715,7 +715,7 @@ proc Palette_DoVariants () clobbers(d0-d7/a0-a3) {
         beq   .ret
         movea.l d0, a0
         lea     Pal_Variant_Stage + 128, a1
-        jbsr    Palette_DeriveVariant
+        jbra    Palette_DeriveVariant           // mandatory tail call — nothing follows
     .ret:
         rts
 }
@@ -757,7 +757,7 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
         ext.w   d2
         add.w   d2, d1
         clamp_d1_07()
-        lsl.w   #1, d1
+        add.w   d1, d1                          // <<1 as an add: 4 cyc vs lsl.w #1's 8
         or.w    d1, d4
         // ---- G (bits 5-7) ----
         move.w  d0, d1
@@ -783,7 +783,7 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
         add.w   d2, d1
         clamp_d1_07()
         lsl.w   #8, d1
-        lsl.w   #1, d1
+        add.w   d1, d1                          // the 9th shift as an add (4 vs 8 cyc)
         or.w    d1, d4
         move.w  d4, (a3)+
         dbf     d7, .entry
