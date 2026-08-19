@@ -21,6 +21,15 @@ Aurora measured that failure independently, from the client side (aurora master
       1024  | 94
       2048  | 699 of 2048   (34.1%)
 
+  METRIC NOTE (Aurora's own correction, 2026-08-19, after adopting this gate's
+  visible-window restriction): the table above is WHOLE-PLANE at a ~90-frame settle,
+  not visible-window — the view reconciles well before the ring does, so at 90f the
+  visible-window equivalent is already 0. The like-for-like client-side figures at
+  THIS gate's +30f sample are: bare poke 19 window words (50 whole-plane), mailbox
+  0 window words (10 whole-plane, inside the 26-word correct-walk floor). Direction
+  identical on both metrics; this gate's own engine-side 698-at-+30f is the
+  authoritative visible-window negative figure.
+
   ... with `Cache_Prev_Cam_X` still reading 96 while `Camera_X` read 2144 — the stale
   baseline observed directly. Two further findings of theirs govern this gate:
 
