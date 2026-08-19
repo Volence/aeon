@@ -60,6 +60,43 @@ ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drift
 // re-point scene()'s `precision != 1` fence at the wrong tier.
 
 // ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
+//
+// THESE FIVE DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
+// aspirational: tools/test_scene_span_labels.py and tools/effects_gates.py both PARSE
+// the `pub const CAP_*` lines below and derive their expectations from what they find.
+// Neither carries a copy of the mask, so adding a bit here (with a lowering and a
+// bracketed block) needs no edit in either tool, and naming a span after a bit that is
+// not declared here fails. The reserved block underneath is a COMMENT on purpose — a
+// reserved bit has no lowering, so a span named for one would bracket a block that
+// cannot exist, and the parse must not see it.
+//
+// ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
+//
+// Every capability-gated block in the ENGINE carries a pair of boundary labels:
+//
+//     if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
+//     .cap_anchors_overlay_begin:
+//             ... the elidable region ...
+//     .cap_anchors_overlay_end:
+//     }
+//
+// SPAN NAME = `cap_<capability>_<site>`, the capability half lowercased from the
+// CAP_* name below, the site half a short discriminator. The site token is not
+// decoration: two labels of the same name in one proc is a redefinition, and several
+// capabilities are gated at more than one site. Resolution back to a capability is by
+// LONGEST matching prefix (`per_col_vsram_emit` -> CAP_PER_COL_VSRAM), which the test
+// proves unambiguous over the declared set rather than assuming it.
+//
+// WHY LABELS COME FIRST AND GATING SECOND. §8.2's path-level span gates measure a
+// gated region by its boundary symbols, and the flat `.lst` drops `$`-mangled locals
+// unless something names them — which is why raster_source_gate had to hand-roll a
+// resolver. A gate added without brackets is a specialisation no gate can see; a
+// bracket added without a gate reports a specialisation that never happens. Both
+// directions are checked in tools/test_scene_span_labels.py.
+//
+// The convention is documented HERE, beside the bits, because this file is the one a
+// reader reaches for when asking what a capability means — not in the engine modules
+// that happen to carry today's spans.
 pub const CAP_PER_LINE       = $0001
 pub const CAP_PER_COL_VSRAM  = $0002
 pub const CAP_DEFORM         = $0004
@@ -570,6 +607,77 @@ pub comptime fn fold_caps(scenes: array) -> int {
         caps = caps | $0010
     }
     return caps
+}
+
+// =====================================================================
+// THE REBASE STRUCTURAL CHECK (design §6 / §8.2's last build-time gate).
+//
+// READ THE SCOPE FIRST. Design §6 says: "world-Y layer tops and the anchor bank join the
+// §4.11 rebase checklist. Until §4.11 exists (it is FUTURE/Phase-4), the contract test is
+// STRUCTURAL/DECLARATIVE only — an act-relative tagging check — stated plainly so it
+// cannot be mistaken for runtime rebase verification." This is that check and nothing
+// more. It proves the DECLARATIONS sit in a rebase-classified coordinate space; it does
+// not, and cannot, prove a rebase preserves them.
+//
+// THE TWO SPACES, AND WHY EACH IS SAFE UNDER §4.11's UNIFORM SUBTRACTION:
+//
+//   layer top  (SceneLayer.ly_world_y)  PLANE-RELATIVE. It is a position inside the
+//              512-px Plane-B span, folded to a cell row by `scene_band`'s `>> 3` and
+//              rotated against Vscroll_BG every frame by Step 4a. It carries no absolute
+//              act coordinate, so a uniform subtraction of REBASE_DELTA from every live
+//              world coordinate leaves it correct untouched — the same argument that
+//              makes section-local entity data rebase-invariant (ARCH §4.9.1).
+//
+//   anchor     (SceneAnchor.At's first payload)  ACT-RELATIVE, BY INDIRECTION. The scene
+//              declares a patch CHANNEL, never a coordinate; the act-space Y lives in
+//              Effects_World_Y[ch] and reaches the overlay through Effects_Screen_L,
+//              which Effects_LatchWorldLines re-derives every frame from Camera_Y. So the
+//              rebase has exactly one bank to renumber and the scene records nothing that
+//              could go stale.
+//
+// WHY IT IS A REGISTRY-LEVEL FOLD AND NOT A THIRD ENSURE IN scene()/layer(). Those two
+// already range-check their own arguments — and if that were the whole story this check
+// would be vacuous, which is worth saying out loud. It is not, because BOTH constructors
+// are bypassable and this file says so twice: `SceneLayer{ ly_world_y: 5, .. }` and
+// `Scene{ .. }` both type-check and skip every guard (see the notes at those structs).
+// A value that reached the registry through that door has never been range-checked by
+// anything. This fold runs over the REGISTRY — every scene the game actually ships,
+// however it was built — which is the only place that door can be closed.
+//
+// Returns the number of world-Y tops it classified, so the caller can reference the
+// result: an unreferenced top-level `const X = f(...)` is comptime-INERT and proves
+// nothing (docs/EMP_PITFALLS.md §3).
+// =====================================================================
+pub comptime fn assert_act_relative_tagged(scenes: array) -> int {
+    comptime var tops = 0
+    comptime var anchors = 0
+    for s in scenes {
+        // The one-dot rule again — field, then index, then field (see scene_caps()).
+        let ls = s.sc_layers
+        let n  = s.sc_count
+        for i in 0..n {
+            let l  = ls[i]
+            let wy = l.ly_world_y
+            // 8 and 512 are inlined per the pin block at the top of this file.
+            ensure(wy % 8 == 0 && wy < 512,
+                   "scene registry: a world-Y layer top ({wy}) is not act-relative-tagged — it is outside the PLANE-RELATIVE space every scene top is classified in (8-px grid, < 512), so the §4.11 rebase has no class for it. NOTE this is a STRUCTURAL check only: it proves the declaration is tagged, NOT that a rebase preserves it. Runtime rebase verification waits on the §4.11 mechanism (Phase 4); do not read a green build here as rebase-safe. A top that reached here off-grid or out of span came through the SceneLayer{{ .. }} back door, bypassing layer()'s own guards")
+            tops = tops + 1
+        }
+        // $FF = PARALLAX_ANCHOR_NONE, 4 = RASTER_MAX_PATCH — both inlined per the pin block.
+        let ch = scene_anchor_ch(s.sc_anchor)
+        ensure(ch == $FF || ch < 4,
+               "scene registry: an anchor bank reference (channel {ch}) is not act-relative-tagged — the ACT-RELATIVE space is the patch bank Effects_World_Y[4], and a channel outside it names no bank the §4.11 rebase would renumber. NOTE this is a STRUCTURAL check only: it proves the declaration is tagged, NOT that a rebase preserves it. Runtime rebase verification waits on the §4.11 mechanism (Phase 4); do not read a green build here as rebase-safe. A channel that reached here out of range came through the Scene{{ .. }} back door, bypassing scene()'s own guards")
+        if ch != $FF {
+            anchors = anchors + 1
+        }
+    }
+    // ANTI-VACUITY FLOOR. A registry whose scenes declare no world-Y top at all would
+    // satisfy every ensure above by having nothing to check, and the caller's `> 0`
+    // reference would still hold on the anchor count alone. Both are named so a green
+    // result reports what it actually looked at.
+    ensure(tops >= 1,
+           "scene registry: not one world-Y layer top was classified, so the rebase structural check asked nothing. A scene registry with no tops is either empty or built through the Scene{{ .. }} back door with sc_count 0")
+    return tops + anchors
 }
 
 // =====================================================================

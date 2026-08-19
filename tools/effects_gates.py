@@ -30,18 +30,35 @@ WHAT IT RUNS
      the values in the .emp are pinned to each other at build time, but only this checks them
      against hardware. F1 earns its place separately — it is the fall-through op, so it is the
      only fixture that moves when the dispatch chain grows.
+  6. scanline capability spans (P2 §8.2) — the TWO-FIXTURE differential: sonic4 (SCANLINE_CAPS
+     $001F) against demo ($0000), asserting the DIFFERENCE matches the mask rather than an
+     absolute span in either. Region spans include placer fill, so nothing here reads a byte
+     count that fill can move; and the expectations are computed from each game's own declared
+     mask plus the gated blocks in the engine sources, never from a list kept here.
+  7. demo specialisation witness (P2 Task 8) — span absence PLUS the committed per-proc image
+     pin. Lives in its own tool because its two halves fail on different things; run from here
+     because this is the post-build command and the pytest lane runs before sigil.
+
+Gates 6 and 7 boot no emulator, but they need a listing, so they cannot go in build.sh either
+(build.sh runs pytest BEFORE the build — a listing read there is the previous build's).
 
 Usage:
-    python3 tools/effects_gates.py [--rom s4.debug.bin] [--lst s4.debug.lst] [--only NAME,...]
+    python3 tools/effects_gates.py [--rom s4.debug.bin] [--lst s4.debug.lst]
+                                   [--demo-lst demo.debug.lst] [--only NAME,...]
 Exit: 0 all gates pass · 1 a gate failed · 2 a gate could not run (scene/setup problem)
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from scene_spans import (capability_bits, expected_spans,  # noqa: E402
+                         game_caps, lst_spans, lst_unpaired_spans)
 
 AEON = Path(__file__).resolve().parent.parent
 HARNESS = Path("/home/volence/sonic_hacks/oracle/linux-port/harness")
@@ -109,6 +126,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", default=str(AEON / "s4.debug.bin"))
     ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
+    ap.add_argument("--demo-lst", default=str(AEON / "demo.debug.lst"),
+                    help="the ZERO-capability fixture; the span gates are a two-fixture "
+                         "differential and cannot run against one build")
     ap.add_argument("--only", default="", help="comma-separated gate names")
     args = ap.parse_args()
     rom, lst = str(Path(args.rom).resolve()), str(Path(args.lst).resolve())
@@ -292,6 +312,94 @@ def main() -> int:
                             f"F8 is the restore)", ok,
                             f"measured F0={got_f0} F1={got_f1} F3={got_f3} F4={got_f4} "
                             f"F5={got_f5} F8={got_f8}"))
+
+    # ------------------------------------------------------------------
+    # 6. Scanline capability spans — the §8.2 two-fixture differential.
+    #
+    # THE DIFFERENCE IS THE ASSERTION, never an absolute span in either fixture.
+    # §8.2 requires the two-fixture form because a single poison can pass on a layout
+    # accident, and because region spans include PLACER FILL: this parcel measured
+    # every one of its elisions being absorbed by fill (demo's EndOfRom did not move
+    # at all), so a gate reading a byte count would have been measuring the placer.
+    # Presence/absence of the boundary symbols is fill-immune.
+    #
+    # Expectations come from each game's own `const SCANLINE_CAPS` binding and the
+    # gated blocks in the engine sources — derived through the SAME enclosure rule the
+    # lowering uses (a span survives only if every gate around it is raised), so a
+    # nested span cannot be expected in a build that elides its parent. Nothing here
+    # is a list of span names; a hand list is the copied-expectation defect.
+    if wanted("scanline_spans"):
+        if not Path(args.demo_lst).is_file():
+            results.append(("scanline_spans (two-fixture differential)", False,
+                            f"demo listing not found: {args.demo_lst} — run "
+                            f"`DEBUG=1 ./build.sh demo`. A one-fixture run is not this gate."))
+        else:
+            bits = capability_bits()
+            caps_s4, caps_demo = game_caps("sonic4"), game_caps("demo")
+            got_s4, got_demo = lst_spans(lst), lst_spans(args.demo_lst)
+            # A region needs TWO boundaries. A set-level comparison alone cannot tell a
+            # span with one boundary from a span with two, and a poison that renamed a
+            # single `_begin` walked straight through the first version of this gate.
+            for fixture, path in (("sonic4", lst), ("demo", args.demo_lst)):
+                unpaired = lst_unpaired_spans(path)
+                results.append((
+                    f"scanline_spans {fixture} boundary pairing",
+                    not unpaired,
+                    "every emitted span carries both _begin and _end" if not unpaired
+                    else f"half-bracketed spans (a region with one boundary cannot be "
+                         f"measured): {unpaired}"))
+            want_s4, want_demo = expected_spans(caps_s4), expected_spans(caps_demo)
+            # Depth-scoped: one row per capability, so a failure names the BIT rather
+            # than a pile of span names. §8.2's three depths are all carried by spans,
+            # so the scoping that matters at this layer is the capability itself.
+            for cap in sorted(bits):
+                spans = {s for s in (want_s4 | got_s4 | got_demo)
+                         if s.startswith(cap[len("CAP_"):].lower())}
+                if not spans:
+                    # A declared capability nobody gates is REPORTED, not skipped in
+                    # silence: "no row" and "row passed" look identical in a totals
+                    # line, and a capability that quietly stopped being gated would
+                    # disappear exactly here. Today CAP_TRANSITIONS is legitimately in
+                    # this state (blocked on a sigil-side refreeze — see the note at
+                    # parallax.emp's capability import), so this is informational
+                    # rather than a failure; what it must never do is hide.
+                    results.append((
+                        f"scanline_spans {cap} — NOT GATED ANYWHERE (no bracketed span "
+                        f"in either fixture; nothing specialises on this bit yet)",
+                        True, "informational"))
+                    continue
+                raised_s4 = bool(caps_s4 & bits[cap])
+                raised_demo = bool(caps_demo & bits[cap])
+                exp_s4 = {s for s in spans if s in want_s4}
+                exp_demo = {s for s in spans if s in want_demo}
+                have_s4 = {s for s in spans if s in got_s4}
+                have_demo = {s for s in spans if s in got_demo}
+                ok = (have_s4 == exp_s4 and have_demo == exp_demo)
+                # The differential itself: what the mask says should DIFFER between the
+                # two fixtures, against what does.
+                want_diff = sorted(exp_s4 ^ exp_demo)
+                got_diff = sorted(have_s4 ^ have_demo)
+                ok = ok and want_diff == got_diff
+                results.append((
+                    f"scanline_spans {cap} (sonic4 {'raised' if raised_s4 else 'clear'}, "
+                    f"demo {'raised' if raised_demo else 'clear'}) — differential "
+                    f"{want_diff}",
+                    ok,
+                    f"sonic4 {sorted(have_s4)} vs expected {sorted(exp_s4)}; "
+                    f"demo {sorted(have_demo)} vs expected {sorted(exp_demo)}"))
+            # The anti-vacuity floor: if no capability produced a row, every check above
+            # was over an empty set and the gate would report success having asked nothing.
+            if not any(r[0].startswith("scanline_spans ") for r in results):
+                results.append(("scanline_spans (two-fixture differential)", False,
+                                "no capability has a bracketed span in either fixture — "
+                                "this gate measured nothing"))
+
+    # ------------------------------------------------------------------
+    # 7. The demo witness (Task 8): span absence + the committed per-proc image pin.
+    if wanted("demo_witness"):
+        ok, msg = run(["python3", str(AEON / "tools/demo_specialization_witness.py"),
+                       "--sonic4-lst", lst, "--demo-lst", args.demo_lst], "demo_witness")
+        results.append(("demo_witness (span absence + image pin)", ok, msg))
 
     print()
     bad = 0
