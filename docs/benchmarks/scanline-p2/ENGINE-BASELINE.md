@@ -291,6 +291,45 @@ asked for, which are the sparse totals at the two Task-2 camera states, and thos
 Booked in the toml as `hint_total_dense_model_gap = -242` with
 `hint_total_dense_status = "measured, model DISAGREES"`.
 
+### The rows this superseded — and the confirmation hiding in the difference
+
+Task 3's Step 3 asks for the never-measured absolute HInt rows to be superseded. `[raster.dense]`
+carried three of them, all from the 2026-08-13 `interrupts.hint` session:
+
+| row | was | now | basis |
+|---|---|---|---|
+| `per_line_body_cycles` | 342 (differential upper bound) | **328** | the `FD1`/`FD2` measured slope |
+| `dense_run_cycles_per_frame` | 41579 | **32758** | the HBlank row alone, same content |
+| `dense_run_frame_pct` | 32.5% | **25.7%** | as above |
+| `full_frame_fraction_ntsc` | 0.76 | **0.574** | 224 x 328 / 128000 |
+
+**The difference between the old and new totals is itself the confirmation.**
+41579 − 32758 = **8821**, and `VInt_Level` measures **8280** cyc/frame at idle on this same ROM.
+The old figure was the dense HBlank run PLUS one VBlank — which is precisely what
+`interrupts.hint` is in this ROM, and precisely the size of the contamination the caveat
+predicted. The instrument story stops being a theory here and becomes a subtraction.
+
+The old reasoning was not wrong, and the toml keeps it: 342 was an honest upper bound taken as
+a DIFFERENCE (41579 − 8358) so that the constant per-frame VBlank contamination would cancel,
+and it came out 4% high. It simply no longer has to be a bound.
+
+### The line-count sweep behind the slope
+
+Poked fixtures at the same `top`, one boot each, to check that `lines + 5` and
+`1512 + 328 x lines` hold where the shipped content sits rather than only where they were
+derived (8 and 40):
+
+| lines | fires | `lines + 5` | cyc/frame | `1512 + 328 x lines` |
+|---|---|---|---|---|
+| 8 | 13 | 13 | 4136 | 4136 |
+| 40 | 45 | 45 | 14632 | 14632 |
+| 80 | 85 | 85 | 27752 | 27752 |
+| 96 | 101 | 101 | 33000 | 33000 |
+| 120 | 125 | 125 | 40872 | 40872 |
+
+Exact at every count. Which is what makes the shipped program's 100 / 32758 a real anomaly
+rather than a modelling limit.
+
 ---
 
 ## 5. What these rows do NOT cover

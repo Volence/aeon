@@ -319,9 +319,32 @@ mode = "every-line"
 # of 8358 as "what the sparse tier costs" — which is not what it is doing here.
 # Replacing it with the :44-58 differentials would compare figures from two different
 # instruments and silently corrupt the 342.
-per_line_body_cycles_upper = 342
-dense_run_cycles_per_frame = 41579   # a 96-line run
-dense_run_frame_pct        = 32.5
+#
+# SUPERSEDED 2026-08-19 BY A DIRECT MEASUREMENT (Scanline P2 Phase 0 Task 3). The reasoning
+# above is sound and the 342 was an honest upper bound, but it no longer has to be a bound: the
+# HBlank trampoline's own per-routine row measures the same content directly, and the
+# FD1/FD2 fixture pair measures the per-line slope directly.
+#
+#   per-line body      342 (differential, upper bound)  ->  328 measured slope, (FD2-FD1)/32
+#   96-line run total  41579 (interrupts.hint)          ->  32758 measured, HBlank row only
+#   frame pct          32.5%                            ->  25.7%
+#
+# AND THE DIFFERENCE IS ITSELF THE CONFIRMATION. 41579 - 32758 = 8821, and VInt_Level measures
+# 8280 cyc/frame at idle on the same ROM. The old figure was the dense HBlank run PLUS one
+# VBlank, which is exactly what `interrupts.hint` is in this ROM and exactly the size of the
+# contamination the caveat predicted. The instrument story is not a theory any more.
+per_line_body_cycles_upper_SUPERSEDED = 342
+dense_run_cycles_per_frame_SUPERSEDED = 41579   # interrupts.hint = HBlank + VBlank, 2026-08-13
+dense_run_frame_pct_SUPERSEDED        = 32.5
+per_line_body_cycles       = 328     # measured — RASTER_DENSE_LINE_GRAD_CYC, the FD1/FD2 slope
+dense_run_cycles_per_frame = 32758   # measured — shipped OJZ_TestGradient (96 lines), HBlank row
+dense_run_frame_pct        = 25.7
+# The line-count sweep behind the slope: 8 / 40 / 80 / 96 / 120 lines at the same top, poked
+# fixtures, one boot each. Fires = lines + 5 at EVERY count and cycles = 1512 + 328 * lines at
+# every count, to the cycle. The shipped program is the one that does not fit -- see
+# hint_total_dense_model_gap in [raster.sparse].
+dense_line_sweep = "8:4136/13  40:14632/45  80:27752/85  96:33000/101  120:40872/125  (cyc/fires)"
+dense_model_intercept = 1512         # measured — FD1 - 8*328 and FD2 - 40*328, both exactly
 # THE DECISION-RELEVANT FACT: this costs ZERO lag frames. VSync_Wait measured 62.8%
 # idle WITH the dense run active vs 62.4% without — i.e. the run is absorbed by
 # existing slack, because H-INT time nests inside the idle wait rather than adding to
@@ -331,7 +354,9 @@ dense_run_frame_pct        = 32.5
 # less idle to absorb it, so re-measure before concluding it is free in real content.
 transition_arm_lag_fires = 1         # fixed — one pipelined arm at EACH of enter/leave (Ruling 1b)
 # Full-frame every-line cost (rejected for the sparse tier): ~224 * per-fire.
-full_frame_fraction_ntsc = 0.76   # measured-derived: 224 lines * 342 cyc / 128000 (upper bound)
+# RE-DERIVED 2026-08-19 off the measured 328 slope rather than the superseded 342 upper bound.
+full_frame_fraction_ntsc = 0.574  # measured-derived: 224 lines * 328 cyc / 128000
+full_frame_fraction_ntsc_SUPERSEDED = 0.76  # 224 * 342, the interrupts.hint-derived upper bound
 
 [palette]
 max_active_variants  = 2             # code-derived — PAL_MAX_VARIANTS (raise only on evidence)
