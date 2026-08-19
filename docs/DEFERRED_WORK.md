@@ -5491,6 +5491,29 @@ overrun at the FIFTH register write (302 + 5×40 = 502 > 488); with the base at 
 straddle it, the model's register op is pinned into **35..41** cycles against a 488-cycle line,
 where the single old bound pinned it into 38..46.
 
+**VERIFICATION.** Four build shapes green (s4 `209b5db4` / s4.debug `b7960905` / demo `f7806241` /
+demo.debug `f9f8d0e5`; every ROM length unchanged, and the demo shapes move too — the demo game
+links the engine handler, so the parcel is exercised in both games). pytest **1074 passed /
+2 skipped** (baseline), expect-fail **17/17**, `s4lint` clean, `effects_budget_check` 21 rows
+agree, warning census unchanged at 104. **`effects_gates`: OK — 22 gates, exit 0**, with the cost
+gate re-deriving F0 588 / F1 2508 / F3 3868 / F4 4644 / F5 3212 / F8 4632 from the shipped
+constants and measuring exactly those, and the dense row measuring 328.0 against
+`RASTER_DENSE_LINE_GRAD_CYC = 328`. Zero residual on all seven.
+
+**`ab_runner` ×4 IS NOT "ALL EQUAL", AND IT MUST NOT BE.** This is a byte-changing parcel whose
+whole second half is re-solving the spins, so a value-identical A/B would mean the re-derivation
+had not reached the shipped programs. Baseline ROM vs item-6 ROM over the four committed scenes:
+`state_hash`, `read:active_buf` and `read:screen_l` are **EQUAL in all four**, and the only
+differences anywhere are the raster program buffers' spin words —
+
+```
+above_screen / dense / mid_band   raster_buf_a,b  +019 $0A->$0C   +029 $15->$17
+suppressed                        raster_buf_a,b  +015 $15->$17   +029 $15->$17
+```
+
+— i.e. the region spin 10 → 12 and the VSRAM spin 21 → 23, the two re-derivations this parcel
+makes, and nothing else. Every non-program capture is identical.
+
 **NOT DONE HERE, BY INSTRUCTION:** no refreeze. The sigil suite's six golden/pin failures
 (`native_full_sonic4_debug`, `a_passing_extra_entry_moves_no_bytes`, the two `game_loop_port`
 region pins, `parallax_debug_region_matches_reference`, `raster_debug_region_matches_reference`)
