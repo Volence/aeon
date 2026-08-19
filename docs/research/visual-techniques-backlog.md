@@ -85,8 +85,8 @@ is `Sec.sec_raster_table` (`engine/structs.emp:117`) consumed by `Raster_Install
 **But the build-time validator this entry asked for is only half there, and the half that is
 missing is the one the entry actually named.** `fire` (`engine/effects/raster_dsl.emp:203-250`)
 sums stream words *within a single fire* against that fire's class ceiling (since 2026-08-19
-a per-class pair: `RASTER_BURST_MAX_CRAM` = 4 for cram/vsram, `RASTER_BURST_MAX_DEEP` = 3 as
-soon as a region or restore op is present) and additionally
+a per-class pair, `RASTER_BURST_MAX_CRAM` and `RASTER_BURST_MAX_DEEP`, both 3 today) and
+additionally
 caps ops-per-fire at 4 and CRAM-class-ops-per-fire at 2. **Nothing sums bandwidth across fires
 within a frame.** `raster_program` (`engine/effects/raster_dsl.emp:491`) bounds only the
 program's total emitted byte length (128 bytes) and cross-checks its own length computation;

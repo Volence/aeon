@@ -90,7 +90,7 @@ VSRAM_WRITE = 0x40000010     # (type & rwd) = 5 -> 1 << 30 | 4 << 2
 # grew. Measured as a +2.0-N boundary shift on every edge boundary of a baseline/item-6
 # sweep pair, run twice each. raster_dsl.emp's RASTER_HBLANK_END_CYC note is the evidence;
 # tools/test_raster_wire_pin.py is what keeps this line and that one equal.
-HBLANK_END_CYC   = 371
+HBLANK_END_CYC   = 366
 HBLANK_WIDTH_X10 = 1229
 
 # The cost terms the solver needs, all mirrored from raster_dsl.emp's cost model.

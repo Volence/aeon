@@ -253,27 +253,46 @@ pub const RASTER_VBLANK_V = 224
 //                                           +-5, i.e. not distinct
 //                                           from zero)
 //
-// AND THE CRAM ROW WAS MEASURED, NOT ARGUED. tools/hblank_window_sweep.py authored a
-// 4-word leading OP_CRAM directly in wire (the constructors below would refuse it) and
-// swept its spin across four sampling periods. The burst's FIRST word crossed at the same N
-// as the 3-word fixture's, within the fit's own uncertainty (28.30 against 27.90, s.e. 0.3 N)
-// — the control that says a wider burst does not start later — the span read 80.0 cycles
-// against the cycle table's 78, and the clean band came out N in [16.01, 20.30]. The solver's
-// own answer for that fixture, N = 19, sits inside it, clearing the early margin by 9.9
-// cycles and the late one by 3.0.
+// THAT TABLE IS THE ARITHMETIC AND IT IS NOT THE WHOLE ANSWER. It asks only whether the span
+// plus both margins FITS the window; it does not ask where the solver's rounding actually
+// puts the burst. The cram n=4 row has 14.9 cycles of arithmetic slack and still lost, because
+// the spin quantizes to whole `dbf` iterations and the nearest one leaves 0.9 cycles at the
+// early edge. A fit check is necessary, not sufficient — see the measured block below.
 //
-// THE LATE FIGURE IS ONE STANDARD ERROR AND THAT IS NOT COMFORTABLE. The same fixture cleared
-// the late margin by 7.5 cycles one window-phase earlier (before the SR parcel moved
-// RASTER_HBLANK_END_CYC to 371). Nothing about the burst changed — the span is still 3 x 26
-// and the window is still 122.9 — so the shrinkage is entirely the anchor: pooled over twelve
-// groups the instrument puts the sampling instant at 28.20 N where 371 implies 28.7, a
-// 5-cycle disagreement that did not exist at the previous phase. Until that is resolved this
-// ceiling rests on a margin the instrument can barely see, and the honest reading is that the
-// ARITHMETIC supports 4 (slack 14.9) while the MEASUREMENT supports it by one sigma.
+// AND THE CRAM ROW WAS MEASURED — WHICH IS WHY IT IS 3 AND NOT 4.
+// tools/hblank_window_sweep.py authored a 4-word leading OP_CRAM directly in wire (the
+// constructors below refuse it) and swept its spin across four sampling periods, three burst
+// widths, twelve groups. The burst itself behaved exactly as the table says: the first word
+// crosses at the same instant whatever the width (the control that says a wider burst does
+// not START later), and the spans track the 26-cycle word to inside two cycles.
+//
+// What refused the raise was the MARGIN, once the window anchor was re-derived. At
+// RASTER_HBLANK_END_CYC = 366 the solver gives a 4-word cram burst 18 iterations, which puts
+// its first write 20.9 cycles after the start of blanking against an early margin of 20 —
+// **0.9 cycles of slack**, with the pooled estimator's own standard error at 2.0. The late
+// side is comfortable (+14.0); the early side is not, and the early side is the DERIVED edge,
+// the one no instrument here can watch. A ceiling whose placement survives by nine tenths of
+// a cycle is one pre-burst instruction away from making a legal program unbuildable.
+//
+//   width  solved spin  early slack  late slack     (at END = 366, margins 20 / 10)
+//     3        19          +10.9       +30.0        shipped
+//     4        18           +0.9       +14.0        REFUSED — 0.9 cyc, s.e. 2.0
+//     5        17           -9.1        -2.0        REFUSED — unplaceable, both edges
+//
+// THE RULE THIS WAS DECIDED BY, fixed before the number was known so it could not be argued
+// with afterwards: the raise stands only if the binding margin clears BOTH two standard
+// errors of the pooled estimator (4.0 cyc) and the 2.9-cycle threshold the DEEP class was
+// refused on. 0.9 clears neither. Holding here is the same standard applied to both classes,
+// which is the only way either refusal means anything.
+//
+// SO WHY ARE THERE STILL TWO CONSTANTS AT THE SAME VALUE? Because they are two different
+// facts that happen to agree today, and the code has to keep them apart to move either one:
+// their word costs differ (26 vs 30), their placeability ensures are separate, and the cram
+// class is the one with headroom — 14.9 cycles of arithmetic slack against the deep class's
+// 2.9. A wider window, a cheaper pre-burst path, or an instrument that can see the early edge
+// unlocks 4 for cram alone, and that is a one-token change to the line below.
 // docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, "4-word CRAM burst".
-// The deep class was NOT measured and is held at 3 for the neighbouring reason: its 2.9-cycle
-// slack is smaller than the instrument that would have to confirm it.
-pub const RASTER_BURST_MAX_CRAM = 4
+pub const RASTER_BURST_MAX_CRAM = 3
 pub const RASTER_BURST_MAX_DEEP = 3
 ensure(RASTER_BURST_MAX_CRAM >= RASTER_BURST_MAX_DEEP,
        "RASTER_BURST_MAX_CRAM ({RASTER_BURST_MAX_CRAM}) is below RASTER_BURST_MAX_DEEP ({RASTER_BURST_MAX_DEEP}) — the cram class has the CHEAPER burst word (26 vs 30), so it can never afford fewer words than the deep class. One of the two has been edited against its cycle class.")

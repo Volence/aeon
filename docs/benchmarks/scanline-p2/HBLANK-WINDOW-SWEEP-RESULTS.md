@@ -806,3 +806,66 @@ anchor disagreement is resolved first.
 least-squares fold rather than a single boundary. If it lands near 366, model and measurement
 agree, every solved spin moves by at most one iteration, and the 4-word late margin reads the
 same in both.
+
+## Re-derivation 2026-08-19 — the anchor was wrong, and this sweep is why
+
+The section above flagged a 5-cycle disagreement between the measured crossing and
+`RASTER_HBLANK_END_CYC = 371`. It has a cause, and the cause is this document's own
+estimator bug echoing backwards.
+
+**How 371 was reached.** Item 6 had two lines of evidence. The first — every edge boundary
+moving +2 — is a *delta* on individual integer boundaries and is sound as far as it goes. The
+second is that the driver's derived clean band moved to "CENTRE N = 20", and that "371 is the
+only value that reproduces the 20". **That centre came out of the buggy fold** — the one that
+estimated the sampling period from the group FIRST boundaries and subtracted it from the group
+LAST boundaries. So the constant was validated against a number the instrument was computing
+wrongly, and PIN 2 then locked it in: the pin passed at 371 precisely *because* both sides
+shared the error.
+
+**The re-derivation.** Pooled least squares over **12 independent groups** (three burst widths
+x four sampling periods). A repeat of all three runs returned byte-identical boundary lists, so
+the repeats are reproducibility evidence and **not** extra samples — 12, not 24:
+
+```
+   crossing N_fw = 28.200 N     period = 48.867 N   (H40 NTSC arithmetic 48.857)
+   residual spread 1.40 N = 14.0 cyc  ->  s.e. on the intercept 0.202 N = 2.0 cyc
+
+   RASTER_HBLANK_END_CYC = 70 + 14 + 10 * 28.200 = 366.0
+```
+
+**And the delta agrees, which makes this a correction rather than a rival claim.** The same
+pooled fold on the pre-SR ROM puts the crossing at 26.50 N, i.e. END = 349. Item 6's real cost
+is therefore **+1.70 N = +17 cycles**, and `349 + 17 = 366`. Item 6's own reading was "+2
+everywhere" because that method reads integer deltas off individual boundaries and *cannot
+express 1.7* — it rounds to 2 by construction. The two measurements never disagreed; one could
+only answer in whole numbers.
+
+**PIN 2 is satisfied at 366 and was not at 371.** With the corrected fold the driver's headline
+centre for the swept 3-word shape is 19, and 366 is what makes the solver say 19.
+
+Provenance: **351** (1b, single shape, single-group boundary) -> **371** (item 6, single-group
+boundary + a mis-folded centre) -> **366** (pooled least squares, 12 groups, period fitted from
+the crossings' own spacing and cross-checked against H40 arithmetic).
+
+### What the re-derived anchor does to the 4-word question — it settles it as NO
+
+At 366 the solver's answer for each width, and where that lands it:
+
+| width | solved spin | early slack | late slack |
+|---|---|---|---|
+| 3 | 19 | **+10.9 cyc** | +30.0 cyc |
+| 4 | 18 | **+0.9 cyc** | +14.0 cyc |
+| 5 | 17 | -9.1 cyc | -2.0 cyc |
+
+The binding edge flipped. At 371 the late side was tight; at 366 it is the **early** side, and
+a 4-word cram burst clears it by **0.9 cycles** against a pooled standard error of **2.0**.
+
+The decision rule was fixed before the number was known: the raise stands only if the binding
+margin clears both two standard errors (4.0 cyc) and the 2.9-cycle threshold the DEEP class was
+refused on. **0.9 clears neither, so `RASTER_BURST_MAX_CRAM` stays at 3.** The arithmetic still
+says 4 fits with 14.9 cycles to spare — and that is exactly the trap: a fit check asks whether
+the span *fits*, not where the solver's rounding *puts* it. Necessary, not sufficient.
+
+Everything else this parcel built stands: the three-way constant split, the two poisons, the
+5-word refusal, and the estimator fix. The raise is a one-token change whenever a wider window,
+a cheaper pre-burst path, or an instrument that can see the early edge arrives.

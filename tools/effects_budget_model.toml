@@ -32,8 +32,8 @@ hblank_window_cycles      = 122.9    # measured — (3420 - 2560) / 7, confirmed
 status = "fixed"
 
 [raster.sparse]
-cram_words_per_fire  = 4             # code-derived — RASTER_BURST_MAX_CRAM (engine/effects/raster.emp)
-cram_words_reason    = "cycle budget, not FIFO; a 26-cycle word x 4 spans 78 of the measured 122.9-cycle blanking window, leaving 44.9 for the solver's 20+10 margins. Raised 3 -> 4 on a MEASURED fixture (tools/hblank_window_sweep.py --words 4). A 16-colour line still cannot swap in one fire; it takes ceil(16/4) = 4"
+cram_words_per_fire  = 3             # code-derived — RASTER_BURST_MAX_CRAM (engine/effects/raster.emp)
+cram_words_reason    = "cycle budget, not FIFO. A 26-cycle word x 3 spans 52 of the measured 122.9-cycle window and the solved landing sits 10.9 cyc clear of the early margin, 30.0 clear of the late. FOUR WAS MEASURED AND REFUSED: it passes the fit arithmetic by 14.9 cyc but the spin quantizes to whole dbf iterations and the nearest one leaves 0.9 cyc at the early edge, against a pooled estimator s.e. of 2.0 (tools/hblank_window_sweep.py --words 4). A 16-colour line takes ceil(16/3) = 6 fires"
 deep_words_per_fire  = 3             # code-derived — RASTER_BURST_MAX_DEEP (engine/effects/raster.emp)
 deep_words_reason    = "region/restore write through the absolute long (a2 is their source cursor), so a word is 30 cycles: 4 would span 90 and leave 2.9 for margins wanting 30. Held at 3, and NOT for want of trying — 2.9 cycles is under the sweep's own +-5-cycle boundary resolution, so no fixture could confirm it"
 save_set_registers   = 4            # code-derived — movem d0-d1/a1-a2 in Raster_HInt

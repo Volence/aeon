@@ -130,17 +130,20 @@ CASES: list[tuple[str, str, str, int]] = [
     # edit most likely to become no guard at all without anything noticing. Two cases,
     # one per half of the split, because the two halves fail for different reasons and a
     # single case would leave the other half unproven:
-    #  - "cram 5 words": the width the raise did NOT buy. The fragment quotes the number,
-    #    so raising to 5 has to come here and argue rather than watch a green lane stay
-    #    green. Exactly 1 — `raster_words` reaches only the constructor's own ensure.
-    #  - "deep 4 words": the width the raise bought for the OTHER class only. It proves
-    #    RASTER_BURST_MAX_DEEP is load-bearing: delete it, let region/restore inherit the
-    #    cram ceiling, and nothing else in this lane would go red. Exactly 1 — the late
-    #    edge passes and the op is built as the variant, so no constructor guard runs.
+    #  - "cram 4 words": the first width the cram class refuses, and the interesting one —
+    #    it PASSES the placeability arithmetic with 14.9 cycles to spare and is refused
+    #    anyway, because the solved spin's rounding leaves 0.9 cycles at the early edge.
+    #    A raise has to come here and argue. Exactly 1 — `raster_words` reaches only the
+    #    constructor's own ensure, and check_landings would NOT fire at this width.
+    #  - "deep 4 words": the same width reaching a DIFFERENT guard. The op is built as the
+    #    variant so the constructor never runs, and check_landings refuses it on the early
+    #    edge — where the cram class at the same width is refused by the CONSTRUCTOR and
+    #    would clear the landing guard. Two widths' worth of evidence that the two classes
+    #    fail for different reasons. Exactly 1 — the late edge passes.
     #    Its fragment quotes the interpolated opcode and width rather than the guard's
     #    wording, which "landing early" already covers; matching wording alone would make
     #    the two cases indistinguishable.
-    (f"{POISON}/poison_cram_five_words.emp",      "cram 5 words",  "5 colours exceeds RASTER_BURST_MAX_CRAM (4)", 1),
+    (f"{POISON}/poison_cram_four_words.emp",      "cram 4 words",  "4 colours exceeds RASTER_BURST_MAX_CRAM (3)", 1),
     (f"{POISON}/poison_deep_four_words.emp",      "deep 4 words",  "opcode 4, 4-word burst", 1),
 ]
 

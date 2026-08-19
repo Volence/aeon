@@ -3630,7 +3630,7 @@ parallax, raster, patched template, cycling, variants. See §7.12.
 > then fire records in FIRE ORDER (`arm_word`, `op_count`, ops), then a terminator
 > (`RASTER_ARM_PARK`, `RASTER_OPS_END`). Ops: `OP_SET_REG` (one `$8xxx` word) and
 > `OP_CRAM` (a full command longword in ONE `move.l`, then `count-1` and up to
-> `RASTER_BURST_MAX_CRAM` = 4 colours; region and restore ops cap at
+> `RASTER_BURST_MAX_CRAM` = 3 colours; region and restore ops cap at
 > `RASTER_BURST_MAX_DEEP` = 3).
 >
 > **Fire lines are one line early by construction:** a register write in the handler
@@ -3650,9 +3650,11 @@ parallax, raster, patched template, cycling, variants. See §7.12.
 > `tools/hblank_window_sweep.py` (2026-08-19), is what a fire's whole burst has to
 > fit inside — that, not the 4-entry FIFO, is what sets the per-fire word ceilings.
 > They are per class, because a burst word is 26 cycles for cram/vsram and 30 for
-> region/restore: `RASTER_BURST_MAX_CRAM` = 4 (78-cycle span, measured clean) and
-> `RASTER_BURST_MAX_DEEP` = 3 (a 4-word deep burst would leave 2.9 cycles for
-> margins that want 30). The retired pre-measurement estimate — "~105 cycles less
+> region/restore. Both read 3 today: `RASTER_BURST_MAX_DEEP` because a 4-word deep
+> burst would leave 2.9 cycles for margins that want 30, and
+> `RASTER_BURST_MAX_CRAM` because 4 cram words *fit* the arithmetic (14.9 cycles to
+> spare) yet the solver's rounding lands the first write 0.9 cycles inside the early
+> margin — measured, not assumed. The cram class is the one with headroom. The retired pre-measurement estimate — "~105 cycles less
 > ~44 for exception entry, about 60 usable" — is what set the old single ceiling of
 > 3 and understates the real budget by half. A CRAM write landing inside active
 > display tints the pixels drawn after it on that line (single-ported CRAM), which
