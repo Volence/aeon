@@ -438,13 +438,22 @@ git commit -am "gate(p2): act-relative tagging check, scoped explicitly to struc
 - Modify: `engine/level/scene_dsl.emp`
 - Create: `tools/scene_budget_report.py`
 
-- [ ] **Step 1: Spike the readback FIRST, before building the ledger on it**
+- [x] **Step 1: Spike the readback FIRST, before building the ledger on it** — **RUN 2026-08-19. IT FAILED.**
+
+**VERDICT: a computed comptime value cannot be read back, in any spelling available today.**
+`pub const` and `pub equ` were both spiked in a reached, section-carrying module with a
+genuinely computed value; both built GREEN and ZERO-BYTE (`crc=d22dda85`, unchanged), and
+NEITHER appears in `s4.debug.lst` (symbol count unchanged at 2578, against a passing positive
+control on labels from the same module). The `.lst` emitter walks `sec.labels` only; `equ`
+mints a link symbol but no label; deb2 is `convsym` over that same `.lst`. Full evidence,
+sigil source citations and the unblock sketch: `docs/DEFERRED_WORK.md`, "Scanline P2 Phase 2
+(Tasks 10-13) — BLOCKED".
 
 The spike is the risky half: a comptime const must be visible in the `.lst`/deb2 in a form a tool can read. Prove one const round-trips end to end before authoring twenty.
 
 **Trap:** `extern()` poisons comptime-ness. A ledger const that folds a link-time address stops the whole image being comptime and breaks the `first_mismatch` whole-image pins. Carry parameters, add bases at runtime.
 
-- [ ] **Step 2: If the readback does not work, STOP and report**
+- [x] **Step 2: If the readback does not work, STOP and report** — **TAKEN. This step governed; no second emission path was built. Steps 3-5 are blocked pending the ruling.**
 
 Design §5 named this a spike precisely because it might not. Do not invent a second emission path — registry-emission exclusivity is a carried trap. Report and take a ruling.
 
@@ -484,6 +493,30 @@ Provenance only. If a row here is doing enforcement, it is in the wrong place.
 
 Seven axes: main-loop cycles, VBlank DMA bytes, VBlank CPU, HInt (4a existing + 4b from Task 3), sprite slots, RAM, computed-handler pins.
 
+> **AXIS AUDIT 2026-08-19 — "seven axes" is not seven gates. FOUR are gateable in P2.**
+>
+> | # | Axis | Verdict |
+> |---|---|---|
+> | 1 | main-loop cycles | **GATEABLE** — pool 128000/frame, reservation `idle_main_loop_cycles` 35125 (headroom `idle_vsync_wait_cycles` 79595); cost from `[parallax.cost_model]` carrying residual 0.27, out-of-sample gap +1.1%, anchor as the measured worst regime 1204.7 LABELLED not fitted |
+> | 2 | VBlank DMA bytes | **GATEABLE** — pool 7524 B, reservation `dma_queue_words_idle` 1528 w = 3056 B |
+> | 3 | VBlank CPU | **GATEABLE** — pool ~18200 cyc, reservation `idle_vblank_cycles` 8280 (`VInt_Level` bracket) ⇒ budget 9920 |
+> | 4a | HInt per-fire spacing | already owned by `check_density`; no new work |
+> | 4b | HInt per-frame total | **GATEABLE** — sparse 1878 (1.5%), dense 32758 (25.7%) is the shipped worst case; the open −242 cyc / 1 fire dense model gap goes in the derivation note, not absorbed |
+> | 5 | sprite slots | **NOT GATEABLE** — nothing measured in Phase 0, and no subject: `CAP_FG_SPRITE_STRIPS` is RESERVED (P3+), no lowering |
+> | 6 | RAM | **GATEABLE, pool row STALE** — see correction 2 below |
+> | 7 | computed-handler pins | **NO SUBJECT IN P2** — `CAP_COMPUTED` is RESERVED (P3+), no lowering; design §472 records the computed-range infra as deliberately not rebuilt |
+>
+> **Correction 1 — axis 2's per-line forcer is 1792 B, not 896.** The live queue carries TWO
+> 448-word entries (`dma_hscroll_perline_entries = 2`, `dma_hscroll_perline_bytes_each = 896`),
+> so the per-line tax is 23.8% of the 7524 B pool, not 12% — before Step 2's drain CPU is added.
+> The understatement Step 2 exists to prevent is in this plan's own figure.
+>
+> **Correction 2 — axis 6's pool row is stale ~2x, unsafe direction.** `effects_budget_model.toml:540`
+> says `free_before_stack_kb = 31.8`; measured on `bc048e2a` it is **16.7 KB** (release) and
+> **6.5 KB** (DEBUG, the shape a budget must clear). Re-take the row and gate DEBUG.
+>
+> Task 13's "one poison per axis" scopes to the four gateable axes accordingly.
+
 - [ ] **Step 5: Commit per axis**
 
 ---
@@ -494,6 +527,23 @@ Seven axes: main-loop cycles, VBlank DMA bytes, VBlank CPU, HInt (4a existing + 
 
 **Files:**
 - Modify: `engine/level/scene_dsl.emp`
+
+> **BLOCKED 2026-08-19 — this gate would be vacuous as written. Two independent failures.**
+>
+> **(a) The section→scene join column is a `Label`.** Adjacency itself IS derivable (grid order;
+> `GRID_W`/`GRID_H` and `flat = sec_y*grid_w + sec_x` are comptime ints). What is missing is the
+> join from a section to its SCENE VALUE: `Sec.sec_parallax_config: *u8` →
+> `EffectsPreset.ep_parallax: *u8` → `preset(…, parallax: Label = 0)` is Labels end to end, and
+> there is no comptime path from `ParallaxConfig_OJZ_Underwater` back to `SCENES[1]`. The tree
+> already declined this exact check for this exact reason at `scene_registry.emp:280-282`.
+>
+> **(b) There is no measured transition-frame reservation.** Neither Phase-0 camera state crosses
+> a section boundary, so reg `$0B` overhead, the larger HScroll DMA of the pair and `Active_Config`
+> routing have no measured row — and the plan's own rule forbids inventing them.
+>
+> **Missing measurement to unblock:** a boundary-crossing camera state for the baseline probe,
+> plus a comptime-visible value-typed section→scene map (invert authorship, do not add a parallel
+> hand-written array). See `docs/DEFERRED_WORK.md`, "Scanline P2 Phase 2 (Tasks 10-13) — BLOCKED".
 
 - [ ] **Step 1: Derive adjacency from section descriptors, not a hand list**
 

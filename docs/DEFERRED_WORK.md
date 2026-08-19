@@ -6290,3 +6290,167 @@ s.e., then REVISIT the parked 4-word burst raise (it failed at +0.9 cyc early sl
 a 2-s.e. bar of 4.0 — a direct early-edge measurement changes both numbers). Registered
 refinements on their side that bound precision: F-SUBLINE-ACCESSMCLK / F-SUBLINE-DMASPREAD
 (a burst shares one landing x — no smear).
+
+## Scanline P2 Phase 2 (Tasks 10-13) — BLOCKED at Task 10's spike and Task 12's join (booked 2026-08-19, `feat/scanline-p2-budgets`)
+
+Phase 2 was dispatched off master `bc048e2a` (the Phase-0 merge — every budget denominator
+measured). It stopped at the first gate the plan itself put there. Two independent blockers,
+both structural, neither a matter of effort.
+
+### BLOCKER 1 — the ledger readback does not exist (Task 10, the spike the plan named)
+
+Design §5 has the lowering publish per-scene ledger rows as **named exported comptime consts
+(zero ROM bytes)**, with a formatter reading them **from the build's symbol table**. Task 10
+Step 1 required round-tripping ONE const end to end before authoring twenty. It does not
+round-trip, in any spelling available today.
+
+**The spike, run on `s4.debug.bin`.** Two candidate declarations were added to
+`games/sonic4/data/effects/scene_registry.emp` (a REACHED, section-carrying module) with a
+value that is genuinely COMPUTED rather than literal — `SceneRegistry_CapsFolded * 7 + 3`,
+which folds to 220:
+
+```emp
+pub equ   SPIKE_LEDGER_EQU   = SceneRegistry_CapsFolded * 7 + 3
+pub const SPIKE_LEDGER_CONST = SceneRegistry_CapsFolded * 7 + 3
+```
+
+Result: build GREEN, `crc=d22dda85 len=713295` — **identical to baseline**, so both spellings
+are genuinely zero-ROM and that half of the design holds. But neither name appears in
+`s4.debug.lst`, and the symbol count is **unchanged at 2578**. Positive control on the same
+module in the same build: `DeformTable_Zero : 121C8 C |` and
+`ParallaxConfig_OJZ_Default : 122C8 C |` are both present, so the search method is sound and
+the negative is real. The spike was reverted; the tree is unmodified.
+
+**Why, from the sigil source rather than from the symptom.** The `.lst` is built by walking
+`sec.labels` ONLY — `crates/sigil-harness/src/native.rs:3341-3352` (the chained driver, the
+path a Frozen shape actually takes) and `:3593-3604` (the PinnedBaked driver), both:
+
+```rust
+for sec in &resolved { let origin = sec.vma_origin();
+    for label in &sec.labels { listing.push(ListingSymbol { name: …, value: origin + label.offset, … }) } }
+```
+
+- `pub const` is, in the lowerer's own words (`sigil-frontend-emp/src/lower/mod.rs:596-598`),
+  "a name-resolution-only item (**no bytes, no label, no deferred symbol**)". Invisible by
+  construction.
+- `pub equ` DOES mint a link-level `EquSym` (`lower_equ_item`, same file :568/:794) — zero
+  bytes, and explicitly **no label**. So it never enters either listing loop. The AST comment
+  that defines the item says the quiet part outright (`sigil-frontend-emp/src/ast.rs:82-86`):
+  an equ's "whole purpose is to become a link-level symbol (**that emission is a later
+  task**)".
+- deb2 is `convsym` over that same `.lst` (`native.rs:4002-4015`), so it is blind for the same
+  reason, not an independent surface. Confirmed live: the tree's 147 existing `equ`
+  declarations (`SFX_WIN_33`, `SND_BLIP_LEN`, `SND_KICK_BANK`, …) are absent from
+  `s4.debug.lst` too.
+- `ListingSymbol` carries an `is_equate` flag rendering a `-` marker, and **nothing in the
+  tree ever sets it true** (only unit tests do). The `.lst` currently holds `0` equate rows.
+
+**The other candidate surface is blind for an unrelated reason.** `tools/effects_budget_check.py`
+— the `[symbols]` provenance gate Task 11 Step 3 would extend — resolves a constant by
+REGEX over `.emp` source text (`CONST_RE`, `^\s*(?:pub\s+)?const\s+NAME…=\s*(.+?)$`) plus a
+Python evaluation of const-to-const references in the same file. It can evaluate
+`RASTER_FIRE_BASE_CYC = 280`; it cannot evaluate `fold_caps(SCENES)` or any per-scene ledger
+value, which is a comptime function call over an array of structs. So provenance rows cannot
+substitute for the readback either.
+
+**Plan Task 10 Step 2 governs and was followed:** "If the readback does not work, STOP and
+report. Do not invent a second emission path — registry-emission exclusivity is a carried
+trap." No second path was built.
+
+**What unblocks it (a sigil-side parcel, aeon+sigil pair).** Route `EquSym`s into the
+listing: they are already resolved into the symbol table (`sigil-link`'s
+`resolved_symbols`/`build_symbol_table` return them — that is how the pins path reads them),
+so the change is to emit them as `is_equate: true` rows in `emit_listing`'s input alongside
+the label rows. Two cautions for whoever takes it: (a) `convsym`'s `as_lst` reader takes only
+`C` symbols (`native.rs:3559-3561` states this), so equate rows would land in the `.lst` for
+tool consumption but NOT in deb2 — which is fine for a formatter and should be stated rather
+than discovered; (b) a non-`pub` equ is owner-mangled to `$module$NAME`, and `$` names are
+dropped by the demangler, so ledger consts must be `pub`.
+
+### BLOCKER 2 — Task 12's transition-frame check has no derivable subject AND no denominator
+
+Two independent failures, either one sufficient.
+
+**(a) The section→scene join column is a `Label`.** The plan's Step 1 requires adjacency
+DERIVED from section descriptors ("a hand-maintained adjacency list is a copied expectation").
+Adjacency itself is fine — it is grid order, and `GRID_W = 3` / `GRID_H = 3` with
+`flat = sec_y*grid_w + sec_x` are plain comptime ints in
+`games/sonic4/data/levels/ojz/act1/act_descriptor.emp:75-76` and `engine/level/section.emp:92`.
+What is missing is the join from a section to its SCENE VALUE. Every binding in the chain is a
+link-time Label, never a value:
+`Sec.sec_parallax_config: *u8` (`engine/structs.emp:116`) →
+`EffectsPreset.ep_parallax: *u8 @ $04` (`engine/effects/preset.emp:58`) →
+`preset(…, parallax: Label = 0, …)` (`:119`). There is no comptime path from
+`ParallaxConfig_OJZ_Underwater` (a Label) back to `Scene_OJZ_Underwater` (a value in
+`SCENES[1]`), and this tree has ruled on exactly that shape repeatedly — an `ensure` comparing
+a Label to an int is silently unevaluable and always passes (`scene_dsl.emp:243`,
+`preset.emp:52`, `EMP_PITFALLS.md` §3). `OJZ_Act1_Sections` is a `pub data`, not a `pub const`,
+so importing it yields the symbol and not nine `Sec` structs; `ojz_sec` is private; and the
+`use` edge already runs act_descriptor → scene_registry, so the reverse import is a cycle.
+
+The tree ALREADY declined this check for this reason, at `scene_registry.emp:280-282`: "a
+transition-compatibility check between adjacent scenes: P1 does not know which sections are
+adjacent." Task 12 as written would have to re-open that ruling, not implement around it.
+
+**(b) There is no measured transition-frame reservation.** Phase 0's own flags record that
+neither measured camera state crosses a section boundary — max-diagonal "never leaves section
+0 inside its window" (`effects_budget_model.toml`, the axis-4b banner). So the reg `$0B`
+mode-change overhead, the larger-of-the-pair HScroll DMA and the `Active_Config` dual-routing
+cost have no measured row, and the plan's own rule ("No gate in Phases 1-2 may reference a row
+Phase 0 did not measure") forbids inventing them.
+
+**What unblocks it:** (i) a comptime-visible, value-typed section→scene map — and the honest
+shape is to INVERT authorship so `act_descriptor.emp`/`ojz_effects.emp` derive their
+`parallax:` Label FROM a shared scene-index table, rather than adding a parallel hand-written
+array beside the Labels (which would be exactly the unfalsifiable guard
+`scene_registry.emp:268-283` rejects); and (ii) a Phase-0-style baseline probe run at a
+**boundary-crossing camera state**, which is the missing measurement.
+
+### Axis audit for Task 11, done while blocked (so the re-dispatch does not re-derive it)
+
+Per-axis, against the MEASURED rows, using the IDLE-state reservations as the gate divisor
+(controller ruling: sustained max-diagonal runs 15 logic ticks per 31 video frames and is
+streaming-bound — `Tile_Cache_Fill` 40.1%/tick — so it is informative context with BOTH
+denominators, never a gate divisor).
+
+| # | Axis | Pool | Reservation (idle, measured) | Verdict |
+|---|---|---|---|---|
+| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`, carrying residual 0.27 (un-anchored), out-of-sample gap +1.1% (+222.3), anchor as the measured worst regime 1204.7 LABELLED (not fitted) |
+| 2 | VBlank DMA bytes | 7524 B (H40 NTSC) | live queue `dma_queue_words_idle` 1528 w = **3056 B** | **GATEABLE** — see the correction below |
+| 3 | VBlank CPU | ~18200 cyc VBlank window | `idle_vblank_cycles` 8280 (`VInt_Level` bracket) | **GATEABLE** — budget 9920 cyc |
+| 4a | HInt per-fire spacing | — | — | already owned by `check_density`; no new work |
+| 4b | HInt per-frame total | 128000 cyc/frame | sparse 1878 (1.5%); dense 32758 (25.7%) is the shipped worst case | **GATEABLE** — and the dense row's open −242 cyc / 1 fire model gap belongs in the derivation note, not absorbed |
+| 5 | sprite slots | — | **NOTHING MEASURED** | **NOT GATEABLE.** No Phase-0 row exists, and no shipped scene has the subject: FG sprite strips are `CAP_FG_SPRITE_STRIPS = $0080`, in `scene_dsl.emp`'s RESERVED (P3+) block with no lowering |
+| 6 | RAM | free-before-stack | `[ram]` sizes are code-derived and `[symbols]`-gated | **GATEABLE, but the pool row is STALE** — see below |
+| 7 | computed-handler pins | — | — | **NO SUBJECT IN P2.** `CAP_COMPUTED = $0400` is in the same RESERVED (P3+) comment block, no lowering; design §472 records the computed-range infra as deleted and deliberately not rebuilt |
+
+So **four axes of the plan's seven are actually gateable in P2** (1, 2, 3, 4b), 4a already has
+an owner, and axes 5 and 7 have no shipped subject at all. A re-dispatch should say so rather
+than let "seven axes" imply seven gates — and Task 13's "one poison per axis" should be scoped
+to the four, or it will demand poisons for capabilities that cannot be authored.
+
+**Two corrections to carry into the re-dispatch, both found by deriving instead of copying:**
+
+1. **Axis 2's per-line forcer is 1792 B, not 896.** The plan (and design §5) price a per-line
+   forcer at 896 B. The live queue scan shows **TWO** 448-word entries — `dma_hscroll_perline_entries = 2`,
+   `dma_hscroll_perline_bytes_each = 896` — i.e. 1792 B against a 7524 B pool (23.8%), not
+   12%. This is precisely the case Task 11 Step 2 exists to prevent ("so '12%' never reads as
+   the whole tax") and the understatement is in the plan's own figure, before the drain CPU
+   is even added.
+2. **Axis 6's pool row is stale by ~2x and in the unsafe direction.**
+   `effects_budget_model.toml:540` carries `free_before_stack_kb = 31.8   # measured — build.sh
+   reports it each build`. Measured this session on `bc048e2a`: **16.7 KB** free (release) and
+   **6.5 KB** free (DEBUG — the tight shape, and the one a budget must clear). A RAM gate
+   written against 31.8 would pass while enforcing a number nobody took, which is the exact
+   defect this plan's own preamble cites (`EFX_BLANK_DELAY = 4`). Re-take the row, and gate
+   the DEBUG shape.
+
+### State of the branch
+
+`feat/scanline-p2-budgets` off `bc048e2a`. No engine or tool source was modified — the spike
+was reverted and verified clean. All four shapes build at baseline:
+sonic4 DEBUG `d22dda85`/713295 · sonic4 release `cdabf8a3`/698411 ·
+demo DEBUG `f9f8d0e5`/100086 · demo release `f7806241`/95733.
+Tasks 11 and 13 were NOT started: Task 11's ledger-const shape is downstream of the Task-10
+ruling (how a ledger row gets published decides what the consts are), and Task 13 poisons one
+per axis, which is downstream of which axes Task 11 gates.
