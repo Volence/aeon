@@ -354,8 +354,13 @@ def main() -> int:
         # a spin word, so a 3-word cram fire is 10 words where it was 9 and the old counts no
         # longer fit RASTER_BUF_SIZE. The probe REFUSES an over-cap program rather than
         # truncating it, which is what surfaced this; the counts here must track that file.
-        f0 = 2 * (base - 16)                       # a no-op record is the fire base less the
-                                                   # loop entry/exit a record WITH ops pays
+        # A no-op record is the fire base less the loop entry/exit a record WITH ops pays,
+        # PLUS the frame-rewind interlock, which only a no-op record reaches (raster.emp's
+        # `.priming`). Reading `guard` from the .emp rather than folding it into `base` is
+        # what keeps this gate able to tell the two apart: a change that moved the interlock
+        # into the prologue would leave F0 right and every other fixture 30 cycles light.
+        guard = emp_int("engine/effects/raster_dsl.emp", "RASTER_PRIMING_GUARD_CYC")
+        f0 = 2 * (base - 16 + guard)
         fire3 = base + fetch + zmiss + hit + cram_f3 + 3 * word_cram + tail
         expect_f3 = f0 + 5 * fire3
         # F4 (stream_pal_region, 3 words) — WIRED 2026-08-18 by the raster-substrate sweep, which

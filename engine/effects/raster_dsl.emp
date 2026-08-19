@@ -1460,6 +1460,29 @@ pub const RASTER_SCANLINE_CYC       = 488
 // `bra.s .advance` beyond the loop tail already charged per op (+14).
 pub const RASTER_FIRE_BASE_CYC      = 302
 
+// The frame-rewind interlock, and it is a SECOND per-fire constant because it is charged to
+// exactly one kind of fire. Raster_HInt's `.priming` arm reads the HV counter and compares it
+// against the end of active display, so a record with NO ops pays for the test and a record
+// WITH ops never reaches it (engine/effects/raster.emp, `.priming` — the whole reason the
+// guard sits on that arm rather than in the prologue, where it would have moved the op-walk
+// origin and re-derived every solved spin in the suite).
+//
+// MEASURED, not modelled, and the measurement is what proves the claim rather than the
+// instruction count. `tools/raster_cost_probe.py` on the same scene either side of the fix:
+//   F0  572 -> 632   F1  2624 -> 2684   F3  3862 -> 3922   F4  4640 -> 4700
+//   F5 3204 -> 3264  F8  4628 -> 4688   FD1 4362 -> 4422   FD2 15562 -> 15622
+// Every fixture moved by the SAME 60 cycles — two priming fires at 30 — while every marginal
+// per-fire figure the probe derives from those numbers came out byte-identical (F1 342.0,
+// F3 658.0, F4 678.0, F5 658.0, F8 676.0, and the dense slope 350.0). A constant offset with
+// unchanged slopes is exactly the signature of a cost charged only to the fixtures' shared
+// floor: no op-carrying fire and no dense line pays any part of it.
+//
+// Nominal says 28 (a 12-cycle `move.w 4(a2),d1` off the VDP port, an 8-cycle `cmpi.w`, and an
+// 8-cycle not-taken `bcs`). The measurement says 30, and the measurement is what ships — the
+// same two-cycle direction the dense-body hoist found when the VDP holds the bus across an
+// access the instruction tables price in isolation.
+pub const RASTER_PRIMING_GUARD_CYC  = 30
+
 // ---- the DENSE tier's one cost term (Tier-3 item 3, 2026-08-19) --------------
 // Everything else in this cost model prices the SPARSE tier. The dense tier had no cost
 // term at all until this parcel — which is why a per-scanline claim about it could be
@@ -1879,10 +1902,11 @@ ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 636,
 ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 676,
        "cost model vs fixture F8 (pal_restore, 3 words, leading): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, expected 676 = measured 708 + 10 x (9 - 13) + item 2's 8-cycle pre-test. Its spin went 13 -> 10 at item 1c (the retired 13 sat at the window's far edge and centring it gave cycles back) and 10 -> 9 at item 2 (the deepest op pays the pre-test like every other). F8 IS ALSO A TIER-3 ITEM-1 CONTROL, for the same reason as F4: `.restore_loop`'s a2 is the Palette_Ship_Snap cursor, so its words keep the 30-cycle absolute write.")  // measured 2026-08-17, 3 boots spread 0
 // F0 is the per-fire base's own anchor and cannot be spelled as a `fire` (a fire with no ops
-// is refused). Its two priming records read 572 cycles, i.e. 286 per no-op record; the +16 to
-// RASTER_FIRE_BASE_CYC is derived in that constant's note above.
-ensure(RASTER_FIRE_BASE_CYC == 572 / 2 + 16,
-       "RASTER_FIRE_BASE_CYC no longer derives from fixture F0 (572 cycles for two priming records) plus the 16 cycles a record WITH ops pays over a no-op one")
+// is refused). Its two priming records read 632 cycles, i.e. 316 per no-op record; the +16 to
+// RASTER_FIRE_BASE_CYC is derived in that constant's note above, and the -30 is the
+// frame-rewind interlock, which ONLY a no-op record pays (see RASTER_PRIMING_GUARD_CYC).
+ensure(RASTER_FIRE_BASE_CYC == (632 - 2 * RASTER_PRIMING_GUARD_CYC) / 2 + 16,
+       "RASTER_FIRE_BASE_CYC no longer derives from fixture F0 (632 cycles for two priming records, less the two frame-rewind interlocks only THEY pay) plus the 16 cycles a record WITH ops pays over a no-op one")
 
 // ---- WHICH SIDE OF THE LINE, both directions ---------------------------------
 // A cost model is only a guard if something falls on each side of it. These state, as build-
