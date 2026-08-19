@@ -4965,9 +4965,19 @@ constants and matched hardware exactly.
   handler code. **Byte accounting against the `.lst`: length delta 0, FOUR differing bytes
   total** — the header checksum, `OJZ_TestRaster+0x19` (04 -> 0A), `OJZ_TestVsram+0x15`
   (04 -> 15) and `OJZ_TwoChannel+0x29` (04 -> 15). Zero code bytes; no placer fill involved.
-  **STILL OPEN on 1c:** the sigil-side repin/refreeze for the moved bytes — s4.debug
-  `c97cc7b9 -> 8610557b` and s4 `eab1f9a0 -> d6bc3057`, both at UNCHANGED length (demo
-  byte-identical). Sequenced by the controller, not by this parcel.
+  **A/B (controller, 2026-08-19, pre-refreeze).** `ab_runner` OLD (`8f629a69`, s4.debug
+  `c97cc7b9`, rebuilt and CRC-confirmed) vs NEW (`4143b58c` merge, `8610557b`) on all three
+  committed effects scenes, `--selfcheck` deterministic on each: whole-VDP `state_hash`
+  EQUAL, visible plane EQUAL, `active_buf` EQUAL; the ONLY gated diffs are the parcel's own
+  payload — spin words `04 -> 15` at `raster_buf` offsets +015/+029 (the OJZ_TestVsram /
+  OJZ_TwoChannel authored words; 0x15 = the solved vsram-1w spin 21), with the
+  reg+region record's spin correctly UNMOVED at 4 (the shape the old constant was fitted
+  to). BA-class bar: state-identity everywhere but the designed bytes, and the named
+  positive observation is the 1b driver re-run above (solved leading spin 18 inside the
+  measured clean integers [16, 21]).
+  **CLOSED (same night): the sigil-side repin/refreeze** — s4.debug `c97cc7b9 -> 8610557b`,
+  s4 `eab1f9a0 -> d6bc3057`, both at UNCHANGED length (demo byte-identical); frozen as
+  `raster-spin-solver-1c`, paired merge recorded in the sigil provenance chain.
 
 **STILL OPEN:**
 - Everything else: all of Tier 3 perf, the rest of Tier 4 / B2 (`palette_dsl`'s
