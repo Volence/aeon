@@ -478,6 +478,13 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         // The two must be changed together or the length and the buffer disagree.
         jbsr    Parallax_Active_Config          // d0 = active config; Z reflects d0
         beq     .hs_cell                        // NULL -> per-cell default
+        // CAP_PER_LINE span (P2 §3.3) — the whole 896-byte arm of the length key,
+        // including the mode decision. Without the bit no config can carry an H-deform
+        // table or an anchor, so the 112-byte per-cell length is the only reachable
+        // answer and `.hs_cell` is the structural fallthrough. The TWIN in
+        // parallax.emp elides on the same bit; they are changed together.
+    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
+    .cap_per_line_dma_begin:
         movea.l d0, a1
         move.l  parallax_config.pcfg_deform_table_fg(a1), d0
         or.l    parallax_config.pcfg_deform_table_bg(a1), d0
@@ -495,6 +502,8 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
     .hs_line:
         queue_static_dma(Static_Hscroll_Line)
         jbra    .hs_done
+    .cap_per_line_dma_end:
+    }
     .hs_cell:
         queue_static_dma(Static_Hscroll_Cell)
     .hs_done:

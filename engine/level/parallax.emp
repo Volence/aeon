@@ -985,6 +985,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // decision. Without the bit no config can carry an H-deform table or an
         // anchor, so per-cell is the only reachable mode and `.fill_per_cell` is the
         // structural fallthrough.
+    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
     .cap_per_line_fill_begin:
         move.l  parallax_config.pcfg_deform_table_fg(a0), d0
         or.l    parallax_config.pcfg_deform_table_bg(a0), d0
@@ -1016,6 +1017,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         jbsr    Parallax_Fill_PerLine
         jbra    .fill_done
     .cap_per_line_fill_end:
+    }
     .fill_per_cell:
         jbsr    Parallax_Fill_PerCell
     .fill_done:
@@ -1221,6 +1223,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // sit under a comptime `if` in .emp (measured: `expected a declaration, found
         // Ident("if")`), so the gate wraps the BODY and the else arm is a bare `rts` —
         // an unreachable stub the placer keeps, not a second implementation.
+    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
     .cap_per_line_body_begin:
         movem.l a0/d7, -(sp)                        // preserve caller's config ptr + band count
 
@@ -1452,6 +1455,13 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         movem.l (sp)+, a0/d7
         rts
     .cap_per_line_body_end:
+    } else {
+        // Unreachable: the only call site is `cap_per_line_fill`, elided with this.
+        // The stub exists because the proc header cannot be gated, and `rts` rather
+        // than nothing because a body that emits zero bytes would fall through into
+        // whatever the placer put next.
+        rts
+    }
 }
 
 // ----------------------------------------------------------------------
