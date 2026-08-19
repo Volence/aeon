@@ -4953,6 +4953,18 @@ constants and matched hardware exactly.
   control). Ripple landed in the same parcel: `ojz_effects.emp`'s four hand pins, both band
   twins, `raster_cost_probe.py`'s mirrored solver, the wire pin (expectations derived from the
   .emp constants, not copied), and the cost gate.
+  **VERIFICATION.** Four shapes build. Tool suite 1044 passed / 2 skipped (baseline
+  1025/2; +19 wire-pin cases). Expect-fail lane 17/17 (was 15/15 — a poison per window
+  edge, one exactly-1-diagnostic and one exactly-2, the count being half the assertion).
+  Effects gate lane **10 PASS, exit 0**, and the load-bearing one is the cost gate: its
+  expectations are re-derived from the shipped constants including the solved spins, and
+  hardware measured F0 572 / F1 3044 / F3 3882 / F4 4652 / F5 3220 / F8 4640 — every one
+  exact, so the new iteration counts were verified on an emulator, not just in comptime.
+  The 1b driver re-run against the new ROM reproduces the boundary structure unchanged
+  ([22, 25, 28], window [15.21, 21.5], centre 18), which is the check that 1c touched no
+  handler code. **Byte accounting against the `.lst`: length delta 0, FOUR differing bytes
+  total** — the header checksum, `OJZ_TestRaster+0x19` (04 -> 0A), `OJZ_TestVsram+0x15`
+  (04 -> 15) and `OJZ_TwoChannel+0x29` (04 -> 15). Zero code bytes; no placer fill involved.
   **STILL OPEN on 1c:** the sigil-side repin/refreeze for the moved bytes — s4.debug
   `c97cc7b9 -> 8610557b` and s4 `eab1f9a0 -> d6bc3057`, both at UNCHANGED length (demo
   byte-identical). Sequenced by the controller, not by this parcel.
