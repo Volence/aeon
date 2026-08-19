@@ -4860,13 +4860,15 @@ crc=10aad76c len=100805 · `demo` crc=2ecd1031 len=96451). Every claim was re-ve
 the code before being acted on.
 
 **CLOSED:**
-- **Item 3** — MITIGATED, not structurally closed. Both dense constructors now
-  `ensure(top + lines <= 223)`, so the last-line-223 hazard is no longer authorable through
-  them. Swept every caller: only `OJZ_TestGradient` (96+96 = 192) and `OJZ_TestRamp`
-  (112+96 = 208), so it was never live. Poison-proved (a 224 run fails the build). **The
-  structural fix — a one-byte frame-epoch flag so a pre-rewind fire retires as a park —
-  REMAINS OPEN**, and the bound does not cover any future non-constructor path into a dense
-  run. Interrupt-priority reasoning is still source-confirmed, not emulator-confirmed.
+- **Item 3** — MITIGATED here, **STRUCTURALLY CLOSED 2026-08-19** (branch
+  `fix/raster-frame-epoch`; see the block at the end of this section). Both dense constructors
+  `ensure(top + lines <= 223)`, and the bound stays — but the measurement that closed the item
+  also showed this bound was never what protected the engine. The MITIGATED wording below is
+  kept as the record of what was believed at the time.
+  ~~The last-line-223 hazard is no longer authorable through them. Swept every caller: only
+  `OJZ_TestGradient` (96+96 = 192) and `OJZ_TestRamp` (112+96 = 208), so it was never live.
+  Poison-proved (a 224 run fails the build). Interrupt-priority reasoning is still
+  source-confirmed, not emulator-confirmed.~~
 - **Item 7** — budget-model rows corrected (`sparse_fire_reg1` 396→412,
   `sparse_fire_water` 660→676), values re-derived from the live model rather than copied, and
   the file's `_SUPERSEDED` convention applied. Also corrected `movem_roundtrip_cycles` 40→84
@@ -5008,8 +5010,8 @@ constants and matched hardware exactly.
   UNBLOCKED by that parcel's fixtures, and the two trailing fires at ~600 cyc/frame — the
   larger of the two, and not value-identical); Tier 4 / B2's
   self-test-only variant mirror also CLOSED 2026-08-19, see below), plus C5 footprint, the
-  EFX-4b angle, and the zero-`assert.*` observation. Item 3's structural frame-epoch fix also
-  remains open (only MITIGATED by the `<= 223` bound).
+  EFX-4b angle, and the zero-`assert.*` observation. Item 3's structural fix CLOSED 2026-08-19
+  — not as the booked frame-epoch flag, which the measurement ruled out; see the block below.
 
 **CLOSED 2026-08-19 — Tier 4 / B2, `palette_dsl`'s self-test-only variant mirror.** The
 booking was right and the fix went the PREFERRED way rather than the retract-the-claim way:
@@ -5056,7 +5058,7 @@ own parcel off master, then merge master into the P1 branch before Task 9.
 
 | 1 | `engine/effects/raster.emp:232` | moves | **top finding.** `EFX_BLANK_DELAY=4` was fitted to the 152-cyc two-op (SetReg-prefixed) shape; a SINGLE-op CRAM/region fire carries 58 cyc and lands at x~170 of 320 — mid-active-display. The DSL freely admits that shape (`band(sh: 0)`, `region_boundary(sh: 0)`, `fx_tint_band`). Deficit ~4 → ~21. Latent (all shipped OJZ fires are two-op). **Also: the author-facing guard text at `raster_dsl.emp:340` asserts the OPPOSITE of the measurement recorded at `raster.emp:797-804`** — the row-119 fixture has the stream op second. Fix: split the constant by op position (`_FIRST` / `_AFTER_REG`) + re-pin the F-series, or refuse single-stream-op CRAM fires without a measured opt-out. Correct :340 either way. |
 | 2 | `engine/effects/palette.emp:356` | moves | **costs cycles today.** `.cycling` sets `PAL_ACT_VARIANT_STALE` before `Palette_DoCycle` decides whether anything rotated (rotation is timer-gated at `:419`), so any section binding a cycle script AND a variant pays the full ~19,332-cyc re-derive every frame — the exact regression the stale bit exists to kill ("the 15.1%-of-frame gate"). `OJZ_Preset_Sec3` is that combination. `.fade` same shape, smaller scale. Fix: move the stale-set into DoCycle's rotation branch gated on `d7 != 0` — one instruction (DoCycle already accumulates the touched-line mask in d7). |
-| 3 | `engine/effects/raster.emp:609` | **zero** | No interlock between a deferred IRQ4 and `Raster_VBlank`'s unconditional frame rewind. A dense run ending at line 223 is authorable (both constructors `ensure(top + lines <= 224)`), HINT raises on the same line as VINT, IRQ6 masks level 4, so the pending IRQ4 runs after the rewind, consumes priming record 0, overwrites the flushed `$0A=0` and shifts the whole next frame by one record — a stuck state, not a blip. Source-confirmed, NOT emulator-confirmed. Cheap fix: tighten to `<= 223` (shipped gradient top=96/96 lines passes). Structural: a one-byte frame-epoch flag. |
+| 3 | `engine/effects/raster.emp:609` | **zero** | ~~No interlock between a deferred IRQ4 and `Raster_VBlank`'s unconditional frame rewind. A dense run ending at line 223 is authorable (both constructors `ensure(top + lines <= 224)`), HINT raises on the same line as VINT, IRQ6 masks level 4, so the pending IRQ4 runs after the rewind, consumes priming record 0, overwrites the flushed `$0A=0` and shifts the whole next frame by one record — a stuck state, not a blip. Source-confirmed, NOT emulator-confirmed. Cheap fix: tighten to `<= 223` (shipped gradient top=96/96 lines passes). Structural: a one-byte frame-epoch flag.~~ **CLOSED 2026-08-19 — the hazard is real, the LINE-223 diagnosis was not, and the frame-epoch flag is impossible. See the block at the end of this section.** |
 | 4 | `engine/system/buffers.emp:402` | moves | Off-screen ship's dropped-base guard hardcodes `btst #2, Palette_Dirty` (CRAM line 2) but the ship's palette line is authored data in the trailer — for a ship on line 1 or 3 the guard tests a bit nothing sets and is fully vacuous. Latent (shipped content is line 2). |
 | 5 | `tools/effects_gates.py:11` | zero ROM | **`effects_gates.py` is UNWIRED** — no build, no test runner, no CI, no hook; the only mention in build.sh is inside a comment. It is the SOLE invoker of `raster_off_gate`, `raster_source_gate`, `snapshot_poison_gate`, `effects_scene_assert` (3 scenes) and every cost fixture. That entire emulator-backed lane has only ever run when a human typed the command. build.sh *does* wire the source-level lane (`effects_budget_check.py`, pytest suite, 11-poison expect-fail) — the gap is precisely the emulator-backed half. Expect it to FAIL on first wiring. Same species as `reference_verified_vacuous_gates`. |
 | 6 | `tools/effects_gates.py:214` | zero ROM | Cost gate hardcodes `--only F0,F1,F3,F5,F8`, omitting **F4** — the sole `stream_pal_region` fixture — so `RASTER_WORK_REGION_CYC = 122` (`raster_dsl.emp:1008`), the constant gating the shipped OJZ water band, never reaches hardware. The list grew `F0,F1,F3` → `+F5,F8` with F4 simply never added. |
@@ -5475,6 +5477,119 @@ includes its own exception entry; the model is entry-inclusive.
 
 **New angle on booked EFX-4b:** static programs may need no RAM copy at all — walk the ROM
 template directly, dissolving the over-read rather than patching it.
+
+### Substrate item 3 CLOSED 2026-08-19 — the hazard is real, the diagnosis was wrong, and the booked fix was impossible
+
+Branch `fix/raster-frame-epoch`. The booking asked for a reproduction FIRST and for the fix to
+be abandoned if the instrument contradicted the source argument. The instrument contradicted
+*half* of it, which is why this block is longer than a closure note.
+
+**The instrument.** `tools/raster_frame_epoch_probe.py`. Two execution breakpoints —
+`Raster_HInt` and `Raster_VBlank` — turn a frame into an ordered event list, and every stop
+carries `Raster_Cursor` read BEFORE that fire consumes its record, so a healthy frame reads
+`[2,6,10]` (priming 0, priming 1, the event) and a schedule that has slipped reads something
+else. Fixtures are poked straight into `Raster_Buf_A` (the cost probe's discipline) because
+the constructors exist to make the hazardous program unauthorable. Two instrument facts cost
+real time and are written into the tool's header: `frame_token` does not advance in a headless
+instance (frames are grouped by the game's own `Frame_Counter`), and **resuming from a
+breakpoint's own address re-breaks without executing** — 24 rising `hits` with the machine
+frozen, which would have produced a confident "no hazard" on a CPU that never ran an
+instruction.
+
+**WHAT THE MEASUREMENT REFUTED — line 223 was never the hazard.** Sparse fires authored at
+222, at 223 and at **224**, and the dense run `220..223` (i.e. exactly the `top + lines == 224`
+case both constructors were tightened to forbid), all retire BEFORE the rewind, every frame,
+with an identical `[2,6,10]` cursor walk. The VDP raises the last active line's HINT far enough
+ahead of VINT that the 68000 takes IRQ4 first. The `<= 223` bound was not standing between the
+engine and this defect.
+
+**WHAT IT CONFIRMED — the mechanism, once the real precondition is supplied.** The precondition
+is a MASK WINDOW straddling the VINT instant with an IRQ4 already raised, not a line number.
+The probe's `stall` fixture forces it with no engine change: fire 1 at line 222 carries a poked
+blanking spin (~4,000 cycles at spin 400), so `Raster_HInt` holds IPL 7 across VINT while fire
+2 at line 224 is raised inside that window; at fire 1's `rte` both are pending, IRQ6 wins, and
+the IRQ4 is serviced after `Raster_VBlank`. Measured, pre-fix:
+
+| fixture | cursor walks per frame |
+|---|---|
+| stall 222(spin 2)+224 — control | `[2,6,10,26] x4` uniform |
+| stall 222(spin 400)+224 | `[2,6] x3` and `[2,6,10] x2` — **alternating, a fire lost every other frame** |
+| stall 222(spin 1000)+224 | `[2,6] x3` and `[2,6,10] x2` |
+
+Real code reaches the same state through any `ints_off` bracket straddling the end of active
+display — the VDP-access invariant at the top of `raster.emp` mandates such brackets around
+every main-loop command pair.
+
+**WHY THE BOOKED ONE-BYTE FRAME-EPOCH FLAG CANNOT BE BUILT.** A stale fire and the legitimate
+line-0 fire see BYTE-IDENTICAL engine state: same cursor, same counter, same everything the
+rewind just wrote. Any flag that self-clears on the first fire consumes the line-0 fire in the
+healthy case and shifts the whole schedule down a line; a flag cleared by the main loop is not
+reached before line 0 on a lag frame, turning the guard into a whole frame of lost effect. The
+only thing that separates the two fires is WHERE THE BEAM IS, so the discriminator has to be
+the beam. Two other candidates were built and rejected with evidence rather than argued away:
+deasserting IE1 in `Raster_VBlank` to cancel the pending HInt (built, shipped to the emulator,
+**did not work** — oracle's VDP recomputes the IPL line state only on interrupt acknowledge,
+not on an IE1 change, `S315-5313_Ports.cpp:1931`), and idling the RAM trampoline slot (correct
+but needs a release point after VInt's `rte`, which only the main loop offers, i.e. the lag
+hole again).
+
+**WHAT SHIPPED.** `Raster_HInt`'s no-op-record arm becomes `.priming` and reads the HV counter
+at `$C00008` (a displacement off the `VDP_CTRL` already in a2, the same trick `.cram_loop` uses
+for `VDP_DATA`). `V >= RASTER_VBLANK_V` means outside active display, so the fire is stale:
+restore the every-line arm word this record just clobbered and return WITHOUT advancing the
+cursor. Not `RASTER_ARM_PARK` — that leaves reg `$0A` at 255 and kills the next frame, the
+opposite of a fix. The HV counter and not the status register's VBlank bit: reading `VDP_CTRL`
+resets the command-latch write-pending state and clears the status F flag, and status bit 3
+also reads set whenever the display is off, which would retire every fire during a fade.
+
+**THE COST, MEASURED, AND THE SOLVER DOES NOT RE-DERIVE.** The guard sits on the arm a record
+WITH ops never reaches, which is the whole point. `tools/raster_cost_probe.py` on the same
+scene either side: F0 572→632, F1 2624→2684, F3 3862→3922, F4 4640→4700, F5 3204→3264,
+F8 4628→4688, FD1 4362→4422, FD2 15562→15622 — **every fixture +60, i.e. two priming fires at
+30**, while every marginal per-fire figure came out byte-identical (F1 342.0, F3 658.0,
+F4 678.0, F5 658.0, F8 676.0, dense slope 350.0). So `RASTER_FIRE_BASE_CYC` stays 302, the
+op-walk origin does not move, `RASTER_HBLANK_END_CYC` stays 351, **not one solved blanking spin
+changes**, and the 1b sweep boundaries are predicted UNCHANGED. The 30 is now
+`RASTER_PRIMING_GUARD_CYC` in `raster_dsl.emp`, read separately from the base by
+`effects_gates.py` so a guard that migrated into the prologue would leave F0 right and every
+other fixture 30 cycles light. Nominal predicted 28; hardware said 30, the same direction as
+the dense-body hoist's missing eight.
+
+**THE `<= 223` BOUND STAYS, for a NEW reason.** Not defence in depth against the original
+(refuted) derivation: the interlock's discriminator IS the line, so a run authored to put a
+fire at 224 would be authoring real work into the region the interlock reads as stale. The
+bound and `RASTER_VBLANK_V` are one fact and are pinned together by an `ensure` beside
+`RASTER_MAX_FIRE_LINE`, verified red-first (at 225 the build fails with the named message and
+the expect-fail lane reports the extra diagnostic). **Relaxing the bound to 224 is therefore
+NOT open as a follow-up** — it would have to move the threshold too, and the threshold has
+nowhere to go: 224 is where active display ends. Booked here so it does not read as slack.
+
+**Residual, deliberately not fixed:** the retired fire's ops do not run. They cannot — its line
+has already gone by, and discarding it is the same outcome the booked park design wanted. What
+the interlock protects is the SCHEDULE, and it does: post-fix, the stall fixtures read
+`[2,2,6,10]` uniformly (the stale fire retiring on cursor 2 without advancing, then the frame's
+own `2 -> 6 -> 10` walk completing) on every frame instead of alternating.
+
+**VERIFICATION.** Four shapes, all building — `s4.debug` 896a35c8/713279 -> 72ab53aa/713295 ·
+`s4` cf54b017/698393 -> 1e230133/698411 · `demo.debug` 31a87100/100070 -> 25eaed93/100086 ·
+`demo` f16d1a50/95713 -> deacc756/95733. Per-proc: `Raster_HInt` +20 bytes, everything after it
+in the section +20 and the rest of the image +16 (placer fill absorbed 4); of 900 common
+symbols, 72 moved and **zero RAM symbols moved**. pytest **1074 passed / 2 skipped**.
+expect-fail **17/17**, plus the new `RASTER_VBLANK_V` pin verified red-first (at 225 the build
+fails with the named message and the lane reports the extra diagnostic). Effects gate lane
+**22/22 PASS, every segment exit 0**, cost row `F0 632 F1 2684 F3 3922 F4 4700 F5 3264 F8 4688`
+measured == expected and the dense row 350.0 cyc/line. `ab_runner` on all four committed
+scenes, pre-fix ROM vs post-fix: **ALL EQUAL (gated)**, `state_hash` included. The 1b blanking
+sweep's anchor captures are **byte-identical** pre vs post (39 comparable lines, 0 differing),
+which is the boundaries measured unchanged rather than merely predicted.
+
+**INSTRUMENT NOTE for whoever runs the gate lane next.** Two full-lane `effects_gates.py`
+invocations WEDGED — one inside `snapshot_poison`, one inside `raster_source` — while both of
+those gates pass in seconds run standalone on the same ROM, and `raster_source` then passed in
+the segmented re-run. That is the known intermittent oracle stop-race, not a gate failure, and
+a single 22-gate invocation loses every result to it. Running the lane as `--only` segments
+with a per-segment timeout and one retry recovers all 22; consider making that the lane's own
+shape rather than a thing each session rediscovers.
 
 ---
 
