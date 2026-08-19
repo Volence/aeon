@@ -96,6 +96,48 @@ max_diagonal_vsync_wait_cycles     = 34371   # 26.9% per video frame
 max_diagonal_lags = true
 max_diagonal_lag_note = "sustained 16px/frame diagonal ticks at ~30 Hz, not 60. Measured, reproducible, spread 0. It is a streaming cost (Tile_Cache_Fill 40.1%), not an effects cost -- but every Phase-2 budget expressed per VIDEO FRAME must not assume 60 Hz at this state."
 
+[dma_stall]
+# AWARENESS ONLY — design §5 carries this NEEDS-MEASUREMENT for awareness, not gating, this
+# phase, because it couples to the sound driver's DMA-survival design. Scanline P2 Phase 0
+# Task 5, 2026-08-19.
+#
+# THE ASKED-FOR FIGURE IS UNMEASURABLE ON THIS INSTRUMENT, and that is the row's real content.
+# Oracle's 68000 core adds only `cyclesExecuted` to `_currentCycle` (M68000.cpp:1029-1031)
+# while bus/VDP/DMA stall accumulates in `additionalTime` and lands in `_currentTime`; the
+# profiler ring stamps `_currentCycle` (M68000.h:95). Stall time therefore reaches the wall
+# clock and NEVER reaches a cycle row. Any stall figure taken off a cycle row here would be an
+# undercount or a zero regardless of what the hardware does -- which is why this row is not a
+# number and must not be rendered as 0 or as green.
+max_contiguous_dma_stall_cycles = "UNMEASURABLE-ON-THIS-INSTRUMENT"
+max_contiguous_dma_stall_mechanism = "oracle's cycle clock excludes bus/VDP/DMA stall by construction: M68000.cpp:1029-1031 adds only cyclesExecuted to _currentCycle, additionalTime goes to _currentTime, and the profiler ring stamps _currentCycle (M68000.h:95)"
+max_contiguous_dma_stall_migration = "oracle-next's profiler v1 rows carry stallCycles per routine (registered, in recon 2026-08-19). That is the direct read; re-take this row there."
+max_contiguous_dma_stall_note = "couples to the sound driver's DMA-survival design; gating this is a later decision, not P2's"
+
+# THE INDIRECT BOUND, and it is a DERIVATION rather than a measurement of a stall. The 68000 bus
+# is held for the whole of a VDP DMA from 68K memory, so the longest contiguous hold in a frame
+# is the longest SINGLE DMA the queue carries -- and that length IS readable, from SizeH/SizeL
+# in each DMAEntry. tools/engine_baseline_probe.py scans the queue at scanline 220 (inside
+# active display, after every main-loop enqueue, before VBlank drains it -- scanning at a frame
+# boundary would read an empty queue and report "no stall").
+#
+# WHAT THE BOUND IS BLIND TO, so it is not over-read: refresh stalls, Z80 bus contention, VDP
+# FIFO stalls on ordinary non-DMA port writes, and any DMA issued outside the queue. It bounds
+# ONE contributor, and its cycle conversion uses documented hardware rates (H40 VBlank VRAM DMA
+# 205 B/line, scanline 3420/7 = 488.57 cyc) rather than anything measured on this ROM.
+dma_scan_status = "derived from queue contents, NOT a measured stall"
+dma_scan_scanline = 220
+dma_max_single_transfer_words = 576     # measured from the queue, 5 boots, identical at both states
+dma_max_single_transfer_bytes = 1152
+dma_max_single_transfer_derived_cycles = 2745.5   # 1152 B at 205 B/line x 488.57 cyc/line
+dma_queue_entries_idle = 7
+dma_queue_words_idle = 1528
+dma_queue_words_max_diagonal = 1519
+# The per-line HScroll buffers the plan prices at 896 B are visible in the scan as TWO 448-word
+# entries (cmd 7C000082), confirming the axis-2 figure from the live queue rather than from the
+# authoring side.
+dma_hscroll_perline_entries = 2
+dma_hscroll_perline_bytes_each = 896
+
 [parallax.cost_model]
 # THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4,
 # 2026-08-19. tools/parallax_cost_probe.py, 17 fixtures, 3 boots each, spread 0 on every one.

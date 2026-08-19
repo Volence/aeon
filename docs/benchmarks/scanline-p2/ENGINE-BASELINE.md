@@ -332,6 +332,68 @@ rather than a modelling limit.
 
 ---
 
+## 4b. Max contiguous DMA stall (Task 5) — UNMEASURABLE, and that is the finding
+
+The plan asks for `max_contiguous_dma_stall_cycles` as an awareness row. **It cannot be
+measured on this instrument, by construction**, and the row records that rather than a number.
+
+Oracle's 68000 core accumulates two quantities and only one is the profiler's:
+
+```
+    additionalTime += accessResult.executionTime;         M68000.cpp:915   (memory access)
+    additionalTime += opcodeExecuteTime.additionalTime;   M68000.cpp:1009
+    _currentCycle += cyclesExecuted;    <-- INSTRUCTION CYCLES ONLY   M68000.cpp:1029-1031
+    _currentTime  += totalExecutionTime;  <-- where the stall actually goes
+```
+
+and the profiler ring stamps `_currentCycle` (`M68000.h:95`). **Any stall figure derived from a
+cycle row here would be an undercount or a zero regardless of the real behaviour.** So the row
+is `"UNMEASURABLE-ON-THIS-INSTRUMENT"` with the mechanism, never `0` and never green.
+
+**Migration path:** oracle-next's profiler v1 rows carry `stallCycles` per routine (registered,
+in recon on their side as of 2026-08-19). That is the direct read; re-take the row there.
+
+### The indirect bound that CAN be taken honestly
+
+The 68000 bus is held for the whole of a VDP DMA from 68K memory, so the longest contiguous
+hold in a frame is the longest SINGLE DMA the queue carries — and that length is readable, from
+`SizeH`/`SizeL` in each `DMAEntry`. The probe scans the queue at **scanline 220**: inside active
+display, after every main-loop enqueue, before VBlank drains it. Scanning at a frame boundary
+would read an empty queue and report "no stall".
+
+Queue contents, identical largest entry at both camera states, 5 boots, no variation:
+
+| slot | words | bytes | VDP command | what |
+|---|---|---|---|---|
+| 0 | 16 | 32 | `C0000080` | CRAM |
+| 1 | 16 | 32 | `C0400080` | CRAM |
+| 2 | 12 / 3 | 24 / 6 | `78000082` / `C0480080` | VSRAM / CRAM (differs by state) |
+| 3 | **448** | **896** | `7C000082` | HScroll, per-line |
+| 4 | 12 | 24 | `78000082` | VSRAM |
+| 5 | **448** | **896** | `7C000082` | HScroll, per-line |
+| 8 | **576** | **1152** | `48000081` | VRAM — **the largest** |
+
+| | value |
+|---|---|
+| largest single transfer | **576 words = 1152 B** (5 boots, both states, no variation) |
+| derived bus hold | **2745.5 cycles** (1152 B at 205 B/line x 488.57 cyc/line) |
+| total queued | 1528 words (idle) / 1519 words (max-diagonal) |
+
+2745.5 cycles is about **5.6 scanlines** of held bus, which is the figure the sound driver's
+DMA-survival design has to tolerate.
+
+**What this bound is blind to,** stated so it is not over-read: refresh stalls, Z80 bus
+contention, VDP FIFO stalls on ordinary non-DMA port writes, and any DMA issued outside the
+queue. It bounds ONE contributor. Its cycle conversion uses documented hardware rates (H40
+VBlank VRAM DMA 205 B/line, scanline 3420/7) rather than anything measured on this ROM.
+
+**Non-gating, explicitly.** Design §5 carries this for awareness this phase because it couples
+to the sound driver's DMA-survival design; gating it is a later decision, not P2's.
+
+A side benefit worth recording: the plan prices per-line forcers at 896 B of HScroll DMA, and
+the scan shows **two 448-word entries at exactly that size**, confirming the axis-2 figure from
+the live queue rather than from the authoring side.
+
 ## 5. What these rows do NOT cover
 
 Stated so Phase 2 does not read more into them than they say.

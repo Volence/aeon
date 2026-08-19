@@ -229,6 +229,37 @@ def selftest_decoder() -> list[str]:
     return fails
 
 
+# ---- Task 5: the max-contiguous-DMA-stall AWARENESS row --------------------
+# READ THIS BEFORE TRUSTING ANY NUMBER BELOW. The figure design §5 asks for is
+# STRUCTURALLY INVISIBLE to this instrument. Oracle's 68000 core adds only `cyclesExecuted` to
+# `_currentCycle` (M68000.cpp:1029-1031) while bus/VDP/DMA stall accumulates in
+# `additionalTime` and lands in `_currentTime`; the profiler ring stamps `_currentCycle`
+# (M68000.h:95). So stall time reaches the wall clock and NEVER reaches a cycle row. Any stall
+# figure derived from a cycle row here would be an undercount or a zero regardless of what the
+# hardware actually does.
+#
+# WHAT IS DONE INSTEAD, and it is a DERIVATION, not a measurement of a stall. The 68000 bus is
+# held for the whole of a VDP DMA from 68K memory, so the longest contiguous hold in a frame is
+# the longest SINGLE DMA the queue carries. That length IS readable: it is `SizeH`/`SizeL` in
+# each DMAEntry, in words, and the queue is scanned at the end of active display, after the
+# main loop has finished enqueueing and before VBlank drains it.
+#
+# WHAT THIS IS BLIND TO, stated so the row is not over-read: refresh stalls, Z80 bus contention,
+# VDP FIFO stalls on ordinary (non-DMA) port writes, and any DMA the engine issues outside the
+# queue. It bounds ONE contributor. It is an awareness row and design §5 says explicitly that
+# this phase does not gate on it.
+DMA_ENTRY_SIZE = 14                # sizeof(DMAEntry), engine/structs.emp
+# H40 VBlank VRAM DMA rate, the standard figure: 205 bytes per scanline, and a scanline is
+# 3420 mclk / 7 = 488.57 68000 cycles. Both are documented constants of the hardware, not
+# measurements of this ROM -- which is exactly why the row below is labelled derived.
+DMA_BYTES_PER_LINE = 205
+SCANLINE_CYC = 3420 / 7
+
+
+def dma_stall_cycles(words: int) -> float:
+    return (words * 2 / DMA_BYTES_PER_LINE) * SCANLINE_CYC
+
+
 def rd_long(b_bytes: str) -> int:
     return int(b_bytes[:8], 16)
 
@@ -248,6 +279,36 @@ async def _read_byte(b: BusClient, addr: int) -> int:
     # with a shift — the word form would straddle and read the wrong cell's high half.
     r = await b.call("emulator/read_memory", {"addr": hex(addr), "len": 1})
     return int(r["bytes"][:2], 16)
+
+
+async def _scan_dma(b: BusClient, sym: dict[str, int], line: int = 220) -> dict:
+    """The DMA queue at end-of-active-display: every entry's length, and the largest.
+
+    Scanned at scanline `line` (default 220, inside active display and past every main-loop
+    enqueue) rather than at a frame boundary, where VBlank has already drained it and the
+    answer would be an empty queue reported as "no stall".
+    """
+    await b.call("emulator/run_to_scanline", {"line": line})
+    lo, hi = sym["DMA_Queue"] & 0xFFFFFF, sym["DMA_Queue_End"] & 0xFFFFFF
+    d = await b.call("emulator/read_memory", {"addr": hex(lo), "len": hi - lo})
+    raw = d["bytes"]
+    slots = []
+    for off in range(0, hi - lo, DMA_ENTRY_SIZE):
+        e = raw[off * 2:(off + DMA_ENTRY_SIZE) * 2]
+        if len(e) < DMA_ENTRY_SIZE * 2:
+            break
+        words = (int(e[2:4], 16) << 8) | int(e[6:8], 16)     # SizeH @+1, SizeL @+3
+        cmd = int(e[20:28], 16)
+        if words:
+            slots.append({"slot": off // DMA_ENTRY_SIZE, "words": words,
+                          "bytes": words * 2, "cmd": f"{cmd:08X}"})
+    used = [await _read_word(b, sym[s]) for s in
+            ("DMA_Critical_Slot", "DMA_Important_Slot", "DMA_Deferrable_Slot")]
+    biggest = max((s["words"] for s in slots), default=0)
+    return {"scanline": line, "entries": slots, "slot_cursors": used,
+            "max_words": biggest, "max_bytes": biggest * 2,
+            "max_stall_cycles_derived": round(dma_stall_cycles(biggest), 1),
+            "total_words": sum(s["words"] for s in slots)}
 
 
 async def _read_program(b: BusClient, sym: dict[str, int]) -> dict:
@@ -339,6 +400,9 @@ async def _one(b: BusClient, sym: dict[str, int], state: str,
     lt1 = await _read_long(b, sym["Logic_Tick"])
     lag1 = await _read_long(b, sym["Lag_Frame_Count"])
     prog1 = await _read_program(b, sym)
+    # Task 5's awareness scan. AFTER the profiled window, so it cannot perturb it: run_to_scanline
+    # leaves the machine mid-frame, which is the whole point and also why it goes last.
+    dma = await _scan_dma(b, sym)
 
     dx = (cam_x1 - cam_x0) / 65536.0
     dy = (cam_y1 - cam_y0) / 65536.0
@@ -361,6 +425,7 @@ async def _one(b: BusClient, sym: dict[str, int], state: str,
                  "cam_agrees": (dx == 0) or abs(cam_ticks - d_ticks) < 0.02},
         "art_hold": [art_hold0, art_hold1],
         "clamp_frames": clamp,
+        "dma": dma,
         "prog": {"start": prog0, "end": prog1,
                  # A program that CHANGED mid-sample (a section crossing installing a new
                  # preset) makes the measured total an average of two programs and the model
@@ -412,7 +477,9 @@ def main() -> int:
 
     sym = parse_lst(args.lst)
     need = ["Camera_X", "Camera_Y", "Camera_Target", "Camera_Art_Hold",
-            "Frame_Counter", "Logic_Tick", "Lag_Frame_Count"]
+            "Frame_Counter", "Logic_Tick", "Lag_Frame_Count",
+            "DMA_Queue", "DMA_Queue_End", "DMA_Critical_Slot", "DMA_Important_Slot",
+            "DMA_Deferrable_Slot"]
     missing = [s for s in need if s not in sym]
     if missing:
         print(f"symbols missing from {args.lst}: {', '.join(missing)}", file=sys.stderr)
@@ -495,6 +562,8 @@ def main() -> int:
         table[s] = {"cam": c, "cams": cams, "tick": ticks[0], "ticks": ticks,
                     "art_hold": runs[0]["art_hold"],
                     "clamp_frames": runs[0]["clamp_frames"],
+                    "dma": runs[0]["dma"],
+                    "dma_all_boots": [r["dma"]["max_words"] for r in runs],
                     "prog_words": [f"{w:04X}" for w in runs[0]["prog"]["start"]["words"]],
                     "prog_stable": all(r["prog"]["stable"] for r in runs),
                     "routines": {}}
@@ -544,6 +613,19 @@ def main() -> int:
                       f" dropped fires or an unwalked record")
         else:
             print("      !! HBlank trampoline row ABSENT — no HInt total measured")
+
+        # ---- Task 5: the DMA awareness scan. NOT a measured stall — see the module note.
+        dm = runs[0]["dma"]
+        allb = [r["dma"]["max_words"] for r in runs]
+        print(f"   -- axis: max contiguous DMA, DERIVED (the clock cannot measure a stall) --")
+        print(f"      queue at scanline {dm['scanline']}: {len(dm['entries'])} live entries,"
+              f" {dm['total_words']} words total; slot cursors {dm['slot_cursors']}")
+        print(f"      largest single transfer {dm['max_words']} words = {dm['max_bytes']} B"
+              f"   -> {dm['max_stall_cycles_derived']} cyc of bus hold at 205 B/line"
+              f"   (max_words across {len(allb)} boots: {allb})")
+        for e in dm["entries"]:
+            print(f"        slot {e['slot']:>2}  {e['words']:>5} words  {e['bytes']:>6} B"
+                  f"  cmd {e['cmd']}")
         print()
 
     if args.out:
