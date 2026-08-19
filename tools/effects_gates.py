@@ -328,9 +328,9 @@ def main() -> int:
                   and got_f4 == expect_f4 and got_f5 == expect_f5 and got_f8 == expect_f8)
             results.append((f"cost_model vs hardware (F0 {f0}, F1 {expect_f1}, F3 {expect_f3}, "
                             f"F4 {expect_f4}, F5 {expect_f5}, F8 {expect_f8} — all computed from "
-                            f"the shipped constants; F1/F5 carry the fall-through op that feels a "
-                            f"dispatch-chain change, F4 is the region op at dispatch depth 1, "
-                            f"F8 is the restore)", ok,
+                            f"the shipped constants; F1/F5 carry the register write, the one op "
+                            f"dispatched by the zero pre-test rather than by the chain, "
+                            f"F4 is the region op at dispatch depth 1, F8 is the restore)", ok,
                             f"measured F0={got_f0} F1={got_f1} F3={got_f3} F4={got_f4} "
                             f"F5={got_f5} F8={got_f8}"))
 

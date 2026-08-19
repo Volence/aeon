@@ -5022,8 +5022,10 @@ own parcel off master, then merge master into the P1 branch before Task 9.
 **Tier 3 perf — deliberately AFTER the freeze, as byte-moving parcels** (ranked by leverage):
 ~~`raster.emp:736` 30 cyc/streamed word vs 16 via `-4(a2)`~~ **CLOSED 2026-08-19** (see
 "Tier-3 item 1 CLOSED" below — landed at 26, not 16; the 16 was the instruction alone and
-omitted the loop's `dbf`) · `raster.emp:714` OP_SET_REG pays all 5 compare rungs (80 of
-110 cyc; a leading `tst.w d1 / beq` decimates it) · `raster.emp:834` dense kind re-tested per
+omitted the loop's `dbf`) · ~~`raster.emp:714` OP_SET_REG pays all 5 compare rungs (80 of
+110 cyc; a leading `tst.w d1 / beq` decimates it)~~ **CLOSED 2026-08-19** (see "Tier-3 item 2
+CLOSED" below — landed WITHOUT the `tst.w`: the op fetch's own `move.w` already sets Z, so the
+whole pre-test is one `beq`) · `raster.emp:834` dense kind re-tested per
 scanline, ~2,300 cyc/frame, run-invariant · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
 (`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
 change AND a novel mechanism: owner sign-off required, do not assume** · ~~`palette.emp` ×6
@@ -5068,6 +5070,91 @@ change AND a novel mechanism: owner sign-off required, do not assume** · ~~`pal
 > — the model does not price the palette derive); `ab_runner --selfcheck` OLD-vs-NEW on all
 > three raster scenes (`mid_band`, `suppressed`, `above_screen`) = **ALL EQUAL (gated)**
 > including `state_hash`, as a value-identical parcel must be.
+
+> **CLOSED 2026-08-19 — Tier-3 item 2, the dispatch chain** (branch
+> `perf/raster-dispatch-chain`, commit `0b1ad989`). Line numbers had drifted: the chain is at
+> `raster.emp:769` post-1c.
+>
+> *What shipped, and why it is not what the item proposed.* The item asked for a leading
+> `tst.w d1 / beq`. The `tst.w` is unnecessary: OP_SET_REG is opcode **0**, and `.op_loop`'s
+> own op fetch `move.w (a1)+, d1` sets Z from the word it moved. The pre-test is therefore a
+> single `beq .op_reg` in front of the chain and nothing else — one instruction, +2 bytes,
+> and 4 cycles cheaper than the proposal for every op in the vocabulary.
+>
+> | class | dispatch before | after | delta |
+> |---|---|---|---|
+> | OP_SET_REG | 80 (five failed rungs — it was the fall-through) | **10** (one taken `beq.s`) | **-70** |
+> | OP_CRAM / VSRAM | 18 | 26 | +8 |
+> | OP_PAL_REGION | 34 | 42 | +8 |
+> | OP_PAL_RESTORE | 82 | 90 | +8 |
+>
+> *Why `beq` forward and not `bne` around an inlined body.* The two spellings trade the taken
+> branch for the not-taken one — `beq` costs OP_SET_REG 10 and everyone else 8; `bne` with the
+> body hoisted costs OP_SET_REG 8 and everyone else 10 — so shipped frequency decides. Decoded
+> out of the ROM, the three OJZ raster programs carry **2 reg_set against 3 stream ops**
+> (`OJZ_TestRaster` reg+cram, `OJZ_WaterRaster` reg+region, `OJZ_TestVsram` vsram), so the +8
+> side is the one worth making cheap. The `beq` form also keeps two properties the `bne` form
+> loses: OP_SET_REG stays the chain's FALL-THROUGH, so an unrecognised opcode still lands on
+> the harmless one-word register write instead of on whichever body got promoted; and it is
+> ONE INSERTED INSTRUCTION with no code motion, so all five rung displacements are byte-
+> identical to master (`6720 6732 6752 675E 6774`) and every rung keeps its `.s` encoding and
+> its 16/18-cycle price. The chain order is otherwise unchanged and the depth auto-derivation
+> (`depth = (opcode - OP_CRAM) / 2`) survives intact.
+>
+> Making OP_PAL_RESTORE the fall-through instead (saving it 18 more) was weighed and refused:
+> it costs +2 on every op the tree actually ships, it kills the depth derivation, and the
+> decoded programs fire **zero** restores.
+>
+> *Size:* +2 bytes of handler code, absorbed by the fill before the next section anchor, so
+> **no downstream symbol moves** (`SoundTablesZ80_Head` sits at `$8000` in both). All four ROMs
+> grow by exactly **+16 bytes**, which is the deb2 entry for the one new local label
+> `$engine.effects.raster$Raster_HInt$op_reg` (2575 -> 2576 symbols). No pins move.
+>
+> *The model re-priced itself.* Two new constants (`RASTER_DISPATCH_ZERO_HIT_CYC` 10,
+> `_MISS_CYC` 8) feed `op_dispatch_cyc`; the solver re-derived every spin and the cost gate
+> re-derived every expectation. Nothing was hand-adjusted. Fixture moves, measured on hardware:
+> **F1 3044 -> 2624** (six reg fires, -420 = 6 x 70 — the parcel), F3 3882 -> 3862, F4 4652 ->
+> 4640, F5 3220 -> 3204, F8 4640 -> 4628, F0 572 unmoved. Shipped program spins re-solved:
+> `OJZ_TestRaster` 10 -> 17, `OJZ_WaterRaster` 4 -> 10, `OJZ_TestVsram` 21 -> 21 (0.8 of an
+> iteration does not reach the next integer).
+>
+> *Realized cycles on shipped OJZ content.* Every sparse raster record fires once per frame.
+> Section 0 (`OJZ_TwoChannel`) fires `[reg_sh_on, pal_region]` + `[vsram]` = one reg_set and
+> two stream ops per frame: **-70 + 2 x 8 = -54 cyc/frame**. The single-program fixtures
+> `OJZ_TestRaster` / `OJZ_WaterRaster` are `[reg, stream]`: **-62 cyc/frame** each.
+> `OJZ_TestVsram` alone is **+8**. Against a 19,332-cycle NTSC frame the section-0 saving is
+> ~0.28%, which is small because the shipped vocabulary is small — the parcel's real size is
+> per-op, and it grows with the register writes a program carries. An S/H band fires two of
+> them (`reg_sh_on` at the top, `reg_sh_off` at the de-mix line): those two alone go from 160
+> cycles of dispatch to 20, and the band nets **-124 cyc/frame** after its ON op and its
+> restore each pay the +8.
+>
+> *Two guards changed REACHABILITY, and both are recorded rather than patched.* (a) A
+> four-reg_set fire now costs 462 against a 488-cycle line, so it FITS; five would overrun but
+> five is past the per-fire op ceiling of 4, so the overrun side is stated as arithmetic on the
+> model rather than as an unconstructible `fire()`. Consequence worth knowing: **no legal
+> reg-only fire overruns a scanline any more.** (b) `check_landings`' LATE edge is no longer
+> reachable through any legal fire — the deepest non-restore op behind the most register writes
+> the ceiling allows lands at 320 against the 341 edge, two-stream-op fires always trip the
+> EARLY edge first, and a restore with anything else in its fire is refused by D-B. Its poison
+> now dodges the ceiling with a direct `RasterFire.Fire` construction, the way
+> `poison_direct_8a` dodges `reg_set`'s own ensure.
+>
+> *Pins 3 and 4 were re-spelled, not re-based.* Both reproduce hardware calibrations taken on
+> the OLD chain (the restore's 13, the P2 gate's measured 1-pixel spill). Rewriting their
+> targets to the new arithmetic would have made them check this parcel against itself, so a
+> `op_dispatch_cyc_preitem2` twin was added for them alone, pinned to the shipped function by
+> the exact item-2 delta. PIN 4 gained a margin clause so the re-spelling could not be wrong
+> quietly.
+>
+> *Evidence:* four shapes green (s4 698376 / s4.debug 713261 / demo 95696 / demo.debug 100053,
+> all base+16); pytest **1069 passed / 2 skipped** (1067 baseline + the two new mirrored
+> constants); expect-fail lane **17/17**; effects gate lane **18/18 PASS, exit 0**, cost row
+> `F0 572, F1 2624, F3 3862, F4 4640, F5 3204, F8 4628` all matching the re-derived model;
+> sweep re-run predicted -0.8 N on every boundary and measured **-0.833** (ten of twelve moved
+> exactly -1, two held), with the driver printing `CENTRE N = 18` unprompted against the
+> solver's independently derived 18 — see
+> `docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`, "Re-run — item 2".
 
 **Tier 4 — drift the baseline would enshrine as documentation** (zero-byte, land with the parcel):
 10 major comment-truth defects incl. `raster_dsl.emp:1630` trailer offset documented `8n` where

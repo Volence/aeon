@@ -1065,8 +1065,10 @@ comptime fn check_landings(f: RasterFire) -> int {
 // CRAM path to the burst, by exactly RASTER_DISPATCH_ZERO_MISS_CYC = 8: the zero pre-test
 // sits in front of the cram rung now. So a fixed spin of 4 arrives 8 cycles later and
 // lands 8 cycles less early, 235 - 8 = 227, and equivalently the sweep's measured crossing
-// moves DOWN by 8/10 = 0.8 in N (27.5 -> 26.7). Both statements are the same fact and the
-// item-2 sweep re-run (docs/benchmarks/scanline-p3/) measures the second one directly.
+// moves DOWN by 0.8 in N. Both statements are the same fact, and the item-2 sweep re-run
+// measures the second one directly: ten of its twelve boundaries moved exactly -1 and the
+// other two held, a mean of -0.833 N against the predicted -0.800
+// (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, "Re-run — item 2").
 ensure(RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4)) == 227,
        "the model puts the retired RASTER_SPIN_CRAM = 4 leading-cram burst {RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4))} cycles before the sampling instant, but the sweep's derivation carried forward through item 2 says 227 (the pre-item-2 sweeps' 235, less the 8-cycle zero pre-test the cram rung now sits behind; = pixel ~214 of 320, mid-active-display — the defect item 1 exists to fix). Whichever of RASTER_HBLANK_END_CYC, the op fetch, the dispatch terms or RASTER_PRE_CRAM_CYC moved, the anchor must be re-derived against docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md and its item-2 re-run, not patched back to a previous value.")
 // PIN 2 — the solver's answer for the swept shape IS the measured centre.
@@ -1096,12 +1098,15 @@ ensure(RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_ZERO_MISS_
 //     0.8 iterations SHORTER, so every boundary the instrument reports moves down by 0.8.
 //   * the band's WIDTH is untouched: it is set by the burst span (52 cycles, item 1) and
 //     the H40 blanking width, neither of which item 2 goes near.
-// Predicted band [14.41, 21.7] = integers 15..21, centre 18. The solver says 18 from the
-// arithmetic; the re-run measures the boundaries.
+// Predicted band [14.41, 21.7], centre 18. MEASURED band [15.21, 21.5] = integers 16..21,
+// and the driver printed "CENTRE N = 18" unprompted — the same 18 the solver derives from
+// the constants alone, having never seen a boundary. The measured upper edge moved 22.5 ->
+// 21.5 (its boundary slid the predicted -1); the derived lower edge held at 15.21 because
+// the boundary IT is computed from is one of the two that rounded to 0.
 ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] == 18,
-       "the solver gives the SWEPT shape (a leading single-op 3-word stream_cram) spin {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, but the sweep measured that shape's clean window as N in [14.41, 21.7], centre 18 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md at item 1, slid down 0.8 N by item 2's zero pre-test and re-measured). Do NOT re-tune the window constants to restore this — re-derive, and if the arithmetic genuinely cannot reconcile, that is a measurement to re-run, not a constant to move.")
-ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] >= 15 && fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] <= 21,
-       "the solver's spin for the swept shape is {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, outside the integers 15..21 the sweep measured CLEAN")
+       "the solver gives the SWEPT shape (a leading single-op 3-word stream_cram) spin {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, but the sweep measured that shape's clean window as N in [15.21, 21.5], centre 18 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, item-2 re-run). Do NOT re-tune the window constants to restore this — re-derive, and if the arithmetic genuinely cannot reconcile, that is a measurement to re-run, not a constant to move.")
+ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] >= 16 && fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] <= 21,
+       "the solver's spin for the swept shape is {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, outside the integers 16..21 the item-2 sweep re-run measured CLEAN")
 // PIN 3 — the retired RASTER_SPIN_RESTORE = 13 was an oracle landing calibration ("at zero
 // delay the burst completed at x~180 of the row ABOVE the authored edge", then jumped to
 // the measured deficit and pixel-verified). This model, which never saw that capture,

@@ -556,3 +556,85 @@ That extra iteration is the 8 cycles a 3-word CRAM burst stopped spending. A 4-w
 burst would span `3 x 26 = 78` cycles against the 122.9-cycle window, leaving 44.9 for both
 margins where the guard wants 30 - so four words is arithmetically placeable for the CRAM
 class and NOT for the deep class (`3 x 30 = 90`, leaving 32.9). See `docs/DEFERRED_WORK.md`.
+
+## Re-run 2026-08-19 — substrate Tier-3 item 2 (the zero pre-test)
+
+Item 2 hoisted the OP_SET_REG test out of the compare chain and onto the flag the op fetch
+already sets: OP_SET_REG is opcode 0, `move.w (a1)+, d1` sets Z from the word it moved, so
+`.op_loop` now decides it with a single `beq.s .op_reg` ahead of the chain. A register write's
+dispatch drops from 80 cycles (five failed rungs — it was the fall-through) to 10 (one taken
+branch), and **every non-zero op pays 8 cycles** for the same branch not taken.
+
+The swept fixture is a LEADING single-op 3-word CRAM. It carries no register write, so item 2
+does exactly one thing to it: **+8 cycles in front of its rung**. Same driver, same fixture,
+same flags. Nothing was re-baselined.
+
+```
+python3 tools/hblank_window_sweep.py --rom s4.debug.bin --lst s4.debug.lst --only sweep \
+        --lo 0 --hi 200 --rows 12
+```
+
+### THE PREDICTION, STATED BEFORE THE RUN
+
+The path from the op-walk origin to the burst grew by 8 cycles, and the instrument resolves
+10 cycles per N. To place the same write at the same hardware instant the spin must be
+`8/10 = 0.8` iterations SHORTER, so **every boundary slides DOWN by 0.8 N** and the band keeps
+its width (the width is set by the burst span and the H40 blanking, neither of which item 2
+touches). A reported boundary is an integer localized to ±0.5, so each one should read either
+−1 or 0, with about four in five reading −1.
+
+| | post-item-1 | predicted (item 2) | measured (item 2) |
+|---|---|---|---|
+| boundaries at N | `23, 26, 28 · 72, 75, 77 · 120, 123, 126 · 170, 173, 174` | `22.2, 25.2, 27.2 · 71.2, 74.2, 76.2 · 119.2, 122.2, 125.2 · 169.2, 172.2, 173.2` | `22, 25, 28 · 71, 74, 76 · 119, 122, 125 · 169, 172, 174` |
+| within-group step | `[3,2,3,2,3,3,3,1]` -> 25.0 cyc/word | unchanged (span untouched) | `[3,3,3,2,3,3,3,2]` -> **27.5 cyc/word** |
+| between-group step | 490.0 cyc/sampling period | unchanged | 490.0 cyc/sampling period (identical — the instrument did not move) |
+| burst span, first -> last | 50 cyc | unchanged | 60 cyc as reported by the driver's boundary arithmetic |
+| upper edge N (last word) | 22.5 MEASURED | 21.7 | **21.5 MEASURED** |
+| lower edge N | 15.21 DERIVED | 14.41 | 15.21 DERIVED |
+| clean N | 16..22, CENTRE 19 | 15..21, centre 18 | 16..21, **CENTRE 18** |
+
+### Predicted vs measured, boundary by boundary
+
+```
+post-item-1  [23, 26, 28 | 72, 75, 77 | 120, 123, 126 | 170, 173, 174]
+predicted    [22, 25, 27 | 71, 74, 76 | 119, 122, 125 | 169, 172, 173]   (each -0.8, rounded)
+measured     [22, 25, 28 | 71, 74, 76 | 119, 122, 125 | 169, 172, 174]
+d(measured)   -1  -1   0 | -1  -1  -1 |  -1   -1   -1 |  -1   -1    0
+agree with
+prediction    Y   Y    N | Y   Y   Y  |  Y    Y    Y  |  Y    Y    N
+```
+
+**Ten of twelve boundaries moved exactly the predicted −1; the other two held.** Both
+exceptions are a group's LAST boundary, the one nearest the +0.5 side of its localization
+window, which is precisely where a true shift of 0.8 rounds to 0. The mean measured shift is
+`(10 x -1 + 2 x 0) / 12 = -0.833 N` against the predicted `-0.800` — a disagreement of 0.033 N
+= **0.33 cycles**, which is a fortieth of what this instrument can resolve.
+
+There is no term available to make it anything other than −0.8: a not-taken `beq.s` on a 68000
+is 8 cycles, and `dbf` taken is 10.
+
+### The one number that is not a comparison
+
+The driver, given no expectation, printed its own headline:
+
+```
+=> clean N in [15.21, 21.5]  = integers 16..21   CENTRE N = 18
+```
+
+`raster_dsl.emp`'s solver, deriving from the constants alone, gives the swept shape a spin of
+**18**. That agreement is PIN 2, and it is the check that the model's dispatch decomposition
+is right and not merely self-consistent: the solver has never seen a boundary.
+
+### Why the summary statistic moved 25.0 -> 27.5 when nothing narrowed the burst
+
+Same aliasing as the item-1 section explains in the other direction. The within-group step is
+eight two-boundary intervals each localized to ±0.5 N, and the underlying spacing (2.6 N per
+word) is not a whole number of iterations, so which side of the grid each boundary falls on
+changes when the whole pattern slides 0.8. The burst span did not change — item 2 does not
+touch `.cram_loop` — and the derived word cost is still the cycle table's 26.
+
+### What is NOT swept, and is pinned instead
+
+The register write itself. It carries no burst, so this instrument has nothing to see; its
+70-cycle drop is measured on hardware by the cost probe as fixture **F1, 3044 -> 2624 cycles
+over six fires** (`tools/effects_gates.py`, cost_model gate, exit 0 with 18/18).
