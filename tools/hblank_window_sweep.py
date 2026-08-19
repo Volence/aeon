@@ -67,12 +67,13 @@ independent SERVER processes, same N, byte-identical rows) runs before the sweep
 result is recorded either way.
 
 HOW MANY WORDS THE BURST CARRIES IS AN INPUT (`--words`, default 3). The sweep was written
-for the shape the DSL ships — `RASTER_CRAM_MAX = 3` — but the ceiling is a CYCLE budget, and
-the only honest way to move it is to author the wider burst and measure where it lands. The
-driver pokes the wire image directly, so the constructors' `ensure` never sees the fixture;
-that is the same latitude the 1b fixture already takes (it pokes a spin the lowering would
-never solve). `--words 4` is the fixture the `RASTER_CRAM_MAX` parcel is decided on, and
-`--words 5` is available to watch the refusal's arithmetic be right.
+for the shape the DSL shipped at the time — a single ceiling of 3 — but the ceiling is a
+CYCLE budget, and the only honest way to move it is to author the wider burst and measure
+where it lands. The driver pokes the wire image directly, so the constructors' `ensure` never
+sees the fixture; that is the same latitude the 1b fixture already takes (it pokes a spin the
+lowering would never solve). `--words 4` is the fixture the ceiling raise was decided on --
+it is now `RASTER_BURST_MAX_CRAM` and it is 4 -- and `--words 5` is available to watch the
+refusal's arithmetic be right.
 
 Usage:
     python3 tools/hblank_window_sweep.py --rom s4.debug.bin --lst s4.debug.lst
@@ -188,11 +189,12 @@ def fx_sweep(addr: int = CRAM_LINE2_E5, words: int = 3) -> dict:
     than a constant, chosen by that map and reported with it.
 
     `words` is the burst width, and it is an INPUT because the ceiling it feeds
-    (`RASTER_CRAM_MAX`) is a per-fire cycle budget rather than a hardware limit -- the only
-    way to know whether a wider burst still lands inside blanking is to author one and read
-    the picture back. Nothing in the DSL is bypassed dishonestly here: the constructors'
-    `ensure` refuses `words > RASTER_CRAM_MAX` and this driver never calls them, it pokes the
-    wire image exactly as it already pokes a spin the lowering would never solve. Widening the
+    (`RASTER_BURST_MAX_CRAM` for this op class) is a per-fire cycle budget rather than a
+    hardware limit -- the only way to know whether a wider burst still lands inside blanking
+    is to author one and read the picture back. Nothing in the DSL is bypassed dishonestly
+    here: the constructors' `ensure` refuses a burst above the ceiling and this driver never
+    calls them, it pokes the wire image exactly as it already pokes a spin the lowering would
+    never solve. Widening the
     burst only ADDS CRAM entries ($50, $52, $54, $56 at four words), so an address the map
     found adequate at three stays adequate -- and `run_sweep` prints the reference sensitivity
     per row before any verdict, which is that claim measured rather than assumed.
@@ -1070,12 +1072,13 @@ def main() -> int:
     # observation into a fit: their spacing is a measurement of cycles per scanline.
     ap.add_argument("--rows", type=int, default=6,
                     help=f"rows read per capture, from boundary-3 (default {ROWS_READ})")
-    # The swept burst's width. 3 is what the constructors admit today; 4 is the fixture the
-    # RASTER_CRAM_MAX parcel is decided on. See fx_sweep's note on why poking a width the
-    # DSL would refuse is the point rather than a cheat.
+    # The swept burst's width. The DEFAULT STAYS 3 so every earlier section of the RESULTS
+    # doc reproduces with no flag, even though the cram ceiling is now 4; 5 is the width the
+    # arithmetic refuses and the instrument agrees with. See fx_sweep's note on why poking a
+    # width the DSL would refuse is the point rather than a cheat.
     ap.add_argument("--words", type=int, default=3,
-                    help="CRAM words in the swept burst (default 3; 4 is the ceiling-raise "
-                         "fixture)")
+                    help="CRAM words in the swept burst (default 3, which reproduces the "
+                         "earlier runs; 4 is the ceiling-raise fixture)")
     args = ap.parse_args()
     if args.words < 1:
         print("--words must be at least 1", file=sys.stderr)
