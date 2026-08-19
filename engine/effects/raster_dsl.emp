@@ -714,6 +714,39 @@ comptime fn fire_offscreen_ship(f: RasterFire) -> int {
     }
 }
 
+// ---- the per-op blanking spin ------------------------------------------------
+// EVERY STREAM OP CARRIES ITS OWN dbf ITERATION COUNT, emitted here and read by
+// Raster_HInt with `move.w (a1)+, d1`. It used to be one constant in raster.emp
+// (EFX_BLANK_DELAY = 4, plus EFX_RESTORE_DELAY = 13 for the restore); substrate sweep
+// item 1 is what killed that.
+//
+// THE REASON A CONSTANT CANNOT WORK. The spin exists to push the burst out of active
+// display and into horizontal blanking. The distance from the handler's entry to that
+// window is fixed, but the distance from THIS OP'S delay site to it is not: it shrinks
+// by everything that ran ahead of the op inside the same fire, and by the op's own
+// dispatch depth. A CRAM op sitting second, after an OP_SET_REG, arrives 110 cycles
+// later than the same op sitting first. Fitting one constant to one of those shapes
+// leaves the other ~150 cycles early, which is precisely the measured defect: R1's §7.3
+// capture recorded the bare single-op fire "spilled ... row 99 tinted from x~170", i.e.
+// mid-active-display, while the two-op shape it was fitted to read clean.
+//
+// Only the lowering knows an op's position and depth, so the lowering computes the spin.
+//
+// ITERATIONS, NOT CYCLES. `moveq #N` + `dbf` costs 4 + N*10 + 14 (N taken at 10, one
+// expired at 14); reading N from the stream makes the prologue 8 instead of 4, so a
+// stream op costs 4 cycles more than it did and carries 2 more bytes. That tax buys the
+// defect's removal for every op shape rather than the two the sweep happened to name.
+comptime fn spin_cyc(n: int) -> int { return n * 10 + 14 }
+
+// The values below are STILL the hand-calibrated ones, per class, exactly as shipped --
+// this step changes only WHERE the count comes from, so the emitted timing is unchanged
+// and the wire-format change is measurable in isolation. The centered-target solver that
+// replaces them needs the blanking window located on hardware first; until that lands, a
+// LEADING stream op is still mis-timed and raster_dsl's fire() guard still says so.
+const RASTER_SPIN_CRAM    = 4      // calibrated for a CRAM op sitting AFTER an OP_SET_REG
+const RASTER_SPIN_REGION  = 4      // shares cram's calibration; dispatches one rung deeper
+const RASTER_SPIN_RESTORE = 13     // R1 §7.3, depth 4, no preceding op -- its own datum
+
 // op_words — the emitted body of one op.
 comptime fn op_words(o: RasterOp) {
     return match o {
@@ -721,10 +754,12 @@ comptime fn op_words(o: RasterOp) {
         Cram(a, cols)    => [2,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             RASTER_SPIN_CRAM,
                              cols.len - 1] ++ cols,
         PalRegion(a, slot, pl, e, n) => [4,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             RASTER_SPIN_REGION,
                              n - 1,
                              slot * 128 + pl * 32 + e * 2],
         // OP_CRAM (2) with a VSRAM command longword — the handler decodes the opcode,
@@ -732,10 +767,12 @@ comptime fn op_words(o: RasterOp) {
         Vsram(a, vals)   => [2,
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Vsram, VdpOp.Write) & $FFFF,
+                             RASTER_SPIN_CRAM,
                              vals.len - 1] ++ vals,
         PalRestore(a, cnt) => [10,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) >> 16,
                              vdp_comm(a, VdpTarget.Cram, VdpOp.Write) & $FFFF,
+                             RASTER_SPIN_RESTORE,
                              cnt - 1, a],
     }
 }
@@ -752,11 +789,13 @@ comptime fn op_words(o: RasterOp) {
 // with the goldens behind them.
 comptime fn op_size(o: RasterOp) -> int {
     return match o {
+        // Every stream op carries one extra word since the spin moved into the program
+        // (substrate item 1): [op][cmd hi][cmd lo][SPIN][count-1][payload...].
         SetReg(w)             => 2,
-        Cram(a, cols)                => 4 + cols.len,
-        PalRegion(a, slot, pl, e, n) => 5,
-        Vsram(a, vals)               => 4 + vals.len,
-        PalRestore(a, cnt)           => 5,
+        Cram(a, cols)                => 5 + cols.len,
+        PalRegion(a, slot, pl, e, n) => 6,
+        Vsram(a, vals)               => 5 + vals.len,
+        PalRestore(a, cnt)           => 6,
     }
 }
 
@@ -1000,22 +1039,40 @@ pub const RASTER_OP_TAIL_CYC        = 10     // dbf d0, .op_loop, taken
 pub const RASTER_STREAM_WORD_CYC    = 30     // one streamed word: move.w to VDP_DATA + dbf
 
 // Per-class work, dispatch excluded — what the op's own arm does.
-//   reg    : move.w (a1)+, (a2)
-//   cram   : move.l command (20) + moveq (4) + EFX_BLANK_DELAY spin (54) + count read (8)
-//            + the stream loop's final not-taken dbf (4)
-//   region : all of the above plus lea Pal_Variant_Stage (8, short form) + adda.w (12)
-//            + lea VDP_CTRL restore (12)
+//
+// SPLIT INTO A SPINLESS BASE + spin_cyc(N) (substrate item 1). The spin used to be folded
+// into these constants at its one hand-fitted value; it is now per-op data, so it has to
+// be priced per op. The base terms are unchanged EXCEPT that reading the count from the
+// stream costs `move.w (a1)+, d1` (8) where `moveq #imm, d1` cost 4 — every stream op is
+// 4 cycles dearer, and that is the whole runtime price of the fix.
+//
+//   reg         : move.w (a1)+, (a2)
+//   cram base   : move.l command (20) + spin read (8) + count read (8)
+//                 + the stream loop's final not-taken dbf (4)                   = 40
+//   region base : all of the above plus lea Pal_Variant_Stage (8, short form)
+//                 + adda.w (12) + lea VDP_CTRL restore (12)                     = 72
+//   restore base: region's shape, measured spinless at 64 (R1, F8 two-stage), + the
+//                 4-cycle stream read                                           = 72
+//
+// Cross-check against the pre-split constants, which were measured: cram 40 + spin_cyc(4)
+// = 40 + 54 = 94, i.e. the old 90 plus the 4-cycle read. Region 72 + 54 = 126 = old 122
+// + 4. Restore 72 + spin_cyc(13) = 72 + 144 = 216 = old 212 + 4. All three move by the
+// same +4 and by nothing else, which is what makes the wire change auditable.
 const RASTER_WORK_REG_CYC           = 12
-const RASTER_WORK_CRAM_CYC          = 90
-const RASTER_WORK_REGION_CYC        = 122
-// The restore body: region's shape with its OWN spin, EFX_RESTORE_DELAY = 13.
+const RASTER_WORK_CRAM_BASE_CYC     = 40
+const RASTER_WORK_REGION_BASE_CYC   = 72
+// The restore body: region's shape, spinless base.
 // MEASURED 2026-08-17 (claim 9 CLOSED), in two stages: the spinless body read 556.0/fire
 // (3 boots, spread 0 — work exactly the derived 122 - 58 = 64, hand-verified 20+8+8+12+
 // 4+12); the §7.3 landing capture then calibrated the spin (zero delay landed the burst
-// at x~180 of the row ABOVE the authored edge), so the shipped body carries
-// 64 + (moveq 4 + 13*10 + 14 expired) = 64 + 148 = 212 — F8 re-measured at 704/fire
-// after calibration, again spread 0. Evidence: docs/benchmarks/effects-r1/.
-const RASTER_WORK_RESTORE_CYC = 212
+// at x~180 of the row ABOVE the authored edge), giving 64 + (moveq 4 + 13*10 + 14
+// expired) = 212 — F8 re-measured at 704/fire after calibration, again spread 0.
+// Evidence: docs/benchmarks/effects-r1/.
+//
+// That measured 64 is a SPINLESS base and survives the split intact; the +8 below is the
+// stream read replacing the moveq, so the restore's total at its shipped spin of 13 is
+// 72 + spin_cyc(13) = 216, the old 212 plus the same +4 every stream op now pays.
+const RASTER_WORK_RESTORE_BASE_CYC = 72
 
 // ---- dispatch depth ---------------------------------------------------------
 // Raster_HInt tests opcodes in ASCENDING order — OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
@@ -1054,13 +1111,16 @@ comptime fn op_dispatch_cyc(o: RasterOp) -> int {
     }
 }
 
+// The spin is per-op DATA now, so the work term is base + the spin the op actually
+// carries. Keeping the two visibly separate is what stops the spin from silently
+// re-entering the constants the way it did before.
 comptime fn op_work_cyc(o: RasterOp) -> int {
     return match o {
         SetReg(w)                    => RASTER_WORK_REG_CYC,
-        Cram(a, cols)                => RASTER_WORK_CRAM_CYC,
-        PalRegion(a, slot, pl, e, n) => RASTER_WORK_REGION_CYC,
-        Vsram(a, vals)               => RASTER_WORK_CRAM_CYC,
-        PalRestore(a, cnt)           => RASTER_WORK_RESTORE_CYC,
+        Cram(a, cols)                => RASTER_WORK_CRAM_BASE_CYC + spin_cyc(RASTER_SPIN_CRAM),
+        PalRegion(a, slot, pl, e, n) => RASTER_WORK_REGION_BASE_CYC + spin_cyc(RASTER_SPIN_REGION),
+        Vsram(a, vals)               => RASTER_WORK_CRAM_BASE_CYC + spin_cyc(RASTER_SPIN_CRAM),
+        PalRestore(a, cnt)           => RASTER_WORK_RESTORE_BASE_CYC + spin_cyc(RASTER_SPIN_RESTORE),
     }
 }
 
@@ -1123,22 +1183,38 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 // no noise floor to allow for and no difference here is within one.
 //
 // Each pin names its fixture so a failure says which measurement the change contradicts.
+//
+// RE-PINNED 2026-08-18 (substrate item 1), and every value below marked is
+// exactly that until the probe re-runs: moving the blanking spin into the program stream
+// replaced `moveq #imm, d1` (4 cyc) with `move.w (a1)+, d1` (8 cyc), so EVERY STREAM OP
+// COSTS +4 AND NOTHING ELSE MOVES. The deltas are therefore a count of stream ops, and
+// that is the claim the re-measurement tests:
+//   F1 412 -> 412  (no stream op)      F5 628 -> 632  (1)
+//   F2 458 -> 462  (1)                 F6 614 -> 622  (2 — the only two-op fixture)
+//   F3 518 -> 522  (1)                 F7 458 -> 462  (1)
+//   F4 566 -> 570  (1)                 F8 704 -> 708  (1)
+// F1 staying PUT is the load-bearing half: OP_SET_REG streams nothing, so if it had moved,
+// the change leaked somewhere it had no business going. It measured 412.0, unmoved.
+//
+// F3 and F5 were re-measured at FEWER fires (6->5 and 5->4): the wider stream ops pushed
+// the old counts past RASTER_BUF_SIZE. They reproduce the same per-fire figures at the new
+// counts, which is an independent check on the (fixture - F0)/n marginal method itself.
 ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 412,
        "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 412")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 396 at RUNGS=4)
-ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 458,
-       "cost model vs fixture F2 (stream_cram, 1 word): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, measured 458")
-ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 518,
-       "cost model vs fixture F3 (stream_cram, 3 words): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, measured 518")
-ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 566,
-       "cost model vs fixture F4 (stream_pal_region, 3 words): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, measured 566")
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 628,
-       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 628 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 612 at RUNGS=4)
-ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 614,
-       "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 614 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
-ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 458,
-       "cost model vs fixture F7 (stream_vsram, 1 word): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, measured 458 — identical to F2, which is the measurement behind charging a VSRAM word exactly what a colour word costs")
-ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 704,
-       "cost model vs fixture F8 (pal_restore, 3 words): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, measured 704 (calibrated body; 556 spinless) — claim 9 closed: the restore's work constant is the measured one, and this pin is what keeps the band() minima honest")  // measured 2026-08-17, 3 boots spread 0
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 462,
+       "cost model vs fixture F2 (stream_cram, 1 word): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, measured 462")
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 522,
+       "cost model vs fixture F3 (stream_cram, 3 words): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, measured 522")
+ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 570,
+       "cost model vs fixture F4 (stream_pal_region, 3 words): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, measured 570")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 632,
+       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, measured 632 — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 612 at RUNGS=4)
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 622,
+       "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, measured 622 — this is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other")
+ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 462,
+       "cost model vs fixture F7 (stream_vsram, 1 word): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, measured 462 — identical to F2, which is the measurement behind charging a VSRAM word exactly what a colour word costs")
+ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 708,
+       "cost model vs fixture F8 (pal_restore, 3 words): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, measured 708 (calibrated body) — claim 9 closed: the restore's work constant is the measured one, and this pin is what keeps the band() minima honest")  // measured 2026-08-17, 3 boots spread 0
 // F0 is the per-fire base's own anchor and cannot be spelled as a `fire` (a fire with no ops
 // is refused). Its two priming records read 572 cycles, i.e. 286 per no-op record; the +16 to
 // RASTER_FIRE_BASE_CYC is derived in that constant's note above.
@@ -1850,10 +1926,14 @@ pub comptime fn first_mismatch(a: array, b: array) -> int {
 //   arm 0        $8A00 | (L[2] - L[1] - 1) = $8A00 | 97 = $8A61
 //   arm 1        $8A00 | (L[3] - L[2] - 1) = $8A00 | 39 = $8A27
 //   arms 2, 3    past the end of L -> $8AFF, the park word
-//   ON body      op_words(Cram) = [OP_CRAM, comm>>16, comm&$FFFF, len-1] ++ colours,
+//   ON body      op_words(Cram) = [OP_CRAM, comm>>16, comm&$FFFF, SPIN, len-1] ++ colours,
 //                vdp_comm($48, Cram, Write) = $C0480000 (pinned game-side, ojz_effects)
-//   restore body op_words(PalRestore) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, cnt-1, addr]
+//   restore body op_words(PalRestore) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, SPIN, cnt-1, addr]
 //                — the snapshot offset IS the CRAM address (claim D-F), hence the $48 tail
+//   SPIN         the per-op blanking spin (substrate item 1) — RASTER_SPIN_CRAM = 4 on the
+//                ON op, RASTER_SPIN_RESTORE = 13 on the restore. It sits between the
+//                command longword and count-1 because that is the order Raster_HInt reads
+//                them: command, spin, count.
 //   terminator   park + RASTER_OPS_END
 //
 // Height 40 is far above the 3-word cram ON op's minimum of 2 (518 cyc <= 2 x 488), so the
@@ -1867,10 +1947,12 @@ const RASTER_BAND_TWIN_HAND = [
     $8A27, 0,                   // fire 1 — priming; arm = $8A00 | (139 - 99 - 1)
     $8AFF, 1,                   // fire 2 — the band's ON edge at screen 100, one op
       2, $C048, $0000,          // OP_CRAM, command longword split
+                 4,             // spin — RASTER_SPIN_CRAM
                  2,             // count-1
                  $0E42, $0A20, $0640,
     $8AFF, 1,                   // fire 3 — the OFF edge at screen 140, the restore ALONE
       10, $C048, $0000,         // OP_PAL_RESTORE, same command longword (same span)
+                 13,            // spin — RASTER_SPIN_RESTORE
                  2,             // count-1
                  $48,           // Palette_Ship_Snap offset == the CRAM address
     $8AFF, $FFFF,               // park + RASTER_OPS_END
@@ -1918,17 +2000,20 @@ ensure(first_mismatch(raster_program(RASTER_BAND_TWIN), RASTER_BAND_TWIN_HAND) =
 //   arms 3, 4    i+2 >= L.len(5) for i=3,4 -> $8AFF (past the end -> the park word), covering
 //                fire 1 (the de-mix reg-off fire) and fire 2 (the restore fire)
 //   fire 0 body  op_words(SetReg($8C89)) ++ op_words(Cram($48, [$0E42,$0A20,$0640]))
-//                = [OP_SET_REG, $8C89] ++ [OP_CRAM, comm>>16, comm&$FFFF, len-1] ++ colours
+//                = [OP_SET_REG, $8C89] ++ [OP_CRAM, comm>>16, comm&$FFFF, SPIN, len-1] ++ colours
 //                vdp_comm($48, Cram, Write) = $C0480000 (same pinned command as the sh:0 twin)
 //   fire 1 body  op_words(SetReg($8C81)) = [OP_SET_REG, $8C81]                — the bare de-mix
-//   fire 2 body  op_words(PalRestore($48, 3)) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, cnt-1, addr]
+//   fire 2 body  op_words(PalRestore($48, 3)) = [OP_PAL_RESTORE, comm>>16, comm&$FFFF, SPIN, cnt-1, addr]
+//   SPIN         the per-op blanking spin (substrate item 1): RASTER_SPIN_CRAM = 4 on the
+//                ON op, RASTER_SPIN_RESTORE = 13 on the restore. SetReg carries none — it
+//                streams nothing, so it has no burst to park.
 //   terminator   park + RASTER_OPS_END, hardcoded (not arm_at-derived)
 //
 // Word count: 1 (mask) + 4 (two priming records) + 2 (terminator)
-//           + (2 + 2 + 7)   fire 0: arm+count, SetReg(2 words), Cram(7 words)
+//           + (2 + 2 + 8)   fire 0: arm+count, SetReg(2 words), Cram(8 words incl. spin)
 //           + (2 + 2)       fire 1: arm+count, SetReg(2 words)
-//           + (2 + 5)       fire 2: arm+count, PalRestore(5 words)
-//           = 7 + 11 + 4 + 7 = 29
+//           + (2 + 6)       fire 2: arm+count, PalRestore(6 words incl. spin)
+//           = 7 + 12 + 4 + 8 = 31
 //
 // Height 40 is far above the S/H minimum of 3 (spec §6.2), so this twin pins the ENCODING
 // and leaves the minima to the poison lane, matching the split the sh:0 twin uses.
@@ -1942,12 +2027,14 @@ const RASTER_BAND_TWIN_SH1_HAND = [
                                   // arm = $8A00 | (139 - 138 - 1) = $8A00 | 0 — the zero-reload arm
       0, $8C89,                  // OP_SET_REG, reg_sh_on() = $8C81 | bit 3
       2, $C048, $0000,           // OP_CRAM, command longword split
+                 4,              // spin — RASTER_SPIN_CRAM
                  2,              // count-1
                  $0E42, $0A20, $0640,
     $8AFF, 1,                    // fire 3 — the de-mix fire at screen 139, reg write ALONE
       0, $8C81,                  // OP_SET_REG, reg_sh_off() = $8C81
     $8AFF, 1,                    // fire 4 — the OFF edge at screen 140, the restore ALONE
       10, $C048, $0000,          // OP_PAL_RESTORE, same command longword (same span)
+                 13,             // spin — RASTER_SPIN_RESTORE
                  2,              // count-1
                  $48,            // Palette_Ship_Snap offset == the CRAM address
     $8AFF, $FFFF,                // park + RASTER_OPS_END

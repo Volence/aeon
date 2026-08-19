@@ -180,17 +180,32 @@ def main() -> int:
         hit = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_HIT_CYC")
         tail = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_TAIL_CYC")
         word = emp_int("engine/effects/raster_dsl.emp", "RASTER_STREAM_WORD_CYC")
-        cram = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_CRAM_CYC")
         rung = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNG_CYC")
         rungs = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNGS")
         wreg = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REG_CYC")
-        region = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REGION_CYC")
-        # F0 is two priming records; F3 adds six 3-word stream_cram fires. Both figures are
+        # The blanking spin is per-op PROGRAM DATA since substrate item 1, so a work term is
+        # a spinless base plus the spin the op actually carries. spin_cyc(n) = n*10 + 14: n
+        # taken dbf iterations at 10 plus the expired one at 14. Read the spin constants the
+        # SAME way as everything else so a re-tune of the solver reaches this gate.
+        cram_base = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_CRAM_BASE_CYC")
+        region_base = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REGION_BASE_CYC")
+        spin_cram = emp_int("engine/effects/raster_dsl.emp", "RASTER_SPIN_CRAM")
+        spin_region = emp_int("engine/effects/raster_dsl.emp", "RASTER_SPIN_REGION")
+        spin_restore = emp_int("engine/effects/raster_dsl.emp", "RASTER_SPIN_RESTORE")
+        def spin_cyc(n): return n * 10 + 14
+        cram = cram_base + spin_cyc(spin_cram)
+        region = region_base + spin_cyc(spin_region)
+        # F0 is two priming records; F3 adds FIVE 3-word stream_cram fires. Both figures are
         # COMPUTED from the shipped constants, never typed in.
+        #
+        # F3 dropped 6 -> 5 fires and F5 5 -> 4 with substrate item 1: every stream op gained
+        # a spin word, so a 3-word cram fire is 10 words where it was 9 and the old counts no
+        # longer fit RASTER_BUF_SIZE. The probe REFUSES an over-cap program rather than
+        # truncating it, which is what surfaced this; the counts here must track that file.
         f0 = 2 * (base - 16)                       # a no-op record is the fire base less the
                                                    # loop entry/exit a record WITH ops pays
         fire3 = base + fetch + hit + cram + 3 * word + tail
-        expect_f3 = f0 + 6 * fire3
+        expect_f3 = f0 + 5 * fire3
         # F4 (stream_pal_region, 3 words) — WIRED 2026-08-18 by the raster-substrate sweep, which
         # found it was the one fixture the --only list never named, leaving RASTER_WORK_REGION_CYC
         # the only work constant with NO path to hardware. It is not a spare: it is the sole
@@ -220,10 +235,11 @@ def main() -> int:
         # it displace a CRAM burst (the mixed-fire landing question, spec §3.3).
         fire_mixed = base + (fetch + rung * rungs + wreg + tail) \
                           + (fetch + hit + cram + 3 * word + tail)
-        expect_f5 = f0 + 5 * fire_mixed            # F5 authors 5 fires, not 6 (buffer cap)
+        expect_f5 = f0 + 4 * fire_mixed            # F5 authors 4 fires (buffer cap; was 5)
         # F8 (pal_restore, 3 words, R1 claim 9): the restore dispatches at depth 4 (four
         # failed rungs + hit) with its own measured work constant.
-        wrest = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_RESTORE_CYC")
+        wrest = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_RESTORE_BASE_CYC") \
+                + spin_cyc(spin_restore)
         fire_rest = base + fetch + (rung * 4 + hit) + wrest + 3 * word + tail
         expect_f8 = f0 + 6 * fire_rest
         jf = tmp / "cost.json"
