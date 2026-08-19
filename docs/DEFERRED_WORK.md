@@ -5510,6 +5510,11 @@ span and the dear word sets its scale. `RASTER_STREAM_WORD_MAX_CYC` is DELETED: 
 only to let one placeability guard reason about one ceiling with two word costs, and there
 are now two guards, one per class, each naming its own word and its own ceiling.
 
+The proposal's fourth worry — the `RASTER_BUF_SIZE` interaction, since a 4-word cram op is 9
+wire words where a 3-word one is 8 — needed nothing: `raster_program` and `patched_program`
+already bound the emitted image against the 128-byte buffer with their own sentences, and a
+program that outgrows it fails there rather than overrunning.
+
 **Zero bytes.** All four shipped shapes are byte-identical — s4.debug `72ab53aa`, s4
 `1e230133`, demo.debug `25eaed93`, demo `deacc756` — because nothing in `games/sonic4` or
 `games/demo` authors above three words. No repin, no refreeze. Verification: pytest
