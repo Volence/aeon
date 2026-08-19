@@ -792,8 +792,29 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
     .cram_delay:
         dbf     d1, .cram_delay
         move.w  (a1)+, d1               // count-1
+        // -4(a2) IS VDP_DATA, and it is the CHEAPEST spelling of it available here
+        // (substrate Tier-3 item 1). a2 holds VDP_CTRL = $C00004 across this whole arm —
+        // the command longword above went through it — and VDP_DATA is $C00000, exactly
+        // four bytes below, so the port is reachable as a 16-bit displacement off a
+        // register we are already holding.
+        //
+        // 68000 MOVE.W timing, source (An)+ :  destination (xxx).L = 20 cycles
+        //                                      destination d16(An) = 16 cycles
+        // With the loop's own `dbf` (10 taken) that is 30 -> 26 cycles PER STREAMED WORD,
+        // and 6 -> 4 bytes per instruction. It is also the burst's SPAN that shrinks: a
+        // 3-word CRAM burst now spans 52 cycles from first write to last instead of 60,
+        // which is budget handed straight back to the blanking window the solver aims at
+        // (raster_dsl.emp, RASTER_STREAM_WORD_CRAM_CYC).
+        //
+        // WHY ONLY HERE. `.region_loop` and `.restore_loop` cannot have this: they have
+        // repurposed a2 as their SOURCE cursor, so their destination has no base register
+        // left to hang a displacement on and stays the 20-cycle absolute. Freeing one
+        // costs more than it saves — measured on the cycle tables, an a1 save/restore
+        // round trip is 20 cycles against a 4-cycle-per-word gain over at most 3 words —
+        // which is why raster_dsl.emp prices the two classes SEPARATELY rather than
+        // pretending one number covers both.
     .cram_loop:
-        move.w  (a1)+, VDP_DATA
+        move.w  (a1)+, -4(a2)           // == VDP_DATA; 16 cyc, not the abs.L form's 20
         dbf     d1, .cram_loop
         dbf     d0, .op_loop
         jbra    .advance

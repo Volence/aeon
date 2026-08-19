@@ -83,7 +83,8 @@ SOLVER_CONSTS = [
     ("DISPATCH_HIT_CYC",      "RASTER_DISPATCH_HIT_CYC"),
     ("DISPATCH_RUNGS",        "RASTER_DISPATCH_RUNGS"),
     ("OP_TAIL_CYC",           "RASTER_OP_TAIL_CYC"),
-    ("STREAM_WORD_CYC",       "RASTER_STREAM_WORD_CYC"),
+    ("STREAM_WORD_CRAM_CYC",  "RASTER_STREAM_WORD_CRAM_CYC"),
+    ("STREAM_WORD_DEEP_CYC",  "RASTER_STREAM_WORD_DEEP_CYC"),
     ("WORK_REG_CYC",          "RASTER_WORK_REG_CYC"),
     ("WORK_CRAM_BASE_CYC",    "RASTER_WORK_CRAM_BASE_CYC"),
     ("WORK_REGION_BASE_CYC",  "RASTER_WORK_REGION_BASE_CYC"),
@@ -125,6 +126,12 @@ def _expected_spins(ops):
             "restore": k["RASTER_WORK_RESTORE_BASE_CYC"], "reg": k["RASTER_WORK_REG_CYC"]}
     depth = {"cram": k["RASTER_DEPTH_CRAM"], "vsram": k["RASTER_DEPTH_CRAM"],
              "region": k["RASTER_DEPTH_REGION"], "restore": k["RASTER_DEPTH_RESTORE"]}
+    # One burst word costs what its op's DESTINATION SPELLING costs (Tier-3 item 1): the
+    # cram arm still holds VDP_CTRL in a2 and writes `-4(a2)`; region and restore have spent
+    # a2 on their source cursor and write the absolute VDP_DATA.
+    word = {"cram": k["RASTER_STREAM_WORD_CRAM_CYC"], "vsram": k["RASTER_STREAM_WORD_CRAM_CYC"],
+            "region": k["RASTER_STREAM_WORD_DEEP_CYC"],
+            "restore": k["RASTER_STREAM_WORD_DEEP_CYC"], "reg": 0}
 
     def words(o):
         if o["k"] == "reg":
@@ -140,21 +147,21 @@ def _expected_spins(ops):
     def cost(o, spin):
         w = base[o["k"]] + (0 if o["k"] == "reg" else spin * 10 + 14)
         return (k["RASTER_OP_FETCH_CYC"] + dispatch(o) + w
-                + k["RASTER_STREAM_WORD_CYC"] * words(o) + k["RASTER_OP_TAIL_CYC"])
+                + word[o["k"]] * words(o) + k["RASTER_OP_TAIL_CYC"])
 
     idx = [i for i, o in enumerate(ops) if o["k"] != "reg"]
     if not idx:
         return [0] * len(ops)
     a, b = idx[0], idx[-1]
     if a == b:
-        span = k["RASTER_STREAM_WORD_CYC"] * (words(ops[a]) - 1)
+        span = word[ops[a]["k"]] * (words(ops[a]) - 1)
     else:
         span = ((base[ops[a]["k"]] - pre[ops[a]["k"]])
-                + k["RASTER_STREAM_WORD_CYC"] * words(ops[a]) + k["RASTER_OP_TAIL_CYC"])
+                + word[ops[a]["k"]] * words(ops[a]) + k["RASTER_OP_TAIL_CYC"])
         for o in ops[a + 1:b]:
             span += cost(o, 0)
         span += (k["RASTER_OP_FETCH_CYC"] + dispatch(ops[b]) + pre[ops[b]["k"]] + 14
-                 + k["RASTER_STREAM_WORD_CYC"] * (words(ops[b]) - 1))
+                 + word[ops[b]["k"]] * (words(ops[b]) - 1))
 
     out, acc = [], 0
     for i, o in enumerate(ops):

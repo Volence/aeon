@@ -112,7 +112,12 @@ op_fetch_cycles        = 8           # code-derived — move.w (a1)+, d1
 dispatch_rung_cycles   = 16          # code-derived — a FAILED rung: cmpi.w + beq.s not taken
 dispatch_hit_cycles    = 18          # code-derived — the matching rung: cmpi.w + beq.s taken
 op_tail_cycles         = 10          # code-derived — dbf d0, .op_loop, taken
-stream_word_cycles     = 30          # code-derived — move.w to VDP_DATA + dbf
+# SPLIT PER OP CLASS 2026-08-19 (substrate Tier-3 item 1). A burst word is `move.w` + the
+# loop's taken `dbf` (10) in both cases; what differs is the destination spelling, which is
+# decided by whether the op still holds VDP_CTRL in a2 when it reaches its burst.
+stream_word_cram_cycles = 26         # code-derived — move.w (a1)+, -4(a2) 16 + dbf 10  (cram, vsram)
+stream_word_deep_cycles = 30         # code-derived — move.w (a2)+, VDP_DATA 20 + dbf 10 (region, restore:
+                                     #   a2 is their SOURCE cursor, so the write has no base register)
 work_reg_cycles        = 12          # code-derived — move.w (a1)+, (a2)
 # SPLIT 2026-08-18 (substrate item 1): the blanking spin is per-op DATA in the program,
 # not a constant folded into these rows, so the work terms are now SPINLESS BASES and a
@@ -271,7 +276,8 @@ free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 "raster.cost_model.dispatch_rung_cycles"    = "engine/effects/raster_dsl.emp:RASTER_DISPATCH_RUNG_CYC"
 "raster.cost_model.dispatch_hit_cycles"     = "engine/effects/raster_dsl.emp:RASTER_DISPATCH_HIT_CYC"
 "raster.cost_model.op_tail_cycles"          = "engine/effects/raster_dsl.emp:RASTER_OP_TAIL_CYC"
-"raster.cost_model.stream_word_cycles"      = "engine/effects/raster_dsl.emp:RASTER_STREAM_WORD_CYC"
+"raster.cost_model.stream_word_cram_cycles" = "engine/effects/raster_dsl.emp:RASTER_STREAM_WORD_CRAM_CYC"
+"raster.cost_model.stream_word_deep_cycles" = "engine/effects/raster_dsl.emp:RASTER_STREAM_WORD_DEEP_CYC"
 "raster.cost_model.dispatch_rungs"          = "engine/effects/raster_dsl.emp:RASTER_DISPATCH_RUNGS"
 "raster.cost_model.scanline_cycles"         = "engine/effects/raster_dsl.emp:RASTER_SCANLINE_CYC"
 # The four class-work constants are private (`const`, not `pub`) in raster_dsl.emp; the

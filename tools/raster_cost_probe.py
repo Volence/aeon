@@ -93,7 +93,12 @@ DISPATCH_RUNG_CYC = 16
 DISPATCH_HIT_CYC  = 18
 DISPATCH_RUNGS    = 5
 OP_TAIL_CYC       = 10
-STREAM_WORD_CYC   = 30
+# One streamed word, PER OP CLASS (substrate Tier-3 item 1). `.cram_loop` writes through
+# `-4(a2)` -- a2 still holds VDP_CTRL, so VDP_DATA is a displacement off it (16 cyc);
+# `.region_loop` / `.restore_loop` have spent a2 on their source cursor and write the
+# absolute-long form (20 cyc). Both then pay the loop's taken `dbf` (10).
+STREAM_WORD_CRAM_CYC = 26
+STREAM_WORD_DEEP_CYC = 30
 WORK_REG_CYC          = 12
 WORK_CRAM_BASE_CYC    = 40
 WORK_REGION_BASE_CYC  = 72
@@ -114,6 +119,8 @@ _BASE = {"cram": WORK_CRAM_BASE_CYC, "vsram": WORK_CRAM_BASE_CYC,
          "reg": WORK_REG_CYC}
 _DEPTH = {"cram": DEPTH_CRAM, "vsram": DEPTH_CRAM,
           "region": DEPTH_REGION, "restore": DEPTH_RESTORE}
+_WORD = {"cram": STREAM_WORD_CRAM_CYC, "vsram": STREAM_WORD_CRAM_CYC,
+         "region": STREAM_WORD_DEEP_CYC, "restore": STREAM_WORD_DEEP_CYC, "reg": 0}
 
 
 def spin_cyc(n: int) -> int:
@@ -138,7 +145,7 @@ def op_dispatch_cyc(o: dict) -> int:
 def op_cost_cycles(o: dict, spin: int) -> int:
     work = _BASE[o["k"]] + (0 if o["k"] == "reg" else spin_cyc(spin))
     return (OP_FETCH_CYC + op_dispatch_cyc(o) + work
-            + STREAM_WORD_CYC * op_stream_words(o) + OP_TAIL_CYC)
+            + _WORD[o["k"]] * op_stream_words(o) + OP_TAIL_CYC)
 
 
 def solve_spin(p: int, span: int) -> int:
@@ -154,13 +161,13 @@ def fire_burst_span(ops: list[dict]) -> int:
         return 0
     a, b = idx[0], idx[-1]
     if a == b:
-        return STREAM_WORD_CYC * (op_stream_words(ops[a]) - 1)
+        return _WORD[ops[a]["k"]] * (op_stream_words(ops[a]) - 1)
     s = ((_BASE[ops[a]["k"]] - _PRE[ops[a]["k"]])
-         + STREAM_WORD_CYC * op_stream_words(ops[a]) + OP_TAIL_CYC)
+         + _WORD[ops[a]["k"]] * op_stream_words(ops[a]) + OP_TAIL_CYC)
     for o in ops[a + 1:b]:
         s += op_cost_cycles(o, 0)
     s += (OP_FETCH_CYC + op_dispatch_cyc(ops[b]) + _PRE[ops[b]["k"]] + spin_cyc(0)
-          + STREAM_WORD_CYC * (op_stream_words(ops[b]) - 1))
+          + _WORD[ops[b]["k"]] * (op_stream_words(ops[b]) - 1))
     return s
 
 
