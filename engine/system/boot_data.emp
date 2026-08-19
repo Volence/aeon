@@ -34,7 +34,7 @@
 
 module engine.boot_data
 
-use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL}
+use engine.constants.{Z80_RAM, Z80_BUS_REQUEST, Z80_RESET, VDP_DATA, VDP_CTRL, VDP_REG_0C_BOOT}
 use engine.vdp.{vdp_comm, vdp_reg, bytes_to_lcnt}
 use engine.sound_constants.{SND_STATE_BASE}
 
@@ -106,14 +106,6 @@ const VRAM_FILL_CMD    = vdp_comm(0, VdpTarget.Vram, VdpOp.Dma)      // VRAM DMA
 const AUTO_INC_2_CMD   = vdp_reg($0F, $02)                           // restore auto-increment to 2
 const CRAM_WRITE_CMD   = vdp_comm(0, VdpTarget.Cram, VdpOp.Write)
 
-// Reg $0C's boot byte, named because ANOTHER module depends on its value and had no way
-// to say so. engine/effects/raster_dsl.emp's reg_sh_on()/reg_sh_off() build their register
-// writes on top of this base -- Shadow/Highlight is bit 3 of the same register that holds
-// H40 -- so a resolution change here silently changes what every raster S/H op writes.
-// It used to carry that dependency in a COMMENT claiming a pin it did not have (2026-08-18
-// substrate sweep, Tier 4). The table below is positional `dc.b`, so this is the only way
-// to give the byte a name the pin can reach.
-pub const VDP_REG_0C_BOOT = $81                                      // H40 (320px), no interlace
 const VSRAM_WRITE_CMD  = vdp_comm(0, VdpTarget.Vsram, VdpOp.Write)
 
 // -----------------------------------------------

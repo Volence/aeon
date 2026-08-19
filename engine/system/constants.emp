@@ -426,6 +426,20 @@ pub const Z80_RESET       = $A11200
 
 pub const VDP_DATA        = $C00000     // VDP data port
 pub const VDP_CTRL        = $C00004     // VDP control port
+
+// Reg $0C's BOOT value, named because two modules depend on it and neither could say so.
+// engine/system/boot_data.emp writes it into the positional VDP register table; the raster
+// DSL's reg_sh_on()/reg_sh_off() build their register writes on top of it, since
+// Shadow/Highlight is bit 3 of the same register that selects H40. A resolution change here
+// silently changes what every raster band edge writes, and that dependency used to live in a
+// COMMENT claiming a pin it did not have (2026-08-18 substrate sweep, Tier 4).
+//
+// IT LIVES HERE, not in boot_data, deliberately. boot_data EMITS BYTES, so importing it from
+// raster_dsl drags a data module into every isolated *_port harness that compiles the DSL —
+// which is exactly how the first spelling of this pin broke four port tests that build.sh
+// cannot see. A register default is a constant, and constants.emp is already every port
+// harness's dependency.
+pub const VDP_REG_0C_BOOT = $81         // $0C: H40 (320px), no interlace
 pub const VDP_HV_COUNTER  = $C00008
 pub const PSG_PORT        = $C00011
 

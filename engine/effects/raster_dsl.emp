@@ -32,7 +32,9 @@ use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT, 
                           pal_stage_off}
 // Imported for the RASTER_SH_BASE pin ONLY — a module-level `ensure` can see an import,
 // where a `comptime fn` body cannot (its free names resolve at the author's call site).
-use engine.boot_data.{VDP_REG_0C_BOOT}
+// From engine.constants, NOT engine.boot_data: boot_data emits bytes, so importing it here
+// drags a data module into every isolated *_port harness that compiles this DSL.
+use engine.constants.{VDP_REG_0C_BOOT}
 
 // ---- the inlined-literal pins (see the module note above) -------------------
 ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8 && OP_PAL_RESTORE == 10,
@@ -181,7 +183,7 @@ pub comptime fn reg_set(word: int) -> RasterOp {
 const RASTER_SH_BASE = $8C81
 const RASTER_SH_BIT  = 8                        // reg $0C bit 3
 ensure(RASTER_SH_BASE == $8C00 | VDP_REG_0C_BOOT,
-       "RASTER_SH_BASE ({RASTER_SH_BASE}) is no longer boot's reg $0C byte ({VDP_REG_0C_BOOT}, engine/system/boot_data.emp). reg_sh_on/reg_sh_off write the WHOLE register, so they would be resetting the resolution bits to a stale value on every band edge — re-spell this literal against the new boot byte.")
+       "RASTER_SH_BASE ({RASTER_SH_BASE}) is no longer boot's reg $0C byte ({VDP_REG_0C_BOOT}, engine/system/constants.emp, mirrored into boot_data's register table). reg_sh_on/reg_sh_off write the WHOLE register, so they would be resetting the resolution bits to a stale value on every band edge — re-spell this literal against the new boot byte.")
 ensure((VDP_REG_0C_BOOT & RASTER_SH_BIT) == 0,
        "boot's reg $0C byte ({VDP_REG_0C_BOOT}) already has Shadow/Highlight (bit 3) SET, so reg_sh_off() would not turn it off and every band's OFF edge is a no-op. S/H must be off at frame top for the raster layer to own it.")
 
