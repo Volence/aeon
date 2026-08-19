@@ -4986,7 +4986,8 @@ constants and matched hardware exactly.
 - Everything else: the rest of Tier 3 perf (the `palette.emp` shift-to-add item, the
   `palette.emp` tail calls, the `-4(a2)` burst word, the OP_SET_REG dispatch chain and the
   dense-kind retest all CLOSED 2026-08-19 — see the Tier 3 block below; the raster.emp
-  tail calls and the SR push/pop remain, the last needing owner sign-off, and the dense tier
+  tail calls CLOSED 2026-08-19 too, so item #5 is fully closed, and only the SR push/pop
+  remains of that list, needing owner sign-off, and the dense tier
   gained two NEW riders on the way out (the `-4(a2)` extension into `.dense_body`, now
   UNBLOCKED by that parcel's fixtures, and the two trailing fires at ~600 cyc/frame — the
   larger of the two, and not value-identical); Tier 4 / B2's
@@ -5058,9 +5059,9 @@ nominally in a body the VDP's bus holds. The parcel's durable half is the dense 
 scene, gate and cost row) · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
 (`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
 change AND a novel mechanism: owner sign-off required, do not assume** · ~~`palette.emp` ×6
-`lsl.w #1` → `add.w dN,dN` ~768 cyc/derive~~ **CLOSED 2026-08-19** · 4 missed mandatory tail calls
-(`raster.emp:560,622` — OPEN, `raster.emp` is another parcel's subject; ~~`palette.emp:386,666`~~
-— **CLOSED 2026-08-19**).
+`lsl.w #1` → `add.w dN,dN` ~768 cyc/derive~~ **CLOSED 2026-08-19** · ~~4 missed mandatory tail calls
+(`raster.emp:560,622`; `palette.emp:386,666`)~~ — **FULLY CLOSED 2026-08-19**, palette half first,
+raster half second (see the two blocks below).
 
 > **CLOSED 2026-08-19 — the palette half of both items** (branch `perf/palette-shift-to-add`,
 > commit `bfccde10`). All six `lsl.w #1` doublings are `add.w dN,dN` (8 cyc → 4), and both
@@ -5099,6 +5100,99 @@ change AND a novel mechanism: owner sign-off required, do not assume** · ~~`pal
 > — the model does not price the palette derive); `ab_runner --selfcheck` OLD-vs-NEW on all
 > three raster scenes (`mid_band`, `suppressed`, `above_screen`) = **ALL EQUAL (gated)**
 > including `state_hash`, as a value-identical parcel must be.
+
+> **CLOSED 2026-08-19 — the RASTER half of the tail-call item, which closes item #5 entirely**
+> (branch `perf/raster-tail-calls`, commits `74043ec9` + this one). Line numbers had drifted a
+> fourth time: the two sites landed at `raster.emp:625` and `:692` post-item-3. Both are in
+> `Raster_VBlank clobbers(d0-d4/a0-a2)`, and structurally they are the two shapes the palette
+> parcel already met — one foldable pair, one whose `rts` is a branch target.
+>
+> *Site A — `HBlank_Uninstall`, the empty-program uninstall arm.* Genuine tail: no `link`, no
+> `movem`, no stack frame anywhere in the proc, and nothing at all between the call and the
+> `rts`. That `rts` carries NO label (the proc's four locals are `.copy_program`, `.copy`,
+> `.no_install`, `.done`; the listing agrees), so it is reachable by fall-through only and
+> folding it orphans nothing. `HBlank_Uninstall clobbers(d0)` ⊂ the caller's set. → `jbra`,
+> and the `rts` is deleted rather than left as dead code.
+>
+> *Site B — `HBlank_Install`, the per-frame re-arm.* Same tail proof; `clobbers(d1)` ⊂ the
+> caller's set. But its `rts` **IS** `.done`, the target of the `beq.s` that the no-program
+> arm takes further up the proc, so it is KEPT exactly as the palette parcel kept its
+> equivalent. Only the `bsr` becomes a `bra`.
+>
+> *Bytes, checked at the encodings and not assumed.* **Neither `jbsr` had relaxed short** —
+> both were `bsr.w` (`6100`) at 4 bytes and both become `bra.w` (`6000`) at 4 bytes, same
+> displacement word at site A. So the branch conversions save ZERO bytes and the entire
+> movement is site A's deleted `rts`: `Raster_VBlank` **38 → 36 (-2)**, the only proc in any
+> shape whose span changes. 128 downstream effects symbols shift -2, from
+> `Raster_VBlank$copy_program` through `Effects_InstallPreset$have_config`, and the section's
+> placer fill absorbs it before `Level_LoadArt`'s pinned base at `$008260`, which is unmoved.
+> **All four ROM lengths unchanged** (698393 / 713279 / 95713 / 100070). Two other apparent
+> span changes in a naive listing scan are artifacts of separately-pinned symbols interleaved
+> by address (`SoundTablesZ80_Head` at `$008000`, `Level_LoadArt` at `$008260`), not code.
+>
+> *Cycles.* 24 each, nominal and real: `bsr.w` 18 + callee `rts` 16 + caller `rts` 16 = 50 →
+> `bra.w` 10 + callee `rts` 16 = 26. Site A fires once per raster-OFF transition. **Site B is
+> the recurring one: `HBlank_Install` is deliberately re-run every frame a program is armed**
+> ("idempotent, and it heals the counter"), so it is 24 cyc/frame — 0.019% of an NTSC frame.
+>
+> *VDP-window statement, per the carried item-3 finding.* **Neither site is inside a VDP-held
+> window, so nominal timings are not over-predicting here.** `HBlank_Install` and
+> `HBlank_Uninstall` write only `HBlank_Vector_Slot` and `VDP_Shadow_Table`, both RAM; the
+> arms of `Raster_VBlank` around both sites are `clr.l`/`lea`/`move.l` against RAM. There is
+> no VDP-port access anywhere on either path, so nothing is absorbed into a bus wait the CPU
+> was already serving. *Cost model:* neither site is on a path the F-series prices — the
+> F-series and `RASTER_DENSE_LINE_GRAD_CYC` price ops inside `Raster_HInt`, and no `[symbols]`
+> row maps to `Raster_VBlank`, `HBlank_Install` or `HBlank_Uninstall`. So **no constant moves
+> and the landing solver does not re-derive**, confirmed empirically: the cost row is
+> byte-for-byte the same as master's on the same hour (below).
+>
+> **THE FINDING — the 1b sweep boundaries MOVED, and the cause is not what a byte-moving
+> parcel would assume.** Run on master and on this branch the same hour, the sweep read
+> `[22, 25, 28]` vs `[23, 24, 27]`. Two single-site control builds attribute it exactly:
+>
+> | build | bytes moved | VBlank tail | sweep boundaries | window |
+> |---|---|---|---|---|
+> | master `26f965c4` (`54f4b253`) | — | — | `[22, 25, 28]` | `[15.21, 21.5]`, centre 18 |
+> | **C1** site B only (`0dfded5e`) | **none** (opcode `61`→`60`, same width) | -24 cyc/frame | `[23, 24, 27]` | `[14.21, 22.5]`, centre 18 |
+> | **C2** site A only (`8063a0ad`) | -2, 128 symbols | unchanged on the armed path | `[22, 25, 28]` | `[15.21, 21.5]`, centre 18 |
+> | parcel (`896a35c8`) | -2, 128 symbols | -24 cyc/frame | `[23, 24, 27]` | `[14.21, 22.5]`, centre 18 |
+>
+> C2 reproduces master EXACTLY while moving 128 symbols, and C1 reproduces the new reading
+> while moving zero bytes. **The byte shift is invisible to this instrument; the 24-cycle
+> VBlank tail is the whole cause** — and each control was reproducible (master and the parcel
+> were each swept twice, identical both times), so this is a deterministic effect, not drift.
+>
+> *Why a VBlank-tail saving can move a raster boundary at all, which is the durable half.*
+> The priming IRQ4s on lines 0 and 1 are raised while IRQ6 still masks level 4, so they are
+> taken the instant `VInt` returns — their phase within a line is set by **when VBlank
+> finishes**, not by the VDP. `Raster_VBlank` is the last raster work in that handler, so its
+> tail is literally part of the raster schedule's phase reference. Shortening it by 24 cycles
+> moves every fire's landing that much earlier, which is why the MEASURED half of the window
+> (the group's first boundary, ±0.5) moved **21.5 → 22.5**: an earlier landing needs one more
+> spin step to cross the same boundary. That is the predicted direction, so this is
+> *predicted*, not merely *unchanged*. Anyone editing `Raster_VBlank`, `VInt_Level` or
+> `VInt_Lag` should expect the same and re-run the sweep.
+>
+> *And why it needs no action.* The window WIDENED to a strict superset — integers `16..21`
+> became `15..22` — with **centre N = 18 in every one of the four builds**. The shipped solved
+> leading spin is 18, still dead centre and still inside the clean integers, so no spin
+> re-derives and the change relaxes the constraint rather than tightening it. **Do not read
+> the `30.0 → 20.0 cycles per burst word` step as physical**: it is two intervals between
+> three points at a 10-cycle quantum, and the true CRAM stream-word cost is the 26 that
+> Tier-3 item 1 landed — both readings bracket it, neither measures it.
+>
+> *Evidence.* Four shapes green — `cf54b017` / `896a35c8` / `f16d1a50` / `31a87100`, every
+> length unchanged. pytest **1074 passed / 2 skipped** (baseline). expect-fail **17/17**.
+> Effects gate lane **22/22 PASS, exit 0**. Cost row **UNMOVED**, and re-measured on master's
+> own ROM in the same session to say so rather than comparing against a stale booking: master
+> F0 572 F1 2624 F3 3862 F4 4640 F5 3204 F8 4628 and dense FD1 4362/13 fires, FD2 15562/45
+> fires → 350.0 cyc/line; branch identical in all eight. (The palette parcel's row above reads
+> F1 3044 etc. — that is pre-item-2 and pre-item-3, not a discrepancy.) `ab_runner`
+> `--selfcheck` OLD-vs-NEW on **all four** scenes (`mid_band`, `suppressed`, `above_screen`,
+> `dense`) = **ALL EQUAL (gated)** including `state_hash`, both raster buffers, `active_buf`
+> and the dense runtime state — value-identical, as the 1b phase shift does not reach any
+> committed state. Not done here, deliberately: **no repin/refreeze and no sigil-side pairing**
+> — the -2 moves pins and that ritual belongs to whoever merges this.
 
 > **CLOSED 2026-08-19 — Tier-3 item 3, the dense-kind retest** (branch
 > `perf/raster-dense-kind`). Line numbers had drifted again: the retest was at
