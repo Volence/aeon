@@ -4792,12 +4792,22 @@ the fall-through. Anyone re-deriving this and getting 32 has forgotten the rung,
 **Poison-proved, so the new row is not inert:** perturbing `RASTER_WORK_REGION_CYC` 122→123
 moves the expectation to 3974 against an unchanged measured 3968 and the gate FAILS. Restored.
 
-**Item 5 remains OPEN — and it is a PROCESS gap, not hidden rot.** The full lane was run by hand
-2026-08-18 and passed **10/10 gates, exit 0**, so nothing had drifted. Note the script's own
-docstring argues these gates *cannot* live in `build.sh` (each boots a headless emulator), and
-build.sh agrees in its comment beside the pytest lane — so "unwired" is not a forgotten line, it
-is a manual ritual that nothing enforces. Closing it means choosing an enforcement point (merge
-checklist / parcel-completion ritual), which is an owner call, not a code fix.
+**Item 5 — CLOSED 2026-08-18 by owner ruling: ritual + nightly backstop.** The gap was a
+PROCESS gap, not hidden rot: the full lane was run by hand 2026-08-18 and passed **10/10
+gates, exit 0**, but the script's own docstring argues these gates *cannot* live in
+`build.sh` (each boots a headless emulator), so "unwired" was a manual ritual nothing
+enforced. The owner chose both enforcement points:
+- **Ritual** (primary): any parcel touching `engine/effects/*`, `engine/level/bg_anim.emp`,
+  or `engine/system/buffers.emp` runs the lane pre-merge and pastes totals + exit code into
+  the merge evidence. Recorded in CLAUDE.md's Testing section, where every session reads it.
+- **Nightly backstop**: `tools/nightly_effects_gates.sh`, driven by the
+  `aeon-effects-gates.timer` systemd user timer (04:17, `Persistent=true`), builds current
+  master DEBUG in a detached checkout at `~/sonic_hacks/.aeon-nightly` (outside the repo
+  root — a worktree inside it double-counts modules in `emp_helper_closure`'s tree scan)
+  and runs the lane. A FAILED lane and a COULD-NOT-RUN lane are both loud
+  (desktop notification + `~/.local/state/aeon-nightly/nightly.log`) — a backstop that
+  silently can't run is the vacuous-gate pattern this item exists to kill. The failure path
+  was selftest-proven and a full real run executed at wiring time.
 
 Six commits, each gated on all four ROM shapes staying **bit-for-bit identical** to master
 (`s4.debug` crc=ab1055d4 len=712752 · `s4` crc=7e4dc5de len=697868 · `demo.debug`
@@ -4830,8 +4840,8 @@ the code before being acted on.
   deliberately NOT copied: `ram.emp` *names* `BGANIM_MAX_BANDS`, so a span guard would have
   measured itself. The three mirrors are still not collapsible to one authority.
 
-**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving), item 5
-(gate ENFORCEMENT — the lane itself passes, see above), all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
+**STILL OPEN — everything else, text below unchanged:** items 1, 2, 4 (byte-moving),
+all of Tier 3 perf, and the rest of Tier 4 / B2 (`RASTER_SH_BASE`,
 `RASTER_BUF_SIZE/2` as a bare 64, `palette_dsl`'s self-test-only variant mirror,
 `raster_cost_probe.py`'s unpinned wire format), plus C5 footprint, the EFX-4b angle, and the
 zero-`assert.*` observation.

@@ -122,6 +122,13 @@ When researching how to implement a system, check these in order:
   `pgrep -x oracle_gui`; multiple instances contend for the MCP socket and you end up debugging
   a stale binary). Other emulators: never auto-launch — user handles that
 - Use Oracle MCP tools to inspect VRAM, CRAM, registers, RAM directly
+- **Effects gate ritual (owner ruling 2026-08-18):** any parcel touching `engine/effects/*`,
+  `engine/level/bg_anim.emp`, or `engine/system/buffers.emp` must run
+  `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` before merge and
+  paste the gate totals + exit code into the merge evidence (the lane boots a headless
+  emulator per gate, so it cannot live in build.sh). Backstop: the `aeon-effects-gates.timer`
+  systemd user timer runs `tools/nightly_effects_gates.sh` against master nightly and raises
+  a desktop notification on failure or on a lane that could not run
 
 ## What This Engine Is
 
