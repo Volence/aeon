@@ -6449,7 +6449,109 @@ Remaining before close-out:
    the ruling**. Option 1 removes the drift's cause only for fields a project actually
    declares; the gate is what makes any recurrence fail the next build.
 
-## Sweep-driver sub-line mode — booked 2026-08-19 after the F-SCANLINE-SUBLINE acceptance run
+## Sweep-driver sub-line mode — CLOSED 2026-08-19 evening (`bench/sweep-subline-mode`)
+
+> **SHIPPED.** The mode is in `tools/hblank_window_sweep.py`; `summarize` detects the row
+> convention from the data (`subline_detect`: does the landing pixel move with the spin?) and
+> dispatches. The line-atomic path is **kept whole** — oracle classic is still pointed at this
+> tool — and is simply no longer reached on oracle-next. Evidence, with every control, is a
+> dated appended section of `docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`
+> ("THE SUB-LINE ERA"); no historical figure in that document was edited.
+>
+> **BOTH EDGES ARE NOW MEASURED**, which is the thing this booking existed for:
+>
+> | | measured | against | |
+> |---|---|---|---|
+> | early edge (window opens) | **N = 16.028 ± 0.070** (0.70 cyc) | — | never observable before |
+> | late edge (window closes) | **N = 28.267 ± 0.076** (0.76 cyc) | — | |
+> | blanking width | **122.39 ± 1.07 cyc** | arithmetic 122.86 | **AGREES**, 0.44 s.e. |
+> | `RASTER_HBLANK_END_CYC` | **366.67 ± 0.76** | shipped **366** | **CONFIRMED**, 0.88 s.e. |
+> | pixel clock | 0.8740 ± 0.0027 px/cyc | 0.8750 | 0.4 s.e. |
+> | sampling period | 488.51 ± 0.25 cyc | 488.57 | 0.2 s.e. |
+>
+> **No stop-and-report.** The stop condition was the anchor landing outside a guard margin
+> (which would mean shipped spins are mis-centred against the better instrument). The tighter
+> margin is the late one at 10 cycles; the anchor is off by 0.67. **Nothing shipped is
+> mis-placed and this parcel changed no constant.** The 351 → 371 → 366 provenance chain
+> closes at 366.7 measured; 371 is settled as ~4.3 cycles high.
+>
+> Controls: A1 PASS (3 fresh processes, byte-identical); A1-style determinism across the whole
+> 201-capture sweep PASS (two processes, 0 differing N, every derived quantity identical to 6
+> d.p.); A2 literal now PASSES (106 differing columns on the split row, where it read 0 before
+> the amendment); A2 restated 19 distinct pictures vs 4; `source == "raster"` asserted on every
+> capture and never fired; self-diff control 0 vs itself and 57 vs the subject; **all five
+> anchors reproduce their atomic-era verdicts exactly**, first-new-pixel columns included, so
+> the edge-row calibration (authored+1) survives the instrument change. Zero ROM bytes
+> (`s4.debug.bin` crc32 `06af0010` unchanged); wire pins 39/39; pytest 1106 passed / 2 skipped
+> against a 1092/2 baseline, the 14 new tests in `tools/test_hblank_subline.py` being the
+> difference. `--replay` re-derives every number with no emulator and no ROM.
+>
+> **Two riders that came out of the run and are NOT closed:**
+>
+> 1. **`--words 1` is the window fixture, and the wider ones cannot be.** Every sensitive
+>    column samples exactly one written entry, so on a multi-word burst `flipX` reports the
+>    FIRST entry's landing and its bracket cannot be taken over the whole sensitive set. Width
+>    and period are immune (a constant offset cancels); the absolute edges drift ~1.6 cycles
+>    across widths 1→5. Measured, not assumed.
+> 2. **The plateau control goes VACUOUS above three words on this art**, and the tool now says
+>    so instead of letting a reader misread it. A fourth and fifth burst entry add only ~2
+>    observable columns each to the edge row, so a trailing word landing just inside active
+>    changes nothing any column can report and the plateau stops shrinking — §4's content trap,
+>    one entry further along than §4 looks. Nothing downstream consumes a plateau. A fixture
+>    that could watch a wide burst's TAIL directly would need an address whose whole span is
+>    well sampled at these rows; the content map probes 3-entry windows and would have to be
+>    widened to pick one.
+
+## RECOMMENDATION for the controller — `RASTER_BURST_MAX_CRAM`: **HOLD AT 3** (booked 2026-08-19)
+
+The parked 4-word raise, re-asked against a **directly measured** early edge instead of one
+derived from the arithmetic width. **No constant, ceiling or margin was changed by the parcel
+that produced these numbers** — this is the booking the controller rules on.
+
+Decision rule, fixed before the numbers were known and restated without softening: the binding
+margin must clear **both** two standard errors **and** the 2.9-cycle threshold the DEEP class
+was refused on.
+
+| words | solved spin | early slack | late slack | **binding** | 2 s.e. | verdict |
+|---|---|---|---|---|---|---|
+| 3 (shipped) | 19 | +9.72 | +30.67 | **+9.72** | 1.41 | GO |
+| **4** | 18 | **−0.28** | +14.67 | **−0.28** | 1.41 | **NO-GO** |
+| 5 | 17 | −10.28 | −1.33 | −10.28 | 1.41 | NO-GO |
+
+**The verdict is unchanged from the atomic era and the evidence for it is now first-class.**
+That refusal read +0.9 cycles against a 2-s.e. bar of 4.0 — a positive margin too small to
+trust, on a derived edge with an error bar borrowed from the *other* edge's quantization. The
+direct measurement reads **−0.28 against a bar of 1.41**: the error bar shrank 2.8× and the
+margin turned out not to be positive at all. Repeated across four independent 201-capture
+sweeps the 4-word binding margin reads **−0.28 / +0.51 / +1.03 / +1.31** cycles against 2-s.e.
+bars of 1.41 / 1.76 / 1.64 / 1.60 and the fixed 2.9 threshold: **it fails both bars in every
+run, on both signs of the estimate.**
+
+The arithmetic still nominally admits four words (78 of burst + 30 of margins against a window
+now measured at 122.4, 14.4 to spare). That gap between "the span fits" and "the solver's
+rounding puts it there" is the trap the atomic-era section named, and the measurement lands on
+the same side of it: `solve_spin` quantizes to whole `dbf` iterations and the nearest one puts
+the first write a quarter-cycle inside the early margin.
+
+**Two things WOULD change the answer, and neither is proposed here:**
+
+1. A pre-burst path ~3 cycles cheaper moves the solved spin off its unlucky rounding.
+2. **`RASTER_HBLANK_MARGIN_EARLY_CYC` = 20 is now arguably over-bought.** It is two iterations
+   of slop, and its own comment ties the asymmetry to the early edge being *derived* where the
+   late one was measured. That asymmetry of evidence is gone: the early edge is now the
+   better-measured of the two (0.70 cyc s.e. against 0.76). Re-deriving it is a real parcel
+   with a real safety argument to make — it is the guard against painting a visible mid-row
+   dot — and it is emphatically **not** a knob to turn in order to fit a fourth word. If it is
+   ever opened, the 4-word question should be re-asked *after* it settles, never as its
+   justification.
+
+Also worth carrying: `RASTER_BURST_MAX_DEEP` stays at 3 for an unchanged reason. Its word is
+30 cycles, so four span 90 against the measured 122.4, leaving 32.4 for margins wanting 30 —
+a 2.4-cycle slack, now *below* the 2.9 threshold rather than marginally above it (the measured
+window is 0.5 cyc narrower than the arithmetic one that gave it 2.9). The DEEP refusal is
+firmer than it was, not weaker.
+
+## Sweep-driver sub-line mode — the original booking, 2026-08-19 morning (superseded above)
 
 oracle-next shipped mid-line CRAM resolution (their 87c8e99/ff9e784; empyrean §11.15) and the
 acceptance re-run PASSED (flipX 219 in the predicted [205,225]; literal spec-A2 passes with 102
