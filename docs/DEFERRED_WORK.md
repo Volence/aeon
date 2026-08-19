@@ -6544,3 +6544,20 @@ demo DEBUG `f9f8d0e5`/100086 · demo release `f7806241`/95733.
 Tasks 11 and 13 were NOT started: Task 11's ledger-const shape is downstream of the Task-10
 ruling (how a ledger row gets published decides what the consts are), and Task 13 poisons one
 per axis, which is downstream of which axes Task 11 gates.
+
+## Warp mailbox: two measured behaviours to explain (booked 2026-08-19, riders on §4.12)
+
+Raw-`Sst.y_pos` probe (controller, oracle-aether headless, no-input boot + 600f, x=1536):
+ask y=128 → rest 117 (−11); ask y=320 → rest **320 verbatim**; both FROZEN for 240f after
+ack. Aurora measured −11 at six heights on one (different) x, also frozen (aurora 5afbd94).
+Two things to explain, neither blocking the tool:
+1. **The −11 is DESTINATION-DEPENDENT, not a convention** — verbatim placement confirmed
+   from source AND measured in clear air; the adjustment appears only when the requested
+   point intersects terrain. Prime suspect: a one-shot resolve inside the ack window
+   (Player_SetState(PSTATE_AIR) enter path or first-frame land/push-out) — identify the
+   writer and document it in §4.12 so the editor knows the semantics ("origin verbatim,
+   then a single terrain resolve if embedded").
+2. **The leader is NOT ticked in a no-input headless scroll-test boot** (frozen at both
+   destinations, engine-side confirmation of Aurora's client observation) — document what
+   engages leader simulation in this state (input? mode hotkey? character engage) so
+   headless harnesses know which regime they measure in.
