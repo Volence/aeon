@@ -341,3 +341,106 @@ def test_position_pin_is_not_vacuous():
     assert len(w) == 8, "the transposition must not change the length, or this proves nothing"
     with pytest.raises(AssertionError):
         assert w[3] == _expected_spins(ops)[0], "word 3 must be the spin"
+
+
+# ---- 5. the DENSE program's wire form ----------------------------------------
+#
+# Added with the dense fixtures (Tier-3 item 3, 2026-08-19). The probe grew a SECOND
+# encoder — `dense_program_words` — for a shape the sparse one cannot express, and an
+# unpinned second encoder is exactly what this file exists to prevent. The .emp authority
+# is raster.emp's `RasterGradientProgram` struct plus `raster_gradient_program`, so both
+# the LAYOUT (field order and widths) and the SCHEDULE (the three arm words) are pinned,
+# each against the source rather than against a captured image.
+
+STRUCT_WIDTH = {"u16": 1, "u32": 2}          # words; `*u8` is a 32-bit label, handled below
+
+
+def _gradient_struct_fields() -> list[tuple[str, int]]:
+    """(field name, width in words) for RasterGradientProgram, in declaration order."""
+    body = re.search(r"pub struct RasterGradientProgram\s*\{(.*?)\n\}", RASTER.read_text(), re.S)
+    assert body, "cannot find `pub struct RasterGradientProgram` in raster.emp"
+    out: list[tuple[str, int]] = []
+    for name, ty in re.findall(r"(\w+)\s*:\s*(\*?\w+)\s*,", body.group(1)):
+        out.append((name, 2 if ty.startswith("*") else STRUCT_WIDTH[ty]))
+    return out
+
+
+def test_dense_probe_layout_matches_the_struct():
+    """The probe's word image must have the struct's shape, field for field."""
+    import raster_cost_probe as probe
+    fields = _gradient_struct_fields()
+    assert [n for n, _ in fields] == [
+        "rgp_mask", "rgp_arm0", "rgp_ops0", "rgp_arm1", "rgp_ops1",
+        "rgp_arm2", "rgp_ops2", "rgp_op", "rgp_cmd", "rgp_lines", "rgp_stream",
+        "rgp_end_arm", "rgp_end_ops"], (
+        "RasterGradientProgram's fields moved — the probe's dense encoder emits a fixed "
+        f"order and no longer matches: {[n for n, _ in fields]}")
+    w = probe.dense_program_words(top=96, lines=40, cram_addr=0x48, stream=0x00123456)
+    assert len(w) == sum(n for _, n in fields), (
+        f"probe emits {len(w)} words, the struct is {sum(n for _, n in fields)}")
+    # Field -> starting word index, derived from the widths above.
+    at, idx = {}, 0
+    for name, n in fields:
+        at[name], idx = idx, idx + n
+    assert w[at["rgp_op"]] == emp_const(RASTER, "OP_RUN_GRADIENT")
+    assert w[at["rgp_lines"]] == 40
+    assert (w[at["rgp_stream"]] << 16 | w[at["rgp_stream"] + 1]) == 0x00123456
+    assert w[at["rgp_end_arm"]] == emp_const(RASTER, "RASTER_ARM_PARK")
+    assert w[at["rgp_end_ops"]] == emp_const(RASTER, "RASTER_OPS_END")
+    assert w[at["rgp_ops0"]] == 0 and w[at["rgp_ops1"]] == 0 and w[at["rgp_ops2"]] == 1
+
+
+def test_dense_probe_schedule_matches_raster_arm():
+    """The three arm words, derived from raster_arm's own formula, not from an image.
+
+    raster_arm(next, after) = $8A00 | (after - next - 1). raster_gradient_program passes
+    (1, top-1) then (top-1, top) then RASTER_ARM_EVERY_LINE — so arm1 must come out equal
+    to the every-line constant, and that identity is itself part of the schedule.
+    """
+    import raster_cost_probe as probe
+    every = emp_const(RASTER, "RASTER_ARM_EVERY_LINE")
+    for top in (3, 96, 112, 200):
+        w = probe.dense_program_words(top=top, lines=8, cram_addr=0x48, stream=0x1000)
+        assert w[1] == 0x8A00 | ((top - 1) - 1 - 1), f"arm0 wrong at top {top}"
+        assert w[3] == 0x8A00 | (top - (top - 1) - 1) == every, f"arm1 wrong at top {top}"
+        assert w[5] == every, f"arm2 must be the every-line word at top {top}"
+    # The mask is DERIVED from the CRAM address (raster_gradient_program's rgp_mask), the
+    # field with a shipped history of being hand-authored wrong.
+    for addr, line in ((0x20, 1), (0x48, 2), (0x60, 3)):
+        w = probe.dense_program_words(top=96, lines=8, cram_addr=addr, stream=0x1000)
+        assert w[0] == 1 << line, f"mask for CRAM ${addr:02X} must be line {line}'s bit"
+
+
+def test_dense_fire_count_is_derived_not_measured():
+    """lines + 5: two priming, the setup record, the run, and TWO trailing fires."""
+    import raster_cost_probe as probe
+    assert probe.dense_fire_count(8) == 13
+    assert probe.dense_fire_count(40) == 45
+    assert probe.dense_fire_count(96) - probe.dense_fire_count(95) == 1
+
+
+def test_dense_pin_is_not_vacuous():
+    """Poison each half: a moved field and a naive (T-2) setup line must both bite."""
+    import raster_cost_probe as probe
+    w = list(probe.dense_program_words(top=96, lines=40, cram_addr=0x48, stream=0x1000))
+    # (a) transpose rgp_lines (word 10) and the stream's high word (11) — LENGTH unchanged.
+    p = list(w)
+    p[10], p[11] = p[11], p[10]
+    assert len(p) == len(w)
+    assert p != w, "pick a fixture whose two swapped words differ, or this proves nothing"
+    with pytest.raises(AssertionError):
+        assert p[10] == 40, "rgp_lines"
+    # (b) the naive T-2 setup line, the derivation hardware rejected (raster.emp's T-1
+    # note). It changes arm0 by exactly one and nothing else.
+    with pytest.raises(AssertionError):
+        assert (0x8A00 | (96 - 2 - 1 - 1)) == w[1], "arm0 is T-1, not T-2"
+
+
+def test_dense_encoder_refuses_the_barred_line():
+    """`top + lines <= 223` — the constructor's ensure, mirrored (raster.emp's derivation)."""
+    import raster_cost_probe as probe
+    probe.dense_program_words(top=96, lines=127, cram_addr=0x48, stream=0x1000)   # 223: ok
+    with pytest.raises(ValueError):
+        probe.dense_program_words(top=96, lines=128, cram_addr=0x48, stream=0x1000)
+    with pytest.raises(ValueError):
+        probe.dense_program_words(top=96, lines=8, cram_addr=0x00, stream=0x1000)  # CRAM line 0

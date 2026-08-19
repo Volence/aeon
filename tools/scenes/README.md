@@ -1,8 +1,16 @@
 # Effects gate scenes
 
-`ab_runner` scenes (`oracle/linux-port/harness/ab_runner.py`) that drive a patch channel into each
-of the three anchor states the raster schedule can be in, and capture the live raster program so a
-gate can assert its shape.
+`ab_runner` scenes (`oracle/linux-port/harness/ab_runner.py`). Three of them drive a patch channel
+into each of the anchor states the SPARSE raster schedule can be in and capture the live raster
+program so a gate can assert its shape; the fourth (`effects_raster_dense`) drives the DENSE tier
+and is documented at the bottom of this file.
+
+**Pass the ROM path ABSOLUTE.** `ab_runner` does not resolve it, and `headless_emulator` launches
+`oracle_gui` with `env -C <oracle repo>`, so a relative `--old s4.debug.bin` resolves against the
+EMULATOR's cwd. Nothing errors: the ROM silently fails to load, every poke and read answers ok
+against blank RAM, and the run reports `ALL EQUAL` on a pair of pattern-filled captures. Two
+different scenes returning the same `state_hash` is the tell. (`tools/effects_gates.py` resolves
+the path itself, so this bites hand runs only — it cost this parcel twenty minutes.)
 
 ```bash
 python3 /home/volence/sonic_hacks/oracle/linux-port/harness/ab_runner.py \
@@ -53,3 +61,45 @@ subject, and asserting it is what stops the gate from passing on a program that 
 **Re-derive these rather than trusting the table.** If a derivation disagrees with a number here,
 doubt the number first and the code second — two gates in the parcel that produced these scenes were
 written against copied values and would have failed correct code.
+
+## `effects_raster_dense` — the dense tier (added 2026-08-19, Tier-3 item 3)
+
+Everything above is the SPARSE tier. The dense tier — `OP_RUN_GRADIENT`, the every-line body — had
+no scene, no gate and no cost row until this parcel, while costing about 27% of a frame on the
+shipped content. Three prior sessions established that gap; this scene closes half of it (the other
+half is `raster_cost_probe`'s FD1/FD2 pair and `RASTER_DENSE_LINE_GRAD_CYC`).
+
+**How it reaches the dense program.** `OJZ_TestGradient` lives on OJZ act 1 SECTION 2, so the scene
+has to get the camera there. It does not navigate: it pokes `Camera_X` past the section boundary and
+lets `Parallax_CheckBoundary` — which is edge-triggered on the section under the camera centre and
+runs OUTSIDE the `Debug_Scene_Freeze` gate — install `OJZ_Preset_Sec2` itself.
+
+| poke | why |
+|---|---|
+| `Debug_Scene_Freeze = 1` | as above: `Camera_Update` is skipped so the written camera stays put |
+| `Camera_Y = 144` | `(144 + 112) >> SECTION_SIZE_SHIFT` = section row 0 |
+| `Camera_X = 4960` | `(4960 + 160) >> 11` = section column 2, and `GRID_W` is 3, so flat section 2 |
+
+`run_frames: 12` after the poke. **The settle is measured, not guessed:** at 3 frames
+`Raster_Program` already points at `OJZ_TestGradient` but `Raster_Dense_Cmd` is still zero — the
+program is installed a frame or two before the handler has walked its setup record — and the scene
+would have captured a live program that had never run. 12 leaves margin. A settle that is too short
+cannot pass vacuously here, because the gate asserts the run's END STATE and an unrun program fails
+it loudly.
+
+**What it asserts, and why the cursor is the one that counts.** The program half checks the words
+`raster_gradient_program` emitted (the two priming arms, the setup record's arm, the opcode, the
+line count, the command longword). The runtime half checks `Raster_Dense_Cursor`:
+
+    Raster_Dense_Cursor == OJZ_GradientStream + OJZ_GRAD_LINES * RASTER_CRAM_MAX * 2
+
+The dense body advances the cursor three words per line, so that equality holds if and only if the
+body ran **exactly** `OJZ_GRAD_LINES` times from the right base. Nothing else in the scene can see
+that: CRAM is re-asserted at frame top (so a post-frame `read_cram` reads the base palette — see
+`ojz_effects.emp`'s note on why the framebuffer was the correct instrument for the original P2
+gate), and the program words are ROM and identical whatever the handler did with them.
+
+Both halves are red-first proven (2026-08-19). Dropping ONE of the three `move.w (a1)+, VDP_DATA`
+from `.dense_body` lands the cursor at `stream + 96 * 2 * 2` and the gate names the exact word; a
+behaviour-neutral extra instruction in the same body leaves this gate GREEN and turns the cost row
+RED, which is the pair of poisons that shows the two gates are measuring different things.

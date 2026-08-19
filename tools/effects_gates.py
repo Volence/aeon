@@ -70,7 +70,15 @@ from scene_spans import (capability_bits, expected_spans,  # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
 HARNESS = Path("/home/volence/sonic_hacks/oracle/linux-port/harness")
+# The SPARSE-tier scenes: three anchor states of one patched two-channel schedule, all
+# asserted through derive_arms below.
 SCENES = ("mid_band", "suppressed", "above_screen")
+# The DENSE-tier scene (Tier-3 item 3, 2026-08-19). Separate because it shares nothing with
+# the three above: no patch channels (so no bands and no derive_arms), a different program
+# shape, and — the point of it — assertions on RUNTIME state rather than on program words.
+# Until this parcel every committed scene was sparse, so the dense tier, which is 27% of a
+# frame on the shipped content, had no scene, no gate and no cost row at all.
+DENSE_SCENE = "dense"
 
 
 def emp_int(rel: str, name: str) -> int:
@@ -185,6 +193,76 @@ def main() -> int:
         ok2, msg2 = run(cmd, name)
         results.append((f"scene:{name} shape (word1={w1:#06x} word3={w3:#06x}, "
                         f"$8C89 {'present' if setreg else 'absent'})", ok2, msg2))
+
+    # ------------------------------------------------------------------
+    # 2b. THE DENSE TIER (Tier-3 item 3). Two halves, and the second is the one that had
+    # never existed: the PROGRAM half asserts the words raster_gradient_program emitted,
+    # the RUNTIME half asserts what Raster_HInt's dense body did with them.
+    #
+    # The runtime assertion is `Raster_Dense_Cursor`, and it is chosen because it is the
+    # only cell that counts. The dense body advances it three words per line, so at frame
+    # end it equals stream + lines * RASTER_CRAM_MAX * 2 IF AND ONLY IF the body ran
+    # exactly `lines` times. A run that fired one line short, one line long, or streamed
+    # from the wrong base lands somewhere else. Nothing else here can see that: CRAM is
+    # re-asserted at frame top (ojz_effects.emp's own note on why the pixel instrument was
+    # needed), the program words are ROM and identical either way, and `state_hash` would
+    # only say "something differs".
+    #
+    # Every expectation is derived — the run's geometry out of ojz_effects.emp, the opcode
+    # and arm constants out of raster.emp, the stream's address out of the listing.
+    if wanted(f"scene:{DENSE_SCENE}"):
+        top = emp_int("games/sonic4/data/effects/ojz_effects.emp", "OJZ_GRAD_TOP")
+        glines = emp_int("games/sonic4/data/effects/ojz_effects.emp", "OJZ_GRAD_LINES")
+        gaddr = emp_int("games/sonic4/data/effects/ojz_effects.emp", "OJZ_GRAD_CRAM_ADDR")
+        cram_max = emp_int("engine/effects/raster.emp", "RASTER_CRAM_MAX")
+        op_run = emp_int("engine/effects/raster.emp", "OP_RUN_GRADIENT")
+        every = emp_int("engine/effects/raster.emp", "RASTER_ARM_EVERY_LINE")
+        # The stream's link-time address. A dense program is the one shape that carries a
+        # real pointer (raster.emp's note on why it is a struct and not a [u16]), so the
+        # listing is where this comes from — there is no comptime form of it to read.
+        stream = None
+        for line in Path(lst).read_text(errors="replace").splitlines():
+            if line.startswith("(0) ") and line.rstrip().endswith("OJZ_GradientStream:"):
+                stream = int(line[4:].split(" :", 1)[0].split("/", 1)[1], 16) & 0xFFFFFF
+                break
+        if stream is None:
+            results.append((f"scene:{DENSE_SCENE}", False,
+                            f"OJZ_GradientStream not in {lst} — every expectation below "
+                            f"would be guesswork"))
+        else:
+            # The VDP CRAM-write command longword: type/rwd 3 in the top two bits, the
+            # address split A13-A0 into bits 16-29 and A15-A14 into bits 0-1 (engine.vdp's
+            # vdp_comm). ojz_effects.emp pins this same value with its own ensure.
+            cmd = 0xC0000000 | ((gaddr & 0x3FFF) << 16) | ((gaddr & 0xC000) >> 14)
+            out = tmp / DENSE_SCENE
+            scene_path = AEON / "tools/scenes" / f"effects_raster_{DENSE_SCENE}.json"
+            ok, msg = run(["python3", str(HARNESS / "ab_runner.py"), "--old", rom,
+                           "--new", rom, "--scene", str(scene_path),
+                           "--out", str(out), "--selfcheck"], DENSE_SCENE)
+            results.append((f"scene:{DENSE_SCENE} determinism", ok, msg))
+            if ok:
+                end = stream + glines * cram_max * 2
+                cmd_args = [
+                    # --- the program, as raster_gradient_program emitted it ---
+                    "--expect-word", f"1={hex(0x8A00 | (top - 3))}",   # raster_arm(1, top-1)
+                    "--expect-word", f"3={hex(every)}",                # raster_arm(top-1, top)
+                    "--expect-word", f"5={hex(every)}",                # the setup record's arm
+                    "--expect-word", f"7={hex(op_run)}",
+                    "--expect-word", f"10={glines}",
+                    "--expect-word", f"8={hex((cmd >> 16) & 0xFFFF)}",
+                    "--expect-word", f"9={hex(cmd & 0xFFFF)}",
+                    # --- what the HANDLER did with it ---
+                    "--expect-region", f"dense_state+0:2=0",           # rewound at VBlank
+                    "--expect-region", f"dense_state+2:4={hex(end)}",  # ran exactly `lines`
+                    "--expect-region", f"dense_state+6:4={hex(cmd)}",  # stashed the command
+                ]
+                ok2, msg2 = run(["python3", str(AEON / "tools/effects_scene_assert.py"),
+                                 str(out / "new/hashes.json")] + cmd_args, DENSE_SCENE)
+                results.append((
+                    f"scene:{DENSE_SCENE} dense tier (run {top}..{top + glines - 1}; "
+                    f"cursor ends at {end:#08x} = stream + {glines} * {cram_max} words, "
+                    f"which is true only if the dense body ran exactly {glines} times)",
+                    ok2, msg2))
 
     if wanted("raster_off"):
         ok, msg = run(["python3", str(AEON / "tools/raster_off_gate.py"),
@@ -321,9 +399,23 @@ def main() -> int:
                 + spin_cyc(spin_f8)
         fire_rest = base + fetch + (zmiss + rung * 4 + hit) + wrest + 3 * word_deep + tail
         expect_f8 = f0 + 6 * fire_rest
+        # The DENSE tier's per-line cost (Tier-3 item 3). One constant, one fixture PAIR,
+        # and the expectation is a SLOPE: FD1 and FD2 are the same program at two line
+        # counts, so everything they share — the fire base, the priming records, the setup
+        # fire, the two trailing fires — cancels in the subtraction and what is left is one
+        # dense gradient line. No absolute figure here is a dense cost, and reading either
+        # fixture alone would be reading mostly overhead.
+        #
+        # THE CONSTANT IS MEASURED, like RASTER_FIRE_BASE_CYC and RASTER_SCANLINE_CYC and
+        # unlike every op-class term above (those are modelled from instruction timings and
+        # this gate re-derives them longhand). The dense body's cost includes the exception
+        # entry and the `ints_off` bracket, neither of which the op model prices at all, so
+        # a modelled figure here would be a new model rather than a use of the existing one.
+        dense_line = emp_int("engine/effects/raster_dsl.emp", "RASTER_DENSE_LINE_GRAD_CYC")
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),
-                            "--rom", rom, "--lst", lst, "--only", "F0,F1,F3,F4,F5,F8",
+                            "--rom", rom, "--lst", lst,
+                            "--only", "F0,F1,F3,F4,F5,F8,FD1,FD2",
                             "--out", str(jf)],
                            capture_output=True, text=True)
         if p.returncode != 0 or not jf.exists():
@@ -346,6 +438,25 @@ def main() -> int:
                             f"F4 is the region op at dispatch depth 1, F8 is the restore)", ok,
                             f"measured F0={got_f0} F1={got_f1} F3={got_f3} F4={got_f4} "
                             f"F5={got_f5} F8={got_f8}"))
+            # The dense row. The divisor comes out of the fixtures' own published
+            # parameters, never restated here — a fixture whose line counts are edited
+            # re-derives rather than silently re-scaling the measurement.
+            d1, d2 = d["FD1"], d["FD2"]
+            dl = d2["dense"]["lines"] - d1["dense"]["lines"]
+            slope = (d2["cycles"][0] - d1["cycles"][0]) / dl
+            # `calls` is the fixture's own correctness check, derived (lines + 5: two
+            # priming, the setup record, the run, and TWO trailing fires — Ruling 1b keeps
+            # two every-line arms in flight past the end of the run). A dense fixture whose
+            # run did not run as authored must not be read as a cost.
+            calls_ok = all(f["calls"][0] == f["dense"]["lines"] + 5 for f in (d1, d2))
+            ok_d = calls_ok and slope == dense_line
+            results.append((
+                f"dense cost row (RASTER_DENSE_LINE_GRAD_CYC = {dense_line}; the slope "
+                f"(FD2 - FD1) / {dl} lines, with both fires counts derived as lines + 5)",
+                ok_d,
+                f"measured FD1={d1['cycles'][0]}/{d1['calls'][0]} fires, "
+                f"FD2={d2['cycles'][0]}/{d2['calls'][0]} fires -> {slope:.1f} cyc/line"
+                + ("" if calls_ok else "  !! a fire count is not lines + 5")))
 
     # ------------------------------------------------------------------
     # 6. Scanline capability spans — the §8.2 two-fixture differential.

@@ -278,6 +278,83 @@ def program_words(fires: list[tuple[int, list[dict]]]) -> list[int]:
     return out
 
 
+# ---- the DENSE tier's wire form (Tier-3 item 3, 2026-08-19) -----------------
+# Everything above encodes the SPARSE tier. The dense tier is a different program shape
+# and, until this parcel, the probe could not build one at all — which is why the dense
+# body had no cost row while every sparse op class had two. It is the same transcription
+# job as the sparse encoder above (see that module note), and it is pinned the same way:
+# tools/test_raster_wire_pin.py derives every constant and every emitted word below from
+# raster.emp / raster_gradient_program rather than from a captured output.
+#
+# THE SCHEDULE IS raster_gradient_program's, restated (raster.emp, RasterGradientProgram):
+#   record 0 @ fire line 0     priming, arm = raster_arm(1, top-1) = $8A00 | (top-3)
+#   record 1 @ fire line 1     priming, arm = raster_arm(top-1, top) == $8A00, the
+#                              every-line word — record i's arm governs gap(i+1 -> i+2)
+#   record 2 @ fire line top-1 SETUP: one op, OP_RUN_GRADIENT; arm $8A00 again, so the
+#                              fire AFTER the first dense line also lands every line
+#   then `lines` dense fires at top .. top+lines-1, then TWO trailing fires that find the
+#   run over, walk the terminator and park.
+#
+# TWO, not one, and the second is Ruling 1b's arm pipeline showing through: an arm word
+# written at fire i governs fire i+2, so BOTH of the last two dense fires still have their
+# every-line $8A00 in flight when the run ends. The first trailing fire consumes the
+# second-to-last dense fire's arm, the second consumes the LAST one's; only then does the
+# terminator's $8AFF (written at the first trailing fire) reach the counter. raster.emp's
+# LEAVE note says the same thing from the authoring side — "the first post-gradient sparse
+# event must be scheduled >= 2 lines below the run's last line" — and 2 is this.
+#
+# So a dense fixture's fire count is a DERIVED quantity — lines + 5 — and `calls` checking
+# it is what stops a mis-encoded dense program from being measured as a cost. It was
+# derived as lines + 4 first, and the hardware said 13 and 45 where 12 and 44 were
+# predicted: the miss was the second in-flight arm, and the count is corrected here rather
+# than the check being relaxed to whatever was measured.
+#
+# THE SETUP RECORD'S BODY, from Raster_HInt's `.op_run_gradient`:
+#   op | cmd (LONG) | lines | stream cursor (LONG)
+# The cursor is a real ROM address, so a dense fixture needs one symbol the sparse ones do
+# not (OJZ_GradientStream). Pointing it at the SHIPPED stream is deliberate: the fixture
+# then streams exactly the bytes the shipped content streams, so nothing about the memory
+# it reads is a probe artifact.
+OP_RUN_GRADIENT   = 6
+ARM_PARK          = 0x8AFF
+ARM_EVERY_LINE    = 0x8A00
+OPS_END           = 0xFFFF
+RASTER_CRAM_MAX   = 3
+
+
+def dense_program_words(top: int, lines: int, cram_addr: int, stream: int) -> list[int]:
+    """A minimal OP_RUN_GRADIENT program — raster.emp's `raster_gradient_program`, in wire."""
+    if top < 3:
+        raise ValueError(f"dense top {top} below 3 (priming needs fire lines 0-1)")
+    if lines < 1:
+        raise ValueError(f"dense line count {lines} must be positive")
+    if top + lines > 223:
+        raise ValueError(f"dense run {top}..{top + lines - 1} reaches the barred line 223")
+    if not 0 <= cram_addr <= 126 or (cram_addr >> 5) == 0:
+        raise ValueError(f"dense CRAM address {cram_addr} outside 0..126 or on line 0")
+    gap0 = (top - 1) - 1 - 1                       # raster_arm(1, top-1)
+    if not 0 <= gap0 <= 255:
+        raise ValueError(f"dense priming gap {gap0} out of range")
+    cmd = CRAM_WRITE | _delta(cram_addr)
+    out = [1 << (cram_addr >> 5),                  # pal_dirty_mask, DERIVED from the address
+           ARM_EVERY_LINE | gap0, 0,               # record 0 — priming
+           ARM_EVERY_LINE, 0,                      # record 1 — priming, every-line
+           ARM_EVERY_LINE, 1,                      # record 2 — the setup record, one op
+           OP_RUN_GRADIENT,
+           (cmd >> 16) & 0xFFFF, cmd & 0xFFFF,
+           lines,
+           (stream >> 16) & 0xFFFF, stream & 0xFFFF,
+           ARM_PARK, OPS_END]
+    if len(out) * 2 > 128:
+        raise ValueError(f"program is {len(out) * 2} bytes, over RASTER_BUF_SIZE (128)")
+    return out
+
+
+def dense_fire_count(lines: int) -> int:
+    """2 priming + 1 setup + `lines` dense + 2 trailing fires (the arm pipeline, above)."""
+    return lines + 5
+
+
 # ---- the fixtures -----------------------------------------------------------
 # Each varies ONE thing from a neighbour. Fires REPEAT within a fixture so the measured
 # quantity is a marginal cost divided by the repeat count: the per-fire figure is
@@ -353,13 +430,36 @@ FIXTURES: dict[str, dict] = {
         "n": 6,
         "fires": _spread(6, lambda i: [pal_restore(34, 3)]),
     },
+    # ---- the DENSE tier (Tier-3 item 3) -------------------------------------
+    # A PAIR, and only ever read as a pair. Neither figure alone is a dense cost: each
+    # carries the same priming/setup/LEAVE overhead and the same fire base, so the only
+    # honest quantity here is the SLOPE — (FD2 - FD1) / (40 - 8) — which is one dense
+    # gradient line and nothing else. That is why both use the same `top`: the setup
+    # fire's position, the arm words ahead of the run and the trailing park are then
+    # bit-identical between them and cancel exactly.
+    #
+    # 8 and 40 rather than 1 and 96: 32 lines of separation divides the instrument's
+    # error by 32 while leaving both runs far from the barred line 223, and neither
+    # count is a power-of-two coincidence away from the other's.
+    "FD1": {
+        "what": "DENSE gradient, 8 lines — the dense-tier pair's low leg",
+        "n": 8,
+        "dense": {"top": 96, "lines": 8, "cram_addr": 0x48, "stream": "OJZ_GradientStream"},
+    },
+    "FD2": {
+        "what": "DENSE gradient, 40 lines — slope against FD1 IS one dense line",
+        "n": 40,
+        "dense": {"top": 96, "lines": 40, "cram_addr": 0x48, "stream": "OJZ_GradientStream"},
+    },
 }
 
 
 # ---- the run ----------------------------------------------------------------
 
 SYMS = ("Raster_Buf_A", "Raster_Program", "Raster_Active_Buf", "Raster_Patch_Tab",
-        "Effects_Offscreen_Entry", "Debug_Scene_Freeze", "HBlank_Vector_Slot")
+        "Effects_Offscreen_Entry", "Debug_Scene_Freeze", "HBlank_Vector_Slot",
+        # dense fixtures only — the run's ROM stream cursor (see dense_program_words)
+        "OJZ_GradientStream")
 
 
 def parse_lst(path: str) -> dict[str, int]:
@@ -382,7 +482,11 @@ def parse_lst(path: str) -> dict[str, int]:
 
 async def _one(b: BusClient, sym: dict[str, int], fixture: dict,
                settle: int, sample: int) -> dict:
-    words = program_words(fixture["fires"])
+    if "dense" in fixture:
+        d = fixture["dense"]
+        words = dense_program_words(d["top"], d["lines"], d["cram_addr"], sym[d["stream"]])
+    else:
+        words = program_words(fixture["fires"])
     image = "".join(f"{w:04X}" for w in words)
 
     await b.call("emulator/reset", {"wait": True, "run": False})
@@ -526,21 +630,45 @@ def main() -> int:
               f"{FIXTURES[name]['what']}{flag}")
         if len(set(cal)) > 1:
             print(f"         call count VARIED across repeats: {cal}")
+        # A dense fixture's fire count is DERIVED (lines + 4), so it is checkable — and
+        # checking it is what separates "the dense run cost this" from "something else
+        # ran". A sparse fixture has no such derivation, hence no row here.
+        if "dense" in FIXTURES[name]:
+            want_calls = dense_fire_count(FIXTURES[name]["dense"]["lines"])
+            if cal[0] != want_calls:
+                print(f"         !! fires {cal[0]}, derived {want_calls} "
+                      f"(lines + 4) — the dense run did not run as authored")
 
     if "F0" in table:
         f0 = table["F0"]["cycles"][0]
         print(f"\nmarginal cost of ONE fire, (fixture - F0) / n, with F0 = {f0}:")
         for name in names:
-            if name == "F0" or name not in table:
+            if name == "F0" or name not in table or "dense" in FIXTURES[name]:
                 continue
             t = table[name]
             print(f"  {name:4} ({t['n']} fires)  {(t['cycles'][0] - f0) / t['n']:8.1f} cyc"
                   f"   {FIXTURES[name]['what']}")
 
+    # The dense row: a SLOPE between two runs of the same program at two line counts.
+    # Never (fixture - F0) / n — F0 is a sparse schedule and shares none of the dense
+    # fixture's setup, so subtracting it would fold the priming/setup/LEAVE difference
+    # into the per-line figure.
+    if "FD1" in table and "FD2" in table:
+        d1, d2 = FIXTURES["FD1"]["dense"], FIXTURES["FD2"]["dense"]
+        dl = d2["lines"] - d1["lines"]
+        dc = table["FD2"]["cycles"][0] - table["FD1"]["cycles"][0]
+        print(f"\ndense tier — ONE gradient line, ({d2['lines']} - {d1['lines']} lines):"
+              f"  ({table['FD2']['cycles'][0]} - {table['FD1']['cycles'][0]}) / {dl}"
+              f" = {dc / dl:.1f} cyc")
+
     if args.out:
         Path(args.out).write_text(json.dumps(
             {k: {"cycles": v["cycles"], "calls": v["calls"], "n": v["n"],
-                 "what": FIXTURES[k]["what"]} for k, v in table.items()}, indent=2) + "\n")
+                 "what": FIXTURES[k]["what"],
+                 # dense fixtures publish their AUTHORED parameters so a consumer derives
+                 # the slope's divisor from the fixture rather than restating it
+                 **({"dense": FIXTURES[k]["dense"]} if "dense" in FIXTURES[k] else {})}
+             for k, v in table.items()}, indent=2) + "\n")
         print(f"\nraw: {args.out}")
     return 0
 

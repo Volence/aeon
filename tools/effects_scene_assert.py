@@ -60,6 +60,19 @@ def main() -> int:
                     help="VALUE must not appear anywhere in the live buffer (repeatable)")
     ap.add_argument("--expect-present", action="append", default=[], metavar="VALUE",
                     help="VALUE must appear somewhere in the live buffer (repeatable)")
+    # --- assertions on a NAMED region rather than on the live program buffer -------------
+    # Added with the dense-tier scene (Tier-3 item 3, 2026-08-19). Every option above reads
+    # the raster PROGRAM; the dense tier's whole subject is what the HANDLER did with it,
+    # and that lives in RAM (Raster_Dense_Lines / _Cursor / _Cmd) rather than in the
+    # program. This is the "the REPORT format grows, once" clause in the module note being
+    # exercised: one general region reader, not a dense-specific gate.
+    #
+    # The region NAME still has to exist in the sidecar — a typo selects nothing and would
+    # otherwise pass, which is the same vacuity BUF_REGIONS is hard-coded to avoid, so an
+    # unknown name is exit 2 rather than a failure or a silent skip.
+    ap.add_argument("--expect-region", action="append", default=[], metavar="NAME+OFF:W=VALUE",
+                    help="big-endian field of W bytes at byte OFF of memory_read region NAME "
+                         "must equal VALUE, e.g. dense_state+2:4=0x00012F82 (repeatable)")
     a = ap.parse_args()
 
     try:
@@ -108,12 +121,37 @@ def main() -> int:
         if val not in w:
             failures.append(f"{val:#06x} must be PRESENT but does not appear")
 
+    for spec in a.expect_region:
+        try:
+            lhs, val_s = spec.split("=", 1)
+            name_off, width_s = lhs.split(":", 1)
+            name, off_s = name_off.split("+", 1) if "+" in name_off else (name_off, "0")
+            off, width, val = int(off_s, 0), int(width_s, 0), int(val_s, 0)
+        except ValueError:
+            print(f"--expect-region needs NAME+OFF:WIDTH=VALUE, got {spec!r}", file=sys.stderr)
+            return 2
+        if name not in reads:
+            print(f"sidecar has no memory_read region {name!r} (has: "
+                  f"{', '.join(sorted(reads))}) — the SCENE did not capture what this gate "
+                  f"asserts on, so nothing was concluded", file=sys.stderr)
+            return 2
+        b = bytes.fromhex(reads[name]["bytes"])
+        if off + width > len(b):
+            print(f"region {name} is {len(b)} bytes; {name}+{off}:{width} runs past its end "
+                  f"— the scene's capture length and this assertion disagree", file=sys.stderr)
+            return 2
+        got = int.from_bytes(b[off:off + width], "big")
+        if got != val:
+            failures.append(f"{name}+{off}:{width}: expected {val:#0{2 + 2 * width}x}, "
+                            f"got {got:#0{2 + 2 * width}x}")
+
     for f in failures:
         print(f"FAIL: {f}", file=sys.stderr)
     if failures:
         return 1
 
-    n = len(a.expect_word) + len(a.expect_absent) + len(a.expect_present)
+    n = (len(a.expect_word) + len(a.expect_absent) + len(a.expect_present)
+         + len(a.expect_region))
     if n == 0:
         print("no assertions requested — this gate asserted NOTHING", file=sys.stderr)
         return 2
