@@ -8,7 +8,13 @@ Closes substrate sweep item 1b; unblocks 1c.
 the scanline-readback bus surface, at oracle-next's request (2026-08-18). If the capability
 can run this sweep and produce a stable answer, it is good enough for Aeon's raster work.
 
-**Status:** spec only. Not yet run — blocked on a deterministic scanline readback.
+**Status:** RUN 2026-08-19 — results in `HBLANK-WINDOW-SWEEP-RESULTS.md` (same directory).
+Headline: clean N ∈ [16, 21], **CENTRE N = 18**; §2's "84-cycle burst" term is wrong (the
+span that must fit blanking is first-to-last write = 60 cyc, measured), which is the whole
+error in §3's upper edge. Two defects in §4's literal fixture were found and fixed with
+measurement — header mask `$0002` makes the tint permanent (use `$000E`) and CRAM `$4A` is
+nearly unsampled at rows 97-102 (use `$50`) — so do NOT re-run the fixture as written below;
+the sections are kept as the record of what was predicted and why.
 
 ---
 
