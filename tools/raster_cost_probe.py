@@ -319,7 +319,10 @@ OP_RUN_GRADIENT   = 6
 ARM_PARK          = 0x8AFF
 ARM_EVERY_LINE    = 0x8A00
 OPS_END           = 0xFFFF
-RASTER_CRAM_MAX   = 3
+# NOTE there is no words-per-line mirror here: `dense_program_words` emits the SETUP record
+# only, and the stride belongs to `.dense_body` (engine/effects/raster.emp,
+# RASTER_DENSE_WORDS_PER_LINE). It used to carry one under the name RASTER_CRAM_MAX, read by
+# nothing, which is how a mirror goes stale without failing.
 
 
 def dense_program_words(top: int, lines: int, cram_addr: int, stream: int) -> list[int]:

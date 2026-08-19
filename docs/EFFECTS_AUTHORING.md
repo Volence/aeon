@@ -97,7 +97,8 @@ constructor body is safe.
 
 The opcode values themselves (`OP_SET_REG = 0` at `raster.emp:87`, `OP_CRAM = 2` at `:88`,
 `OP_PAL_REGION = 4` at `:116`, `OP_RUN_GRADIENT = 6` at `:141`); `RASTER_OPS_END = $FFFF` at `:145`,
-`RASTER_ARM_PARK = $8AFF` at `:149`, `RASTER_CRAM_MAX = 3` at `:155`, `RASTER_BUF_SIZE = 128` at `:190`,
+`RASTER_ARM_PARK = $8AFF` at `:149`, `RASTER_BURST_MAX_CRAM = 4` / `RASTER_BURST_MAX_DEEP = 3`,
+`RASTER_BUF_SIZE = 128` at `:190`,
 `RASTER_MIN_FIRE_LINE = 3` / `RASTER_MAX_FIRE_LINE = 223` at `:586-587`. `raster_dsl` inlines them all as
 literals and pins each with a module-level `ensure` (`raster_dsl.emp:33-48`) — see "The discipline rule"
 for why.
@@ -734,7 +735,7 @@ Stated plainly rather than left for someone to discover on hardware:
   |---|---|---|
   | ops per fire | 4 | every op walks `Raster_HInt`'s compare chain before doing any work, and `OP_SET_REG` — the op with no other cost — is that chain's **fall-through** (`raster.emp:451-459`), so it is the most expensive op to *dispatch* |
   | stream ops per fire | 2 | each of `stream_cram` / `stream_pal_region` / `stream_vsram` issues its own command longword **and** burns its own blanking spin, and that spin is the entire mechanism that parks a write in HBlank. Since substrate item 1c the spin is **solved per op** from its position in the fire and its dispatch depth, aimed at a window measured on hardware (`docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`), so a *leading* stream op is a first-class shape rather than a dot-painter. The ceiling of 2 stands anyway: two bursts span at least 116 cycles against a 122.9-cycle window, and the margins want 30 more, so a second stream op has no legal placement and `check_landings` refuses it by name at emission |
-  | stream words per fire | `RASTER_CRAM_MAX` = 3 | the writes themselves; `op_stream_words` sums `stream_cram`/`stream_pal_region`/`stream_vsram` alike, because a VSRAM word costs the same as a colour |
+  | stream words per fire | `RASTER_BURST_MAX_CRAM` = 4, or `RASTER_BURST_MAX_DEEP` = 3 if any region/restore op is in the fire | the writes themselves, and the ceiling is **per class** because a burst word is not one price: `.cram_loop` still has VDP_CTRL in a2 and writes through `-4(a2)` for 26 cycles, while `.region_loop` / `.restore_loop` have spent a2 on their source cursor and pay 30. Four cram words span 78 of the measured 122.9-cycle blanking window; four region words span 90 and leave 2.9 for margins that want 30. `op_stream_words` sums `stream_cram`/`stream_pal_region`/`stream_vsram`/`pal_restore` alike, and a VSRAM word joins the *cram* class because it runs the same loop. The 4 was **measured**, not budgeted — `tools/hblank_window_sweep.py --words 4` |
 
   The per-op bounds inside `stream_cram` / `stream_pal_region` / `stream_vsram` are *necessary but not sufficient*: three
   3-word ops satisfy every per-op check.

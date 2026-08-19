@@ -21,12 +21,21 @@
 h40_line_mclk        = 3420          # fixed — H40 scanline, NTSC and PAL alike (Ruling 2c)
 hint_to_hblank_68k_cycles = 105      # fixed — ~90px $A6->$00 ~= 733 mclk ~= 105 68k cyc
 autovector_entry_cycles   = 44       # fixed — IRQ4 autovector exception entry
-usable_cycles_after_entry = 60       # fixed — the ~60-cycle budget (105 - 44, rounded)
+usable_cycles_after_entry = 60       # SUPERSEDED — the pre-measurement estimate (105 - 44,
+                                     # rounded). Kept because it is what set the retired
+                                     # single burst ceiling of 3, not because it is the
+                                     # budget: the 2026-08-19 sweep MEASURED the H40
+                                     # blanking window at 122.9 cycles, twice this, and
+                                     # every ceiling row below now derives from that.
+                                     # docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md
+hblank_window_cycles      = 122.9    # measured — (3420 - 2560) / 7, confirmed by the sweep
 status = "fixed"
 
 [raster.sparse]
-cram_words_per_fire  = 3             # code-derived — RASTER_CRAM_MAX (engine/effects/raster.emp)
-cram_words_reason    = "cycle budget, not FIFO (Ruling 2a); a 16-colour line cannot swap in one fire"
+cram_words_per_fire  = 4             # code-derived — RASTER_BURST_MAX_CRAM (engine/effects/raster.emp)
+cram_words_reason    = "cycle budget, not FIFO; a 26-cycle word x 4 spans 78 of the measured 122.9-cycle blanking window, leaving 44.9 for the solver's 20+10 margins. Raised 3 -> 4 on a MEASURED fixture (tools/hblank_window_sweep.py --words 4). A 16-colour line still cannot swap in one fire; it takes ceil(16/4) = 4"
+deep_words_per_fire  = 3             # code-derived — RASTER_BURST_MAX_DEEP (engine/effects/raster.emp)
+deep_words_reason    = "region/restore write through the absolute long (a2 is their source cursor), so a word is 30 cycles: 4 would span 90 and leave 2.9 for margins wanting 30. Held at 3, and NOT for want of trying — 2.9 cycles is under the sweep's own +-5-cycle boundary resolution, so no fixture could confirm it"
 save_set_registers   = 4            # code-derived — movem d0-d1/a1-a2 in Raster_HInt
 movem_roundtrip_cycles = 84         # fixed — 4-register movem push+pop: 68000 movem is
                                     # 8 + 8n register-to-memory and 12 + 8n back, so at n = 4
@@ -137,9 +146,10 @@ noise_floor_cycles     = 0           # five boots per fixture, spread 0 on all e
 instrument             = "the per-routine row for the HBlank trampoline — NEVER interrupts.hint, which is HBlank + VBlank summed in this ROM"
 
 [raster.op_pal_region]
-# A region is a SCOPED colour swap (<= cram_words_per_fire), streamed from a variant's
-# Pal_Variant_Stage bytes. A full-line region spreads across ceil(16/3)=6 fires.
-max_colours_per_fire = 3             # code-derived — bound by RASTER_CRAM_MAX
+# A region is a SCOPED colour swap (<= deep_words_per_fire — a region is the DEAR burst
+# class, so it does not get the cram class's 4), streamed from a variant's Pal_Variant_Stage
+# bytes. A full-line region spreads across ceil(16/3)=6 fires.
+max_colours_per_fire = 3             # code-derived — bound by RASTER_BURST_MAX_DEEP
 handler_extra_cycles = "NEEDS-MEASUREMENT"  # oracle: lea+adda.w+stream vs a plain OP_CRAM
 # RENAMED 2026-08-14. This was `full_line_fire_cost`, which read as a CYCLE cost while
 # being ceil(16/3) — a LINE COUNT — tagged `code-derived`, i.e. arithmetic wearing a
@@ -261,8 +271,9 @@ free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 # prose), compose_static_frame (prose). The two NEEDS-MEASUREMENT rows are evidence
 # gaps, not build gates.
 [symbols]
-"raster.sparse.cram_words_per_fire"         = "engine/effects/raster.emp:RASTER_CRAM_MAX"
-"raster.op_pal_region.max_colours_per_fire" = "engine/effects/raster.emp:RASTER_CRAM_MAX"
+"raster.sparse.cram_words_per_fire"         = "engine/effects/raster.emp:RASTER_BURST_MAX_CRAM"
+"raster.sparse.deep_words_per_fire"         = "engine/effects/raster.emp:RASTER_BURST_MAX_DEEP"
+"raster.op_pal_region.max_colours_per_fire" = "engine/effects/raster.emp:RASTER_BURST_MAX_DEEP"
 "palette.max_active_variants"               = "engine/effects/palette.emp:PAL_MAX_VARIANTS"
 "palette.cycle_max_channels"                = "engine/effects/palette.emp:PAL_CYCLE_MAX_CHANNELS"
 "palette.fade_window_frames"                = "engine/effects/palette.emp:PAL_FADE_FRAMES"

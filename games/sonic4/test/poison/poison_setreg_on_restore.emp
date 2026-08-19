@@ -7,7 +7,7 @@
 // register write bolted onto the restore's own fire. It passes every OTHER guard,
 // which is the point: the ops are in prefix order (check_mixed_fire), two ops is
 // inside the per-fire ceiling of four, one stream op is inside the ceiling of two,
-// and three words is exactly RASTER_CRAM_MAX.
+// and three words is exactly RASTER_BURST_MAX_DEEP, a restore's ceiling.
 //
 // It is still wrong, and item 1c sharpened rather than removed the reason. The spin
 // solver would re-time this restore rather than mis-time it — but a restore is the

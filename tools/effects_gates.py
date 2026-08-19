@@ -201,7 +201,7 @@ def main() -> int:
     #
     # The runtime assertion is `Raster_Dense_Cursor`, and it is chosen because it is the
     # only cell that counts. The dense body advances it three words per line, so at frame
-    # end it equals stream + lines * RASTER_CRAM_MAX * 2 IF AND ONLY IF the body ran
+    # end it equals stream + lines * RASTER_DENSE_WORDS_PER_LINE * 2 IF AND ONLY IF the body ran
     # exactly `lines` times. A run that fired one line short, one line long, or streamed
     # from the wrong base lands somewhere else. Nothing else here can see that: CRAM is
     # re-asserted at frame top (ojz_effects.emp's own note on why the pixel instrument was
@@ -214,7 +214,7 @@ def main() -> int:
         top = emp_int("games/sonic4/data/effects/ojz_effects.emp", "OJZ_GRAD_TOP")
         glines = emp_int("games/sonic4/data/effects/ojz_effects.emp", "OJZ_GRAD_LINES")
         gaddr = emp_int("games/sonic4/data/effects/ojz_effects.emp", "OJZ_GRAD_CRAM_ADDR")
-        cram_max = emp_int("engine/effects/raster.emp", "RASTER_CRAM_MAX")
+        dense_words = emp_int("engine/effects/raster.emp", "RASTER_DENSE_WORDS_PER_LINE")
         op_run = emp_int("engine/effects/raster.emp", "OP_RUN_GRADIENT")
         every = emp_int("engine/effects/raster.emp", "RASTER_ARM_EVERY_LINE")
         # The stream's link-time address. A dense program is the one shape that carries a
@@ -241,7 +241,7 @@ def main() -> int:
                            "--out", str(out), "--selfcheck"], DENSE_SCENE)
             results.append((f"scene:{DENSE_SCENE} determinism", ok, msg))
             if ok:
-                end = stream + glines * cram_max * 2
+                end = stream + glines * dense_words * 2
                 cmd_args = [
                     # --- the program, as raster_gradient_program emitted it ---
                     "--expect-word", f"1={hex(0x8A00 | (top - 3))}",   # raster_arm(1, top-1)
@@ -260,7 +260,7 @@ def main() -> int:
                                  str(out / "new/hashes.json")] + cmd_args, DENSE_SCENE)
                 results.append((
                     f"scene:{DENSE_SCENE} dense tier (run {top}..{top + glines - 1}; "
-                    f"cursor ends at {end:#08x} = stream + {glines} * {cram_max} words, "
+                    f"cursor ends at {end:#08x} = stream + {glines} * {dense_words} words, "
                     f"which is true only if the dense body ran exactly {glines} times)",
                     ok2, msg2))
 

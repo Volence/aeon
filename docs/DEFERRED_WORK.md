@@ -5428,6 +5428,10 @@ being precisely the region and restore fixtures whose word did NOT get cheaper.
 
 **Two riders, both booked here rather than taken:**
 
+**(a) `RASTER_CRAM_MAX = 3 -> 4` — RESOLVED 2026-08-19 on `feat/raster-cram-max-4`. See the
+closure block below this one; the proposal is kept verbatim because the measurement's whole
+value is that it can be checked against what was predicted before it ran.**
+
 **(a) `RASTER_CRAM_MAX = 3 -> 4` — a proposal, with its arithmetic.** The item claimed the
 word cost is "what sets RASTER_CRAM_MAX = 3". It is not, quite: what set 3 was Ruling 2a's
 pre-sweep estimate of "~60 usable cycles" (`raster.emp:80`), and the 1b sweep MEASURED the
@@ -5450,6 +5454,76 @@ is a single constant today with a hard `ensure(== 3)` pin, four constructor guar
 `RASTER_BUF_SIZE` interaction (a wider op is a longer program), and it would want the sweep
 re-run against a 4-word fixture rather than argued from the table above. **Do not raise it
 inside another parcel.**
+
+### Rider (a) CLOSED 2026-08-19 — measured, split per class, and a zero-byte parcel
+
+Branch `feat/raster-cram-max-4`. The proposal asked for a fixture before a raise; it got one,
+and the fixture agreed with the table to inside a cycle and a half.
+
+**The fixture.** `tools/hblank_window_sweep.py` grew a `--words` input: it authors the burst
+directly in wire, so the constructors' `ensure` is not consulted — the same latitude the 1b
+fixture already takes when it pokes a spin the lowering would never solve. Three widths were
+swept in one session on one ROM (`s4.debug.bin`, crc 72ab53aa), N = 0..200, 12 rows, so four
+sampling periods are in view for each.
+
+| | 3 words (control) | **4 words** | 5 words |
+|---|---|---|---|
+| folded first-word crossing | 26.50 N | **26.50 N — UNMOVED** | 26.75 N |
+| folded burst span | 52.5 cyc (derived 52) | **77.5 cyc (derived 78)** | 102.5 cyc (derived 104) |
+| clean band | [14.21, 21.25] | **[14.21, 18.75]** | [14.46, 16.50] |
+| solver's spin | 18 | **17** | 15 |
+| band satisfying both margins | [16.21, 20.25] | **[16.21, 17.75]** | [16.46, 15.50] EMPTY |
+| slack at the landing | 17.9 / 22.5 cyc | **7.9 early / 7.5 late** | -14.6 / 5.0 |
+| verdict | GO | **GO** | **NO-GO** |
+
+**The control is the argument.** A wider burst must not START later, or the extra span is
+partly the fixture's doing. The first word's crossing folded to 26.50 N at three words and
+26.50 at four — identical — so the band's narrowing is entirely the burst's end arriving
+earlier, by the amount the cycle table predicts. And the 5-word row is a MEASURED refusal
+rather than an extrapolation: the band that satisfies both margins comes out empty.
+
+**One instrument change was needed and is itself a finding.** The driver's published window
+derives BOTH edges from one integer boundary, and a boundary is the ceiling of a crossing —
+right on average, up to ±0.5 N off on any single reading. Against the 4-word run's own
+single-group edges the solver's N=17 appears to miss the early margin by 2.1 cycles; folded
+over the four periods it clears it by 7.9. Five cycles of whole-band shift never mattered
+before because nothing rested a decision on a 10-cycle margin. The fold is added beside the
+old block, which still prints exactly what it printed.
+
+**What shipped.** Not a raise — a SPLIT, because one constant was carrying three unrelated
+facts and only one of them could move:
+
+- `RASTER_BURST_MAX_CRAM = 4` — cram/vsram, the 26-cycle `.cram_loop` word. RAISED.
+- `RASTER_BURST_MAX_DEEP = 3` — region/restore, the 30-cycle absolute-long word. HELD, and
+  explicitly not for want of trying: a 4-word deep burst leaves 2.9 cycles of slack against
+  an instrument that localizes a boundary to ±5, so **no fixture could distinguish that
+  margin from zero**. The standard of evidence is the reason, not the sign of the number.
+- `RASTER_DENSE_WORDS_PER_LINE = 3` — `.dense_body`'s three inlined `move.w`. Never a
+  ceiling at all: nothing solves a spin for it and nothing checks it against the window. It
+  wore `RASTER_CRAM_MAX`'s name, which meant a ceiling moving would have silently resized
+  `OJZ_GradientStream`. `RASTER_CRAM_MAX` is retired as a name.
+
+`fire()`'s per-fire word ceiling is now the ceiling of the DEAREST class present in the fire
+(`op_burst_max`, folded with a minimum) — a fire of cram/vsram alone gets 4, and one region
+or restore op drops the whole fire to 3, because what has to fit in blanking is the combined
+span and the dear word sets its scale. `RASTER_STREAM_WORD_MAX_CYC` is DELETED: it existed
+only to let one placeability guard reason about one ceiling with two word costs, and there
+are now two guards, one per class, each naming its own word and its own ceiling.
+
+**Zero bytes.** All four shipped shapes are byte-identical — s4.debug `72ab53aa`, s4
+`1e230133`, demo.debug `25eaed93`, demo `deacc756` — because nothing in `games/sonic4` or
+`games/demo` authors above three words. No repin, no refreeze. Verification: pytest
+1074 passed / 2 skipped; expect-fail **19/19** (two new poisons, `poison_cram_five_words`
+and `poison_deep_four_words`, one diagnostic each); `effects_budget_check` 22 rows
+(a `deep_words_per_fire` row was added and mapped to the new constant).
+
+**Two things this did NOT do, deliberately.**
+1. The deep class stays at 3, above.
+2. `band()` cannot carry a 4-word ON op — the restore is derived from the ON op's span, so a
+   4-word `stream_cram` reaches `pal_restore` with count 4 and is refused there. Restoring
+   three of four entries would leave the fourth tinted for the frame, which is worse than not
+   building the band. A 4-word cram is authorable as a plain fire, not as a band. **If the
+   deep class ever gains a word, this restriction lifts with it and not before.**
 
 **(b) `.dense_body` / `.ramp_body` get the same treatment — and this is where the SHIPPED
 cycles actually are.** Item 1 as scoped touches only the sparse `.cram_loop`, and the

@@ -1,0 +1,53 @@
+// games/sonic4/test/poison/poison_deep_four_words.emp — POISON (see README).
+//
+// TARGETS: check_landings, on the width the CRAM class was raised to and the DEEP class
+//          was NOT — i.e. the half of the ceiling split that is a REFUSAL rather than a
+//          raise.
+// EXPECTED FRAGMENT: "opcode 4, 4-word burst"
+//
+// WHY A SEPARATE CASE FROM poison_landing_early. That one proves the early edge fires for a
+// two-stream-op fire, whose span is unplaceable for a structural reason (two bursts are
+// wider than the window however cheap their words are). This one proves the SPLIT: a single
+// four-word burst is placeable at 26 cycles a word and is not at 30, so the same op count
+// that the cram class now welcomes is still refused for region and restore. Without it,
+// deleting RASTER_BURST_MAX_DEEP and letting everything take the cram ceiling would leave
+// the whole lane green — the constructors would admit the op and no other case would look.
+//
+// THE ARITHMETIC IT REPRODUCES. A deep burst word is 30 cycles (a2 is the op's source
+// cursor, so the write is the absolute-long form), so four words span 3 x 30 = 90 against
+// the measured 122.9-cycle window, leaving 32.9 for margins that want 20 + 10. That passes
+// the module-level placeability ensure by 2.9 cycles — which is why this poison is aimed at
+// check_landings and not at that ensure — and then fails HERE, because the solver rounds to
+// whole `dbf` iterations: the leading region op reaches its delay site at 106 modelled
+// cycles, solves to 12 iterations, and starts writing at 240 against an earliest legal
+// 248.1. The 2.9 cycles of nominal slack are smaller than the 10-cycle grain the spin is
+// quantized to, which is the concrete form of "a margin the mechanism cannot resolve would
+// be decoration" — and the reason the deep class is held at 3 rather than allowed the 4 its
+// arithmetic nominally admits.
+//
+// EXACTLY ONE DIAGNOSTIC. The LATE edge passes (the last write lands at 330 against a
+// latest legal 341), and the op is built as the `RasterOp.PalRegion` variant directly —
+// the same dodge poison_landing_late documents — so `stream_pal_region`'s own count guard
+// never runs and cannot add a second. A count of 2 means either that dodge stopped working
+// or the late edge started firing too, and in both cases this case has stopped testing the
+// split.
+//
+// THE FRAGMENT QUOTES INTERPOLATED NUMBERS, unlike the two item-1c cases, and deliberately:
+// those two quote wording because their numbers move whenever a cost term does. Here the
+// opcode (4 = OP_PAL_REGION) and the burst width (4) are the whole subject — a case that
+// matched only "EARLIER than the earliest legal" would be satisfied by poison_landing_early's
+// two-op fire and would stop distinguishing the deep class from anything else.
+//
+// NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
+// COMPTIME_HELPERS members, glob-injected into every module by the real build. See
+// the README on why the lane cannot reproduce that injection yet.
+module games.sonic4.test.poison.poison_deep_four_words
+
+const POISON_DEEP_FOUR = [
+    RasterFire.Fire(100, [RasterOp.PalRegion($22, 0, 1, 1, 4)]),
+]
+
+// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// the diagnostic under test comes from inside the call.
+ensure(raster_program(POISON_DEEP_FOUR).len > 0,
+       "poison_deep_four_words: raster_program returned nothing — this poison no longer reaches the guard it targets")

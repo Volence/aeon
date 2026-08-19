@@ -40,7 +40,7 @@ use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // link symbols, so a degraded constant has no definition to find). Not silent — deferred
 // and de-named. The one genuinely silent case is a degraded name that collides with a
 // real label or `equ`.
-use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
+use engine.effects.raster.{RasterGradientProgram, RASTER_DENSE_WORDS_PER_LINE, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
 // Raster_Program_None — the "raster OFF" sentinel, needed by the Parcel C2 Task 12
 // presets below (total binding: a preset that means "no raster" must say so
 // explicitly rather than leaving ep_raster at 0/"keep").
@@ -348,11 +348,15 @@ pub data OJZ_WaterRaster: [u16; raster_words(OJZ_WATER_PROG)] = raster_program(O
 // blue, blue+green, blue+red. A stream desync of one word (the classic off-by-one in
 // a dense run) therefore shows up as the wrong CHANNEL MIX at the right level, which
 // is distinguishable from a run that is merely shifted by a line. Three words is
-// RASTER_CRAM_MAX exactly, so this also pins the per-fire ceiling.
+// RASTER_DENSE_WORDS_PER_LINE exactly, so this also pins the dense body's stride.
+// It is NOT the sparse per-fire ceiling and never was, though it wore that constant's name
+// until the ceilings split per class: the dense body writes three words with three inlined
+// `move.w`, solves no spin and is checked against no window, so a sparse ceiling moving
+// must not resize this ROM stream.
 const OJZ_GRAD_TOP   = 96
 const OJZ_GRAD_LINES = 96
-ensure(RASTER_CRAM_MAX == 3,
-       "OJZ_TestGradient's 3-words-per-line stream assumes RASTER_CRAM_MAX == 3")
+ensure(RASTER_DENSE_WORDS_PER_LINE == 3,
+       "OJZ_TestGradient's 3-words-per-line stream assumes RASTER_DENSE_WORDS_PER_LINE == 3")
 
 // CRAM line 2, entry 4 — the same base as the water region, so the ramp lands on
 // OJZ's dominant ground colours (entry 5 is ~54% of lower-screen pixels; see the
@@ -365,22 +369,22 @@ ensure(vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
 // ramp steps every 12 lines and a "monotonic ramp" claim means non-decreasing with
 // exactly 8 distinct levels, not 96. Channel positions are R<<1, G<<5, B<<9.
 comptime fn grad_word(i: int) -> int {
-    let level = ((i / RASTER_CRAM_MAX) * 8) / OJZ_GRAD_LINES   // 0..7 over the run
-    let ch    = i % RASTER_CRAM_MAX
+    let level = ((i / RASTER_DENSE_WORDS_PER_LINE) * 8) / OJZ_GRAD_LINES   // 0..7 over the run
+    let ch    = i % RASTER_DENSE_WORDS_PER_LINE
     if ch == 0 { return level << 9 }                    // entry 4 — blue
     if ch == 1 { return (level << 9) | (level << 5) }   // entry 5 — blue + green
     return (level << 9) | (level << 1)                  // entry 6 — blue + red
 }
 
 pub data OJZ_GradientStream: [u16; 288] = comptime for i in 0..288 { grad_word(i) }
-ensure(288 == OJZ_GRAD_LINES * RASTER_CRAM_MAX,
+ensure(288 == OJZ_GRAD_LINES * RASTER_DENSE_WORDS_PER_LINE,
        "OJZ_GradientStream length must be lines * words-per-line")
 
 // The mask is no longer passed: raster_gradient_program DERIVES it from cmd's CRAM
 // address ($48 >> 5 = line 2), so "re-assert CRAM line 2 each frame -> the ramp is
 // transient" is now a property of the address rather than a claim this call site makes
 // and the engine trusts. stream_words is the array's real length, checked there against
-// lines * RASTER_CRAM_MAX — the ensure that used to sit beside the stream below.
+// lines * RASTER_DENSE_WORDS_PER_LINE — the ensure that used to sit beside the stream below.
 pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
     top:          OJZ_GRAD_TOP,
     lines:        OJZ_GRAD_LINES,
