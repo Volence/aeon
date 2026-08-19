@@ -733,7 +733,7 @@ Stated plainly rather than left for someone to discover on hardware:
   | Ceiling | Value | Why that quantity |
   |---|---|---|
   | ops per fire | 4 | every op walks `Raster_HInt`'s compare chain before doing any work, and `OP_SET_REG` — the op with no other cost — is that chain's **fall-through** (`raster.emp:451-459`), so it is the most expensive op to *dispatch* |
-  | stream ops per fire | 2 | each of `stream_cram` / `stream_pal_region` / `stream_vsram` issues its own command longword **and** burns its own `EFX_BLANK_DELAY` spin (`raster.emp:465-467`, `:484-486`), and that spin is the entire mechanism that parks a write in HBlank. Only the **first** op's writes are measured to land there (row 119, 1px → 0px, `docs/benchmarks/effects-p2/GATE-EVIDENCE.md`) |
+  | stream ops per fire | 2 | each of `stream_cram` / `stream_pal_region` / `stream_vsram` issues its own command longword **and** burns its own blanking spin, and that spin is the entire mechanism that parks a write in HBlank. Since substrate item 1c the spin is **solved per op** from its position in the fire and its dispatch depth, aimed at a window measured on hardware (`docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`), so a *leading* stream op is a first-class shape rather than a dot-painter. The ceiling of 2 stands anyway: two bursts span at least 120 cycles against a 122.9-cycle window, so a second stream op has no legal placement and `check_landings` refuses it by name at emission |
   | stream words per fire | `RASTER_CRAM_MAX` = 3 | the writes themselves; `op_stream_words` sums `stream_cram`/`stream_pal_region`/`stream_vsram` alike, because a VSRAM word costs the same as a colour |
 
   The per-op bounds inside `stream_cram` / `stream_pal_region` / `stream_vsram` are *necessary but not sufficient*: three
@@ -784,7 +784,7 @@ Stated plainly rather than left for someone to discover on hardware:
   compares a line number.
 - **Mixed fires**: every `OP_SET_REG` must precede every stream op (ruling 14, spec §5.4). Not a
   style rule. `OP_SET_REG` writes with no delay (`raster.emp:457-459`) while every stream op first
-  burns `EFX_BLANK_DELAY` (`:465-467`, `:484-486`), so a `SET_REG` placed *after* a CRAM op executes
+  burns its solved blanking spin, so a `SET_REG` placed *after* a CRAM op executes
   strictly later in the line — worse than the measured ~45%-across-line-119 mode switch a mixed fire
   already costs (`raster.emp:175-180`), and invisible to an author. A pixel-clean mode change must be
   scheduled a line earlier instead. The guard is a **prefix test** (`last_set < first_cram`,

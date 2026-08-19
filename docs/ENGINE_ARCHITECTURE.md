@@ -4110,14 +4110,16 @@ region, with a pinned entry count guarding drift).
 `RASTER_DEPTH_RESTORE`, `engine/effects/raster_dsl.emp:1033`). Its payload is
 `(CRAM byte address, count)`; the snapshot offset IS the CRAM address (`Palette_Buffer+
 $00/$20/$40/$60 -> CRAM $0000/$20/$40/$60`), so no separate translation exists between "which
-line" and "where in CRAM." The restore has its own delay knob, `EFX_RESTORE_DELAY = 13`
-(`engine/effects/raster.emp:238`), never shared with `EFX_BLANK_DELAY` — calibrated
-2026-08-17 against the first datum ever taken at this fire shape. The calibration run found
-that **every single-op raster fire lands mid-previous-row** (the restore's zero-delay bracket
-start and a bare single-op CRAM fire spilled identically), so the restore needing its own
-knob was never optional; `EFX_RESTORE_DELAY = 13` lands the OFF edge exactly on the authored
-line (verified clean: the authored row renders fully tinted to its right edge, the row below
-fully base).
+line" and "where in CRAM." Its blanking spin is **solved, not knobbed** (substrate item 1c,
+2026-08-19): the lowering centres each op's burst in a blanking window measured on hardware,
+reading the op's position in its fire and its dispatch depth. The restore's depth of 4 and
+its deeper pre-burst arm are inputs to that, which is what the retired `EFX_RESTORE_DELAY`
+was a hand-fitted stand-in for. The 2026-08-17 calibration behind that 13 is preserved as
+evidence rather than as a constant: it found that **every single-op raster fire lands
+mid-previous-row** (the restore's zero-delay bracket start and a bare single-op CRAM fire
+spilled identically), and the solver now reproduces 13 as the *latest* spin whose 3-word
+restore burst still beats the line-start sampling instant. What ships is 10 — centred, and
+30 cycles cheaper.
 
 **The guard set** (`raster_dsl.emp`, `raster_program`):
 - **One band per program** — at most one restore op per program (a non-aborting `ensure`;
