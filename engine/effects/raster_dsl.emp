@@ -30,6 +30,9 @@ use engine.effects.raster.{OP_SET_REG, OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT, 
                           RASTER_OPS_END, RASTER_ARM_PARK, RASTER_CRAM_MAX,
                           RASTER_BUF_SIZE, RASTER_MIN_FIRE_LINE, RASTER_MAX_FIRE_LINE,
                           pal_stage_off}
+// Imported for the RASTER_SH_BASE pin ONLY — a module-level `ensure` can see an import,
+// where a `comptime fn` body cannot (its free names resolve at the author's call site).
+use engine.boot_data.{VDP_REG_0C_BOOT}
 
 // ---- the inlined-literal pins (see the module note above) -------------------
 ensure(OP_SET_REG == 0 && OP_CRAM == 2 && OP_PAL_REGION == 4 && OP_RUN_GRADIENT == 6 && OP_RUN_RAMP == 8 && OP_PAL_RESTORE == 10,
@@ -154,13 +157,22 @@ pub comptime fn reg_set(word: int) -> RasterOp {
 }
 
 // RASTER_SH_BASE / RASTER_SH_BIT — boot's H40 reg $0C word and the Shadow/Highlight
-// enable bit, spelled ONCE so the on/off pair below cannot drift apart. The base is
-// boot's own value ($0C = $81, engine/system/boot_data.emp — the VDP register table's
-// `dc.b $81 // $0C: H40 (320px), no interlace`); that table is a `.asm`-side byte blob
-// with no importable name, so this is a literal held by its comment the way the opcode
-// literals at the top of this module are held by their pins.
+// enable bit, spelled ONCE so the on/off pair below cannot drift apart.
+//
+// STILL A LITERAL, NOW ACTUALLY PINNED (2026-08-18, substrate sweep Tier 4). It has to
+// stay a literal for this module's standing reason: these names are read inside `pub
+// comptime fn` bodies, whose free names resolve at the AUTHOR's call site, so a value
+// spelled over an import would fail to resolve in every content module. What it used to
+// lack was the other half — the comment asserted parity with boot's byte and nothing
+// checked it, so a resolution change in boot_data would silently change what every raster
+// S/H op writes. `VDP_REG_0C_BOOT` now names that byte and the ensure below holds this
+// literal against it, exactly as the opcode and dispatch-depth literals above are held.
 const RASTER_SH_BASE = $8C81
 const RASTER_SH_BIT  = 8                        // reg $0C bit 3
+ensure(RASTER_SH_BASE == $8C00 | VDP_REG_0C_BOOT,
+       "RASTER_SH_BASE ({RASTER_SH_BASE}) is no longer boot's reg $0C byte ({VDP_REG_0C_BOOT}, engine/system/boot_data.emp). reg_sh_on/reg_sh_off write the WHOLE register, so they would be resetting the resolution bits to a stale value on every band edge — re-spell this literal against the new boot byte.")
+ensure((VDP_REG_0C_BOOT & RASTER_SH_BIT) == 0,
+       "boot's reg $0C byte ({VDP_REG_0C_BOOT}) already has Shadow/Highlight (bit 3) SET, so reg_sh_off() would not turn it off and every band's OFF edge is a no-op. S/H must be off at frame top for the raster layer to own it.")
 
 // reg_sh_on — Shadow/Highlight ON below the fire line; the frame-top flush restores whatever
 // the shadow holds for reg $0C at the top of the next frame, which is boot's H40 base
