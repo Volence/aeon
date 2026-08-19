@@ -41,6 +41,17 @@ ensure(RASTER_OPS_END == $FFFF, "raster_dsl's inlined terminator drifted from RA
 ensure(RASTER_ARM_PARK == $8AFF, "raster_dsl's inlined park word drifted from RASTER_ARM_PARK")
 ensure(RASTER_CRAM_MAX == 3, "raster_dsl's inlined per-fire colour ceiling drifted from RASTER_CRAM_MAX")
 ensure(RASTER_BUF_SIZE == 128, "raster_dsl's inlined buffer bound drifted from RASTER_BUF_SIZE")
+// The buffer in WORDS, which is what every encoder site actually counts in. It was a bare
+// `64` at four sites, unnamed and underived (2026-08-18 substrate sweep, Tier 4) — a
+// RASTER_BUF_SIZE change would have moved the runtime's fixed 128-byte copy while the
+// padding, the patch-table offset and the fit check all stayed at 64, i.e. the table would
+// land somewhere the runtime does not look. Safe to NAME rather than inline because this
+// module is glob-imported at every call site: a name it OWNS travels, where an imported
+// name (OP_CRAM and friends above) does not. That is the whole distinction the module note
+// draws, and it is why the opcodes stay literals and this does not.
+const RASTER_BUF_WORDS = 64
+ensure(RASTER_BUF_WORDS == RASTER_BUF_SIZE / 2,
+       "RASTER_BUF_WORDS ({RASTER_BUF_WORDS}) is not RASTER_BUF_SIZE/2 ({RASTER_BUF_SIZE} / 2). The encoder pads to words and the runtime copies bytes; if these disagree the patch table lands off the address Raster_InstallPatched reads it from.")
 // NOTE the message spells both constant names out. `RASTER_{MIN,MAX}_FIRE_LINE` would
 // be parsed as an INTERPOLATION and emit `unknown name MIN` at span 0..3 instead of the
 // diagnostic — latent while the pin passes, broken exactly when it fires.
@@ -1849,19 +1860,19 @@ comptime fn check_rec_layout(fires: array, out: array) -> int {
 }
 
 // patched_words — the emitted word count of a patched template: the program padded to the
-// 64-word buffer, then the table. Use it as the length annotation on the `pub data`.
+// RASTER_BUF_WORDS-word buffer, then the table. Use it as the length annotation on the `pub data`.
 //
 // HONEST SCOPE AS A CROSS-CHECK: the program body's own word count is checked by
 // raster_program's `out.len == raster_words(fires)`, which runs on every call and is the
-// independent-path check. Once padded the body is 64 words by construction, so what THIS adds
+// independent-path check. Once padded the body is RASTER_BUF_WORDS words by construction, so what THIS adds
 // is the table's framing — one count word plus five per record — and it pins the declared ROM
 // footprint at the linker seam.
 pub comptime fn patched_words(fires: array) -> int {
-    return 64 + 1 + 5 * fires.len + ship_trailer_words(fires)
+    return RASTER_BUF_WORDS + 1 + 5 * fires.len + ship_trailer_words(fires)
 }
 
 // patched_program — a raster program a runtime patcher can move. The ordinary program, padded
-// to exactly the 64-word working buffer, then the patch table.
+// to exactly the RASTER_BUF_WORDS-word working buffer, then the patch table.
 //
 // WHY THE PADDING IS NOT WASTE. The runtime's copy routine copies a FIXED 128 bytes from every
 // template, so a patched template is already read to +128 — padding makes that read defined,
@@ -1872,9 +1883,9 @@ pub comptime fn patched_program(fires: array) -> array {
     comptime var out = raster_program(fires)     // every existing guard runs here
     check_arm_layout(fires, out)
     check_rec_layout(fires, out)
-    comptime var pad = 64 - out.len
+    comptime var pad = RASTER_BUF_WORDS - out.len
     ensure(pad >= 0,
-           "patched_program: the program body is {out.len} words, which does not fit the 64-word buffer the runtime copies")
+           "patched_program: the program body is {out.len} words, which does not fit the {RASTER_BUF_WORDS}-word buffer the runtime copies")
     for i in 0..pad { out = out ++ [0] }
     out = out ++ patch_table(fires)
     out = out ++ ship_trailer(fires)
