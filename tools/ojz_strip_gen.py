@@ -67,8 +67,10 @@ from ojz_common import (
     load_chunk_map,
     load_layout,
     load_bg_layout,
+    skdisasm_root,
 )
 import collision_pipeline
+import donor_provenance
 
 # ---------------------------------------------------------------------------
 # Paths (editor / strip-gen specific — shared ones come from ojz_common)
@@ -497,11 +499,12 @@ def preflight() -> None:
     require_donor()
     # The skdisasm donor is import_sk_collision.py's input, not ours — but it is
     # the FIRST thing regenerate-level.sh runs and the only destructive one, so
-    # its precondition has to be checked here, before that write. Same resolution
-    # as import_sk_collision.py:28-30; kept in step deliberately (a divergence
-    # would make this preflight pass for a run that then fails destructively).
-    sk_root = os.environ.get("AEON_SKDISASM_DIR") or os.path.normpath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "skdisasm"))
+    # its precondition has to be checked here, before that write. The resolution
+    # is no longer copied from import_sk_collision.py — both now call
+    # ojz_common.skdisasm_root(), because a divergence would make this preflight
+    # pass for a run that then fails destructively (and would make the recorded
+    # provenance name a checkout that contributed nothing).
+    sk_root = skdisasm_root()
     sk = os.path.join(sk_root, "Levels", "Misc")
     if not os.path.isdir(sk):
         raise SystemExit(
@@ -2040,6 +2043,23 @@ def generate(stress_uniquify=0):
     # smoke test a producer of committed data (tools lens sweep D8) -- the test
     # redirects OUTPUT_DIR, and Pass 8 wrote straight past the redirect.
     ojz_entity_gen.generate(out_path=os.path.join(out_dir, "entity_data.emp"))
+
+    # ---- Pass 9: donor provenance ----
+    # The tree above is baked from TWO out-of-repo checkouts, and until this stamp
+    # existed neither revision was recorded anywhere — the bytes were tracked, the
+    # inputs that produced them were not, so not even this machine could prove the
+    # tree reproduces. Written LAST, so a bake that died halfway leaves no claim.
+    #
+    # Destination derives from out_dir on purpose (D8): a module-constant path would
+    # write the committed file straight through test_full_pipeline_runs' redirect.
+    if stress_uniquify:
+        # The stress bake is fabricated data (deterministic tile clones), thrown away
+        # by build.sh's git restore. Stamping it would file a provenance claim about a
+        # tree that never existed as a real bake.
+        print("Skipping donor provenance stamp — STRESS bake, not a real re-bake.")
+    else:
+        donor_provenance.write_provenance(
+            "rebake", path=os.path.join(out_dir, "DONOR_PROVENANCE.json"))
 
     # Print a brief sanity summary for the first section's first strip
     if first_strips:

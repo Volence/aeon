@@ -22,11 +22,16 @@ slot) stays air (solidity 0).
 import os, sys
 
 HERE = os.path.dirname(__file__)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ojz_common import skdisasm_root  # noqa: E402
+
 # skdisasm is an out-of-repo DONOR only this manual re-bake reads (the build
 # consumes the committed collision tables). Override with AEON_SKDISASM_DIR
 # (pointing at the skdisasm checkout root); absence fails loudly below.
-_SK_ROOT = os.environ.get("AEON_SKDISASM_DIR") or os.path.normpath(
-    os.path.join(HERE, "..", "..", "skdisasm"))
+# The resolution lives in ojz_common so this tool, ojz_strip_gen.preflight() (which
+# must refuse a run BEFORE this file's destructive write — tools lens sweep D1) and
+# tools/donor_provenance.py all name the same checkout.
+_SK_ROOT = skdisasm_root()
 SK = os.path.join(_SK_ROOT, "Levels", "Misc")
 if not os.path.isdir(SK):
     raise SystemExit(

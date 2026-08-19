@@ -328,10 +328,16 @@ if [[ -f "${ROM_NAME}.lst" ]]; then
     # NOT `|| true`. It was, and that mattered: s4budget returned 0 on every path
     # anyway (tools lens sweep D7), so the budgets were gated by nothing twice over
     # — no threshold in the tool, and its exit code discarded here. The tool now
-    # returns 1 on a real ROM / object-bank breach, so let that fail the build.
-    # Axes it cannot measure (RAM, sections) warn loudly and do NOT fail, because
-    # hard-failing on a dead parser is how a gate gets re-wrapped in `|| true`.
-    if ! python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" --summary; then
+    # returns 1 on a real ROM / object-bank / RAM-into-stack breach, so let that
+    # fail the build.
+    #
+    # --map is REQUIRED for the budget axis: the [[budget]] ceilings and their
+    # cursor symbols are declared in the game's placement contract, which is what
+    # replaced the retired `__BUDGET_*` sentinels the AS-era parser looked for. A
+    # path given here that does not exist is a hard error inside the tool rather
+    # than a silent downgrade to "UNMEASURED".
+    if ! python3 "${TOOLS}/s4budget.py" "${ROM_NAME}.lst" "${ROM_NAME}.bin" \
+            --map "games/${GAME}/map.toml" --summary; then
         echo "Budget exceeded — see the s4budget output above."
         exit 1
     fi

@@ -5185,10 +5185,117 @@ remain open and would address the mechanism itself rather than alarming on it.
 
 ### What remains open across the tools surface
 
-- **The `s4budget` listing parser** (above) — the one real gap left in that tool.
-- **The drift MECHANISM behind D2** — the editor still rewrites `project.json` wholesale, so
-  the gate added for it is an alarm, not a cure.
-- **Donor revisions are recorded nowhere.** Neither `sonic_hack` nor `skdisasm` has its
-  revision captured, so even the authoring machine cannot prove it would reproduce the
-  committed bytes. Cheap to fix (stamp both SHAs into a generated provenance file during a
-  re-bake) and worth doing before anyone relies on reproducibility.
+All three remainders worked 2026-08-18 (the same day they were recorded). Two closed, one
+STOPPED on an owner ruling with a concrete proposal below.
+
+- **✅ CLOSED — the `s4budget` listing parser.** Rewritten for the sigil format. The old
+  parser modelled an AS listing (page headers, include-depth nesting, per-file byte
+  contributions, `__BUDGET_*` sentinels, `FFFFFFFFFFFF` sign-extended RAM equates, a
+  `-`-typed constant bucket). A sigil `.lst` has NONE of that: it is one flat symbol table,
+  every symbol type `C`, rendered twice (source rows above the header, symbol rows below,
+  same set in the same order, with a `N symbols` trailer).
+
+  What is measurable now, and from where — ROM total against `[[region]] rom` with
+  `EndOfRom` as a cross-check; the object-bank budget from `map.toml`'s `[[budget]]`
+  (region + ceiling + a cursor SYMBOL resolved against the listing — the map-owned
+  successor to the retired `__BUDGET_DATA` marker); RAM from the `$FFFF0000+` symbols,
+  which is the axis the dead parser lost entirely; VRAM from `games/<game>/vram.toml`,
+  because the listing carries no constants at all. Real figures on today's build:
+  `ROM: 696.0 KB/4.0 MB (17.0%) | object_bank: 6.4 KB/64.0 KB (10.0%) | RAM: 47.0 KB/64.0 KB
+  (73.4%) | Free: 16.7KB before stack`.
+
+  **Per-file ROM contributions are gone and are not coming back** — a sigil listing carries
+  no file attribution whatsoever. Nothing is reported in their place.
+
+  Three structural defences against a repeat, because the D7 failure was silence:
+  `parse_listing` RAISES on a format it cannot read (no path from "format changed" to
+  "zero"), and validates by making THREE numbers the listing supplies itself agree — the
+  trailer count, the symbol rows, and the source rows, which must also match
+  symbol-for-symbol; UNMEASURED is never rendered as a number, including the small-but-real
+  case (demo's 6-byte object bank prints `6 B/64.0 KB`, not `0KB/64KB`); and the tests are
+  **cut from real builds** (`tools/fixtures/*.lst` via `make_listing_excerpt.py`) with
+  poisons that are MUTATIONS of that real fixture. 39 tests, 9 of them poisons, verified to
+  bite by weakening the parser and watching them go red.
+
+  Two things noticed on the way, neither acted on: sigil already enforces the map's
+  `[[budget]]` ceilings at pack time, so that gate here is a dashboard and a second pair of
+  eyes rather than the enforcer — but **RAM growing into the stack has no other enforcer**,
+  and s4budget now fails the build on it. And a naive sum of `vram.toml` region tiles reports
+  104% of VRAM for a correct map, because `window_plane` declares an overlay on `plane_b`;
+  occupancy is the union, cross-checked against the map's own `[[free]]` blocks (47 == 47).
+
+- **⛔ STOPPED, needs an owner ruling — the drift MECHANISM behind D2.** Investigated in
+  Aurora; the premise in the packet turns out to be **wrong in an important way**, and the
+  cure is a design decision, not a contained fix. Proposal below.
+
+- **✅ CLOSED — donor revisions.** `tools/donor_provenance.py` stamps both donors' HEAD SHAs
+  and dirty flags into `games/sonic4/data/generated/ojz/act1/DONOR_PROVENANCE.json` as
+  `generate()`'s last pass. Backfilled today and **labelled `mode: "backfill"`**, which the
+  file itself defines as "recorded by inspection AFTER the bake, NOT proof this tree
+  reproduces". `sonic_hack` records DIRTY (11 modified tracked files) — that is the finding,
+  not a formatting detail: its SHA does not identify what was read, and the first real
+  re-bake will say so again unless the donor is committed first. The destination derives
+  from `generate()`'s `out_dir` rather than a module constant, because a constant would
+  write the committed file straight through `test_full_pipeline_runs`' redirect (D8's exact
+  shape). `ojz_common.skdisasm_root()` is now the one authority for the second donor.
+  16 tests against throwaway git repos, including an mtime gate proving inspection writes
+  nothing into a donor's `.git`.
+
+### D2's drift mechanism — the ruling that is actually needed (2026-08-18)
+
+**The packet's premise was wrong.** Aurora does NOT serialize only its in-memory model.
+`src/core/config/s4-config.ts` retains the parsed `project.json` verbatim as `config.raw`,
+and `buildAeonSavePlan` writes `JSON.stringify(config.raw, null, 2)`. Unknown and unmodelled
+keys at every nesting depth already round-trip. Verified against the 2026-06-12 revert
+commit itself (`586cd3fa`): **no key was lost** — `stripPath`, `stripPrefix`, `parallax`,
+`palette`, `objectLibrary`, `chunkLibrary` all survived; only formatting changed.
+
+So "preserve unknown fields on save" is already implemented and is not the fix.
+
+**What actually happened** is narrower and deliberate: `buildAeonSavePlan`
+(`src/core/project/aeon/save.ts:140-207`) unconditionally RETARGETS exactly three fields to
+editor-owned paths on every save — `zones[].tileset`, `acts[].bgLayout`, `acts[].bgTiles`.
+For the tileset it computes `` `${dataRoot}editor/${zone.id}_tiles.bin` `` from the zone id
+alone; the loaded value is an input to nothing, only compared to decide whether a rewrite is
+needed. No user action changes it. It changes because the REPO changed it to something else.
+Today the computed value already equals what is on disk, so a save writes no `project.json`
+at all — the mechanism is quiescent, not absent.
+
+The retarget is load-bearing and its rationale is documented in place: Aurora writes the tile
+bytes to the editor path unconditionally, so without the pointer rewrite, MCP `write_tiles`,
+imported art and merged art **silently vanish on reload**. Suppressing the retarget alone
+makes saves strictly worse — bytes to one path, pointer to another, no diagnostic.
+
+**Why this is a ruling and not a fix:** two parties both need authority over one field.
+Aurora needs `project.json` to point where it writes; `ojz_strip_gen` needs
+`zones[0].tileset` to name the blob the bake consumes (and hard-errors on a missing or
+zero-byte target — tools D3). Whoever wins, the byte-destination and the pointer must stay
+consistent by construction.
+
+Three coherent options, recommended order:
+
+1. **Repo-owned destination (recommended).** Add optional `editorTilesetPath` (and
+   `editorBgLayout` / `editorBgTiles`) to `S4ZoneConfig` / `S4ActConfig`. When present,
+   Aurora writes the bytes THERE and never rewrites `tileset`; when absent, today's
+   behaviour. Gives the repo the authority it wants, keeps pointer and bytes consistent by
+   construction, is fully testable at `buildAeonSavePlan`, and only widens the config type —
+   the raw-preservation machinery carries the new key through untouched.
+2. **Honour the loaded path as the write destination**, retargeting only when it is absent
+   or unwritable. One source of truth, but it needs a "is this path safe to write" rule, and
+   the current code's whole premise is that `data/generated/` is not.
+3. **Keep the retarget, kill the collateral churn** (cheap, orthogonal, worth doing under any
+   option): the rewrite drops the trailing newline and reindents the whole file, which is
+   noise that makes these rewrites hard to spot in review.
+
+**Trap for whoever implements it:** the legacy-atlas truncation guard at `save.ts:225-231`
+reads `raw.zones[].tileset` to decide whether zeroing `chunks_tiles.bin` would destroy live
+zone art. Re-derive that guard's meaning under whichever option wins.
+
+Also worth doing regardless, and independent of the ruling: there is **no test file for
+`s4-config.ts` at all**, so the raw-verbatim preservation contract — the one mechanism that
+does work — is currently only a docstring. A `load → buildAeonSavePlan → parse` round-trip
+asserting an unknown key survives at top, zone and act level would pin it.
+
+Nothing was implemented in Aurora. Aeon-side, the D2 gate (`tools/test_editor_inputs.py`)
+still alarms on the specific field, so a recurrence fails the next build rather than hiding
+for two months.

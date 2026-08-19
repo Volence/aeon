@@ -1,5 +1,24 @@
 # s4budget — ROM/RAM Budget Dashboard
 
+> **⚠ SUPERSEDED IN PART — 2026-08-18.** Everything below describes the AS Macro
+> Assembler era: page headers, include-depth nesting, per-file byte contributions,
+> `__BUDGET_*` sentinel labels and a `-`-typed constant bucket. A sigil listing has
+> none of those, so the parser built to this spec read nothing from a real build and
+> reported `RAM: 0KB/64KB (0%)` (tools lens sweep D7). The parser was rewritten for
+> the sigil format; the current design lives in `tools/s4budget.py`'s module
+> docstring. What changed in substance:
+> - **Data source** is the sigil `--emit-lst` listing: one flat symbol table, all
+>   type `C`, rendered twice (source rows + symbol rows). No constants, no includes.
+> - **Region/section budgets** come from `games/<game>/map.toml`'s `[[budget]]`
+>   (region + ceiling + cursor symbol) — the map-owned successor to `__BUDGET_DATA`.
+>   Pass `--map`.
+> - **VRAM** comes from `games/<game>/vram.toml`, since the listing carries no
+>   constants at all. Occupancy is the UNION of region ranges (`window_plane`
+>   legitimately overlays `plane_b`).
+> - **Per-file ROM contributions are gone** and are not recoverable from this input.
+> - The parser now RAISES on a format it cannot read instead of returning an empty
+>   model, and the tests are cut from real builds rather than hand-authored.
+
 ## Overview
 
 A build-time tool that parses the AS Macro Assembler listing file (`s4.lst`) to report ROM, RAM, and VRAM usage. Two modes: a compact one-liner integrated into `build.sh`, and a full detailed report run on-demand.

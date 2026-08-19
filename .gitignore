@@ -10,6 +10,12 @@
 # force-add, so the intent is visible the next time someone reads this file.
 !games/sonic4/data/editor/ojz_tiles.bin
 *.lst
+# ...but the s4budget test fixtures ARE listings, on purpose. They are excerpts
+# cut from real `sigil build --emit-lst` output (tools/fixtures/make_listing_excerpt.py)
+# rather than hand-authored, because a hand-authored listing fixture is how
+# test_s4budget stayed green for months against a parser that read nothing
+# (tools lens sweep D7). Negated explicitly, not force-added.
+!tools/fixtures/*.lst
 *.log
 *.p
 *.h

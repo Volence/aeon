@@ -1,0 +1,38 @@
+{
+  "_note": "Donor revisions read by the level re-bake that produced games/sonic4/data/generated/ and games/sonic4/data/collision/. Written by tools/donor_provenance.py. mode=rebake means these donors were read by the bake committed alongside this file; mode=backfill means every revision here (donors AND generator) was recorded by inspection AFTER the bake, and is NOT proof that this tree reproduces from them. A donor with dirty=true is not identified by its SHA at all.",
+  "donors": {
+    "skdisasm": {
+      "branch": "master",
+      "dirty": false,
+      "env_var": "AEON_SKDISASM_DIR",
+      "head": "2fcd861c208f342b6d14df694c6422c74f20a4be",
+      "modified_tracked": 0,
+      "path": "/home/volence/sonic_hacks/skdisasm",
+      "role": "S&K 252-shape collision vocabulary (import_sk_collision.py)",
+      "status": "git",
+      "untracked": 2
+    },
+    "sonic_hack": {
+      "branch": "master",
+      "dirty": true,
+      "env_var": "AEON_SONIC_HACK_DIR",
+      "head": "b7a62a978673329073bc07e1a9e20837351484af",
+      "modified_tracked": 11,
+      "path": "/home/volence/sonic_hacks/sonic_hack",
+      "role": "level layouts, Kosinski art, chunk+block maps, palette",
+      "status": "git",
+      "untracked": 6
+    }
+  },
+  "generator": {
+    "dirty": true,
+    "head": "129a8ec15527826d394d9ee122e9d541f857dbdb",
+    "modified_tracked": 3,
+    "repo": "aeon",
+    "status": "git",
+    "untracked": 3
+  },
+  "mode": "backfill",
+  "recorded_at": "2026-08-18",
+  "schema": 1
+}
