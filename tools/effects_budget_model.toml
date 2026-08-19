@@ -107,7 +107,7 @@ program_overhead_fires = 2           # code-derived — the two priming records
 # now have a machine-checked path back to the shipped code, so a constant cannot drift out
 # from under this file the way `418 + 36x` did.
 [raster.cost_model]
-fire_base_cycles       = 302         # code-derived — RASTER_FIRE_BASE_CYC
+fire_base_cycles       = 280         # code-derived — RASTER_FIRE_BASE_CYC
 op_fetch_cycles        = 8           # code-derived — move.w (a1)+, d1
 dispatch_rung_cycles   = 16          # code-derived — a FAILED rung: cmpi.w + beq.s not taken
 dispatch_hit_cycles    = 18          # code-derived — the matching rung: cmpi.w + beq.s taken

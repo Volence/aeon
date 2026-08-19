@@ -17,6 +17,36 @@
 // pressure: `[proc.sr-undeclared]` does NOT charge a consumer for the SR traffic
 // this context splices in, because that traffic is declared HERE.
 //
+// `ints_off_until_rte` is `ints_off` FOR AN INTERRUPT HANDLER, and it is the same
+// mask with a cheaper end. The 68000 pushes SR before it vectors, and `rte` pops
+// it back — so a handler that raises the mask for its body has its restore
+// performed by the return instruction it was going to execute anyway. The
+// ordinary bracket's `move.w sr,-(sp)` (14 cyc) and `move.w (sp)+,sr` (16 cyc) in
+// that position are 30 cycles spent producing a value the very next instruction
+// discards: the pop writes IPL 4 (the level the CPU entered at), and `rte`
+// immediately overwrites it with the pre-interrupt SR from the frame. Dropping
+// them also CLOSES a window rather than opening one — between the pop and the
+// `rte` the ordinary shape sits one instruction at IPL 4, where a level-6 VBlank
+// can still nest into a handler that has finished tidying up.
+//
+// It is a flavour and not a second hand-spelling because the compiler can prove
+// the thing that makes it safe. `released_by_rte` names the release instead of
+// splicing it, and sigil then requires that EVERY path out of the bracket is, or
+// falls straight onto, an `rte` (`[context.rte-undischarged]`); an acquire that
+// pushes is refused outright (`[context.rte-acquire-pushes]`), because `rte`
+// takes its exception frame off the stack top and a push with no matching pop
+// would return through it. A bare `move.w #$2700, sr` in a handler body earns
+// none of that: it is `User`-authored, so `[proc.sr-undeclared]` charges it, and
+// neither honest clause can absorb it — `clobbers(sr)` is false of an
+// interrupt-transparent handler, and `preserves(sr)` cannot be verified because
+// the checker has no model of `rte` restoring it (declaring it collapses the
+// whole preserves clause, so every movem-saved register then reports undeclared).
+// That gap is the entire reason this context exists.
+//
+// ADOPTERS ARE IRQ HANDLERS ONLY. A proc reached by `jbsr` returns with `rts`,
+// which does not touch SR, and the flavour will say so at the bracket rather than
+// let the mask leak into the caller.
+//
 // `vblank` is a GRANTED context: the VBlank window cannot be acquired, only
 // entered by the hardware. `grants(vblank)` on an interrupt entry point is a
 // TRUST ROOT — the assembler cannot verify hardware dispatch, so the assertion
@@ -39,7 +69,8 @@
 // `clobbers(sr.ccr)` (Sound_DrainSfxRing's empty fast path) — the partition
 // check reads the split from the signature.
 //
-// Consumers `use engine.irq.{ints_off}` / `use engine.irq.{vblank}`.
+// Consumers `use engine.irq.{ints_off}` / `use engine.irq.{ints_off_until_rte}` /
+// `use engine.irq.{vblank}`.
 //
 // Pure comptime module: opens no section and emits ZERO bytes anywhere in the
 // ROM — bytes appear only where a consumer brackets with it.
@@ -53,6 +84,13 @@ pub context ints_off {
     release = asm {
         move.w  (sp)+, sr
     }
+}
+
+pub context ints_off_until_rte {
+    acquire = asm {
+        move.w  #$2700, sr
+    }
+    released_by_rte
 }
 
 pub context vblank { granted }
