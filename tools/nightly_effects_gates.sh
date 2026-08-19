@@ -49,6 +49,13 @@ if ! DEBUG=1 ./build.sh > "$STATE/build.log" 2>&1; then
     note "COULD NOT RUN: DEBUG build failed at ${SHA:0:8} — see $STATE/build.log"
     exit 2
 fi
+# Second fixture: the P2 Phase 1 span/witness gates are two-fixture differentials
+# (sonic4 vs demo) and hard-error without demo.debug.lst — a one-fixture run is
+# not the gate. First bit the nightly 2026-08-19, the night Phase 1 landed.
+if ! DEBUG=1 ./build.sh demo >> "$STATE/build.log" 2>&1; then
+    note "COULD NOT RUN: DEBUG demo build failed at ${SHA:0:8} — see $STATE/build.log"
+    exit 2
+fi
 
 python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst \
     > "$STATE/gates.log" 2>&1
