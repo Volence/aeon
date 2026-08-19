@@ -141,7 +141,7 @@ const OJZ_TEST_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       2, $C04A, $0000,          // OP_CRAM, command longword split
-                 17,            // spin — SOLVED, not authored (substrate item 1c): the
+                 19,            // spin — SOLVED, not authored (substrate item 1c): the
                                 //   blanking spin is per-op program data whose value the
                                 //   lowering derives from the op's POSITION. Hand-derived
                                 //   here by the solver's own arithmetic, since this pin
@@ -151,8 +151,12 @@ const OJZ_TEST_HAND = [
                                 //   (fetch) + 8 (the not-taken zero pre-test) + 18
                                 //   (dispatch hit at depth 0) + 36 (pre-burst arm) = 110
                                 //   cycles, its burst spans 0 (one word), and
-                                //   round((351 - 110 - 14 - 122.9/2) / 10) = round(17.555)
-                                //   = 17. Sits between command and count-1.
+                                //   round((371 - 110 - 14 - 122.9/2) / 10) = round(18.555)
+                                //   = 19. Sits between command and count-1. (Was 17
+                                //   until Tier-3 item 6 moved RASTER_HBLANK_END_CYC
+                                //   351 -> 371: the prologue's SR save is gone, so the
+                                //   op-walk origin sits earlier and every burst waits
+                                //   two more iterations for the same window.)
                                 //
                                 //   WAS 10 UNTIL TIER-3 ITEM 2, and the +7 is the whole
                                 //   parcel arriving in shipped content: the SetReg ahead
@@ -286,13 +290,14 @@ const OJZ_WATER_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       4, $C048, $0000,          // OP_PAL_REGION, command longword split
-                 10,            // spin — SOLVED (substrate item 1c). A 3-word pal_region
+                 12,            // spin — SOLVED (substrate item 1c). A 3-word pal_region
                                 //   sitting SECOND reaches p = 40 (the SetReg) + 8
                                 //   (fetch) + 42 (the not-taken zero pre-test 8, plus the
                                 //   depth-1 dispatch 34) + 56 (pre-burst arm, the deeper
                                 //   lea/adda shape) = 146, spans 60, and
-                                //   round((351 - 146 - 14 - (122.9 + 60)/2) / 10) =
-                                //   round(9.955) = 10.
+                                //   round((371 - 146 - 14 - (122.9 + 60)/2) / 10) =
+                                //   round(11.955) = 12. (Was 10 until Tier-3 item 6
+                                //   moved END 351 -> 371 — the prologue's SR save.)
                                 //
                                 //   WAS 4 UNTIL TIER-3 ITEM 2 — where it had coincided
                                 //   with the retired per-class constant, this being the
@@ -479,12 +484,14 @@ const OJZ_VSRAM_HAND = [
       2, $4002, $0010,                  //   OP_CRAM opcode, VSRAM write cmd @ byte 2 = $40020010
                                         //   (type&rwd = VSRAM&WRITE = %000101: bits 1-0 -> $40000000,
                                         //    addr -> high word, bits 7-2 -> $10 in the low word)
-                 21,                    //   spin — SOLVED (substrate item 1c). A VSRAM op
+                 23,                    //   spin — SOLVED (substrate item 1c). A VSRAM op
                                         //   emits OP_CRAM and dispatches at the cram rung,
                                         //   so it solves exactly like one: LEADING, 1 word,
                                         //   p = 8 + 8 (the not-taken zero pre-test) + 18
                                         //   + 36 = 70, span 0,
-                                        //   round((351 - 70 - 14 - 61.45) / 10) = 21.
+                                        //   round((371 - 70 - 14 - 61.45) / 10) = 23
+                                        //   (was 21 before Tier-3 item 6 moved END
+                                        //   351 -> 371 — the prologue's SR save).
                                         //   UNMOVED BY TIER-3 ITEM 2, and it is the only
                                         //   shipped spin that is: item 2 puts this op 8
                                         //   cycles further from the origin, which is 0.8
@@ -746,16 +753,18 @@ const OJZ_TC_HAND = [
     $8AFF, 2,                   // fire 2 — channel 0, two ops
       0, $8C89,                 //   OP_SET_REG — S/H on
       4, $C048, $0000,          //   OP_PAL_REGION, command longword split
-                 10,            //   spin — SOLVED: 3-word region SECOND after a reg_set,
-                                //     p = 146, span 60 -> round(9.955) = 10 (item 1c;
+                 12,            //   spin — SOLVED: 3-word region SECOND after a reg_set,
+                                //     p = 146, span 60 -> round(11.955) = 12 (item 6
+                                //     moved END 351 -> 371, which is +2 here; item 1c;
                                 //     was 4 at p = 208, until item 2 cut 70 cycles off the
                                 //     SetReg ahead of it and added 8 to its own dispatch)
                  2,             //   count-1
                  72,            //   Pal_Variant_Stage offset
     $8AFF, 1,                   // fire 3 — channel 1, one op
       2, $4002, $0010,          //   OP_CRAM opcode with a VSRAM WRITE command longword
-                 21,            //   spin — SOLVED: LEADING 1-word vsram, p = 70, span 0
-                                //     -> round(21.055) = 21 (item 1c; unmoved by item 2 —
+                 23,            //   spin — SOLVED: LEADING 1-word vsram, p = 70, span 0
+                                //     -> round(22.555) = 23 (item 6's +2; item 1c;
+                                //     unmoved by item 2 —
                                 //     its p grew 8, which is 0.8 of an iteration and does
                                 //     not reach the next integer). The two records in
                                 //     this ONE program carry different spins, which is the

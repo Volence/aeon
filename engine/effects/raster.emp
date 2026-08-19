@@ -11,7 +11,7 @@ module engine.effects.raster in raster
 
 use engine.vdp.{VDP_HINT_OFF, vdp_comm, vdp_comm_addr, VdpTarget, VdpOp}
 use engine.constants.{VDP_CTRL, VDP_DATA}
-use engine.irq.{ints_off}
+use engine.irq.{ints_off_until_rte}
 // P2 §3.3 capability gate — see the CAP_* authority block in engine/level/scene_dsl.emp.
 use engine.level.scene_dsl.{CAP_ANCHORS}
 
@@ -795,18 +795,43 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // it. Precedent: every long HInt payload in TF4 / Vectorman / Gunstar /
         // Alien Soldier opens by raising the mask (survey Q4).
         //
-        // The engine's `ints_off` bracket rather than a bare `move.w #$2700,sr`:
-        // bare, the write needs `sr` in the contract, and adding it to preserves()
-        // defeats the movem round-trip proof (the checker cannot model `rte`
-        // restoring SR, so the whole clause stops verifying and every saved
-        // register reports undeclared). The bracket declares its own effect.
+        // The engine's `ints_off_until_rte` bracket rather than a bare
+        // `move.w #$2700,sr`: bare, the write needs `sr` in the contract, and
+        // adding it to preserves() defeats the movem round-trip proof (the checker
+        // cannot model `rte` restoring SR, so the whole clause stops verifying and
+        // every saved register reports undeclared). The bracket declares its own
+        // effect.
         //
-        // `rte` MUST sit outside the bracket. Order: acquire pushes SR, the movem
-        // pushes the registers, ... movem pops them, release pops SR, and only then
-        // does `rte` pop the exception frame the CPU pushed. Balanced. An `rte`
-        // INSIDE the bracket would leave the pushed SR word on the stack and `rte`
-        // would pop a frame shifted by one word.
-        with ints_off {
+        // THE RTE FLAVOUR, AND THE 30 CYCLES IT TAKES OFF EVERY FIRE (Tier-3 item 6,
+        // 2026-08-19). This used to be the ordinary `ints_off`, whose acquire pushes
+        // SR and whose release pops it back. In a handler both halves are dead: the
+        // CPU already pushed the pre-interrupt SR onto the exception frame when it
+        // vectored here, and the `rte` below reloads the whole register from that
+        // frame — so the popped value (IPL 4, the level IRQ4 enters at) survives for
+        // exactly one instruction before `rte` overwrites it. `move.w sr,-(sp)` is
+        // 14 cycles in the PROLOGUE and `move.w (sp)+,sr` 16 in the epilogue; the
+        // pair is pure overhead on every sparse fire AND on every dense scanline.
+        //
+        // The prologue half is the one with a second-order effect, and it is the
+        // reason this could not be a quiet edit: dropping it moves the OP-WALK
+        // ORIGIN 14 cycles earlier relative to the beam, so RASTER_HBLANK_END_CYC
+        // — the distance from that origin to the line-start sampling instant — grows
+        // by 14 and every solved blanking spin in raster_dsl.emp is re-derived
+        // against it. Both constants were re-measured, not adjusted: see their notes.
+        //
+        // It also CLOSES a window rather than opening one. With the pop in place the
+        // handler spent one instruction back at IPL 4 with the exception frame still
+        // on the stack, where a level-6 VBlank could nest into a handler that had
+        // already finished. Now the mask stays at 7 until `rte` drops it and returns
+        // in the same instruction.
+        //
+        // `rte` MUST sit outside the bracket, and immediately after it — sigil
+        // enforces exactly that (`[context.rte-undischarged]` fires on any path out
+        // of the region that does not land on an `rte`, including an instruction
+        // wedged between the closing brace and the return). Nothing else is legal
+        // here, which is what makes "the release is the return" a proof rather than
+        // a comment.
+        with ints_off_until_rte {
         movem.l d0-d1/a1-a2, -(sp)
         lea     VDP_CTRL, a2
         // -------------------------------------------------------------------
