@@ -256,6 +256,12 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         beq     .no_change                          // already transitioning to this → no-op
 
         // -- pick transition mode from the new config's pcfg_transition flag --
+        // CAP_TRANSITIONS span (P2 §3.3): a game whose registry holds one scene never
+        // crosses a scene edge, so nothing can ever STAGE a smooth transition. The
+        // whole staging arm is the elidable region and `.instant` is its structural
+        // fallthrough — eliding it makes every install instant, which is what a
+        // single-scene game already gets.
+    .cap_transitions_stage_begin:
         tst.b   parallax_config.pcfg_transition(a0)
         bne     .instant
 
@@ -263,6 +269,7 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
         move.l  a0, Parallax_Target_Config          // (Parallax_Target_Config).w
         move.b  #PARALLAX_TRANS_DEFAULT, Parallax_Transition_Frames  // (Parallax_Transition_Frames).w
         jbra    .update_mode
+    .cap_transitions_stage_end:
 
     .instant:
         // -- instant: swap current immediately, clear target, AND snap
@@ -335,6 +342,12 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
 //      result, so it rides out(), not clobbers().
 // ----------------------------------------------------------------------
 pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
+        // CAP_TRANSITIONS span (P2 §3.3). Parallax_Target_Config is written ONLY by
+        // StartTransition's staging arm, so with that arm elided the target is
+        // permanently NULL and Transition_Frames permanently 0 — this selector
+        // collapses to "return Current_Config". The `else` arm at Task 7 is that
+        // collapse, not a second implementation.
+    .cap_transitions_select_begin:
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
         bne     .use_target
         move.l  Parallax_Current_Config, d0         // (Parallax_Current_Config).w — Z from d0
@@ -342,6 +355,7 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
     .use_target:
         move.l  Parallax_Target_Config, d0          // (Parallax_Target_Config).w — Z from d0
         rts
+    .cap_transitions_select_end:
 }
 
 // ----------------------------------------------------------------------
@@ -381,6 +395,10 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         // committed to at frame 0 (transition mode-contract).
         jbsr    Parallax_Active_Config              // d0 = active config; Z reflects d0
         beq     .whole_plane
+        // CAP_PER_COL_VSRAM span (P2 §3.3). No scene attaches a v-deform column table,
+        // so pcfg_v_deform_table_bg is NULL for every config this game can install and
+        // the emitter is unreachable. `.whole_plane` is the structural fallthrough.
+    .cap_per_col_vsram_emit_begin:
         movea.l d0, a0
         move.l  parallax_config.pcfg_v_deform_table_bg(a0), d0
         beq     .whole_plane
@@ -408,6 +426,7 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         move.l  (a0)+, VDP_DATA_OFF(a5)
         move.l  (a0)+, VDP_DATA_OFF(a5)
         rts
+    .cap_per_col_vsram_emit_end:
 
     .whole_plane:
         move.l  (Vscroll_Factor).w, VDP_DATA_OFF(a5)  // explicit .w: the relaxable-abs + trailing-(d16,An) form has no bare lowering yet (gap-ledger successor to the pinned abs-sym feature) — must pin the width
@@ -734,6 +753,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // base folds Camera_Y / Vscroll_BG (Harmony defect #2, further down this file). Band
         // TOP and wave PHASE are separate quantities in separate registers, which is exactly
         // why anchoring a boundary to the camera cannot re-open that defect.
+        //
+        // CAP_ANCHORS span (P2 §3.3) — the whole overlay. With no scene carrying an
+        // `anchor_ch:`, pcfg_anchor_ch is PARALLAX_ANCHOR_NONE for every config the
+        // game can install, so the first test below always takes `.bands_ready`, which
+        // is exactly the structural fallthrough this span elides into.
+    .cap_anchors_overlay_begin:
         moveq   #0, d2
         move.b  parallax_config.pcfg_anchor_ch(a0), d2
         cmpi.w  #PARALLAX_ANCHOR_NONE, d2
@@ -925,6 +950,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5
         move.b  d0, band_top_line(a5)               // the split lands exactly on L
+    .cap_anchors_overlay_end:
     .bands_ready:
 
         // --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
@@ -937,11 +963,21 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // THIS KEY HAS A TWIN in engine.buffers (Enqueue_Dirty_Buffers), which picks the
         // HScroll DMA LENGTH off the same fields. The two must agree or a mode-differing
         // config ships a 112-byte DMA for an 896-byte buffer; they are changed together.
+        // CAP_PER_LINE span (P2 §3.3) — the whole per-line arm INCLUDING the mode
+        // decision. Without the bit no config can carry an H-deform table or an
+        // anchor, so per-cell is the only reachable mode and `.fill_per_cell` is the
+        // structural fallthrough.
+    .cap_per_line_fill_begin:
         move.l  parallax_config.pcfg_deform_table_fg(a0), d0
         or.l    parallax_config.pcfg_deform_table_bg(a0), d0
         bne     .fill_per_line
+        // CAP_ANCHORS span, nested: the anchor half of the SAME mode key. Anchors imply
+        // per-line (an anchored boundary lands on an arbitrary scanline), so this span
+        // can only ever be live inside the per-line one.
+    .cap_anchors_mode_begin:
         cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch(a0)
         beq     .fill_per_cell
+    .cap_anchors_mode_end:
     .fill_per_line:
         // advance H-deform phase accumulators so animated tables (sine, etc.)
         // actually scroll their wave over time. Without this the wave is
@@ -954,6 +990,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         add.w   d0, Parallax_Deform_Phase_BG        // (Parallax_Deform_Phase_BG).w
         jbsr    Parallax_Fill_PerLine
         jbra    .fill_done
+    .cap_per_line_fill_end:
     .fill_per_cell:
         jbsr    Parallax_Fill_PerCell
     .fill_done:
@@ -983,6 +1020,11 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
 
         tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
         bne     .v_snap
+        // CAP_TRANSITIONS span (P2 §3.3). Transition_Frames can only be nonzero
+        // downstream of StartTransition's staging arm, so with that elided this test
+        // always takes `.v_snap` — the lerp is the elidable region and the snap is its
+        // structural fallthrough.
+    .cap_transitions_lerp_begin:
         tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
         beq     .v_snap                             // no transition — lock to target
         move.w  Parallax_Current_Vscroll_BG, d2     // (Parallax_Current_Vscroll_BG).w
@@ -990,6 +1032,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         asr.w   #PARALLAX_LERP_SHIFT, d0
         add.w   d0, d2                              // d2 = new current_vscroll_bg
         jbra    .v_pack
+    .cap_transitions_lerp_end:
     .v_snap:
         move.w  d0, d2                              // snap: current = target
         jbra    .v_pack
@@ -1012,6 +1055,10 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // column buffer. Vscroll_Write picks this up via the same flag.
         // Whole-plane Vscroll_Factor is also kept correct (above) so the
         // whole-plane fallback path stays valid if per-column gets disabled.
+        // CAP_PER_COL_VSRAM span (P2 §3.3) — the column-buffer producer. Its consumer
+        // is Vscroll_Write's `cap_per_col_vsram_emit` span; the two elide together or
+        // the buffer is filled for nobody. `.v_done` is the structural fallthrough.
+    .cap_per_col_vsram_fill_begin:
         move.l  parallax_config.pcfg_v_deform_table_bg(a0), d0
         beq     .v_done
 
@@ -1042,6 +1089,7 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         move.w  d0, (a2)+                           // BG word = base + offset
         addq.b  #1, d4
         dbf     d6, .col
+    .cap_per_col_vsram_fill_end:
 
     .v_done:
         jbra    Parallax_Step4_Fill         // Step 4 runs after Vscroll is final
@@ -1140,6 +1188,13 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 // Deform-table indices wrap at 256 via andi #$FF.
 // ----------------------------------------------------------------------
 proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
+        // CAP_PER_LINE span (P2 §3.3), MODULE depth — the whole filler. Its only call
+        // site is the `cap_per_line_fill` span in Step 4; the two elide together, and
+        // eliding this one alone would leave a proc nobody calls. A proc header cannot
+        // sit under a comptime `if` in .emp (measured: `expected a declaration, found
+        // Ident("if")`), so the gate wraps the BODY and the else arm is a bare `rts` —
+        // an unreachable stub the placer keeps, not a second implementation.
+    .cap_per_line_body_begin:
         movem.l a0/d7, -(sp)                        // preserve caller's config ptr + band count
 
         // a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
@@ -1169,6 +1224,13 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
 
         // --- hoist channel-active decisions ---
+        // CAP_DEFORM span (P2 §3.3), PATH depth — the sampling machinery: both hoists
+        // and all three sampled line loops. Without the bit no band carries a live
+        // (non-15) amplitude, so every band would take `.lp_flat` at runtime anyway;
+        // eliding removes the dead decisions AND the three loops, and `.lp_flat` is
+        // the structural fallthrough. NESTED inside `cap_per_line_body`, because
+        // sampling is only reachable through the per-line filler.
+    .cap_deform_sample_begin:
         // FG active: table non-NULL AND shift_a != 15
         cmpa.w  #0, a5
         beq     .fg_inactive
@@ -1292,6 +1354,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         cmp.w   d5, d4
         blo     .lg_line
         jbra    .band_done
+    .cap_deform_sample_end:
 
 // --- FLAT: same longword for every line of the band (8x unrolled + tail) ---
     // Band line spans USED to be guaranteed multiples of 8 — tops were Plane-B cell
@@ -1351,6 +1414,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
 
         movem.l (sp)+, a0/d7
         rts
+    .cap_per_line_body_end:
 }
 
 // ----------------------------------------------------------------------

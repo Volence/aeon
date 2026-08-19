@@ -60,6 +60,43 @@ ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drift
 // re-point scene()'s `precision != 1` fence at the wrong tier.
 
 // ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
+//
+// THESE FIVE DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
+// aspirational: tools/test_scene_span_labels.py and tools/effects_gates.py both PARSE
+// the `pub const CAP_*` lines below and derive their expectations from what they find.
+// Neither carries a copy of the mask, so adding a bit here (with a lowering and a
+// bracketed block) needs no edit in either tool, and naming a span after a bit that is
+// not declared here fails. The reserved block underneath is a COMMENT on purpose — a
+// reserved bit has no lowering, so a span named for one would bracket a block that
+// cannot exist, and the parse must not see it.
+//
+// ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
+//
+// Every capability-gated block in the ENGINE carries a pair of boundary labels:
+//
+//     if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
+//     .cap_anchors_overlay_begin:
+//             ... the elidable region ...
+//     .cap_anchors_overlay_end:
+//     }
+//
+// SPAN NAME = `cap_<capability>_<site>`, the capability half lowercased from the
+// CAP_* name below, the site half a short discriminator. The site token is not
+// decoration: two labels of the same name in one proc is a redefinition, and several
+// capabilities are gated at more than one site. Resolution back to a capability is by
+// LONGEST matching prefix (`per_col_vsram_emit` -> CAP_PER_COL_VSRAM), which the test
+// proves unambiguous over the declared set rather than assuming it.
+//
+// WHY LABELS COME FIRST AND GATING SECOND. §8.2's path-level span gates measure a
+// gated region by its boundary symbols, and the flat `.lst` drops `$`-mangled locals
+// unless something names them — which is why raster_source_gate had to hand-roll a
+// resolver. A gate added without brackets is a specialisation no gate can see; a
+// bracket added without a gate reports a specialisation that never happens. Both
+// directions are checked in tools/test_scene_span_labels.py.
+//
+// The convention is documented HERE, beside the bits, because this file is the one a
+// reader reaches for when asking what a capability means — not in the engine modules
+// that happen to carry today's spans.
 pub const CAP_PER_LINE       = $0001
 pub const CAP_PER_COL_VSRAM  = $0002
 pub const CAP_DEFORM         = $0004
