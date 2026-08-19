@@ -54,7 +54,8 @@ use engine.effects.palette_dsl.{variant, cycle_channel}
 // (a known limitation, not a bug — see the operator note below).
 //
 // THAT INVARIANT IS NOW LOAD-BEARING, not just tidy. The variant derive is gated on
-// PAL_ACT_VARIANT_STALE (below), which is set by the compose layers — so if anything
+// PAL_ACT_VARIANT_STALE (below), which each compose layer sets for itself on the frames
+// it actually moves colours (publish_compose_lines) — so if anything
 // OUTSIDE this module writes lines 1-3 at runtime, the gate will not know and the
 // variant staging image goes stale. Audited 2026-08-13, and it holds: the only
 // non-engine writers of lines 1-3 are game-state INIT paths (e.g. ojz_scroll_test's
@@ -183,6 +184,30 @@ comptime fn clamp_d1_07() -> Code {
         bls   .cl_end
         moveq   #7, d1
     .cl_end:
+    }
+}
+
+// publish_compose_lines — a compose layer announces that it MOVED lines 1-3.
+//
+// The CHANGED-not-INSTALLED rule (substrate sweep item 2, 2026-08-18). Every
+// compose layer is timer- or parity-gated internally, so "the layer is active"
+// and "the layer wrote colours this frame" are different questions. Announcing on
+// the former made `PAL_ACT_VARIANT_STALE` permanently set for any section binding
+// a cycle script AND a variant, which forced the full ~19,332-cycle re-derive
+// every frame — the exact cost the stale bit exists to remove (the
+// "15.1%-of-frame gate" at .variants below). Cycling was the measured case;
+// fade (odd-frame parity) and the operators (every-2 / every-4 cadences) had the
+// same shape.
+//
+// So the announcement lives HERE, at the paths that actually wrote, and the
+// caller announces nothing. Suppressing the redundant Palette_Dirty bits is safe
+// against mid-frame CRAM writes: Raster_VBlank re-asserts the program's own
+// pal_dirty_mask every frame (engine/effects/raster.emp:636), so a band's tint is
+// restored by the raster layer, never by a compose layer's incidental re-ship.
+comptime fn publish_compose_lines() -> Code {
+    return asm {
+        ori.b   #%1110, Palette_Dirty                   // lines 1-3 need a re-ship
+        ori.b   #PAL_ACT_VARIANT_STALE, Pal_Active      // ... and invalidate the variants
     }
 }
 
@@ -333,9 +358,9 @@ pub proc Palette_LoadCycle (a0: u32) clobbers(d0-d1/a1) {
 //
 // DO NOT CONFUSE THIS WITH Palette_DoCycle, which genuinely does keep a d7 touched-line
 // accumulator INTERNALLY (`moveq #0, d7` ... `bset d0, d7` ... `or.b d7, Palette_Dirty`)
-// and publishes it itself before returning. That one is real and load-bearing: a booked
-// fix depends on it (docs/DEFERRED_WORK.md, raster substrate sweep item 2 — moving the
-// PAL_ACT_VARIANT_STALE set into DoCycle's rotation branch gated on `d7 != 0`).
+// and publishes it itself before returning. That one is real and load-bearing: substrate
+// sweep item 2 was FIXED on it (2026-08-18) — the PAL_ACT_VARIANT_STALE set now lives in
+// DoCycle's `.ret`, gated on `d7 != 0`, so the bit tracks CHANGED and not INSTALLED.
 // ===========================================================================
 pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
         tst.b   Pal_Active
@@ -364,26 +389,23 @@ pub proc Palette_Compose () clobbers(d0-d7/a0-a3) {
 
         // ---- cycling ----
     .cycling:
+        // Each layer below announces for ITSELF, on the frames it actually moved
+        // colours — see publish_compose_lines. Being installed is not being active.
         btst    #1, Pal_Active                  // PAL_ACT_CYCLE
         beq   .fade
-        ori.b   #PAL_ACT_VARIANT_STALE, Pal_Active   // rotation moves lines 1-3
-        jbsr    Palette_DoCycle                 // ORs its own touched lines into Palette_Dirty
+        jbsr    Palette_DoCycle
 
         // ---- cross-fade ----
     .fade:
         tst.b   Pal_Fade_Frames
         beq   .operators
-        ori.b   #PAL_ACT_VARIANT_STALE, Pal_Active   // the fade steps lines 1-3
         jbsr    Palette_DoFade
-        ori.b   #%1110, Palette_Dirty
 
         // ---- global operators ----
     .operators:
         tst.b   Pal_Op
         beq   .variants
-        ori.b   #PAL_ACT_VARIANT_STALE, Pal_Active   // operators rewrite lines 1-3
         jbsr    Palette_DoOperator
-        ori.b   #%1110, Palette_Dirty
 
         // ---- variants: derive each bound slot from the LIVE composed palette ----
     .variants:
@@ -441,7 +463,17 @@ proc Palette_DoCycle () clobbers(d0-d7/a0-a3) {
         addq.w  #1, d5
         dbf     d6, .chan
     .ret:
+        // d7 == 0 means every channel was still inside its frame_period, so nothing
+        // rotated and there is nothing to announce. Publishing here rather than at
+        // the call site is what makes the stale bit track CHANGED, not INSTALLED
+        // (see publish_compose_lines). The per-line d7 mask is kept in preference to
+        // the helper's blanket %1110 — a cycle script that only touches line 2 has
+        // no business shipping lines 1 and 3.
+        tst.b   d7
+        beq   .ret_quiet
         or.b    d7, Palette_Dirty               // publish the touched lines
+        ori.b   #PAL_ACT_VARIANT_STALE, Pal_Active
+    .ret_quiet:
         rts
 }
 
@@ -510,11 +542,12 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         addq.l  #4, a0
         dbf     d0, .snap
         andi.b  #~PAL_ACT_FADE, Pal_Active
+        publish_compose_lines()                 // the snap rewrote lines 1-3
         rts
     .step_frame:
         btst    #0, Pal_Fade_Frames             // step only on even frame parity
         bne   .noskip
-        rts
+        rts                                     // odd frame: nothing moved, announce nothing
     .noskip:
         lea     Palette_Buffer + $20, a0        // cur (lines 1-3)
         lea     Pal_Target, a1
@@ -558,6 +591,7 @@ proc Palette_DoFade () clobbers(d0-d7/a0-a2) {
         or.w    d3, d2
         move.w  d2, (a0)+
         dbf     d7, .word
+        publish_compose_lines()                 // the step rebuilt lines 1-3
         rts
 }
 
@@ -589,6 +623,9 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
     .neg_xor:
         eori.w  #$0EEE, (a0)+
         dbf     d7, .neg_xor
+        publish_compose_lines()                 // the XOR flipped lines 1-3
+        // .neg_tick is also the FALL-IN for the 3 frames in 4 that skip the XOR
+        // above; those announce nothing, which is the whole point.
     .neg_tick:
         subq.b  #1, Pal_Op_Step
         bne   .ret                            // .ret is past the long fw_word loop below
@@ -633,6 +670,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
         or.w    d3, d2
         move.w  d2, (a0)+
         dbf     d7, .fw_word
+        publish_compose_lines()                 // the directional step rewrote lines 1-3
         subq.b  #1, Pal_Op_Step
         bne   .ret
         // fade complete: leave the palette at black/white and idle the operator.
@@ -646,6 +684,7 @@ proc Palette_DoOperator () clobbers(d0-d7/a0-a1) {
     .wf_fill:
         move.w  #$0EEE, (a0)+
         dbf     d7, .wf_fill
+        publish_compose_lines()                 // the flash fill overwrote lines 1-3
         subq.b  #1, Pal_Op_Step
         bne   .ret
     .op_done_restore:
@@ -773,8 +812,11 @@ pub proc Palette_DeriveVariant (a0: u32, a1: u32) clobbers(d0-d7/a2-a3) {
 // THIS IS WHY EFX-3 HAD TO BE FIXED FIRST. Before that fix, both cycle installers
 // armed PAL_ACT_CYCLE before reading the channel count, so installing this very
 // value would have left cycling ACTIVE over an empty script — and Palette_Compose's
-// `.cycling` arm then sets PAL_ACT_VARIANT_STALE every frame, re-arming the
-// ~19,332-cycle (15.1%-of-frame) variant re-derive that ff0720ff recovered. The
+// `.cycling` arm then set PAL_ACT_VARIANT_STALE every frame, re-arming the
+// ~19,332-cycle (15.1%-of-frame) variant re-derive that ff0720ff recovered. (Since the
+// item-2 fix that arm announces nothing: DoCycle publishes from `.ret` only when a
+// channel actually rotated, so a count-0 script is now doubly inert. EFX-3 still had to
+// be fixed first — this note records why, not a live hazard.) The
 // count-0 path was documented but never exercised; this symbol is what exercises it.
 // Verified on oracle after the fix: installing a count-0 script leaves Pal_Active
 // bit 1 CLEAR ($10), where the pre-fix instruction order left it SET ($12).
