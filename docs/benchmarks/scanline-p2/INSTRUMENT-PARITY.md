@@ -150,9 +150,45 @@ tracked every one of them without a single re-fit. That is a stronger statement 
 plan asked for: it is not just that the instrument did not drift, it is that the model
 follows the code.
 
+**Read that verdict together with caveat 0 below.** Both sides of this comparison count
+nominal 68000 instruction timings and neither sees a bus stall, so "matches to the cycle"
+means the model transcribes the emitted instruction stream correctly. It does not mean a fire
+takes that many cycles of wall time on hardware.
+
 ---
 
 ## STANDING CAVEATS — carried into EVERY Phase-0 row
+
+**0. EVERY figure from this instrument is an IDEAL CYCLE count. Bus, VDP and DMA stall time
+is structurally absent from it.**
+
+Added 2026-08-19 from an oracle-next recon finding, verified here against oracle's own source.
+The 68000 core accumulates two separate quantities and only one of them is the profiler's:
+
+```
+    additionalTime += accessResult.executionTime;              M68000.cpp:915   (memory access)
+    additionalTime += opcodeExecuteTime.additionalTime;        M68000.cpp:1009  (opcode's own)
+    ...
+    double totalExecutionTime = CalculateExecutionTime(cyclesExecuted) + additionalTime;
+    _currentCycle += cyclesExecuted;      <-- INSTRUCTION CYCLES ONLY   M68000.cpp:1029-1031
+    _currentTime  += totalExecutionTime;  <-- where the stall actually goes
+```
+
+and the profiler's event ring stamps `_currentCycle` (`M68000.h:95`). So stall time reaches
+the wall clock and never reaches a cycle row.
+
+**This is the reason the model agreement above is as perfect as it is, and it bounds what that
+agreement proves.** The `.emp` cost model counts nominal 68000 instruction timings; this
+instrument counts nominal 68000 instruction timings. The two matching to the cycle across ten
+fixtures says the model transcribes the emitted instruction stream correctly — a real and
+useful thing — but it is NOT evidence about wall-time behaviour near VDP ports, where real
+hardware stalls and this clock does not. Any row that needs stall behaviour is unmeasurable
+here by construction; see Task 5, which is exactly such a row and is recorded as unmeasurable
+rather than as a number.
+
+The direct read arrives with oracle-next's profiler, whose v1 rows carry `stallCycles` per
+routine (registered, in recon on their side as of 2026-08-19). That is this caveat's
+migration path as well as caveat 2's.
 
 **1. `interrupts.hint` is HBlank PLUS VBlank on this ROM. It is NEVER a valid source.**
 
