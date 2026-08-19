@@ -50,6 +50,25 @@ WHAT IT RUNS
 Gates 6 and 7 boot no emulator, but they need a listing, so they cannot go in build.sh either
 (build.sh runs pytest BEFORE the build — a listing read there is the previous build's).
 
+HOW IT RUNS — SEGMENTED, since 2026-08-19.
+
+A plain invocation does NOT run all 22 gates in one process any more. It partitions them into
+segments, re-invokes ITSELF once per segment with `--only`, and aggregates. The reason is a
+measured failure, not a preference: the oracle stop-race intermittently wedges ONE
+emulator-backed gate forever, and because this lane buffers every result and prints at the
+end, one wedge used to destroy all 22 results and print nothing at all. It burned three
+sessions on 2026-08-19 (two full-lane timeouts recovered only by hand-segmenting with
+`--only`, plus orphaned oracle_gui processes left behind), and DEFERRED_WORK booked the
+hand-segmenting as the shape the lane should just have.
+
+So: per segment, a timeout and ONE retry; before the retry, the oracle_gui processes belonging
+to THIS invocation's ROM are reaped (by argv token — never a bare pkill, see `oracle_pids_for`).
+A segment that wedges twice becomes its OWN named failure row, "WEDGED after retry". The lane
+is loud on unmeasurable and the other 21 gates still report.
+
+`--only` is unchanged: it runs in-process exactly as it always did. It is both the escape hatch
+and the mechanism the segments themselves use, so it cannot be allowed to grow a second shape.
+
 Usage:
     python3 tools/effects_gates.py [--rom s4.debug.bin] [--lst s4.debug.lst]
                                    [--demo-lst demo.debug.lst] [--only NAME,...]
@@ -59,9 +78,11 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -79,6 +100,272 @@ SCENES = ("mid_band", "suppressed", "above_screen")
 # Until this parcel every committed scene was sparse, so the dense tier, which is 27% of a
 # frame on the shipped content, had no scene, no gate and no cost row at all.
 DENSE_SCENE = "dense"
+
+# ---------------------------------------------------------------------------
+# THE GATE REGISTRY — one list, read by everything.
+#
+# `--only` validates against it, the segment partition is DERIVED from it, and `wanted()`
+# records every name the body actually asks about so a full run can prove the two agree
+# (see `check_registry_drift`). That last part is the point: a second hand-kept list of gate
+# names is the copied-expectation defect this tree keeps re-learning, and the failure mode
+# here is the quiet one — a gate added to the body but not to the registry would simply never
+# be scheduled by any segment, and a totals line cannot tell "22 gates passed" from "22 gates
+# passed and a 23rd never ran".
+#
+# `emulator` is what the partition keys on and it is a FACT ABOUT THE TOOL, checked by reading
+# it: scanline_spans is computed inline from listings, demo_specialization_witness.py imports
+# no launcher, and every other entry reaches `launcher.headless_emulator` (directly or through
+# ab_runner / raster_cost_probe). Note palette_variant IS emulator-backed — it drives the
+# palette_dsl vectors through the real 68000 proc, which is the whole of the B2 gate.
+#
+# `budget` is the wedge timeout in seconds, NOT a performance assertion. A wedge hangs FOREVER,
+# so the only job of these numbers is to sit above any honest run; a false WEDGED on a loaded
+# machine would be worse than the disease. They are ~8-35x the runtimes measured here on
+# 2026-08-19, standalone, on a machine simultaneously running two other agents' gate lanes:
+#
+#     scene:*         38-39 s   -> 300     raster_off        9 s -> 240
+#     raster_source   14 s      -> 240     palette_variant  12 s -> 240
+#     snapshot_poison 10 s      -> 240     cost_model       25 s -> 900
+#     scanline_spans   0 s / demo_witness 1 s (listings only)    -> 120 each
+#
+# cost_model keeps the widest margin deliberately: it is the one segment that boots SIX
+# emulator fixtures in sequence, other sessions have reported it near 3 min, and it is the
+# segment whose re-run costs the most to trigger needlessly.
+#
+# THE MEASUREMENT THAT MATTERS is not in that table. While it was being taken, `snapshot_poison`
+# WEDGED live — 642 s and still hanging with its oracle_gui alive, against 10 s when it ran
+# clean minutes later. At a 240 s budget that becomes one retried segment; in the old
+# single-invocation shape it was 22 lost results and no output at all.
+GATE_SCENE_BUDGET = 300
+GATE_EMU_BUDGET = 240
+
+
+def gate_registry() -> list[tuple[str, bool, int]]:
+    """(name, is-emulator-backed, wedge-timeout-seconds), in the order the body runs them."""
+    reg = [(f"scene:{n}", True, GATE_SCENE_BUDGET) for n in SCENES]
+    reg.append((f"scene:{DENSE_SCENE}", True, GATE_SCENE_BUDGET))
+    reg += [
+        ("raster_off", True, GATE_EMU_BUDGET),
+        ("raster_source", True, GATE_EMU_BUDGET),
+        ("palette_variant", True, GATE_EMU_BUDGET),
+        ("snapshot_poison", True, GATE_EMU_BUDGET),
+        ("cost_model", True, 900),
+        ("scanline_spans", False, 120),
+        ("demo_witness", False, 120),
+    ]
+    return reg
+
+
+def segments() -> list[tuple[str, list[str], int]]:
+    """(label, gate names, timeout) — the partition, DERIVED from the registry.
+
+    The rule is two lines and it preserves registry order, so the aggregated result rows come
+    out in exactly the order a single-process run would have printed them:
+
+      * every emulator-backed gate is its OWN segment — it is the unit that wedges, and
+        isolating it is the entire point;
+      * a RUN of consecutive listing-only gates collapses into one segment — they boot nothing,
+        cannot wedge, and paying a process spawn each would be waste.
+
+    Nothing here names a gate. Add a gate to the registry and it gets scheduled; add one to the
+    body only and `check_registry_drift` fails the run rather than letting it go unscheduled.
+    """
+    segs: list[tuple[str, list[str], int]] = []
+    for name, emu, budget in gate_registry():
+        if emu:
+            segs.append((name, [name], budget))
+        elif segs and segs[-1][0] == "listing":
+            label, names, t = segs[-1]
+            segs[-1] = (label, names + [name], t + budget)
+        else:
+            segs.append(("listing", [name], budget))
+    return segs
+
+
+def oracle_pids_for(rom: str) -> list[int]:
+    """PIDs of oracle_gui processes launched against THIS invocation's ROM.
+
+    NEVER a bare `pkill oracle_gui`. That mistake was made twice on 2026-08-19 and it is not a
+    style point: this tree routinely has several worktrees running the lane at once, and a bare
+    pkill kills another session's emulator mid-measurement — which looks exactly like the wedge
+    it was meant to clean up after.
+
+    `launcher.headless_emulator` spells the emulator as
+
+        <oracle>/linux-port/build/oracle_gui <tmpdir>/settings.xml <rom_path>
+
+    so the ROM path is an argv TOKEN. Ownership is token EQUALITY, not a substring search: two
+    worktrees' ROMs differ only by a path prefix (`.../aeon/s4.debug.bin` vs
+    `.../aeon/.claude/worktrees/<agent>/s4.debug.bin`), and a substring test on the shorter one
+    matches the longer one's process.
+    """
+    want = os.fsencode(rom)
+    pids = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv = (entry / "cmdline").read_bytes().split(b"\0")
+        except OSError:
+            continue                      # exited, or not ours to read
+        if owns_rom(argv, want):
+            pids.append(int(entry.name))
+    return pids
+
+
+def owns_rom(argv: list[bytes], rom: bytes) -> bool:
+    """Is this argv an oracle_gui running THIS rom? Token equality, never substring."""
+    return bool(argv) and argv[0].rsplit(b"/", 1)[-1] == b"oracle_gui" and rom in argv
+
+
+def reap_oracle(rom: str) -> list[int]:
+    """SIGKILL this ROM's leftover emulators before a retry. Returns what was killed."""
+    killed = []
+    for pid in oracle_pids_for(rom):
+        try:
+            pgid = os.getpgid(pid)
+            # The launcher gives each headless instance its own session, so the group is
+            # exactly {xvfb-run, Xvfb, oracle_gui} and taking the group is what stops the
+            # Xvfb orphans piling up. The guard is what keeps a shared-group accident from
+            # making this lane kill itself.
+            if pgid != os.getpgid(0):
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
+            killed.append(pid)
+        except OSError:
+            pass                          # already gone
+    return killed
+
+
+def run_one_segment(names: list[str], timeout: int, args, poison: bool) -> tuple:
+    """One `--only` re-invocation. Returns (rc, rows-or-None, output-tail, wedged)."""
+    with tempfile.NamedTemporaryFile(suffix=".json", prefix="effects-seg-", delete=False) as fh:
+        jf = Path(fh.name)
+    cmd = [sys.executable, str(Path(__file__).resolve()),
+           "--rom", args.rom, "--lst", args.lst, "--demo-lst", args.demo_lst,
+           "--only", ",".join(names), "--emit-results", str(jf)]
+    env = dict(os.environ)
+    env.pop("EFFECTS_GATES_POISON_WEDGE", None)     # never inherited by a child
+    if poison:
+        env["EFFECTS_GATES_POISON_HANG"] = "1"
+    # Own session: subprocess's own timeout kill reaches the direct child only, and the thing
+    # that actually wedges is a grandchild (the gate tool, its xvfb-run, its oracle_gui).
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         text=True, start_new_session=True, env=env)
+    try:
+        out = p.communicate(timeout=timeout)[0]
+        wedged = False
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+        except OSError:
+            pass
+        out = p.communicate()[0] or ""
+        wedged = True
+    rows = None
+    if jf.exists():
+        try:
+            rows = json.loads(jf.read_text()) or None
+        except json.JSONDecodeError:
+            rows = None
+        jf.unlink(missing_ok=True)
+    tail = [ln for ln in (out or "").strip().splitlines() if ln.strip()]
+    return (p.returncode, rows, (tail[-1] if tail else "(no output)"), wedged)
+
+
+def run_segmented(args) -> int:
+    """The default shape: one re-invocation per segment, one retry, aggregate identically."""
+    segs = segments()
+    emu = {n for n, is_emu, _ in gate_registry() if is_emu}
+    n_emu = sum(1 for _, names, _ in segs if set(names) <= emu)
+    poison_seg = os.environ.get("EFFECTS_GATES_POISON_WEDGE")
+    poison_to = int(os.environ.get("EFFECTS_GATES_POISON_TIMEOUT", "0") or 0)
+    if poison_seg:
+        print(f"  !! TEST POISON ACTIVE: segment {poison_seg!r} will be hung on purpose"
+              f"{f' (timeout forced to {poison_to}s)' if poison_to else ''}. "
+              f"This run's result is NOT a lane verdict.\n")
+        if poison_seg not in {label for label, _, _ in segs}:
+            print(f"effects_gates: EFFECTS_GATES_POISON_WEDGE={poison_seg!r} is not a segment "
+                  f"label; segments are {[s[0] for s in segs]}", file=sys.stderr)
+            return 2
+    print(f"  {len(segs)} segment{'s' if len(segs) != 1 else ''} ({n_emu} emulator-backed, "
+          f"{len(segs) - n_emu} listing-only), each a `--only` re-invocation with a timeout "
+          f"and ONE retry —\n  so an oracle stop-race wedge costs its own segment instead of "
+          f"every gate's result.\n")
+
+    rows: list = []
+    setup_problem = False
+    for i, (label, names, timeout) in enumerate(segs, 1):
+        poison = (label == poison_seg)
+        eff_to = poison_to if (poison and poison_to) else timeout
+        head = f"  [{i:>2}/{len(segs)}] {label:<22}"
+        t0 = time.monotonic()
+        rc, got, tail, wedged = run_one_segment(names, eff_to, args, poison)
+        if wedged:
+            killed = reap_oracle(args.rom)
+            print(f"{head} WEDGED at {eff_to}s — retrying once"
+                  + (f" (reaped oracle_gui {killed} for this ROM)" if killed else
+                     " (no oracle_gui of this ROM was left behind)"), flush=True)
+            t0 = time.monotonic()
+            rc, got, tail, wedged = run_one_segment(names, eff_to, args, poison)
+        dt = time.monotonic() - t0
+        if wedged:
+            reap_oracle(args.rom)
+            rows.append([f"{label} — WEDGED after retry "
+                         f"(no result for: {', '.join(names)})", False,
+                         f"two {eff_to}s attempts produced no result; this is the oracle "
+                         f"stop-race, and these gates are UNMEASURED — not passing"])
+            print(f"{head} WEDGED     {dt:6.1f}s  <- reported as a failure, not silence",
+                  flush=True)
+            continue
+        if got is None:
+            # Ran, but produced no result rows: a setup problem (exit 2 territory), not a
+            # gate verdict. It must not be silent either.
+            setup_problem = setup_problem or rc != 0
+            rows.append([f"{label} — produced NO results (exit {rc})", False, tail])
+            print(f"{head} NO RESULTS {dt:6.1f}s  (exit {rc}) {tail}", flush=True)
+            continue
+        rows.extend(got)
+        bad = sum(1 for r in got if not r[1])
+        status = "PASS" if not bad else f"FAIL x{bad}"
+        print(f"{head} {status:<11}{dt:6.1f}s  {len(got)} gate(s)", flush=True)
+    print()
+    rc = report(rows)
+    return 2 if (setup_problem and rc == 1) else rc
+
+
+def report(results: list) -> int:
+    """The output contract — identical for the segmented and the `--only` shapes."""
+    bad = 0
+    for label, ok, msg in results:
+        print(f"  {'PASS' if ok else 'FAIL'}  {label}\n        {msg}")
+        bad += 0 if ok else 1
+    print()
+    if bad:
+        print(f"effects_gates: FAIL — {bad} of {len(results)} gate(s)")
+        return 1
+    print(f"effects_gates: OK — {len(results)} gates")
+    return 0
+
+
+def check_registry_drift(queried: set) -> str:
+    """'' if the body's gates and the registry are the same set, else why not.
+
+    Every run evaluates every `if wanted(...)`, including a `--only` run, so this is checkable
+    from any invocation. A gate in the body but not the registry would never be scheduled by a
+    segment; one in the registry but not the body would make its segment measure nothing.
+    """
+    known = {n for n, _, _ in gate_registry()}
+    unscheduled, phantom = sorted(queried - known), sorted(known - queried)
+    if not unscheduled and not phantom:
+        return ""
+    parts = []
+    if unscheduled:
+        parts.append(f"gates the body runs but the registry does not schedule: {unscheduled}")
+    if phantom:
+        parts.append(f"gates the registry schedules but the body never runs: {phantom}")
+    return "; ".join(parts)
 
 
 def emp_int(rel: str, name: str) -> int:
@@ -145,15 +432,38 @@ def main() -> int:
     ap.add_argument("--demo-lst", default=str(AEON / "demo.debug.lst"),
                     help="the ZERO-capability fixture; the span gates are a two-fixture "
                          "differential and cannot run against one build")
-    ap.add_argument("--only", default="", help="comma-separated gate names")
+    ap.add_argument("--only", default="", help="comma-separated gate names; runs in-process")
+    ap.add_argument("--emit-results", default="",
+                    help="internal: where a segment child writes its result rows as JSON")
     args = ap.parse_args()
     rom, lst = str(Path(args.rom).resolve()), str(Path(args.lst).resolve())
+    args.rom, args.lst = rom, lst
+    args.demo_lst = str(Path(args.demo_lst).resolve())
+
+    # TEST-ONLY, and FIRST so it models a wedge faithfully — a real one can strike at any point,
+    # including before this process has looked at a file. The parent sets this in exactly one
+    # segment child's environment when EFFECTS_GATES_POISON_WEDGE names that segment, and the
+    # child then hangs the way an oracle stop-race hangs it. It exists so the retry/WEDGED path
+    # has red-first evidence instead of waiting for an intermittent race to oblige.
+    if os.environ.get("EFFECTS_GATES_POISON_HANG"):
+        print("effects_gates: TEST POISON — hanging this segment on purpose", flush=True)
+        while True:
+            time.sleep(3600)
+
+    want = set(args.only.split(",")) if args.only else None
+    if want is not None:
+        unknown = sorted(want - {n for n, _, _ in gate_registry()})
+        if unknown:
+            print(f"effects_gates: unknown gate name(s) in --only: {unknown}\n"
+                  f"  known: {[n for n, _, _ in gate_registry()]}", file=sys.stderr)
+            return 2
     if not Path(rom).is_file():
         print(f"effects_gates: ROM not found: {rom} — build it first", file=sys.stderr)
         return 2
-    want = set(args.only.split(",")) if args.only else None
+    queried: set = set()
 
     def wanted(n: str) -> bool:
+        queried.add(n)
         return want is None or n in want
 
     # The bands, read from the game source rather than restated. patchable(..., lo, hi) in SCREEN
@@ -172,6 +482,12 @@ def main() -> int:
     print(f"effects_gates  ROM {rom}")
     print(f"  bands (screen lines), read from ojz_effects.emp: "
           f"ch0 {bands['ch0'][0]}..{bands['ch0'][1]}  ch1 {bands['ch1'][0]}..{bands['ch1'][1]}\n")
+
+    # The default shape. Everything above (ROM check, bands, header) is the parent's too, so a
+    # segmented run and an `--only` run open identically; below this line the parent only
+    # schedules, and the gates themselves run in the children.
+    if want is None:
+        return run_segmented(args)
 
     results: list[tuple[str, bool, str]] = []
     tmp = Path(tempfile.mkdtemp(prefix="effects-gates-"))
@@ -551,17 +867,20 @@ def main() -> int:
                        "--sonic4-lst", lst, "--demo-lst", args.demo_lst], "demo_witness")
         results.append(("demo_witness (span absence + image pin)", ok, msg))
 
+    # The registry has to describe the body, or the segmentation silently drops a gate. Checked
+    # from every invocation, because every invocation evaluates every `if wanted(...)`.
+    drift = check_registry_drift(queried)
+    if drift:
+        print(f"effects_gates: GATE REGISTRY DRIFT — {drift}\n"
+              f"  The segment partition is derived from `gate_registry()`, so a gate missing "
+              f"from it is a gate no default run would ever schedule.", file=sys.stderr)
+        return 2
+
+    if args.emit_results:
+        Path(args.emit_results).write_text(json.dumps(results))
+
     print()
-    bad = 0
-    for label, ok, msg in results:
-        print(f"  {'PASS' if ok else 'FAIL'}  {label}\n        {msg}")
-        bad += 0 if ok else 1
-    print()
-    if bad:
-        print(f"effects_gates: FAIL — {bad} of {len(results)} gate(s)")
-        return 1
-    print(f"effects_gates: OK — {len(results)} gates")
-    return 0
+    return report(results)
 
 
 if __name__ == "__main__":
