@@ -14,6 +14,200 @@
 #                       Task-4/5 oracle calibration. DO NOT treat as authoritative.
 #
 # Provenance for the fixed rows: docs/research/2026-08-12-raster-hint-survey.md.
+#
+# EVERY CYCLE ROW IN THIS FILE THAT CAME OFF ORACLE IS AN IDEAL-CYCLE FIGURE. Verified
+# 2026-08-19 against oracle's own source: the 68000 core adds only `cyclesExecuted` to
+# `_currentCycle` (M68000.cpp:1029-1031) while bus/VDP/DMA stall accumulates in
+# `additionalTime` and lands in `_currentTime`; the profiler ring stamps `_currentCycle`
+# (M68000.h:95). So stall time reaches the wall clock and never reaches a cycle row. That is
+# why the code-derived model and the measured rows agree to the cycle — both count nominal
+# 68000 instruction timings — and it is the reason max_contiguous_dma_stall_cycles below is
+# recorded as UNMEASURABLE rather than as a number.
+
+[engine_reservation]
+# The standing engine cost a scene budget is measured AGAINST, not part of. Design §5: every
+# axis budget is `pool - engine_reservation`. Two states, BOTH DEFINED IN
+# docs/benchmarks/scanline-p2/ENGINE-BASELINE.md — a reservation whose camera state is not
+# reproducible is not a reservation, which is how the effects-p3 baseline rows went stale.
+#
+# Scanline P2 Phase 0 Task 2, 2026-08-19. s4.debug.bin crc d22dda85. 31-frame sample, FIVE
+# independent boots per state, SPREAD 0 on every row. tools/engine_baseline_probe.py.
+status = "measured"
+instrument = "ORACLE per-routine rows (oracle-next has no profiler); interrupts.hint is NEVER a valid source here -- it sums HBlank and VBlank. Cycle figures are IDEAL-CYCLE: the clock excludes bus/VDP/DMA stall (M68000.cpp:1029-1031)"
+
+# THE DENOMINATOR PROBLEM, AND WHY THERE ARE TWO OF EVERY MAX-DIAGONAL ROW. Sustained
+# max-diagonal does not run at 60 Hz. Measured on the engine's own counters (Frame_Counter vs
+# Logic_Tick, the latter documented in engine/ram.emp as "lag-immune"): 31 video frames carry
+# 15 logic ticks, i.e. 2.067 video frames per tick, spread 0 across five boots, with
+# Lag_Frame_Count advancing 16. Idle runs 1.033. It is NOT the art soft-clamp -- Camera_Art_Hold
+# reads 0 and DEBUG's Dbg_Cam_Clamp_Frames stays 0 for the whole run, both checked. The camera
+# still advances CAM_MAX_STEP per TICK on both axes, which is the second, independent witness:
+# camera_dx/16 == the Logic_Tick delta exactly.
+#
+# So a max-diagonal routine has two honest figures and both are here. The per-VIDEO-FRAME one
+# is what the 128000-cycle budget divides; the per-LOGIC-TICK one is what one invocation of the
+# work actually costs. Quoting only the first understates every routine by 2.07x.
+frames_per_logic_tick_idle        = 1.033
+frames_per_logic_tick_max_diagonal = 2.067
+
+# The main-loop bracket: GameState_OJZScroll_Update, one call per logic tick.
+idle_main_loop_cycles              = 35125    # per video frame
+max_diagonal_main_loop_cycles      = 55144    # per video frame
+idle_main_loop_cycles_per_tick     = 36296
+max_diagonal_main_loop_cycles_per_tick = 113964
+
+# The VBlank bracket: VInt_Level. Raster_VBlank runs INSIDE it, before Flush_VDP_Shadow and
+# every DMA drain, so this is the number a VBlank axis is a fraction of -- not Raster_VBlank's
+# own row. VInt_Lag is the spare VBlanks a lagging tick spends, listed beside it.
+idle_vblank_cycles                 = 8280
+max_diagonal_vblank_cycles         = 6117     # LOWER per video frame, because a lagging tick
+                                              # spreads one VInt_Level over two VBlanks
+idle_vblank_cycles_per_tick        = 8556
+max_diagonal_vblank_cycles_per_tick = 12642
+idle_vblank_lag_cycles             = 166
+max_diagonal_vblank_lag_cycles     = 2904
+
+# The five routines design §5 names, per VIDEO FRAME. Per-tick figures and the full 13-routine
+# table (incl. Camera_Update, EntityWindow_Scan, Tile_Cache_Fill, Section_UpdateColumns and the
+# VSync_Wait headroom) are in ENGINE-BASELINE.md.
+idle_parallax_update_cycles        = 19511
+max_diagonal_parallax_update_cycles = 12189
+idle_raster_vblank_cycles          = 1482
+max_diagonal_raster_vblank_cycles  = 1488
+idle_palette_compose_cycles        = 145
+max_diagonal_palette_compose_cycles = 67
+idle_enqueue_dirty_buffers_cycles  = 1356
+max_diagonal_enqueue_dirty_buffers_cycles = 1236
+idle_bganim_update_cycles          = 181
+max_diagonal_bganim_update_cycles  = 74
+
+# THE HEADROOM, and the finding a budget parcel needs most. VSync_Wait is idle, not cost.
+idle_vsync_wait_cycles             = 79595   # 62.2% of the frame is idle
+max_diagonal_vsync_wait_cycles     = 34371   # 26.9% per video frame
+# ...and yet max-diagonal LAGS, at 26.9% apparent idle. Both are true: a logic tick spans two
+# video frames, so the tick's own work saturates the first and the wait lands in the second.
+# Per tick the loop costs 113964 cycles against a 128000-cycle frame -- 89% -- and the VBlank
+# bracket plus the lag handler are on top of that. The single biggest term is Tile_Cache_Fill at
+# 106163 cyc/tick (40.1% of every video frame). ART STREAMING, NOT EFFECTS, IS WHAT SPENDS THE
+# MAX-DIAGONAL FRAME: the five effects routines above total 22675 cyc/video-frame at idle
+# (17.7%) and 15054 at max-diagonal (11.8%), against streaming's 40.1% -- and the effects total
+# FALLS at max-diagonal only because it is being divided by twice as many video frames. Per
+# LOGIC TICK the same five go 23430 -> 31111, which is the honest direction.
+max_diagonal_lags = true
+max_diagonal_lag_note = "sustained 16px/frame diagonal ticks at ~30 Hz, not 60. Measured, reproducible, spread 0. It is a streaming cost (Tile_Cache_Fill 40.1%), not an effects cost -- but every Phase-2 budget expressed per VIDEO FRAME must not assume 60 Hz at this state."
+
+[dma_stall]
+# AWARENESS ONLY — design §5 carries this NEEDS-MEASUREMENT for awareness, not gating, this
+# phase, because it couples to the sound driver's DMA-survival design. Scanline P2 Phase 0
+# Task 5, 2026-08-19.
+#
+# THE ASKED-FOR FIGURE IS UNMEASURABLE ON THIS INSTRUMENT, and that is the row's real content.
+# Oracle's 68000 core adds only `cyclesExecuted` to `_currentCycle` (M68000.cpp:1029-1031)
+# while bus/VDP/DMA stall accumulates in `additionalTime` and lands in `_currentTime`; the
+# profiler ring stamps `_currentCycle` (M68000.h:95). Stall time therefore reaches the wall
+# clock and NEVER reaches a cycle row. Any stall figure taken off a cycle row here would be an
+# undercount or a zero regardless of what the hardware does -- which is why this row is not a
+# number and must not be rendered as 0 or as green.
+max_contiguous_dma_stall_cycles = "UNMEASURABLE-ON-THIS-INSTRUMENT"
+max_contiguous_dma_stall_mechanism = "oracle's cycle clock excludes bus/VDP/DMA stall by construction: M68000.cpp:1029-1031 adds only cyclesExecuted to _currentCycle, additionalTime goes to _currentTime, and the profiler ring stamps _currentCycle (M68000.h:95)"
+max_contiguous_dma_stall_migration = "oracle-next's profiler v1 rows carry stallCycles per routine (registered, in recon 2026-08-19). That is the direct read; re-take this row there."
+max_contiguous_dma_stall_note = "couples to the sound driver's DMA-survival design; gating this is a later decision, not P2's"
+
+# THE INDIRECT BOUND, and it is a DERIVATION rather than a measurement of a stall. The 68000 bus
+# is held for the whole of a VDP DMA from 68K memory, so the longest contiguous hold in a frame
+# is the longest SINGLE DMA the queue carries -- and that length IS readable, from SizeH/SizeL
+# in each DMAEntry. tools/engine_baseline_probe.py scans the queue at scanline 220 (inside
+# active display, after every main-loop enqueue, before VBlank drains it -- scanning at a frame
+# boundary would read an empty queue and report "no stall").
+#
+# WHAT THE BOUND IS BLIND TO, so it is not over-read: refresh stalls, Z80 bus contention, VDP
+# FIFO stalls on ordinary non-DMA port writes, and any DMA issued outside the queue. It bounds
+# ONE contributor, and its cycle conversion uses documented hardware rates (H40 VBlank VRAM DMA
+# 205 B/line, scanline 3420/7 = 488.57 cyc) rather than anything measured on this ROM.
+dma_scan_status = "derived from queue contents, NOT a measured stall"
+dma_scan_scanline = 220
+dma_max_single_transfer_words = 576     # measured from the queue, 5 boots, identical at both states
+dma_max_single_transfer_bytes = 1152
+dma_max_single_transfer_derived_cycles = 2745.5   # 1152 B at 205 B/line x 488.57 cyc/line
+dma_queue_entries_idle = 7
+dma_queue_words_idle = 1528
+dma_queue_words_max_diagonal = 1519
+# The per-line HScroll buffers the plan prices at 896 B are visible in the scan as TWO 448-word
+# entries (cmd 7C000082), confirming the axis-2 figure from the live queue rather than from the
+# authoring side.
+dma_hscroll_perline_entries = 2
+dma_hscroll_perline_bytes_each = 896
+
+[parallax.cost_model]
+# THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4,
+# 2026-08-19. tools/parallax_cost_probe.py, 17 fixtures, 3 boots each, spread 0 on every one.
+# Evidence + derivation: docs/benchmarks/scanline-p2/WALKER-MODEL.md.
+#
+# The response is `Parallax_Update`'s per-routine row, INCLUSIVE of its callees (verified:
+# it contains Parallax_Fill_PerLine and Decode_Factor_A/B). Camera FROZEN, so every video
+# frame carries exactly one complete call -- under motion the loop lags and a per-frame
+# average stops being one call (ENGINE-BASELINE.md §2).
+#
+#   cycles = base
+#          + band_percell x (bands - 1)          [per-cell mode]
+#          + line_mode + band_perline x (bands-1) [per-line mode]
+#          + multiband  (bands >= 2, once)
+#          + line_fg_only x LINES + line_bg_only x LINES + line_both x LINES
+#          + vdeform    (a V-deform table attached)
+#          + anchor     (see the WARNING below -- NOT a constant)
+#
+# THE SAMPLING TERMS ARE PER SCREEN LINE, not per channel. That unit was forced by
+# measurement, not chosen: fixtures that sample only their lower band (112 and 80 lines)
+# give marginal costs of 8536/112 and 6097/80 against 17071/224 -- 76.21 every time. A
+# per-channel constant fits the fixtures that sample everywhere and then over-charges real
+# content, which samples only below an anchored split.
+status = "measured"
+instrument = "ORACLE per-routine row for Parallax_Update, inclusive; camera frozen; interrupts.hint never read. IDEAL-CYCLE (the clock excludes bus/VDP/DMA stall)"
+fixtures = 17
+residual_cycles = 0.27               # max |residual|, UN-ANCHORED subset (14 fixtures)
+residual_cycles_all_fixtures = 195.9 # with the 3 anchored fixtures included -- see the warning
+noise_floor_cycles = 0               # 3 boots per fixture, spread 0 on all 17
+
+base_cycles          = 3021.94   # W0 — 1 band, per-cell, nothing on
+band_percell_cycles  = 746.94    # W0->W1->W2->W3
+line_mode_cycles     = 1518.02   # W0->W4: an H-deform table attached at all. Selects
+                                 # Parallax_Fill_PerLine over _PerCell AND flips reg $0B.
+band_perline_cycles  = 845.97    # W4->W5->W6
+multiband_cycles     = 23.21     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
+                                 # probe loop: at band_count 1 the loop body never runs.
+line_fg_only_cycles  = 76.21     # per screen line sampling the FG deform curve  (W7/W14/W15)
+line_bg_only_cycles  = 76.27     # per screen line sampling the BG deform curve  (W13)
+line_both_cycles     = 126.17    # per screen line sampling BOTH — NOT 152.5 (W8). The
+                                 # per-line loop shares index and phase work across the
+                                 # planes, so the second channel on a line costs 50, not 76.
+vdeform_cycles       = 1424.06   # W0->W9: a V-deform table attached (per-column VSRAM)
+
+# ANCHOR IS NOT A CONSTANT AND MUST NOT BE USED AS ONE. Measured cost of the Step-4b
+# anchored overlay, over the un-anchored model, per fixture:
+#     W10  2 bands, FG sampling on all 224 lines      +456.7
+#     W12  3 bands, FG sampling on all 224 lines      +455.7
+#     W16  4 bands, BG sampling on 144 lines BY the anchor  +1204.7
+# The first two agree to 1 cycle and the third is 749 dearer. W16 is the SHIPPED shape
+# (ParallaxConfig_OJZ_Underwater): its ROM bands all say 15 and the anchor is what switches
+# the filler's loop type at the split, where W10/W12 merely re-write shifts their bands
+# already carried. So the suspected missing parameter is a per-band cost that DIFFERS between
+# a flat band and a sampling band -- collinear with band_perline in every un-anchored fixture,
+# which is why nothing there could see it. NAMED, NOT FITTED: adding a column excited by one
+# fixture would zero the residual without evidence.
+anchor_cycles_reglue_only    = 456.2    # W10/W12 — the overlay when sampling is already on
+anchor_cycles_shipped_shape  = 1204.7   # W16 — the overlay when it TURNS sampling on
+anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named in WALKER-MODEL.md, deliberately not fitted"
+
+# OUT-OF-SAMPLE. The live config at the idle baseline is ParallaxConfig_OJZ_Underwater
+# (4 bands, anchored at screen line 80, BG sampling on the 144 lines below it).
+#   model (un-anchored terms + anchor_cycles_shipped_shape) = 19288.7
+#   measured Parallax_Update at the idle baseline           = 19511
+#   gap                                                     = +222.3  (1.1%)
+# The residual gap is the shipped config's own band tops and scroll-factor shifts, which
+# change the Decode_Factor_A/B work the fixtures hold constant. Recorded, not tuned away.
+out_of_sample_predicted = 19288.7
+out_of_sample_measured  = 19511
+out_of_sample_gap_pct   = 1.1
 
 [hblank_window]
 # The binding limit on per-fire VDP work is the cycle window between HINT-pending and
@@ -74,7 +268,17 @@ sparse_fire_vsram1_cycles = 462      # measured — fixture F7 (and F2, identica
 sparse_fire_cram3_cycles  = 522      # measured — fixture F3
 sparse_fire_reg1_cycles   = 412      # measured — fixture F1; UNMOVED (SetReg streams nothing)
 sparse_fire_region3_cycles = 570     # measured — fixture F4
-sparse_fire_water_cycles  = 680      # modelled — reg_sh_on + 3-word region, the OJZ water fire
+# RE-DERIVED FROM THE LIVE PROGRAM 2026-08-19 (Scanline P2 Phase 0 Task 3). 680 was a MODELLED
+# figure and it had gone stale by 14 cycles: the OJZ water fire is decoded out of the running
+# buffer as reg_set($8C89) + stream_pal_region(3 words, spin 11), which the current model prices
+# at 280 + 40 + 346 = 666. It is no longer modelled — it is one of the two authored records
+# inside hint_total_cycles_per_frame, whose SUM matches the hardware exactly, so this row is now
+# measurement-backed. COINCIDENCE WORTH NAMING so nobody reads it as an error: 666 is also
+# fixture F4's figure, and the two get there differently — F4's lone region op solves to spin 15
+# where the water fire's solves to 11 (40 cycles cheaper), and the water fire spends exactly
+# that 40 on the reg_set F4 does not have.
+sparse_fire_water_cycles  = 666      # measured-backed — reg_sh_on + 3-word region, the OJZ water fire
+sparse_fire_water_cycles_SUPERSEDED3 = 680  # modelled, stale by 14 — never checked against the live program
 sparse_fire_vsram1_cycles_SUPERSEDED = 454   # interrupts.hint differential, 2026-08-14
 sparse_fire_cram3_cycles_SUPERSEDED  = 526   # interrupts.hint differential, 2026-08-14
 sparse_fire_vsram1_cycles_SUPERSEDED2 = 458  # pre-item-1, spin folded into the work constant
@@ -105,6 +309,56 @@ ntsc_scanline_cycles      = 488      # fixed — 128000 / 262, floored
 adjacent_fire_verdict = "vsram1 OK adjacent; cram3 must be spaced >= 2 lines"
 per_fire_cycles      = "see sparse_fire_* rows above, and [raster.cost_model] for the model that predicts them"
 program_overhead_fires = 2           # code-derived — the two priming records
+
+# ---------------------------------------------------------------------------
+# BUDGET AXIS 4b — THE PER-FRAME HInt TOTAL. Scanline P2 Phase 0 Task 3, 2026-08-19.
+#
+# Design §5 axis 4 splits into (4a) per-fire spacing, which check_density already owns, and
+# (4b) a per-frame TOTAL, which was genuinely new: every absolute HInt row this file has ever
+# carried came off `interrupts.hint`, which is HBlank PLUS VBlank in this ROM. This is the
+# first one that did not. It is the HBlank trampoline's OWN per-routine row ($FFB452, matched
+# on the low 24 bits), 31-frame sample, FIVE independent boots, spread 0.
+#
+# MEASURED AT BOTH Task-2 CAMERA STATES AND IT IS THE SAME NUMBER AT BOTH, which is a fact
+# about this content and not a general one: the OJZ section-0 sparse schedule's records are
+# position-clamped, the max-diagonal state never leaves section 0 inside its window, so the
+# same 4-record program is live in both. Do not read 1878 as "the HInt total" — read it as
+# "the OJZ section-0 sparse program's HInt total". The dense row below is 17x it.
+#
+# THE MODEL CROSS-CHECK IS EXACT, and the model summed here is over the LIVE records read out
+# of the running buffer through Raster_Active_Buf, not over the authored source:
+#   2 priming records            294 each   (fire base 280 - 16 + the 30-cyc rewind interlock
+#                                            only a no-op record pays)
+#   water fire (reg_sh_on + 3-word pal_region, spin 11)   666
+#   vsram fire (1 word, spin 22)                          624
+#   total                                                1878   ==  measured 1878, gap 0
+# tools/engine_baseline_probe.py does the decode and the sum, and its decoder is pinned by a
+# self-test that runs all NINE measured F0..F8 fixture programs through encode -> decode ->
+# cost and requires every total to match what the hardware reported in Task 1.
+hint_total_cycles_per_frame = 1878   # measured — NOT interrupts.hint. OJZ act1 section 0.
+hint_total_frame_pct        = 1.5
+hint_total_fires_per_frame  = 4      # 2 priming + water + vsram; `calls` on the same row
+hint_total_derivation = "sum of per-record model cost over the LIVE records decoded from Raster_Active_Buf; measured/model gap ZERO at both camera states; docs/benchmarks/scanline-p2/ENGINE-BASELINE.md"
+hint_total_states = "idle AND max-diagonal, both OJZ act1 section 0 — identical program, identical total"
+# The dense tier's total at the same instrument, for scale. Camera pinned to section 2
+# (Debug_Scene_Freeze=1, Camera_Y=144, Camera_X=4960 — tools/scenes/effects_raster_dense.json's
+# state), OJZ_TestGradient live, 96 lines. THIS is axis 4b's real worst case on shipped
+# content and it is 17x the sparse figure.
+hint_total_dense_cycles_per_frame = 32758   # measured — shipped OJZ_TestGradient, 100 fires
+hint_total_dense_frame_pct        = 25.7
+# AND IT DOES NOT MATCH ITS MODEL, by 242 cycles and one fire. Recorded as a discrepancy
+# rather than smoothed, because three hypotheses were tested and all three were refused:
+#   model (from the FD1/FD2 fixture pair): 1512 + 96 * 328 = 33000 cyc, 101 fires
+#   a POKED fixture at the same top(96)/lines(96):        33000 cyc, 101 fires  -- model exact
+#   the SHIPPED program, byte-identical wire image:       32758 cyc, 100 fires  -- 242 short
+# Refuted: (a) sample-window artifact -- re-measured at 60 frames, unchanged; (b) the frame-top
+# offscreen ship -- poking Effects_Offscreen_Entry = 0 changed nothing; (c) the patch table
+# re-record -- poking Raster_Patch_Tab = 0 changed nothing. Raster_Dense_Lines reads 1 at the
+# frame boundary in the shipped state and 0 is expected, so the run is finishing one line
+# short. UNEXPLAINED. It does not touch the two rows above, which are the ones Task 3 asked
+# for and which are exact.
+hint_total_dense_model_gap = -242
+hint_total_dense_status = "measured, model DISAGREES by 242 cyc / 1 fire — open, see ENGINE-BASELINE.md"
 
 # The cost model's own constants, gated against raster_dsl.emp by the [symbols] table below.
 # Structure: fire_base ONCE per fire, then per op fetch + dispatch(depth) + class work +
@@ -178,9 +432,32 @@ mode = "every-line"
 # of 8358 as "what the sparse tier costs" — which is not what it is doing here.
 # Replacing it with the :44-58 differentials would compare figures from two different
 # instruments and silently corrupt the 342.
-per_line_body_cycles_upper = 342
-dense_run_cycles_per_frame = 41579   # a 96-line run
-dense_run_frame_pct        = 32.5
+#
+# SUPERSEDED 2026-08-19 BY A DIRECT MEASUREMENT (Scanline P2 Phase 0 Task 3). The reasoning
+# above is sound and the 342 was an honest upper bound, but it no longer has to be a bound: the
+# HBlank trampoline's own per-routine row measures the same content directly, and the
+# FD1/FD2 fixture pair measures the per-line slope directly.
+#
+#   per-line body      342 (differential, upper bound)  ->  328 measured slope, (FD2-FD1)/32
+#   96-line run total  41579 (interrupts.hint)          ->  32758 measured, HBlank row only
+#   frame pct          32.5%                            ->  25.7%
+#
+# AND THE DIFFERENCE IS ITSELF THE CONFIRMATION. 41579 - 32758 = 8821, and VInt_Level measures
+# 8280 cyc/frame at idle on the same ROM. The old figure was the dense HBlank run PLUS one
+# VBlank, which is exactly what `interrupts.hint` is in this ROM and exactly the size of the
+# contamination the caveat predicted. The instrument story is not a theory any more.
+per_line_body_cycles_upper_SUPERSEDED = 342
+dense_run_cycles_per_frame_SUPERSEDED = 41579   # interrupts.hint = HBlank + VBlank, 2026-08-13
+dense_run_frame_pct_SUPERSEDED        = 32.5
+per_line_body_cycles       = 328     # measured — RASTER_DENSE_LINE_GRAD_CYC, the FD1/FD2 slope
+dense_run_cycles_per_frame = 32758   # measured — shipped OJZ_TestGradient (96 lines), HBlank row
+dense_run_frame_pct        = 25.7
+# The line-count sweep behind the slope: 8 / 40 / 80 / 96 / 120 lines at the same top, poked
+# fixtures, one boot each. Fires = lines + 5 at EVERY count and cycles = 1512 + 328 * lines at
+# every count, to the cycle. The shipped program is the one that does not fit -- see
+# hint_total_dense_model_gap in [raster.sparse].
+dense_line_sweep = "8:4136/13  40:14632/45  80:27752/85  96:33000/101  120:40872/125  (cyc/fires)"
+dense_model_intercept = 1512         # measured — FD1 - 8*328 and FD2 - 40*328, both exactly
 # THE DECISION-RELEVANT FACT: this costs ZERO lag frames. VSync_Wait measured 62.8%
 # idle WITH the dense run active vs 62.4% without — i.e. the run is absorbed by
 # existing slack, because H-INT time nests inside the idle wait rather than adding to
@@ -190,7 +467,9 @@ dense_run_frame_pct        = 32.5
 # less idle to absorb it, so re-measure before concluding it is free in real content.
 transition_arm_lag_fires = 1         # fixed — one pipelined arm at EACH of enter/leave (Ruling 1b)
 # Full-frame every-line cost (rejected for the sparse tier): ~224 * per-fire.
-full_frame_fraction_ntsc = 0.76   # measured-derived: 224 lines * 342 cyc / 128000 (upper bound)
+# RE-DERIVED 2026-08-19 off the measured 328 slope rather than the superseded 342 upper bound.
+full_frame_fraction_ntsc = 0.574  # measured-derived: 224 lines * 328 cyc / 128000
+full_frame_fraction_ntsc_SUPERSEDED = 0.76  # 224 * 342, the interrupts.hint-derived upper bound
 
 [palette]
 max_active_variants  = 2             # code-derived — PAL_MAX_VARIANTS (raise only on evidence)
