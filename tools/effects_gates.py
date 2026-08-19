@@ -25,6 +25,13 @@ WHAT IT RUNS
      the only gate that observes the handler interpreting them, by breaking inside the region op
      and reading the source pointer it computed. A build that encodes an offset correctly and
      streams from the wrong base passes every other gate here.
+  4b. palette variant derive vs its comptime MIRROR — `palette_variant_gate`, the B2 gate.
+     `palette_dsl.emp` models the derive and pins that model with `ensure()` vectors, and
+     `palette.emp` used to tell the reader the asm was therefore "build-time checked". It was
+     not: sigil cannot execute 68000, so the mirror only ever proved itself. This gate parses
+     those same vectors out of the .emp and drives them through the real
+     `Palette_DeriveVariant` on an emulator, plus a 48-entry sweep and the `v_lines` coverage
+     the mirror never modelled. A one-shift change in that proc builds green and fails here.
   5. cost model vs reality — three fixtures from `raster_cost_probe`, asserted against the
      constants `raster_dsl.emp` actually ships. This is what keeps the measured model MEASURED:
      the values in the .emp are pinned to each other at build time, but only this checks them
@@ -187,6 +194,12 @@ def main() -> int:
         ok, msg = run(["python3", str(AEON / "tools/raster_source_gate.py"),
                        "--rom", rom, "--lst", lst], "raster_source")
         results.append(("raster_source (handler streams from the encoded address)", ok, msg))
+
+    if wanted("palette_variant"):
+        ok, msg = run(["python3", str(AEON / "tools/palette_variant_gate.py"),
+                       "--rom", rom, "--lst", lst], "palette_variant")
+        results.append(("palette_variant (B2: the palette_dsl mirror actually checks the asm)",
+                        ok, msg))
 
     if wanted("snapshot_poison"):
         ok, msg = run(["python3", str(AEON / "tools/snapshot_poison_gate.py"),
