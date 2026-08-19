@@ -201,3 +201,51 @@ asserting that the instrument returned something.
 Fields 2-3 (per-pixel CRAM index, per-pixel S/H state) are **not** required by this sweep.
 They are wanted for attribution and for splitting the palette-write op from the S/H-register
 op in band effects — see the follow-up rationale sent 2026-08-18.
+
+---
+
+## 9. RUNBOOK — the capability shipped 2026-08-19, this is how to drive it
+
+`emulator/scanlines` is live (oracle-next `fdb6903`, contract §11.14). Everything below was
+verified 2026-08-19; a fresh session can start here.
+
+**Do NOT use MCP for this.** `emulator_scanlines` exists as an MCP tool, but a default call
+returns all 224 rows ≈ 430 KB of hex, and the sweep is ~30 poke/capture cycles. Drive the bus
+socket from Python, the way `tools/raster_cost_probe.py` already does.
+
+| Piece | Where |
+|---|---|
+| Server | `/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether` |
+| Client | `/home/volence/sonic_hacks/empyrean/clients/python/aether.py` (`BusClient`, async, NDJSON JSON-RPC 2.0 over a Unix socket) |
+| Existing driver to copy | `tools/raster_cost_probe.py` — same poke sequence, same encoder |
+| ROM | `s4.debug.bin` built from master at or after `ed015f0f` |
+
+**The binary must post-date oracle-next `fdb6903`** — rebuild with
+`cargo build --release -p oracle-aether` if unsure. A stale binary simply will not advertise
+the method.
+
+### Reply shape and the one assertion that matters
+
+`emulator/scanlines` takes `{startLine, count}` and returns `{frame, source, mode, rows: [{line, width, rgb}]}`,
+where `rgb` is a hex byte string of exactly `width` × 3 bytes, shadow/highlight already applied.
+
+**ASSERT `source == "raster"` ON EVERY CAPTURE.** The other value is `"stateRender"`, a
+post-hoc render returned when no completed frame is retained — at boot, and after any
+`reset` / `reload_rom` / `restore`. It is a legitimate answer to the *method*, and a
+**structurally invalid** answer to *this measurement*: a post-hoc render shows N=0 and N=17 as
+identical, because by end of frame the CRAM value is the same either way. That is acceptance
+criterion A2, and an unchecked `stateRender` reply is exactly how this sweep produces a
+confident wrong answer.
+
+Also: bounds are **refused, never clipped** (`-32602`) — `startLine` past 223, `count` below 1,
+or the sum past 224. There is **no frame parameter**; drive to the frame with `run_frames` /
+`run_to`, then read.
+
+### Order of operations
+
+1. Rows 98-101 in ONE call (§6's controls need the rows either side of the boundary)
+2. The two anchors from §6b FIRST — they are the disagreement discriminator and double as
+   calibration
+3. Then sweep N over 0..30, one poke at `Raster_Buf_A + 20` per value, classify per §6
+4. The answer is the CENTRE of the contiguous CLEAN range → feeds item 1c
+5. §7 still governs: a disagreement with [15, 19] is the FINDING, not a cue to tune the fixture
