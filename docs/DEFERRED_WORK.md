@@ -6293,6 +6293,35 @@ refinements on their side that bound precision: F-SUBLINE-ACCESSMCLK / F-SUBLINE
 
 ## Scanline P2 Phase 2 (Tasks 10-13) — BLOCKED at Task 10's spike and Task 12's join (booked 2026-08-19, `feat/scanline-p2-budgets`)
 
+> **UPDATE 2026-08-19, same day — BLOCKER 1 IS CLOSED; BLOCKER 2 STANDS.**
+>
+> The unblock landed as a sigil parcel: **sigil master `0df77f83`** (merge of `feat/equ-listing`)
+> routes equates into the listing as a third section, framed by an "Equate Table" header with an
+> "N equates" trailer, one `EQU <name> = $XXXXXXXX` row each. The spike was re-run on this branch
+> and **round-trips**: `SPIKE_LEDGER_EQU = $000000DC` (= 220, exactly the computed
+> `SceneRegistry_CapsFolded * 7 + 3`) and `SPIKE_LEDGER_NEG = $FFFFFFFB` (= -5, confirming values
+> render unsigned 32-bit and a negative row is two's complement). CRC unchanged, so ledger rows
+> remain zero-ROM. `pub equ` is the reliable spelling; `pub const` still mints no symbol.
+>
+> **Tasks 10, 11 and 13 shipped on that path** — see the branch commits. Four axes are enforced
+> comptime (1 main-loop, 2 VBlank DMA bytes, 3 VBlank CPU, 4b HInt total), the ledger publishes
+> twelve equate rows, and `tools/scene_budget_report.py` renders them from the artifact.
+>
+> **Three findings from the shipping pass, all booked in `tools/effects_budget_model.toml`
+> `[scene_budget]` rather than left in a report:**
+> 1. **The aggregation must be `max`, not the `sum` design §5 and the plan specify.** Only one
+>    scene is live at a time; a SUM over the shipped twenty is ~500k cycles against a 128k frame
+>    and would refuse a registry that demonstrably runs. The pairwise sum is exactly what
+>    Task 12's transition frame would add — which is the second reason Blocker 2 matters.
+> 2. **Only axis 1 is falsifiable**, and it is measured: 115 bands passes, 116 fails by 82.01 cyc.
+>    Axes 2 and 3 charge a two-valued cost that always fits; axis 4b is bounded above by the 4a
+>    density guard. Three poisons were booked WITH THEIR UNLOCK CONDITIONS instead of faked.
+> 3. The axis-6 RAM row and the axis-2 per-line figure were both wrong in the tree and are
+>    corrected in the same commit (see the two corrections below, now applied rather than pending).
+>
+> **What still needs a ruling: Blocker 2 (Task 12) is untouched and was not attempted**, per the
+> resume scope. Its two unblock conditions below are unchanged.
+
 Phase 2 was dispatched off master `bc048e2a` (the Phase-0 merge — every budget denominator
 measured). It stopped at the first gate the plan itself put there. Two independent blockers,
 both structural, neither a matter of effort.
