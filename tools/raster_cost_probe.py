@@ -90,7 +90,7 @@ VSRAM_WRITE = 0x40000010     # (type & rwd) = 5 -> 1 << 30 | 4 << 2
 # grew. Measured as a +2.0-N boundary shift on every edge boundary of a baseline/item-6
 # sweep pair, run twice each. raster_dsl.emp's RASTER_HBLANK_END_CYC note is the evidence;
 # tools/test_raster_wire_pin.py is what keeps this line and that one equal.
-HBLANK_END_CYC   = 371
+HBLANK_END_CYC   = 366
 HBLANK_WIDTH_X10 = 1229
 
 # The cost terms the solver needs, all mirrored from raster_dsl.emp's cost model.
@@ -325,7 +325,10 @@ OP_RUN_GRADIENT   = 6
 ARM_PARK          = 0x8AFF
 ARM_EVERY_LINE    = 0x8A00
 OPS_END           = 0xFFFF
-RASTER_CRAM_MAX   = 3
+# NOTE there is no words-per-line mirror here: `dense_program_words` emits the SETUP record
+# only, and the stride belongs to `.dense_body` (engine/effects/raster.emp,
+# RASTER_DENSE_WORDS_PER_LINE). It used to carry one under the name RASTER_CRAM_MAX, read by
+# nothing, which is how a mirror goes stale without failing.
 
 
 def dense_program_words(top: int, lines: int, cram_addr: int, stream: int) -> list[int]:

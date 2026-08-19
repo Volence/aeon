@@ -1,0 +1,40 @@
+// games/sonic4/test/poison/poison_cram_four_words.emp — POISON (see README).
+//
+// TARGETS: stream_cram's per-op burst ceiling, at the FIRST width it refuses.
+// EXPECTED FRAGMENT: "4 colours exceeds RASTER_BURST_MAX_CRAM (3)"
+//
+// WHY FOUR AND NOT FIVE. Five is refused by the arithmetic alone — 4 x 26 = 104 against a
+// 122.9-cycle window leaves 18.9 for margins that want 30 — so a poison there would be
+// testing a sum, and the sum is already asserted at module level beside the margins. Four is
+// the interesting width: it FITS that sum with 14.9 cycles to spare, and is refused anyway,
+// because the solver quantizes to whole `dbf` iterations and the nearest one leaves the first
+// write 0.9 cycles inside the early margin (raster.emp, the burst-ceiling note). This case is
+// the one that would go quiet if someone read the arithmetic, concluded four was fine, and
+// raised the ceiling without re-reading the landing.
+//
+// THE FRAGMENT QUOTES THE CEILING'S VALUE so that a future raise cannot pass by editing one
+// constant: it has to come here, change the number, and in doing so notice that the number
+// has a measured argument behind it.
+//
+// EXACTLY ONE DIAGNOSTIC, and the hook is chosen to keep it that way. `raster_words` walks
+// `op_size` and nothing else, so the only guard this module reaches is the constructor's.
+// Two others WOULD fire on this op list if it went further and both have their own cases:
+// `fire()`'s per-fire ceiling (dodged here by building the RasterFire variant directly, the
+// same dodge poison_landing_late documents) and `check_landings` (dodged by not calling
+// `raster_program` — and note it would NOT fire at four words, since 0.9 cycles of early
+// slack is still positive; that is precisely why the constructor ceiling has to exist rather
+// than being left to the landing guard).
+//
+// NO IMPORTS, like every ordinary author's module: raster_dsl and engine.vdp are
+// COMPTIME_HELPERS members, glob-injected into every module by the real build. See
+// the README on why the lane cannot reproduce that injection yet.
+module games.sonic4.test.poison.poison_cram_four_words
+
+const POISON_CRAM_FOUR = [
+    RasterFire.Fire(100, [stream_cram($42, [$0E0E, $0E0E, $0E0E, $0E0E])]),
+]
+
+// THE ELABORATION HOOK — see poison_two_restores.emp's note. Trivially-true predicate;
+// the diagnostic under test comes from inside the call.
+ensure(raster_words(POISON_CRAM_FOUR) > 0,
+       "poison_cram_four_words: raster_words returned nothing — this poison no longer reaches the guard it targets")

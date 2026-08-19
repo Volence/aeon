@@ -6,7 +6,7 @@
 //
 // Two one-word CRAM ops in ONE fire. Every structural guard passes: two ops is inside
 // the ceiling of four, two stream ops is exactly the ceiling of two, and two words is
-// inside RASTER_CRAM_MAX. This is fixture F6's shape, which the cost model still prices
+// inside its class's burst ceiling. This is fixture F6's shape, which the cost model still prices
 // — the two are not in conflict, and the split is deliberate: `fire()` bounds SHAPES and
 // check_landings bounds TIME, so a shape whose cost is a fact worth pinning can still be
 // unplaceable.

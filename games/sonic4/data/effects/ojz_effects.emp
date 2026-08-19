@@ -40,7 +40,7 @@ use engine.effects.raster.{RASTER_ARM_PARK, RASTER_OPS_END, raster_arm}
 // link symbols, so a degraded constant has no definition to find). Not silent — deferred
 // and de-named. The one genuinely silent case is a degraded name that collides with a
 // real label or `equ`.
-use engine.effects.raster.{RasterGradientProgram, RASTER_CRAM_MAX, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
+use engine.effects.raster.{RasterGradientProgram, RASTER_DENSE_WORDS_PER_LINE, raster_gradient_program, RASTER_ARM_EVERY_LINE, OP_RUN_GRADIENT, OP_RUN_RAMP, RasterRampProgram, raster_ramp_program, fp16}
 // Raster_Program_None — the "raster OFF" sentinel, needed by the Parcel C2 Task 12
 // presets below (total binding: a preset that means "no raster" must say so
 // explicitly rather than leaving ep_raster at 0/"keep").
@@ -141,7 +141,7 @@ const OJZ_TEST_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       2, $C04A, $0000,          // OP_CRAM, command longword split
-                 19,            // spin — SOLVED, not authored (substrate item 1c): the
+                 18,            // spin — SOLVED, not authored (substrate item 1c): the
                                 //   blanking spin is per-op program data whose value the
                                 //   lowering derives from the op's POSITION. Hand-derived
                                 //   here by the solver's own arithmetic, since this pin
@@ -151,12 +151,11 @@ const OJZ_TEST_HAND = [
                                 //   (fetch) + 8 (the not-taken zero pre-test) + 18
                                 //   (dispatch hit at depth 0) + 36 (pre-burst arm) = 110
                                 //   cycles, its burst spans 0 (one word), and
-                                //   round((371 - 110 - 14 - 122.9/2) / 10) = round(18.555)
-                                //   = 19. Sits between command and count-1. (Was 17
-                                //   until Tier-3 item 6 moved RASTER_HBLANK_END_CYC
-                                //   351 -> 371: the prologue's SR save is gone, so the
-                                //   op-walk origin sits earlier and every burst waits
-                                //   two more iterations for the same window.)
+                                //   round((366 - 110 - 14 - 122.9/2) / 10) = round(18.055)
+                                //   = 18. Sits between command and count-1. (17 at END
+                                //   351; 19 at item 6's 371, whose SR removal put the
+                                //   op-walk origin earlier; 18 since this parcel re-derived
+                                //   the anchor to 366 with a fixed least-squares fold.)
                                 //
                                 //   WAS 10 UNTIL TIER-3 ITEM 2, and the +7 is the whole
                                 //   parcel arriving in shipped content: the SetReg ahead
@@ -290,14 +289,15 @@ const OJZ_WATER_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       4, $C048, $0000,          // OP_PAL_REGION, command longword split
-                 12,            // spin — SOLVED (substrate item 1c). A 3-word pal_region
+                 11,            // spin — SOLVED (substrate item 1c). A 3-word pal_region
                                 //   sitting SECOND reaches p = 40 (the SetReg) + 8
                                 //   (fetch) + 42 (the not-taken zero pre-test 8, plus the
                                 //   depth-1 dispatch 34) + 56 (pre-burst arm, the deeper
                                 //   lea/adda shape) = 146, spans 60, and
-                                //   round((371 - 146 - 14 - (122.9 + 60)/2) / 10) =
-                                //   round(11.955) = 12. (Was 10 until Tier-3 item 6
-                                //   moved END 351 -> 371 — the prologue's SR save.)
+                                //   round((366 - 146 - 14 - (122.9 + 60)/2) / 10) =
+                                //   round((366 - 146 - 14 - 91.45) / 10) = round(11.455)
+                                //   = 11. (10 at END 351; 12 at item 6's 371; 11 since this
+                                //   parcel re-derived the anchor to 366 with a fixed fold.)
                                 //
                                 //   WAS 4 UNTIL TIER-3 ITEM 2 — where it had coincided
                                 //   with the retired per-class constant, this being the
@@ -353,11 +353,15 @@ pub data OJZ_WaterRaster: [u16; raster_words(OJZ_WATER_PROG)] = raster_program(O
 // blue, blue+green, blue+red. A stream desync of one word (the classic off-by-one in
 // a dense run) therefore shows up as the wrong CHANNEL MIX at the right level, which
 // is distinguishable from a run that is merely shifted by a line. Three words is
-// RASTER_CRAM_MAX exactly, so this also pins the per-fire ceiling.
+// RASTER_DENSE_WORDS_PER_LINE exactly, so this also pins the dense body's stride.
+// It is NOT the sparse per-fire ceiling and never was, though it wore that constant's name
+// until the ceilings split per class: the dense body writes three words with three inlined
+// `move.w`, solves no spin and is checked against no window, so a sparse ceiling moving
+// must not resize this ROM stream.
 const OJZ_GRAD_TOP   = 96
 const OJZ_GRAD_LINES = 96
-ensure(RASTER_CRAM_MAX == 3,
-       "OJZ_TestGradient's 3-words-per-line stream assumes RASTER_CRAM_MAX == 3")
+ensure(RASTER_DENSE_WORDS_PER_LINE == 3,
+       "OJZ_TestGradient's 3-words-per-line stream assumes RASTER_DENSE_WORDS_PER_LINE == 3")
 
 // CRAM line 2, entry 4 — the same base as the water region, so the ramp lands on
 // OJZ's dominant ground colours (entry 5 is ~54% of lower-screen pixels; see the
@@ -370,22 +374,22 @@ ensure(vdp_comm(OJZ_GRAD_CRAM_ADDR, VdpTarget.Cram, VdpOp.Write) == $C0480000,
 // ramp steps every 12 lines and a "monotonic ramp" claim means non-decreasing with
 // exactly 8 distinct levels, not 96. Channel positions are R<<1, G<<5, B<<9.
 comptime fn grad_word(i: int) -> int {
-    let level = ((i / RASTER_CRAM_MAX) * 8) / OJZ_GRAD_LINES   // 0..7 over the run
-    let ch    = i % RASTER_CRAM_MAX
+    let level = ((i / RASTER_DENSE_WORDS_PER_LINE) * 8) / OJZ_GRAD_LINES   // 0..7 over the run
+    let ch    = i % RASTER_DENSE_WORDS_PER_LINE
     if ch == 0 { return level << 9 }                    // entry 4 — blue
     if ch == 1 { return (level << 9) | (level << 5) }   // entry 5 — blue + green
     return (level << 9) | (level << 1)                  // entry 6 — blue + red
 }
 
 pub data OJZ_GradientStream: [u16; 288] = comptime for i in 0..288 { grad_word(i) }
-ensure(288 == OJZ_GRAD_LINES * RASTER_CRAM_MAX,
+ensure(288 == OJZ_GRAD_LINES * RASTER_DENSE_WORDS_PER_LINE,
        "OJZ_GradientStream length must be lines * words-per-line")
 
 // The mask is no longer passed: raster_gradient_program DERIVES it from cmd's CRAM
 // address ($48 >> 5 = line 2), so "re-assert CRAM line 2 each frame -> the ramp is
 // transient" is now a property of the address rather than a claim this call site makes
 // and the engine trusts. stream_words is the array's real length, checked there against
-// lines * RASTER_CRAM_MAX — the ensure that used to sit beside the stream below.
+// lines * RASTER_DENSE_WORDS_PER_LINE — the ensure that used to sit beside the stream below.
 pub data OJZ_TestGradient: RasterGradientProgram = raster_gradient_program(
     top:          OJZ_GRAD_TOP,
     lines:        OJZ_GRAD_LINES,
@@ -480,14 +484,14 @@ const OJZ_VSRAM_HAND = [
       2, $4002, $0010,                  //   OP_CRAM opcode, VSRAM write cmd @ byte 2 = $40020010
                                         //   (type&rwd = VSRAM&WRITE = %000101: bits 1-0 -> $40000000,
                                         //    addr -> high word, bits 7-2 -> $10 in the low word)
-                 23,                    //   spin — SOLVED (substrate item 1c). A VSRAM op
+                 22,                    //   spin — SOLVED (substrate item 1c). A VSRAM op
                                         //   emits OP_CRAM and dispatches at the cram rung,
                                         //   so it solves exactly like one: LEADING, 1 word,
                                         //   p = 8 + 8 (the not-taken zero pre-test) + 18
                                         //   + 36 = 70, span 0,
-                                        //   round((371 - 70 - 14 - 61.45) / 10) = 23
-                                        //   (was 21 before Tier-3 item 6 moved END
-                                        //   351 -> 371 — the prologue's SR save).
+                                        //   round((366 - 70 - 14 - 61.45) / 10) = 22
+                                        //   (21 at END 351; 23 at item 6's 371; 22 since
+                                        //   this parcel re-derived the anchor to 366.)
                                         //   UNMOVED BY TIER-3 ITEM 2, and it is the only
                                         //   shipped spin that is: item 2 puts this op 8
                                         //   cycles further from the origin, which is 0.8
@@ -749,16 +753,17 @@ const OJZ_TC_HAND = [
     $8AFF, 2,                   // fire 2 — channel 0, two ops
       0, $8C89,                 //   OP_SET_REG — S/H on
       4, $C048, $0000,          //   OP_PAL_REGION, command longword split
-                 12,            //   spin — SOLVED: 3-word region SECOND after a reg_set,
-                                //     p = 146, span 60 -> round(11.955) = 12 (item 6
-                                //     moved END 351 -> 371, which is +2 here; item 1c;
+                 11,            //   spin — SOLVED: 3-word region SECOND after a reg_set,
+                                //     p = 146, span 60 -> round(11.455) = 11 (item 6
+                                //     moved END 351 -> 371 and this parcel re-derived it
+                                //     to 366, net +1 here; item 1c;
                                 //     was 4 at p = 208, until item 2 cut 70 cycles off the
                                 //     SetReg ahead of it and added 8 to its own dispatch)
                  2,             //   count-1
                  72,            //   Pal_Variant_Stage offset
     $8AFF, 1,                   // fire 3 — channel 1, one op
       2, $4002, $0010,          //   OP_CRAM opcode with a VSRAM WRITE command longword
-                 23,            //   spin — SOLVED: LEADING 1-word vsram, p = 70, span 0
+                 22,            //   spin — SOLVED: LEADING 1-word vsram, p = 70, span 0
                                 //     -> round(22.555) = 23 (item 6's +2; item 1c;
                                 //     unmoved by item 2 —
                                 //     its p grew 8, which is 0.8 of an iteration and does

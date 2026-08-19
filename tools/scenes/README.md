@@ -91,7 +91,7 @@ it loudly.
 `raster_gradient_program` emitted (the two priming arms, the setup record's arm, the opcode, the
 line count, the command longword). The runtime half checks `Raster_Dense_Cursor`:
 
-    Raster_Dense_Cursor == OJZ_GradientStream + OJZ_GRAD_LINES * RASTER_CRAM_MAX * 2
+    Raster_Dense_Cursor == OJZ_GradientStream + OJZ_GRAD_LINES * RASTER_DENSE_WORDS_PER_LINE * 2
 
 The dense body advances the cursor three words per line, so that equality holds if and only if the
 body ran **exactly** `OJZ_GRAD_LINES` times from the right base. Nothing else in the scene can see

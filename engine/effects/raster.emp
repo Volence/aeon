@@ -74,14 +74,19 @@ use engine.level.scene_dsl.{CAP_ANCHORS}
 // Op argument layouts:
 //   OP_SET_REG  dc.w $8xxx                  one VDP register word
 //   OP_CRAM     dc.l <vdp_comm CRAM write>   full command longword (ONE move.l)
-//               dc.w count-1                 count <= RASTER_CRAM_MAX
+//               dc.w count-1                 count <= RASTER_BURST_MAX_CRAM
 //               dc.w color[count]
 //
-// CYCLE BUDGET (Ruling 2a): ~105 68k cycles from HINT-pending to the next line's
-// active display, less ~44 for autovector exception entry — about 60 usable. A CRAM
-// write outside that window paints a visible dot (single-ported CRAM, Ruling 2b),
-// which is why RASTER_CRAM_MAX is 3 and why the save set below is deliberately
-// small: a 4-register movem ROUND TRIP alone is 84 of those cycles. Derivation, from
+// CYCLE BUDGET: a CRAM write outside horizontal blanking paints a visible dot
+// (single-ported CRAM, Ruling 2b), so the burst ceilings below are a cycle budget and the
+// save set is deliberately small — a 4-register movem ROUND TRIP alone is 84 cycles.
+// RULING 2a'S "~105 cycles less ~44 for entry, about 60 usable" IS SUPERSEDED and kept
+// only to say so: it was a pre-measurement estimate, and the 2026-08-19 sweep measured the
+// window at 122.9 cycles (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md).
+// Every ceiling here derives from the measured figure; the 60 is what set the retired
+// single ceiling of 3, and quoting it now would understate the budget by half.
+//
+// The movem round trip, derived from
 // the 68000 movem timings — register-to-memory predecrement is 8 + 8n and
 // memory-to-register postincrement is 12 + 8n, so at n = 4 the push
 // (movem.l d0-d1/a1-a2, -(sp)) is 8 + 32 = 40 and the pop is 12 + 32 = 44. This note
@@ -114,14 +119,16 @@ pub const OP_CRAM       = 2
 // colours come from a RAM SOURCE POINTER (a variant's derived staging bytes) rather
 // than being inline in the program. The derive happens at frame time in
 // Palette_Compose (Palette_DeriveVariant -> Pal_Variant_Stage); the handler only
-// streams, so it stays inside the ~60-cycle budget.
+// streams, so it stays inside the blanking window the solver aims it at.
 //
-// WHAT A "REGION" IS (the RASTER_CRAM_MAX=3 ruling forces this choice, survey 2a):
-// a full 16-colour line CANNOT swap in one fire (3 CRAM words/fire is a cycle budget,
+// WHAT A "REGION" IS (RASTER_BURST_MAX_DEEP = 3 forces this choice, survey 2a):
+// a full 16-colour line CANNOT swap in one fire (3 region words/fire is a cycle budget,
 // not a FIFO one). So a region is a SCOPED swap: the few visually-dominant entries of
-// a line (<= RASTER_CRAM_MAX), streamed in one fire. A full-line region is authored as
-// CONSECUTIVE OP_PAL_REGION fires on successive lines, so such a boundary takes ceil(N/3)
-// lines to complete.
+// a line (<= RASTER_BURST_MAX_DEEP), streamed in one fire. A full-line region is authored
+// as CONSECUTIVE OP_PAL_REGION fires on successive lines, so such a boundary takes
+// ceil(N/3) lines to complete. A region op does NOT get the cram class's 4: its burst word
+// is the 30-cycle absolute-long form, and four of those leave 2.9 cycles of the window for
+// margins that want 30.
 //
 // THAT IS OUR CHOICE, NOT A REFERENCE'S — an earlier revision of this comment credited it
 // to S3K, which is false and was corrected against the disassembly. S3K's HInt3
@@ -192,7 +199,7 @@ pub const OP_RUN_RAMP = 8
 // OP_PAL_RESTORE (Parcel R1) — the band's OFF edge: stream `count` base colours from
 // Palette_Ship_Snap (this frame's base-DMA payload) back to CRAM.
 //   dc.l <CRAM write command longword>    target, derived from the same addr field
-//   dc.w count-1                          count <= RASTER_CRAM_MAX
+//   dc.w count-1                          count <= RASTER_BURST_MAX_DEEP
 //   dc.w addr                             snapshot offset == CRAM byte address
 // Appended LAST for two invariants, neither of them body bytes: (1) .op_region keeps
 // dispatch DEPTH 1, which the spin solver prices explicitly — renumbering would silently
@@ -220,8 +227,84 @@ pub const RASTER_ARM_EVERY_LINE = $8A00
 // RASTER_MAX_FIRE_LINE; the pin below is what keeps them from drifting apart.
 pub const RASTER_VBLANK_V = 224
 
-// Colors per OP_CRAM entry — a CYCLE budget (Ruling 2a), not a FIFO one.
-pub const RASTER_CRAM_MAX = 3
+// ---- the per-fire burst ceilings — a CYCLE budget, and one PER CLASS ---------
+// Words a single fire may stream. NOT a FIFO or CRAM limit (Ruling 2b's dot is about
+// WHERE a write lands, not how many): the whole burst has to fit inside one H40
+// horizontal blanking, measured at 122.9 cycles, with the solver's margins at both ends.
+//
+// THERE ARE TWO OF THESE BECAUSE A BURST WORD COSTS TWO DIFFERENT AMOUNTS. `.cram_loop`
+// still holds VDP_CTRL in a2 when it reaches its burst, so it writes through `-4(a2)` and
+// a word is 26 cycles; `.region_loop` and `.restore_loop` have spent a2 on their SOURCE
+// cursor (Pal_Variant_Stage / Palette_Ship_Snap), so their write is the absolute-long form
+// and a word is 30 (substrate Tier-3 item 1, and see the note beside those loops for why
+// freeing a2 loses). A single ceiling would have to be one of: 4, which no deep burst can
+// place, or 3, which prices the cheap class as if it were the dear one — the same
+// one-number-for-two-facts defect the retired `RASTER_SPIN_CRAM` was.
+//
+// THE ARITHMETIC EACH ONE ANSWERS. A burst of n words spans word_cyc * (n-1) from its
+// first write to its last; the solver wants that span plus both margins (20 early + 10
+// late, raster_dsl.emp) inside 122.9:
+//
+//   class            n=3                    n=4                     n=5
+//   cram/vsram (26)  52 + 30 = 82           78 + 30 = 108           104 + 30 = 134  REFUSED
+//   region/restore   60 + 30 = 90           90 + 30 = 120  (2.9     120 + 30 = 150  REFUSED
+//   (30)                                    cyc of slack — under
+//                                           the instrument's own
+//                                           +-5, i.e. not distinct
+//                                           from zero)
+//
+// THAT TABLE IS THE ARITHMETIC AND IT IS NOT THE WHOLE ANSWER. It asks only whether the span
+// plus both margins FITS the window; it does not ask where the solver's rounding actually
+// puts the burst. The cram n=4 row has 14.9 cycles of arithmetic slack and still lost, because
+// the spin quantizes to whole `dbf` iterations and the nearest one leaves 0.9 cycles at the
+// early edge. A fit check is necessary, not sufficient — see the measured block below.
+//
+// AND THE CRAM ROW WAS MEASURED — WHICH IS WHY IT IS 3 AND NOT 4.
+// tools/hblank_window_sweep.py authored a 4-word leading OP_CRAM directly in wire (the
+// constructors below refuse it) and swept its spin across four sampling periods, three burst
+// widths, twelve groups. The burst itself behaved exactly as the table says: the first word
+// crosses at the same instant whatever the width (the control that says a wider burst does
+// not START later), and the spans track the 26-cycle word to inside two cycles.
+//
+// What refused the raise was the MARGIN, once the window anchor was re-derived. At
+// RASTER_HBLANK_END_CYC = 366 the solver gives a 4-word cram burst 18 iterations, which puts
+// its first write 20.9 cycles after the start of blanking against an early margin of 20 —
+// **0.9 cycles of slack**, with the pooled estimator's own standard error at 2.0. The late
+// side is comfortable (+14.0); the early side is not, and the early side is the DERIVED edge,
+// the one no instrument here can watch. A ceiling whose placement survives by nine tenths of
+// a cycle is one pre-burst instruction away from making a legal program unbuildable.
+//
+//   width  solved spin  early slack  late slack     (at END = 366, margins 20 / 10)
+//     3        19          +10.9       +30.0        shipped
+//     4        18           +0.9       +14.0        REFUSED — 0.9 cyc, s.e. 2.0
+//     5        17           -9.1        -2.0        REFUSED — unplaceable, both edges
+//
+// THE RULE THIS WAS DECIDED BY, fixed before the number was known so it could not be argued
+// with afterwards: the raise stands only if the binding margin clears BOTH two standard
+// errors of the pooled estimator (4.0 cyc) and the 2.9-cycle threshold the DEEP class was
+// refused on. 0.9 clears neither. Holding here is the same standard applied to both classes,
+// which is the only way either refusal means anything.
+//
+// SO WHY ARE THERE STILL TWO CONSTANTS AT THE SAME VALUE? Because they are two different
+// facts that happen to agree today, and the code has to keep them apart to move either one:
+// their word costs differ (26 vs 30), their placeability ensures are separate, and the cram
+// class is the one with headroom — 14.9 cycles of arithmetic slack against the deep class's
+// 2.9. A wider window, a cheaper pre-burst path, or an instrument that can see the early edge
+// unlocks 4 for cram alone, and that is a one-token change to the line below.
+// docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, "4-word CRAM burst".
+pub const RASTER_BURST_MAX_CRAM = 3
+pub const RASTER_BURST_MAX_DEEP = 3
+ensure(RASTER_BURST_MAX_CRAM >= RASTER_BURST_MAX_DEEP,
+       "RASTER_BURST_MAX_CRAM ({RASTER_BURST_MAX_CRAM}) is below RASTER_BURST_MAX_DEEP ({RASTER_BURST_MAX_DEEP}) — the cram class has the CHEAPER burst word (26 vs 30), so it can never afford fewer words than the deep class. One of the two has been edited against its cycle class.")
+
+// The dense tier's three writes per line — `.dense_body`'s literal
+// `move.w (a1)+, -4(a2)` x3, and the stride `raster_gradient_program` sizes its stream by.
+// IT IS NOT A CEILING and it never was: nothing solves a spin for it, nothing checks it
+// against the blanking window, and raising it means editing the handler. It wore
+// RASTER_CRAM_MAX's name until the ceilings split per class, which made one constant carry
+// three unrelated facts; this is the third, given its own name so that moving a ceiling
+// cannot silently resize a ROM stream.
+pub const RASTER_DENSE_WORDS_PER_LINE = 3
 
 // ---- row-119 partial-tint fix (Task 4) — DECIDED, measured on oracle 2026-08-13 ----
 // The P1 residual: a CRAM write lands inside the fire+1 line's ACTIVE display, so pixels
@@ -345,7 +428,7 @@ pub struct RasterGradientProgram {
     rgp_op:         u16,
     rgp_cmd:        u32,    // constant CRAM write command, re-issued every dense line
     rgp_lines:      u16,
-    rgp_stream:     *u8,    // rgp_lines * RASTER_CRAM_MAX colour words
+    rgp_stream:     *u8,    // rgp_lines * RASTER_DENSE_WORDS_PER_LINE colour words
     rgp_end_arm:    u16, rgp_end_ops: u16,  // terminator
 }
 
@@ -428,8 +511,8 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
            "raster_gradient_program: CRAM byte address {addr} outside 0..126")
     ensure((addr >> 5) != 0,
            "raster_gradient_program: the run writes CRAM line 0, the CHARACTER's palette line — a dense run re-asserts its line every frame, so this would fight the player's palette for the whole section")
-    ensure(stream_words == lines * RASTER_CRAM_MAX,
-           "raster_gradient_program: stream is {stream_words} words but the run needs lines * RASTER_CRAM_MAX = {lines * RASTER_CRAM_MAX}. A short stream is read past its end into whatever ROM follows, for the rest of the run, every frame.")
+    ensure(stream_words == lines * RASTER_DENSE_WORDS_PER_LINE,
+           "raster_gradient_program: stream is {stream_words} words but the run needs lines * RASTER_DENSE_WORDS_PER_LINE = {lines * RASTER_DENSE_WORDS_PER_LINE}. A short stream is read past its end into whatever ROM follows, for the rest of the run, every frame.")
     return RasterGradientProgram{
         rgp_mask:       1 << (addr >> 5),
         rgp_arm0:       raster_arm(1, top - 1),
@@ -941,7 +1024,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         move.w  (a1)+, d1               // spin iterations, comptime-solved for this op
     .region_delay:
         dbf     d1, .region_delay
-        move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX)
+        move.w  (a1)+, d1               // count-1  (<= RASTER_BURST_MAX_DEEP)
         lea     Pal_Variant_Stage, a2   // staging base (was VDP_CTRL)
         adda.w  (a1)+, a2               // + comptime offset -> the derived colours
     .region_loop:
@@ -1095,7 +1178,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         move.w  (a1)+, d1               // spin iterations, comptime-solved for this op
     .restore_delay:
         dbf     d1, .restore_delay
-        move.w  (a1)+, d1               // count-1  (<= RASTER_CRAM_MAX — also bounds the (a2)+ reads inside the 128-byte snapshot)
+        move.w  (a1)+, d1               // count-1  (<= RASTER_BURST_MAX_DEEP — also bounds the (a2)+ reads inside the 128-byte snapshot)
         lea     Palette_Ship_Snap, a2   // snapshot base (was VDP_CTRL)
         // + offset == CRAM byte address (payload D-F; even + in-line by the pal_restore
         // constructor's ensures — an odd word here would address-error the (a2)+ reads)

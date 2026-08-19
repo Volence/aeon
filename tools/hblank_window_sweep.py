@@ -66,9 +66,19 @@ is meaningful. Three prior Aeon capture protocols failed exactly this control, s
 independent SERVER processes, same N, byte-identical rows) runs before the sweep and its
 result is recorded either way.
 
+HOW MANY WORDS THE BURST CARRIES IS AN INPUT (`--words`, default 3). The sweep was written
+for the shape the DSL shipped at the time — a single ceiling of 3 — but the ceiling is a
+CYCLE budget, and the only honest way to move it is to author the wider burst and measure
+where it lands. The driver pokes the wire image directly, so the constructors' `ensure` never
+sees the fixture; that is the same latitude the 1b fixture already takes (it pokes a spin the
+lowering would never solve). `--words 4` is the fixture the ceiling raise was decided on --
+it is now `RASTER_BURST_MAX_CRAM` and it is 4 -- and `--words 5` is available to watch the
+refusal's arithmetic be right.
+
 Usage:
     python3 tools/hblank_window_sweep.py --rom s4.debug.bin --lst s4.debug.lst
     python3 tools/hblank_window_sweep.py --only anchors
+    python3 tools/hblank_window_sweep.py --only sweep --words 4 --lo 0 --hi 200 --rows 12
     python3 tools/hblank_window_sweep.py --json out.json
 Exit: 0 sweep completed · 1 a control or assertion failed (BLOCKED) · 3 setup problem
 """
@@ -77,6 +87,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -91,7 +102,7 @@ from aether import BusClient  # noqa: E402
 # the same listing parser the cost probe uses, so a listing-format change breaks both
 # together rather than silently mis-addressing one.
 from raster_cost_probe import (  # noqa: E402
-    pal_restore, parse_lst, program_words, reg_set, stream_cram,
+    fire_spins, pal_restore, parse_lst, program_words, reg_set, stream_cram,
 )
 
 # oracle-next's aether server. The OLD oracle harness launcher is deliberately NOT used:
@@ -99,7 +110,10 @@ from raster_cost_probe import (  # noqa: E402
 SERVER = "/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether"
 # AF_UNIX paths cap at 108 bytes and the scratchpad path is longer than that (the trap
 # recorded in tools/sh_probe.py). Short, and unlinked before each launch.
-SOCK = "/tmp/aeon_hblank_sweep.sock"
+# PER-PROCESS, because this tree runs parallel lanes in parallel worktrees and a shared path
+# would have two drivers unlinking each other's socket -- each then silently measuring the
+# OTHER lane's ROM, which is a wrong number rather than an error.
+SOCK = f"/tmp/aeon_hblank_sweep_{os.getpid()}.sock"
 
 # The scene preamble, identical to tools/scenes/effects_raster_*.json: boot, freeze, and put
 # the camera where R1 measured the trunk art's CRAM usage. Camera_Y is poked AFTER the freeze
@@ -126,7 +140,8 @@ Row = list  # list[tuple[int, int, int]], one per active column
 # difference between a reference and a capture is where the write happens -- never what is
 # written, never how many ops, never the dispatch depth.
 
-TINT = [0x0E0E, 0x0E0E, 0x0E0E]     # $0E0E = R7 G0 B7, the magenta R1 measured with
+TINT_COLOUR = 0x0E0E                 # $0E0E = R7 G0 B7, the magenta R1 measured with
+TINT = [TINT_COLOUR] * 3             # the 3-word default; --words rebuilds it
 CRAM_LINE2_E5 = 0x4A                 # palette line 2, entry 5 -- $40-$5E is line 2
 CRAM_LINE2_E4 = 0x48                 # the entry R1 §7.3 used
 
@@ -162,22 +177,35 @@ def with_mask(words: list[int], mask: int = PAL_MASK) -> list[int]:
     return out
 
 
-def fx_sweep(addr: int = CRAM_LINE2_E5) -> dict:
+def fx_sweep(addr: int = CRAM_LINE2_E5, words: int = 3) -> dict:
     """§4: ONE fire, ONE leading OP_CRAM, authored at line 100. The defective shape.
 
-    `addr` is the CRAM byte address of the 3-colour burst. §4 fixes it at $4A and warns, in
+    `addr` is the CRAM byte address of the burst. §4 fixes it at $4A and warns, in
     the same breath, that the address must be one "the art at those rows actually references"
     or the sweep reads a null that looks like a result. At the frozen spawn this ROM boots to,
     $4A is NOT such an address -- the `--only map` measurement puts it at 7 sensitive columns
     summed over six rows, with rows 98, 99 and 101 at exactly zero, i.e. the boundary row and
     both §6 controls are blind. The address is therefore a measured input to this sweep rather
     than a constant, chosen by that map and reported with it.
+
+    `words` is the burst width, and it is an INPUT because the ceiling it feeds
+    (`RASTER_BURST_MAX_CRAM` for this op class) is a per-fire cycle budget rather than a
+    hardware limit -- the only way to know whether a wider burst still lands inside blanking
+    is to author one and read the picture back. Nothing in the DSL is bypassed dishonestly
+    here: the constructors' `ensure` refuses a burst above the ceiling and this driver never
+    calls them, it pokes the wire image exactly as it already pokes a spin the lowering would
+    never solve. Widening the
+    burst only ADDS CRAM entries ($50, $52, $54, $56 at four words), so an address the map
+    found adequate at three stays adequate -- and `run_sweep` prints the reference sensitivity
+    per row before any verdict, which is that claim measured rather than assumed.
     """
-    ops = [stream_cram(addr, TINT)]
+    ops = [stream_cram(addr, [TINT_COLOUR] * words)]
     return {
-        "name": f"sweep_{addr:02X}",
-        "what": f"single leading OP_CRAM, 3 words at ${addr:02X}, authored line 100 (§4)",
+        "name": f"sweep_{addr:02X}_w{words}",
+        "what": f"single leading OP_CRAM, {words} words at ${addr:02X}, authored line 100 (§4)",
         "boundary": 100,
+        "words": words,
+        "ops": ops,
         "prog": lambda line: program_words([(line, ops)]),
         "ref_below": 160,   # fire after the read window -> rows read pre-boundary
         "ref_above": 50,    # fire before it              -> rows read post-boundary
@@ -701,7 +729,99 @@ async def run_sweep(c: BusClient, sym: dict, fx: dict, report: dict,
             "rows": {str(k): v for k, v in r.items()}})
 
 
-def summarize(report: dict) -> None:
+def emp_int(rel: str, name: str) -> int:
+    """A `const NAME = <int>` out of an .emp source, so no number here is hand-copied.
+
+    Same three lines as `tools/effects_gates.py`'s helper and for the same reason: the
+    go/no-go below compares a MEASURED band against the guard margins the compiler actually
+    enforces, and a margin transcribed into this file would let the two drift apart silently
+    -- which is the failure mode "derive gate expectations" exists to prevent.
+    """
+    txt = (AEON / rel).read_text()
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*(\$[0-9A-Fa-f]+|-?\d+)",
+                  txt, re.M)
+    if not m:
+        raise Blocked(f"cannot find `const {name}` in {rel}")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+def solver_fit(report: dict, fx: dict) -> None:
+    """THE GO/NO-GO: does the lowering's own answer for this fixture sit inside the band the
+    sweep just measured, with the guard's margins to spare?
+
+    The sweep measures where a burst LANDS as a function of the spin it is given. The DSL
+    solver, which has never seen a boundary, computes one spin for this fixture from the cost
+    model alone. Those are two independent answers to the same question, and a ceiling raise
+    is only defensible if the second lands inside the first:
+
+      * the LATE edge is `n_hi`, MEASURED -- the N at which the burst's last word stops
+        beating the line-start sampling instant. The guard demands the landing clear it by
+        `RASTER_HBLANK_MARGIN_LATE_CYC`.
+      * the EARLY edge is `n_lo`, DERIVED -- the first word crossing the start of blanking,
+        which no instrument here can watch (the RESULTS doc's standing caveat). The guard
+        demands `RASTER_HBLANK_MARGIN_EARLY_CYC`, a full extra iteration over the late side
+        for exactly that reason.
+
+    Both edges carry the instrument's own +-0.5 N localization, so the verdict is printed with
+    the worst-case edges beside the nominal ones: a fit that survives BOTH is a fit, a fit that
+    only survives the nominal one is reported as marginal and is not a go.
+
+    THE FOLDED WINDOW IS USED WHERE IT EXISTS, and which one was used is printed. See
+    `boundary_analysis`: both edges of the single-group headline descend from ONE integer
+    boundary, so its whole band can sit up to half an N off, and half an N is 5 cycles against
+    margins of 10 and 20. A run wide enough to hold several sampling periods measures the same
+    crossing several times over, and the fold is what turns a +-5-cycle headline into an
+    estimate this verdict can actually rest on. A narrow run still gets a verdict -- it is just
+    labelled as resting on the single-group edges, which is a reason to widen the run rather
+    than to trust the number.
+    """
+    w = report.get("window_folded") or report.get("window")
+    if not w:
+        return
+    folded = "window_folded" in report
+    spin = fire_spins(fx["ops"])[0]
+    early = emp_int("engine/effects/raster_dsl.emp", "RASTER_HBLANK_MARGIN_EARLY_CYC")
+    late = emp_int("engine/effects/raster_dsl.emp", "RASTER_HBLANK_MARGIN_LATE_CYC")
+    n_lo, n_hi = w["n_lo_derived"], w["n_hi_measured"]
+    need_lo, need_hi = n_lo + early / 10, n_hi - late / 10
+    # HOW MUCH TO DISTRUST THE EDGES. A single boundary is localized to +-0.5 N, and that is
+    # the right figure for the single-group window. The folded window has an INTERCEPT whose
+    # uncertainty the fit measured for itself (the residual spread over sqrt(groups)), and
+    # using the single-boundary 0.5 there would be double-counting the very noise the fold
+    # removed -- it would call a landing marginal that is nothing of the kind. Take the
+    # measured one where the fit produced it.
+    unc = w.get("intercept_se_n", 0.5) if folded else 0.5
+    pess_lo, pess_hi = need_lo + unc, need_hi - unc
+    ok = need_lo <= spin <= need_hi
+    ok_pess = pess_lo <= spin <= pess_hi
+    print(f"\n== solver fit ({fx['words']}-word burst)")
+    print(f"   the DSL solver's spin for this fixture, from the cost model alone: N = {spin}")
+    print(f"   edges from the {'FOLDED' if folded else 'single-group'} window"
+          + ("" if folded else "   (only one sampling period in view -- widen with "
+                              "--hi 200 --rows 12)"))
+    print(f"   measured clean band                : N in [{n_lo:.2f}, {n_hi:.2f}]")
+    print(f"   guard margins (read from raster_dsl.emp): early {early} cyc, late {late} cyc")
+    print(f"   band that satisfies both margins   : N in [{need_lo:.2f}, {need_hi:.2f}]"
+          f"   -> solved N={spin} {'FITS' if ok else 'DOES NOT FIT'}")
+    print(f"   same, less the edge uncertainty {unc:.2f} N: N in [{pess_lo:.2f}, {pess_hi:.2f}]"
+          f"   -> solved N={spin} {'FITS' if ok_pess else 'DOES NOT FIT'}")
+    print(f"   slack at the landing: {10 * (spin - n_lo) - early:.1f} cyc early side, "
+          f"{10 * (n_hi - spin) - late:.1f} cyc late side")
+    verdict = "GO" if ok and ok_pess else ("MARGINAL" if ok else "NO-GO")
+    print(f"   => {verdict}")
+    report["solver_fit"] = {
+        "words": fx["words"], "solved_spin": spin, "edges_from_folded_window": folded,
+        "margin_early_cyc": early, "margin_late_cyc": late,
+        "n_lo_derived": n_lo, "n_hi_measured": n_hi,
+        "need": [need_lo, need_hi], "need_pessimistic": [pess_lo, pess_hi],
+        "fits": ok, "fits_pessimistic": ok_pess, "edge_uncertainty_n": unc,
+        "slack_early_cyc": 10 * (spin - n_lo) - early,
+        "slack_late_cyc": 10 * (n_hi - spin) - late,
+        "verdict": verdict}
+
+
+def summarize(report: dict, fx: dict) -> None:
     sw = report["sweep"]
     if not sw:
         return
@@ -760,6 +880,7 @@ def summarize(report: dict) -> None:
         report["px_per_cyc"] = None
         report["clean_range_is_quantum"] = True
     boundary_analysis(report)
+    solver_fit(report, fx)
 
 
 # H40 NTSC line geometry, from the hardware constants rather than from any document's table:
@@ -845,6 +966,65 @@ def boundary_analysis(report: dict) -> None:
                         "first_word_crossing": n_first_word, "burst_span_cyc": span,
                         "blank_cyc": BLANK_CYC, "integers": [lo_i, hi_i], "centre": centre}
 
+    # ---- the same window, with the quantization averaged out ------------------
+    # THE HEADLINE ABOVE RESTS ON ONE INTEGER. Both its edges descend from `n_first_word`,
+    # which is group 0's last boundary less a half -- and a boundary is the CEILING of a
+    # crossing, so that half-step correction is right on average and wrong by up to +-0.5 N
+    # on any single reading. A whole band shifted by up to 5 cycles is fine for a headline
+    # ("the centre is 18") and is NOT fine for a go/no-go on a 5.9-cycle margin, which is
+    # what a ceiling raise comes down to.
+    #
+    # When the sweep is wide enough to hold several sampling periods, the same crossing is
+    # observed once per group, each with an INDEPENDENT rounding. Folding them onto one
+    # estimate divides the quantization noise by sqrt(groups). That is the arithmetic the
+    # RESULTS doc does by hand when it averages twelve boundary deltas to -0.833.
+    #
+    # THE PERIOD COMES FROM THE CROSSINGS' OWN SPACING, by least squares, and NOT from
+    # `measured_cycles_per_sampling_period` -- which is the same quantity measured on a
+    # DIFFERENT statistic (the group FIRST boundaries, i.e. the last word). The two can
+    # disagree: post-SR the 3-word run read 486.7 there against 490.0 in the 4- and 5-word
+    # runs, and subtracting a period that is 0.33 N wrong accumulates 1 N of error by the
+    # fourth group -- which is exactly the scatter that made that run's fold disagree with
+    # its neighbours. Fitting a line through (group index, crossing) estimates the intercept
+    # and the period TOGETHER from one set of observations, and the residuals then say how
+    # much to trust the intercept instead of leaving that to be assumed.
+    if len(groups) > 1:
+        obs = [g[-1] - 0.5 for g in groups]
+        xs = list(range(len(obs)))
+        n = len(obs)
+        mx, my = sum(xs) / n, sum(obs) / n
+        den = sum((x - mx) ** 2 for x in xs)
+        period = sum((x - mx) * (y - my) for x, y in zip(xs, obs)) / den
+        fw = my - period * mx
+        resid = [y - (fw + period * x) for x, y in zip(xs, obs)]
+        folded = [y - period * x for x, y in zip(xs, obs)]
+        # the burst span, likewise averaged over every group that saw the whole burst
+        widths = [g[-1] - g[0] for g in groups if len(g) == max(len(x) for x in groups)]
+        span_n = sum(widths) / len(widths)
+        hi = fw - span_n
+        lo = fw - BLANK_CYC / 10
+        # The residual spread is the instrument's own answer to "how much is this intercept
+        # worth?", and it is PRINTED rather than assumed, because every margin verdict below
+        # is a comparison against it. Half the spread over sqrt(n) is the usable figure.
+        spread = max(resid) - min(resid)
+        se = spread / 2 / len(obs) ** 0.5
+        print(f"\n   folded over {len(groups)} sampling periods, least-squares:")
+        print("      first-word crossing per group: "
+              + ", ".join(f"{v:.2f}" for v in folded) + f"   -> intercept {fw:.2f} N")
+        print(f"      fitted period {period:.2f} N = {10 * period:.1f} cyc   "
+              f"(H40 NTSC arithmetic {LINE_CYC / 10:.2f} N)")
+        print(f"      residuals {[round(v, 2) for v in resid]}  spread {spread:.2f} N "
+              f"= {10 * spread:.1f} cyc  -> s.e. on the intercept ~{se:.2f} N "
+              f"= {10 * se:.1f} cyc")
+        print(f"      burst span {span_n:.2f} N = {10 * span_n:.1f} cyc over "
+              f"{len(widths)} full groups")
+        print(f"      => clean N in [{lo:.2f}, {hi:.2f}]   width {hi - lo:.2f} N")
+        report["window_folded"] = {
+            "groups": len(groups), "period_n": period, "per_group_crossing": folded,
+            "residuals": resid, "residual_spread_n": spread, "intercept_se_n": se,
+            "first_word_crossing": fw, "burst_span_n": span_n,
+            "burst_span_cyc": 10 * span_n, "n_lo_derived": lo, "n_hi_measured": hi}
+
 
 async def amain(args) -> int:
     sym = parse_lst(args.lst)
@@ -856,9 +1036,9 @@ async def amain(args) -> int:
     report = {"rom": args.rom, "lst": args.lst, "server": SERVER,
               "pal_dirty_mask": MASK,
               "settle_frames": SETTLE_FRAMES, "drive_frames": DRIVE_FRAMES,
-              "cram_addr": args.addr,
+              "cram_addr": args.addr, "burst_words": args.words,
               "anchors": {}, "sweep": [], "sensitivity": {}}
-    sweep_fx = fx_sweep(args.addr)
+    sweep_fx = fx_sweep(args.addr, args.words)
     want = set(args.only.split(",")) if args.only else None
 
     def on(name: str) -> bool:
@@ -886,7 +1066,7 @@ async def amain(args) -> int:
         if on("sweep"):
             async with Server(args.rom, SOCK) as s:
                 await run_sweep(s.client, sym, sweep_fx, report, args.lo, args.hi)
-            summarize(report)
+            summarize(report, sweep_fx)
     except Blocked as e:
         print(f"\nBLOCKED: {e}", file=sys.stderr)
         report["blocked"] = str(e)
@@ -922,7 +1102,17 @@ def main() -> int:
     # observation into a fit: their spacing is a measurement of cycles per scanline.
     ap.add_argument("--rows", type=int, default=6,
                     help=f"rows read per capture, from boundary-3 (default {ROWS_READ})")
+    # The swept burst's width. The DEFAULT STAYS 3 so every earlier section of the RESULTS
+    # doc reproduces with no flag, even though the cram ceiling is now 4; 5 is the width the
+    # arithmetic refuses and the instrument agrees with. See fx_sweep's note on why poking a
+    # width the DSL would refuse is the point rather than a cheat.
+    ap.add_argument("--words", type=int, default=3,
+                    help="CRAM words in the swept burst (default 3, which reproduces the "
+                         "earlier runs; 4 is the ceiling-raise fixture)")
     args = ap.parse_args()
+    if args.words < 1:
+        print("--words must be at least 1", file=sys.stderr)
+        return 3
     if args.mask:
         MASK = int(args.mask, 0)
     ROWS_READ = args.rows
