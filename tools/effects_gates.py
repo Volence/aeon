@@ -199,7 +199,13 @@ def main() -> int:
         fetch = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_FETCH_CYC")
         hit = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_HIT_CYC")
         tail = emp_int("engine/effects/raster_dsl.emp", "RASTER_OP_TAIL_CYC")
-        word = emp_int("engine/effects/raster_dsl.emp", "RASTER_STREAM_WORD_CYC")
+        # One burst word costs what the op's DESTINATION SPELLING costs (Tier-3 item 1):
+        # `.cram_loop` still holds VDP_CTRL in a2 and writes `-4(a2)` (16 + dbf 10 = 26);
+        # `.region_loop` / `.restore_loop` have spent a2 on their source cursor and write
+        # the absolute VDP_DATA (20 + dbf 10 = 30). Two constants, read separately, so a
+        # gate that priced every fixture with one of them cannot go quiet on the other.
+        word_cram = emp_int("engine/effects/raster_dsl.emp", "RASTER_STREAM_WORD_CRAM_CYC")
+        word_deep = emp_int("engine/effects/raster_dsl.emp", "RASTER_STREAM_WORD_DEEP_CYC")
         rung = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNG_CYC")
         rungs = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNGS")
         wreg = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REG_CYC")
@@ -230,10 +236,10 @@ def main() -> int:
         # Each fixture's LEADING-or-not position, spelled out. `p` is the modelled cycles
         # from the record's op-walk origin to this op's burst with a spin of zero.
         reg_op = fetch + rung * rungs + wreg + tail           # one whole OP_SET_REG
-        spin_f3 = solve_spin(fetch + hit + pre_cram, 2 * word)             # leading cram 3w
-        spin_f4 = solve_spin(fetch + rung * depth_region + hit + pre_region, 2 * word)
-        spin_f5 = solve_spin(reg_op + fetch + hit + pre_cram, 2 * word)    # cram 3w, SECOND
-        spin_f8 = solve_spin(fetch + rung * depth_restore + hit + pre_restore, 2 * word)
+        spin_f3 = solve_spin(fetch + hit + pre_cram, 2 * word_cram)        # leading cram 3w
+        spin_f4 = solve_spin(fetch + rung * depth_region + hit + pre_region, 2 * word_deep)
+        spin_f5 = solve_spin(reg_op + fetch + hit + pre_cram, 2 * word_cram)  # cram 3w, SECOND
+        spin_f8 = solve_spin(fetch + rung * depth_restore + hit + pre_restore, 2 * word_deep)
         # SAME OP, TWO WORK TERMS — this is the whole of item 1c in one line pair: F3's and
         # F5's cram ops are identical `stream_cram(34, 3 words)` and cost DIFFERENT amounts,
         # because F5's sits second and needs 11 fewer iterations to reach the same window.
@@ -249,7 +255,7 @@ def main() -> int:
         # truncating it, which is what surfaced this; the counts here must track that file.
         f0 = 2 * (base - 16)                       # a no-op record is the fire base less the
                                                    # loop entry/exit a record WITH ops pays
-        fire3 = base + fetch + hit + cram_f3 + 3 * word + tail
+        fire3 = base + fetch + hit + cram_f3 + 3 * word_cram + tail
         expect_f3 = f0 + 5 * fire3
         # F4 (stream_pal_region, 3 words) — WIRED 2026-08-18 by the raster-substrate sweep, which
         # found it was the one fixture the --only list never named, leaving RASTER_WORK_REGION_CYC
@@ -265,7 +271,7 @@ def main() -> int:
         # First measurement (2026-08-18, s4.debug.bin ab1055d4): F4 = 3968 cyc/frame, 566/fire,
         # against this expectation exactly. So the constant was right for the whole time nothing
         # was checking it — the gap was real, the drift never happened.
-        fire_region = base + fetch + rung + hit + region + 3 * word + tail
+        fire_region = base + fetch + rung + hit + region + 3 * word_deep + tail
         expect_f4 = f0 + 6 * fire_region
         # F1 (six one-reg_set fires) is here for a reason F0 and F3 cannot cover: both of them
         # dispatch at DEPTH 0, so neither moves when the compare chain grows. OP_SET_REG is the
@@ -279,13 +285,13 @@ def main() -> int:
         # SECOND fixture that can see a dispatch-chain change — and the only one that sees
         # it displace a CRAM burst (the mixed-fire landing question, spec §3.3).
         fire_mixed = base + (fetch + rung * rungs + wreg + tail) \
-                          + (fetch + hit + cram_f5 + 3 * word + tail)
+                          + (fetch + hit + cram_f5 + 3 * word_cram + tail)
         expect_f5 = f0 + 4 * fire_mixed            # F5 authors 4 fires (buffer cap; was 5)
         # F8 (pal_restore, 3 words, R1 claim 9): the restore dispatches at depth 4 (four
         # failed rungs + hit) with its own measured work constant.
         wrest = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_RESTORE_BASE_CYC") \
                 + spin_cyc(spin_f8)
-        fire_rest = base + fetch + (rung * 4 + hit) + wrest + 3 * word + tail
+        fire_rest = base + fetch + (rung * 4 + hit) + wrest + 3 * word_deep + tail
         expect_f8 = f0 + 6 * fire_rest
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),

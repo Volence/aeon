@@ -12,8 +12,10 @@
 // unplaceable.
 //
 // And it is unplaceable, structurally rather than by a poor choice of spin. The combined
-// span from the first op's write to the second's is 120 cycles against a blanking window
-// measured at 122.9 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md), so no
+// span from the first op's write to the second's is 116 cycles against a blanking window
+// measured at 122.9 (116 and not the pre-Tier-3-item-1 120: the two CRAM words got 4
+// cycles cheaper each, which is nowhere near the 30 cycles of margin this shape is short
+// by, so the poison is red for the same structural reason as before) (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md), so no
 // centring leaves either margin. This is the poison for the sentence in `fire()`'s
 // stream-op ceiling that says a second stream op has no legal placement.
 //
