@@ -1481,7 +1481,11 @@ pub const RASTER_FIRE_BASE_CYC      = 302
 //
 // FIRST MEASUREMENT 2026-08-19, s4.debug.bin crc f5ef3b4e: FD1 4360, FD2 15688,
 // (15688 - 4360) / 32 = 354.0.
-pub const RASTER_DENSE_LINE_GRAD_CYC = 354
+// AFTER the dense-kind hoist (Tier-3 item 3, same day, crc 54f4b253): FD1 4362, FD2 15562,
+// (15562 - 4362) / 32 = 350.0. Four cycles, where the deferred item had booked twenty-four
+// — the difference is the VDP holding the bus across the removed test, and Raster_HInt's
+// `.dense_body` note carries the derivation.
+pub const RASTER_DENSE_LINE_GRAD_CYC = 350
 
 // A dense run fires EVERY line, so its per-line cost must fit inside a scanline or the run
 // eats the line it is supposed to be decorating and the next fire is already late. Nothing

@@ -283,9 +283,14 @@ pub vars upper_ram {
     Raster_Buf_B:       [u8; 128],  // working copy (P2 patch seam) — RASTER_BUF_SIZE
     Raster_Active_Buf:  u32,        // -> Raster_Buf_A or Raster_Buf_B
     // Dense-run state (effects P2 Task 5) — OP_RUN_GRADIENT switches the handler into a
-    // per-line MODE: while Raster_Dense_Lines != 0 the handler bypasses the record walk,
-    // writes Raster_Dense_Cmd + 3 colours from Raster_Dense_Cursor, and re-arms reg $0A=0.
-    Raster_Dense_Lines:  u16,       // scanlines remaining in the active dense run (0 = sparse)
+    // per-line MODE: while Raster_Dense_Mode != 0 the handler bypasses the record walk,
+    // writes Raster_Dense_Cmd + a per-line payload, and re-arms reg $0A=0.
+    //
+    // THE ACTIVE FLAG IS Raster_Dense_Mode, NOT THIS COUNTER (Tier-3 item 3, 2026-08-19).
+    // It used to be `Raster_Dense_Lines != 0`, with a SECOND word read per scanline to pick
+    // the body. One word answers both questions now; see Mode's note below.
+    Raster_Dense_Lines:  u16,       // scanlines remaining; counts down, meaningful only
+                                    // while Raster_Dense_Mode != 0
     Raster_Dense_Cursor: u32,       // ROM stream cursor (3 words/line) for the run
     Raster_Dense_Cmd:    u32,       // constant CRAM write command for every line of the run
     // The single-channel water slot that used to sit here (Raster_Water_Line, the derived
@@ -302,9 +307,18 @@ pub vars upper_ram {
     // perspective floor, Vectorman's table-free scaler, Gunstar, Alien Soldier, TF4).
     //
     // Acc and Step are the RUNTIME PARAMETERS: a game may rewrite them any frame to
-    // animate the ramp, which no ROM-streamed gradient can do. Kind selects which body
+    // animate the ramp, which no ROM-streamed gradient can do. Mode selects which body
     // runs, because both share Raster_Dense_Lines/Cmd and the every-line arm.
-    Raster_Dense_Kind:  u16,        // 0 = gradient (stream), 1 = ramp (accumulate)
+    //
+    // MODE IS TRI-STATE, AND THAT IS THE WHOLE OF TIER-3 ITEM 3 (2026-08-19). It used to be
+    // a two-state `Raster_Dense_Kind` (0 gradient / 1 ramp) sitting BESIDE a separate
+    // run-active test on Raster_Dense_Lines, so `Raster_HInt` read two RAM words and took
+    // two branches on every scanline of a run to answer one question. Folding "is a run
+    // active" and "which body" into one signed word answers both from a single `tst.w`:
+    // the top-of-handler test is unchanged in shape and cost (so the SPARSE fire base does
+    // not move), and the dense side pays one `bmi.s` where it used to pay a whole second
+    // load and branch. The counter reaching 0 is what clears this word.
+    Raster_Dense_Mode:  u16,        // 0 = no run · +1 = gradient (stream) · -1 = ramp (compute)
     Raster_Ramp_Acc:    u32,        // 16.16 accumulator; high word is the emitted value
     Raster_Ramp_Step:   u32,        // 16.16 per-line delta, signed
 
