@@ -145,6 +145,24 @@ CASES: list[tuple[str, str, str, int]] = [
     #    the two cases indistinguishable.
     (f"{POISON}/poison_cram_four_words.emp",      "cram 4 words",  "4 colours exceeds RASTER_BURST_MAX_CRAM (3)", 1),
     (f"{POISON}/poison_deep_four_words.emp",      "deep 4 words",  "opcode 4, 4-word burst", 1),
+    # ---- Scanline P2 Task 13: the scene budget axes (design §5) ----
+    # ONE case, not four, and the count is a finding rather than a shortfall — see the
+    # "FALSIFIABILITY" block in tools/effects_budget_model.toml [scene_budget]. Of the four
+    # axes P2 enforces, only AXIS 1 has an input that can cross its budget at all:
+    #   axis 2 charges 0 or 1792 B against a 6260 B budget — two-valued, always fits;
+    #   axis 3 charges 0 or 4270 cyc against 9920 — likewise;
+    #   axis 4b is bounded ABOVE by the 4a density guard (a fire's cost must fit its gap, so
+    #     a whole screen cannot exceed 224 x 488 = 109312) and, at the shipped burst
+    #     ceilings, tops out near 77000 against an 84595 budget.
+    # Writing three more "poisons" that cannot go red would be the vacuous-gate defect this
+    # lane exists to prevent, so they are booked instead of faked.
+    #
+    # AXIS 1 is genuinely falsifiable and the unit is ONE BAND: fixture A at 115 bands costs
+    # 103332.74 and PASSES, fixture B at 116 costs 104188.01 and fails by 82.01 cyc (0.08%).
+    # Exactly 1 [Error] — fixture B's axis-2/axis-3 charges are unchanged from A's and both
+    # fit, so neither of those ensures fires. A count of 2 means another axis started
+    # failing; a count of 0 means the fold stopped separating 115 bands from 116.
+    (f"{POISON}/poison_budget_axis1.emp",         "P2 axis 1",     "scene budget AXIS 1 (main-loop cycles)", 1),
 ]
 
 

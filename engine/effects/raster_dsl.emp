@@ -2424,11 +2424,71 @@ pub comptime fn raster_words(fires: array) -> int {
 
 // raster_program — the flat program. Header, two priming records, one record per
 // authored fire in ascending screen-line order, terminator.
+// =====================================================================
+// BUDGET AXIS 4b — THE PER-FRAME HInt TOTAL (Scanline P2 Task 11, design §5 axis 4).
+//
+// Axis 4 splits in two. (4a) is per-fire SPACING, which check_density already owns and which
+// this does not touch. (4b) is the per-frame TOTAL, and it is the half that had never been
+// gated because it had never been measured: every absolute HInt row this tree carried came
+// off oracle's `interrupts.hint`, which is HBlank PLUS VBlank in this ROM (oracle buckets by
+// comparing handler entry PC against $78, and Aeon's IRQ6 vector is a ROM address that never
+// matches). Phase 0 Task 3 measured it directly off the HBlank trampoline's own per-routine
+// row instead, and the model summed over the LIVE records matched the hardware EXACTLY —
+// 2 priming at 294 + water 666 + vsram 624 = 1878 against a measured 1878, gap ZERO, at both
+// camera states, five boots, spread 0.
+//
+// WHY THIS IS ENFORCED HERE AND NOT PER SCENE. Scenes do not fire HInts. The HInt total is a
+// property of the authored raster PROGRAM, and the section->preset->program chain is Labels
+// end to end, so a per-scene charge would need a comptime join that does not exist (the same
+// barrier that blocks Task 12 — see docs/DEFERRED_WORK.md). `raster_program()` is where every
+// authored sparse program passes and where the fires are VALUES, so it is where the budget
+// can actually see its subject.
+//
+// THE UNITS ARE MODEL CYCLES ON BOTH SIDES, deliberately. `fire_cost_cycles` is the same
+// model the eight F1..F8 fixtures pin to zero residual, and it counts nominal 68000
+// instruction timings. The MEASURED rows in tools/effects_budget_model.toml are upper bounds
+// that include profiler instrumentation and exception entry — the toml header warns in as
+// many words that gating against those would "fail programs that demonstrably run today"
+// (design §4.3). So this compares model cycles against a frame pool, and never mixes the two
+// normalisations.
+//
+// THE DENSE TIER IS NOT GATED HERE and its absence is a ruling, not an oversight. Dense
+// programs are built by a different constructor and their cost is already modelled by a
+// DIRECT measurement — a five-point line-count sweep giving cycles = 1512 + 328 x lines to
+// the cycle at every count. Bolting a second, weaker guard onto that would add no evidence.
+// It also has an OPEN discrepancy that must not be silently absorbed into a budget: the
+// shipped OJZ_TestGradient measures 32758 cyc / 100 fires against a model 33000 / 101 — 242
+// cycles and one fire short, with three hypotheses tested and all three refused
+// (sample-window artifact, the frame-top offscreen ship, the patch-table re-record). It is
+// booked in [raster.sparse] as `hint_total_dense_model_gap` and stays visible there.
+const RASTER_HINT_FRAME_CYC       = 128000   // NTSC video frame (ntsc_scanline_cycles 488 x 262)
+// The engine cost the HInt tier is NOT: idle_main_loop_cycles 35125 + idle_vblank_cycles 8280,
+// both measured at the IDLE camera state — the state that actually holds 60 Hz. Sustained
+// max-diagonal runs 2.067 video frames per logic tick and is streaming-bound
+// (Tile_Cache_Fill 40.1%/tick, a separately-owned arc), so it is context, not a divisor.
+const RASTER_HINT_RESERVATION_CYC = 43405
+// For scale, both measured on shipped content: the OJZ section-0 sparse program totals 1878
+// cyc/frame (1.5%), and the dense OJZ_TestGradient 32758 (25.7%). The budget below is 84595,
+// so the sparse tier sits at ~2% of it and the dense tier — were it charged here — at ~39%.
+ensure(RASTER_HINT_FRAME_CYC - RASTER_HINT_RESERVATION_CYC == 84595,
+       "axis 4b: the HInt budget derivation moved — {RASTER_HINT_FRAME_CYC} - {RASTER_HINT_RESERVATION_CYC} is no longer 84595. Both terms are transcribed from measured rows in tools/effects_budget_model.toml ([engine_reservation] idle_main_loop_cycles 35125 + idle_vblank_cycles 8280); re-derive from those rows rather than adjusting this number to match")
+
+comptime fn check_hint_total(fires: array) -> int {
+    comptime var total = 0
+    for f in fires {
+        total = total + fire_cost_cycles(f)
+    }
+    ensure(total <= RASTER_HINT_FRAME_CYC - RASTER_HINT_RESERVATION_CYC,
+           "budget AXIS 4b (per-frame HInt total): this program's {fires.len} fires cost {total} model cycles against a budget of {RASTER_HINT_FRAME_CYC - RASTER_HINT_RESERVATION_CYC} — the {RASTER_HINT_FRAME_CYC}-cycle NTSC frame less {RASTER_HINT_RESERVATION_CYC} cyc of measured engine reservation (idle_main_loop 35125 + idle_vblank 8280, both at the IDLE camera state, the one that actually holds 60 Hz). The cost is summed with the SAME model the F1..F8 fixtures pin to zero residual; it is NOT comparable to the measured rows in the toml, which include profiler instrumentation and exception entry. For scale, the shipped OJZ section-0 sparse program totals 1878 measured cyc/frame. Split the work across frames, or move it to the dense tier, which stays inside one interrupt")
+    return total
+}
+
 pub comptime fn raster_program(fires: array) {
     ensure(fires.len >= 1, "raster_program: a program with no fires — use Raster_Program_None")
     let L = fire_lines(fires)
     check_intervals(fires)
     check_density(fires)
+    check_hint_total(fires)
     // GUARD 11 — one patchable record per channel. Raster_GetChannelBand answers with the FIRST
     // record matching a channel, so a second record on the same channel is invisible to the
     // parallax overlay: past the first record's band the scroll boundary would follow one record

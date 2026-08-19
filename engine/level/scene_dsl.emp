@@ -681,6 +681,373 @@ pub comptime fn assert_act_relative_tagged(scenes: array) -> int {
 }
 
 // =====================================================================
+// THE BUDGET LEDGER (P2 Task 11 — design §5).
+//
+// Every constant below is TRANSCRIBED FROM A MEASURED ROW in
+// tools/effects_budget_model.toml, and each carries the row name it came from. Nothing
+// here is estimated, and nothing here is copied from a nearby number: the plan's own
+// preamble names `EFX_BLANK_DELAY = 4` as the cautionary case — a constant fitted to one
+// shape, enforced by a guard, and wrong for every other shape for as long as nothing
+// measured it. Phase 0 measured these; the derivation of each budget is written beside it.
+//
+// ---- WHY THE AGGREGATION IS `max`, NOT `sum` (a correction to the plan) ----
+//
+// Design §5 and the plan say "per axis, the SUM is enforced comptime". For SCENES that is
+// wrong, and not marginally: ONLY ONE SCENE IS LIVE AT A TIME. A game with twenty scenes
+// does not run twenty walkers — it runs the one its current section binds. Summing axis 1
+// over the shipped twenty gives ~500,000 cycles against a 128,000-cycle frame, so a SUM
+// gate would refuse a registry that demonstrably runs today, which is the exact failure the
+// toml header warns about ("a generated `ensure` would fail programs that demonstrably run").
+//
+// So the steady-state fold is `max` — the WORST scene must fit — and that is the honest
+// enforcement. The place a pairwise SUM genuinely belongs is the TRANSITION FRAME, where
+// outgoing and incoming configs are both partially live; that is Task 12, and it is BLOCKED
+// (no comptime section->scene join, no measured transition reservation — see
+// docs/DEFERRED_WORK.md). This note is the seam: when Task 12 lands, it adds the pairwise
+// term ON TOP of these max rows; it does not replace them.
+//
+// ---- WHY THE DENOMINATOR IS THE IDLE STATE ----
+//
+// Phase 0 measured that sustained max-diagonal does NOT run at 60 Hz: 31 video frames carry
+// 15 logic ticks (frames_per_logic_tick_max_diagonal = 2.067, spread 0 across five boots),
+// and the single biggest term is Tile_Cache_Fill at 40.1% of every video frame. That is an
+// ART-STREAMING cost, not an effects cost, and it is separately owned. A budget gate that
+// certifies "this scene fits a 60 Hz frame" must therefore divide by the state that ACTUALLY
+// HOLDS 60 Hz, which is idle. The max-diagonal rows stay in the toml as context, carried
+// with BOTH denominators, and are never a gate divisor.
+//
+// ---- UNITS: HUNDREDTHS OF A CYCLE ----
+//
+// The walker's fitted constants are fractional to two places (base 3021.94, and the fit's
+// max |residual| is 0.27 cycles over 14 un-anchored fixtures). `.emp` comptime is integer
+// math, so the axis-1 terms are held x100 and named `_X100`. Rounding to whole cycles
+// instead would discard a measured digit for no reason; the raster DSL already sets this
+// precedent ("Computed in TWENTIETHS so the two halvings ... are exact").
+// =====================================================================
+
+// ---- Axis 1: the walker's fitted additive model, [parallax.cost_model] ----
+// 17 fixtures, 3 boots each, spread 0 on every one; residual 0.27 cyc on the un-anchored
+// subset. Response = Parallax_Update's per-routine row, INCLUSIVE of its callees.
+pub const SB_WALK_BASE_X100          = 302194   // base_cycles          3021.94
+pub const SB_WALK_BAND_PERCELL_X100  = 74694    // band_percell_cycles   746.94
+pub const SB_WALK_LINE_MODE_X100     = 151802   // line_mode_cycles     1518.02
+pub const SB_WALK_BAND_PERLINE_X100  = 84597    // band_perline_cycles   845.97
+pub const SB_WALK_MULTIBAND_X100     = 2321     // multiband_cycles        23.21
+pub const SB_WALK_LINE_FG_X100       = 7621     // line_fg_only_cycles     76.21
+pub const SB_WALK_LINE_BG_X100       = 7627     // line_bg_only_cycles     76.27
+pub const SB_WALK_LINE_BOTH_X100     = 12617    // line_both_cycles       126.17
+pub const SB_WALK_VDEFORM_X100       = 142406   // vdeform_cycles        1424.06
+
+// THE ANCHOR IS CHARGED AT ITS MEASURED WORST REGIME AND IS NOT A FITTED TERM. The toml is
+// explicit: `anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named
+// in WALKER-MODEL.md, deliberately not fitted"`. W10/W12 measured +456.7/+455.7 (the overlay
+// when sampling is ALREADY on); W16 — the SHIPPED shape, ParallaxConfig_OJZ_Underwater —
+// measured +1204.7, because there the anchor is what TURNS sampling on. A budget takes the
+// worst measured regime and says so; fitting a column excited by one fixture would zero a
+// residual without evidence, which the measurement task refused to do and this must not undo.
+pub const SB_WALK_ANCHOR_WORST_X100  = 120470   // anchor_cycles_shipped_shape 1204.7 (W16)
+
+// THE SAMPLING TERMS ARE PER SCREEN LINE — forced by measurement, not chosen (fixtures that
+// sample only their lower band give 8536/112 and 6097/80 against 17071/224: 76.21 every
+// time). THE LINE COUNT A BUDGET MUST USE IS 224, THE WHOLE SCREEN, even for an anchored
+// scene that samples fewer. The anchor's SCREEN line is a RUNTIME value — the scene declares
+// a patch CHANNEL, and Effects_LatchWorldLines re-derives the line from Camera_Y every frame
+// — so the comptime-knowable worst case is an anchor at screen line 0. This over-charges the
+// shipped anchored scene (which samples 144 lines at the idle baseline) by design; a budget
+// that assumed the camera's convenient position would be gating a coincidence.
+pub const SB_SCREEN_LINES            = 224
+
+// The out-of-sample gap, carried as an EXPLICIT uncertainty term rather than tuned away.
+// The live config at the idle baseline predicts 19288.7 and measures 19511 — gap +222.3,
+// or +1.1%, which the toml attributes to the shipped config's own band tops and scroll-factor
+// shifts (work the fixtures held constant). Applied as +11/1000 so the multiply stays small.
+pub const SB_WALK_UNCERTAINTY_PERMIL = 11       // out_of_sample_gap_pct 1.1
+
+// ---- Axis 1 pool and reservation ----
+// Pool: the NTSC video frame. Reservation: the engine cost that is NOT the walker, so the
+// walker's own measured row is subtracted out — charging a scene the walker AND leaving the
+// baseline walker in the reservation would double-count the very thing being budgeted.
+//   idle_main_loop_cycles 35125 - idle_parallax_update_cycles 19511 = 15614  (non-walker loop)
+//   + idle_vblank_cycles 8280                                               (the VInt bracket)
+//   = 23894
+pub const SB_FRAME_CYCLES            = 128000   // NTSC video frame (ntsc_scanline_cycles 488 x 262)
+pub const SB_AXIS1_RESERVATION       = 23894    // measured, derived above
+
+// ---- Axis 2: VBlank DMA bytes ----
+// Pool 7524 B is the H40 NTSC VBlank DMA capacity. The reservation is the measured live
+// queue MINUS the per-line HScroll entries, because those belong to the SCENE and are what
+// this axis charges: dma_queue_words_idle 1528 w = 3056 B, less 2 x 896 = 1792 B, = 1264 B
+// of non-scene engine DMA (tiles, sprites, palette).
+//
+// THE PER-LINE FORCER IS 1792 B, NOT 896 — a correction to the plan and to design §5, found
+// by reading the live queue instead of copying the figure. tools/engine_baseline_probe.py
+// scans at scanline 220 and sees TWO 448-word entries (cmd 7C000082):
+// `dma_hscroll_perline_entries = 2`, `dma_hscroll_perline_bytes_each = 896`. So a per-line
+// scene spends 23.8% of the VBlank DMA pool, not 12%. Task 11 Step 2 exists precisely so
+// "12%" never reads as the whole tax, and the understatement was in the plan's own number.
+pub const SB_DMA_POOL_BYTES          = 7524
+pub const SB_AXIS2_RESERVATION       = 1264     // measured queue 3056 B less the scene's 1792
+pub const SB_PERLINE_DMA_BYTES       = 1792     // 2 entries x 896 B, read from the live queue
+
+// ---- Axis 3: VBlank CPU, and the COMBINED per-line cost §5 asks for ----
+// Pool: the ~18,200-cycle NTSC VBlank window ([raster.schedule_build]'s own denominator).
+// Reservation: idle_vblank_cycles 8280 — the VInt_Level BRACKET, which the toml names as
+// "the number a VBlank axis is a fraction of", not Raster_VBlank's narrower row.
+//
+// THE SCENE'S AXIS-3 CHARGE IS THE DRAIN OF ITS OWN AXIS-2 BYTES, and this is the half that
+// makes the per-line cost legible as one number. It is DERIVED from documented hardware
+// rates, exactly as the toml derives dma_max_single_transfer_derived_cycles: H40 VBlank VRAM
+// DMA moves 205 B/line and a scanline is 3420/7 = 488.57 cyc, so 1792 B occupies
+// 1792 / 205 * 488.57 = 4270 cycles.
+//
+// THIS IS NOT DOUBLE-COUNTING THE 8280, and the reason is the instrument. Oracle's 68000
+// core adds only `cyclesExecuted` to `_currentCycle` while bus/VDP/DMA stall accumulates in
+// `additionalTime` and lands in `_currentTime` (M68000.cpp:1029-1031; the profiler ring
+// stamps `_currentCycle`, M68000.h:95). So DMA occupancy NEVER reaches a measured cycle row
+// — 8280 is blind to it by construction — and adding the derived term supplies exactly what
+// the instrument cannot see. It is also why max_contiguous_dma_stall_cycles is recorded as
+// UNMEASURABLE-ON-THIS-INSTRUMENT rather than as a number.
+pub const SB_VBLANK_WINDOW_CYCLES    = 18200
+pub const SB_AXIS3_RESERVATION       = 8280     // idle_vblank_cycles, the VInt_Level bracket
+pub const SB_DMA_BYTES_PER_LINE      = 205      // H40 VBlank VRAM DMA rate (documented)
+pub const SB_SCANLINE_CYC_X100       = 48857    // 3420/7 = 488.57 cyc
+
+// ---- Axis 4b lives in engine/effects/raster_dsl.emp ----
+// The HInt per-frame total is a property of the authored RASTER PROGRAM, not of a scene:
+// scenes do not fire HInts. Charging it per-scene would need the section->preset->program
+// join, which is Labels end to end — the same barrier that blocks Task 12. So axis 4b is
+// enforced where the programs are built, inside `raster_program()`, over the fires it can
+// actually see. Named here so a reader of the ledger is not left wondering where it went.
+
+// =====================================================================
+// Per-scene axis costs. Each returns the charge for ONE scene; the registry folds them.
+// =====================================================================
+
+// Does this scene attach an H-deform table on EITHER plane? Plane-agnostic on purpose,
+// matching scene_caps()'s has_table: the per-line pipeline is whole-screen, there is no
+// half-per-line.
+pub comptime fn scene_has_table(s: Scene) -> int {
+    comptime var t = 0
+    if scene_deform_is_none(s.sc_deform_fg) == 0 {
+        t = 1
+    }
+    if scene_deform_is_none(s.sc_deform_bg) == 0 {
+        t = 1
+    }
+    return t
+}
+
+// Does the scene ride the per-line HScroll pipeline? Same derivation as CAP_PER_LINE in
+// scene_caps(): a non-NULL deform table selects it, and an anchor splits a band at a
+// SCANLINE, which an 8-px-quantised boundary cannot express.
+pub comptime fn scene_is_per_line(s: Scene) -> int {
+    comptime var p = 0
+    if scene_has_table(s) == 1 {
+        p = 1
+    }
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        p = 1
+    }
+    return p
+}
+
+// Live deform amplitude on plane A / plane B. TWO functions, one per plane, because the
+// RUNTIME's shift sentinel is per band AND per plane — the sampling term charged below
+// depends on how many PLANES sample, and a cross-plane "is anything live" answer cannot
+// tell line_fg_only (76.21) from line_both (126.17).
+//
+// This is deliberately a NARROWER question than scene_caps()'s live_amp, which is
+// cross-plane because it only has to answer "does this scene need the deform math at all"
+// (and must fold ParallaxConfig_Haze — an FG-only table with live `dsb` — to CAP_DEFORM).
+// Both readings are correct for their own question; see scene_caps()'s note.
+pub comptime fn scene_live_amp_a(s: Scene) -> int {
+    comptime var live = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    let ls = s.sc_layers
+    let n  = s.sc_count
+    for i in 0..n {
+        let l = ls[i]
+        if l.ly_dsa != 15 {
+            live = 1
+        }
+    }
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        if scene_anchor_dsa(s.sc_anchor) != 15 {
+            live = 1
+        }
+    }
+    return live
+}
+pub comptime fn scene_live_amp_b(s: Scene) -> int {
+    comptime var live = 0
+    let ls = s.sc_layers
+    let n  = s.sc_count
+    for i in 0..n {
+        let l = ls[i]
+        if l.ly_dsb != 15 {
+            live = 1
+        }
+    }
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        if scene_anchor_dsb(s.sc_anchor) != 15 {
+            live = 1
+        }
+    }
+    return live
+}
+
+// The per-screen-line sampling term, x100. Zero when the scene is flat-pathed (a table
+// attached but every consumer at shift 15 — the sample loop is skipped and the emitted
+// HScroll is identical to the no-deform case; OJZ_Default is exactly that scene).
+//
+// A FLAT ACCUMULATOR OVER STATEMENT IFS, never nested if-expressions: an `if` in block-tail
+// position evaluates to unit `()` SILENTLY in this language, and it has already folded a
+// capability mask to 0 once in this very file's scene_caps() (docs/EMP_PITFALLS.md §1).
+pub comptime fn scene_sample_term_x100(s: Scene) -> int {
+    comptime var term = 0
+    if scene_has_table(s) == 1 {
+        let a = scene_live_amp_a(s)
+        let b = scene_live_amp_b(s)
+        if a == 1 {
+            term = SB_WALK_LINE_FG_X100
+        }
+        if b == 1 {
+            term = SB_WALK_LINE_BG_X100
+        }
+        // BOTH planes sampling is CHEAPER THAN THE SUM — 126.17, not 152.48. The per-line
+        // loop shares index and phase work across the planes, so the second channel on a
+        // line costs 50, not 76 (measured, fixture W8). Charging fg+bg would over-book every
+        // two-plane scene by 20%.
+        if a == 1 {
+            if b == 1 {
+                term = SB_WALK_LINE_BOTH_X100
+            }
+        }
+    }
+    return term
+}
+
+// AXIS 1 — the scene's main-loop cost in hundredths of a cycle, uncertainty included.
+pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
+    let n        = s.sc_count
+    let per_line = scene_is_per_line(s)
+    comptime var c = SB_WALK_BASE_X100
+    // Per-band slope, whichever mode the scene selects. The two are different constants
+    // (746.94 per-cell vs 845.97 per-line) because the filler is a different loop.
+    if per_line == 1 {
+        c = c + SB_WALK_LINE_MODE_X100 + SB_WALK_BAND_PERLINE_X100 * (n - 1)
+    }
+    if per_line == 0 {
+        c = c + SB_WALK_BAND_PERCELL_X100 * (n - 1)
+    }
+    // ONCE, at bands >= 2, in BOTH modes — Step 4a's `.find_k` probe loop, whose body never
+    // runs at band_count 1.
+    if n >= 2 {
+        c = c + SB_WALK_MULTIBAND_X100
+    }
+    c = c + scene_sample_term_x100(s) * SB_SCREEN_LINES
+    if scene_vdeform_is_none(s.sc_v_deform) == 0 {
+        c = c + SB_WALK_VDEFORM_X100
+    }
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        c = c + SB_WALK_ANCHOR_WORST_X100
+    }
+    // The measured out-of-sample gap, added rather than absorbed.
+    return c + c * SB_WALK_UNCERTAINTY_PERMIL / 1000
+}
+
+// AXIS 2 — the scene's VBlank DMA bytes.
+pub comptime fn scene_axis2_dma_bytes(s: Scene) -> int {
+    comptime var b = 0
+    if scene_is_per_line(s) == 1 {
+        b = SB_PERLINE_DMA_BYTES
+    }
+    return b
+}
+
+// AXIS 3 — the scene's VBlank CPU: the drain occupancy of its own axis-2 bytes.
+pub comptime fn scene_axis3_vblank_cycles(s: Scene) -> int {
+    let bytes = scene_axis2_dma_bytes(s)
+    // bytes / 205 lines, each 488.57 cyc — the x100 scanline constant divided back out.
+    return bytes * SB_SCANLINE_CYC_X100 / (SB_DMA_BYTES_PER_LINE * 100)
+}
+
+// =====================================================================
+// The registry-level fold and the ENFORCEMENT. This is the single authority: design §5's
+// ownership rule puts enforcement in the comptime DSL, and the toml `[symbols]` rows pin
+// PROVENANCE (drift detection) and never enforcement.
+//
+// Returns the number of scenes it checked, so the caller can reference the result — an
+// unreferenced top-level `const X = f(...)` is comptime-INERT and proves nothing
+// (docs/EMP_PITFALLS.md §3), the same reason assert_act_relative_tagged() returns a count.
+// =====================================================================
+pub comptime fn scene_budget_enforce(scenes: array) -> int {
+    ensure(scenes.len >= 1, "scene_budget_enforce(): an empty scene registry has no budget to check — a game with no scenes should not be reaching the budget fold")
+    comptime var checked = 0
+    for s in scenes {
+        // AXIS 1 — main-loop cycles.
+        let a1 = scene_axis1_cycles_x100(s)
+        ensure(a1 / 100 + SB_AXIS1_RESERVATION <= SB_FRAME_CYCLES,
+               "scene budget AXIS 1 (main-loop cycles): this scene's walker costs {a1 / 100} cyc against a {SB_FRAME_CYCLES}-cycle NTSC frame with {SB_AXIS1_RESERVATION} cyc reserved for the non-walker engine (idle_main_loop 35125 less the walker's own idle_parallax_update 19511, plus the idle_vblank VInt bracket 8280), leaving {SB_FRAME_CYCLES - SB_AXIS1_RESERVATION}. The cost is the FITTED walker model in tools/effects_budget_model.toml [parallax.cost_model] (17 fixtures, residual 0.27 cyc) plus its measured +1.1% out-of-sample gap, with the anchor charged at its worst MEASURED regime (1204.7, W16) because it is NOT a constant. Denominator is the IDLE camera state: sustained max-diagonal does not run at 60 Hz (2.067 video frames per logic tick) and is streaming-bound, so it is context, not a divisor")
+        // AXIS 2 — VBlank DMA bytes.
+        let a2 = scene_axis2_dma_bytes(s)
+        ensure(a2 + SB_AXIS2_RESERVATION <= SB_DMA_POOL_BYTES,
+               "scene budget AXIS 2 (VBlank DMA bytes): this scene enqueues {a2} B against a {SB_DMA_POOL_BYTES} B H40 NTSC VBlank pool with {SB_AXIS2_RESERVATION} B reserved for non-scene engine DMA (measured live queue 3056 B less the scene's own per-line HScroll 1792 B), leaving {SB_DMA_POOL_BYTES - SB_AXIS2_RESERVATION}. A per-line scene costs 1792 B — TWO 448-word HScroll entries in the live queue, not the 896 B design §5 prices — i.e. 23.8% of the pool. Read it together with AXIS 3 below: the combined per-line tax is 1792 B AND {scene_axis3_vblank_cycles(s)} cyc of drain, which is why 12% was never the whole story")
+        // AXIS 3 — VBlank CPU (the drain of axis 2).
+        let a3 = scene_axis3_vblank_cycles(s)
+        ensure(a3 + SB_AXIS3_RESERVATION <= SB_VBLANK_WINDOW_CYCLES,
+               "scene budget AXIS 3 (VBlank CPU): this scene's DMA drain occupies {a3} cyc against the ~{SB_VBLANK_WINDOW_CYCLES}-cycle NTSC VBlank window with {SB_AXIS3_RESERVATION} cyc reserved (idle_vblank_cycles, the VInt_Level bracket Raster_VBlank runs inside), leaving {SB_VBLANK_WINDOW_CYCLES - SB_AXIS3_RESERVATION}. The drain is DERIVED from documented hardware rates (bytes / 205 B-per-line x 488.57 cyc-per-line), not measured, and it is NOT double-counted against the reservation: oracle's cycle clock excludes bus/DMA stall by construction (M68000.cpp:1029-1031), so no measured cycle row contains it")
+        checked = checked + 1
+    }
+    return checked
+}
+
+// The worst scene per axis — the ledger rows the registry publishes as `pub equ`. `max`,
+// not `sum`: see the banner. Each takes the registry so the answer is over every shipped
+// scene, not over whichever one a reader happened to look at.
+pub comptime fn scene_budget_max_axis1_x100(scenes: array) -> int {
+    comptime var m = 0
+    for s in scenes {
+        let c = scene_axis1_cycles_x100(s)
+        if c > m {
+            m = c
+        }
+    }
+    return m
+}
+pub comptime fn scene_budget_max_axis2(scenes: array) -> int {
+    comptime var m = 0
+    for s in scenes {
+        let c = scene_axis2_dma_bytes(s)
+        if c > m {
+            m = c
+        }
+    }
+    return m
+}
+pub comptime fn scene_budget_max_axis3(scenes: array) -> int {
+    comptime var m = 0
+    for s in scenes {
+        let c = scene_axis3_vblank_cycles(s)
+        if c > m {
+            m = c
+        }
+    }
+    return m
+}
+// How many scenes ride the per-line pipeline — the count that makes the axis-2/3 rows
+// legible (a registry where every scene is per-line has no cheap fallback to schedule into).
+pub comptime fn scene_budget_per_line_count(scenes: array) -> int {
+    comptime var n = 0
+    for s in scenes {
+        if scene_is_per_line(s) == 1 {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+// =====================================================================
 // Lowering — the authored scene becomes the records the runtime already reads.
 //
 // scene_hdr()/scene_band() must produce, FIELD FOR FIELD, what configs.emp's

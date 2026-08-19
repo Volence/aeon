@@ -537,7 +537,110 @@ raster_state_bytes   = 318           # RASTER_STATE_SIZE (Program/Cursor/Pending
                                      # (Raster_Water_Line + Raster_Water_World_Y), +8 for Effects_World_Y[RASTER_MAX_PATCH],
                                      # +4 for Raster_Patch_Tab, +10 for the ramp cells already present but never added here.
 variant_stage_bytes  = 256           # PAL_MAX_VARIANTS * 128 (part of palette_state)
-free_before_stack_kb = 31.8   # measured — build.sh reports it each build
+# CORRECTED 2026-08-19 (Scanline P2 Task 11). The row below read 31.8 and had gone stale by
+# roughly 2x IN THE UNSAFE DIRECTION — a RAM budget written against it would have passed while
+# enforcing a number nobody took, which is precisely the `EFX_BLANK_DELAY = 4` defect the P2
+# plan's own preamble cites. It was never gated (only [symbols] rows are checked), which is why
+# nothing caught it. Both shapes measured on aeon bc048e2a, read off build.sh's own report line:
+#   ./build.sh          ROM 682.0 KB | RAM 47.0 KB/64.0 KB (73.4%) | Free 16.7 KB before stack
+#   DEBUG=1 ./build.sh  ROM 696.6 KB | RAM 57.3 KB/64.0 KB (89.5%) | Free  6.5 KB before stack
+# THE DEBUG SHAPE IS THE ONE A BUDGET MUST CLEAR — it is the tighter of the two by 10.2 KB, and
+# it is the shape every gate lane and every emulator session actually runs.
+free_before_stack_kb_release = 16.7   # measured — build.sh reports it each build
+free_before_stack_kb_debug   = 6.5    # measured — THE BINDING SHAPE
+free_before_stack_kb_SUPERSEDED = 31.8  # stale, ~2x high, unsafe direction; never gated
+
+[scene_budget]
+# THE SCENE BUDGET (Scanline P2 Tasks 10/11/13, design §5). Landed 2026-08-19.
+#
+# ENFORCEMENT DOES NOT LIVE HERE. The `ensure`s in engine/level/scene_dsl.emp's
+# `scene_budget_enforce()` are the single authority (design §5's ownership rule: the comptime
+# DSL alone sees every scene, through the registry). Every row in this table is PROVENANCE —
+# it says where a number came from and lets a reader detect drift. If a row here is deciding
+# whether a build passes, it is in the wrong place.
+#
+# THE AGGREGATION IS `max`, NOT `sum` — A CORRECTION TO design §5 AND TO THE PLAN. Only one
+# scene is live at a time: a game with twenty scenes runs the one its current section binds,
+# not twenty walkers. Summing axis 1 over the shipped twenty gives ~500,000 cycles against a
+# 128,000-cycle frame, so a SUM gate would refuse a registry that demonstrably runs today.
+# The pairwise SUM genuinely belongs to the TRANSITION FRAME, which is Task 12 — BLOCKED, and
+# booked in docs/DEFERRED_WORK.md. When it lands it ADDS a pairwise term on top of these max
+# rows rather than replacing them.
+#
+# DENOMINATORS ARE THE IDLE CAMERA STATE, per the Phase-0 ruling. Sustained max-diagonal does
+# not run at 60 Hz (frames_per_logic_tick_max_diagonal 2.067) and is streaming-bound
+# (Tile_Cache_Fill 40.1%/tick, a separately-owned arc), so its rows are context carried with
+# BOTH denominators above and are never a gate divisor.
+status = "code-derived (enforced in engine/level/scene_dsl.emp; these rows are provenance)"
+aggregation = "max over scenes — one scene is live at a time; the pairwise sum is Task 12's transition frame, BLOCKED"
+
+# ---- The four ENFORCED axes, with the derivation of each budget ----
+# Axis 1 reservation: idle_main_loop_cycles 35125 less the walker's OWN idle_parallax_update
+# 19511 (charging a scene the walker while leaving the baseline walker in the reservation
+# would double-count the very thing being budgeted) = 15614, plus idle_vblank_cycles 8280.
+axis1_pool_cycles        = 128000
+axis1_reservation_cycles = 23894     # 15614 non-walker main loop + 8280 VInt bracket
+axis1_budget_cycles      = 104106
+axis1_worst_scene_cycles = 38052.27  # max over the shipped 20, from the fitted walker model
+# Axis 2: the measured live queue less the per-line HScroll entries, which are the SCENE's.
+axis2_pool_bytes         = 7524      # H40 NTSC VBlank DMA capacity
+axis2_reservation_bytes  = 1264      # dma_queue_words_idle 1528 w = 3056 B, less 2 x 896
+axis2_budget_bytes       = 6260
+axis2_worst_scene_bytes  = 1792      # a per-line scene: TWO 448-word entries, NOT 896
+# Axis 3: the DRAIN of axis 2's bytes, derived from documented hardware rates exactly as
+# dma_max_single_transfer_derived_cycles is — 1792 B / 205 B-per-line x 488.57 cyc-per-line.
+# NOT double-counted against the 8280: oracle's cycle clock excludes bus/DMA stall by
+# construction (M68000.cpp:1029-1031), so no measured cycle row contains it.
+axis3_pool_cycles        = 18200     # the NTSC VBlank window
+axis3_reservation_cycles = 8280      # idle_vblank_cycles, the VInt_Level bracket
+axis3_budget_cycles      = 9920
+axis3_worst_scene_cycles = 4270
+# THE COMBINED PER-LINE TAX, which design §5 Step 2 asks be shown as ONE number so that "12%"
+# never reads as the whole story. It is worse than the plan's figure on both halves.
+per_line_combined = "1792 B of VBlank DMA (23.8% of the 7524 B pool) AND 4270 cyc of drain (23.5% of the 18200-cyc VBlank window) — design §5 prices the DMA half at 896 B / 12%, which is half the measured value"
+# Axis 4b: enforced in engine/effects/raster_dsl.emp's `check_hint_total`, inside
+# raster_program(), because scenes do not fire HInts and the section->preset->program chain is
+# Labels end to end (the same barrier that blocks Task 12). Model cycles on BOTH sides — never
+# compared against the measured rows, which include profiler instrumentation and exception entry.
+axis4b_pool_cycles        = 128000
+axis4b_reservation_cycles = 43405    # idle_main_loop 35125 + idle_vblank 8280
+axis4b_budget_cycles      = 84595
+
+# ---- FALSIFIABILITY: WHICH GUARDS CAN ACTUALLY GO RED, MEASURED ----
+#
+# Stated plainly because this tree's most expensive lesson is the gate that reads as coverage
+# and tests nothing. Of the four enforced axes, exactly ONE has an input that can cross its
+# budget, and that is a property of the shipped model rather than a defect in the guards:
+#
+#   AXIS 1  FALSIFIABLE, unit = one band. 115 bands costs 103332.74 and passes; 116 costs
+#           104188.01 and fails by 82.01 cyc. BUT `scene()` caps count at MAX_PARALLAX_BANDS
+#           (8), where the worst possible scene costs 11818 cyc — 11% of budget, ~9x headroom.
+#           So the guard's live role is a ledger row plus a BACKSTOP on the documented
+#           `Scene{ .. }` back door, which is what games/sonic4/test/poison/poison_budget_axis1.emp
+#           probes (red-first verified: 1 diagnostic, exactly the axis-1 message).
+#   AXIS 2  NOT FALSIFIABLE. The per-scene charge is two-valued — 0 or 1792 B — and 1792 +
+#           1264 = 3056 fits 7524 always. It becomes falsifiable if a second per-line forcer
+#           class is added, or if the pool shrinks (PAL H40, or a VRAM-heavier frame).
+#   AXIS 3  NOT FALSIFIABLE, for the same reason: 0 or 4270 cyc, and 4270 + 8280 = 12550 fits
+#           18200 always. Same unlock conditions as axis 2.
+#   AXIS 4b NOT FALSIFIABLE IN PRACTICE, and the reason is that axis 4a already bounds it: the
+#           density guard requires each fire's cost to fit its gap, so a whole screen cannot
+#           exceed 224 x 488 = 109312 model cycles, and at the shipped burst ceilings (3 words,
+#           max modelled fire ~688 cyc at gap 2) a saturated program tops out near 77000
+#           against an 84595 budget. It becomes falsifiable if the burst ceilings rise or a
+#           costlier op class lands.
+#
+# THREE POISONS WERE THEREFORE BOOKED RATHER THAN FAKED. A fixture that cannot go red would be
+# the exact defect the expect-fail lane exists to prevent, and EFX-9 ("built carefully, run by
+# nothing") is the postmortem. tools/emp_expect_fail.py carries the one real case.
+falsifiable_axes = "axis 1 only (via the documented Scene{ .. } back door); axes 2/3 are two-valued and always fit; axis 4b is bounded above by the 4a density guard"
+
+# ---- AXES WITH NO SUBJECT IN P2 (the plan's 'seven axes' is not seven gates) ----
+# Both are RESERVED capabilities in engine/level/scene_dsl.emp's CAP_* block with NO lowering,
+# so there is nothing shipped to measure or to gate. Recorded so their absence is not read as
+# an oversight, and so a P3 parcel knows they are owed.
+axis5_sprite_slots = "NO SUBJECT UNTIL P3 — FG sprite strips are CAP_FG_SPRITE_STRIPS ($0080), reserved, no lowering. Phase 0 measured no row and there is no shipped scene that consumes sprite slots. Not gated, deliberately."
+axis7_computed_handler_pins = "NO SUBJECT UNTIL P3 — CAP_COMPUTED ($0400), reserved, no lowering; design §472 records the computed-range infra as deleted and deliberately not rebuilt. Not gated."
 
 # ---------------------------------------------------------------------------
 # [symbols] — the machine-readable half of the "code-derived" status key. Each entry
@@ -577,3 +680,17 @@ free_before_stack_kb = 31.8   # measured — build.sh reports it each build
 "raster.cost_model.work_cram_base_cycles"   = "engine/effects/raster_dsl.emp:RASTER_WORK_CRAM_BASE_CYC"
 "raster.cost_model.work_region_base_cycles" = "engine/effects/raster_dsl.emp:RASTER_WORK_REGION_BASE_CYC"
 "raster.cost_model.work_restore_base_cycles" = "engine/effects/raster_dsl.emp:RASTER_WORK_RESTORE_BASE_CYC"
+# The scene budget's pools and reservations (P2 Task 11). PROVENANCE ONLY — the enforcement is
+# the `ensure`s in scene_dsl.emp; these rows exist so a drift between this file and the code is
+# caught rather than discovered. The `_budget_` and `_worst_scene_` rows above are DERIVED
+# (pool - reservation, and a fold over the registry), so they have no single constant to name
+# and are deliberately absent here — the same convention as full_line_fire_lines.
+"scene_budget.axis1_pool_cycles"            = "engine/level/scene_dsl.emp:SB_FRAME_CYCLES"
+"scene_budget.axis1_reservation_cycles"     = "engine/level/scene_dsl.emp:SB_AXIS1_RESERVATION"
+"scene_budget.axis2_pool_bytes"             = "engine/level/scene_dsl.emp:SB_DMA_POOL_BYTES"
+"scene_budget.axis2_reservation_bytes"      = "engine/level/scene_dsl.emp:SB_AXIS2_RESERVATION"
+"scene_budget.axis2_worst_scene_bytes"      = "engine/level/scene_dsl.emp:SB_PERLINE_DMA_BYTES"
+"scene_budget.axis3_pool_cycles"            = "engine/level/scene_dsl.emp:SB_VBLANK_WINDOW_CYCLES"
+"scene_budget.axis3_reservation_cycles"     = "engine/level/scene_dsl.emp:SB_AXIS3_RESERVATION"
+"scene_budget.axis4b_pool_cycles"           = "engine/effects/raster_dsl.emp:RASTER_HINT_FRAME_CYC"
+"scene_budget.axis4b_reservation_cycles"    = "engine/effects/raster_dsl.emp:RASTER_HINT_RESERVATION_CYC"
