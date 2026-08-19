@@ -58,9 +58,9 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
                          gated_procs, lst_proc_sizes, lst_spans)
 
 # ---------------------------------------------------------------------------
-# THE PIN. Measured on demo.debug.lst at P2 Phase 1 (four capabilities gated:
-# CAP_ANCHORS, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_PER_LINE; CAP_TRANSITIONS blocked
-# on a sigil-side refreeze — see engine/level/parallax.emp's capability import note).
+# THE PIN. Measured on demo.debug.lst at P2 Phase 1 + the CAP_TRANSITIONS parcel — all
+# five capabilities now gated (CAP_ANCHORS, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_PER_LINE,
+# CAP_TRANSITIONS).
 #
 # The NAMES are as load-bearing as the numbers: this list is the reference the derived
 # scans cannot edit, which is the whole point (see the module docstring's poison
@@ -71,12 +71,32 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # That pad is part of what demo emits, so pinning it is correct; it also means an
 # unrelated section moving next door shifts a row by a couple of bytes, and THAT is a
 # real event worth looking at rather than smoothing over.
+#
+# RE-DERIVATION LOG — 2026-08-19, the CAP_TRANSITIONS parcel. The pin FAILED on this
+# parcel's build and it was right to: two rows moved and one proc joined the set. Each
+# was traced to its cause before the number was touched, which is the discipline the
+# failure message demands:
+#
+#   Parallax_StartTransition  108 -> 90  (-18)  the smooth-staging arm elided
+#                                               (cap_transitions_stage)
+#   Parallax_Step5_Vscroll     78 -> 62  (-16)  the vscroll lerp elided
+#                                               (cap_transitions_lerp)
+#   Parallax_Active_Config    NEW  ->  6         joins the set: it hosted no gated span
+#                                               before, and cap_transitions_select now
+#                                               collapses it to the else arm's
+#                                               `move.l Current_Config, d0 / rts`
+#                                               (sonic4 18, so -12)
+#
+# The other five rows are unchanged, which is the corroboration that matters: a parcel
+# that moved rows it had no business moving would show up here as an unexplained row,
+# not as a total that happens to differ.
 DEMO_SPECIALISED_PROCS = {
     "Enqueue_Dirty_Buffers":    514,   # CAP_PER_LINE, CAP_ANCHORS  (sonic4 570)
+    "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
     "Parallax_Fill_PerLine":      2,   # CAP_PER_LINE, CAP_DEFORM   (sonic4 372) — bare rts
-    "Parallax_StartTransition": 108,   # CAP_PER_COL_VSRAM          (sonic4 118)
+    "Parallax_StartTransition":  90,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 118)
     "Parallax_Step4_Fill":      176,   # CAP_ANCHORS, CAP_PER_LINE  (sonic4 536)
-    "Parallax_Step5_Vscroll":    78,   # CAP_PER_COL_VSRAM          (sonic4 144)
+    "Parallax_Step5_Vscroll":    62,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 144)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)
 }
