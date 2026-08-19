@@ -83,6 +83,51 @@ def span_capability(span, bits):
     return lowered[max(hits, key=len)]
 
 
+def blank_comments_and_strings(src):
+    """Replace comment and string-literal bodies with spaces, preserving offsets.
+
+    Required, not cosmetic: scene_dsl.emp DOCUMENTS the convention with a worked
+    `if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {` example in a comment, and a scan
+    that read it would demand brackets around a block that does not exist. Blanking
+    (rather than deleting) keeps every offset equal to the real file's, so the
+    containment tests below still name real positions. String bodies go the same way
+    so an `ensure` message carrying a brace cannot desync the brace counter.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n":
+                out[i] = " "
+                i += 1
+        elif c == "/" and i + 1 < n and src[i + 1] == "*":
+            while i < n and not (src[i] == "*" and i + 1 < n and src[i + 1] == "/"):
+                if src[i] != "\n":
+                    out[i] = " "
+                i += 1
+            for _ in range(2):
+                if i < n:
+                    out[i] = " "
+                    i += 1
+        elif c == '"':
+            out[i] = " "
+            i += 1
+            while i < n and src[i] != '"':
+                if src[i] == "\\" and i + 1 < n:
+                    out[i] = " "
+                    i += 1
+                if src[i] != "\n":
+                    out[i] = " "
+                i += 1
+            if i < n:
+                out[i] = " "
+                i += 1
+        else:
+            i += 1
+    return "".join(out)
+
+
 def emp_sources():
     for dirpath, dirnames, filenames in os.walk(ENGINE):
         dirnames[:] = [d for d in dirnames if d not in (".git", "generated")]
@@ -94,10 +139,9 @@ def emp_sources():
 def _block_end(src, open_brace):
     """Index just past the `}` closing the brace at `open_brace`.
 
-    Brace-counting over `.emp` is honest here because the gated regions are plain
-    instruction blocks: no string literals carrying braces occur inside them, and
-    `ensure`/`raise_error` messages (which do carry `{name}` interpolations) are
-    counted symmetrically, so they cannot desync the depth.
+    Callers pass source that `blank_comments_and_strings` has already neutralised, so
+    a `{name}` interpolation inside an `ensure` message and a `}` inside a comment
+    cannot desync the depth.
     """
     depth = 0
     i = open_brace
@@ -113,26 +157,32 @@ def _block_end(src, open_brace):
 
 
 def gated_blocks():
-    """(path, capability, block_source) for every `Game.SCANLINE_CAPS` gate."""
+    """(path, capability, start, end) for every `Game.SCANLINE_CAPS` gate.
+
+    `start`/`end` bound the `{...}` body, so containment tests below work through
+    NESTING: `cap_anchors_mode` sits inside the `CAP_PER_LINE` block, and
+    `cap_deform_sample` inside the `CAP_PER_LINE` body block.
+    """
     out = []
     for path in emp_sources():
         with open(path, encoding="utf-8") as f:
             src = f.read()
+        src = blank_comments_and_strings(src)
         for m in GATE_RE.finditer(src):
             brace = src.index("{", m.start())
-            end = _block_end(src, brace)
-            out.append((path, m.group(1), src[brace:end + 1]))
+            out.append((path, m.group(1), brace, _block_end(src, brace)))
     return out
 
 
 def brackets():
-    """(path, span, kind) for every bracketing label in the engine tree."""
+    """(path, span, kind, offset) for every bracketing label in the engine tree."""
     out = []
     for path in emp_sources():
         with open(path, encoding="utf-8") as f:
             src = f.read()
+        src = blank_comments_and_strings(src)
         for m in LABEL_RE.finditer(src):
-            out.append((path, m.group(1), m.group(2)))
+            out.append((path, m.group(1), m.group(2), m.start()))
     return out
 
 
@@ -171,7 +221,7 @@ class TestBracketConvention(unittest.TestCase):
 
     def test_every_bracket_is_paired_within_its_file(self):
         opens, closes = {}, {}
-        for path, span, kind in brackets():
+        for path, span, kind, _off in brackets():
             (opens if kind == "begin" else closes).setdefault((path, span), 0)
             (opens if kind == "begin" else closes)[(path, span)] += 1
         self.assertEqual(
@@ -186,7 +236,7 @@ class TestBracketConvention(unittest.TestCase):
 
     def test_every_span_name_resolves_to_a_declared_capability(self):
         bits = capability_bits()
-        for path, span, kind in brackets():
+        for path, span, kind, _off in brackets():
             self.assertIsNotNone(
                 span_capability(span, bits),
                 "%s: bracket `cap_%s_%s` names no declared capability — span names are "

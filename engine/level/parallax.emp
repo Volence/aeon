@@ -14,6 +14,13 @@ use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off, vblank}
 use engine.effects.preset.{Effects_InstallPreset}
+// The capability bits the P2 specialisation gates test against (§3.3). Imported by
+// NAME rather than inlined as literals: the inline-the-number rule in scene_dsl.emp
+// exists because a `comptime fn` body resolves its free names at the CALL site, and
+// none of the uses below are inside a comptime fn — they are `if` conditions in this
+// module's own instruction stream, where this module's own `use` is what resolves
+// them. Spelling the numbers here instead would give up the drift check for nothing.
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -758,6 +765,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // `anchor_ch:`, pcfg_anchor_ch is PARALLAX_ANCHOR_NONE for every config the
         // game can install, so the first test below always takes `.bands_ready`, which
         // is exactly the structural fallthrough this span elides into.
+    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
     .cap_anchors_overlay_begin:
         moveq   #0, d2
         move.b  parallax_config.pcfg_anchor_ch(a0), d2
@@ -951,6 +959,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         adda.w  d2, a5
         move.b  d0, band_top_line(a5)               // the split lands exactly on L
     .cap_anchors_overlay_end:
+    }
     .bands_ready:
 
         // --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
@@ -974,10 +983,17 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // CAP_ANCHORS span, nested: the anchor half of the SAME mode key. Anchors imply
         // per-line (an anchored boundary lands on an arbitrary scanline), so this span
         // can only ever be live inside the per-line one.
+    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
     .cap_anchors_mode_begin:
         cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch(a0)
         beq     .fill_per_cell
     .cap_anchors_mode_end:
+    } else {
+        // No anchored config exists, so the second half of the mode key can only ever
+        // answer "per-cell". The unconditional branch REPLACES the test rather than
+        // falling through, because `.fill_per_line` is the next label.
+        jbra    .fill_per_cell
+    }
     .fill_per_line:
         // advance H-deform phase accumulators so animated tables (sine, etc.)
         // actually scroll their wave over time. Without this the wave is

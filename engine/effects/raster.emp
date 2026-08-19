@@ -12,6 +12,8 @@ module engine.effects.raster in raster
 use engine.vdp.{VDP_HINT_OFF, vdp_comm, vdp_comm_addr, VdpTarget, VdpOp}
 use engine.constants.{VDP_CTRL, VDP_DATA}
 use engine.irq.{ints_off}
+// P2 §3.3 capability gate — see the CAP_* authority block in engine/level/scene_dsl.emp.
+use engine.level.scene_dsl.{CAP_ANCHORS}
 
 // ===========================================================================
 // SPARSE RASTER DISPATCHER (effects P1) — the HBlank trampoline's first consumer.
@@ -1311,6 +1313,20 @@ proc Raster_BuildSchedule () clobbers(d0-d4/a0-a2) {
 // here through `move.w`. `out(dN: u16)` claims exactly the low word — the width these values
 // actually have — and sigil's out-verifier checks it at that width on every return path.
 pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: u16) {
+        // CAP_ANCHORS span (P2 §3.3), MODULE depth. This proc exists for ONE consumer:
+        // the world-anchored parallax overlay, which reads the same anchor the palette
+        // boundary does so the two clamp identically. A game with no anchored scene
+        // elides that overlay, and with it the only engine call site — the table walk
+        // below is then answering a question nobody asks.
+        //
+        // The else arm is the SAME semantic answer the null-table path gives (d0 = 0,
+        // "no band, do not clamp"), not a degraded one: with no patch channels driving
+        // a boundary there is genuinely no band to report. It is kept rather than
+        // deleted because a proc header cannot sit under a comptime `if` in .emp
+        // (measured: `expected a declaration, found Ident("if")`), and because sonic4's
+        // ojz_scroll_test calls this from GAME code.
+    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
+    .cap_anchors_band_begin:
         move.l  Raster_Patch_Tab, d1
         beq     .none                       // liveness: the TABLE, exactly as Raster_BuildSchedule
         movea.l d1, a0
@@ -1341,6 +1357,13 @@ pub proc Raster_GetChannelBand (d0: u16) clobbers(a0) out(d0: u16, d1: u16, d2: 
         move.w  (a0), d2                    // band_hi_fl
         moveq   #1, d0
         rts
+    .cap_anchors_band_end:
+    } else {
+        moveq   #0, d0
+        moveq   #0, d1
+        moveq   #0, d2
+        rts
+    }
 }
 
 // -----------------------------------------------
