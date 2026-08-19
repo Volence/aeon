@@ -96,6 +96,77 @@ max_diagonal_vsync_wait_cycles     = 34371   # 26.9% per video frame
 max_diagonal_lags = true
 max_diagonal_lag_note = "sustained 16px/frame diagonal ticks at ~30 Hz, not 60. Measured, reproducible, spread 0. It is a streaming cost (Tile_Cache_Fill 40.1%), not an effects cost -- but every Phase-2 budget expressed per VIDEO FRAME must not assume 60 Hz at this state."
 
+[parallax.cost_model]
+# THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4,
+# 2026-08-19. tools/parallax_cost_probe.py, 17 fixtures, 3 boots each, spread 0 on every one.
+# Evidence + derivation: docs/benchmarks/scanline-p2/WALKER-MODEL.md.
+#
+# The response is `Parallax_Update`'s per-routine row, INCLUSIVE of its callees (verified:
+# it contains Parallax_Fill_PerLine and Decode_Factor_A/B). Camera FROZEN, so every video
+# frame carries exactly one complete call -- under motion the loop lags and a per-frame
+# average stops being one call (ENGINE-BASELINE.md §2).
+#
+#   cycles = base
+#          + band_percell x (bands - 1)          [per-cell mode]
+#          + line_mode + band_perline x (bands-1) [per-line mode]
+#          + multiband  (bands >= 2, once)
+#          + line_fg_only x LINES + line_bg_only x LINES + line_both x LINES
+#          + vdeform    (a V-deform table attached)
+#          + anchor     (see the WARNING below -- NOT a constant)
+#
+# THE SAMPLING TERMS ARE PER SCREEN LINE, not per channel. That unit was forced by
+# measurement, not chosen: fixtures that sample only their lower band (112 and 80 lines)
+# give marginal costs of 8536/112 and 6097/80 against 17071/224 -- 76.21 every time. A
+# per-channel constant fits the fixtures that sample everywhere and then over-charges real
+# content, which samples only below an anchored split.
+status = "measured"
+instrument = "ORACLE per-routine row for Parallax_Update, inclusive; camera frozen; interrupts.hint never read. IDEAL-CYCLE (the clock excludes bus/VDP/DMA stall)"
+fixtures = 17
+residual_cycles = 0.27               # max |residual|, UN-ANCHORED subset (14 fixtures)
+residual_cycles_all_fixtures = 195.9 # with the 3 anchored fixtures included -- see the warning
+noise_floor_cycles = 0               # 3 boots per fixture, spread 0 on all 17
+
+base_cycles          = 3021.94   # W0 — 1 band, per-cell, nothing on
+band_percell_cycles  = 746.94    # W0->W1->W2->W3
+line_mode_cycles     = 1518.02   # W0->W4: an H-deform table attached at all. Selects
+                                 # Parallax_Fill_PerLine over _PerCell AND flips reg $0B.
+band_perline_cycles  = 845.97    # W4->W5->W6
+multiband_cycles     = 23.21     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
+                                 # probe loop: at band_count 1 the loop body never runs.
+line_fg_only_cycles  = 76.21     # per screen line sampling the FG deform curve  (W7/W14/W15)
+line_bg_only_cycles  = 76.27     # per screen line sampling the BG deform curve  (W13)
+line_both_cycles     = 126.17    # per screen line sampling BOTH — NOT 152.5 (W8). The
+                                 # per-line loop shares index and phase work across the
+                                 # planes, so the second channel on a line costs 50, not 76.
+vdeform_cycles       = 1424.06   # W0->W9: a V-deform table attached (per-column VSRAM)
+
+# ANCHOR IS NOT A CONSTANT AND MUST NOT BE USED AS ONE. Measured cost of the Step-4b
+# anchored overlay, over the un-anchored model, per fixture:
+#     W10  2 bands, FG sampling on all 224 lines      +456.7
+#     W12  3 bands, FG sampling on all 224 lines      +455.7
+#     W16  4 bands, BG sampling on 144 lines BY the anchor  +1204.7
+# The first two agree to 1 cycle and the third is 749 dearer. W16 is the SHIPPED shape
+# (ParallaxConfig_OJZ_Underwater): its ROM bands all say 15 and the anchor is what switches
+# the filler's loop type at the split, where W10/W12 merely re-write shifts their bands
+# already carried. So the suspected missing parameter is a per-band cost that DIFFERS between
+# a flat band and a sampling band -- collinear with band_perline in every un-anchored fixture,
+# which is why nothing there could see it. NAMED, NOT FITTED: adding a column excited by one
+# fixture would zero the residual without evidence.
+anchor_cycles_reglue_only    = 456.2    # W10/W12 — the overlay when sampling is already on
+anchor_cycles_shipped_shape  = 1204.7   # W16 — the overlay when it TURNS sampling on
+anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named in WALKER-MODEL.md, deliberately not fitted"
+
+# OUT-OF-SAMPLE. The live config at the idle baseline is ParallaxConfig_OJZ_Underwater
+# (4 bands, anchored at screen line 80, BG sampling on the 144 lines below it).
+#   model (un-anchored terms + anchor_cycles_shipped_shape) = 19288.7
+#   measured Parallax_Update at the idle baseline           = 19511
+#   gap                                                     = +222.3  (1.1%)
+# The residual gap is the shipped config's own band tops and scroll-factor shifts, which
+# change the Decode_Factor_A/B work the fixtures hold constant. Recorded, not tuned away.
+out_of_sample_predicted = 19288.7
+out_of_sample_measured  = 19511
+out_of_sample_gap_pct   = 1.1
+
 [hblank_window]
 # The binding limit on per-fire VDP work is the cycle window between HINT-pending and
 # the next line's active display, NOT the 4-entry FIFO (survey Ruling 2a).
