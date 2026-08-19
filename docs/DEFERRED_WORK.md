@@ -4981,10 +4981,31 @@ constants and matched hardware exactly.
 
 **STILL OPEN:**
 - Everything else: the rest of Tier 3 perf (the `palette.emp` shift-to-add item and the
-  `palette.emp` tail calls CLOSED 2026-08-19 — see the Tier 3 block below), Tier 4 / B2 (`palette_dsl`'s
-  self-test-only variant mirror), plus C5 footprint, the EFX-4b angle, and the
-  zero-`assert.*` observation. Item 3's structural frame-epoch fix also remains open
-  (only MITIGATED by the `<= 223` bound).
+  `palette.emp` tail calls CLOSED 2026-08-19 — see the Tier 3 block below; Tier 4 / B2's
+  self-test-only variant mirror also CLOSED 2026-08-19, see below), plus C5 footprint, the
+  EFX-4b angle, and the zero-`assert.*` observation. Item 3's structural frame-epoch fix also
+  remains open (only MITIGATED by the `<= 223` bound).
+
+**CLOSED 2026-08-19 — Tier 4 / B2, `palette_dsl`'s self-test-only variant mirror.** The
+booking was right and the fix went the PREFERRED way rather than the retract-the-claim way:
+the mirror now checks the asm. `tools/palette_variant_gate.py` (wired into
+`tools/effects_gates.py` as gate `palette_variant`) parses the three
+`ensure(variant_word($C, variant(..)) == $W)` vectors straight out of `palette_dsl.emp`, pokes
+each vector's `pal_variant` and its colour into live RAM, lets `Palette_Compose` ->
+`Palette_DoVariants` -> `Palette_DeriveVariant` run for real, and asserts the word the asm
+wrote into `Pal_Variant_Stage`. On top of the pinned vectors it sweeps all 48 entries of CRAM
+lines 1-3 against the model and asserts `v_lines` coverage — a fact the mirror's ensures never
+modelled at all (the constructor validates the mask; nothing checked the asm obeys it). Zero
+ROM bytes: all four CRCs unchanged. Two rebuild poisons recorded in the gate's docstring, both
+of which BUILD GREEN — that is the point of the booking, restated as evidence.
+
+  **One finding worth keeping.** Under the G-shift poison the three pinned vectors caught only
+  ONE of three failures: two of them use `$000E`, whose G is 0, so they are G-blind by
+  construction. The mirror's vectors alone would have been a weak asm check even once wired
+  up; the 48-entry sweep is what makes the gate non-vacuous. If those vectors are ever
+  rewritten, keep them literal and keep the sweep — the gate reads source TEXT, and a vector
+  moved into a named constant or a computed expression leaves it with nothing to parse (it
+  exits 2 rather than passing vacuously, but it stops testing its subject either way).
 
 ### Sequencing — the deadline is Task 9 of scanline P1, not "before P1"
 

@@ -48,11 +48,16 @@ pub comptime fn variant(shift_r: int = 0, bias_r: int = 0,
                         v_lines: lines, v_pad: 0 }
 }
 
-// ---- comptime model of the runtime derive, and the build-time proof of the
-//      packing. `variant_channel` and `variant_word` are the intended semantics;
-//      the asm in Palette_DeriveVariant must match them, and the ensure() below
-//      asserts a known colour through a known variant so the shift/clamp/repack
-//      is proven at build time (plan Task 2 Step 2). ----
+// ---- comptime model of the runtime derive. `variant_channel` and `variant_word` are the
+//      intended semantics and the ensure()s below pin THIS MODEL at build time — they do not
+//      and cannot reach the asm, since sigil does not execute 68000. Palette_DeriveVariant is
+//      held to them by `tools/palette_variant_gate.py` (run from tools/effects_gates.py),
+//      which parses the vectors below straight out of this file and drives each one through
+//      the real proc on an emulator. That is the ONLY thing tying the two halves together, so
+//      these vectors are load-bearing in two directions at once: edit one and both the build
+//      and that gate move with it. Keep them literal — the gate reads the source text, so a
+//      vector rewritten as a named constant or a computed expression silently leaves it with
+//      nothing to assert (it exits 2 rather than passing vacuously). ----
 comptime fn clamp07(x: int) -> int {
     if x < 0 { return 0 }
     if x > 7 { return 7 }
