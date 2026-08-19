@@ -325,8 +325,13 @@ carried NEEDS-MEASUREMENT for awareness, not gating, this phase).
 
 **Ownership (swept — F5):** enforcement constants live in the comptime DSL (raster_dsl
 precedent) as the single authority; the toml `[symbols]` gate pins PROVENANCE (drift
-detection), never enforcement. Per axis, the SUM is enforced comptime in the lowering
-(it alone sees all scenes via the registry); the Python checker remains constants-only.
+detection), never enforcement. Per axis, the ~~SUM~~ **MAX is enforced comptime** in the
+lowering (it alone sees all scenes via the registry); the Python checker remains
+constants-only. *(AMENDED 2026-08-19, P2 Phase 2 implementation finding, controller-
+ratified: only ONE scene is live at a time, so a sum over the shipped registry (~500k
+cyc against a 128k frame) would refuse a configuration that demonstrably runs. The
+worst-PAIR sum is exactly the transition frame — §5's own evaluation-frame rule — and
+belongs to Task 12, which remains blocked on a boundary-crossing measurement state.)*
 
 **Ledger artifact (swept — producer named):** the lowering publishes per-scene ledger rows
 as **named exported comptime consts** (zero ROM bytes); a formatter tool reads them from
