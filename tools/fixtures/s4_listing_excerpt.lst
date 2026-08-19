@@ -1,0 +1,70 @@
+(0) 1/0 :        Vectors:
+(0) 2/100 :        GameHeader:
+(0) 3/18E :        Checksum:
+(0) 5/200 :        EntryPoint:
+(0) 24/3A0 :        BootData:
+(0) 26/3D6 :        Z80_Sound_Start:
+(0) 27/1BEA :        Z80_Sound_End:
+(0) 31/1C00 :        VDP_Shadow_Init:
+(0) 1610/11984 :        DeformTable_Zero:
+(0) 1897/A11C0 :        EndOfRom:
+(0) 1898/FFFF0000 :        Tile_Cache_Nametable:
+(0) 1899/FFFF2580 :        Tile_Cache_Collision:
+(0) 1900/FFFF3842 :        Block_Stage_Buffers:
+(0) 1901/FFFF6842 :        Page_Table:
+(0) 1902/FFFF6942 :        Page_Frames:
+(0) 1903/FFFF69BA :        Page_Queued_Bits:
+(0) 1904/FFFF69DA :        Art_Staging_Buffer:
+(0) 1905/FFFF71DA :        Lower_RAM_End:
+(0) 1955/FFFF8298 :        Sprite_Table_Buffer:
+(0) 1958/FFFF851A :        Hscroll_Buffer:
+(0) 2000/FFFF8B92 :        Pal_Variant_Stage:
+(0) 2025/FFFF8DC2 :        Dynamic_Slots:
+(0) 2027/FFFF9CC2 :        Effect_Slots:
+(0) 2046/FFFFA45E :        Plane_Buffer:
+(0) 2092/FFFFAC54 :        Ring_Buffer:
+(0) 2171/FFFFB836 :        Cheat_Flags:
+(0) 2172/FFFFB836 :        Engine_RAM_End:
+(0) 2173/FFFFB838 :        Character_ID:
+(0) 2179/FFFFBA00 :        Player_Pos_Ring:
+(0) 2180/FFFFBB00 :        Player_Stat_Ring:
+(0) 2181/FFFFBC00 :        Player_Ring_Index:
+(0) 2182/FFFFBC02 :        Game_RAM_End:
+  Symbol Table (* = unused):
+  --------------------------
+
+ Vectors : 0 C |
+ GameHeader : 100 C |
+ Checksum : 18E C |
+ EntryPoint : 200 C |
+ BootData : 3A0 C |
+ Z80_Sound_Start : 3D6 C |
+ Z80_Sound_End : 1BEA C |
+ VDP_Shadow_Init : 1C00 C |
+ DeformTable_Zero : 11984 C |
+ EndOfRom : A11C0 C |
+ Tile_Cache_Nametable : FFFF0000 C |
+ Tile_Cache_Collision : FFFF2580 C |
+ Block_Stage_Buffers : FFFF3842 C |
+ Page_Table : FFFF6842 C |
+ Page_Frames : FFFF6942 C |
+ Page_Queued_Bits : FFFF69BA C |
+ Art_Staging_Buffer : FFFF69DA C |
+ Lower_RAM_End : FFFF71DA C |
+ Sprite_Table_Buffer : FFFF8298 C |
+ Hscroll_Buffer : FFFF851A C |
+ Pal_Variant_Stage : FFFF8B92 C |
+ Dynamic_Slots : FFFF8DC2 C |
+ Effect_Slots : FFFF9CC2 C |
+ Plane_Buffer : FFFFA45E C |
+ Ring_Buffer : FFFFAC54 C |
+ Cheat_Flags : FFFFB836 C |
+ Engine_RAM_End : FFFFB836 C |
+ Character_ID : FFFFB838 C |
+ Player_Pos_Ring : FFFFBA00 C |
+ Player_Stat_Ring : FFFFBB00 C |
+ Player_Ring_Index : FFFFBC00 C |
+ Game_RAM_End : FFFFBC02 C |
+
+   32 symbols
+    0 unused symbols

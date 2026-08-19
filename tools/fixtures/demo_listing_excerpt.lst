@@ -1,0 +1,60 @@
+(0) 1/0 :        Vectors:
+(0) 4/100 :        GameHeader:
+(0) 5/18E :        Checksum:
+(0) 7/200 :        EntryPoint:
+(0) 26/392 :        BootData:
+(0) 28/3C8 :        Z80_Sound_End:
+(0) 29/3C8 :        Z80_Sound_Start:
+(0) 33/408 :        VDP_Shadow_Init:
+(0) 1140/10006 :        ObjDef_DemoBox:
+(0) 1164/1121C :        EndOfRom:
+(0) 1165/FFFF0000 :        Tile_Cache_Nametable:
+(0) 1166/FFFF2580 :        Tile_Cache_Collision:
+(0) 1167/FFFF3842 :        Block_Stage_Buffers:
+(0) 1168/FFFF6842 :        Page_Table:
+(0) 1169/FFFF6942 :        Page_Frames:
+(0) 1170/FFFF69BA :        Page_Queued_Bits:
+(0) 1171/FFFF69DA :        Art_Staging_Buffer:
+(0) 1172/FFFF71DA :        Lower_RAM_End:
+(0) 1222/FFFF8298 :        Sprite_Table_Buffer:
+(0) 1225/FFFF851A :        Hscroll_Buffer:
+(0) 1267/FFFF8B92 :        Pal_Variant_Stage:
+(0) 1292/FFFF8DC2 :        Dynamic_Slots:
+(0) 1294/FFFF9CC2 :        Effect_Slots:
+(0) 1313/FFFFA45E :        Plane_Buffer:
+(0) 1359/FFFFAC54 :        Ring_Buffer:
+(0) 1438/FFFFB4EC :        Engine_RAM_End:
+(0) 1439/FFFFB4EC :        Game_RAM_End:
+  Symbol Table (* = unused):
+  --------------------------
+
+ Vectors : 0 C |
+ GameHeader : 100 C |
+ Checksum : 18E C |
+ EntryPoint : 200 C |
+ BootData : 392 C |
+ Z80_Sound_End : 3C8 C |
+ Z80_Sound_Start : 3C8 C |
+ VDP_Shadow_Init : 408 C |
+ ObjDef_DemoBox : 10006 C |
+ EndOfRom : 1121C C |
+ Tile_Cache_Nametable : FFFF0000 C |
+ Tile_Cache_Collision : FFFF2580 C |
+ Block_Stage_Buffers : FFFF3842 C |
+ Page_Table : FFFF6842 C |
+ Page_Frames : FFFF6942 C |
+ Page_Queued_Bits : FFFF69BA C |
+ Art_Staging_Buffer : FFFF69DA C |
+ Lower_RAM_End : FFFF71DA C |
+ Sprite_Table_Buffer : FFFF8298 C |
+ Hscroll_Buffer : FFFF851A C |
+ Pal_Variant_Stage : FFFF8B92 C |
+ Dynamic_Slots : FFFF8DC2 C |
+ Effect_Slots : FFFF9CC2 C |
+ Plane_Buffer : FFFFA45E C |
+ Ring_Buffer : FFFFAC54 C |
+ Engine_RAM_End : FFFFB4EC C |
+ Game_RAM_End : FFFFB4EC C |
+
+   27 symbols
+    0 unused symbols
