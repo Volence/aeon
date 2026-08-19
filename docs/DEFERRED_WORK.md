@@ -5074,9 +5074,12 @@ whole pre-test is one `beq`) · ~~`raster.emp:834` dense kind re-tested per
 scanline, ~2,300 cyc/frame, run-invariant~~ **CLOSED 2026-08-19** (see "Tier-3 item 3 CLOSED"
 below — the hoist landed and is worth **4 cyc/line, not 24**; the booking priced instructions
 nominally in a body the VDP's bus holds. The parcel's durable half is the dense tier's first
-scene, gate and cost row) · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
-(`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
-change AND a novel mechanism: owner sign-off required, do not assume** · ~~`palette.emp` ×6
+scene, gate and cost row) · ~~`raster.emp:656` redundant SR push/pop ~30 cyc/fire
+(`rte` already restores SR) — needs a sigil-side context flavour, so it is a paired aeon+sigil
+change AND a novel mechanism: owner sign-off required, do not assume~~ **CLOSED 2026-08-19,
+owner-approved — see "Tier-3 item 6 CLOSED" below. The sigil flavour was genuinely required
+(the booking was NOT over-scoped), the saving measured **22 cyc/fire not 30**, and the booking
+missed where the cycles actually are: the DENSE tier, at 96 fires a frame** · ~~`palette.emp` ×6
 `lsl.w #1` → `add.w dN,dN` ~768 cyc/derive~~ **CLOSED 2026-08-19** · ~~4 missed mandatory tail calls
 (`raster.emp:560,622`; `palette.emp:386,666`)~~ — **FULLY CLOSED 2026-08-19**, palette half first,
 raster half second (see the two blocks below).
@@ -5401,6 +5404,99 @@ claiming pin parity it does not have · `RASTER_BUF_SIZE/2` as a bare `64` in fo
 calibrates the constants `band()` enforces. Also: the effects corpus uses **zero** `assert.*`
 though the engine ships that zero-byte-in-release construct at 47 sites, leaving
 `Raster_BuildSchedule`'s record walk unbounded where `bg_anim` asserts the identical shape.
+
+### Tier-3 item 6 CLOSED 2026-08-19 — the redundant SR save, and the flavour it needed
+
+**Shipped** on `perf/raster-sr-flavour` (aeon) paired with `feat/handler-sr-flavour` (sigil).
+`Raster_HInt` brackets with the new `engine.irq.ints_off_until_rte` instead of `ints_off`: the
+acquire raises to IPL 7 and there is no release, because the handler's own `rte` reloads SR from
+the exception frame the CPU pushed at entry. Two instructions gone, 4 bytes, 348 bytes where the
+proc was 352, no branch relaxed (all 20 internal labels moved by exactly -2, every inter-label
+gap identical).
+
+**THE SIGIL HALF WAS REQUIRED, AND THE BOOKING WAS RIGHT TO FLAG IT.** Confirmed from source,
+not assumed. A bare `move.w #$2700, sr` in the handler body is `User`-authored, so
+`[proc.sr-undeclared]` (`lower/proc.rs`) charges it, and no honest clause absorbs it:
+`clobbers(sr)` is false of a handler declared interrupt-transparent, and `preserves(sr)` cannot
+be verified because nothing models `rte` restoring SR — declaring it collapses the whole
+preserves clause and every movem-saved register then reports undeclared. The context bracket was
+the only sanctioned spelling, and `lower_with`'s definition-site check
+(`lower::sr_writes_round_trip`) hard-requires the `move.w sr,-(sp)` … `move.w (sp)+, sr` round
+trip. So the pair could not simply be deleted.
+
+**THE FLAVOUR VERIFIES RATHER THAN WAIVES**, which is the bar the parcel was given. A
+`released_by_rte` context splices no release and earns two proofs instead:
+`[context.rte-undischarged]` (every path out of the region must be, or fall straight onto, an
+`rte` — `rts`/`rtr`/tail-out/an instruction wedged before the return all fire; an in-body `rte`
+is the release taken early and is legal) and `[context.rte-acquire-pushes]` at the declaration
+(an rte-released acquire may not push, because `rte` reads its frame off the stack top). Both
+rules were poison-checked in the sigil suite: relaxing either arm fails exactly the tests that
+cover it and no others.
+
+**MEASURED 22 CYCLES PER FIRE, NOT THE BOOKED 30.** `move.w sr,-(sp)` is 14 nominal and
+`move.w (sp)+, sr` is 16; hardware says 22 for the pair. `tools/raster_cost_probe.py`, baseline
+ROM and item-6 ROM in one session:
+
+| fixture | before | after | fires | per fire |
+|---|---|---|---|---|
+| F0 | 632 | 588 | 2 | -22 |
+| F1 | 2684 | 2508 | 8 | -22 |
+| F3 | 3922 | 3768 | 7 | -22 |
+| F4 | 4700 | 4524 | 8 | -22 |
+| F5 | 3264 | 3132 | 6 | -22 |
+| F8 | 4688 | 4512 | 8 | -22 |
+| FD1/FD2 slope | 350.0 | 328.0 | per line | -22 |
+
+Every marginal moved by the same 22 (F1 342→320, F3 658→636, F4 678→656, F5 658→636,
+F8 676→654). Zero residual, so there is nowhere a second effect could hide. This is the **third**
+time this week the 68000 tables have mispriced an edit to this handler (dense-body hoist booked
+24, measured 4; priming guard modelled 28, measured 30). The fixture pair is the authority.
+
+**AND THE BOOKING LOOKED AT THE WRONG TIER.** "~30 cyc/fire" was priced against the sparse tier,
+where OJZ fires a handful of times a frame. A dense line **is** a fire, so a 96-line gradient run
+takes the same 22 ninety-six times: **2,112 cycles/frame**, an order of magnitude more than the
+sparse side and absent from the booking.
+
+**THE SECOND-ORDER COST, WHICH IS THE REAL WORK IN THIS PARCEL.** The prologue half moves the
+op-walk origin, so `RASTER_HBLANK_END_CYC` — the distance from that origin to the line-start
+sampling instant — moves with it. `tools/hblank_window_sweep.py`, same driver and fixture, both
+ROMs, twice each (spread 0 across repeats):
+
+```
+baseline  boundaries N = [22, 25, 27 | 70, 73, 76]   clean 15..21   CENTRE 18
+item 6    boundaries N = [24, 26, 29 | 72, 75, 78]   clean 17..23   CENTRE 20
+delta                    +2  +1  +2 | +2  +2  +2                        +2
+```
+
+All four EDGE boundaries moved +2 in both groups in both repeats, so `RASTER_HBLANK_END_CYC`
+goes 351 → 371 — the only value that makes the solver reproduce the driver's own printed centre
+of 20 (PIN 2's standing invariant; 351 gives 18, 365 gives 19). **Twenty, where the removed
+instruction costs fourteen**: the rest is the fire's earlier RETURN moving the interrupt-entry
+phase, since every fire now retires 22 cycles sooner and the next IRQ4 is taken at a different
+instruction boundary. Under-stating it would have aimed every burst early, which the asymmetric
+margins (early 20, late 10) forgive — but the sweep is the instrument of record for this number
+and it answered twice on two independent statistics.
+
+Consequences, all re-derived rather than re-fitted: every solved spin +2 (so the eight fixture
+pins move by -22 + 20 = -2, except F1 which has no spin and keeps the whole -22, 342 → 320);
+`RASTER_FIRE_BASE_CYC` 302 → 280; `RASTER_DENSE_LINE_GRAD_CYC` 350 → 328; the four shipped OJZ
+program spins (17→19, 10→12, 21→23 ×2) and both `band()` hand twins re-derived by hand from the
+solver's arithmetic; PINs 1, 3 and 4 spelled through a new `RASTER_ORIGIN_SHIFT_ITEM6 = 20` so
+each historical calibration stays pinned in the geometry it was captured in (the same device
+`op_dispatch_cyc_preitem2` is for), while PIN 2 — the one that was re-measured — moves.
+
+**A GUARD WIDENED AND WAS TIGHTENED BACK.** The reg-op density bracket used to straddle the
+overrun at the FIFTH register write (302 + 5×40 = 502 > 488); with the base at 280 five now fit
+(480) and the overrun arrives at the sixth (520). Restated as the pair of arithmetic bounds that
+straddle it, the model's register op is pinned into **35..41** cycles against a 488-cycle line,
+where the single old bound pinned it into 38..46.
+
+**NOT DONE HERE, BY INSTRUCTION:** no refreeze. The sigil suite's six golden/pin failures
+(`native_full_sonic4_debug`, `a_passing_extra_entry_moves_no_bytes`, the two `game_loop_port`
+region pins, `parallax_debug_region_matches_reference`, `raster_debug_region_matches_reference`)
+are all frozen-byte failures against the pre-parcel tree — a `bsr.w` displacement four bytes
+shorter, and `pins::RASTER.debug_len` 882 where the proc is now 878. Nothing else in either suite
+is red.
 
 ### Tier-3 item 1 CLOSED 2026-08-19 — and what it left behind
 
