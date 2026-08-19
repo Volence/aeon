@@ -92,6 +92,12 @@ OP_FETCH_CYC      = 8
 DISPATCH_RUNG_CYC = 16
 DISPATCH_HIT_CYC  = 18
 DISPATCH_RUNGS    = 5
+# The zero pre-test (Tier-3 item 2). OP_SET_REG is opcode 0 and the op fetch's own
+# `move.w (a1)+, d1` sets Z, so `.op_loop` decides it with one `beq.s` and no test
+# instruction: 10 taken (a register write's WHOLE dispatch), 8 not taken (what every
+# other op pays to walk past it, on top of its own rung depth).
+DISPATCH_ZERO_HIT_CYC  = 10
+DISPATCH_ZERO_MISS_CYC = 8
 OP_TAIL_CYC       = 10
 # One streamed word, PER OP CLASS (substrate Tier-3 item 1). `.cram_loop` writes through
 # `-4(a2)` -- a2 still holds VDP_CTRL, so VDP_DATA is a displacement off it (16 cyc);
@@ -137,9 +143,10 @@ def op_stream_words(o: dict) -> int:
 
 
 def op_dispatch_cyc(o: dict) -> int:
-    if o["k"] == "reg":                      # the chain's fall-through pays every rung
-        return DISPATCH_RUNG_CYC * DISPATCH_RUNGS
-    return DISPATCH_RUNG_CYC * _DEPTH[o["k"]] + DISPATCH_HIT_CYC
+    if o["k"] == "reg":       # decided by the flag the op fetch already set — no chain
+        return DISPATCH_ZERO_HIT_CYC
+    return (DISPATCH_ZERO_MISS_CYC
+            + DISPATCH_RUNG_CYC * _DEPTH[o["k"]] + DISPATCH_HIT_CYC)
 
 
 def op_cost_cycles(o: dict, spin: int) -> int:

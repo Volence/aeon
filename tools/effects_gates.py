@@ -28,8 +28,9 @@ WHAT IT RUNS
   5. cost model vs reality — three fixtures from `raster_cost_probe`, asserted against the
      constants `raster_dsl.emp` actually ships. This is what keeps the measured model MEASURED:
      the values in the .emp are pinned to each other at build time, but only this checks them
-     against hardware. F1 earns its place separately — it is the fall-through op, so it is the
-     only fixture that moves when the dispatch chain grows.
+     against hardware. F1 earns its place separately — it is the register write, the op whose
+     dispatch Tier-3 item 2 cut from 80 cycles to 10, so it is the fixture that says the
+     parcel reached the ROM (every other fixture moves by 8 cycles or less).
   6. scanline capability spans (P2 §8.2) — the TWO-FIXTURE differential: sonic4 (SCANLINE_CAPS
      $001F) against demo ($0000), asserting the DIFFERENCE matches the mask rather than an
      absolute span in either. Region spans include placer fill, so nothing here reads a byte
@@ -208,6 +209,15 @@ def main() -> int:
         word_deep = emp_int("engine/effects/raster_dsl.emp", "RASTER_STREAM_WORD_DEEP_CYC")
         rung = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNG_CYC")
         rungs = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_RUNGS")
+        # The zero pre-test (Tier-3 item 2). OP_SET_REG is opcode 0 and the op fetch's own
+        # `move.w (a1)+, d1` sets Z, so `.op_loop` decides it with one `beq.s` and no test
+        # instruction ahead of the chain: `zhit` is a register write's WHOLE dispatch,
+        # `zmiss` is what every other op pays to walk past it on top of its rung depth.
+        # `rungs` survives as a structural fact (the chain's length) and is deliberately no
+        # longer multiplied into anything here — that it stopped being a cost term is the
+        # parcel.
+        zhit = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_ZERO_HIT_CYC")
+        zmiss = emp_int("engine/effects/raster_dsl.emp", "RASTER_DISPATCH_ZERO_MISS_CYC")
         wreg = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_REG_CYC")
         # The blanking spin is per-op PROGRAM DATA since substrate item 1, so a work term is
         # a spinless base plus the spin the op actually carries. spin_cyc(n) = n*10 + 14: n
@@ -235,11 +245,11 @@ def main() -> int:
             return (num + 100) // 200 if num > 0 else 0
         # Each fixture's LEADING-or-not position, spelled out. `p` is the modelled cycles
         # from the record's op-walk origin to this op's burst with a spin of zero.
-        reg_op = fetch + rung * rungs + wreg + tail           # one whole OP_SET_REG
-        spin_f3 = solve_spin(fetch + hit + pre_cram, 2 * word_cram)        # leading cram 3w
-        spin_f4 = solve_spin(fetch + rung * depth_region + hit + pre_region, 2 * word_deep)
-        spin_f5 = solve_spin(reg_op + fetch + hit + pre_cram, 2 * word_cram)  # cram 3w, SECOND
-        spin_f8 = solve_spin(fetch + rung * depth_restore + hit + pre_restore, 2 * word_deep)
+        reg_op = fetch + zhit + wreg + tail                   # one whole OP_SET_REG
+        spin_f3 = solve_spin(fetch + zmiss + hit + pre_cram, 2 * word_cram)  # leading cram 3w
+        spin_f4 = solve_spin(fetch + zmiss + rung * depth_region + hit + pre_region, 2 * word_deep)
+        spin_f5 = solve_spin(reg_op + fetch + zmiss + hit + pre_cram, 2 * word_cram)  # cram 3w, SECOND
+        spin_f8 = solve_spin(fetch + zmiss + rung * depth_restore + hit + pre_restore, 2 * word_deep)
         # SAME OP, TWO WORK TERMS — this is the whole of item 1c in one line pair: F3's and
         # F5's cram ops are identical `stream_cram(34, 3 words)` and cost DIFFERENT amounts,
         # because F5's sits second and needs 11 fewer iterations to reach the same window.
@@ -255,43 +265,48 @@ def main() -> int:
         # truncating it, which is what surfaced this; the counts here must track that file.
         f0 = 2 * (base - 16)                       # a no-op record is the fire base less the
                                                    # loop entry/exit a record WITH ops pays
-        fire3 = base + fetch + hit + cram_f3 + 3 * word_cram + tail
+        fire3 = base + fetch + zmiss + hit + cram_f3 + 3 * word_cram + tail
         expect_f3 = f0 + 5 * fire3
         # F4 (stream_pal_region, 3 words) — WIRED 2026-08-18 by the raster-substrate sweep, which
         # found it was the one fixture the --only list never named, leaving RASTER_WORK_REGION_CYC
         # the only work constant with NO path to hardware. It is not a spare: it is the sole
         # fixture covering the op the shipped OJZ water band fires.
         #
-        # OP_PAL_REGION dispatches at DEPTH 1, so this pays ONE failed rung on top of the hit —
-        # raster.emp:711 orders the chain OP_CRAM first, then OP_PAL_REGION, with OP_SET_REG as
-        # the fall-through. That rung is the whole reason a naive reading looks broken: the model
+        # OP_PAL_REGION dispatches at DEPTH 1, so this pays ONE failed rung on top of the hit,
+        # plus the not-taken zero pre-test every non-zero op now pays — raster.emp's `.op_loop`
+        # tests opcode 0 on the fetch's own Z flag, then orders the chain OP_CRAM first, then
+        # OP_PAL_REGION. That rung is the whole reason a naive reading looks broken: the model
         # puts region 32 cycles over cram (122 vs 90) while hardware measures a 48-cycle gap, and
         # the missing 16 is the rung, not an error in the constant.
         #
         # First measurement (2026-08-18, s4.debug.bin ab1055d4): F4 = 3968 cyc/frame, 566/fire,
         # against this expectation exactly. So the constant was right for the whole time nothing
         # was checking it — the gap was real, the drift never happened.
-        fire_region = base + fetch + rung + hit + region + 3 * word_deep + tail
+        fire_region = base + fetch + zmiss + rung + hit + region + 3 * word_deep + tail
         expect_f4 = f0 + 6 * fire_region
-        # F1 (six one-reg_set fires) is here for a reason F0 and F3 cannot cover: both of them
-        # dispatch at DEPTH 0, so neither moves when the compare chain grows. OP_SET_REG is the
-        # chain's FALL-THROUGH and pays every rung, so F1 is the only fixture in this gate that
-        # can see a dispatch-tax regression — exactly what appending an opcode costs. Without
-        # it, a parcel that adds an op recomputes these expectations and passes blind.
-        fire_reg = base + fetch + rung * rungs + wreg + tail
+        # F1 (six one-reg_set fires) is here for a reason F0 and F3 cannot cover: it is the only
+        # fixture whose op is a REGISTER WRITE, and since Tier-3 item 2 that op's dispatch is a
+        # different mechanism from every other op's — the zero pre-test's taken branch, on the Z
+        # flag the op fetch already set, rather than a walk down the compare chain. So F1 is the
+        # only fixture here that can see the pre-test mis-modelled in the TAKEN direction; every
+        # other fixture sees only the not-taken 8. It also used to be the dispatch-tax sentinel
+        # (OP_SET_REG was the chain's fall-through, so appending an opcode made it dearer); that
+        # job is gone because appending an opcode now moves no existing op's cost at all, and the
+        # append is caught structurally by RASTER_DISPATCH_RUNGS' pin in the .emp.
+        fire_reg = base + fetch + zhit + wreg + tail
         expect_f1 = f0 + 6 * fire_reg
         # F5 (reg_set + stream_cram 3 in ONE fire, R1 [S4-8]): the base is paid once, the
         # per-op bundles sum. It carries the same fall-through SetReg as F1, so it is the
         # SECOND fixture that can see a dispatch-chain change — and the only one that sees
         # it displace a CRAM burst (the mixed-fire landing question, spec §3.3).
-        fire_mixed = base + (fetch + rung * rungs + wreg + tail) \
-                          + (fetch + hit + cram_f5 + 3 * word_cram + tail)
+        fire_mixed = base + (fetch + zhit + wreg + tail) \
+                          + (fetch + zmiss + hit + cram_f5 + 3 * word_cram + tail)
         expect_f5 = f0 + 4 * fire_mixed            # F5 authors 4 fires (buffer cap; was 5)
         # F8 (pal_restore, 3 words, R1 claim 9): the restore dispatches at depth 4 (four
         # failed rungs + hit) with its own measured work constant.
         wrest = emp_int("engine/effects/raster_dsl.emp", "RASTER_WORK_RESTORE_BASE_CYC") \
                 + spin_cyc(spin_f8)
-        fire_rest = base + fetch + (rung * 4 + hit) + wrest + 3 * word_deep + tail
+        fire_rest = base + fetch + (zmiss + rung * 4 + hit) + wrest + 3 * word_deep + tail
         expect_f8 = f0 + 6 * fire_rest
         jf = tmp / "cost.json"
         p = subprocess.run(["python3", str(AEON / "tools/raster_cost_probe.py"),

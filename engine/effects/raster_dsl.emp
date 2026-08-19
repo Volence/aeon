@@ -361,9 +361,9 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
         if op_is_reg(o) == 0 { stream_ops = stream_ops + 1 }
     }
     ensure(ops.len <= 4,
-           "fire at screen line {line}: {ops.len} ops exceeds the per-fire ceiling of 4. Every op costs a walk of Raster_HInt's compare chain before it does any work, and OP_SET_REG — the cheap-looking one — is the chain's fall-through, so it is the most expensive op to dispatch. Four is a structural ceiling, not a measured one: the richest fire anything has ever run is two ops. Split the work across consecutive fires.")
+           "fire at screen line {line}: {ops.len} ops exceeds the per-fire ceiling of 4. Every op costs a walk of Raster_HInt's compare chain before it does any work — except OP_SET_REG, which since Tier-3 item 2 is decided by the Z flag the op fetch itself sets and so dispatches for one taken branch; it used to be the chain's fall-through and the DEAREST op to dispatch, and it is now the cheapest. Four is a structural ceiling, not a measured one: the richest fire anything has ever run is two ops. Split the work across consecutive fires.")
     ensure(stream_ops <= 2,
-           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram / pal_restore) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own blanking spin, and that spin is what parks the write offscreen. WHERE THE SPIN COMES FROM, since substrate item 1c: the lowering SOLVES it per op, from the op's position in this fire and its dispatch depth, to centre the burst in the blanking window measured 2026-08-19 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md). A LEADING stream op is no longer a defect — it gets a LARGER spin than the same op sitting after a reg_set (19 vs 8 iterations for a 3-word cram), which is exactly what the retired per-class constants could not express, and raster_program refuses any op whose solved landing still misses the window. So band(sh: 0), region_boundary(sh: 0) and fx_tint_band(sh: 0) are now first-class shapes, not dot-painters. THE CEILING OF 2 STILL STANDS, and for a reason the solver does not remove: two bursts in one fire span at least 116 cycles against a 122.9-cycle window, and the two margins want 30 more, so a second stream op cannot be placed at all — check_landings will refuse it by name when the program is emitted. Split the writes across consecutive fires; this ceiling is the earlier, cheaper diagnosis of the same fact.")
+           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram / pal_restore) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own blanking spin, and that spin is what parks the write offscreen. WHERE THE SPIN COMES FROM, since substrate item 1c: the lowering SOLVES it per op, from the op's position in this fire and its dispatch depth, to centre the burst in the blanking window measured 2026-08-19 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md). A LEADING stream op is no longer a defect — it gets a LARGER spin than the same op sitting after a reg_set (18 vs 14 iterations for a 3-word cram; it was 19 vs 8 until Tier-3 item 2 cut 70 cycles off the reg_set ahead of it), which is exactly what the retired per-class constants could not express, and raster_program refuses any op whose solved landing still misses the window. So band(sh: 0), region_boundary(sh: 0) and fx_tint_band(sh: 0) are now first-class shapes, not dot-painters. THE CEILING OF 2 STILL STANDS, and for a reason the solver does not remove: two bursts in one fire span at least 116 cycles against a 122.9-cycle window, and the two margins want 30 more, so a second stream op cannot be placed at all — check_landings will refuse it by name when the program is emitted. Split the writes across consecutive fires; this ceiling is the earlier, cheaper diagnosis of the same fact.")
     ensure(stream_words <= 3,
            "fire at screen line {line}: {stream_words} stream words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line takes ceil(16/3) = 6 of them, one per scanline. That six-fire idiom is OURS, not a reference's: S3K's HInt3 swaps a whole water palette in ONE interrupt (park the counter, stop the Z80, then repeat: fresh CRAM command, 3 colours, a cycle-counted ~370-cycle dbf spin), and S3K's HInt2, Sonic 2's PalToCRAM and S.C.E.'s HInt each write 64 CRAM words in a single fire with no delay at all. Ours is dot-free by construction and pays six exception entries for it; the spacing in S3K comes from the spin, not from multiple interrupts.")
     return RasterFire.Fire(line, ops)
@@ -665,18 +665,19 @@ pub comptime fn band(top: int, bot: int, on: RasterOp, sh: int) -> array {
     // in the author's own numbers, so it speaks alone.
     //
     // AND IT CANNOT FIRE TODAY — stated rather than left to be rediscovered. band()'s
-    // merged fire is exactly two ops, `reg_sh_on` (110 cyc) plus the ON op, and the
+    // merged fire is exactly two ops, `reg_sh_on` (40 cyc) plus the ON op, and the
     // dearest ON op the constructors admit is a 3-word `stream_pal_region`, which at its
-    // SECOND-POSITION solved spin of 4 costs 268, so the merged fire tops out at
-    // 302 + 110 + 268 = 680 against the 2 x 488 = 976 that height 3 buys. (It was 676 here
-    // until item 1a's +4-per-stream-op and 680 has been the truth since; item 1c leaves it
-    // put, because the region op in a merged fire is the one shape whose spin did not
-    // move.) It is kept anyway, and NOT as belt-and-braces: `>= 3` is a LITERAL and 680
-    // is a fact about six measured constants, two of which moved this week (the dispatch
-    // chain grew a rung, and RASTER_WORK_RESTORE_CYC was measured at all). This is the
-    // cost-keyed half CLAIM D-D asks for — the thing that notices when the model moves the
-    // real minimum past the literal — which is the opposite of an unreachable guard: it is
-    // reachable exactly when the number above it goes stale.
+    // SECOND-POSITION solved spin of 10 costs 336, so the merged fire tops out at
+    // 302 + 40 + 336 = 678 against the 2 x 488 = 976 that height 3 buys. (It was 676 here
+    // until item 1a's +4-per-stream-op, then 680; item 1c left it put, and item 2 moves it
+    // to 678 — the reg op lost 70 cycles of dispatch and the region op behind it bought
+    // 60 of them back as six more spin iterations, which is the solver refusing to let a
+    // cheaper prologue push a burst out of the window.) It is kept anyway, and NOT as
+    // belt-and-braces: `>= 3` is a LITERAL and 678 is a fact about seven measured
+    // constants, several of which have moved in the last week. This is the cost-keyed half
+    // CLAIM D-D asks for — the thing that notices when the model moves the real minimum
+    // past the literal — which is the opposite of an unreachable guard: it is reachable
+    // exactly when the number above it goes stale.
     if bot - top >= min_sh_height {
         ensure(fire_cost_cycles(f_on_sh) <= (bot - top - 1) * RASTER_SCANLINE_CYC,
                "band: S/H height {bot - top} is below this ON op's minimum — the merged ON fire costs {fire_cost_cycles(f_on_sh)} cyc against the gap to bot-1 (spec §6.2)")
@@ -1053,12 +1054,21 @@ comptime fn check_landings(f: RasterFire) -> int {
 // above is wrong even where the totals still add up.
 //
 // PIN 1 — the anchor, restated as the RESULTS doc's own figure. That doc computes, from
-// the measured crossing and the H40 line geometry alone, that at the retired
-// RASTER_SPIN_CRAM = 4 a LEADING 3-word CRAM's first write "lands 235 cycles before that
-// instant". This module has to say 235 too, which it can only do if END, the fetch, the
-// dispatch hit and the cram pre-burst split are ALL right.
-ensure(RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4)) == 235,
-       "the model puts the retired RASTER_SPIN_CRAM = 4 leading-cram burst {RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4))} cycles before the sampling instant, but the sweep's own derivation says 235 (= pixel ~222 of 320, mid-active-display — the defect item 1 exists to fix). Whichever of RASTER_HBLANK_END_CYC, the op fetch, the dispatch terms or RASTER_PRE_CRAM_CYC moved, the anchor must be re-derived against docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, not patched back to 235.")
+// the measured crossing and the H40 line geometry alone, where the retired
+// RASTER_SPIN_CRAM = 4 put a LEADING 3-word CRAM's first write relative to the sampling
+// instant. This module has to say the same number, which it can only do if END, the fetch,
+// the dispatch terms and the cram pre-burst split are ALL right.
+//
+// RE-DERIVED for Tier-3 item 2: 227, where the first two sweeps said 235. NOTHING WAS
+// RE-BASELINED and RASTER_HBLANK_END_CYC did not move — it is the distance from the
+// op-walk origin to a hardware instant and no code change can shift it. What moved is the
+// CRAM path to the burst, by exactly RASTER_DISPATCH_ZERO_MISS_CYC = 8: the zero pre-test
+// sits in front of the cram rung now. So a fixed spin of 4 arrives 8 cycles later and
+// lands 8 cycles less early, 235 - 8 = 227, and equivalently the sweep's measured crossing
+// moves DOWN by 8/10 = 0.8 in N (27.5 -> 26.7). Both statements are the same fact and the
+// item-2 sweep re-run (docs/benchmarks/scanline-p3/) measures the second one directly.
+ensure(RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4)) == 227,
+       "the model puts the retired RASTER_SPIN_CRAM = 4 leading-cram burst {RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4))} cycles before the sampling instant, but the sweep's derivation carried forward through item 2 says 227 (the pre-item-2 sweeps' 235, less the 8-cycle zero pre-test the cram rung now sits behind; = pixel ~214 of 320, mid-active-display — the defect item 1 exists to fix). Whichever of RASTER_HBLANK_END_CYC, the op fetch, the dispatch terms or RASTER_PRE_CRAM_CYC moved, the anchor must be re-derived against docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md and its item-2 re-run, not patched back to a previous value.")
 // PIN 2 — the solver's answer for the swept shape IS the measured centre.
 //
 // RE-DERIVED for Tier-3 item 1, and re-measured on the changed ROM (2026-08-19, second
@@ -1073,28 +1083,65 @@ ensure(RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_RUNG_CYC *
 //     whole parcel, read off the instrument: eight cycles of blanking window handed back.
 //   * UNMOVED — the derived lower edge 15.21 = 27.5 - 122.9/10, which depends only on the
 //     first word and the H40 width.
-// So the clean band is [15.21, 22.5] = integers 16..22 and its centre is 19 — which is
-// what the driver printed unprompted ("clean N in [15.21, 22.5] = integers 16..22
-// CENTRE N = 19") and what the solver, deriving from 22.3, independently says.
-ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] == 19,
-       "the solver gives the SWEPT shape (a leading single-op 3-word stream_cram) spin {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, but the sweep measured that shape's clean window as N in [15.21, 22.5], centre 19 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, Tier-3 item 1 re-run). Do NOT re-tune the window constants to restore this — re-derive, and if the arithmetic genuinely cannot reconcile, that is a measurement to re-run, not a constant to move.")
-ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] >= 16 && fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] <= 22,
-       "the solver's spin for the swept shape is {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, outside the integers 16..22 the sweep measured CLEAN")
+// So the clean band was [15.21, 22.5] = integers 16..22 and its centre 19 — which is what
+// the driver printed unprompted at item 1 ("clean N in [15.21, 22.5] = integers 16..22
+// CENTRE N = 19") and what the solver, deriving from 22.3, independently said.
+//
+// RE-DERIVED AGAIN for Tier-3 item 2, and re-measured on the changed ROM (item-2 sweep
+// run, same driver, same fixture): 18, not 19. The whole band SLIDES DOWN BY 0.8 N and
+// keeps its width, and the reason is one term:
+//   * the swept fixture is a LEADING cram, so its path to the burst grew by exactly
+//     RASTER_DISPATCH_ZERO_MISS_CYC = 8 cycles — the not-taken zero pre-test now in front
+//     of the cram rung. To put the same write at the same instant the spin must be 8/10 =
+//     0.8 iterations SHORTER, so every boundary the instrument reports moves down by 0.8.
+//   * the band's WIDTH is untouched: it is set by the burst span (52 cycles, item 1) and
+//     the H40 blanking width, neither of which item 2 goes near.
+// Predicted band [14.41, 21.7] = integers 15..21, centre 18. The solver says 18 from the
+// arithmetic; the re-run measures the boundaries.
+ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] == 18,
+       "the solver gives the SWEPT shape (a leading single-op 3-word stream_cram) spin {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, but the sweep measured that shape's clean window as N in [14.41, 21.7], centre 18 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md at item 1, slid down 0.8 N by item 2's zero pre-test and re-measured). Do NOT re-tune the window constants to restore this — re-derive, and if the arithmetic genuinely cannot reconcile, that is a measurement to re-run, not a constant to move.")
+ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] >= 15 && fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] <= 21,
+       "the solver's spin for the swept shape is {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, outside the integers 15..21 the sweep measured CLEAN")
 // PIN 3 — the retired RASTER_SPIN_RESTORE = 13 was an oracle landing calibration ("at zero
 // delay the burst completed at x~180 of the row ABOVE the authored edge", then jumped to
 // the measured deficit and pixel-verified). This model, which never saw that capture,
 // reproduces 13 as the LATEST spin whose 3-word burst still finishes before the sampling
 // instant — i.e. the calibration walked the value up to the window's far edge and stopped
 // there, exactly as a bracket calibration would.
-ensure((RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_RESTORE + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_RESTORE_CYC) - 14 - 2 * RASTER_STREAM_WORD_DEEP_CYC) / 10 == 13,
-       "the model no longer reproduces the retired EFX_RESTORE_DELAY = 13 as the latest legal spin for a leading 3-word pal_restore. That 13 is an independent oracle calibration, so this is the check that the restore's dispatch depth and pre-burst split are right — not a tautology over this module's constants.")
+//
+// PRICED THROUGH op_dispatch_cyc_preitem2 SINCE TIER-3 ITEM 2, and this is the whole
+// reason that function exists. The calibration was run on a ROM whose restore rung had no
+// zero pre-test in front of it; on the shipped chain the same restore arrives
+// RASTER_DISPATCH_ZERO_MISS_CYC = 8 cycles later and its latest legal spin is 12, not 13.
+// Rewriting the pin's target to 12 would have been the easy edit and the wrong one — 12 is
+// this parcel's own arithmetic, so a pin holding it would be checking item 2 against
+// itself and would have stopped testing the restore's DEPTH and pre-burst split, which is
+// the only thing it was ever for. Spelled against the geometry the capture was taken in,
+// it still reproduces the independent 13.
+ensure((RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + op_dispatch_cyc_preitem2(pal_restore($22, 3)) + RASTER_PRE_RESTORE_CYC) - 14 - 2 * RASTER_STREAM_WORD_DEEP_CYC) / 10 == 13,
+       "the model no longer reproduces the retired EFX_RESTORE_DELAY = 13 as the latest legal spin for a leading 3-word pal_restore, priced in the PRE-ITEM-2 dispatch geometry the calibration was captured in. That 13 is an independent oracle calibration, so this is the check that the restore's dispatch depth and pre-burst split are right — not a tautology over this module's constants. NOTE the shipped chain's answer is one iteration lower (the zero pre-test), and that is expected: this pin deliberately does not price it.")
 // PIN 4 — and the retired RASTER_SPIN_CRAM = 4, on the shape it WAS fitted to (a 1-word
 // cram sitting after a reg_set), lands its write 2.1 cycles BEFORE blanking opens. The P2
 // gate measured that fixture "reading 1px -> 0px" — 2.1 cycles is 1.8 pixels. The retired
 // constant was not clean; it was one pixel short of clean, and the model says so to the
 // pixel without having been told.
-ensure(10 * (op_cost_cycles(reg_set($8C81), 0) + RASTER_OP_FETCH_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC + RASTER_PRE_CRAM_CYC + spin_cyc(4)) < RASTER_HBLANK_END_CYC * 10 - RASTER_HBLANK_WIDTH_X10,
-       "the model no longer puts the retired RASTER_SPIN_CRAM = 4 just OUTSIDE the early edge on the reg_set-prefixed 1-word cram shape. That 1-pixel spill is measured (docs/benchmarks/effects-p2/GATE-EVIDENCE.md, row 119, 1px -> 0px); reproducing it is what pins the early edge, which nothing else in this tree measures.")
+//
+// ALSO PRICED THROUGH op_dispatch_cyc_preitem2 SINCE TIER-3 ITEM 2, and here the reason is
+// even starker than PIN 3's: item 2 took 70 cycles off the reg_set that PREFIXES this
+// shape, so on the shipped chain the cram arrives 62 cycles earlier and the model would
+// predict a ~55-pixel spill where the gate measured 1.8. The shape as captured no longer
+// exists on hardware. What the pin is for — the EARLY edge, which nothing else in this
+// tree measures — is unchanged, so it is spelled in the geometry it was captured in.
+//
+// AND THE MARGIN IS NOW PINNED TOO, not just the side of the edge. `<` alone passes for
+// any smaller value, so it could not have caught a mis-spelled historical reconstruction
+// (which is exactly what the line below is). The measured spill is 1 pixel = 1.8 cycles
+// and the model says 2.1, so requiring the gap to sit inside one spin iteration is the
+// tightest claim the instrument supports.
+const RASTER_PIN4_LHS_X10 = 10 * ((RASTER_OP_FETCH_CYC + op_dispatch_cyc_preitem2(reg_set($8C81)) + RASTER_WORK_REG_CYC + RASTER_OP_TAIL_CYC) + RASTER_OP_FETCH_CYC + op_dispatch_cyc_preitem2(stream_cram($22, [0])) + RASTER_PRE_CRAM_CYC + spin_cyc(4))
+const RASTER_PIN4_EARLY_X10 = RASTER_HBLANK_END_CYC * 10 - RASTER_HBLANK_WIDTH_X10
+ensure(RASTER_PIN4_LHS_X10 < RASTER_PIN4_EARLY_X10 && RASTER_PIN4_EARLY_X10 - RASTER_PIN4_LHS_X10 <= 100,
+       "the model no longer puts the retired RASTER_SPIN_CRAM = 4 just OUTSIDE the early edge on the reg_set-prefixed 1-word cram shape, priced in the PRE-ITEM-2 dispatch geometry it was captured in: it says {RASTER_PIN4_LHS_X10} tenth-cycles against an early edge of {RASTER_PIN4_EARLY_X10}, a gap of {RASTER_PIN4_EARLY_X10 - RASTER_PIN4_LHS_X10} where the measurement allows at most one spin iteration (100). That 1-pixel spill is measured (docs/benchmarks/effects-p2/GATE-EVIDENCE.md, row 119, 1px -> 0px); reproducing it to the pixel is what pins the early edge, which nothing else in this tree measures.")
 
 // op_opcode — the wire opcode, for diagnostics that need to name an op without a string.
 // The literals are op_words' own, per this module's inlined-literal rule; raster.emp's
@@ -1412,6 +1459,27 @@ pub const RASTER_FIRE_BASE_CYC      = 302
 pub const RASTER_OP_FETCH_CYC       = 8      // move.w (a1)+, d1
 pub const RASTER_DISPATCH_RUNG_CYC  = 16     // a FAILED rung: cmpi.w #imm,d1 + beq.s not taken
 pub const RASTER_DISPATCH_HIT_CYC   = 18     // the MATCHING rung: cmpi.w + beq.s taken
+// ---- the zero pre-test (Tier-3 item 2) --------------------------------------
+// Raster_HInt decides OP_SET_REG BEFORE the compare chain, and there is no test
+// instruction to price: OP_SET_REG is opcode 0 and `move.w (a1)+, d1` — the op fetch
+// itself, already charged as RASTER_OP_FETCH_CYC — sets Z from the word it moved. So the
+// whole pre-test is one `beq.s`, and these two constants are its two outcomes:
+//
+//   TAKEN      10   `.op_loop`'s `beq .op_reg` when the op IS 0. This is now the ENTIRE
+//                   dispatch cost of a register write; it used to be 80 (five failed
+//                   rungs, because OP_SET_REG is the chain's fall-through).
+//   NOT TAKEN   8   what every non-zero op pays to walk past it, on top of its own rung
+//                   depth. Eight cycles is the price of the seventy the register write
+//                   stopped paying, and the shipped programs carry 2 reg_set against 3
+//                   stream ops, so it is bought back roughly nine times over.
+//
+// BOTH FIGURES ASSUME THE .s ENCODING, like RASTER_DISPATCH_RUNG_CYC above: a `beq.w`
+// not taken is 12, not 8. The branch's target is `.op_reg`, ~34 bytes forward at the
+// bottom of the chain, so it cannot reach the byte cliff by growth from below — only an
+// opcode APPENDED to the chain moves it, and that is the same edit RASTER_DISPATCH_RUNGS'
+// trap note already demands be measured.
+pub const RASTER_DISPATCH_ZERO_HIT_CYC  = 10
+pub const RASTER_DISPATCH_ZERO_MISS_CYC = 8
 pub const RASTER_OP_TAIL_CYC        = 10     // dbf d0, .op_loop, taken
 
 // ---- one streamed word, PER OP CLASS ----------------------------------------
@@ -1481,17 +1549,29 @@ const RASTER_WORK_RESTORE_BASE_CYC = 72
 
 // ---- dispatch depth ---------------------------------------------------------
 // Raster_HInt tests opcodes in ASCENDING order — OP_CRAM, OP_PAL_REGION, OP_RUN_GRADIENT,
-// OP_RUN_RAMP — with OP_SET_REG as the fall-through, so an op's depth is derivable from its
-// opcode: (opcode - OP_CRAM) / 2 rungs failed before its own. THAT is what makes the model
+// OP_RUN_RAMP, OP_PAL_RESTORE — so an op's depth is derivable from its opcode:
+// (opcode - OP_CRAM) / 2 rungs failed before its own. THAT is what makes the model
 // re-price automatically when an opcode is inserted: a new dense op between the region and
-// gradient rungs pushes every later op one rung deeper AND lengthens the fall-through, and
-// both fall out of the pin below rather than needing an edit here.
+// gradient rungs pushes every later op one rung deeper, and that falls out of the pin below
+// rather than needing an edit here.
+//
+// OP_SET_REG IS NO LONGER IN THIS ORDERING AT ALL (Tier-3 item 2). It is still the chain's
+// fall-through for an unrecognised opcode, but it is DISPATCHED by the free zero pre-test
+// above and so has no depth: RASTER_DISPATCH_ZERO_HIT_CYC is its whole dispatch. One
+// consequence is worth stating because it changes what the fixtures can see — APPENDING AN
+// OPCODE NOW MOVES NO EXISTING OP'S COST. It used to lengthen the fall-through and make
+// every register write dearer, which is what fixture F1 was standing guard over; with the
+// fall-through off the cost path, F1 is a pure control and the append is caught by the
+// RASTER_DISPATCH_RUNGS pin below rather than by a cycle count.
 //
 // LITERALS with a module-level pin, per this module's opening note — these are named inside
 // comptime fn bodies, and a body's free names resolve at the CALL SITE, so a value spelled
 // as an arithmetic expression over the IMPORTED opcodes would not resolve in an author's
 // module. The pin is what keeps the literals honest.
-pub const RASTER_DISPATCH_RUNGS     = 5      // chain length; OP_SET_REG falls through all of it
+// Chain length. STRUCTURAL, not a cost term since item 2 — nothing multiplies by it any
+// more (OP_SET_REG used to). It is kept because it is what the pin below uses to notice an
+// APPENDED opcode, and because the byte-cliff trap is stated against it.
+pub const RASTER_DISPATCH_RUNGS     = 5
 const RASTER_DEPTH_CRAM             = 0      // rungs FAILED before this op matches
 const RASTER_DEPTH_REGION           = 1
 const RASTER_DEPTH_RESTORE          = 4      // rungs FAILED before this op matches
@@ -1504,17 +1584,42 @@ const RASTER_DEPTH_RESTORE          = 4      // rungs FAILED before this op matc
 ensure(RASTER_DEPTH_CRAM == (OP_CRAM - OP_CRAM) / 2 && RASTER_DEPTH_REGION == (OP_PAL_REGION - OP_CRAM) / 2 && RASTER_DEPTH_RESTORE == (OP_PAL_RESTORE - OP_CRAM) / 2 && RASTER_DISPATCH_RUNGS == (OP_PAL_RESTORE - OP_CRAM) / 2 + 1,
        "dispatch depth pins drifted from the opcode chain — update these FOUR literals together (and re-measure F1/F5: the SetReg fall-through pays every rung)")
 
+// op_dispatch_cyc — everything between the op fetch and the op's own arm. Two shapes:
+// opcode 0 is the free zero pre-test's TAKEN branch and nothing else; every other op pays
+// that pre-test's NOT-TAKEN branch plus its own depth in the chain behind it.
 comptime fn op_dispatch_cyc(o: RasterOp) -> int {
     return match o {
-        // The fall-through pays every rung and no matching branch at all.
+        // Decided by the flag the op fetch already set — one taken beq.s, no chain at all.
+        SetReg(w)                    => RASTER_DISPATCH_ZERO_HIT_CYC,
+        Cram(a, cols)                => RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
+        PalRegion(a, slot, pl, e, n) => RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_REGION + RASTER_DISPATCH_HIT_CYC,
+        // A Vsram op EMITS OP_CRAM (see stream_vsram), so it dispatches at the cram rung.
+        Vsram(a, vals)               => RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
+        PalRestore(a, cnt)           => RASTER_DISPATCH_ZERO_MISS_CYC + RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_RESTORE + RASTER_DISPATCH_HIT_CYC,
+    }
+}
+
+// op_dispatch_cyc_preitem2 — the SAME function as it read before Tier-3 item 2 hoisted the
+// zero test. It exists for exactly one purpose: PINS 3 and 4 below reproduce numbers
+// calibrated on hardware that ran the old chain, and a pin that quietly re-derives its
+// target from the change it is supposed to be independent of has stopped being a pin. Both
+// re-spell their op costs through this, so they keep reproducing 13 and the 1-pixel spill
+// rather than reproducing item 2's own arithmetic. NOT used by the shipped model — nothing
+// else may call it.
+comptime fn op_dispatch_cyc_preitem2(o: RasterOp) -> int {
+    return match o {
         SetReg(w)                    => RASTER_DISPATCH_RUNG_CYC * RASTER_DISPATCH_RUNGS,
         Cram(a, cols)                => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
         PalRegion(a, slot, pl, e, n) => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_REGION + RASTER_DISPATCH_HIT_CYC,
-        // A Vsram op EMITS OP_CRAM (see stream_vsram), so it dispatches at the cram rung.
         Vsram(a, vals)               => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_CRAM + RASTER_DISPATCH_HIT_CYC,
         PalRestore(a, cnt)           => RASTER_DISPATCH_RUNG_CYC * RASTER_DEPTH_RESTORE + RASTER_DISPATCH_HIT_CYC,
     }
 }
+// The two differ by the item-2 delta and by nothing else, per class — which is the claim
+// the whole parcel rests on, and the thing that would break silently if a later edit
+// touched one function and not the other.
+ensure(op_dispatch_cyc(RasterOp.SetReg(0)) == op_dispatch_cyc_preitem2(RasterOp.SetReg(0)) - RASTER_DISPATCH_RUNG_CYC * RASTER_DISPATCH_RUNGS + RASTER_DISPATCH_ZERO_HIT_CYC && op_dispatch_cyc(RasterOp.Cram(0, [0])) == op_dispatch_cyc_preitem2(RasterOp.Cram(0, [0])) + RASTER_DISPATCH_ZERO_MISS_CYC && op_dispatch_cyc(RasterOp.PalRegion(0, 0, 1, 0, 1)) == op_dispatch_cyc_preitem2(RasterOp.PalRegion(0, 0, 1, 0, 1)) + RASTER_DISPATCH_ZERO_MISS_CYC && op_dispatch_cyc(RasterOp.PalRestore($20, 1)) == op_dispatch_cyc_preitem2(RasterOp.PalRestore($20, 1)) + RASTER_DISPATCH_ZERO_MISS_CYC,
+       "the shipped dispatch model and its pre-item-2 twin no longer differ by exactly the zero pre-test — a register write should have lost the whole {RASTER_DISPATCH_RUNG_CYC * RASTER_DISPATCH_RUNGS}-cycle fall-through and gained {RASTER_DISPATCH_ZERO_HIT_CYC}, and every other class should have gained {RASTER_DISPATCH_ZERO_MISS_CYC} and nothing else. PINS 3 and 4 price their ops through the twin to stay independent of this parcel, so a drift between the two silently re-bases two hardware calibrations.")
 
 // op_work_base_cyc — the SPINLESS work base. Split out so the spin never re-enters the
 // constants the way it did before, and so op_pre_burst_cyc / op_post_burst_cyc have
@@ -1672,7 +1777,7 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 //   F7       vsram 1w, leading             1  21 -> 21       -4  /    0     632 -> 628
 //   F8       pal_restore 3w, leading       0  10 -> 10        0  /    0     678 -> 678  CONTROL
 //
-// F4 AND F8 JOIN F1 AS CONTROLS, and they are the controls this parcel needs rather than
+// F4 AND F8 JOIN F1 AS CONTROLS, and they are the controls that parcel needed rather than
 // the one item 1c needed. A region and a restore burst are the ops whose word did NOT get
 // cheaper; if either moves, the change leaked out of `.cram_loop` into the two arms that
 // cannot have it (they have spent a2 on their source cursor), and the model would be
@@ -1682,22 +1787,58 @@ comptime fn fire_cost_cycles(f: RasterFire) -> int {
 // shrank by 4, the solver bought the whole 4 back as a longer wait, and it netted +2. F6 is
 // the unplaceable two-stream-op shape (check_landings refuses it), priced here only so the
 // decomposition stays honest about a shape the hardware cannot run.
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 412,
-       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, measured 412. F1 IS THE SPIN CONTROL — a register op has no delay site, so item 1c must leave it at exactly the measured value.")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 396 at RUNGS=4)
-ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 628,
-       "cost model vs fixture F2 (stream_cram, 1 word, leading): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, expected 628 = measured 462, less 4 for its ONE word now written through -4(a2), plus 10 x (21 - 4) for the solver's spin against the retired constant. Its spin does NOT move with the cheaper word: a 1-word burst has a span of zero and there is nothing to re-centre.")
-ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 660,
-       "cost model vs fixture F3 (stream_cram, 3 words, leading): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, expected 660 = measured 522, less 3 x 4 for the three words now written through -4(a2), plus 10 x (19 - 4). This is the SWEPT shape: its 19 is the measured window centre (PIN 2), which moved 18 -> 19 because the burst it centres is 52 cycles wide instead of 60")
-ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 680,
-       "cost model vs fixture F4 (stream_pal_region, 3 words, leading): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, expected 680 = measured 570 + 10 x (15 - 4). F4 IS A TIER-3 ITEM-1 CONTROL: `.region_loop` has spent a2 on its source cursor, so its words still cost the 30-cycle absolute write and this pin MUST NOT move when the cram word gets cheaper.")
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 660,
-       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, expected 660 = measured 632, less 3 x 4 for the three -4(a2) words, plus 10 x (8 - 4) — a mixed fire IS additive, so this failing means the per-op decomposition is wrong, not the mixing rule. Its spin is SMALLER than F3's for the identical op, which is the position-dependence item 1c exists to express")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 612 at RUNGS=4)
-ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 694,
-       "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, expected 694 = measured 622, less 2 x 4 for its two -4(a2) words, plus 10 x (16 - 4) + 10 x (0 - 4) — the combined-span solve puts the spin on the FIRST op and none on the second. This is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other. NOTE it is priced but not PLACEABLE: check_landings refuses this shape (116-cycle combined span plus 30 cycles of margin against a 122.9-cycle window), which is why the landing guard lives in raster_program and not in fire()")
-ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 628,
-       "cost model vs fixture F7 (stream_vsram, 1 word, leading): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, expected 628 = measured 462 - 4 + 10 x (21 - 4) — identical to F2 (a VSRAM op EMITS OP_CRAM, so it runs `.cram_loop` and gets the cheap word too), which is the measurement behind charging a VSRAM word exactly what a colour word costs (and behind giving it the identical spin)")
-ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 678,
-       "cost model vs fixture F8 (pal_restore, 3 words, leading): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, expected 678 = measured 708 + 10 x (10 - 13) — the ONE pin that moved DOWN for item 1c, because the retired 13 sat at the window's far edge and centring it gives cycles back. F8 IS ALSO A TIER-3 ITEM-1 CONTROL, for the same reason as F4: `.restore_loop`'s a2 is the Palette_Ship_Snap cursor, so its words keep the 30-cycle absolute write.")  // measured 2026-08-17, 3 boots spread 0
+//
+// RE-DERIVED AGAIN 2026-08-19 (substrate Tier-3 item 2) — the zero pre-test. AND AGAIN
+// NOTHING WAS RE-MEASURED: every pin below moves by exactly two terms, one of which is a
+// pure constant per op class,
+//
+//     delta  =  (dispatch delta, per op)  +  10 x (solved - previous)
+//     dispatch delta:  reg_set -70   ( -RUNG x RUNGS + ZERO_HIT = -80 + 10 )
+//                      everything else  +8   ( ZERO_MISS, the not-taken pre-test )
+//
+// and the spin moves wherever the op's path to its burst moved — DOWN 0.8 iterations for
+// a leading stream op (its own +8), and UP 6.2 for a stream op sitting behind a reg_set
+// (the reg_set's -70 arrives first, then its own +8).
+//
+//   fixture  shape                  disp delta  spin      cyc from disp / spin     pin
+//   F1       reg_set                       -70  -- -> --      -70 /    0     412 -> 342
+//   F2       cram 1w, leading               +8  21 -> 21       +8 /    0     628 -> 636
+//   F3       cram 3w, leading               +8  19 -> 18       +8 /  -10     660 -> 658
+//   F4       pal_region 3w, leading         +8  15 -> 14       +8 /  -10     680 -> 678
+//   F5       reg_set + cram 3w         -70, +8   8 -> 14      -62 /  +60     660 -> 658
+//   F6       cram 1w + cram 1w         +8 each  16 -> 14      +16 /  -20     694 -> 690
+//   F7       vsram 1w, leading              +8  21 -> 21       +8 /    0     628 -> 636
+//   F8       pal_restore 3w, leading        +8  10 ->  9       +8 /  -10     678 -> 676
+//
+// F1 IS THE PARCEL, AND IT IS THE ONLY PIN THAT MOVES BY MORE THAN 8 CYCLES. A fire whose
+// single op is a register write drops 412 -> 342: the op itself went 110 -> 40, which is
+// 8 fetch + 10 dispatch + 12 write + 10 tail, and dispatch is no longer the largest term
+// in it. The other seven fixtures pay the 8-cycle pre-test and hand most of it straight
+// back through a shorter solved spin, which is why six of them land within 2 cycles of
+// where they were and two (F2, F7 — 1-word bursts, span 0, nothing to re-centre) keep the
+// whole +8.
+//
+// F1 IS NO LONGER THE DISPATCH-TAX SENTINEL, and nothing replaces it because nothing needs
+// to. It held that job because OP_SET_REG was the fall-through, so appending an opcode made
+// it dearer; with the zero pre-test in front, an appended opcode moves NO existing op's
+// cost at all and the append is caught structurally, by RASTER_DISPATCH_RUNGS' pin. F1 is
+// now a pure control in both senses — no spin, and no depth.
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) == 342,
+       "cost model vs fixture F1 (one reg_set): model says {fire_cost_cycles(fire(3, [reg_set($8C81)]))}, expected 342 = measured 412 less the 70 cycles Tier-3 item 2 took off a register write's dispatch (the five-rung fall-through, 80, replaced by one taken beq.s, 10). F1 IS STILL THE SPIN CONTROL — a register op has no delay site, so its whole move must be that dispatch delta and nothing else; it is ALSO the pin that says the parcel happened at all, since it is the only fixture item 2 moves by more than 8 cycles.")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 396 at RUNGS=4); -70 by item 2
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0])])) == 636,
+       "cost model vs fixture F2 (stream_cram, 1 word, leading): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0])]))}, expected 636 = measured 462, less 4 for its ONE word now written through -4(a2), plus 10 x (21 - 4) for the solver's spin against the retired constant, plus item 2's 8-cycle not-taken zero pre-test. Its spin does NOT move — not with the cheaper word (a 1-word burst has span 0 and nothing to re-centre) and not with the pre-test either, because 0.8 of an iteration is not enough to change where 21 rounds. F2 and F7 are therefore the two fixtures that keep item 2's whole +8.")
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) == 658,
+       "cost model vs fixture F3 (stream_cram, 3 words, leading): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))}, expected 658 = measured 522, less 3 x 4 for the three words now written through -4(a2), plus 10 x (18 - 4), plus item 2's 8-cycle pre-test. This is the SWEPT shape: its 18 is the measured window centre (PIN 2), which went 18 -> 19 at item 1 (the burst it centres narrowed to 52 cycles) and 19 -> 18 at item 2 (the path to that burst grew 8 cycles, so the same landing needs 0.8 fewer iterations)")
+ensure(fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)])) == 678,
+       "cost model vs fixture F4 (stream_pal_region, 3 words, leading): model says {fire_cost_cycles(fire(3, [stream_pal_region($22, 0, 1, 1, 3)]))}, expected 678 = measured 570 + 10 x (14 - 4) + item 2's 8-cycle pre-test. F4 IS STILL THE TIER-3 ITEM-1 CONTROL — `.region_loop` has spent a2 on its source cursor, so its WORDS still cost the 30-cycle absolute write and must not move when the cram word gets cheaper. It is not an item-2 control: the pre-test is in front of every rung, so a region pays it exactly like a cram.")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])])) == 658,
+       "cost model vs fixture F5 (reg_set + stream_cram 3): model says {fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0, 0, 0])]))}, expected 658 = measured 632, less 3 x 4 for the three -4(a2) words, plus 10 x (14 - 4), less item 2's 70-cycle cut to the leading reg_set, plus its 8-cycle pre-test on the cram. F5 IS THE FIXTURE THAT PROVES ITEM 2 COMPOSES: the cram's spin jumps 8 -> 14 because the op ahead of it got 70 cycles cheaper, so the burst now arrives early and has to wait longer — and the fire still lands within 2 cycles of where it was. Its spin is now LARGER than F3's for the identical op, where item 1c had it smaller; that reversal is the position-dependence doing its job, not a regression.")  // measured 2026-08-17 at RUNGS=5, 3 boots spread 0 (was 612 at RUNGS=4)
+ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])])) == 690,
+       "cost model vs fixture F6 (two 1-word stream_cram ops in one fire): model says {fire_cost_cycles(fire(3, [stream_cram($22, [0]), stream_cram($26, [0])]))}, expected 690 = measured 622, less 2 x 4 for its two -4(a2) words, plus 10 x (14 - 4) + 10 x (0 - 4), plus 2 x 8 for the pre-test BOTH its ops pay — the combined-span solve puts the spin on the FIRST op and none on the second. This is the pin that separates the PER-FIRE constant from the PER-OP cost, so a failure here means one of the two absorbed the other; it is also the only fixture that charges the pre-test twice in one fire. NOTE it is priced but not PLACEABLE: check_landings refuses this shape (a 124-cycle combined span plus 30 cycles of margin against a 122.9-cycle window), which is why the landing guard lives in raster_program and not in fire()")
+ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 636,
+       "cost model vs fixture F7 (stream_vsram, 1 word, leading): model says {fire_cost_cycles(fire(3, [stream_vsram(2, [0])]))}, expected 636 = measured 462 - 4 + 10 x (21 - 4) + 8 — identical to F2 (a VSRAM op EMITS OP_CRAM, so it runs `.cram_loop`, gets the cheap word AND dispatches at the same rung behind the same pre-test), which is the measurement behind charging a VSRAM word exactly what a colour word costs (and behind giving it the identical spin)")
+ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 676,
+       "cost model vs fixture F8 (pal_restore, 3 words, leading): model says {fire_cost_cycles(fire(3, [pal_restore($22, 3)]))}, expected 676 = measured 708 + 10 x (9 - 13) + item 2's 8-cycle pre-test. Its spin went 13 -> 10 at item 1c (the retired 13 sat at the window's far edge and centring it gave cycles back) and 10 -> 9 at item 2 (the deepest op pays the pre-test like every other). F8 IS ALSO A TIER-3 ITEM-1 CONTROL, for the same reason as F4: `.restore_loop`'s a2 is the Palette_Ship_Snap cursor, so its words keep the 30-cycle absolute write.")  // measured 2026-08-17, 3 boots spread 0
 // F0 is the per-fire base's own anchor and cannot be spelled as a `fire` (a fire with no ops
 // is refused). Its two priming records read 572 cycles, i.e. 286 per no-op record; the +16 to
 // RASTER_FIRE_BASE_CYC is derived in that constant's note above.
@@ -1720,11 +1861,36 @@ ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) > 1 * RASTER_SCA
 // unsatisfiable and every colour boundary in the tree is now a build error.
 ensure(fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])])) <= 2 * RASTER_SCANLINE_CYC,
        "a 3-colour stream_cram fire now models at {fire_cost_cycles(fire(3, [stream_cram($22, [0, 0, 0])]))} cycles, which does NOT fit in two scanlines — check_density has become unsatisfiable for the shape the whole sparse tier is built around")
-// REFUSED — and this one is the behaviour change. A fire of four register writes carries no
-// stream word at all, so the retired model scored it ZERO and could never refuse it however
-// many registers it wrote. It costs more than a scanline.
-ensure(fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)])) > RASTER_SCANLINE_CYC,
-       "a four-reg_set fire models at {fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)]))} cycles, inside one scanline — reg ops have stopped costing anything again, which is the exact hole this model was written to close")
+// THE REG-OP OVERRUN, AND WHERE ITS THRESHOLD NOW SITS. A fire of register writes carries
+// no stream word at all, so the retired model scored it ZERO and could never refuse it
+// however many registers it wrote. This pair is what replaced that hole, and Tier-3 item 2
+// moved the threshold it brackets — honestly, and out of the constructible range:
+//
+//   * UNTIL ITEM 2 the statement here was "REFUSED — a fire of FOUR register writes costs
+//     more than a scanline" (302 + 4 x 110 = 742 against 488), and that was a `fire()` this
+//     module could build, the per-fire op ceiling being 4.
+//   * SINCE ITEM 2 a register write costs 40 cycles instead of 110, so 302 + 4 x 40 = 462
+//     FITS inside a 488-cycle line. Four no longer overruns, five would (502) — and five
+//     ops is past the per-fire ceiling, so the overrunning shape can no longer be
+//     CONSTRUCTED to be asserted about. Writing it as a `fire()` does not fail this pin; it
+//     fails the ceiling, with the ceiling's sentence, which is a different claim entirely.
+//
+// So the second half is stated as ARITHMETIC ON THE MODEL rather than as a fire: the
+// maximum legal reg-only fire fits in a line, and ONE MORE register write's worth of cost
+// would not. The pair still brackets the register op's price from both sides — it pins
+// op_cost_cycles(reg_set) into 38..46 against a 488-cycle line — which is the property the
+// old four-op pair was really buying, and it keeps buying it now that the boundary has
+// walked past what a fire can hold.
+//
+// AND THE CONSEQUENCE IS WORTH SAYING OUT LOUD, because it is a real change to what
+// check_density can do: no legal reg-only fire overruns a scanline any more. The guard is
+// not vacuous — it still refuses stream fires, and the pins below still bracket the reg
+// op — but for register writes alone it now admits everything the op ceiling permits. That
+// is the hardware's answer, not a weakening: four register writes really do fit.
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)])) <= RASTER_SCANLINE_CYC,
+       "a four-reg_set fire — the largest reg-only fire the per-fire op ceiling admits — models at {fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)]))} cycles, PAST a {RASTER_SCANLINE_CYC}-cycle scanline. It fit in one line from Tier-3 item 2 onward (a register write's dispatch fell from 80 cycles to 10), so a register op has become dearer again and check_density now refuses a shape the hardware can run")
+ensure(fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)])) + op_cost_cycles(reg_set($8C81), 0) > RASTER_SCANLINE_CYC,
+       "four register writes plus one more register write's cost models at {fire_cost_cycles(fire(3, [reg_set($8C81), reg_set($8C81), reg_set($8C81), reg_set($8C81)])) + op_cost_cycles(reg_set($8C81), 0)} cycles, still inside one {RASTER_SCANLINE_CYC}-cycle scanline — reg ops have stopped costing anything again, which is the exact hole this model was written to close. (Written as arithmetic and not as a five-op `fire` on purpose: five ops is past the per-fire ceiling, so a `fire()` here would fail the CEILING's guard and prove nothing about cost.)")
 // ADMITTED — one register write is cheap, and must stay so: fx_sh_below is a single reg_set
 // and is the cheapest dramatic effect the hardware has.
 ensure(fire_cost_cycles(fire(3, [reg_set($8C81)])) <= RASTER_SCANLINE_CYC,
@@ -2039,13 +2205,18 @@ pub comptime fn raster_program(fires: array) {
         // hand-calibrated spin that only worked as the record's first act, and the solver
         // does re-time a restore sitting second rather than mis-timing it. What survives
         // is a HEADROOM argument, and it is a real one. A restore is the DEEPEST op in the
-        // dispatch chain (four failed rungs, 82 cycles) and carries the widest legal
-        // burst, so it starts with the least slack of any op; put 110 cycles of SetReg
-        // ahead of it and the solved spin clamps to ZERO — it lands inside the window, but
-        // off-centre and with every iteration already spent, so nothing absorbs the next
-        // change to a cost term. Keeping the restore alone is what makes its placement
-        // unconditional rather than a per-band arithmetic question. This is also what
-        // deadens the same-line ensure above.
+        // dispatch chain (the zero pre-test plus four failed rungs plus the hit, 90 cycles)
+        // and carries the widest legal burst, so it starts with the least slack of any op:
+        // alone it solves to 9 iterations where a leading cram gets 18. Put a SetReg ahead
+        // of it and it keeps only 5 — it still lands, but on half the headroom, and there
+        // is no second stream op that can be placed in the same blanking window at all.
+        // RE-STATED AGAIN FOR ITEM 2, because the sharper form of this sentence expired:
+        // while a SetReg cost 110 cycles the clamp was to ZERO iterations and the argument
+        // could be made in one number. At 40 it is a halving rather than a wipe-out, and
+        // the rule stands on the halving plus the second-stream-op impossibility. Keeping
+        // the restore alone is what makes its placement unconditional rather than a
+        // per-band arithmetic question. This is also what deadens the same-line ensure
+        // above.
         for f in fires {
             comptime var has_r = 0
             comptime var n_ops = 0
@@ -2054,7 +2225,7 @@ pub comptime fn raster_program(fires: array) {
                 n_ops = n_ops + 1
             }
             ensure(has_r == 0 || n_ops == 1,
-                   "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it clamps its solved spin to zero, spending the headroom the deepest-dispatch op has least of, and a second stream op cannot be placed in the same blanking window at all (spec §4.2a, claim D-B; see check_landings). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
+                   "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it halves its solved spin, spending the headroom the deepest-dispatch op has least of, and a second stream op cannot be placed in the same blanking window at all (spec §4.2a, claim D-B; see check_landings). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
         }
 
         // ---- CLAIM 6: no band in a program that ships (spec §4.3) --------------
@@ -2428,15 +2599,17 @@ pub comptime fn first_mismatch(a: array, b: array) -> int {
 //                solver's own arithmetic, not copied from a build — both fires are
 //                single-op, so each op's `p` is just its fetch + dispatch + pre-burst arm
 //                and the spin is round((END - p - 14 - (width + span)/2) / 10):
-//                  ON  Cram, leading, 3 words: p = 8 + 0 + 18 + 36 = 62, span = 2 x 26 = 52
-//                      -> (351 - 62 - 14 - (122.9 + 52)/2) / 10 = 187.55/10 = 18.755 -> 19
-//                      (and 19 is the sweep's measured centre for exactly this shape;
+//                  ON  Cram, leading, 3 words: p = 8 + 8 + 0 + 18 + 36 = 70, span = 2 x 26 = 52
+//                      -> (351 - 70 - 14 - (122.9 + 52)/2) / 10 = 179.55/10 = 17.955 -> 18
+//                      (and 18 is the sweep's measured centre for exactly this shape;
 //                       the span is 52 and not 60 because a CRAM burst word is 26 cycles
-//                       since Tier-3 item 1 — `move.w (a1)+, -4(a2)`)
-//                  OFF PalRestore, leading, 3 words: p = 8 + 64 + 18 + 56 = 146, span = 2 x 30 = 60
+//                       since Tier-3 item 1 — `move.w (a1)+, -4(a2)` — and the leading 8
+//                       in p is item 2's not-taken zero pre-test, which is what moved this
+//                       from 19 to 18)
+//                  OFF PalRestore, leading, 3 words: p = 8 + 8 + 64 + 18 + 56 = 154, span = 2 x 30 = 60
 //                      (a RESTORE word is still 30: `.restore_loop` has spent a2 on its
 //                       source cursor, so its write stays the absolute-long form)
-//                      -> (351 - 146 - 14 - 91.45) / 10 = 9.955 -> 10
+//                      -> (351 - 154 - 14 - 91.45) / 10 = 9.155 -> 9
 //   terminator   park + RASTER_OPS_END
 //
 // Height 40 is far above the 3-word cram ON op's minimum of 2 (518 cyc <= 2 x 488), so the
@@ -2450,12 +2623,12 @@ const RASTER_BAND_TWIN_HAND = [
     $8A27, 0,                   // fire 1 — priming; arm = $8A00 | (139 - 99 - 1)
     $8AFF, 1,                   // fire 2 — the band's ON edge at screen 100, one op
       2, $C048, $0000,          // OP_CRAM, command longword split
-                 19,            // spin — solved: leading 3-word cram (the swept shape)
+                 18,            // spin — solved: leading 3-word cram (the swept shape)
                  2,             // count-1
                  $0E42, $0A20, $0640,
     $8AFF, 1,                   // fire 3 — the OFF edge at screen 140, the restore ALONE
       10, $C048, $0000,         // OP_PAL_RESTORE, same command longword (same span)
-                 10,            // spin — solved: leading 3-word restore, depth 4
+                 9,             // spin — solved: leading 3-word restore, depth 4
                  2,             // count-1
                  $48,           // Palette_Ship_Snap offset == the CRAM address
     $8AFF, $FFFF,               // park + RASTER_OPS_END
@@ -2510,14 +2683,18 @@ ensure(first_mismatch(raster_program(RASTER_BAND_TWIN), RASTER_BAND_TWIN_HAND) =
 //   SPIN         the per-op blanking spin, SOLVED FROM POSITION since item 1c. SetReg
 //                carries none — it streams nothing, so it has no burst to park, and it is
 //                also what makes this twin's ON spin DIFFER from the sh:0 twin's for the
-//                identical `stream_cram($48, 3 words)`: the reg op ahead of it costs 110
-//                cycles, so the cram arrives 110 cycles later and needs 11 fewer
+//                identical `stream_cram($48, 3 words)`: the reg op ahead of it costs 40
+//                cycles, so the cram arrives 40 cycles later and needs 4 fewer
 //                iterations. Hand-derived from the solver's arithmetic:
 //                  ON  Cram, SECOND after a SetReg, 3 words:
-//                      p = 110 + 8 + 0 + 18 + 36 = 172, span = 2 x 26 = 52
-//                      -> (351 - 172 - 14 - 87.45) / 10 = 7.755 -> 8   (sh:0 twin: 19)
+//                      p = 40 + 8 + 8 + 0 + 18 + 36 = 110, span = 2 x 26 = 52
+//                      -> (351 - 110 - 14 - 87.45) / 10 = 13.955 -> 14  (sh:0 twin: 18)
+//                      THE GAP TO THE sh:0 TWIN NARROWED 11 -> 4 AT TIER-3 ITEM 2, and
+//                      that number IS the parcel: the reg op ahead of this cram used to
+//                      cost 110 cycles and now costs 40, so it displaces the burst by 70
+//                      fewer cycles = 7 fewer iterations of catching up.
 //                  OFF PalRestore, leading (its fire carries the restore ALONE, D-B), 3 words:
-//                      p = 8 + 64 + 18 + 56 = 146 -> 9.955 -> 10, same as the sh:0 twin
+//                      p = 8 + 8 + 64 + 18 + 56 = 154 -> 9.155 -> 9, same as the sh:0 twin
 //   terminator   park + RASTER_OPS_END, hardcoded (not arm_at-derived)
 //
 // Word count: 1 (mask) + 4 (two priming records) + 2 (terminator)
@@ -2538,14 +2715,14 @@ const RASTER_BAND_TWIN_SH1_HAND = [
                                   // arm = $8A00 | (139 - 138 - 1) = $8A00 | 0 — the zero-reload arm
       0, $8C89,                  // OP_SET_REG, reg_sh_on() = $8C81 | bit 3
       2, $C048, $0000,           // OP_CRAM, command longword split
-                 8,              // spin — solved: 3-word cram sitting SECOND, after the reg
+                 14,             // spin — solved: 3-word cram sitting SECOND, after the reg
                  2,              // count-1
                  $0E42, $0A20, $0640,
     $8AFF, 1,                    // fire 3 — the de-mix fire at screen 139, reg write ALONE
       0, $8C81,                  // OP_SET_REG, reg_sh_off() = $8C81
     $8AFF, 1,                    // fire 4 — the OFF edge at screen 140, the restore ALONE
       10, $C048, $0000,          // OP_PAL_RESTORE, same command longword (same span)
-                 10,             // spin — solved: leading 3-word restore, depth 4
+                 9,              // spin — solved: leading 3-word restore, depth 4
                  2,              // count-1
                  $48,            // Palette_Ship_Snap offset == the CRAM address
     $8AFF, $FFFF,                // park + RASTER_OPS_END

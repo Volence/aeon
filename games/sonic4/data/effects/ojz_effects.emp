@@ -141,17 +141,28 @@ const OJZ_TEST_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       2, $C04A, $0000,          // OP_CRAM, command longword split
-                 10,            // spin — SOLVED, not authored (substrate item 1c): the
+                 17,            // spin — SOLVED, not authored (substrate item 1c): the
                                 //   blanking spin is per-op program data whose value the
                                 //   lowering derives from the op's POSITION. Hand-derived
                                 //   here by the solver's own arithmetic, since this pin
                                 //   would be worthless if it shared a symbol with the
                                 //   encoder: a 1-word cram sitting SECOND after a reg_set
-                                //   reaches its delay site at p = 110 (the SetReg) + 8
-                                //   (fetch) + 18 (dispatch hit at depth 0) + 36 (pre-burst
-                                //   arm) = 172 cycles, its burst spans 0 (one word), and
-                                //   round((351 - 172 - 14 - 122.9/2) / 10) = round(10.355)
-                                //   = 10. Sits between command and count-1.
+                                //   reaches its delay site at p = 40 (the SetReg) + 8
+                                //   (fetch) + 8 (the not-taken zero pre-test) + 18
+                                //   (dispatch hit at depth 0) + 36 (pre-burst arm) = 110
+                                //   cycles, its burst spans 0 (one word), and
+                                //   round((351 - 110 - 14 - 122.9/2) / 10) = round(17.555)
+                                //   = 17. Sits between command and count-1.
+                                //
+                                //   WAS 10 UNTIL TIER-3 ITEM 2, and the +7 is the whole
+                                //   parcel arriving in shipped content: the SetReg ahead
+                                //   of this cram went 110 cycles -> 40 (its dispatch is
+                                //   now one taken beq.s instead of five failed rungs), so
+                                //   the burst reaches the window 70 cycles early and the
+                                //   solver spends 62 of them waiting instead. The FIRE
+                                //   still costs 8 cycles less than it did; what changed is
+                                //   where inside the fire the time is spent, which is
+                                //   exactly what a position-aware solver is for.
                  0, $000E,      // count-1, the colour
     $8AFF, $FFFF,               // park + RASTER_OPS_END
 ]
@@ -275,15 +286,23 @@ const OJZ_WATER_HAND = [
     $8AFF, 2,                   // fire 2 — the event, two ops
       0, $8C89,                 // OP_SET_REG
       4, $C048, $0000,          // OP_PAL_REGION, command longword split
-                 4,             // spin — SOLVED (substrate item 1c), and it happens to
-                                //   land on the same 4 the retired per-class constant
-                                //   carried: a 3-word pal_region sitting SECOND reaches
-                                //   p = 110 + 8 + 34 (depth-1 dispatch) + 56 (pre-burst
-                                //   arm, the deeper lea/adda shape) = 208, spans 60, and
-                                //   round((351 - 208 - 14 - (122.9 + 60)/2) / 10) =
-                                //   round(3.755) = 4. Coincidence, not inheritance — the
-                                //   shipped OJZ water band was the shape the old constant
-                                //   was fitted to, which is why it does not move.
+                 10,            // spin — SOLVED (substrate item 1c). A 3-word pal_region
+                                //   sitting SECOND reaches p = 40 (the SetReg) + 8
+                                //   (fetch) + 42 (the not-taken zero pre-test 8, plus the
+                                //   depth-1 dispatch 34) + 56 (pre-burst arm, the deeper
+                                //   lea/adda shape) = 146, spans 60, and
+                                //   round((351 - 146 - 14 - (122.9 + 60)/2) / 10) =
+                                //   round(9.955) = 10.
+                                //
+                                //   WAS 4 UNTIL TIER-3 ITEM 2 — where it had coincided
+                                //   with the retired per-class constant, this being the
+                                //   shape that constant was fitted to. The coincidence is
+                                //   over: the SetReg ahead of it dropped 110 -> 40, the
+                                //   region arrives 70 cycles early, and the solver waits
+                                //   6 more iterations. The retired constant could not have
+                                //   followed it; that is the defect item 1c removed,
+                                //   demonstrated on the one program in the tree that used
+                                //   to hide it.
                  2,             // count-1
                  72,            // Pal_Variant_Stage offset
     $8AFF, $FFFF,               // park + RASTER_OPS_END
@@ -459,12 +478,19 @@ const OJZ_VSRAM_HAND = [
                  21,                    //   spin — SOLVED (substrate item 1c). A VSRAM op
                                         //   emits OP_CRAM and dispatches at the cram rung,
                                         //   so it solves exactly like one: LEADING, 1 word,
-                                        //   p = 8 + 18 + 36 = 62, span 0,
-                                        //   round((351 - 62 - 14 - 61.45) / 10) = 21.
-                                        //   Compare the OJZ_TestRaster pin's 10 for the
-                                        //   same one-word burst sitting after a reg_set —
-                                        //   11 iterations of difference, which is the
-                                        //   110-cycle SetReg the solver now accounts for
+                                        //   p = 8 + 8 (the not-taken zero pre-test) + 18
+                                        //   + 36 = 70, span 0,
+                                        //   round((351 - 70 - 14 - 61.45) / 10) = 21.
+                                        //   UNMOVED BY TIER-3 ITEM 2, and it is the only
+                                        //   shipped spin that is: item 2 puts this op 8
+                                        //   cycles further from the origin, which is 0.8
+                                        //   of an iteration and not enough to change where
+                                        //   21.055 rounds (it was 21.855 before). Compare
+                                        //   the OJZ_TestRaster pin's 17 for the same
+                                        //   one-word burst sitting after a reg_set — 4
+                                        //   iterations of difference, which is the 40-cycle
+                                        //   SetReg the solver accounts for (it was 11
+                                        //   iterations while a SetReg cost 110)
                  0, OJZ_VSRAM_OFFSET,   //   count-1 = 0, one scroll word
     $8AFF, $FFFF,                       // terminator
 ]
@@ -673,10 +699,13 @@ pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Rast
 // 526 was an `interrupts.hint` differential that tools/effects_budget_model.toml itself files
 // as `sparse_fire_cram3_cycles_SUPERSEDED` — and it was never this fire's cost anyway, being a
 // bare 3-word stream_cram. The live model derives this fire (reg_sh_on + 3-word region) as
-// base 302 + SetReg 110 + PalRegion 264 = 676, stated in that arithmetic at raster_dsl.emp's
-// `merged fire tops out at` note. The line is RASTER_SCANLINE_CYC = 488, floored from
-// 128000/262 = 488.5, not 489. The conclusion ("spills about one line") survives — 676 - 488 =
-// 188 cycles into the following line — but the headroom this note implied did not exist.
+// base 302 + SetReg 40 + PalRegion 336 = 678, stated in that arithmetic at raster_dsl.emp's
+// `merged fire tops out at` note. (It read 302 + 110 + 264 = 676 until Tier-3 item 2: the
+// SetReg's dispatch fell from 80 cycles to 10, and the region behind it spent 60 of those
+// 70 waiting longer so its burst still lands in the window.) The line is
+// RASTER_SCANLINE_CYC = 488, floored from 128000/262 = 488.5, not 489. The conclusion
+// ("spills about one line") survives — 678 - 488 = 190 cycles into the following line — but
+// the headroom this note implied did not exist.
 //
 // LO WAS 40 UNTIL Parcel W SHIPPED AND SOMEBODY LOOKED AT IT. The band is where
 // Raster_BuildSchedule clamps the boundary, so a lo of 40 meant that once the camera descended
@@ -713,16 +742,22 @@ const OJZ_TC_HAND = [
     $8AFF, 2,                   // fire 2 — channel 0, two ops
       0, $8C89,                 //   OP_SET_REG — S/H on
       4, $C048, $0000,          //   OP_PAL_REGION, command longword split
-                 4,             //   spin — SOLVED: 3-word region SECOND after a reg_set,
-                                //     p = 208, span 60 -> round(3.755) = 4 (item 1c)
+                 10,            //   spin — SOLVED: 3-word region SECOND after a reg_set,
+                                //     p = 146, span 60 -> round(9.955) = 10 (item 1c;
+                                //     was 4 at p = 208, until item 2 cut 70 cycles off the
+                                //     SetReg ahead of it and added 8 to its own dispatch)
                  2,             //   count-1
                  72,            //   Pal_Variant_Stage offset
     $8AFF, 1,                   // fire 3 — channel 1, one op
       2, $4002, $0010,          //   OP_CRAM opcode with a VSRAM WRITE command longword
-                 21,            //   spin — SOLVED: LEADING 1-word vsram, p = 62, span 0
-                                //     -> round(21.355) = 21 (item 1c). The two records in
-                                //     this ONE program now carry different spins for the
-                                //     first time, which is the whole point of the solver
+                 21,            //   spin — SOLVED: LEADING 1-word vsram, p = 70, span 0
+                                //     -> round(21.055) = 21 (item 1c; unmoved by item 2 —
+                                //     its p grew 8, which is 0.8 of an iteration and does
+                                //     not reach the next integer). The two records in
+                                //     this ONE program carry different spins, which is the
+                                //     whole point of the solver — and since item 2 they
+                                //     differ by MORE, the leading op having stood still
+                                //     while the one behind a reg_set moved 6
                  0,             //   count-1
                  $0043,         //   the scroll value
     $8AFF, $FFFF,               // park + RASTER_OPS_END
