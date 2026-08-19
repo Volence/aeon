@@ -1001,6 +1001,21 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // And it is sufficient, because a stale fire ALWAYS lands on priming record 0 — that is
         // where the rewind put the cursor, and the rewind is the thing being interlocked.
         //
+        // IT ALSO CANNOT RETIRE REAL WORK, and that is a property of the AUTHORING surface
+        // rather than a hope: `raster_dsl.fire` refuses a fire with no ops, so the only zero-op
+        // records any program can contain are the two priming records — and the priming pair
+        // fires on lines 0 and 1 by construction, because Raster_VBlank leaves reg $0A = 0.
+        // A record with ops cannot reach this arm, and no in-frame record without ops can exist
+        // above line 1. The one remaining way to author a fire into V >= RASTER_VBLANK_V is a
+        // dense run ending at 223, which both constructors refuse — the `ensure` beside
+        // RASTER_MAX_FIRE_LINE is what ties that bound to this threshold.
+        //
+        // THE INSERTION DID NOT MOVE THE DISPATCH CHAIN'S PRICES, and that was measured rather
+        // than assumed: this arm sits below `.advance`, so every rung's target shifted 20 bytes
+        // and the deepest one (`.op_pal_restore`, whose header warns that a mid-chain insertion
+        // risks a silent word-relaxation) could have gained cycles. F8's marginal per-fire cost
+        // came out identical either side — 676.0 — as did F3, F4 and F5. No rung relaxed.
+        //
         // $C00008 IS THE HV COUNTER, reachable as a displacement off the VDP_CTRL a2 already
         // holds (the same trick `.cram_loop`'s `-4(a2)` uses for VDP_DATA). Its high byte is the
         // V counter, so `>= $E000` is "V >= 224", i.e. outside active display — true for the
