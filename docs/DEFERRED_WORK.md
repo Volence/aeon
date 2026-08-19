@@ -5067,9 +5067,10 @@ constants and matched hardware exactly.
   dense-kind retest all CLOSED 2026-08-19 — see the Tier 3 block below; the raster.emp
   tail calls CLOSED 2026-08-19 too, so item #5 is fully closed, and only the SR push/pop
   remains of that list, needing owner sign-off, and the dense tier
-  gained two NEW riders on the way out (the `-4(a2)` extension into `.dense_body`, now
-  UNBLOCKED by that parcel's fixtures, and the two trailing fires at ~600 cyc/frame — the
-  larger of the two, and not value-identical); Tier 4 / B2's
+  gained two NEW riders on the way out — the `-4(a2)` extension into `.dense_body`, which
+  is now **CLOSED 2026-08-19** (branch `perf/dense-body-addressing`, measured 12 cyc/line;
+  see the closure block below), and the two trailing fires at ~600 cyc/frame, still OPEN
+  and the larger of the two, and not value-identical; Tier 4 / B2's
   self-test-only variant mirror also CLOSED 2026-08-19, see below), plus C5 footprint, the
   EFX-4b angle, and the zero-`assert.*` observation. Item 3's structural fix CLOSED 2026-08-19
   — not as the booked frame-epoch flag, which the measurement ruled out; see the block below.
@@ -5358,6 +5359,11 @@ raster half second (see the two blocks below).
 > cyc/line**: those three writes sit in the same VDP-held window that ate this parcel's 8
 > cycles, so the fixture pair must rule, not the instruction table. Same rider, same caveat,
 > for `.dense_body`'s cursor reload.
+>
+> **CLOSED 2026-08-19 — and the caveat above was WRONG, which is the finding.** Branch
+> `perf/dense-body-addressing`. It is worth exactly 4×3 = 12 cyc/line, and the cursor-reload
+> half of the rider is untouched (a2 is the VDP port, not the cursor; there is no `-4(a2)`
+> spelling for a RAM long). See the closure block at the end of this section.
 >
 > **A SECOND RIDER, worth more than either — the two trailing fires.** Each is a full sparse
 > fire (~300 cyc) doing nothing but walking the terminator, twice per frame per dense run:
@@ -5727,7 +5733,9 @@ nothing else.
    deep class ever gains a word, this restriction lifts with it and not before.**
 
 **(b) `.dense_body` / `.ramp_body` get the same treatment — and this is where the SHIPPED
-cycles actually are.** Item 1 as scoped touches only the sparse `.cram_loop`, and the
+cycles actually are. CLOSED 2026-08-19 on `perf/dense-body-addressing`; the closure block
+follows the proposal, which is kept verbatim because its explicit "do not book 12" caveat is
+the thing the measurement overturned.** Item 1 as scoped touches only the sparse `.cram_loop`, and the
 measured saving on today's OJZ content is **4 cycles a frame** (section 0's one `stream_vsram`
 word, section 1's one `stream_cram` word; the tint band and the water boundary are region ops
 and save nothing). The dense tier is the opposite: `.dense_body` writes three
@@ -5743,6 +5751,114 @@ move, and words 2 and 3 move EARLIER, so they stay strictly inside `[word 1, wor
 cannot leave the window on either side — but "good argument, no instrument" is exactly the
 shape this tree has been burned by. It needs a dense-tier gate (or a sweep fixture that
 drives `OP_RUN_GRADIENT`) first, and then it is a three-token change.
+
+### Rider (b) CLOSED 2026-08-19 — the change was three tokens, the caveat was the interesting part
+
+Branch `perf/dense-body-addressing`, cut from master `6c341697`. The rider had been passed over
+twice: once for want of an instrument, and once — by Tier-3 item 3, which built the instrument —
+with an explicit instruction not to book 12 cyc/line, because that parcel had watched a
+nominally-12-cycle removal measure 4. **The instrument was built, the edit was made, and it
+measured the full 12.** Both facts are true and they are not in conflict; naming why is worth
+more than the cycles.
+
+**THE SAFETY ARGUMENT, RESTATED AGAINST TODAY'S CODE.** `Raster_HInt` does `lea VDP_CTRL, a2`
+in its prologue (`raster.emp`, immediately after the `movem`) and nothing on the dense path
+reassigns it: `.dense_body` and `.ramp_body` both open by writing the arm word and the command
+longword THROUGH `(a2)`, and the only `lea` that repurposes a2 is `.op_pal_restore`'s, on a
+different arm, restored before that arm exits. So `-4(a2)` is `$C00000` = VDP_DATA at both
+sites, verified in the emitted listing and not merely in the source. The timing argument is
+about WHEN each write lands: a destination extension word is prefetched ahead of the write it
+belongs to, so the cycles the short form stops paying fall AFTER that write. The first stream
+write does not move; writes 2 and 3 move earlier by 4 and 8; all three stay strictly inside
+`[first write, old third write]`, so the burst contracts from its own tail and cannot leave the
+blanking window on either side. `.ramp_body` has a single write, which therefore does not move
+at all. **And the argument was not trusted on its own** — the dense scene gate re-ran green and
+the sparse 1b sweep came back bit-identical (below).
+
+**PREDICTED vs MEASURED.** Nominal: 3 × (20 − 16) = 12 cyc/line gradient, 1 × (16 − 12) = 4
+cyc/line ramp. Predicted after applying item 3's absorption ratio (nominal 12 → measured 4,
+confirmed in the other direction by that parcel's cost-gate poison): **~4**. Measured on the
+FD1/FD2 pair: **12**, exactly.
+
+| | FD1 (8 lines) | FD2 (40 lines) | slope | intercept |
+|---|---|---|---|---|
+| before | 4136 | 14632 | 328.0 | 1512 |
+| after | **4040** | **14152** | **316.0** | **1512** |
+
+The intercept is the control: unchanged, so the whole delta is per-LINE and the per-RUN fixed
+cost did not move. The full five-count sweep was re-run rather than re-scaled — 8/40/80/96/120
+gave `4040 / 14152 / 26792 / 31848 / 39432`, i.e. `1512 + 316 × lines` to the cycle at every
+count, with fires = lines + 5 at every count, and every leg down by exactly `12 × lines`.
+
+**WHY THE ABSORPTION DID NOT APPLY, which is the durable half.** Item 3 removed a
+`tst.w (xxx).W` sitting directly behind `move.l Raster_Dense_Cmd, (a2)` — an OPERAND access
+issued while the CPU was already stalled on a control-port write, so it rode a wait the CPU was
+serving anyway. This parcel removes one INSTRUCTION-STREAM word per write. The 68000 fetches
+those on its own account and no VDP wait pays for them. So the standing warning — "nominal
+over-predicts any edit in `.dense_body`" — survives but with a narrower scope: **the bus
+absorbs adjacent data accesses, not code size.** Neither result was derivable from the other,
+and the FD pair is still the only thing that can settle a third case.
+
+**On shipped content**, at the dense scene's camera state: the HBlank row for the live
+`OJZ_TestGradient` reads **31665 cyc/frame (24.7%)** where the same script reads **32812** on
+the pre-parcel ROM (the row previously recorded 32758 — that state carries ~50 cyc of
+boot-to-boot spread, unlike the poked fixtures, which are exact). −1147 against 96 × 12 = 1152
+predicted. The row's long-standing model gap is **unchanged**: −183 now, −188 same-instrument
+before, so this parcel neither caused nor cured it.
+
+**Constants moved:** `RASTER_DENSE_LINE_GRAD_CYC` 328 → **316**; `effects_budget_model.toml`'s
+`[raster.dense]` `per_line_body_cycles`, `dense_run_cycles_per_frame`, `dense_run_frame_pct`,
+`dense_line_sweep`, `full_frame_fraction_ntsc`, and `[raster.sparse]`'s
+`hint_total_dense_*` rows, all with the superseded values kept beside them.
+**The solver does not read any of them** — re-verified, not assumed: the only in-tree
+references to `RASTER_DENSE_LINE_GRAD_CYC` are its own `< RASTER_SCANLINE_CYC` `ensure`, the
+effects-gate cost row, and one comment. The dense tier has no ops, so no blanking spin is
+solved against it and not one solved spin re-derives. There is no ramp cost constant to
+update — the dense tier's only cost term is the gradient one.
+
+**Per-proc bytes — `Raster_HInt` 348 → 340 (−8) in ALL FOUR shapes**, which is exactly the four
+instructions' 2 bytes each. Nothing ahead of `.dense_body` moved by a single byte, so no
+dispatch rung's displacement changed and none relaxed (the trap `RASTER_DISPATCH_RUNG_CYC`'s
+note warns about). `.dense_body` 44 → 38, `.ramp_body` 34 → 32. Downstream the shift is
+absorbed by placement fill and **every ROM length is unchanged**: s4.debug 107 symbols at −8,
+absorbed at `Level_LoadArt`; s4 the same −8 to `Level_LoadArt`, then −16 to the hard `$8000`
+`SoundTablesZ80_Head` anchor (an alignment pad released a further 8); demo.debug −8 then −16 to
+`ObjCodeBase` at `$10000`; demo −8, absorbed at `Level_LoadArt`.
+
+**CRCs (all four lengths UNCHANGED).** s4 `cdabf8a3` → **`e111dff7`** (698411) · s4.debug
+`2d365501` → **`06af0010`** (713863) · demo `f7806241` → **`aae04929`** (95733) · demo.debug
+`183587b5` → **`82884c07`** (100152). The demo shapes move because the demo game links the
+engine handler; **demo has no dense content** — `games/demo` contains zero references to
+`gradient` / `OP_RUN_*` / any raster-program constructor, so `Raster_Program` is never given a
+dense program and `.dense_body` is dead code there. That is the check, and it is why no demo
+boot witness was taken. **A refreeze is required at landing.**
+
+**Verification.** pytest **1092 passed / 2 skipped** (baseline) · `emp_expect_fail` **20/20**
+(baseline) · `effects_budget_check` **31 code-derived rows agree** · warning census
+**unchanged** in both sonic4 shapes (release 112, debug 107, each re-measured against a
+reverted-source build in the same tree) · **`effects_gates`: OK — 23 gates, exit 0**, with the
+sparse cost row re-derived and measured at `F0 588 F1 2508 F3 3818 F4 4584 F5 3172 F8 4632`
+(unmoved, as a dense-path-only edit requires) and the dense row at `FD1 4040/13 FD2 14152/45 ->
+316.0` against the new constant. `scene:dense` stayed green without re-derivation, as predicted:
+its assertion is `Raster_Dense_Cursor == stream + lines * 3 words`, a WORDS-CONSUMED equality,
+and the addressing mode does not change how many words `(a1)+` consumes.
+
+**`ab_runner` ×4 IS "ALL EQUAL", and here it must be** — this is a value-identical parcel, the
+opposite of item 6. OLD (`2d365501`) vs NEW (`06af0010`) over all four committed scenes,
+`--selfcheck` clean on each: `state_hash`, both raster buffers, `active_buf`, and `screen_l` /
+`dense_state` **EQUAL on every scene**, dense included. The **1b sweep** was re-run on both ROMs
+at the default range and at `--hi 200 --rows 12`, and the raw JSON records are **identical
+apart from the file paths and the wall clock** — sparse boundaries did not move by one N, which
+is what a dense-path-only edit is supposed to look like. *(Instrument note, NOT this parcel:
+both sweep runs fold to a single boundary group and print `=> NO-GO` for the solver fit. That
+output is byte-identical on master, so it is a pre-existing property of the tool's default
+invocation, not a regression here — but it does not reproduce the item-1 closure's four-group
+fold, and somebody should find out why before the sweep is cited again.)*
+
+**Still open, unchanged:** the two-trailing-fires rider above (~600 cyc/frame, NOT
+value-identical, needs its own parcel) and the cursor-reload half of the item-1 rider, which
+`-4(a2)` cannot serve — a2 holds the VDP port, and `Raster_Dense_Cursor` is a RAM long with no
+base register in hand.
 
 **DO NOT RE-LITIGATE (refuted):** "`RASTER_FIRE_BASE_CYC` omits the 44-cyc IRQ4 entry, so
 check_density is unsound" (`raster_dsl.emp:991`, filed major) is **REFUTED** — 302 is not a
@@ -6509,7 +6625,7 @@ denominators, never a gate divisor).
 | 2 | VBlank DMA bytes | 7524 B (H40 NTSC) | live queue `dma_queue_words_idle` 1528 w = **3056 B** | **GATEABLE** — see the correction below |
 | 3 | VBlank CPU | ~18200 cyc VBlank window | `idle_vblank_cycles` 8280 (`VInt_Level` bracket) | **GATEABLE** — budget 9920 cyc |
 | 4a | HInt per-fire spacing | — | — | already owned by `check_density`; no new work |
-| 4b | HInt per-frame total | 128000 cyc/frame | sparse 1878 (1.5%); dense 32758 (25.7%) is the shipped worst case | **GATEABLE** — and the dense row's open −242 cyc / 1 fire model gap belongs in the derivation note, not absorbed |
+| 4b | HInt per-frame total | 128000 cyc/frame | sparse 1878 (1.5%); dense **31665 (24.7%)** is the shipped worst case (was 32758/25.7% before the `-4(a2)` dense-stream rider) | **GATEABLE** — and the dense row's open −183 cyc / 1 fire model gap (−188 pre-rider on the same instrument, i.e. unmoved) belongs in the derivation note, not absorbed |
 | 5 | sprite slots | — | **NOTHING MEASURED** | **NOT GATEABLE.** No Phase-0 row exists, and no shipped scene has the subject: FG sprite strips are `CAP_FG_SPRITE_STRIPS = $0080`, in `scene_dsl.emp`'s RESERVED (P3+) block with no lowering |
 | 6 | RAM | free-before-stack | `[ram]` sizes are code-derived and `[symbols]`-gated | **GATEABLE, but the pool row is STALE** — see below |
 | 7 | computed-handler pins | — | — | **NO SUBJECT IN P2.** `CAP_COMPUTED = $0400` is in the same RESERVED (P3+) comment block, no lowering; design §472 records the computed-range infra as deleted and deliberately not rebuilt |

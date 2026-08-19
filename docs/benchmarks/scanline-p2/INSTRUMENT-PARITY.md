@@ -101,6 +101,12 @@ both matched — 13 and 45.
 `(FD2 - FD1) / (40 - 8)` = `(14632 - 4136) / 32` = **328.0 cyc** per gradient line.
 Model: `RASTER_DENSE_LINE_GRAD_CYC` = **328**. Match.
 
+> **Superseded 2026-08-19 (same day) by `perf/dense-body-addressing`,** which gave
+> `.dense_body`'s three stream writes and `.ramp_body`'s one the `-4(a2)` spelling.
+> The capture above stands as the parity record it was; the live pair is now
+> `(14152 - 4040) / 32` = **316.0** against `RASTER_DENSE_LINE_GRAD_CYC = 316`, and the
+> intercept is unchanged at 1512. The sparse rows in this file did not move.
+
 Read only as a pair. Neither leg alone is a dense cost — each carries the same
 priming/setup/LEAVE overhead and the same fire base, and both use the same `top` so those
 terms cancel exactly in the slope. Subtracting F0 (a sparse schedule) would fold the
@@ -134,7 +140,7 @@ ensure(fire_cost_cycles(fire(3, [reg_set($8C81), stream_cram($22, [0,0,0])])) ==
 ensure(fire_cost_cycles(fire(3, [stream_cram($22,[0]), stream_cram($26,[0])])) == 688) F6
 ensure(fire_cost_cycles(fire(3, [stream_vsram(2, [0])])) == 624, ...)                 F7
 ensure(fire_cost_cycles(fire(3, [pal_restore($22, 3)])) == 674, ...)                  F8
-pub const RASTER_DENSE_LINE_GRAD_CYC = 328                                            dense
+pub const RASTER_DENSE_LINE_GRAD_CYC = 328   (now 316 — see the note above)           dense
 pub const RASTER_FIRE_BASE_CYC       = 280                                            F0
 ```
 

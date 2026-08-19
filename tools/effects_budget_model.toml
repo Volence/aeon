@@ -344,21 +344,31 @@ hint_total_states = "idle AND max-diagonal, both OJZ act1 section 0 — identica
 # (Debug_Scene_Freeze=1, Camera_Y=144, Camera_X=4960 — tools/scenes/effects_raster_dense.json's
 # state), OJZ_TestGradient live, 96 lines. THIS is axis 4b's real worst case on shipped
 # content and it is 17x the sparse figure.
-hint_total_dense_cycles_per_frame = 32758   # measured — shipped OJZ_TestGradient, 100 fires
-hint_total_dense_frame_pct        = 25.7
-# AND IT DOES NOT MATCH ITS MODEL, by 242 cycles and one fire. Recorded as a discrepancy
-# rather than smoothed, because three hypotheses were tested and all three were refused:
-#   model (from the FD1/FD2 fixture pair): 1512 + 96 * 328 = 33000 cyc, 101 fires
-#   a POKED fixture at the same top(96)/lines(96):        33000 cyc, 101 fires  -- model exact
-#   the SHIPPED program, byte-identical wire image:       32758 cyc, 100 fires  -- 242 short
-# Refuted: (a) sample-window artifact -- re-measured at 60 frames, unchanged; (b) the frame-top
-# offscreen ship -- poking Effects_Offscreen_Entry = 0 changed nothing; (c) the patch table
-# re-record -- poking Raster_Patch_Tab = 0 changed nothing. Raster_Dense_Lines reads 1 at the
-# frame boundary in the shipped state and 0 is expected, so the run is finishing one line
-# short. UNEXPLAINED. It does not touch the two rows above, which are the ones Task 3 asked
-# for and which are exact.
-hint_total_dense_model_gap = -242
-hint_total_dense_status = "measured, model DISAGREES by 242 cyc / 1 fire — open, see ENGINE-BASELINE.md"
+hint_total_dense_cycles_per_frame_PRE_A2 = 32758   # 2026-08-13..19, before the -4(a2) stream writes
+hint_total_dense_cycles_per_frame = 31665   # re-measured 2026-08-19 — shipped OJZ_TestGradient, 100 fires
+hint_total_dense_frame_pct        = 24.7
+# RE-MEASURED for the `-4(a2)` dense-stream rider (RASTER_DENSE_LINE_GRAD_CYC 328 -> 316).
+# THE DELTA IS READ FROM ONE INSTRUMENT, NOT ACROSS TWO SESSIONS: the same script run against
+# the pre-parcel ROM reads 32812 / 100 fires where the row above recorded 32758, so this state
+# carries ~50 cyc of boot-to-boot spread (the poked fixtures do not — they are exact). Both
+# legs on that instrument: 32812 -> 31665, i.e. **-1147 cyc/frame**, against 96 * 12 = 1152
+# predicted from the per-line delta. Well inside the state's own spread.
+# AND IT STILL DOES NOT MATCH ITS MODEL, by the SAME amount as before — which is the useful
+# part of re-measuring it. Recorded as a discrepancy rather than smoothed:
+#   model (from the FD1/FD2 fixture pair): 1512 + 96 * 316 = 31848 cyc, 101 fires
+#   a POKED fixture at the same top(96)/lines(96):        31848 cyc, 101 fires  -- model exact
+#   the SHIPPED program, byte-identical wire image:       31665 cyc, 100 fires  -- 183 short
+# Same-instrument, pre-parcel: model 33000, measured 32812 -- 188 short. The gap is 183 vs 188,
+# i.e. unchanged inside the state's spread, so the anomaly is NOT a function of the per-line
+# cost and this parcel neither caused nor cured it.
+# Previously refuted, and not re-tested here because the gap did not move: (a) sample-window
+# artifact -- re-measured at 60 frames, unchanged; (b) the frame-top offscreen ship -- poking
+# Effects_Offscreen_Entry = 0 changed nothing; (c) the patch table re-record -- poking
+# Raster_Patch_Tab = 0 changed nothing. Raster_Dense_Lines reads 1 at the frame boundary in the
+# shipped state and 0 is expected, so the run is finishing one line short. UNEXPLAINED. It does
+# not touch the two rows above, which are the ones Task 3 asked for and which are exact.
+hint_total_dense_model_gap = -183
+hint_total_dense_status = "measured, model DISAGREES by 183 cyc / 1 fire — open (unchanged from -242/-188 pre-parcel), see ENGINE-BASELINE.md"
 
 # The cost model's own constants, gated against raster_dsl.emp by the [symbols] table below.
 # Structure: fire_base ONCE per fire, then per op fetch + dispatch(depth) + class work +
@@ -449,15 +459,38 @@ mode = "every-line"
 per_line_body_cycles_upper_SUPERSEDED = 342
 dense_run_cycles_per_frame_SUPERSEDED = 41579   # interrupts.hint = HBlank + VBlank, 2026-08-13
 dense_run_frame_pct_SUPERSEDED        = 32.5
-per_line_body_cycles       = 328     # measured — RASTER_DENSE_LINE_GRAD_CYC, the FD1/FD2 slope
-dense_run_cycles_per_frame = 32758   # measured — shipped OJZ_TestGradient (96 lines), HBlank row
-dense_run_frame_pct        = 25.7
+#
+# AND SUPERSEDED AGAIN 2026-08-19, same day, by the `-4(a2)` dense-stream rider — the one
+# booked by substrate Tier-3 item 1 and unblocked by the FD pair this section documents.
+# `.dense_body`'s three `move.w (a1)+, VDP_DATA` and `.ramp_body`'s one `move.w d1, VDP_DATA`
+# became `d16(An)` writes off the VDP_CTRL already in a2 (20 -> 16 and 16 -> 12 cycles).
+#
+#   per-line body      328  ->  316 measured slope, (FD2-FD1)/32   (the FULL nominal 3 x 4)
+#   96-line run total  32758 -> 31665 measured, HBlank row, same state
+#   frame pct          25.7% -> 24.7%
+#
+# THE PREDICTION WAS 4 AND THE ANSWER WAS 12, and that is worth more than the cycles. The
+# dense-kind hoist measured 4 against a nominal 12 and the cost gate's poison confirmed it in
+# the other direction, so the standing warning was "nominal over-predicts any edit in this
+# body". It over-predicts the edits that remove an OPERAND access next to a control-port
+# write, which the CPU pays for out of a VDP wait it was already serving. It does not
+# over-predict a shorter INSTRUCTION: the removed word is an instruction-stream fetch on the
+# 68000's own account and nothing absorbs it. Both facts are the FD pair's, and neither was
+# derivable from the other.
+per_line_body_cycles_pre_a2_SUPERSEDED = 328
+dense_run_cycles_per_frame_pre_a2_SUPERSEDED = 32758
+per_line_body_cycles       = 316     # measured — RASTER_DENSE_LINE_GRAD_CYC, the FD1/FD2 slope
+dense_run_cycles_per_frame = 31665   # measured — shipped OJZ_TestGradient (96 lines), HBlank row
+dense_run_frame_pct        = 24.7
 # The line-count sweep behind the slope: 8 / 40 / 80 / 96 / 120 lines at the same top, poked
-# fixtures, one boot each. Fires = lines + 5 at EVERY count and cycles = 1512 + 328 * lines at
-# every count, to the cycle. The shipped program is the one that does not fit -- see
-# hint_total_dense_model_gap in [raster.sparse].
-dense_line_sweep = "8:4136/13  40:14632/45  80:27752/85  96:33000/101  120:40872/125  (cyc/fires)"
-dense_model_intercept = 1512         # measured — FD1 - 8*328 and FD2 - 40*328, both exactly
+# fixtures, one boot each. Fires = lines + 5 at EVERY count and cycles = 1512 + 316 * lines at
+# every count, to the cycle. RE-RUN in full for the `-4(a2)` rider rather than re-scaled from
+# the pair: every leg moved by exactly 12 * lines, which is what makes "the delta is per-LINE"
+# a measurement instead of an assumption. The shipped program is still the one that does not
+# fit -- see hint_total_dense_model_gap in [raster.sparse].
+dense_line_sweep = "8:4040/13  40:14152/45  80:26792/85  96:31848/101  120:39432/125  (cyc/fires)"
+dense_line_sweep_pre_a2_SUPERSEDED = "8:4136/13  40:14632/45  80:27752/85  96:33000/101  120:40872/125"
+dense_model_intercept = 1512         # measured — FD1 - 8*316 and FD2 - 40*316, both exactly; UNCHANGED by the rider, so the whole delta is per-line
 # THE DECISION-RELEVANT FACT: this costs ZERO lag frames. VSync_Wait measured 62.8%
 # idle WITH the dense run active vs 62.4% without — i.e. the run is absorbed by
 # existing slack, because H-INT time nests inside the idle wait rather than adding to
@@ -467,8 +500,9 @@ dense_model_intercept = 1512         # measured — FD1 - 8*328 and FD2 - 40*328
 # less idle to absorb it, so re-measure before concluding it is free in real content.
 transition_arm_lag_fires = 1         # fixed — one pipelined arm at EACH of enter/leave (Ruling 1b)
 # Full-frame every-line cost (rejected for the sparse tier): ~224 * per-fire.
-# RE-DERIVED 2026-08-19 off the measured 328 slope rather than the superseded 342 upper bound.
-full_frame_fraction_ntsc = 0.574  # measured-derived: 224 lines * 328 cyc / 128000
+# RE-DERIVED 2026-08-19 off the measured 328 slope rather than the superseded 342 upper bound,
+# and again the same day off 316 for the `-4(a2)` rider.
+full_frame_fraction_ntsc = 0.553  # measured-derived: 224 lines * 316 cyc / 128000
 full_frame_fraction_ntsc_SUPERSEDED = 0.76  # 224 * 342, the interrupts.hint-derived upper bound
 
 [palette]
