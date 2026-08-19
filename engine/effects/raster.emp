@@ -97,7 +97,17 @@ use engine.level.scene_dsl.{CAP_ANCHORS}
 
 // ---- opcodes (compare-chain dispatch; see the note in Raster_HInt for why this
 // is not a pc-indexed jump table) ----
+//
+// OP_SET_REG's VALUE IS LOAD-BEARING, not just an ordering. It is 0 so that the op
+// fetch's own `move.w (a1)+, d1` decides it: MOVE sets Z from the moved word, so
+// Raster_HInt dispatches the commonest op on a flag it already had, with no test
+// instruction at all (Tier-3 item 2). Renumbering it to any non-zero value silently
+// costs every register write the whole compare chain back — and nothing would fail,
+// because the wire-pin lane checks that the model AGREES with these constants, not
+// that this one is still zero. Hence the ensure below.
 pub const OP_SET_REG    = 0
+ensure(OP_SET_REG == 0,
+       "OP_SET_REG is {OP_SET_REG}, not 0 — Raster_HInt's `.op_loop` dispatches it on the Z flag that `move.w (a1)+, d1` sets while FETCHING the op, which is only the OP_SET_REG test while the opcode is zero. A non-zero value needs a real compare, and raster_dsl.emp's RASTER_DISPATCH_ZERO_HIT_CYC / _MISS_CYC stop describing the code.")
 pub const OP_CRAM       = 2
 // OP_PAL_REGION (effects P2, Task 3) — a scanline REGION boundary: stream `count`
 // pre-derived colour words from RAM to CRAM. Same 3-word wire body as OP_CRAM but the
@@ -758,14 +768,42 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         bmi     .advance                // priming / no-op record (unsized: OP_RUN_RAMP's
                                         // ENTER arm pushed this past a short displacement)
     .op_loop:
-        move.w  (a1)+, d1               // op
-        // Three-op compare chain rather than a pc-indexed jump table: at this few
-        // opcodes it is fewer cycles than the table setup, and it keeps the handler
-        // analyzable — a computed `jmp` defeats the contract-closure dataflow, and
-        // proc.clobber-undeclared is zero-firing by contract. Frequency-ordered:
-        // OP_CRAM (the common raster write) first, then OP_PAL_REGION (region
-        // boundaries), OP_SET_REG the fall-through. The opcodes stay byte offsets so a
-        // table can drop back in without touching the program format.
+        move.w  (a1)+, d1               // op — and this MOVE's own Z flag IS the OP_SET_REG test
+        // Compare chain rather than a pc-indexed jump table: at this few opcodes it is
+        // fewer cycles than the table setup, and it keeps the handler analyzable — a
+        // computed `jmp` defeats the contract-closure dataflow, and
+        // proc.clobber-undeclared is zero-firing by contract. The opcodes stay byte
+        // offsets so a table can drop back in without touching the program format.
+        //
+        // OP_SET_REG IS DECIDED BEFORE THE CHAIN, AND FOR NO INSTRUCTION AT ALL (Tier-3
+        // item 2). It is opcode ZERO and `move.w (a1)+, d1` sets Z from the word it just
+        // moved, so the fetch above has ALREADY tested it: the `beq` below needs neither
+        // a `tst.w` nor a `cmpi.w` ahead of it. That is the whole of the fix, and it is
+        // why the deferred item's proposed `tst.w d1 / beq` is not what shipped — the
+        // `tst.w` would have been 4 cycles buying a flag the fetch already set.
+        //
+        // WHAT IT COSTS AND WHAT IT BUYS, per class (raster_dsl.emp's dispatch model is
+        // this paragraph in constants):
+        //   OP_SET_REG   80 -> 10   the five failed rungs replaced by one TAKEN beq.s
+        //   every other  +8         one NOT-TAKEN beq.s in front of its own rung
+        // Register writes are the cheapest op in the vocabulary and were paying the most
+        // to dispatch — 80 of an OP_SET_REG's 110 cycles were the compare chain it could
+        // never match. They are also the op the S/H band shapes fire twice per band
+        // (`reg_sh_on` at the top, `reg_sh_off` at the de-mix line), so this is the
+        // dispatch cost the authoring vocabulary actually generates most of.
+        //
+        // WHY THE `beq` FORWARD AND NOT A `bne` AROUND AN INLINED BODY. The two spellings
+        // trade the taken branch for the not-taken one: `beq .op_reg` costs SetReg 10
+        // (taken) and everyone else 8 (not taken); `bne .dispatch` with the body inlined
+        // here would cost SetReg 8 and everyone else 10. Shipped content decides it —
+        // the three OJZ programs carry 2 reg_set against 3 stream ops, so the +8 side is
+        // the one to make cheap. And the `beq` form keeps two properties the `bne` form
+        // loses: OP_SET_REG stays the chain's FALL-THROUGH (an unrecognised opcode still
+        // lands on the harmless one-word register write it has always landed on, rather
+        // than on whichever body was promoted to fill the hole), and the whole change is
+        // ONE inserted instruction — no code motion, so every rung's displacement, and
+        // therefore every rung's .s encoding and its 16/18-cycle price, is untouched.
+        beq     .op_reg
         cmpi.w  #OP_CRAM, d1
         beq.s   .op_cram
         cmpi.w  #OP_PAL_REGION, d1
@@ -776,7 +814,11 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         beq     .op_run_ramp
         cmpi.w  #OP_PAL_RESTORE, d1
         beq     .op_pal_restore
-        // OP_SET_REG — one $8xxx word
+    .op_reg:
+        // OP_SET_REG — one $8xxx word. Reached two ways, deliberately: by the free `beq`
+        // at the top of the loop (opcode 0, the fast path), and by falling out of the
+        // bottom of the chain (any opcode the chain does not recognise — unchanged
+        // behaviour, and the reason this body stays HERE rather than moving up).
         move.w  (a1)+, (a2)
         dbf     d0, .op_loop
         jbra    .advance

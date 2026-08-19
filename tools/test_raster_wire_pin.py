@@ -82,6 +82,8 @@ SOLVER_CONSTS = [
     ("DISPATCH_RUNG_CYC",     "RASTER_DISPATCH_RUNG_CYC"),
     ("DISPATCH_HIT_CYC",      "RASTER_DISPATCH_HIT_CYC"),
     ("DISPATCH_RUNGS",        "RASTER_DISPATCH_RUNGS"),
+    ("DISPATCH_ZERO_HIT_CYC",  "RASTER_DISPATCH_ZERO_HIT_CYC"),
+    ("DISPATCH_ZERO_MISS_CYC", "RASTER_DISPATCH_ZERO_MISS_CYC"),
     ("OP_TAIL_CYC",           "RASTER_OP_TAIL_CYC"),
     ("STREAM_WORD_CRAM_CYC",  "RASTER_STREAM_WORD_CRAM_CYC"),
     ("STREAM_WORD_DEEP_CYC",  "RASTER_STREAM_WORD_DEEP_CYC"),
@@ -139,9 +141,13 @@ def _expected_spins(ops):
         return len(o["v"]) if o["k"] in ("cram", "vsram") else o["n"]
 
     def dispatch(o):
+        # OP_SET_REG is opcode 0 and the op fetch's `move.w (a1)+, d1` sets Z, so
+        # `.op_loop` decides it with one taken beq.s ahead of the chain (Tier-3 item 2).
+        # Every other op pays that same branch NOT taken, then its own rung depth.
         if o["k"] == "reg":
-            return k["RASTER_DISPATCH_RUNG_CYC"] * k["RASTER_DISPATCH_RUNGS"]
-        return (k["RASTER_DISPATCH_RUNG_CYC"] * depth[o["k"]]
+            return k["RASTER_DISPATCH_ZERO_HIT_CYC"]
+        return (k["RASTER_DISPATCH_ZERO_MISS_CYC"]
+                + k["RASTER_DISPATCH_RUNG_CYC"] * depth[o["k"]]
                 + k["RASTER_DISPATCH_HIT_CYC"])
 
     def cost(o, spin):
@@ -210,10 +216,12 @@ def test_the_solver_is_position_dependent_at_all():
     after = probe.fire_spins([probe.reg_set(0x8C89), probe.stream_cram(34, [0, 0, 0])])[1]
     assert lead > after, (
         f"a leading 3-word cram solves to {lead} and the same op after a reg_set to "
-        f"{after} — the second one must be SMALLER; it arrives 110 cycles later")
+        f"{after} — the second one must be SMALLER; it arrives a whole reg_set later")
+    # A register write's dispatch is the zero pre-test's TAKEN branch and nothing more
+    # (Tier-3 item 2); it used to be the five-rung fall-through, which is why the gap this
+    # asserts is 4 iterations where it was 11.
     reg_cost = (emp_const(DSL, "RASTER_OP_FETCH_CYC")
-                + emp_const(DSL, "RASTER_DISPATCH_RUNG_CYC")
-                * emp_const(DSL, "RASTER_DISPATCH_RUNGS")
+                + emp_const(DSL, "RASTER_DISPATCH_ZERO_HIT_CYC")
                 + emp_const(DSL, "RASTER_WORK_REG_CYC")
                 + emp_const(DSL, "RASTER_OP_TAIL_CYC"))
     assert lead - after == reg_cost // 10, (
