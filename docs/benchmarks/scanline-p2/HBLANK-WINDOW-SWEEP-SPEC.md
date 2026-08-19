@@ -141,6 +141,29 @@ R1 derived.
 
 **The answer is the CENTRE of the contiguous CLEAN range**, and it is what Task 1c pins.
 
+## 6b. Run the two known-good anchors FIRST — they are the disagreement discriminator
+
+Before sweeping the unmeasured shape, capture the two anchors from §1. Both were observed
+clean on oracle, and both build from the same encoder, so they cost two extra runs:
+
+| Anchor | Fixture | Observed on oracle |
+|---|---|---|
+| Row-119 | `fire(120, [reg_set($8C89), stream_cram($4A, [$000E])])` | 1 px spill → 0 px; boundary on the authored line |
+| R1 §7.3 | `fire(140, [pal_restore($48, 3)])` | row 139 fully tinted, rows 140+ fully base |
+
+They are the same handler, the same burst and the same window as the sweep fixture, differing
+only in how much preamble sits ahead of the write. That is what makes them a discriminator when
+the sweep disagrees with §3's prediction:
+
+| Anchors capture as | Then the disagreement is |
+|---|---|
+| both CLEAN | **the §3 arithmetic** — Aeon's, re-derive it |
+| either DIRTY | **the instrument's raster timing or sampling point** — it contradicts a landing already measured clean on a shape the spin change never touched |
+| both DIRTY | **the fixture/harness** — check the §4 content trap first; an unsampled tint entry reproduces "everything is wrong" convincingly |
+
+Worth running unconditionally rather than only on disagreement: they also give the sweep two
+known-good calibration rows before it enters the unmeasured shape.
+
 ## 7. What this measurement may NOT be used for
 
 If the measured clean range does not contain N = 15 and N = 19, **the model in §3 is wrong and
