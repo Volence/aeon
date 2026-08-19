@@ -577,6 +577,13 @@ pub proc Raster_Install (a0: u32) clobbers() {
 // cursor to the first (priming) record, and leaves reg $0A = 0 so the pipeline
 // primes on lines 0 and 1. Frame-top REGISTER state is not its job — the
 // unconditional Flush_VDP_Shadow immediately after does that for all 19 registers.
+//
+// THE FRAME REWIND IS INTERLOCKED AGAINST A STALE FIRE, and the interlock lives in
+// Raster_HInt's `.priming` arm rather than here — docs/DEFERRED_WORK.md's raster substrate
+// item 3. Read that arm for the mechanism; what matters at this end is that the rewind below
+// is NOT the only thing that has to be true at frame top: a fire deferred past this proc
+// would consume priming record 0 and re-arm reg $0A behind the rewind's back, and `.priming`
+// is what undoes it.
 // -----------------------------------------------
 pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         move.l  Raster_Pending, d0
@@ -785,7 +792,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         cmpi.w  #RASTER_OPS_END, d0
         beq     .park                   // terminator: stray fire, do not advance
         subq.w  #1, d0
-        bmi     .advance                // priming / no-op record (unsized: OP_RUN_RAMP's
+        bmi     .priming                // priming / no-op record (unsized: OP_RUN_RAMP's
                                         // ENTER arm pushed this past a short displacement)
     .op_loop:
         move.w  (a1)+, d1               // op — and this MOVE's own Z flag IS the OP_SET_REG test
@@ -936,6 +943,74 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
     .advance:
         move.l  a1, Raster_Cursor
         jbra    .out
+    .priming:
+        // THE FRAME-REWIND INTERLOCK (docs/DEFERRED_WORK.md, raster substrate item 3,
+        // closed 2026-08-19). A no-op record is about to advance the cursor; first decide
+        // whether this fire belongs to the frame at all.
+        //
+        // THE DEFECT. Raster_VBlank rewinds unconditionally — dense mode cleared, cursor back
+        // on priming record 0, reg $0A re-armed to 0 — and until this arm existed the handler
+        // carried no frame or line test whatsoever. A fire that runs AFTER the rewind but
+        // BEFORE line 0 therefore walks priming record 0, writes ITS arm word over the 0 the
+        // rewind just flushed, and advances the cursor. The next frame starts one record on
+        // with the counter holding a mid-frame gap, and since the rewind repeats every frame,
+        // so does the damage: fires are lost and the schedule never re-synchronises.
+        //
+        // HOW A FIRE GETS DEFERRED PAST A REWIND, MEASURED (tools/raster_frame_epoch_probe.py,
+        // 2026-08-19) — and the measurement CORRECTS THE BOOKING, which blamed line 223. Fires
+        // authored at 222, at 223 and even at 224 all retire before Raster_VBlank, every frame,
+        // with an identical [2,6,10] cursor walk: the VDP raises the last active line's HINT far
+        // enough ahead of VINT that the 68000 takes IRQ4 first. `top + lines <= 223` was
+        // therefore never protecting anything. The real precondition is the CPU sitting at
+        // IPL >= 4 across the VINT instant with an IRQ4 already raised — IRQ6 then wins the
+        // arbitration and the IRQ4 is serviced after the rewind. The probe forces exactly that
+        // with a long in-handler blanking spin (fire 222 spinning ~4,000 cycles, fire 224 raised
+        // inside that window) and reproduces the shift: frames alternate [2,6,10] and [2,6], a
+        // fire lost every other frame. Real code reaches the same state through any `ints_off`
+        // bracket that straddles the end of active display — the VDP-access invariant at the top
+        // of this file mandates such brackets around every main-loop command pair.
+        //
+        // WHY THE TEST IS A VDP READ AND NOT THE BOOKED ONE-BYTE FLAG. No software flag can tell
+        // the two fires apart. A stale fire and the legitimate line-0 fire see BYTE-IDENTICAL
+        // engine state — same cursor, same counter, same everything the rewind just wrote — and
+        // any flag that self-clears on the first fire consumes the line-0 fire in the healthy
+        // case and shifts the whole schedule down a line. The only thing that separates them is
+        // WHERE THE BEAM IS, so the discriminator has to be the beam. (An epoch cleared by the
+        // main loop was considered and rejected: on a lag frame the main loop does not reach the
+        // clear before line 0, which turns the guard into a whole frame of lost effect.)
+        //
+        // WHY IT IS HERE AND NOT IN THE PROLOGUE, WHICH IS THE WHOLE POINT. In the prologue this
+        // costs every fire ~28 cycles AND moves the op-walk origin, which is the origin every
+        // blanking spin is solved against — re-deriving RASTER_FIRE_BASE_CYC, HBLANK_END_CYC and
+        // the spin word of every stream op in every program image. On this arm it costs the two
+        // priming fires and NOTHING ELSE: a record with ops never reaches it, so no op-carrying
+        // fire gains a cycle, the op-walk origin does not move, and not one solved spin changes.
+        // And it is sufficient, because a stale fire ALWAYS lands on priming record 0 — that is
+        // where the rewind put the cursor, and the rewind is the thing being interlocked.
+        //
+        // $C00008 IS THE HV COUNTER, reachable as a displacement off the VDP_CTRL a2 already
+        // holds (the same trick `.cram_loop`'s `-4(a2)` uses for VDP_DATA). Its high byte is the
+        // V counter, so `>= $E000` is "V >= 224", i.e. outside active display — true for the
+        // whole of VBlank including the NTSC counter's jump back to $E5, and false for every
+        // line 0..223 a priming fire can legitimately land on. Deliberately NOT the status
+        // register's VBlank bit: reading VDP_CTRL resets the command-latch write-pending state
+        // and clears the status F flag, while the HV counter read has no side effects at all
+        // (reg $00 bit 1 is 0 — boot_data.emp: "HV counter readable"), and status bit 3 also
+        // reads set whenever the display is off, which would silently retire every fire during
+        // a fade.
+        //
+        // THE REPAIR IS "UNDO", NOT "PARK". Writing RASTER_ARM_PARK here would leave reg $0A at
+        // 255 and kill the next frame outright — the opposite of the fix. What the rewind wants
+        // is reg $0A = 0 and the cursor still on record 0, so the stale fire restores exactly
+        // that: re-write the every-line word this record's arm just clobbered, and return
+        // WITHOUT advancing. The counter is reloaded from reg $0A on every line outside active
+        // display, so even if a reload caught the clobbered value mid-repair, the last reload
+        // before line 0 sees the restored 0.
+        move.w  4(a2), d1                       // $C00008 — HV counter, V in the high byte
+        cmpi.w  #$E000, d1                      // V >= 224: outside active display
+        bcs     .advance                        // in-frame fire: the normal priming walk
+        move.w  #RASTER_ARM_EVERY_LINE, (a2)    // undo this record's arm write (== reg $0A = 0)
+        jbra    .out                            // ... and do NOT advance the cursor
     .op_pal_restore:
         // Band OFF edge: stream base colours from the ship snapshot. .op_region's shape
         // with TWO deliberate differences: the source is Palette_Ship_Snap (whose offset

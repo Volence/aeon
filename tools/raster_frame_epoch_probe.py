@@ -206,7 +206,7 @@ async def _trace(b, sym, events):
     await _c(b, "emulator/breakpoint_clear", {"all": True})
     await _c(b, "emulator/breakpoint_add", {"addr": hex(hint)})
     await _c(b, "emulator/breakpoint_add", {"addr": hex(vbl)})
-    out = []
+    out, dropped = [], []
     for _ in range(events):
         # Step OFF the breakpoint address first — see the module note; without this the
         # resume re-breaks on the same instruction and the CPU never advances.
@@ -223,8 +223,19 @@ async def _trace(b, sym, events):
         c = int(cur["bytes"], 16) & 0xFFFFFF
         fc = await _c(b, "emulator/read_memory",
                       {"addr": hex(sym["Frame_Counter"]), "len": 2})
+        # A stop on neither breakpoint is a PREFIX of the next one, not an event. The common
+        # case is $FFB452, HBlank_Vector_Slot: the `step` above lands on the IRQ4 vector's
+        # target and the following resume breaks at Raster_HInt one `jmp` later — the SAME
+        # fire, seen twice. Counting it split one fire into two and made a healthy frame read
+        # as a different shape from its neighbours. Dropped rather than merged, and counted,
+        # so "the instrument saw something it did not classify" stays visible.
+        kind = ("H" if pc == (hint & 0xFFFFFF)
+                else "V" if pc == (vbl & 0xFFFFFF) else None)
+        if kind is None:
+            dropped.append(f"${pc:06X}")
+            continue
         out.append({
-            "kind": "H" if pc == (hint & 0xFFFFFF) else ("V" if pc == (vbl & 0xFFFFFF) else "?"),
+            "kind": kind,
             "pc": f"${pc:06X}",
             "ft": int(fc["bytes"], 16),
             "cur": (c - buf) if buf <= c < buf + 128 else None,
@@ -232,7 +243,7 @@ async def _trace(b, sym, events):
         })
     await _c(b, "emulator/pause")
     await _c(b, "emulator/breakpoint_clear", {"all": True})
-    return out
+    return out, dropped
 
 
 def _frames(trace):
@@ -287,13 +298,14 @@ def _verdict(frames):
 
 async def _sweep_one(b, sym, fixture, settle, events):
     words, image = await _install(b, sym, fixture, settle)
-    trace = await _trace(b, sym, events)
+    trace, dropped = await _trace(b, sym, events)
     back = await _c(b, "emulator/read_memory",
                     {"addr": hex(sym["Raster_Buf_A"]), "len": len(words) * 2})
     v = _verdict(_frames(trace))
     v["name"] = fixture["name"]
     v["image_intact"] = (back["bytes"].upper() == image)
     v["timed_out"] = any(e["kind"] == "TIMEOUT" for e in trace)
+    v["dropped"] = dropped
     v["trace"] = trace
     return v
 
@@ -303,8 +315,9 @@ def _row(r: dict) -> str:
     cu = "  ".join(f"[{k}]x{v}" for k, v in sorted(r["cursors"].items()))
     verdict = ("WEDGED" if r.get("wedged") else "STALLED" if r["timed_out"]
                else "UNIFORM" if r["uniform"] else "VARIES")
+    drop = f"  (+{len(r['dropped'])} unclassified stops)" if r.get("dropped") else ""
     return (f"{r['name']:22} {r['complete_frames']:6} "
-            f"{'yes' if r['image_intact'] else 'NO':>6} {verdict:>8}  {sh} | {cu}")
+            f"{'yes' if r['image_intact'] else 'NO':>6} {verdict:>8}  {sh} | {cu}{drop}")
 
 
 def _fixtures(lines_arg: str, dense_arg: str, stall_arg: str) -> list[dict]:
@@ -373,7 +386,7 @@ def main() -> int:
         except Wedged as e:
             r = {"name": fx["name"], "complete_frames": 0, "shapes": {}, "cursors": {},
                  "uniform": False, "order": [], "image_intact": True, "timed_out": True,
-                 "wedged": str(e), "trace": []}
+                 "wedged": str(e), "dropped": [], "trace": []}
         results.append(r)
         try:
             await b.close()
