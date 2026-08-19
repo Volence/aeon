@@ -211,10 +211,26 @@ That is §6b's "both CLEAN" row.
 
 **(b) The boundary sits one row past the authored line, on every anchor and on the sweep.**
 The driver therefore classifies against an explicit edge row and reports both readings side by
-side rather than silently adopting either. The one-row offset is not an artifact of the
-instrument's row indexing: the sweep's own boundary measurement (below) places the burst
-inside line 100's period at every N in 0..27, never inside line 99's, so for this fire shape
-the authored line's own row cannot be the boundary. See "What this says about the defect".
+side rather than silently adopting either.
+
+> **SUPERSEDED 2026-08-19 (same night, oracle-next ruling + contract pin):** this paragraph
+> originally argued the one-row offset was "not an artifact of the instrument's row indexing".
+> That framing is wrong as a dichotomy. oracle-next settled the convention *by construction*:
+> a row is an atomic sample at that row's line-start (`system.rs` — the `Scanline` event for
+> line N fires at exactly `N*MCLK_PER_LINE`), so a write landing during line N is first
+> expressible in row N+1, **always** — their own suite gate asserts the boundary at
+> authored+1. Pinned in the contract at empyrean main `112d683` (§6 blockquote); their
+> addendum doc is oracle-next `docs/2026-08-19-aeon-acceptance-results.md` (`678ed96`).
+> The GUI oracle differs because it renders per pixel clock (a mid-row write recolours the
+> tail of THAT row) and, for HV-polled fixtures only, increments V ~15 px earlier. One
+> residual stays open on their side: whether the two instruments' HInt anchor *phase* differs
+> by a further ±1 line for HInt-dispatched fixtures — settleable by one fixture A/B-booted on
+> both, offered by oracle-next as an optional follow-up, **not needed for 1c** (the spin
+> arithmetic is relative to HInt entry, where the two instruments already agree within ~1
+> spin iteration — §3's GUI-oracle-derived centre 17 vs this sweep's 18). It matters only
+> when authored-line art alignment must be pinned to a row on hardware.
+> The catalog deliberately does NOT pin the intra-line sampling point normatively, so a
+> sub-line server showing a partial row on line N is a permitted difference.
 
 **(c) §6b's second anchor as written is vacuous, and structurally so.** `OP_PAL_RESTORE`
 streams from `Palette_Ship_Snap`, this frame's base DMA payload
