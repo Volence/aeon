@@ -374,7 +374,7 @@ pub comptime fn raster_gradient_program(top: int, lines: int, cmd: int,
     ensure(lines >= 1, "raster_gradient_program: line count {lines} must be positive")
     // THE CEILING IS 223, NOT 224, AND THE MISSING LINE IS DELIBERATE — do not "fix" it back.
     //
-    // DERIVATION. Raster_VBlank rewinds the frame unconditionally (`clr.w Raster_Dense_Lines`
+    // DERIVATION. Raster_VBlank rewinds the frame unconditionally (`clr.w Raster_Dense_Mode`
     // + `move.l a1, Raster_Cursor`, this file ~:608), and Raster_HInt carries no frame or line
     // test. The HInt counter decrements for lines 0..224, so `top + lines == 224` is exactly
     // the authorable case that puts a fire on line 223 — the same line VINT fires. IRQ6 masks
@@ -660,17 +660,22 @@ pub proc Raster_VBlank () clobbers(d0-d4/a0-a2) {
         // The whole header. There is no frame-top register replay here any more:
         // Flush_VDP_Shadow runs right after this and re-blits every shadowed VDP
         // register unconditionally, which restores anything a mid-frame op changed.
-        // THE DENSE COUNTER IS FRAME STATE AND IS REWOUND WITH THE CURSOR. A dense run is
-        // authored to finish inside its frame, but nothing enforces that: the counter is written
-        // only by the ENTER ops and decremented only by .dense_body, so a run whose line count
-        // reaches past line 223 simply never reaches 0. Left set, the NEXT frame's very first
+        // THE DENSE MODE IS FRAME STATE AND IS REWOUND WITH THE CURSOR. A dense run is
+        // authored to finish inside its frame, but nothing enforces that: the mode is set only
+        // by the ENTER ops and cleared only when .dense_body's countdown expires, so a run whose
+        // line count reaches past line 223 never retires. Left set, the NEXT frame's very first
         // HInt — the priming fire on line 0 — takes .dense_body instead of the record walk and
         // streams from the previous frame's stale Raster_Dense_Cursor straight across the top of
         // the screen, re-arming reg $0A = 0 every line so the whole sparse schedule is dead too.
         // Clearing it here is the same act as rewinding the cursor below: both put the handler
         // back at frame top, and a run that ENTERs this frame re-seeds cursor, command and count
         // from its own op words anyway, so nothing legitimate is lost.
-        clr.w   Raster_Dense_Lines
+        //
+        // IT IS THE MODE WORD AND NOT THE COUNTER (Tier-3 item 3): the counter is no longer the
+        // run-active flag, so clearing it would leave a run armed with a stale zero count — which
+        // .dense_body would then decrement to -1 and never retire, the exact stuck state this
+        // rewind exists to prevent, in a new place.
+        clr.w   Raster_Dense_Mode
         move.l  a1, Raster_Cursor       // first (priming) fire record
         // reg $0A = 0 primes the pipeline: no-op fires on lines 0 and 1 load the
         // first two real arm words. Re-installed every frame on purpose — it is
@@ -744,20 +749,26 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         //     and it sat in the module docs/EFFECTS_AUTHORING.md names as the runtime
         //     source of truth. Anyone hand-authoring a dense program from here would
         //     have reproduced the exact bug the P2 gate already caught once.
-        //   LEAVE: the LAST dense fire (Raster_Dense_Lines 1->0) still writes reg $0A=0,
-        //     so one extra every-line fire happens after the run; that fire finds
-        //     Dense_Lines==0, falls through to the record walk at Raster_Cursor (already
+        //   LEAVE: the LAST dense fire (Raster_Dense_Lines 1->0, which clears
+        //     Raster_Dense_Mode) still writes reg $0A=0, and so did the one before it — so
+        //     TWO extra every-line fires happen after the run, one per arm still in flight.
+        //     Each finds Mode==0, falls through to the record walk at Raster_Cursor (already
         //     past the gradient op), and writes the NEXT record's arm word. Because of
         //     the lag that arm governs the fire after next, so the first post-gradient
         //     sparse event must be scheduled >= 2 lines below the run's last line. The
         //     comptime authoring helper owns that gap; the run body does not.
+        //
+        //     "TWO" IS MEASURED, and it corrects a long-standing "one" here: the dense
+        //     fixtures added with Tier-3 item 3 predicted `lines + 4` fires and hardware
+        //     answered `lines + 5`, at both line counts. The >= 2 rule below was already
+        //     right — it is the same fact, stated from the authoring side.
         // Conservative register model: the cursor is reloaded from Raster_Dense_Cursor
         // (RAM) every fire and only d0-d1/a1-a2 are saved. A reserved global stream
         // register (Gunstar's a6 / Alien Soldier's zero-save handler, survey Ruling 4c)
         // would drop the reload but changes engine-wide register conventions — a FLAGGED
         // decision needing user sign-off (see the report), not taken here.
         // -------------------------------------------------------------------
-        tst.w   Raster_Dense_Lines
+        tst.w   Raster_Dense_Mode
         bne     .dense_body
         movea.l Raster_Cursor, a1
         move.w  (a1)+, (a2)             // arm word -> reg $0A (consumed at fire i+1)
@@ -895,7 +906,10 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         move.l  (a1)+, Raster_Dense_Cmd     // constant CRAM write command
         move.w  (a1)+, Raster_Dense_Lines   // L lines
         move.l  (a1)+, Raster_Dense_Cursor  // ROM stream pointer (L*3 words)
-        clr.w   Raster_Dense_Kind           // 0 = stream the ROM gradient
+        // LAST, because it is the arming write: the mode word is what the next fire tests,
+        // so the rest of the run's state must already be in place. +1 = stream the ROM
+        // gradient (the sign is the body selector — see .dense_body).
+        move.w  #1, Raster_Dense_Mode
         // fall through to .advance
         jbra    .advance
     .op_run_ramp:
@@ -908,7 +922,7 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         move.w  (a1)+, Raster_Dense_Lines   // L lines
         move.l  (a1)+, Raster_Ramp_Acc      // 16.16 start
         move.l  (a1)+, Raster_Ramp_Step     // 16.16 per-line delta (signed)
-        move.w  #1, Raster_Dense_Kind       // 1 = compute
+        move.w  #-1, Raster_Dense_Mode      // NEGATIVE = compute; the arming write, last
         // fall through to .advance
     .advance:
         move.l  a1, Raster_Cursor
@@ -956,37 +970,91 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         dbf     d0, .op_loop
         jbra    .advance
     .dense_body:
-        // One dense line: keep firing every line, write the constant command + 3 stream
-        // colours, advance the cursor, count down. When Raster_Dense_Lines reaches 0 the
-        // NEXT fire finds it clear and resumes the sparse record walk at Raster_Cursor
-        // (LEAVE schedule at the handler top). Conservative: cursor reloaded from RAM,
-        // no reserved register.
+        // One dense line: keep firing every line, write the constant command + this kind's
+        // per-line payload, count down. When Raster_Dense_Lines reaches 0 the body clears
+        // Raster_Dense_Mode, so the NEXT fire finds it clear and resumes the sparse record
+        // walk at Raster_Cursor (LEAVE schedule at the handler top). Conservative: cursor
+        // reloaded from RAM, no reserved register.
+        //
+        // WHICH BODY, DECIDED FOR ONE BRANCH AND NO LOAD (Tier-3 item 3). The kind cannot
+        // change inside a run, yet this used to re-answer it every scanline with a second
+        // RAM read (`tst.w Raster_Dense_Kind`) plus its own branch, on top of the run-active
+        // test the handler had ALREADY done at the top. Raster_Dense_Mode carries both facts
+        // in one signed word — 0 no run, +1 gradient, -1 ramp — so the `tst.w` above answers
+        // "is a run active" for the `bne`, and its N flag answers "which body" for the `bmi`
+        // here. The whole hoist is that this `bmi.s` replaces a load-and-branch pair.
+        //
+        // WHAT IT IS ACTUALLY WORTH, MEASURED — and it is NOT what the deferred item booked.
+        // The item said ~2,300 cyc/frame, priced as 24 cycles per line at 96 lines. On
+        // hardware the whole hoist is **4 cycles per line**: 354.0 -> 350.0 on the FD1/FD2
+        // fixture pair (tools/raster_cost_probe.py; RASTER_DENSE_LINE_GRAD_CYC).
+        //
+        // THE MISSING EIGHT CYCLES ARE THE VDP, and this is the finding worth keeping. The
+        // removed pair is `tst.w (xxx).W` (12) plus a not-taken `bcc.s` (8) against the
+        // `bmi.s` (8) that replaces them — an instruction model says 12. But the test sat
+        // directly after `move.l Raster_Dense_Cmd, (a2)`, a control-port write, and during
+        // active display the VDP holds the bus; the EA read the `tst.w` would have paid for
+        // is absorbed into a wait the CPU was already serving. Confirmed independently, in
+        // the other direction, by the parcel's cost-gate poison: inserting a
+        // behaviour-neutral `tst.w` in that same position measured +4, not +12. Nominal
+        // 68000 timings over-predict any edit inside this body, and the fixture pair is now
+        // the only thing that can tell you by how much.
+        //
+        // AND IT CARRIES A FIXED COST: +34 cycles per RUN per frame (the ENTER's
+        // `move.w #1` over the old `clr.w`, and the `.dense_end` retire below), measured as
+        // the FD1/FD2 intercept. So the crossover is around NINE lines — a dense run shorter
+        // than that is very slightly slower than before. Nothing shipped is near it (both
+        // OJZ runs are 96 lines, where the net is -350 cyc/frame), and a run of eight lines
+        // is a sparse-tier job anyway, but it is a real property and it is stated rather
+        // than rounded away.
+        //
+        // WHY NOT A RAM-HELD BODY POINTER, which is what the deferred item proposed. It
+        // costs MORE even on paper: sigil places this RAM in the absolute-SHORT window, so
+        // `movea.l (xxx).W, a1` is 16 cycles and `jmp (a1)` 8, i.e. 24 against the 20 the
+        // two-instruction test cost — a net loss before considering that a computed `jmp`
+        // defeats the contract-closure dataflow (the same objection that keeps the opcode
+        // dispatch a compare chain, `.op_loop` above). One conditional branch is the floor
+        // here, not a compromise: reaching two bodies from one taken `bne` cannot be done in
+        // zero branches, and making the TOP a three-way instead would put a second
+        // not-taken branch on the SPARSE path and move RASTER_FIRE_BASE_CYC — re-basing
+        // every solved blanking spin and every fixture pin to buy 8 cycles on a path that
+        // fires four times a frame, for a path that fires ninety-six.
+        //
+        // THE PROLOGUE IS DUPLICATED INTO BOTH BODIES, deliberately. It cannot be shared
+        // above the branch: `move.w #imm, (a2)` and `move.l (xxx).L, (a2)` both set the
+        // flags from the data they move, so the N flag the `tst.w` produced does not
+        // survive them. Ten bytes, zero cycles.
+        bmi.s   .ramp_body
         move.w  #RASTER_ARM_EVERY_LINE, (a2)       // reg $0A=0: fire every line
         move.l  Raster_Dense_Cmd, (a2)             // constant command (sets the address)
-        // Which body? Both dense kinds share the every-line arm and the constant command
-        // above, and differ only in where the per-line words come from. One compare, on
-        // the shared prologue, rather than two near-duplicate bodies each re-arming and
-        // re-issuing the command.
-        tst.w   Raster_Dense_Kind
-        bne.s   .ramp_body
         movea.l Raster_Dense_Cursor, a1
         move.w  (a1)+, VDP_DATA
         move.w  (a1)+, VDP_DATA
         move.w  (a1)+, VDP_DATA
         move.l  a1, Raster_Dense_Cursor
+        // The countdown's own Z flag ends the run — the `bra .out` this replaces cost the
+        // same 10 cycles taken, so retiring the mode word is free on every line but the last.
         subq.w  #1, Raster_Dense_Lines
-        jbra    .out
+        bne.s   .out
+        jbra    .dense_end
     .ramp_body:
         // One ramp line: advance the 16.16 accumulator and emit its INTEGER half. `swap`
         // is the whole trick — it moves the high word down with no shift loop, so the
         // fixed-point divide is free. This is Ristar's per-line body (add, shift, store)
         // with the shift folded into the word select.
+        move.w  #RASTER_ARM_EVERY_LINE, (a2)       // reg $0A=0: fire every line
+        move.l  Raster_Dense_Cmd, (a2)             // constant command (sets the address)
         move.l  Raster_Ramp_Acc, d1
         add.l   Raster_Ramp_Step, d1
         move.l  d1, Raster_Ramp_Acc
         swap    d1                                 // high word = integer part
         move.w  d1, VDP_DATA
         subq.w  #1, Raster_Dense_Lines
+        bne.s   .out
+    .dense_end:
+        // The run is over. Nothing else clears this word, and until it is clear every fire
+        // still lands here — so this is the LEAVE edge, and it is reached once per run.
+        clr.w   Raster_Dense_Mode
         jbra    .out
     .park:
         move.w  #RASTER_ARM_PARK, (a2)
@@ -1125,7 +1193,8 @@ pub proc Raster_InstallPatched (a0: u32) clobbers(d0-d4/a0-a2) {
         // A dense run in flight belongs to the OUTGOING program. Nothing else clears it, so
         // crossing from the gradient section into a patched one mid-run leaves the handler in
         // .dense_body streaming a stale cursor while this program's records are never walked.
-        clr.w   Raster_Dense_Lines
+        // The MODE word is the run-active flag (Tier-3 item 3), so it is what disarms a run.
+        clr.w   Raster_Dense_Mode
         // The install half of what Raster_CopyPatchedTemplate used to do. The COPY is gone — the
         // builder re-records the whole schedule from the ROM template at the next VBlank — but
         // these three stores are not the copy and nothing else performs them. Buf_B is named here

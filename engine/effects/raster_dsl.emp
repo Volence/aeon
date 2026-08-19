@@ -1460,6 +1460,40 @@ pub const RASTER_SCANLINE_CYC       = 488
 // `bra.s .advance` beyond the loop tail already charged per op (+14).
 pub const RASTER_FIRE_BASE_CYC      = 302
 
+// ---- the DENSE tier's one cost term (Tier-3 item 3, 2026-08-19) --------------
+// Everything else in this cost model prices the SPARSE tier. The dense tier had no cost
+// term at all until this parcel — which is why a per-scanline claim about it could be
+// booked as "~2,300 cyc/frame" with nothing in the tree able to confirm or refute it.
+//
+// WHAT IT IS: one whole HInt fire taken by `Raster_HInt`'s `.dense_body` — exception
+// entry, the `ints_off` bracket, the movem round trip, the every-line arm write, the
+// constant command, three streamed colour words, the cursor store, the countdown, and the
+// `rte`. It is a WHOLE-FIRE figure, not a marginal one, because a dense line IS a fire.
+//
+// MEASURED, not modelled, and deliberately so. The op model above prices what happens
+// BETWEEN the prologue and the epilogue and charges the rest to RASTER_FIRE_BASE_CYC; a
+// dense line's cost is mostly that same un-modelled overhead, so a "derivation" here would
+// be a second model rather than a use of the first. It is measured the way
+// RASTER_SCANLINE_CYC and RASTER_FIRE_BASE_CYC are: from hardware, by
+// `tools/raster_cost_probe.py`'s FD1/FD2 pair, as the SLOPE between two runs of the same
+// program at 8 and 40 lines so that every shared overhead cancels. `tools/effects_gates.py`
+// re-runs that pair against this constant on every gate run.
+//
+// FIRST MEASUREMENT 2026-08-19, s4.debug.bin crc f5ef3b4e: FD1 4360, FD2 15688,
+// (15688 - 4360) / 32 = 354.0.
+// AFTER the dense-kind hoist (Tier-3 item 3, same day, crc 54f4b253): FD1 4362, FD2 15562,
+// (15562 - 4362) / 32 = 350.0. Four cycles, where the deferred item had booked twenty-four
+// — the difference is the VDP holding the bus across the removed test, and Raster_HInt's
+// `.dense_body` note carries the derivation.
+pub const RASTER_DENSE_LINE_GRAD_CYC = 350
+
+// A dense run fires EVERY line, so its per-line cost must fit inside a scanline or the run
+// eats the line it is supposed to be decorating and the next fire is already late. Nothing
+// checked this before the constant existed, and the margin against 488 is under a third —
+// real, but not so large that a future op added to `.dense_body` could not spend it.
+ensure(RASTER_DENSE_LINE_GRAD_CYC < RASTER_SCANLINE_CYC,
+       "a dense line costs {RASTER_DENSE_LINE_GRAD_CYC} cycles against a {RASTER_SCANLINE_CYC}-cycle scanline. The dense tier re-arms reg $0A = 0 and fires on EVERY line, so a body that does not fit in one line cannot keep up: each fire retires after the next line has already begun and the run slips further behind for its whole length. Take work out of Raster_HInt's .dense_body, or the dense tier stops being a per-scanline instrument.")
+
 // The per-op terms. Each op pays all four.
 pub const RASTER_OP_FETCH_CYC       = 8      // move.w (a1)+, d1
 pub const RASTER_DISPATCH_RUNG_CYC  = 16     // a FAILED rung: cmpi.w #imm,d1 + beq.s not taken

@@ -4984,9 +4984,12 @@ constants and matched hardware exactly.
 
 **STILL OPEN:**
 - Everything else: the rest of Tier 3 perf (the `palette.emp` shift-to-add item, the
-  `palette.emp` tail calls, the `-4(a2)` burst word and the OP_SET_REG dispatch chain all
-  CLOSED 2026-08-19 — see the Tier 3 block below; the dense-kind retest, the raster.emp
-  tail calls and the SR push/pop remain, the last needing owner sign-off; Tier 4 / B2's
+  `palette.emp` tail calls, the `-4(a2)` burst word, the OP_SET_REG dispatch chain and the
+  dense-kind retest all CLOSED 2026-08-19 — see the Tier 3 block below; the raster.emp
+  tail calls and the SR push/pop remain, the last needing owner sign-off, and the dense tier
+  gained two NEW riders on the way out (the `-4(a2)` extension into `.dense_body`, now
+  UNBLOCKED by that parcel's fixtures, and the two trailing fires at ~600 cyc/frame — the
+  larger of the two, and not value-identical); Tier 4 / B2's
   self-test-only variant mirror also CLOSED 2026-08-19, see below), plus C5 footprint, the
   EFX-4b angle, and the zero-`assert.*` observation. Item 3's structural frame-epoch fix also
   remains open (only MITIGATED by the `<= 223` bound).
@@ -5048,8 +5051,11 @@ own parcel off master, then merge master into the P1 branch before Task 9.
 omitted the loop's `dbf`) · ~~`raster.emp:714` OP_SET_REG pays all 5 compare rungs (80 of
 110 cyc; a leading `tst.w d1 / beq` decimates it)~~ **CLOSED 2026-08-19** (see "Tier-3 item 2
 CLOSED" below — landed WITHOUT the `tst.w`: the op fetch's own `move.w` already sets Z, so the
-whole pre-test is one `beq`) · `raster.emp:834` dense kind re-tested per
-scanline, ~2,300 cyc/frame, run-invariant · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
+whole pre-test is one `beq`) · ~~`raster.emp:834` dense kind re-tested per
+scanline, ~2,300 cyc/frame, run-invariant~~ **CLOSED 2026-08-19** (see "Tier-3 item 3 CLOSED"
+below — the hoist landed and is worth **4 cyc/line, not 24**; the booking priced instructions
+nominally in a body the VDP's bus holds. The parcel's durable half is the dense tier's first
+scene, gate and cost row) · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
 (`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
 change AND a novel mechanism: owner sign-off required, do not assume** · ~~`palette.emp` ×6
 `lsl.w #1` → `add.w dN,dN` ~768 cyc/derive~~ **CLOSED 2026-08-19** · 4 missed mandatory tail calls
@@ -5093,6 +5099,96 @@ change AND a novel mechanism: owner sign-off required, do not assume** · ~~`pal
 > — the model does not price the palette derive); `ab_runner --selfcheck` OLD-vs-NEW on all
 > three raster scenes (`mid_band`, `suppressed`, `above_screen`) = **ALL EQUAL (gated)**
 > including `state_hash`, as a value-identical parcel must be.
+
+> **CLOSED 2026-08-19 — Tier-3 item 3, the dense-kind retest** (branch
+> `perf/raster-dense-kind`). Line numbers had drifted again: the retest was at
+> `raster.emp:970` post-item-2.
+>
+> **Read the instrument half first — it is the larger deliverable.** Three prior sessions
+> established the same gap and none could close it: the dense tier had NO cost model, NO gate
+> observing its timing, and NO committed `ab_runner` scene (all three were sparse-tier). So a
+> "~2,300 cyc/frame" claim about the tier that costs ~27% of a frame had nothing in the tree
+> able to confirm or refute it. This parcel shipped the instrument BEFORE the optimization:
+>
+> - **`tools/scenes/effects_raster_dense.json`** — the fourth scene. Reaches `OJZ_TestGradient`
+>   by poking `Camera_X` past the section-2 boundary and letting `Parallax_CheckBoundary`
+>   install `OJZ_Preset_Sec2`, then asserts `Raster_Dense_Cursor == stream + lines *
+>   RASTER_CRAM_MAX * 2` — an equality that holds only if `.dense_body` ran exactly `lines`
+>   times from the right base. Nothing else a scene can read sees that: CRAM is re-asserted at
+>   frame top and the program words are ROM.
+> - **`raster_cost_probe` FD1/FD2** — a dense fixture pair, read only as a SLOPE so every shared
+>   overhead cancels. `dense_program_words` is pinned against `RasterGradientProgram`'s own
+>   fields and `raster_arm`'s own formula (`test_raster_wire_pin.py`, +5 tests).
+> - **`RASTER_DENSE_LINE_GRAD_CYC`** — the dense tier's first cost term, measured (350), with an
+>   invariant nothing checked before: a dense line must fit inside a scanline, because the tier
+>   fires on every one. 350 of 488.
+>
+> *What the instrument then said about the item.* **BEFORE 354.0 cyc/line, AFTER 350.0** — the
+> whole hoist is **4 cycles per line**, 384 cyc/frame on the shipped 96-line gradient, 0.30% of
+> an NTSC frame. The booking's ~2,300 assumed 24 cyc/line (a `tst.w` at 16 plus a branch). Two
+> independent measurements say otherwise: removing the pair measured -4, and inserting a
+> behaviour-neutral `tst.w` in the same position (the cost gate's poison) measured +4. **The
+> missing cycles are the VDP holding the bus.** The test sat directly after
+> `move.l Raster_Dense_Cmd, (a2)`, a control-port write, and during active display the EA read
+> is absorbed into a wait the CPU was already serving. *Nominal 68000 timings over-predict any
+> edit inside `.dense_body`, and the FD pair is now the only thing that can say by how much.*
+> That generalises past this item — it is the reason to distrust the remaining Tier-3 raster
+> bookings' cycle figures until they are measured too.
+>
+> *What shipped.* `Raster_Dense_Kind` (0/1) became `Raster_Dense_Mode`, TRI-STATE: 0 no run,
+> +1 gradient, -1 ramp. It is now both the run-active flag and the body selector, so the
+> top-of-handler `tst.w` answers both questions — `bne` takes the dense side, and its N flag
+> feeds one `bmi.s` there. `Raster_Dense_Lines` is demoted to a pure countdown whose expiry
+> clears the mode. Same RAM slot, same width: **not one RAM address moves**, which is what lets
+> a single symbol table serve both sides of the A/B (`ab_runner` loads one).
+>
+> *The floor, and why the item's own proposal was worse.* A RAM-held body pointer costs MORE:
+> sigil places this RAM in the absolute-SHORT window, so `movea.l (xxx).W, a1` (16) + `jmp (a1)`
+> (8) = 24 against the 20 the two-instruction test cost — before considering that a computed
+> `jmp` defeats contract-closure dataflow. And a three-way branch at the TOP would put a second
+> not-taken branch on the SPARSE path, moving `RASTER_FIRE_BASE_CYC` and re-basing every solved
+> blanking spin and every fixture pin. One conditional branch on the dense side is the floor.
+>
+> *Honest cost.* +34 cycles per RUN per frame (the ENTER's `move.w #1` over `clr.w`, and the
+> `.dense_end` retire), measured as the FD1/FD2 intercept. **Crossover ~9 lines**: a dense run
+> shorter than that is very slightly slower than before. Both shipped runs are 96 lines and an
+> 8-line dense run is a sparse-tier job, but it is a real property.
+>
+> *One correction to the source, found by the fixtures.* The LEAVE schedule said ONE trailing
+> fire after a run; hardware said `lines + 5` fires where `lines + 4` was predicted, at both
+> line counts. There are **TWO** — Ruling 1b keeps the last two dense fires' every-line arms in
+> flight past the end of the run. `raster.emp`'s own authoring rule ("the first post-gradient
+> sparse event must be >= 2 lines below the run's last line") was already right; only the
+> runtime comment was wrong. The derivation was corrected rather than relaxed to the measurement.
+>
+> *Evidence.* Four shapes green (`2da6bcc7` / `54f4b253` / `f38eee3d` / `a931ad3e`). pytest
+> **1074 passed / 2 skipped** (+5, the new wire pins). expect-fail **17/17**. effects gate lane
+> **22/22 PASS exit 0** (19 on master; the three additions are `scene:dense` determinism,
+> `scene:dense` dense tier, and the dense cost row). `ab_runner` OLD-vs-NEW on **all four**
+> scenes = ALL EQUAL (gated) including `state_hash` and the dense runtime state. The item-1b
+> sweep driver, run on OLD and NEW the same hour: **every field identical** — boundaries
+> `[22,25,28,71,74,76]`, window centre 18, 27.5 cyc/burst-word, 490.0 cyc/sampling-period, and
+> every per-N landing and verdict. The sparse tier did not move, as a dense-path-only change
+> must not. Byte accounting: `Raster_HInt` 318 → **332 (+14)**, the only symbol that moved.
+>
+> *Solver:* `RASTER_DENSE_LINE_GRAD_CYC` is the only cost constant this parcel touched, and
+> **the landing solver does not read it** — `fire_spins` / `solve_spin` price ops within a
+> sparse fire and the dense tier has no ops. So no spin re-derives, and the sweep confirms it
+> empirically rather than only by argument.
+>
+> **UNBLOCKED, NOT TAKEN — the `-4(a2)` rider.** Tier-3 item 1 landed `-4(a2)` in `.cram_loop`
+> only and left `.dense_body`'s three `move.w (a1)+, VDP_DATA` (20 cyc each) alone because
+> nothing could measure the dense tier. FD1/FD2 can now. **Do not assume it is worth 4×3=12
+> cyc/line**: those three writes sit in the same VDP-held window that ate this parcel's 8
+> cycles, so the fixture pair must rule, not the instruction table. Same rider, same caveat,
+> for `.dense_body`'s cursor reload.
+>
+> **A SECOND RIDER, worth more than either — the two trailing fires.** Each is a full sparse
+> fire (~300 cyc) doing nothing but walking the terminator, twice per frame per dense run:
+> ~600 cyc/frame, larger than this whole parcel. Falling `.dense_end` into `.park` would write
+> `$8AFF` over the run's last `$8A00` and suppress both. It is NOT a value-identical change —
+> it alters the LEAVE schedule that a post-dense sparse record depends on — so it needs its own
+> parcel, its own authoring rule, and the dense scene to gate it. Booked, not taken.
 
 > **CLOSED 2026-08-19 — Tier-3 item 2, the dispatch chain** (branch
 > `perf/raster-dispatch-chain`, commit `0b1ad989`). Line numbers had drifted: the chain is at
