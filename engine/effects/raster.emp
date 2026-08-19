@@ -119,8 +119,9 @@ pub const OP_CRAM       = 2
 // the SPIN, not multiple interrupts. S3K's HInt2 (:1230), Sonic 2's PalToCRAM and S.C.E.'s
 // HInt each write 64 CRAM words in a single fire with no delay at all. Ours trades six
 // exception entries for a handler that stays inside the ~60-cycle budget with no Z80 stop
-// and no long in-handler spin: EFX_BLANK_DELAY below is the same idea as S3K's spin at
-// ~40 cycles instead of ~370, because it has to cover three words, not sixteen colours.
+// and no long in-handler spin: the per-op blanking spin below is the same idea as S3K's
+// spin at ~40-220 cycles instead of ~370, because it has to cover three words, not sixteen
+// colours — and unlike S3K's it is solved per op rather than hand-counted once.
 //
 // The water cluster (Task 7) uses the scoped form: swap the handful of body colours at
 // the water line, not the whole line.
@@ -182,8 +183,8 @@ pub const OP_RUN_RAMP = 8
 //   dc.w count-1                          count <= RASTER_CRAM_MAX
 //   dc.w addr                             snapshot offset == CRAM byte address
 // Appended LAST for two invariants, neither of them body bytes: (1) .op_region keeps
-// dispatch DEPTH 1, so the EFX_BLANK_DELAY=4 calibration measured at that depth stays
-// valid (renumbering would add rungs ahead of an oracle-tuned landing); (2) F1=396
+// dispatch DEPTH 1, which the spin solver prices explicitly — renumbering would silently
+// move every region op's landing, since depth is one of the solver's inputs; (2) F1=396
 // proved the chain assembles byte-displacement Bcc — a mid-chain insertion risks a
 // silent word-relaxation (+4/rung) failing the pins while blaming the cost model.
 // The SetReg fall-through pays the +16 rung tax (F1 396->412, F5 612->628, re-pinned
@@ -231,7 +232,7 @@ pub const RASTER_CRAM_MAX = 3
 //
 // THE SPIN IS NO LONGER A CONSTANT HERE. It is a comptime-solved word carried by each
 // stream op in the program, read by the three delay sites below with `move.w (a1)+, d1`.
-// The authority is `op_spin_iters` in engine/effects/raster_dsl.emp.
+// The authority is `fire_spins` / `solve_spin` in engine/effects/raster_dsl.emp.
 //
 // WHY THE CONSTANTS DIED (substrate sweep item 1, 2026-08-18). `EFX_BLANK_DELAY = 4` was
 // fitted to ONE shape: a CRAM op sitting SECOND, after an OP_SET_REG, which contributes
@@ -243,10 +244,13 @@ pub const RASTER_CRAM_MAX = 3
 // because the distance to blanking depends on the op's POSITION and DISPATCH DEPTH, which
 // only the lowering knows. So the lowering computes it.
 //
-// The calibration history those two constants carried is preserved at op_spin_iters,
-// including the measured pixel/cycle conversion the whole solver rests on. The old
-// `EFX_RESTORE_DELAY = 13` and `EFX_BLANK_DELAY = 4` are now OUTPUTS of that solver for
-// their respective shapes, not inputs to it.
+// AND SINCE ITEM 1c THE SOLVER IS REAL (2026-08-19). The three per-CLASS anchors that
+// stood in for the constants (4/4/13) are gone too; the spin is centred in a blanking
+// window MEASURED on hardware, and the retired values are now REPRODUCED as facts about
+// that window rather than fed into it: 13 is the latest spin whose 3-word restore burst
+// still beats the sampling instant, and 4 lands the reg-prefixed cram 2.1 cycles (1.8 px)
+// short of the window opening — which is the '1px -> 0px' the P2 gate measured on that
+// exact fixture. Both are pinned in raster_dsl.emp beside the window constant.
 
 // Working-buffer size (bytes). Buf_B is the Phase-2 patch/double-buffer seam;
 // P1 runs entirely out of Buf_A.
@@ -848,32 +852,29 @@ pub proc Raster_HInt () clobbers() preserves(d0-d1/a1-a2) {
         // Band OFF edge: stream base colours from the ship snapshot. .op_region's shape
         // with TWO deliberate differences: the source is Palette_Ship_Snap (whose offset
         // IS the CRAM byte address — BuildStaticDMA maps Palette_Buffer+$00/20/40/60 to
-        // CRAM $00/20/40/60 1:1), and its delay spin is EFX_RESTORE_DELAY, its OWN knob —
-        // never EFX_BLANK_DELAY (depth-4 dispatch changes the arithmetic). CALIBRATED
-        // 2026-08-17, the §7.3 first-datum capture: at ZERO delay the burst completed at
-        // x~180 of the row ABOVE the authored edge (leading-early by ~150 cyc — and the
-        // bare single-op cram ON fire spilled identically at x~170, confirming sweep 4's
-        // anchor finding: the clean mixed-shape evidence never covered single-op fires;
-        // the measured restore-vs-cram offset, ~10 px, matched the pinned model within
-        // 2 cyc). The value below was JUMPED to from the measured deficit, and then
-        // pixel-verified: authored edge row fully tinted, next row fully base.
+        // CRAM $00/20/40/60 1:1), and its delay spin — like every stream op's since
+        // substrate item 1c — is SOLVED for this op at this position, from a blanking
+        // window measured on hardware. There is no per-class knob here any more and no
+        // ladder to walk: the restore's depth-4 dispatch (82 cyc) and its deeper
+        // pre-burst arm (56 cyc against cram's 36) are inputs the solver reads, which is
+        // what the old "its OWN knob, never EFX_BLANK_DELAY" was groping at.
         //
-        // THE PRE-BURST DELAY THIS WAS FITTED TO. The clean mixed shape carries ~168 cyc:
-        // SetReg 110 + spin 58. The 94 this line used to give was the RUNGS=4 figure,
-        // superseded by R1's fifth dispatch rung. Derivation from the live model in
-        // raster_dsl.emp: an OP_SET_REG costs RASTER_OP_FETCH_CYC 8 +
-        // RASTER_DISPATCH_RUNG_CYC 16 * RASTER_DISPATCH_RUNGS 5 + RASTER_WORK_REG_CYC 12 +
-        // RASTER_OP_TAIL_CYC 10 = 110, which is also what fixture F1's pin measures:
-        // 412 = base 302 + 110, "was 396 at RUNGS=4". (~168 is not a complete pre-burst
-        // accounting — it omits the CRAM op's own fetch/dispatch/move.l, ~46 cyc — but the
-        // stale ~152 omitted the identical terms, so the load-bearing quantity, the
-        // 110-cycle single-op-vs-two-op gap, is invariant to that.)
+        // THE HISTORY, KEPT BECAUSE IT IS EVIDENCE AND NOT MERELY PROVENANCE. The R1
+        // §7.3 first-datum capture (2026-08-17) put the burst at ZERO delay at x~180 of
+        // the row ABOVE the authored edge, and the bare single-op cram ON fire spilled
+        // identically at x~170 — the finding that the clean mixed-shape evidence never
+        // covered single-op fires at all. The value jumped to from that deficit, 13, was
+        // pixel-verified (authored edge row fully tinted, next row fully base) and is now
+        // REPRODUCED by the solver as the latest spin whose 3-word burst still beats the
+        // sampling instant (raster_dsl.emp, PIN 3). The solver ships 10 instead: 13 sat
+        // at the window's far edge, and centring gives 30 cycles back.
         //
-        // NOTE THIS WIDENS RATHER THAN NARROWS the open single-op defect: a leading
-        // stream op still carries only ~58 cyc, so the gap against this shape is bigger
-        // than the stale 152 implied. Booked in docs/DEFERRED_WORK.md, sweep item 1.
-        // Ladder if it ever drifts: leading dots -> raise; trailing dots -> lower;
-        // neither adjacent value clean -> narrow the stream count (spec §3.2).
+        // The 110-cycle single-op-vs-two-op gap that framed all of this is still exactly
+        // right and is now spent rather than argued about: an OP_SET_REG costs
+        // RASTER_OP_FETCH_CYC 8 + RASTER_DISPATCH_RUNG_CYC 16 * RASTER_DISPATCH_RUNGS 5 +
+        // RASTER_WORK_REG_CYC 12 + RASTER_OP_TAIL_CYC 10 = 110, which is fixture F1's pin
+        // (412 = base 302 + 110), and it is exactly the 11 iterations by which a solved
+        // second-position spin undercuts the same op's leading spin.
         move.l  (a1)+, (a2)             // CRAM write command longword (a2 = VDP_CTRL)
         move.w  (a1)+, d1               // spin iterations, comptime-solved for this op
     .restore_delay:

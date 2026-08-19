@@ -9,11 +9,13 @@
 // inside the per-fire ceiling of four, one stream op is inside the ceiling of two,
 // and three words is exactly RASTER_CRAM_MAX.
 //
-// It is still wrong. The restore has NO EFX_BLANK_DELAY spin — its landing in the
-// blanking bracket is calibrated as the first thing the fire does (spec §3.2) — so
-// a 110-cycle register write ahead of it pushes the restore out of the bracket with
-// no delay left anywhere to recover it. The de-mix pair for an S/H band is a
-// reg_set a line ABOVE and the restore alone on the bottom line.
+// It is still wrong, and item 1c sharpened rather than removed the reason. The spin
+// solver would re-time this restore rather than mis-time it — but a restore is the
+// deepest-dispatch op with the widest legal burst, so it starts with the least slack
+// of anything in the DSL, and a 110-cycle register write ahead of it clamps its solved
+// spin to ZERO: it lands inside the window off-centre with no iteration left to spend.
+// The de-mix pair for an S/H band is a reg_set a line ABOVE and the restore alone on
+// the bottom line, which keeps that placement unconditional.
 //
 // NO IMPORTS — see poison_two_restores.emp's note.
 module games.sonic4.test.poison.poison_setreg_on_restore

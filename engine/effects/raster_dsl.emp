@@ -287,7 +287,7 @@ pub comptime fn stream_vsram(addr: int, values: array) -> RasterOp {
            "stream_vsram: VSRAM byte address {addr} outside 0..78 (VSRAM is 80 bytes = 40 word entries; entry 2n is plane A of the n-th 16-pixel column, 2n+1 is plane B)")
     ensure((addr & 1) == 0, "stream_vsram: VSRAM byte address {addr} is odd — scroll values are words")
     ensure(values.len >= 1 && values.len <= 3,
-           "stream_vsram: {values.len} words exceeds RASTER_CRAM_MAX (3). The ceiling is the per-fire CYCLE budget, not a CRAM or FIFO limit, so a VSRAM write spends it exactly like a colour write does: same dispatch, same EFX_BLANK_DELAY, same word loop.")
+           "stream_vsram: {values.len} words exceeds RASTER_CRAM_MAX (3). The ceiling is the per-fire CYCLE budget, not a CRAM or FIFO limit, so a VSRAM write spends it exactly like a colour write does: same dispatch, same solved blanking spin, same word loop.")
     ensure(addr + 2 * values.len <= 80,
            "stream_vsram: {values.len} words from byte {addr} runs past the end of VSRAM (80 bytes)")
     return RasterOp.Vsram(addr, values)
@@ -334,11 +334,12 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     //                                 chain's FALL-THROUGH (raster.emp, Raster_HInt
     //                                 .op_loop), so it is the most expensive to DISPATCH.
     //   2. stream ops      <= 2   each of stream_cram/stream_pal_region/stream_vsram/pal_restore pays its own
-    //                                 dispatch AND its own EFX_BLANK_DELAY spin (.op_cram /
-    //                                 .op_region), and that spin is the whole mechanism
-    //                                 that parks a write in HBlank (the restore op deliberately
-    //                                 has NO spin — its landing is bracket-calibrated separately,
-    //                                 spec §3.2).
+    //                                 dispatch AND its own solved blanking spin (.op_cram /
+    //                                 .op_region / .op_pal_restore), and that spin is the whole
+    //                                 mechanism that parks a write in HBlank. Since item 1c the
+    //                                 second one is not merely dear but UNPLACEABLE — two bursts
+    //                                 span more than the window is wide — and check_landings
+    //                                 says so by name at emission.
     //   3. stream words    <= 3   RASTER_CRAM_MAX — the writes themselves.
     // All three are PER-FIRE. `stream_cram`/`stream_pal_region`/`stream_vsram`/`pal_restore` also bound their OWN word count,
     // which is necessary and not sufficient: three 3-word ops satisfy every per-op guard.
@@ -362,7 +363,7 @@ pub comptime fn fire(line: int, ops: array) -> RasterFire {
     ensure(ops.len <= 4,
            "fire at screen line {line}: {ops.len} ops exceeds the per-fire ceiling of 4. Every op costs a walk of Raster_HInt's compare chain before it does any work, and OP_SET_REG — the cheap-looking one — is the chain's fall-through, so it is the most expensive op to dispatch. Four is a structural ceiling, not a measured one: the richest fire anything has ever run is two ops. Split the work across consecutive fires.")
     ensure(stream_ops <= 2,
-           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram / pal_restore) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own EFX_BLANK_DELAY spin (the restore op deliberately has NO spin — its landing is bracket-calibrated separately, spec §3.2), and that spin is what parks the write offscreen. WHAT IS ACTUALLY MEASURED TO LAND IN HBLANK is ONE stream op sitting SECOND, after a reg_set: the row-119 evidence is the fixture fire(120, [reg_sh_on(), stream_cram($4A, [$000E])]) reading 1px -> 0px (docs/benchmarks/effects-p2/GATE-EVIDENCE.md). Correcting this text 2026-08-18: it used to say the FIRST op's writes were the measured ones, which is the opposite of that fixture's op order. A LEADING stream op is NOT covered by any measurement and is a KNOWN OPEN DEFECT rather than a handled case — EFX_BLANK_DELAY = 4 was fitted to the ~168-cycle reg_set-prefixed shape, while a fire whose first op streams carries only ~58 cycles of pre-burst delay and was measured spilling at x~170 of 320, i.e. mid-active-display (raster.emp's .op_pal_restore calibration note; booked in docs/DEFERRED_WORK.md, raster substrate sweep item 1). Until that lands: author ONE stream op per fire, SECOND, after a reg_set, and use consecutive fires for more. A single-op stream fire — which band(sh: 0), region_boundary(sh: 0) and fx_tint_band(sh: 0) all still produce — is expected to paint a visible dot, and NOTHING here refuses it. A second stream op on the same line is likewise admitted only for the case where you have measured that you can live with its dot.")
+           "fire at screen line {line}: {stream_ops} stream ops (stream_cram / stream_pal_region / stream_vsram / pal_restore) exceeds the per-fire ceiling of 2. Each one issues its own command longword and burns its own blanking spin, and that spin is what parks the write offscreen. WHERE THE SPIN COMES FROM, since substrate item 1c: the lowering SOLVES it per op, from the op's position in this fire and its dispatch depth, to centre the burst in the blanking window measured 2026-08-19 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md). A LEADING stream op is no longer a defect — it gets a LARGER spin than the same op sitting after a reg_set (18 vs 7 iterations for a 3-word cram), which is exactly what the retired per-class constants could not express, and raster_program refuses any op whose solved landing still misses the window. So band(sh: 0), region_boundary(sh: 0) and fx_tint_band(sh: 0) are now first-class shapes, not dot-painters. THE CEILING OF 2 STILL STANDS, and for a reason the solver does not remove: two bursts in one fire span at least 120 cycles against a 122.9-cycle window, so a second stream op cannot be placed at all — check_landings will refuse it by name when the program is emitted. Split the writes across consecutive fires; this ceiling is the earlier, cheaper diagnosis of the same fact.")
     ensure(stream_words <= 3,
            "fire at screen line {line}: {stream_words} stream words across {ops.len} ops exceeds RASTER_CRAM_MAX (3). That is a PER-FIRE budget: split the writes across consecutive fires — a full 16-colour line takes ceil(16/3) = 6 of them, one per scanline. That six-fire idiom is OURS, not a reference's: S3K's HInt3 swaps a whole water palette in ONE interrupt (park the counter, stop the Z80, then repeat: fresh CRAM command, 3 colours, a cycle-counted ~370-cycle dbf spin), and S3K's HInt2, Sonic 2's PalToCRAM and S.C.E.'s HInt each write 64 CRAM words in a single fire with no delay at all. Ours is dot-free by construction and pays six exception entries for it; the spacing in S3K comes from the spin, not from multiple interrupts.")
     return RasterFire.Fire(line, ops)
@@ -665,9 +666,12 @@ pub comptime fn band(top: int, bot: int, on: RasterOp, sh: int) -> array {
     //
     // AND IT CANNOT FIRE TODAY — stated rather than left to be rediscovered. band()'s
     // merged fire is exactly two ops, `reg_sh_on` (110 cyc) plus the ON op, and the
-    // dearest ON op the constructors admit is a 3-word `stream_pal_region` at 264, so the
-    // merged fire tops out at 302 + 110 + 264 = 676 against the 2 x 488 = 976 that height
-    // 3 buys. It is kept anyway, and NOT as belt-and-braces: `>= 3` is a LITERAL and 676
+    // dearest ON op the constructors admit is a 3-word `stream_pal_region`, which at its
+    // SECOND-POSITION solved spin of 4 costs 268, so the merged fire tops out at
+    // 302 + 110 + 268 = 680 against the 2 x 488 = 976 that height 3 buys. (It was 676 here
+    // until item 1a's +4-per-stream-op and 680 has been the truth since; item 1c leaves it
+    // put, because the region op in a merged fire is the one shape whose spin did not
+    // move.) It is kept anyway, and NOT as belt-and-braces: `>= 3` is a LITERAL and 680
     // is a fact about six measured constants, two of which moved this week (the dispatch
     // chain grew a rung, and RASTER_WORK_RESTORE_CYC was measured at all). This is the
     // cost-keyed half CLAIM D-D asks for — the thing that notices when the model moves the
@@ -1249,8 +1253,8 @@ comptime fn op_mask(o: RasterOp) -> int {
 }
 
 // op_is_reg — 1 for the one op that writes a register with NO blanking delay, 0 for
-// every "stream" op (stream_cram / stream_pal_region / stream_vsram / pal_restore: command longword, EFX_BLANK_DELAY,
-// word loop). That split is the runtime's, not a taxonomy: it is what makes both the
+// every "stream" op (stream_cram / stream_pal_region / stream_vsram / pal_restore: command longword, solved
+// blanking spin, word loop). That split is the runtime's, not a taxonomy: it is what makes both the
 // ordering rule (check_mixed_fire) and the stream op ceiling (fire) mean something.
 comptime fn op_is_reg(o: RasterOp) -> int {
     return match o {
@@ -1326,7 +1330,7 @@ comptime fn prog_mask(fires: array) -> int {
 // stream_cram fire. The handler is target-agnostic — a VSRAM op IS an OP_CRAM with a
 // different command longword — so the two costs are the same instruction path and there is
 // nothing to split on the CYCLE side. The open op-class split (booked) is about
-// EFX_BLANK_DELAY and the RASTER_CRAM_MAX ceiling, i.e. whether a VSRAM write needs to be
+// the blanking spin and the RASTER_CRAM_MAX ceiling, i.e. whether a VSRAM write needs to be
 // parked in HBlank at all; if that lands it removes work and only makes fires CHEAPER, so
 // nothing this model admits today becomes illegal under it.
 pub const RASTER_SCANLINE_CYC       = 488
@@ -1650,7 +1654,8 @@ comptime fn check_intervals(fires: array) -> int {
 // WITHOUT THIS, THE GUARD GOES VACUOUS THE MOMENT A FIRE CAN MOVE. Two channels banded
 // 40..120 and 121..200 with authored lines 100 apart pass the AUTHORED-line check trivially
 // (gap 100 lines) and then clamp to 120 and 121 at runtime — one scanline apart, two
-// 3-word stream_cram fires at a measured 518 cycles against a 488-cycle line, which is
+// 3-word stream_cram fires at a modelled 662 cycles against a 488-cycle line (measured 518
+// before item 1a's +4 and item 1c's solved spin; the overrun only got worse), which is
 // precisely the overrun this guard exists to refuse.
 comptime fn check_density(fires: array) -> int {
     comptime var i = 0
@@ -1711,7 +1716,7 @@ comptime fn arm_at(L: array, i: int) -> int {
 
 // check_mixed_fire — ruling 14. In a fire mixing OP_SET_REG with a stream op, the
 // SET_REGs must form a PREFIX: every one of them before every stream op. OP_SET_REG
-// writes with no delay while every stream op burns EFX_BLANK_DELAY first, so a SET_REG
+// writes with no delay while every stream op burns its solved spin first, so a SET_REG
 // placed after one executes strictly later in the line — a worse artifact than the measured
 // one, and invisible to an author.
 //
@@ -1738,7 +1743,7 @@ comptime fn check_mixed_fire(f: RasterFire) -> int {
         i = i + 1
     }
     ensure(n_set == 0 || n_cram == 0 || last_set < first_cram,
-           "raster fire at screen line {fire_screen_line(f)}: in a mixed fire EVERY OP_SET_REG must precede EVERY stream op, but the SET_REG at index {last_set} runs after the stream op at index {first_cram}. A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp, the row-119 note); a SET_REG placed after a stream op is pushed strictly later still, because those ops burn EFX_BLANK_DELAY and SET_REG does not. Move the register writes to the front of the op list, or schedule a pixel-clean mode change a line earlier.")
+           "raster fire at screen line {fire_screen_line(f)}: in a mixed fire EVERY OP_SET_REG must precede EVERY stream op, but the SET_REG at index {last_set} runs after the stream op at index {first_cram}. A mixed fire already switches its mode register ~45% across the line (measured, engine/effects/raster.emp, the row-119 note); a SET_REG placed after a stream op is pushed strictly later still, because those ops burn their solved blanking spin and SET_REG does not. Move the register writes to the front of the op list, or schedule a pixel-clean mode change a line earlier.")
     return 0
 }
 
@@ -1903,11 +1908,18 @@ pub comptime fn raster_program(fires: array) {
 
         // ---- D-B: the restore's fire is a SINGLE-OP fire (spec §4.2a) ----------
         // Not a tidiness rule and not covered by the per-fire ceilings above: two ops
-        // is legal for every other fire in the tree. What is special about this one is
-        // that the restore has no EFX_BLANK_DELAY of its own — its landing inside the
-        // blanking bracket is calibrated as the FIRST thing the record does (spec
-        // §3.2) — so anything ahead of it spends the bracket and nothing behind it can
-        // give the time back. This is also what deadens the same-line ensure above.
+        // is legal for every other fire in the tree. RESTATED for item 1c, because the
+        // reason changed under it: the rule used to rest on the restore having a fixed
+        // hand-calibrated spin that only worked as the record's first act, and the solver
+        // does re-time a restore sitting second rather than mis-timing it. What survives
+        // is a HEADROOM argument, and it is a real one. A restore is the DEEPEST op in the
+        // dispatch chain (four failed rungs, 82 cycles) and carries the widest legal
+        // burst, so it starts with the least slack of any op; put 110 cycles of SetReg
+        // ahead of it and the solved spin clamps to ZERO — it lands inside the window, but
+        // off-centre and with every iteration already spent, so nothing absorbs the next
+        // change to a cost term. Keeping the restore alone is what makes its placement
+        // unconditional rather than a per-band arithmetic question. This is also what
+        // deadens the same-line ensure above.
         for f in fires {
             comptime var has_r = 0
             comptime var n_ops = 0
@@ -1916,7 +1928,7 @@ pub comptime fn raster_program(fires: array) {
                 n_ops = n_ops + 1
             }
             ensure(has_r == 0 || n_ops == 1,
-                   "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it costs 110 cyc no delay can recover, and a second stream op races it for the one measured HBlank slot (spec §4.2a, claim D-B). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
+                   "raster_program: the fire at line {fire_screen_line(f)} carries the restore plus {n_ops - 1} other op(s) — the restore's fire carries the restore ONLY: a SetReg ahead of it clamps its solved spin to zero, spending the headroom the deepest-dispatch op has least of, and a second stream op cannot be placed in the same blanking window at all (spec §4.2a, claim D-B; see check_landings). S/H bands end with the static de-mix pair: reg_set a line above, restore alone on the bottom line.")
         }
 
         // ---- CLAIM 6: no band in a program that ships (spec §4.3) --------------
