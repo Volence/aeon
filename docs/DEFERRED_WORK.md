@@ -4983,8 +4983,10 @@ constants and matched hardware exactly.
   `raster-spin-solver-1c`, paired merge recorded in the sigil provenance chain.
 
 **STILL OPEN:**
-- Everything else: the rest of Tier 3 perf (the `palette.emp` shift-to-add item and the
-  `palette.emp` tail calls CLOSED 2026-08-19 — see the Tier 3 block below), Tier 4 / B2 (`palette_dsl`'s
+- Everything else: the rest of Tier 3 perf (the `palette.emp` shift-to-add item, the
+  `palette.emp` tail calls, the `-4(a2)` burst word and the OP_SET_REG dispatch chain all
+  CLOSED 2026-08-19 — see the Tier 3 block below; the dense-kind retest and the SR push/pop
+  remain, the latter needing owner sign-off), Tier 4 / B2 (`palette_dsl`'s
   self-test-only variant mirror), plus C5 footprint, the EFX-4b angle, and the
   zero-`assert.*` observation. Item 3's structural frame-epoch fix also remains open
   (only MITIGATED by the `<= 223` bound).
