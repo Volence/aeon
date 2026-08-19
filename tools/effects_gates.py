@@ -30,9 +30,16 @@ WHAT IT RUNS
      the values in the .emp are pinned to each other at build time, but only this checks them
      against hardware. F1 earns its place separately — it is the fall-through op, so it is the
      only fixture that moves when the dispatch chain grows.
+  6. demo specialisation witness (P2 Task 8) — span absence PLUS the committed per-proc image
+     pin. Lives in its own tool because its two halves fail on different things; run from here
+     because this is the post-build command and the pytest lane runs before sigil.
+
+Gate 6 boots no emulator, but it needs a listing, so it cannot go in build.sh either
+(build.sh runs pytest BEFORE the build — a listing read there is the previous build's).
 
 Usage:
-    python3 tools/effects_gates.py [--rom s4.debug.bin] [--lst s4.debug.lst] [--only NAME,...]
+    python3 tools/effects_gates.py [--rom s4.debug.bin] [--lst s4.debug.lst]
+                                   [--demo-lst demo.debug.lst] [--only NAME,...]
 Exit: 0 all gates pass · 1 a gate failed · 2 a gate could not run (scene/setup problem)
 """
 import argparse
@@ -109,6 +116,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", default=str(AEON / "s4.debug.bin"))
     ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
+    ap.add_argument("--demo-lst", default=str(AEON / "demo.debug.lst"),
+                    help="the ZERO-capability fixture; the span gates are a two-fixture "
+                         "differential and cannot run against one build")
     ap.add_argument("--only", default="", help="comma-separated gate names")
     args = ap.parse_args()
     rom, lst = str(Path(args.rom).resolve()), str(Path(args.lst).resolve())
@@ -267,6 +277,13 @@ def main() -> int:
                             f"F8 is the restore)", ok,
                             f"measured F0={got_f0} F1={got_f1} F3={got_f3} F4={got_f4} "
                             f"F5={got_f5} F8={got_f8}"))
+
+    # ------------------------------------------------------------------
+    # 6. The demo witness (Task 8): span absence + the committed per-proc image pin.
+    if wanted("demo_witness"):
+        ok, msg = run(["python3", str(AEON / "tools/demo_specialization_witness.py"),
+                       "--sonic4-lst", lst, "--demo-lst", args.demo_lst], "demo_witness")
+        results.append(("demo_witness (span absence + image pin)", ok, msg))
 
     print()
     bad = 0
