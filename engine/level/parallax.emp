@@ -1227,8 +1227,16 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
         // either the config's own data or the vscroll-rotated shadow view)
         lea     Hscroll_Buffer, a4                  // (Hscroll_Buffer).w — output ptr
+        // CAP_DEFORM span, second site in this proc — the two table pointers the
+        // sampling block is the ONLY reader of. A separate span name (not a second
+        // `cap_deform_sample`) because two labels of one name in a proc is a
+        // redefinition; the capability half is what ties them together.
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
+    .cap_deform_tables_begin:
         movea.l parallax_config.pcfg_deform_table_fg(a0), a5  // NULL = no FG sampling
         movea.l parallax_config.pcfg_deform_table_bg(a0), a6  // NULL = no BG sampling
+    .cap_deform_tables_end:
+    }
 
         moveq   #0, d4                              // current line index (0..223)
 
@@ -1257,6 +1265,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // eliding removes the dead decisions AND the three loops, and `.lp_flat` is
         // the structural fallthrough. NESTED inside `cap_per_line_body`, because
         // sampling is only reachable through the per-line filler.
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
     .cap_deform_sample_begin:
         // FG active: table non-NULL AND shift_a != 15
         cmpa.w  #0, a5
@@ -1382,6 +1391,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         blo     .lg_line
         jbra    .band_done
     .cap_deform_sample_end:
+    }
 
 // --- FLAT: same longword for every line of the band (8x unrolled + tail) ---
     // Band line spans USED to be guaranteed multiples of 8 — tops were Plane-B cell
