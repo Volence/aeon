@@ -489,3 +489,70 @@ python3 tools/hblank_window_sweep.py --only a2,sweep --addr 0x4A --mask 0x0002
 python3 tools/hblank_window_sweep.py --only sweep --lo 0 --hi 200 --rows 12
                                                                    # the four line boundaries
 ```
+
+---
+
+## Re-run 2026-08-19 — substrate Tier-3 item 1 (the `-4(a2)` burst word)
+
+The sweep above measured the pre-item-1 handler. Item 1 changed `.cram_loop`'s write from
+`move.w (a1)+, VDP_DATA` (absolute long, 20 cycles) to `move.w (a1)+, -4(a2)` (a2 still holds
+VDP_CTRL, so VDP_DATA is d16(An), 16 cycles), taking a CRAM burst word from 30 cycles to 26.
+The same driver, the same fixture and the same flags were re-run against the changed ROM, and
+this section is that run. **Nothing here was re-baselined**: the two runs are compared
+boundary by boundary, and the value of the comparison is that only one of the two edges was
+supposed to move.
+
+```
+python3 tools/hblank_window_sweep.py --rom s4.debug.bin --lst s4.debug.lst --only sweep \
+        --lo 0 --hi 200 --rows 12
+```
+
+| | pre-item-1 | post-item-1 |
+|---|---|---|
+| boundaries at N | `22, 25, 28 · 71, 74, 77 · 119, 123, 126 · 169, 172, 174` | `23, 26, 28 · 72, 75, 77 · 120, 123, 126 · 170, 173, 174` |
+| within-group step | `[3,3,3,3,4,3,3,2]` -> **30.0 cyc/word** (8 intervals) | `[3,2,3,2,3,3,3,1]` -> **25.0 cyc/word** (8 intervals) |
+| between-group step | 490.0 cyc/sampling period (line 488.6, ratio 1.0029) | 490.0 cyc/sampling period (identical - the instrument did not move) |
+| burst span, first write -> last | 60 cyc | 50 cyc |
+| first word's crossing N | 27.5 MEASURED | 27.5 MEASURED |
+| upper edge N (last word) | 21.5 MEASURED | 22.5 MEASURED |
+| lower edge N | 15.21 DERIVED | 15.21 DERIVED |
+| clean N | 16..21, **CENTRE 18** | 16..22, **CENTRE 19** |
+
+### What the boundary-by-boundary delta says
+
+```
+old  [22, 25, 28 | 71, 74, 77 | 119, 123, 126 | 169, 172, 174]
+new  [23, 26, 28 | 72, 75, 77 | 120, 123, 126 | 170, 173, 174]
+d      +1  +1   0 | +1  +1   0 |  +1    0    0 |  +1   +1    0
+```
+
+* **The group's LAST boundary did not move in any of the four groups** - 28, 77, 126, 174,
+  identical. That boundary is the FIRST burst word crossing the sampling instant, and its
+  arrival is fetch + dispatch + pre-burst + spin. Item 1 touched none of those, so the burst
+  does not start later, and this is the control that says the change stayed inside the loop.
+* **The group's FIRST boundary moved +1 N in all four groups** - that is the LAST word, and
+  the burst now ends sooner. Two words at 26 rather than 30 is 8 cycles; the instrument
+  resolves 10 cycles per N, so +1 is what an 8-cycle narrowing looks like.
+* The middle word moved +1 in three groups of four, which is what a 0.4 N shift looks like
+  through an integer-N instrument whose sampling period (48.86 N) drifts against the grid.
+
+### Why the summary statistic reads 25.0 against a derived 26.0
+
+A boundary is localized to +-0.5 N = +-5 cycles, so a two-interval span reads +-10 cycles.
+The pre-item-1 run read exactly 30.0 because 3.0 N is a whole number of `dbf` iterations;
+2.6 N is not, so the new spacing aliases into steps of 3, 2 and 1 that average low. The
+constant is a cycle table and not a fit - MOVE.W with source `(An)+` and destination `d16(An)`
+is 16 cycles, `dbf` taken is 10, and no reading of the table produces 25. What the instrument
+can and does discriminate is the direction and the rough size, and both are right.
+
+The region and restore burst loops keep the 30-cycle word (their a2 is a source cursor, so
+their write has no base register and stays the absolute long form). They are not swept here;
+they are pinned as the untouched controls F4 and F8 in `raster_dsl.emp`'s fixture block.
+
+### For a future `RASTER_CRAM_MAX` parcel
+
+The measured clean band is now **[15.21, 22.5]**, i.e. 7.3 iterations wide where it was 6.3.
+That extra iteration is the 8 cycles a 3-word CRAM burst stopped spending. A 4-word CRAM
+burst would span `3 x 26 = 78` cycles against the 122.9-cycle window, leaving 44.9 for both
+margins where the guard wants 30 - so four words is arithmetically placeable for the CRAM
+class and NOT for the deep class (`3 x 30 = 90`, leaving 32.9). See `docs/DEFERRED_WORK.md`.

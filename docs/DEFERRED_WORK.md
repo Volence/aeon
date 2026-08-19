@@ -4927,7 +4927,10 @@ constants and matched hardware exactly.
   (repeated at four consecutive line boundaries): **upper edge N = 21.5 MEASURED, lower edge
   N = 15.21 DERIVED from the 122.9-cycle H40 blanking width, clean integers 16..21,
   CENTRE 18.** Two by-products: `RASTER_STREAM_WORD_CYC = 30` is confirmed against hardware
-  for the first time (8 independent intervals), and the spec's own §4 fixture was measured
+  for the first time (8 independent intervals) — **superseded 2026-08-19 by Tier-3 item 1,
+  which made the CRAM word 26 and re-ran this sweep: N = 23/26/28, upper edge 22.5,
+  CENTRE 19; the numbers in this bullet are the pre-item-1 handler's and stay as the record
+  of what was measured then** — and the spec's own §4 fixture was measured
   VACUOUS for two independent reasons, both fixed before any sweep number was recorded. The
   instrument's own limit is booked there too — `emulator/scanlines` renders a row atomically
   at line start, so a landing resolves to +/-1 scanline and the early edge is not observable.
@@ -5016,8 +5019,9 @@ own parcel off master, then merge master into the P1 branch before Task 9.
 | 7 | `tools/effects_budget_model.toml:55` | zero | Per-fire rows contradict a live `ensure`: `sparse_fire_reg1_cycles = 396` vs `raster_dsl.emp:1124` pinning F1 at **412**; water fire 660 vs 676. `effects_budget_check.py` gates only the `[symbols]` table and `sparse_fire_*` is read by NOTHING. The file has a `_SUPERSEDED` convention it failed to apply. Three seats found this independently. |
 
 **Tier 3 perf — deliberately AFTER the freeze, as byte-moving parcels** (ranked by leverage):
-`raster.emp:736` 30 cyc/streamed word vs 16 via `-4(a2)` — **highest leverage, this constant is
-what sets `RASTER_CRAM_MAX = 3`** · `raster.emp:714` OP_SET_REG pays all 5 compare rungs (80 of
+~~`raster.emp:736` 30 cyc/streamed word vs 16 via `-4(a2)`~~ **CLOSED 2026-08-19** (see
+"Tier-3 item 1 CLOSED" below — landed at 26, not 16; the 16 was the instruction alone and
+omitted the loop's `dbf`) · `raster.emp:714` OP_SET_REG pays all 5 compare rungs (80 of
 110 cyc; a leading `tst.w d1 / beq` decimates it) · `raster.emp:834` dense kind re-tested per
 scanline, ~2,300 cyc/frame, run-invariant · `raster.emp:656` redundant SR push/pop ~30 cyc/fire
 (`rte` already restores SR) — **needs a sigil-side context flavour, so it is a paired aeon+sigil
@@ -5039,6 +5043,73 @@ claiming pin parity it does not have · `RASTER_BUF_SIZE/2` as a bare `64` in fo
 calibrates the constants `band()` enforces. Also: the effects corpus uses **zero** `assert.*`
 though the engine ships that zero-byte-in-release construct at 47 sites, leaving
 `Raster_BuildSchedule`'s record walk unbounded where `bg_anim` asserts the identical shape.
+
+### Tier-3 item 1 CLOSED 2026-08-19 — and what it left behind
+
+**Shipped** on `perf/raster-stream-word`. `.cram_loop`'s write is now `move.w (a1)+, -4(a2)`
+instead of `move.w (a1)+, VDP_DATA`: a2 has held VDP_CTRL (`$C00004`) across that whole arm
+and VDP_DATA is `$C00000`, so the port is a `d16(An)` displacement off a register already in
+hand. **The item's "16" was wrong and the shipped number is 26.** 16 is the MOVE.W alone
+(source `(An)+`, destination `d16(An)`); the loop's taken `dbf` is another 10, exactly as the
+20 + 10 that made the old figure 30. The correct claim is **30 -> 26, and 6 -> 4 bytes**.
+
+`RASTER_STREAM_WORD_CYC` is gone, replaced by `RASTER_STREAM_WORD_CRAM_CYC = 26` /
+`_DEEP_CYC = 30` and `op_stream_word_cyc(o)`. **Region and restore cannot have the cheap
+word and this is not an oversight**: both have repurposed a2 as their SOURCE cursor
+(`Pal_Variant_Stage` / `Palette_Ship_Snap`), so their write has no base register left and
+stays the 20-cycle absolute. Freeing one LOSES — an a1 save/restore round trip is 8 + 12 =
+20 cycles against 4 saved on at most 3 words.
+
+Measured: the 1b sweep re-run put the swept shape's clean window at N in [15.21, 22.5],
+centre **19** (was [15.21, 21.5], centre 18) with the first word's crossing unmoved in all
+four groups — see `docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md`, "Re-run
+2026-08-19". The effects cost gate re-derives its expectations from the shipped constants
+and the emulator agreed to the cycle: **F3 3872** and **F5 3212** (3882 / 3220 under the old
+constants), with the three controls **F1 3044 · F4 4652 · F8 4640** unmoved — F4 and F8
+being precisely the region and restore fixtures whose word did NOT get cheaper.
+
+**Two riders, both booked here rather than taken:**
+
+**(a) `RASTER_CRAM_MAX = 3 -> 4` — a proposal, with its arithmetic.** The item claimed the
+word cost is "what sets RASTER_CRAM_MAX = 3". It is not, quite: what set 3 was Ruling 2a's
+pre-sweep estimate of "~60 usable cycles" (`raster.emp:80`), and the 1b sweep MEASURED the
+window at 122.9 cycles, which supersedes it. Against the guard that actually binds today
+(`raster_dsl.emp`: widest single burst + both margins <= the window),
+
+| ceiling | CRAM class (26) | deep class (30) |
+|---|---|---|
+| 3 (today) | 2x26 + 30 = 82 vs 122.9, slack **40.9** | 2x30 + 30 = 90 vs 122.9, slack **32.9** |
+| 4 | 3x26 + 30 = 108 vs 122.9, slack **14.9** | 3x30 + 30 = 120 vs 122.9, slack **2.9** |
+| 5 | 4x26 + 30 = 134 vs 122.9, **REFUSED** | 4x30 + 30 = 150 vs 122.9, **REFUSED** |
+
+So **4 is placeable for the CRAM class with 1.5 iterations of slack, and only barely for the
+deep class** — 2.9 cycles is under the instrument's own +-5-cycle boundary resolution, i.e.
+indistinguishable from zero. A ceiling raise is therefore not one decision but two: raise it
+for cram/vsram and leave region/restore at 3, or raise both and accept a deep 4-word burst
+whose margin the sweep cannot confirm. The payoff is real — a full 16-colour line goes from
+`ceil(16/3) = 6` fires to `ceil(16/4) = 4` — but it needs its own parcel: `RASTER_CRAM_MAX`
+is a single constant today with a hard `ensure(== 3)` pin, four constructor guards, a
+`RASTER_BUF_SIZE` interaction (a wider op is a longer program), and it would want the sweep
+re-run against a 4-word fixture rather than argued from the table above. **Do not raise it
+inside another parcel.**
+
+**(b) `.dense_body` / `.ramp_body` get the same treatment — and this is where the SHIPPED
+cycles actually are.** Item 1 as scoped touches only the sparse `.cram_loop`, and the
+measured saving on today's OJZ content is **4 cycles a frame** (section 0's one `stream_vsram`
+word, section 1's one `stream_cram` word; the tint band and the water boundary are region ops
+and save nothing). The dense tier is the opposite: `.dense_body` writes three
+`move.w (a1)+, VDP_DATA` and `.ramp_body` one `move.w d1, VDP_DATA` **every line of a run**,
+a2 is VDP_CTRL at both sites, and `-4(a2)` takes them 20 -> 16 and 16 -> 12. That is
+**12 cyc/line** for a gradient run and 4 for a ramp — for `OJZ_TestGradient` at 96 lines,
+~1,150 cyc/frame, three orders of magnitude more than item 1 bought on live content.
+
+Why it was NOT taken here: the dense burst carries **no spin and no cost model**, so nothing
+build-time prices it and nothing in `tools/effects_gates.py` observes its timing (the three
+committed scenes are sparse-tier). The safety argument is good — the FIRST write does not
+move, and words 2 and 3 move EARLIER, so they stay strictly inside `[word 1, word 3 old]` and
+cannot leave the window on either side — but "good argument, no instrument" is exactly the
+shape this tree has been burned by. It needs a dense-tier gate (or a sweep fixture that
+drives `OP_RUN_GRADIENT`) first, and then it is a three-token change.
 
 **DO NOT RE-LITIGATE (refuted):** "`RASTER_FIRE_BASE_CYC` omits the 44-cyc IRQ4 entry, so
 check_density is unsound" (`raster_dsl.emp:991`, filed major) is **REFUTED** — 302 is not a

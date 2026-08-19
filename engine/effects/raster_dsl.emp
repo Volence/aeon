@@ -785,20 +785,37 @@ comptime fn spin_cyc(n: int) -> int { return n * 10 + 14 }
 // three (and again 49 N later, four times over): the three burst words crossing the
 // sampling instant one at a time, LAST word first.
 //
-// RE-RUN 2026-08-19 on the item-1 ROM, and the two runs together are what make this
-// constant credible rather than fitted — the change moved ONE of the two edges, the one
-// the arithmetic said it would, and left the other where it was:
+// RE-RUN 2026-08-19 on the Tier-3 item-1 ROM, same driver, same fixture, --lo 0 --hi 200.
+// THE TWO RUNS TOGETHER ARE WHAT MAKE THIS CONSTANT CREDIBLE RATHER THAN FITTED, and the
+// evidence is the PAIRWISE boundary comparison, not either run's summary statistic:
+//
+//   old  [22, 25, 28 | 71, 74, 77 | 119, 123, 126 | 169, 172, 174]   30 cyc/word
+//   new  [23, 26, 28 | 72, 75, 77 | 120, 123, 126 | 170, 173, 174]   26 cyc/word
+//   d      +1  +1   0 | +1  +1   0 |  +1    0    0 |  +1   +1    0
+//
+//   * the group's LAST boundary is the FIRST burst word's crossing, and it is IDENTICAL in
+//     all four groups — 28, 77, 126, 174. That word's arrival is fetch + dispatch +
+//     pre-burst + spin, none of which item 1 touched: the burst does not START later.
+//   * the group's FIRST boundary is the LAST word's crossing, and it moved +1 N in all
+//     four. The burst ENDS sooner: two words at 26 instead of 30 is 8 cycles, which at the
+//     instrument's 10-cycle-per-N resolution reads as exactly one step.
+//   * the middle word moved +1 in three groups of four — a 0.4-N shift seen through an
+//     integer-N instrument whose sampling period (48.86 N) drifts against the grid.
+//
 //                                pre-item-1 (30 cyc/word)   post-item-1 (26 cyc/word)
-//   groups                       22, 25, 28 (+49, x4)       23, 25, 28 (+49, x4)
-//   within-group spacing         30.0 cyc  (8 intervals)    26.2 cyc  (8 intervals)
+//   within-group spacing         30.0 cyc  (8 intervals)    25.0 cyc  (8 intervals)
+//   between-group spacing        490.0 cyc                  490.0 cyc  (instrument unchanged)
 //   first word's crossing N      27.5   MEASURED            27.5   MEASURED (unmoved)
-//   upper edge N (last word)     21.5   MEASURED            22.3   MEASURED
+//   upper edge N (last word)     21.5   MEASURED            22.5   MEASURED
 //   lower edge N                 15.21  DERIVED (27.5 - 122.9/10, blanking width)
 //   clean N                      16..21, CENTRE 18          16..22, CENTRE 19
-// The within-group spacing is the hardware's own statement of the per-word cost, and it
-// is the ONLY confirmation RASTER_STREAM_WORD_CRAM_CYC has: 26.2 measured against 26.0
-// derived, the 0.2 being the instrument's integer-N resolution beating against a spacing
-// that is no longer a whole number of iterations (2.6 N reads as steps of 2 and 3).
+//
+// THE 25.0 IS NOT A CONTRADICTION OF 26 AND MUST NOT BE PATCHED INTO THE CONSTANT. A
+// boundary is localized to +-0.5 N = +-5 cycles, so a two-interval span reads +-10; 30 was
+// read exactly because 3.0 N is a whole number of iterations and 2.6 N is not, so the new
+// spacing aliases into steps of 3, 2 and 1 that average low. The derivation is a cycle
+// table, not a fit: MOVE.W with source (An)+ and destination d16(An) is 16, `dbf` taken is
+// 10, and there is no 25 available to be right.
 //
 // From the anchor: at N the leading op's FIRST write sits 10*(27.5 - N) cycles before the
 // sampling instant, and this module models that write at fetch 8 + dispatch 18 + pre-burst
@@ -1050,15 +1067,17 @@ ensure(RASTER_HBLANK_END_CYC - (RASTER_OP_FETCH_CYC + RASTER_DISPATCH_RUNG_CYC *
 //   * UNMOVED — the FIRST word's crossing at N = 27.5. That write's arrival is fetch 8 +
 //     dispatch 18 + pre-burst 36 + spin, and item 1 touched none of those; the burst is
 //     addressed differently, it does not START later.
-//   * MOVED — the LAST word's crossing, 21.5 -> 22.3, because the span it trails the
+//   * MOVED — the LAST word's crossing, 21.5 -> 22.5 MEASURED (22.3 derived; the
+//     instrument localizes a boundary to +-0.5 N), because the span it trails the
 //     first word by is 2 * RASTER_STREAM_WORD_CRAM_CYC = 52 where it was 60. That is the
 //     whole parcel, read off the instrument: eight cycles of blanking window handed back.
 //   * UNMOVED — the derived lower edge 15.21 = 27.5 - 122.9/10, which depends only on the
 //     first word and the H40 width.
-// So the clean band is [15.21, 22.3] = integers 16..22 and its centre is
-// round((15.21 + 22.3)/2) = round(18.755) = 19, which is what the solver says.
+// So the clean band is [15.21, 22.5] = integers 16..22 and its centre is 19 — which is
+// what the driver printed unprompted ("clean N in [15.21, 22.5] = integers 16..22
+// CENTRE N = 19") and what the solver, deriving from 22.3, independently says.
 ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] == 19,
-       "the solver gives the SWEPT shape (a leading single-op 3-word stream_cram) spin {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, but the sweep measured that shape's clean window as N in [15.21, 22.3], centre 19 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, Tier-3 item 1 re-run). Do NOT re-tune the window constants to restore this — re-derive, and if the arithmetic genuinely cannot reconcile, that is a measurement to re-run, not a constant to move.")
+       "the solver gives the SWEPT shape (a leading single-op 3-word stream_cram) spin {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, but the sweep measured that shape's clean window as N in [15.21, 22.5], centre 19 (docs/benchmarks/scanline-p2/HBLANK-WINDOW-SWEEP-RESULTS.md, Tier-3 item 1 re-run). Do NOT re-tune the window constants to restore this — re-derive, and if the arithmetic genuinely cannot reconcile, that is a measurement to re-run, not a constant to move.")
 ensure(fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] >= 16 && fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0] <= 22,
        "the solver's spin for the swept shape is {fire_spins(fire(100, [stream_cram($22, [0, 0, 0])]))[0]}, outside the integers 16..22 the sweep measured CLEAN")
 // PIN 3 — the retired RASTER_SPIN_RESTORE = 13 was an oracle landing calibration ("at zero
