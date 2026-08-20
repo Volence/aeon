@@ -168,9 +168,15 @@ pub const BAND_EXT_N = 0
 // So the fill loop's read is unconditional under the capability — two `movea.l`s and no
 // test — which is also what makes Task 9's cost parameter a clean per-band constant rather
 // than a data-dependent branch.
+// THE TWO TABLE FIELDS ARE `*u8`, NOT `u32` (P3 Task 9 corrected Task 8's declaration).
+// They hold a Label — a ROM address the linker fills in — and a `u32` field REFUSES one:
+// `[emit.type] expected an integer for u32, got label`, once per emitted band, measured
+// 2026-08-20 the first time a lowering put a real table in here. Task 8's placeholder was
+// the literal 0, which is why the declaration built for a parcel while being wrong.
+// `*u8` is what `parallax_config`'s three table words already use, for the same reason.
 pub struct band_ext (size: 10) {
-    bx_deform_table_a: u32,  // Plane A deform table, EFFECTIVE (own's, else the scene's)
-    bx_deform_table_b: u32,  // Plane B deform table, EFFECTIVE (own's, else the scene's)
+    bx_deform_table_a: *u8,  // Plane A deform table, EFFECTIVE (own's, else the scene's)
+    bx_deform_table_b: *u8,  // Plane B deform table, EFFECTIVE (own's, else the scene's)
     bx_deform_speed_a: u8,   // Plane A phase advance per frame, EFFECTIVE
     bx_deform_speed_b: u8,   // Plane B phase advance per frame, EFFECTIVE
 }
@@ -203,7 +209,7 @@ ensure(BAND_EXT_N != 0 || sizeof(band_record) == sizeof(band_entry),
 // record without widening ram.emp and the build fails naming the constant, instead of the
 // shadow view running off the end of its array at runtime.
 ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
-       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — widen BAND_ENTRY_LEN in engine/ram.emp by sizeof(band_ext)")
+       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES in engine/ram.emp to sizeof(band_ext) (10). Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
 
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0

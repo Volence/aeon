@@ -36,6 +36,25 @@ use engine.types.*
 //     RING_BUFFER_ENTRY_SIZE pattern. -------------------------------------------
 const ENTITY_SCAN_STATE_LEN = $1A   // sizeof(EntityScanState); pinned in entity_window.emp
 const BAND_ENTRY_LEN        = 10    // sizeof(band_entry); pinned in parallax.emp
+// BAND_EXT_BYTES — the per-band DEFORM EXTENSION, and it is a SECOND constant on purpose
+// (P3 Task 9). A shadow band occupies `BAND_ENTRY_LEN + BAND_EXT_BYTES`, not one widened
+// number, because the two are pinned to different things and only one of them can ever
+// move:
+//   * BAND_ENTRY_LEN mirrors the LEGACY `band_entry`, which sigil harvests ambiently and
+//     which never gains a field (see parallax.emp's band_record banner for why it cannot).
+//     The `extern("band_entry_len")` pin below holds it there FOR EVER.
+//   * BAND_EXT_BYTES mirrors `sizeof(band_ext) * BAND_EXT_N` — the capability-selected
+//     tail. ram.emp is lowered by a focused, CONTRACT-BLIND build and cannot read the
+//     capability, so this is the one edit a capability flip needs on this side, and
+//     parallax.emp's reservation guard names it.
+//
+// THIS SPLIT REPLACES A CONTRADICTION P3 TASK 9 WALKED INTO. Task 8's reservation guard
+// said "widen BAND_ENTRY_LEN by sizeof(band_ext)", and doing exactly that fails the mirror
+// pin one line down — BAND_ENTRY_LEN is the legacy struct's size and the harvest says so.
+// Following the advice made the build red in a second place, which is the worst kind of
+// guidance: correct-sounding, and a dead end. Measured 2026-08-20 raising the capability
+// for Task 9's instrument build.
+const BAND_EXT_BYTES        = 0     // sizeof(band_ext) * BAND_EXT_N; pinned in parallax.emp
 ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState size drifted from ram.emp's mirror — update ENTITY_SCAN_STATE_LEN")
 ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
 
@@ -326,7 +345,7 @@ pub vars upper_ram {
     // Per-frame screen-space band view (Step 4a): the config's plane-space band
     // list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
     // this (or the config's own arrays when vshift = 0).
-    Parallax_Shadow_Bands:       [u8; BAND_ENTRY_LEN * MAX_PARALLAX_BANDS],
+    Parallax_Shadow_Bands:       [u8; (BAND_ENTRY_LEN + BAND_EXT_BYTES) * MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_A:    [u16; MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
     mark Parallax_State_End,

@@ -237,7 +237,7 @@ pub const SCENES: [Scene; 20] = [
 // fails with the second message; narrowing the test's bit to one the game DOES declare
 // (CAP_DEFORM, $0004) fails with the first.
 ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) == 0 || BAND_EXT_N == 1,
-       "this game declares CAP_MULTI_DEFORM_TABLE in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} — the lowered band record would carry no per-layer deform extension while the scenes demand one. Set BAND_EXT_N to 1 and widen BAND_ENTRY_LEN in engine/ram.emp by sizeof(band_ext)")
+       "this game declares CAP_MULTI_DEFORM_TABLE in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} — the lowered band record would carry no per-layer deform extension while the scenes demand one. Set BAND_EXT_N to 1 and set BAND_EXT_BYTES in engine/ram.emp to sizeof(band_ext)")
 ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 || BAND_EXT_N == 0,
        "engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} but this game does NOT declare CAP_MULTI_DEFORM_TABLE (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_ext) bytes of ROM and shadow RAM that nothing reads, and the zero-capability lowering would stop being byte-identical to the legacy one")
 
@@ -309,7 +309,7 @@ ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
 // `deform: Own(..)` by a shipped scene is PARK-1, owner-gated, and is NOT what P3 Task 9
 // landed: Task 9 built the mechanism and left every shipped scene on Shared/None.
 ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
-       "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips the lowered band record to the extended shape, so engine/level/parallax.emp's BAND_EXT_N must become 1 and engine/ram.emp's BAND_ENTRY_LEN must widen by sizeof(band_ext) in the SAME commit, and every ROM image in the tree moves")
+       "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips the lowered band record to the extended shape, so engine/level/parallax.emp's BAND_EXT_N must become 1 and engine/ram.emp's BAND_EXT_BYTES must become sizeof(band_ext) in the SAME commit, and every ROM image in the tree moves")
 // ---------------------------------------------------------------------
 ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
 
