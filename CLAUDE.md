@@ -9,9 +9,18 @@ All game DATA (art, music, physics values, palette files) will be migrated from 
 ## Build
 
 ```bash
-./build.sh          # Build s4.bin ROM (release shape)
-DEBUG=1 ./build.sh  # Build s4.debug.bin (debug shape — suffixed artifacts)
+./build.sh            # Build s4.bin ROM (release shape)
+DEBUG=1 ./build.sh    # Build s4.debug.bin (debug shape — suffixed artifacts)
+FAST=1 DEBUG=1 ./build.sh   # ~1.3 s content-authoring loop — VERIFICATION LANES SKIPPED
 ```
+
+`FAST=1` runs only what produces the artifact (sound blob, compression vectors, the sigil
+build, and the level re-bake **if the editor tree is stale**) and skips every verification
+lane; it prints a loud banner at both ends and is refused on the `STRESS_*` shapes. The ROM
+is byte-identical to the canonical one — but nothing checked that, so **re-run `./build.sh`
+before you land, merge, freeze, or quote a number.** Both paths now gate on level-data
+staleness (`tools/level_staleness.py`): canonical FAILS naming `tools/regenerate-level.sh`,
+FAST auto-re-bakes. See `build.sh`'s header block for the measured per-stage table.
 
 Assembler: **sigil** — `sigil build` IS the build (Spec-5 Stage 2 flip). The AS Macro Assembler (`asl`) + `p2bin` + `fixheader` have left the pipeline; one sigil invocation assembles every `.emp` module natively (plus the residual `.asm` via sigil-frontend-as), links in declared order (`games/<game>/map.toml`), folds the header checksum, emits the `.lst`, and appends the deb2 symbol table via the surviving `convsym`.
 

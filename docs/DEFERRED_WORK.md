@@ -3052,6 +3052,58 @@ future desync to a single frame instead of one song.
 
 ## From Build Pipeline — Future Optimizations
 
+### ✅ CLOSED 2026-08-19 — silent stale level data + the ~38 s content loop (`FAST=1`)
+**Booking source:** the Aurora editor session's report of 2026-08-19, relayed with
+measurements — its Build & Run loop was ~38 s (an ~8 s re-bake plus `./build.sh`), and the
+session lost an hour to *save → build → reload shipping the PREVIOUS level data, silently*.
+**Two defects, one parcel** (`feat/fast-content-build`, build orchestration only — zero ROM
+bytes; all four canonical shapes stayed at their master CRCs).
+
+**1. The silent-stale-data trap is closed structurally.** `games/<game>/prebuild.sh` is a
+documented no-op and the generated level tree is a COMMITTED artifact (its generators read
+out-of-repo donors), so nothing in `build.sh` ever noticed that the editor had saved since
+the last re-bake. The only warning in the entire tree lived in `tools/regenerate-level.sh`'s
+docstring — which is not where anyone reading a *green* build is looking. That is the same
+shape as every other gate-nobody-runs defect this repo keeps rediscovering, except here the
+gate did not exist at all. Now `tools/level_staleness.py` runs on **every** build:
+canonical **fails loud** naming the remedy; `FAST=1` **auto-runs the re-bake** and reports
+its time. The compare is deliberately a conservative whole-tree newest-mtime one rather than
+a per-file pair map — one editor byte can move every page in the pool (it is globally
+deduped across sections), so there is no stable pairing to derive, and a hand-maintained
+second list would drift from the generator on the first schema change. Exclusions are
+enumerated with a reason each in the tool's docstring; whole-second granularity is what keeps
+a pristine `git clone`/`git worktree add` quiet. 12 unit tests in
+`tools/test_level_staleness.py` (on `build.sh`'s pytest lane, so it is a gate and not a
+convention).
+
+**2. `FAST=1 ./build.sh` — and the answer to "is the assemble the ceiling": NO.** Measured
+per-stage on the canonical `DEBUG=1` build (38.14 s total): `emp_expect_fail` 22.69 s +
+`pytest tools` 12.40 s = **92% of the wall clock**, both verification; the sigil assemble is
+**1.15 s (3%)** and `emit_sound_blob` 0.20 s. So the loop was never waiting on the ROM. FAST
+keeps only the byte-producing steps (`emit_sound_blob`, `gen_compression_vectors`, the sigil
+build with its checksum + deb2 appendix, plus the re-bake if stale) and lands at **1.3 s**
+for `s4.debug.bin`, **1.7 s** release, **~0.6-1.0 s** for demo — verified byte-identical to
+the canonical ROM on the same tree for all four shapes. It is a DEV shape: loud banner at
+both ends, refused on the `STRESS_*` fixture shapes (those exist to produce evidence) and on
+`CONTRACTS=0`.
+
+**Still open — do not read this entry as making the re-bake free.** The re-bake itself is
+~0.8 s warm but was **9.8 s on its first invocation** in a fresh worktree (cold donor page
+cache), which is the ~8 s the Aurora session measured. Nobody has profiled that cold path;
+if the editor's loop starts feeling slow again, that is where to look, not at the lanes.
+
+### ⚠ PRE-EXISTING BREAKAGE — `STRESS_ART=1` fails to place (found 2026-08-19)
+Found incidentally while regression-checking the off-canonical shapes against the `FAST=1`
+parcel. `STRESS_ART=1 ./build.sh` re-bakes the uniquified 41-page pool fine (`verify_level_bin`
+green, the EXIT trap restores the committed tree correctly) and then **fails in sigil's span
+pass**: `sections 'section\036' [0x6B8C, 0x7016) and 'player_sensors\050' [0x66B0, 0x6BA4)
+overlap in the image (colliding pins)`. **Confirmed pre-existing** — reproduced identically by
+running master's own `build.sh` (`git show HEAD:build.sh`) on the same tree, so it predates
+this parcel. The fixture's `--stress-art` derived placement (greedy pack from measured sizes,
+org anchors held) no longer fits the current section sizes. `STRESS_EVICT=1` still builds
+clean (`crc=cd17460e`). Not fixed here: this parcel is build orchestration and touches no
+placement.
+
 ### Pre-Baked Path Tables for Loops / Special Geometry
 **Surfaced during:** §4.7 world-space strip cache brainstorm (2026-04-30).
 **What:** Define loops, S-tubes, and corkscrews as parametric curves in the editor. Build tool samples the curve and emits a path table: sequence of (x, y, angle) waypoints. At runtime, player snaps to path and interpolates between waypoints — no per-frame collision queries during traversal. Eliminates the most complex and error-prone collision scenarios. Classic Sonic's loops use path-swapping between collision layers with hand-tuned height maps; this approach makes loops reliable by construction.
