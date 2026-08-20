@@ -311,3 +311,25 @@ and §4.2 were green before this surfaced.
   plane's reach and would have added two diagnostics the lane's count check cannot separate
   from the planted one.
 * `tools/demo_specialization_witness.py` → **OK** after the re-derivation.
+* `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` → **24 of 25 gates
+  PASS**, exit 1, 12 segments (11 emulator-backed), 09:32:54 → 09:36:58 on a machine at load
+  6–8. The one FAIL is `cost_model vs hardware`, and it is an **emulator stop-race, not an
+  assertion**: `aether.BusError: [-32010] reset: timeout waiting for main-thread drain`, with
+  no measured value reported. Re-run alone —
+  `--only cost_model`, 26 s wall (09:37:27 → 09:37:53), **exit 0, 2 gates PASS**:
+  `F0=588 F1=2508 F3=3818 F4=4584 F5=3172 F8=4632` all matching, and the dense row at
+  316.0 cyc/line. That segment is the raster cost model (`raster_cost_probe`), which this
+  parcel does not touch — it boots six fixtures and carries the lane's widest timeout for
+  exactly this reason.
+
+### 4.7 Re-verified on the final committed tree
+
+Every figure above was taken against `s4.debug.bin crc=d7b36f90`. After the last two
+commits (comment corrections plus removing the registry fold's redundant
+`scene_plane_line` call) all four shapes were rebuilt canonically and **all four CRCs are
+identical to the ones the sweep and the fit measured** — so those later commits are
+byte-neutral and the evidence stands against the tree as committed. The sweep was re-run
+once more on that build (`--sweep --repeat 1`, 13 s, 09:41:06 → 09:41:19): **exit 0, 16
+rotation states, 4 split lines, all positions agree.** `emp_expect_fail: OK — 20/20`,
+`s4lint: no issues`, `effects_budget_check: OK — 31 code-derived rows agree`, pytest
+**1180 passed / 3 skipped**.
