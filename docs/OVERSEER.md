@@ -28,6 +28,13 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   term with its story when assembled lengths move.
 - One byte-mover per branch. Serialize refreezes. When any session is live-editing
   content in the main tree, build + freeze from a CLEAN CHECKOUT of the merge SHA.
+  **The clean checkout must be threaded through ALL THREE legs explicitly** (lived
+  2026-08-20): `repin -- --aeon <clean>`, `refreeze` with `AEON_DIR=<clean>`, AND the
+  full suite with `AEON_DIR=<clean>` — each defaults to the sibling main tree on its
+  own. The tell for a dirty-tree repin is region pins shifting in lockstep (+0x100-ish)
+  with lengths unchanged; the tell for a dirty-tree suite is broad `*_port`
+  region-diff failures at embedded addresses. A fresh clean worktree also needs one
+  `./build.sh` + `DEBUG=1 ./build.sh` first — repin resolves but does not generate.
 - Zero-byte parcels (tools/docs) are aeon-only; verify CRC identity anyway —
   byte-count-neutral is not byte-identical, and DEBUG-only procs can still move the
   release deb2 appendix.
