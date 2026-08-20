@@ -2849,9 +2849,29 @@ It is invisible because everything moves by the same delta in one frame — ever
 
 **vs. the leapfrog.** Same good idea (keep the working coordinate bounded), done coarsely (every ~8 sections, not every boundary), uniformly (one shift of the live set — no slots, no per-section art swap), and invisibly (atomic, plane-aligned — no seam). Bookkeeping is one counter plus `+World_Section_Base` at the handful of section-lookup sites, versus the leapfrog's slot map + thresholds + edge flags + preview zone. **Cost:** one RAM counter, a per-frame threshold compare, and a rare entity-walk (tens of entities, a few hundred cycles, once per ~8 sections of travel).
 
-### 4.12 External Warp Mailbox — the supported "play from cursor" interface (DEBUG shapes)
+### 4.12 External Placement Mailboxes — the supported "play from cursor" interfaces (DEBUG shapes)
 
-The editor (Aurora) needs to drop the running game at an arbitrary world position. This is the **one supported way to do that**, and the reason it is an engine feature rather than a client trick is that a bare camera/player poke *tears*.
+The editor (Aurora) needs to drop the game at an arbitrary world position. There are **two** supported ways to do that and they answer different questions:
+
+| | **warp mailbox** | **boot-position override** |
+|---|---|---|
+| consumed by | the level state's per-frame update (`Debug_Warp_Consume`) | the level **init** (`GameState_OJZScroll_Init`) |
+| answers | "move the running game **there**" | "**start** the game there" |
+| when the client writes | any paused frame, mid-play | at a breakpoint on the init, once per boot |
+| cost | ~21 frames of visible hitch | none — it *is* the boot |
+| client-visible convention | flat world pixels, X/Y/FLAG, clamped pair published back, cleared flag = ack | identical |
+
+They share their clamp and their camera centring — as comptime templates in the same module, not as a proc (see *Shape rules* below) — so a client gets the same landing semantics from either.
+
+**Which one Aurora's "Build & Run" wants is the boot override**, and the difference is not just the 21-frame ack. Booting at the authored start and warping afterwards plays the authored start for the whole boot, draws it, and then jumps — and it exposes the client to the entire mis-latch class this section documents, because the boot has already seeded every streaming latch somewhere else and the warp has to re-seed them all. The override has nothing to re-seed: it substitutes for the authored start *at the point the init consumes it*.
+
+The rest of this section is the warp; the boot override's own half follows it.
+
+---
+
+#### 4.12a The warp mailbox
+
+The reason the warp is an engine feature rather than a client trick is that a bare camera/player poke *tears*.
 
 **Why a poke tears.** Everything downstream of the camera latches **per-frame deltas** off it. `Tile_Cache_Fill` reads `Cache_Prev_Cam_X` / `Cache_Prev_Cam_Row` and, on a teleport-sized delta, blows through the 16 px hysteresis and latches a prefetch *direction* from the jump rather than from the player's motion; the cache **window** (`Cache_Left_Col`/`Head_Col`/`Top_Row`/`Bottom_Row`) still describes the old locality and only crawls at 1 column / 2 rows per frame, while every plane write outside it is silently dropped by `Draw_TileColumn`'s bounds gate. The nametable therefore keeps showing pre-jump content until the crawl arrives. Measured from both sides: Aurora's client harness (aurora `64aee42`) sees **0 differing plane-A nametable words at 64/128/256 px, 73 at 512, 94 at 1024, 699 at 2048**, and `tools/warp_mailbox_gate.py` sees the same mechanism engine-side (`Cache_Prev_Cam_X = 96` while `Camera_X = 2144`). The tearing **self-heals in ~150 frames**, which is why it is easy to miss and why any test for it must sample early.
 
@@ -2891,6 +2911,44 @@ The editor (Aurora) needs to drop the running game at an arbitrary world positio
 **Shape rules.** Both new procs' bodies are wholly inside `if DEBUG == 1`, so they emit zero bytes in release, and both are **parked immediately against an existing zero-byte label** so their release deb2 symbol entries dedupe away: `s4.bin` and `demo.bin` stay byte-identical (`cdabf8a3` / `f7806241`). The consumer lives in the game state rather than `engine/system/game_loop.emp` because `demo` links every `engine.*` module — an ungated frame-top consumer would compile into a game with no act, and gating it would need a new required `Game` contract const, which both games must bind and which breaks the sigil port harness. The other frame-top seam, `Game.debug_tick`, is already claimed by the off-canonical Config-A profile.
 
 **The gate** is `tools/warp_mailbox_gate.py` (registered in `tools/effects_gates.py` as `warp_mailbox`). It builds its reference by *walking* to the destination in sub-threshold camera hops, proves that reference with a second walk at a different step size, then asserts the mailbox warp reproduces it exactly (0 differing visible-window nametable words) while a bare poke to the same place does not. See the module docstring for the full argument, including why the whole 64×64 plane is not a valid metric (three quarters of it is legitimately path-dependent) and why the negative control asserts bounded wrongness at a fixed early sample rather than permanence.
+
+---
+
+#### 4.12b The boot-position override
+
+**The protocol.** Three more RAM cells beside the warp's, in the same `if DEBUG == 1 @shape_divergent` tail of `games/sonic4/config/ram.emp`:
+
+| symbol | type | meaning |
+|---|---|---|
+| `Boot_At_X` | `u16` | boot **player** world X, in flat world pixels — the *same* convention as `Warp_Req_X`, deliberately |
+| `Boot_At_Y` | `u16` | boot **player** world Y |
+| `Boot_At_Flag` | `u8` | `0` = idle/consumed; nonzero = pending |
+
+Same write order (X, then Y, then the **flag last**), same clamp (`Player_Bound_Right`/`Player_Bound_Bottom`, through the shared `clamp_and_publish` template), same publish-back of the clamped pair, same "cleared flag is the ack". A client that already speaks the warp mailbox speaks this one.
+
+**WHEN THE CLIENT MAY WRITE — and this is the one thing that differs, structurally.** Boot clears **all 64 KB of Work RAM** (`engine/system/boot.emp`, `.clear_ram`; §0.11 / §9.5 make the absence of a preserved region a ruling, not a gap). So the cells **cannot** be written at the reset-paused machine the way the warp mailbox can be written at any paused frame — a pre-resume write is zeroed before the init can see it. The supported window is **after the clear and before the init**:
+
+```
+reload_rom → run_to GameState_OJZScroll_Init → write X, Y, FLAG → continue
+```
+
+Nothing has been displayed at that point (the init switches the display on in its tail), so the first frame the beam paints is already the override's. Inside that window there is no race at all: the machine is stopped and the init is single-shot. `tools/boot_override_gate.py` runs a `pre` case that writes at the reset-paused machine and asserts the boot comes out **authored** — the timing truth is a measurement, not a claim.
+
+**Where it hooks, and why there.** One `if DEBUG == 1` block in `GameState_OJZScroll_Init`, immediately after `Player_Init`. That is the earliest point at which both the camera seed (`Camera_Init`) and the leader's spawn position exist, and the last point before any consumer of either runs — `Section_Init` / `Section_FillInitial` / `EntityWindow_Init` / `Tile_Cache_Init` / `Section_UpdateColumns` all read `Camera_X`/`Y` and all of them are below it. The authored `Camera_Init` + spawn are left to run and are then overwritten, which costs a few dozen cycles once per boot and keeps the plain shape's ladder byte-identical.
+
+It does three things and no more: clamp + publish; write the leader's position **verbatim** through `Camera_Target`; centre the camera on it. **None of the warp consumer's reseed steps (4–7) appear**, and that is the design's whole claim — the init *is* the seeding, so there is nothing to re-seed. If a future edit finds itself repeating a warp step here, the hook has moved to the wrong place.
+
+The §4.12a feet-planted-lift hazard cannot arise on this path either: there is no `Player_SetState` after the position write (`Player_Init` has already run the entry sequence), so nothing re-normalises the box on top of the placement.
+
+**The second consumer** is the init's parallax config select, which reads `Act.start_sec_x/y`; under an override it reads the section containing the (clamped) destination instead. In OJZ act 1 this is currently **unobservable** — every section binds `sec_parallax_config: default`, so the select returns the act default whatever index it is handed, and poisoning that half of the hook changes no measurement (verified). The gate does not pretend otherwise: it asserts the *premise* and fails with an instruction the day any section binds its own config. Booked in `DEFERRED_WORK.md`.
+
+**Shape rules.** Everything is inside `if DEBUG == 1`, and — unlike the warp consumer — **nothing new is a `proc`**. The clamp and the camera centring are `comptime fn … -> Code` templates (`clamp_and_publish`, `center_camera_on`) shared with `Debug_Warp_Consume`. That is a constraint, not a preference: a proc whose body is wholly `if DEBUG == 1` emits zero release *bytes* but still declares a release *label*, and although only one symbol per address survives into the deb2 address table, the dropped duplicates still feed the appendix's **name trie**, so the appendix changes size and every release CRC moves. Measured on this parcel: three zero-byte procs parked against `Debug_Warp_Consume` took `s4.bin` from `d00dd11d`/698411 to `84df688f`/698409 — identical through `EndOfRom` (`$A11C0`), appendix-only, and still a changed ROM. Templates declare no symbol at all. With them, `s4.bin` (`d00dd11d`), `demo.bin` (`7db47b7b`) and `demo.debug.bin` (`30696400`) are byte-identical to master.
+
+**The gate** is `tools/boot_override_gate.py` (registered in `tools/effects_gates.py` as `boot_override`). Its reference is **the warp**, not a walk: §4.12a already proved a warp lands the walked reference at an arbitrary destination, so this gate boots-then-warps to the same place and requires the boot override to reproduce it exactly — 0 differing visible-window nametable words *and* 0 differing rendered scanlines (`emulator/scanlines`, `source == "raster"`, which is what covers palette and parallax where the nametable cannot). It also asserts: the state is already at the destination **at the init's own exit**, before a single update tick; the first painted frame equals the settled one (no draw-then-jump); a derived negative control that the override actually moved the screen; the clamp in both directions; a `$7FFF/$7FFF` poison; a flag-clear poison (cells written, flag not set → authored boot, cells *not* published, i.e. the flag really gates); and the pre-resume case above. Every expectation is derived — the authored start from the ROM's own act descriptor, the clamp edges from `grid_w/grid_h` and `Player_BoundsInit`'s two constants, the tile-cache window from `Tile_Cache_Init`'s arithmetic.
+
+**Measured (`s4.debug.bin`, destination (2560, 2400), section (1,1)).** Boot to the first painted frame: **71 frames**. Boot **at** the destination: **75 frames**. Boot **then warp** to it: **93 frames**, 22 of them the ack. The override therefore saves **18 frames (0.30 s)** of engine time — and, the part the frame count does not show, the 71 frames before it are spent drawing *the destination* rather than the authored start, so the draw-then-jump is gone entirely rather than shortened. (Aurora's ~1.5 s figure is the client-side round trip, which includes its own detect-the-level-state and poll latency on top of this.)
+
+**Not a goal: cross-act.** There is no zone/act field in this mailbox, deliberately. Booting a *different* act is `Game_Entry` parameterisation, not a position override, and it belongs to that design. Within-act only.
 
 ---
 

@@ -7180,3 +7180,49 @@ commit). The three caveats attached to "the sound pipeline is stable, unpark S0"
    with seraph before landing).
 Last engine/sound commit at ruling time: 8b39969d (2026-08-11, Tails-flight SFX import
 — content, not format), reconciled by seraph's firsthand check.
+
+## Boot-position override (§4.12b) — two things the shipped parcel deliberately left (2026-08-19, `feat/debug-boot-override`)
+
+### 1. The parallax half of the hook is UNWITNESSED, and it is unwitnessable in OJZ act 1
+
+The override has two consumers in `GameState_OJZScroll_Init`: the placement block after
+`Player_Init` (camera + leader), and the parallax config select further down, which reads
+`Act.start_sec_x/y` and under an override must read the section containing the destination
+instead. The first is witnessed hard — poisoning either half of it fails
+`tools/boot_override_gate.py` loudly (measured: removing the camera aim gives 1027/1189
+differing visible plane words and 8/8 differing rendered scanlines; removing the leader's X
+placement gives 617/1189 and 8/8).
+
+The second is **not** witnessed, and the reason is data, not instrumentation: every OJZ act 1
+section binds `sec_parallax_config: default` (NULL = inherit the act default), so
+`Section_GetSecPtrXY` returns the same config pointer whatever section index it is handed.
+Poisoning that half to always read section 0 leaves the gate fully green (verified —
+poison `p2`, exit 0, every metric identical to a clean run). It is kept because it is
+correct for the general case and costs seven DEBUG-only instructions; it is *booked* because
+a green gate must not be read as coverage it does not have.
+
+**The tripwire is already installed rather than deferred:** the gate walks the section grid
+out of the ROM image and hard-fails (setup error, exit 2) with an instruction the day any
+section binds its own `sec_parallax_config`. **The work at that point** is to give the gate a
+reference the warp cannot supply: the warp sets `Parallax_Snap_Pending` and therefore snaps,
+so it cannot distinguish "the init picked the right config" from "the first
+`Parallax_CheckBoundary` corrected it". The reference has to be a *walked* arrival into the
+destination section (which lerps the same way a boot does not) or a direct readback of the
+installed config pointer.
+
+### 2. Cross-act boot is NOT this mailbox — named so it is not re-proposed
+
+There is deliberately no zone/act field. Booting a different act is `Game_Entry`
+parameterisation (design #5), not a position override, and the two want different lifetimes:
+this mailbox is consumed by one act's init and cleared, while an act selector has to survive
+into whatever chooses the act. Within-act only, and §4.12b says so.
+
+### 3. Aurora's client contract moved, and the client has not been written against it yet
+
+Aurora's analysis assumed the cells could be written at the reset-paused machine before
+`resume`. They cannot: boot clears all 64 KB of Work RAM. The supported sequence is
+`reload_rom` → `run_to GameState_OJZScroll_Init` → write X/Y/FLAG → continue, and the gate's
+`pre` run proves the pre-resume write is silently eaten. **If Aurora's Build & Run was built
+against the earlier assumption it will silently boot at the authored start** — the failure is
+a no-op, not an error, which is exactly the shape that goes unnoticed. Worth an explicit
+handshake with the aurora session rather than a doc update alone.
