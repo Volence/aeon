@@ -71,10 +71,14 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
 - A throwaway build neutralising both runs max-diagonal at **1.107 frames/tick**. Neither lever
   alone crosses the line.
 - **Raising `BLOCK_STAGE_SLOTS` is a measured null** (16 → 20 moves work/tick by +0.05%; 24 does
-  not fit in RAM). Do not re-derive it. The lever is policy, not capacity.
-- Ranked fixes F1–F6 with measured savings are in §8 of the packet. **F1 is CLOSED (below),
-  F5 is CLOSED (below); F2 and F6 remain PARKED for owner/controller rulings** and must not
-  be started before one.
+  not fit in RAM). Do not re-derive it. The lever is policy, not capacity. **Caveat added by F4
+  (2026-08-20):** that null was measured against the LINEAR probe, whose cost grew with the slot
+  count and ate the saving. F4 removed that term, so the capacity arithmetic is different now —
+  if anyone wants to revisit it, RE-DERIVE rather than inherit. The RAM ceiling (24 slots do not
+  fit) is unaffected and still binds.
+- Ranked fixes F1–F6 with measured savings are in §8 of the packet. **F1, F4 and F5 are CLOSED
+  (below); F2 and F6 remain PARKED for owner/controller rulings** and must not be started
+  before one.
 - **Instrument defect found:** old oracle's per-routine rows lose 20.6% of the frame when a
   logic tick spans a VBlank (they close to 1–2% when it does not). Packet §7. The instrument
   asks for oracle-next are packet §9, sorted into (a) satisfied by their in-flight profiler v1,
@@ -168,6 +172,59 @@ nametable, so a drift is never MISSED by a periodic audit, only reported late.
 - `tools/streaming_choke_probe.py` updated: `PageCache_Audit` is out of `Tile_Cache_Fill`'s
   child map and prints as a sibling with no "%fill" (it read 411.6% of the fill at idle while
   still tabled as a child).
+
+**Fix F4 — direct-map the staging probe — ✅ CLOSED 2026-08-20** (`perf/staging-direct-map`).
+`TileCache_FindStagedBlock` probed the 16-slot block-staging cache with a LINEAR SCAN
+(`cmp.l (a1)+ / dbeq`), 416 cycles a probe. It is now an O(1) hashed lookup.
+- **The design choice that mattered.** A true direct-mapped CACHE (slot = hash(key)) would have
+  changed EVICTION — F2's subject, and the baseline F2 is measured against. What shipped is a
+  **side index over the existing round-robin slots**: `Block_Stage_Bucket` (256 entries, one per
+  block index) + a stride-4 `Block_Stage_Chain`. `Block_Stage_Next`, the round-robin policy and
+  `BLOCK_STAGE_SLOTS` are untouched. Separate chaining is exact for ANY hash, so the probe
+  returns the slot the scan returned for every key and the HIT/MISS sequence is unchanged **by
+  construction**, not by measurement. **F2's baseline is intact** — `Block_Stage_Gen` (exact
+  decompress count) and `Block_Stage_Next` (the cursor) are equal at all four states.
+- **The hash costs zero instructions:** the bucket IS the block index, already in `d2`. Two
+  staged blocks collide only across sections exactly 256 tiles apart, against an 80×60 cache.
+  Measured: **0 of 16 chain links in use — max chain length 1.** The chain exists so exactness
+  does not rest on that argument.
+- **Predicted then measured.** Hit ≈ 210 cyc (was ≈ 427), miss ≈ 116 (was ≈ 582) predicted
+  −1,911 / −2,795 / −5,918 cyc/tick at `right`/`down`/`maxdiag`; **measured −1,714 / −2,708 /
+  −5,394**, within 5–12%, with per-probe cost landing at 196–214 against 210 predicted.
+- **Measured** (`--repeat 3`, spread 0.000, 3 boots): `FindStagedBlock` `right`
+  3,614 → **1,900** (−47.4%), `down` 5,281 → **2,573** (−51.3%), `maxdiag` 10,265 → **4,871**
+  (−52.5%). `work/tick` `right` 82,577 → **80,979**, `down` 83,614 → **81,660**, `maxdiag`
+  174,447 → **170,723**. **`idle` calls it ZERO times** — verified from the counters (the probe
+  prints `ABSENT (0 calls)`), not assumed.
+- **RELEASE, the shipping number** (`s4.bin`, `down`): 4,703 → **2,451 cyc/tick (−47.9%)**,
+  392 → **204 cyc/probe**, fill 32,707 → **30,583 (−6.5%)**, work/tick 88,762 → **86,638**.
+  `right` stays non-reproducible in release for F1's reason (the leader falls).
+- **`maxdiag` frames/tick stays 2.067, as intended.** F4 was never a line-crossing lever;
+  170,723 is still above 128,000. **F2's remaining distance is 42,723 cycles.**
+- **Value identity held:** full byte compare of `Tile_Cache_Nametable` AND
+  `Tile_Cache_Collision` at all four pinned states (two settles), camera + cache bounds +
+  `Block_Stage_Gen` + `Block_Stage_Next` all equal.
+- **The AB scenes did NOT hit F1's wall** — all four returned `ALL EQUAL (gated)` after
+  `--selfcheck`, because they poke `Debug_Scene_Freeze` and the fill does nothing there. F1's
+  booked warning that "F2 will hit the same wall" still stands for F2; it just did not apply here.
+- **New machine checks are poison-tested** — `tools/staging_index_poison.py`, three arms HALT
+  (two of them leave 255 buckets correct) and the control keeps running. The claim's
+  duplicate-key arm has no RAM poison (any poke creating a duplicate also makes the probe hit
+  it) and was shown live by a throwaway source mutation instead; both throwaways reverted.
+- **Lanes:** `effects_gates` **24/24 exit 0**, pytest **1143 passed / 3 skipped**,
+  `emp_expect_fail` 20/20, `s4lint` clean, `effects_budget_check` 31 rows, `verify_level_bin` OK,
+  sigil warning counts unchanged (9 / 123).
+- **Cost:** `TileCache_DecompressBlock` +384 B, `TileCache_InvalidateStaging` +36,
+  `TileCache_FindStagedBlock` +16 (+12 inter-module pad). ROM: `s4.bin` +243, `s4.debug.bin`
+  +329, `demo.bin` +229, `demo.debug.bin` +331. **RAM +320 B in `lower_ram`** — only the four
+  `lower_ram` symbols after it move; **no `upper_ram` address and not `Engine_RAM_End`, so
+  there is NO game-side repin.** `lower_ram` free 3,622 → 3,302 B.
+- **Trap for the next parcel, worth knowing:** the `.lst` interleaves Z80-space blob labels
+  (`SfxBlobWinTab`, `DacSampleTable`, `MovingTrucks_PitchTable`, …) with 68k symbols at
+  overlapping numeric addresses. They do NOT move when 68k code shifts, so a naive
+  "span = next symbol's address" per-proc diff splits unrelated procs at random and invents
+  changes — it reported `Level_LoadArt` −89 and `Sound_GetComm` −448 here, both fictional.
+  Filter boundary candidates to symbols that actually shifted.
 
 ### 1. §9.7 idle-time deferred work / resumable decode — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
 **Done (`feat/art-streaming-p2`, chains 55→78; merged to master `2f047e3`).** §9.7
