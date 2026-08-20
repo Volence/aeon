@@ -6763,19 +6763,44 @@ Tasks 11 and 13 were NOT started: Task 11's ledger-const shape is downstream of 
 ruling (how a ledger row gets published decides what the consts are), and Task 13 poisons one
 per axis, which is downstream of which axes Task 11 gates.
 
-## Warp mailbox: two measured behaviours to explain (booked 2026-08-19, riders on §4.12)
+## ~~Warp mailbox: two measured behaviours to explain~~ — CLOSED 2026-08-19 (`fix/warp-semantics-doc`)
 
-Raw-`Sst.y_pos` probe (controller, oracle-aether headless, no-input boot + 600f, x=1536):
-ask y=128 → rest 117 (−11); ask y=320 → rest **320 verbatim**; both FROZEN for 240f after
-ack. Aurora measured −11 at six heights on one (different) x, also frozen (aurora 5afbd94).
-Two things to explain, neither blocking the tool:
-1. **The −11 is DESTINATION-DEPENDENT, not a convention** — verbatim placement confirmed
-   from source AND measured in clear air; the adjustment appears only when the requested
-   point intersects terrain. Prime suspect: a one-shot resolve inside the ack window
-   (Player_SetState(PSTATE_AIR) enter path or first-frame land/push-out) — identify the
-   writer and document it in §4.12 so the editor knows the semantics ("origin verbatim,
-   then a single terrain resolve if embedded").
-2. **The leader is NOT ticked in a no-input headless scroll-test boot** (frozen at both
-   destinations, engine-side confirmation of Aurora's client observation) — document what
-   engages leader simulation in this state (input? mode hotkey? character engage) so
-   headless harnesses know which regime they measure in.
+Booked from a raw-`Sst.y_pos` probe (oracle-aether headless, no-input boot + 600f, x=1536):
+ask y=128 → rest 117 (−11); ask y=320 → rest 320 verbatim; both frozen for 240f after ack.
+Both riders are answered, one of them was a defect, and it is fixed. Full prose: §4.12,
+"Placement semantics".
+
+1. **The −11 was NOT destination-dependent — the terrain reading was an artefact of the
+   probe's own shape, and the writer is `PHook_EnsureStanding`** (`player_common.emp`),
+   reached from the consumer's `Player_SetState(PSTATE_AIR)` via `PHook_AirEnter`. It
+   normalises the collision box to the character's standing box and applies the feet-planted
+   lift `y_pos -= (cd_stand_h − current_h) >> 1`. The DEBUG shape boots into debug-fly, whose
+   marker box is 16×16 (`Player_DebugEnter`), so the FIRST warp of a boot lifted Sonic
+   `(39 − 16) >> 1 = 11` px and every later warp found the box already standing and took the
+   hook's `.keep`. The booking's two asks were two warps in ONE boot — hence "128 → 117, then
+   320 → 320", read as destination-dependence when it was first-warp-dependence. Decided by
+   two fresh-boot controls: a single warp straight to y=320 rested at **309**, and two
+   successive warps to y=128 rested at **117 then 128**, with the box observed going 16×16 →
+   19×39 across warp 1. No collision probe runs in the ack window at all.
+   **Verdict: defect, and FIXED** — the lift is correct for a state change in place and wrong
+   for a teleport, and it made the same request land at different heights (11 px out of
+   debug-fly, 5 px out of a curl, 0 px otherwise) depending on session history, which a
+   placement tool cannot reason about. `Debug_Warp_Consume` step 2 now writes the position
+   AFTER `Player_SetState` (`d3`/`d4` carry the clamped pair across it — its contract clobbers
+   only `d1-d2`/`a1-a2`), so the hook's lift lands on the pre-warp position and is overwritten.
+   Re-measured after the fix: fresh-boot single warp to y=320 rests at **320**; two warps to
+   y=128 rest at **128 and 128**; the physics-regime warp is unchanged at verbatim. The edit is
+   byte-count neutral (`s4.debug.bin` len 713863 either side, crc `06af0010` → `203a3bac`) and
+   wholly inside `if DEBUG == 1`, so `s4.bin` stays `e111dff7`.
+2. **The leader IS ticked — it just cannot move.** `RunObjects` calls `Player_Main` every
+   frame, but the DEBUG shape arms `CHEAT_DEBUG_FLY` and `Player_Init` tail-calls
+   `Player_DebugEnter`, so the scene boots in free flight and `Player_Main`'s escape hatch
+   (`tst.b PlayerV.debug_flag(a0); bne Player_DebugMove`) routes past physics, state dispatch
+   and rings into `Player_DebugMove`, which reads the D-pad and nothing else. No input, no
+   motion — indistinguishable from "never ticked" from outside. There is no simulation mode
+   flag: a harness sends **one B press** through the emulator's controller surface
+   (`emulator/press`, not a memory write — the pad cells are rewritten every VBlank), which is
+   `Player_Main`'s cheat-gated toggle → `Player_DebugExit` → standing box, `debug_flag` cleared,
+   `PSTATE_AIR`. Measured from a no-input boot at x=256: y holds 256 for 60 idle frames, then
+   after the press runs 256 → 260 → 332 → 573 with `player_state` `PSTATE_AIR` → `PSTATE_GROUND`
+   and `ST_IN_AIR` clearing on touchdown.
