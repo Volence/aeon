@@ -200,15 +200,22 @@ ensure(TRANS_SMOOTH == 0 && TRANS_INSTANT == 1, "scene_dsl's inlined transition 
 // SceneLayer — one authored world-Y layer (comptime-only; never emitted:
 // the Task-3 lowering folds SceneLayers into parallax_config/band_entry).
 //
-// no hand-building: use layer() or no_layer() (the grid + span ensures live there).
+// no hand-building: use layer() or no_layer() (the span ensure lives there).
 // This type has to be `pub` — it is the element type in scene()'s signature — so the
 // back door is open by construction: `SceneLayer{ ly_world_y: 5, .. }` type-checks and
-// then truncates to a band top 5 px off, because the `>> 3` in scene_band() is exact
-// only for a world_y that layer() already checked. Same convention as
-// raster_dsl.emp:90, and for the same reason: the guards are in the constructor.
+// skips layer()'s range guard entirely. Same convention as raster_dsl.emp:90, and for the
+// same reason: the guards are in the constructor.
+//
+// SINCE P3 TASK 7 THE BACK DOOR IS NARROWER, and worth stating because the old note here
+// claimed something that is no longer the failure mode. It used to say a hand-built value
+// "truncates to a band top 5 px off, because the `>> 3` in scene_band() is exact only for
+// a world_y that layer() already checked" — there is no `>> 3` any more, and an off-grid
+// top is legal. What a back-door value now escapes is only the RANGE check, and
+// `scene_plane_line()` catches an unmappable one at the lowering AND at the registry fold
+// (assert_act_relative_tagged calls it). A value that is in range is simply a legal top.
 // -----------------------------------------------
 pub struct SceneLayer {
-    ly_world_y:  u16,   // authored layer top, world pixels
+    ly_world_y:  u16,   // authored layer top, ACT world pixels (was plane pixels pre-P3-T7)
     ly_fa:       u16,   // packed FACTOR_* (9 bits), plane A
     ly_fb:       u16,   // packed FACTOR_* (9 bits), plane B
     ly_dsa:      u8,    // deform-amplitude shift, plane A (15 = none)
@@ -932,15 +939,15 @@ pub comptime fn assert_act_relative_tagged(scenes: array, act_span: int) -> int 
             //   * `wy < 512` — the BG PLANE's span — became `wy < act_span`, the act's
             //     own, because that is the space `ly_world_y` is now in. The number is
             //     DERIVED at the call site from the act descriptor, never typed here.
-            // The plane-image range is checked separately, by scene_plane_line(), which
-            // this fold calls below so the back door is closed on that axis too.
+            // THE PLANE-IMAGE RANGE IS DELIBERATELY NOT RE-CHECKED HERE. `scene_plane_line()`
+            // owns it, and every scene in this list reaches it: lowerN calls scene_band()
+            // once per real layer and scene_band() calls scene_plane_line(). Adding a second
+            // call here would be a guard that can never fire on its own — indistinguishable
+            // from coverage, which is this tree's most expensive lesson. What THIS ensure
+            // owns is the act span, which nothing else in the chain knows.
             ensure(wy >= 0 && wy < act_span,
                    "scene registry: a world-Y layer top ({wy}) is outside this act's vertical span ({act_span}), so it is not act-relative-tagged and the §4.11 rebase has no class for it. NOTE this is a STRUCTURAL check only: it proves the declaration is tagged, NOT that a rebase preserves it. Runtime rebase verification waits on the §4.11 mechanism (Phase 4); do not read a green build here as rebase-safe. A top that reached here out of span came through the SceneLayer{{ .. }} back door, bypassing layer()'s own guards")
-            // Referenced, not merely called: an unreferenced comptime call is inert
-            // (docs/EMP_PITFALLS.md §3). Folding it into the tally is what makes
-            // scene_plane_line()'s two ensures run over the REGISTRY as well as over the
-            // lowering — which is the only place a back-door SceneLayer can be caught.
-            tops = tops + 1 + (scene_plane_line(s, wy) * 0)
+            tops = tops + 1
         }
         // $FF = PARALLAX_ANCHOR_NONE, 4 = RASTER_MAX_PATCH — both inlined per the pin block.
         let ch = scene_anchor_ch(s.sc_anchor)

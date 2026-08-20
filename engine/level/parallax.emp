@@ -743,12 +743,16 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // than 224 lines and spray past Hscroll_Buffer into the DMA queues (frozen-VDP
         // crash class).
         //
-        // WHY THE SEARCH STAYS A SEARCH. TF4 assigns its eight layers by arithmetic
-        // because its bands are evenly spaced by construction; ours are authored and are
-        // not (OJZ_Default: 0/64/320/384 — 64, 256, 64, 128 apart). An even-spacing fast
-        // path would be a second code path selected by a comptime predicate no shipped
-        // scene satisfies, i.e. a specialisation with no subject. The search is ≤ 7
-        // compares once per frame; see docs/benchmarks/scanline-p3/REGLUE.md.
+        // WHY THE SEARCH STAYS A SEARCH. Thunder Force IV was checked for the arithmetic
+        // alternative and does not supply one: its bands are SCREEN-anchored (64 per-band
+        // accumulators at $FFFF9718, cleared once at init, each builder emitting a fixed
+        // unrolled run per band), so band k owns the same scanlines forever and the seek
+        // never exists. The even-spacing collapse — `band = vs >> log2(spacing)`, `partial
+        // = vs & (spacing-1)` — IS available in principle and is not taken, because ours
+        // are authored and are not evenly spaced (OJZ_Default: 0/64/320/384, gaps 64, 256,
+        // 64, 128). A fast path selected by a comptime predicate NO shipped scene satisfies
+        // is a specialisation with no subject. The search is at most 7 word compares once
+        // per frame; see docs/benchmarks/scanline-p3/REGLUE.md.
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w
         and.w   #PLANE_B_SPAN-1, d0         // d0 = vs, the plane LINE at the screen top
         // -- find k = the band containing plane line vs --

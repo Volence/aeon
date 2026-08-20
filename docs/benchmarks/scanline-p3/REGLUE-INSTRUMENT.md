@@ -333,6 +333,16 @@ needs. If the new form genuinely does not need `Vscroll_BG` first, simplifying t
 a separate, stated change with its own evidence — never a side effect — and this instrument
 has to change with it.
 
+> **TASK 7 LANDED 2026-08-20 AND PRESERVED THE ORDERING.** Step 4a's first instruction is
+> still `move.w Parallax_Current_Vscroll_BG, d0`; only the arithmetic after it changed
+> (plane LINES instead of cells — the sub-cell remainder is kept). No ordering change was
+> made, so none had to be argued. `--poison-vscroll` is the runtime evidence that the
+> dependency is still real: it reddens all 18 positions, which it could not do if Step 4a
+> had stopped consuming the word. **What DID change with it is §3's derivation**:
+> `derive_shadow` in `tools/parallax_hscroll_probe.py` now masks `Vscroll_BG` to a plane
+> line without the `>> 3`, reads the top as a u16, wraps by `+512` and clamps at 224 lines.
+> See `REGLUE.md` beside this file for the before/after tops and the byte accounting.
+
 ---
 
 ## 7. Findings this task produced, beyond its own rows
@@ -406,7 +416,8 @@ disagreement.
 `postunroll_*`, beside a block naming the staleness. Task 1's rows are left intact — they are
 the pre-unroll record that `loop_shape` exists to name, and overwriting them from an instrument
 parcel would destroy it. **P3 Task 7's standing-rule re-fit and Task 13's re-take own the
-promotion.** Until then, nothing should divide by the pre-unroll per-line columns: they
+promotion.** (Task 7's re-fit is booked under `reglue_*` in the same file; it is measured
+against the re-glued walker and is the row set Task 13 should re-take from, not `postunroll_*`.) Until then, nothing should divide by the pre-unroll per-line columns: they
 over-charge a sampled line by ~2.8x and would refuse a scene that demonstrably runs.
 
 ---
