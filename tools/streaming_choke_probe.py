@@ -134,6 +134,12 @@ WORD_COUNTERS = [
     "Cache_Left_Col", "Cache_Head_Col", "Cache_Top_Row", "Cache_Bottom_Row",
     "Cache_Pfx_Lag_Flag", "Cache_Pfx_Skip_Armed", "Page_Audit_Ticks",
     "Pfx_Memo_Gen", "Cs_Memo_Gen", "Cache_Pfx_Row_Target", "Cache_Pfx_Col_Target",
+    # Streaming fix F2a — the speculation residency guard's own state. Window is
+    # the claim count over BLOCK_SPEC_LEAD_TICKS ticks (the guard's input), Blocked
+    # is the Schmitt latch, Skips is the monotone count of ticks it suppressed the
+    # prefetch tail on. Printed beside the rows because a fill row is only
+    # comparable with another run's at the same latch state.
+    "Cache_Spec_Window", "Cache_Spec_Blocked", "Cache_Spec_Skips",
     "Dbg_PageCache_Demands", "Dbg_PageCache_Prefetches",
     "Dbg_PageIn_Preempts", "Dbg_PageIn_Resumes", "Dbg_PageIn_Flushes",
     "Dbg_PageIn_PfxSkips", "Dbg_PageIn_Deferred", "Dbg_Cam_Clamp_Frames",
@@ -141,7 +147,8 @@ WORD_COUNTERS = [
 # counters whose DELTA is the interesting quantity (monotone counters)
 DELTA_COUNTERS = ["Block_Stage_Gen", "Dbg_PageCache_Demands", "Dbg_PageCache_Prefetches",
                   "Dbg_PageIn_Preempts", "Dbg_PageIn_Resumes", "Dbg_PageIn_Flushes",
-                  "Dbg_PageIn_PfxSkips", "Dbg_PageIn_Deferred", "Dbg_Cam_Clamp_Frames"]
+                  "Dbg_PageIn_PfxSkips", "Dbg_PageIn_Deferred", "Dbg_Cam_Clamp_Frames",
+                  "Cache_Spec_Skips"]
 
 SST_X_POS = 0x02
 SST_Y_POS = 0x06
@@ -328,7 +335,15 @@ def main():
               + "  ".join(f"{k}={r0['c1'].get(k)}" for k in
                           ("Cache_Fill_Budget", "Cache_Fill_Rows_Left", "Cache_Art_Stall",
                            "Cache_Stall_Watchdog", "Cache_Fill_Resume_Col",
-                           "Cache_Fill_RowResume_Row", "Block_Stage_Next")))
+                           "Cache_Fill_RowResume_Row", "Block_Stage_Next",
+                           "Cache_Spec_Window", "Cache_Spec_Blocked")))
+        # F2a: how many of the sample's ticks the guard suppressed speculation on.
+        # 0 of N means the guard never tripped (the single-axis states); N of N
+        # means it stayed down for the whole window (sustained diagonal).
+        if "Cache_Spec_Skips" in r0["deltas"]:
+            print(f"   F2a speculation guard: suppressed {r0['deltas']['Cache_Spec_Skips']}"
+                  f" of {r0['ticks']} ticks   window {r0['c1'].get('Cache_Spec_Window')}"
+                  f" claims / {r0['c1'].get('Cache_Spec_Blocked')} latch")
 
         # WORK PER TICK, independent of any single row's attribution. The profiler's
         # `total_cycles` is the ideal cycles it accounted for in one video frame (budget_pct
