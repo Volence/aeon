@@ -61,7 +61,7 @@ ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drift
 
 // ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
 //
-// THESE FIVE DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
+// THESE SEVEN DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
 // aspirational: tools/test_scene_span_labels.py and tools/effects_gates.py both PARSE
 // the `pub const CAP_*` lines below and derive their expectations from what they find.
 // Neither carries a copy of the mask, so adding a bit here (with a lowering and a
@@ -69,6 +69,19 @@ ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drift
 // not declared here fails. The reserved block underneath is a COMMENT on purpose — a
 // reserved bit has no lowering, so a span named for one would bracket a block that
 // cannot exist, and the parse must not see it.
+//
+// WHY ONLY TWO OF THE SEVEN RESERVED BITS WERE PROMOTED (P3 Task 5). The promotion is
+// what lets a span gate SEE a bit at all, so it has to precede the lowering that raises
+// it — CAP_MULTI_DEFORM_TABLE is Task 7's per-layer deform refs and CAP_FACTOR_CURVE is
+// Task 10's curves, and each of those tasks lands its gated block against a bit that is
+// already parseable. The other five stayed in the comment for the symmetric reason:
+// promoting a bit NOTHING raises manufactures a span gate with no subject, which is the
+// vacuous-gate shape this suite keeps rediscovering. In the window between this parcel
+// and Tasks 7/10 the two new bits are declared-but-ungated, and that state is REPORTED
+// rather than hidden — effects_gates.py's scanline_spans lane emits an explicit
+// "NOT GATED ANYWHERE" informational row per capability with no bracketed span, the same
+// row CAP_TRANSITIONS carried before its parcel landed. If either bit is still showing
+// that row after Task 10, the lowering did not happen.
 //
 // ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
 //
@@ -102,9 +115,11 @@ pub const CAP_PER_COL_VSRAM  = $0002
 pub const CAP_DEFORM         = $0004
 pub const CAP_ANCHORS        = $0008
 pub const CAP_TRANSITIONS    = $0010
-// Reserved (P3+): CAP_MULTI_DEFORM_TABLE=$0020, CAP_FACTOR_CURVE=$0040,
-// CAP_FG_SPRITE_STRIPS=$0080, CAP_BGANIM_BOUND=$0100, CAP_DENSE_TIER=$0200,
-// CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
+// P3 (Task 5): declared ahead of their lowerings — see the promotion note above.
+pub const CAP_MULTI_DEFORM_TABLE = $0020
+pub const CAP_FACTOR_CURVE       = $0040
+// Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0080, CAP_BGANIM_BOUND=$0100,
+// CAP_DENSE_TIER=$0200, CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
 
 // ---- attachment enums (spec §2) ----
 // Comptime enums with payloads, per the RasterOp precedent: variants are the
@@ -498,8 +513,16 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
 // does not raise a capability on its own.
 //
 // The P1 forcer set is deform tables + anchors. Curves, FG sprite strips, off-grid
-// tops and the dense tier arrive WITH their capability bits (CAP_* reserved above);
-// nothing here should be widened to guess at them.
+// tops and the dense tier arrive WITH their capability bits; nothing here should be
+// widened to guess at them.
+//
+// P3 Task 5 PROMOTED two of those bits (CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE) to
+// `pub const` so their gates can be measured, and that promotion deliberately did NOT
+// touch this fold: the bits are declared, nothing raises them, and this accumulator is
+// unchanged from P1. The widening of the forcer set is Task 6's single derivation, and
+// the curve arm's subject is Task 10. Until then, reading a promoted bit here would be
+// guessing at a mechanism that does not exist yet — which is the thing this note has
+// forbidden since P1.
 //
 // sc_precision IS NOT CONSULTED, and that is correct for P1 rather than an oversight. The
 // fence in scene() ties PRECISION_LINE to a BG deform table, and it is the TABLE that

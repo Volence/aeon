@@ -32,23 +32,53 @@ from scene_spans import (SCENE_DSL, brackets, capability_bits, gated_blocks,
 
 class TestCapabilityAuthority(unittest.TestCase):
 
-    def test_the_five_p1_bits_are_declared(self):
+    def test_the_declared_bits_are_the_five_p1_bits_plus_the_two_p3_promotions(self):
         """A sanity floor on the parse itself: if scene_dsl re-spells its consts,
-        every derivation below would quietly resolve against an empty set."""
+        every derivation below would quietly resolve against an empty set.
+
+        P3 Task 5 promoted CAP_MULTI_DEFORM_TABLE and CAP_FACTOR_CURVE out of the
+        reserved comment so their gates become measurable AHEAD of the lowerings that
+        raise them (Tasks 7 and 10). This list is the whole promotion contract: it is
+        the file that says which bits a span may name."""
         bits = capability_bits()
         self.assertEqual(
             sorted(bits),
-            ["CAP_ANCHORS", "CAP_DEFORM", "CAP_PER_COL_VSRAM",
+            ["CAP_ANCHORS", "CAP_DEFORM", "CAP_FACTOR_CURVE",
+             "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM",
              "CAP_PER_LINE", "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
 
+    def test_the_declared_bits_are_a_gapless_run_from_bit_zero(self):
+        """DERIVED, not copied off the declarations: the mask is allocated one bit at a
+        time from bit 0, so N declared capabilities must occupy exactly bits 0..N-1.
+
+        This is what catches the promotion hazard that a name list cannot — promoting a
+        reserved bit to `pub const` at the WRONG value (a gap, or a value a still-reserved
+        bit already claims in the comment) leaves the names right and the arithmetic
+        wrong, and every downstream mask would be silently off."""
+        bits = capability_bits()
+        self.assertEqual(
+            sorted(bits.values()), [1 << i for i in range(len(bits))],
+            "capability bits are not a gapless run from bit 0 — a promotion picked a "
+            "value that leaves a hole or collides with a reserved bit: %r" % (bits,))
+
     def test_reserved_comment_bits_are_not_parsed_as_declarations(self):
-        """The reserved P3+ bits live in a comment and have no lowering. A bracket
-        naming one would bracket a block that cannot exist, so the parse must not
-        see them."""
-        self.assertNotIn("CAP_COMPUTED", capability_bits())
-        self.assertNotIn("CAP_DENSE_TIER", capability_bits())
+        """The five still-reserved bits live in a comment and have no lowering. A
+        bracket naming one would bracket a block that cannot exist, so the parse must
+        not see them.
+
+        All five are listed, not a sample: P3 promoted two of the original seven and
+        the reason the other five stayed is that promoting a bit NOTHING raises is the
+        vacuous-gate shape. A partial list here would let the next promotion slip
+        through unchecked."""
+        bits = capability_bits()
+        for reserved in ("CAP_FG_SPRITE_STRIPS", "CAP_BGANIM_BOUND",
+                         "CAP_DENSE_TIER", "CAP_COMPUTED", "CAP_DEGRADE"):
+            self.assertNotIn(
+                reserved, bits,
+                "%s is parsed as a declared capability but nothing lowers or raises it "
+                "— a span gate on it would have no subject" % reserved)
 
 
 class TestBracketConvention(unittest.TestCase):
@@ -89,8 +119,14 @@ class TestBracketConvention(unittest.TestCase):
 
     def test_longest_prefix_resolution_is_unambiguous(self):
         """`per_line` must not be able to claim a `per_line_...` span that a longer
-        capability name also matches. With today's five bits it cannot; this fails
-        the day a new CAP_ makes it possible, which is when the rule needs revisiting."""
+        capability name also matches. With today's seven bits it cannot; this fails
+        the day a new CAP_ makes it possible, which is when the rule needs revisiting.
+
+        P3 Task 5 is exactly such a day and this check is why it is safe: CAP_DEFORM
+        and CAP_MULTI_DEFORM_TABLE are both live, the fill loop already brackets
+        `.cap_deform_sample_begin/_end` (parallax.emp:1297/1421), and `deform` is not a
+        prefix of `multi_deform_table` in either direction, so no existing span moved.
+        Had the new bit been spelled CAP_DEFORM_TABLE it would have, and this fails."""
         lowered = sorted(name[len("CAP_"):].lower() for name in capability_bits())
         for a in lowered:
             for b in lowered:
@@ -99,6 +135,29 @@ class TestBracketConvention(unittest.TestCase):
                         b.startswith(a + "_"),
                         "capability names %r and %r nest, so longest-prefix span "
                         "resolution is ambiguous" % (a, b))
+
+    def test_no_capability_name_is_a_bare_prefix_of_another(self):
+        """The check above is scene_spans.span_capability's rule (`_`-delimited). It is
+        NOT the rule effects_gates.py:859 uses, which groups spans per capability with a
+        bare `s.startswith(cap[len("CAP_"):].lower())` — no separator required. That
+        looser resolver has had no test at all, and it is the one the shipped span gate
+        runs on.
+
+        A span resolves to two capabilities under the loose rule iff one capability name
+        is a bare prefix of another, so this condition — not any property of the span
+        names themselves — is the whole of span ambiguity. Checking it here rather than
+        enumerating spans is deliberate: an enumeration over today's brackets would pass
+        vacuously the moment the bracket set is empty, while this holds over every span
+        name that could ever be written."""
+        lowered = sorted(name[len("CAP_"):].lower() for name in capability_bits())
+        for a in lowered:
+            for b in lowered:
+                if a != b:
+                    self.assertFalse(
+                        b.startswith(a),
+                        "capability name %r is a bare prefix of %r, so effects_gates.py's "
+                        "per-capability span grouping would file the same span under "
+                        "both bits" % (a, b))
 
 
 class TestGatesAndBracketsAgree(unittest.TestCase):
