@@ -479,18 +479,23 @@ dense_run_frame_pct_SUPERSEDED        = 32.5
 # derivable from the other.
 per_line_body_cycles_pre_a2_SUPERSEDED = 328
 dense_run_cycles_per_frame_pre_a2_SUPERSEDED = 32758
-per_line_body_cycles       = 316     # measured — RASTER_DENSE_LINE_GRAD_CYC, the FD1/FD2 slope
-dense_run_cycles_per_frame = 31665   # measured — shipped OJZ_TestGradient (96 lines), HBlank row
+per_line_body_cycles       = 316     # measured — RASTER_DENSE_LINE_GRAD_CYC, the FD1/FD2 slope; UNMOVED by the LEAVE park, which is charged per RUN
+dense_run_cycles_per_frame = 31665   # measured — shipped OJZ_TestGradient (96 lines), HBlank row. NOT re-measured for the LEAVE park (2026-08-19): the poked 96-line leg fell 31848 -> 31616, so this row is expected at ~31433 and the shipped-vs-poked gap below is expected to stand unchanged
 dense_run_frame_pct        = 24.7
 # The line-count sweep behind the slope: 8 / 40 / 80 / 96 / 120 lines at the same top, poked
-# fixtures, one boot each. Fires = lines + 5 at EVERY count and cycles = 1512 + 316 * lines at
-# every count, to the cycle. RE-RUN in full for the `-4(a2)` rider rather than re-scaled from
-# the pair: every leg moved by exactly 12 * lines, which is what makes "the delta is per-LINE"
-# a measurement instead of an assumption. The shipped program is still the one that does not
-# fit -- see hint_total_dense_model_gap in [raster.sparse].
-dense_line_sweep = "8:4040/13  40:14152/45  80:26792/85  96:31848/101  120:39432/125  (cyc/fires)"
+# fixtures, one boot each. Fires = lines + 4 at EVERY count and cycles = 1280 + 316 * lines at
+# every count, to the cycle. RE-RUN in full for the `-4(a2)` rider AND AGAIN for the dense
+# LEAVE parcel rather than re-scaled from the pair, and the two riders are mirror images of
+# each other in this table: `-4(a2)` moved every leg by exactly 12 * lines with the intercept
+# frozen (a per-LINE cost), the LEAVE park moved every leg by exactly 232 with the SLOPE
+# frozen and one fire off every count (a per-RUN cost). Neither is an assumption; both are
+# five points. The shipped program is still the one that does not fit -- see
+# hint_total_dense_model_gap in [raster.sparse].
+dense_line_sweep = "8:3808/12  40:13920/44  80:26560/84  96:31616/100  120:39200/124  (cyc/fires)"
+dense_line_sweep_pre_leave_park_SUPERSEDED = "8:4040/13  40:14152/45  80:26792/85  96:31848/101  120:39432/125"
 dense_line_sweep_pre_a2_SUPERSEDED = "8:4136/13  40:14632/45  80:27752/85  96:33000/101  120:40872/125"
-dense_model_intercept = 1512         # measured — FD1 - 8*316 and FD2 - 40*316, both exactly; UNCHANGED by the rider, so the whole delta is per-line
+dense_model_intercept = 1280         # measured — FD1 - 8*316 and FD2 - 40*316, both exactly, and the other three legs agree
+dense_model_intercept_pre_leave_park_SUPERSEDED = 1512  # the LEAVE park's whole delta: -232, once per run
 # THE DECISION-RELEVANT FACT: this costs ZERO lag frames. VSync_Wait measured 62.8%
 # idle WITH the dense run active vs 62.4% without — i.e. the run is absorbed by
 # existing slack, because H-INT time nests inside the idle wait rather than adding to

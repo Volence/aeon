@@ -412,11 +412,44 @@ def test_dense_probe_schedule_matches_raster_arm():
 
 
 def test_dense_fire_count_is_derived_not_measured():
-    """lines + 5: two priming, the setup record, the run, and TWO trailing fires."""
+    """lines + 4: two priming, the setup record, the run, and ONE trailing fire.
+
+    THE `1` IS THE PART WORTH PINNING and it is not a constant to be taken on trust — it
+    is a claim about `Raster_HInt`'s LEAVE edge, so this reads that edge. Ruling 1b leaves
+    the last TWO dense fires' every-line arms in flight, i.e. two trailing fires, unless
+    the last one is overwritten; `.dense_end` falling THROUGH into `.park` is what
+    overwrites it. Put a transfer back between those two labels and the count is 5 again,
+    silently, and every dense `calls` check starts failing for a reason no one would look
+    for here — the same class of surprise that cost a whole fixture run when the count was
+    first derived as 4 with only one trailing fire assumed and hardware answered 5.
+    """
     import raster_cost_probe as probe
-    assert probe.dense_fire_count(8) == 13
-    assert probe.dense_fire_count(40) == 45
+    assert probe.dense_fire_count(8) == 8 + 2 + 1 + 1
+    assert probe.dense_fire_count(40) == 40 + 2 + 1 + 1
     assert probe.dense_fire_count(96) - probe.dense_fire_count(95) == 1
+
+    assert _leave_edge_body(RASTER.read_text()) == ["clr.w   Raster_Dense_Mode"], (
+        "`.dense_end` no longer falls straight into `.park` — the last dense fire's "
+        "every-line arm is live again and the fire count is lines + 5")
+
+
+def _leave_edge_body(text: str) -> list[str]:
+    """The instructions between `.dense_end:` and `.park:` in Raster_HInt, comments out."""
+    body = [ln.split("//")[0].rstrip() for ln in text.splitlines()]
+    ends = [i for i, ln in enumerate(body) if ln.strip() == ".dense_end:"]
+    parks = [i for i, ln in enumerate(body) if ln.strip() == ".park:"]
+    assert len(ends) == 1 and len(parks) == 1, "raster.emp's LEAVE labels moved or multiplied"
+    assert ends[0] < parks[0], "`.park:` no longer follows `.dense_end:`"
+    return [ln.strip() for ln in body[ends[0] + 1:parks[0]] if ln.strip()]
+
+
+def test_leave_edge_pin_is_not_vacuous():
+    """Poison it: put the `jbra .out` back and the fall-through pin must bite."""
+    poisoned = RASTER.read_text().replace(
+        "        clr.w   Raster_Dense_Mode\n        // fall through\n    .park:",
+        "        clr.w   Raster_Dense_Mode\n        jbra    .out\n    .park:")
+    assert poisoned != RASTER.read_text(), "the poison did not apply — the LEAVE edge moved"
+    assert _leave_edge_body(poisoned) == ["clr.w   Raster_Dense_Mode", "jbra    .out"]
 
 
 def test_dense_pin_is_not_vacuous():

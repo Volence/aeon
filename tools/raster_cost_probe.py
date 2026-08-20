@@ -298,22 +298,27 @@ def program_words(fires: list[tuple[int, list[dict]]]) -> list[int]:
 #                              every-line word — record i's arm governs gap(i+1 -> i+2)
 #   record 2 @ fire line top-1 SETUP: one op, OP_RUN_GRADIENT; arm $8A00 again, so the
 #                              fire AFTER the first dense line also lands every line
-#   then `lines` dense fires at top .. top+lines-1, then TWO trailing fires that find the
-#   run over, walk the terminator and park.
+#   then `lines` dense fires at top .. top+lines-1, then ONE trailing fire that finds the
+#   run over, walks the terminator and parks.
 #
-# TWO, not one, and the second is Ruling 1b's arm pipeline showing through: an arm word
-# written at fire i governs fire i+2, so BOTH of the last two dense fires still have their
-# every-line $8A00 in flight when the run ends. The first trailing fire consumes the
-# second-to-last dense fire's arm, the second consumes the LAST one's; only then does the
-# terminator's $8AFF (written at the first trailing fire) reach the counter. raster.emp's
-# LEAVE note says the same thing from the authoring side — "the first post-gradient sparse
-# event must be scheduled >= 2 lines below the run's last line" — and 2 is this.
+# ONE, AND WHICH ONE IT IS COMES STRAIGHT OUT OF RULING 1B. An arm word written at fire i
+# governs gap(i+1 -> i+2), so when the run ends the last TWO dense fires each have an
+# every-line $8A00 in flight — the second-to-last line's schedules the fire at top+lines,
+# the last line's the fire after that. Since the dense rider (2026-08-19) `Raster_HInt`'s
+# `.dense_end` falls into `.park`, so the LAST dense fire overwrites its own every-line word
+# with $8AFF before the counter reloads and the second of those two fires never happens.
+# The first still does — this edge cannot reach the arm the PREVIOUS line already wrote —
+# and it is the fire that consumes the post-run record, which is why raster.emp's authoring
+# rule ("the first post-gradient sparse event must be scheduled >= 2 lines below the run's
+# last line") is unchanged by the suppression.
 #
-# So a dense fixture's fire count is a DERIVED quantity — lines + 5 — and `calls` checking
-# it is what stops a mis-encoded dense program from being measured as a cost. It was
-# derived as lines + 4 first, and the hardware said 13 and 45 where 12 and 44 were
-# predicted: the miss was the second in-flight arm, and the count is corrected here rather
-# than the check being relaxed to whatever was measured.
+# So a dense fixture's fire count is a DERIVED quantity — lines + 4 — and `calls` checking
+# it is what stops a mis-encoded dense program from being measured as a cost. The number has
+# been wrong in both directions and the history is the reason to keep deriving it rather
+# than pinning what was measured: it was first derived as lines + 4 with ONE trailing fire
+# assumed, hardware said 13 and 45 against 12 and 44 predicted (the missed second in-flight
+# arm), the derivation was corrected to lines + 5, and the rider then suppressed the fire
+# that made it 5. Same number, different mechanism.
 #
 # THE SETUP RECORD'S BODY, from Raster_HInt's `.op_run_gradient`:
 #   op | cmd (LONG) | lines | stream cursor (LONG)
@@ -360,8 +365,8 @@ def dense_program_words(top: int, lines: int, cram_addr: int, stream: int) -> li
 
 
 def dense_fire_count(lines: int) -> int:
-    """2 priming + 1 setup + `lines` dense + 2 trailing fires (the arm pipeline, above)."""
-    return lines + 5
+    """2 priming + 1 setup + `lines` dense + 1 trailing fire (the arm pipeline, above)."""
+    return lines + 4
 
 
 # ---- the fixtures -----------------------------------------------------------

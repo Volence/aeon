@@ -738,7 +738,7 @@ def main() -> int:
         # The DENSE tier's per-line cost (Tier-3 item 3). One constant, one fixture PAIR,
         # and the expectation is a SLOPE: FD1 and FD2 are the same program at two line
         # counts, so everything they share — the fire base, the priming records, the setup
-        # fire, the two trailing fires — cancels in the subtraction and what is left is one
+        # fire, the trailing fire — cancels in the subtraction and what is left is one
         # dense gradient line. No absolute figure here is a dense cost, and reading either
         # fixture alone would be reading mostly overhead.
         #
@@ -780,19 +780,29 @@ def main() -> int:
             d1, d2 = d["FD1"], d["FD2"]
             dl = d2["dense"]["lines"] - d1["dense"]["lines"]
             slope = (d2["cycles"][0] - d1["cycles"][0]) / dl
-            # `calls` is the fixture's own correctness check, derived (lines + 5: two
-            # priming, the setup record, the run, and TWO trailing fires — Ruling 1b keeps
-            # two every-line arms in flight past the end of the run). A dense fixture whose
-            # run did not run as authored must not be read as a cost.
-            calls_ok = all(f["calls"][0] == f["dense"]["lines"] + 5 for f in (d1, d2))
+            # `calls` is the fixture's own correctness check, derived (two priming, the
+            # setup record, the run, and ONE trailing fire: Ruling 1b leaves the last two
+            # dense lines' every-line arms in flight, and since the dense rider the LAST
+            # one is overwritten by `.dense_end`'s fall into `.park`). A dense fixture
+            # whose run did not run as authored must not be read as a cost.
+            #
+            # IMPORTED, NOT RESTATED. This gate used to spell `+ 5` beside a paragraph
+            # explaining why, so the rider had to fix the number in two files that could
+            # not fail each other. The probe owns the derivation; a gate that disagreed
+            # with it would have reported a fixture as healthy while the probe printed a
+            # `!!` about the same run.
+            from raster_cost_probe import dense_fire_count  # noqa: E402
+            calls_ok = all(f["calls"][0] == dense_fire_count(f["dense"]["lines"])
+                           for f in (d1, d2))
             ok_d = calls_ok and slope == dense_line
+            shape = f"lines + {dense_fire_count(0)}"
             results.append((
                 f"dense cost row (RASTER_DENSE_LINE_GRAD_CYC = {dense_line}; the slope "
-                f"(FD2 - FD1) / {dl} lines, with both fires counts derived as lines + 5)",
+                f"(FD2 - FD1) / {dl} lines, with both fires counts derived as {shape})",
                 ok_d,
                 f"measured FD1={d1['cycles'][0]}/{d1['calls'][0]} fires, "
                 f"FD2={d2['cycles'][0]}/{d2['calls'][0]} fires -> {slope:.1f} cyc/line"
-                + ("" if calls_ok else "  !! a fire count is not lines + 5")))
+                + ("" if calls_ok else f"  !! a fire count is not {shape}")))
 
     # ------------------------------------------------------------------
     # 6. Scanline capability spans — the §8.2 two-fixture differential.
