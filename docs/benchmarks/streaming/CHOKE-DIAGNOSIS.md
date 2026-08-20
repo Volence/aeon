@@ -803,6 +803,10 @@ regressing the right axis, and they did neither.
   (1,152 cyc/frame). Also newly visible: with the fill down to 64,991, `Parallax_Update` is
   **26,159 cyc/tick — the largest single non-fill row** at max-diagonal, and DEFERRED_WORK
   §3 already carries two untaken parallax levers.
+  > **CLOSED 2026-08-20 by F7 below.** The parallax lever was taken and the 6,521 cycles are
+  > gone with 4,984 to spare: **work/tick 134,521 → 123,016**, now UNDER the 128,000-cycle
+  > frame. `frames/tick` went 1.240 → **1.192**, not to 1.000 — see F7 for why that is a
+  > finding about the arc's success criterion rather than a shortfall.
 
 **The original entry, as written by the diagnosis parcel, follows.**
 
@@ -1017,6 +1021,70 @@ regressing the right axis, and they did neither.
   arithmetic (a smaller cache means a shorter prefetch lead, which HELPS §3's inequality).
 * **⚑ PARK — owner ruling required.** Recorded because the interaction with F2 is real, not
   because it is recommended.
+
+### F7 — the parallax sampling loop — ✅ SHIPPED 2026-08-20 (`perf/parallax-unroll`), and it took the arc under the line
+
+F7 was not on the ranked list: it is the coda parcel, aimed at the row F2 made visible
+(`Parallax_Update`, 26,159 cyc/tick, the largest single non-fill row).
+
+* **The booked lever was stale, and the re-derivation is the first finding.** DEFERRED_WORK
+  §3 carried "parallax computed-jump-table unroll" as the only remaining lever on the fill,
+  pointing at a 224-iteration `move.l/dbf` flat loop. That loop has been 8x unrolled since
+  before the 2026-08-09 reconciliation, which is why the same file ALSO carries the item as
+  closed — two rows, opposite verdicts. The closure then dismissed the sampling half with
+  "(which OJZ does not currently hit)", and **Parcel W's world-anchored overlay made that
+  false**: the shipped underwater config samples BG for 144 of 224 lines at the idle camera
+  and ~176 under max diagonal. The live lever was in the sampled loops, not the flat one.
+* **Mechanism.** `.band_fg_only` and `.lp_bg` cost 90 cycles a line. Three changes, all
+  value-identical: pointer-walk the deform curve instead of recomputing `(phase + line) & $FF`
+  and indexing (30 cycles of addressing → one 8-cycle `move.b (a0)+`, with the run split at
+  the 256-byte wrap — at most one split, since the fill is 224 lines against a 256-byte
+  curve); unpack the sampled channel's base scroll into its own word register once per band,
+  retiring the per-line `swap d0 / add / swap d0`; and 8x unroll with a remainder tail.
+  90 → 43.25 cycles per sampled line. `.lp_both` and `.lp_flat` are untouched.
+* **MEASURED** (`tools/streaming_choke_probe.py`, `s4.debug.bin` crc `5be03175`, `--repeat 3`,
+  **spread 0.000 on `frames/tick` at every state, 3 boots**, `up 2 days, 3:5x`, load average
+  10–20 with other agents running):
+
+  | state | frames/tick | work/tick | `Parallax_Update` cyc/tick |
+  |---|---|---|---|
+  | `maxdiag` | 1.240 → **1.192** | 134,521 → **123,016** (−11,505) | 26,159 → **16,296** |
+  | `right` | 1.000 → **1.000** | 81,126 → **74,838** | 20,493 → 14,209 |
+  | `down` | 1.000 → **1.000** | 81,862 → **71,839** | 25,934 → 15,910 |
+  | `idle` | 1.069 → **1.033** | 50,420 → 43,726 | 20,184 → 13,910 |
+
+  The success criterion was ≥ 6,521 cyc/tick at `maxdiag`. The measured saving is **11,505,
+  1.76x the requirement**, and 123,016 is **4,984 cycles UNDER the 128,000-cycle frame.**
+  Per-frame and attribution-clean: max-diagonal `VSync_Wait` rises 19,100 → **24,409**, i.e.
+  **5,309 cycles of frame budget handed back every frame**, and the camera covers 416 px per
+  31 frames where it covered 400.
+* **THE ARC'S LINE IS CROSSED AND THE TICK IS STILL NOT 1.000 — the finding that matters
+  most here.** §5's `frames_per_tick = ceil(work_per_tick / 128,000)` predicts 1 from 123,016
+  and the machine measures **1.192** (26 ticks in 31 frames — five ticks still spend two
+  frames). This is not new and not a shortfall: the model ALREADY mispredicted at the F2
+  baseline (`ceil(134,521 / 128,000)` = 2 against a measured 1.240), and §6's throwaway D
+  measured 1.107 at 121,598. **`work/tick` is a MEAN, and the ceil model is a floor on
+  `frames/tick`, not a value for it.** A mean of 0.96 frames of work still overruns whenever
+  a tick's own work exceeds the frame, and per-tick work varies — so "get the mean under
+  128,000" was never sufficient for a true 60 Hz, and the arc's success criterion should be
+  restated in those terms. Closing the last 0.192 is a VARIANCE problem (which ticks spike,
+  and why), not another mean-cost lever, and nothing in this packet has measured it.
+* **Value identity HELD, on an instrument that did not previously exist.** Nothing in the
+  tree observed `Hscroll_Buffer` — the replay net is pixel-blind, `ab_runner` freezes the
+  scene, no golden covers it — so `tools/parallax_hscroll_identity.py` was added: all 896
+  bytes, 24 consecutive frames, 10 fixtures covering every fill path including the two this
+  parcel did not touch, compared ROM against ROM. **All 10 byte-identical.** Its own two
+  coverage witnesses are asserted rather than assumed and both caught a vacuous first draft
+  (see the tool's header). Nametable and collision are untouched by construction: this proc
+  writes only `Hscroll_Buffer` and reads only its config, the shadow bands and the curves.
+* **The fitted walker model is the regression net, and it behaved exactly as the P3 plan
+  requires** — `WALKER-MODEL.md` §9 has the re-fit. Only the two parameters this parcel
+  changed moved; `line_both` (the deliberately-untouched loop) held at 126.13 against 126.17.
+* **Lanes.** Four shapes build; **both demo shapes are BYTE-IDENTICAL to master** (the CAP
+  elision is exact — demo did not grow one byte); pytest 1143 passed / 3 skipped;
+  `emp_expect_fail` 20/20; `effects_gates` 24/24 exit 0; `verify_level_bin` OK; sigil warning
+  counts unchanged (9 / 123). `Parallax_Fill_PerLine` 372 → 688 bytes is the ONLY proc whose
+  size changed; ROM +178 bytes.
 
 ### Explicitly NOT a fix — raising `BLOCK_STAGE_SLOTS`
 Measured null (§3, throwaway A). Recorded so the arc does not re-derive it: 20 slots moves

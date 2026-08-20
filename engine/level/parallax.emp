@@ -1230,7 +1230,7 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 // Per band, all loop-invariant decisions are hoisted and one of FOUR
 // specialized line loops runs (both/fg/bg deform, or flat copy).
 //
-// Per-band registers inside the line loops:
+// Registers at the point a band picks its loop:
 //   d0 = packed base scroll (FG<<16 | BG)   — constant per band
 //   d1 = scratch (index / sample / out word)
 //   d2 = BG phase base (Phase_BG + band_phase)
@@ -1238,8 +1238,18 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 //   d4 = line index    d5 = band end line
 //   d6 = FG phase base (Phase_FG + band_phase)
 //   d7 = bands remaining (countdown; movem-restored at exit)
-//   a5/a6 = FG/BG deform tables
-// Deform-table indices wrap at 256 via andi #$FF.
+//   a5/a6 = FG/BG deform curves (bases; never advanced)
+//
+// The FOUR loops then re-allocate, and they do NOT agree — each is register-starved and
+// spends what the others need. What every one of them guarantees on the way out is the
+// only cross-loop contract: **d4 = the band's end line**, a1/a2/a3/a5/a6/d7 untouched.
+//   `.lp_both`  — the ORIGINAL shape, and the only one that still walks d4 per line: it
+//                 indexes both curves as `(phase + d4) & $FF` and swaps d3 to switch shifts.
+//   `.lp_flat`  — d0 broadcast 8 longs at a time; d1/d2 are the group/remainder counters.
+//   `.band_fg_only` / `.lp_bg` — d4 jumps to the band end IMMEDIATELY and the curve is read
+//                 through a0, a walking pointer, reset at the 256-byte wrap. d5 is the
+//                 sample scratch, so the post-wrap line count lives on the stack. See the
+//                 banner above those two loops for why, and for which halves of d0 go where.
 // ----------------------------------------------------------------------
 proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // CAP_PER_LINE span (P2 §3.3), MODULE depth — the whole filler. Its only call
@@ -1376,48 +1386,243 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         blo     .lb_line
         jbra    .band_done
 
+// --- SINGLE-CHANNEL SAMPLING: pointer walk + unrolled run ---
+//
+// The two single-channel loops below cost 90 cycles a line in the shape this replaced,
+// and they are where the walker's time actually goes: at the shipped OJZ camera the
+// anchored overlay turns BG sampling on for 144 of the 224 lines, and under sustained
+// max-diagonal for ~176 of them. Three changes, each value-identical:
+//
+// (1) POINTER WALK instead of a recomputed index. The old body spent 30 of its 90
+//     cycles just addressing the curve — `move.w phase,d1 / add.w d4,d1 /
+//     andi.w #$FF,d1 / move.b (aTab,d1.w),d1`. The index is (phase + line) & $FF and
+//     the line advances by exactly 1, so the ADDRESS advances by exactly 1: a walking
+//     `move.b (a0)+,d5` (8 cycles) reads the identical byte sequence. The `& $FF` is
+//     the one thing a walk cannot express, so the run is SPLIT at the 256-byte wrap and
+//     the pointer reset to the table base. The fill is 224 lines and a curve is 256
+//     bytes, so a band crosses the wrap AT MOST ONCE and a third run cannot exist.
+//     The curves stay 256 bytes and that is not an accident: doubling one so the wrap
+//     became unreachable would move every `DeformTable_*` address, which rewrites the
+//     `pcfg_deform_table_*` words inside every emitted config record — precisely the
+//     byte churn `scene_registry.emp:350-361` pins the P1 image-identity gate on.
+//
+// (2) THE SAMPLED CHANNEL'S BASE SCROLL GETS ITS OWN WORD REGISTER. d0 packs
+//     FG<<16 | BG, so the old body paid `swap d0 / add.w d0,d1 / swap d0` — 12 cycles a
+//     line — to reach the half it needed. Both halves are loop-invariant; the sampled
+//     half is now unpacked ONCE per band and the constant half stays in d0's low word.
+//
+// (3) 8x UNROLL + remainder tail, the same shape `.lp_flat` already uses, trading 10
+//     cycles of `dbf` per line for 1.25. Spans have been arbitrary since Parcel W (a
+//     world-anchored band splits at any scanline), so the tail is mandatory and carries
+//     the same zero-remainder guard `.fl_tail` documents: `subq #1` on 0 gives $FFFF and
+//     sprays ~2 MB forward out of Hscroll_Buffer.
+//
+// `.lp_both` above is deliberately NOT converted: two sampled channels need two walk
+// pointers and there is no second free address register. Leaving it also fixes the
+// walker model's `line_both` term as an unchanged regression control.
+//
+// REGISTER NOTE: a0 is the walk pointer. It is the caller's config pointer, dead after
+// the two table loads at the top of this proc, and restored by the exit `movem` — which
+// is what keeps the declared `preserves(a0)` true.
+// d5 is the body's sample scratch, so the post-wrap line count is parked on the stack
+// across each run rather than held in a register; every path pops it before `.band_done`.
+
 // --- FG only: BG word constant ---
     .band_fg_only:
-        cmp.w   d5, d4
-        bhs     .band_done
-    .lf_line:
-        move.w  d6, d1
-        add.w   d4, d1
-        andi.w  #$FF, d1
-        move.b  (a5,d1.w), d1
-        ext.w   d1
-        asr.w   d3, d1
+        move.w  d5, d1
+        sub.w   d4, d1
+        ble     .band_done                          // empty/malformed band; d1 = span
+        add.w   d4, d6
+        andi.w  #$FF, d6                            // d6 = curve index of the first line
+        move.w  d5, d4                              // line index jumps to band end
+        movea.l a5, a0
+        adda.w  d6, a0                              // a0 = &fg_curve[index]
+        neg.w   d6
+        addi.w  #256, d6                            // d6 = lines until the wrap (1..256)
         swap    d0
-        add.w   d0, d1
-        swap    d0
-        move.w  d1, (a4)+                           // FG word
+        move.w  d0, d2                              // d2 = FG base scroll, unpacked once
+        swap    d0                                  // d0.w = BG base scroll (constant word)
+        moveq   #0, d5                              // d5 = lines left after the wrap
+        cmp.w   d6, d1
+        bls     .lf_run                             // whole band fits before the wrap
+        move.w  d1, d5
+        sub.w   d6, d5                              // d5 = post-wrap run
+        move.w  d6, d1                              // d1 = pre-wrap run
+    .lf_run:                                        // d1 = lines this run (>= 1)
+        move.w  d5, -(sp)                           // park: d5 is the body's scratch
+        move.w  d1, d6
+        andi.w  #7, d6                              // d6 = remainder lines 0..7
+        lsr.w   #3, d1                              // d1 = whole groups of 8
+        beq     .lf_tail
+        subq.w  #1, d1
+    .lf_grp:
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+                           // FG word
         move.w  d0, (a4)+                           // BG word (constant)
-        addq.w  #1, d4
-        cmp.w   d5, d4
-        blo     .lf_line
-        jbra    .band_done
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        dbf     d1, .lf_grp
+    .lf_tail:
+        tst.w   d6                                  // zero remainder MUST skip the dbf
+        beq     .lf_after
+        subq.w  #1, d6
+    .lf_rem:
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d2, d5
+        move.w  d5, (a4)+
+        move.w  d0, (a4)+
+        dbf     d6, .lf_rem
+    .lf_after:
+        move.w  (sp)+, d5
+        tst.w   d5
+        beq     .band_done
+        move.w  d5, d1                              // the post-wrap run
+        moveq   #0, d5                              // ...and there cannot be a third
+        movea.l a5, a0                              // walk restarts at the curve base
+        jbra    .lf_run
 
 // --- BG only: FG word constant ---
     .lp_bg:
-        cmp.w   d5, d4
-        bhs     .band_done
-        swap    d0                                  // d0 = BG<<16 | FG for this loop
-    .lg_line:
-        move.w  d2, d1
-        add.w   d4, d1
-        andi.w  #$FF, d1
-        move.b  (a6,d1.w), d1
-        ext.w   d1
-        asr.w   d3, d1
-        move.w  d0, (a4)+                           // FG word (constant, low)
-        swap    d0
-        add.w   d0, d1                              // + BG base
-        swap    d0
-        move.w  d1, (a4)+                           // BG word
-        addq.w  #1, d4
-        cmp.w   d5, d4
-        blo     .lg_line
-        jbra    .band_done
+        move.w  d5, d1
+        sub.w   d4, d1
+        ble     .band_done                          // empty/malformed band; d1 = span
+        add.w   d4, d2
+        andi.w  #$FF, d2                            // d2 = curve index of the first line
+        move.w  d5, d4                              // line index jumps to band end
+        movea.l a6, a0
+        adda.w  d2, a0                              // a0 = &bg_curve[index]
+        neg.w   d2
+        addi.w  #256, d2                            // d2 = lines until the wrap (1..256)
+        move.w  d0, d6                              // d6 = BG base scroll (d0's low half)
+        swap    d0                                  // d0.w = FG base scroll (constant word)
+        moveq   #0, d5                              // d5 = lines left after the wrap
+        cmp.w   d2, d1
+        bls     .lg_run                             // whole band fits before the wrap
+        move.w  d1, d5
+        sub.w   d2, d5                              // d5 = post-wrap run
+        move.w  d2, d1                              // d1 = pre-wrap run
+    .lg_run:                                        // d1 = lines this run (>= 1)
+        move.w  d5, -(sp)                           // park: d5 is the body's scratch
+        move.w  d1, d2
+        andi.w  #7, d2                              // d2 = remainder lines 0..7
+        lsr.w   #3, d1                              // d1 = whole groups of 8
+        beq     .lg_tail
+        subq.w  #1, d1
+    .lg_grp:
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+                           // FG word (constant)
+        move.w  d5, (a4)+                           // BG word
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        dbf     d1, .lg_grp
+    .lg_tail:
+        tst.w   d2                                  // zero remainder MUST skip the dbf
+        beq     .lg_after
+        subq.w  #1, d2
+    .lg_rem:
+        move.b  (a0)+, d5
+        ext.w   d5
+        asr.w   d3, d5
+        add.w   d6, d5
+        move.w  d0, (a4)+
+        move.w  d5, (a4)+
+        dbf     d2, .lg_rem
+    .lg_after:
+        move.w  (sp)+, d5
+        tst.w   d5
+        beq     .band_done
+        move.w  d5, d1                              // the post-wrap run
+        moveq   #0, d5                              // ...and there cannot be a third
+        movea.l a6, a0                              // walk restarts at the curve base
+        jbra    .lg_run
     .cap_deform_sample_end:
     }
 

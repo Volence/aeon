@@ -507,3 +507,65 @@ times that, look for an orphaned `oracle_gui`** — a killed probe run leaves it
 spinning at ~300% CPU, and it does not stop on its own. `pgrep -a -f oracle-old/linux-port/build`
 and kill the stale PID; the sweep this file was measured on went from 43+ minutes to 3.5 the
 moment one was cleared.
+
+---
+
+## 10. RE-FIT after (landed after T1; regime column per §5(c)/§8) `perf/parallax-unroll` (2026-08-20) — the model used as a regression net
+
+The streaming arc's coda parcel rewrote the two SINGLE-CHANNEL sampling loops
+(`.band_fg_only`, `.lp_bg`) — pointer-walk sampling, an unpacked base-scroll register, and an
+8x unroll. `.lp_both` and `.lp_flat` were left alone deliberately, so their terms are
+CONTROLS. The P3 standing rule is that a parcel lands at unchanged parameters except the ones
+it changes; this is that check. Same fixtures, same probe, `s4.debug.bin` crc `5be03175`,
+3 boots, spread 0.
+
+| parameter | before | after | delta | |
+|---|---|---|---|---|
+| `base` | 3021.95 | 3021.88 | −0.07 | unchanged |
+| `band_percell` | 746.95 | 746.88 | −0.07 | unchanged |
+| `line_mode` | 1518.05 | 1518.14 | +0.09 | unchanged |
+| `band_perline` | 845.89 | 845.70 | −0.19 | unchanged |
+| `multiband` | 23.16 | 23.41 | +0.25 | unchanged |
+| `line_both` | 126.17 | 126.07 | −0.10 | **CONTROL — the untouched loop held** |
+| `vdeform` | 1424.05 | 1424.12 | +0.07 | unchanged |
+| `line_fg_only` | 76.21 | **30.97** | **−45.24** | the parcel's subject |
+| `line_bg_only` | 76.27 | **31.84** | **−44.43** | the parcel's subject |
+| `samp_band` | 0.59 | **148.91** | **+148.32** | NEW — see below |
+
+Predicted from instruction timings before measuring: 43.25 cycles per sampled line against a
+13.25-cycle flat line, i.e. a marginal **30.0**. Measured 30.97 and 31.84. The prediction was
+made on nominal 68000 timings and it held to ~1.5 cycles, which is worth recording given the
+standing warning about nominal math near VDP ports — §7 explains why it holds *here*: this
+instrument does not count stall, so nominal is what it measures by construction.
+
+### The residual named §5(c)'s missing parameter into existence
+
+Run against the SHIPPED nine-parameter model, the un-anchored max |residual| goes
+**0.27 → 42.45**. That is not noise and it was not smoothed. Adding ONE column — a fixed cost
+a single-channel SAMPLED band pays and a flat band does not — returns it to **0.38**, and
+(the part that matters) returns every other coefficient to its pre-parcel value, as the table
+above shows.
+
+**That column is exactly the parameter §5(c) already named and deliberately declined to fit:**
+"a per-band cost that DIFFERS between a flat band and a sampling band ... collinear with
+`band_perline` in every un-anchored fixture". Two things changed:
+
+1. **It became visible.** W14/W15 (one sampled band among two and three) are the fixtures that
+   break the collinearity, and they were added for a different reason. Fitted on the BEFORE
+   numbers the coefficient is **0.59 cycles** — the old sampling loop had essentially no
+   per-band setup, which is why it hid inside the 0.27 residual for a whole parcel.
+2. **The parcel made it large.** The new loop hoists a walk pointer, a base-scroll register,
+   a wrap split and the group/tail control out of the line body — the whole point — and that
+   is a ~149-cycle fixed price per sampled band. Predicted from the instruction sequence:
+   ~156. It is a real cost and it belongs in the model.
+
+The break-even is **149 / 44.5 ≈ 3.3 lines**: any sampled band taller than four scanlines is
+ahead, and the shipped shapes sample 144 and ~176.
+
+**Not folded into `tools/parallax_cost_probe.py`.** The tool's `PARAMS`/`design_row` are the
+subject of P3 Task 1's anchor work and this parcel does not own them; the re-fit above is an
+offline least-squares over the tool's own printed measurements. **Ask, for whoever next edits
+the tool: add `samp_band` as a tenth column.** Until then the tool will keep printing a
+~42-cycle un-anchored residual on any ROM carrying this fill, and that number is explained
+here rather than mysterious. Note also that the residual should now be read at
+`|residual| ≈ 42` as the healthy state, not 0.27.
