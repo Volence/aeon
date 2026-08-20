@@ -118,8 +118,20 @@ pub const LAYER_WORLD_Y_MAX = $8000
 // bracket's own witness is the capability-raised instrument build recorded in
 // docs/benchmarks/scanline-p3/DEFORM-OWN.md, where both labels appear in the listing.
 //
-// FOR CAP_FACTOR_CURVE THE ORIGINAL READING STANDS: if that bit is still showing the row
-// after Task 10, the lowering did not happen.
+// P3 TASK 10 UPDATE — AND THE ORIGINAL READING FOR CAP_FACTOR_CURVE IS NOW WRONG IN THE
+// SAME WAY. This block used to say "if that bit is still showing the row after Task 10, the
+// lowering did not happen". It landed, and the row still says NOT GATED ANYWHERE, for the
+// reason above: the bit has a lowering (`curve: SceneCurve.To(..)`) and THREE bracketed code
+// sites (`cap_factor_curve_hoist` and `cap_factor_curve_split` in Parallax_Step4_Fill,
+// `cap_factor_curve_band` in Parallax_Fill_PerLine), and neither shipped game raises it —
+// adopting a ramping factor on a shipped scene is owner-gated, and it moves every ROM image.
+// The bracket's own witness is the capability-raised instrument build recorded in
+// docs/benchmarks/scanline-p3/CURVES.md, where all three span pairs appear in the listing.
+//
+// THE GENERAL RULE, now that both P3 bits have hit it: this row is a statement about
+// ADOPTION, never about whether a lowering exists. A bit with no lowering and a bit with a
+// lowering nobody uses produce the SAME row, and the lane cannot tell them apart, because a
+// comptime-elided span is absent from the listing either way.
 //
 // ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
 //
