@@ -142,6 +142,9 @@ MAX_SHADOW    = 8         # MAX_PARALLAX_BANDS (engine/system/constants.emp)
 VDP_MODE3_OFF = 0x0B      # engine/vdp.emp — the shadow byte Parallax_Update owns
 RASTER_MAX_PATCH = 4      # raster_dsl.emp:1989 — Effects_Screen_L / Effects_World_Y arity
 PATCH_ENTRY_SIZE = 10     # raster.emp:1783-1812 — the record Raster_GetChannelBand walks
+# engine/system/buffers.emp:149-160 — the two declared static HScroll DMA lengths,
+# `Static_Hscroll_Cell` dma_length(112) and `Static_Hscroll_Line` dma_length(896).
+HSCROLL_STATIC_BYTES = (112, 896)
 
 
 def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
@@ -1452,8 +1455,9 @@ def run_transition_mode(args, sym: dict[str, int]) -> int:
                 failures.append(f"{name} boot {i}: frames/ticks "
                                 f"{r['frames']}/{r['ticks']} lag {r['lag_frames']}"
                                 " — the row is a diluted average, not one call")
-            if r["current"] != cur or r["target"] != (tgt if fr else r["target"]):
-                failures.append(f"{name} boot {i}: the config pointers moved "
+            if r["current"] != cur or r["target"] != tgt:
+                failures.append(f"{name} boot {i}: the config pointers moved — installed "
+                                f"(current ${cur:06X}, target ${tgt:06X}), read back "
                                 f"(current ${r['current']:06X}, target ${r['target']:06X})")
             if fr and not r["still_transitioning"]:
                 failures.append(f"{name} boot {i}: the transition counter reached 0 inside "
@@ -1461,9 +1465,13 @@ def run_transition_mode(args, sym: dict[str, int]) -> int:
             if r["mode3_shadow"] != mode3(cfg_a if active == a_addr else cfg_b):
                 failures.append(f"{name} boot {i}: reg $0B shadow ${r['mode3_shadow']:02X} "
                                 "does not match the ACTIVE config's derived mode")
-        # The HScroll DMA entry is identified by its byte count matching a static HScroll
-        # length, not by slot index: the queue's slot assignment is a scheduling detail.
-        hs = [e["bytes"] for e in runs[0]["dma"]["entries"] if e["bytes"] in (112, 896)]
+        # The HScroll DMA entries are identified by byte count against the two STATIC lengths
+        # the engine declares, never by slot index: the queue's slot assignment is a
+        # scheduling detail that moves with priority, and a slot number would silently start
+        # naming a different entry. This is a LABEL for the report, not a budget denominator —
+        # the full entry list goes to the JSON either way.
+        hs = [e["bytes"] for e in runs[0]["dma"]["entries"]
+              if e["bytes"] in HSCROLL_STATIC_BYTES]
         print(f"{name:12} {'$%06X' % active:>10} {pu[0]:>10} {max(pu) - min(pu):>7}"
               f" {ed[0]:>9} {max(ed) - min(ed):>7} {runs[0]['mode3_shadow']:>4X}"
               f" {str(hs):>10} {runs[0]['dma']['total_words'] * 2:>8}")

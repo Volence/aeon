@@ -308,18 +308,18 @@ Stated so the row is not over-read:
 `Parallax_Step4_Fill`. Step 5 runs BEFORE Step 4.**
 
 ```
-engine/level/parallax.emp:677-678
+engine/level/parallax.emp:677-679          (tail of Parallax_Update)
         // NOTE: Step 5 (Vscroll) runs BEFORE Step 4 (HScroll fill) — the
         // band rotation in Step 4a needs this frame's Vscroll_BG.
         jbra    Parallax_Step5_Vscroll
-...
-engine/level/parallax.emp (end of Parallax_Step5_Vscroll)
+
+engine/level/parallax.emp:1148-1149        (tail of Parallax_Step5_Vscroll)
     .v_done:
         jbra    Parallax_Step4_Fill         // Step 4 runs after Vscroll is final
 ```
 
-The reason is the first instruction of Step 4a: `move.w Parallax_Current_Vscroll_BG, d0`,
-which is the rotation's whole input. Step 5 is the sole writer of that word (`.v_pack`).
+The reason is the first instruction of Step 4a (`:698`): `move.w Parallax_Current_Vscroll_BG,
+d0`, which is the rotation's whole input. Step 5 is the sole writer of that word (`.v_pack`).
 
 **This instrument depends on the ordering too**, which is why it is recorded here rather than
 only in the code: the sweep reads `Parallax_Current_Vscroll_BG` after the frame and uses it as
