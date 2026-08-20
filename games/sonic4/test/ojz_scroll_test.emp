@@ -790,14 +790,33 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         //    touched is exactly what a teleport invalidates: position, both
         //    velocities, the terrain-derived status/angle, and the three carried
         //    ground quantities. PSTATE_AIR through Player_SetState is Player_Init's
-        //    own seed — airborne, lands on frame 1 at the destination. --
+        //    own seed — airborne, lands on frame 1 at the destination.
+        //
+        //    THE POSITION IS WRITTEN AFTER THE TRANSITION, AND THAT ORDER IS THE
+        //    CONTRACT. Player_SetState(PSTATE_AIR) runs PHook_AirEnter ->
+        //    PHook_EnsureStanding, which normalises the collision box to the
+        //    character's standing box and applies the FEET-PLANTED lift that goes
+        //    with it: y_pos -= (cd_stand_h - current_h) >> 1 (player_common.emp).
+        //    That lift is correct for a state change in place — the feet must not
+        //    move when the box grows — and WRONG for a teleport, where there is no
+        //    "in place" to preserve. Written before the call, the origin came out
+        //    11 px above the request on any warp taken out of debug-fly (Sonic:
+        //    (39 - 16) >> 1) and 5 px above it on any warp taken while curled
+        //    ((39 - 29) >> 1), i.e. the SAME request landed at different heights
+        //    depending on what the player happened to be doing — measured, and the
+        //    reason the first booking read it as terrain-dependent (the first warp
+        //    of a DEBUG boot shifted, the second did not, because the first one had
+        //    already normalised the box). Writing the placement last makes the
+        //    hook's lift land on the pre-warp position and be overwritten, so the
+        //    destination is VERBATIM in every regime — which is what §4.12 promises
+        //    a client and the only semantics a placement tool can reason about.
+        //
+        //    d3/d4 carry the clamped destination across the call rather than d0-d2:
+        //    Player_SetState's contract is clobbers(d1-d2/a1-a2) with d0 carrying
+        //    the new state in, so d3-d7 and a0 are the registers that survive it. --
         movea.w Camera_Target, a0               // (Camera_Target).w — the leader SST
-        move.w  d0, d2
-        pixels_to_coord(d2)                     // px -> 16.16, fraction cleared
-        move.l  d2, Sst.x_pos(a0)
-        move.w  d1, d2
-        pixels_to_coord(d2)
-        move.l  d2, Sst.y_pos(a0)
+        move.w  d0, d3                          // clamped X px, held across SetState
+        move.w  d1, d4                          // clamped Y px, held across SetState
         clr.w   Sst.x_vel(a0)
         clr.w   Sst.y_vel(a0)
         clr.b   Sst.status(a0)                  // ST_ROLLING etc. are terrain-derived
@@ -808,6 +827,10 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         moveq   #PSTATE_AIR, d0
         jbsr    Player_SetState                 // d1/d2 clobbered from here — the
                                                 // mailbox holds the clamped target
+        pixels_to_coord(d3)                     // px -> 16.16, fraction cleared
+        move.l  d3, Sst.x_pos(a0)
+        pixels_to_coord(d4)
+        move.l  d4, Sst.y_pos(a0)               // AFTER the hook — see above
 
         // -- 3. camera: centre on the leader, then the camera's own clamp
         //    against the ceilings Camera_Init precomputed for this act. This is
