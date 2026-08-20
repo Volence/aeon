@@ -351,6 +351,25 @@ This also sets the target precisely: **work/tick must fall below 128,000, i.e. b
 cycles (33%)**, for max-diagonal to return to 60 Hz. `Tile_Cache_Fill` is 106,138 of the
 190,931, so the fill has to come down to roughly what a single axis already costs.
 
+> **UPDATED after fix F1 shipped (2026-08-19, §8).** The collapsed patch loop moves
+> `maxdiag` work/tick **190,941 → 174,437 (−16,504)**, `right` 91,964 → 82,569 and `down`
+> 90,460 → 83,607. `frames_per_tick = ceil(work/tick ÷ 128,000)` still predicts every state:
+> `right`/`down` stay at 1.000 (0.65 frames of work each) and **`maxdiag` stays at 2.067**
+> — 174,437 is 1.36 frames, so it still pays 2. **That is the predicted result, not a
+> disappointment:** §5's own arithmetic said neither lever alone crosses the line, and §6's
+> ladder measured it (C alone, the throwaway floor for this fix, landed at 154,262 and still
+> read 1.938 frames/tick). The remaining **46,437 cycles** to the line are F2's; throwaway D
+> (F1 + F2) is the row that reads 1.107.
+>
+> The superadditivity DIAGNOSIS below survives F1 intact. Re-derived on the post-F1 numbers
+> (with `idle` taken at a non-audit-firing settle, 42,845): axes 39,724 + 40,762 over the
+> shared baseline give an additive prediction of **123,331** against **174,437** measured —
+> an excess of **+51,106 (+41%)**, versus +58,352 (+44%) before. F1 removed ~12% of the
+> excess as a side effect of making both axes cheaper and touched none of its mechanism: the
+> exact `Block_Stage_Gen` decompress counts are identical before and after at all four states
+> (0 / 4.53 / 0.48 / 0.65 per tick, spread 0 across three boots). The excess is still the
+> dead-speculation loop of §3, and it is still F2's.
+
 ### Is the diagonal merely the sum of its axes? No — it is superadditive
 
 Taking `idle`'s 49,849 cyc/tick as the shared non-streaming baseline:
@@ -462,25 +481,166 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
 
 **Nothing here is started. F1 and F2 need rulings before anyone writes code.**
 
-### F1 — collapse the per-word residency patch on fully-resident acts ★ biggest single win
-* **Mechanism.** `PageIn_Fully_Resident` is already latched at act load and is true for all
-  shipped content. When it holds, no page can ever be evicted, so per-word `page → frame`
-  indirection and the ref/unref refcount pair are pure overhead: the physical index is a
-  fixed function of the global index for the act's lifetime. Bake `local → PHYSICAL` into the
-  section local maps at act load (or emit a second map), and the loop collapses to
+### F1 — collapse the per-word residency patch on identity-mapped acts — ✅ SHIPPED 2026-08-19 (`perf/resident-patch-collapse`)
+* **Mechanism, as ruled.** `PageIn_Fully_Resident` is already latched at act load and is true
+  for all shipped content. When it holds, no page can ever be evicted, so per-word
+  `page → frame` indirection and the ref/unref refcount pair are pure overhead: the physical
+  index is a fixed function of the global index for the act's lifetime. Bake
+  `local → PHYSICAL` into the section local maps at act load, and the loop collapses to
   read / mask / one table read / merge attrs / store.
-* **Measured saving.** Throwaway C: `right` 43,437 → 31,771 cyc/tick (−11,666, −26.9%);
-  `down` 41,109 → 32,351 (−8,758, −21.3%); `maxdiag` work/tick 190,931 → 154,262 (−36,669).
-  Per word, 183 → 88 and 136 → 77.
-* **Risk class: value-identical output, but format-changing.** The nametable words produced
-  are identical; what changes is where the global→physical composition happens. It touches
-  the F-3 merge-translation contract and needs a fallback path for a non-fully-resident act.
-* **Verification.** `tools/streaming_choke_probe.py` at `right`/`down` for the cost, plus a
-  `memory_hash` of `Tile_Cache_Nametable` against the baseline ROM at a pinned camera state
-  to prove value-identity, plus `PageCache_Audit` staying green.
-* **⚑ PARK for an owner/controller ruling** — where the pre-baked map lives (extra ROM per
-  section vs. a RAM rewrite at act load) is a §9.7 design decision, and the non-resident
-  fallback has to be specified before it is built.
+* **THE CONTRADICTION THE RULING ANTICIPATED — the section local maps are ROM.** They are
+  `embed()`ed blobs (`games/sonic4/data/generated/ojz/act1/sec*_local_map.bin`, reached
+  through `Act.act_sec_local_maps`), read directly by the patch runs via
+  `Cache_Cur_LocalMap`. Nothing copies them to RAM, so there is no in-place rewrite to
+  perform. A RAM copy was priced and rejected: OJZ act 1's nine maps are 3,230 B against
+  **3,622 B free in `lower_ram`** — it fits *this* act with 392 B to spare and puts a hard,
+  invisible content ceiling on the next one.
+* **What shipped instead — the same collapsed loop, composed at build time by being the
+  IDENTITY.** Under the latch, `PageCache_Init`'s free list (threaded `0→1→…→N-1`) plus
+  `Level_LoadArt`'s in-order bulk enqueue plus page-in's single-slot in-order completion make
+  `Page_Table` the identity: `Page_Table[p] == p` for every `p < PageIn_Pool_Pages` (measured
+  live: `00 01 02 … 09` over the 10-page pool). Then
+  `frame<<6 | (global&63) == (global>>6)<<6 | (global&63) == global`, so **the section map's
+  GLOBAL value already IS the physical index** and no composition pass is needed at all.
+  `Level_LoadArt` **verifies** the identity once the pool has landed — it is checked, never
+  assumed — and latches `PageCache_Direct_Map` (which consumes an existing word-align pad
+  byte, so **RAM layout is unchanged**). The runs then dispatch per RUN, not per word:
+  `tst.b PageCache_Direct_Map` selects the collapsed variant, and the fallback arm is the
+  pre-F1 loop **byte-for-byte**, over the pristine ROM maps.
+* **The F-3 merge-translation contract is satisfied identically.** Staged words stay LOCAL,
+  the section map is applied per word, the full-width global lives only in a register, and
+  the 11-bit nametable field carries only the physical index (≤ 959 = `POOL_TILE_CEILING`).
+* **`PageCache_Audit` neither reddens nor goes vacuous.** Throwaway C had to disable it
+  because it `raise_error`s on refcounts a collapsed loop stops maintaining. Here the
+  refcount-vs-nametable comparison is REPLACED under the latch by the three invariants that
+  are live in that regime: (a) every `pf_refcount` is zero — a nonzero one means a general-loop
+  run executed under the latch, i.e. the two variants got mixed, which is exactly the
+  divergence the comparison used to catch; (b) every frame the nametable references is
+  assigned (`pf_page != $FFFF`) — the no-dangling-physical-index property the refcounts
+  existed to protect, re-derived from the nametable walk itself; (c) `Page_Table` is STILL
+  the identity, the premise the whole collapsed loop rests on. Bijectivity, the
+  candidate-flag invariant and the orphan check are untouched and stay live.
+* **The new audit arm is POISON-TESTED, because a replacement check that cannot fail would
+  be worse than the red one it replaced.** `tools/pagecache_audit_poison.py` violates each
+  invariant in turn at runtime and requires the engine to STOP; the control run pokes nothing
+  and must keep going:
+
+      CONTROL (no poke)                      ticks 111 -> 505 -> 564   still running
+      (a) nonzero pf_refcount                ticks 111 -> 129 -> 129   HALTED (audit raised)
+      (b) unassigned frame referenced        ticks 111 -> 129 -> 129   HALTED (audit raised)
+      (c) Page_Table not the identity        ticks 111 -> 129 -> 129   HALTED (audit raised)
+
+  All three halt at tick 129 — the first periodic fire after the poke at 111 — and the
+  control reaches 564. Re-run it whenever the direct-map regime is touched.
+* **Measured saving** (`--repeat 3`, spread 0.000 on `frames/tick` at every state, 3 boots;
+  baseline `s4.debug.bin` crc `2191bfdc` at master `76afd279`, F1 crc `47111ae9`):
+
+  | state | fill cyc/tick | patch run cyc/tick | cyc per patched word |
+  |---|---|---|---|
+  | `right` | 43,395 → **33,646** (−9,749, **−22.5%**) | `_Col` 21,971 → **12,394** (−43.6%) | 183.1 → **103.3** |
+  | `down` | 41,067 → **34,218** (−6,849, **−16.7%**) | `_Seq` 21,794 → **14,160** (−35.0%) | 136.2 → **88.5** |
+  | `maxdiag` | 105,231 → 89,842 | `_Col` 25,904 → 13,003, `_Seq` 20,332 → 14,624 | — |
+
+  `work/tick`: `right` 91,964 → **82,569**; `down` 90,460 → **83,607**; `maxdiag`
+  190,941 → **174,437 (−16,504)**.
+* **Why the saving is ~84% / ~78% of throwaway C's floor, not 100%.** C dropped the DEBUG
+  pool-bounds assert with the page derivation it rode on. The shipped loop keeps it, in a
+  STRICTER and cheaper form — it bounds the GLOBAL directly against `pool_pages<<6` (hoisted
+  once per run into d4) instead of deriving the page per word, so it catches every
+  out-of-pool map entry the page-level check caught **and the sub-page ones it did not**.
+  The residual also carries the per-run `tst.b`+`bcc` variant select (~200 cyc/tick against
+  ~95 cyc/word over 280 words/tick).
+* **MEASURED IN THE RELEASE SHAPE — and it is NOT the same number. Quote this one for
+  shipping.** The DEBUG figures above overstate the release saving, because the pre-F1
+  general loop carried two DEBUG asserts (the page bound and the refcount-underflow check)
+  that release never paid and the collapsed loop deletes along with the block they sat in.
+  Probed on `s4.bin` (baseline `d00dd11d` vs F1 `8cf11323`, `--repeat 2`), at `down`:
+
+  | shape | `_Seq` cyc/word | `Tile_Cache_Fill` cyc/tick | `work/tick` |
+  |---|---|---|---|
+  | DEBUG | 136.2 → **88.5** (−35.0%) | 41,067 → 34,218 (−16.7%) | 90,460 → 83,607 |
+  | RELEASE | 112.7 → **86.6** (−23.2%) | 36,880 → **32,707** (−11.3%) | 92,937 → **88,762** |
+
+  The two shapes' F1 costs agree (88.5 vs 86.6 cyc/word) — the kept DEBUG bound is ~2 cyc/word
+  at `down`, because most words there take the blank early-out and never reach it. It is the
+  BASELINES that differ by 23.5 cyc/word. **`right` is not reproducible in the release shape
+  on this probe** and must not be quoted from it: the leader falls (dx 320 **dy 124**, versus
+  dx 496 dy 0 in DEBUG), so release's "right" is a diagonal state that runs both fill paths
+  and lags at 1.550 frames/tick. Calibrating a release-shape `right` is an instrument job,
+  not this parcel's.
+* **`maxdiag`'s −16,504 vs C's −36,669 is the §7 instrument, not a shortfall.** F1's own
+  per-word deltas predict (183.1−103.3)×120 + (136.2−88.5)×160 = **17,208 cyc/tick**, and the
+  measured `work/tick` fell 16,504 — **closing to 4%**. C's −36,669 exceeds its OWN per-word
+  arithmetic ((183−88)×120 + (136−77)×160 = 20,840) by 76%, and it disabled `PageCache_Audit`
+  in the same build. Read F1 off `right`/`down`, where the instrument closes (§7).
+* **Tick rate.** `right` and `down` stay at 1.000 frames/tick; `maxdiag` stays at **2.067** —
+  exactly as §5 predicts, since 174,437 is still above 128,000. **F2 is the other half.**
+* **The `idle` null, and one honest artifact.** At every settle where the DEBUG audit does
+  NOT fire in the window (120 / 150 / 210 / 240) base and F1 are identical: 1.000 frames/tick
+  and `work/tick` 42,840–42,851 vs 42,841–42,847 — a spread smaller than the baseline's own
+  across settles. At the canonical settle 180, where the audit DOES fire, F1 reads 1.069
+  frames/tick against the baseline's 1.033. Nothing got slower: every routine row is equal or
+  lower, `PageCache_Audit` is 3,688 cyc/frame in BOTH, and `Page_Audit_Ticks` enters the
+  window at 110 instead of 109 — F1 has completed one MORE logic tick by frame 180, so the
+  ~114,000-cycle DEBUG one-shot lands at a different tick/frame phase and straddles one more
+  frame. It is a phase artifact of a DEBUG-only one-shot with zero release cost; the
+  non-firing settles are the null.
+* **Value identity — the hard gate. ALL EQUAL.** Full byte compare (not a hash alone) of
+  `Tile_Cache_Nametable` (9,600 B) *and* `Tile_Cache_Collision` (4,800 B) against the
+  pre-parcel ROM at all four pinned camera states, reached by identical setup, with
+  `Camera_X`/`Camera_Y` verified equal at the sample point. Exact `Block_Stage_Gen`
+  decompress counts are unchanged at every state (0 / 4.53 / 0.48 / 0.65 per tick) — F1
+  changes no scheduling.
+* **The four AB raster scenes CANNOT return ALL EQUAL against a tick-rate change, and that is
+  a fact about the scenes, not about F1.** `ab_runner` (`--selfcheck`, so each side is proven
+  deterministic first) reports DIFFERENCES on 3 of 4 at the shipped tail and on 3 of 4 at an
+  extended 120-frame tail. The **control settles it**: running the BASELINE ROM against
+  ITSELF at settle 180 vs 181 reproduces *exactly the same difference set*, scene for scene —
+
+  | scene | components differing, F1 vs base | components differing, base@180 vs base@181 |
+  |---|---|---|
+  | `mid_band` | `vram`, `active_buf` | `vram`, `active_buf` |
+  | `above_screen` | `vram`, `active_buf` | `vram`, `active_buf` |
+  | `dense` | `vram`, `dense_state` | `vram`, `dense_state` |
+  | `suppressed` | `active_buf` only | `active_buf` |
+
+  and at settle 182 `active_buf` returns to EQUAL — a strict parity alternation of the raster
+  double buffer. In every scene, under BOTH F1 and the pure phase shift, `Raster_Buf_A`,
+  `Raster_Buf_B`, `cram`, `vsram`, `regs` and the scene's screen read are **EQUAL**. The
+  moving parts are the double-buffer parity and the tick-driven BG animation phase in VRAM;
+  F1 makes the engine finish sooner, so after a FIXED number of video frames it is one logic
+  tick further along. **The content check that does discriminate is `effects_gates`' own
+  four `scene:*` determinism + shape gates, which PASS on the F1 ROM with the exact pinned
+  words** (`mid_band` word1=0x8a61 word3=0x8a79, `suppressed` 0x8adb/0x8aff, `above_screen`
+  0x8a00/0x8ada, `dense` 96 body runs / cursor `0x012f82`). Book this for the arc: **F2 will
+  hit the same wall**, and the control is the discharge.
+* **Lanes.** `effects_gates` **23/23** (22 in the batch + `raster_source` PASS on its own
+  re-invocation; the batch run WEDGED it at 240 s twice — the known oracle stop-race, not a
+  result). pytest **1118 passed / 3 skipped** (baseline aggregate, unchanged). `emp_expect_fail`
+  **20/20**. `s4lint` clean, `effects_budget_check` 31 rows agree, `verify_level_bin` OK,
+  `warp_mailbox_gate` **10/10** (the warp's reseed path crosses this machinery — it runs
+  `PageCache_ResetRefcounts` then refills, and under the latch every assigned frame stays
+  rc-0/EVICTABLE-or-PINNED, which is exactly what the audit's direct-regime arm expects).
+  The 1b sparse-raster sweep is **untouched and cannot move**: F1 emits no raster op, changes
+  no HInt/VInt table, no palette and no plane-build path, and its nametable/collision output
+  is byte-identical — there is no channel by which a scanline program could differ.
+* **Four-shape ROM record** (all four move — this is engine code):
+
+  | shape | baseline (`76afd279`) | F1 | Δ |
+  |---|---|---|---|
+  | `s4.bin` | `d00dd11d` / 698,411 | `8cf11323` / 698,517 | +106 |
+  | `s4.debug.bin` | `2191bfdc` / 713,905 | `47111ae9` / 714,234 | +329 |
+  | `demo.bin` | `7db47b7b` / 95,733 | `277fd798` / 95,850 | +117 |
+  | `demo.debug.bin` | `30696400` / 100,132 | `fa6c086e` / 100,454 | +322 |
+
+* **Cost.** `s4.debug.bin` 713,905 → 714,234 B (+329); `s4.bin` 698,411 → 698,517 B (+106).
+  RAM: **unchanged** — the latch consumes an existing word-align pad byte at `$FFB833`, and
+  every RAM symbol keeps its address (`Tile_Cache_Nametable`, `Page_Table`, `Page_Frames`,
+  `Camera_*`, … all verified equal between the two `.lst`s). Changed procs:
+  `PageCache_PatchRun_Seq` and `_Col` (+174 B each — the direct variant + the dispatch),
+  `PageCache_Audit` (+376 B, the direct-regime arm, DEBUG-only), `Level_LoadArt` (+40 B, the
+  latch), `PageCache_Init` (+4 B, clearing it). No other proc's span changed except by
+  inter-symbol padding.
 
 ### F2 — make the block prefetch's speculation land instead of dying
 * **Mechanism.** Three sub-options, in increasing order of ambition:

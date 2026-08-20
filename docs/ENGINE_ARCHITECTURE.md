@@ -4736,6 +4736,23 @@ budget — there is no 2048-tile ceiling. Every section map's entry 0 is the bla
 through any map. Eviction order is a per-frame release stamp (`pf_stamp`) scanned at
 eviction — oldest evictable frame wins, by construction (F-1).
 
+**The degenerate regime pays a degenerate patch (streaming fix F1, 2026-08-19).** On a fully
+resident act the per-word `page → frame` indirection and the ref/unref pair inside the copy
+runs service an eviction that cannot occur, and the translation is provably the identity:
+`PageCache_Init` threads the free list `0→1→…`, `Level_LoadArt` enqueues pages in order, and
+page-in completes one at a time in order, so `Page_Table[p] == p` over the pool and
+`frame<<6 | (global&63) == global`. `Level_LoadArt` **verifies** that once the pool has landed
+— it is checked, not assumed, so an allocator or scheduling change costs the fast path and
+never correctness — and latches `PageCache_Direct_Map`. The patch runs then select, per RUN,
+a collapsed variant (read / mask / one map read / attr-merge / store) and leave the general
+loop untouched as the fallback for a genuinely streaming act. Measured: the patch cost falls
+183 → 103 cyc/word on the column path and 136 → 89 on the row path; `Tile_Cache_Fill` falls
+22.5% on a saturated X axis and 16.7% on Y, at byte-identical nametable and collision output.
+`PageCache_Audit` is regime-aware rather than disabled: under the latch it checks all-zero
+refcounts (the "variants got mixed" detector), no cache word referencing an unassigned frame
+(the no-dangling-index property the refcounts protected), and that `Page_Table` is still the
+identity. See `docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F1.
+
 **Cancel/flush.** Speculative state needs an explicit invalidation path: `PageIn_Flush`
 empties the FIFO and drops any suspended decode (main-loop context only). Called at
 cache-invalidating transitions (act/zone change); NOT at pure teleport rebases — page
