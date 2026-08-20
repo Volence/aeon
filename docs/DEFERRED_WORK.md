@@ -79,6 +79,38 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   asks for oracle-next are packet §9, sorted into (a) satisfied by their in-flight profiler v1,
   (b) composable today via mclk-stamped watch hits, (c) three genuinely new asks.
 
+**Fix F5 — `PageCache_Audit` off the fill path — ✅ CLOSED 2026-08-19**
+(`perf/audit-off-fill-path`). The DEBUG periodic residency audit's interval gate no longer sits
+inside `Tile_Cache_Fill`; the level state's tick runs it, once per tick, immediately after the
+fill returns. Cadence is unchanged — the fill's own once-per-physical-frame gate already made
+the counter advance once per LOGIC TICK (measured at idle: `Page_Audit_Ticks` 109 → 11 over
+30 ticks / 31 frames), so the audit still fires every `PAGECACHE_AUDIT_INTERVAL` = 128 ticks and
+its blind window is still one interval (~2.1 s at 60 Hz, ~4.3 s while the streaming path lags).
+The corruption class it witnesses is monotone — nothing re-derives `pf_refcount` from the
+nametable, so a drift is never MISSED by a periodic audit, only reported late.
+- **De-noise, measured where the instrument closes.** `idle` (the audit fires inside the window):
+  `Tile_Cache_Fill` 4,780 → **926** cyc/tick, −3,854 = 100.4% of the audit's own row
+  (3,837 cyc/tick), which survives intact at 3,811. The fill's row is now its true no-work cost.
+- **The null.** At `right`, `down` and at non-firing `maxdiag` phases (settle 160 / 186) NOTHING
+  else moves: the fill loses only the removed gate (−42 cyc/frame at `right`/`down`, −14 at
+  `maxdiag`/160) and every leaf, every bracket, `work/tick`, `frames/tick` and the exact
+  decompress counts are unchanged. **This is the parcel's real product: the probe's other rows
+  are proven audit-free**, so F1/F2/F4's numbers were never audit-contaminated.
+- **`maxdiag` at the canonical settle 180 is not a usable de-noise measure**, and this parcel is
+  a second, independent demonstration of §7: the fill row moves 106,138 → 105,231 cyc/tick while
+  the audit row collapses 7,333 → 872, i.e. old oracle stops attributing the pass to any row
+  rather than moving it. In that state its rows already fail to close — the
+  `GameState_OJZScroll_Update` bracket (55,145 cyc/frame) is SMALLER than the sum of the children
+  the probe measures under it (56,219), before and after. `idle`, `right` and `down` close.
+- Release shapes byte-identical (`s4.bin` e111dff7 / `demo.bin` aae04929). **Trap for the next
+  parcel:** the first cut added a zero-byte DEBUG-only engine proc for the gate; that label alone
+  moved `demo.bin` (aae04929 → 6710c1ac, everything before `EndOfRom` identical — it is the deb2
+  appendix). The gate is spelled INLINE in the level state for that reason. `s4.bin` did not
+  move, so **a release CRC check on sonic4 alone would have missed it** — check both.
+- `tools/streaming_choke_probe.py` updated: `PageCache_Audit` is out of `Tile_Cache_Fill`'s
+  child map and prints as a sibling with no "%fill" (it read 411.6% of the fill at idle while
+  still tabled as a child).
+
 ### 1. §9.7 idle-time deferred work / resumable decode — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
 **Done (`feat/art-streaming-p2`, chains 55→78; merged to master `2f047e3`).** §9.7
 shipped as the pre-chunked-pages + VBlank-supervisor-bookmark idle-time path (the user-mode variant

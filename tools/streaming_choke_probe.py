@@ -22,8 +22,13 @@ THE TREE (verified by grepping every `jbsr` in engine/ + games/, 2026-08-19):
       |    +- TileCache_CopyBlockColumn
       |         +- PageCache_PatchRun_Col   (per nametable word)
       +- TileCache_HSlide / VSlide / VSlideUp
-      +- PageCache_Audit                    (DEBUG only, 1 frame in 128)
       +- (inline prefetch scans) -> FindStagedBlock / DecompressBlock
+
+    PageCache_Audit is NO LONGER IN THAT TREE (fix F5, 2026-08-19). It was a child of
+    Tile_Cache_Fill until the gate moved out to the level state's tick, where it is now
+    a SIBLING of the fill under GameState_OJZScroll_Update. Its row is still printed —
+    below the tree, at depth 0 — because the one-shot's cost is worth seeing; it just is
+    not part of the fill's decomposition any more, and must never be subtracted from it.
 
 SOLE-PARENT FACTS THAT MAKE THE SUBTRACTION HONEST. A per-routine row aggregates over
 ALL parents, so a callee with two live parents cannot be attributed by row alone. On
@@ -98,17 +103,22 @@ TREE = [
     ("TileCache_HSlide", 1),
     ("TileCache_VSlide", 1),
     ("TileCache_VSlideUp", 1),
-    ("PageCache_Audit", 1),
     ("PageCache_Request", 1),
     ("PageCache_Prefetch", 1),
+    # depth 0 = NOT a child of the fill. Since F5 the periodic residency audit is
+    # gated by the level state's tick, one call after Tile_Cache_Fill returns, so its
+    # one-shot cost belongs to GameState_OJZScroll_Update and never to the fill.
+    ("PageCache_Audit", 0),
 ]
 ROUTINES = BRACKETS + [n for n, _ in TREE]
 
 # direct children of each parent, for the inclusive-row check
 CHILDREN = {
+    # PageCache_Audit is deliberately ABSENT — F5 moved it out of the fill (see the
+    # module docstring). Re-adding it here would make the inclusive check fail loudly,
+    # which is the point: the tree and this map must not drift apart again.
     "Tile_Cache_Fill": ["TileCache_FillColumn", "TileCache_FillRow",
-                        "TileCache_HSlide", "TileCache_VSlide", "TileCache_VSlideUp",
-                        "PageCache_Audit"],
+                        "TileCache_HSlide", "TileCache_VSlide", "TileCache_VSlideUp"],
     "TileCache_FillColumn": ["TileCache_CopyBlockColumn"],
     "TileCache_CopyBlockColumn": ["PageCache_PatchRun_Col"],
     "TileCache_FillRow": ["PageCache_PatchRun_Seq"],
@@ -350,7 +360,12 @@ def main():
         print("   " + "-" * (len(hdr) - 3))
         for name, depth in TREE:
             rr = [a.get(name) for a in allrows]
-            label = "  " * depth + ("+- " if depth else "") + name
+            # depth 0 below Tile_Cache_Fill = a SIBLING of the fill, not a child: print
+            # it flush-left and with no %fill, because a percentage of a routine it is
+            # not inside is a category error (F5 — it read 411.6% at idle when the
+            # audit was still tabled as a child after the gate had moved out).
+            sib = depth == 0 and name != "Tile_Cache_Fill"
+            label = ("   " if sib else "") + "  " * depth + ("+- " if depth else "") + name
             if any(x is None for x in rr):
                 print(f"   {label:34} {'--':>8} {'ABSENT (0 calls)':>11}")
                 st[name] = {"cycles": [0], "calls": [0], "cyc_per_tick": 0.0}
@@ -359,8 +374,9 @@ def main():
             cal = [int(x["calls"]) for x in rr]
             st[name] = {"cycles": cyc, "calls": cal, "cyc_per_tick": cyc[0] * fpt}
             pct = (100.0 * cyc[0] / fill["cycles"]) if fill and fill["cycles"] else 0.0
+            pcts = "  (not in fill)" if sib else f" {pct:>6.1f}%"
             print(f"   {label:34} {cal[0]:>8} {cyc[0]:>11} {max(cyc)-min(cyc):>7}"
-                  f" {cyc[0]*fpt:>10.0f} {cal[0]*fpt:>10.1f} {pct:>6.1f}%")
+                  f" {cyc[0]*fpt:>10.0f} {cal[0]*fpt:>10.1f}{pcts}")
 
         # ---- the inclusive-vs-exclusive test, and the OWN-cost residues ----
         print("   -- inclusive-row check + own (exclusive) cost --")

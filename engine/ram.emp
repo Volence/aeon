@@ -492,7 +492,7 @@ pub vars upper_ram {
         // STALL_WATCHDOG_FRAMES so a working-set-exceeds-dynamic-frames livelock is LOUD,
         // not a silent black hang. Reset to 0 the first frame the fill does not stall.
         Cache_Stall_Watchdog:   u16,
-        Page_Audit_Ticks:       u16,    // frames since the last during-play refcount audit
+        Page_Audit_Ticks:       u16,    // LOGIC TICKS since the last during-play refcount audit (PageCache_AuditTick)
         Page_Audit_Scratch:     [u16; PAGE_FRAMES_MAX],   // per-frame refcount recomputed from the nametable (audit).
                                                           // CAPACITY-sized like Page_Frames — this array shrinking by
                                                           // 2 B is exactly what slid every debug cell below it (incl.

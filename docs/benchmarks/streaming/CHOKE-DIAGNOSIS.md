@@ -87,6 +87,10 @@ established by grepping every `jbsr` in `engine/` and `games/`:
       +- TileCache_FindStagedBlock          (THREE live parents: col fill, row fill, prefetch)
       +- TileCache_HSlide / VSlide / VSlideUp
       +- PageCache_Audit                    (DEBUG only, one pass in 128)
+                                            ^^ AS MEASURED HERE. Fix F5 (§8) has since
+                                            moved this gate OUT of the fill and into the
+                                            level state's tick; on master today it is a
+                                            SIBLING of Tile_Cache_Fill, not a child.
 
 `DecompressBlock`, `CopyBlockColumn`, both `PatchRun`s, `S4LZ_DecompressDict` and the slides
 have exactly one live parent. `TileCache_FindStagedBlock` has three inside the fill plus a
@@ -116,6 +120,13 @@ Frame → tick conversion is ×2.067. The rows sum to the parent **exactly**:
 **The two patch runs together are 46,234 cyc/tick — 43.6% of the fill and 24.2% of the whole
 logic tick.** They are the single largest thing in the streaming path, larger than all
 decompression.
+
+> **Superseded by fix F5 (§8), shipped 2026-08-19.** The `PageCache_Audit` row above is the
+> LAST measurement taken with the audit inside the fill. Its gate now lives in the level
+> state's tick, so on master that row is gone from this table and the fill's total at `idle`
+> falls 4,780 → 926 cyc/tick. Everything else in the table is unchanged (proved at `right`,
+> `down` and two non-firing `maxdiag` phases) — which is what makes the rest of this
+> decomposition trustworthy. The paragraph below still describes the mechanism.
 
 `PageCache_Audit` is a **DEBUG-only one-shot, not a steady-state cost**: it walks all 4,800
 nametable words every 128 fill passes and costs ~110,000 cycles when it fires. It fired
@@ -297,7 +308,7 @@ policy, not the capacity.**
 | `S4LZ_DecompressDict` | decompress RATE × per-block stream cost. Rate = geometric minimum **+ dead speculation** (§3). Per-block cost is CONTENT-dependent: ~9,100 cyc for a compressed block, **0** for raw-direct or empty. | `down` never calls it at all; `right` 4,377 cyc/tick; `maxdiag` 19,547 |
 | `TileCache_FindStagedBlock` | (blocks visited by the fill + blocks walked by the prefetch scans) × `BLOCK_STAGE_SLOTS`. Linear in the slot count. | 416 cyc/probe; 3,725 → 3,949 cyc/tick at `right` when slots went 16 → 20 |
 | inline residual (collision copies + run derivation) | same axis geometry as the patch runs | `down` 13,986 vs `right` 5,766 — the row path's collision phase 2 is a byte loop over 80 cells × 2 planes |
-| `PageCache_Audit` | per-tick CONSTANT of 0 in release; in DEBUG, ~110,000 cyc once per 128 fill passes | fired in the `maxdiag`/`idle` windows, not in `right`/`down` |
+| `PageCache_Audit` | per-tick CONSTANT of 0 in release; in DEBUG, ~110,000 cyc once per 128 ticks. **No longer part of the fill at all since F5 (§8)** — it is a sibling of `Tile_Cache_Fill` in the level state's tick. | fired in the `maxdiag`/`idle` windows, not in `right`/`down` |
 | `HSlide` / `VSlide` / `VSlideUp` | O(1) origin arithmetic, per axis crossing | ≤ 395 cyc/tick everywhere |
 
 **Nothing here scales with the level's content in the way the §9.7 design anticipates.**
@@ -511,14 +522,43 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
   negative in §3 was partly self-inflicted by this scan.
 * **Verification.** The probe's `FindStagedBlock` row at `right`/`down`.
 
-### F5 — move `PageCache_Audit` off the fill path
-* **Mechanism.** It is DEBUG-only and correct, but it runs INSIDE `Tile_Cache_Fill` and
+### F5 — move `PageCache_Audit` off the fill path — ✅ SHIPPED 2026-08-19 (`perf/audit-off-fill-path`)
+* **Mechanism.** It is DEBUG-only and correct, but it ran INSIDE `Tile_Cache_Fill` and
   spends ~110,000 cycles in a single pass every 128, which lands as a 7,333 cyc/tick
-  contamination on one DEBUG measurement window in four. Run it from a debug hotkey, or from
-  a frame the harness can identify, or amortise it across passes.
+  contamination on one DEBUG measurement window in four.
 * **Measured cost.** 3,548 cyc/frame amortised at `maxdiag`; zero in release.
 * **Risk class: value-identical, DEBUG-only.** Cheap and worth doing first purely to
   de-noise every subsequent measurement in this arc.
+* **What shipped.** The interval gate moved out of `Tile_Cache_Fill` and into the LEVEL
+  STATE's tick (`games/sonic4/test/ojz_scroll_test.emp`), one call after the fill returns —
+  a sibling of the fill, not a child. Cadence is UNCHANGED: the fill's own
+  once-per-physical-frame gate already advanced the counter once per LOGIC TICK (idle:
+  `Page_Audit_Ticks` 109 → 11 over 30 ticks / 31 frames), so the audit still fires every
+  `PAGECACHE_AUDIT_INTERVAL` = 128 ticks and its blind window is still one interval. The
+  witness is preserved because the corruption class is MONOTONE — nothing re-derives
+  `pf_refcount` from the nametable, so a periodic audit never MISSES a drift, only reports
+  it late. It is spelled inline rather than as an engine proc because a new zero-byte
+  DEBUG-only label lands in the release deb2 appendix and moved `demo.bin` (aae04929 →
+  6710c1ac; `s4.bin` did not move, so sonic4 alone would not have caught it).
+* **De-noise, measured at `idle`** (the audit fires; the instrument closes there):
+  `Tile_Cache_Fill` 4,780 → **926 cyc/tick** (−3,854, = 100.4% of the audit's own
+  3,837 cyc/tick row, which survives intact at 3,811).
+* **The null — the parcel's real product.** At `right`, `down` and at non-firing `maxdiag`
+  phases (settle 160 / 186), nothing else moves: the fill loses only the removed gate
+  (−42 cyc/frame at `right`/`down`, −14 at `maxdiag`/160), and every leaf row, every
+  bracket, `work/tick`, `frames/tick` and the exact `Block_Stage_Gen` decompress counts are
+  unchanged. **§2's other rows are therefore proven audit-free** — F1/F2/F4's savings were
+  never contaminated.
+* **A second, independent demonstration of §7.** At the canonical `maxdiag` (settle 180) the
+  fill row moves only 106,138 → 105,231 cyc/tick while the `PageCache_Audit` row collapses
+  7,333 → 872: old oracle stops ATTRIBUTING the pass rather than moving it. Its rows already
+  fail to close in that state — the `GameState_OJZScroll_Update` bracket (55,145 cyc/frame)
+  is smaller than the sum of the children the probe measures under it (56,219), both before
+  and after. Read the F5 de-noise off `idle`/`right`/`down`, never off `maxdiag`.
+* **Probe change.** `tools/streaming_choke_probe.py` no longer tables `PageCache_Audit`
+  under `Tile_Cache_Fill`: it is out of the child map (so the inclusive check stays honest)
+  and prints flush-left with no "%fill" — it read 411.6% of the fill at `idle` in the first
+  post-move run, which is what a percentage of a routine you are not inside looks like.
 
 ### F6 — reconsider the tile-cache margins
 * **Mechanism.** The cache is 80 × 60 for a 40 × 28 viewport. Column-fill cost is linear in
