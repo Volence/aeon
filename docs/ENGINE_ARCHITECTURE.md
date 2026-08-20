@@ -2926,6 +2926,16 @@ The reason the warp is an engine feature rather than a client trick is that a ba
 
 Same write order (X, then Y, then the **flag last**), same clamp (`Player_Bound_Right`/`Player_Bound_Bottom`, through the shared `clamp_and_publish` template), same publish-back of the clamped pair, same "cleared flag is the ack". A client that already speaks the warp mailbox speaks this one.
 
+**THE ACK CAN BE FORGED — flag==0 alone is never proof of success** (found by Aurora's
+client harness, 2026-08-19, via a planted wrong-window defect). A write made BEFORE the
+supported window is zeroed by boot's RAM clear — payload AND flag — which reads exactly
+like the engine's ack while the boot proceeds authored. After the flag clears, a client
+MUST verify by an independent signal: read back the published `Boot_At_X/Y` pair (zeros
+when you requested non-zero = the clear, not a consume) or read the player's position
+directly. Two harness facts for anyone driving this headless: a fresh oracle-aether is
+paused at frame 0, and post-`reload_rom` RAM holds the OLD session's values until the
+boot clear runs — poll gating must use `frameToken`, never plausible-looking values.
+
 **WHEN THE CLIENT MAY WRITE — and this is the one thing that differs, structurally.** Boot clears **all 64 KB of Work RAM** (`engine/system/boot.emp`, `.clear_ram`; §0.11 / §9.5 make the absence of a preserved region a ruling, not a gap). So the cells **cannot** be written at the reset-paused machine the way the warp mailbox can be written at any paused frame — a pre-resume write is zeroed before the init can see it. The supported window is **after the clear and before the init**:
 
 ```
