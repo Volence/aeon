@@ -26,7 +26,21 @@ Opened on your ruling last evening; closed this morning, six measured parcels la
 - **T2** — hscroll ramp probe, proven red before any curve exists.
 - **T3** — the re-glue instrument: 18-position vertical sweep exact (poison 18/18 red first), and the synthesized transition frame measured — surcharge ~+900-1,100 cyc on `Parallax_Update`, +0 DMA bytes. Closes P2 Task 12's blocker (b); blocker (a) (the Label-typed section→scene join) stays open. Also found: the plan's "differ-in-HScroll-mode" transition pair doesn't exist in shipped content (all 20 scenes attach H-deform), and `[parallax.cost_model]` was stale post-unroll — re-measured rows booked as `postunroll_*` for Task 13.
 - **T4** — axis 5's denominator measured (idle: 3/80 SAT slots, worst line 2/20 sprites); ruling: the axis gates on the per-line sprite count. **Design-changing flag: the left-column mask really costs 7 SAT slots full-height, not the 1 the plan priced** — carried onto Task 12's section.
-- **Checkpoint passed** → Phase 1 open. T5 (CAP-bit promotion, zero-byte) dispatched.
+- **Checkpoint passed** → Phase 1 open and moving:
+  - **T5 MERGED** (`ee2751dc`) — the two P3 capability bits are gateable; zero-byte proven
+    on all four shapes; +2 derived span tests (gapless-bit-run, bare-prefix rule).
+  - **T6 MERGED as a pair** (aeon `95538920` / sigil `3dae4bd2`, chain 156, suite 3752/0)
+    — ONE comptime fold (`scene_forces_per_line`) + ONE runtime splice
+    (`parallax_mode_key`) now feed both mode twins; the P1 precision fence retired.
+    **C1 RULED: 896 B / one entry per frame** — the recorded 1792 was queue residue (the
+    DMA drain resets cursors, never bytes; the scanner read live+residue
+    indistinguishably; three independent tells). Budget re-attributed with the guard sum
+    unchanged. sonic4 −74 B = deb2 span-name merge only, 533/533 procs byte-identical.
+  - **Landing trap found + banked** (OVERSEER.md): the main tree now carries live
+    editor/baked content, and repin, refreeze AND the sigil suite each default to it —
+    all three legs must be pointed at a clean checkout explicitly. The dirty-tree suite
+    run read 111 false failures; the clean rerun isolated the 4 real ones (the
+    mode-key port ripple, fixed with a verbatim AST-extraction shim).
 
 ## The profiler corpus A/B PASSED — and revised our own margin
 
