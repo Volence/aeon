@@ -156,8 +156,23 @@ pub data BlockStage_PtrTable: [*u8; BLOCK_STAGE_SLOTS] = comptime for i in 0..BL
 // Clobbers: d3-d4, a1
 // CONTRACT — a1 is a RESULT on the eq edge and SCRATCH on the others, which is
 // why it is declared in both `clobbers` and `out`. The probe walks a1 across the
-// key table before the hit/miss is known, so the miss exit returns a1 destroyed;
-// a caller holding a value in a1 must save it on every path.
+// staging metadata before the hit/miss is known, so the miss exit returns a1
+// destroyed; a caller holding a value in a1 must save it on every path.
+//
+// STREAMING FIX F4 — this was a LINEAR SCAN of all BLOCK_STAGE_SLOTS keys
+// (`cmp.l (a1)+ / dbeq`), measured at 416 cycles per probe and 10,319 cyc/tick at
+// sustained max-diagonal (9.7% of Tile_Cache_Fill) in
+// docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md §2. It is now a hashed lookup over
+// Block_Stage_Bucket / Block_Stage_Chain (see engine.ram for the tables and the
+// index invariant). The bucket IS the block index, already in d2, so the hash
+// costs nothing; a hit walks one chain link in the overwhelming case and a MISS
+// costs a single byte read.
+//
+// WHAT THIS DELIBERATELY DOES NOT CHANGE: eviction is still round-robin and there
+// are still BLOCK_STAGE_SLOTS of them. F4's whole risk class is "value-identical" —
+// the index is a faithful view of Block_Stage_Keys, so this returns the same slot
+// the scan returned for every key, and the staged HIT/MISS sequence (hence the
+// decompress schedule F2 is measured against) is bit-for-bit unchanged.
 // -----------------------------------------------
 pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1) out(a1 if eq) preserves(d0-d2) {
         move.w  d0, d3
@@ -165,26 +180,32 @@ pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1
         move.b  d1, d3
         swap    d3
         move.w  d2, d3                         // d3.l = key (sec_x|sec_y|block_index)
+        // Bucket lookup. moveq first so the byte read leaves a CLEAN 0..60 index
+        // in d4 (the chain step below relies on the same property), and so the
+        // $FF sentinel still sets N for the bmi.
+        moveq   #0, d4
+        lea     Block_Stage_Bucket, a1
+        move.b  (a1, d2.w), d4                 // d4 = head slot*4, or $FF (bucket empty)
+        bmi     .miss
+    .chain:
         lea     Block_Stage_Keys, a1
-        moveq   #BLOCK_STAGE_SLOTS-1, d4
-    .probe:
-        cmp.l   (a1)+, d3
-        dbeq    d4, .probe
-        bne     .miss
-        // slot index × 4 = (a1 - 4) - Block_Stage_Keys
-        move.w  a1, d3
-        subi.w  #(Block_Stage_Keys+4) & $FFFF, d3
+        cmp.l   (a1, d4.w), d3
+        beq     .hit
+        lea     Block_Stage_Chain, a1
+        move.b  (a1, d4.w), d4                 // next slot*4, or $FF (end of chain)
+        bpl     .chain
+    .miss:
+        moveq   #1, d3                         // Z clear (miss)
+        rts
+    .hit:
         // F-3: republish this block's local->global map for the consumers that
         // read staged words (the PageCache patch runs at the copy sites, the prefetch
         // scan) — staged nametable words are LOCAL; the map applies per word.
         lea     Block_Stage_Maps, a1
-        move.l  (a1, d3.w), Cache_Cur_LocalMap
+        move.l  (a1, d4.w), Cache_Cur_LocalMap
         lea     Block_Stage_Ptrs, a1
-        movea.l (a1, d3.w), a1                 // a1 = staged data pointer (RAM slot / ROM raw block / zero page; words LOCAL)
+        movea.l (a1, d4.w), a1                 // a1 = staged data pointer (RAM slot / ROM raw block / zero page; words LOCAL)
         moveq   #0, d3                         // Z set (hit)
-        rts
-    .miss:
-        moveq   #1, d3                         // Z clear (miss)
         rts
 }
 
@@ -210,6 +231,19 @@ pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
         move.l  (sp), (a0)+
         dbf     d0, .inv_maps
         addq.l  #4, sp
+        // F4 staging index: every bucket empty, every chain link terminated. This
+        // is one half of the index invariant (engine.ram) — with all keys back to
+        // $FFFFFFFF, no slot may appear in any chain.
+        lea     Block_Stage_Bucket, a0
+        moveq   #(BLOCK_STAGE_BUCKETS/4)-1, d0
+    .inv_bucket:
+        move.l  #-1, (a0)+
+        dbf     d0, .inv_bucket
+        lea     Block_Stage_Chain, a0
+        moveq   #BLOCK_STAGE_SLOTS-1, d0       // stride-4 chain: one long per slot
+    .inv_chain:
+        move.l  #-1, (a0)+
+        dbf     d0, .inv_chain
         clr.w   Block_Stage_Next
         addq.w  #1, Block_Stage_Gen            // staging emptied — every warm-line memo now stale
         move.w  #$FFFF, Pfx_Memo_Gen           // sentinel: the next frame's scans re-probe in full
@@ -247,6 +281,82 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
         addq.w  #1, Block_Stage_Gen            // a new staging claim invalidates every warm-line memo
         add.w   d4, d4
         add.w   d4, d4                         // slot index × 4
+
+        // ---- F4 staging-index maintenance -------------------------------------
+        // Keep Block_Stage_Bucket/Chain an EXACT index of Block_Stage_Keys, so the
+        // O(1) TileCache_FindStagedBlock returns what the pre-F4 16-key linear scan
+        // returned. Runs BEFORE the new key is stored, because the unlink reads the
+        // key this claim is about to destroy. Uses d4 (slot*4), d5/d6, a1/a2 — all
+        // dead or re-assigned below; d0-d3 (sec_x, sec_y, block_index, new key) stay
+        // live. This is bookkeeping for the LOOKUP only: the round-robin choice of
+        // d4 above is untouched (fix F2's subject).
+    if DEBUG == 1 {
+        // The precondition the whole equivalence rests on: keys are UNIQUE across
+        // slots. Every caller probes before it claims, so a claim can never
+        // re-stage a live key — and if one ever did, the chain would return the
+        // NEWEST slot where the old linear scan returned the LOWEST-NUMBERED one,
+        // i.e. the two lookups would disagree and F4 would stop being
+        // value-identical. Checked, not argued (chains are length 1 in practice).
+        // Runs BEFORE the unlink, so the claimed slot is still in its own chain and
+        // a slot re-staging the key it already holds is caught too.
+        lea     Block_Stage_Bucket, a1
+        moveq   #0, d5
+        move.b  (a1, d2.w), d5
+        bmi     .idx_dup_ok
+        lea     Block_Stage_Keys, a1
+        lea     Block_Stage_Chain, a2
+    .idx_dup_step:
+        cmp.l   (a1, d5.w), d3
+        bne     .idx_dup_next
+        raise_error "TileCache: staging claim re-stages a key that is already live (the O(1) probe and the old linear scan would disagree)"
+    .idx_dup_next:
+        move.b  (a2, d5.w), d5
+        bpl     .idx_dup_step
+    .idx_dup_ok:
+    }
+        lea     Block_Stage_Keys, a1
+        move.l  (a1, d4.w), d5                 // d5 = the key being evicted
+        moveq   #-1, d6
+        cmp.l   d6, d5
+        beq     .idx_link                      // virgin slot — in no chain, nothing to unlink
+        andi.w  #BLOCK_STAGE_BUCKETS-1, d5     // d5.w = evicted key's bucket (its block index)
+        // Walk the LINK CELLS of that bucket — the bucket head first, then chain
+        // cells — until one names this slot, and splice it out.
+        lea     Block_Stage_Bucket, a1
+        adda.w  d5, a1                         // a1 -> the bucket's head link cell
+    .idx_unlink_step:
+        moveq   #0, d6
+        move.b  (a1), d6                       // d6 = slot*4 named by this link cell
+        cmp.b   d4, d6
+        beq     .idx_unlink_found
+        cmpi.b  #$FF, d6
+        beq     .idx_unlink_lost               // ran off the chain — index vs keys diverged
+        lea     Block_Stage_Chain, a2
+        adda.w  d6, a2
+        movea.l a2, a1                         // a1 -> that slot's chain cell
+        jbra    .idx_unlink_step
+    .idx_unlink_lost:
+        // The invariant says a live key is always reachable from its bucket, so
+        // this is unreachable unless the index has been corrupted. DEBUG says so
+        // LOUDLY; release leaves the (already broken) chain alone rather than
+        // walking off the 64-byte chain table on a $FF index.
+        if DEBUG == 1 {
+            raise_error "TileCache: staging index lost the evicted slot (bucket chain vs Block_Stage_Keys diverged)"
+        }
+        jbra    .idx_link
+    .idx_unlink_found:
+        lea     Block_Stage_Chain, a2
+        move.b  (a2, d4.w), (a1)               // predecessor link <- evicted slot's successor
+    .idx_link:
+        // Link the claimed slot at the head of its NEW bucket (= d2, the block index).
+        lea     Block_Stage_Bucket, a1
+        moveq   #0, d5
+        move.b  (a1, d2.w), d5                 // current head slot*4, or $FF
+        lea     Block_Stage_Chain, a2
+        move.b  d5, (a2, d4.w)                 // this slot's successor = the old head
+        move.b  d4, (a1, d2.w)                 // bucket head = this slot
+        // ---- end F4 staging-index maintenance ---------------------------------
+
         lea     Block_Stage_Keys, a1
         move.l  d3, (a1, d4.w)
         lea     BlockStage_PtrTable(pc), a1

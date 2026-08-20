@@ -683,6 +683,23 @@ ensure(1 << BLOCKS_PER_SECTION_SHIFT == BLOCKS_PER_SECTION_AXIS,
 pub const BLOCK_INDEX_ENTRIES   = BLOCKS_PER_SECTION_AXIS * BLOCKS_PER_SECTION_AXIS  // 256
 pub const BLOCK_INDEX_SIZE      = BLOCK_INDEX_ENTRIES * 4                 // 1024 bytes (ROM)
 
+// Staging probe index (streaming fix F4). TileCache_FindStagedBlock hashes a
+// staged block's key to a bucket instead of linear-scanning all BLOCK_STAGE_SLOTS
+// keys. The hash IS the block index, which the probe already holds in d2, so it
+// costs zero instructions — which is only possible while there is one bucket per
+// representable block index. Shrinking this below BLOCK_INDEX_ENTRIES would need
+// a mask in the probe's hot path; the equality makes that a build error rather
+// than a silently slower probe.
+pub const BLOCK_STAGE_BUCKETS   = BLOCK_INDEX_ENTRIES                     // 256 buckets, one per block_index
+ensure(BLOCK_STAGE_BUCKETS == BLOCK_INDEX_ENTRIES,
+       "BLOCK_STAGE_BUCKETS must stay one-per-block-index — TileCache_FindStagedBlock indexes the bucket table with the RAW block index and masks nothing")
+// The bucket/chain cells hold a slot's BYTE OFFSET into the stride-4 key table
+// (slot * 4), with $FF as the end-of-chain sentinel, so the probe carries one
+// index register for Keys/Ptrs/Maps/Chain alike. $FF must stay unrepresentable
+// as a real offset.
+ensure(BLOCK_STAGE_SLOTS * 4 < $FF,
+       "BLOCK_STAGE_SLOTS * 4 reached the staging index's $FF end-of-chain sentinel — widen Block_Stage_Bucket/Chain to words first")
+
 // Collision cell shift (pixel -> 16px cell).
 pub const COLLISION_CELL_SHIFT  = 4
 

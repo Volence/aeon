@@ -191,6 +191,12 @@ work that is dormant** (§4).
 dbeq`, so its cost is linear in the slot count — confirmed by the 20-slot throwaway, where
 the same `right` state raised it from 3,725 to 3,949 cyc/tick.
 
+> **Superseded by fix F4 (§8), shipped 2026-08-20.** The scan is gone; the probe is an O(1)
+> hashed lookup and costs **196–214 cyc**, 4,871 cyc/tick at `maxdiag` and 1,900 / 2,573 at
+> the single axes. **Its cost no longer scales with the slot count at all**, which is what
+> makes the sentence above the last measurement of a linear probe — and which retires the
+> arithmetic behind §3's capacity negative (see the note at the end of F4).
+
 ---
 
 ## 3. Question 3 (taken first, because it is the root cause) — the famine verdict, and what
@@ -306,7 +312,7 @@ policy, not the capacity.**
 | `PageCache_PatchRun_Col` | camera X speed × `TILE_CACHE_ROWS`. Content-independent, ~183 cyc/word flat. | `right`: 120 words/tick, 21,981 cyc; identical per-word figure at `maxdiag` |
 | `PageCache_PatchRun_Seq` | camera Y speed × `TILE_CACHE_COLS`. Content-independent, ~136 cyc/word flat. | `down`: 160 words/tick, 21,835 cyc |
 | `S4LZ_DecompressDict` | decompress RATE × per-block stream cost. Rate = geometric minimum **+ dead speculation** (§3). Per-block cost is CONTENT-dependent: ~9,100 cyc for a compressed block, **0** for raw-direct or empty. | `down` never calls it at all; `right` 4,377 cyc/tick; `maxdiag` 19,547 |
-| `TileCache_FindStagedBlock` | (blocks visited by the fill + blocks walked by the prefetch scans) × `BLOCK_STAGE_SLOTS`. Linear in the slot count. | 416 cyc/probe; 3,725 → 3,949 cyc/tick at `right` when slots went 16 → 20 |
+| `TileCache_FindStagedBlock` | ~~(blocks visited by the fill + blocks walked by the prefetch scans) × `BLOCK_STAGE_SLOTS`. Linear in the slot count.~~ **F4 (§8), 2026-08-20: probes only — the `BLOCK_STAGE_SLOTS` term is GONE.** | was 416 cyc/probe and 3,725 → 3,949 cyc/tick at `right` on 16 → 20 slots; now 196–214 cyc/probe, flat in the slot count |
 | inline residual (collision copies + run derivation) | same axis geometry as the patch runs | `down` 13,986 vs `right` 5,766 — the row path's collision phase 2 is a byte loop over 80 cells × 2 planes |
 | `PageCache_Audit` | per-tick CONSTANT of 0 in release; in DEBUG, ~110,000 cyc once per 128 ticks. **No longer part of the fill at all since F5 (§8)** — it is a sibling of `Tile_Cache_Fill` in the level state's tick. | fired in the `maxdiag`/`idle` windows, not in `right`/`down` |
 | `HSlide` / `VSlide` / `VSlideUp` | O(1) origin arithmetic, per axis crossing | ≤ 395 cyc/tick everywhere |
@@ -369,6 +375,14 @@ cycles (33%)**, for max-diagonal to return to 60 Hz. `Tile_Cache_Fill` is 106,13
 > exact `Block_Stage_Gen` decompress counts are identical before and after at all four states
 > (0 / 4.53 / 0.48 / 0.65 per tick, spread 0 across three boots). The excess is still the
 > dead-speculation loop of §3, and it is still F2's.
+>
+> **UPDATED again after fix F4 shipped (2026-08-20, §8).** The O(1) staging probe moves
+> `maxdiag` work/tick **174,447 → 170,723 (−3,724)**, `right` 82,577 → **80,979** and
+> `down` 83,614 → **81,660**. `frames_per_tick = ceil(work/tick ÷ 128,000)` still predicts
+> every state: `right`/`down` stay at 1.000 and **`maxdiag` stays at 2.067** — 170,723 is
+> 1.33 frames, so it still pays 2. **F2's remaining distance to the line is 42,723 cycles.**
+> The decompress counts are again identical at all four states, and so is
+> `Block_Stage_Next` — F4 changes no scheduling either.
 
 ### Is the diagonal merely the sum of its axes? No — it is superadditive
 
@@ -672,15 +686,138 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
 * **Measured.** Throwaway D: work/tick 121,598, **frames/tick 1.107**. The choke is gone.
   Recorded here as the joint result, because §5's arithmetic says neither half suffices.
 
-### F4 — direct-map the staging probe
-* **Mechanism.** `TileCache_FindStagedBlock` linear-scans all 16 keys (`cmp.l (a1)+ / dbeq`).
-  A small hash or a direct-mapped index on the (sec_x, sec_y, block) key makes it O(1).
-* **Measured saving ceiling.** 10,319 cyc/tick at `maxdiag` (9.7% of the fill), 3,725–4,798
-  at the single axes; 416 cyc per probe. A realistic direct map recovers most of it.
-* **Risk class: value-identical.** Self-contained inside one proc plus the key table's shape.
+### F4 — direct-map the staging probe — ✅ SHIPPED 2026-08-20 (`perf/staging-direct-map`)
+* **Mechanism, as ruled.** `TileCache_FindStagedBlock` linear-scanned all 16 keys
+  (`cmp.l (a1)+ / dbeq`). A small hash or a direct-mapped index on the
+  (sec_x, sec_y, block) key makes it O(1).
+* **What shipped, and the one design choice that mattered.** A true direct-mapped
+  CACHE — slot = hash(key) — would have changed *eviction*, which is F2's subject and
+  the baseline F2 is measured against. So what shipped is a **side index over the
+  existing round-robin slots**: `Block_Stage_Bucket` (256 entries, one per block index)
+  + a stride-4 `Block_Stage_Chain`, both in `lower_ram`. Slot assignment, `Block_Stage_Next`
+  and `BLOCK_STAGE_SLOTS` are untouched. **Separate chaining is exact for any hash**, so
+  the probe returns the slot the scan returned for every key and the staged HIT/MISS
+  sequence is unchanged *by construction*, not by measurement.
+* **The hash costs zero instructions.** The bucket IS the block index, which the probe
+  already holds in `d2`. Two staged blocks collide only if they carry the same
+  intra-section block index in DIFFERENT sections — exactly `BLOCKS_PER_SECTION_AXIS`
+  blocks (256 tiles) apart on an axis, against an 80×60-tile cache. **Measured: 0 of 16
+  chain links in use after a sustained rightward run, i.e. max chain length 1.** The
+  chain is carried so exactness does not REST on that; it is reported, not asserted,
+  because a future act with a wider staging spread may legitimately chain.
+* **Predicted before measuring, from the 68000 timings.** Hit ≈ 210 cyc (was ≈ 427),
+  miss ≈ 116 (was ≈ 582); with the measured hit/miss mix that predicted
+  `right` −1,911, `down` −2,795, `maxdiag` −5,918 cyc/tick on the probe row, less
+  ~200 cyc per claim of index maintenance. **Measured −1,714 / −2,708 / −5,394** —
+  within 5–12% of prediction, and the per-probe cost landed on the predicted number
+  almost exactly (196–214 measured against 210 predicted).
+* **Measured** (`--repeat 3`, spread 0.000 on `frames/tick` at every state, 3 boots;
+  baseline `282011e6` at master `17bcd111`, F4 `2a482069`):
+
+  | state | probes/tick | `FindStagedBlock` cyc/tick | cyc per probe | fill cyc/tick | work/tick |
+  |---|---|---|---|---|---|
+  | `right` | 9.0 | 3,614 → **1,900** (−47.4%) | 402 → **211** | 33,646 → **32,048** | 82,577 → **80,979** |
+  | `down` | 12.0 | 5,281 → **2,573** (−51.3%) | 440 → **214** | 34,218 → **32,271** | 83,614 → **81,660** |
+  | `maxdiag` | 24.8 | 10,265 → **4,871** (−52.5%) | 414 → **196** | 89,842 → **85,903** | 174,447 → **170,723** |
+  | `idle` | **0 calls** | — | — | 926 → 926 | (see the null below) |
+
+  **`idle` fires nothing through this path — verified from the counters, not assumed:**
+  the probe reports `TileCache_FindStagedBlock -- ABSENT (0 calls)` and 0.00
+  decompresses/tick at `idle` on both ROMs. §7's warning that `maxdiag` rows are
+  indicative still applies; read the saving off `right`/`down`.
+* **RELEASE shape — quote this one for shipping.** Probed on `s4.bin` at `down`
+  (baseline `8cf11323` vs F4 `aa30c5b4`, `--repeat 2`): `FindStagedBlock`
+  4,703 → **2,451 cyc/tick (−47.9%)**, 392 → **204 cyc per probe**, `Tile_Cache_Fill`
+  32,707 → **30,583 (−6.5%)**, `work/tick` 88,762 → **86,638**. The baseline reproduced
+  F1's recorded release figures exactly. `right` remains **not reproducible in release**
+  on this probe for F1's reason (the leader falls, so it is a diagonal state there).
+* **Tick rate is unchanged everywhere, as expected.** `right`/`down` stay at 1.000;
+  `maxdiag` stays at **2.067** — 170,723 is still above 128,000. F4 was never a
+  line-crossing lever; §5's arithmetic reserves that for F2.
+* **Value identity — the hard gate. ALL EQUAL.** Full byte compare (not a hash) of
+  `Tile_Cache_Nametable` (9,600 B) *and* `Tile_Cache_Collision` (4,800 B) at all four
+  pinned states, DEBUG shape, with `Camera_X`/`Camera_Y`, the four cache bounds, the
+  EXACT decompress count (`Block_Stage_Gen`) **and the round-robin cursor
+  (`Block_Stage_Next`) all verified equal at the sample point** — the cursor is the
+  one that proves the eviction schedule F2 will be measured against is untouched.
+  Repeated at a second settle (210) with the same verdict.
+* **The one honest artifact, and its null.** At the canonical settle 180, `idle`
+  reads 1.033 frames/tick on the baseline and 1.069 on F4, and `Logic_Tick` differs by
+  one. Nothing got slower: the fill is 932 cyc/tick in BOTH, `FindStagedBlock` has zero
+  calls in both, and the DEBUG `PageCache_Audit` one-shot simply lands at a different
+  tick/frame phase — the same artifact F1 booked. **The null:** at the four settles where
+  the audit does NOT fire in the window (120 / 150 / 210 / 240) both ROMs read 1.000
+  frames/tick, fill 932, and `work/tick` 42,840–42,852 against the baseline's own
+  42,844–42,852. And it is **absent from the release shape**, which has no audit at all:
+  release `idle` and `down` are ALL EQUAL *including* `Logic_Tick`.
+* **Release `maxdiag`/`right` need a tick-anchored sample, and it was taken.** At a fixed
+  FRAME count those two release states are not a like-for-like comparison — F4 is simply
+  further along (at `maxdiag`, 5 logic ticks ahead by frame 235, which IS the speedup), so
+  the cache holds the same content at a different camera. Re-run with settle, poke and
+  sample all anchored to absolute `Logic_Tick`: `idle`, `right` and `down` come back
+  **fully EQUAL** (nametable, collision, camera, `Block_Stage_Gen`, `Block_Stage_Next`),
+  and `maxdiag` returns 9,600/9,600 and 4,800/4,800 equal with the camera, the exact
+  decompress count (173) and the cursor (12) all equal — only `Cache_Bottom_Row` (172 vs
+  173) and `Cache_Fill_Budget` (6 vs 4) differ, because a 2-frames-per-tick state is
+  necessarily sampled mid-fill.
+* **The four AB raster scenes returned ALL EQUAL — no wall, and no control needed.**
+  F1 booked that F2 "will hit the same wall" (double-buffer parity + BgAnim phase at a
+  fixed frame count). **F4 does not**, and the reason is structural rather than lucky: the
+  scenes poke `Debug_Scene_Freeze = 1`, so `Camera_Update` is skipped, the fill does
+  nothing, F4's cost delta there is zero and no tick phase can shift. `ab_runner
+  --selfcheck` proved each scene deterministic first, then reported `ALL EQUAL (gated)`
+  on `mid_band`, `above_screen`, `suppressed` and `dense` — `state_hash`, both raster
+  buffers, `active_buf`, `dense_state` and the screen read.
+* **The new machine checks are POISON-TESTED.** `tools/staging_index_poison.py` breaks
+  the index invariant three ways at runtime and requires the engine to STOP; the control
+  pokes nothing and must keep going. Arms (b) and (c) leave 255 buckets correct, so they
+  fail only if the unlink follows the EVICTED key's own chain and compares the slot it
+  lands on:
+
+      CONTROL (no poke)                        ticks 119 -> 207 -> 265   still running
+      (a) every bucket emptied                 ticks 119 -> 120 -> 120   HALTED
+      (b) the evicted key's bucket emptied     ticks 119 -> 124 -> 124   HALTED
+      (c) the evicted key's bucket mis-linked  ticks 119 -> 124 -> 124   HALTED
+
+  The claim's OTHER DEBUG arm — "this claim re-stages a key that is already live" —
+  guards a CALLER precondition, not an index state, and has **no RAM poison**: any poke
+  that creates a duplicate key also makes the probe HIT it, so the caller never reaches
+  the claim. It was shown live by a THROWAWAY source mutation instead — deleting
+  `TileCache_FillColumn`'s already-staged guard (`75d93e23`) halts the UNPOKED control at
+  tick 116, and the discriminator build that keeps the mutation but disables just that
+  raise (`086cc150`) runs on to 228. Both were reverted; the tree rebuilds to
+  `2a482069` / `aa30c5b4`.
+* **Lanes.** `effects_gates` **24/24, exit 0** (incl. the four `scene:*` determinism +
+  shape gates with their pinned words and `boot_override`). pytest **1143 passed /
+  3 skipped** (baseline aggregate, unchanged). `emp_expect_fail` **20/20**. `s4lint` clean,
+  `effects_budget_check` 31 rows agree, `verify_level_bin` OK. Sigil warning counts
+  unchanged (9 / 123).
+* **Four-shape ROM record:**
+
+  | shape | baseline (`17bcd111`) | F4 | Δ |
+  |---|---|---|---|
+  | `s4.bin` | `8cf11323` / 698,517 | `aa30c5b4` / 698,760 | +243 |
+  | `s4.debug.bin` | `282011e6` / 714,326 | `2a482069` / 714,655 | +329 |
+  | `demo.bin` | `277fd798` / 95,850 | `9b4c3df3` / 96,079 | +229 |
+  | `demo.debug.bin` | `fa6c086e` / 100,454 | `e78af69e` / 100,785 | +331 |
+
+* **Cost.** Changed procs, DEBUG (spans measured between consecutive top-level symbols,
+  with the Z80-space blob labels filtered out of the boundary set — they do not move when
+  68k code does and otherwise split a proc's span at random):
+  `TileCache_DecompressBlock` **+384** (the unlink + link + the DEBUG duplicate arm),
+  `TileCache_InvalidateStaging` **+36** (emptying the two tables),
+  `TileCache_FindStagedBlock` **+16**. No other proc's span changed except by
+  inter-module padding (`TileCache_VSlideUp` +12, the alignment gap before
+  `Collision_GetType`). **RAM: +320 B in `lower_ram`**, placed with the other
+  block-staging metadata. Only the four `lower_ram` symbols after it move
+  (`Page_Table`, `Page_Frames`, `Page_Queued_Bits`, `Art_Staging_Buffer`, all +320);
+  **no `upper_ram` address and not `Engine_RAM_End` move, so there is no game-side
+  repin.** `lower_ram` free falls 3,622 → 3,302 B.
 * **Note.** This is also what makes any future slot-count increase affordable — the 20-slot
-  negative in §3 was partly self-inflicted by this scan.
-* **Verification.** The probe's `FindStagedBlock` row at `right`/`down`.
+  negative in §3 was partly self-inflicted by this scan. That negative should be
+  **re-derived, not inherited**: it measured 16 → 20 slots against the LINEAR scan, whose
+  cost grew with the slot count. The O(1) probe removes that term, so the capacity
+  question is open again on different arithmetic. It is still not F4's to answer.
 
 ### F5 — move `PageCache_Audit` off the fill path — ✅ SHIPPED 2026-08-19 (`perf/audit-off-fill-path`)
 * **Mechanism.** It is DEBUG-only and correct, but it ran INSIDE `Tile_Cache_Fill` and
