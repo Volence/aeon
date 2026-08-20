@@ -87,6 +87,11 @@ Two model terms are already known to be moving:
 - **`anchor` is two labelled regimes, not a parameter** (456.2 re-glue-only / 1204.7 shipped
   shape), with a named-but-unfitted missing parameter. **Task 1 is where that gets resolved**,
   and it is this parcel's flagship measurement deliverable.
+  **RESOLVED 2026-08-20: the two regimes were an instrument artifact.** `anchor` is now
+  `982.2 + 59.27 x overlay_loop_trips` (±27.6 over 8 fixtures), and — more importantly for every
+  task below — **all P2 walker coefficients were diluted by 30/31 and are replaced.** The
+  baseline this plan's Tasks 7-13 must compare against is the P3 revision of `WALKER-MODEL.md`,
+  not the numbers quoted in this plan's own prose. See Task 1's DONE block.
 
 ---
 
@@ -124,6 +129,25 @@ each with where it bites here.
 
 ## Task 1: Resolve the anchor's two regimes — the flagship measurement
 
+> **DONE 2026-08-20, `measure/p3-t1-anchor-regimes`. Result summary, because two of this task's
+> own premises turned out to be wrong and later tasks read them:**
+>
+> - **The two regimes did not exist.** The 749 was (a) unchecked FRAME DILUTION — the per-routine
+>   row is a per-video-frame average, the idle baseline lags ~1 window in 4, and W10/W12 were
+>   measured `x 29/31` against a model fitted on `x 30/31` rows — plus (b) a missing per-line
+>   term, the deform SHIFT value at exactly 2.00 cyc/line/shift-unit. **Every P2 coefficient is
+>   30/31 of its true value**; do not quote a P2 walker number anywhere in this plan.
+> - **The 2×2 ran and answered.** Loop-type change: **+27** (2 bands) / **+45** (4 bands). The
+>   real driver is BAND COUNT (+222 flat overlay / +240 turn-on, 2→4), through the overlay's own
+>   loop trip counts. `anchor = 982.2 + 59.27 x overlay_loop_trips`, ±27.6 over 8 fixtures.
+> - **This task's Step-1 arithmetic was right** — band-type delta is exactly 0.00 — **but its
+>   conclusion needs a qualifier.** `band_sampling` is zero on the UN-UNROLLED filler only; the
+>   `perf/parallax-unroll` parcel measures the same column at ~149 once the sampled loops are
+>   unrolled. It is now a fitted column with a measured value and a `loop_shape` field.
+> - **Un-anchored residual is 0.00 over 18 fixtures; all-fixture 13.3; out-of-sample +1.22%.**
+> - **Tasks 7-13 note:** the probe now exits **5** when a derived check fails, and the standing
+>   rule's "residual still ≤ 0.3" threshold refers to the UN-ANCHORED subset, which is now 0.00.
+
 **Why this task exists:** `[parallax.cost_model]` carries `anchor` as **two labelled regimes**
 (`anchor_cycles_reglue_only = 456.2`, `anchor_cycles_shipped_shape = 1204.7`) with
 `anchor_status = "NOT CONSTANT"`, and `WALKER-MODEL.md` §8 says outright: "do not build a gate
@@ -158,13 +182,13 @@ verdict; Steps 2-4 design fixtures for what is actually left.
 - Modify: `docs/benchmarks/scanline-p2/WALKER-MODEL.md` (§5(c) and §8 — correct the premise
   in the file that states it, do not leave the correction only here)
 
-- [ ] **Step 1: Re-derive the band-type delta from the shipped fixtures and record the verdict**
+- [x] **Step 1: Re-derive the band-type delta from the shipped fixtures and record the verdict**
 
 Do the arithmetic above from the numbers in `WALKER-MODEL.md` §3 yourself. If it comes out
 non-zero, this plan's derivation is wrong and that is the finding — report it. If it comes out
 zero, §5(c)'s hypothesis is refuted for the un-anchored regime and §5(c) is edited to say so.
 
-- [ ] **Step 2: Design fixtures that separate the remaining candidates for W16's extra 748**
+- [x] **Step 2: Design fixtures that separate the remaining candidates for W16's extra 748**
 
 W16 differs from W10/W12 in four ways at once — band count (4 vs 2/3), channel (BG vs FG),
 sampled-line count (144 vs 224), and whether the overlay TURNS SAMPLING ON versus merely
@@ -182,7 +206,7 @@ thing from a named neighbour, in the discipline that made the un-anchored fit 0-
 "turns-on" cells and neither "rewrite" cell, independent of band count. **State the prediction
 before running**, then measure — a fit that could not fail is what §5(b) is a postmortem for.
 
-- [ ] **Step 3: Keep the three derived checks live on every new fixture**
+- [x] **Step 3: Keep the three derived checks live on every new fixture**
 
 The probe's existing checks are what stop an anchored fixture from measuring an early-out
 instead of a split: `Parallax_Current_Config` still aimed at the fixture; `Replay_Record_Idx`
@@ -192,7 +216,7 @@ check 3** before trusting the new fixtures: set an anchored fixture's `pcfg_anch
 `$FF` and confirm the run reports the tops as matching its neighbour and refuses, rather than
 quietly measuring the un-anchored path.
 
-- [ ] **Step 4: Fit, report the residual, and write the rows**
+- [x] **Step 4: Fit, report the residual, and write the rows**
 
 Either the anchored overlay becomes a **fitted parameter with a name** (and
 `anchor_status` changes accordingly), or the regimes are re-recorded with the refuted
@@ -200,7 +224,7 @@ hypothesis replaced by whatever the 2×2 shows. A column excited by a single fix
 forbidden. Update the out-of-sample check against `ParallaxConfig_OJZ_Underwater` — the
 existing +222.3 (1.1%) gap is the yardstick for whether the new parameterization is better.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/parallax_cost_probe.py tools/effects_budget_model.toml docs/benchmarks/scanline-p2/WALKER-MODEL.md

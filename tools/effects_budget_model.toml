@@ -139,9 +139,24 @@ dma_hscroll_perline_entries = 2
 dma_hscroll_perline_bytes_each = 896
 
 [parallax.cost_model]
-# THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4,
-# 2026-08-19. tools/parallax_cost_probe.py, 17 fixtures, 3 boots each, spread 0 on every one.
-# Evidence + derivation: docs/benchmarks/scanline-p2/WALKER-MODEL.md.
+# THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4 (original),
+# RE-MEASURED AND SUPERSEDED by Scanline P3 Phase 0 Task 1, 2026-08-20.
+# tools/parallax_cost_probe.py, 26 fixtures + 1 out-of-sample row, 3 boots each, spread 0 on
+# every one. Evidence + derivation: docs/benchmarks/scanline-p2/WALKER-MODEL.md.
+#
+# ##### EVERY P2 ROW WAS DILUTED BY 30/31 AND IS NOW REPLACED. #####
+# The per-routine row is a per-VIDEO-FRAME average, so it is one Parallax_Update call only while
+# the main loop completes one logic tick per video frame. The P2 sweep did not check that and the
+# idle baseline lags roughly one window in four (plus always on the window right after a fixture
+# install), so every P2 coefficient was ~3.3% low and `line_both` — excited by ONE fixture, whose
+# window caught TWO lag frames — was ~7% low. The probe now brackets the profiled window with
+# Frame_Counter/Logic_Tick and re-takes it until they agree. WALKER-MODEL.md §0(a) has the
+# coefficient-by-coefficient ratio table that proves the factor is exactly 30/31.
+#
+# The 748-cycle "second anchor regime" P2 recorded was this dilution (W10/W12 caught two lag
+# frames while the model fitted to them caught one) plus a genuinely missing per-line term (the
+# deform SHIFT value). Reconstructing the published numbers from the clean model through both
+# distortions reproduces W16's +1204.7 to 0.4 cycles. See WALKER-MODEL.md §5(c).
 #
 # The response is `Parallax_Update`'s per-routine row, INCLUSIVE of its callees (verified:
 # it contains Parallax_Fill_PerLine and Decode_Factor_A/B). Camera FROZEN, so every video
@@ -152,62 +167,93 @@ dma_hscroll_perline_bytes_each = 896
 #          + band_percell x (bands - 1)          [per-cell mode]
 #          + line_mode + band_perline x (bands-1) [per-line mode]
 #          + multiband  (bands >= 2, once)
-#          + line_fg_only x LINES + line_bg_only x LINES + line_both x LINES
+#          + line_fg_only x LINES + line_bg_only x LINES + line_both x LINES   [at shift 0]
+#          + shift_lines x SUM(deform shift over sampled channel-lines)
+#          + band_sampling x (bands taking a sampling loop rather than .lp_flat)
 #          + vdeform    (a V-deform table attached)
-#          + anchor     (see the WARNING below -- NOT a constant)
+#          + anchor + anchor_ops x (Step-4b overlay loop trips)
 #
 # THE SAMPLING TERMS ARE PER SCREEN LINE, not per channel. That unit was forced by
 # measurement, not chosen: fixtures that sample only their lower band (112 and 80 lines)
-# give marginal costs of 8536/112 and 6097/80 against 17071/224 -- 76.21 every time. A
+# give marginal costs of 8820/112 and 6300/80 against 17640/224 -- 78.75 every time. A
 # per-channel constant fits the fixtures that sample everywhere and then over-charges real
 # content, which samples only below an anchored split.
+#
+# AND THEY ARE PER SHIFT UNIT. The sampled loops end in `asr.w d3, d1`, a REGISTER-count shift
+# (6 + 2n on the 68000), so the per-line columns below are the shift-ZERO intercepts and
+# shift_lines carries the amplitude. Measured 2.0000 on both steps (shift 2->3 over 224 lines
+# = 448; shift 3->5 over 224 lines = 896) -- a derived constant the fixtures confirmed exactly.
+# P2 had no such column, so its per-line rows were the shift-3 values dressed as constants,
+# and the SHIPPED config samples at shift 2.
 status = "measured"
-instrument = "ORACLE per-routine row for Parallax_Update, inclusive; camera frozen; interrupts.hint never read. IDEAL-CYCLE (the clock excludes bus/VDP/DMA stall)"
-fixtures = 17
-residual_cycles = 0.27               # max |residual|, UN-ANCHORED subset (14 fixtures)
-residual_cycles_all_fixtures = 195.9 # with the 3 anchored fixtures included -- see the warning
-noise_floor_cycles = 0               # 3 boots per fixture, spread 0 on all 17
+instrument = "ORACLE per-routine row for Parallax_Update, inclusive; camera frozen; window verified PREEMPTION-FREE (frames/tick 31/31, lag 0) and re-taken until it is; interrupts.hint never read. IDEAL-CYCLE (the clock excludes bus/VDP/DMA stall)"
+loop_shape = "PRE-UNROLL per-line filler, master 08e87cbc. Every row is a property of THAT code -- the parallax fill-unroll parcel changes the per-line marginals and band_sampling, and re-measures these rows rather than carrying them"
+fixtures = 26
+residual_cycles = 0.00               # max |residual|, UN-ANCHORED subset (18 fixtures)
+residual_cycles_all_fixtures = 13.3  # all 26, both anchor columns live
+residual_cycles_overlay_term = 27.6  # the 2-parameter anchor fit over the 8 anchored fixtures
+noise_floor_cycles = 0               # 3 boots per fixture, spread 0 on all 26
 
-base_cycles          = 3021.94   # W0 — 1 band, per-cell, nothing on
-band_percell_cycles  = 746.94    # W0->W1->W2->W3
-line_mode_cycles     = 1518.02   # W0->W4: an H-deform table attached at all. Selects
+base_cycles          = 3144.00   # W0 — 1 band, per-cell, nothing on
+band_percell_cycles  = 772.00    # W0->W1->W2->W3
+line_mode_cycles     = 1548.00   # W0->W4: an H-deform table attached at all. Selects
                                  # Parallax_Fill_PerLine over _PerCell AND flips reg $0B.
-band_perline_cycles  = 845.97    # W4->W5->W6
-multiband_cycles     = 23.21     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
+band_perline_cycles  = 874.00    # W4->W5->W6->W24
+multiband_cycles     = 24.00     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
                                  # probe loop: at band_count 1 the loop body never runs.
-line_fg_only_cycles  = 76.21     # per screen line sampling the FG deform curve  (W7/W14/W15)
-line_bg_only_cycles  = 76.27     # per screen line sampling the BG deform curve  (W13)
-line_both_cycles     = 126.17    # per screen line sampling BOTH — NOT 152.5 (W8). The
-                                 # per-line loop shares index and phase work across the
-                                 # planes, so the second channel on a line costs 50, not 76.
-vdeform_cycles       = 1424.06   # W0->W9: a V-deform table attached (per-column VSRAM)
+                                 # DUE FOR RE-MEASUREMENT: P3 Task 7 rewrites that loop.
+line_fg_only_cycles  = 72.75     # per screen line sampling the FG deform curve, AT SHIFT 0
+line_bg_only_cycles  = 72.81     # per screen line sampling the BG deform curve, AT SHIFT 0
+line_both_cycles     = 125.21    # per screen line sampling BOTH, AT SHIFT 0 — the per-line
+                                 # loop shares index and phase work across the planes, so the
+                                 # second channel on a line is cheaper than the first.
+shift_lines_cycles   = 2.00      # per line, per unit of deform shift, per channel (W22/W7/W23)
+band_sampling_cycles = 0.00      # per band taking a sampling loop (W25). EXACTLY ZERO on this
+                                 # loop shape -- the sampling hoist and the flat path's own
+                                 # unroll-and-tail setup cancel. NOT a constant of the walker:
+                                 # the fill-unroll parcel measures the same column at a
+                                 # ~149-cycle class. See WALKER-MODEL.md §5(d).
+vdeform_cycles       = 1472.00   # W0->W9: a V-deform table attached (per-column VSRAM)
 
-# ANCHOR IS NOT A CONSTANT AND MUST NOT BE USED AS ONE. Measured cost of the Step-4b
-# anchored overlay, over the un-anchored model, per fixture:
-#     W10  2 bands, FG sampling on all 224 lines      +456.7
-#     W12  3 bands, FG sampling on all 224 lines      +455.7
-#     W16  4 bands, BG sampling on 144 lines BY the anchor  +1204.7
-# The first two agree to 1 cycle and the third is 749 dearer. W16 is the SHIPPED shape
-# (ParallaxConfig_OJZ_Underwater): its ROM bands all say 15 and the anchor is what switches
-# the filler's loop type at the split, where W10/W12 merely re-write shifts their bands
-# already carried. So the suspected missing parameter is a per-band cost that DIFFERS between
-# a flat band and a sampling band -- collinear with band_perline in every un-anchored fixture,
-# which is why nothing there could see it. NAMED, NOT FITTED: adding a column excited by one
-# fixture would zero the residual without evidence.
-anchor_cycles_reglue_only    = 456.2    # W10/W12 — the overlay when sampling is already on
-anchor_cycles_shipped_shape  = 1204.7   # W16 — the overlay when it TURNS sampling on
-anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named in WALKER-MODEL.md, deliberately not fitted"
+# ANCHOR: P2's "TWO REGIMES" ARE REFUTED. They were the frame dilution above (W10/W12 caught
+# two lag frames, the model they were scored against caught one) plus the missing shift term.
+# Measured preemption-free, the Step-4b overlay has ONE regime and its driver is its own loop
+# trip count -- a function of the band count n and the split band index k, nothing else:
+#     .anchor_find_k       min(k+1, n-1)
+#     .anchor_shift_band   n-1-k      (skipped at 0)
+#     .anchor_shift_scroll n-1-k      (skipped at 0)
+#     .anchor_shift_write  n-k
+# The 2x2 that settles it (overlay cost over the un-anchored model):
+#                          | 2 bands | 4 bands | band-count effect
+#     overlay CHANGES type |  +1293  |  +1533  |  +240
+#     overlay changes none |  +1266  |  +1488  |  +222
+#     loop-type effect     |   +27   |   +45   |
+# The loop-type change P2 named as the regime costs 27-45 cycles, not 749. Channel is +25,
+# split POSITION is +1 (W20 moves the world anchor, not the camera).
+anchor_cycles        = 982.2     # the overlay's fixed cost
+anchor_ops_cycles    = 59.27     # per Step-4b overlay loop iteration (hand count: 62 for the
+                                 # .anchor_find_k body). ONE lumped count and not four columns:
+                                 # this fixture set has three (n,k) classes, so four columns
+                                 # would be exactly identified and residual-zero by construction
+anchor_status = "FITTED — 8 fixtures, 3 overlay-trip counts, max |residual| 27.6 cycles. The residual is the loop-type change (turn-on +27 at 2 bands / +45 at 4, BG ~25 over FG), recorded rather than fitted: one fixture pair per cell is not a column"
 
-# OUT-OF-SAMPLE. The live config at the idle baseline is ParallaxConfig_OJZ_Underwater
-# (4 bands, anchored at screen line 80, BG sampling on the 144 lines below it).
-#   model (un-anchored terms + anchor_cycles_shipped_shape) = 19288.7
-#   measured Parallax_Update at the idle baseline           = 19511
-#   gap                                                     = +222.3  (1.1%)
+# OUT-OF-SAMPLE. Measured by the probe itself, one pass per boot with NOTHING poked but the
+# camera freeze. The live config at the idle baseline is ParallaxConfig_OJZ_Underwater at
+# $01230C: 4 authored bands, latched L 80, shadow view [(0,15,15),(48,15,15),(80,15,2),
+# (112,15,2),(224,15,2)] -- BG sampling the 144 lines below the split, at shift 2.
+# Its terms are read from the SHADOW VIEW, not from its ROM entries: it does not pin
+# v_factor_bg, so Step 4a rotates and clamps its tops, and the ROM-entry derivation put the
+# split at line 48 when the latch and the shadow both say 80.
+#   model (all 13 fitted terms) = 19915.3
+#   measured, 3 boots, spread 0 = 20162
+#   gap                         = +246.7  (1.22%)
 # The residual gap is the shipped config's own band tops and scroll-factor shifts, which
-# change the Decode_Factor_A/B work the fixtures hold constant. Recorded, not tuned away.
-out_of_sample_predicted = 19288.7
-out_of_sample_measured  = 19511
-out_of_sample_gap_pct   = 1.1
+# change the Decode_Factor_A/B work the fixtures hold constant. Recorded, not tuned away --
+# and it is the same fraction P2 reported (1.1%), because this task fixed the IN-sample
+# residual, not the out-of-sample one.
+out_of_sample_predicted = 19915.3
+out_of_sample_measured  = 20162
+out_of_sample_gap_pct   = 1.22
 
 [hblank_window]
 # The binding limit on per-fire VDP work is the cycle window between HINT-pending and

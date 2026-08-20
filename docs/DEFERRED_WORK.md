@@ -7196,7 +7196,7 @@ denominators, never a gate divisor).
 
 | # | Axis | Pool | Reservation (idle, measured) | Verdict |
 |---|---|---|---|---|
-| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`, carrying residual 0.27 (un-anchored), out-of-sample gap +1.1% (+222.3), anchor as the measured worst regime 1204.7 LABELLED (not fitted) |
+| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`. **The figures in this row were superseded 2026-08-20 by P3 Task 1** (every P2 row was diluted 30/31; `anchor` is now FITTED, not two labelled regimes): residual **0.00** un-anchored / 13.3 all-fixtures, out-of-sample gap **+1.22% (+246.7)**, `anchor = 982.2 + 59.27 x overlay_loop_trips` at ±27.6. **SUSPECT THE RESERVATION FIGURES TOO**: P2's idle `Parallax_Update` row was 19511 and the preemption-free value is 20162 = `19511 x 31/30` to half a cycle, so the idle profile that `idle_main_loop_cycles` 35125 came from was diluted by the same factor. NOT re-measured here (it is a different probe's row) — re-take it before dividing by it. |
 | 2 | VBlank DMA bytes | 7524 B (H40 NTSC) | live queue `dma_queue_words_idle` 1528 w = **3056 B** | **GATEABLE** — see the correction below |
 | 3 | VBlank CPU | ~18200 cyc VBlank window | `idle_vblank_cycles` 8280 (`VInt_Level` bracket) | **GATEABLE** — budget 9920 cyc |
 | 4a | HInt per-fire spacing | — | — | already owned by `check_density`; no new work |
@@ -7281,6 +7281,66 @@ stated justification for the curve∧deform prohibition.
   images were byte-identical, and named the unlock: "if the images ever diverge (a future parcel
   that moves bytes deliberately) this test becomes a real differential and should be run then."
   P3 moves bytes deliberately.
+
+### ~~P3 Phase 0 Task 1 — the anchored overlay's two regimes~~ — CLOSED 2026-08-20 (`measure/p3-t1-anchor-regimes`)
+
+**The parameter is `anchor_ops` = 59.27 cycles per Step-4b overlay loop iteration, on top of a
+fixed `anchor` = 982.2.** Eight anchored fixtures across three overlay-trip counts, max
+|residual| **27.6 cycles**. `anchor_status` in `[parallax.cost_model]` changes from
+"NOT CONSTANT — two regimes measured … deliberately not fitted" to **FITTED**, and P2's
+`anchor_cycles_reglue_only` / `anchor_cycles_shipped_shape` rows are deleted.
+
+**The 749-cycle "second regime" did not exist.** It decomposes, exactly, into two instrument
+defects plus a real and much smaller effect:
+
+1. **Frame dilution.** The per-routine row is a per-VIDEO-FRAME average and the P2 sweep never
+   checked frames-per-tick. The idle baseline lags ~1 window in 4 (and always on the window
+   right after a fixture install), so W10/W12 were measured `x 29/31` while the un-anchored model
+   they were scored against was fitted on `x 30/31` rows — worth ~790 cycles of apparent overlay.
+   Every P2 coefficient is `30/31` of its clean value to 4 decimal places, and `line_both` — the
+   one column excited by a single fixture, whose window caught two lag frames — is `29/31`.
+2. **A missing per-line term.** The sampled loops end in `asr.w d3, d1`, a register-count shift
+   (`6 + 2n`), so the per-line cost depends on the deform SHIFT VALUE. Measured **exactly 2.00**
+   cyc/line/shift-unit on two independent steps. The shipped config samples at shift 2 while
+   P2's coefficients were shift-3 values, over-charging W16 by ~280.
+
+Reconstructing P2's published numbers from the clean model through both distortions reproduces
+W16's +1204.7 as **+1205.1**.
+
+**§5(c)'s named parameter (`band_sampling`) is REFUTED for this loop shape, and MEASURED at
+exactly 0.00** — the plan's premise that it is "collinear in every un-anchored fixture" is false
+(W14/W15 are mixed-type), and W25 confirms it directly: turning a second band's sampling on costs
+`112 x 78.75` and not one cycle more. **It is not zero forever**: the parallax fill-unroll parcel
+measures the same column at a ~149-cycle class once the sampled loops are unrolled. Two parcels
+triangulated one physical cost from opposite directions. Every row in `[parallax.cost_model]` now
+carries a `loop_shape` field naming the code it was measured against.
+
+**What actually drives the anchor** (2×2, overlay cost over the un-anchored model): band count
+2→4 is **+222** (flat overlay) to **+240** (turn-on); the loop-type change P2 named as the regime
+is **+27** (2 bands) / **+45** (4 bands); channel is +25; split POSITION is **+1**.
+
+**Also landed, and load-bearing beyond this task:**
+- The un-anchored fit is now **max |residual| 0.00 over 18 fixtures** (was 0.27 over 14), with
+  `shift_lines` at a derived-and-confirmed 2.0000.
+- The probe's derived checks went 3 → 5 and now **fail the run (exit 5)** instead of printing.
+  New: a two-sided `$FF` poison of shadow slot `band_count` (the overlay is its only writer);
+  the frames-per-tick preemption check; and a world-anchor readback for the split-position
+  fixture. Poisoned red-first — and the instructive result is that the slot witness does NOT
+  catch an `anchor_ch = $FF` poison (the fixture is then legitimately un-anchored); only the
+  neighbour differential does. Neither witness is sufficient alone.
+- The out-of-sample row is measured **by the probe**, from the shadow view rather than the ROM
+  band entries — the shipped config does not pin `v_factor_bg`, so Step 4a rotates and clamps its
+  tops and the ROM-entry derivation put the split at 48 when the machine says 80. Gap
+  **+246.7 (1.22%)**, essentially P2's +1.1%: this task fixed the in-sample residual, not the
+  out-of-sample one.
+
+**Two riders, booked not closed:**
+- **The idle reservations are probably diluted too.** P2's idle `Parallax_Update` was 19511 and
+  the preemption-free value is 20162 = `19511 x 31/30` to half a cycle, so
+  `idle_main_loop_cycles` 35125 and its neighbours in `[scene_budget]` came off the same diluted
+  profile. NOT re-measured here — it is `engine_baseline_probe.py`'s row, not this probe's.
+- **`multiband` = 24.00 is due for re-measurement, not carrying**: P3 Task 7 rewrites the
+  `.find_k` loop that produces it.
 
 ## ~~Warp mailbox: two measured behaviours to explain~~ — CLOSED 2026-08-19 (`fix/warp-semantics-doc`)
 
