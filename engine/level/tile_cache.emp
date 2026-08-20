@@ -12,7 +12,7 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COL
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
-use engine.constants.{PAGECACHE_AUDIT_INTERVAL, STALL_WATCHDOG_FRAMES}
+use engine.constants.{STALL_WATCHDOG_FRAMES}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 
 // S4LZ_DecompressDict is .emp-owned (engine.s4lz) and resolves at link — no
@@ -853,17 +853,20 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // below. A pass that resolves the stall leaves the word 0 -> the camera moves
         // again next frame (the "cleared the frame the stall resolves" contract).
         clr.b   Camera_Art_Hold
-    if DEBUG == 1 {
-        // Periodic residency audit — recompute every frame's refcount from the
-        // whole nametable and compare (PAGECACHE_AUDIT_INTERVAL = 128 frames; a
-        // rare, identifiable DEBUG-shape lag spike — measure lag off audit frames).
-        addq.w  #1, Page_Audit_Ticks
-        cmpi.w  #PAGECACHE_AUDIT_INTERVAL, Page_Audit_Ticks
-        blo     .no_audit
-        clr.w   Page_Audit_Ticks
-        jbsr    PageCache_Audit
-    .no_audit:
-    }
+        // THE PERIODIC RESIDENCY AUDIT'S GATE USED TO LIVE HERE (fix F5,
+        // streaming-choke arc, 2026-08-19). Its ~110,000-cycle pass was charged to
+        // this proc's profiler row — 3,548 cyc/frame = 7,333 cyc/tick amortised at
+        // sustained max-diagonal, 6.9% of the fill's entire measured cost and 80.3%
+        // of it at idle — for a check that measures residency BOOKKEEPING, not fill
+        // throughput. Worse, it fires on its own 128-pass phase, so it contaminated
+        // one DEBUG measurement window in four and moved independently of the thing
+        // being measured. The gate now sits in the LEVEL STATE's tick, immediately
+        // after this proc returns (games/sonic4/test/ojz_scroll_test.emp) — a
+        // sibling of the fill, not a child of it. Same subject, same
+        // PAGECACHE_AUDIT_INTERVAL, same once-per-tick counter advance (this proc's
+        // own once-per-physical-frame gate already made the old counter tick once
+        // per LOGIC TICK, not once per frame), and the same post-fill state. Do not
+        // put it back: this routine is the streaming arc's measurement subject.
 
         // --- reset per-frame decompress budget + rows-this-frame cap ---
         //     BEFORE the preambles: the column-partial bypass path jumps

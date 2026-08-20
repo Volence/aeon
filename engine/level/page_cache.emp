@@ -842,10 +842,22 @@ pub proc PageCache_ResetRefcounts () clobbers(d0-d2/a0) {
 // PageCache_Audit — DEBUG residency invariant check (spec §5). Recomputes every
 // frame's refcount from the WHOLE tile-cache nametable and compares to pf_refcount;
 // then asserts the PF_EVICTABLE invariant per frame (candidate => assigned +
-// refcount-0 + unpinned). raise_error on any mismatch. Runs at init (after the
-// first full cache fill) and every PAGECACHE_AUDIT_INTERVAL frames during play. The
-// ~4800-word walk is a rare, identifiable DEBUG-shape lag spike — measure
-// Lag_Frame_Count on the non-audit frames.
+// refcount-0 + unpinned). raise_error on any mismatch.
+//
+// THREE CALL SITES, all DEBUG: Tile_Cache_Init's tail (after the first full cache
+// fill, and the reason the DEBUG warp self-audits its own PageCache_ResetRefcounts
+// work — tools/warp_mailbox_gate.py asserts that), the warp path through it, and
+// the PERIODIC one — every PAGECACHE_AUDIT_INTERVAL logic ticks during play, gated
+// by the level state's own tick (games/sonic4/test/ojz_scroll_test.emp, right
+// after Tile_Cache_Fill returns). That periodic gate used to sit INSIDE
+// Tile_Cache_Fill, which charged this ~110,000-cycle walk to the one routine the
+// streaming-choke arc measures — 7,333 cyc/tick amortised at max-diagonal, 6.9% of
+// the fill, and 80.3% of it at idle. Fix F5 moved the gate out to the tick that
+// schedules the fill; see that call site and engine.tile_cache's note for why the
+// cadence is unchanged by the move. Do NOT re-add a gate here or in the fill.
+//
+// The ~4800-word walk is a rare, identifiable DEBUG-shape lag spike — measure
+// Lag_Frame_Count on the non-audit ticks.
 // In: none   Out: none (raise_error on failure)   Clobbers: d0-d3/a0-a3
 // -----------------------------------------------
 pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {

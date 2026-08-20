@@ -22,6 +22,7 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, BUTTON_C, BUTTON_UP, BUTTON_DOWN, INPUT_LIVE}
+use engine.constants.{PAGECACHE_AUDIT_INTERVAL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
 use engine.irq.{ints_off}
@@ -363,6 +364,57 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
 
         // -- fill tile cache with new blocks as camera scrolls --
         jbsr    Tile_Cache_Fill
+
+        // -- DEBUG: the page-cache residency audit's PERIODIC tick (fix F5 of the
+        //    streaming-choke arc, 2026-08-19). A SIBLING of the fill, never a child
+        //    of it.
+        //
+        //    WHY IT IS HERE AND NOT IN THE ENGINE. This gate used to sit at the top
+        //    of Tile_Cache_Fill, which charged PageCache_Audit's ~110,000-cycle
+        //    nametable walk to the fill's profiler row: 3,548 cyc/frame = 7,333
+        //    cyc/tick amortised at sustained max-diagonal (6.9% of the fill), 80.3%
+        //    of it at idle, and — because it fires on its own 128-pass phase — a
+        //    contaminant in one DEBUG measurement window in four. Tile_Cache_Fill is
+        //    the routine the whole streaming arc measures, so a DEBUG-only invariant
+        //    check had to come out of it. It is scheduled HERE, by the level state,
+        //    for the same reason Tile_Cache_Fill itself is: the tick owns its own
+        //    schedule. The check, the interval and the counter all stay engine-owned
+        //    (PageCache_Audit / PAGECACHE_AUDIT_INTERVAL / Page_Audit_Ticks); only
+        //    the "when" is the state's. Spelled INLINE rather than as an engine
+        //    proc on purpose — a new engine label, even a zero-byte DEBUG-only one,
+        //    lands in the release deb2 appendix and moves demo.bin's CRC (measured:
+        //    aae04929 -> 6710c1ac, appendix-only, everything before EndOfRom
+        //    identical). Inline, both release shapes stay byte-identical.
+        //
+        //    CADENCE IS UNCHANGED. Tile_Cache_Fill's own once-per-physical-frame
+        //    gate meant the old counter advanced once per LOGIC TICK, not once per
+        //    frame (measured at idle: Page_Audit_Ticks 109 -> 11 over 30 ticks / 31
+        //    frames). This runs once per tick from the same tick, so the audit still
+        //    fires every PAGECACHE_AUDIT_INTERVAL = 128 ticks. What it audits is now
+        //    the state THIS tick's fill produced rather than the previous one's —
+        //    strictly fresher, never staler.
+        //
+        //    THE WITNESS IT PRESERVES. PageCache_Audit is the machine check on the
+        //    §5 safety invariant: pf_refcount == live nametable words pointing at
+        //    the frame, PF_EVICTABLE => assigned+rc0+unpinned, page<->frame is a
+        //    bijection, no assigned-but-unreclaimable frame. Every one of those
+        //    corruptions is MONOTONE — nothing re-derives pf_refcount from the
+        //    nametable, so once the two disagree they stay disagreeing until the
+        //    next act load (PageCache_Init) or warp (PageCache_ResetRefcounts). A
+        //    drift is therefore never MISSED by a periodic audit, only reported
+        //    late, and the maximum lateness is one interval: 128 ticks (~2.1 s at 60
+        //    Hz, ~4.3 s while the streaming path lags at 2 frames/tick). That is
+        //    exactly the window the in-fill gate had.
+        //
+        //    Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                addq.w  #1, Page_Audit_Ticks
+                cmpi.w  #PAGECACHE_AUDIT_INTERVAL, Page_Audit_Ticks
+                blo     .no_page_audit
+                clr.w   Page_Audit_Ticks
+                jbsr    PageCache_Audit
+        .no_page_audit:
+        }
 
         // -- continuous scroll: no per-frame teleport check. Camera/player/
         //    section streaming run in WORLD space; the level scrolls live with

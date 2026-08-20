@@ -292,10 +292,13 @@ pub const PAGE_FRAME_TILE_MASK  = ART_POOL_PAGE_TILES - 1                // 63
 ensure((1 << PAGE_FRAME_TILE_SHIFT) == ART_POOL_PAGE_TILES,
        "PAGE_FRAME_TILE_SHIFT must equal log2(ART_POOL_PAGE_TILES)")
 // DEBUG residency audit cadence: recompute per-frame refcounts from the whole
-// Tile_Cache_Nametable every PAGECACHE_AUDIT_INTERVAL frames during play. Chosen
-// large enough that the ~4800-word walk's one-frame cost is a rare, identifiable
-// spike (it perturbs ONLY the DEBUG shape's Lag_Frame_Count — measure lag on the
-// non-audit frames). The audit also runs unconditionally at level init.
+// Tile_Cache_Nametable every PAGECACHE_AUDIT_INTERVAL LOGIC TICKS during play.
+// Chosen large enough that the ~4800-word walk's one-tick cost is a rare,
+// identifiable spike (it perturbs ONLY the DEBUG shape's Lag_Frame_Count —
+// measure lag on the non-audit ticks). The gate lives in the level state's tick,
+// right after Tile_Cache_Fill returns (fix F5 — it used to be gated INSIDE the
+// fill, which charged the ~110,000-cycle pass to the routine the streaming arc
+// measures). The audit also runs unconditionally at level init.
 pub const PAGECACHE_AUDIT_INTERVAL = 128
 
 // Page-in request FIFO (Art-streaming P2a, engine.page_in). The dispatcher pops
