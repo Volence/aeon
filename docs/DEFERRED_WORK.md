@@ -7306,7 +7306,8 @@ dropped by the demangler, so ledger consts must be `pub`.
 
 ### BLOCKER 2 — Task 12's transition-frame check has no derivable subject AND no denominator
 
-Two independent failures, either one sufficient.
+Two independent failures, either one sufficient. **(b) the denominator was MEASURED 2026-08-20
+(P3 Phase 0 Task 3). (a) the Label-typed join is UNTOUCHED and still blocks Task 12 on its own.**
 
 **(a) The section→scene join column is a `Label`.** The plan's Step 1 requires adjacency
 DERIVED from section descriptors ("a hand-maintained adjacency list is a copied expectation").
@@ -7329,19 +7330,76 @@ The tree ALREADY declined this check for this reason, at `scene_registry.emp:280
 transition-compatibility check between adjacent scenes: P1 does not know which sections are
 adjacent." Task 12 as written would have to re-open that ruling, not implement around it.
 
-**(b) There is no measured transition-frame reservation.** Phase 0's own flags record that
-neither measured camera state crosses a section boundary — max-diagonal "never leaves section
-0 inside its window" (`effects_budget_model.toml`, the axis-4b banner). So the reg `$0B`
-mode-change overhead, the larger-of-the-pair HScroll DMA and the `Active_Config` dual-routing
-cost have no measured row, and the plan's own rule ("No gate in Phases 1-2 may reference a row
-Phase 0 did not measure") forbids inventing them.
+**(b) There is no measured transition-frame reservation.** ~~Phase 0's own flags record that
+neither measured camera state crosses a section boundary~~ — **MEASURED 2026-08-20 by P3 Phase 0
+Task 3. THIS HALF OF BLOCKER 2 IS CLOSED.** See below.
 
-**What unblocks it:** (i) a comptime-visible, value-typed section→scene map — and the honest
-shape is to INVERT authorship so `act_descriptor.emp`/`ojz_effects.emp` derive their
+> **BLOCKER 2(b) — CLOSED 2026-08-20, `p3/t3-reglue-instrument`.**
+> `tools/parallax_cost_probe.py --transition N` synthesizes the frame instead of driving the
+> camera to a crossing: freeze the camera, then write `Parallax_Current_Config = A`,
+> `Parallax_Target_Config = B`, `Parallax_Transition_Frames = N` straight into RAM. That is a
+> live transition frame with both configs routed — `Parallax_Active_Config` routing, the
+> per-band scroll lerp and the reg `$0B` mode state all real — and it is measurable
+> per-routine without a real crossing. Rows are in `tools/effects_budget_model.toml`
+> `[parallax.cost_model]` (`transition_*`), marked SYNTHESIZED; evidence and every control in
+> `docs/benchmarks/scanline-p3/REGLUE-INSTRUMENT.md`.
+>
+> Pair: `ParallaxConfig_OJZ_Underwater` (mode `%011`) → `ParallaxConfig_Perspective_Dramatic`
+> (mode `%111`), the **maximal shipped mode difference**. 5 boots, sample 31, spread 0 on
+> every row, every window preemption-free.
+>
+> | axis | measured |
+> |---|---|
+> | 1 main-loop | surcharge **+1074 cyc** (active B, 5 bands) / **+894 cyc** (active A, 4 bands), against the stable frame on the same active config |
+> | 2 VBlank DMA bytes | **+0 B** — the scanline-220 queue is byte-for-byte identical, 3056 B total / 1152 B largest, transition or not |
+> | 3 VBlank CPU | `Enqueue_Dirty_Buffers` **+2 cyc** (1374 → 1376) |
+>
+> **Three boundaries on the row, so it is not over-read.** (i) `Parallax_StartTransition` and
+> `Parallax_CheckBoundary` do not run — a frozen camera suppresses them by construction, so the
+> staging cost is in no row here. (ii) The reg `$0B` write is paid ONCE, four frames before the
+> profiled window; the shadow byte is read back and checked against the ACTIVE config's derived
+> mode, so the change is witnessed but its cost is not measured. (iii) **The plan's "one
+> per-cell, one per-line" pair does not exist in this tree** — all 20 shipped scenes attach an
+> H-deform table, so reg `$0B`'s H bits are `%11` for every installable config and a
+> mode-differing HScroll length is unmeasurable here. Axis 2's `+0` is structural, not lucky.
+>
+> Reproduced en route: correction **C1's queue discrepancy** — one declared
+> `Static_Hscroll_Line` at `dma_length(896)`, but **two** 448-word entries live with the same
+> command word `7C000082`. P3 Task 6 Step 1 owns reconciling it; this is fresh evidence for it,
+> not a ruling.
+>
+> **AND A SECOND FINDING THE AXIS-1 ROW BELOW DIVIDES BY: `[parallax.cost_model]` IS STALE
+> AGAINST MASTER.** The same parcel re-ran the fit sweep as a tool regression (26 fixtures,
+> spread 0, zero failed checks, exit 0) and the rows do not reproduce, because the walker
+> changed: `loop_shape` declares the rows a property of the PRE-UNROLL per-line filler at
+> master `08e87cbc`, and **`afccb141 perf(parallax): pointer-walk + unroll the single-channel
+> sampling loops` has since landed on master**. The model's STRUCTURE survives intact — the
+> un-anchored residual is still exactly **0.00** over the same 18 fixtures and 7 of 11
+> un-anchored columns are unmoved — but `line_fg_only` 72.75 → **26.00**, `line_bg_only`
+> 72.81 → **26.90**, `band_sampling` 0.00 → **154.00** (the ~149 class `WALKER-MODEL.md` §5(d)
+> predicted for the unrolled shape), and the shipped config's out-of-sample cost
+> **20162 → 13798, 31.6% cheaper**. Post-unroll values are booked as `postunroll_*` in
+> `tools/effects_budget_model.toml` beside a block naming the staleness; **Task 1's rows are
+> deliberately left intact** (they are the pre-unroll record `loop_shape` exists to name) and
+> **P3 Task 7's standing-rule re-fit / Task 13's re-take own promoting them**. Until then
+> nothing may divide by the pre-unroll per-line columns — they over-charge a sampled line by
+> ~2.8x and would refuse a scene that demonstrably runs.
+
+**(a) STILL OPEN, AND UNCHANGED BY P3.** The section→scene join is a `Label` end to end
+(`Sec.sec_parallax_config` → `EffectsPreset.ep_parallax` → `preset(parallax: Label = 0)`) and
+nothing in P3 touches it. **Task 12 is NOT unblocked** — a synthesized transition measures the
+frame's cost; it does not give the lowering a comptime-visible, value-typed map from a section
+to its scene, which is what Task 12's derived adjacency check needs.
+
+**What unblocks the remaining half:** a comptime-visible, value-typed section→scene map — and
+the honest shape is to INVERT authorship so `act_descriptor.emp`/`ojz_effects.emp` derive their
 `parallax:` Label FROM a shared scene-index table, rather than adding a parallel hand-written
 array beside the Labels (which would be exactly the unfalsifiable guard
-`scene_registry.emp:268-283` rejects); and (ii) a Phase-0-style baseline probe run at a
-**boundary-crossing camera state**, which is the missing measurement.
+`scene_registry.emp:268-283` rejects). ~~and (ii) a Phase-0-style baseline probe run at a
+boundary-crossing camera state~~ — superseded: the synthesized frame above is that measurement,
+and it does not need a crossing. A probe run at a real crossing would additionally price
+`Parallax_StartTransition` + `Parallax_CheckBoundary`, which remains open work but blocks
+nothing in Task 12.
 
 ### Axis audit for Task 11, done while blocked (so the re-dispatch does not re-derive it)
 
@@ -7352,7 +7410,7 @@ denominators, never a gate divisor).
 
 | # | Axis | Pool | Reservation (idle, measured) | Verdict |
 |---|---|---|---|---|
-| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`. **The figures in this row were superseded 2026-08-20 by P3 Task 1** (every P2 row was diluted 30/31; `anchor` is now FITTED, not two labelled regimes): residual **0.00** un-anchored / 13.3 all-fixtures, out-of-sample gap **+1.22% (+246.7)**, `anchor = 982.2 + 59.27 x overlay_loop_trips` at ±27.6. **SUSPECT THE RESERVATION FIGURES TOO**: P2's idle `Parallax_Update` row was 19511 and the preemption-free value is 20162 = `19511 x 31/30` to half a cycle, so the idle profile that `idle_main_loop_cycles` 35125 came from was diluted by the same factor. NOT re-measured here (it is a different probe's row) — re-take it before dividing by it. |
+| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`. **AND SUPERSEDED A SECOND TIME 2026-08-20 by P3 Task 3's regression run: the P3 Task 1 rows below are PRE-UNROLL and `afccb141` has landed on master — see the post-unroll block in Blocker 2(b) above and `postunroll_*` in the toml.** **The figures in this row were superseded 2026-08-20 by P3 Task 1** (every P2 row was diluted 30/31; `anchor` is now FITTED, not two labelled regimes): residual **0.00** un-anchored / 13.3 all-fixtures, out-of-sample gap **+1.22% (+246.7)**, `anchor = 982.2 + 59.27 x overlay_loop_trips` at ±27.6. **SUSPECT THE RESERVATION FIGURES TOO**: P2's idle `Parallax_Update` row was 19511 and the preemption-free value is 20162 = `19511 x 31/30` to half a cycle, so the idle profile that `idle_main_loop_cycles` 35125 came from was diluted by the same factor. NOT re-measured here (it is a different probe's row) — re-take it before dividing by it. |
 | 2 | VBlank DMA bytes | 7524 B (H40 NTSC) | live queue `dma_queue_words_idle` 1528 w = **3056 B** | **GATEABLE** — see the correction below |
 | 3 | VBlank CPU | ~18200 cyc VBlank window | `idle_vblank_cycles` 8280 (`VInt_Level` bracket) | **GATEABLE** — budget 9920 cyc |
 | 4a | HInt per-fire spacing | — | — | already owned by `check_density`; no new work |

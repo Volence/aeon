@@ -48,8 +48,35 @@ lag one logic tick spans two frames, so a per-frame average stops being one call
 Frozen, every frame carries exactly one complete call and the row is directly comparable
 between fixtures.
 
+P3 TASK 3 ADDS TWO MODES THAT DO NOT FIT, AND DO NOT TOUCH THE FIT. Both reuse the fixture
+installer and the boot lane above; neither runs unless asked for, so the default invocation
+below is byte-for-byte the sweep the model was fitted with.
+
+  --sweep     THE RE-GLUE INSTRUMENT. Reads `Parallax_Shadow_Bands` across a VERTICAL CAMERA
+              SWEEP and checks every band top against an expectation DERIVED from the live
+              config's authored world-Y tops and the frame's `Parallax_Current_Vscroll_BG`.
+              Nothing is poked but `Camera_Y`: the config at each position is whichever one
+              the engine's own `Parallax_CheckBoundary` installed, read back out of the
+              machine. The expectation is NEVER chained from the previous position's readback
+              — a chained expectation drifts with the thing it is checking.
+              `--poison-vscroll N` perturbs the vscroll fed to the expectation and must go RED
+              naming the first disagreeing band index.
+
+  --transition N
+              THE SYNTHESIZED TRANSITION FRAME. Freeze the camera, then install
+              `Parallax_Current_Config = A`, `Parallax_Target_Config = B`,
+              `Parallax_Transition_Frames = N` directly in RAM. That is a live transition frame
+              with both configs routed — `Parallax_Active_Config` routing, the reg $0B mode
+              change and the per-band scroll lerp all run — measurable per-routine, without a
+              real section crossing. It does NOT exercise `Parallax_StartTransition` or
+              `Parallax_CheckBoundary`, which a frozen camera suppresses by construction. See
+              docs/benchmarks/scanline-p3/REGLUE-INSTRUMENT.md for what that costs the row.
+
 Usage:
     python3 tools/parallax_cost_probe.py --rom s4.debug.bin --lst s4.debug.lst --repeat 3
+    python3 tools/parallax_cost_probe.py --sweep --repeat 1
+    python3 tools/parallax_cost_probe.py --sweep --poison-vscroll 64      # must exit 5
+    python3 tools/parallax_cost_probe.py --transition 250 --repeat 5
 """
 import argparse
 import asyncio
@@ -64,6 +91,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient           # noqa: E402
 from launcher import headless_emulator  # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
+# The scanline-220 queue scan is engine_baseline_probe's, imported rather than re-typed: the
+# entry stride, the SizeH/SizeL split and the "scan inside active display, not at a frame
+# boundary where VBlank has already drained it" ruling are all its, and two copies of that
+# would drift. Same reason `parse_lst` comes from raster_cost_probe.
+from engine_baseline_probe import _scan_dma   # noqa: E402
+# Step 4a's rotation and Step 4b's split are ALREADY transcribed once, by P3 Task 2's
+# `parallax_hscroll_probe`. A second copy here would be a second thing to keep in sync with
+# the walker, and the first one to go stale would still print "ok". THERE IS ONE DERIVATION
+# IN THIS TREE and both instruments call it.
+from parallax_hscroll_probe import (          # noqa: E402
+    derive_shadow, resolve_anchor_line, per_line_mode)
 
 
 # ---- the config's wire layout (engine/structs.emp, parallax_config; 28 bytes) ----
@@ -94,8 +132,19 @@ BE_DSHIFT_A   = 7
 BE_DSHIFT_B   = 8
 BE_SIZE       = 10
 
+CFG_V_CENTER_Y      = 4    # i16  (Step 5: target_b = ((camY - v_center) >> v_factor) + v_off)
+CFG_V_OFFSET        = 6    # i16
+
 ANCHOR_NONE = 0xFF
 NO_DEFORM   = 15          # the shift sentinel: 15 = this plane takes no deform
+
+MAX_SHADOW    = 8         # MAX_PARALLAX_BANDS (engine/system/constants.emp)
+VDP_MODE3_OFF = 0x0B      # engine/vdp.emp — the shadow byte Parallax_Update owns
+RASTER_MAX_PATCH = 4      # raster_dsl.emp:1989 — Effects_Screen_L / Effects_World_Y arity
+PATCH_ENTRY_SIZE = 10     # raster.emp:1783-1812 — the record Raster_GetChannelBand walks
+# engine/system/buffers.emp:149-160 — the two declared static HScroll DMA lengths,
+# `Static_Hscroll_Cell` dma_length(112) and `Static_Hscroll_Line` dma_length(896).
+HSCROLL_STATIC_BYTES = (112, 896)
 
 
 def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
@@ -358,6 +407,29 @@ SYMS = ("Parallax_Update", "Parallax_Fill_PerLine", "Parallax_Fill_PerCell",
 
 SLOT_POISON = 0xFF        # the un-written shadow slot's arm value — see _one
 
+# Symbols the P3 Task 3 arms add. Kept apart from SYMS so the default fit sweep's
+# precondition is unchanged, and checked per mode — a symbol a mode reads and does not list
+# is a KeyError mid-run instead of a failed precondition (the defect SYMS' own comment records).
+SWEEP_SYMS = ("Camera_Y", "Parallax_Current_Vscroll_BG",
+              "Parallax_Current_Scroll_A", "Parallax_Current_Scroll_B",
+              "Raster_Patch_Tab")
+TRANS_SYMS = ("Enqueue_Dirty_Buffers", "VDP_Shadow_Table",
+              "DMA_Queue", "DMA_Queue_End",
+              "DMA_Critical_Slot", "DMA_Important_Slot", "DMA_Deferrable_Slot")
+
+# The transition pair's default endpoints.
+#
+# THE PLAN ASKED FOR "one per-cell, one per-line" AND THE TREE CANNOT SUPPLY IT. All 20
+# shipped scenes attach at least one H-deform table (several attach `DeformTable_Zero`
+# precisely to force the flat-pathed per-line pipeline), so `mode3()`'s H bits are %11 for
+# every config the game can install and no shipped pair differs in HScroll mode at all. The
+# mode axis that DOES vary across shipped configs is the VScroll bit: `v_deform: Columns(...)`
+# raises bit 2. So the maximal shipped mode difference is $3 vs $7, and that is the pair taken
+# here. `mode3()` is evaluated on the ROM bytes and the run REFUSES a pair whose modes match,
+# so this claim is checked at run time rather than trusted from this comment.
+TRANS_A_DEFAULT = "ParallaxConfig_OJZ_Underwater"        # 4 bands, anchored, mode $3
+TRANS_B_DEFAULT = "ParallaxConfig_Perspective_Dramatic"  # 5 bands, per-column VSRAM, mode $7
+
 
 async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
                settle: int, sample: int, world_y_delta: int = 0) -> dict:
@@ -589,6 +661,273 @@ async def _live(b: BusClient, sym: dict[str, int], settle: int, sample: int) -> 
             "split_happened": ents[n][0] != SLOT_POISON,
             "screen_l": screen_l, "transition": int(tf["bytes"], 16),
             "frames": d_frames, "ticks": d_ticks}
+
+
+# =============================================================================
+# P3 TASK 3 — the re-glue instrument
+# =============================================================================
+# Two arms, and they are deliberately not the same run:
+#   * the VERTICAL SWEEP checks VALUES (shadow band tops) at N pinned camera positions;
+#   * the SYNTHESIZED TRANSITION checks COST (per-routine cycles + the DMA queue) at one.
+# A cycle figure needs a frozen camera to mean one call (see the module note); a re-glue
+# check needs the camera to MOVE or it tests nothing. Keeping them apart is the only way to
+# have both.
+
+
+def band_verdict(machine: list[tuple[int, int, int]],
+                 derived, split_armword: bool) -> tuple[bool, str]:
+    """Compare the machine's shadow bands against `derive_shadow`'s, band by band.
+
+    `derived` is a `parallax_hscroll_probe.Shadow` — Step 4a's rotation PLUS Step 4b's split,
+    recomputed from the config bytes and the frame's own `Vscroll_BG`. Its `n` already
+    accounts for the overlay's inserted entry, so there is no splice heuristic here: the two
+    lists are the same length or the derivation is wrong, which is itself the finding.
+
+    Two independent verdicts, and both are required:
+      * FIELD EQUALITY over top / dsa / dsb, NAMING THE FIRST DISAGREEING BAND INDEX. A
+        checker that only says "they differ" is the gate shape this tree has a postmortem for.
+      * THE ARM WORD. Shadow slot `band_count` is poisoned with $FF before the frame and the
+        overlay's split is its only writer, so "the machine split" is READ off the machine.
+        It must agree with "the derivation resolved an anchor line". A mismatch means
+        `resolve_anchor_line` and the engine disagree about whether the overlay fires — which
+        the field comparison alone can miss whenever a degenerate split (L = 0) leaves the
+        first tops looking untouched.
+    """
+    if derived.split_line is not None and not split_armword:
+        return False, (f"derivation resolved a split at L = {derived.split_line} but the "
+                       "overlay never wrote shadow slot band_count (arm word survived)")
+    if derived.split_line is None and split_armword:
+        return False, ("the overlay WROTE shadow slot band_count but the derivation resolved "
+                       "no anchor line for this frame")
+    for i in range(derived.n):
+        got = machine[i]
+        want = (derived.tops[i], derived.dsa[i] & 0xFF, derived.dsb[i] & 0xFF)
+        if got != want:
+            field = ("top" if got[0] != want[0]
+                     else "dsa" if got[1] != want[1] else "dsb")
+            return False, (f"band {i} {field}: machine {got} != derived {want}"
+                           f"  (tops machine {[m[0] for m in machine[:derived.n]]}"
+                           f" vs derived {derived.tops})")
+    return True, (f"{derived.n} bands exact"
+                  + (f", split at line {derived.split_line}"
+                     if derived.split_line is not None else ""))
+
+
+def mode3(cfg: bytes) -> int:
+    """The VDP reg $0B byte `Parallax_Update` derives from a config, transcribed from its
+    `.mode3_h_done`/`.mode3_shadow` arms. Used to CHECK that the two configs a transition run
+    names really do differ in mode, rather than asserting it in prose."""
+    h = 0b11 if (int.from_bytes(cfg[CFG_DEFORM_TAB_FG:CFG_DEFORM_TAB_FG + 4], "big")
+                 or int.from_bytes(cfg[CFG_DEFORM_TAB_BG:CFG_DEFORM_TAB_BG + 4], "big")) else 0b10
+    v = 0b100 if int.from_bytes(cfg[CFG_V_DEFORM_TAB_BG:CFG_V_DEFORM_TAB_BG + 4], "big") else 0
+    return h | v
+
+
+async def _read_cfg(b: BusClient, addr: int) -> bytes:
+    hdr = await b.call("emulator/read_memory", {"addr": hex(addr), "len": CFG_SIZE})
+    n = int(hdr["bytes"][0:2], 16)
+    full = await b.call("emulator/read_memory",
+                        {"addr": hex(addr), "len": CFG_SIZE + n * BE_SIZE})
+    return bytes.fromhex(full["bytes"])
+
+
+async def _boot_frozen(b: BusClient, sym: dict[str, int], settle: int) -> None:
+    for attempt in range(4):
+        try:
+            await b.call("emulator/reset", {"wait": True, "run": False})
+            break
+        except Exception:
+            if attempt == 3:
+                raise
+            await asyncio.sleep(1.5)
+    await b.call("emulator/run_frames", {"frames": settle})
+    await b.call("emulator/write_memory",
+                 {"addr": hex(sym["Debug_Scene_Freeze"]), "value": 1, "width": 1})
+    await b.call("emulator/run_frames", {"frames": 2})
+
+
+async def _reglue_sweep(b: BusClient, sym: dict[str, int], settle: int,
+                        cam_ys: list[int], poison_vscroll: int) -> list[dict]:
+    """One vertical camera sweep. NOTHING is poked but Camera_Y and the arm word.
+
+    `Debug_Scene_Freeze` skips Camera_Update, so a written Camera_Y stays put — but
+    `Effects_LatchWorldLines` and `Parallax_CheckBoundary` both run OUTSIDE that gate on
+    purpose (ojz_scroll_test.emp:592-598, :704), so moving the camera across a section
+    boundary really does re-install a config and stage a transition. That is not
+    interference to be suppressed: it is the sweep meeting the engine's own re-glue path.
+    The config is therefore READ at each position instead of installed, and the run waits
+    for `Parallax_Transition_Frames` to reach 0 so the ACTIVE config is unambiguously
+    `Parallax_Current_Config`.
+    """
+    await _boot_frozen(b, sym, settle)
+    out = []
+    for camy in cam_ys:
+        await b.call("emulator/write_memory",
+                     {"addr": hex(sym["Camera_Y"]), "value": camy << 16, "width": 4})
+        # Long enough for a staged smooth transition (PARALLAX_TRANS_DEFAULT frames) to
+        # finish; the counter is read back below and a non-zero one FAILS the position
+        # rather than being averaged into it.
+        await b.call("emulator/run_frames", {"frames": 32})
+        tf = await b.call("emulator/read_memory",
+                          {"addr": hex(sym["Parallax_Transition_Frames"]), "len": 1})
+        ptr = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Parallax_Current_Config"]), "len": 4})
+        cfg_addr = int(ptr["bytes"][:8], 16) & 0xFFFFFF
+        cfg = await _read_cfg(b, cfg_addr) if cfg_addr else b""
+        n = cfg[CFG_BAND_COUNT] if cfg else 0
+        # ARM THE OVERLAY'S OWN SLOT. Step 4a writes exactly `band_count` entries; slot
+        # `band_count` is written by Step 4b's split and by nothing else, so $FF surviving
+        # the frame is a two-sided verdict on whether the overlay split at this position.
+        if n and n < MAX_SHADOW:
+            await b.call("emulator/write_memory",
+                         {"addr": hex(sym["Parallax_Shadow_Bands"] + n * BE_SIZE),
+                          "bytes": (bytes([SLOT_POISON]) * BE_SIZE).hex().upper()})
+        await b.call("emulator/run_frames", {"frames": 1})
+        vs = await b.call("emulator/read_memory",
+                          {"addr": hex(sym["Parallax_Current_Vscroll_BG"]), "len": 2})
+        sh = await b.call("emulator/read_memory",
+                          {"addr": hex(sym["Parallax_Shadow_Bands"]),
+                           "len": BE_SIZE * MAX_SHADOW})
+        sca = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Parallax_Current_Scroll_A"]),
+                            "len": 2 * MAX_SHADOW})
+        scb = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Parallax_Current_Scroll_B"]),
+                            "len": 2 * MAX_SHADOW})
+        cam = await b.call("emulator/read_memory", {"addr": hex(sym["Camera_Y"]), "len": 4})
+        scr = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Effects_Screen_L"]),
+                            "len": 2 * RASTER_MAX_PATCH})
+        ptr2 = await b.call("emulator/read_memory",
+                            {"addr": hex(sym["Parallax_Current_Config"]), "len": 4})
+        # The patch record `Raster_GetChannelBand` walks — the overlay's L is clamped into
+        # the channel's authored raster band, so resolving L without it would put the split
+        # in the wrong place on any config whose anchor sits outside its band.
+        ptab = await b.call("emulator/read_memory",
+                            {"addr": hex(sym["Raster_Patch_Tab"]), "len": 4})
+        patch_ptr = int(ptab["bytes"][:8], 16) & 0xFFFFFF
+        patch = None
+        if patch_ptr:
+            cnt_r = await b.call("emulator/read_memory", {"addr": hex(patch_ptr), "len": 2})
+            cnt = int(cnt_r["bytes"], 16)
+            if 0 < cnt <= 64:
+                pr = await b.call("emulator/read_memory",
+                                  {"addr": hex(patch_ptr),
+                                   "len": 2 + cnt * PATCH_ENTRY_SIZE})
+                patch = bytes.fromhex(pr["bytes"])
+        raw = bytes.fromhex(sh["bytes"])
+        bands = [(raw[i * BE_SIZE + BE_TOP_CELL], raw[i * BE_SIZE + BE_DSHIFT_A],
+                  raw[i * BE_SIZE + BE_DSHIFT_B]) for i in range(MAX_SHADOW)]
+        screen_l = [int(scr["bytes"][i:i + 4], 16)
+                    for i in range(0, 4 * RASTER_MAX_PATCH, 4)]
+        screen_l = [v - 0x10000 if v > 0x7FFF else v for v in screen_l]
+        cur_a = [int(sca["bytes"][i:i + 4], 16) for i in range(0, 4 * MAX_SHADOW, 4)]
+        cur_b = [int(scb["bytes"][i:i + 4], 16) for i in range(0, 4 * MAX_SHADOW, 4)]
+        out.append({
+            "camera_y_want": camy,
+            "camera_y_got": int(cam["bytes"][:4], 16),
+            "cfg": cfg.hex().upper(),
+            "cfg_addr": cfg_addr,
+            "cfg_addr_after": int(ptr2["bytes"][:8], 16) & 0xFFFFFF,
+            "bands": n,
+            "anchor_ch": cfg[CFG_ANCHOR_CH] if cfg else None,
+            "authored_cells": [cfg[CFG_SIZE + i * BE_SIZE + BE_TOP_CELL] for i in range(n)],
+            "vscroll_bg": int(vs["bytes"], 16),
+            "vscroll_used": (int(vs["bytes"], 16) + poison_vscroll) & 0xFFFF,
+            "transition_frames": int(tf["bytes"], 16),
+            "shadow_bands": bands,
+            "cur_a": cur_a, "cur_b": cur_b, "patch": patch,
+            "split": (bands[n][0] != SLOT_POISON) if (n and n < MAX_SHADOW) else False,
+            "screen_l": screen_l,
+        })
+    return out
+
+
+async def _profile_window(b: BusClient, sym: dict[str, int], sample: int,
+                          targets: tuple[str, ...]) -> dict:
+    """One preemption-free profiled window, same retry discipline as `_one`.
+
+    A per-routine row is a per-VIDEO-FRAME average, so it is one call only while the main
+    loop completes one logic tick per video frame. Re-taken until it does; the last attempt's
+    counters are reported either way so a window that never came clean is VISIBLE and not
+    quietly averaged.
+    """
+    await b.call("emulator/run_frames", {"frames": sample})          # burn the transient
+    prof = None
+    d_frames = d_ticks = d_lag = -1
+    for _ in range(4):
+        await b.call("emulator/set_profiler", {"enabled": True})
+        await asyncio.sleep(0.4)
+        fc0 = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Frame_Counter"]), "len": 2})
+        lt0 = await b.call("emulator/read_memory", {"addr": hex(sym["Logic_Tick"]), "len": 4})
+        lg0 = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Lag_Frame_Count"]), "len": 4})
+        await b.call("emulator/run_frames", {"frames": sample})
+        fc1 = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Frame_Counter"]), "len": 2})
+        lt1 = await b.call("emulator/read_memory", {"addr": hex(sym["Logic_Tick"]), "len": 4})
+        lg1 = await b.call("emulator/read_memory",
+                           {"addr": hex(sym["Lag_Frame_Count"]), "len": 4})
+        d_frames = (int(fc1["bytes"], 16) - int(fc0["bytes"], 16)) & 0xFFFF
+        d_ticks = int(lt1["bytes"], 16) - int(lt0["bytes"], 16)
+        d_lag = int(lg1["bytes"], 16) - int(lg0["bytes"], 16)
+        await asyncio.sleep(0.4)
+        prof = await b.call("emulator/get_profiler_frames", {"frames": sample, "top": 300})
+        await b.call("emulator/set_profiler", {"enabled": False})
+        if d_frames == d_ticks and d_lag == 0:
+            break
+    rows = {}
+    for t in targets:
+        r = row(prof, sym[t])
+        rows[t] = int(r["cycles"]) if r else None
+    return {"rows": rows, "frames": d_frames, "ticks": d_ticks, "lag_frames": d_lag,
+            "preempt_free": d_frames == d_ticks and d_lag == 0}
+
+
+async def _transition_case(b: BusClient, sym: dict[str, int], settle: int, sample: int,
+                           cur: int, tgt: int, frames: int, dma_line: int) -> dict:
+    """Install one (Current, Target, Transition_Frames) state and measure it.
+
+    `frames = 0` is the STABLE control on `cur`; `frames > 0` is a live transition frame
+    whose ACTIVE config is `tgt` (Parallax_Update's `.use_target` arm). The two are the same
+    measurement apart from that one field, which is what makes their difference a transition
+    surcharge rather than a pair of unrelated rows.
+
+    THE COUNTER DECREMENTS. `Parallax_Update` does `subq.b #1` every frame, so the installed
+    N must outlast the whole window (burn + sample + the retries) or the run measures a
+    promote and then a stable frame. It is read back afterwards and a counter that reached 0
+    FAILS the case.
+    """
+    await _boot_frozen(b, sym, settle)
+    await b.call("emulator/write_memory",
+                 {"addr": hex(sym["Parallax_Current_Config"]), "value": cur, "width": 4})
+    await b.call("emulator/write_memory",
+                 {"addr": hex(sym["Parallax_Target_Config"]), "value": tgt, "width": 4})
+    await b.call("emulator/write_memory",
+                 {"addr": hex(sym["Parallax_Transition_Frames"]), "value": frames, "width": 1})
+    await b.call("emulator/run_frames", {"frames": 4})
+    w = await _profile_window(b, sym, sample,
+                              ("Parallax_Update", "Enqueue_Dirty_Buffers",
+                               "Parallax_Fill_PerLine", "Parallax_Fill_PerCell"))
+    dma = await _scan_dma(b, sym, dma_line)
+    tf = await b.call("emulator/read_memory",
+                      {"addr": hex(sym["Parallax_Transition_Frames"]), "len": 1})
+    cur1 = await b.call("emulator/read_memory",
+                        {"addr": hex(sym["Parallax_Current_Config"]), "len": 4})
+    tgt1 = await b.call("emulator/read_memory",
+                        {"addr": hex(sym["Parallax_Target_Config"]), "len": 4})
+    m3 = await b.call("emulator/read_memory",
+                      {"addr": hex(sym["VDP_Shadow_Table"] + VDP_MODE3_OFF), "len": 1})
+    w.update({
+        "current": int(cur1["bytes"][:8], 16) & 0xFFFFFF,
+        "target": int(tgt1["bytes"][:8], 16) & 0xFFFFFF,
+        "frames_left": int(tf["bytes"], 16),
+        "mode3_shadow": int(m3["bytes"], 16),
+        "dma": dma,
+        "still_transitioning": frames > 0 and int(tf["bytes"], 16) > 0,
+    })
+    return w
 
 
 def live_terms(cfg: bytes, ents: list[tuple[int, int, int]], n_shadow: int) -> dict:
@@ -913,6 +1252,283 @@ def lstsq(A: list[list[float]], y: list[float]) -> list[float]:
     return [M[i][n] / M[i][i] for i in range(n)]
 
 
+def run_sweep_mode(args, sym: dict[str, int]) -> int:
+    """--sweep: the vertical-sweep shadow-top reader. Exit 5 on any derived-check failure."""
+    cam_ys = [int(v) for v in args.sweep_camera_y.split(",")] if args.sweep_camera_y else \
+        [0, 64, 112, 160, 224] + \
+        [512 + v * 64 for v in (0, 4, 8, 12, 20, 28, 36, 40, 44, 48, 52, 56, 60)]
+    # WHY THESE POSITIONS — two groups, and both are derived from the shipped content rather
+    # than picked.
+    #
+    #   ROTATION COVERAGE (the 512 + v*64 group). Vscroll_BG = ((camY - v_center) >> v_factor)
+    #   + v_offset, and the shipped OJZ configs use v_center 512 / v_factor 3 / v_offset 0, so
+    #   camY = 512 + v*64 lands vshift exactly on plane cell row v. The list walks v across the
+    #   OJZ tops (cells 0/8/40/48) so k takes every one of its four values. For contrast,
+    #   parallax_hscroll_probe's frozen positions (Camera_Y 144/320/96) ALL land k = 3 — one
+    #   rotation state, three times.
+    #
+    #   OVERLAY COVERAGE (the 0..224 group). Effects_World_Y[0] is 224 in this act, and the
+    #   overlay's split line is world_y - Camera_Y, so these five positions walk L across the
+    #   whole screen (224, 160, 112, 64, 0) instead of leaving it clamped off the top. Without
+    #   them every anchored row is the degenerate `L <= 0 -> split at line 0` case and the
+    #   sweep would never check a mid-screen split at all.
+    #
+    # Neither group is ASSUMED: the vscroll and the latched L used by the expectation are both
+    # read back out of the machine, so a config or an act with different fields still gets a
+    # correct expectation — it just gets less interesting coverage, which the distinct-states
+    # tally at the bottom of the run reports.
+    runs: list[list[dict]] = []
+
+    async def _go(sock: str) -> None:
+        b = BusClient(socket_path=sock, client_id="pxprobe",
+                      client_name="parallax_cost_probe --sweep")
+        await b.connect()
+        await b.call("emulator/load_symbols", {"path": args.lst})
+        runs.append(await _reglue_sweep(b, sym, args.settle, cam_ys, args.poison_vscroll))
+        await b.close()
+
+    for _ in range(args.repeat):
+        with headless_emulator(args.rom) as sock:
+            asyncio.run(_go(sock))
+
+    print(f"ROM {args.rom}   VERTICAL SWEEP, {len(cam_ys)} camera positions x {args.repeat} boots")
+    print("Nothing is poked but Camera_Y and the overlay's own arm word. The config at each")
+    print("position is whichever one Parallax_CheckBoundary installed, read back and used to")
+    print("DERIVE the expected Step-4a tops together with the frame's own Vscroll_BG.")
+    if args.poison_vscroll:
+        print(f"\n!! POISON ACTIVE: the expectation is derived from Vscroll_BG "
+              f"{args.poison_vscroll:+d}. This run MUST go red.")
+    hdr = (f"{'camY':>6} {'cfg':>8} {'n':>2} {'vscroll':>8} {'vshift':>6} {'k':>2} {'tf':>3}"
+           f" {'split':>5}  verdict")
+    print()
+    print(hdr)
+    print("-" * len(hdr))
+    failures: list[str] = []
+    rows = []
+    for ri, sweep in enumerate(runs):
+        for p in sweep:
+            tag = f"r{ri}@{p['camera_y_want']}"
+            if not p["bands"]:
+                failures.append(f"{tag}: no parallax config installed (pointer NULL)")
+                print(f"{p['camera_y_want']:>6} {'NULL':>8}  -- !! no config installed")
+                continue
+            if p["camera_y_got"] != p["camera_y_want"]:
+                failures.append(f"{tag}: Camera_Y drifted to {p['camera_y_got']}"
+                                " — Debug_Scene_Freeze did not hold the camera")
+            if p["cfg_addr_after"] != p["cfg_addr"]:
+                failures.append(f"{tag}: the config pointer moved mid-position "
+                                f"${p['cfg_addr']:06X} -> ${p['cfg_addr_after']:06X}")
+            if p["transition_frames"] != 0:
+                failures.append(f"{tag}: still transitioning (frames {p['transition_frames']})"
+                                " — the ACTIVE config is Target, not the one read")
+            cfg = bytes.fromhex(p["cfg"])
+            L, why = resolve_anchor_line(cfg, p["screen_l"], p["patch"])
+            derived = derive_shadow(cfg, p["vscroll_used"], p["cur_a"], p["cur_b"], L)
+            # vshift and k are re-derived here for the REPORT only — they are what makes a row
+            # readable and what proves the sweep exercised more than one rotation. The verdict
+            # never uses them; it uses derive_shadow's own walk.
+            vshift = (p["vscroll_used"] & 0x1FF) >> 3
+            k = max((i for i in range(p["bands"])
+                     if p["authored_cells"][i] <= vshift), default=0)
+            ok, msg = band_verdict(p["shadow_bands"], derived, p["split"])
+            if not ok:
+                failures.append(f"{tag}: {msg}")
+            print(f"{p['camera_y_want']:>6} ${p['cfg_addr']:06X} {p['bands']:>2}"
+                  f" {p['vscroll_bg']:>8} {vshift:>6} {k:>2} {p['transition_frames']:>3}"
+                  f" {str(p['split']):>5}  {'ok — ' if ok else '!! '}{msg}")
+            rows.append({"boot": ri, "camera_y": p["camera_y_want"],
+                         "cfg_addr": f"{p['cfg_addr']:06X}", "bands": p["bands"],
+                         "per_line": per_line_mode(cfg),
+                         "authored_cells": p["authored_cells"],
+                         "vscroll_bg": p["vscroll_bg"], "vshift": vshift, "k": k,
+                         "anchor_ch": p["anchor_ch"], "split": p["split"],
+                         "anchor_resolution": why, "anchor_L": L,
+                         "screen_l": p["screen_l"],
+                         "derived_tops": derived.tops,
+                         "derived_dsa": derived.dsa, "derived_dsb": derived.dsb,
+                         "shadow_bands": p["shadow_bands"][:derived.n],
+                         "ok": ok, "verdict": msg})
+    # THE SWEEP MUST ACTUALLY SWEEP. A run where every position produced the same rotation has
+    # measured one frozen frame N times and would pass a re-glue defect that only shows under
+    # vertical motion — the F2/dense shape. Reported as a failure, not as a green row.
+    ks = {(r["k"], r["vshift"]) for r in rows}
+    ls = sorted({r["anchor_L"] for r in rows if r["anchor_L"] is not None})
+    print(f"\ndistinct (k, vshift) rotation states exercised: {len(ks)}  {sorted(ks)}")
+    print(f"distinct overlay split lines exercised: {len(ls)}  {ls}")
+    if len(ks) < 2:
+        failures.append("the sweep exercised fewer than two rotation states — it is an "
+                        "at-rest capture wearing a sweep's name")
+    # A sweep whose every anchored row is the L <= 0 degenerate has checked the overlay's
+    # early-out and nothing else. Reported, not silently green: the mid-screen split is the
+    # part world-Y re-glue (Task 7) is going to move.
+    if ls and set(ls) == {0}:
+        failures.append("every anchored position resolved L = 0 — the sweep never checked a "
+                        "mid-screen split, only the overlay's clamp-to-top early-out")
+    if args.out:
+        Path(args.out).write_text(json.dumps(
+            {"mode": "sweep", "camera_y": cam_ys, "poison_vscroll": args.poison_vscroll,
+             "positions": rows, "failures": failures}, indent=2) + "\n")
+        print(f"raw: {args.out}")
+    if failures:
+        print("\nDERIVED CHECKS FAILED:")
+        for f in failures:
+            print(f"  {f}")
+        return 5
+    print("\nALL POSITIONS AGREE with the derived Step-4a rotation.")
+    return 0
+
+
+def run_transition_mode(args, sym: dict[str, int]) -> int:
+    """--transition N: the synthesized transition frame's cost rows. Exit 5 on a failed check."""
+    rom = Path(args.rom).read_bytes()
+    a_name, b_name = args.trans_a, args.trans_b
+    for nm in (a_name, b_name):
+        if nm not in sym:
+            print(f"config symbol not in the listing: {nm}", file=sys.stderr)
+            return 3
+    a_addr, b_addr = sym[a_name] & 0xFFFFFF, sym[b_name] & 0xFFFFFF
+    cfg_a = rom[a_addr:a_addr + CFG_SIZE + rom[a_addr] * BE_SIZE]
+    cfg_b = rom[b_addr:b_addr + CFG_SIZE + rom[b_addr] * BE_SIZE]
+    ma, mb = mode3(cfg_a), mode3(cfg_b)
+    print(f"ROM {args.rom}   SYNTHESIZED TRANSITION, N = {args.transition},"
+          f" sample {args.sample} frames x {args.repeat} boots")
+    print(f"  A = {a_name} ${a_addr:06X}  bands {cfg_a[CFG_BAND_COUNT]}"
+          f"  anchor ${cfg_a[CFG_ANCHOR_CH]:02X}  reg $0B mode %{ma:03b}")
+    print(f"  B = {b_name} ${b_addr:06X}  bands {cfg_b[CFG_BAND_COUNT]}"
+          f"  anchor ${cfg_b[CFG_ANCHOR_CH]:02X}  reg $0B mode %{mb:03b}")
+    if ma == mb:
+        # The whole point of the pair is that the reg $0B write is LIVE on the frame the
+        # active config changes. A same-mode pair measures a transition with that half
+        # missing and would be reported as if it did not.
+        print("\nREFUSED: the two configs derive the SAME reg $0B mode, so this pair cannot"
+              "\nexercise the mode change the row claims to include. Pick a different pair.",
+              file=sys.stderr)
+        return 5
+
+    cases = {
+        "A stable":     (a_addr, 0,      0),
+        "B stable":     (b_addr, 0,      0),
+        "A->B trans":   (a_addr, b_addr, args.transition),
+        "B->A trans":   (b_addr, a_addr, args.transition),
+    }
+    got: dict[str, list[dict]] = {k: [] for k in cases}
+
+    async def _go(sock: str) -> None:
+        b = BusClient(socket_path=sock, client_id="pxprobe",
+                      client_name="parallax_cost_probe --transition")
+        await b.connect()
+        await b.call("emulator/load_symbols", {"path": args.lst})
+        for name, (cur, tgt, fr) in cases.items():
+            got[name].append(await _transition_case(b, sym, args.settle, args.sample,
+                                                    cur, tgt, fr, args.dma_line))
+        await b.close()
+
+    for _ in range(args.repeat):
+        with headless_emulator(args.rom) as sock:
+            asyncio.run(_go(sock))
+
+    failures: list[str] = []
+    hdr = (f"{'case':12} {'active':>10} {'Px_Update':>10} {'spread':>7} {'EnqDirty':>9}"
+           f" {'spread':>7} {'$0B':>4} {'hscroll B':>10} {'queue B':>8}")
+    print()
+    print(hdr)
+    print("-" * len(hdr))
+    table = {}
+    for name, (cur, tgt, fr) in cases.items():
+        runs = got[name]
+        pu = [r["rows"]["Parallax_Update"] for r in runs]
+        ed = [r["rows"]["Enqueue_Dirty_Buffers"] for r in runs]
+        # A MISSING ROW IS NOT A ZERO. Oracle omits a routine that did not run in the window
+        # (a short --sample can miss Enqueue_Dirty_Buffers' VBlank entirely), and rendering
+        # "could not measure" as 0 is how a budget row gets a number nobody took.
+        if any(v is None for v in pu):
+            failures.append(f"{name}: no Parallax_Update row — the state did not install")
+            print(f"{name:12} !! no Parallax_Update row")
+            continue
+        if any(v is None for v in ed):
+            failures.append(f"{name}: no Enqueue_Dirty_Buffers row in a {args.sample}-frame "
+                            "window — NOT measured, and not 0")
+            ed = [v for v in ed if v is not None] or [-1]
+        active = tgt if fr else cur
+        for i, r in enumerate(runs):
+            if not r["preempt_free"]:
+                failures.append(f"{name} boot {i}: frames/ticks "
+                                f"{r['frames']}/{r['ticks']} lag {r['lag_frames']}"
+                                " — the row is a diluted average, not one call")
+            if r["current"] != cur or r["target"] != tgt:
+                failures.append(f"{name} boot {i}: the config pointers moved — installed "
+                                f"(current ${cur:06X}, target ${tgt:06X}), read back "
+                                f"(current ${r['current']:06X}, target ${r['target']:06X})")
+            if fr and not r["still_transitioning"]:
+                failures.append(f"{name} boot {i}: the transition counter reached 0 inside "
+                                "the window — the row is part transition, part stable")
+            if r["mode3_shadow"] != mode3(cfg_a if active == a_addr else cfg_b):
+                failures.append(f"{name} boot {i}: reg $0B shadow ${r['mode3_shadow']:02X} "
+                                "does not match the ACTIVE config's derived mode")
+        # The HScroll DMA entries are identified by byte count against the two STATIC lengths
+        # the engine declares, never by slot index: the queue's slot assignment is a
+        # scheduling detail that moves with priority, and a slot number would silently start
+        # naming a different entry. This is a LABEL for the report, not a budget denominator —
+        # the full entry list goes to the JSON either way.
+        hs = [e["bytes"] for e in runs[0]["dma"]["entries"]
+              if e["bytes"] in HSCROLL_STATIC_BYTES]
+        print(f"{name:12} {'$%06X' % active:>10} {pu[0]:>10} {max(pu) - min(pu):>7}"
+              f" {ed[0]:>9} {max(ed) - min(ed):>7} {runs[0]['mode3_shadow']:>4X}"
+              f" {str(hs):>10} {runs[0]['dma']['total_words'] * 2:>8}")
+        table[name] = {"active": f"{active:06X}", "current": f"{cur:06X}",
+                       "target": f"{tgt:06X}", "installed_frames": fr,
+                       "parallax_update": pu, "enqueue_dirty": ed,
+                       "mode3_shadow": [r["mode3_shadow"] for r in runs],
+                       "hscroll_entry_bytes": hs,
+                       "dma_entries": runs[0]["dma"]["entries"],
+                       "dma_slot_cursors": runs[0]["dma"]["slot_cursors"],
+                       "dma_scanline": runs[0]["dma"]["scanline"],
+                       "dma_total_bytes": runs[0]["dma"]["total_words"] * 2,
+                       "dma_max_bytes": runs[0]["dma"]["max_bytes"],
+                       "frames_ticks": [[r["frames"], r["ticks"], r["lag_frames"]]
+                                        for r in runs],
+                       "frames_left": [r["frames_left"] for r in runs]}
+
+    # THE ROW IS A DIFFERENCE, NOT A LEVEL. "A transition frame costs X" is unfalsifiable on
+    # its own — X is mostly the walker doing what it always does. The surcharge is the
+    # transition frame against the STABLE frame on THE SAME ACTIVE CONFIG, which is one field
+    # apart. Both directions are reported because the two configs differ in band count and in
+    # v_factor, so one number would be an average of two different mechanisms.
+    print("\nTRANSITION SURCHARGE — a transition frame against the stable frame on the SAME")
+    print("active config (one field apart: Parallax_Transition_Frames).")
+    for trans, stable in (("A->B trans", "B stable"), ("B->A trans", "A stable")):
+        if trans in table and stable in table:
+            dpu = table[trans]["parallax_update"][0] - table[stable]["parallax_update"][0]
+            ded = table[trans]["enqueue_dirty"][0] - table[stable]["enqueue_dirty"][0]
+            print(f"  {trans:12} - {stable:10}  Parallax_Update {dpu:+7}"
+                  f"   Enqueue_Dirty_Buffers {ded:+5}")
+            table[trans]["surcharge_vs"] = stable
+            table[trans]["surcharge_parallax_update"] = dpu
+            table[trans]["surcharge_enqueue_dirty"] = ded
+    print("\nWHAT THE SURCHARGE DOES *NOT* CONTAIN: the reg $0B write. Parallax_Update compares"
+          "\nthe derived mode against its shadow byte and writes the register only when they"
+          "\ndiffer, so the mode change is paid ONCE — on the first frame after the install, four"
+          "\nframes before the burn window even starts. It is outside every row above, not diluted"
+          "\ninto them. The shadow byte IS read back per case and checked against the ACTIVE"
+          "\nconfig's derived mode, so the change is witnessed even though its cost is not here.")
+    if args.out:
+        Path(args.out).write_text(json.dumps(
+            {"mode": "transition", "N": args.transition, "sample": args.sample,
+             "repeat": args.repeat,
+             "config_a": {"name": a_name, "addr": f"{a_addr:06X}", "mode3": ma,
+                          "bands": cfg_a[CFG_BAND_COUNT]},
+             "config_b": {"name": b_name, "addr": f"{b_addr:06X}", "mode3": mb,
+                          "bands": cfg_b[CFG_BAND_COUNT]},
+             "cases": table, "failures": failures}, indent=2) + "\n")
+        print(f"\nraw: {args.out}")
+    if failures:
+        print("\nDERIVED CHECKS FAILED — the cycle rows above are NOT evidence:")
+        for f in failures:
+            print(f"  {f}")
+        return 5
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rom", default="s4.debug.bin")
@@ -921,6 +1537,18 @@ def main() -> int:
     ap.add_argument("--sample", type=int, default=31)
     ap.add_argument("--repeat", type=int, default=1)
     ap.add_argument("--out", default="")
+    ap.add_argument("--sweep", action="store_true",
+                    help="P3 Task 3: the vertical-sweep shadow-top reader (no cycle rows)")
+    ap.add_argument("--sweep-camera-y", default="",
+                    help="comma-separated Camera_Y pixel positions (default: derived, see code)")
+    ap.add_argument("--poison-vscroll", type=int, default=0,
+                    help="perturb the Vscroll_BG fed to the EXPECTATION; the sweep must go red")
+    ap.add_argument("--transition", type=int, default=0, metavar="N",
+                    help="P3 Task 3: synthesize a transition frame with Transition_Frames = N")
+    ap.add_argument("--trans-a", default=TRANS_A_DEFAULT)
+    ap.add_argument("--trans-b", default=TRANS_B_DEFAULT)
+    ap.add_argument("--dma-line", type=int, default=220,
+                    help="scanline the DMA queue is scanned at (engine_baseline_probe's 220)")
     args = ap.parse_args()
 
     args.rom = str(Path(args.rom).resolve())
@@ -929,10 +1557,35 @@ def main() -> int:
         print(f"ROM not found: {args.rom}", file=sys.stderr)
         return 3
     sym = parse_lst(args.lst)
-    missing = [s for s in SYMS if s not in sym]
+    want = SYMS + (SWEEP_SYMS if args.sweep else ()) \
+        + (TRANS_SYMS if args.transition else ())
+    missing = [s for s in want if s not in sym]
     if missing:
         print(f"symbols missing: {', '.join(missing)}", file=sys.stderr)
         return 3
+
+    if args.sweep and args.transition:
+        print("--sweep and --transition are separate runs: one moves the camera (values),"
+              " the other freezes it (cycles). Run them one at a time.", file=sys.stderr)
+        return 3
+    if args.sweep:
+        return run_sweep_mode(args, sym)
+    if args.transition:
+        # The counter decrements once per frame and the case spends 4 (install settle) +
+        # `sample` (burn) + `sample` (window) frames before it is read back. Anything less
+        # and the promote lands INSIDE the window, which is exactly what this guard's
+        # absence produced on a first N=60 run: the rows printed, and only the
+        # `still_transitioning` readback said they were half a stable frame. A retry can
+        # still exhaust a marginal N, so that readback stays as the backstop — this guard
+        # only stops the guaranteed case.
+        need = 4 + 2 * args.sample + 8
+        if args.transition <= need:
+            print(f"--transition {args.transition} must exceed {need} (4 settle +"
+                  f" {args.sample} burn + {args.sample} window + slack): the counter would"
+                  " reach 0 inside the window and the row would be part transition, part"
+                  " stable.", file=sys.stderr)
+            return 3
+        return run_transition_mode(args, sym)
 
     rom = Path(args.rom).read_bytes()
     base = rom[sym["ParallaxConfig_OJZ_Default"]:
