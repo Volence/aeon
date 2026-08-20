@@ -520,6 +520,18 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
   existed to protect, re-derived from the nametable walk itself; (c) `Page_Table` is STILL
   the identity, the premise the whole collapsed loop rests on. Bijectivity, the
   candidate-flag invariant and the orphan check are untouched and stay live.
+* **The new audit arm is POISON-TESTED, because a replacement check that cannot fail would
+  be worse than the red one it replaced.** `tools/pagecache_audit_poison.py` violates each
+  invariant in turn at runtime and requires the engine to STOP; the control run pokes nothing
+  and must keep going:
+
+      CONTROL (no poke)                      ticks 111 -> 505 -> 564   still running
+      (a) nonzero pf_refcount                ticks 111 -> 129 -> 129   HALTED (audit raised)
+      (b) unassigned frame referenced        ticks 111 -> 129 -> 129   HALTED (audit raised)
+      (c) Page_Table not the identity        ticks 111 -> 129 -> 129   HALTED (audit raised)
+
+  All three halt at tick 129 — the first periodic fire after the poke at 111 — and the
+  control reaches 564. Re-run it whenever the direct-map regime is touched.
 * **Measured saving** (`--repeat 3`, spread 0.000 on `frames/tick` at every state, 3 boots;
   baseline `s4.debug.bin` crc `2191bfdc` at master `76afd279`, F1 crc `47111ae9`):
 
