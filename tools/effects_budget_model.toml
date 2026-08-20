@@ -96,6 +96,71 @@ max_diagonal_vsync_wait_cycles     = 34371   # 26.9% per video frame
 max_diagonal_lags = true
 max_diagonal_lag_note = "sustained 16px/frame diagonal ticks at ~30 Hz, not 60. Measured, reproducible, spread 0. It is a streaming cost (Tile_Cache_Fill 40.1%), not an effects cost -- but every Phase-2 budget expressed per VIDEO FRAME must not assume 60 Hz at this state."
 
+# ---- AXIS 5's DENOMINATOR: the object system's SAT occupancy -----------------
+# Scanline P3 Phase 0 Task 4, 2026-08-20. s4.debug.bin crc 5be03175 len 715084.
+# tools/engine_baseline_probe.py --sat, FIVE independent boots per state, SPREAD 0 on every
+# row of both states, at the SAME two camera states as every row above (idle verified in the
+# same session at Camera_X 96 / Camera_Y 144, ENGINE-BASELINE.md §1's definition).
+#
+# Design §5 prices axis 5 "against a declared object-system reservation" and there was never
+# one -- [scene_budget].axis5_sprite_slots read "NO SUBJECT UNTIL P3". These are that
+# reservation. Evidence + the binding-ceiling ruling: ENGINE-BASELINE.md §6.
+#
+# NO NUMBER HERE WAS TYPED. The table base is derived TWICE and required to agree (the shipped
+# VRAM_SPRITE_TABLE const, and the LIVE VDP reg-5 shadow byte, which VdpShadow's own note calls
+# the authority for $00-$12); the entry stride is sizeof(Sprite_Table_Buffer)/MAX_VDP_SPRITES
+# read out of engine/ram.emp; the occupancy is walked from the VRAM link chain and cross-checked
+# against Sprites_Rendered AND the Sprite_Table_Buffer RAM image. Three red-first poisons
+# (--sat-poison base|chain|ram) each drive their own check red with the control green.
+axis5_status = "measured"
+axis5_instrument = "ORACLE headless, emulator/read_vram over the SAT; occupancy walked from the link chain. NOT a profiler row -- this axis is a table/scanline occupancy, not cycles."
+sat_vram_base = 0xB800               # code-derived: engine/system/constants.emp VRAM_SPRITE_TABLE,
+                                     # confirmed against the live VDP reg 5 ($5C << 9)
+sat_table_entries = 80               # code-derived: MAX_VDP_SPRITES
+sat_entry_bytes = 8                  # derived: Sprite_Table_Buffer 640 B / MAX_VDP_SPRITES
+# The per-line pair are DATASHEET constants of the H40 VDP, same class as
+# dma_stall.DMA_BYTES_PER_LINE's 205: documented hardware rates, not measurements of this ROM.
+h40_sprites_per_line_limit = 20
+h40_sprite_pixels_per_line_limit = 320
+
+idle_sat_slots_used            = 3   # of 80 (3.8%) -- 1 test marker + 2 rings
+idle_sat_worst_line_sprites    = 2   # of 20 (10.0%), at scanline 5
+idle_sat_worst_line_pixels     = 32  # of 320 (10.0%), at scanline 5
+idle_sat_lines_with_sprites    = 32  # of 224
+idle_sat_mask_sprites          = 0
+# MAX-DIAGONAL GIVES AXIS 5 NOTHING, and the row says so rather than reporting 0/80 as
+# headroom. The state's ONE poke moves the leader 2000/1400 px ahead of a camera that closes
+# 16 px per tick, so the leader is off-camera and culled for the whole window and the entity
+# window has left the seeded rings behind. The SAT holds only the hidden terminator entry
+# (`.empty_table`, sprites.emp), Sprites_Rendered reads 0, the shipped DMA is 4 words.
+max_diagonal_sat_slots_used         = 0
+max_diagonal_sat_worst_line_sprites = 0
+max_diagonal_sat_worst_line_pixels  = 0
+max_diagonal_sat_note = "renders NO sprites: the leader is teleported beyond a camera that never catches it and is culled, and the rings despawn. The SAT carries only the hidden terminator. This is a true reading of the state and NOT an occupancy figure -- axis 5 has exactly ONE informative state, idle."
+
+# WHICH CEILING THE AXIS GATES ON. The per-line SPRITE COUNT, not the 80-entry table.
+# Derivation in ENGINE-BASELINE.md §6.2; the short form is that the mask's marginal cost is
+# 5% of the per-line sprite ceiling against 1.25% of the table ceiling and 2.5% of the
+# per-line pixel ceiling, and the per-line ceiling is the one a clustered scene reaches first
+# (the engine spends code on exactly that problem -- Render_Sprites' SCANLINE_SPRITE_LIMIT
+# soft band heuristic -- and none on running out of the 80).
+axis5_binding_ceiling = "per-line sprite count (20/line, H40)"
+axis5_budget_per_line_sprites = 18   # 20 less the 2 measured at idle
+axis5_budget_per_line_pixels  = 288  # 320 less the 32 measured at idle
+axis5_budget_table_slots      = 77   # 80 less the 3 measured at idle
+# THE MASK'S PRICE, derived from the engine's shipped mask emitter rather than assumed.
+# InsertSpriteMasks writes 8x32 mask sprites (SPRITE_MASK_SIZE = 1x4 cells, SPRITE_MASK_HEIGHT
+# = 32) and rounds coverage UP to whole ones, so covering N scanlines costs ceil(N/32) slots.
+sat_mask_slot_cost_per_32_lines = 1
+sat_mask_slots_full_height      = 7   # ceil(224 / 32) -- NOT 1
+sat_mask_pixels_per_line        = 8   # one 8-px column
+axis5_task12_flag = "design §2 and the P3 plan both price the left-column mask at ONE SAT slot. At the engine's shipped mask geometry a FULL-HEIGHT column is 7 (ceil(224/32)). One slot buys 32 scanlines. Task 12 must either accept 7 slots, bound the mask's height, or introduce a taller mask primitive -- it may not silently ship 7 against a budget written for 1."
+# THE CAVEAT, carried onto the row explicitly per ENGINE-BASELINE.md §5 ("A near-empty game
+# state"): 3 of 80 is a FLOOR on occupancy and the 18-sprite/288-px headroom above it is an
+# UPPER BOUND, not a promise. GameState_OJZScroll is a scroll test; a populated level runs more
+# objects and every one of them lands in the same table and on the same scanlines.
+axis5_caveat = "UPPER BOUND ON HEADROOM. Measured on GameState_OJZScroll, a near-empty scroll test whose entire SAT is one debug marker plus two rings. A populated level grows every row here. Do not read 3/80 as the object system's cost -- read it as the cost of a level with almost nothing in it."
+
 [dma_stall]
 # AWARENESS ONLY — design §5 carries this NEEDS-MEASUREMENT for awareness, not gating, this
 # phase, because it couples to the sound driver's DMA-survival design. Scanline P2 Phase 0
@@ -724,7 +789,15 @@ falsifiable_axes = "axis 1 only (via the documented Scene{ .. } back door); axes
 # Both are RESERVED capabilities in engine/level/scene_dsl.emp's CAP_* block with NO lowering,
 # so there is nothing shipped to measure or to gate. Recorded so their absence is not read as
 # an oversight, and so a P3 parcel knows they are owed.
-axis5_sprite_slots = "NO SUBJECT UNTIL P3 — FG sprite strips are CAP_FG_SPRITE_STRIPS ($0080), reserved, no lowering. Phase 0 measured no row and there is no shipped scene that consumes sprite slots. Not gated, deliberately."
+#
+# AXIS 5's HALF OF THIS IS SUPERSEDED as of 2026-08-20 (Scanline P3 Phase 0 Task 4): the
+# DENOMINATOR is now measured, in [engine_reservation]'s axis-5 block. The SUBJECT is still
+# owed -- it is Task 12's left-column mask, not the FG sprite strips this row was written
+# about, and CAP_FG_SPRITE_STRIPS stays reserved past P3. So the axis is measured-but-ungated
+# until Task 12 lands, which is a different sentence from "no subject", and the previous
+# wording is kept below per this file's supersede convention.
+axis5_sprite_slots = "DENOMINATOR MEASURED 2026-08-20, SUBJECT STILL OWED. See [engine_reservation] axis5_* : idle occupancy 3 of 80 SAT slots, worst 2 of 20 sprites and 32 of 320 pixels on any line; max-diagonal renders nothing. The axis gates on the PER-LINE SPRITE COUNT (axis5_binding_ceiling). Its P3 subject is Task 12's left-column mask, NOT FG sprite strips (CAP_FG_SPRITE_STRIPS $0080 stays reserved past P3, no lowering). Not gated until Task 12 lands; the headroom is an UPPER BOUND (axis5_caveat)."
+axis5_sprite_slots_SUPERSEDED1 = "NO SUBJECT UNTIL P3 — FG sprite strips are CAP_FG_SPRITE_STRIPS ($0080), reserved, no lowering. Phase 0 measured no row and there is no shipped scene that consumes sprite slots. Not gated, deliberately."
 axis7_computed_handler_pins = "NO SUBJECT UNTIL P3 — CAP_COMPUTED ($0400), reserved, no lowering; design §472 records the computed-range infra as deleted and deliberately not rebuilt. Not gated."
 
 # ---------------------------------------------------------------------------

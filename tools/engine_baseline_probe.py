@@ -54,13 +54,22 @@ this tool prints both: cycles per VIDEO FRAME (the 128000-cycle budget's denomin
 cycles per LOGIC TICK (what one invocation of the work actually costs). Reporting only the
 first would understate every routine by the lag factor.
 
+TWO ARMS, ONE STATE MACHINE. The profiler arm (default) takes the cycle rows above. The
+`--sat` arm takes AXIS 5's denominator — the object system's SAT occupancy — and takes no
+profiler sample at all. Both reach the states through the SAME `_enter_state`, because a
+second arm that re-implemented the poke would be measuring a second state, and a reservation
+taken at a state nobody else measures is incomparable with every other row in the file.
+
 Usage:
     python3 tools/engine_baseline_probe.py --rom s4.debug.bin --lst s4.debug.lst --repeat 5
     python3 tools/engine_baseline_probe.py --dump --state idle    # every routine row, once
+    python3 tools/engine_baseline_probe.py --sat --repeat 5       # axis-5 SAT occupancy
+    python3 tools/engine_baseline_probe.py --sat --sat-poison base   # red-first control
 """
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -260,6 +269,235 @@ def dma_stall_cycles(words: int) -> float:
     return (words * 2 / DMA_BYTES_PER_LINE) * SCANLINE_CYC
 
 
+# ---- Task 4 (P3): axis 5's denominator — the object system's SAT occupancy ----
+# Design §5 prices axis 5 "against a declared object-system reservation" and there has never
+# been one: [scene_budget] read `axis5_sprite_slots = "NO SUBJECT UNTIL P3 ..."`. Task 12's
+# left-column mask spends ONE SAT slot and one 8-px column, so the axis needs a measured
+# occupancy at the SAME two states every other reservation row uses.
+#
+# NOTHING BELOW IS A MAGIC NUMBER. The SAT's VRAM base is read TWICE and the two are required
+# to agree: once from the shipped constant (`VRAM_SPRITE_TABLE`, engine/system/constants.emp)
+# and once from the LIVE VDP register 5 in `VDP_Shadow_Table` — which the shadow table's own
+# note calls "the AUTHORITY for $00-$12, not a cache of it", since Flush_VDP_Shadow re-blits
+# all 19 unconditionally every VBlank. The entry stride is likewise derived, not typed: it is
+# `sizeof(Sprite_Table_Buffer) / MAX_VDP_SPRITES` read out of engine/ram.emp.
+#
+# THE TWO CEILINGS ARE DIFFERENT ANIMALS and the probe reports both, because the mask
+# consumes one of each and they are not the same budget:
+#   * the TABLE ceiling  — MAX_VDP_SPRITES entries, engine-side, a whole-frame quantity
+#   * the PER-LINE ceilings — H40 hardware: 20 sprites and 320 sprite pixels on any one line
+# The per-line pair are DATASHEET constants of the hardware, in the same class as
+# DMA_BYTES_PER_LINE above: documented rates, not measurements of this ROM.
+H40_SPRITES_PER_LINE = 20          # VDP H40 per-scanline sprite ceiling (H32: 16)
+H40_SPRITE_PIXELS_PER_LINE = 320   # VDP H40 per-scanline sprite-pixel ceiling (H32: 256)
+VDP_SHADOW_REG5_OFF = 5            # VdpShadow.vdp_sprite, engine/structs.emp (reg $05)
+
+_ENGINE = Path(__file__).resolve().parent.parent / "engine"
+_SYSCONSTS = emp_constants(str(_ENGINE / "system/constants.emp"))
+
+
+def sys_const(name: str) -> int:
+    return eval_int_expr(name, _SYSCONSTS)
+
+
+def sat_entry_bytes() -> int:
+    """The SAT entry stride, DERIVED from the RAM declaration rather than typed as 8.
+
+    engine/ram.emp declares `Sprite_Table_Buffer: [u8; 640]` and the comment beside it says
+    "80 entries x 8 bytes". Reading the 640 and dividing by MAX_VDP_SPRITES means a future
+    resize of either cannot leave this decoder quietly reading the wrong stride.
+    """
+    src = (_ENGINE / "ram.emp").read_text(encoding="utf-8")
+    m = re.search(r"Sprite_Table_Buffer:\s*\[u8;\s*(\d+)\]", src)
+    if not m:
+        raise ValueError("engine/ram.emp: Sprite_Table_Buffer declaration not found —"
+                         " the SAT stride cannot be derived and must not be guessed")
+    total = int(m.group(1))
+    n = sys_const("MAX_VDP_SPRITES")
+    if total % n:
+        raise ValueError(f"Sprite_Table_Buffer {total} B is not a whole number of"
+                         f" {n} entries")
+    return total // n
+
+
+def decode_sat(raw: str, entry: int, n_entries: int) -> list[dict]:
+    """The raw SAT image -> one dict per TABLE SLOT (not yet the live chain).
+
+    VDP sprite entry, from engine/objects/sprites.emp's Render_Sprites header:
+        +0.w Y (screen Y + 128, 10 bits used)   +2.b size (bits 3-2 = w-1, 1-0 = h-1)
+        +3.b link (next sprite index, 7 bits)   +4.w attr   +6.w X (screen X + 128, 9 bits)
+    """
+    out = []
+    for i in range(n_entries):
+        o = i * entry * 2
+        y = int(raw[o:o + 4], 16)
+        sz = int(raw[o + 4:o + 6], 16)
+        link = int(raw[o + 6:o + 8], 16)
+        attr = int(raw[o + 8:o + 12], 16)
+        x = int(raw[o + 12:o + 16], 16)
+        out.append({
+            "i": i,
+            "y_raw": y, "x_raw": x, "size_raw": sz, "link_raw": link, "attr": attr,
+            "screen_y": (y & 0x3FF) - sys_const("VDP_SPRITE_Y_OFFSET"),
+            "screen_x": (x & 0x1FF) - sys_const("VDP_SPRITE_X_OFFSET"),
+            "w_cells": ((sz >> 2) & 3) + 1,
+            "h_cells": (sz & 3) + 1,
+            "link": link & 0x7F,
+            "is_mask": (x & 0x1FF) == 0,     # VDP sprite masking: raw X == 0
+        })
+    return out
+
+
+def walk_chain(slots: list[dict], cap: int) -> tuple[list[dict], str]:
+    """The LIVE sprites, in link order from entry 0 — what the VDP actually renders.
+
+    "Slots used" is the chain length, NOT the count of non-zero table entries: the engine
+    ships only the live prefix (Render_Sprites' H3 note) and everything past the terminator
+    is last frame's residue. Bounded at `cap` so a cyclic link reports a named fault rather
+    than hanging — the same shape as the DEBUG-build `.chain_walk` assert in sprites.emp.
+    """
+    live, seen, i = [], set(), 0
+    while True:
+        if i >= len(slots):
+            return live, f"link {i} points past the {len(slots)}-entry table"
+        if i in seen:
+            return live, f"cyclic link chain re-entered entry {i}"
+        seen.add(i)
+        live.append(slots[i])
+        nxt = slots[i]["link"]
+        if nxt == 0:
+            return live, ""
+        if len(live) >= cap:
+            return live, f"chain exceeded {cap} entries without a terminator"
+        i = nxt
+
+
+def sat_occupancy(live: list[dict], height: int) -> dict:
+    """Per-scanline sprite count and sprite-pixel total over the visible screen.
+
+    A sprite occupies lines [screen_y, screen_y + h_cells*8) and contributes w_cells*8
+    pixels to each of them. Lines outside 0..height-1 are not counted: the VDP evaluates
+    only visible lines, and a sprite parked off the top is exactly how the engine hides one.
+    """
+    per_line_n = [0] * height
+    per_line_px = [0] * height
+    for s in live:
+        y0 = s["screen_y"]
+        y1 = y0 + s["h_cells"] * 8
+        for ln in range(max(0, y0), min(height, y1)):
+            per_line_n[ln] += 1
+            per_line_px[ln] += s["w_cells"] * 8
+    worst_n = max(per_line_n) if per_line_n else 0
+    worst_px = max(per_line_px) if per_line_px else 0
+    return {
+        "worst_line_sprites": worst_n,
+        "worst_line_sprites_at": per_line_n.index(worst_n) if per_line_n else -1,
+        "worst_line_pixels": worst_px,
+        "worst_line_pixels_at": per_line_px.index(worst_px) if per_line_px else -1,
+        "lines_with_any": sum(1 for v in per_line_n if v),
+        "per_line_sprites": per_line_n,
+        "per_line_pixels": per_line_px,
+    }
+
+
+async def _scan_sat(b: BusClient, sym: dict[str, int], poison: str = "") -> dict:
+    """One SAT reading at the CURRENT state, with every derived check it can carry.
+
+    The reading is taken from VRAM — the table the VDP renders from — and cross-checked
+    against the two engine-side witnesses of the same fact (`Sprites_Rendered`, and the
+    `Sprite_Table_Buffer` RAM image the DMA ships). Three instruments agreeing is the check;
+    any one alone is a claim.
+    """
+    entry = sat_entry_bytes()
+    n = sys_const("MAX_VDP_SPRITES")
+    base_const = sys_const("VRAM_SPRITE_TABLE")
+
+    if poison == "base":
+        # RED-FIRST poison: move the live reg-5 shadow off the constant. Flush_VDP_Shadow
+        # re-blits it, so this is the register the hardware will hold.
+        await b.call("emulator/write_memory",
+                     {"addr": hex((sym["VDP_Shadow_Table"] & 0xFFFFFF) + VDP_SHADOW_REG5_OFF),
+                      "value": 0x58, "width": 1})     # $58 << 9 = $B000, not $B800
+
+    reg5 = await _read_byte(b, (sym["VDP_Shadow_Table"] & 0xFFFFFF) + VDP_SHADOW_REG5_OFF)
+    # H40 ignores reg-5 bit 0 (the table is 512-byte aligned); mask it off before shifting.
+    base_live = (reg5 & 0x7E) << 9
+    fails: list[str] = []
+    if base_live != base_const:
+        fails.append(f"SAT base disagrees: live VDP reg5 ${reg5:02X} -> ${base_live:04X},"
+                     f" VRAM_SPRITE_TABLE ${base_const:04X}")
+
+    if poison == "chain":
+        await b.call("emulator/write_vram", {"addr": hex(base_const + 3), "bytes": "00"})
+    if poison == "ram":
+        await b.call("emulator/write_memory",
+                     {"addr": hex(sym["Sprite_Table_Buffer"] & 0xFFFFFF),
+                      "value": 0x0BAD, "width": 2})
+
+    vr = await b.call("emulator/read_vram", {"addr": hex(base_const), "len": n * entry})
+    if not vr.get("bytes") or len(vr["bytes"]) != n * entry * 2:
+        # LOUD on unmeasurable. A short read must never be silently decoded as an empty table.
+        return {"fails": fails + [f"read_vram returned {len(vr.get('bytes', '')) // 2} B,"
+                                  f" expected {n * entry}"], "unmeasurable": True}
+    raw = vr["bytes"]
+    rm = await b.call("emulator/read_memory",
+                      {"addr": hex(sym["Sprite_Table_Buffer"] & 0xFFFFFF), "len": n * entry})
+
+    slots = decode_sat(raw, entry, n)
+    live, chain_err = walk_chain(slots, n)
+    if chain_err:
+        fails.append(f"link chain: {chain_err}")
+    rendered = await _read_word(b, sym["Sprites_Rendered"])
+
+    # THE ENGINE'S OWN COUNT vs THE CHAIN. Render_Sprites terminates the chain at the last
+    # emitted entry, so chain length == Sprites_Rendered — EXCEPT in the zero-sprite case,
+    # where `.empty_table` ships a single hidden terminator entry (Y=0/size=0/link=0) and
+    # Sprites_Rendered reads 0. Both are expressed here so neither has to be assumed.
+    expect_chain = rendered if rendered else 1
+    if len(live) != expect_chain:
+        fails.append(f"chain length {len(live)} != Sprites_Rendered {rendered}"
+                     f" (expected {expect_chain})")
+
+    # The third witness: the RAM image the SAT DMA ships, over the LIVE PREFIX only —
+    # everything past the terminator is last frame's residue in both copies and comparing it
+    # would be comparing garbage to garbage.
+    live_bytes = len(live) * entry * 2
+    if rm["bytes"][:live_bytes].upper() != raw[:live_bytes].upper():
+        fails.append(f"Sprite_Table_Buffer RAM image != VRAM SAT over the {len(live)}"
+                     f" live entries")
+
+    # Shipped DMA length, in words, from the live queue entry the builder patches.
+    dma_words = 0
+    if "Static_Sprite_DMA" in sym:
+        e = await b.call("emulator/read_memory",
+                         {"addr": hex(sym["Static_Sprite_DMA"] & 0xFFFFFF), "len": 4})
+        dma_words = (int(e["bytes"][2:4], 16) << 8) | int(e["bytes"][6:8], 16)
+
+    # THE ZERO-SPRITE CASE IS NOT AN EMPTY TABLE, and reading it as one would report the
+    # hidden terminator as a live 8x8 mask sprite at (-128,-128). `.empty_table` writes a
+    # single all-zero entry precisely so the previous frame's chain stops rendering; it is
+    # structure, not content, so it is excluded from every occupancy figure below.
+    terminator_only = (rendered == 0 and len(live) == 1
+                       and live[0]["y_raw"] == 0 and live[0]["size_raw"] == 0
+                       and live[0]["link_raw"] == 0 and live[0]["x_raw"] == 0)
+    drawn = [] if terminator_only else live
+
+    occ = sat_occupancy(drawn, sys_const("SCREEN_HEIGHT"))
+    return {
+        "base_const": base_const, "base_live": base_live, "reg5": reg5,
+        "entry_bytes": entry, "table_entries": n,
+        "slots_used": len(drawn), "chain_entries": len(live),
+        "terminator_only": terminator_only, "sprites_rendered": rendered,
+        "dma_words": dma_words, "dma_entries": dma_words // (entry // 2),
+        "masks": sum(1 for s in drawn if s["is_mask"]),
+        "pieces": [{"i": s["i"], "x": s["screen_x"], "y": s["screen_y"],
+                    "w": s["w_cells"] * 8, "h": s["h_cells"] * 8,
+                    "attr": f"{s['attr']:04X}", "link": s["link"],
+                    "mask": s["is_mask"]} for s in drawn],
+        "fails": fails, "unmeasurable": False, **occ,
+    }
+
+
 def rd_long(b_bytes: str) -> int:
     return int(b_bytes[:8], 16)
 
@@ -328,12 +566,19 @@ async def _read_program(b: BusClient, sym: dict[str, int]) -> dict:
     return {"active_buf": act, "program": prog, "words": words}
 
 
-async def _one(b: BusClient, sym: dict[str, int], state: str,
-               settle: int, lead: int, sample: int) -> dict:
+async def _enter_state(b: BusClient, sym: dict[str, int], state: str,
+                       settle: int, lead: int) -> dict:
+    """Drive the machine into ONE of the two states ENGINE-BASELINE.md §1 defines.
+
+    Factored out so every arm of this tool reaches the states the SAME way. A second arm
+    that re-implemented the poke would be a second state, and a reservation measured at a
+    state nobody else measures is incomparable with every other row in the file — which is
+    exactly the failure §1 exists to prevent.
+    """
     await b.call("emulator/reset", {"wait": True, "run": False})
     await b.call("emulator/run_frames", {"frames": settle})
 
-    note = {}
+    note: dict = {}
     if state == "maxdiag":
         # Camera_Target is a SHORT pointer to the leader's Sst (movea.w in Camera_Update).
         tgt = await _read_word(b, sym["Camera_Target"])
@@ -352,6 +597,12 @@ async def _one(b: BusClient, sym: dict[str, int], state: str,
         await b.call("emulator/run_frames", {"frames": lead})
     elif state != "idle":
         raise ValueError(f"unknown state {state}")
+    return note
+
+
+async def _one(b: BusClient, sym: dict[str, int], state: str,
+               settle: int, lead: int, sample: int) -> dict:
+    note = await _enter_state(b, sym, state, settle, lead)
 
     cam_x0 = await _read_long(b, sym["Camera_X"])
     cam_y0 = await _read_long(b, sym["Camera_Y"])
@@ -452,6 +703,84 @@ def routine_rows(prof: dict, sym: dict[str, int], names: list[str]) -> dict[str,
     return out
 
 
+def sat_main(args, sym: dict[str, int], states: list[str]) -> int:
+    """The --sat arm's own boot loop, print and EXIT CODE.
+
+    Separate from the profiler sweep on purpose: this arm takes no profiler sample at all,
+    so it neither needs the two 0.4 s drains nor should pay them. It does reach the states
+    through the same `_enter_state` the profiler arm uses.
+    """
+    out: dict[str, list[dict]] = {s: [] for s in states}
+
+    async def _sweep(sock: str) -> None:
+        b = BusClient(socket_path=sock, client_id="ebprobe-sat",
+                      client_name="engine_baseline_probe --sat")
+        await b.connect()
+        await b.call("emulator/load_symbols", {"path": args.lst})
+        for s in states:
+            await _enter_state(b, sym, s, args.settle, args.lead)
+            out[s].append(await _scan_sat(b, sym, args.sat_poison))
+        await b.close()
+
+    for _ in range(args.repeat):
+        with headless_emulator(args.rom) as sock:
+            asyncio.run(_sweep(sock))
+
+    print(f"ROM {args.rom}   repeats {args.repeat}"
+          + (f"   POISON={args.sat_poison} (red-first control)" if args.sat_poison else ""))
+    print("axis-5 SAT occupancy. Table base derived TWICE (shipped VRAM_SPRITE_TABLE and the")
+    print("live VDP reg-5 shadow) and required to agree; stride derived from ram.emp.\n")
+    rc = 0
+    for s in states:
+        runs = out[s]
+        r = runs[0]
+        if r.get("unmeasurable"):
+            print(f"== state {s}: UNMEASURABLE — {'; '.join(r['fails'])}")
+            rc = 5
+            continue
+        print(f"== state {s}   SAT ${r['base_const']:04X} (live reg5 ${r['reg5']:02X} ->"
+              f" ${r['base_live']:04X}), {r['table_entries']} entries x"
+              f" {r['entry_bytes']} B")
+        used = [x["slots_used"] for x in runs]
+        wn = [x["worst_line_sprites"] for x in runs]
+        wp = [x["worst_line_pixels"] for x in runs]
+        tc = r["table_entries"]
+        print(f"   slots used              {r['slots_used']:>4} of {tc}"
+              f"   ({100.0 * r['slots_used'] / tc:.1f}%)"
+              f"   across {len(runs)} boots {used} spread {max(used) - min(used)}")
+        print(f"   Sprites_Rendered        {r['sprites_rendered']:>4}"
+              f"   (engine's own count; shipped DMA {r['dma_words']} words ="
+              f" {r['dma_entries']} entries)")
+        print(f"   mask sprites (raw X==0) {r['masks']:>4}")
+        if r["terminator_only"]:
+            # LOUD, because a zero here is a fact about the STATE and not about the object
+            # system's cost. A reservation taken from a state that draws nothing is not a
+            # reservation, and silently printing 0/80 would read as enormous headroom.
+            print("   ** NOTE: the SAT holds ONLY the hidden terminator entry — this state")
+            print("      renders NO sprites, so it gives axis 5 no occupancy information.")
+        print(f"   worst per-line sprites  {r['worst_line_sprites']:>4} of"
+              f" {H40_SPRITES_PER_LINE} (H40)   at line {r['worst_line_sprites_at']}"
+              f"   across boots {wn} spread {max(wn) - min(wn)}")
+        print(f"   worst per-line pixels   {r['worst_line_pixels']:>4} of"
+              f" {H40_SPRITE_PIXELS_PER_LINE} (H40)  at line {r['worst_line_pixels_at']}"
+              f"   across boots {wp} spread {max(wp) - min(wp)}")
+        print(f"   lines carrying a sprite {r['lines_with_any']:>4} of"
+              f" {sys_const('SCREEN_HEIGHT')}")
+        for p in r["pieces"]:
+            print(f"        slot {p['i']:>2}  ({p['x']:>4},{p['y']:>4})  {p['w']}x{p['h']}"
+                  f"  attr {p['attr']}  link {p['link']}")
+        for x in runs:
+            for f in x["fails"]:
+                print(f"   !! {f}")
+                rc = 5
+        print()
+    if args.out:
+        Path(args.out).write_text(json.dumps(out, indent=2) + "\n")
+        print(f"raw: {args.out}")
+    print("derived checks: " + ("FAILED" if rc else "all green"))
+    return rc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rom", default="s4.debug.bin")
@@ -464,6 +793,10 @@ def main() -> int:
     ap.add_argument("--state", default="idle,maxdiag")
     ap.add_argument("--dump", action="store_true",
                     help="print every profiler row for the first state and stop")
+    ap.add_argument("--sat", action="store_true",
+                    help="axis-5 arm: SAT occupancy at the two states, no profiler")
+    ap.add_argument("--sat-poison", default="", choices=["", "base", "chain", "ram"],
+                    help="red-first control for the --sat arm's three derived checks")
     ap.add_argument("--out", default="", help="write raw results JSON here")
     args = ap.parse_args()
 
@@ -480,12 +813,18 @@ def main() -> int:
             "Frame_Counter", "Logic_Tick", "Lag_Frame_Count",
             "DMA_Queue", "DMA_Queue_End", "DMA_Critical_Slot", "DMA_Important_Slot",
             "DMA_Deferrable_Slot"]
+    if args.sat:
+        # LOUD, not skipped: a missing symbol here would make the arm decode the wrong
+        # address and report a plausible-looking occupancy for nothing.
+        need += ["Sprite_Table_Buffer", "Sprites_Rendered", "VDP_Shadow_Table"]
     missing = [s for s in need if s not in sym]
     if missing:
         print(f"symbols missing from {args.lst}: {', '.join(missing)}", file=sys.stderr)
         return 3
 
     states = [s for s in args.state.split(",") if s]
+    if args.sat:
+        return sat_main(args, sym, states)
     results: dict[str, list[dict]] = {s: [] for s in states}
 
     async def _sweep(sock: str) -> None:

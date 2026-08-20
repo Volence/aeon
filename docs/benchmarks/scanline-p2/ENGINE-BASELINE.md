@@ -1,6 +1,9 @@
 # Engine reservation baselines — idle and max-diagonal
 
-**Parcel:** Scanline Services P2, Phase 0, Tasks 2 and 3.
+**Parcel:** Scanline Services P2, Phase 0, Tasks 2 and 3 (§§1-5).
+**Later addition:** §6 — axis 5's SAT reservation — is Scanline Services **P3**, Phase 0,
+Task 4, taken 2026-08-20 at the same two states on a later ROM. It carries its own provenance
+block; nothing in §§1-5 was re-measured for it.
 **Instrument:** oracle (old), headless harness, per-routine profiler rows.
 **Tool:** `tools/engine_baseline_probe.py`
 **ROM:** `s4.debug.bin`, crc `d22dda85`, len 713295, branch `measure/scanline-p2-phase0` off
@@ -434,6 +437,8 @@ Stated so Phase 2 does not read more into them than they say.
 - **A near-empty game state.** `GameState_OJZScroll` is a scroll test. A populated level has
   more objects, so `RunObjects`, `TouchResponse` and `Render_Sprites` all grow and the idle
   headroom shrinks. The 62.2% idle at rest is an upper bound on headroom, not a promise.
+  **This is the binding caveat on §6's axis-5 rows** — sprite occupancy is entirely a function
+  of object count — and §6.4(a) carries it onto that row explicitly.
 - **No sound-driver contention beyond what the shape carries.** These are the canonical
   `DEBUG=1` sound-ON builds; nothing was measured with sound off for comparison.
 - **Ideal cycles.** See caveat 0 — no bus, VDP or DMA stall is in any figure here.
@@ -441,3 +446,160 @@ Stated so Phase 2 does not read more into them than they say.
   incoming configs both partially live, the reg `$0B` mode change, the larger HScroll DMA).
   Neither state above crosses a section boundary, so no transition frame is measured. That is
   Task 12's subject and it will need its own state.
+
+---
+
+## 6. Axis 5's denominator — the object system's SAT occupancy (P3 Task 4)
+
+**Parcel:** Scanline Services P3, Phase 0, Task 4. **Date:** 2026-08-20.
+**Instrument:** oracle (old), headless harness, `emulator/read_vram` over the sprite attribute
+table. Not a profiler row — this axis is a *table and scanline occupancy*, not cycles.
+**Tool:** `tools/engine_baseline_probe.py --sat`
+**ROM:** `s4.debug.bin`, crc `5be03175`, len 715084, branch `p3/t4-sat-reservation` off master
+`aab012a7`. Build 34.8 s wall (`up 2 days, 5:27` → `5:28`).
+**Sample:** no profiler sample; the table is read at a settled frame after the state is
+entered. **5 independent boots per state, spread 0 on every row of both states.**
+**Wall clock:** the 10-boot sweep ran 05:11:57 → 05:12:52 (`up 2 days, 5:35` → `5:36`),
+**55.1 s**. The build is a separate command and is not inside it.
+
+Design §5 prices axis 5 "against a declared object-system reservation" and there had never
+been one: `[scene_budget]` read `axis5_sprite_slots = "NO SUBJECT UNTIL P3 … Phase 0 measured
+no row"`. This is that row. It exists so Task 12's left-column mask can be *gated* rather than
+merely shipped — a budget gate written against an unmeasured denominator passes while enforcing
+a number nobody took, which is this plan family's founding lesson (`EFX_BLANK_DELAY = 4`).
+
+**Same two states, deliberately.** A new state would make the reservation incomparable with
+every row above. The idle state was re-confirmed in the same session by the profiler arm:
+`camera (96,144) -> (96,144)`, exactly §1's definition.
+
+### 6.1 The rows
+
+| | idle | max-diagonal | ceiling |
+|---|---|---|---|
+| SAT slots used | **3** (3.8%) | **0** | 80 entries (`MAX_VDP_SPRITES`) |
+| worst per-line sprite count | **2** (10.0%), at line 5 | **0** | 20 / line (H40) |
+| worst per-line sprite pixels | **32** (10.0%), at line 5 | **0** | 320 / line (H40) |
+| lines carrying any sprite | 32 of 224 | 0 of 224 | — |
+| mask sprites (raw X == 0) | 0 | 0 | — |
+| `Sprites_Rendered` (engine's own count) | 3 | 0 | — |
+| shipped SAT DMA | 12 words = 3 entries | 4 words = 1 entry | — |
+| spread over 5 boots | **0** on every row | **0** on every row | — |
+
+The three idle sprites, by their attribute words:
+
+| slot | screen (x,y) | size | attr | what |
+|---|---|---|---|---|
+| 0 | (152, 104) | 16×16 | `A3F8` | tile 1016 = `VRAM_TEST_MARKER`, the debug-fly / leader marker, dead centre of a 320×224 screen |
+| 1 | (204, 5) | 16×16 | `A3F0` | tile 1008 = `VRAM_RING_PLACEHOLDER` + 8 — a ring, spin frame 2, palette line 1 |
+| 2 | (220, 5) | 16×16 | `A3F0` | the second ring, 16 px to its right |
+
+### 6.2 THE FINDING: max-diagonal gives axis 5 nothing
+
+Recorded as a fact about the *state*, not smoothed into a zero that would read as enormous
+headroom. §1's max-diagonal is reached by **one poke** that puts the leader 2000/1400 px ahead
+of a camera closing 16 px per logic tick — so for the whole window the leader is off-camera and
+culled, and the entity window has left the seeded rings behind. `Render_Sprites` takes its
+`.empty_table` exit, ships the single hidden terminator entry (Y=0/size=0/link=0), and
+`Sprites_Rendered` reads 0.
+
+The probe says so out loud rather than printing `0 of 80`:
+
+```
+   ** NOTE: the SAT holds ONLY the hidden terminator entry — this state
+      renders NO sprites, so it gives axis 5 no occupancy information.
+```
+
+**So axis 5 has exactly ONE informative state, and it is idle.** That is a smaller evidence
+base than any other reservation row in this file, and §6.4 is where it is priced.
+
+### 6.3 Which ceiling binds — the ruling
+
+Two different ceilings exist and the mask consumes one of each: **one SAT slot** against the
+80-entry table, and **one 8-px column** against the per-line limits. They are not the same
+budget and the axis has to name one.
+
+**The axis gates on the PER-LINE SPRITE COUNT (20/line, H40).** Three reasons, in order of
+weight:
+
+1. **It is the ceiling a real scene reaches first.** Exhausting the 80-entry table needs 80
+   hardware sprites on screen at once. Exhausting 20-on-a-line needs 20 that happen to *share a
+   scanline* — a boss and its pieces, a row of badniks, a ring line, a HUD strip. Clustering is
+   the normal case, and the per-line ceiling is where the Genesis actually fails (dropped
+   sprites on that line, not a truncated table).
+2. **The engine's own code agrees about which problem is hard.** `Render_Sprites` carries a
+   single cheap table cap (`cmpi.w #MAX_VDP_SPRITES, d5`) and then spends real machinery on the
+   *scanline* problem: `SCANLINE_SPRITE_LIMIT` (24 pieces per 32-line band), `SCANLINE_BANDS`,
+   the per-band budget check, and the frame-parity link-order cycling that trades z-order
+   stability for per-frame fairness when a band overflows. Nothing in the tree is defensive
+   about running out of the 80.
+3. **The mask's marginal cost is the largest fraction of that ceiling.** One mask sprite is
+   1/80 = **1.25%** of the table, 8/320 = **2.5%** of the per-line pixel budget, and 1/20 =
+   **5%** of the per-line sprite count. The tightest of the three is the one to gate on.
+
+Budgets that fall out, at the measured idle occupancy:
+
+| axis-5 budget | pool | reservation (idle, measured) | budget |
+|---|---|---|---|
+| per-line sprites (**the gate**) | 20 | 2 | **18** |
+| per-line pixels | 320 | 32 | **288** |
+| table slots | 80 | 3 | **77** |
+
+### 6.4 Two things this row must not be read as
+
+**(a) The headroom is an UPPER BOUND, carried forward from §5 explicitly.** §5's "A near-empty
+game state" caveat applies to this row harder than to any other in the file, because sprite
+occupancy is *entirely* a function of how many objects a level runs. `GameState_OJZScroll` is a
+scroll test whose whole SAT is one debug marker and two rings. **3 of 80 is not the object
+system's cost; it is the cost of a level with almost nothing in it.** A populated level grows
+every row in §6.1, and the 18-sprite / 288-px headroom shrinks with it. The row is a floor on
+occupancy and a ceiling on headroom, and it is booked in the toml as `axis5_caveat` in exactly
+those words.
+
+**(b) The mask is not one slot if it is full height.** Design §2 and the P3 plan both price the
+left-column mask at *one* SAT slot. The engine's shipped mask emitter, `InsertSpriteMasks`,
+writes **8×32** mask sprites (`SPRITE_MASK_SIZE` = 1×4 cells, `SPRITE_MASK_HEIGHT` = 32) and
+rounds coverage **up** to whole ones. So:
+
+> one slot buys 32 scanlines; a full-height 224-line column costs **ceil(224/32) = 7 slots**.
+
+Flagged here rather than resolved, because it is Task 12's subject: Task 12 must either accept
+7 slots, bound the mask's height, or introduce a taller mask primitive — it may not ship 7
+against a budget written for 1. Booked as `axis5_task12_flag`.
+
+Worth knowing beside it: the X=0 mask carries an accepted limitation already documented in
+`sprites.emp` — the VDP honours the *first-sprite-on-line exemption*, so a mask is inert on any
+line where no earlier-linked sprite already draws.
+
+### 6.5 How the row is derived, and how it goes red
+
+**No number in this section was typed into the probe.** Every input is read from the tree or
+from the live machine:
+
+| quantity | where it comes from |
+|---|---|
+| SAT VRAM base | **twice, and required to agree** — `VRAM_SPRITE_TABLE` (`engine/system/constants.emp`, `$B800`) *and* the live VDP register 5 in `VDP_Shadow_Table` (`$5C`, masked of bit 0, `<< 9` = `$B800`). The shadow table's own note calls itself "the AUTHORITY for `$00-$12`, not a cache of it" — `Flush_VDP_Shadow` re-blits all 19 unconditionally every VBlank |
+| entry stride | `sizeof(Sprite_Table_Buffer)` (640, parsed from `engine/ram.emp`) / `MAX_VDP_SPRITES` = 8. A resize of either cannot leave the decoder reading the wrong stride |
+| table size, screen height, the ±128 SAT offsets | the shipped constants, resolved through `emp_constants`/`eval_int_expr` |
+| slots used | walked as the **link chain from entry 0**, not counted as non-zero entries — the engine ships only the live prefix and everything past the terminator is last frame's residue |
+| 20 / 320 per line | H40 datasheet constants, in the same class as §4b's 205 B/line: documented hardware rates, not measurements of this ROM |
+
+**Three cross-checks, and each one is proven red-first.** The chain is checked against
+`Sprites_Rendered` (the engine's own count) and against the `Sprite_Table_Buffer` RAM image the
+DMA ships, so three instruments have to agree about the same table. Each has a poison that
+perturbs its own subject, verified against the green control on the same ROM:
+
+| `--sat-poison` | what it perturbs | what fired | exit |
+|---|---|---|---|
+| *(none)* | — | `derived checks: all green` | 0 |
+| `base` | the live reg-5 shadow → `$58` | `SAT base disagrees: live VDP reg5 $58 -> $B000, VRAM_SPRITE_TABLE $B800` | 5 |
+| `chain` | entry 0's link byte in VRAM → 0 | `chain length 1 != Sprites_Rendered 3 (expected 3)` | 5 |
+| `ram` | the first word of `Sprite_Table_Buffer` | `Sprite_Table_Buffer RAM image != VRAM SAT over the 3 live entries` | 5 |
+
+A short or failed `read_vram` is reported as `UNMEASURABLE` with exit 5 — never decoded as an
+empty table. The arm's checks are wired into the process exit code, so it cannot go quietly
+vacuous.
+
+**One flake, recorded rather than hidden.** The first attempt at the 10-boot sweep died at
+`aether.BusError: [-32010] reset: timeout waiting for main-thread drain` with the machine under
+load average 9.55 (parallel agents). It is a harness-under-contention failure, not a probe
+result; the immediate retry ran clean and is what §6.1 reports.
