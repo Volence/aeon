@@ -255,6 +255,78 @@ out_of_sample_predicted = 19915.3
 out_of_sample_measured  = 20162
 out_of_sample_gap_pct   = 1.22
 
+# Transition-frame rows — SYNTHESIZED (camera frozen, configs installed in RAM), not a real
+# section crossing: Parallax_StartTransition and Parallax_CheckBoundary do not run. This
+# measures design §5's evaluation frame for axes 1/2/3 and closes P2 Task 12's blocker (b).
+# Task 12's blocker (a) — the Label-typed section->scene join — is UNCHANGED and still blocks.
+#
+# Scanline P3 Phase 0 Task 3, 2026-08-20. tools/parallax_cost_probe.py --transition 250
+# --repeat 5, s4.debug.bin crc=5be03175. Evidence + every control:
+# docs/benchmarks/scanline-p3/REGLUE-INSTRUMENT.md.
+#
+# THE ROW IS A DIFFERENCE, NOT A LEVEL. "A transition frame costs 14258" is unfalsifiable on
+# its own -- most of it is the walker doing what it always does. Each surcharge below is a
+# transition frame against the STABLE frame on THE SAME ACTIVE CONFIG, one field apart
+# (Parallax_Transition_Frames). Both directions are kept because the pair differs in band
+# count (4 vs 5) and in v_factor (3 vs locked 15), so one number would average two mechanisms.
+#
+# THE PAIR IS THE MAXIMAL SHIPPED MODE DIFFERENCE, AND THE PLAN'S PAIR DOES NOT EXIST. The
+# plan asks for "one per-cell, one per-line". ALL 20 shipped scenes attach an H-deform table
+# (several attach DeformTable_Zero precisely to force the flat-pathed per-line pipeline), so
+# reg $0B's H bits are %11 for every config the game can install and NO shipped pair differs
+# in HScroll mode. The axis that does vary is the VScroll bit, so the pair is $3 vs $7. The
+# probe derives both modes from the ROM bytes and REFUSES a same-mode pair.
+transition_status = "measured — SYNTHESIZED transition frame, 5 boots, spread 0 on every row"
+transition_instrument = "ORACLE per-routine rows (Parallax_Update inclusive, Enqueue_Dirty_Buffers) + engine_baseline_probe's scanline-220 queue scan; camera frozen; every window verified preemption-free (31/31, lag 0); IDEAL-CYCLE"
+transition_config_a = "ParallaxConfig_OJZ_Underwater $01230C — 4 bands, anchored ch 0, reg $0B mode %011"
+transition_config_b = "ParallaxConfig_Perspective_Dramatic $012B2E — 5 bands, no anchor, per-column VSRAM, reg $0B mode %111"
+transition_frames_installed = 250    # held above 1 for the whole window; the N control at
+                                     # N = 15 / sample 1 reproduces both surcharges EXACTLY,
+                                     # so the synthesized N is not a confound
+
+# axis 1 — main-loop cycles.
+transition_stable_a_cycles      = 13791   # active A, Transition_Frames = 0
+transition_stable_b_cycles      = 13184   # active B, Transition_Frames = 0
+transition_active_b_cycles      = 14258   # Current = A, Target = B, N > 0 (active B)
+transition_active_a_cycles      = 14685   # Current = B, Target = A, N > 0 (active A)
+transition_surcharge_b_cycles   = 1074    # 14258 - 13184, active B (5 bands)
+transition_surcharge_a_cycles   = 894     # 14685 - 13791, active A (4 bands)
+transition_surcharge_reason = "the .use_target routing plus the per-band Plane-B scroll lerp (one divs.w per enabled band, parallax.emp:640-651) and, on A, the Step-5 vscroll lerp its unlocked v_factor enables"
+
+# axis 3 — VBlank CPU. Enqueue_Dirty_Buffers' per-routine row.
+transition_enqueue_dirty_stable_cycles = 1374
+transition_enqueue_dirty_trans_cycles  = 1376
+transition_enqueue_dirty_surcharge     = 2
+
+# axis 2 — VBlank DMA bytes. ZERO, and structurally so rather than luckily: both configs are
+# per-line, so the "larger of the pair" HScroll length is the same length. The queue at
+# scanline 220 is byte-for-byte identical in all four cases.
+transition_dma_total_bytes      = 3056    # unchanged from the stable frame; == dma_queue_words_idle x 2
+transition_dma_max_entry_bytes  = 1152
+transition_dma_surcharge_bytes  = 0
+transition_dma_unmeasurable = "a mode-DIFFERING HScroll length cannot be measured in this tree: no shipped config is HScroll per-cell, so the pair that would move this row does not exist. That is a boundary on the row, not a value for it"
+
+# WHAT THIS ROW DOES NOT CONTAIN, stated so it is not over-read:
+#   * Parallax_StartTransition / Parallax_CheckBoundary — a frozen camera suppresses both.
+#   * The reg $0B write. Parallax_Update writes the register only when the derived mode differs
+#     from its shadow, so the mode change is paid ONCE, four frames before the burn window. The
+#     shadow byte IS read back per case and checked against the ACTIVE config's derived mode,
+#     so the change is witnessed even though its cost is not measured here.
+#   * The promote frame (counter hits 0, Target -> Current) — a different, one-off frame,
+#     deliberately outside every window.
+transition_not_covered = "Parallax_StartTransition, Parallax_CheckBoundary, the one-off reg $0B write, and the promote frame"
+
+# The re-glue VALUE instrument that ships with these rows (no cycle figures — different run,
+# moving camera): tools/parallax_cost_probe.py --sweep. 18 camera-Y positions x 3 boots, 16
+# distinct (k, vshift) rotation states, 4 distinct overlay split lines, every shadow band top /
+# dsa / dsb exact against the derivation shared with tools/parallax_hscroll_probe.py.
+# Red-first: --poison-vscroll 64 turns all 18 positions red naming the first disagreeing band
+# index, exit 5.
+reglue_sweep_positions        = 18
+reglue_sweep_rotation_states  = 16
+reglue_sweep_split_lines      = 4
+reglue_sweep_status = "measured — all positions exact, poison proven red (exit 5)"
+
 [hblank_window]
 # The binding limit on per-fire VDP work is the cycle window between HINT-pending and
 # the next line's active display, NOT the 4-entry FIFO (survey Ruling 2a).
