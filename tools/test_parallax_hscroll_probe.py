@@ -25,20 +25,21 @@ from parallax_hscroll_probe import (            # noqa: E402
 )
 
 
-def mkcfg(tops_cells, *, dsa=NO_DEFORM, dsb=NO_DEFORM, tab_fg=0, tab_bg=0,
+def mkcfg(tops, *, dsa=NO_DEFORM, dsb=NO_DEFORM, tab_fg=0, tab_bg=0,
           anchor=ANCHOR_NONE, adsa=NO_DEFORM, adsb=NO_DEFORM, phase=0):
     """A parallax_config + band array, laid out per engine/structs.emp:161-190."""
     h = bytearray(CFG_SIZE)
-    h[CFG_BAND_COUNT] = len(tops_cells)
+    h[CFG_BAND_COUNT] = len(tops)
     h[CFG_ANCHOR_CH] = anchor
     h[CFG_ANCHOR_DSA] = adsa
     h[CFG_ANCHOR_DSB] = adsb
     h[CFG_DEFORM_TAB_FG:CFG_DEFORM_TAB_FG + 4] = tab_fg.to_bytes(4, "big")
     h[CFG_DEFORM_TAB_BG:CFG_DEFORM_TAB_BG + 4] = tab_bg.to_bytes(4, "big")
     body = bytearray()
-    for t in tops_cells:
+    # `tops` are PLANE LINES (0..511) since P3 Task 7 — the field was a u8 cell row before.
+    for t in tops:
         e = bytearray(BE_SIZE)
-        e[BE_TOP] = t
+        e[BE_TOP:BE_TOP + 2] = t.to_bytes(2, "big")
         e[BE_DSHIFT_A] = dsa
         e[BE_DSHIFT_B] = dsb
         e[BE_PHASE] = phase
@@ -79,30 +80,44 @@ class TestModeKey(unittest.TestCase):
 class TestShadowRotation(unittest.TestCase):
     """Step 4a — engine/level/parallax.emp:687-770."""
 
-    def test_vshift_zero_is_identity_plus_the_line_conversion(self):
-        sh = derive_shadow(mkcfg([0, 8, 20]), 0, [1, 2, 3, 0], [4, 5, 6, 0], None)
-        self.assertEqual(sh.tops, [0, 64, 160])         # cells x 8 -> screen lines
+    def test_vs_zero_is_the_identity(self):
+        # No unit conversion survives: a plane line at vs = 0 IS the screen line.
+        sh = derive_shadow(mkcfg([0, 64, 160]), 0, [1, 2, 3, 0], [4, 5, 6, 0], None)
+        self.assertEqual(sh.tops, [0, 64, 160])
         self.assertEqual(sh.scroll_a, [1, 2, 3])
         self.assertEqual(sh.scroll_b, [4, 5, 6])
 
-    def test_clamp_at_28_cells_becomes_a_zero_length_band(self):
-        # A raw plane-space top of 40 cells would make the filler emit 320 lines and spray past
-        # Hscroll_Buffer into the DMA queues; parallax.emp:750-757 clamps at 28 cells = 224.
-        sh = derive_shadow(mkcfg([0, 40]), 0, [1, 2], [3, 4], None)
+    def test_clamp_at_224_lines_becomes_a_zero_length_band(self):
+        # A raw plane-space top of 320 lines would make the filler emit 320 lines and spray
+        # past Hscroll_Buffer into the DMA queues; Step 4a clamps at 224 SCREEN LINES.
+        sh = derive_shadow(mkcfg([0, 320]), 0, [1, 2], [3, 4], None)
         self.assertEqual(sh.tops, [0, 224])
         self.assertEqual(sh.spans()[1], (224, 224))
 
     def test_rotation_reorders_bands_and_rebases_tops(self):
-        # vscroll_bg = -46 -> (0xFFD2 & 0x1FF) = 466, >> 3 = 58 cells.
-        # Tops 0/8/40/48 (the shipped OJZ layer world_y 0/64/320/384, /8): the last top <= 58
-        # is 48, so k = 3 and the copy order is 3, 0, 1, 2. Band 3 takes the screen top;
-        # 0 -> 0-58 = -58 -> +64 = 6 cells = 48 lines; 8 -> -50 -> 14 = 112; 40 -> -18 -> 46,
-        # clamped to 28 = 224.
-        sh = derive_shadow(mkcfg([0, 8, 40, 48]), 0xFFD2, [10, 11, 12, 13], [20, 21, 22, 23],
-                           None)
+        # vscroll_bg = -48 -> (0xFFD0 & 0x1FF) = 464 plane lines.
+        # Tops 0/64/320/384 (the shipped OJZ layers' plane images): the last top <= 464 is
+        # 384, so k = 3 and the copy order is 3, 0, 1, 2. Band 3 takes the screen top;
+        # 0 -> 0-464 = -464 -> +512 = 48; 64 -> -400 -> 112; 320 -> -144 -> 368, clamped 224.
+        sh = derive_shadow(mkcfg([0, 64, 320, 384]), 0xFFD0, [10, 11, 12, 13],
+                           [20, 21, 22, 23], None)
         self.assertEqual(sh.tops, [0, 48, 112, 224])
         self.assertEqual(sh.scroll_a, [13, 10, 11, 12])
         self.assertEqual(sh.scroll_b, [23, 20, 21, 22])
+
+    def test_the_partial_offset_survives_p3_re_glue(self):
+        """THE MECHANISM. A sub-cell Vscroll_BG must move the tops by that many LINES.
+
+        Before world-Y re-glue Step 4a computed `vshift = Vscroll_BG >> 3`, so every value
+        of Vscroll_BG inside one 8-px cell produced IDENTICAL tops — the band edge sat still
+        while the art under it moved, then jumped a whole cell. This is the regression test
+        for that: three vs values one line apart must give three tops one line apart, and
+        the old `>> 3` form would return the same list all three times.
+        """
+        got = [derive_shadow(mkcfg([0, 64, 320, 384]), vs, [10, 11, 12, 13],
+                             [20, 21, 22, 23], None).tops[1]
+               for vs in (16, 17, 18)]
+        self.assertEqual(got, [48, 47, 46])
 
 
 class TestAnchorOverlay(unittest.TestCase):
@@ -113,8 +128,8 @@ class TestAnchorOverlay(unittest.TestCase):
         # the split entry lands at index 2 retopped to 80, and every band from 2 down takes
         # pcfg_anchor_dsa/dsb. Tops become 0/48/80/112/224 — the shape the shipped config
         # produces at the idle camera.
-        cfg = mkcfg([0, 8, 40, 48], anchor=0, adsa=NO_DEFORM, adsb=2)
-        sh = derive_shadow(cfg, 0xFFD2, [10, 11, 12, 13], [20, 21, 22, 23], 80)
+        cfg = mkcfg([0, 64, 320, 384], anchor=0, adsa=NO_DEFORM, adsb=2)
+        sh = derive_shadow(cfg, 0xFFD0, [10, 11, 12, 13], [20, 21, 22, 23], 80)
         self.assertEqual(sh.tops, [0, 48, 80, 112, 224])
         self.assertEqual(sh.n, 5)
         self.assertEqual(sh.dsb, [NO_DEFORM, NO_DEFORM, 2, 2, 2])
@@ -125,7 +140,7 @@ class TestAnchorOverlay(unittest.TestCase):
         self.assertEqual(sh.scroll_b, [23, 20, 20, 21, 22])
 
     def test_split_at_line_zero_puts_every_band_under_the_anchor(self):
-        cfg = mkcfg([0, 8], anchor=0, adsb=2)
+        cfg = mkcfg([0, 64], anchor=0, adsb=2)
         sh = derive_shadow(cfg, 0, [1, 2], [3, 4], 0)
         self.assertEqual(sh.tops[0:2], [0, 0])
         self.assertEqual(sh.dsb[1:], [2, 2])
@@ -192,7 +207,7 @@ class TestAnchorResolution(unittest.TestCase):
 
 class TestDeriveHscroll(unittest.TestCase):
     def test_flat_bands_are_per_band_constants(self):
-        cfg = mkcfg([0, 14], tab_fg=0x1000)          # per-line mode, but shift 15 = no sampling
+        cfg = mkcfg([0, 112], tab_fg=0x1000)         # per-line mode, but shift 15 = no sampling
         sh = derive_shadow(cfg, 0, [u16(-96), u16(-48)], [u16(-24), u16(-12)], None)
         exp = derive_hscroll(cfg, sh, bytes(256), None, 0, 0, 0, 0)
         self.assertEqual(len(exp), HSCROLL_LINES)
@@ -200,7 +215,7 @@ class TestDeriveHscroll(unittest.TestCase):
         self.assertTrue(all(p == (u16(-48), u16(-12)) for p in exp[112:]))
 
     def test_per_cell_mode_writes_only_28_entries(self):
-        cfg = mkcfg([0, 14])                          # no table, no anchor -> per-cell
+        cfg = mkcfg([0, 112])                         # no table, no anchor -> per-cell
         sh = derive_shadow(cfg, 0, [1, 2], [3, 4], None)
         exp = derive_hscroll(cfg, sh, None, None, 0, 0, 0, 0)
         self.assertEqual(len(exp), PERCELL_CELLS)

@@ -97,12 +97,13 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 //   4 pcfg_v_center_y         10 pcfg_deform_table_fg    16 pcfg_anchor_dsb
 //   5 pcfg_v_offset           11 pcfg_deform_table_bg
 //
-// BAND FIELD INDEX — the same for `band_entry` (engine/level/parallax.emp).
+// BAND FIELD INDEX — the same for `band_entry` (engine/level/parallax.emp). RENUMBERED
+// BY P3 TASK 7, which made the top a u16 plane line and packed the two 1-bit factor op
+// flags into one byte: nine fields where there were ten.
 //
-//   0 band_top_cell            4 band_factor_b_s1         8 band_deform_shift_b
-//   1 band_factor_a_s1         5 band_factor_b_s2         9 band_phase_offset
-//   2 band_factor_a_s2         6 band_factor_b_op
-//   3 band_factor_a_op         7 band_deform_shift_a
+//   0 band_top_plane           3 band_factor_b_s1         6 band_deform_shift_a
+//   1 band_factor_a_s1         4 band_factor_b_s2         7 band_deform_shift_b
+//   2 band_factor_a_s2         5 band_factor_ops          8 band_phase_offset
 // =====================================================================
 
 // =====================================================================
@@ -138,15 +139,38 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 // the three per-plane bytes the runtime reconstructs the scroll factor from.
 // dsa/dsb are the per-band deform-amplitude shifts (15 = no deform on that
 // plane); phase desyncs the deform sample index.
+//
+// ---- P3 TASK 7: `cell:` STAYS THE PARAMETER, AND THAT IS WHAT KEEPS THIS A WITNESS ----
+//
+// The record's top field is now `band_top_plane`, a PLANE LINE, and the scene lowering
+// reaches it through `scene_plane_line()` — an act-Y-to-plane-line mapping through the
+// scene's own vertical factors. This oracle deliberately does NOT learn that mapping.
+// It still takes the deleted configs.emp's `cell:` (a Plane-B cell row, the shipped
+// number, transcribed at all seventy-two call sites below) and does its own trivial
+// conversion, `cell * 8`.
+//
+// So the twenty proofs now assert something STRONGER than they did in P1: that the whole
+// act-space chain — authored world Y, v_center/v_factor/v_offset, the comptime mapping —
+// lands on exactly the plane line the shipped cell row named. An oracle that imported
+// scene_plane_line() would agree with the lowering by construction and prove nothing.
 pub comptime fn cfg_band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase: int = 0) -> band_entry {
+    // FLAT ACCUMULATOR over statement ifs for the packed op byte (EMP_PITFALLS §1), and
+    // an INDEPENDENT spelling of the packing — bits 0/1 written as literals here, not
+    // imported from parallax — for the same reason `cell` survives above.
+    comptime var ops = 0
+    if ((fa >> 8) & 1) != 0 {
+        ops = ops | 1
+    }
+    if ((fb >> 8) & 1) != 0 {
+        ops = ops | 2
+    }
     return band_entry{
-        band_top_cell:       cell,
+        band_top_plane:      cell * 8,
         band_factor_a_s1:    fa & 15,
         band_factor_a_s2:    (fa >> 4) & 15,
-        band_factor_a_op:    (fa >> 8) & 1,
         band_factor_b_s1:    fb & 15,
         band_factor_b_s2:    (fb >> 4) & 15,
-        band_factor_b_op:    (fb >> 8) & 1,
+        band_factor_ops:     ops,
         band_deform_shift_a: dsa,
         band_deform_shift_b: dsb,
         band_phase_offset:   phase,
@@ -250,16 +274,15 @@ pub comptime fn cfg_eq(a: parallax_config, b: parallax_config) -> int {
 // ---------------------------------------------------------------------
 pub comptime fn band_eq(a: band_entry, b: band_entry) -> int {
     comptime var idx = -1
-    if a.band_phase_offset != b.band_phase_offset { idx = 9 }
-    if a.band_deform_shift_b != b.band_deform_shift_b { idx = 8 }
-    if a.band_deform_shift_a != b.band_deform_shift_a { idx = 7 }
-    if a.band_factor_b_op != b.band_factor_b_op { idx = 6 }
-    if a.band_factor_b_s2 != b.band_factor_b_s2 { idx = 5 }
-    if a.band_factor_b_s1 != b.band_factor_b_s1 { idx = 4 }
-    if a.band_factor_a_op != b.band_factor_a_op { idx = 3 }
+    if a.band_phase_offset != b.band_phase_offset { idx = 8 }
+    if a.band_deform_shift_b != b.band_deform_shift_b { idx = 7 }
+    if a.band_deform_shift_a != b.band_deform_shift_a { idx = 6 }
+    if a.band_factor_ops != b.band_factor_ops { idx = 5 }
+    if a.band_factor_b_s2 != b.band_factor_b_s2 { idx = 4 }
+    if a.band_factor_b_s1 != b.band_factor_b_s1 { idx = 3 }
     if a.band_factor_a_s2 != b.band_factor_a_s2 { idx = 2 }
     if a.band_factor_a_s1 != b.band_factor_a_s1 { idx = 1 }
-    if a.band_top_cell != b.band_top_cell { idx = 0 }
+    if a.band_top_plane != b.band_top_plane { idx = 0 }
     return idx
 }
 

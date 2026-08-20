@@ -19,9 +19,29 @@
 // engine/level/scene_dsl.emp for the whole rule.
 //
 // EVERY VALUE BELOW IS TRANSCRIBED FROM games/sonic4/data/parallax/configs.emp, with the
-// cited line number beside each scene, and ONE unit conversion: configs.emp's `cell: N` is
-// a Plane-B cell row, scene layers are authored in world PIXELS, so `world_y = cell * 8`.
-// scene_band() reverses it with `>> 3`.
+// cited line number beside each scene. configs.emp's `cell: N` was a Plane-B cell row.
+//
+// ---- THE UNIT CHANGED TWICE, AND THE SECOND TIME IS P3 TASK 7 (world-Y re-glue) ----
+//
+// P1: `world_y = cell * 8`, i.e. PLANE-B PIXELS, and scene_band() reversed it with `>> 3`.
+// P3: `world_y` is an ACT world Y, and `scene_plane_line()` maps it to a plane LINE with
+//     the scene's own vertical mapping — the same one Parallax_Step5_Vscroll applies to
+//     the camera, `((world_y - v_center) >> v_factor) + v_offset`.
+//
+// FOR THE EIGHTEEN LOCKED SCENES (`v_factor: 15`) NOTHING MOVED. A locked BG plane
+// ignores the camera, so the mapping is the identity and their tops (0/32/80/112/160)
+// are the same numbers meaning the same rows.
+//
+// FOR THE TWO UNLOCKED OJZ SCENES the numbers changed and the BANDS DID NOT. OJZ_Default
+// and OJZ_Underwater run `v_factor 3 / v_center 512 / v_offset 0`, so plane line
+// `(W - 512) >> 3` and the four shipped plane lines 0 / 64 / 320 / 384 are the images of
+// act Y 512 / 1024 / 3072 / 3584. Those are the values authored below. Read them as: the
+// bands sit at act heights 512..3584 in a 6144-px-tall act, and the BG art shows them
+// eight times compressed, which is what `v_factor 3` means.
+//
+// The old plane-space numbers are recoverable from any of these by the mapping above;
+// they are NOT recoverable by reading the authored value, which is the entire point of
+// the change — a plane coordinate said nothing about where in the act the horizon was.
 //
 // THE FAMILY HELPERS BELOW ARE `pub` FOR A MECHANICAL REASON, not for reuse: a `use` edge
 // re-evaluates an imported const's initializer in the CONSUMER's scope (Task 5's probe
@@ -100,10 +120,10 @@ pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offs
 // $1F, passes), which is the only thing that can be checked about it.
 // =====================================================================
 pub const Scene_OJZ_Default: Scene = scene(
-    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 64,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 320, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 384, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+    layers: [ layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 3584, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               no_layer(), no_layer(), no_layer(), no_layer() ],
     count: 4, v_factor: 3, v_center: 512, v_offset: 0,
     deform_bg: SceneDeform.Shared(DeformTable_Zero, 1),
@@ -122,10 +142,10 @@ pub const Scene_OJZ_Default: Scene = scene(
 // These two configs are the complete set of bridge users.
 // =====================================================================
 pub const Scene_OJZ_Underwater: Scene = scene(
-    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 64,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 320, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
-              layer(world_y: 384, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+    layers: [ layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 1024, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 3072, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              layer(world_y: 3584, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               no_layer(), no_layer(), no_layer(), no_layer() ],
     count: 4, v_factor: 3, v_center: 512, v_offset: 0,
     deform_bg: SceneDeform.Shared(DeformTable_Shimmer, 3),
