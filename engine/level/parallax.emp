@@ -137,25 +137,32 @@ pub const PLANE_B_CELL_ROWS = 64
 pub const PLANE_B_SPAN      = PLANE_B_CELL_ROWS * 8
 ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometry Step 4a's `and.w #PLANE_B_SPAN-1` masks against")
 
-// copy_band_entry — the Step-4a shadow-view entry copy, sized BY the struct:
-// the widest-first move run whose total advance is exactly sizeof(band_entry).
-// Both cursors post-increment, and the rebase immediately after reads the copied
-// top back through -sizeof(band_entry)(a4), so the run's advance and that
-// displacement are ONE fact rather than two numbers that must agree. A field
-// added to band_entry lengthens the run instead of truncating the copy.
+// ---- THE THREE WHOLE-ENTRY COPIES, ALL GENERATED FROM ONE SIZE (P3 Task 8 Step 3) ----
 //
-// The cursors are the Step-4a loop's own registers, baked here the way
-// core.clear_longs bakes d0/a0: the rebase below hardcodes a4, so a dst
-// parameter would be a promise the call site cannot keep.
+// A whole band_entry moves in three places in this file and, before Task 8, only ONE of
+// them was derived from the struct. Step 4a called the generator; the two Parcel-W sites —
+// `.anchor_shift_band` and the split-entry write — were hand-unrolled three-move runs, each
+// carrying the entry's 10-byte shape as typed-out instructions. That is the duplication
+// removed here: the generator produces BOTH directions now and all three sites call it, so
+// a field added to band_entry lengthens every run instead of lengthening one and silently
+// TRUNCATING two.
 //
-// In:  a1 = source entry, a4 = shadow-view cursor
-// Out: both advanced by sizeof(band_entry); no data register touched
+// THE TWO DIRECTIONS ARE NOT INTERCHANGEABLE, which is why both are generated rather than
+// one being spelled in terms of the other at a call site. Forward is two post-incrementing
+// cursors. Backward is ONE pre-decrementing cursor whose source steps back inside the entry
+// while each piece is written one whole entry forward — the shift-down walk's cursor
+// discipline, which requires running from the END. A backward run is the forward run
+// REVERSED, so both take their widths from `copy_run_longs()`: get the two out of step and
+// one site copies a different set of bytes than the other, in the quietest possible way.
 //
 // SIBLING, still hand-written: engine.buffers' `queue_static_dma` spells the
 // same shape as a literal 3L+1W run under
 // `ensure(sizeof(DMAEntry) == 14, "… re-derive the copy")`. One shared generator
 // over both is its own byte-proving parcel (gap-ledger row).
-comptime fn copy_band_entry() -> Code {
+
+// The long count of the widest-first run whose total advance is exactly sizeof(band_entry):
+// as many longs as fit, then a trailing word when the size is not a multiple of 4.
+comptime fn copy_run_longs() -> int {
     // An ODD entry size is unrepresentable here, and the reason is a crash, not
     // a truncation: with an odd stride the k-th entry starts at base + k*size,
     // whose parity ALTERNATES, so the run's leading `move.l` lands on an odd
@@ -166,15 +173,46 @@ comptime fn copy_band_entry() -> Code {
     // same obligation. Both bases are even today only by layout accident.
     // Pinning a divisibility assumption rather than letting it hold by accident
     // is the core.clear_longs precedent.
+    //
+    // IT IS WRITTEN AGAINST THE SIZE, NOT AGAINST 10, so it holds for the extended record
+    // too when one lands (P3 Task 8 correction C5: evenness must survive the extension —
+    // prefix + extension, not prefix alone). See docs/benchmarks/scanline-p3/
+    // EXTENDED-RECORD.md for why the extension itself is not here yet.
     ensure(sizeof(band_entry) % 2 == 0,
-           "sizeof(band_entry) is odd — copy_band_entry's move.l run would address-error on every odd-indexed entry; keep the entry size even")
+           "sizeof(band_entry) is {sizeof(band_entry)}, which is ODD — the whole-entry copy's move.l run would address-error on every odd-indexed entry; keep the entry size even")
     ensure(sizeof(parallax_config) % 2 == 0,
-           "sizeof(parallax_config) is odd — it is the band array's base offset, so copy_band_entry's move.l run would start on an odd address")
-    let longs = 0..(sizeof(band_entry) / 4) |> fold(asm {}, |acc, _i| acc ++ asm {
-        move.l  (a1)+, (a4)+
+           "sizeof(parallax_config) is odd — it is the band array's base offset, so the whole-entry copy's move.l run would start on an odd address")
+    return sizeof(band_entry) / 4
+}
+
+// copy_band_entry_fwd — forward copy, both cursors post-incrementing.
+//
+// In:  {src} = source entry, {dst} = destination cursor
+// Out: both advanced by sizeof(band_entry); no data register touched
+//
+// Step 4a's rebase immediately after its call reads the copied top back through
+// `-sizeof(band_entry)(a4)`, so the run's advance and that displacement are ONE fact
+// rather than two numbers that must agree.
+comptime fn copy_band_entry_fwd(src: Reg, dst: Reg) -> Code {
+    let longs = 0..copy_run_longs() |> fold(asm {}, |acc, _i| acc ++ asm {
+        move.l  ({src})+, ({dst})+
     })
     if sizeof(band_entry) % 4 == 0 { return longs }
-    return longs ++ asm { move.w  (a1)+, (a4)+ }
+    return longs ++ asm { move.w  ({src})+, ({dst})+ }
+}
+
+// copy_band_entry_back — the same run REVERSED: one pre-decrementing cursor walking back
+// through the source entry, each piece written one whole entry forward.
+//
+// In:  {cur} = one past the END of the source entry
+// Out: {cur} moved back by sizeof(band_entry); the entry now also sits one entry later
+comptime fn copy_band_entry_back(cur: Reg) -> Code {
+    let tail = if sizeof(band_entry) % 4 == 0 { asm { } } else { asm {
+        move.w  -({cur}), sizeof(band_entry)({cur})
+    } }
+    return tail ++ (0..copy_run_longs() |> fold(asm {}, |acc, _i| acc ++ asm {
+        move.l  -({cur}), sizeof(band_entry)({cur})
+    }))
 }
 
 // ----------------------------------------------------------------------
@@ -786,7 +824,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         mul_const.w d3, #sizeof(band_entry), d5  // d3 = d2 × sizeof(band_entry); d5 trashed
         lea     sizeof(parallax_config)(a0), a1
         adda.w  d3, a1
-        copy_band_entry()
+        copy_band_entry_fwd(a1, a4)
         // rebase the copied entry's top: PLANE LINES -> SCREEN LINES
         move.w  -sizeof(band_entry)(a4), d3
         sub.w   d0, d3
@@ -978,9 +1016,11 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // Each -(a5) steps back inside the SOURCE entry while the displacement writes the
         // matching word/long one whole entry forward. Source and destination never overlap
         // (the gap IS one entry), so the order within an entry does not matter.
-        move.w  -(a5), sizeof(band_entry)(a5)
-        move.l  -(a5), sizeof(band_entry)(a5)
-        move.l  -(a5), sizeof(band_entry)(a5)
+        //
+        // GENERATED SINCE P3 TASK 8 (Step 3): this was a hand-unrolled W+L+L run carrying
+        // the entry's 10-byte shape as instructions, while Step 4a's copy was already
+        // derived from the struct. Same widths, same order, one authority.
+        copy_band_entry_back(a5)
         dbf     d3, .anchor_shift_band
 
         // the matching scroll words: (k+1 .. n-1) -> (k+2 .. n), same backward walk
@@ -1007,9 +1047,9 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5                              // a5 = &band[k]
         lea     sizeof(band_entry)(a5), a6          // a6 = &band[k+1]
-        move.l  (a5)+, (a6)+
-        move.l  (a5)+, (a6)+
-        move.w  (a5)+, (a6)+
+        // GENERATED SINCE P3 TASK 8 (Step 3) — the forward twin of the shift-down walk
+        // above, off the same run widths. Was L+L+W typed out by hand.
+        copy_band_entry_fwd(a5, a6)
         move.w  d1, d2
         add.w   d2, d2                              // word index of slot k
         lea     Parallax_Shadow_Scroll_A, a5
