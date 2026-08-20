@@ -105,6 +105,113 @@ equ PLAYER_1_X_VEL = extern("Player_1") + extern("SST_x_vel")
 equ PLAYER_1_Y_VEL = extern("Player_1") + extern("SST_y_vel")
 
 // -----------------------------------------------
+// EXTERNAL PLACEMENT MAILBOXES — the two shared templates (DEBUG shapes)
+// -----------------------------------------------
+// This game has two external "put the player HERE" interfaces: the WARP mailbox,
+// consumed at the top of a frame by Debug_Warp_Consume, and the BOOT-POSITION
+// override, consumed by the init ladder below. They differ in everything except
+// the two things a client can actually observe — the clamp and where the camera
+// ends up — and those two are shared HERE so the pair cannot drift apart.
+//
+// THEY ARE COMPTIME TEMPLATES, NOT PROCS, and that is a hard constraint rather
+// than a style choice. A `proc` whose body is wholly inside `if DEBUG == 1 {}`
+// emits zero release BYTES but still declares a release LABEL, and the label
+// reaches convsym's deb2 appendix: even parked at an address the appendix already
+// carries (where only one symbol per address survives into the address table), the
+// dropped duplicates still feed the appendix's name trie, so the appendix grows
+// and every release CRC moves. Measured on this parcel: three parked zero-byte
+// procs took s4.bin from d00dd11d/698411 to 84df688f/698409 — code identical
+// through EndOfRom ($A11C0), appendix-only, and still a changed ROM. A comptime
+// template declares no symbol at all, so sharing costs nothing anywhere.
+// (The same reasoning is written out at the page-cache audit tick in
+// GameState_OJZScroll_Update, which is inline for exactly this reason.)
+
+// clamp_and_publish — clamp a mailbox's (X,Y) pair into the act and publish the
+// clamped pair back into the same cells.
+//
+// Player_Bound_Right / Player_Bound_Bottom are the game's own act clamp edges,
+// precomputed once per act by Player_BoundsInit and consumed every frame by
+// Player_LevelBound — reused rather than re-deriving level_width/height, so one
+// act-bounds formula stays. Signed compares throughout: the act grid ceiling is
+// asserted <= $8000 px per axis (act_descriptor), so every legal world coordinate
+// is positive and a request with bit 15 set is out of range by definition and
+// clamps to 0. The publish-back is part of the clamp, not a separate step: both
+// mailboxes promise a client that reading the pair after the ack tells it where
+// the engine actually put the player.
+//
+// CALLER PRECONDITION: Player_Bound_* must already be live. The warp gets that
+// for free (the act's init ran long ago); the boot override runs BEFORE the init
+// ladder's own Player_BoundsInit and therefore calls it first — see there.
+//
+// In:  xcell/ycell = the mailbox's two u16 cells
+// Out: both cells clamped in place; d0 = clamped X px, d1 = clamped Y px
+comptime fn clamp_and_publish(xcell: Label, ycell: Label) -> Code {
+    return asm {
+        move.w  {xcell}, d0
+        tst.w   d0
+        bpl     .cap_x_lo
+        moveq   #0, d0
+    .cap_x_lo:
+        cmp.w   Player_Bound_Right, d0          // (Player_Bound_Right).w
+        ble     .cap_x_hi
+        move.w  Player_Bound_Right, d0
+    .cap_x_hi:
+        move.w  d0, {xcell}                     // publish: the client reads back
+        move.w  {ycell}, d1                     // where it actually landed
+        tst.w   d1
+        bpl     .cap_y_lo
+        moveq   #0, d1
+    .cap_y_lo:
+        cmp.w   Player_Bound_Bottom, d1         // (Player_Bound_Bottom).w
+        ble     .cap_y_hi
+        move.w  Player_Bound_Bottom, d1
+    .cap_y_hi:
+        move.w  d1, {ycell}
+    }
+}
+
+// center_camera_on — put the camera where the follow rule would put it for a
+// leader standing at the (already clamped) pair in xcell/ycell, then apply the
+// camera's own act clamp.
+//
+// This is Camera_Update's deadzone centre, so the first Camera_Update after a
+// placement finds the leader inside the deadzone and takes no step. The ceilings
+// are the ones Camera_Init precomputed for this act, so every caller must run
+// after Camera_Init. Reads the cells rather than registers because both callers
+// have just published them and neither can hold a register across the calls in
+// between (Player_SetState on the warp path, Player_BoundsInit on the boot path).
+//
+// In:  xcell/ycell = the mailbox's two u16 cells (clamped world px)
+// Out: Camera_X / Camera_Y written (16.16, fraction cleared). Clobbers d0.
+comptime fn center_camera_on(xcell: Label, ycell: Label) -> Code {
+    return asm {
+        move.w  {xcell}, d0
+        subi.w  #CAM_SCREEN_HALF_W, d0
+        bpl     .ccam_x_lo
+        moveq   #0, d0
+    .ccam_x_lo:
+        cmp.w   Camera_X_Max, d0                // (Camera_X_Max).w — Camera_Init's ceiling
+        ble     .ccam_x_hi
+        move.w  Camera_X_Max, d0
+    .ccam_x_hi:
+        {pixels_to_coord(d0)}
+        move.l  d0, Camera_X                    // (Camera_X).w
+
+        move.w  {ycell}, d0
+        subi.w  #CAM_SCREEN_HALF_H, d0
+        bpl     .ccam_y_lo
+        moveq   #0, d0
+    .ccam_y_lo:
+        cmp.w   Camera_Y_Max, d0                // (Camera_Y_Max).w
+        ble     .ccam_y_hi
+        move.w  Camera_Y_Max, d0
+    .ccam_y_hi:
+        {pixels_to_coord(d0)}
+        move.l  d0, Camera_Y                    // (Camera_Y).w
+    }
+}
+
+// -----------------------------------------------
 // GameState_OJZScroll_Init — one-shot setup
 // -----------------------------------------------
 pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
@@ -221,6 +328,88 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    unchanged — B drops into physics. --
         jbsr    Player_Init
 
+        // -- THE BOOT-POSITION OVERRIDE (DEBUG shapes) — Aurora's "Build & Run at
+        //    the editor cursor". The client writes Boot_At_X, Boot_At_Y, then
+        //    Boot_At_Flag LAST (games/sonic4/config/ram.emp); this re-aims the
+        //    authored start at it. Protocol prose: docs/ENGINE_ARCHITECTURE.md
+        //    "§4.12", boot-override half.
+        //
+        //    WHY IT IS NOT A WARP, AND WHY THAT IS THE POINT. Booting at the
+        //    authored start and warping afterwards costs the ~1.5 s the authored
+        //    start takes to become playable plus a visible draw-then-jump, and it
+        //    exposes the client to the whole mis-latch class §4.12 documents (every
+        //    streaming latch has to be re-seeded after the fact, because the boot
+        //    already seeded them somewhere else). This substitutes for the authored
+        //    start AT THE POINT THE INIT CONSUMES IT, so there is nothing to
+        //    re-seed: Section_Init, Player_BoundsInit, Tile_Cache_Init, the
+        //    synchronous plane fill, Parallax_Init / BgAnim_Init / Parallax_Update
+        //    all run exactly once, in exactly their authored order, already aimed at
+        //    the override. NONE of Debug_Warp_Consume's reseed steps (4-7) appear
+        //    here, and if one ever does, this has been hooked in the wrong place.
+        //
+        //    HERE, AND NOT EARLIER OR LATER: this is the earliest point at which
+        //    BOTH the camera seed (Camera_Init) and the leader's spawn position
+        //    exist, and the last point before any consumer of either runs —
+        //    Section_Init / Section_FillInitial / EntityWindow_Init /
+        //    Tile_Cache_Init / Section_UpdateColumns all read Camera_X/Y and all of
+        //    them are below. The authored Camera_Init + spawn are left to run
+        //    untouched and are then overwritten, which costs a few dozen cycles once
+        //    per boot and keeps the plain shape's ladder byte-identical.
+        //
+        //    TIMING — THE ONE PLACE THE NO-RACE CLAIM COULD HAVE BEEN WRONG, AND IT
+        //    WAS. This mailbox CANNOT be written at the reset-paused machine the way
+        //    the warp mailbox can be written at any paused frame: boot clears ALL
+        //    64KB of Work RAM (engine/system/boot.emp `.clear_ram` — a ruling, there
+        //    is no preserved region and none may be proposed), so a pre-resume write
+        //    is zeroed before anything here can see it. The supported client window
+        //    is AFTER the clear and BEFORE this init: a breakpoint on
+        //    GameState_OJZScroll_Init (this proc — the game's Game.entry), write
+        //    X/Y/flag on the hit, resume. Nothing has been displayed at that point —
+        //    the display goes on at the bottom of this proc — so the FIRST VISIBLE
+        //    FRAME is already the override's. Inside that window there is no race at
+        //    all: the machine is stopped and the init is single-shot.
+        //
+        //    Idle (flag clear) this is two reads and a branch, and the boot is
+        //    bit-identical to today's. Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                tst.b   Boot_At_Flag                    // (Boot_At_Flag).w
+                beq     .no_boot_override               // idle: the authored start stands
+
+                // The act clamp edges are not live yet: the ladder's own
+                // Player_BoundsInit is BELOW this hook (it has to be — it reloads the
+                // descriptor after Section_Init clobbers a0-a4). Run it here so the
+                // override is clamped by the same edges the warp clamps against and
+                // the same edges Player_LevelBound will enforce on frame 1. It is a
+                // pure function of act-invariant descriptor fields, so the ladder's
+                // later call recomputes the identical pair — idempotent by
+                // construction, not by luck.
+                lea     OJZ_Act1_Descriptor, a0         // (OJZ_Act1_Descriptor).l
+                jbsr    Player_BoundsInit
+                clamp_and_publish(Boot_At_X, Boot_At_Y) // d0/d1 = the clamped pair
+
+                // Place the leader VERBATIM. No Player_SetState and none needed:
+                // Player_Init has just run the full entry sequence (standing box,
+                // PSTATE_AIR, physics row, debug-fly if armed) and this only moves
+                // the result. That is also why §4.12's feet-planted-lift hazard
+                // cannot arise on this path — there is no state transition after the
+                // write. Velocities were zeroed by the spawn block above and
+                // Player_Init does not disturb the position, so this is the only
+                // placement write. Through Camera_Target, not the Player_1
+                // absolutes: placement is a level-generic operation and the camera's
+                // follow target is the engine's name for "the slot this level is
+                // about" (Debug_Warp_Consume takes the same view).
+                movea.w Camera_Target, a0               // (Camera_Target).w — leader SST
+                pixels_to_coord(d0)                     // px -> 16.16, fraction cleared
+                move.l  d0, Sst.x_pos(a0)
+                pixels_to_coord(d1)
+                move.l  d1, Sst.y_pos(a0)
+
+                // Camera: the follow rule at rest, act-clamped. Overwrites
+                // Camera_Init's authored seed before any consumer of it runs.
+                center_camera_on(Boot_At_X, Boot_At_Y)
+        .no_boot_override:
+        }
+
         // -- write 4 marker tiles to VRAM (16x16 sprite = 2x2 tiles) at
         //    VRAM_TEST_MARKER, in the free gap below the BG region — the act
         //    art pool owns tiles 0..POOL_TILE_CEILING-1, so a low slot would
@@ -277,6 +466,29 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         lea     OJZ_Act1_Descriptor, a2            // (OJZ_Act1_Descriptor).l
         move.b  Act.start_sec_x(a2), d2 as GridX
         move.b  Act.start_sec_y(a2), d3 as GridY
+
+        // -- BOOT-POSITION OVERRIDE, second and last consumer (DEBUG shapes): the
+        //    only place below Debug_BootAt_Apply where the init still reads the
+        //    AUTHORED start rather than the camera. An override into a different
+        //    section must start on THAT section's parallax config — otherwise the
+        //    first displayed frame carries section (start_sec_x, start_sec_y)'s
+        //    bands/palette and only the first Parallax_CheckBoundary of the update
+        //    loop corrects it, one frame late and as a lerp rather than a snap.
+        //    Derived from the CLAMPED, already-published Boot_At_X/Y (the section
+        //    containing the player), which is the same relation start_sec_* has to
+        //    start_local_*. Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                tst.b   Boot_At_Flag            // (Boot_At_Flag).w
+                beq     .init_bootat_no_parallax
+                move.w  Boot_At_X, d2           // (Boot_At_X).w — clamped world px
+                lsr.w   #8, d2
+                lsr.w   #SECTION_SIZE_SHIFT-8, d2 as GridX   // split 8+rest: max shift is 8/op
+                move.w  Boot_At_Y, d3           // (Boot_At_Y).w
+                lsr.w   #8, d3
+                lsr.w   #SECTION_SIZE_SHIFT-8, d3 as GridY
+        .init_bootat_no_parallax:
+        }
+
         jbsr    Section_GetSecPtrXY             // a0 = start Sec ptr (Z set = none)
         beq     .init_use_act_config
         movea.l Sec.sec_parallax_config(a0), a0 // a0 = parallax_config* (NULL = act default)
@@ -309,6 +521,16 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // preset path is now that installer and a hand install here would be a second,
         // competing one. Installing effects from a test's Init is exactly the "0 means keep
         // whatever the last section had" shape total binding exists to remove.
+
+        // -- BOOT-POSITION OVERRIDE ack, and it must be the LAST write of the
+        //    consumption, exactly as the warp's is: both consumers above read the
+        //    flag, so clearing it earlier would half-apply the override. A client
+        //    that reads Boot_At_Flag == 0 knows the whole init consumed it, and can
+        //    read Boot_At_X/Y for the clamped origin the engine actually used.
+        //    Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                clr.b   Boot_At_Flag            // (Boot_At_Flag).w
+        }
 
         // -- transition to update loop --
         move.l  #GameState_OJZScroll_Update, (Game_State).w
@@ -802,36 +1024,14 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         beq     .done                           // idle: two reads and a branch
 
         // -- 1. clamp the request into the act (defence in depth: a warp must
-        //    never land the player in SEC_VOID, whatever the client sent).
-        //    Player_Bound_Right / Player_Bound_Bottom are the game's OWN act
-        //    clamp edges, precomputed once per act by Player_BoundsInit and used
-        //    every frame by Player_LevelBound — reused here rather than
-        //    re-deriving level_width/height, so one act-bounds formula stays.
-        //    Signed compares throughout: the act grid ceiling is asserted <=
-        //    $8000 px per axis (act_descriptor), so every legal world coordinate
-        //    is positive and a request with bit 15 set is out of range by
-        //    definition and clamps to 0. --
-        move.w  Warp_Req_X, d0                  // (Warp_Req_X).w
-        tst.w   d0
-        bpl     .wx_lo_ok
-        moveq   #0, d0
-    .wx_lo_ok:
-        cmp.w   Player_Bound_Right, d0          // (Player_Bound_Right).w
-        ble     .wx_hi_ok
-        move.w  Player_Bound_Right, d0
-    .wx_hi_ok:
-        move.w  d0, Warp_Req_X                  // publish the clamp: the client can
-                                                // read back where it actually landed
-        move.w  Warp_Req_Y, d1                  // (Warp_Req_Y).w
-        tst.w   d1
-        bpl     .wy_lo_ok
-        moveq   #0, d1
-    .wy_lo_ok:
-        cmp.w   Player_Bound_Bottom, d1         // (Player_Bound_Bottom).w
-        ble     .wy_hi_ok
-        move.w  Player_Bound_Bottom, d1
-    .wy_hi_ok:
-        move.w  d1, Warp_Req_Y
+        //    never land the player in SEC_VOID, whatever the client sent), then
+        //    publish the clamp so the client can read back where it landed.
+        //    clamp_and_publish is the shared template — see its header for why the
+        //    edges are the game's own Player_Bound_* and why the compares are
+        //    signed. It is SHARED with the boot-position override on purpose: the
+        //    two mailboxes promise the client the same clamp, and two copies of a
+        //    bounds formula is exactly how that promise drifts. --
+        clamp_and_publish(Warp_Req_X, Warp_Req_Y)   // d0/d1 = the clamped pair
 
         // -- 2. place the leader. A NARROW refresh, not Player_Init: Player_Init
         //    is the LEVEL-ENTRY initializer and tail-calls Player_DebugEnter
@@ -888,30 +1088,12 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         //    against the ceilings Camera_Init precomputed for this act. This is
         //    the camera's follow rule at rest (Camera_Update's deadzone is
         //    centred on the same point), so the first post-warp Camera_Update
-        //    finds the player inside the deadzone and takes no step. --
-        move.w  Warp_Req_X, d0
-        subi.w  #CAM_SCREEN_HALF_W, d0
-        bpl     .cx_lo_ok
-        moveq   #0, d0
-    .cx_lo_ok:
-        cmp.w   Camera_X_Max, d0                // (Camera_X_Max).w — Camera_Init's ceiling
-        ble     .cx_hi_ok
-        move.w  Camera_X_Max, d0
-    .cx_hi_ok:
-        pixels_to_coord(d0)
-        move.l  d0, Camera_X                    // (Camera_X).w
-
-        move.w  Warp_Req_Y, d0
-        subi.w  #CAM_SCREEN_HALF_H, d0
-        bpl     .cy_lo_ok
-        moveq   #0, d0
-    .cy_lo_ok:
-        cmp.w   Camera_Y_Max, d0                // (Camera_Y_Max).w
-        ble     .cy_hi_ok
-        move.w  Camera_Y_Max, d0
-    .cy_hi_ok:
-        pixels_to_coord(d0)
-        move.l  d0, Camera_Y                    // (Camera_Y).w
+        //    finds the player inside the deadzone and takes no step. The template
+        //    re-reads the mailbox rather than taking d3/d4: those were converted in
+        //    place by pixels_to_coord above, so their PIXEL value now lives in the
+        //    high word. SHARED with the boot-position override for the same reason
+        //    the clamp is. --
+        center_camera_on(Warp_Req_X, Warp_Req_Y)
 
         clr.b   Camera_Hold_Frames              // a spindash freeze must not survive
         clr.b   Camera_Art_Hold                 // the art soft-clamp; the refill below

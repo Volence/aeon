@@ -169,6 +169,39 @@ pub vars game_ram {
         Warp_Req_X:         u16,    // destination PLAYER world X (px, flat world space)
         Warp_Req_Y:         u16,    // destination PLAYER world Y (px, flat world space)
         Warp_Req_Flag:      u8,     // 0 = idle / consumed (the ack); nonzero = pending
+        pad(1),                     // keep the following words even-aligned
+
+        // -----------------------------------------------
+        // Boot-position override mailbox (DEBUG shapes only)
+        // -----------------------------------------------
+        // The mailbox the level INIT consumes, as against the warp mailbox above
+        // which the level UPDATE consumes. Aurora's "Build & Run at cursor" writes
+        // it so the very first displayed frame is already at the cursor — no
+        // boot-at-start-then-warp, so neither the authored start's ~1.5 s of play
+        // nor the visible draw-then-jump ever happens. Full protocol + the RAM-clear
+        // timing truth: docs/ENGINE_ARCHITECTURE.md, "§4.12" (boot-override half).
+        //
+        // SAME COORDINATE SYSTEM AS THE WARP, deliberately: flat world pixels, the
+        // player's own position, not sec+local. The init natively consumes sec+local
+        // (Camera_Init reads Act.start_sec_*/start_local_*), but the override
+        // substitutes AFTER that read, so the conversion cost is zero on the boot
+        // path and the client gets ONE coordinate convention across both mailboxes.
+        //
+        // SAME WRITE ORDER IS THE PROTOCOL: X, then Y, then the FLAG last. Same ack:
+        // the engine publishes the CLAMPED pair back and clears the flag.
+        //
+        // THE ONE THING THAT DIFFERS FROM THE WARP, and it is a hard requirement on
+        // the client: boot clears ALL 64KB of Work RAM (engine/system/boot.emp
+        // `.clear_ram`, a ruling — there is no preserved region and none may be
+        // proposed), so these cells CANNOT be written at the reset-paused machine.
+        // They must be written AFTER the clear and BEFORE the level init reads them.
+        // The supported window is a breakpoint on the game's entry state
+        // (GameState_OJZScroll_Init): break, write X/Y/flag, resume. Nothing has been
+        // displayed at that point — the init enables the display on its way out — so
+        // the first visible frame is the override's.
+        Boot_At_X:          u16,    // boot PLAYER world X (px, flat world space)
+        Boot_At_Y:          u16,    // boot PLAYER world Y (px, flat world space)
+        Boot_At_Flag:       u8,     // 0 = idle / consumed (the ack); nonzero = pending
         pad(1),                     // keep Game_RAM_End even
     }
 
