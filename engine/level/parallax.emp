@@ -17,9 +17,17 @@ use engine.effects.preset.{Effects_InstallPreset}
 // The capability bits the P2 specialisation gates test against (§3.3). Imported by
 // NAME rather than inlined as literals: the inline-the-number rule in scene_dsl.emp
 // exists because a `comptime fn` body resolves its free names at the CALL site, and
-// none of the uses below are inside a comptime fn — they are `if` conditions in this
+// most of the uses below are not inside a comptime fn — they are `if` conditions in this
 // module's own instruction stream, where this module's own `use` is what resolves
 // them. Spelling the numbers here instead would give up the drift check for nothing.
+//
+// ONE EXCEPTION SINCE P3 TASK 6: `parallax_mode_key` is a comptime fn living in
+// scene_dsl.emp, and the comptime CONDITIONS in its body — `CAP_PER_LINE` and
+// `CAP_ANCHORS` — resolve HERE, at the splice in Parallax_Step4_Fill, through this
+// module's `use` line. So those two imports are load-bearing for a body in another file,
+// and dropping one is a LOUD `unknown name` at the splice rather than a silent fold to 0
+// (measured on the buffers.emp twin, 2026-08-20). The template's instruction OPERANDS are
+// a different story — see that fn's banner for what was actually measured.
 //
 // A NOTE ON WHY THIS BIT LANDED A PARCEL LATE, because the shape of the obstacle is
 // worth carrying: gating CAP_TRANSITIONS elides 48 more bytes from demo's Parallax_*
@@ -35,7 +43,7 @@ use engine.effects.preset.{Effects_InstallPreset}
 // the WRONG fix is the tempting one: declaring a 0x6430 anchor in games/demo/map.toml
 // builds, and bakes a moment's placer fill into the placement contract for a section
 // that packs. A stale provisional is refrozen, never anchored around.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS}
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, parallax_mode_key}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -1001,32 +1009,22 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //   quantise the very thing Parcel W exists to make exact.
         //   a1/a2/a3 = band array + scroll arrays (config's own or shadow).
         //
-        // THIS KEY HAS A TWIN in engine.buffers (Enqueue_Dirty_Buffers), which picks the
-        // HScroll DMA LENGTH off the same fields. The two must agree or a mode-differing
-        // config ships a 112-byte DMA for an 896-byte buffer; they are changed together.
-        // CAP_PER_LINE span (P2 §3.3) — the whole per-line arm INCLUDING the mode
-        // decision. Without the bit no config can carry an H-deform table or an
-        // anchor, so per-cell is the only reachable mode and `.fill_per_cell` is the
-        // structural fallthrough.
+        // THE KEY ITSELF IS NOT SPELLED HERE. `parallax_mode_key` (engine.level.scene_dsl)
+        // is the ONE derivation, spliced identically here and in engine.buffers'
+        // `Enqueue_Dirty_Buffers`, which picks the HScroll DMA LENGTH from the same
+        // fields. The two must agree or a mode-differing config ships a 112-byte DMA for
+        // an 896-byte buffer — before P3 Task 6 they agreed by being typed out twice,
+        // each copy carrying a comment warning the other existed. Now there is nothing to
+        // keep in step: the splice clobbers d0, falls through for per-line and branches to
+        // the label it is handed for per-cell.
+        //
+        // CAP_PER_LINE span (P2 §3.3) — the whole per-line ARM. The mode decision's own
+        // spans (`cap_per_line_mode`, `cap_anchors_mode`) come from the splice. Without
+        // the bit no config can carry an H-deform table or an anchor, so per-cell is the
+        // only reachable mode and `.fill_per_cell` is the structural fallthrough.
     if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
     .cap_per_line_fill_begin:
-        move.l  parallax_config.pcfg_deform_table_fg(a0), d0
-        or.l    parallax_config.pcfg_deform_table_bg(a0), d0
-        bne     .fill_per_line
-        // CAP_ANCHORS span, nested: the anchor half of the SAME mode key. Anchors imply
-        // per-line (an anchored boundary lands on an arbitrary scanline), so this span
-        // can only ever be live inside the per-line one.
-    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
-    .cap_anchors_mode_begin:
-        cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch(a0)
-        beq     .fill_per_cell
-    .cap_anchors_mode_end:
-    } else {
-        // No anchored config exists, so the second half of the mode key can only ever
-        // answer "per-cell". The unconditional branch REPLACES the test rather than
-        // falling through, because `.fill_per_line` is the next label.
-        jbra    .fill_per_cell
-    }
+        parallax_mode_key(a0, .fill_per_cell)
     .fill_per_line:
         // advance H-deform phase accumulators so animated tables (sine, etc.)
         // actually scroll their wave over time. Without this the wave is

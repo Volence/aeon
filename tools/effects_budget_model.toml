@@ -191,16 +191,40 @@ max_contiguous_dma_stall_note = "couples to the sound driver's DMA-survival desi
 # 205 B/line, scanline 3420/7 = 488.57 cyc) rather than anything measured on this ROM.
 dma_scan_status = "derived from queue contents, NOT a measured stall"
 dma_scan_scanline = 220
-dma_max_single_transfer_words = 576     # measured from the queue, 5 boots, identical at both states
+#
+# ##### THE WHOLE-REGION ROWS BELOW ARE LIVE PLUS RESIDUE. P3 Task 6 Step 1, 2026-08-20. #####
+# `Process_DMA_Critical` resets only the slot CURSOR when it drains (dma_queue.emp:362); the
+# entry bytes are never zeroed. A scan of [DMA_Queue, DMA_Queue_End) therefore reports earlier
+# frames' entries beside the live ones, and the rows first taken that way were read as
+# per-frame figures when they are not. Three tells, all reproduced on the day: at scanline 220
+# all three slot cursors sat at their BASES (queue EMPTY, so every entry reported was residue);
+# the scan listed slot 8 while slots 6 and 7 were absent, which a bump allocator cannot produce;
+# and the 576-word entry is identical at both camera states, which is what a frozen leftover
+# looks like. The rows are KEPT — a residue union is a real ceiling on what the engine enqueues
+# — and RELABELLED, with the live figures beside them.
+dma_scan_whole_region_includes_residue = true
+dma_max_single_transfer_words = 576     # whole-region: an art-page DMA seen as residue
 dma_max_single_transfer_bytes = 1152
 dma_max_single_transfer_derived_cycles = 2745.5   # 1152 B at 205 B/line x 488.57 cyc/line
 dma_queue_entries_idle = 7
 dma_queue_words_idle = 1528
 dma_queue_words_max_diagonal = 1519
-# The per-line HScroll buffers the plan prices at 896 B are visible in the scan as TWO 448-word
-# entries (cmd 7C000082), confirming the axis-2 figure from the live queue rather than from the
-# authoring side.
-dma_hscroll_perline_entries = 2
+# ---- the LIVE per-frame queue, bounded by the three slot cursors (2026-08-20) ----
+# Taken two independent ways that agree exactly: cursor-bounded at the scan instant, and by
+# zeroing the region while it was provably all residue and advancing exactly one frame. Both
+# give the same four entries: two CRAM palette lines, the SAT, and ONE HScroll.
+dma_live_entries_idle = 4
+dma_live_words_idle = 492               # 984 B: 32 + 32 + 24 (SAT) + 896 (HScroll)
+dma_live_entries_max_diagonal = 4
+dma_live_words_max_diagonal = 483       # 966 B — same four entries, a smaller SAT
+dma_live_max_single_transfer_words = 448   # the HScroll entry IS the largest live transfer
+# ONE ENTRY, NOT TWO. The scan that saw "two 448-word entries with the same command word
+# $7C000082" (and a matching duplicated pair of 24-byte SAT entries) was seeing one live entry
+# and one stale copy at a different slot offset, because the palette-dirty count differed
+# between the two frames. The tree has exactly ONE `queue_static_dma(Static_Hscroll_Line)` site
+# (engine/system/buffers.emp), it is an either/or with the per-cell arm, and it is reached once
+# per VBlank. Isolated measurement: one 896 B entry, five trials, no variation.
+dma_hscroll_perline_entries = 1
 dma_hscroll_perline_bytes_each = 896
 
 [parallax.cost_model]
@@ -871,22 +895,40 @@ axis1_pool_cycles        = 128000
 axis1_reservation_cycles = 23894     # 15614 non-walker main loop + 8280 VInt bracket
 axis1_budget_cycles      = 104106
 axis1_worst_scene_cycles = 38052.27  # max over the shipped 20, from the fitted walker model
-# Axis 2: the measured live queue less the per-line HScroll entries, which are the SCENE's.
+# Axis 2: the measured queue less the per-line HScroll entry, which is the SCENE's.
+#
+# ##### RE-ATTRIBUTED BY P3 TASK 6 STEP 1, 2026-08-20 — THE SUM IS UNCHANGED. #####
+# The scene's own charge was 1792 B (two entries) and the reservation 1264 B; the forcer is
+# ONE 896 B entry, so 896 B moved from the scene's column into the reservation's. The TOTAL
+# axis-2 pressure a per-line scene implies is 3056 B either way, which is deliberate: the
+# guard is exactly as tight as it was, and no budget was loosened on the strength of a
+# measurement correction that only re-attributed the bytes.
+#
+# THE RESERVATION IS NOW A CEILING AND IS BOOKED FOR RE-DERIVATION. 2160 is the whole-region
+# scan total (3056 B, live + drain residue) less the scene's 896 B. The honest LIVE figure is
+# dma_live_words_idle 492 w = 984 B, less 896 = 88 B — but that state has an EMPTY Important
+# queue, so an 88 B reservation would under-reserve for the engine's largest DMA client (art
+# streaming: the 1152 B page transfer this scan sees only as residue). Neither number is a
+# derivation of "standing non-scene DMA" and it is not this task's to take: Task 13 re-takes
+# every row measured against today's walker, and this is one of them. Over-reserving is the
+# safe direction to sit in until then.
 axis2_pool_bytes         = 7524      # H40 NTSC VBlank DMA capacity
-axis2_reservation_bytes  = 1264      # dma_queue_words_idle 1528 w = 3056 B, less 2 x 896
-axis2_budget_bytes       = 6260
-axis2_worst_scene_bytes  = 1792      # a per-line scene: TWO 448-word entries, NOT 896
+axis2_reservation_bytes  = 2160      # CEILING: whole-region 3056 B less the scene's ONE 896 B
+axis2_budget_bytes       = 5364
+axis2_worst_scene_bytes  = 896       # a per-line scene: ONE 448-word entry (Task 6 ruling)
 # Axis 3: the DRAIN of axis 2's bytes, derived from documented hardware rates exactly as
-# dma_max_single_transfer_derived_cycles is — 1792 B / 205 B-per-line x 488.57 cyc-per-line.
-# NOT double-counted against the 8280: oracle's cycle clock excludes bus/DMA stall by
-# construction (M68000.cpp:1029-1031), so no measured cycle row contains it.
+# dma_max_single_transfer_derived_cycles is — 896 B / 205 B-per-line x 488.57 cyc-per-line.
+# HALVED BY THE SAME RULING: the drain was derived from the 1792 B figure, so correcting the
+# byte count corrects this row too. NOT double-counted against the 8280: oracle's cycle clock
+# excludes bus/DMA stall by construction (M68000.cpp:1029-1031), so no measured cycle row
+# contains it.
 axis3_pool_cycles        = 18200     # the NTSC VBlank window
 axis3_reservation_cycles = 8280      # idle_vblank_cycles, the VInt_Level bracket
 axis3_budget_cycles      = 9920
-axis3_worst_scene_cycles = 4270
+axis3_worst_scene_cycles = 2135
 # THE COMBINED PER-LINE TAX, which design §5 Step 2 asks be shown as ONE number so that "12%"
-# never reads as the whole story. It is worse than the plan's figure on both halves.
-per_line_combined = "1792 B of VBlank DMA (23.8% of the 7524 B pool) AND 4270 cyc of drain (23.5% of the 18200-cyc VBlank window) — design §5 prices the DMA half at 896 B / 12%, which is half the measured value"
+# never reads as the whole story.
+per_line_combined = "896 B of VBlank DMA (11.9% of the 7524 B pool) AND 2135 cyc of drain (11.7% of the 18200-cyc VBlank window) — design §5's 896 B / 12% for the DMA half was RIGHT, and the 1792 B that stood here from P2 until 2026-08-20 was a queue scan counting drain residue as a second live entry (see [dma]). The drain half is still the part §5 does not price at all"
 # Axis 4b: enforced in engine/effects/raster_dsl.emp's `check_hint_total`, inside
 # raster_program(), because scenes do not fire HInts and the section->preset->program chain is
 # Labels end to end (the same barrier that blocks Task 12). Model cycles on BOTH sides — never
@@ -907,10 +949,12 @@ axis4b_budget_cycles      = 84595
 #           So the guard's live role is a ledger row plus a BACKSTOP on the documented
 #           `Scene{ .. }` back door, which is what games/sonic4/test/poison/poison_budget_axis1.emp
 #           probes (red-first verified: 1 diagnostic, exactly the axis-1 message).
-#   AXIS 2  NOT FALSIFIABLE. The per-scene charge is two-valued — 0 or 1792 B — and 1792 +
-#           1264 = 3056 fits 7524 always. It becomes falsifiable if a second per-line forcer
+#   AXIS 2  NOT FALSIFIABLE. The per-scene charge is two-valued — 0 or 896 B — and 896 +
+#           2160 = 3056 fits 7524 always. It becomes falsifiable if a second per-line forcer
 #           class is added, or if the pool shrinks (PAL H40, or a VRAM-heavier frame).
-#   AXIS 3  NOT FALSIFIABLE, for the same reason: 0 or 4270 cyc, and 4270 + 8280 = 12550 fits
+#           (The 2026-08-20 re-attribution did not change this verdict: the sum it is judged
+#           on is the same 3056.)
+#   AXIS 3  NOT FALSIFIABLE, for the same reason: 0 or 2135 cyc, and 2135 + 8280 = 10415 fits
 #           18200 always. Same unlock conditions as axis 2.
 #   AXIS 4b NOT FALSIFIABLE IN PRACTICE, and the reason is that axis 4a already bounds it: the
 #           density guard requires each fire's cost to fit its gap, so a whole screen cannot

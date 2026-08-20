@@ -519,17 +519,9 @@ async def _read_byte(b: BusClient, addr: int) -> int:
     return int(r["bytes"][:2], 16)
 
 
-async def _scan_dma(b: BusClient, sym: dict[str, int], line: int = 220) -> dict:
-    """The DMA queue at end-of-active-display: every entry's length, and the largest.
-
-    Scanned at scanline `line` (default 220, inside active display and past every main-loop
-    enqueue) rather than at a frame boundary, where VBlank has already drained it and the
-    answer would be an empty queue reported as "no stall".
-    """
-    await b.call("emulator/run_to_scanline", {"line": line})
-    lo, hi = sym["DMA_Queue"] & 0xFFFFFF, sym["DMA_Queue_End"] & 0xFFFFFF
-    d = await b.call("emulator/read_memory", {"addr": hex(lo), "len": hi - lo})
-    raw = d["bytes"]
+def _decode_slots(raw: str, lo: int, hi: int) -> list[dict]:
+    """Every nonzero-length 14-byte record in a byte range, decoded. Length is the pair of
+    interleaved movep bytes SizeH @+1 / SizeL @+3; the command longword is at +10."""
     slots = []
     for off in range(0, hi - lo, DMA_ENTRY_SIZE):
         e = raw[off * 2:(off + DMA_ENTRY_SIZE) * 2]
@@ -540,13 +532,98 @@ async def _scan_dma(b: BusClient, sym: dict[str, int], line: int = 220) -> dict:
         if words:
             slots.append({"slot": off // DMA_ENTRY_SIZE, "words": words,
                           "bytes": words * 2, "cmd": f"{cmd:08X}"})
+    return slots
+
+
+# The three sub-queues, in the order engine/ram.emp:266-278 lays them out. Each is a bump
+# allocator: entries occupy [base, cursor) and everything from the cursor to the sub-queue's
+# end is DEAD.
+_DMA_SUBQUEUES = ("DMA_Critical", "DMA_Important", "DMA_Deferrable")
+
+
+async def _scan_dma(b: BusClient, sym: dict[str, int], line: int = 220,
+                    isolate: bool = False) -> dict:
+    """The DMA queue at end-of-active-display: every entry's length, and the largest.
+
+    Scanned at scanline `line` (default 220, inside active display and past every main-loop
+    enqueue) rather than at a frame boundary, where VBlank has already drained it and the
+    answer would be an empty queue reported as "no stall".
+
+    THE WHOLE-REGION SCAN IS NOT A PER-FRAME FIGURE, and this is the P3 Task 6 finding that
+    resolved plan correction C1. `Process_DMA_Critical` resets only the slot CURSOR when it
+    drains (`engine/system/dma_queue.emp:362`); it never zeroes the entry bytes. So the bytes
+    from the cursor to a sub-queue's end are RESIDUE from earlier frames, and a scan of
+    [DMA_Queue, DMA_Queue_End) reports residue and live entries indistinguishably. That is
+    exactly what produced C1's "two 896-byte HScroll entries with the same command word": the
+    tree has ONE `queue_static_dma(Static_Hscroll_Line)` site (`engine/system/buffers.emp:503`,
+    an either/or with `.hs_cell`, reached once per VBlank), and the second copy is last-frame's
+    at a different slot offset because the palette-dirty count differed. Measured 2026-08-20 at
+    idle: all three cursors sat at their BASES at scanline 220 (queue empty, every reported
+    entry residue), and the same scan listed slot 8 while slots 6 and 7 were absent — which a
+    bump allocator cannot produce.
+
+    So three figures are returned and they are NOT interchangeable:
+
+      `entries` / `total_words` / `max_words`   the raw whole-region scan. KEPT UNCHANGED so
+            every existing consumer keeps reading the same numbers it read before, but it is
+            live-plus-residue and must never be quoted as "the queue this frame".
+      `live_*`                                  bounded by the three cursors. What is PENDING
+            at scanline `line` — which at idle is legitimately nothing, because the four
+            static enqueues all happen inside VBlank (vblank.emp:161) and drain in the same
+            VBlank (`:200`).
+      `frame_*`                                 ONE frame's enqueues, isolated: zero the whole
+            region while it is provably all residue (every cursor at base), advance one frame,
+            re-scan. Residue is impossible by construction. THIS is the per-frame axis-2
+            figure. Skipped, and reported as None, if the queue is not empty at `line` — the
+            zeroing would then destroy live entries.
+
+    `isolate` is OPT-IN because the isolation arm ADVANCES THE MACHINE BY A FRAME. That is
+    free for a caller that scans last (this file's `_one`), and not free for one that reads
+    frame-sensitive state afterwards — `parallax_cost_probe`'s transition arm reads
+    `Parallax_Transition_Frames` back after its scan and fails the case if the counter reached
+    zero, so a hidden extra frame there would be a silent instrument-on-instrument defect.
+    """
+    await b.call("emulator/run_to_scanline", {"line": line})
+    lo, hi = sym["DMA_Queue"] & 0xFFFFFF, sym["DMA_Queue_End"] & 0xFFFFFF
+    d = await b.call("emulator/read_memory", {"addr": hex(lo), "len": hi - lo})
+    slots = _decode_slots(d["bytes"], lo, hi)
     used = [await _read_word(b, sym[s]) for s in
             ("DMA_Critical_Slot", "DMA_Important_Slot", "DMA_Deferrable_Slot")]
+
+    # Live = inside [base, cursor) of each sub-queue, expressed in whole-region slot indices.
+    live_slots, empty = [], True
+    for name, cursor in zip(_DMA_SUBQUEUES, used):
+        base = sym[name] & 0xFFFF
+        n_live = (cursor - base) // DMA_ENTRY_SIZE
+        if n_live:
+            empty = False
+        first = ((sym[name] & 0xFFFFFF) - lo) // DMA_ENTRY_SIZE
+        live_slots += [s for s in slots if first <= s["slot"] < first + n_live]
+
+    frame_slots = None
+    if isolate and empty:
+        await b.call("emulator/write_memory", {"addr": hex(lo), "bytes": "00" * (hi - lo)})
+        await b.call("emulator/run_frames", {"frames": 1})
+        fd = await b.call("emulator/read_memory", {"addr": hex(lo), "len": hi - lo})
+        frame_slots = _decode_slots(fd["bytes"], lo, hi)
+
     biggest = max((s["words"] for s in slots), default=0)
+    live_big = max((s["words"] for s in live_slots), default=0)
+    frame_big = max((s["words"] for s in frame_slots or []), default=0)
     return {"scanline": line, "entries": slots, "slot_cursors": used,
             "max_words": biggest, "max_bytes": biggest * 2,
             "max_stall_cycles_derived": round(dma_stall_cycles(biggest), 1),
-            "total_words": sum(s["words"] for s in slots)}
+            "total_words": sum(s["words"] for s in slots),
+            "live_entries": live_slots,
+            "live_total_words": sum(s["words"] for s in live_slots),
+            "live_max_words": live_big,
+            "queue_empty_at_line": empty,
+            "frame_entries": frame_slots,
+            "frame_total_words": None if frame_slots is None
+            else sum(s["words"] for s in frame_slots),
+            "frame_max_words": None if frame_slots is None else frame_big,
+            "frame_max_stall_cycles_derived": None if frame_slots is None
+            else round(dma_stall_cycles(frame_big), 1)}
 
 
 async def _read_program(b: BusClient, sym: dict[str, int]) -> dict:
@@ -653,7 +730,9 @@ async def _one(b: BusClient, sym: dict[str, int], state: str,
     prog1 = await _read_program(b, sym)
     # Task 5's awareness scan. AFTER the profiled window, so it cannot perturb it: run_to_scanline
     # leaves the machine mid-frame, which is the whole point and also why it goes last.
-    dma = await _scan_dma(b, sym)
+    # isolate=True is safe HERE and only here: this is the last thing the sample does, so the
+    # frame the isolation arm costs perturbs nothing downstream.
+    dma = await _scan_dma(b, sym, isolate=True)
 
     dx = (cam_x1 - cam_x0) / 65536.0
     dy = (cam_y1 - cam_y0) / 65536.0
@@ -812,7 +891,11 @@ def main() -> int:
     need = ["Camera_X", "Camera_Y", "Camera_Target", "Camera_Art_Hold",
             "Frame_Counter", "Logic_Tick", "Lag_Frame_Count",
             "DMA_Queue", "DMA_Queue_End", "DMA_Critical_Slot", "DMA_Important_Slot",
-            "DMA_Deferrable_Slot"]
+            "DMA_Deferrable_Slot",
+            # The three sub-queue BASES. Required, not optional: without them _scan_dma cannot
+            # tell a live entry from drain residue, which is precisely the defect that produced
+            # plan correction C1's phantom second HScroll entry.
+            "DMA_Critical", "DMA_Important", "DMA_Deferrable"]
     if args.sat:
         # LOUD, not skipped: a missing symbol here would make the arm decode the wrong
         # address and report a plausible-looking occupancy for nothing.
@@ -957,14 +1040,27 @@ def main() -> int:
         dm = runs[0]["dma"]
         allb = [r["dma"]["max_words"] for r in runs]
         print(f"   -- axis: max contiguous DMA, DERIVED (the clock cannot measure a stall) --")
-        print(f"      queue at scanline {dm['scanline']}: {len(dm['entries'])} live entries,"
-              f" {dm['total_words']} words total; slot cursors {dm['slot_cursors']}")
-        print(f"      largest single transfer {dm['max_words']} words = {dm['max_bytes']} B"
-              f"   -> {dm['max_stall_cycles_derived']} cyc of bus hold at 205 B/line"
-              f"   (max_words across {len(allb)} boots: {allb})")
-        for e in dm["entries"]:
-            print(f"        slot {e['slot']:>2}  {e['words']:>5} words  {e['bytes']:>6} B"
-                  f"  cmd {e['cmd']}")
+        # THREE FIGURES, NEVER ONE. The whole-region scan is live PLUS residue (the queue is
+        # never zeroed on drain — see _scan_dma's note and P3 Task 6's C1 ruling), so it is
+        # printed as what it is and the two honest figures are printed beside it.
+        print(f"      whole-region scan at scanline {dm['scanline']}: {len(dm['entries'])}"
+              f" nonzero slots, {dm['total_words']} words —"
+              f" INCLUDES STALE RESIDUE, not a per-frame figure")
+        print(f"      LIVE at that instant (bounded by the cursors {dm['slot_cursors']}):"
+              f" {len(dm['live_entries'])} entries, {dm['live_total_words']} words"
+              f"  ({'queue empty' if dm['queue_empty_at_line'] else 'queue non-empty'})")
+        if dm["frame_entries"] is None:
+            print("      PER FRAME: not isolated (queue was not empty at the scan line)")
+        else:
+            print(f"      PER FRAME (zeroed + one frame, residue impossible):"
+                  f" {len(dm['frame_entries'])} entries,"
+                  f" {dm['frame_total_words'] * 2} B total; largest"
+                  f" {dm['frame_max_words']} words = {dm['frame_max_words'] * 2} B"
+                  f"  -> {dm['frame_max_stall_cycles_derived']} cyc at 205 B/line")
+            for e in dm["frame_entries"]:
+                print(f"        slot {e['slot']:>2}  {e['words']:>5} words  {e['bytes']:>6} B"
+                      f"  cmd {e['cmd']}")
+        print(f"      (whole-region max_words across {len(allb)} boots: {allb})")
         print()
 
     if args.out:

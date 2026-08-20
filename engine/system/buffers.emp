@@ -5,11 +5,15 @@ use engine.structs.{DMAEntry, parallax_config}
 use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length}
 use engine.irq.{vblank}
-// P2 §3.3 capability gates — the HScroll DMA length key below is the TWIN of
-// parallax.emp's Step-4 mode select and carries the same two spans, because the two
-// must elide together or the length and the buffer disagree. CAP_* authority:
-// engine/level/scene_dsl.emp.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_ANCHORS}
+// P2 §3.3 capability gates plus (P3 Task 6) the shared mode key itself. `CAP_ANCHORS` is
+// still imported even though nothing in THIS file names it any more: it is the comptime
+// CONDITION of a gate inside `parallax_mode_key`'s body, and those resolve at the CALL
+// SITE. Dropping it here is `error: unknown name CAP_ANCHORS` at the splice — measured
+// 2026-08-20, and the loudness is the point: a silent fold to 0 would have elided the
+// anchor half of the key in this twin and not in the other. The template's instruction
+// OPERANDS behave differently (see parallax_mode_key's banner); this line is about the
+// conditions. CAP_* authority: engine/level/scene_dsl.emp.
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_ANCHORS, parallax_mode_key}
 
 // DMA source word addresses for the static entries — the link-time arm of
 // engine.vdp's dma_source derivation ((addr >> 1) & $7FFFFF): the sources are
@@ -474,31 +478,35 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         // render in — otherwise a mode-differing transition ships a cell-length DMA
         // for a line-mode buffer (or vice versa) = the ≤16-frame tear.
         //
-        // THIS IS THE TWIN of parallax.emp's Step-4 mode select, keyed off the SAME fields.
-        // The two must be changed together or the length and the buffer disagree.
+        // THE KEY ITSELF IS NOT SPELLED HERE. It used to be — this block and
+        // parallax.emp's Step-4 mode select were byte-for-byte the same beq/bne sequence
+        // in two files. P3 Task 6 made `parallax_mode_key` (engine.level.scene_dsl) the
+        // ONE derivation and both sites splice it, so the length and the buffer cannot
+        // disagree by construction rather than by discipline.
         jbsr    Parallax_Active_Config          // d0 = active config; Z reflects d0
         beq     .hs_cell                        // NULL -> per-cell default
-        // CAP_PER_LINE span (P2 §3.3) — the whole 896-byte arm of the length key,
-        // including the mode decision. Without the bit no config can carry an H-deform
-        // table or an anchor, so the 112-byte per-cell length is the only reachable
-        // answer and `.hs_cell` is the structural fallthrough. The TWIN in
-        // parallax.emp elides on the same bit; they are changed together.
+        // CAP_PER_LINE span (P2 §3.3) — the whole 896-byte ARM of the length key. The
+        // mode decision's own spans (`cap_per_line_mode`, `cap_anchors_mode`) come from
+        // the splice. Without the bit no config can carry an H-deform table or an anchor,
+        // so the 112-byte per-cell length is the only reachable answer and `.hs_cell` is
+        // the structural fallthrough. The TWIN arm in parallax.emp elides on the same bit.
+        //
+        // ONE 896-BYTE ENTRY PER FRAME, NOT TWO — the P3 Task 6 Step 1 ruling, recorded at
+        // the enqueue site because it is the site that was doubted. `effects_budget_model`
+        // priced a per-line scene at 1792 B on the strength of a live-queue scan that saw
+        // two 448-word entries with the same command word $7C000082. It saw residue:
+        // `Process_DMA_Critical` resets only the slot CURSOR when it drains
+        // (dma_queue.emp:362) and never zeroes the entry bytes, so a scan of the whole
+        // DMA_Queue region reports earlier frames' entries alongside the live ones. Ruled
+        // 2026-08-20 three ways: this is the ONLY `Static_Hscroll_Line` enqueue in the
+        // tree and it is an either/or reached once per VBlank; at scanline 220 all three
+        // slot cursors sat at their BASES, so every entry that scan reported was residue;
+        // and zeroing the region then advancing exactly one frame yielded ONE 896 B entry,
+        // five trials, no variation. The charge is 896 B.
     if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
     .cap_per_line_dma_begin:
-        movea.l d0, a1
-        move.l  parallax_config.pcfg_deform_table_fg(a1), d0
-        or.l    parallax_config.pcfg_deform_table_bg(a1), d0
-        bne     .hs_line
-        // CAP_ANCHORS span (P2 §3.3), the anchor half of the mode key — the TWIN of
-        // parallax.emp's `cap_anchors_mode`. Same test, same elision, same `else`.
-    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
-    .cap_anchors_dma_begin:
-        cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch(a1)
-        beq     .hs_cell
-    .cap_anchors_dma_end:
-    } else {
-        jbra    .hs_cell
-    }
+        movea.l d0, a1                          // the splice reads the config through a1
+        parallax_mode_key(a1, .hs_cell)
     .hs_line:
         queue_static_dma(Static_Hscroll_Line)
         jbra    .hs_done
