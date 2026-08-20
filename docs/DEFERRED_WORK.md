@@ -5069,8 +5069,10 @@ constants and matched hardware exactly.
   remains of that list, needing owner sign-off, and the dense tier
   gained two NEW riders on the way out — the `-4(a2)` extension into `.dense_body`, which
   is now **CLOSED 2026-08-19** (branch `perf/dense-body-addressing`, measured 12 cyc/line;
-  see the closure block below), and the two trailing fires at ~600 cyc/frame, still OPEN
-  and the larger of the two, and not value-identical; Tier 4 / B2's
+  see the closure block below), and the two trailing fires, booked at ~600 cyc/frame and now
+  **CLOSED 2026-08-19** (branch `perf/dense-trailing-fires`) at **232 cyc/frame** — ONE fire
+  suppressed, not two, and the second is a slope cost rather than an intercept one; see that
+  closure block for the Ruling-1b re-derivation; Tier 4 / B2's
   self-test-only variant mirror also CLOSED 2026-08-19, see below), plus C5 footprint, the
   EFX-4b angle, and the zero-`assert.*` observation. Item 3's structural fix CLOSED 2026-08-19
   — not as the booked frame-epoch flag, which the measurement ruled out; see the block below.
@@ -5371,6 +5373,154 @@ raster half second (see the two blocks below).
 > `$8AFF` over the run's last `$8A00` and suppress both. It is NOT a value-identical change —
 > it alters the LEAVE schedule that a post-dense sparse record depends on — so it needs its own
 > parcel, its own authoring rule, and the dense scene to gate it. Booked, not taken.
+
+> **CLOSED 2026-08-19 — and the booking was HALF right, which is the finding** (branch
+> `perf/dense-trailing-fires`). `.dense_end` now falls into `.park`, and it suppresses **ONE**
+> trailing fire, not two: **232 cyc/frame per dense run**, measured, against the booked ~600.
+>
+> *The re-derivation, from the tree's own Ruling 1b.* An arm word written at fire i governs
+> `gap(i+1 -> i+2)`, so when a run ends the last TWO dense fires each have an every-line
+> `$8A00` in flight — the second-to-last line's schedules the fire at `last+1`, the last
+> line's the fire at `last+2`. The LEAVE edge runs INSIDE the last dense fire, so the only arm
+> it can still overwrite is that fire's own. The first trailing fire was already armed one line
+> earlier and is unreachable from there. `raster_cost_probe.py`'s own schedule note said
+> exactly this ("the first trailing fire consumes the second-to-last dense fire's arm, the
+> second consumes the LAST one's") and the booking read past it.
+>
+> *Why the other one is not worth buying.* Suppressing the first as well needs the
+> SECOND-TO-LAST line to park, i.e. a "one line remaining" test inside `.dense_body` — the
+> per-line path. The cheapest spelling costs ~4 cyc/line (the countdown's own flags answer
+> "zero", not "one", and the count lives in RAM), so it pays for itself only below ~60 lines
+> and both shipped runs are 96. The parcel's rule was intercept, never slope, and this is the
+> case where the two are in opposition. NOT TAKEN, deliberately.
+>
+> *A third framing, which is the one to remember.* These fires were never dense-tier overhead
+> — they are the SPARSE walk resuming, and they walk the terminator only because a dense
+> program has nothing after its run. The sparse tier never pays them: `raster_dsl` authors
+> `$8AFF` into its last TWO records from DATA, so a sparse schedule ends with zero wasted
+> fires and its terminator is pure defense. The dense tier could not do that because the arm
+> is written by the BODY at runtime. This parcel gives the dense tier half of what the sparse
+> tier has from data; the other half is not free, per the paragraph above.
+>
+> *What it costs the format, stated rather than rounded away.* The schedule now ENDS with a
+> dense run, bar the one fire already in flight. Nothing representable loses anything — the
+> dense tier is authorable only through `raster_gradient_program` / `raster_ramp_program`,
+> both fixed structs whose terminator follows the setup record immediately, and `raster_dsl`
+> has no dense-op constructor at all, so a post-dense record cannot be written today. A future
+> dense-then-sparse composition wants an authored LEAVE arm word in the op body (the sparse
+> tier's answer), not this pipeline leak. **Booked as such, above.** It also PULLS THE LAST
+> FIRE BACK INSIDE ACTIVE DISPLAY: a legal run ending at 222 used to fire on 223 and 224, the
+> second past `RASTER_VBLANK_V`; now no representable program fires in VBlank at all.
+>
+> *Predicted, then measured.* Prediction written before the build: `calls` 12/44, slope
+> UNCHANGED at 316.0, intercept `1512 -> ~1276` (one park fire nominally ~238, plus +2 at the
+> LEAVE edge where a 10-cycle `bra.s` is traded for a 12-cycle `move.w #imm,(a2)`).
+> Measured on `tools/raster_cost_probe.py`, same session, s4.debug `06af0010 -> 234ac35d`:
+>
+> | | before | after | delta |
+> |---|---|---|---|
+> | FD1 (8 lines) | 4040 / 13 fires | **3808 / 12 fires** | -232 |
+> | FD2 (40 lines) | 14152 / 45 fires | **13920 / 44 fires** | -232 |
+> | slope (FD2-FD1)/32 | 316.0 | **316.0** | 0 |
+> | intercept | 1512 | **1280** | -232 |
+> | F0 (sparse floor) | 588 | **588** | 0 |
+>
+> The delta is the SAME at both legs and the slope is bit-identical, which is the signature of
+> a cost charged once per run and to nothing else. 232 against the predicted 236 — four
+> cycles, the same direction the tables have missed by all week inside this handler.
+>
+> *And the full five-count sweep was re-run rather than re-scaled from the pair*, the way the
+> `-4(a2)` rider's was, so "once per run" is five points and not two:
+>
+> | lines | fires | `lines + 4` | cyc/frame | `1280 + 316 x lines` | delta vs pre-parcel |
+> |---|---|---|---|---|---|
+> | 8 | 12 | 12 | 3808 | 3808 | -232, -1 fire |
+> | 40 | 44 | 44 | 13920 | 13920 | -232, -1 fire |
+> | 80 | 84 | 84 | 26560 | 26560 | -232, -1 fire |
+> | 96 | 100 | 100 | 31616 | 31616 | -232, -1 fire |
+> | 120 | 124 | 124 | 39200 | 39200 | -232, -1 fire |
+>
+> Exact at every count. The two dense riders are mirror images in this table and that is worth
+> keeping: `-4(a2)` moved every leg by exactly `12 x lines` with the intercept frozen, this one
+> moves every leg by exactly 232 with the slope frozen.
+>
+> *Schedule walk, before and after* (`tools/raster_frame_epoch_probe.py`, ordered event walk
+> with cursor readback — the instrument that SEES schedule corruption). Cursor 26 is the
+> terminator record, which `.park` reads without advancing:
+>
+> | fixture | before | after |
+> |---|---|---|
+> | `dense 220+3->222` | `HHHHHHHHV` `[2,6,10,26,26,26,26,26]` | `HHHHHHHV` `[2,6,10,26,26,26,26]` |
+> | `dense 100+4->103` | `HHHHHHHHHV` `[2,6,10,26 x6]` | `HHHHHHHHV` `[2,6,10,26 x5]` |
+> | `sparse@222` (control) | `HHHV` `[2,6,10]` | `HHHV` `[2,6,10]` |
+> | `stall 222(spin 400)+224` | `HHHHV` `[2,2,6,10]` | `HHHHV` `[2,2,6,10]` |
+>
+> UNIFORM on every row, both sides. Exactly one `26` leaves each dense walk and nothing else
+> moves — including the stall fixture, i.e. the frame-rewind interlock still retires its stale
+> fire on cursor 2 without advancing and the frame's own walk still completes.
+>
+> *The derivation was updated, not patched.* `dense_fire_count` is `lines + 4` again — the
+> value it was FIRST derived as, when only one trailing fire was assumed, then corrected to
+> `lines + 5` by hardware. The same number for a different mechanism is exactly the trap this
+> lane exists to catch, so the pin no longer restates it: `tools/test_raster_wire_pin.py`
+> reads `raster.emp` and asserts `.dense_end` falls STRAIGHT into `.park`, with a poison that
+> puts the `jbra .out` back. `tools/effects_gates.py` now IMPORTS `dense_fire_count` instead
+> of spelling `+ 5` beside a paragraph explaining why — the two could not fail each other
+> before.
+>
+> *Bytes.* `Raster_HInt` **340 -> 338**, the only proc whose length changed (the removed
+> `bra.s`); 78 of 1024 symbols shifted and the placer's fill re-flowed, so s4.debug is 20
+> bytes shorter while the other three shapes are unchanged in length. Byte-moving, no
+> refreeze in this branch.
+>
+> *Lanes.* Four shapes green — s4 `e111dff7 -> d00dd11d`, s4.debug `06af0010 -> 234ac35d`,
+> demo `aae04929 -> 7db47b7b`, demo.debug `82884c07 -> 4c0a432d` (demo links the engine's
+> raster module, so it moves too). pytest **1107 passed / 2 skipped** (+1, the LEAVE-edge
+> poison). expect-fail **20/20**. Effects gate lane **23/23 PASS, exit 0**, with the dense
+> cost row now reading `lines + 4` and the sparse cost row unmoved (F0 588, F1 2508, F3 3818,
+> F4 4584, F5 3172, F8 4632 — every one exact against the shipped constants, which is the
+> control that says the sparse tier did not move). `ab_runner` OLD-vs-NEW on **all four**
+> effects scenes: **ALL EQUAL (gated)** — `state_hash`, both raster buffers, `active_buf`, and
+> the dense scene's `dense_state`. That was the ENUMERATED prediction and not a hope: the
+> suppressed fire wrote `$8AFF` over an `$8AFF` that was going to be there anyway, so no cell
+> ab_runner captures can see it, and the observable delta lives only in the fire count (epoch
+> probe) and the intercept (cost probe). The 1b sweep driver, run on OLD and NEW the same
+> hour with identical arguments: **byte-identical output** — 19 distinct `flipX` values,
+> CLEAN 8 / TOO EARLY 16 / TOO LATE 7, contiguous clean run `[(16, 23)]`, centre 19.5,
+> blanking plateau row 101 N 16..23. The sparse tier's blanking boundaries did not move, as a
+> dense-path-only change must not.
+>
+> *Two instrument traps, both hit here.* `ab_runner`'s `--new` takes the same ABSOLUTE-path
+> rule the cost probe documents for `--rom`: a relative path resolves against the EMULATOR's
+> cwd, and the first run of the dense scene reported a loud `DIFF` whose NEW side was
+> uninitialised RAM (`A0A0…`) rather than a schedule difference. And the committed effects
+> scenes hard-code `"symbols": "/home/volence/sonic_hacks/aeon/s4.debug.lst"`, the SHARED
+> checkout — which another agent was rebuilding mid-run. Only RAM symbols are read so it
+> survives, but a worktree parcel should point the scenes at its own `.lst` (copy them; do not
+> edit the committed ones).
+>
+> **A RIDER THIS PARCEL FOUND AND DID NOT TAKE — the per-line arm write may be redundant,
+> and it is a SLOPE item.** Both dense bodies open with
+> `move.w #RASTER_ARM_EVERY_LINE, (a2)`, i.e. they re-write reg $0A = 0 on EVERY scanline of
+> the run. reg $0A is a latched VDP register, not a counter: the HInt counter reloads FROM it
+> and the register keeps its value until something writes it. Entering a run, reg $0A is
+> already 0 — the setup record's own arm word (`rgp_arm2 = RASTER_ARM_EVERY_LINE`) was written
+> by the sparse walk at the setup fire — and nothing on the dense path touches reg $0A except
+> these writes and, now, the LEAVE park. If that reading is right the write is pure redundancy
+> from the second dense line onward and removing it is **12 cyc/line** — 1,152 cyc/frame on a
+> 96-line run, five times this parcel and on the SLOPE rather than the intercept.
+>
+> **UNVERIFIED, deliberately.** It was found while re-deriving the LEAVE schedule, it is a
+> different change (per-line, not per-run), and this handler has over-predicted and
+> under-predicted four edits this week — so it is booked rather than smuggled in. The
+> experiment is cheap and already built: delete the two writes, run
+> `tools/raster_cost_probe.py --only F0,FD1,FD2` (the slope must drop by 12 and the intercept
+> must NOT move) and `tools/effects_gates.py`'s `scene:dense` row (the dense cursor must still
+> end at `stream + lines * 3` words, which is only true if the body ran exactly `lines`
+> times). Two failure modes to look for and neither is visible in the cycle figure: a run
+> whose first line does NOT inherit reg $0A = 0 from the setup record (any future program
+> shape where the setup fire is not the one immediately before the run), and any path that
+> writes reg $0A between two dense lines.
 
 > **CLOSED 2026-08-19 — Tier-3 item 2, the dispatch chain** (branch
 > `perf/raster-dispatch-chain`, commit `0b1ad989`). Line numbers had drifted: the chain is at

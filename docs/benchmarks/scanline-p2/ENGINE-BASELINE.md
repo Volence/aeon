@@ -352,6 +352,15 @@ derived (8 and 40):
 Exact at every count. Which is what makes the shipped program's 100 / 32758 a real anomaly
 rather than a modelling limit.
 
+**SUPERSEDED 2026-08-19 by the dense LEAVE parcel** (branch `perf/dense-trailing-fires`,
+`docs/DEFERRED_WORK.md`'s closure block). Everything above is a record of its date and stays
+as written; two of its quantities have since moved. `Raster_HInt`'s `.dense_end` now falls
+into `.park`, which suppresses the SECOND of the two trailing fires, so **fires are
+`lines + 4`** and the **intercept is 1280**, not 1512. The per-line slope did not move
+(316.0 either side), which is the whole point of the change — it is charged once per run.
+The `-242` shipped-vs-poked anomaly was NOT re-measured here; both sides drop by the same
+232 and one fire, so it is expected to stand.
+
 ---
 
 ## 4b. Max contiguous DMA stall (Task 5) — UNMEASURABLE, and that is the finding
