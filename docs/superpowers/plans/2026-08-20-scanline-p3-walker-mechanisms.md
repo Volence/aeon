@@ -865,6 +865,17 @@ hits, and no sprite-mask auto-placement code exists anywhere.
 
 **Depends on:** Task 4 (axis 5's reservation). **This task is what gives axis 5 a subject.**
 
+> **Task 4's flag (2026-08-20, `axis5_task12_flag` in the toml): the one-slot pricing above is
+> WRONG at the engine's shipped mask geometry.** `InsertSpriteMasks` emits 8×32 mask sprites
+> (SPRITE_MASK_SIZE 1×4 cells, SPRITE_MASK_HEIGHT 32) and rounds coverage up, so a full-height
+> 224-line column costs **ceil(224/32) = 7 SAT slots, not 1**. Step 2's "one engine-reserved
+> SAT slot" must become: accept 7 slots against the measured reservation (idle headroom 77
+> table slots / 18 per-line sprites — the axis gates on the PER-LINE count, where the column
+> costs 1/line regardless of slot count), bound the mask's height, or introduce a taller mask
+> primitive. Also from Task 4: the X=0 mask's first-sprite-on-line exemption makes it inert on
+> lines with no earlier-linked sprite — verify the masking actually engages per line. Do not
+> silently ship 7 against a budget written for 1.
+
 **Files:**
 - Modify: `engine/level/scene_dsl.emp` (the mandatory declaration + the enum)
 - Modify: `engine/level/parallax.emp` or the object system (the reserved SAT slot)
