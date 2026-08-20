@@ -243,7 +243,64 @@ anchored overlay adds −2 for a third `moveq #0` = **−8** on sonic4. The four
 that changed width (`move.b` ↔ `move.w` at offsets 0 and −10) are the same size and contribute
 nothing. The other seven pinned rows are unchanged.
 
-### 4.5 Lanes
+### 4.5 The cost model — re-fit, and `multiband` re-measured rather than retired
+
+`python3 tools/parallax_cost_probe.py --repeat 1` · 26 fixtures · **spread 0 on every
+fixture, exit 0** · run alone, ~2 min wall on a machine at load 7–9 (uptime 09:27:56 →
+09:29:5x — **not an idle-machine figure**; a concurrent session was busy). Every window is
+verified preemption-free (frames/ticks 31/31, lag 0 on all 26), so the cycle rows are
+unaffected by that load even though the wall clock is.
+
+**The baseline is `postunroll_*`, not the older committed rows** — those are stale by the
+fill-unroll parcel, as `REGLUE-INSTRUMENT.md` §8 records. Booked under `reglue_*` in
+`tools/effects_budget_model.toml`.
+
+**The un-anchored subset residual is still EXACTLY 0.00 over the same 18 fixtures.** Four
+columns moved and every one derives to the instruction:
+
+| column | postunroll | reglue | Δ | derivation |
+|---|---|---|---|---|
+| `base` | 3144.00 | **3116.00** | −28 | Step 4a per call: `lsr.w #3, d0` deleted (−12) + the single copy-loop iteration's `moveq #0, d3` (−4) and `lsl.w #3, d3` (−12). W0 *is* `base` (1 band, per-cell). |
+| `band_percell` | 772.00 | **752.00** | −20 | copy-loop −16, plus `Parallax_Fill_PerCell`'s `.next_band` `moveq #0, d4` (−4) — the widened `move.w` needs no zero-extend |
+| `band_perline` | 874.00 | **854.00** | −20 | copy-loop −16, plus `Parallax_Fill_PerLine`'s `.have_end` `moveq #0, d5` (−4) |
+| `multiband` | 24.00 | **20.00** | −4 | `.find_k`'s body `moveq #0, d3` |
+| `anchor` | 985.6 | 981.4 | −4.2 | Step 4b's `.anchor_find_k` `moveq #0, d2`, once per call — inside the term's own residual band, so consistent rather than a second measurement |
+| `anchor_ops` | 61.65 | 60.77 | −0.88 | ditto |
+| `line_mode`, `line_fg_only`, `line_bg_only`, `line_both`, `shift_lines`, `band_sampling`, `vdeform` | — | unchanged | 0 | all seven |
+
+**`multiband` is RE-MEASURED at 20.00, not retired.** The plan asked for that verdict
+explicitly ("if the new form has no once-at-two-bands cost, REMOVE the indicator column").
+It has one: the new Step 4a still seeks, because the even-spacing arithmetic collapse was
+declined (§2). Every fixture has `k = 0`, so `.find_k`'s body runs **exactly once** — the
+column *is* that one `moveq`, and the −4 is its cost. The indicator keeps its subject.
+
+| residual | postunroll | reglue |
+|---|---|---|
+| un-anchored subset (18) | 0.00 | **0.00** |
+| all 26 fixtures | 43.2 | 43.6 |
+| overlay term (8) | 58.3 | 58.9 |
+| out of sample | model 13646.4 / measured 13798 / **+1.10%** | model 13542.7 / measured 13834 / **+2.11%** |
+
+**The out-of-sample gap grew and the measured value rose by 36 cycles while every column
+got cheaper — say why rather than let it read as a regression.** The shipped config's
+**band geometry moved**: its shadow tops are now `0/46/80/110/224` where they were
+`0/48/80/112/224`. That is the partial offset, which is the point of the parcel, so the
+band spans — and therefore the per-line work composition — are not the same work as before.
+Same walker, different bands. The gap is also dominated by the anchored overlay term, whose
+own residual is ±58.9 over 8 fixtures, and the shipped config is anchored.
+
+**One instrument defect was found by this run and fixed before the rows were taken**, which
+is worth recording because all three of its faces looked like an engine bug or a pass:
+three readers of the band top were still byte-wide against a now-16-bit field
+(`parallax_cost_probe.py`'s fixture-arm hex parse, the same parse in
+`parallax_hscroll_identity.py`, and `parallax_hscroll_probe.py`'s `stage_a` comparing the
+top against `want & 0xFF`). The first made every shadow top read as its always-zero high
+byte, so anchored fixtures reported "shadow tops IDENTICAL — no split" and un-anchored ones
+reported "slot band_count was WRITTEN": twelve fixtures refused for a defect in the reader.
+The `--sweep` arm was already correct because it goes through `be_top`, which is why §4.1
+and §4.2 were green before this surfaced.
+
+### 4.6 Lanes
 
 * `python3 -m pytest tools/ -q` → **1180 passed, 3 skipped, 0 failed** (with
   `AEON_SKDISASM_DIR` exported; without it 9 tests fail on a missing donor tree, which is an
