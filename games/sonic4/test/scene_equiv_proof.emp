@@ -68,7 +68,7 @@
 module games.sonic4.scene_equiv_proof
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N}
 // Named for the two `hdr()` guards that fire inside the ORACLE's body when it is called
 // from here: a comptime fn's free names resolve at the call site. Both modules are sigil
 // COMPTIME_HELPERS (so these would also arrive glob-injected), and both are named anyway —
@@ -272,19 +272,45 @@ pub comptime fn cfg_eq(a: parallax_config, b: parallax_config) -> int {
 // message lives at the call site, where the index is already a literal. A third parameter
 // read by nothing would be a parameter every reader has to check for meaning.
 // ---------------------------------------------------------------------
-pub comptime fn band_eq(a: band_entry, b: band_entry) -> int {
+// THE FIRST ARGUMENT IS A `band_record`, THE SECOND A `band_entry`, and the asymmetry is
+// the point since P3 Task 8. The lowering returns the capability-shaped record; the oracle
+// builds the legacy entry, which is the only shape a no-new-capability game may lower to
+// (design 3.1). So comparing the record's `.br_base` against it IS the section 8.1 claim —
+// and the extension half is pinned separately below, because a field-wise compare cannot
+// see bytes that exist in only one operand.
+pub comptime fn band_eq(a: band_record, b: band_entry) -> int {
+    // THE ONE-DOT SPLIT, the same one scene_caps() and scene_band() carry: `a.br_base.f` is
+    // not a resolvable name (`unknown name a.br_base.band_top_plane`, 67 of them in one
+    // build, measured 2026-08-20) — field access does not chain, so the prefix is bound
+    // first and read one dot at a time.
+    let base = a.br_base
     comptime var idx = -1
-    if a.band_phase_offset != b.band_phase_offset { idx = 8 }
-    if a.band_deform_shift_b != b.band_deform_shift_b { idx = 7 }
-    if a.band_deform_shift_a != b.band_deform_shift_a { idx = 6 }
-    if a.band_factor_ops != b.band_factor_ops { idx = 5 }
-    if a.band_factor_b_s2 != b.band_factor_b_s2 { idx = 4 }
-    if a.band_factor_b_s1 != b.band_factor_b_s1 { idx = 3 }
-    if a.band_factor_a_s2 != b.band_factor_a_s2 { idx = 2 }
-    if a.band_factor_a_s1 != b.band_factor_a_s1 { idx = 1 }
-    if a.band_top_plane != b.band_top_plane { idx = 0 }
+    if base.band_phase_offset != b.band_phase_offset { idx = 8 }
+    if base.band_deform_shift_b != b.band_deform_shift_b { idx = 7 }
+    if base.band_deform_shift_a != b.band_deform_shift_a { idx = 6 }
+    if base.band_factor_ops != b.band_factor_ops { idx = 5 }
+    if base.band_factor_b_s2 != b.band_factor_b_s2 { idx = 4 }
+    if base.band_factor_b_s1 != b.band_factor_b_s1 { idx = 3 }
+    if base.band_factor_a_s2 != b.band_factor_a_s2 { idx = 2 }
+    if base.band_factor_a_s1 != b.band_factor_a_s1 { idx = 1 }
+    if base.band_top_plane != b.band_top_plane { idx = 0 }
     return idx
 }
+
+// THE CAPABILITY-OFF SIZE PIN — the half `band_eq` structurally cannot check.
+//
+// All sixty-seven field-wise proofs below run through `.br_base`, so they would go on
+// passing unchanged if the lowering started appending an extension to every record. This
+// game leaves CAP_MULTI_DEFORM_TABLE clear and design 3.1 says such a game lowers to the
+// legacy 10-byte entries BYTE-IDENTICALLY. That is a SIZE claim, so it is asserted as one,
+// here, in the witness whose whole job is this claim.
+//
+// DERIVED, NOT COPIED: the expectation is `sizeof(band_entry)` — the legacy struct itself —
+// never a typed-out 10 and never a number read off a neighbouring pin.
+//
+// PROVEN RED (2026-08-20): with BAND_EXT_N flipped to 1 this fails reporting 20 against 10.
+ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 || sizeof(band_record) == sizeof(band_entry),
+       "scene equivalence witness: this game leaves CAP_MULTI_DEFORM_TABLE clear, but the lowered band record is {sizeof(band_record)} bytes against the legacy entry's {sizeof(band_entry)} — design 3.1 requires the zero-capability path to emit legacy bytes, and the field-wise proofs below run through .br_base and cannot see a trailing extension")
 
 // =====================================================================
 // THE TWENTY PROOFS. Order is configs.emp's declaration order, which is also the registry

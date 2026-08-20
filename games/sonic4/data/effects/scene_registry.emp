@@ -41,9 +41,18 @@
 module games.sonic4.scene_registry in scene_registry
 
 // The two ROM record types the lowering targets. `parallax_config` is the 28-byte
-// header; `band_entry` is the 10-byte band.
+// header; `band_record` is the band — the 10-byte legacy `band_entry`, plus a per-layer
+// deform extension in a game that declares CAP_MULTI_DEFORM_TABLE (P3 Task 8, design 3.1).
+// This game does not, so every array below is the size it has always been.
+//
+// ALL FOUR NAMES ARE IMPORTED AND ALL FOUR ARE LOAD-BEARING. `band_record`'s declaration is
+// re-elaborated in THIS module's name environment, so `band_entry`, `band_ext` and
+// BAND_EXT_N have to resolve here even though nothing in this file spells them: drop one
+// and the build fails pointing at engine/level/parallax.emp, naming a type that file
+// plainly declares (measured 2026-08-20 — 40 diagnostics at a declaration site that was
+// correct).
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N}
 // GLOB IMPORTS, BOTH MANDATORY, AND NOT A STYLE CHOICE. A comptime fn's free names
 // resolve at the CALL SITE, so scene()/scene_caps()/scene_hdr() bodies reach their
 // helpers through whatever is in scope HERE. A selective `use ...{scene, layer}` is
@@ -68,10 +77,10 @@ use engine.level.parallax_dsl.*
 // their shape + lowering are not written. Adding one is a mechanical copy of the pair
 // below — a struct line and a lowerN with N `scene_band` terms.
 // =====================================================================
-struct SceneCfg1 { hdr: parallax_config, bands: [band_entry; 1] }
-struct SceneCfg2 { hdr: parallax_config, bands: [band_entry; 2] }
-struct SceneCfg4 { hdr: parallax_config, bands: [band_entry; 4] }
-struct SceneCfg5 { hdr: parallax_config, bands: [band_entry; 5] }
+struct SceneCfg1 { hdr: parallax_config, bands: [band_record; 1] }
+struct SceneCfg2 { hdr: parallax_config, bands: [band_record; 2] }
+struct SceneCfg4 { hdr: parallax_config, bands: [band_record; 4] }
+struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
 
 // ---------------------------------------------------------------------
 // lowerN — the emission fold for a scene with exactly N real layers.
@@ -204,6 +213,34 @@ pub const SCENES: [Scene; 20] = [
 // because a declared subset would be a wrong picture on hardware and a declared superset
 // only forgoes a P2 specialisation.
 // =====================================================================
+// ---------------------------------------------------------------------
+// THE RECORD-SHAPE PIN (P3 Task 8) — the capability is the authority, this holds the
+// engine's mirror to it.
+//
+// engine/level/parallax.emp's BAND_EXT_N decides whether a lowered band carries the
+// per-layer deform extension, and it CANNOT read Game.SCANLINE_CAPS: the context that lays
+// out an emitted record's type does not bind contract members (`unknown name
+// Game.SCANLINE_CAPS`, twenty of them, measured 2026-08-20 — the full evidence and the
+// sigil-side fix are in docs/benchmarks/scanline-p3/EXTENDED-RECORD.md and
+// docs/DEFERRED_WORK.md). This module is where both numbers ARE visible, so this is where
+// they are pinned together.
+//
+// TWO ENSURES, NOT ONE, BECAUSE BOTH DIRECTIONS ARE REAL FAULTS — the same reasoning the
+// VDP_Shadow_len equality above it uses, and the opposite of the capability SUBSET test
+// below, which is one-sided on purpose. A game that raises the bit while the engine record
+// stays legacy gets a lowering that silently drops the per-layer refs the scenes demand. A
+// game that leaves the bit clear while the record carries the extension pays 10 bytes per
+// band of ROM and RAM for a field nothing reads, and breaks design 8.1's byte-identity
+// claim with no other symptom.
+//
+// PROVEN RED, both arms (2026-08-20): flipping BAND_EXT_N to 1 against this game's $001F
+// fails with the second message; narrowing the test's bit to one the game DOES declare
+// (CAP_DEFORM, $0004) fails with the first.
+ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) == 0 || BAND_EXT_N == 1,
+       "this game declares CAP_MULTI_DEFORM_TABLE in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} — the lowered band record would carry no per-layer deform extension while the scenes demand one. Set BAND_EXT_N to 1 and widen BAND_ENTRY_LEN in engine/ram.emp by sizeof(band_ext)")
+ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 || BAND_EXT_N == 0,
+       "engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} but this game does NOT declare CAP_MULTI_DEFORM_TABLE (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_ext) bytes of ROM and shadow RAM that nothing reads, and the zero-capability lowering would stop being byte-identical to the legacy one")
+
 pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 
 // THE VERIFY. `folded ⊆ declared`, never equality.

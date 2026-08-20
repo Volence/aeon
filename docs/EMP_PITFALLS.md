@@ -138,7 +138,56 @@ regardless, and it is what keeps the tree clear of the hole.
 When an effect "fires but nothing changes," disassemble the built ROM bytes (capstone)
 before trusting the source.
 
-## 8. The universal countermeasure: inversion
+## 8. A struct declaration is re-elaborated in every module that IMPORTS it
+
+**Trap:** importing a struct pulls its *declaration* into the importing module's name
+environment, so every name in its size annotation and in its array lengths must resolve
+THERE too — including names the importing module never spells. A partial import fails
+**pointing at the declaration**, in the defining file, naming a type that file plainly
+declares (measured 2026-08-20, scanline P3 Task 8):
+
+```
+[Error] unknown type: band_entry @ engine/level/parallax.emp   <- the file that declares it
+[Error] expected an integer, got label                          <- a const the same file declares
+```
+
+Forty of them from one missing name in one `use` line, all blaming an innocent file. The
+declaration itself was correct and built green in isolation.
+
+**Rule:** when a struct's declaration names helpers (`sizeof(other)`, an extension struct, a
+count const), import the WHOLE set everywhere the struct is imported, and say so at the
+declaration. Diagnosing this from the message alone is close to impossible — the reported
+site is never the broken one.
+
+## 9. Contract members (`Game.*`) do not exist in layout or harvest contexts
+
+**Trap:** `Game.SCANLINE_CAPS` folds fine in a proc body and in an ordinary module-scope
+`ensure`, so it reads as generally available. It is not. Three contexts have no contract
+binding at all (each measured 2026-08-20):
+
+- **the layout of an emitted `data` binding's record type** — `unknown name
+  Game.SCANLINE_CAPS`, once per emitted record;
+- **`harvest_engine_struct_offsets`** — the ambient `STRUCT_OFFSET_TWINS` layout is one file
+  plus `types.emp`, no profile, no defines, no contract. A `Game.*` in a harvested struct's
+  size expression kills the build before a byte is emitted;
+- **`harvest_engine_ram_addresses`** — the focused `use engine.ram`-only build, so
+  `engine/ram.emp` cannot size a reservation by capability either.
+
+Inside a **`comptime fn` body** it is worse than absent: it degrades to a LABEL (`` `&` not
+defined for label and int ``), which is the section-2 call-site-resolution rule biting a contract
+member.
+
+A **build define IS visible in all three** (`DEBUG` sizes a struct correctly and builds
+byte-identically), which is the shape of the fix: an `emp_defines` row per game, the
+`MAX_RING_BUFFER` pattern, cross-pinned to the contract member in a module that can see both.
+
+**Rule:** anything a LAYOUT depends on must come from a define, a literal, or a same-file
+const — never from `Game.*`. If the value is genuinely a per-game contract member, carry it
+as a pinned mirror and put the two-directional `ensure` in a module where both names are
+visible (`games/sonic4/data/effects/scene_registry.emp` is the worked example) — and book
+the define, because one engine constant cannot serve two games that disagree.
+
+## 10. The universal countermeasure: inversion
 
 Every trap above was either caught by, or is best defended by, making the guard fail on
 purpose: flip the predicate false and watch the build go red; perturb the pinned constant

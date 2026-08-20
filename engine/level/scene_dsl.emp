@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -1447,7 +1447,18 @@ pub comptime fn scene_plane_line(s: Scene, wy: int) -> int {
     return pl
 }
 
-// scene_band — the 10-byte band entry for layer `i`.
+// scene_band — the band RECORD for layer `i`: the 10-byte legacy entry, plus the per-layer
+// deform extension in a game that declares CAP_MULTI_DEFORM_TABLE (P3 Task 8, design 3.1).
+// With BAND_EXT_N at 0 — both shipped games — this lowers to exactly the bytes it always
+// did, which is what the section 8.1 witness pins.
+//
+// THE EXTENSION ARM BELOW IS DEAD IN EVERY SHIPPED GAME, and dead code is not coverage:
+// nothing raises the bit until Task 9 authors `deform: own(...)`, so the only evidence the
+// arm emits correctly is Task 8's spike (docs/benchmarks/scanline-p3/EXTENDED-RECORD.md,
+// ROM bytes in both arms). Its reachability belongs on Task 15's poison list. The `if` is
+// single-level in expression position ON PURPOSE — a NESTED if-expression yields unit
+// silently (docs/EMP_PITFALLS.md section 1), which here would fold the extension array away
+// with no diagnostic.
 //
 // P3 TASK 7 RESHAPED THE RECORD WITHOUT RESIZING IT (see parallax.emp's band_entry
 // banner): the top is a u16 PLANE LINE via scene_plane_line(), and the two 1-bit factor
@@ -1456,7 +1467,7 @@ pub comptime fn scene_plane_line(s: Scene, wy: int) -> int {
 // The factor split is band()'s, transcribed inline (a shared helper would be an imported
 // name inside a body — see the pin block): bits 0-3 shift1, bits 4-7 shift2, bit 8 op.
 // See parallax_dsl.packed() for the encoding's authority.
-pub comptime fn scene_band(s: Scene, i: int) -> band_entry {
+pub comptime fn scene_band(s: Scene, i: int) -> band_record {
     let n = s.sc_count
     ensure(i >= 0 && i < n,
            "scene_band(): layer index {i} is outside the scene's {n} real layers — the padding entries past sc_count are not lowerable")
@@ -1476,15 +1487,19 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_entry {
     if ((fb >> 8) & 1) != 0 {
         ops = ops | 2
     }
-    return band_entry{
-        band_top_plane:      scene_plane_line(s, wy),
-        band_factor_a_s1:    fa & 15,
-        band_factor_a_s2:    (fa >> 4) & 15,
-        band_factor_b_s1:    fb & 15,
-        band_factor_b_s2:    (fb >> 4) & 15,
-        band_factor_ops:     ops,
-        band_deform_shift_a: l.ly_dsa,
-        band_deform_shift_b: l.ly_dsb,
-        band_phase_offset:   l.ly_phase,
+    return band_record{
+        br_base: band_entry{
+            band_top_plane:      scene_plane_line(s, wy),
+            band_factor_a_s1:    fa & 15,
+            band_factor_a_s2:    (fa >> 4) & 15,
+            band_factor_b_s1:    fb & 15,
+            band_factor_b_s2:    (fb >> 4) & 15,
+            band_factor_ops:     ops,
+            band_deform_shift_a: l.ly_dsa,
+            band_deform_shift_b: l.ly_dsb,
+            band_phase_offset:   l.ly_phase,
+        },
+        br_ext: if BAND_EXT_N == 1 { [ band_ext{ bx_deform_table_a: 0, bx_deform_table_b: 0,
+                                                        bx_deform_speed_a: 0, bx_deform_speed_b: 0 } ] } else { [] },
     }
 }

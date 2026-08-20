@@ -52,6 +52,54 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20
+
+**Blocked on: sigil.** Aeon-side work is done and shipped byte-identically; this is the one
+edit that turns a pinned mirror back into a derivation.
+
+**The ask, in one line:** expose each game's declared `SCANLINE_CAPS` as an `emp_defines`
+row (`crates/sigil-harness/src/native.rs`, beside `MAX_RING_BUFFER` / `HAS_ACT_ART_POOL`),
+so it is visible where contract members are not.
+
+**Why.** Design §3.1 makes record shapes capability-dependent: `band_record` carries a
+per-layer deform extension only in a game whose mask includes `CAP_MULTI_DEFORM_TABLE`. The
+natural spelling is
+
+```emp
+pub const BAND_EXT_N = if (Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 { 1 } else { 0 }
+```
+
+and it does not compile. **Three separate contexts refuse it, each measured 2026-08-20:**
+
+| context | what happens |
+|---|---|
+| the layout of an emitted `data` binding's record type | `unknown name Game.SCANLINE_CAPS`, **once per emitted record** (20, one per shipped config) |
+| `harvest_engine_struct_offsets` (the ambient STRUCT_OFFSET_TWINS layout: one file + `types.emp`, no profile, no defines, no contract) | `harvest_engine_struct_offsets: layout band_entry: unknown name Game.SCANLINE_CAPS` — the build dies before a byte is emitted |
+| `harvest_engine_ram_addresses` (the focused `use engine.ram`-only build) | `ram harvest build_program: unknown name Game.SCANLINE_CAPS` — so `engine/ram.emp` cannot size a reservation by capability either |
+
+A **build define is visible in all three.** Driving `BAND_EXT_N` off `DEBUG` sized
+`band_record` correctly and built `s4.debug.bin` **byte-identically** (`d7b36f90`), which is
+what makes this ask concrete rather than speculative: the mechanism is finished and proven,
+only its input is out of reach.
+
+**What shipped instead, and its exact ceiling.** `BAND_EXT_N` is a literal in
+`engine/level/parallax.emp`, pinned two-directionally against `Game.SCANLINE_CAPS` in
+`games/sonic4/data/effects/scene_registry.emp` (where both names ARE visible), with the
+shadow-RAM reservation and `PARALLAX_STATE_LONGS` pinned to the record's own size. Both pin
+directions are proven red. So a capability flip is a loud, one-constant edit rather than a
+silent wrong lowering — **but one engine constant cannot be 0 for one game and 1 for
+another, so this tree cannot carry two games that disagree about the bit.** That is the
+whole of what the define buys, and it is why this is booked rather than closed.
+
+**Secondary, same seam, optional:** `band_entry`'s membership in `STRUCT_OFFSET_TWINS` is
+what forces the legacy/extension split into two structs. It is harvested for exactly one
+consumer — `engine/ram.emp`'s `ensure(extern("band_entry_len") == BAND_ENTRY_LEN)`. If the
+define lands, that harvest row could be retired and the extension folded back onto
+`band_entry`. Not required; noted so the next reader does not re-derive the split.
+
+**Evidence:** `docs/benchmarks/scanline-p3/EXTENDED-RECORD.md`. **Landed:** `a1d66b51`,
+`cb49a3ab`, `6c434695` on `p3/t8-extended-record`.
+
 ### AURORA SPRITE-EXPORT CONSUMER — booked 2026-08-20 (Aurora asks, owner-ratified their side; format ruling made here)
 
 Aurora's sprite export spine (June) ends at our doorstep: a real export sits in
