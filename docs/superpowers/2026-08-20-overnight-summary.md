@@ -20,11 +20,23 @@ Suite green throughout: sigil `3752 passed / 0 failed`, aeon pytest 1177/3 skips
 Opened on your ruling last evening; closed this morning, six measured parcels later.
 **2.067 → 1.192 frames/tick at sustained max-diagonal; work/tick 190,931 → 123,016 (−35.6%), now under the 128,000 line on the mean.** Full story with corrected bookings: `docs/benchmarks/streaming/ARC-CLOSEOUT.md`. The honest residual: the last 0.192 is **tick-to-tick variance** (5 of 31 frames still spike past the line) — nothing has measured which ticks and why. That's the named successor, and oracle's per-frame profiler rows are the purpose-built instrument for it once the corpus A/B lands on their side.
 
-## P3 Phase 0 (instruments-first)
+## P3 Phase 0 — COMPLETE (instruments-first, all four merged)
 
-- **T1 done** — the anchor's "two regimes" never existed: both were instrument defects (per-frame rows at 30/31 truth + a missing shift term). Anchor = 982.2 + 59.27×overlay_trips, model residual 195.9 → 13.3.
-- **T2 done** — hscroll ramp probe, proven red before any curve exists.
-- **T3 + T4 dispatched** (in flight as of this writing): the re-glue/transition-frame instrument and the axis-5 SAT reservation. They finish Phase 0; the checkpoint then gates Tasks 10/12.
+- **T1** — the anchor's "two regimes" never existed: both were instrument defects (per-frame rows at 30/31 truth + a missing shift term). Anchor = 982.2 + 59.27×overlay_trips, model residual 195.9 → 13.3.
+- **T2** — hscroll ramp probe, proven red before any curve exists.
+- **T3** — the re-glue instrument: 18-position vertical sweep exact (poison 18/18 red first), and the synthesized transition frame measured — surcharge ~+900-1,100 cyc on `Parallax_Update`, +0 DMA bytes. Closes P2 Task 12's blocker (b); blocker (a) (the Label-typed section→scene join) stays open. Also found: the plan's "differ-in-HScroll-mode" transition pair doesn't exist in shipped content (all 20 scenes attach H-deform), and `[parallax.cost_model]` was stale post-unroll — re-measured rows booked as `postunroll_*` for Task 13.
+- **T4** — axis 5's denominator measured (idle: 3/80 SAT slots, worst line 2/20 sprites); ruling: the axis gates on the per-line sprite count. **Design-changing flag: the left-column mask really costs 7 SAT slots full-height, not the 1 the plan priced** — carried onto Task 12's section.
+- **Checkpoint passed** → Phase 1 open. T5 (CAP-bit promotion, zero-byte) dispatched.
+
+## The profiler corpus A/B PASSED — and revised our own margin
+
+Oracle's evidence doc (`oracle/docs/2026-08-20-profiler-corpus-ab.md`) validated their new
+profiler cycle-exact against ours, and found the OLD instrument accounts for only **78.45%**
+of a maxdiag frame. Consequences, all booked (aeon `971ef142`): the migration ledger is
+flipped; the dense −242 anomaly resolved as our old instrument's defect (measured == model);
+the arc's "mean 4,984 under the line" is **downgraded to a hypothesis** (the frames/tick
+figures stand — they're direct tick counts). The honest retake + the tick-variance spike
+hunt are running as one parcel on the new instrument (dispatched, in flight).
 
 ## Waiting on you (unchanged, no action taken)
 
