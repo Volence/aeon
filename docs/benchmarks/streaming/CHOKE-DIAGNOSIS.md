@@ -562,6 +562,48 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
   `Camera_X`/`Camera_Y` verified equal at the sample point. Exact `Block_Stage_Gen`
   decompress counts are unchanged at every state (0 / 4.53 / 0.48 / 0.65 per tick) — F1
   changes no scheduling.
+* **The four AB raster scenes CANNOT return ALL EQUAL against a tick-rate change, and that is
+  a fact about the scenes, not about F1.** `ab_runner` (`--selfcheck`, so each side is proven
+  deterministic first) reports DIFFERENCES on 3 of 4 at the shipped tail and on 3 of 4 at an
+  extended 120-frame tail. The **control settles it**: running the BASELINE ROM against
+  ITSELF at settle 180 vs 181 reproduces *exactly the same difference set*, scene for scene —
+
+  | scene | components differing, F1 vs base | components differing, base@180 vs base@181 |
+  |---|---|---|
+  | `mid_band` | `vram`, `active_buf` | `vram`, `active_buf` |
+  | `above_screen` | `vram`, `active_buf` | `vram`, `active_buf` |
+  | `dense` | `vram`, `dense_state` | `vram`, `dense_state` |
+  | `suppressed` | `active_buf` only | `active_buf` |
+
+  and at settle 182 `active_buf` returns to EQUAL — a strict parity alternation of the raster
+  double buffer. In every scene, under BOTH F1 and the pure phase shift, `Raster_Buf_A`,
+  `Raster_Buf_B`, `cram`, `vsram`, `regs` and the scene's screen read are **EQUAL**. The
+  moving parts are the double-buffer parity and the tick-driven BG animation phase in VRAM;
+  F1 makes the engine finish sooner, so after a FIXED number of video frames it is one logic
+  tick further along. **The content check that does discriminate is `effects_gates`' own
+  four `scene:*` determinism + shape gates, which PASS on the F1 ROM with the exact pinned
+  words** (`mid_band` word1=0x8a61 word3=0x8a79, `suppressed` 0x8adb/0x8aff, `above_screen`
+  0x8a00/0x8ada, `dense` 96 body runs / cursor `0x012f82`). Book this for the arc: **F2 will
+  hit the same wall**, and the control is the discharge.
+* **Lanes.** `effects_gates` **23/23** (22 in the batch + `raster_source` PASS on its own
+  re-invocation; the batch run WEDGED it at 240 s twice — the known oracle stop-race, not a
+  result). pytest **1118 passed / 3 skipped** (baseline aggregate, unchanged). `emp_expect_fail`
+  **20/20**. `s4lint` clean, `effects_budget_check` 31 rows agree, `verify_level_bin` OK,
+  `warp_mailbox_gate` **10/10** (the warp's reseed path crosses this machinery — it runs
+  `PageCache_ResetRefcounts` then refills, and under the latch every assigned frame stays
+  rc-0/EVICTABLE-or-PINNED, which is exactly what the audit's direct-regime arm expects).
+  The 1b sparse-raster sweep is **untouched and cannot move**: F1 emits no raster op, changes
+  no HInt/VInt table, no palette and no plane-build path, and its nametable/collision output
+  is byte-identical — there is no channel by which a scanline program could differ.
+* **Four-shape ROM record** (all four move — this is engine code):
+
+  | shape | baseline (`76afd279`) | F1 | Δ |
+  |---|---|---|---|
+  | `s4.bin` | `d00dd11d` / 698,411 | `8cf11323` / 698,517 | +106 |
+  | `s4.debug.bin` | `2191bfdc` / 713,905 | `47111ae9` / 714,234 | +329 |
+  | `demo.bin` | `7db47b7b` / 95,733 | `277fd798` / 95,850 | +117 |
+  | `demo.debug.bin` | `30696400` / 100,132 | `fa6c086e` / 100,454 | +322 |
+
 * **Cost.** `s4.debug.bin` 713,905 → 714,234 B (+329); `s4.bin` 698,411 → 698,517 B (+106).
   RAM: **unchanged** — the latch consumes an existing word-align pad byte at `$FFB833`, and
   every RAM symbol keeps its address (`Tile_Cache_Nametable`, `Page_Table`, `Page_Frames`,

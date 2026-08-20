@@ -115,6 +115,14 @@ ref/unref pair, servicing an eviction that cannot occur while `PageIn_Fully_Resi
   variants-got-mixed detector), no nametable word referencing an unassigned frame (the
   no-dangling-index property the refcounts protected), and `Page_Table` still the identity
   (the collapsed loop's premise). Bijectivity / candidate-flag / orphan checks untouched.
+- **Trap the whole arc inherits — the four AB raster scenes cannot return ALL EQUAL against a
+  tick-rate change.** `ab_runner` reports DIFFERENCES on 3 of 4, and running the BASELINE ROM
+  against ITSELF at settle 180 vs 181 reproduces the SAME difference set scene for scene
+  (`vram` + `active_buf`, or `vram` + `dense_state`, or `active_buf` alone), with `active_buf`
+  returning to EQUAL at 182 — a double-buffer parity alternation. Under both F1 and the pure
+  phase shift, `Raster_Buf_A`/`_B`, CRAM, VSRAM and regs are EQUAL. The discriminating content
+  check is `effects_gates`' own four `scene:*` determinism + shape gates, which PASS on the F1
+  ROM with the exact pinned words. **F2 will hit this same wall; run the ±1-frame control.**
 - **Trap for the next parcel:** at the canonical `idle` settle 180 the DEBUG audit fires and
   F1 reads 1.069 frames/tick against 1.033 — NOT a regression. Every row is equal or lower and
   `PageCache_Audit` is 3,688 cyc/frame in both; F1 has simply completed one more logic tick by
