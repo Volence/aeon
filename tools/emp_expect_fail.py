@@ -104,7 +104,13 @@ CASES: list[tuple[str, str, str, int]] = [
     #    error). "band field -1" is the other half: the band oracle is transcribed
     #    correctly, so a comparator that invented a difference would change that number.
     #    Both halves are reported by one ensure, hence one diagnostic.
-    (f"{POISON}/poison_scene_grid.emp",           "P1 grid",    "world_y 4 is not on the 8-px cell grid", 1),
+    # P3 Task 7 CHANGED THIS CASE'S SUBJECT, not just its wording. `layer()`'s 8-px grid
+    # ensure was REMOVED (world-Y re-glue made an off-grid top representable), and its job
+    # moved into scene_forces_per_line()'s arm 5 — off-grid now FORCES the per-line
+    # pipeline instead of being refused. The poison is now a two-fixture differential and
+    # asserts the false half, so the diagnostic it captures is the proof arm 5 fired.
+    # Count stays 1: the on-grid control must stay green.
+    (f"{POISON}/poison_scene_grid.emp",           "P3 off-grid forcer", "forced the per-line pipeline", 1),
     (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
     (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4", 1),
     (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),

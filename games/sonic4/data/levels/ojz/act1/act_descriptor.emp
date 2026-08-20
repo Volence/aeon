@@ -27,7 +27,7 @@ use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2,
 // an extern, so a misspelling here would have surfaced as a runtime wrong-picture instead
 // of a build failure. The record is emitted by the scene registry now — it is
 // `lower4(SCENES[0])` off Scene_OJZ_Default, not a hand-written header.
-use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default}
+use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, SCENE_ACT_SPAN_Y}
 
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
@@ -79,6 +79,16 @@ const GRID_H = 3
 // Floating-origin Phase 4 lifts both.
 ensure(GRID_W * GRID_H <= MAX_ACT_SECTIONS,
        "act grid {GRID_W}x{GRID_H} exceeds MAX_ACT_SECTIONS")
+// P3 TASK 7 — the scene registry's act-span mirror, held to the grid it mirrors.
+//
+// scene_registry.emp bounds every authored world-Y layer top against SCENE_ACT_SPAN_Y
+// (assert_act_relative_tagged), and that bound must be THIS act's vertical extent rather
+// than a number somebody typed. The mirror lives over there and the pin lives here
+// because the `use` edge only runs this way — act_descriptor imports scene_registry for
+// ParallaxConfig_OJZ_Default, so the reverse import would be a cycle. GRID_H and
+// SECTION_SIZE_SHIFT are both in scope here and are the authority.
+ensure(SCENE_ACT_SPAN_Y == (GRID_H << SECTION_SIZE_SHIFT),
+       "scene_registry's SCENE_ACT_SPAN_Y ({SCENE_ACT_SPAN_Y}) drifted from this act's own vertical span (GRID_H {GRID_H} << SECTION_SIZE_SHIFT {SECTION_SIZE_SHIFT}) — the world-Y layer-top bound would be checking the wrong act")
 ensure(GRID_W >= 1 && GRID_H >= 1,
        "act grid {GRID_W}x{GRID_H}: a zero axis makes the camera clamp bound negative (extent < screen)")
 ensure((GRID_W << SECTION_SIZE_SHIFT) <= $8000,

@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry}
+use engine.parallax.{band_entry, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -54,6 +54,26 @@ use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 ensure(MAX_PARALLAX_BANDS == 8, "scene_dsl's inlined band ceiling (8) drifted from MAX_PARALLAX_BANDS")
 ensure(PARALLAX_ANCHOR_NONE == $FF, "scene_dsl's inlined no-anchor sentinel ($FF) drifted from PARALLAX_ANCHOR_NONE")
 ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drifted from RASTER_MAX_PATCH")
+// P3 Task 7 added three more of the same species. PLANE_B_SPAN and the two op bits are
+// parallax's; LAYER_WORLD_Y_MAX is defined here because it is a property of the AUTHORED
+// coordinate space, not of the walker.
+ensure(PLANE_B_SPAN == 512, "scene_dsl's inlined Plane-B span (512) drifted from engine.parallax.PLANE_B_SPAN — scene_plane_line()'s range guard and Step 4a's rotation modulus must be the same number")
+ensure(BAND_OP_BIT_A == 0 && BAND_OP_BIT_B == 1, "scene_dsl's inlined band factor-op bit positions (0, 1) drifted from engine.parallax.BAND_OP_BIT_A/B — scene_band() packs the two flags into band_factor_ops and Decode_Factor_A/B btst them back out")
+
+// LAYER_WORLD_Y_MAX — the engine-wide ceiling on an act's vertical extent, and the bound
+// `layer()` replaced its `world_y < 512` with. It is NOT a parallax number and NOT a
+// plane number: every act descriptor already asserts
+// `(GRID_H << SECTION_SIZE_SHIFT) <= $8000` (games/.../act_descriptor.emp:86, cited by
+// camera.emp:115 as the reason the camera's clamp arithmetic stays inside a signed word),
+// so $8000 is the largest Y any act can declare and the largest the camera can reach.
+// A top above it names a coordinate no camera state can produce.
+//
+// THIS IS THE LOOSE BOUND ON PURPOSE. The tight one is the act's OWN span, which layer()
+// cannot see — it is handed to `assert_act_relative_tagged(scenes, act_span)` at the
+// registry, where the act descriptor is in scope. Two guards, and the loose one is not
+// decoration: it is what catches a `SceneLayer{ ly_world_y: … }` back-door value that
+// never went through the registry fold.
+pub const LAYER_WORLD_Y_MAX = $8000
 // The other two sit beside their own definitions below and watch a RENUMBERING of the
 // selectors this file both defines and inlines — a smaller risk, but a live one: adding
 // a `PRECISION_DENSE` between CELL and LINE is exactly the edit that would silently
@@ -180,15 +200,22 @@ ensure(TRANS_SMOOTH == 0 && TRANS_INSTANT == 1, "scene_dsl's inlined transition 
 // SceneLayer — one authored world-Y layer (comptime-only; never emitted:
 // the Task-3 lowering folds SceneLayers into parallax_config/band_entry).
 //
-// no hand-building: use layer() or no_layer() (the grid + span ensures live there).
+// no hand-building: use layer() or no_layer() (the span ensure lives there).
 // This type has to be `pub` — it is the element type in scene()'s signature — so the
 // back door is open by construction: `SceneLayer{ ly_world_y: 5, .. }` type-checks and
-// then truncates to a band top 5 px off, because the `>> 3` in scene_band() is exact
-// only for a world_y that layer() already checked. Same convention as
-// raster_dsl.emp:90, and for the same reason: the guards are in the constructor.
+// skips layer()'s range guard entirely. Same convention as raster_dsl.emp:90, and for the
+// same reason: the guards are in the constructor.
+//
+// SINCE P3 TASK 7 THE BACK DOOR IS NARROWER, and worth stating because the old note here
+// claimed something that is no longer the failure mode. It used to say a hand-built value
+// "truncates to a band top 5 px off, because the `>> 3` in scene_band() is exact only for
+// a world_y that layer() already checked" — there is no `>> 3` any more, and an off-grid
+// top is legal. What a back-door value now escapes is only the RANGE check, and
+// `scene_plane_line()` catches an unmappable one at the lowering AND at the registry fold
+// (assert_act_relative_tagged calls it). A value that is in range is simply a legal top.
 // -----------------------------------------------
 pub struct SceneLayer {
-    ly_world_y:  u16,   // authored layer top, world pixels
+    ly_world_y:  u16,   // authored layer top, ACT world pixels (was plane pixels pre-P3-T7)
     ly_fa:       u16,   // packed FACTOR_* (9 bits), plane A
     ly_fb:       u16,   // packed FACTOR_* (9 bits), plane B
     ly_dsa:      u8,    // deform-amplitude shift, plane A (15 = none)
@@ -199,17 +226,36 @@ pub struct SceneLayer {
 
 // -----------------------------------------------
 // layer — one scene layer at an authored world-Y top.
-// world_y: layer top in world pixels (8-px cell grid, < 512 in P1)
+// world_y: layer top in ACT world pixels. Free of the 8-px grid since P3 Task 7.
 // fa/fb:   packed FACTOR_* scroll factors for planes A/B (parallax_dsl)
 // dsa/dsb: per-plane deform-amplitude shifts (15 = no deform on that plane)
 // phase:   deform sample-index desync; enabled: 0 authors a dormant layer
+//
+// ---- P3 TASK 7 RELAXED BOTH GUARDS. NEITHER WAS DELETED. ----
+//
+// (1) `world_y % 8 == 0` IS GONE, AND ITS JOB MOVED RATHER THAN VANISHING. The guard
+//     existed because P1's `band_top_cell` was a Plane-B CELL ROW, so an off-grid top
+//     silently truncated. The record now carries a PLANE LINE (parallax.emp's
+//     `band_top_plane`, u16) and Step 4a rebases in lines, so an off-cell top is
+//     REPRESENTABLE. What replaces the ensure is `scene_forces_per_line()` ARM 5: a top
+//     whose plane image is off the 8-px cell grid forces the per-line HScroll pipeline,
+//     because a per-cell fill can only place a cell edge and would re-quantise the very
+//     thing the wider field exists to express. The guard became a LOWERING CONSEQUENCE.
+//     Arm 5 was authored dead by Task 6 and this parcel is what wakes it up.
+//
+// (2) `world_y < 512` BECAME A DERIVED CEILING, and the 512 was the wrong space anyway:
+//     it was the BG PLANE's span, and world_y is an ACT coordinate. The bound here is
+//     the engine-wide act-axis ceiling (LAYER_WORLD_Y_MAX, below); the TIGHT per-act
+//     bound cannot live in this fn — layer() sees one layer and knows nothing about the
+//     act — so it is enforced by `assert_act_relative_tagged(scenes, act_span)` at the
+//     registry, where the act descriptor's own `GRID_H << SECTION_SIZE_SHIFT` reaches it.
+//     Two bounds, both derived, neither typed out of the air.
 // -----------------------------------------------
 pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 15,
                       phase: int = 0, enabled: int = 1) -> SceneLayer {
-    ensure(world_y % 8 == 0,
-           "layer(): world_y {world_y} is not on the 8-px cell grid — P1 lowering requires cell alignment (spec 3.1); off-grid tops arrive with world-Y re-glue (P3)")
-    ensure(world_y >= 0 && world_y < 512,
-           "layer(): world_y {world_y} outside the 512-px BG plane span (P1 keeps plane-cell anchoring; act-tall world-Y arrives in P3)")
+    // $8000 is inlined per the pin block at the top of this file (LAYER_WORLD_Y_MAX).
+    ensure(world_y >= 0 && world_y < $8000,
+           "layer(): world_y {world_y} is outside the engine's act-axis span (0 .. $8000). Every act descriptor asserts (GRID_H << SECTION_SIZE_SHIFT) <= $8000 and the camera's world coordinates are signed words, so a top above it names a Y the camera can never reach. NOTE this is the ENGINE-WIDE ceiling: the tight bound is this game's own act span and it is checked at the registry by assert_act_relative_tagged()")
     return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: dsa,
                        ly_dsb: dsb, ly_phase: phase, ly_enabled: enabled }
 }
@@ -525,15 +571,18 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
 //   4. precision: line
 //   5. any layer boundary not on the 8-px cell grid  -- NO SUBJECT UNTIL TASK 7
 //
-// ARMS 3 AND 5 ARE DEAD CODE TODAY AND THIS COMMENT IS THE ONLY THING THAT SAYS SO.
+// ARM 3 IS DEAD CODE TODAY AND THIS COMMENT IS THE ONLY THING THAT SAYS SO. (ARM 5 WAS,
+// AND IS NOT ANY MORE — P3 Task 7 woke it up; see below.)
 // The ordering is deliberate — the derivation is the single source, so it has to exist
 // before the mechanisms that feed it — but a dead arm reads exactly like coverage, and
 // this tree's most expensive lesson is the guard that tests nothing while looking like it
 // does. Concretely:
-//   * Arm 5 (off-grid) IS WRITTEN below and cannot fire: `layer()` still ensures
-//     `world_y % 8 == 0`, so no authorable scene can reach it. Task 7 relaxes that guard
-//     and the arm wakes up in the same parcel — that coupling is the edge Task 7 Step 1
-//     is told to verify.
+//   * Arm 5 (off-grid) IS LIVE since P3 Task 7. It was written dead by Task 6, because
+//     `layer()` still ensured `world_y % 8 == 0` and no authorable scene could reach it.
+//     Task 7 removed that ensure — an off-grid top is now representable in the record
+//     (`band_top_plane`, a plane LINE) and this arm is what makes it correct: it forces
+//     the per-line pipeline, because the per-cell filler could only re-quantise it.
+//     Red-first witness: games/sonic4/test/poison/poison_scene_grid.emp.
 //   * Arm 3 (curve) IS NOT WRITTEN AT ALL, and writing a placeholder would be worse than
 //     the gap: `SceneLayer` has no curve attachment, so there is no field to test and any
 //     spelling would be a fabricated predicate. Task 10 adds the attachment and the arm
@@ -572,14 +621,26 @@ pub comptime fn scene_forces_per_line(s: Scene) -> int {
     if s.sc_precision == 1 {
         forced = 1
     }
-    // ARM 5 — any layer top off the 8-px cell grid. Written, and DEAD until Task 7
-    // relaxes `layer()`'s grid ensure (see the banner). The one-dot rule applies to the
-    // array walk exactly as it does in scene_caps(): field, then index, then field.
+    // ARM 5 — any layer top off the 8-px cell grid. LIVE SINCE P3 TASK 7, which relaxed
+    // `layer()`'s grid ensure; before that no authorable scene could reach it.
+    //
+    // THE GRID QUESTION IS ASKED OF THE PLANE IMAGE, NOT THE AUTHORED ACT Y, and that is
+    // a correction Task 7 forced rather than a refinement. The forcer's real question is
+    // "can a per-cell fill place this boundary?", and the fill quantises PLANE lines. The
+    // two spaces are not the same grid: with `v_factor 3` a 64-px act step is one plane
+    // cell, so testing the act value would force per-line on tops that land dead on a
+    // cell edge, and — worse in the other direction — would MISS an act value that is a
+    // multiple of 8 but whose plane image is not (v_offset 4, for instance). Asking
+    // scene_plane_line() is asking the number the filler will actually see.
+    //
+    // The one-dot rule applies to the array walk exactly as it does in scene_caps():
+    // field, then index, then field.
     let ls = s.sc_layers
     let n  = s.sc_count
     for i in 0..n {
-        let l = ls[i]
-        if l.ly_world_y % 8 != 0 {
+        let l  = ls[i]
+        let wy = l.ly_world_y
+        if scene_plane_line(s, wy) % 8 != 0 {
             forced = 1
         }
     }
@@ -817,12 +878,21 @@ pub comptime fn fold_caps(scenes: array) -> int {
 //
 // THE TWO SPACES, AND WHY EACH IS SAFE UNDER §4.11's UNIFORM SUBTRACTION:
 //
-//   layer top  (SceneLayer.ly_world_y)  PLANE-RELATIVE. It is a position inside the
-//              512-px Plane-B span, folded to a cell row by `scene_band`'s `>> 3` and
-//              rotated against Vscroll_BG every frame by Step 4a. It carries no absolute
-//              act coordinate, so a uniform subtraction of REBASE_DELTA from every live
-//              world coordinate leaves it correct untouched — the same argument that
-//              makes section-local entity data rebase-invariant (ARCH §4.9.1).
+//   layer top  (SceneLayer.ly_world_y)  ACT-RELATIVE SINCE P3 TASK 7, AND THAT CHANGED
+//              ITS REBASE ARGUMENT — read this before assuming the old one still holds.
+//              It USED to be plane-relative (a position inside the 512-px Plane-B span,
+//              folded to a cell row by `scene_band`'s `>> 3`), and the argument was that
+//              it carried no absolute act coordinate, so a uniform subtraction of
+//              REBASE_DELTA left it correct untouched — the section-local-entity argument
+//              (ARCH §4.9.1). THAT IS NO LONGER TRUE. `ly_world_y` is now an ACT Y, so a
+//              rebase that renumbers act coordinates MUST renumber it, exactly as it must
+//              renumber the anchor bank. Design §6 anticipated this ("world-Y layer tops
+//              and the anchor bank join the §4.11 rebase checklist"); this comment is the
+//              record that they have now actually joined it. The mitigating fact, and the
+//              reason this is a checklist row rather than a blocker: the tops are
+//              COMPTIME data folded to plane lines by `scene_plane_line()` at build time,
+//              so a rebase is a re-authoring event, not a runtime one — nothing in RAM
+//              holds a stale copy.
 //
 //   anchor     (SceneAnchor.At's first payload)  ACT-RELATIVE, BY INDIRECTION. The scene
 //              declares a patch CHANNEL, never a coordinate; the act-space Y lives in
@@ -844,7 +914,16 @@ pub comptime fn fold_caps(scenes: array) -> int {
 // result: an unreferenced top-level `const X = f(...)` is comptime-INERT and proves
 // nothing (docs/EMP_PITFALLS.md §3).
 // =====================================================================
-pub comptime fn assert_act_relative_tagged(scenes: array) -> int {
+pub comptime fn assert_act_relative_tagged(scenes: array, act_span: int) -> int {
+    // ANTI-VACUITY ON THE BOUND ITSELF. A caller that passed 0 — or a name that resolved
+    // to nothing, which is the silent failure mode for a constant at a call site
+    // (docs/EMP_PITFALLS.md §2) — would make every top below fail rather than pass, so
+    // this is a diagnosis rather than a net. A NEGATIVE or absurdly small span is the
+    // case worth naming: it would make the fold assert something no act could satisfy.
+    // 512 is inlined per the pin block; one Plane-B span is the smallest act that can
+    // carry a scene at all.
+    ensure(act_span >= 512 && act_span <= $8000,
+           "scene registry: the act span handed to assert_act_relative_tagged() is {act_span}, which is not a legal act extent (one Plane-B span .. the engine's $8000 act-axis ceiling). This value must be DERIVED from the act descriptor's own grid — GRID_H << SECTION_SIZE_SHIFT — not typed; a 0 here usually means the constant did not resolve at the call site")
     comptime var tops = 0
     comptime var anchors = 0
     for s in scenes {
@@ -854,9 +933,20 @@ pub comptime fn assert_act_relative_tagged(scenes: array) -> int {
         for i in 0..n {
             let l  = ls[i]
             let wy = l.ly_world_y
-            // 8 and 512 are inlined per the pin block at the top of this file.
-            ensure(wy % 8 == 0 && wy < 512,
-                   "scene registry: a world-Y layer top ({wy}) is not act-relative-tagged — it is outside the PLANE-RELATIVE space every scene top is classified in (8-px grid, < 512), so the §4.11 rebase has no class for it. NOTE this is a STRUCTURAL check only: it proves the declaration is tagged, NOT that a rebase preserves it. Runtime rebase verification waits on the §4.11 mechanism (Phase 4); do not read a green build here as rebase-safe. A top that reached here off-grid or out of span came through the SceneLayer{{ .. }} back door, bypassing layer()'s own guards")
+            // P3 TASK 7 CHANGED BOTH HALVES OF THIS ENSURE, AND THE SPACE IT NAMES.
+            //   * the 8-px grid clause is GONE: an off-grid top is legal now, and the
+            //     forcer arm 5 in scene_forces_per_line() is what makes it correct.
+            //   * `wy < 512` — the BG PLANE's span — became `wy < act_span`, the act's
+            //     own, because that is the space `ly_world_y` is now in. The number is
+            //     DERIVED at the call site from the act descriptor, never typed here.
+            // THE PLANE-IMAGE RANGE IS DELIBERATELY NOT RE-CHECKED HERE. `scene_plane_line()`
+            // owns it, and every scene in this list reaches it: lowerN calls scene_band()
+            // once per real layer and scene_band() calls scene_plane_line(). Adding a second
+            // call here would be a guard that can never fire on its own — indistinguishable
+            // from coverage, which is this tree's most expensive lesson. What THIS ensure
+            // owns is the act span, which nothing else in the chain knows.
+            ensure(wy >= 0 && wy < act_span,
+                   "scene registry: a world-Y layer top ({wy}) is outside this act's vertical span ({act_span}), so it is not act-relative-tagged and the §4.11 rebase has no class for it. NOTE this is a STRUCTURAL check only: it proves the declaration is tagged, NOT that a rebase preserves it. Runtime rebase verification waits on the §4.11 mechanism (Phase 4); do not read a green build here as rebase-safe. A top that reached here out of span came through the SceneLayer{{ .. }} back door, bypassing layer()'s own guards")
             tops = tops + 1
         }
         // $FF = PARALLAX_ANCHOR_NONE, 4 = RASTER_MAX_PATCH — both inlined per the pin block.
@@ -1301,17 +1391,71 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
     }
 }
 
+// =====================================================================
+// scene_plane_line — THE ACT -> PLANE MAPPING (P3 Task 7). The one unit conversion left
+// in the lowering, and it replaced `world_y >> 3`, which was an act->cell TRUNCATION
+// dressed up as a unit conversion.
+//
+// A layer top is authored in ACT world pixels. The band it becomes lives in the BG
+// PLANE, and the plane does not track the act 1:1 — it tracks it through the scene's own
+// vertical mapping, the SAME one Parallax_Step5_Vscroll applies to the camera:
+//
+//     Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset      (parallax.emp:1062-1067)
+//
+// So the plane line an authored world Y lands on is that expression evaluated at the TOP
+// instead of at the camera, and Step 4a's whole per-frame job is the subtraction of the
+// two. Folding it at comptime rather than at runtime is deliberate: v_factor/v_center/
+// v_offset are scene constants, so a runtime mapping would recompute an invariant up to
+// eight times a frame to reach the same number.
+//
+// WHY THIS IS A DIFFERENT MAPPING FROM THE ANCHOR'S, WHICH IS ALSO ACT-SPACE AND ALSO
+// LANDS ON A SCREEN LINE. `Effects_LatchWorldLines` maps `Effects_World_Y[ch]` to a
+// screen line as `world_y - Camera_Y`, 1:1, because a patch anchor is a LEVEL feature —
+// a water surface Sonic swims under, at the camera's own depth. A static layer top is a
+// feature of the BG ART, which is at the BG plane's depth. Two things authored in the
+// same coordinate space land on different screen lines, and that is not an inconsistency,
+// it is parallax. The two agree at exactly one depth (v_factor 0, v_center 0, v_offset 0)
+// and are meant to disagree everywhere else.
+//
+// THE LOCKED CASE IS NOT A SPECIAL CASE, IT IS THE DEGENERATE ONE. `v_factor == 15` is
+// the lock sentinel (parallax.emp:1055-1057): the BG plane ignores the camera entirely
+// and Vscroll_BG is pinned at v_offset. There is no act->plane relation to invert —
+// `(wy - v_center) >> 15` is 0 or -1 for every wy, which would collapse every layer of
+// every locked scene onto one line. For a locked plane the authoring space IS the plane,
+// so the mapping is the identity. EIGHTEEN OF THE TWENTY shipped scenes are that case
+// (tops 0/32/80/112/160, which read as screen lines because v_offset is 0), which is why
+// this arm carries the shipped registry rather than being a corner.
+// =====================================================================
+pub comptime fn scene_plane_line(s: Scene, wy: int) -> int {
+    let vf = s.sc_v_factor
+    let vc = s.sc_v_center
+    let vo = s.sc_v_offset
+    // A locked plane maps identically; an unlocked one may not shift a NEGATIVE dividend
+    // (the runtime's `asr.w` sign-extends, so the top would land above the plane origin,
+    // which is not a position). 15 is the lock sentinel, inlined per the pin block.
+    ensure(vf == 15 || wy >= vc,
+           "scene_plane_line(): world_y {wy} is above this scene's v_center {vc}. An unlocked BG plane maps act Y to a plane line as ((world_y - v_center) >> v_factor) + v_offset — the same mapping Parallax_Step5_Vscroll applies to the camera — and a top above v_center has no plane image, because the plane never reaches it. Move the top down, or move v_center up.")
+    comptime var pl = wy
+    if vf != 15 {
+        pl = ((wy - vc) >> vf) + vo
+    }
+    // 512 is inlined per the pin block (PLANE_B_SPAN). Step 4a's runtime clamp protects
+    // the HScroll buffer from an out-of-range top; this ensure is what stops a scene ever
+    // needing it.
+    ensure(pl >= 0 && pl < 512,
+           "scene_plane_line(): world_y {wy} maps to plane line {pl}, outside the 512-px Plane-B span. Step 4a rotates tops modulo that span, so a top outside it aliases onto another band's rows instead of being clipped.")
+    return pl
+}
+
 // scene_band — the 10-byte band entry for layer `i`.
 //
-// THE ONE UNIT CONVERSION IN THE WHOLE LOWERING: layer() authors world_y in PIXELS,
-// band_top_cell is a Plane-B CELL ROW, so `cell = world_y >> 3`. The shift is exact for
-// any layer built through the constructor — layer() ensures the 8-px grid — and lossy for
-// a hand-built `SceneLayer{ .. }`, which is why that back door is called out at the
-// struct (there is no way to re-check it here: the grid fact does not travel with the value).
+// P3 TASK 7 RESHAPED THE RECORD WITHOUT RESIZING IT (see parallax.emp's band_entry
+// banner): the top is a u16 PLANE LINE via scene_plane_line(), and the two 1-bit factor
+// op flags are packed into one `band_factor_ops` byte to pay for the extra byte.
 //
-// The three-byte factor split is band()'s, transcribed inline (a shared helper would
-// be an imported name inside a body — see the pin block): bits 0-3 shift1, bits 4-7
-// shift2, bit 8 op. See parallax_dsl.packed() for the encoding's authority.
+// The factor split is band()'s, transcribed inline (a shared helper would be an imported
+// name inside a body — see the pin block): bits 0-3 shift1, bits 4-7 shift2, bit 8 op.
+// See parallax_dsl.packed() for the encoding's authority.
 pub comptime fn scene_band(s: Scene, i: int) -> band_entry {
     let n = s.sc_count
     ensure(i >= 0 && i < n,
@@ -1322,14 +1466,23 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_entry {
     let fa = l.ly_fa
     let fb = l.ly_fb
     let wy = l.ly_world_y
+    // FLAT ACCUMULATOR over statement ifs — an `if` in block-tail position yields unit
+    // SILENTLY (docs/EMP_PITFALLS.md §1), and this one folds a mask. Bits 0 and 1 are
+    // inlined per the pin block (BAND_OP_BIT_A / BAND_OP_BIT_B).
+    comptime var ops = 0
+    if ((fa >> 8) & 1) != 0 {
+        ops = ops | 1
+    }
+    if ((fb >> 8) & 1) != 0 {
+        ops = ops | 2
+    }
     return band_entry{
-        band_top_cell:       wy >> 3,
+        band_top_plane:      scene_plane_line(s, wy),
         band_factor_a_s1:    fa & 15,
         band_factor_a_s2:    (fa >> 4) & 15,
-        band_factor_a_op:    (fa >> 8) & 1,
         band_factor_b_s1:    fb & 15,
         band_factor_b_s2:    (fb >> 4) & 15,
-        band_factor_b_op:    (fb >> 8) & 1,
+        band_factor_ops:     ops,
         band_deform_shift_a: l.ly_dsa,
         band_deform_shift_b: l.ly_dsb,
         band_phase_offset:   l.ly_phase,

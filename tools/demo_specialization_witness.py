@@ -90,12 +90,40 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # The other five rows are unchanged, which is the corroboration that matters: a parcel
 # that moved rows it had no business moving would show up here as an unexplained row,
 # not as a total that happens to differ.
+#
+# RE-DERIVATION LOG — 2026-08-20, P3 Task 7 (world-Y re-glue). The pin FAILED and was
+# right to. ONE row moved: Parallax_Step4_Fill, demo 176 -> 170 (-6), sonic4 536 -> 528
+# (-8). Derived instruction by instruction from the source change BEFORE the number was
+# touched — the shared Step-4a part accounts for demo's -6 and the anchored overlay adds
+# sonic4's extra -2:
+#
+#   Step 4a (both shapes)
+#     -2  `lsr.w #3, d0`            deleted — the rotation works in plane LINES now, so
+#                                   Vscroll_BG is no longer quantised to cells
+#     -2  `moveq #0, d3` (.find_k)  deleted — the top read became `move.w`, which needs no
+#                                   zero-extend (the byte read did)
+#     -2  `moveq #0, d3` (rebase)   deleted — same reason
+#     +2  `moveq #28` -> `move.w #224`   the off-screen clamp is a line count now, and 224
+#                                   does not fit a moveq
+#     -2  `lsl.w #3, d3`            deleted — no cells->lines conversion left to do
+#     ------                        the four field reads/writes that changed width
+#                                   (move.b <-> move.w at offset 0 / -10) are the SAME
+#                                   size, so they contribute nothing
+#     = -6
+#   Step 4b, sonic4 only (elided in demo with CAP_ANCHORS)
+#     -2  `moveq #0, d2` (.anchor_find_k)  deleted — `move.w band_top_line(a5), d2`
+#     = -2, total -8
+#
+# The two `(sonic4 NNN)` comments below are also corrected against this run: Step4_Fill
+# 536 -> 528 (this parcel) and Fill_PerLine 372 -> 686, which went stale at the
+# `perf/parallax-unroll` parcel and is recorded here rather than left to mislead. They are
+# comments, not pins — the demo number is what this witness enforces.
 DEMO_SPECIALISED_PROCS = {
     "Enqueue_Dirty_Buffers":    514,   # CAP_PER_LINE, CAP_ANCHORS  (sonic4 570)
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":      2,   # CAP_PER_LINE, CAP_DEFORM   (sonic4 372) — bare rts
+    "Parallax_Fill_PerLine":      2,   # CAP_PER_LINE, CAP_DEFORM   (sonic4 686) — bare rts
     "Parallax_StartTransition":  90,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 118)
-    "Parallax_Step4_Fill":      176,   # CAP_ANCHORS, CAP_PER_LINE  (sonic4 536)
+    "Parallax_Step4_Fill":      170,   # CAP_ANCHORS, CAP_PER_LINE  (sonic4 528)
     "Parallax_Step5_Vscroll":    62,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 144)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)

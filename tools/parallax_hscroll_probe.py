@@ -108,20 +108,26 @@ HSCROLL_ENTRY = 4                    # bytes: FG word, then BG word
 HSCROLL_BYTES = HSCROLL_LINES * HSCROLL_ENTRY      # 896 — matches ram.emp:270
 PERCELL_CELLS = 28
 
-# `pub struct band_entry` — engine/level/parallax.emp:69-80. 10 bytes.
-# `band_top_line` is THE SAME BYTE as `band_top_cell` (parallax.emp:82-101): ROM entries
-# measure the top in Plane-B CELL ROWS, the per-frame shadow view measures it in SCREEN LINES.
-BE_TOP          = 0    # band_top_cell / band_top_line
-BE_A_S1         = 1    # band_factor_a_s1
-BE_A_S2         = 2
-BE_A_OP         = 3
+# `pub struct band_entry` — engine/level/parallax.emp. 10 bytes, RESHAPED (not resized) by
+# P3 Task 7: the top is a u16 and the two 1-bit factor-op flags share one packed byte.
+# `band_top_line` is THE SAME WORD as `band_top_plane`: ROM entries measure the top in
+# Plane-B LINES (0..511), the per-frame shadow view measures it in SCREEN LINES (0..224).
+BE_TOP          = 0    # band_top_plane / band_top_line   u16
+BE_A_S1         = 2    # band_factor_a_s1
+BE_A_S2         = 3
 BE_B_S1         = 4
 BE_B_S2         = 5
-BE_B_OP         = 6
+BE_OPS          = 6    # band_factor_ops — bit 0 = plane A op, bit 1 = plane B op
 BE_DSHIFT_A     = 7    # band_deform_shift_a (15 = no FG deform)
 BE_DSHIFT_B     = 8    # band_deform_shift_b
 BE_PHASE        = 9    # band_phase_offset
 BE_SIZE         = 10   # sizeof(band_entry); mirrored as BAND_ENTRY_LEN at engine/ram.emp:38
+PLANE_B_SPAN    = 512  # engine/level/parallax.emp PLANE_B_SPAN — Step 4a's rotation modulus
+
+
+def be_top(entry: bytes) -> int:
+    """The band top, u16 big-endian. One reader, so the width lives in one place."""
+    return int.from_bytes(entry[BE_TOP:BE_TOP + 2], "big")
 
 # `pub struct parallax_config` — engine/structs.emp:161-190. 28 bytes.
 CFG_BAND_COUNT      = 0     # pcfg_band_count            u8
@@ -267,10 +273,12 @@ def _patch_band(tab: bytes | None, ch: int):
 def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
     """Steps 4a + 4b, recomputed. `cfg` is the whole config (header + band entries).
 
-    Step 4a (parallax.emp:687-770): vshift = ((Vscroll_BG mod 512) >> 3) cells; k = the last
-    band whose plane-space top <= vshift; bands are copied from k wrapping, band k retopped to
-    the screen top, every other top rebased by `top - vshift` (+64 when it wrapped past the
-    plane bottom), clamped to 28 CELLS and then stored << 3 as SCREEN LINES.
+    Step 4a, AS REWRITTEN BY P3 TASK 7 (world-Y re-glue): the rotation works in PLANE
+    LINES, not cells. vs = Vscroll_BG mod 512 — the sub-cell part is KEPT, which is the
+    whole mechanism (it used to be `>> 3`'d away, quantising every top to an 8-px edge).
+    k = the last band whose plane-line top <= vs; bands are copied from k wrapping, band k
+    retopped to the screen top, every other top rebased by `top - vs` (+512 when it wrapped
+    past the plane bottom) and clamped to 224 SCREEN LINES. No unit conversion survives.
 
     Step 4b (parallax.emp:887-993): the band holding L is split, entries below shift down one
     slot, the split entry inherits band k's factors and scroll words and is retopped to L, and
@@ -279,10 +287,10 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
     n = cfg[CFG_BAND_COUNT]
     ent = [cfg[CFG_SIZE + i * BE_SIZE: CFG_SIZE + (i + 1) * BE_SIZE] for i in range(n)]
 
-    vshift = (u16(vscroll_bg) & 0x1FF) >> 3
+    vs = u16(vscroll_bg) & (PLANE_B_SPAN - 1)    # plane LINE at the screen top
     k = 0
     for probe in range(1, n):
-        if ent[probe][BE_TOP] > vshift:
+        if be_top(ent[probe]) > vs:
             break
         k = probe
 
@@ -291,15 +299,14 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
     for i in range(n):
         e = ent[src]
         if i == 0:
-            top_cells = 0                        # band k starts at the screen top
+            t = 0                                # band k starts at the screen top
         else:
-            t = e[BE_TOP] - vshift
+            t = be_top(e) - vs
             if t <= 0:
-                t += 64                          # wrapped past the plane bottom
-            if t > 28:
-                t = 28                           # off-screen -> zero-length fill
-            top_cells = t
-        tops.append(top_cells << 3)              # cells -> SCREEN LINES
+                t += PLANE_B_SPAN                # wrapped past the plane bottom
+            if t > HSCROLL_LINES:
+                t = HSCROLL_LINES                # off-screen -> zero-length fill
+        tops.append(t)                           # already SCREEN LINES
         dsa.append(e[BE_DSHIFT_A])
         dsb.append(e[BE_DSHIFT_B])
         phase.append(e[BE_PHASE])
@@ -638,8 +645,12 @@ def stage_a(st):
     raw = st["shadow_raw"]
     for i in range(sh.n):
         got = raw[i * BE_SIZE:(i + 1) * BE_SIZE]
-        for field, off, want in ((("top"), BE_TOP, sh.tops[i]),
-                                 ("dsa", BE_DSHIFT_A, sh.dsa[i]),
+        # THE TOP IS A WORD AND THE OTHER THREE ARE BYTES (P3 Task 7). Comparing the top
+        # byte-wise would read its always-zero high half against `want & 0xFF` and pass for
+        # every top in 0..224 — a check that cannot fail is worse than no check.
+        if be_top(got) != (sh.tops[i] & 0xFFFF):
+            bad.append(f"shadow band {i} top: derived {sh.tops[i]}, machine {be_top(got)}")
+        for field, off, want in (("dsa", BE_DSHIFT_A, sh.dsa[i]),
                                  ("dsb", BE_DSHIFT_B, sh.dsb[i]),
                                  ("phase", BE_PHASE, sh.phase[i])):
             if got[off] != (want & 0xFF):

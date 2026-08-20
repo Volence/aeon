@@ -54,8 +54,15 @@ use games.sonic4.scene_equiv_proof.{cfg_eq, band_eq, hdr, cfg_band}
 // The fixture: one layer, no attachments, whole-plane V-scroll. Deliberately the simplest
 // scene the model admits, so every oracle default below is the constructor's own default
 // and the ONLY authored disagreement is the one this poison plants.
+//
+// P3 TASK 7: the top is `world_y: 512`, not 0, and that is not a value tweak. `world_y`
+// is an ACT coordinate now, and this fixture's `v_center: 512 / v_factor: 3` maps it to
+// plane line `(512 - 512) >> 3 = 0` — the same band the oracle's `cfg_band(cell: 0)`
+// names. A `world_y: 0` here would sit ABOVE v_center, which has no plane image at all,
+// and the two scene_plane_line() guards would fire and add two diagnostics the lane's
+// count check cannot tell apart from the planted one.
 const POISON_PROOF_SCENE: Scene = scene(
-    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+    layers: [ layer(world_y: 512, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
               no_layer(), no_layer(), no_layer(),
               no_layer(), no_layer(), no_layer(), no_layer() ],
     count: 1, v_factor: 3, v_center: 512, v_offset: 0)

@@ -356,16 +356,24 @@ Uses circular horizontal indexing. Slides at most 1 column/row per frame to amor
 
 | Offset | Size | Field | Description |
 |--------|------|-------|-------------|
-| $00 | byte | `band_top_cell` | First cell row (0–27). Must be strictly ascending. |
-| $01 | byte | `band_factor_a_s1` | Plane A shift1 (0–14; 15 = locked) |
-| $02 | byte | `band_factor_a_s2` | Plane A shift2 (0–14; 15 = single-term) |
-| $03 | byte | `band_factor_a_op` | 0 = ADD, 1 = SUB |
+Reshaped by the P3 world-Y re-glue parcel (2026-08-20) and **still 10 bytes**: the top became
+a u16 because a Plane-B LINE is 0–511 and does not fit a byte, and the two 1-bit factor op
+flags were packed into one byte to pay for it.
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| $00 | word | `band_top_plane` | First Plane-B LINE of the band (0–511). Must be strictly ascending. Lowered from the authored ACT-space `world_y` by `scene_plane_line()`. |
+| $02 | byte | `band_factor_a_s1` | Plane A shift1 (0–14; 15 = locked) |
+| $03 | byte | `band_factor_a_s2` | Plane A shift2 (0–14; 15 = single-term) |
 | $04 | byte | `band_factor_b_s1` | Plane B shift1 |
 | $05 | byte | `band_factor_b_s2` | Plane B shift2 |
-| $06 | byte | `band_factor_b_op` | 0 = ADD, 1 = SUB |
+| $06 | byte | `band_factor_ops` | bit 0: plane A 0 = ADD, 1 = SUB; bit 1: plane B, same |
 | $07 | byte | `band_deform_shift_a` | FG deform amplitude shift (15 = no deform) |
 | $08 | byte | `band_deform_shift_b` | BG deform amplitude shift |
 | $09 | byte | `band_phase_offset` | Phase desync (0–255) |
+
+In the per-frame shadow view (`Parallax_Shadow_Bands`) the same word carries a SCREEN line
+(0–224) instead; Step 4a's rebase is where plane lines become screen lines.
 
 **Total parallax_config size:** `28 + (band_count × 10)` bytes.
 

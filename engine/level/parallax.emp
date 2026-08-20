@@ -74,39 +74,68 @@ ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_S
 // keys the HScroll DMA length off the deform-table fields). ----
 
 // Parallax band entry — 10 bytes per band, ROM data.
+//
+// P3 TASK 7 (world-Y re-glue) RESHAPED THIS RECORD WITHOUT RESIZING IT, and the
+// arithmetic is worth stating because it is what kept `BAND_ENTRY_LEN` — and therefore
+// `Parallax_Shadow_Bands` and the whole axis-6 RAM row — from moving:
+//
+//   band_top went u8 -> u16  (+1)  because a PLANE LINE is 0..511 and does not fit a byte
+//   the two 1-bit op flags were packed into one byte  (-1)
+//
+// Net zero. The op packing is not a tidy-up riding along: it is what PAYS for the wider
+// top. Decode_Factor_A/B read it with `btst #0` / `btst #1` on the same byte, which is
+// the same cost as the two `tst.b`s it replaces.
 pub struct band_entry {
-    band_top_cell:       u8,   // first cell row of band (0..27)
+    band_top_plane:      u16,  // ROM: first PLANE LINE of the band (0..511)
     band_factor_a_s1:    u8,   // Plane A shift1 (15 = whole-factor zero "locked")
     band_factor_a_s2:    u8,   // Plane A shift2 (15 = single-term factor)
-    band_factor_a_op:    u8,   // bit 0: 0=ADD second term, 1=SUB
     band_factor_b_s1:    u8,   // Plane B shift1
     band_factor_b_s2:    u8,   // Plane B shift2
-    band_factor_b_op:    u8,   // bit 0: 0=ADD, 1=SUB
+    band_factor_ops:     u8,   // bit 0: plane A 0=ADD/1=SUB; bit 1: plane B 0=ADD/1=SUB
     band_deform_shift_a: u8,   // Plane A deform amplitude shift (15 = no FG deform)
     band_deform_shift_b: u8,   // Plane B deform amplitude shift
     band_phase_offset:   u8,   // 0..255, added to deform sample index for desync
 }
 
-// band_top_line / band_top_line_next — THE SAME BYTE at THE SAME OFFSET as
-// band_top_cell, named for the unit it carries in the per-frame SHADOW VIEW.
+// The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
+pub const BAND_OP_BIT_A = 0
+pub const BAND_OP_BIT_B = 1
+
+// band_top_line / band_top_line_next — THE SAME WORD at THE SAME OFFSET as
+// band_top_plane, named for the unit it carries in the per-frame SHADOW VIEW.
 //
 // Two populations of band_entry exist and they measure their top in different units:
-//   ROM entries (games/.../configs.emp)      -> Plane-B CELL ROWS 0..63
-//   Parallax_Shadow_Bands (rebuilt each frame) -> SCREEN LINES 0..224
-// Both fit a byte, so nothing moves; Step 4a's rebase is where cells become lines.
+//   ROM entries (games/.../ojz_scenes.emp, lowered) -> Plane-B LINES 0..511
+//   Parallax_Shadow_Bands (rebuilt each frame)      -> SCREEN LINES 0..224
+// Both fit the u16, so nothing moves; Step 4a's rebase is where plane lines become
+// screen lines.
 //
-// Parcel W needed the shadow view line-exact (an 8-px-quantised boundary cannot agree
-// with a scanline-exact palette boundary), and the alternative spelling — renaming the
-// field to a unit-free `band_top` — was REJECTED: one name silently meaning two units
-// is worse than the status quo, because nothing at a call site tells you which
-// population you are holding. Two names at one offset make grep separate them.
+// BEFORE P3 TASK 7 THE ROM UNIT WAS A PLANE CELL ROW (0..63) AND THE REBASE ALSO
+// QUANTISED THE SCROLL (`Vscroll_BG >> 3`). That is the one-line-off class: a band top
+// only ever landed on an 8-px cell edge and JUMPED a whole cell as the BG scrolled,
+// while the art underneath it moved a line at a time. Re-glue keeps the sub-cell part of
+// Vscroll_BG — the "partial offset" S.C.E.'s walker carries out of its height subtraction
+// — so the top tracks the art line for line. That is the whole mechanism; the wider field
+// exists to make an off-cell top REPRESENTABLE, which is what lets `layer()` drop its
+// 8-px grid ensure.
+//
+// The alternative spelling — renaming the field to a unit-free `band_top` — was REJECTED:
+// one name silently meaning two units is worse than the status quo, because nothing at a
+// call site tells you which population you are holding. Two names at one offset make grep
+// separate them.
 //
 // The peek-ahead form exists because the .field-in-disp sugar does not compose in
 // displacement arithmetic (row 1068), so the neighbour offset must be a named const.
-// It replaces `band_top_cell_next`, which had exactly these two readers and would now
-// be asserting the wrong unit at both.
-const band_top_line      = offsetof(band_entry, band_top_cell)
-const band_top_line_next = offsetof(band_entry, band_top_cell) + sizeof(band_entry)
+const band_top_line      = offsetof(band_entry, band_top_plane)
+const band_top_line_next = offsetof(band_entry, band_top_plane) + sizeof(band_entry)
+
+// PLANE_B_SPAN — the Plane-B vertical span in pixels, the modulus Step 4a's rotation
+// works in and the ceiling every lowered `band_top_plane` must sit under. 64 rows of
+// 8-px cells: the engine's plane geometry, not a parallax choice, which is why it is
+// derived from the cell count rather than typed as 512.
+pub const PLANE_B_CELL_ROWS = 64
+pub const PLANE_B_SPAN      = PLANE_B_CELL_ROWS * 8
+ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometry Step 4a's `and.w #PLANE_B_SPAN-1` masks against")
 
 // copy_band_entry — the Step-4a shadow-view entry copy, sized BY the struct:
 // the widest-first move run whose total advance is exactly sizeof(band_entry).
@@ -691,23 +720,43 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 
 proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
 
-        // --- Step 4a: rotate plane-space band tops into screen space ---
-        // Band tops are authored in Plane B cell rows (0..63). The screen
-        // shows plane rows starting at Vscroll_BG, so the band list is
-        // rotated by vshift = (Vscroll_BG mod 512) >> 3 each frame and tops
-        // are rebased to screen cells, clamped to 28 (the HScroll buffer is
-        // 224 lines — an unclamped top would overrun it). At vshift = 0 the
-        // rotation is an identity copy plus the clamp, so
-        // screen-space configs (vFactorBg=15, vOffset=0) are unchanged.
-        // The shadow view is built EVERY frame, even at vshift = 0: the
-        // clamp below is load-bearing — raw plane-space tops (e.g. 40, 48)
-        // would make the per-line filler emit top*8 > 224 lines and spray
-        // past Hscroll_Buffer into the DMA queues (frozen-VDP crash class).
+        // --- Step 4a: WORLD-Y RE-GLUE — rotate plane-space band tops into screen space ---
+        //
+        // Band tops reach ROM as PLANE LINES 0..511 (`band_top_plane`). The author writes
+        // an ACT-space world Y and scene_band() maps it through the scene's own vertical
+        // mapping at COMPTIME — see engine/level/scene_dsl.emp's `scene_plane_line()`,
+        // which owns that half. This routine owns the other half: plane line -> screen
+        // line, every frame, against the CURRENT Vscroll_BG.
+        //
+        // THE RE-GLUE, IN ONE LINE: the rotation now works in PLANE LINES, not cells.
+        // It used to be `vshift = (Vscroll_BG mod 512) >> 3` and `screen_cell = top_cell -
+        // vshift`, which threw away `Vscroll_BG & 7` — so a band top only ever landed on
+        // an 8-px cell edge and JUMPED a whole cell while the art under it moved a line at
+        // a time. That discarded remainder is exactly the "partial offset" S.C.E.'s
+        // deformation walker carries out of its band-height subtraction, and dropping it is
+        // the classic one-line-off port defect. Keeping it costs one fewer shift.
+        //
+        // At Vscroll_BG = 0 the rotation is still an identity copy plus the clamp, so
+        // vertically-locked configs (v_factor_bg = 15, v_offset = 0) are unchanged.
+        // The shadow view is built EVERY frame, even then: the clamp below is load-bearing
+        // — a raw plane-space top (e.g. 320, 384) would make the per-line filler emit more
+        // than 224 lines and spray past Hscroll_Buffer into the DMA queues (frozen-VDP
+        // crash class).
+        //
+        // WHY THE SEARCH STAYS A SEARCH. Thunder Force IV was checked for the arithmetic
+        // alternative and does not supply one: its bands are SCREEN-anchored (64 per-band
+        // accumulators at $FFFF9718, cleared once at init, each builder emitting a fixed
+        // unrolled run per band), so band k owns the same scanlines forever and the seek
+        // never exists. The even-spacing collapse — `band = vs >> log2(spacing)`, `partial
+        // = vs & (spacing-1)` — IS available in principle and is not taken, because ours
+        // are authored and are not evenly spaced (OJZ_Default: 0/64/320/384, gaps 64, 256,
+        // 64, 128). A fast path selected by a comptime predicate NO shipped scene satisfies
+        // is a specialisation with no subject. The search is at most 7 word compares once
+        // per frame; see docs/benchmarks/scanline-p3/REGLUE.md.
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w
-        and.w   #$1FF, d0                   // mod plane height (512 px)
-        lsr.w   #3, d0                      // d0 = vshift in cells (0..63)
-        // -- find k = the band containing plane cell vshift --
-        // (last band whose top <= vshift; tops ascend and band 0 top is 0)
+        and.w   #PLANE_B_SPAN-1, d0         // d0 = vs, the plane LINE at the screen top
+        // -- find k = the band containing plane line vs --
+        // (last band whose top <= vs; tops ascend and band 0 top is 0)
         lea     sizeof(parallax_config)(a0), a1
         lea     sizeof(band_entry)(a1), a4  // probe = band[1]
         moveq   #0, d1                      // d1 = k
@@ -715,17 +764,16 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     .find_k:
         cmp.w   d7, d2
         bhs     .found_k
-        moveq   #0, d3
-        move.b  band_entry.band_top_cell(a4), d3
+        move.w  band_entry.band_top_plane(a4), d3   // 0..511, no zero-extend needed
         cmp.w   d0, d3
-        bhi     .found_k                    // top > vshift — stop
+        bhi     .found_k                    // top > vs — stop
         move.w  d2, d1
         adda.w  #sizeof(band_entry), a4
         addq.w  #1, d2
         jbra    .find_k
     .found_k:
         // -- copy all bands starting at k (wrapping) into the shadow view,
-        //    rebasing tops to screen cells and reordering the scroll words --
+        //    rebasing tops to screen lines and reordering the scroll words --
         lea     Parallax_Shadow_Bands, a4           // (Parallax_Shadow_Bands).w
         lea     Parallax_Shadow_Scroll_A, a5        // (Parallax_Shadow_Scroll_A).w
         lea     Parallax_Shadow_Scroll_B, a6        // (Parallax_Shadow_Scroll_B).w
@@ -739,9 +787,8 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         lea     sizeof(parallax_config)(a0), a1
         adda.w  d3, a1
         copy_band_entry()
-        // rebase the copied entry's top to screen cells
-        moveq   #0, d3
-        move.b  -sizeof(band_entry)(a4), d3
+        // rebase the copied entry's top: PLANE LINES -> SCREEN LINES
+        move.w  -sizeof(band_entry)(a4), d3
         sub.w   d0, d3
         tst.w   d4
         bne     .not_first
@@ -751,19 +798,19 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     .not_first:
         tst.w   d3
         bgt     .clamp_top
-        addi.w  #64, d3                     // wrapped past the plane bottom
+        addi.w  #PLANE_B_SPAN, d3           // wrapped past the plane bottom
     .clamp_top:
-        cmpi.w  #28, d3
+        cmpi.w  #SCREEN_HEIGHT, d3
         ble     .write_top
-        moveq   #28, d3                     // off-screen — zero-length fill
+        move.w  #SCREEN_HEIGHT, d3          // off-screen — zero-length fill
     .write_top:
-        // CLAMP IN CELLS, STORE IN LINES. The clamp stays at 28 cells because that is
-        // what stops the per-line filler emitting top×8 > 224 lines and spraying past
-        // Hscroll_Buffer (:618-622); only the stored UNIT changes. 28 cells -> 224
-        // lines, so the byte still holds it. The first-band path above reaches here
-        // with d3 = 0, and 0 << 3 is 0.
-        lsl.w   #3, d3                      // cells -> SCREEN LINES (band_top_line)
-        move.b  d3, -sizeof(band_entry)(a4)
+        // CLAMP AND STORE BOTH IN LINES. The clamp is what stops the per-line filler
+        // emitting more than 224 lines and spraying past Hscroll_Buffer (:618-622).
+        // Before re-glue this was a 28-CELL clamp followed by a `lsl.w #3`; the unit
+        // conversion is gone because there is no longer a unit to convert — the only
+        // remaining ×8 in this pipeline is Parallax_Fill_PerCell's inverse `lsr.w #3`,
+        // which the per-cell filler needs because IT counts cells.
+        move.w  d3, -sizeof(band_entry)(a4)
         // reorder the matching scroll words
         move.w  d2, d3
         add.w   d3, d3
@@ -905,8 +952,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         bhs     .anchor_have_k                      // single band: k = 0
         lea     sizeof(band_entry)(a4), a5
     .anchor_find_k:
-        moveq   #0, d2
-        move.b  band_top_line(a5), d2
+        move.w  band_top_line(a5), d2       // shadow tops are 0..224, no zero-extend needed
         cmp.w   d0, d2
         bhi     .anchor_have_k                      // top > L: previous band contains L
         move.w  d3, d1
@@ -997,7 +1043,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         mul_const.w d2, #sizeof(band_entry), d4
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5
-        move.b  d0, band_top_line(a5)               // the split lands exactly on L
+        move.w  d0, band_top_line(a5)               // the split lands exactly on L
     .cap_anchors_overlay_end:
     }
     .bands_ready:
@@ -1169,7 +1215,7 @@ proc Decode_Factor_A () clobbers(d1-d2) preserves(d3) {
         move.l  d3, -(sp)
         move.w  d0, d3
         asr.w   d1, d3                              // second term = camX >> s2
-        tst.b   band_entry.band_factor_a_op(a1)
+        btst    #BAND_OP_BIT_A, band_entry.band_factor_ops(a1)
         bne     .a_sub
         add.w   d3, d2
         jbra    .a_pop_d3
@@ -1202,7 +1248,7 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
         move.l  d3, -(sp)
         move.w  d0, d3
         asr.w   d1, d3
-        tst.b   band_entry.band_factor_b_op(a1)
+        btst    #BAND_OP_BIT_B, band_entry.band_factor_ops(a1)
         bne     .b_sub
         add.w   d3, d2
         jbra    .b_pop_d3
@@ -1280,13 +1326,15 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // --- end_line for this band: the next band's top, or 224 ---
         // The shadow view stores tops in SCREEN LINES (Parcel W), so the ×8 that used
         // to live here is gone — it moved to Step 4a's rebase, which is the one place
-        // that knows it is converting cells. Reading a line-unit byte here is what lets
+        // that knows it is converting units. Reading a line-unit field here is what lets
         // an anchored boundary land on an arbitrary scanline instead of a cell edge.
+        // The field is a WORD since P3 Task 7 (world-Y re-glue widened the ROM top to a
+        // plane line 0..511); the shadow half of it is still 0..224, so the read is a
+        // straight `move.w` and the old `moveq #0` zero-extend is gone with the byte.
         move.w  #224, d5
         subq.w  #1, d7
         beq     .have_end                           // last band
-        moveq   #0, d5
-        move.b  band_top_line_next(a1), d5  // band_top+band_entry_len(a1), SCREEN LINES
+        move.w  band_top_line_next(a1), d5  // band_top+band_entry_len(a1), SCREEN LINES
     .have_end:
 
         // --- packed base scroll (constant per band) ---
@@ -1714,8 +1762,7 @@ proc Parallax_Fill_PerCell () clobbers(d0-d4/a1-a4) {
         // (Parcel W), and this filler counts CELLS, so it converts here — the exact
         // inverse of the ×8 Step 4a's rebase applies, over the range the cell clamp
         // permits (0..28 cells -> 0..224 lines -> 0..28 cells, lossless).
-        moveq   #0, d4
-        move.b  band_top_line_next(a1), d4  // band_top+band_entry_len(a1), SCREEN LINES
+        move.w  band_top_line_next(a1), d4  // band_top+band_entry_len(a1), SCREEN LINES
         lsr.w   #3, d4                      // -> cells
         jbra    .have_end
     .last_band_end:

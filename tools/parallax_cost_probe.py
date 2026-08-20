@@ -122,15 +122,29 @@ CFG_ANCHOR_DSA      = 26   # u8
 CFG_ANCHOR_DSB      = 27   # u8
 CFG_SIZE            = 28
 
-# band_entry (engine/level/parallax.emp), 10 bytes
-BE_TOP_CELL   = 0
-BE_A_S1       = 1
-BE_A_S2       = 2
+# band_entry (engine/level/parallax.emp), 10 bytes. RESHAPED (not resized) by P3 Task 7:
+# the top is a u16 PLANE LINE (0..511) where it was a u8 plane CELL row, and the two 1-bit
+# factor-op flags moved into one packed `band_factor_ops` byte to pay for the extra byte.
+BE_TOP_PLANE  = 0    # u16 — plane LINE in ROM, screen LINE in the shadow view
+BE_A_S1       = 2
+BE_A_S2       = 3
 BE_B_S1       = 4
 BE_B_S2       = 5
+BE_OPS        = 6    # bit 0 = plane A op, bit 1 = plane B op
 BE_DSHIFT_A   = 7
 BE_DSHIFT_B   = 8
 BE_SIZE       = 10
+
+
+def be_top(raw: bytes, i: int, base: int = 0) -> int:
+    """Entry i's top, u16 big-endian. ONE reader, so the width lives in one place.
+
+    P3 Task 7 widened this field from u8 to u16 and a byte read here would have gone on
+    working -- silently -- by returning the always-zero HIGH byte of every shadow top in
+    range 0..224. That is why it is a function.
+    """
+    o = base + i * BE_SIZE + BE_TOP_PLANE
+    return int.from_bytes(raw[o:o + 2], "big")
 
 CFG_V_CENTER_Y      = 4    # i16  (Step 5: target_b = ((camY - v_center) >> v_factor) + v_off)
 CFG_V_OFFSET        = 6    # i16
@@ -148,8 +162,9 @@ HSCROLL_STATIC_BYTES = (112, 896)
 
 
 def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
+    """`top` is a plane LINE since P3 Task 7 (it was a plane CELL row)."""
     b = bytearray(BE_SIZE)
-    b[BE_TOP_CELL] = top
+    b[BE_TOP_PLANE:BE_TOP_PLANE + 2] = top.to_bytes(2, "big")
     b[BE_A_S1] = 1;  b[BE_A_S2] = NO_DEFORM      # single-term factor, plane A
     b[BE_B_S1] = 2;  b[BE_B_S2] = NO_DEFORM      # single-term factor, plane B
     b[BE_DSHIFT_A] = dsa
@@ -158,14 +173,18 @@ def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
 
 
 def band_tops(bands: int) -> list[int]:
-    """Band tops in CELL rows, spread evenly over the 28 visible rows.
+    """Band tops in plane LINES, spread evenly over the 224 visible lines.
 
-    Screen lines are these x 8, and `Parallax_Shadow_Bands` confirms it: with v_factor_bg = 15
-    (locked) Vscroll_BG is pinned, so Step 4a's rotation is the identity and the shadow tops
-    read back as exactly 0/112 for 2 bands and 0/72/144 for 3. Measured, not assumed -- the
-    probe prints them.
+    THE UNIT CHANGED WITH P3 TASK 7 AND THE NUMBERS DID NOT: the old spelling was
+    `i * (28 // bands)` CELL rows and Step 4a multiplied by 8 on the way to the shadow
+    view; the top is a plane line now and the x8 lives here instead. Same tops, same
+    fixtures, same measured geometry -- 0/112 for 2 bands, 0/72/144 for 3.
+
+    `Parallax_Shadow_Bands` confirms it rather than this docstring asserting it: with
+    v_factor_bg = 15 (locked) Vscroll_BG is pinned, so Step 4a's rotation is the identity
+    and the shadow tops read back as exactly those values. The probe prints them.
     """
-    return [i * (28 // bands) for i in range(bands)]
+    return [i * (28 // bands) * 8 for i in range(bands)]
 
 
 def build(base: bytes, *, bands: int = 1, tab_fg: int = 0, tab_bg: int = 0,
@@ -405,7 +424,11 @@ SYMS = ("Parallax_Update", "Parallax_Fill_PerLine", "Parallax_Fill_PerCell",
         # The preemption check's three counters — see the FRAMES PER TICK block in _one.
         "Frame_Counter", "Logic_Tick", "Lag_Frame_Count")
 
-SLOT_POISON = 0xFF        # the un-written shadow slot's arm value — see _one
+# The un-written shadow slot's arm value — see _one. The slot is filled with $FF BYTES, so
+# the top field reads back as $FFFF now that P3 Task 7 made it a u16; SLOT_POISON is the
+# value the TOP READER returns, not the fill byte.
+SLOT_POISON_BYTE = 0xFF
+SLOT_POISON = 0xFFFF
 
 # Symbols the P3 Task 3 arms add. Kept apart from SYMS so the default fit sweep's
 # precondition is unchanged, and checked per mode — a symbol a mode reads and does not list
@@ -494,7 +517,7 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
     # Poisoning is safe: an un-written slot is never READ either, because the filler's band
     # countdown is d7 = band_count unless the overlay bumped it.
     n_cfg = cfg[CFG_BAND_COUNT]
-    poison_hex = (bytes([SLOT_POISON]) * BE_SIZE).hex().upper()
+    poison_hex = (bytes([SLOT_POISON_BYTE]) * BE_SIZE).hex().upper()
     poison_addr = hex(sym["Parallax_Shadow_Bands"] + n_cfg * BE_SIZE)
 
     # ---- FRAMES PER TICK: the condition under which the response variable means what it says --
@@ -571,7 +594,13 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
     screen_l = [v - 0x10000 if v > 0x7FFF else v for v in screen_l]
     shadow = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Shadow_Bands"]), "len": BE_SIZE * 6})
-    tops = [int(shadow["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 2], 16) for i in range(6)]
+    # FOUR hex chars, not two: `band_top_plane` is a u16 since P3 Task 7. A two-char read
+    # goes on "working" here and returns the always-zero HIGH byte of every shadow top in
+    # 0..224, which makes every fixture's tops read [0,0,0,...] — identical, so the split
+    # witness below reports "no split" for anchored fixtures and the poison slot reads $FF
+    # instead of $FFFF. Measured live on 2026-08-20 while landing Task 7: it is why this
+    # goes through the same 16-bit parse as `be_top` rather than being inlined shorter.
+    tops = [int(shadow["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 4], 16) for i in range(6)]
     wy_ok = True
     if wy_addr is not None:
         wy1 = await b.call("emulator/read_memory", {"addr": hex(wy_addr), "len": 2})
@@ -625,7 +654,7 @@ async def _live(b: BusClient, sym: dict[str, int], settle: int, sample: int) -> 
                       {"addr": hex(sym["Parallax_Transition_Frames"]), "len": 1})
 
     await b.call("emulator/run_frames", {"frames": sample})          # burn the transient window
-    poison_hex = (bytes([SLOT_POISON]) * BE_SIZE).hex().upper()
+    poison_hex = (bytes([SLOT_POISON_BYTE]) * BE_SIZE).hex().upper()
     poison_addr = hex(sym["Parallax_Shadow_Bands"] + n * BE_SIZE)
     d_frames = d_ticks = -1
     prof = None
@@ -654,7 +683,7 @@ async def _live(b: BusClient, sym: dict[str, int], settle: int, sample: int) -> 
     shadow = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Shadow_Bands"]), "len": BE_SIZE * 6})
     raw = bytes.fromhex(shadow["bytes"])
-    ents = [(raw[i * BE_SIZE + BE_TOP_CELL], raw[i * BE_SIZE + BE_DSHIFT_A],
+    ents = [(be_top(raw, i), raw[i * BE_SIZE + BE_DSHIFT_A],
              raw[i * BE_SIZE + BE_DSHIFT_B]) for i in range(6)]
     return {"prof": prof, "cfg": cfg, "addr": cfg_addr,
             "shadow_tops": [e[0] for e in ents], "shadow_entries": ents,
@@ -781,7 +810,7 @@ async def _reglue_sweep(b: BusClient, sym: dict[str, int], settle: int,
         if n and n < MAX_SHADOW:
             await b.call("emulator/write_memory",
                          {"addr": hex(sym["Parallax_Shadow_Bands"] + n * BE_SIZE),
-                          "bytes": (bytes([SLOT_POISON]) * BE_SIZE).hex().upper()})
+                          "bytes": (bytes([SLOT_POISON_BYTE]) * BE_SIZE).hex().upper()})
         await b.call("emulator/run_frames", {"frames": 1})
         vs = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Current_Vscroll_BG"]), "len": 2})
@@ -816,7 +845,7 @@ async def _reglue_sweep(b: BusClient, sym: dict[str, int], settle: int,
                                    "len": 2 + cnt * PATCH_ENTRY_SIZE})
                 patch = bytes.fromhex(pr["bytes"])
         raw = bytes.fromhex(sh["bytes"])
-        bands = [(raw[i * BE_SIZE + BE_TOP_CELL], raw[i * BE_SIZE + BE_DSHIFT_A],
+        bands = [(be_top(raw, i), raw[i * BE_SIZE + BE_DSHIFT_A],
                   raw[i * BE_SIZE + BE_DSHIFT_B]) for i in range(MAX_SHADOW)]
         screen_l = [int(scr["bytes"][i:i + 4], 16)
                     for i in range(0, 4 * RASTER_MAX_PATCH, 4)]
@@ -831,7 +860,7 @@ async def _reglue_sweep(b: BusClient, sym: dict[str, int], settle: int,
             "cfg_addr_after": int(ptr2["bytes"][:8], 16) & 0xFFFFFF,
             "bands": n,
             "anchor_ch": cfg[CFG_ANCHOR_CH] if cfg else None,
-            "authored_cells": [cfg[CFG_SIZE + i * BE_SIZE + BE_TOP_CELL] for i in range(n)],
+            "authored_plane_lines": [be_top(cfg, i, CFG_SIZE) for i in range(n)],
             "vscroll_bg": int(vs["bytes"], 16),
             "vscroll_used": (int(vs["bytes"], 16) + poison_vscroll) & 0xFFFF,
             "transition_frames": int(tf["bytes"], 16),
@@ -1070,7 +1099,7 @@ def _segments(c: bytes, split: int | None = None):
     n = c[CFG_BAND_COUNT]
     tf = int.from_bytes(c[CFG_DEFORM_TAB_FG:CFG_DEFORM_TAB_FG + 4], "big") != 0
     tb = int.from_bytes(c[CFG_DEFORM_TAB_BG:CFG_DEFORM_TAB_BG + 4], "big") != 0
-    tops = [c[CFG_SIZE + i * BE_SIZE + BE_TOP_CELL] * 8 for i in range(n)]
+    tops = [be_top(c, i, CFG_SIZE) for i in range(n)]      # already SCREEN LINES (Task 7)
     anchored = c[CFG_ANCHOR_CH] != ANCHOR_NONE and split is not None
     L = max(0, min(224, split)) if anchored else 224
 
@@ -1206,11 +1235,12 @@ def authored_tops(c: bytes) -> list[int]:
     """The band tops Step 4a writes into the shadow view, in SCREEN LINES.
 
     With v_factor_bg locked (every fixture) the rotation is the identity, so these are the
-    config's own tops x 8 — which is what makes the shadow readback a witness of the OVERLAY
-    rather than of Step 4a.
+    config's own tops verbatim — which is what makes the shadow readback a witness of the
+    OVERLAY rather than of Step 4a. Since P3 Task 7 the ROM top is already a plane LINE, so
+    the `x 8` that used to be here is gone with the cell unit it converted.
     """
     n = c[CFG_BAND_COUNT]
-    return [c[CFG_SIZE + i * BE_SIZE + BE_TOP_CELL] * 8 for i in range(n)]
+    return [be_top(c, i, CFG_SIZE) for i in range(n)]
 
 
 def realized_split(c: bytes, tops: list[int]) -> int | None:
@@ -1327,9 +1357,14 @@ def run_sweep_mode(args, sym: dict[str, int]) -> int:
             # vshift and k are re-derived here for the REPORT only — they are what makes a row
             # readable and what proves the sweep exercised more than one rotation. The verdict
             # never uses them; it uses derive_shadow's own walk.
-            vshift = (p["vscroll_used"] & 0x1FF) >> 3
+            # P3 Task 7: `vshift` is a plane LINE now, not a cell row — Step 4a keeps the
+            # sub-cell part of Vscroll_BG instead of `>> 3`-ing it away. The reported cell
+            # row is derived FROM it so the sweep's rotation-coverage tally stays
+            # comparable with the pre-re-glue runs recorded in REGLUE-INSTRUMENT.md.
+            vs = p["vscroll_used"] & 0x1FF
+            vshift = vs >> 3
             k = max((i for i in range(p["bands"])
-                     if p["authored_cells"][i] <= vshift), default=0)
+                     if p["authored_plane_lines"][i] <= vs), default=0)
             ok, msg = band_verdict(p["shadow_bands"], derived, p["split"])
             if not ok:
                 failures.append(f"{tag}: {msg}")
@@ -1339,8 +1374,8 @@ def run_sweep_mode(args, sym: dict[str, int]) -> int:
             rows.append({"boot": ri, "camera_y": p["camera_y_want"],
                          "cfg_addr": f"{p['cfg_addr']:06X}", "bands": p["bands"],
                          "per_line": per_line_mode(cfg),
-                         "authored_cells": p["authored_cells"],
-                         "vscroll_bg": p["vscroll_bg"], "vshift": vshift, "k": k,
+                         "authored_plane_lines": p["authored_plane_lines"],
+                         "vscroll_bg": p["vscroll_bg"], "vs": vs, "vshift": vshift, "k": k,
                          "anchor_ch": p["anchor_ch"], "split": p["split"],
                          "anchor_resolution": why, "anchor_L": L,
                          "screen_l": p["screen_l"],
@@ -1795,7 +1830,7 @@ def main() -> int:
         if not ok:
             failures.append(f"{k}: split witness — {verdict}")
         print(f"  {k:4} {t['shadow_tops']}  slot[{t['bands']}]="
-              f"{'$FF' if slot == SLOT_POISON else slot:>4}  {verdict}")
+              f"{'$FFFF' if slot == SLOT_POISON else slot:>5}  {verdict}")
     # Pairs must share a band count or the differential answers "the shapes differ", not
     # "the split happened" — the vacuous-gate failure mode this tree has a postmortem for.
     for a_k, p_k in (("W10", "W5"), ("W12", "W6"), ("W17", "W5"), ("W21", "W5"),

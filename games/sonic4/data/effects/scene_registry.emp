@@ -244,7 +244,8 @@ ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: t
 // The fold lives in engine/level/scene_dsl.emp beside the model it classifies; the LIST
 // is the registry's, so it is evaluated here. It walks every scene's world-Y layer tops
 // and its anchor-bank reference and proves each sits in a rebase-CLASSIFIED coordinate
-// space — plane-relative for tops, act-relative-by-indirection for the anchor bank.
+// space — ACT-RELATIVE for tops since P3 Task 7 (they were plane-relative before it),
+// act-relative-by-indirection for the anchor bank.
 //
 // IT DOES NOT VERIFY A REBASE, and the ensure messages say so themselves rather than
 // leaving it to this comment: §4.11 is FUTURE/Phase-4 and there is no rebase mechanism
@@ -257,12 +258,31 @@ ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: t
 // be another entry in this tree's vacuous-gate history. The ensure is what evaluates it,
 // exactly as the capability fold above is evaluated by its subset test.
 //
-// PROVEN RED: replacing OJZ_Default's first `layer(world_y: 0, ...)` with a hand-built
+// PROVEN RED: replacing OJZ_Default's first `layer(world_y: 512, ...)` with a hand-built
 // `SceneLayer{ ly_world_y: 5, .. }` — the documented back door, which bypasses layer()'s
-// own grid guard and is precisely what this registry-level fold exists to close — fails
-// the build with `[Error] scene registry: a world-Y layer top (5) is not
-// act-relative-tagged ...`.
-pub const SceneRegistry_RebaseTagged = assert_act_relative_tagged(SCENES)
+// own guards and is precisely what this registry-level fold exists to close — fails the
+// build. Since P3 Task 7 the failing guard is scene_plane_line()'s ("world_y 5 is above
+// this scene's v_center 512"), reached through the LOWERING (lowerN -> scene_band ->
+// scene_plane_line) rather than through this fold: 5 is inside the act span, so the fold's
+// own ensure passes and the plane-image ensure is what catches it. Both are real, and the
+// re-verification after the guard changed is recorded in
+// docs/benchmarks/scanline-p3/REGLUE.md.
+//
+// ---- THE ACT SPAN IS DERIVED, NOT TYPED (P3 Task 7 Step 1) ----
+//
+// `layer()` can only apply the engine-wide $8000 act-axis ceiling — it sees one layer and
+// knows nothing about the act. The TIGHT bound is this act's own vertical extent, and the
+// authority for that is the act descriptor's `GRID_H << SECTION_SIZE_SHIFT`.
+//
+// It arrives as a MIRROR WITH A PIN rather than a direct import, and the direction is
+// forced: games/sonic4/data/levels/ojz/act1/act_descriptor.emp already imports THIS
+// module (for ParallaxConfig_OJZ_Default), so a `use` back the other way would be a
+// cycle. The mirror is declared here and act_descriptor.emp — where GRID_H and
+// SECTION_SIZE_SHIFT both live — carries the ensure that holds it to the descriptor's own
+// grid. Same two-species-of-pin discipline as PARALLAX_STATE_LONGS and BAND_ENTRY_LEN:
+// the number is written once and checked where its authority is in scope.
+pub const SCENE_ACT_SPAN_Y = 6144
+pub const SceneRegistry_RebaseTagged = assert_act_relative_tagged(SCENES, SCENE_ACT_SPAN_Y)
 ensure(SceneRegistry_RebaseTagged > 0, "scene registry: the rebase structural check classified nothing — assert_act_relative_tagged() returned {SceneRegistry_RebaseTagged}, so no world-Y top and no anchor bank was examined and the §6 declarative gate is vacuous")
 
 // =====================================================================

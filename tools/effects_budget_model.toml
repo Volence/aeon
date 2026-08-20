@@ -410,6 +410,82 @@ postunroll_out_of_sample_predicted = 13646.4
 postunroll_out_of_sample_measured  = 13798
 postunroll_out_of_sample_gap_pct   = 1.10
 
+# =====================================================================================
+# THE RE-GLUE RE-FIT (P3 Task 7, 2026-08-20) — the standing rule's re-take, and the row
+# set Task 13 should re-take FROM. `postunroll_*` above describes the walker as it was
+# BEFORE world-Y re-glue; these rows describe the walker that is in the tree.
+#
+# tools/parallax_cost_probe.py --repeat 1, 26 fixtures, spread 0 on every fixture, exit 0.
+# ROM s4.debug.bin crc=d7b36f90 len=715010 (worktree p3/t7-worldy-reglue).
+# Run alone; ~2 min wall on a machine at load ~7-9 (uptime 09:27:56 -> 09:29:5x), which is
+# NOT an idle-machine figure — a concurrent session was busy. Every window is verified
+# preemption-free (frames/ticks 31/31, lag 0 on all 26), so the CYCLE rows are unaffected
+# by that load even though the wall clock is.
+#
+# THE MODEL'S STRUCTURE SURVIVED AGAIN: the un-anchored subset residual is still EXACTLY
+# 0.00 over the same 18 fixtures. FOUR columns moved and EVERY ONE OF THEM DERIVES TO THE
+# INSTRUCTION, which is the standard the trap ledger's "measure-don't-book" row demands —
+# these are measurements that a derivation then explained, not bookings:
+#
+#   column          postunroll   reglue    delta   derivation
+#   base              3144.00    3116.00    -28    Step 4a per call: `lsr.w #3, d0` deleted
+#                                                  (-12, the rotation is in LINES now) plus
+#                                                  the single copy-loop iteration's
+#                                                  `moveq #0, d3` (-4) and `lsl.w #3, d3`
+#                                                  (-12). W0 IS base (1 band, per-cell).
+#   band_percell       772.00     752.00    -20    copy-loop -16, plus Parallax_Fill_PerCell's
+#                                                  `.next_band` `moveq #0, d4` (-4) — the
+#                                                  widened `move.w` needs no zero-extend
+#   band_perline       874.00     854.00    -20    copy-loop -16, plus Parallax_Fill_PerLine's
+#                                                  `.have_end` `moveq #0, d5` (-4)
+#   multiband           24.00      20.00     -4    `.find_k`'s body `moveq #0, d3`. Every
+#                                                  fixture has k = 0, so that body runs
+#                                                  EXACTLY ONCE — the column IS that
+#                                                  instruction, and the -4 is its cost.
+#   anchor             985.6      981.4      -4.2  Step 4b's `.anchor_find_k` `moveq #0, d2`,
+#                                                  once per call. Inside the term's own
+#                                                  residual band, so read it as consistent
+#                                                  rather than as a second measurement.
+#   anchor_ops          61.65      60.77     -0.88 ditto
+#   line_mode / line_fg_only / line_bg_only / line_both / shift_lines / band_sampling /
+#   vdeform                                  0     unchanged, all seven
+#
+# `multiband` IS RE-MEASURED, NOT RETIRED, and the plan asked for that verdict explicitly.
+# The new Step 4a still SEEKS — the even-spacing arithmetic collapse was declined because no
+# shipped scene is evenly spaced (OJZ_Default's plane lines are 0/64/320/384) — so the
+# once-at-two-bands cost still exists and the indicator column still has a subject. See
+# docs/benchmarks/scanline-p3/REGLUE.md for why the search stayed a search.
+#
+# THE OUT-OF-SAMPLE GAP GREW, 1.10% -> 2.11%, AND THE MEASURED VALUE ROSE BY 36 CYCLES
+# WHILE EVERY COLUMN GOT CHEAPER. That is not a contradiction and it is not the model
+# failing: the shipped config's BAND GEOMETRY MOVED. Its shadow tops are now
+# 0/46/80/110/224 where they were 0/48/80/112/224 — the partial offset, which is the whole
+# point of the parcel — so the band spans, and therefore the per-line work composition,
+# are not the same work as before. Same walker, different bands. The gap is also dominated
+# by the anchored overlay term, whose own residual is +-58.9 over 8 fixtures; the shipped
+# config is anchored.
+reglue_status = "MEASURED on p3/t7-worldy-reglue, 26 fixtures, spread 0, exit 0 — the current walker"
+reglue_loop_shape = "POST-UNROLL per-line filler + P3 world-Y re-glue (Step 4a rotates in plane LINES)"
+reglue_base_cycles              = 3116.00
+reglue_band_percell_cycles      = 752.00
+reglue_line_mode_cycles         = 1548.00
+reglue_band_perline_cycles      = 854.00
+reglue_multiband_cycles         = 20.00
+reglue_line_fg_only_cycles      = 26.00
+reglue_line_bg_only_cycles      = 26.90
+reglue_line_both_cycles         = 124.53
+reglue_shift_lines_cycles       = 2.00
+reglue_band_sampling_cycles     = 154.00
+reglue_vdeform_cycles           = 1472.00
+reglue_anchor_cycles            = 981.4
+reglue_anchor_ops_cycles        = 60.77
+reglue_residual_cycles              = 0.00   # un-anchored subset (18) — unchanged
+reglue_residual_cycles_all_fixtures = 43.6
+reglue_residual_cycles_overlay_term = 58.9
+reglue_out_of_sample_predicted = 13542.7
+reglue_out_of_sample_measured  = 13834
+reglue_out_of_sample_gap_pct   = 2.11
+
 # Transition-frame rows — SYNTHESIZED (camera frozen, configs installed in RAM), not a real
 # section crossing: Parallax_StartTransition and Parallax_CheckBoundary do not run. This
 # measures design §5's evaluation frame for axes 1/2/3 and closes P2 Task 12's blocker (b).

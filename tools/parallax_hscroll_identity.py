@@ -178,7 +178,10 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes, settle: int,
         frames.append(buf["bytes"].upper())
         sh = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Shadow_Bands"]), "len": BE_SIZE * 6})
-        tops_seen.append([int(sh["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 2], 16)
+        # FOUR hex chars: `band_top_plane` is a u16 since P3 Task 7. A two-char read returns
+        # the always-zero HIGH byte of every shadow top in 0..224 and this list silently
+        # becomes [0,0,0,...].
+        tops_seen.append([int(sh["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 4], 16)
                           for i in range(6)])
         ph = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Deform_Phase_FG"]), "len": 2})
