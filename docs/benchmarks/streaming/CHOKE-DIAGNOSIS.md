@@ -710,6 +710,21 @@ regressing the right axis, and they did neither.
   probe's new `F2a speculation guard` row: **suppressed 25 of 25 ticks** at `maxdiag`,
   **0 of 31** at `right`, **0 of 31** at `down`, **0 of 29** at `idle`, with windows of
   11 / 4 / 5 / 0 claims.
+* **WHERE the gate is applied, which cost 380 cyc/tick and is worth it.** The first cut put
+  the latch test at `.v_top_done` and returned — the same place throwaway B jumped from.
+  That also skips the scans' BOOKKEEPING, and one piece of it is not block-tier state:
+  `Cache_Pfx_Row_Target` / `_Col_Target` are read by `PageCache_Prefetch` from `VSync_Wait`
+  to aim the PAGE tier's speculation, a different tier with a different lead and a different
+  residency. The pre-existing H4 and budget skips leave those words stale for ONE tick and
+  say so; a latch that can stay down for hundreds would have left the page tier prefetching
+  around a camera position from minutes ago. It is **dormant today** — `PageIn_Fully_Resident`
+  is true on all shipped content so `PageCache_Prefetch` early-outs — which is exactly why it
+  would have gone unnoticed until the first act whose pool exceeds `PAGE_FRAMES`, i.e. the
+  act §10 says has never existed. The shipped shape lets each scan derive and publish its
+  target and checks the latch immediately after, with a third check before the corner probe.
+  Cost while suppressed: the target arithmetic plus three `tst.w`s — measured at
+  **+380 cyc/tick** at `maxdiag` against the early-return cut (134,141 → 134,521), for a
+  latent coupling removed rather than documented.
 * **What shipped — the memo re-key**, both halves of the self-defeat in §3:
   * the BOUNDS term compared the RAW `Cache_Left_Col`/`Head_Col` (resp. `Top`/`Bottom`),
     which move every tick the camera moves — while the scan only ever visits BLOCK-ALIGNED
@@ -734,26 +749,26 @@ regressing the right axis, and they did neither.
 
   | state | frames/tick | work/tick | `Tile_Cache_Fill` cyc/tick | decompresses/tick |
   |---|---|---|---|---|
-  | `maxdiag` | **2.067 → 1.240** | 170,723 → **134,141** | 85,903 → **64,630** | 4.53 → **1.32** |
-  | `right` | 1.000 → **1.000** | 80,979 → 81,108 (+129) | 32,048 → 32,186 | 0.48 → **0.48** (15 of 31, identical) |
-  | `down` | 1.000 → **1.000** | 81,660 → 81,859 (+199) | 32,271 → 32,467 | 0.65 → **0.65** (20 of 31, identical) |
-  | `idle` | 1.069 → 1.069 | see below | 926 → 1,070 | 0 → 0 |
+  | `maxdiag` | **2.067 → 1.240** | 170,723 → **134,521** | 85,903 → **64,991** | 4.53 → **1.32** |
+  | `right` | 1.000 → **1.000** | 80,979 → 81,126 (+147) | 32,048 → 32,200 | 0.48 → **0.48** (15 of 31, identical) |
+  | `down` | 1.000 → **1.000** | 81,660 → 81,862 (+202) | 32,271 → 32,469 | 0.65 → **0.65** (20 of 31, identical) |
+  | `idle` | 1.069 → 1.069 | see below | 926 → 1,055 | 0 → 0 |
 
   Inside the max-diagonal fill: `TileCache_DecompressBlock` 24,184 → **5,796**,
-  `S4LZ_DecompressDict` 20,094 → **4,597**, `FindStagedBlock` 4,871 → **4,130**.
-* **Two caveats on the 36,582, in opposite directions, both stated rather than netted.**
+  `S4LZ_DecompressDict` 20,094 → **4,597**, `FindStagedBlock` 4,871 → **4,195**.
+* **Two caveats on the 36,202, in opposite directions, both stated rather than netted.**
   `PageCache_Audit` FIRED inside the BEFORE window (1,633 cyc/tick) and did not in the
   AFTER one, so 1,633 of the difference is audit phase, not F2 — the attributable saving is
-  **≥ 34,949**. Pulling the other way, §7's attribution defect loses ~20% of the frame at
+  **≥ 34,569**. Pulling the other way, §7's attribution defect loses ~20% of the frame at
   2.067 frames/tick and almost none at 1.240, so the BEFORE `work/tick` is understated and
   the true saving is larger than either number. **The instrument-independent figure is
   `frames/tick` 2.067 → 1.240** — a count of frames and ticks, not an attribution.
   `idle`'s `work/tick` is not quotable at all here (F1's booked trap): its VSync_Wait row
   moved 3,734 cyc/frame while `total_cycles` did not move at all. Read the idle cost off the
-  fill's own row: **+135 cyc/frame**, the guard's fixed price.
+  fill's own row: **+121 cyc/frame**, the guard's fixed price.
 * **DIRECTLY MEASURED, not inferred** (`tools/staging_lifetime_timeline.py`, 3 boots,
-  spread 0.000): at `maxdiag` claims fall **4.13 → 1.44 per tick and are now 100% DEMAND**;
-  **dead speculations 0.87/tick → 0.00**; and demand-block residency rises **3.25 → 11.48
+  spread 0.000): at `maxdiag` claims fall **4.13 → 1.27 per tick and are now 100% DEMAND**;
+  **dead speculations 0.87/tick → 0.00**; and demand-block residency rises **3.25 → 11.24
   ticks**, which is the churn ending. At `right` and `down` every figure is IDENTICAL to
   the baseline's — 15 and 19 claims, all speculative, zero demand, zero dead.
 * **The memo's own worth, isolated** (two throwaway builds that force both memos to miss,
@@ -782,11 +797,11 @@ regressing the right axis, and they did neither.
   `effects_budget_check` 31 rows, `verify_level_bin` OK, sigil warning counts unchanged
   (9 / 123). `tools/staging_index_poison.py` (F4's net) and
   `tools/pagecache_audit_poison.py` both LIVE — three arms HALT, control keeps running.
-* **Remaining distance.** 134,141 against the 128,000-cycle frame: **6,141 cycles, 4.6%.**
+* **Remaining distance.** 134,521 against the 128,000-cycle frame: **6,521 cycles, 4.8%.**
   The booked levers are F6 (margins, estimated ~13,000 cyc/tick and now the only ranked
   streaming item left) and, off the streaming path, the raster arm-rewrite rider
-  (1,152 cyc/frame). Also newly visible: with the fill down to 64,630, `Parallax_Update` is
-  **26,209 cyc/tick — the largest single non-fill row** at max-diagonal, and DEFERRED_WORK
+  (1,152 cyc/frame). Also newly visible: with the fill down to 64,991, `Parallax_Update` is
+  **26,159 cyc/tick — the largest single non-fill row** at max-diagonal, and DEFERRED_WORK
   §3 already carries two untaken parallax levers.
 
 **The original entry, as written by the diagnosis parcel, follows.**

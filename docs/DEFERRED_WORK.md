@@ -78,13 +78,13 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   fit) is unaffected and still binds.
 - Ranked fixes F1–F6 with measured savings are in §8 of the packet. **F1, F2, F4 and F5 are
   CLOSED (below); F6 remains PARKED for an owner ruling** and must not be started before one.
-- **The arc's remaining distance, 2026-08-20: 6,141 cycles.** Sustained max-diagonal now runs
-  at **1.240 frames/tick** on `work/tick` 134,141 against the 128,000-cycle frame. The four
+- **The arc's remaining distance, 2026-08-20: 6,521 cycles.** Sustained max-diagonal now runs
+  at **1.240 frames/tick** on `work/tick` 134,521 against the 128,000-cycle frame. The four
   fixes took it from 190,931 / 2.067. What is left is F6 (margins, estimated ~13,000 cyc/tick,
   and the only ranked streaming item still open) plus, off the streaming path, the raster
   arm-rewrite rider (1,152 cyc/frame, §5 of this file). **A NEW row is now the biggest single
-  non-fill cost at max-diagonal: `Parallax_Update` at 26,209 cyc/tick**, against
-  `Tile_Cache_Fill`'s 64,630 — and §3 of this file already carries two untaken parallax
+  non-fill cost at max-diagonal: `Parallax_Update` at 26,159 cyc/tick**, against
+  `Tile_Cache_Fill`'s 64,991 — and §3 of this file already carries two untaken parallax
   levers whose blockers are discharged.
 - **Instrument defect found:** old oracle's per-routine rows lose 20.6% of the frame when a
   logic tick spans a VBlank (they close to 1–2% when it does not). Packet §7. The instrument
@@ -150,7 +150,7 @@ ref/unref pair, servicing an eviction that cannot occur while `PageIn_Fully_Resi
 
 **Fix F2 — the block prefetch's speculation lands instead of dying — ✅ CLOSED 2026-08-20**
 (`perf/prefetch-lands`). **The arc's line-crossing lever: max-diagonal 2.067 → 1.240
-frames/tick, work/tick 170,723 → 134,141.** F2a (the residency guard) + the memo re-key
+frames/tick, work/tick 170,723 → 134,521.** F2a (the residency guard) + the memo re-key
 shipped; **F2b and F2c were not needed** — the ruling made F2c conditional on a+re-key
 missing the −21,580-class saving or regressing the right axis, and they did neither.
 - **The guard.** `Cache_Spec_Gen_Ring`, eight words of `Block_Stage_Gen` history indexed
@@ -174,7 +174,7 @@ missing the −21,580-class saving or regressing the right axis, and they did ne
   the DEMAND work the churn creates. Demand-block residency at max-diagonal was **3.25 ticks**
   against a strip the fill needs for eight, so the fill was re-decompressing its own blocks —
   2.20 demand claims/tick where the single-axis states pay ZERO. After the guard, demand
-  residency is **11.48 ticks** and total claims are 1.44/tick, all demand, zero dead.
+  residency is **11.24 ticks** and total claims are 1.27/tick, all demand, zero dead.
 - **The memo re-key** fixed both halves of the self-defeat: block-aligned bounds (the raw
   bounds moved 8× more often than the SET they named) and an eviction-derived key
   (round-robin makes the claims-since-record an exact evicted-slot window; the scan records
@@ -188,13 +188,13 @@ missing the −21,580-class saving or regressing the right axis, and they did ne
   static, so the old key already hit at both. The re-key pays in MIXED-axis motion, which is
   where the guard now turns the scans off. It ships as a correctness fix and is counted as a
   lever nowhere.
-- **Two caveats on the 36,582, in opposite directions, both stated:** `PageCache_Audit` fired
+- **Two caveats on the 36,202, in opposite directions, both stated:** `PageCache_Audit` fired
   in the BEFORE window and not the AFTER one (1,633 cyc/tick of it), so the attributable
-  saving is ≥ 34,949; and §7's attribution defect understates the 2.067-frames/tick baseline,
+  saving is ≥ 34,569; and §7's attribution defect understates the 2.067-frames/tick baseline,
   so the true saving is larger than either figure. **Quote `frames/tick` 2.067 → 1.240** — a
   frame and tick count, not an attribution. `idle`'s work/tick is not quotable (F1's booked
   trap fired again: VSync_Wait moved 3,734 cyc/frame with `total_cycles` unchanged); the
-  guard's fixed idle cost read off the fill's own row is **+135 cyc/frame**.
+  guard's fixed idle cost read off the fill's own row is **+121 cyc/frame**.
 - **Value identity held**, and the compare had to be rebuilt for a schedule-changing fix: the
   fixed ROM travels further in the same 31 frames, so the states are matched on SETTLED
   CAMERA POSITION, with camera, all four cache bounds, both origins, budget, both resume slots

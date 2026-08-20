@@ -1004,10 +1004,14 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         cmpi.w  #BLOCK_STAGE_SLOTS, d2
         bls     .spec_gate_done                 // residency >= lead — speculation can land
         move.w  #1, Cache_Spec_Blocked          // trip
-        jbra    .spec_gate_done
+        jbra    .spec_down
     .spec_rearm_test:
         cmpi.w  #BLOCK_SPEC_REARM, d2
-        bhi     .spec_gate_done                 // still too hot to re-arm
+        bls     .spec_rearm                     // cool enough — re-arm
+    .spec_down:
+        addq.w  #1, Cache_Spec_Skips            // ticks the latch spent DOWN (release counter)
+        jbra    .spec_gate_done
+    .spec_rearm:
         clr.w   Cache_Spec_Blocked
     .spec_gate_done:
 
@@ -1348,27 +1352,26 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // the speculation IS the fill. The guard keeps it exactly there: `right`
         // and `down` sit at 4-5 claims per 8 ticks against a 16-slot budget and
         // never trip it.
-        tst.w   Cache_Spec_Blocked
-        beq     .pfx_gate_h4
-        // Suppressed. Keep the two direction baselines FRESH before returning —
-        // the scans below own those updates, and a guard that can stay down for
-        // hundreds of ticks would otherwise hand the re-arming frame a delta
-        // measured against a camera position from before the block was staged.
-        // (The pre-existing H4/budget skips leave them stale on purpose and
-        // document the doubled delta as harmless for ONE frame; a latch is not one
-        // frame.) The H3 hysteresis accumulator is deliberately NOT advanced: it
-        // integrates opposite motion to decide when to flip a prefetch direction,
-        // and there is no prefetch to aim while this is down.
-        move.l  Camera_Y, d0
-        swap    d0
-        lsr.w   #3, d0
-        move.w  d0, Cache_Prev_Cam_Row
-        move.l  Camera_X, d0
-        swap    d0
-        move.w  d0, Cache_Prev_Cam_X
-        addq.w  #1, Cache_Spec_Skips
-        jbra    .fill_return
-    .pfx_gate_h4:
+        // WHERE THE GATE IS APPLIED, and why it is not here. The latch suppresses
+        // the three SPECULATIVE STAGE SITES and the FindStagedBlock walks that feed
+        // them — it does NOT skip the tail. An early return here (which is what the
+        // packet's throwaway B did, and what the first cut of this parcel did) also
+        // skips the scans' bookkeeping: `Cache_Prev_Cam_Row`/`Cache_Prev_Cam_X`, the
+        // H3 direction latch, and — the one that matters — the two AHEAD-TARGET
+        // words. `PageCache_Prefetch` reads `Cache_Pfx_Row_Target`/`_Col_Target` from
+        // VSync_Wait to aim the PAGE tier's speculation, which is a different tier
+        // with a different lead and a different residency; a block-tier verdict must
+        // not silently re-aim it. The pre-existing H4/budget skips leave those words
+        // stale for ONE tick and say so; a latch that can stay down for hundreds
+        // would have left the page tier prefetching around a camera position from
+        // minutes ago. Dormant today (`PageIn_Fully_Resident` is true on all shipped
+        // content, so PageCache_Prefetch early-outs) — which is exactly why it would
+        // have gone unnoticed until the first act whose pool exceeds PAGE_FRAMES.
+        //
+        // So the scans still run their derivation and still publish their targets;
+        // each one then checks the latch immediately after publishing, and the corner
+        // checks it before its own probe. Cost while suppressed: the target
+        // arithmetic and three `tst.w`s.
         // ============ UNIFIED DIRECTION-AWARE PREFETCH (§4.7, design note) ============
         // Leftover-budget speculation ordered row -> col -> corner. H4 deadline gate
         // first: pure speculation must never push a late frame past VBlank. The demand
@@ -1435,7 +1438,11 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // d7 = target world tile row. Scan block cols [Left..Head], stage the FIRST
         // unstaged block k=1 (self-advancing across the ~8 quiet frames), sec_x per
         // step, sec_y fixed (guarded at entry).
-        move.w  d7, Cache_Pfx_Row_Target       // record for the corner (H2)
+        move.w  d7, Cache_Pfx_Row_Target       // record for the corner (H2) + the PAGE tier
+        // F2a GATE. The target above is published either way (see .v_top_done); what
+        // the guard suppresses is the walk and the stage below it.
+        tst.w   Cache_Spec_Blocked
+        bne     .row_done
         // Memo skip: when this target row and the BLOCK-ALIGNED cache col bounds
         // match the last frame that found the whole row already staged, AND no slot
         // that result rested on has been evicted since, the FindStagedBlock walk
@@ -1607,7 +1614,9 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.b  Act_grid_w_lo(a0), d0           // grid_w (sections)
         cmp.w   d0, d5
         bcc     .col_done                      // sec_x >= grid_w — out of world
-        move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2)
+        move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2) + the PAGE tier
+        tst.w   Cache_Spec_Blocked             // F2a GATE (mirror of .pfx's)
+        bne     .col_done
         // Memo skip — the exact mirror of .pfx above, including both halves of the
         // F2 re-key: BLOCK-ALIGNED row bounds (the scan visits block-aligned rows
         // only, so the raw Top/Bottom moved 8x more often than the set they name)
@@ -1695,6 +1704,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // stage it LAST, only when BOTH axes are actively crossing. Both targets were
         // grid-guarded when recorded, so the corner section is in-grid by construction
         // (sec_x<grid_w from the col, sec_y<grid_h from the row).
+        tst.w   Cache_Spec_Blocked             // F2a GATE — the corner is speculation too
+        bne     .fill_return
         tst.w   Cache_Fill_Budget
         beq     .fill_return
         move.w  Cache_Pfx_Row_Target, d7
