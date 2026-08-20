@@ -102,8 +102,15 @@ ref/unref pair, servicing an eviction that cannot occur while `PageIn_Fully_Resi
   cyc/tick (−22.5%), `_Col` 183.1 → **103.3** cyc per patched word; `down` fill
   41,067 → **34,218** (−16.7%), `_Seq` 136.2 → **88.5** cyc/word; `maxdiag` work/tick
   190,941 → **174,437** (−16,504). ~84%/78% of throwaway C's floor, the residual being the
-  DEBUG-only pool-bounds assert the shipped loop KEEPS (in a stricter, cheaper form) and C
-  dropped — release runs at the floor.
+  pool-bounds assert the shipped loop KEEPS (in a stricter, cheaper form) and C dropped.
+- **The RELEASE shape's saving is smaller and it is the one to quote for shipping.** The
+  DEBUG numbers overstate it: the pre-F1 general loop carried two DEBUG asserts release never
+  paid, which the collapsed loop deletes along with the block they sat in. Measured on
+  `s4.bin` at `down`: `_Seq` 112.7 → **86.6** cyc/word (−23.2%, vs −35.0% in DEBUG), fill
+  36,880 → **32,707** (−11.3%), work/tick 92,937 → **88,762**. The two shapes' F1 costs agree
+  (88.5 vs 86.6); it is the BASELINES that differ. **`right` is NOT reproducible in release on
+  this probe** — the leader falls (dx 320 dy 124 vs dx 496 dy 0), so it is a diagonal state
+  there; calibrating one is an instrument job.
 - **`maxdiag` frames/tick stays 2.067, as §5 predicted.** F2 is the other half; 46,437 cycles
   remain to the 128,000 line. Read F1 off `right`/`down`, where the instrument closes (§7):
   F1's own per-word deltas predict 17,208 cyc/tick and `work/tick` fell 16,504, closing to 4%.

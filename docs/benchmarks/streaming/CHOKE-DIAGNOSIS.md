@@ -536,9 +536,26 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
   STRICTER and cheaper form — it bounds the GLOBAL directly against `pool_pages<<6` (hoisted
   once per run into d4) instead of deriving the page per word, so it catches every
   out-of-pool map entry the page-level check caught **and the sub-page ones it did not**.
-  That cost is **DEBUG-only**; the release shape runs at C's floor. The residual also
-  carries the per-run `tst.b`+`bcc` variant select (~200 cyc/tick against ~95 cyc/word over
-  280 words/tick).
+  The residual also carries the per-run `tst.b`+`bcc` variant select (~200 cyc/tick against
+  ~95 cyc/word over 280 words/tick).
+* **MEASURED IN THE RELEASE SHAPE — and it is NOT the same number. Quote this one for
+  shipping.** The DEBUG figures above overstate the release saving, because the pre-F1
+  general loop carried two DEBUG asserts (the page bound and the refcount-underflow check)
+  that release never paid and the collapsed loop deletes along with the block they sat in.
+  Probed on `s4.bin` (baseline `d00dd11d` vs F1 `8cf11323`, `--repeat 2`), at `down`:
+
+  | shape | `_Seq` cyc/word | `Tile_Cache_Fill` cyc/tick | `work/tick` |
+  |---|---|---|---|
+  | DEBUG | 136.2 → **88.5** (−35.0%) | 41,067 → 34,218 (−16.7%) | 90,460 → 83,607 |
+  | RELEASE | 112.7 → **86.6** (−23.2%) | 36,880 → **32,707** (−11.3%) | 92,937 → **88,762** |
+
+  The two shapes' F1 costs agree (88.5 vs 86.6 cyc/word) — the kept DEBUG bound is ~2 cyc/word
+  at `down`, because most words there take the blank early-out and never reach it. It is the
+  BASELINES that differ by 23.5 cyc/word. **`right` is not reproducible in the release shape
+  on this probe** and must not be quoted from it: the leader falls (dx 320 **dy 124**, versus
+  dx 496 dy 0 in DEBUG), so release's "right" is a diagonal state that runs both fill paths
+  and lags at 1.550 frames/tick. Calibrating a release-shape `right` is an instrument job,
+  not this parcel's.
 * **`maxdiag`'s −16,504 vs C's −36,669 is the §7 instrument, not a shortfall.** F1's own
   per-word deltas predict (183.1−103.3)×120 + (136.2−88.5)×160 = **17,208 cyc/tick**, and the
   measured `work/tick` fell 16,504 — **closing to 4%**. C's −36,669 exceeds its OWN per-word
