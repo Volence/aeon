@@ -17,7 +17,30 @@ set -euo pipefail
 # the whole-ROM byte gate confirm it). A missing donor / absent editor data is a
 # HARD ERROR (ojz_strip_gen.generate() refuses the silent legacy-air fallback).
 #
-# USAGE (from the repo root):  tools/regenerate-level.sh
+# USAGE (from the repo root):  tools/regenerate-level.sh [--no-cache]
+#
+# INCREMENTAL RE-BAKE (2026-08-19). The editor's edit-look-edit loop re-bakes
+# after every save, and a REAL one-chunk edit used to cost 7-15 s against a
+# 0.85-1.5 s no-change re-bake. MEASURED (16 cores, load ~30): the whole balloon
+# was ojz_block_gen's per-section S4LZ K-sweep — 13.15 s of a 13.19 s section
+# rebuild, 282 s4lz.compress calls at ~47 ms each. It was NOT the ZX0 pool
+# packing (10 salvador spawns, 0.35 s total) and NOT the dedupe/spatial-order
+# pass. ojz_block_gen now memoizes per (block, dictionary) as well as per
+# section, so a one-chunk edit recompresses ~4 blocks instead of 282.
+#
+# --no-cache forces a full recompute through every cache tier (the trust escape
+# hatch). The caches are PURE memoization keyed on a hash of the exact inputs
+# INCLUDING the compressor source, so cached and --no-cache output are
+# byte-identical by construction; see the key-completeness argument in
+# tools/ojz_block_gen.py. Cache lives in tools/.cache/ (gitignored) — never in
+# data/generated/, which is a committed artifact with an orphan check.
+
+NO_CACHE=""
+for arg in "$@"; do
+    case "$arg" in
+        --no-cache) NO_CACHE="--no-cache" ;;
+    esac
+done
 
 cd "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
 TOOLS="${TOOLS:-tools}"
@@ -175,7 +198,7 @@ POOL_EMP="${POOL_DIR}/ojz_act_pool.emp"
 } > "$POOL_EMP"
 
 echo "Generating OJZ block data..."
-python3 "${TOOLS}/ojz_block_gen.py" generate
+python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}
 
 # The re-bake is the ONE moment the committed tree actually changes — run the
 # drift gate HERE, not just at the next build.sh. (set -euo pipefail above

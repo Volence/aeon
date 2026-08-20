@@ -69,6 +69,23 @@ set -euo pipefail
 # tools/level_staleness.py (see its docstring for the compare and the exclusions):
 #   canonical -> STALE is a HARD FAILURE naming tools/regenerate-level.sh
 #   FAST=1    -> STALE auto-runs the re-bake, timed and reported in the banner
+#
+# RE-BAKE COST (measured 2026-08-19, after the incremental re-bake parcel). The
+# re-bake is part of the FAST loop whenever the editor has saved, so its cost is
+# the loop's cost. On 16 cores:
+#
+#     no-change re-bake                 0.83 s
+#     re-bake after a ONE-CHUNK edit    0.99 s   (was 14.66 s)
+#     cold cache, full bake             2.82 s
+#     tools/regenerate-level.sh --no-cache  10.06 s
+#
+# The old cliff was ojz_block_gen's per-section S4LZ K-sweep: one edited byte
+# invalidated a whole section and cost 13.15 s of a 13.19 s section rebuild. It
+# now memoizes per (block, dictionary) as well as per section, so an edit
+# recompresses ~4 streams instead of 282. The caches are content-addressed pure
+# memoization with output verification on every hit — cached and --no-cache
+# output are byte-identical; see tools/ojz_block_gen.py for the key-completeness
+# and integrity argument, and --no-cache for the escape hatch.
 
 GAME="${1:-sonic4}"
 # sonic4 keeps the historical ROM name s4.bin (game content); other games use their own name.
