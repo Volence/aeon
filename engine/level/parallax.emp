@@ -43,7 +43,7 @@ use engine.effects.preset.{Effects_InstallPreset}
 // the WRONG fix is the tempting one: declaring a 0x6430 anchor in games/demo/map.toml
 // builds, and bakes a moment's placer fill into the placement contract for a section
 // that packs. A stale provisional is refrozen, never anchored around.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, parallax_mode_key}
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, parallax_mode_key}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -59,13 +59,6 @@ const VDP_DATA_OFF = VDP_DATA - VDP_CTRL     // = -4
 // shadow-offset block. Nothing relates that block to VdpShadow's field offsets — engine.vdp
 // says so itself: a wrong offset there changes the emitted displacement, so the
 // seven-target byte identity is the only check.
-
-// Parallax_State clear span in longwords — a NAMED comptime mirror for the
-// Init moveq, drift-locked to the ram.asm layout. (moveq link-deferral exists
-// — the ImmSigned8 fixup — but the named count + drift-lock reads better than
-// inline extern arithmetic; keeping the mirror is the chosen spelling.)
-const PARALLAX_STATE_LONGS = 61
-ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
 // ---- Parallax band-entry ROM struct (§4.6) — parallax-private (only parallax
 // reads it). This module is the sole author of the band_entry layout; the build
@@ -97,6 +90,105 @@ pub struct band_entry {
     band_phase_offset:   u8,   // 0..255, added to deform sample index for desync
 }
 
+// ================= THE CAPABILITY-SHAPED RECORD (P3 TASK 8, design 3.1) =============
+//
+// 3.1's rule: "no-new-capability scenes lower to the EXISTING 28-byte header + 10-byte
+// entries BYTE-IDENTICALLY; extended records exist only in games whose mask includes
+// MULTI_DEFORM_TABLE." With BAND_EXT_N at 0 the trailing array field emits NOTHING and
+// sizeof(band_record) IS sizeof(band_entry), so every stride, displacement and reservation
+// derived from it is unchanged byte for byte — the four-shape CRC pairs are in
+// docs/benchmarks/scanline-p3/EXTENDED-RECORD.md.
+//
+// WHY A LENGTH-PARAMETERISED ARRAY FIELD AND NOT A CONDITIONAL DECLARATION. sigil's item
+// grammar has no `if` opener (crates/sigil-frontend-emp/src/parser.rs:544-600 is the whole
+// list), so `if CAP { struct band_record {...} } else { struct band_record {...} }` is
+// ungrammatical, and a `data X: T` binding carries exactly one type annotation, so two
+// types feeding one binding is closed too. Parameterising the type — one struct whose
+// trailing array is 1 long or 0 long — is the form that survives, and it keeps the
+// size-annotation and array-length PINS that 3.1 says the untyped
+// `if CAP {..} else {Data.empty}` fallback forfeits. That was Task 8 Step 1's SPIKE, proven
+// by ROM bytes in BOTH arms rather than by a green build (EXTENDED-RECORD.md section 1).
+//
+// WHY IT IS A SECOND STRUCT AND NOT FIELDS ON `band_entry`. `band_entry` is one of sigil's
+// STRUCT_OFFSET_TWINS (crates/sigil-harness/src/native.rs:1348-1357): the build lays it out
+// AMBIENTLY — one file plus types.emp, no profile, no defines, no contract — to harvest
+// `band_entry_len` for engine/ram.emp's mirror pin. A name from outside that tiny
+// environment in a harvested struct's layout expression fails the whole build before a byte
+// is emitted (measured 2026-08-20). So the harvested twin stays contract-free and the
+// capability shape lives in a struct the harvest never sees. `band_record` is deliberately
+// NOT in that list, and `band_entry` must never gain a field.
+//
+// ---- WHY BAND_EXT_N IS A PINNED LITERAL AND NOT A FOLD OF Game.SCANLINE_CAPS ----
+//
+// It should read `if (Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 { 1 } else { 0 }`,
+// and that spelling was written, built, and REJECTED BY THE COMPILER twenty times over —
+// `unknown name Game.SCANLINE_CAPS`, once per emitted config record. The context that lays
+// out an emitted `data` binding's record type does not bind contract members. Neither does
+// the ambient struct harvest, nor `harvest_engine_ram_addresses` (engine/ram.emp earns the
+// same error for the same spelling). A build DEFINE *is* visible there: driving BAND_EXT_N
+// off `DEBUG` sized the record and built byte-identically, which is what makes the fix
+// concrete rather than speculative — expose each game's declared SCANLINE_CAPS as an
+// `emp_defines` row the way MAX_RING_BUFFER already is. That is a sigil-side change, booked
+// in docs/DEFERRED_WORK.md; EXTENDED-RECORD.md has the full evidence.
+//
+// Until then the number is a mirror and THE CAPABILITY IS STILL THE AUTHORITY, because the
+// game side pins the two together where both are visible: games/sonic4/data/effects/
+// scene_registry.emp carries a two-directional ensure against Game.SCANLINE_CAPS. Raising
+// the bit without setting this to 1 fails the build, and so does the reverse. What this
+// tree cannot do yet is carry two games that DISAGREE about the bit — one engine constant
+// cannot be 0 and 1 at once — and that, precisely, is what the define buys.
+pub const BAND_EXT_N = 0
+
+// band_ext — the per-layer deform reference, present only under CAP_MULTI_DEFORM_TABLE.
+//
+// WHAT IS AND IS NOT HERE. Design section 2's `own(table, shift_a/b, phase, speed)` names
+// five things; three ALREADY have a home in the legacy entry and are not duplicated —
+// `shift_a/b` are `band_deform_shift_a/b`, `phase` is `band_phase_offset`, all three
+// per-band since Parcel W. What `own` adds over `shared` is the TABLE the band samples and
+// the RATE its phase advances, which are the CONFIG's in every other variant
+// (`pcfg_deform_table_fg/bg`, `pcfg_deform_speed_fg/bg`). So the extension is exactly those
+// four fields and nothing speculative.
+//
+// A NULL table means "inherit the config's", which is what lets an extended record whose
+// bands carry no `own` ref behave identically to a legacy one. Task 9 owns that runtime
+// read; Task 8 owns the shape it reads through.
+pub struct band_ext (size: 10) {
+    bx_deform_table_a: u32,  // Plane A deform table (0 = inherit pcfg_deform_table_fg)
+    bx_deform_table_b: u32,  // Plane B deform table (0 = inherit pcfg_deform_table_bg)
+    bx_deform_speed_a: u8,   // Plane A phase advance per frame
+    bx_deform_speed_b: u8,   // Plane B phase advance per frame
+}
+
+// band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
+// registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker
+// loop advances by. The legacy prefix sits at offset 0, which is why every field reference
+// in this file is still spelled `band_entry.<field>(aN)`.
+//
+// A MODULE THAT IMPORTS `band_record` MUST IMPORT `band_entry`, `band_ext` AND `BAND_EXT_N`
+// TOO. The declaration is re-elaborated in the importing module's own name environment, so
+// a partial import fails there — and it fails pointing AT THIS DECLARATION, in this file,
+// naming a type this file plainly declares. Three importers do it: engine.level.scene_dsl,
+// games.sonic4.scene_registry, games.sonic4.scene_equiv_proof.
+pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N) {
+    br_base: band_entry,
+    br_ext:  [band_ext; BAND_EXT_N],
+}
+ensure(offsetof(band_record, br_base) == 0,
+       "band_record's legacy prefix is at offset {offsetof(band_record, br_base)}, not 0 — every `band_entry.<field>(aN)` displacement in this file addresses through the record base, so a non-zero prefix offset silently mis-addresses all ten legacy fields")
+// THE CAPABILITY-OFF IDENTITY, as an assertion rather than a comment: with no extension the
+// record IS the legacy entry. Design section 8.1's claim, checked where it is decided.
+ensure(BAND_EXT_N != 0 || sizeof(band_record) == sizeof(band_entry),
+       "BAND_EXT_N is 0 but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
+
+// THE SHADOW RESERVATION IS A MIRROR THIS MODULE HOLDS TO THE RECORD, for the same reason
+// BAND_EXT_N is: engine/ram.emp is lowered by a focused, CONTRACT-BLIND build, so it cannot
+// read the capability either. It reserves BAND_ENTRY_LEN per band; this ensure — which sees
+// both the record and the RESOLVED RAM span — is what stops the two disagreeing. Widen the
+// record without widening ram.emp and the build fails naming the constant, instead of the
+// shadow view running off the end of its array at runtime.
+ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
+       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — widen BAND_ENTRY_LEN in engine/ram.emp by sizeof(band_ext)")
+
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0
 pub const BAND_OP_BIT_B = 1
@@ -126,8 +218,25 @@ pub const BAND_OP_BIT_B = 1
 //
 // The peek-ahead form exists because the .field-in-disp sugar does not compose in
 // displacement arithmetic (row 1068), so the neighbour offset must be a named const.
+// Parallax_State clear span in longwords — a NAMED comptime mirror for the
+// Init moveq, drift-locked to the ram.asm layout. (moveq link-deferral exists
+// — the ImmSigned8 fixup — but the named count + drift-lock reads better than
+// inline extern arithmetic; keeping the mirror is the chosen spelling.)
+//
+// IT MOVED DOWN HERE IN P3 TASK 8 so it can carry the extension term: the shadow-band array
+// lives inside this span, so a wider record widens the wipe. 61 is the capability-off count
+// and stays exactly that while BAND_EXT_N is 0; the extension term is DERIVED from the
+// record rather than hand-added, so widening ram.emp's BAND_ENTRY_LEN is the one edit a
+// capability flip needs and this count follows it.
+ensure((sizeof(band_ext) * BAND_EXT_N * MAX_PARALLAX_BANDS) % 4 == 0,
+       "the band extension adds {sizeof(band_ext) * BAND_EXT_N * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
+const PARALLAX_STATE_LONGS = 61 + (sizeof(band_ext) * BAND_EXT_N * MAX_PARALLAX_BANDS) / 4
+ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
+
+// The peek-ahead strides by the RECORD, not by the legacy prefix — the neighbour band is
+// one whole record away, extension included.
 const band_top_line      = offsetof(band_entry, band_top_plane)
-const band_top_line_next = offsetof(band_entry, band_top_plane) + sizeof(band_entry)
+const band_top_line_next = offsetof(band_entry, band_top_plane) + sizeof(band_record)
 
 // PLANE_B_SPAN — the Plane-B vertical span in pixels, the modulus Step 4a's rotation
 // works in and the ceiling every lowered `band_top_plane` must sit under. 64 rows of
@@ -160,7 +269,7 @@ ensure(PLANE_B_SPAN == 512, "PLANE_B_SPAN drifted from the 64x64 Plane-B geometr
 // `ensure(sizeof(DMAEntry) == 14, "… re-derive the copy")`. One shared generator
 // over both is its own byte-proving parcel (gap-ledger row).
 
-// The long count of the widest-first run whose total advance is exactly sizeof(band_entry):
+// The long count of the widest-first run whose total advance is exactly sizeof(band_record):
 // as many longs as fit, then a trailing word when the size is not a multiple of 4.
 comptime fn copy_run_longs() -> int {
     // An ODD entry size is unrepresentable here, and the reason is a crash, not
@@ -178,26 +287,26 @@ comptime fn copy_run_longs() -> int {
     // too when one lands (P3 Task 8 correction C5: evenness must survive the extension —
     // prefix + extension, not prefix alone). See docs/benchmarks/scanline-p3/
     // EXTENDED-RECORD.md for why the extension itself is not here yet.
-    ensure(sizeof(band_entry) % 2 == 0,
-           "sizeof(band_entry) is {sizeof(band_entry)}, which is ODD — the whole-entry copy's move.l run would address-error on every odd-indexed entry; keep the entry size even")
+    ensure(sizeof(band_record) % 2 == 0,
+           "sizeof(band_record) is {sizeof(band_record)}, which is ODD — the whole-entry copy's move.l run would address-error on every odd-indexed entry; keep the entry size even")
     ensure(sizeof(parallax_config) % 2 == 0,
            "sizeof(parallax_config) is odd — it is the band array's base offset, so the whole-entry copy's move.l run would start on an odd address")
-    return sizeof(band_entry) / 4
+    return sizeof(band_record) / 4
 }
 
 // copy_band_entry_fwd — forward copy, both cursors post-incrementing.
 //
 // In:  {src} = source entry, {dst} = destination cursor
-// Out: both advanced by sizeof(band_entry); no data register touched
+// Out: both advanced by sizeof(band_record); no data register touched
 //
 // Step 4a's rebase immediately after its call reads the copied top back through
-// `-sizeof(band_entry)(a4)`, so the run's advance and that displacement are ONE fact
+// `-sizeof(band_record)(a4)`, so the run's advance and that displacement are ONE fact
 // rather than two numbers that must agree.
 comptime fn copy_band_entry_fwd(src: Reg, dst: Reg) -> Code {
     let longs = 0..copy_run_longs() |> fold(asm {}, |acc, _i| acc ++ asm {
         move.l  ({src})+, ({dst})+
     })
-    if sizeof(band_entry) % 4 == 0 { return longs }
+    if sizeof(band_record) % 4 == 0 { return longs }
     return longs ++ asm { move.w  ({src})+, ({dst})+ }
 }
 
@@ -205,13 +314,13 @@ comptime fn copy_band_entry_fwd(src: Reg, dst: Reg) -> Code {
 // through the source entry, each piece written one whole entry forward.
 //
 // In:  {cur} = one past the END of the source entry
-// Out: {cur} moved back by sizeof(band_entry); the entry now also sits one entry later
+// Out: {cur} moved back by sizeof(band_record); the entry now also sits one entry later
 comptime fn copy_band_entry_back(cur: Reg) -> Code {
-    let tail = if sizeof(band_entry) % 4 == 0 { asm { } } else { asm {
-        move.w  -({cur}), sizeof(band_entry)({cur})
+    let tail = if sizeof(band_record) % 4 == 0 { asm { } } else { asm {
+        move.w  -({cur}), sizeof(band_record)({cur})
     } }
     return tail ++ (0..copy_run_longs() |> fold(asm {}, |acc, _i| acc ++ asm {
-        move.l  -({cur}), sizeof(band_entry)({cur})
+        move.l  -({cur}), sizeof(band_record)({cur})
     }))
 }
 
@@ -739,7 +848,7 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.w  d4, (a3)
 
     .band_done:
-        adda.l  #sizeof(band_entry), a1
+        adda.l  #sizeof(band_record), a1
         addq.l  #2, a2
         addq.l  #2, a3
         addq.w  #1, d5
@@ -796,7 +905,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // -- find k = the band containing plane line vs --
         // (last band whose top <= vs; tops ascend and band 0 top is 0)
         lea     sizeof(parallax_config)(a0), a1
-        lea     sizeof(band_entry)(a1), a4  // probe = band[1]
+        lea     sizeof(band_record)(a1), a4  // probe = band[1]
         moveq   #0, d1                      // d1 = k
         moveq   #1, d2                      // probe index
     .find_k:
@@ -806,7 +915,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   d0, d3
         bhi     .found_k                    // top > vs — stop
         move.w  d2, d1
-        adda.w  #sizeof(band_entry), a4
+        adda.w  #sizeof(band_record), a4
         addq.w  #1, d2
         jbra    .find_k
     .found_k:
@@ -821,12 +930,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d4                      // first-entry flag
     .copy_band:
         move.w  d2, d3
-        mul_const.w d3, #sizeof(band_entry), d5  // d3 = d2 × sizeof(band_entry); d5 trashed
+        mul_const.w d3, #sizeof(band_record), d5  // d3 = d2 × sizeof(band_record); d5 trashed
         lea     sizeof(parallax_config)(a0), a1
         adda.w  d3, a1
         copy_band_entry_fwd(a1, a4)
         // rebase the copied entry's top: PLANE LINES -> SCREEN LINES
-        move.w  -sizeof(band_entry)(a4), d3
+        move.w  -sizeof(band_record)(a4), d3
         sub.w   d0, d3
         tst.w   d4
         bne     .not_first
@@ -848,7 +957,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // conversion is gone because there is no longer a unit to convert — the only
         // remaining ×8 in this pipeline is Parallax_Fill_PerCell's inverse `lsr.w #3`,
         // which the per-cell filler needs because IT counts cells.
-        move.w  d3, -sizeof(band_entry)(a4)
+        move.w  d3, -sizeof(band_record)(a4)
         // reorder the matching scroll words
         move.w  d2, d3
         add.w   d3, d3
@@ -988,13 +1097,13 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #1, d3                              // probe index
         cmp.w   d7, d3
         bhs     .anchor_have_k                      // single band: k = 0
-        lea     sizeof(band_entry)(a4), a5
+        lea     sizeof(band_record)(a4), a5
     .anchor_find_k:
         move.w  band_top_line(a5), d2       // shadow tops are 0..224, no zero-extend needed
         cmp.w   d0, d2
         bhi     .anchor_have_k                      // top > L: previous band contains L
         move.w  d3, d1
-        adda.w  #sizeof(band_entry), a5
+        adda.w  #sizeof(band_record), a5
         addq.w  #1, d3
         cmp.w   d7, d3
         blo     .anchor_find_k
@@ -1009,7 +1118,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         beq     .anchor_no_shift
         subq.w  #1, d3                              // -> dbf count
         move.w  d7, d2
-        mul_const.w d2, #sizeof(band_entry), d4     // d2 = n * entry size; d4 trashed
+        mul_const.w d2, #sizeof(band_record), d4     // d2 = n * entry size; d4 trashed
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5                              // a5 = &band[n], one past the last
     .anchor_shift_band:
@@ -1043,10 +1152,10 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // It INHERITS its parent's scroll factors and scroll words. That inheritance is the
         // mechanism: the surface changes where the wave starts, not how the layer scrolls.
         move.w  d1, d2
-        mul_const.w d2, #sizeof(band_entry), d4     // d2 = k * entry size
+        mul_const.w d2, #sizeof(band_record), d4     // d2 = k * entry size
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5                              // a5 = &band[k]
-        lea     sizeof(band_entry)(a5), a6          // a6 = &band[k+1]
+        lea     sizeof(band_record)(a5), a6          // a6 = &band[k+1]
         // GENERATED SINCE P3 TASK 8 (Step 3) — the forward twin of the shift-down walk
         // above, off the same run widths. Was L+L+W typed out by hand.
         copy_band_entry_fwd(a5, a6)
@@ -1067,7 +1176,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d7, d3
         sub.w   d2, d3
         subq.w  #1, d3                              // dbf count over (k+1 .. n)
-        mul_const.w d2, #sizeof(band_entry), d4
+        mul_const.w d2, #sizeof(band_record), d4
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5                              // a5 = &band[k+1]
         move.b  parallax_config.pcfg_anchor_dsa(a0), d4
@@ -1075,12 +1184,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     .anchor_shift_write:
         move.b  d4, band_entry.band_deform_shift_a(a5)
         move.b  d5, band_entry.band_deform_shift_b(a5)
-        adda.w  #sizeof(band_entry), a5
+        adda.w  #sizeof(band_record), a5
         dbf     d3, .anchor_shift_write
         // retop the split entry AFTER the override walk (which does not touch the top)
         move.w  d1, d2
         addq.w  #1, d2
-        mul_const.w d2, #sizeof(band_entry), d4
+        mul_const.w d2, #sizeof(band_record), d4
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5
         move.w  d0, band_top_line(a5)               // the split lands exactly on L
@@ -1762,7 +1871,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         dbf     d2, .fl_rem
 
     .band_done:
-        lea     sizeof(band_entry)(a1), a1
+        lea     sizeof(band_record)(a1), a1
         addq.l  #2, a2
         addq.l  #2, a3
         tst.w   d7
@@ -1827,7 +1936,7 @@ proc Parallax_Fill_PerCell () clobbers(d0-d4/a1-a4) {
         jbra    .fill
 
     .band_done:
-        adda.l  #sizeof(band_entry), a1
+        adda.l  #sizeof(band_record), a1
         addq.l  #2, a2
         addq.l  #2, a3
         cmp.w   d7, d2
