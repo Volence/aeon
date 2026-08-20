@@ -12,6 +12,7 @@ use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COL
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
 use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
+use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM}
 use engine.constants.{STALL_WATCHDOG_FRAMES}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
 
@@ -152,12 +153,32 @@ pub data BlockStage_PtrTable: [*u8; BLOCK_STAGE_SLOTS] = comptime for i in 0..BL
 // TileCache_FindStagedBlock — probe staging cache for a decompressed block
 // In:  d0.w = sec_x, d1.w = sec_y, d2.w = block_index (0–255)
 // Out: Z set + a1 = slot base (nametable; collision at +BLOCK_NT_SIZE) on hit;
-//      Z clear on miss (a1 trashed). d0–d2 preserved.
-// Clobbers: d3-d4, a1
+//      Z clear on miss (a1 trashed). d4.w = the slot's stride-4 index on hit,
+//      $FF (the not-a-slot sentinel) on miss — an output on BOTH edges.
+//      d0–d2 preserved.
+// Clobbers: d3, a1   (d4 left `clobbers` when it became an unconditional output:
+//                     sigil refuses `out` and `clobbers` on the same register —
+//                     "a register is either a returned result or destroyed
+//                     scratch, not both" — and from a caller's side an output is
+//                     destroyed either way, so no call site's license narrowed.)
 // CONTRACT — a1 is a RESULT on the eq edge and SCRATCH on the others, which is
 // why it is declared in both `clobbers` and `out`. The probe walks a1 across the
 // staging metadata before the hit/miss is known, so the miss exit returns a1
 // destroyed; a caller holding a value in a1 must save it on every path.
+//
+// d4 IS ALSO A RESULT, and it was already being computed. The bucket walk lands
+// the hit slot's stride-4 index in d4 and the two metadata reads below index off
+// it, so publishing it costs zero instructions. Streaming fix F2's prefetch-scan
+// memo needs it: the memo records WHICH staging slots its all-staged result rests
+// on, so a later claim only invalidates the memo when it evicted one of them.
+//
+// It is declared UNCONDITIONALLY, unlike a1, and the difference is real rather
+// than cosmetic: every path through this proc WRITES d4 (the `moveq #0` + bucket
+// byte, then each chain step), and every miss path leaves exactly $FF there —
+// both miss exits are reached by reading a $FF link cell. So "slot*4, or $FF for
+// no slot" is a total function of the arguments, not a value that only means
+// something on one edge. a1 stays `if eq` because a1's miss value really is
+// debris: a partially-walked metadata pointer with no interpretation.
 //
 // STREAMING FIX F4 — this was a LINEAR SCAN of all BLOCK_STAGE_SLOTS keys
 // (`cmp.l (a1)+ / dbeq`), measured at 416 cycles per probe and 10,319 cyc/tick at
@@ -174,7 +195,7 @@ pub data BlockStage_PtrTable: [*u8; BLOCK_STAGE_SLOTS] = comptime for i in 0..BL
 // the scan returned for every key, and the staged HIT/MISS sequence (hence the
 // decompress schedule F2 is measured against) is bit-for-bit unchanged.
 // -----------------------------------------------
-pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1) out(a1 if eq) preserves(d0-d2) {
+pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3/a1) out(a1 if eq, d4) preserves(d0-d2) {
         move.w  d0, d3
         lsl.w   #8, d3
         move.b  d1, d3
@@ -211,9 +232,9 @@ pub proc TileCache_FindStagedBlock (d0: u16, d1: u16, d2: u16) clobbers(d3-d4/a1
 
 // -----------------------------------------------
 // TileCache_InvalidateStaging — empty all staging slots
-// Clobbers: d0, a0
+// Clobbers: d0-d1, a0
 // -----------------------------------------------
-pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
+pub proc TileCache_InvalidateStaging () clobbers(d0-d1/a0) {
         lea     Block_Stage_Keys, a0
         moveq   #BLOCK_STAGE_SLOTS-1, d0
     .inv:
@@ -246,8 +267,27 @@ pub proc TileCache_InvalidateStaging () clobbers(d0/a0) {
         dbf     d0, .inv_chain
         clr.w   Block_Stage_Next
         addq.w  #1, Block_Stage_Gen            // staging emptied — every warm-line memo now stale
-        move.w  #$FFFF, Pfx_Memo_Gen           // sentinel: the next frame's scans re-probe in full
-        move.w  #$FFFF, Cs_Memo_Gen
+        // Sentinel: the next frame's scans re-probe in full. Streaming fix F2 moved
+        // this OFF the generation words, because the re-keyed memo reads them as a
+        // DELTA base and $FFFF is one BELOW a small live generation, not far from
+        // it — a sentinel that lands inside the valid window is not a sentinel. The
+        // target is the sound place for it: every target is block-aligned, so
+        // $FFFF is unrepresentable there.
+        move.w  #$FFFF, Pfx_Memo_Row
+        move.w  #$FFFF, Cs_Memo_Col
+        // F2a: prime the speculation-residency ring to the LIVE generation. A
+        // zeroed ring reads as `Block_Stage_Gen` claims in the last LEAD ticks,
+        // which suppresses speculation for the first LEAD ticks of every act after
+        // the first — the cold-start ticks that need it most. Priming makes the
+        // window read 0 (no claims yet) until real history accumulates.
+        lea     Cache_Spec_Gen_Ring, a0
+        move.w  Block_Stage_Gen, d1
+        moveq   #BLOCK_SPEC_LEAD_TICKS-1, d0
+    .inv_spec_ring:
+        move.w  d1, (a0)+
+        dbf     d0, .inv_spec_ring
+        clr.w   Cache_Spec_Window
+        clr.w   Cache_Spec_Blocked             // an empty cache has evicted nothing
         rts
 }
 
@@ -936,6 +976,45 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .fg_lag_done:
         move.w  d0, Cache_Fill_Last_Frame
 
+        // ---- F2a: the speculation residency window, sampled once per LOGIC TICK
+        // Past the frame gate this body runs exactly once per logic tick (that is
+        // what the gate is FOR — F5 measured it: the audit's counter advanced once
+        // per tick, not once per frame, even at 2.067 frames/tick), so this is the
+        // one place a per-tick history can be kept without a second gate.
+        //
+        // Cache_Spec_Gen_Ring[t & (LEAD-1)] holds Block_Stage_Gen as of tick t.
+        // Overwriting the slot LEAD ticks old, after reading it, makes the
+        // difference the exact number of staging claims over the prefetch lead —
+        // the left-hand side of the residency inequality in engine.constants, with
+        // no division and no smoothing. `sub.w` is correct across the u16 wrap.
+        //
+        // The Schmitt latch below is the whole guard. See .v_top_done for what it
+        // suppresses and why suppression is not deletion.
+        move.l  Logic_Tick, d1
+        andi.w  #BLOCK_SPEC_LEAD_TICKS-1, d1
+        add.w   d1, d1                          // word index
+        lea     Cache_Spec_Gen_Ring, a0
+        move.w  Block_Stage_Gen, d2
+        move.w  (a0, d1.w), d3                  // generation as of LEAD ticks ago
+        move.w  d2, (a0, d1.w)                  // this tick's snapshot replaces it
+        sub.w   d3, d2                          // d2 = claims over the last LEAD ticks
+        move.w  d2, Cache_Spec_Window
+        tst.w   Cache_Spec_Blocked
+        bne     .spec_rearm_test
+        cmpi.w  #BLOCK_STAGE_SLOTS, d2
+        bls     .spec_gate_done                 // residency >= lead — speculation can land
+        move.w  #1, Cache_Spec_Blocked          // trip
+        jbra    .spec_down
+    .spec_rearm_test:
+        cmpi.w  #BLOCK_SPEC_REARM, d2
+        bls     .spec_rearm                     // cool enough — re-arm
+    .spec_down:
+        addq.w  #1, Cache_Spec_Skips            // ticks the latch spent DOWN (release counter)
+        jbra    .spec_gate_done
+    .spec_rearm:
+        clr.w   Cache_Spec_Blocked
+    .spec_gate_done:
+
     if DEBUG == 1 {
         // DEMAND-STALL WATCHDOG (chain 74). Cache_Art_Stall still set here => the
         // PREVIOUS frame's fill demand-stalled and did not resolve. Count consecutive
@@ -1255,6 +1334,44 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         subq.w  #1, d5                         // restore d5 to even (pair base)
         jbra    .v_top_fill
     .v_top_done:
+        // ---- F2a GATE: does a block staged NOW survive to the frame that needs it?
+        // Latched at the frame gate above from the measured claim rate. When it is
+        // down, EVERY speculative site below is suppressed — row scan, col scan and
+        // corner alike — because they all claim from the same 16 round-robin slots
+        // and each dead claim shortens the residency of every other block in the
+        // cache, including the DEMAND fill's. That second effect is the one the
+        // packet's slots/rate arithmetic did not price, and it is the larger half:
+        // measured, `right` and `down` perform ZERO demand decompresses (the
+        // prefetch does all the work and every speculation lands), while sustained
+        // max-diagonal performs 2.20 per tick — blocks the fill staged and then
+        // lost to speculative churn before it had finished walking their strip.
+        //
+        // Suppression, NOT deletion. Deleting the prefetch outright (the packet's
+        // throwaway B) took max-diagonal work/tick down by 21,580 and REGRESSED
+        // sustained-right from 1.000 frames/tick to 1.069, because on a single axis
+        // the speculation IS the fill. The guard keeps it exactly there: `right`
+        // and `down` sit at 4-5 claims per 8 ticks against a 16-slot budget and
+        // never trip it.
+        // WHERE THE GATE IS APPLIED, and why it is not here. The latch suppresses
+        // the three SPECULATIVE STAGE SITES and the FindStagedBlock walks that feed
+        // them — it does NOT skip the tail. An early return here (which is what the
+        // packet's throwaway B did, and what the first cut of this parcel did) also
+        // skips the scans' bookkeeping: `Cache_Prev_Cam_Row`/`Cache_Prev_Cam_X`, the
+        // H3 direction latch, and — the one that matters — the two AHEAD-TARGET
+        // words. `PageCache_Prefetch` reads `Cache_Pfx_Row_Target`/`_Col_Target` from
+        // VSync_Wait to aim the PAGE tier's speculation, which is a different tier
+        // with a different lead and a different residency; a block-tier verdict must
+        // not silently re-aim it. The pre-existing H4/budget skips leave those words
+        // stale for ONE tick and say so; a latch that can stay down for hundreds
+        // would have left the page tier prefetching around a camera position from
+        // minutes ago. Dormant today (`PageIn_Fully_Resident` is true on all shipped
+        // content, so PageCache_Prefetch early-outs) — which is exactly why it would
+        // have gone unnoticed until the first act whose pool exceeds PAGE_FRAMES.
+        //
+        // So the scans still run their derivation and still publish their targets;
+        // each one then checks the latch immediately after publishing, and the corner
+        // checks it before its own probe. Cost while suppressed: the target
+        // arithmetic and three `tst.w`s.
         // ============ UNIFIED DIRECTION-AWARE PREFETCH (§4.7, design note) ============
         // Leftover-budget speculation ordered row -> col -> corner. H4 deadline gate
         // first: pure speculation must never push a late frame past VBlank. The demand
@@ -1321,28 +1438,70 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // d7 = target world tile row. Scan block cols [Left..Head], stage the FIRST
         // unstaged block k=1 (self-advancing across the ~8 quiet frames), sec_x per
         // step, sec_y fixed (guarded at entry).
-        move.w  d7, Cache_Pfx_Row_Target       // record for the corner (H2)
-        // Memo skip: when this target row, the cache col bounds, AND the staging
-        // generation all match the last frame that found the whole row already
-        // staged, the FindStagedBlock walk below can only re-probe to the same all-
-        // hits result — skip straight to .row_done (Cache_Pfx_Row_Target is already
-        // set, so the corner still sees the target; budget is untouched on this path).
-        // R1: the Left/Head bounds compare is LOAD-BEARING, not belt-and-braces —
+        move.w  d7, Cache_Pfx_Row_Target       // record for the corner (H2) + the PAGE tier
+        // F2a GATE. The target above is published either way (see .v_top_done); what
+        // the guard suppresses is the walk and the stage below it.
+        tst.w   Cache_Spec_Blocked
+        bne     .row_done
+        // Memo skip: when this target row and the BLOCK-ALIGNED cache col bounds
+        // match the last frame that found the whole row already staged, AND no slot
+        // that result rested on has been evicted since, the FindStagedBlock walk
+        // below can only re-probe to the same all-hits result — skip straight to
+        // .row_done (Cache_Pfx_Row_Target is already set, so the corner still sees
+        // the target; budget is untouched on this path).
+        //
+        // R1: the bounds compare is LOAD-BEARING, not belt-and-braces —
         // Cache_Head_Col advances on a prefetch-SUCCESS fill (all-hits, zero
         // decompress, generation UNCHANGED), so on that frame the bounds are the only
         // thing that killed the memo. Never simplify the bounds compare away.
+        //
+        // F2 re-key, half one: the bounds are compared BLOCK-ALIGNED. The scan below
+        // starts at `Cache_Left_Col & ~15` and steps by BLOCK_TILE_SIZE while
+        // `d6 <= Cache_Head_Col`, so for block-aligned d6 the visited SET is decided
+        // by (Left & ~15, Head & ~15) and by nothing else. Keying on the raw bounds
+        // therefore threw the memo away on every tick the camera moved a single
+        // tile, when the set it describes only changes once per block crossing.
         cmp.w   Pfx_Memo_Row, d7
         bne     .pfx_scan_begin
         move.w  Cache_Left_Col, d5
-        cmp.w   Pfx_Memo_L, d5
+        andi.w  #~(BLOCK_TILE_SIZE-1), d5
+        cmp.w   Pfx_Memo_L16, d5
         bne     .pfx_scan_begin
         move.w  Cache_Head_Col, d5
-        cmp.w   Pfx_Memo_H, d5
+        andi.w  #~(BLOCK_TILE_SIZE-1), d5
+        cmp.w   Pfx_Memo_H16, d5
         bne     .pfx_scan_begin
+        // F2 re-key, half two: the EVICTION test. What can falsify an all-staged
+        // result is an eviction of one of the blocks it covers — not a claim
+        // somewhere else in the engine, which is all a raw generation compare could
+        // see, and which included the scan's own claims. Eviction is strict
+        // round-robin, so the `delta` claims since the record evicted exactly the
+        // slots [Next - delta .. Next) mod BLOCK_STAGE_SLOTS; Pfx_Memo_Mask is the
+        // set the memo rests on. Disjoint means the memo still holds.
         move.w  Block_Stage_Gen, d5
-        cmp.w   Pfx_Memo_Gen, d5
-        beq     .row_done                      // memo hit — row still all-staged
+        sub.w   Pfx_Memo_Gen, d5               // d5 = claims since the record
+        beq     .row_done                      // none at all — trivially still valid
+        cmpi.w  #BLOCK_STAGE_SLOTS, d5
+        bhs     .pfx_scan_begin                // a full turnover: everything is gone
+        moveq   #1, d3
+        lsl.w   d5, d3
+        subq.w  #1, d3                         // d3 = `delta` contiguous set bits
+        move.w  Block_Stage_Next, d4
+        sub.w   d5, d4
+        andi.w  #BLOCK_STAGE_SLOTS-1, d4       // d4 = the first slot evicted since
+        rol.w   d4, d3                         // d3 = evicted-slot mask (16 slots = one word)
+        and.w   Pfx_Memo_Mask, d3
+        bne     .pfx_scan_begin                // a covered slot was evicted — re-walk
+        // Memo hit. ROLL THE DELTA BASE FORWARD: the covered slots are provably
+        // still holding the same blocks, so the memo is as good as freshly
+        // recorded, and leaving the base behind would expire it after
+        // BLOCK_STAGE_SLOTS claims for no reason. This is what turns the key from
+        // "valid until anything is claimed" into "valid until something covered is
+        // EVICTED", which is the whole point of the re-key.
+        move.w  (Block_Stage_Gen).w, (Pfx_Memo_Gen).w // widths pinned: mem-to-mem two-symbolic operands
+        jbra    .row_done
     .pfx_scan_begin:
+        moveq   #0, d5                         // d5 = covered-slot mask, accumulated by the walk
         move.w  Cache_Left_Col, d6
         andi.w  #$FFF0, d6                     // align to the first block col
     .pfx_scan:
@@ -1354,24 +1513,36 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.b  Act_grid_w_lo(a0), d3
         cmp.w   d3, d0
         bcc     .pfx_next                      // sec_x >= grid_w — out of world, skip col
-        jbsr    TileCache_FindStagedBlock      // Z on hit; d0-d2 preserved; clobbers d3-d4,a1
-        beq     .pfx_next                      // already staged — try next col
-        subq.w  #1, Cache_Fill_Budget
-        jbsr    TileCache_DecompressBlock      // stage this block — k=1, then done
-        jbra    .row_done
+        jbsr    TileCache_FindStagedBlock      // Z on hit; d0-d2 preserved; d4 = slot*4 on hit
+        bne     .pfx_stage                     // not staged — this is the one to stage
+        // Staged. Record WHICH slot the hit rests on, so the memo's eviction test
+        // can tell a claim that matters from one that does not. d4 survives
+        // decompose_block (d0-d3) and the probe declares it out on the hit edge.
+        move.w  d4, d3
+        lsr.w   #2, d3                         // slot*4 -> slot
+        bset    d3, d5
     .pfx_next:
         addi.w  #BLOCK_TILE_SIZE, d6           // next block col
         jbra    .pfx_scan
+    .pfx_stage:
+        subq.w  #1, Cache_Fill_Budget
+        jbsr    TileCache_DecompressBlock      // stage this block — k=1, then done
+        jbra    .row_done
 
     .pfx_record:
         // Reached ONLY from the bgt all-hits exit — the whole row was already staged
         // and no block was decompressed this frame (the decompress path jumps to
-        // .row_done and never records). Memoize (target row, Left, Head, generation)
-        // so the next unchanged frame skips this walk.
+        // .row_done and never records). Memoize (target row, block-aligned Left/Head,
+        // generation, covered slots) so the next frame can skip this walk.
         move.w  d7, Pfx_Memo_Row
-        move.w  (Cache_Left_Col).w, (Pfx_Memo_L).w    // widths pinned: mem-to-mem two-symbolic operands
-        move.w  (Cache_Head_Col).w, (Pfx_Memo_H).w    // widths pinned: mem-to-mem two-symbolic operands
+        move.w  Cache_Left_Col, d0
+        andi.w  #~(BLOCK_TILE_SIZE-1), d0
+        move.w  d0, Pfx_Memo_L16
+        move.w  Cache_Head_Col, d0
+        andi.w  #~(BLOCK_TILE_SIZE-1), d0
+        move.w  d0, Pfx_Memo_H16
         move.w  (Block_Stage_Gen).w, (Pfx_Memo_Gen).w // widths pinned: mem-to-mem two-symbolic operands
+        move.w  d5, Pfx_Memo_Mask
 
     .row_done:
         // ---- COL SCAN (horizontal prefetch; H3 direction hysteresis) ----
@@ -1443,64 +1614,98 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.b  Act_grid_w_lo(a0), d0           // grid_w (sections)
         cmp.w   d0, d5
         bcc     .col_done                      // sec_x >= grid_w — out of world
-        move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2)
-        // Memo skip (mirror of .pfx): when this target col, the cache row bounds, AND
-        // the staging generation all match the last frame that found the whole col
-        // already staged, the FindStagedBlock row walk can only re-probe to the same
-        // all-hits result — skip to .col_done (Cache_Pfx_Col_Target is already set, so
-        // the corner still sees the target; budget is untouched on this path).
+        move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2) + the PAGE tier
+        tst.w   Cache_Spec_Blocked             // F2a GATE (mirror of .pfx's)
+        bne     .col_done
+        // Memo skip — the exact mirror of .pfx above, including both halves of the
+        // F2 re-key: BLOCK-ALIGNED row bounds (the scan visits block-aligned rows
+        // only, so the raw Top/Bottom moved 8x more often than the set they name)
+        // and the round-robin eviction test against Cs_Memo_Mask instead of a raw
+        // generation compare. Read .pfx's comment for the reasoning; it is not
+        // repeated here.
         // R1: the Top/Bottom bounds compare is LOAD-BEARING — Cache_Top_Row/Bottom_Row
         // advance on a prefetch-SUCCESS fill (all-hits, zero decompress, generation
         // UNCHANGED), so on that frame the bounds are the only memo-killer.
         cmp.w   Cs_Memo_Col, d6
         bne     .cs_scan_begin
         move.w  Cache_Top_Row, d5
-        cmp.w   Cs_Memo_T, d5
+        andi.w  #~(BLOCK_TILE_SIZE-1), d5
+        cmp.w   Cs_Memo_T16, d5
         bne     .cs_scan_begin
         move.w  Cache_Bottom_Row, d5
-        cmp.w   Cs_Memo_B, d5
+        andi.w  #~(BLOCK_TILE_SIZE-1), d5
+        cmp.w   Cs_Memo_B16, d5
         bne     .cs_scan_begin
         move.w  Block_Stage_Gen, d5
-        cmp.w   Cs_Memo_Gen, d5
-        beq     .col_done                      // memo hit — col still all-staged
+        sub.w   Cs_Memo_Gen, d5                // d5 = claims since the record
+        beq     .col_done                      // none at all — trivially still valid
+        cmpi.w  #BLOCK_STAGE_SLOTS, d5
+        bhs     .cs_scan_begin                 // a full turnover: everything is gone
+        moveq   #1, d3
+        lsl.w   d5, d3
+        subq.w  #1, d3
+        move.w  Block_Stage_Next, d4
+        sub.w   d5, d4
+        andi.w  #BLOCK_STAGE_SLOTS-1, d4       // first slot evicted since the record
+        rol.w   d4, d3                         // d3 = evicted-slot mask
+        and.w   Cs_Memo_Mask, d3
+        bne     .cs_scan_begin                 // a covered slot was evicted — re-walk
+        move.w  (Block_Stage_Gen).w, (Cs_Memo_Gen).w // roll the delta base forward (see .pfx)
+        jbra    .col_done
     .cs_scan_begin:
         // scan block rows [Top..Bottom]; sec_y per step (d6 fixed for the scan)
+        moveq   #0, d5                         // d5 = covered-slot mask
         move.w  Cache_Top_Row, d7
         andi.w  #$FFF0, d7                     // align to the first block row
     .cs_scan:
         cmp.w   Cache_Bottom_Row, d7
         bgt     .cs_record                     // whole next col already staged
-        move.w  d7, d5
-        lsr.w   #8, d5                         // sec_y
+        // decompose FIRST, then guard on its sec_y (d1). The pre-F2 order derived
+        // sec_y separately into d5 purely to guard before decomposing — which is
+        // the same value decompose_block computes, and d5 is now the scan's
+        // covered-slot accumulator. decompose_block is pure (it only reads d6/d7
+        // and writes d0-d3), so hoisting it above the skip is free of side effects.
+        decompose_block(d6, d7)                // -> sec_x=d0, sec_y=d1, block_index=d2
         movea.l Current_Act_Ptr, a0
         moveq   #0, d3
         move.b  Act_grid_h_lo(a0), d3
-        cmp.w   d3, d5
+        cmp.w   d3, d1
         bcc     .cs_next                       // sec_y >= grid_h — skip this block row
-        decompose_block(d6, d7)                // -> sec_x=d0, sec_y=d1, block_index=d2
-        jbsr    TileCache_FindStagedBlock
-        beq     .cs_next                       // already staged — try next row
-        subq.w  #1, Cache_Fill_Budget
-        jbsr    TileCache_DecompressBlock      // stage this block — k=1, then done
-        jbra    .col_done
+        jbsr    TileCache_FindStagedBlock      // d4 = slot*4 on hit
+        bne     .cs_stage                      // not staged — this is the one to stage
+        move.w  d4, d3
+        lsr.w   #2, d3                         // slot*4 -> slot
+        bset    d3, d5                         // cover it
     .cs_next:
         addi.w  #BLOCK_TILE_SIZE, d7           // next block row
         jbra    .cs_scan
+    .cs_stage:
+        subq.w  #1, Cache_Fill_Budget
+        jbsr    TileCache_DecompressBlock      // stage this block — k=1, then done
+        jbra    .col_done
 
     .cs_record:
         // Reached ONLY from the bgt all-hits exit — the whole col was already staged
         // and no block was decompressed this frame (the decompress path jumps to
-        // .col_done and never records). Memoize (target col, Top, Bottom, generation).
+        // .col_done and never records). Memoize (target col, block-aligned Top/Bottom,
+        // generation, covered slots).
         move.w  d6, Cs_Memo_Col
-        move.w  (Cache_Top_Row).w, (Cs_Memo_T).w     // widths pinned: mem-to-mem two-symbolic operands
-        move.w  (Cache_Bottom_Row).w, (Cs_Memo_B).w  // widths pinned: mem-to-mem two-symbolic operands
+        move.w  Cache_Top_Row, d0
+        andi.w  #~(BLOCK_TILE_SIZE-1), d0
+        move.w  d0, Cs_Memo_T16
+        move.w  Cache_Bottom_Row, d0
+        andi.w  #~(BLOCK_TILE_SIZE-1), d0
+        move.w  d0, Cs_Memo_B16
         move.w  (Block_Stage_Gen).w, (Cs_Memo_Gen).w // widths pinned: mem-to-mem two-symbolic operands
+        move.w  d5, Cs_Memo_Mask
 
     .col_done:
         // ---- CORNER (H2): the (next-row x next-col) block is in NEITHER axis scan;
         // stage it LAST, only when BOTH axes are actively crossing. Both targets were
         // grid-guarded when recorded, so the corner section is in-grid by construction
         // (sec_x<grid_w from the col, sec_y<grid_h from the row).
+        tst.w   Cache_Spec_Blocked             // F2a GATE — the corner is speculation too
+        bne     .fill_return
         tst.w   Cache_Fill_Budget
         beq     .fill_return
         move.w  Cache_Pfx_Row_Target, d7

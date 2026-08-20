@@ -700,6 +700,13 @@ ensure(BLOCK_STAGE_BUCKETS == BLOCK_INDEX_ENTRIES,
 ensure(BLOCK_STAGE_SLOTS * 4 < $FF,
        "BLOCK_STAGE_SLOTS * 4 reached the staging index's $FF end-of-chain sentinel — widen Block_Stage_Bucket/Chain to words first")
 
+// The prefetch-scan memo's eviction test (streaming fix F2) builds a 16-bit mask
+// of the slots the scan covered and rotates a `rol.w` window of newly-claimed
+// slots across it. The rotate width IS the slot count; at any other
+// BLOCK_STAGE_SLOTS the mask and the rotate stop describing the same set.
+ensure(BLOCK_STAGE_SLOTS == 16,
+       "the prefetch memo's covered-slot mask is a WORD and its eviction window is a `rol.w` — both are exactly 16 slots wide; widen them together with BLOCK_STAGE_SLOTS")
+
 // Collision cell shift (pixel -> 16px cell).
 pub const COLLISION_CELL_SHIFT  = 4
 
@@ -720,6 +727,50 @@ pub const CAM_MAX_Y_STEP = 16              // max camera Y movement px/frame
 // relation is asserted rather than left to the comment above.
 ensure(CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME * 8,
        "camera Y step outruns the vertical tile-cache fill rate (CAM_MAX_Y_STEP > VFILL_ROWS_PER_FRAME*8)")
+
+// --- Speculation residency guard (streaming fix F2a) -------------------------
+// Placed after the camera block because it is DERIVED from the camera cap, not
+// tuned: the block prefetch stages the block strip one block beyond the cache
+// edge, the edge advances CAM_MAX_Y_STEP/8 = 2 tiles per logic tick at the cap
+// (its X twin CAM_MAX_X_STEP is file-local to engine/level/camera.emp and equal),
+// and a strip is BLOCK_TILE_SIZE = 16 tiles, so the staged block is CONSUMED
+// BLOCK_SPEC_LEAD_TICKS ticks later. Meanwhile eviction is strict round-robin, so
+// a staged block survives exactly BLOCK_STAGE_SLOTS further CLAIMS. Speculation
+// can only land while
+//
+//     claims over the next LEAD ticks  <=  BLOCK_STAGE_SLOTS
+//
+// and the guard estimates the left side by the claims over the LAST LEAD ticks
+// (Cache_Spec_Gen_Ring in engine.ram). MEASURED at sustained max-diagonal before
+// the guard, by tools/staging_lifetime_timeline.py: 4.13 claims/tick = 33 claims
+// per 8 ticks against 16 slots, speculation residency 3.64 ticks against the
+// 8-tick lead, 59% of evicted speculations never used. The same tool measures
+// `right` and `down` at 0.48/0.61 claims/tick with ZERO dead speculations — which
+// is why this is a guard and not a deletion.
+//
+// This is a LEAD FLOOR, not the lead: below the camera cap the edge advances
+// slower, so the real lead is LONGER and a fixed 8-tick window under-counts the
+// claims that will occur over it. The product (claim rate x lead) is roughly
+// speed-invariant — both scale with camera speed — so the error is second-order,
+// and it errs toward PERMITTING speculation, which is the safe direction for the
+// single-axis states where the prefetch does all the work. Documented rather than
+// corrected: correcting it needs a divide, and this engine does not divide.
+pub const BLOCK_SPEC_LEAD_TICKS = BLOCK_TILE_SIZE / (CAM_MAX_Y_STEP / 8)  // 16 / 2 = 8
+// The ring is indexed by Logic_Tick & (LEAD-1) — a power of two is not a tuning
+// choice here, it is what makes the index a mask instead of a modulo.
+ensure(BLOCK_SPEC_LEAD_TICKS > 0 && (BLOCK_SPEC_LEAD_TICKS & (BLOCK_SPEC_LEAD_TICKS - 1)) == 0,
+       "BLOCK_SPEC_LEAD_TICKS must be a power of two — Tile_Cache_Fill indexes Cache_Spec_Gen_Ring with `andi.w #LEAD-1`")
+// Schmitt re-arm. Tripping and re-arming on the SAME threshold oscillates by
+// construction: suppressing speculation lowers the claim rate, which re-arms it,
+// which raises it again — the packet's bistability, re-entered once per window.
+// Re-arming only at half the slot count leaves room for the speculation stream
+// the re-arm is about to start. Measured: at max-diagonal the demand-only rate is
+// 1.5-2.2 claims/tick = 12-18 per 8 ticks, ABOVE this line, so the guard stays
+// down; at `right`/`down` the total rate is 4-5 per 8 ticks, below it, so the
+// guard never trips and those axes keep every speculation they have today.
+pub const BLOCK_SPEC_REARM      = BLOCK_STAGE_SLOTS / 2
+ensure(BLOCK_SPEC_REARM < BLOCK_STAGE_SLOTS,
+       "the speculation guard's re-arm threshold must be STRICTLY below its trip threshold or the latch is not a Schmitt trigger and will oscillate")
 
 // Sprite-cull margin (px) added to all four sides of the visibility box in
 // Update_Sprite_Visibility. Sprite culling runs inside RunObjects, which the

@@ -130,6 +130,35 @@ pub vars lower_ram {
     Block_Stage_Bucket:     [u8; BLOCK_STAGE_BUCKETS],                      // 256 bytes — per block_index, head slot*4 or $FF
     Block_Stage_Chain:      [u8; BLOCK_STAGE_SLOTS * 4],                    // 64 bytes — per slot*4, next slot*4 or $FF
 
+    // --- Speculation residency guard + prefetch-memo eviction masks (fix F2) ---
+    //     IN LOWER RAM ON PURPOSE, and it is not about addressing. This is
+    //     once-per-LOGIC-TICK state read by exactly one routine, so the .w window
+    //     buys 4 cycles a tick; an addition at the upper_ram TAIL, where the rest
+    //     of the prefetch memo lives, moves Engine_RAM_End and costs a full
+    //     game-side repin. Placed here (ahead of the residency tables) it moves
+    //     four lower_ram symbols and NOTHING game-side — the same trade F4 made
+    //     for Block_Stage_Bucket/Chain directly above.
+    //
+    //     Cache_Spec_Gen_Ring holds Block_Stage_Gen as it stood at each of the
+    //     last BLOCK_SPEC_LEAD_TICKS ticks, indexed `Logic_Tick & (LEAD-1)`;
+    //     current gen minus the entry about to be overwritten IS the claim count
+    //     over the prefetch lead, with no division and no rate estimator. It is
+    //     PRIMED to the live generation by TileCache_InvalidateStaging, never left
+    //     zero: a zeroed ring reads as a huge claim count and would suppress
+    //     speculation for the first LEAD ticks of every act.
+    Cache_Spec_Gen_Ring:    [u16; BLOCK_SPEC_LEAD_TICKS],   // 16 bytes — per-tick Block_Stage_Gen history
+    Cache_Spec_Window:      u16,        // claims over the last LEAD ticks (the guard's input; probe-readable)
+    Cache_Spec_Blocked:     u16,        // Schmitt latch: nonzero = speculation suppressed this tick
+    Cache_Spec_Skips:       u16,        // ticks the guard suppressed speculation on (release, monotone)
+    // Prefetch-memo covered-slot masks (fix F2, the memo re-key). Bit s = "the
+    // scan's all-staged result rests on staging slot s". A later claim only
+    // invalidates the memo if it EVICTED one of these slots, which the memo check
+    // derives from the round-robin cursor rather than from the raw generation —
+    // the generation is bumped by every claim in the engine, including the scan's
+    // own, which is what made the old key unable to hit at any interesting rate.
+    Pfx_Memo_Mask:          u16,        // vertical scan: slots the memoized all-hits result covers
+    Cs_Memo_Mask:           u16,        // horizontal scan: ditto
+
     // Art staging — one ZX0-form art page decodes here before its staging->VRAM
     // DMA lands (P2b). DEDICATED buffer (2048 B): steady-state page-in streams
     // during gameplay, so it can no longer overlay live tile-cache RAM the way the
@@ -864,20 +893,36 @@ pub vars upper_ram {
 
     // Prefetch scan memoize — a generation word plus one keyed memo per axis. The
     // vertical (.pfx_scan) and horizontal (.cs_scan) prefetch scans skip their
-    // FindStagedBlock all-hits re-probe walk when the target line, cache bounds,
-    // and generation still match the last recorded all-staged result. Every
-    // staging claim and every InvalidateStaging bumps the generation, so a memo
-    // survives only across frames in which no block was staged. Placed at the RAM
-    // tail: the addition ripples ZERO existing RAM addresses.
-    Block_Stage_Gen:        u16,        // bumped on every staging claim + invalidate; the memo generation key
-    Pfx_Memo_Row:           u16,        // vertical scan: memoized target row
-    Pfx_Memo_L:             u16,        // vertical scan: Cache_Left_Col at record (bounds guard — load-bearing)
-    Pfx_Memo_H:             u16,        // vertical scan: Cache_Head_Col at record (bounds guard — load-bearing)
-    Pfx_Memo_Gen:           u16,        // vertical scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
-    Cs_Memo_Col:            u16,        // horizontal scan: memoized target col
-    Cs_Memo_T:              u16,        // horizontal scan: Cache_Top_Row at record (bounds guard — load-bearing)
-    Cs_Memo_B:              u16,        // horizontal scan: Cache_Bottom_Row at record (bounds guard — load-bearing)
-    Cs_Memo_Gen:            u16,        // horizontal scan: Block_Stage_Gen at record ($FFFF sentinel = no memo)
+    // FindStagedBlock all-hits re-probe walk when the memo still describes the
+    // same set of blocks AND none of the slots holding them has been evicted.
+    // Placed at the RAM tail: the addition ripples ZERO existing RAM addresses.
+    //
+    // STREAMING FIX F2 RE-KEYED BOTH HALVES OF THIS (2026-08-20). It used to key
+    // on the RAW cache bounds and on plain equality of Block_Stage_Gen, and the
+    // packet (CHOKE-DIAGNOSIS §3) called that "a design-level self-defeat":
+    //   * the generation is bumped by EVERY staging claim in the engine, including
+    //     the ones the scans themselves make, so the memo could not hit at any
+    //     interesting claim rate. It is now the base of a DELTA: the check turns
+    //     (gen - gen_at_record) plus the round-robin cursor into the exact set of
+    //     slots evicted since, and only a hit against Pfx_Memo_Mask / Cs_Memo_Mask
+    //     (engine RAM, lower_ram) kills the memo.
+    //   * the bounds were the RAW Cache_Left_Col/Head_Col (resp. Top/Bottom), which
+    //     move every tick the camera moves — while the scan only ever visits
+    //     BLOCK-ALIGNED lines, so the visited SET changes once every 8 ticks. The
+    //     recorded bounds are now block-aligned, and the fields are named for it.
+    // The "no memo" sentinel moved with the re-key: it is now $FFFF in the TARGET
+    // (Pfx_Memo_Row / Cs_Memo_Col), which is unrepresentable because every target
+    // is block-aligned. It could not stay on the generation, because under a delta
+    // key a $FFFF generation is not far from a small live one, it is 1 before it.
+    Block_Stage_Gen:        u16,        // bumped on every staging claim + invalidate; the memo delta base
+    Pfx_Memo_Row:           u16,        // vertical scan: memoized target row ($FFFF = no memo)
+    Pfx_Memo_L16:           u16,        // vertical scan: BLOCK-ALIGNED Cache_Left_Col at record (bounds guard — load-bearing)
+    Pfx_Memo_H16:           u16,        // vertical scan: BLOCK-ALIGNED Cache_Head_Col at record (bounds guard — load-bearing)
+    Pfx_Memo_Gen:           u16,        // vertical scan: Block_Stage_Gen at record (delta base for the eviction test)
+    Cs_Memo_Col:            u16,        // horizontal scan: memoized target col ($FFFF = no memo)
+    Cs_Memo_T16:            u16,        // horizontal scan: BLOCK-ALIGNED Cache_Top_Row at record (bounds guard — load-bearing)
+    Cs_Memo_B16:            u16,        // horizontal scan: BLOCK-ALIGNED Cache_Bottom_Row at record (bounds guard — load-bearing)
+    Cs_Memo_Gen:            u16,        // horizontal scan: Block_Stage_Gen at record (delta base for the eviction test)
 
     // HBlank vector slot (§0.10) — the IRQ4 vector points DIRECTLY here. Holds a
     // 6-byte executable instruction: idle rte ($4E73) when no raster handler is
