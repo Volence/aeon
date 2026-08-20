@@ -90,6 +90,35 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   logic tick spans a VBlank (they close to 1–2% when it does not). Packet §7. The instrument
   asks for oracle-next are packet §9, sorted into (a) satisfied by their in-flight profiler v1,
   (b) composable today via mclk-stamped watch hits, (c) three genuinely new asks.
+- **The arc CLOSED 2026-08-20** — F2 + the parallax-unroll coda took it to **1.192 frames/tick
+  / work/tick 123,016** (`docs/benchmarks/streaming/ARC-CLOSEOUT.md`), superseding the
+  1.240/134,521 remaining-distance bullet above. **And the corpus A/B (same day, oracle
+  `docs/2026-08-20-profiler-corpus-ab.md`) then downgraded the absolute margin to a
+  hypothesis**: the old instrument's five top rows account for only 78.45% of a maxdiag
+  frame, so every `work/tick` figure in this block is instrument-relative; the f/t figures
+  (direct tick counts) stand. See the PROBE-MIGRATION entry below.
+
+**PROBE MIGRATION to the validated oracle profiler — booked 2026-08-20, condition MET.**
+The corpus A/B passed (oracle main `8d10cc5`, evidence doc with CRC per row; reference row
+exact to the cycle, spread 0 whole-reply). The standing "profiler consumers stay on
+oracle-old" condition is DISCHARGED — new cycle work should use the new oracle's profiler
+(`cyclesSelf`/`stallCycles`, honest under preemption, hint/vint split). What that costs us:
+every profiler-consuming probe hardcodes `oracle-old/linux-port/harness` and the old row
+shape (`parallax_cost_probe.py`, `engine_baseline_probe.py`, `raster_cost_probe.py`,
+`streaming_choke_probe.py`, + kin) — port them harness+row-shape+caveats (the per-frame
+30/31 division and hint-conflation caveats DISSOLVE on the new instrument; delete, don't
+carry). First workload on the new instrument (one run answers both): **the tick-variance
+spike hunt + the honest work/tick retake** — A/B doc §12 carries lift-ready 31-row perFrame
+tables, and `vintCycles` partitions tick-frames from lag-frames exactly (two interleaved
+series; averaging across them finds nothing). Riders from the A/B, THEIRS+OURS: (a) the 17
+walker fixtures were NOT re-driven — the two-regime curve is neither confirmed nor refuted
+(measurable leg agrees to 0.17%/invocation; out-of-sample gap +4.7% on a per-invocation
+denominator, vs WALKER-MODEL §6's +1.1% per-frame figure); (b) five ungated short routines
+disagree 11–40%, UNEXPLAINED, settling experiment = paired event-level trace on both
+instruments (their §11.5); (c) already booked into rows: dense −242 anomaly RESOLVED
+(instrument defect, measured == model), DMA-stall row now measurable (~2,200 cyc/frame all
+VBlank drain vs 2,745.5 derived ceiling), ENGINE-BASELINE §1's byte-identical claim
+corrected (priming arm words track camera).
 
 **Fix F1 — collapse the per-word residency patch — ✅ CLOSED 2026-08-19**
 (`perf/resident-patch-collapse`). The arc's biggest single win. The copy-site patch runs

@@ -50,6 +50,27 @@ tier is inert on shipped content); "~600 cyc trailing fires" (232, one fire);
    documented defects (20.6% preemption loss; 30/31 window lag; per-frame division).
    The corpus A/B retires it.
 
+## Addendum 2026-08-20, hours after close: the corpus A/B landed — and revises the margin
+
+The profiler corpus A/B (oracle `docs/2026-08-20-profiler-corpus-ab.md`, oracle main
+`8d10cc5`) PASSED — the migration condition is met. But its completeness finding bears on
+this close-out directly: **on the corpus-era ROM, the five published top-level rows account
+for only 78.45% of a max-diagonal frame.** The missing 21.55 points are real work the old
+instrument dropped (mostly `GameState_OJZScroll_Update`, +60%/tick honest vs old, and
+`Tile_Cache_Fill`, +18.6%).
+
+What that means for the verdict above, stated precisely:
+- **The frames/tick figures stand** (2.067 → 1.192): they are direct tick-over-frame counts,
+  not profiler sums.
+- **The work/tick figures and the "4,984 under the line" margin are OLD-INSTRUMENT numbers.**
+  Both endpoints carry the same loss class, so the −35.6% relative improvement is credible —
+  but the absolute margin against 128,000 is NOT established and may not survive an honest
+  retake. "Mean under the line" is hereby downgraded from a finding to a hypothesis.
+- The retake merges into the variance workload: same instrument, same window, one run answers
+  both. One gift from the A/B for that run: `vintCycles` partitions tick-frames from
+  lag-frames EXACTLY (15 high frames == 15 logic ticks at maxdiag), so the per-tick
+  distribution is two interleaved series — averaging across them finds nothing.
+
 ## The method note
 
 Six parcels; five materially corrected their own briefs or the packet that ordered

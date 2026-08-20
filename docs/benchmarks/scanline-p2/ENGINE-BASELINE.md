@@ -56,7 +56,7 @@ no poke to go stale.
 | player | teleported far down-right and left there; physics continue, the gap never closes inside the window |
 | act / section | OJZ act 1, section 0 for the whole window — the camera does not cross a boundary |
 | streaming | fully loaded — `Tile_Cache_Fill` 51369 cyc/frame (40.1%), `Section_UpdateColumns` 3621 |
-| raster program | **the same** OJZ section-0 sparse preset, 4 records, byte-identical to idle |
+| raster program | **the same** OJZ section-0 sparse preset, 4 records — but NOT byte-identical to idle: the corpus A/B (oracle `docs/2026-08-20-profiler-corpus-ab.md`) found the two priming arm words track the camera. No cost consequence; the "byte-identical" claim here was wrong. |
 | `Camera_Art_Hold` | 0 throughout |
 | `Dbg_Cam_Clamp_Frames` | 0 throughout |
 
@@ -364,9 +364,23 @@ into `.park`, which suppresses the SECOND of the two trailing fires, so **fires 
 The `-242` shipped-vs-poked anomaly was NOT re-measured here; both sides drop by the same
 232 and one fire, so it is expected to stand.
 
+> **RESOLVED 2026-08-20 by the profiler corpus A/B** (oracle
+> `docs/2026-08-20-profiler-corpus-ab.md`): the honest instrument reads the shipped program at
+> **101 fires / 33000 — the model's exact value** — with `Raster_Dense_Lines = 0` of drift.
+> The −242 and the "missing" fire were THIS instrument's defect: the per-frame stack loses the
+> pre-boundary part of one fire that straddles the frame boundary (the same 20.6%-class loss
+> the streaming packet found at tick scale). The row is measured == model; there was never a
+> shipped-program anomaly.
+
 ---
 
 ## 4b. Max contiguous DMA stall (Task 5) — UNMEASURABLE, and that is the finding
+
+> **MEASURABLE SINCE 2026-08-20** on the new oracle's profiler (`stallCycles` bucket, validated
+> by the corpus A/B): ~**2,200 stall cyc/frame at these states, all of it the VBlank DMA
+> drain**, beside this section's derived 2,745.5 ceiling for the first time. The section below
+> stands as the record of why THIS (oracle-old) instrument could not take the number; the row
+> upgrade rides the probe-migration parcel booked in DEFERRED_WORK.
 
 The plan asks for `max_contiguous_dma_stall_cycles` as an awareness row. **It cannot be
 measured on this instrument, by construction**, and the row records that rather than a number.
