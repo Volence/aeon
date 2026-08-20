@@ -158,6 +158,11 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # the Server context manager, and its own RPC deadlines mean a wedge surfaces
         # as its exit 2 before this lane's budget expires.
         ("warp_mailbox", True, GATE_EMU_BUDGET),
+        # boot_override rides here for warp_mailbox's reason, and beside it deliberately:
+        # the two are the game's two external placement mailboxes and share their clamp and
+        # camera-centring templates, so a change to either is a change to both. Its seven
+        # runs each boot their own oracle-aether, hence the larger budget.
+        ("boot_override", True, 480),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -616,6 +621,12 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "warp_mailbox")
         results.append(("warp_mailbox (the DEBUG warp lands the walked reference; a bare "
                         "camera poke does not)", ok, msg))
+
+    if wanted("boot_override"):
+        ok, msg = run(["python3", str(AEON / "tools/boot_override_gate.py"),
+                       "--rom", rom, "--lst", lst], "boot_override")
+        results.append(("boot_override (the DEBUG boot mailbox puts the FIRST painted frame "
+                        "at the cursor, matching a warp to the same place)", ok, msg))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
