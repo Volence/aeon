@@ -72,12 +72,55 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   alone crosses the line.
 - **Raising `BLOCK_STAGE_SLOTS` is a measured null** (16 → 20 moves work/tick by +0.05%; 24 does
   not fit in RAM). Do not re-derive it. The lever is policy, not capacity.
-- Ranked fixes F1–F6 with measured savings are in §8 of the packet; **F1, F2 and F6 are PARKED
-  for owner/controller rulings** and must not be started before one.
+- Ranked fixes F1–F6 with measured savings are in §8 of the packet. **F1 is CLOSED (below),
+  F5 is CLOSED (below); F2 and F6 remain PARKED for owner/controller rulings** and must not
+  be started before one.
 - **Instrument defect found:** old oracle's per-routine rows lose 20.6% of the frame when a
   logic tick spans a VBlank (they close to 1–2% when it does not). Packet §7. The instrument
   asks for oracle-next are packet §9, sorted into (a) satisfied by their in-flight profiler v1,
   (b) composable today via mclk-stamped watch hits, (c) three genuinely new asks.
+
+**Fix F1 — collapse the per-word residency patch — ✅ CLOSED 2026-08-19**
+(`perf/resident-patch-collapse`). The arc's biggest single win. The copy-site patch runs
+translated every nametable word global→physical through `Page_Table` and maintained a
+ref/unref pair, servicing an eviction that cannot occur while `PageIn_Fully_Resident` holds.
+- **The ruled shape hit a contradiction and it is worth knowing.** The ruling was "RAM-rewrite
+  at act load: compose global→PHYSICAL into the section local maps in RAM". **The section
+  local maps are ROM** — `embed()`ed blobs reached through `Act.act_sec_local_maps`, read
+  straight by the patch runs. A RAM copy was priced and rejected: OJZ act 1's nine maps are
+  3,230 B against 3,622 B free in `lower_ram`, i.e. it fits this act and silently ceilings
+  the next one.
+- **What shipped is the same collapsed loop with the composition pass deleted.** Under the
+  latch, `PageCache_Init`'s free list (`0→1→…`) + `Level_LoadArt`'s in-order bulk enqueue +
+  page-in's single-slot in-order completion make `Page_Table` the IDENTITY, so
+  `frame<<6 | (global&63) == global` and the map's global value already IS the physical index.
+  `Level_LoadArt` **verifies** the identity after the pool lands (never assumes it) and
+  latches `PageCache_Direct_Map`; the runs dispatch per RUN, and the fallback arm is the
+  pre-F1 loop byte-for-byte over the pristine ROM maps. Zero ROM format change, zero RAM
+  layout change (the latch consumes an existing pad byte at `$FFB833`).
+- **Measured** (probe `--repeat 3`, spread 0.000, 3 boots): `right` fill 43,395 → **33,646**
+  cyc/tick (−22.5%), `_Col` 183.1 → **103.3** cyc per patched word; `down` fill
+  41,067 → **34,218** (−16.7%), `_Seq` 136.2 → **88.5** cyc/word; `maxdiag` work/tick
+  190,941 → **174,437** (−16,504). ~84%/78% of throwaway C's floor, the residual being the
+  DEBUG-only pool-bounds assert the shipped loop KEEPS (in a stricter, cheaper form) and C
+  dropped — release runs at the floor.
+- **`maxdiag` frames/tick stays 2.067, as §5 predicted.** F2 is the other half; 46,437 cycles
+  remain to the 128,000 line. Read F1 off `right`/`down`, where the instrument closes (§7):
+  F1's own per-word deltas predict 17,208 cyc/tick and `work/tick` fell 16,504, closing to 4%.
+- **Value identity is the gate and it held:** full byte compare of `Tile_Cache_Nametable` AND
+  `Tile_Cache_Collision` against the pre-parcel ROM at all four pinned camera states, camera
+  position verified equal at the sample point. Exact decompress counts unchanged everywhere.
+- **`PageCache_Audit` was made regime-aware rather than disabled** (throwaway C had to disable
+  it). Under the latch the refcount comparison is replaced by: all refcounts zero (the
+  variants-got-mixed detector), no nametable word referencing an unassigned frame (the
+  no-dangling-index property the refcounts protected), and `Page_Table` still the identity
+  (the collapsed loop's premise). Bijectivity / candidate-flag / orphan checks untouched.
+- **Trap for the next parcel:** at the canonical `idle` settle 180 the DEBUG audit fires and
+  F1 reads 1.069 frames/tick against 1.033 — NOT a regression. Every row is equal or lower and
+  `PageCache_Audit` is 3,688 cyc/frame in both; F1 has simply completed one more logic tick by
+  frame 180, so the ~114,000-cycle one-shot lands at a different phase. At settles where the
+  audit does not fire (120/150/210/240) base and F1 are identical to ≤11 cycles. **Read the
+  `idle` null off a non-firing settle.**
 
 **Fix F5 — `PageCache_Audit` off the fill path — ✅ CLOSED 2026-08-19**
 (`perf/audit-off-fill-path`). The DEBUG periodic residency audit's interval gate no longer sits

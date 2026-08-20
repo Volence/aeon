@@ -171,7 +171,8 @@ async def _counters(b, sym):
     for n in ("Logic_Tick", "Lag_Frame_Count", "Camera_X", "Camera_Y"):
         if n in sym:
             out[n] = await _read(b, sym[n], 4)
-    for n in ("PageIn_Fully_Resident", "Camera_Art_Hold", "PageIn_Bulk_Drain"):
+    for n in ("PageIn_Fully_Resident", "Camera_Art_Hold", "PageIn_Bulk_Drain",
+              "PageCache_Direct_Map"):
         if n in sym:
             out[n] = await _read(b, sym[n], 1)
     return out
@@ -295,7 +296,11 @@ def main():
         fr = r0["c1"].get("PageIn_Fully_Resident")
         print(f"== state {s}   {r0['frames']} video frames / {r0['ticks']} logic ticks"
               f" = {fpt:.3f} frames/tick   dx {r0['dx']:.0f} dy {r0['dy']:.0f} px"
-              f"   PageIn_Fully_Resident {fr}   Camera_Art_Hold {r0['c1'].get('Camera_Art_Hold')}")
+              f"   PageIn_Fully_Resident {fr}   Camera_Art_Hold {r0['c1'].get('Camera_Art_Hold')}"
+              # Streaming fix F1: which of the two copy-site patch loops ran. A
+              # PatchRun row is only comparable with another run's at the SAME
+              # value, so it is printed beside the rows rather than left implicit.
+              f"   PageCache_Direct_Map {r0['c1'].get('PageCache_Direct_Map', 'n/a')}")
         fpts = [x["frames_per_tick"] for x in runs]
         print(f"   frames/tick across {args.repeat} boots: {[round(x,3) for x in fpts]}"
               f"   spread {max(fpts)-min(fpts):.3f}")

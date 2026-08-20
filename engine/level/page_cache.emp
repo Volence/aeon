@@ -17,6 +17,15 @@
 // (PageCache_Audit, DEBUG) recomputes every frame's refcount from the whole
 // nametable and compares — the machine check on that invariant.
 //
+// TWO REGIMES (streaming fix F1). The above is the GENERAL regime. An act that is
+// fully resident AND whose Page_Table is the IDENTITY (Level_LoadArt verifies both
+// and latches PageCache_Direct_Map) can never evict, so refcounts are not a live
+// quantity there and physical == global for every word: the copy-site patch runs
+// take a collapsed variant that skips the page->frame indirection and the refcount
+// pair entirely. The invariant above is not weakened, it is VACUOUS in that regime,
+// and PageCache_Audit checks the three that replace it instead of a number nobody
+// writes. Every other proc in this module is regime-independent.
+//
 // REGISTER BUDGET (contract-critical): PageCache_AllocFrame + PageCache_Publish are
 // reached from PageIn_Process, whose license is VSync_Wait's decoder union
 // d0-d2/a0-a3 — and Level_LoadArt keeps a4/d5-d7 LIVE across VSync_Wait. So the
