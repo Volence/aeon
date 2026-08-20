@@ -100,8 +100,21 @@ pub const LAYER_WORLD_Y_MAX = $8000
 // and Tasks 7/10 the two new bits are declared-but-ungated, and that state is REPORTED
 // rather than hidden — effects_gates.py's scanline_spans lane emits an explicit
 // "NOT GATED ANYWHERE" informational row per capability with no bracketed span, the same
-// row CAP_TRANSITIONS carried before its parcel landed. If either bit is still showing
-// that row after Task 10, the lowering did not happen.
+// row CAP_TRANSITIONS carried before its parcel landed.
+//
+// P3 TASK 9 UPDATE — READ THIS BEFORE CONCLUDING ANYTHING FROM THAT ROW FOR
+// CAP_MULTI_DEFORM_TABLE. The bit now HAS a lowering (`deform: Own(..)`) and a bracketed
+// code site (`cap_multi_deform_table_band` in Parallax_Fill_PerLine), and the gate STILL
+// reports "NOT GATED ANYWHERE" — correctly. The lane reads the two shipped `.lst`s, and
+// neither game RAISES the bit: sonic4 stays $001F because adopting a per-layer table on a
+// shipped scene is PARK-1 (owner-gated — it moves every ROM image in the tree), and demo
+// stays 0. A span comptime-elided in both fixtures cannot appear in either listing, so
+// for this bit the row is a statement about ADOPTION, not about the lowering. The
+// bracket's own witness is the capability-raised instrument build recorded in
+// docs/benchmarks/scanline-p3/DEFORM-OWN.md, where both labels appear in the listing.
+//
+// FOR CAP_FACTOR_CURVE THE ORIGINAL READING STANDS: if that bit is still showing the row
+// after Task 10, the lowering did not happen.
 //
 // ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
 //
