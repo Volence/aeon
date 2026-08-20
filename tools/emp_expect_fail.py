@@ -114,6 +114,39 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
     (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4", 1),
     (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),
+    # ---- Scanline P3 Task 9: `deform: own(..)`, the per-layer deform ref ----
+    # Three cases for three DIFFERENT questions, and none of them is "own() is refused":
+    #  - "own caps": the two-fixture differential on the capability fold. Design §2 rules
+    #    that shared(phase) does NOT trip MULTI_DEFORM_TABLE and own() does, and only a
+    #    PAIR can tell that from "anything with a table trips it". The fragment quotes all
+    #    three numbers (5 folded for A, 37 for B, 32 undeclared) so the case cannot pass
+    #    on the word "UNDECLARED" appearing somewhere. Count 1: fixture A's two ensures
+    #    must stay green, and a 2 means shared/None started raising the bit.
+    #  - "own placement": SceneDeform is ONE enum authored in TWO positions, and the
+    #    scene-level slot has nowhere to put a per-layer speed. Without the guard the Own
+    #    lowers silently — `scene_deform_table()` returns the Label from that arm too, so
+    #    the table would reach the header and the shifts/phase/speed would vanish with no
+    #    diagnostic. Count 1 is half the assertion: with the Own in a SCENE slot there is
+    #    no per-layer own, so derived_own() is 0 and neither the scene-level-table guard
+    #    nor the fold's implication pin fires.
+    #  - "own flat": the guard that makes CAP_MULTI_DEFORM_TABLE ⇒ CAP_DEFORM structural.
+    #    COUNT 2, and the pair IS the assertion — this is the R1-Task-9 band() shape
+    #    exactly. `ensure` is non-aborting, so layer() refuses the flat own() and builds
+    #    the layer anyway; scene_caps() then folds it to $0021 and the implication pin
+    #    fires in its own words, because the amplitude that would have supplied $0004 is
+    #    the one the constructor just refused. A drop to 1 means one of the two stopped
+    #    firing, and WHICH one matters: the constructor's is the guard that keeps the
+    #    runtime honest (the per-band reload is emitted inside the CAP_DEFORM block), the
+    #    fold's is the backstop that proves the implication is not merely asserted in a
+    #    comment. The expected fragment names the constructor's, so a 1 that kept only the
+    #    fold's would fail on the fragment as well as the count.
+    #    (Predicted 1 when the case was written, measured 2 — recorded because the
+    #    prediction was wrong for an instructive reason: $0020 is raised by the VARIANT
+    #    and $0004 by the AMPLITUDE, so refusing the amplitude is exactly what separates
+    #    them.)
+    (f"{POISON}/poison_scene_own_caps.emp",       "P3 T9 own caps",  "FIXTURE B folds to 37 against fixture A's declared 5; the UNDECLARED bits are 32", 1),
+    (f"{POISON}/poison_scene_own_placement.emp",  "P3 T9 placement", "deform: Own(..) is a PER-LAYER attachment", 1),
+    (f"{POISON}/poison_scene_own_flat.emp",       "P3 T9 flat own",  "attaches a table this layer never samples", 2),
     # ---- Substrate item 1c: check_landings, both edges of the measured window ----
     # Two cases, not one, because the two edges have different evidentiary standing: the
     # LATE edge is the sampling instant the sweep measured directly, the EARLY edge is

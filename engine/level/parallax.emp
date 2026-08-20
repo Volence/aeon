@@ -43,7 +43,12 @@ use engine.effects.preset.{Effects_InstallPreset}
 // the WRONG fix is the tempting one: declaring a 0x6430 anchor in games/demo/map.toml
 // builds, and bakes a moment's placer fill into the placement contract for a section
 // that packs. A stale provisional is refrozen, never anchored around.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, parallax_mode_key}
+// CAP_MULTI_DEFORM_TABLE COMES BACK IN P3 TASK 9 and this time the file names it: Task 8
+// dropped it (41d14f36) because the extended record is a DATA shape and needed no gated
+// code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
+// Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
+// when it cannot (measured at parallax_mode_key's banner), so this import is load-bearing.
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, parallax_mode_key}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -149,14 +154,31 @@ pub const BAND_EXT_N = 0
 // (`pcfg_deform_table_fg/bg`, `pcfg_deform_speed_fg/bg`). So the extension is exactly those
 // four fields and nothing speculative.
 //
-// A NULL table means "inherit the config's", which is what lets an extended record whose
-// bands carry no `own` ref behave identically to a legacy one. Task 9 owns that runtime
-// read; Task 8 owns the shape it reads through.
+// INHERITANCE IS RESOLVED AT COMPTIME, NOT BY A NULL SENTINEL HERE (P3 Task 9 SETTLED
+// THIS; Task 8 left it open and guessed the other way). These four fields always carry the
+// EFFECTIVE value for their band: a band whose layer authored no `own` ref carries the
+// SCENE's table and speed, resolved by `band_table_a/b()` and `band_speed_a/b()` in
+// engine/level/scene_dsl.emp. Both inputs — the scene's plane attachment and the layer's
+// own — are comptime constants, so a runtime "is it null? then use the config's" test per
+// band per plane would spend the frame's hot path re-deciding what the build already knows.
+// The consequence is worth stating plainly: in a game that declares the capability EVERY
+// band carries an extension, because the extension is a record-shape property of the GAME
+// (design section 3.1), never a per-band option.
+//
+// So the fill loop's read is unconditional under the capability — two `movea.l`s and no
+// test — which is also what makes Task 9's cost parameter a clean per-band constant rather
+// than a data-dependent branch.
+// THE TWO TABLE FIELDS ARE `*u8`, NOT `u32` (P3 Task 9 corrected Task 8's declaration).
+// They hold a Label — a ROM address the linker fills in — and a `u32` field REFUSES one:
+// `[emit.type] expected an integer for u32, got label`, once per emitted band, measured
+// 2026-08-20 the first time a lowering put a real table in here. Task 8's placeholder was
+// the literal 0, which is why the declaration built for a parcel while being wrong.
+// `*u8` is what `parallax_config`'s three table words already use, for the same reason.
 pub struct band_ext (size: 10) {
-    bx_deform_table_a: u32,  // Plane A deform table (0 = inherit pcfg_deform_table_fg)
-    bx_deform_table_b: u32,  // Plane B deform table (0 = inherit pcfg_deform_table_bg)
-    bx_deform_speed_a: u8,   // Plane A phase advance per frame
-    bx_deform_speed_b: u8,   // Plane B phase advance per frame
+    bx_deform_table_a: *u8,  // Plane A deform table, EFFECTIVE (own's, else the scene's)
+    bx_deform_table_b: *u8,  // Plane B deform table, EFFECTIVE (own's, else the scene's)
+    bx_deform_speed_a: u8,   // Plane A phase advance per frame, EFFECTIVE
+    bx_deform_speed_b: u8,   // Plane B phase advance per frame, EFFECTIVE
 }
 
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
@@ -187,7 +209,7 @@ ensure(BAND_EXT_N != 0 || sizeof(band_record) == sizeof(band_entry),
 // record without widening ram.emp and the build fails naming the constant, instead of the
 // shadow view running off the end of its array at runtime.
 ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
-       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — widen BAND_ENTRY_LEN in engine/ram.emp by sizeof(band_ext)")
+       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES in engine/ram.emp to sizeof(band_ext) (10). Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
 
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0
@@ -237,6 +259,22 @@ ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_S
 // one whole record away, extension included.
 const band_top_line      = offsetof(band_entry, band_top_plane)
 const band_top_line_next = offsetof(band_entry, band_top_plane) + sizeof(band_record)
+
+// The extension's two table words, as displacements FROM THE RECORD BASE (P3 Task 9).
+// Named consts for the same reason band_top_line_next is one: the .field-in-disp sugar
+// does not compose in displacement arithmetic, and the extension's fields are two
+// offsetofs deep. Both fold to constants whatever BAND_EXT_N is — a zero-length array
+// still has a position — and the only reader is the capability-gated block in
+// Parallax_Fill_PerLine, which does not exist when the array is empty.
+const band_ext_table_a = offsetof(band_record, br_ext) + offsetof(band_ext, bx_deform_table_a)
+const band_ext_table_b = offsetof(band_record, br_ext) + offsetof(band_ext, bx_deform_table_b)
+// THE EXTENSION SITS AFTER THE LEGACY PREFIX, and the per-band load addresses through the
+// same a1 the ten legacy fields do — so if the prefix ever stopped being the whole of the
+// record's head, that block would read two words of band_entry as a table pointer and jump
+// the fill loop into the middle of the shadow array. offsetof(br_base) == 0 is pinned
+// above; this is the other half of the same claim.
+ensure(BAND_EXT_N == 0 || offsetof(band_record, br_ext) == sizeof(band_entry),
+       "band_record's extension starts at {offsetof(band_record, br_ext)}, not immediately after the legacy prefix ({sizeof(band_entry)}) — Parallax_Fill_PerLine's per-band table load addresses the extension by a constant displacement from the record base, so a gap or an overlap there reads legacy fields as a curve pointer")
 
 // PLANE_B_SPAN — the Plane-B vertical span in pixels, the modulus Step 4a's rotation
 // works in and the ceiling every lowered `band_top_plane` must sit under. 64 rows of
@@ -1500,6 +1538,38 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // sampling is only reachable through the per-line filler.
     if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
     .cap_deform_sample_begin:
+        // CAP_MULTI_DEFORM_TABLE span (§3.3), the FIRST code site for the bit (P3 Task 9;
+        // Task 8's landing was data-side, so it authored no bracket and said so).
+        //
+        // PER-LAYER DEFORM REFS MOVE THE TABLE POINTERS FROM THE CONFIG TO THE BAND. The
+        // `cap_deform_tables` hoist above loads the CONFIG's two curves once for the whole
+        // fill, which is right when every band samples the same pair. A layer with
+        // `deform: own(..)` samples its own, so under the capability a5/a6 are re-loaded
+        // PER BAND, from this band's extension record.
+        //
+        // TWO INSTRUCTIONS, NO TEST, AND THAT IS THE DESIGN. The extension always carries
+        // the EFFECTIVE table (engine/level/scene_dsl.emp's band_table_a/b resolve the
+        // inheritance at comptime), so there is no "is it null? fall back" branch to pay
+        // for. This is the whole runtime cost of the capability and it is a clean per-band
+        // constant — the model parameter Task 9 measures.
+        //
+        // NESTED INSIDE cap_deform_sample ON PURPOSE. a5/a6 are the sampling machinery's
+        // registers and nothing outside this block reads them, so a build with the tables
+        // but not the sampler would load two pointers nobody uses. scene_caps() pins the
+        // implication that makes the nesting sound (MULTI_DEFORM_TABLE ⇒ CAP_DEFORM), and
+        // tools/scene_spans.py derives a mask's expected spans from exactly this nesting.
+        //
+        // THE CONFIG-LEVEL HOIST IS NOT ELIDED UNDER THE CAPABILITY, though it is dead
+        // there. An `if CAP == 0 { ... }` gate would be the only inverted one in the tree
+        // and would make the span model non-monotone — tools/scene_spans.py would have to
+        // learn that a WIDER mask emits FEWER spans. Two `movea.l`s once per frame is not
+        // worth that; if it ever is, it is a span-tooling change, not a one-line edit here.
+    if (Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 {
+    .cap_multi_deform_table_band_begin:
+        movea.l band_ext_table_a(a1), a5    // this band's FG curve (0 = no FG sampling)
+        movea.l band_ext_table_b(a1), a6    // this band's BG curve (0 = no BG sampling)
+    .cap_multi_deform_table_band_end:
+    }
         // FG active: table non-NULL AND shift_a != 15
         cmpa.w  #0, a5
         beq     .fg_inactive

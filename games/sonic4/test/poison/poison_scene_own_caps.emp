@@ -1,0 +1,95 @@
+// games/sonic4/test/poison/poison_scene_own_caps.emp — POISON (see README).
+//
+// TARGETS: the capability fold — engine/level/scene_dsl.emp's `scene_caps()` /
+// `fold_caps()` — on the ONE bit P3 Task 9 taught it to raise, CAP_MULTI_DEFORM_TABLE
+// ($0020), under the `folded ⊆ declared` subset test.
+// EXPECTED FRAGMENT: "FIXTURE B folds to 37 against fixture A's declared 5; the UNDECLARED bits are 32"
+//
+// THE TWO-FIXTURE DIFFERENTIAL (spec §8.2), and here it carries the whole of design §2's
+// ruling rather than half of it. The design says three deform spellings exist and that
+// only ONE of them trips MULTI_DEFORM_TABLE: "`shared(phase)` … is what WindyHaze /
+// SkyHaze / haze_fg actually are; does NOT trip MULTI_DEFORM_TABLE". An `ensure` that
+// only ever sees the tripping case cannot tell "own() raises the bit" from "anything
+// raises the bit", so the pair proves both halves in one build:
+//
+//   FIXTURE A — two layers; the SCENE attaches a plane-shared table (SceneDeform.Shared)
+//               and layer 0 carries a live `dsb: 2`. This is design §2's `shared(phase)`
+//               exactly: the per-layer phase is layer()'s own `phase` argument and the
+//               per-layer amplitude is its `dsb`, with no per-layer table anywhere.
+//               Folds to $0005 = CAP_PER_LINE | CAP_DEFORM and NOTHING ELSE — in
+//               particular NOT $0020. A passes, twice.
+//   FIXTURE B — THE SAME SCENE with layer 0's shared attachment replaced by
+//               `deform: SceneDeform.Own(0, 15, 2, 0, 1)`: same table-less-ness at the
+//               layer before, same live amplitude (own()'s shift_b IS the 2 that was
+//               `dsb: 2`), same scene-level table, same everything. Folds to $0025 and
+//               FAILS the subset test against A's declared word.
+//
+// A AND B DIFFER IN EXACTLY ONE AUTHORED THING and therefore in exactly one capability
+// bit: WHERE the amplitude-2 and its table come from. Fixture A's layer samples the
+// scene's table (variant None); fixture B's layer samples its own (variant Own). The
+// undeclared-bit number in the failing message — 32, i.e. $0020 — is that whole
+// differential, and the lane's fragment quotes all three numbers so the case can only
+// pass when the fold really produced 5 for A, 37 for B, and 32 as the difference.
+//
+// WHY BOTH FIXTURES KEEP A SCENE-LEVEL TABLE. `scene()` refuses an own() scene with no
+// plane-shared table on either plane (the runtime mode key reads the config's HEADER
+// words and cannot see the bands). So "own() with no scene table" is not the contrast to
+// draw here — it is a different guard with its own poison. Holding the scene-level
+// attachment fixed in BOTH fixtures is also what makes the differential one thing.
+//
+// THE TABLE PAYLOADS ARE DELIBERATELY THE NULL LABEL, for poison_scene_mask.emp's reason:
+// `scene_deform_is_none()` and `scene_deform_is_own()` discriminate on the enum VARIANT,
+// never on the payload, so a real `DeformTable_*` name would tie this poison to another
+// module and prove nothing extra.
+//
+// THE ELABORATION HOOK is the three ensures, which read the consts and so force
+// `layer()`, `scene()`, `scene_caps()` and `fold_caps()` to elaborate. Two of the three
+// MUST PASS — that is fixture A — so the expected `[Error]` count is 1. A count of 2
+// means fixture A stopped passing (shared/None started raising the bit, which is the
+// design ruling inverted); a count of 0 means own() stopped raising it.
+module games.sonic4.test.poison.poison_scene_own_caps
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — the shipped shape: a scene-level table, per-layer phase and amplitude.
+const POISON_OWN_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 2, phase: 0),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// FIXTURE B — fixture A with layer 0's deform ref made PER-LAYER. The amplitude, the
+// phase and the layer count are unchanged; own() supplies the first two instead of
+// layer()'s own arguments, which is why those arguments are back at their defaults (the
+// constructor refuses both spellings at once — two sources for one record byte).
+const POISON_OWN_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2,
+                    deform: SceneDeform.Own(0, 15, 2, 0, 1)),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// The declared word: fixture A's capabilities, derived by hand from scene_caps()'s rules.
+// A table is attached (scene-level), so CAP_PER_LINE $0001. Layer 0's dsb is live, so
+// CAP_DEFORM $0004. No column table, no anchor, and — the claim under test — no per-layer
+// table, so no $0020. One-element registries, so fold_caps() adds no $0010.
+const POISON_OWN_DECLARED = $0005
+const POISON_OWN_FOLDED_A = fold_caps([POISON_OWN_SCENE_A])
+const POISON_OWN_FOLDED_B = fold_caps([POISON_OWN_SCENE_B])
+const POISON_OWN_UNDEC_A  = POISON_OWN_FOLDED_A & ~POISON_OWN_DECLARED
+const POISON_OWN_UNDEC_B  = POISON_OWN_FOLDED_B & ~POISON_OWN_DECLARED
+
+// ---- FIXTURE A, THE PASSING HALF (both of these must stay green) ----
+ensure(POISON_OWN_FOLDED_A == POISON_OWN_DECLARED,
+       "poison_scene_own_caps: FIXTURE A folds to {POISON_OWN_FOLDED_A}, not the hand-derived {POISON_OWN_DECLARED} — a scene-level Shared table with a per-layer phase and amplitude is design §2's shared(phase) and must NOT raise CAP_MULTI_DEFORM_TABLE. If this is now 37, the fold stopped discriminating and the failing half below proves nothing")
+ensure(POISON_OWN_UNDEC_A == 0,
+       "poison_scene_own_caps: FIXTURE A is NOT a subset of its own declared word (undeclared {POISON_OWN_UNDEC_A}) — the subset test can no longer pass, so it is not discriminating")
+
+// ---- FIXTURE B, THE POISON (this is the diagnostic the lane matches) ----
+ensure(POISON_OWN_UNDEC_B == 0,
+       "poison_scene_own_caps: FIXTURE B folds to {POISON_OWN_FOLDED_B} against fixture A's declared {POISON_OWN_DECLARED}; the UNDECLARED bits are {POISON_OWN_UNDEC_B} — one layer's deform ref went SceneDeform.None (inherit the scene's table) -> SceneDeform.Own (its own table) and raised CAP_MULTI_DEFORM_TABLE ($0020), which flips the lowered band record to the extended shape and is exactly the subset failure games/sonic4/data/effects/scene_registry.emp reports against Game.SCANLINE_CAPS")

@@ -304,6 +304,43 @@ band_sampling_cycles = 0.00      # per band taking a sampling loop (W25). EXACTL
                                  # ~149-cycle class. See WALKER-MODEL.md §5(d).
 vdeform_cycles       = 1472.00   # W0->W9: a V-deform table attached (per-column VSRAM)
 
+# ---------------------------------------------------------------------------------------
+# multi_deform_table — P3 TASK 9. MEASURED ON A CAPABILITY-RAISED BUILD THAT IS NOT
+# CANONICAL, AND THAT IS THE FIRST THING TO KNOW ABOUT THIS ROW.
+#
+# `deform: own(..)` moves the two curve pointers from a once-per-fill hoist of the CONFIG's
+# tables to a per-BAND load out of the band's extension record. The path does not exist in
+# any shipped image: sonic4 declares SCANLINE_CAPS $001F, no scene authors own() (adoption
+# is PARK-1, owner-gated), BAND_EXT_N is 0 and the gated block is elided. So this row is NOT
+# part of the fit above — no canonical fixture can excite it, and none of the 26 does.
+# ADD IT ONLY when costing a scene that actually adopts own(), and then only against a build
+# that carries the extension.
+#
+# THE MEASUREMENT IS A TWO-BUILD DIFFERENTIAL, NOT A CROSS-CAPABILITY ONE. Raising the
+# capability also widens the band record 10 -> 20, which changes Step 4a's per-band copy and
+# every stride in the walker — all per-band, all confounded with the load. So the pair is
+# two builds that BOTH carry the extended record and differ ONLY in the two instructions:
+#   I1  crc abe1b79e  the gated block present  (8 bytes at $7B10)
+#   I0  crc e8fc604a  the two movea.l commented out, labels kept (0 bytes at $7B10)
+# Recipe: docs/benchmarks/scanline-p3/DEFORM-OWN.md §3. Neither CRC is a golden.
+#
+# RESULT: per-band slope 1104.00 (I1) against 1072.00 (I0) over band counts 1/2/3, and the
+# per-fixture deltas are +32 / +64 / +96 — exactly 32 x bands, residual 0.00. Two
+# `movea.l d16(An),An` are 16 cycles each on the 68000, so the measured value IS the derived
+# nominal. Spread 0 over 3 boots per fixture, every window preemption-free.
+multi_deform_table_per_band_cycles = 32.00
+multi_deform_table_residual_cycles = 0.00   # over 3 band counts x 2 builds
+multi_deform_table_status = "MEASURED ON A NON-CANONICAL, CAPABILITY-RAISED INSTRUMENT BUILD (I1 abe1b79e vs control I0 e8fc604a). Not in the fit above and not excitable by any canonical fixture. tools/deform_own_cost_probe.py, which REFUSES a legacy-record ROM"
+multi_deform_table_shared_vs_own_cycles = 0  # THE PLAN'S NAMED FIXTURE PAIR: N layers
+                                 # sharing one table against N layers each with their own,
+                                 # on ONE build. PREDICTED ZERO BEFORE THE RUN and measured
+                                 # +0 at 1, 2 and 3 bands. The lowering resolves inheritance
+                                 # at comptime, so both shapes execute the same two loads and
+                                 # differ only in the pointer values; own() costs nothing
+                                 # over shared() WITHIN a capability-raised build. What the
+                                 # capability costs is the row above, per band, unconditionally
+# ---------------------------------------------------------------------------------------
+
 # ANCHOR: P2's "TWO REGIMES" ARE REFUTED. They were the frame dilution above (W10/W12 caught
 # two lag frames, the model they were scored against caught one) plus the missing shift term.
 # Measured preemption-free, the Step-4b overlay has ONE regime and its driver is its own loop

@@ -100,8 +100,21 @@ pub const LAYER_WORLD_Y_MAX = $8000
 // and Tasks 7/10 the two new bits are declared-but-ungated, and that state is REPORTED
 // rather than hidden — effects_gates.py's scanline_spans lane emits an explicit
 // "NOT GATED ANYWHERE" informational row per capability with no bracketed span, the same
-// row CAP_TRANSITIONS carried before its parcel landed. If either bit is still showing
-// that row after Task 10, the lowering did not happen.
+// row CAP_TRANSITIONS carried before its parcel landed.
+//
+// P3 TASK 9 UPDATE — READ THIS BEFORE CONCLUDING ANYTHING FROM THAT ROW FOR
+// CAP_MULTI_DEFORM_TABLE. The bit now HAS a lowering (`deform: Own(..)`) and a bracketed
+// code site (`cap_multi_deform_table_band` in Parallax_Fill_PerLine), and the gate STILL
+// reports "NOT GATED ANYWHERE" — correctly. The lane reads the two shipped `.lst`s, and
+// neither game RAISES the bit: sonic4 stays $001F because adopting a per-layer table on a
+// shipped scene is PARK-1 (owner-gated — it moves every ROM image in the tree), and demo
+// stays 0. A span comptime-elided in both fixtures cannot appear in either listing, so
+// for this bit the row is a statement about ADOPTION, not about the lowering. The
+// bracket's own witness is the capability-raised instrument build recorded in
+// docs/benchmarks/scanline-p3/DEFORM-OWN.md, where both labels appear in the listing.
+//
+// FOR CAP_FACTOR_CURVE THE ORIGINAL READING STANDS: if that bit is still showing the row
+// after Task 10, the lowering did not happen.
 //
 // ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
 //
@@ -148,9 +161,47 @@ pub const CAP_FACTOR_CURVE       = $0040
 // unevaluable — the preset.emp lesson — so 0-sentinels can never be guarded).
 // Payload slots are positional; the order is documented per variant.
 
+// SceneDeform is authored in TWO POSITIONS and the variants are NOT interchangeable
+// between them. Design §2 lists three spellings; this enum is all three, and which
+// position accepts which variant is guarded in the constructors, never left to reading:
+//
+//   SCENE level — `scene(deform_fg:/deform_bg:)`, one attachment per PLANE.
+//       None                     no H-deform on that plane
+//       Shared(table, speed)     the scene's plane-shared table (the shipped twenty)
+//       Own(..)                  REFUSED by scene() — it is a per-LAYER attachment
+//
+//   LAYER level — `layer(deform:)`, one attachment per layer (P3 Task 9).
+//       None                     inherit the scene's plane tables. THIS IS DESIGN §2's
+//                                `shared(phase)`: the layer already carries its own
+//                                `phase` (ly_phase) and its own amplitude shifts
+//                                (ly_dsa/ly_dsb), so "samples the scene's plane-shared
+//                                table at a per-layer phase" needs no payload here and
+//                                is what WindyHaze / SkyHaze / haze_fg already are. It
+//                                does NOT trip CAP_MULTI_DEFORM_TABLE.
+//       Own(table, sa, sb, ph, sp)  this layer samples ITS OWN table, at its own
+//                                amplitude shifts, phase and speed. TRIPS
+//                                CAP_MULTI_DEFORM_TABLE and rides Task 8's extended
+//                                band record (band_ext's two table pointers + two
+//                                speed bytes; the shifts and the phase land in the
+//                                LEGACY prefix, which already has fields for them).
+//       Shared(..)               REFUSED by layer() — a Label-carrying attachment at
+//                                layer level is either `Own` (its own table) or `None`
+//                                (the scene's); a third spelling would be a second way
+//                                to say one of those two.
+//
+// ONE TABLE SERVES BOTH PLANES in both payload-carrying variants, which is why `Own`
+// carries one Label and not two. That is `Shared`'s documented shape and the runtime's:
+// a band's FG and BG curves are two pointers, and a layer that wants a different curve
+// per plane is a §9 future, not a silent third meaning of this payload.
+//
+// NEVER A `Label = 0` DEFAULT. "Is a per-layer table attached?" is answered by
+// `scene_deform_is_own()` below — a VARIANT test — because an `ensure` comparing a Label
+// to an int is silently unevaluable and always passes (preset.emp:105-111,
+// docs/EMP_PITFALLS.md §3). The payload is never the discriminator.
 pub comptime enum SceneDeform {
-    None,                       // no H-deform on this scene
+    None,                       // no H-deform on this scene / inherit at layer level
     Shared(Label, int),         // (deform table Label, sample speed) — one table both planes
+    Own(Label, int, int, int, int),  // (table, shift_a, shift_b, phase, speed) — PER-LAYER
 }
 
 pub comptime enum SceneVDeform {
@@ -222,6 +273,13 @@ pub struct SceneLayer {
     ly_dsb:      u8,    // deform-amplitude shift, plane B (15 = none)
     ly_phase:    u8,    // deform sample-index desync
     ly_enabled:  u8,    // 0 = dormant layer
+    // P3 TASK 9 — the per-layer deform ref. `None` = inherit the scene's plane tables,
+    // which IS design §2's `shared(phase)` (the phase is ly_phase, one field up).
+    // `Own(..)` gives this layer its own table+speed and is the ONLY thing in the model
+    // that raises CAP_MULTI_DEFORM_TABLE. Comptime-only like the rest of this struct:
+    // the table and speed lower into band_ext, the shifts and phase into the legacy
+    // prefix fields above.
+    ly_deform:   SceneDeform,
 }
 
 // -----------------------------------------------
@@ -252,12 +310,57 @@ pub struct SceneLayer {
 //     Two bounds, both derived, neither typed out of the air.
 // -----------------------------------------------
 pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 15,
-                      phase: int = 0, enabled: int = 1) -> SceneLayer {
+                      phase: int = 0, enabled: int = 1,
+                      deform: SceneDeform = SceneDeform.None) -> SceneLayer {
     // $8000 is inlined per the pin block at the top of this file (LAYER_WORLD_Y_MAX).
     ensure(world_y >= 0 && world_y < $8000,
            "layer(): world_y {world_y} is outside the engine's act-axis span (0 .. $8000). Every act descriptor asserts (GRID_H << SECTION_SIZE_SHIFT) <= $8000 and the camera's world coordinates are signed words, so a top above it names a Y the camera can never reach. NOTE this is the ENGINE-WIDE ceiling: the tight bound is this game's own act span and it is checked at the registry by assert_act_relative_tagged()")
-    return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: dsa,
-                       ly_dsb: dsb, ly_phase: phase, ly_enabled: enabled }
+    // ---- P3 TASK 9: the per-layer deform ref, and its three guards ----
+    let is_own = scene_deform_is_own(deform)
+    // (1) POSITION. `Shared` is the SCENE-level spelling and means "the scene's
+    //     plane-shared table"; at layer level that is what `None` already means, so a
+    //     Shared here would be a second spelling of one of the two legal answers — and,
+    //     worse, one carrying a Label the lowering would have to pick a plane for.
+    //     Refused by VARIANT, never by payload.
+    ensure(is_own == 1 || scene_deform_is_none(deform) == 1,
+           "layer(): deform: Shared(..) is the SCENE-level attachment — pass it to scene(deform_fg:/deform_bg:). At layer level a shared table is spelled `deform: SceneDeform.None` (the default): the layer already carries its own phase and amplitude shifts, which is exactly design §2's shared(phase). Use SceneDeform.Own(table, shift_a, shift_b, phase, speed) to give this layer its OWN table")
+    // (2) ONE SOURCE FOR THREE FIELDS. own()'s shift_a/shift_b/phase lower into the SAME
+    //     record fields as this fn's dsa/dsb/phase arguments (band_deform_shift_a/b,
+    //     band_phase_offset). Authoring both is two sources for one byte, so the plain
+    //     arguments must be left at their defaults when own() supplies them. This is the
+    //     drift the tree keeps paying for spelled as a build error.
+    ensure(is_own == 0 || (dsa == 15 && dsb == 15 && phase == 0),
+           "layer(): deform: Own(..) already carries shift_a, shift_b and phase, and they lower into the SAME record fields as this call's dsa ({dsa}) / dsb ({dsb}) / phase ({phase}) arguments. Leave those three at their defaults (15, 15, 0) and author the values inside own(), or drop own() and author them here — two sources for one byte is how they drift")
+    let own_sa = scene_deform_own_shift_a(deform)
+    let own_sb = scene_deform_own_shift_b(deform)
+    // (3) AN OWN TABLE NOTHING SAMPLES IS NOT AN ATTACHMENT, IT IS A MISTAKE — and this
+    //     guard is also what makes CAP_MULTI_DEFORM_TABLE ⇒ CAP_DEFORM structural rather
+    //     than hopeful. The scene-level flat-pathed idiom (a zero table at shift 15,
+    //     purely to force per-line) has a correct spelling one level up:
+    //     scene(deform_bg: Shared(DeformTable_Zero, 1)) or `precision: PRECISION_LINE`.
+    //     A per-layer table exists to be sampled BY THAT LAYER; with both shifts at 15 it
+    //     costs a record extension and an inner-loop reload for a curve nothing reads.
+    //     scene_caps() pins the implication that follows from this.
+    ensure(is_own == 0 || own_sa != 15 || own_sb != 15,
+           "layer(): deform: Own(..) attaches a table this layer never samples — both amplitude shifts are 15 (the no-deform sentinel). A per-layer table costs a band_ext extension in every band of the game AND a per-band pointer reload in the fill loop, so it must be sampled by the layer that owns it. To force the per-line pipeline without visible deform, attach the scene-level flat-pathed table or author precision: PRECISION_LINE")
+    ensure(is_own == 0 || (own_sa >= 0 && own_sa <= 15 && own_sb >= 0 && own_sb <= 15),
+           "layer(): deform: Own(..) shift_a {own_sa} / shift_b {own_sb} outside 0..15 — the runtime samples with asr.w, so a wider shift saturates to the sign bit: a wrong picture, not a fault")
+    let own_ph = scene_deform_own_phase(deform)
+    ensure(is_own == 0 || (own_ph >= 0 && own_ph <= 255),
+           "layer(): deform: Own(..) phase {own_ph} outside 0..255 — band_phase_offset is a u8 and the sample index is mod-256")
+    let own_sp = scene_deform_speed(deform)
+    ensure(is_own == 0 || (own_sp >= 0 && own_sp <= 255),
+           "layer(): deform: Own(..) speed {own_sp} outside 0..255 — bx_deform_speed_a/b are u8")
+    // THE FOLD. Single-level if-expressions, one per field, never a nested one (an `if`
+    // in block-tail position yields unit SILENTLY — docs/EMP_PITFALLS.md §1). After this
+    // point an own() layer is indistinguishable from a hand-authored one to every
+    // amplitude scan in this file, which is the property that keeps the folds unchanged.
+    let eff_dsa   = if is_own == 1 { own_sa } else { dsa }
+    let eff_dsb   = if is_own == 1 { own_sb } else { dsb }
+    let eff_phase = if is_own == 1 { own_ph } else { phase }
+    return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: eff_dsa,
+                       ly_dsb: eff_dsb, ly_phase: eff_phase, ly_enabled: enabled,
+                       ly_deform: deform }
 }
 
 // no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 8] (a
@@ -270,7 +373,8 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
 // come from any authored layer. Do not "tidy" it to FACTOR_LOCKED.
 pub comptime fn no_layer() -> SceneLayer {
     return SceneLayer{ ly_world_y: 0, ly_fa: 0, ly_fb: 0, ly_dsa: 15,
-                       ly_dsb: 15, ly_phase: 0, ly_enabled: 0 }
+                       ly_dsb: 15, ly_phase: 0, ly_enabled: 0,
+                       ly_deform: SceneDeform.None }
 }
 
 // derived_mask — the layer mask the model implies: bit i per enabled layer below count.
@@ -290,6 +394,28 @@ pub comptime fn derived_mask(layers: [SceneLayer; 8], count: int) -> int {
         }
     }
     return mask
+}
+
+// derived_own — does ANY real layer carry its own deform table? (P3 Task 9.)
+//
+// SHARED BY scene() AND scene_caps() FOR derived_mask()'s REASON, not for brevity:
+// scene() guards on the answer and the capability fold raises CAP_MULTI_DEFORM_TABLE on
+// it, and two copies of this walk could drift into a scene the guard approves and the
+// fold does not classify — which is exactly a wrong record shape with no diagnostic.
+// Takes the ARRAY, because scene() has no Scene yet when it needs this.
+//
+// STOPS AT `count`, like every other fold here: the pad slots past it are no_layer()s
+// (scene()'s pad guard proves it) and are lowered by nothing.
+pub comptime fn derived_own(layers: [SceneLayer; 8], count: int) -> int {
+    comptime var any = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    for i in 0..count {
+        let l = layers[i]
+        if scene_deform_is_own(l.ly_deform) == 1 {
+            any = 1
+        }
+    }
+    return any
 }
 
 // =====================================================================
@@ -314,24 +440,68 @@ pub comptime fn derived_mask(layers: [SceneLayer; 8], count: int) -> int {
 // deform table Label; hdr() default 0 (= no table).
 pub comptime fn scene_deform_table(d: SceneDeform) -> Label {
     return match d {
-        None                => 0,
-        Shared(tbl, speed)  => tbl,
+        None                          => 0,
+        Shared(tbl, speed)            => tbl,
+        Own(tbl, sa, sb, ph, sp)      => tbl,
     }
 }
 // deform sample speed; hdr() default ONE, not zero — a speed of 0 is a static table,
 // which is a different (and shipped: v_deform_speed_bg) meaning.
 pub comptime fn scene_deform_speed(d: SceneDeform) -> int {
     return match d {
-        None                => 1,
-        Shared(tbl, speed)  => speed,
+        None                          => 1,
+        Shared(tbl, speed)            => speed,
+        Own(tbl, sa, sb, ph, sp)      => sp,
     }
 }
 // 1 when no table is attached. Exists so the P1 precision fence and the capability
 // fold can test "is there a table?" without ever touching the Label.
 pub comptime fn scene_deform_is_none(d: SceneDeform) -> int {
     return match d {
-        None                => 1,
-        Shared(tbl, speed)  => 0,
+        None                          => 1,
+        Shared(tbl, speed)            => 0,
+        Own(tbl, sa, sb, ph, sp)      => 0,
+    }
+}
+// THE PER-LAYER QUESTION, and the only correct way to ask it (P3 Task 9): is a table
+// attached to THIS LAYER, as opposed to inherited from the scene? A VARIANT test — a
+// `Label`-vs-int `ensure` is silently unevaluable and always passes, so the payload can
+// never be the discriminator. Every consumer of the CAP_MULTI_DEFORM_TABLE bit, in the
+// fold and in the constructors, goes through this.
+pub comptime fn scene_deform_is_own(d: SceneDeform) -> int {
+    return match d {
+        None                          => 0,
+        Shared(tbl, speed)            => 0,
+        Own(tbl, sa, sb, ph, sp)      => 1,
+    }
+}
+// Own()'s three LEGACY-PREFIX payloads. They are not new record fields: shift_a/shift_b
+// and phase already exist as band_deform_shift_a/b and band_phase_offset, which is why
+// `own(table, shift_a/b, phase, speed)` adds only the table and the speed to the extended
+// record (docs/benchmarks/scanline-p3/EXTENDED-RECORD.md §6). `layer()` folds these into
+// ly_dsa / ly_dsb / ly_phase so that EVERY existing scan — scene_caps()'s live_amp,
+// scene_live_amp_a/b, scene_band()'s lowering — sees an own() layer's amplitude without
+// knowing the variant exists. The None/Shared arms return layer()'s own defaults, so the
+// fold is a straight substitution.
+pub comptime fn scene_deform_own_shift_a(d: SceneDeform) -> int {
+    return match d {
+        None                          => 15,
+        Shared(tbl, speed)            => 15,
+        Own(tbl, sa, sb, ph, sp)      => sa,
+    }
+}
+pub comptime fn scene_deform_own_shift_b(d: SceneDeform) -> int {
+    return match d {
+        None                          => 15,
+        Shared(tbl, speed)            => 15,
+        Own(tbl, sa, sb, ph, sp)      => sb,
+    }
+}
+pub comptime fn scene_deform_own_phase(d: SceneDeform) -> int {
+    return match d {
+        None                          => 0,
+        Shared(tbl, speed)            => 0,
+        Own(tbl, sa, sb, ph, sp)      => ph,
     }
 }
 
@@ -522,6 +692,44 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
            "scene(): precision {precision} is neither PRECISION_CELL (0) nor PRECISION_LINE (1) — the value is stored and read as a tier selector, so an out-of-range one silently selects a tier rather than failing")
     ensure(transition == 0 || transition == 1,
            "scene(): transition {transition} is neither TRANS_SMOOTH (0) nor TRANS_INSTANT (1) — the runtime tests this byte with tst.b, so anything nonzero silently means instant")
+    // ---- P3 TASK 9: the two scene-level guards on the per-layer deform ref ----
+    //
+    // (1) POSITION, the mirror of layer()'s. `Own` is a per-LAYER attachment: its table
+    //     and speed lower into a BAND's extension record, and a scene-level slot has no
+    //     band to put them in — the plane header (pcfg_deform_table_fg/bg) is one table
+    //     for the whole config. Refused by VARIANT, never by payload.
+    ensure(scene_deform_is_own(deform_fg) == 0 && scene_deform_is_own(deform_bg) == 0,
+           "scene(): deform: Own(..) is a PER-LAYER attachment — pass it to layer(deform:). A scene-level slot lowers to the plane's pcfg_deform_table_* header word, which is ONE table for the whole config and has nowhere to put a per-layer speed. For a scene-wide table use SceneDeform.Shared(table, speed)")
+    // (2) AN OWN() LAYER DOES NOT REPLACE THE SCENE'S TABLE, IT OVERRIDES IT — and the
+    //     reason is the RUNTIME MODE KEY, which is the one thing in this pipeline that
+    //     is not derived from the scene at comptime.
+    //
+    //     `parallax_mode_key()` (below) decides per-line vs per-cell at runtime by ORing
+    //     the installed config's TWO HEADER TABLE WORDS. It cannot see the bands. So a
+    //     scene whose only tables are per-layer would answer PER-CELL at runtime while
+    //     `scene_forces_per_line()` answered per-line at comptime — the twin-key desync
+    //     design §2 says is impossible by construction, reintroduced by a new attachment
+    //     the key cannot reach. Requiring a scene-level table on at least one plane is
+    //     exactly the key's own predicate, and it is also the honest model: `own()`
+    //     overrides the plane-shared table FOR ONE LAYER, and the layers that did not
+    //     override it still need something to sample.
+    //
+    //     THE ALTERNATIVE WAS CONSIDERED AND REJECTED: widening the runtime key to scan
+    //     the band array costs a loop in the frame's hot path to re-derive a fact the
+    //     lowering already knows, and widening the 28-byte header to carry a mode flag
+    //     moves every emitted config record — the byte churn the P1 image-identity gate
+    //     pins. Guarding is the cheap half of the same guarantee.
+    let any_own = derived_own(layers, count)
+    // Flat accumulator, never a nested if-expression (docs/EMP_PITFALLS.md §1).
+    comptime var any_scene_table = 0
+    if scene_deform_is_none(deform_fg) == 0 {
+        any_scene_table = 1
+    }
+    if scene_deform_is_none(deform_bg) == 0 {
+        any_scene_table = 1
+    }
+    ensure(any_own == 0 || any_scene_table == 1,
+           "scene(): a layer attaches deform: Own(..) but this scene attaches NO plane-shared table on either plane. own() OVERRIDES the scene's table for one layer; it cannot be the only table, because the runtime mode key (parallax_mode_key) reads the config's two HEADER table words and cannot see the bands — with both header words null it would answer per-cell while the lowering answered per-line, which is the twin-key desync the single forcer derivation exists to make impossible. Attach the plane-shared table the other layers sample (deform_fg:/deform_bg: SceneDeform.Shared(..))")
     // THE P1 SCOPE FENCE IS RETIRED HERE (P3 Task 6). It read:
     //
     //     ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
@@ -829,6 +1037,19 @@ pub comptime fn scene_caps(s: Scene) -> int {
     if anchored == 1 {
         caps = caps | $0008
     }
+    // $0020 CAP_MULTI_DEFORM_TABLE — P3 Task 9. THE ONE THING THAT RAISES IT: a layer
+    // carrying `deform: Own(..)`. Scene-level `Shared` does NOT, and design §2 says so
+    // outright ("this is what WindyHaze/SkyHaze/haze_fg actually are; does NOT trip
+    // MULTI_DEFORM_TABLE") — nor does layer-level `None`, which IS shared(phase). All
+    // twenty shipped scenes are Shared/None, so this arm folds 0 across the registry and
+    // games/sonic4/data/effects/scene_registry.emp pins that: the bit staying clear is
+    // what keeps BAND_EXT_N at 0 and the four canonical images byte-identical.
+    //
+    // A VARIANT TEST, THROUGH derived_own() — the same walk scene()'s guard uses, so a
+    // scene the guard approved cannot fold to a different shape than the one it checked.
+    if derived_own(ls, n) == 1 {
+        caps = caps | $0020
+    }
     // ANCHORS IMPLY PER-LINE, and P3 Task 6 made that load-bearing rather than merely
     // true. `parallax_mode_key()`'s CAP_ANCHORS gate is lexically enclosed by a
     // CAP_PER_LINE gate, and tools/scene_spans.py derives a mask's expected spans from
@@ -836,6 +1057,20 @@ pub comptime fn scene_caps(s: Scene) -> int {
     // told to expect a span from a build where the whole site elided. The fold cannot
     // produce such a mask (arm 2 of scene_forces_per_line() sets $0001 from the same
     // anchor), and this pin is what keeps it that way if either arm is ever edited.
+    // MULTI_DEFORM_TABLE IMPLIES BOTH CAP_DEFORM AND CAP_PER_LINE, and both halves are
+    // STRUCTURAL, not hopeful — which is what makes it worth pinning rather than
+    // asserting in a comment:
+    //   * CAP_DEFORM: layer() refuses an own() whose two shifts are both 15, so an own()
+    //     layer always contributes live_amp, and it always contributes a table (scene()
+    //     requires a scene-level one as well). has_table && live_amp is $0004's rule.
+    //   * CAP_PER_LINE: that same scene-level table is arm 1 of scene_forces_per_line().
+    // The RUNTIME depends on the first: the per-band table reload in
+    // Parallax_Fill_PerLine is emitted INSIDE the CAP_DEFORM gate (a5/a6 are the sampling
+    // block's registers and nothing else reads them), so a mask carrying $0020 without
+    // $0004 would elide the site the bit exists to select and tools/scene_spans.py would
+    // demand a span from a build where the whole enclosing block was gone.
+    ensure((caps & $0020) == 0 || ((caps & $0004) != 0 && (caps & $0001) != 0),
+           "scene_caps(): a scene raised CAP_MULTI_DEFORM_TABLE ({caps}) without CAP_DEFORM and CAP_PER_LINE. Both are supposed to follow structurally — layer() refuses an own() table whose amplitude shifts are both 15, and scene() requires an own() scene to carry a plane-shared table too — so this firing means one of those two guards was relaxed. The per-band table reload is emitted inside the CAP_DEFORM gate and the mode key inside CAP_PER_LINE; a mask without them elides the sites the bit selects")
     ensure((caps & $0008) == 0 || (caps & $0001) != 0,
            "scene_caps(): a scene raised CAP_ANCHORS ({caps}) without CAP_PER_LINE — an anchored boundary lands on an arbitrary scanline, so the two are one claim; the span-expectation derivation in tools/scene_spans.py reads the nesting of the two gates in parallax_mode_key() and would demand a span from a build whose whole site elided")
     return caps
@@ -1499,7 +1734,51 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
             band_deform_shift_b: l.ly_dsb,
             band_phase_offset:   l.ly_phase,
         },
-        br_ext: if BAND_EXT_N == 1 { [ band_ext{ bx_deform_table_a: 0, bx_deform_table_b: 0,
-                                                        bx_deform_speed_a: 0, bx_deform_speed_b: 0 } ] } else { [] },
+        br_ext: if BAND_EXT_N == 1 { [ band_ext{ bx_deform_table_a: band_table_a(s, l),
+                                                 bx_deform_table_b: band_table_b(s, l),
+                                                 bx_deform_speed_a: band_speed_a(s, l),
+                                                 bx_deform_speed_b: band_speed_b(s, l) } ] } else { [] },
     }
+}
+
+// =====================================================================
+// THE EXTENSION'S FOUR FIELDS — INHERITANCE RESOLVED AT COMPTIME (P3 Task 9).
+//
+// band_ext's fields used to be documented as "0 = inherit pcfg_deform_table_fg". They
+// are not: the LOWERING resolves the inheritance and every emitted extension carries the
+// EFFECTIVE table and speed for that band. The runtime therefore loads two pointers per
+// band and tests neither.
+//
+// WHY THE RESOLUTION IS HERE AND NOT IN THE FILL LOOP. Both inputs are comptime
+// constants — the scene's plane attachment and the layer's own — so a runtime `tst`/`beq`
+// pair per band per plane would spend the frame's hot path re-deciding something the
+// build knows, which is the rule this codebase opens with. It also keeps the gated block
+// in Parallax_Fill_PerLine to two instructions, which is what makes the task's model
+// parameter a clean per-band constant instead of a data-dependent branch.
+//
+// CONSEQUENCE WORTH STATING: in a game that declares CAP_MULTI_DEFORM_TABLE, EVERY band
+// carries the extension, including bands with no own() — they carry the scene's tables,
+// which is what "inherit" resolved to. The extension is a record-shape property of the
+// GAME, never of the band (design §3.1), and that is why the size pins are on the record.
+//
+// FOUR ONE-LINE FUNCTIONS, NOT ONE WITH A PLANE ARGUMENT: each is a single-level
+// if-expression in return position (a NESTED one yields unit silently —
+// docs/EMP_PITFALLS.md §1), and the A/B asymmetry is real, not parametric — the two
+// differ only in WHICH scene-level attachment they fall back to.
+// =====================================================================
+pub comptime fn band_table_a(s: Scene, l: SceneLayer) -> Label {
+    let d = l.ly_deform
+    return if scene_deform_is_own(d) == 1 { scene_deform_table(d) } else { scene_deform_table(s.sc_deform_fg) }
+}
+pub comptime fn band_table_b(s: Scene, l: SceneLayer) -> Label {
+    let d = l.ly_deform
+    return if scene_deform_is_own(d) == 1 { scene_deform_table(d) } else { scene_deform_table(s.sc_deform_bg) }
+}
+pub comptime fn band_speed_a(s: Scene, l: SceneLayer) -> int {
+    let d = l.ly_deform
+    return if scene_deform_is_own(d) == 1 { scene_deform_speed(d) } else { scene_deform_speed(s.sc_deform_fg) }
+}
+pub comptime fn band_speed_b(s: Scene, l: SceneLayer) -> int {
+    let d = l.ly_deform
+    return if scene_deform_is_own(d) == 1 { scene_deform_speed(d) } else { scene_deform_speed(s.sc_deform_bg) }
 }

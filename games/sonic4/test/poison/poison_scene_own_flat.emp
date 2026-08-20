@@ -1,0 +1,91 @@
+// games/sonic4/test/poison/poison_scene_own_flat.emp — POISON (see README).
+//
+// TARGETS: `layer()`'s third P3-Task-9 guard (engine/level/scene_dsl.emp) — a
+// `deform: Own(..)` whose two amplitude shifts are BOTH 15, i.e. a per-layer table the
+// layer never samples.
+// EXPECTED FRAGMENT: "attaches a table this layer never samples"
+//
+// THIS GUARD IS LOAD-BEARING TWICE, which is why it gets its own case rather than being
+// filed as authoring hygiene:
+//
+//   1. IT IS WHAT MAKES `CAP_MULTI_DEFORM_TABLE ⇒ CAP_DEFORM` STRUCTURAL. `scene_caps()`
+//      pins that implication, and the pin is only ever satisfiable because an own() layer
+//      is guaranteed to contribute a live amplitude. The RUNTIME depends on it: the
+//      per-band table reload is emitted INSIDE the `cap_deform_sample` block in
+//      Parallax_Fill_PerLine, because a5/a6 are the sampling machinery's registers and
+//      nothing else reads them. A mask with $0020 and not $0004 would elide the enclosing
+//      block and leave the bit selecting a site that is not there.
+//   2. THE FLAT-PATHED IDIOM ALREADY HAS A CORRECT SPELLING ONE LEVEL UP. Attaching a
+//      zero table at shift 15 purely to force the per-line pipeline is what OJZ's shipped
+//      configs do — at SCENE level, where it costs one header word. At LAYER level the
+//      same trick costs a band_ext extension in EVERY band of the game plus a per-band
+//      pointer reload in the fill loop, and buys nothing `precision: PRECISION_LINE` does
+//      not buy for free.
+//
+// THE TWO-FIXTURE DIFFERENTIAL. The contrast is ONE PAYLOAD SLOT — own()'s shift_b:
+//
+//   FIXTURE A — `Own(0, 15, 2, 0, 1)`: shift_b live. Legal; folds to $0025 =
+//               CAP_PER_LINE | CAP_DEFORM | CAP_MULTI_DEFORM_TABLE. Its ensure MUST STAY
+//               GREEN, and it is also the only place in the poison set that asserts the
+//               positive form of the implication scene_caps() pins.
+//   FIXTURE B — `Own(0, 15, 15, 0, 1)`: both shifts at the no-deform sentinel. One
+//               diagnostic, from layer()'s guard.
+//
+// EXPECTED COUNT 2, AND THE PAIR IS THE ASSERTION — the same shape as the R1 Task 9
+// band() minima cases, arrived at the same way. `ensure` is non-aborting, so layer()
+// refuses the flat own() and constructs the layer anyway (both shifts 15); scene_caps()
+// then folds it to $0021 and the CAP_MULTI_DEFORM_TABLE ⇒ CAP_DEFORM pin fires in its own
+// words, because the amplitude that would have supplied $0004 is precisely the one the
+// constructor just refused. $0020 is raised by the VARIANT and $0004 by the AMPLITUDE:
+// separating them is what this guard is for, and the second diagnostic is that separation
+// being observed rather than asserted.
+//
+// (This was PREDICTED as count 1 when the case was written and MEASURED as 2. The
+// prediction is recorded rather than quietly corrected: it was wrong because it assumed
+// the fold would still see a live amplitude from somewhere, and the whole point of the
+// guard is that with a flat own() there is nowhere for one to come from.)
+//
+// A DROP TO 1 MEANS ONE OF THE TWO STOPPED FIRING, and which one matters. The
+// constructor's guard is what keeps the RUNTIME honest — the per-band table reload is
+// emitted inside the `cap_deform_sample` block, so a mask with $0020 and not $0004 selects
+// a site that is not there. The fold's pin is the backstop that keeps the implication from
+// being a claim in a comment. The lane's expected fragment names the constructor's, so a 1
+// that kept only the fold's would fail on the fragment too.
+module games.sonic4.test.poison.poison_scene_own_flat
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — a per-layer table the layer actually samples.
+const POISON_OWNFLAT_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    deform: SceneDeform.Own(0, 15, 2, 0, 1)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// FIXTURE B — the same, with own()'s shift_b at the no-deform sentinel.
+const POISON_OWNFLAT_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    deform: SceneDeform.Own(0, 15, 15, 0, 1)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// Fixture A's capabilities, derived by hand: a table is attached (both scene-level and
+// per-layer), so CAP_PER_LINE $0001; own()'s shift_b is live, so CAP_DEFORM $0004; the
+// layer carries its own table, so CAP_MULTI_DEFORM_TABLE $0020. No column table, no
+// anchor, one-element registry.
+const POISON_OWNFLAT_DECLARED = $0025
+const POISON_OWNFLAT_FOLDED_A = fold_caps([POISON_OWNFLAT_SCENE_A])
+const POISON_OWNFLAT_FOLDED_B = fold_caps([POISON_OWNFLAT_SCENE_B])
+
+// ---- FIXTURE A, THE PASSING HALF ----
+ensure(POISON_OWNFLAT_FOLDED_A == POISON_OWNFLAT_DECLARED,
+       "poison_scene_own_flat: FIXTURE A folds to {POISON_OWNFLAT_FOLDED_A}, not the hand-derived {POISON_OWNFLAT_DECLARED} — a SAMPLED per-layer table must fold CAP_PER_LINE|CAP_DEFORM|CAP_MULTI_DEFORM_TABLE together, which is the positive form of the implication scene_caps() pins. If this moved, the refusal below is contrasting against the wrong thing")
+
+// ---- FIXTURE B, THE POISON ----
+ensure(POISON_OWNFLAT_FOLDED_B >= 0,
+       "poison_scene_own_flat: unreachable — this ensure exists only to reference fixture B and force layer() to elaborate it")
