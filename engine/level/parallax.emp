@@ -48,7 +48,7 @@ use engine.effects.preset.{Effects_InstallPreset}
 // code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
 // Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
 // when it cannot (measured at parallax_mode_key's banner), so this import is load-bearing.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, parallax_mode_key}
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, parallax_mode_key}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -181,26 +181,82 @@ pub struct band_ext (size: 10) {
     bx_deform_speed_b: u8,   // Plane B phase advance per frame, EFFECTIVE
 }
 
+// ================= THE CURVE TAIL (P3 TASK 10, design section 2 / 4.1) ==============
+//
+// A BG factor may be a `curve(from, to)`: the effective Plane-B scroll RAMPS across the
+// layer instead of holding one factor. `from` is the layer's own `fb` (the factor already
+// in the legacy prefix, unchanged and still the band's base scroll); `to` is the far-end
+// factor, and it is what this tail carries.
+//
+// SECOND CAPABILITY-SELECTED TAIL, SAME SHAPE AS band_ext, AND DELIBERATELY NOT FOLDED
+// INTO IT. The two are selected by DIFFERENT bits (CAP_MULTI_DEFORM_TABLE / CAP_FACTOR_CURVE)
+// and a game may declare either, both or neither; one merged tail would make a curve game
+// pay for deform pointers it never reads and vice versa. `band_record` composes them, and
+// with both N's at 0 it is still byte-for-byte the legacy `band_entry`.
+//
+// FOUR ROM BYTES AND THREE RUNTIME WORDS, and the split is the design:
+//   * bc_to_s1/bc_to_s2/bc_flags are AUTHORED — the far-end factor's packed shift pair and
+//     its op/active bits, lowered by scene_band().
+//   * bc_step/bc_rem/bc_span are DERIVED EVERY FRAME by the curve hoist
+//     (Parallax_Step4_Fill, `.cap_factor_curve_hoist`) into the SHADOW copy. Their ROM
+//     image is zero and is never read.
+//
+// WHY THE DERIVED WORDS LIVE IN THE RECORD RATHER THAN IN THREE PARALLEL RAM ARRAYS. The
+// anchored overlay (Step 4b) SPLITS a band by copying a whole entry down and duplicating
+// it, and the split of a curve layer must CONTINUE that layer's ramp (design section 2:
+// "an anchor split inside a curve layer continues the curve"). Riding inside the record
+// means the existing whole-entry copies — `copy_band_entry_fwd`/`_back`, which are already
+// generated from `sizeof(band_record)` — carry the curve parameters to the split for free.
+// Three parallel arrays would need three more shift-down walks in Step 4b, each one a
+// place for the two views to drift apart. The cost is four dead ROM bytes per band in a
+// curve game, stated plainly rather than hidden.
+pub const CURVE_FLAG_OP_BIT     = 0   // far-end factor: 0 = ADD the second term, 1 = SUB
+pub const CURVE_FLAG_ACTIVE_BIT = 1   // 1 = this band is a curve layer (authored)
+// SET AT RUNTIME BY STEP 4b, ON THE SPLIT ENTRY ONLY, and never present in ROM. It is what
+// tells the fill "seed this band's accumulator from the previous band's parked carry
+// instead of from the base scroll" — i.e. do not re-parametrise the ramp at the split.
+// Every frame's shadow view is re-copied from ROM before Step 4b runs, so the bit cannot
+// go stale.
+pub const CURVE_FLAG_CONT_BIT   = 2
+pub struct band_curve (size: 10) {
+    bc_to_s1:  u8,   // far-end factor shift1 (15 = whole-factor zero, "ramp to locked")
+    bc_to_s2:  u8,   // far-end factor shift2 (15 = single-term factor)
+    bc_flags:  u8,   // CURVE_FLAG_* bits
+    bc_pad:    u8,   // keeps the three derived words on even offsets (68000 address error)
+    bc_step:   i16,  // DERIVED: floor(spread / span), the whole part of the per-line delta
+    bc_rem:    i16,  // DERIVED: spread mod span, normalised to [0, span) — the Bresenham term
+    bc_span:   u16,  // DERIVED: the layer's on-screen line span, the Bresenham modulus
+}
+
+// BAND_CURVE_N — 1 in a game whose SCANLINE_CAPS include CAP_FACTOR_CURVE, else 0. A
+// PINNED LITERAL for exactly BAND_EXT_N's reason (its banner above has the full evidence):
+// the context that lays out an emitted `data` binding's record type binds no contract
+// members, so `Game.SCANLINE_CAPS` here is `unknown name`, once per emitted config record.
+// The capability is still the authority — games/sonic4/data/effects/scene_registry.emp
+// carries the two-directional pin, where both names are visible.
+pub const BAND_CURVE_N = 0
+
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
 // registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker
 // loop advances by. The legacy prefix sits at offset 0, which is why every field reference
 // in this file is still spelled `band_entry.<field>(aN)`.
 //
-// A MODULE THAT IMPORTS `band_record` MUST IMPORT `band_entry`, `band_ext` AND `BAND_EXT_N`
-// TOO. The declaration is re-elaborated in the importing module's own name environment, so
-// a partial import fails there — and it fails pointing AT THIS DECLARATION, in this file,
-// naming a type this file plainly declares. Three importers do it: engine.level.scene_dsl,
-// games.sonic4.scene_registry, games.sonic4.scene_equiv_proof.
-pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N) {
-    br_base: band_entry,
-    br_ext:  [band_ext; BAND_EXT_N],
+// A MODULE THAT IMPORTS `band_record` MUST IMPORT `band_entry`, `band_ext`, `BAND_EXT_N`,
+// `band_curve` AND `BAND_CURVE_N` TOO. The declaration is re-elaborated in the importing
+// module's own name environment, so a partial import fails there — and it fails pointing AT
+// THIS DECLARATION, in this file, naming a type this file plainly declares. Three importers
+// do it: engine.level.scene_dsl, games.sonic4.scene_registry, games.sonic4.scene_equiv_proof.
+pub struct band_record (size: sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) {
+    br_base:  band_entry,
+    br_ext:   [band_ext; BAND_EXT_N],
+    br_curve: [band_curve; BAND_CURVE_N],
 }
 ensure(offsetof(band_record, br_base) == 0,
        "band_record's legacy prefix is at offset {offsetof(band_record, br_base)}, not 0 — every `band_entry.<field>(aN)` displacement in this file addresses through the record base, so a non-zero prefix offset silently mis-addresses all ten legacy fields")
 // THE CAPABILITY-OFF IDENTITY, as an assertion rather than a comment: with no extension the
 // record IS the legacy entry. Design section 8.1's claim, checked where it is decided.
-ensure(BAND_EXT_N != 0 || sizeof(band_record) == sizeof(band_entry),
-       "BAND_EXT_N is 0 but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
+ensure(BAND_EXT_N != 0 || BAND_CURVE_N != 0 || sizeof(band_record) == sizeof(band_entry),
+       "both capability tails are absent (BAND_EXT_N {BAND_EXT_N}, BAND_CURVE_N {BAND_CURVE_N}) but band_record ({sizeof(band_record)}) is not the legacy band_entry ({sizeof(band_entry)}) — a no-new-capability game must lower byte-identically")
 
 // THE SHADOW RESERVATION IS A MIRROR THIS MODULE HOLDS TO THE RECORD, for the same reason
 // BAND_EXT_N is: engine/ram.emp is lowered by a focused, CONTRACT-BLIND build, so it cannot
@@ -209,7 +265,7 @@ ensure(BAND_EXT_N != 0 || sizeof(band_record) == sizeof(band_entry),
 // record without widening ram.emp and the build fails naming the constant, instead of the
 // shadow view running off the end of its array at runtime.
 ensure(extern("Parallax_Shadow_Scroll_A") - extern("Parallax_Shadow_Bands") == sizeof(band_record) * MAX_PARALLAX_BANDS,
-       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES in engine/ram.emp to sizeof(band_ext) (10). Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
+       "Parallax_Shadow_Bands reserves fewer bytes than the shadow view needs: sizeof(band_record) x MAX_PARALLAX_BANDS = {sizeof(band_record) * MAX_PARALLAX_BANDS} — set BAND_EXT_BYTES (the deform tail, sizeof(band_ext) = 10) and/or BAND_CURVE_BYTES (the curve tail, sizeof(band_curve) = 10) in engine/ram.emp to match the tails this game's capabilities select. Do NOT widen BAND_ENTRY_LEN: it mirrors the LEGACY band_entry, which sigil harvests ambiently, and the extern(\"band_entry_len\") pin beside it would go red")
 
 // The two op bits, named once. Decode_Factor_A/B and the lowering are the only readers.
 pub const BAND_OP_BIT_A = 0
@@ -250,9 +306,13 @@ pub const BAND_OP_BIT_B = 1
 // and stays exactly that while BAND_EXT_N is 0; the extension term is DERIVED from the
 // record rather than hand-added, so widening ram.emp's BAND_ENTRY_LEN is the one edit a
 // capability flip needs and this count follows it.
-ensure((sizeof(band_ext) * BAND_EXT_N * MAX_PARALLAX_BANDS) % 4 == 0,
-       "the band extension adds {sizeof(band_ext) * BAND_EXT_N * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
-const PARALLAX_STATE_LONGS = 61 + (sizeof(band_ext) * BAND_EXT_N * MAX_PARALLAX_BANDS) / 4
+ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) % 4 == 0,
+       "the band tails add {(sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS} bytes to Parallax_State, which is not a whole number of longs — Parallax_Init clears in LONGS, so a non-multiple would under-clear the tail")
+// The trailing `+ BAND_CURVE_N` is the two-word curve carry (P3 Task 10) — one long, in
+// the state span and therefore cleared by Parallax_Init, present only under the capability.
+const PARALLAX_STATE_LONGS = 61 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N
+ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
+       "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real edit is that mirror). A short reservation makes the fill's cross-band carry alias the shadow band array")
 ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_STATE_LONGS, "Parallax_State clear span drifted from ram.asm: expected {PARALLAX_STATE_LONGS} longs")
 
 // The peek-ahead strides by the RECORD, not by the legacy prefix — the neighbour band is
@@ -275,6 +335,30 @@ const band_ext_table_b = offsetof(band_record, br_ext) + offsetof(band_ext, bx_d
 // above; this is the other half of the same claim.
 ensure(BAND_EXT_N == 0 || offsetof(band_record, br_ext) == sizeof(band_entry),
        "band_record's extension starts at {offsetof(band_record, br_ext)}, not immediately after the legacy prefix ({sizeof(band_entry)}) — Parallax_Fill_PerLine's per-band table load addresses the extension by a constant displacement from the record base, so a gap or an overlap there reads legacy fields as a curve pointer")
+
+// The curve tail's six displacements FROM THE RECORD BASE (P3 Task 10), named for
+// band_ext_table_a/b's reason: the .field-in-disp sugar does not compose in displacement
+// arithmetic, and each of these is two offsetofs deep. All six fold to constants whatever
+// BAND_CURVE_N is — a zero-length array still has a position — and their only readers are
+// the three CAP_FACTOR_CURVE-gated blocks, which do not exist when the array is empty.
+const band_curve_to_s1  = offsetof(band_record, br_curve) + offsetof(band_curve, bc_to_s1)
+const band_curve_to_s2  = offsetof(band_record, br_curve) + offsetof(band_curve, bc_to_s2)
+const band_curve_flags  = offsetof(band_record, br_curve) + offsetof(band_curve, bc_flags)
+const band_curve_step   = offsetof(band_record, br_curve) + offsetof(band_curve, bc_step)
+const band_curve_rem    = offsetof(band_record, br_curve) + offsetof(band_curve, bc_rem)
+const band_curve_span   = offsetof(band_record, br_curve) + offsetof(band_curve, bc_span)
+// THE CURVE TAIL SITS AFTER BOTH THE LEGACY PREFIX AND THE DEFORM TAIL, and the hoist
+// writes three WORDS through those displacements — so an overlap would not merely read the
+// wrong bytes, it would CORRUPT a neighbouring band's fields every frame. Same claim as the
+// br_ext pin above, for the tail that is written rather than only read.
+ensure(BAND_CURVE_N == 0 || offsetof(band_record, br_curve) == sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N,
+       "band_record's curve tail starts at {offsetof(band_record, br_curve)}, not immediately after the legacy prefix plus the deform tail ({sizeof(band_entry) + sizeof(band_ext) * BAND_EXT_N}) — the per-frame curve hoist WRITES three words at constant displacements from the record base, so a gap or an overlap there scribbles over band fields once per frame")
+// The three derived words are written with `move.w`, so each must land on an EVEN
+// displacement from a record base that is itself even (copy_run_longs() pins both the
+// record stride and the config header's size for the same reason). An odd one is a 68000
+// address error at runtime, not a wrong picture.
+ensure(BAND_CURVE_N == 0 || (band_curve_step % 2 == 0 && band_curve_rem % 2 == 0 && band_curve_span % 2 == 0),
+       "a curve tail word lands on an ODD displacement from the record base (step {band_curve_step}, rem {band_curve_rem}, span {band_curve_span}) — the per-frame hoist writes all three with move.w and would address-error")
 
 // PLANE_B_SPAN — the Plane-B vertical span in pixels, the modulus Step 4a's rotation
 // works in and the ceiling every lowered `band_top_plane` must sit under. 64 rows of
@@ -1009,6 +1093,135 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d2
     .no_wrap:
         dbf     d6, .copy_band
+
+        // ============ THE CURVE HOIST (P3 Task 10, design section 2 / 4.1) ============
+        //
+        // ONCE PER FRAME PER CURVE LAYER, and this is the whole of a curve's arithmetic:
+        // the far-end factor is decoded against this frame's camX, the SPREAD between the
+        // two ends is divided by the layer's line span, and the quotient/remainder pair is
+        // parked in the band's own curve tail for the fill's per-line accumulator. The line
+        // loop then does two adds and a conditional correction — no divide, no multiply,
+        // and no factor decode per line, which is what design section 2 rules ("computed
+        // once per frame per curve layer in the band hoist ... never in the line loop,
+        // never a multiply").
+        //
+        // WHY IT SITS HERE — AFTER STEP 4a'S COPY, BEFORE STEP 4b'S SPLIT — AND NOT IN THE
+        // FILL'S OWN PER-BAND HOIST, WHICH IS WHERE IT WOULD BE CHEAPEST TO WRITE. The
+        // divisor must be the LAYER's span. Step 4b splits a band in two at the anchored
+        // line, and by the time the fill walks the shadow view a split layer is two entries
+        // whose spans sum to the layer's. Dividing by either half would make the ramp twice
+        // as steep on both sides of the boundary — the split RE-PARAMETRISING the curve,
+        // which is exactly what design section 2 forbids ("an anchor split inside a curve
+        // layer CONTINUES the curve"). Computed here, the step is the layer's, Step 4b's
+        // whole-entry copy hands it to the split unchanged, and the split's accumulator
+        // picks up where its parent left off (CURVE_FLAG_CONT_BIT).
+        //
+        // WHY BRESENHAM AND NOT A FIXED-POINT STEP. A ramp of 300 px over 100 lines is 3 px
+        // a line; a ramp of 30 px over 100 lines is a THIRD of a pixel a line, and a whole
+        // integer step would round it to zero and emit no ramp at all. The obvious fix — an
+        // 8.8 step, `(spread << 8) / span` — cannot be BOUNDED: at span 1 it needs
+        // |spread| <= 127 to keep the quotient inside a word, and spread is a camera-scaled
+        // quantity with no such bound. Carrying the exact remainder costs one compare and
+        // one conditional add per line and is exact at every span. See the divisor argument
+        // at the divide itself.
+        //
+        // COST: this loop runs over EVERY shadow band and pays one `btst` for the bands
+        // that are not curves. A frame with no curve layer at all still walks it — the
+        // capability gate is what removes it from a game that authors none, which is the
+        // whole point of the bit.
+    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
+    .cap_factor_curve_hoist_begin:
+        move.l  Camera_X, d0                        // (Camera_X).w
+        swap    d0                                  // d0.w = camX (signed pixels)
+        lea     Parallax_Shadow_Bands, a1           // (Parallax_Shadow_Bands).w
+        lea     Parallax_Shadow_Scroll_B, a3        // (Parallax_Shadow_Scroll_B).w
+        move.w  d7, d6
+        subq.w  #1, d6                              // dbf count over the shadow view
+        moveq   #1, d5                              // d5 = index of the NEXT band
+    .curve_band:
+        btst    #CURVE_FLAG_ACTIVE_BIT, band_curve_flags(a1)
+        beq     .curve_next
+        // -- the layer's line span: the next band's top, or 224, less this band's --
+        move.w  #SCREEN_HEIGHT, d4
+        cmp.w   d7, d5
+        bhs     .curve_have_end                     // last band: the screen bottom
+        move.w  band_top_line_next(a1), d4
+    .curve_have_end:
+        sub.w   band_top_line(a1), d4               // d4 = span, in SCREEN LINES
+        ble     .curve_next                         // <= 0: Step 4a clamped this layer off
+                                                    //   the screen, so it emits no lines and
+                                                    //   there is nothing to ramp across. THIS
+                                                    //   TEST IS THE DIVISOR'S ZERO GUARD —
+                                                    //   see the divide below.
+        move.w  d4, band_curve_span(a1)
+        // -- the far-end factor, decoded exactly as Decode_Factor_B decodes the base --
+        // Spelled out rather than called: a `Decode_Factor_Curve` proc would emit a body
+        // (and, gated, a stub) in every game, and the two extra registers this block has
+        // spare are precisely what that proc's stack-borrowed scratch exists to avoid.
+        moveq   #0, d1
+        move.b  band_curve_to_s1(a1), d1
+        cmpi.b  #15, d1
+        beq     .curve_to_zero                      // s1 15 = whole-factor zero ("locked")
+        move.w  d0, d2
+        asr.w   d1, d2                              // first term = camX >> s1
+        moveq   #0, d1
+        move.b  band_curve_to_s2(a1), d1
+        cmpi.b  #15, d1
+        beq     .curve_to_negate                    // s2 15 = single-term factor
+        move.w  d0, d3
+        asr.w   d1, d3                              // second term = camX >> s2
+        btst    #CURVE_FLAG_OP_BIT, band_curve_flags(a1)
+        bne     .curve_to_sub
+        add.w   d3, d2
+        jbra    .curve_to_negate
+    .curve_to_sub:
+        sub.w   d3, d2
+    .curve_to_negate:
+        neg.w   d2                                  // HScroll words are negated offsets, so
+        jbra    .curve_spread                       //   the far end matches the base's sign
+    .curve_to_zero:
+        moveq   #0, d2
+    .curve_spread:
+        sub.w   (a3), d2                            // d2 = spread = far_end - base_scroll
+        // THE DIVISOR IS BOUNDED, ARGUED THE SAME WAY THE TRANSITION RAMP'S IS (the tree's
+        // only other divs, in Parallax_Update's band loop):
+        //   * NEVER ZERO, NEVER NEGATIVE, STRUCTURALLY. The divide is reached only past the
+        //     `ble .curve_next` above, so d4 is >= 1 here. It is also <= 224: Step 4a clamps
+        //     every shadow top into [0, SCREEN_HEIGHT] and this span is a difference of two
+        //     such tops (or of 224 and one of them), so the divisor is 1..224 on every path.
+        //     Divide-by-zero is unreachable by construction, not by likelihood — a zero-span
+        //     band is a state Step 4a REACHES (two tops both clamped to 224), which is why
+        //     the test is a real branch and not an assertion.
+        //   * THE QUOTIENT CANNOT OVERFLOW. The dividend is a WORD spread sign-extended to
+        //     32 bits, so |quotient| = |spread| / span <= |spread| <= $7FFF and fits the
+        //     word divs.w must return. Widening the dividend — the 8.8 step this design
+        //     rejected — is exactly what would break that argument.
+        ext.l   d2                                  // sign-extend spread -> 32-bit dividend
+        divs.w  d4, d2                              // d2.w = quotient, d2 high = remainder
+        move.w  d2, d1                              // d1 = quotient, TRUNCATED toward zero
+        swap    d2                                  // d2.w = remainder, signed like the
+                                                    //   dividend (68000 divs semantics)
+        tst.w   d2
+        bge     .curve_rem_ok
+        // NORMALISE TO A FLOOR. The line loop's correction is one-directional (`err >= span
+        // -> err -= span, acc += 1`), which needs a remainder in [0, span). A negative spread
+        // truncates toward zero, so shifting the remainder up by one span and the quotient
+        // down by one turns the pair into the floor division the loop assumes — the same
+        // value, re-expressed. Without it a downward ramp would accumulate its fraction in
+        // the wrong direction and drift by up to one pixel per line.
+        add.w   d4, d2                              // remainder -> [0, span)
+        subq.w  #1, d1                              // ...and the quotient becomes the floor
+    .curve_rem_ok:
+        move.w  d1, band_curve_step(a1)
+        move.w  d2, band_curve_rem(a1)
+    .curve_next:
+        adda.w  #sizeof(band_record), a1
+        addq.l  #2, a3
+        addq.w  #1, d5
+        dbf     d6, .curve_band
+    .cap_factor_curve_hoist_end:
+    }
+
         lea     Parallax_Shadow_Bands, a1           // (Parallax_Shadow_Bands).w
         lea     Parallax_Shadow_Scroll_A, a2        // (Parallax_Shadow_Scroll_A).w
         lea     Parallax_Shadow_Scroll_B, a3        // (Parallax_Shadow_Scroll_B).w
@@ -1231,6 +1444,25 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         lea     Parallax_Shadow_Bands, a5
         adda.w  d2, a5
         move.w  d0, band_top_line(a5)               // the split lands exactly on L
+        // THE SPLIT CONTINUES ITS PARENT'S CURVE (P3 Task 10; design section 2's ruling).
+        // a5 is &band[k+1], the entry this overlay just manufactured as a copy of band k.
+        // If band k was a curve layer, its ramp must run THROUGH the boundary: the split
+        // inherited the parent's step, remainder and span from the whole-entry copy above,
+        // and this bit tells the fill to seed its accumulator from the parent's parked
+        // carry instead of restarting at the base scroll. Without it the ramp would restart
+        // at L — the split re-parametrising the curve, which is the one interaction design
+        // section 2 calls out by name.
+        //
+        // UNCONDITIONAL, AND CORRECT FOR A NON-CURVE PARENT TOO: the fill reads this bit
+        // only after the band's ACTIVE bit says it is a curve at all, so setting it on a
+        // flat split is inert. Testing the parent first would cost a branch to save nothing.
+        // It cannot go stale either — Step 4a re-copies the whole shadow view from ROM,
+        // where the bit is never authored, before this overlay runs.
+    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
+    .cap_factor_curve_split_begin:
+        bset    #CURVE_FLAG_CONT_BIT, band_curve_flags(a5)
+    .cap_factor_curve_split_end:
+    }
     .cap_anchors_overlay_end:
     }
     .bands_ready:
@@ -1458,8 +1690,13 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 // Out: Hscroll_Buffer filled (224 longwords); a0/d7 preserved
 // Clobbers: d0-d6, a1-a6
 //
-// Per band, all loop-invariant decisions are hoisted and one of FOUR
-// specialized line loops runs (both/fg/bg deform, or flat copy).
+// Per band, all loop-invariant decisions are hoisted and one of FIVE
+// specialized line loops runs (both/fg/bg deform, a curve ramp, or flat copy).
+//
+// IT WAS FOUR UNTIL P3 TASK 10, and this line is kept current deliberately: the design
+// doc's claim that "`.lp_both` uses all 16 registers" — false, it uses 14 — got there
+// because a roster comment in this file went stale and was read as a measurement. A count
+// in a banner is a claim like any other.
 //
 // Registers at the point a band picks its loop:
 //   d0 = packed base scroll (FG<<16 | BG)   — constant per band
@@ -1471,7 +1708,7 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 //   d7 = bands remaining (countdown; movem-restored at exit)
 //   a5/a6 = FG/BG deform curves (bases; never advanced)
 //
-// The FOUR loops then re-allocate, and they do NOT agree — each is register-starved and
+// The FIVE loops then re-allocate, and they do NOT agree — each is register-starved and
 // spends what the others need. What every one of them guarantees on the way out is the
 // only cross-loop contract: **d4 = the band's end line**, a1/a2/a3/a5/a6/d7 untouched.
 //   `.lp_both`  — the ORIGINAL shape, and the only one that still walks d4 per line: it
@@ -1481,6 +1718,14 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 //                 through a0, a walking pointer, reset at the 256-byte wrap. d5 is the
 //                 sample scratch, so the post-wrap line count lives on the stack. See the
 //                 banner above those two loops for why, and for which halves of d0 go where.
+//   `.lp_curve` — the RAMPING BG factor (P3 Task 10). Spends every data register: d1 acc,
+//                 d2 whole step, d3 remainder, d6 error, d5 span (the Bresenham modulus,
+//                 free because d4 has already jumped to the band end), d0.w the constant FG
+//                 word, plus a4 as the output cursor and a0 as its end. That allocation IS
+//                 the measured reason a layer may not have a curve AND a deform ref: a
+//                 sampled channel needs a phase base, an amplitude shift and a scratch, and
+//                 there are none left. Its state crosses BANDS through two stack words —
+//                 the only loop here that does — so an anchored split continues the ramp.
 // ----------------------------------------------------------------------
 proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // CAP_PER_LINE span (P2 §3.3), MODULE depth — the whole filler. Its only call
@@ -1528,6 +1773,99 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         move.w  (a2), d0                            // FG (already negated)
         swap    d0
         move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
+
+        // ---- THE FIFTH LINE LOOP: a curve layer's ramping BG scroll (P3 Task 10) ----
+        //
+        // TESTED FIRST, BEFORE THE DEFORM HOISTS, AND THAT ORDER IS THE CURVE ∧ DEFORM
+        // RULING MADE STRUCTURAL. A curve band never samples: `layer()` refuses a curve
+        // beside a live amplitude and `scene()` refuses one beside a live anchor shift, so
+        // by the time a curve band reaches here its two shift bytes are the no-deform
+        // sentinel and every path through the block below would land on `.lp_flat` anyway.
+        // Branching out here rather than after those tests is what keeps this ONE new loop
+        // variant instead of a product with the FG/BG/both matrix.
+        //
+        // THE HOIST FALLS STRAIGHT INTO THE LOOP and the NON-curve path branches over both,
+        // rather than the other way round. Deliberate: with CAP_DEFORM off (a game with
+        // curves and no deform tables) the sampling block between here and `.lp_flat`
+        // elides completely, so a loop body sitting outside this gate would be fallen into
+        // by every flat band on the way past.
+        //
+        // WHAT THE HOIST INHERITS FROM THE PER-FRAME PASS (Parallax_Step4_Fill's
+        // `.cap_factor_curve_hoist`): the whole step, the Bresenham remainder and the span
+        // are already in this band's curve tail, computed against the LAYER's span before
+        // the anchored overlay could split it. Nothing per-band is recomputed here except
+        // the output extent and the accumulator's seed.
+    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
+    .cap_factor_curve_band_begin:
+        btst    #CURVE_FLAG_ACTIVE_BIT, band_curve_flags(a1)
+        beq     .curve_band_done                    // a flat layer: the sampling block owns it
+        // -- seed the accumulator: at the layer's base, or where the parent left off --
+        btst    #CURVE_FLAG_CONT_BIT, band_curve_flags(a1)
+        bne     .curve_continue
+        move.w  d0, d1                              // acc = this layer's BG base scroll
+        moveq   #0, d6                              // err = 0: the ramp starts at this line
+        jbra    .curve_seeded
+    .curve_continue:
+        // THE ANCHORED SPLIT'S HALF OF "AN ANCHOR SPLIT CONTINUES THE CURVE". Step 4b set
+        // this bit on the entry it manufactured from the band above, whose loop parked its
+        // final accumulator and error in Parallax_Curve_Carry. Resuming from them is what
+        // makes the delta a function of the ABSOLUTE screen line rather than of the entry's
+        // own top — the split moves a boundary, it does not re-parametrise a ramp.
+        //
+        // WHY THE CARRY IS RAM AND NOT TWO WORDS OF STACK FRAME, which is what this was
+        // first built as and is otherwise the better shape (live for one call, free when
+        // the capability is off): the contract closure gate reads ANY `(sp)`/`d(sp)` access
+        // in a proc with a `preserves()` movem as a write to the saved-register slots, and
+        // reported `[proc.clobber-undeclared] Parallax_Fill_PerLine a0` + `d7` — the exact
+        // pair the movem restores. Measured 2026-08-20 and bisected to these four
+        // instructions: replacing them with register moves cleared both firings while every
+        // other line of this block stayed. The reservation is capability-sized in
+        // engine/ram.emp, so a game without curves still spends nothing.
+        move.w  Parallax_Curve_Carry, d1            // (Parallax_Curve_Carry).w — acc
+        move.w  Parallax_Curve_Carry+2, d6          // (Parallax_Curve_Carry+2).w — err
+    .curve_seeded:
+        // PARK THE SEED BEFORE THE EMPTY-ENTRY EARLY-OUT, not only at the loop's end. Step
+        // 4a can clamp a layer to ZERO lines (two shadow tops both at 224), and a split
+        // below a zero-line parent must still resume from where that parent WOULD have
+        // started — otherwise it reads whatever the last non-empty curve band left, which is
+        // a different layer's ramp.
+        move.w  d1, Parallax_Curve_Carry            // (Parallax_Curve_Carry).w
+        move.w  d6, Parallax_Curve_Carry+2          // (Parallax_Curve_Carry+2).w
+        move.w  d5, d2
+        sub.w   d4, d2                              // d2 = lines in THIS entry
+        ble     .band_done                          // empty/malformed entry
+        move.w  d5, d4                              // line index jumps to the band end
+        add.w   d2, d2
+        add.w   d2, d2                              // d2 = bytes this entry writes
+        movea.l a4, a0                              // a0 = the run's END cursor. a0 is the
+        adda.w  d2, a0                              //   caller's config ptr, dead since the
+                                                    //   table hoist and restored by the exit
+                                                    //   movem — the same borrow the two
+                                                    //   single-channel loops make for their
+                                                    //   curve walk pointer.
+        move.w  band_curve_step(a1), d2             // whole pixels per line (may be negative)
+        move.w  band_curve_rem(a1), d3              // the fraction's numerator, in [0, span)
+        move.w  band_curve_span(a1), d5             // d5 is free — d4 already holds the end
+        swap    d0                                  // d0.w = FG base scroll (constant word)
+    .lp_curve:
+        move.w  d0, (a4)+                           // FG word — constant across the layer
+        move.w  d1, (a4)+                           // BG word — the ramp's value at this line
+        add.w   d2, d1                              // acc += whole
+        add.w   d3, d6                              // err += remainder
+        cmp.w   d5, d6                              // both are in [0, 2*span); unsigned is
+        blo     .lc_next                            //   exact and needs no sign handling
+        sub.w   d5, d6
+        addq.w  #1, d1                              // the fraction carried one whole pixel
+    .lc_next:
+        cmpa.l  a0, a4
+        blo     .lp_curve
+        move.w  d1, Parallax_Curve_Carry            // (Parallax_Curve_Carry).w — park the
+        move.w  d6, Parallax_Curve_Carry+2          //   carry: the next entry may be this
+                                                    //   layer's anchored continuation
+        jbra    .band_done
+    .curve_band_done:
+    .cap_factor_curve_band_end:
+    }
 
         // --- hoist channel-active decisions ---
         // CAP_DEFORM span (P2 §3.3), PATH depth — the sampling machinery: both hoists

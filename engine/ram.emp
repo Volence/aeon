@@ -55,6 +55,18 @@ const BAND_ENTRY_LEN        = 10    // sizeof(band_entry); pinned in parallax.em
 // guidance: correct-sounding, and a dead end. Measured 2026-08-20 raising the capability
 // for Task 9's instrument build.
 const BAND_EXT_BYTES        = 0     // sizeof(band_ext) * BAND_EXT_N; pinned in parallax.emp
+// BAND_CURVE_BYTES — the per-band CURVE tail (P3 Task 10), a THIRD constant for the same
+// reason BAND_EXT_BYTES is a second one: it mirrors a DIFFERENT capability bit
+// (CAP_FACTOR_CURVE, not CAP_MULTI_DEFORM_TABLE), and a game may declare either, both or
+// neither. A shadow band occupies BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES, and
+// parallax.emp's reservation guard names whichever one is short.
+const BAND_CURVE_BYTES      = 0     // sizeof(band_curve) * BAND_CURVE_N; pinned in parallax.emp
+// CURVE_CARRY_WORDS — the two words a curve fill parks between an anchored split and the
+// layer it split, DERIVED from the tail mirror above rather than being a fourth constant a
+// capability flip would have to remember. A curve tail (10 B) means a carry (2 words); no
+// tail means no carry and no bytes. The two-value pin is what keeps the division honest.
+ensure(BAND_CURVE_BYTES == 0 || BAND_CURVE_BYTES == 10, "BAND_CURVE_BYTES is {BAND_CURVE_BYTES}, which is neither 0 (no curve tail) nor sizeof(band_curve) = 10 — CURVE_CARRY_WORDS below divides it, and parallax.emp's reservation guard is what checks the 10")
+const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
 ensure(extern("EntityScanState_len") == ENTITY_SCAN_STATE_LEN, "EntityScanState size drifted from ram.emp's mirror — update ENTITY_SCAN_STATE_LEN")
 ensure(extern("band_entry_len") == BAND_ENTRY_LEN, "band_entry size drifted from ram.emp's mirror — update BAND_ENTRY_LEN")
 
@@ -345,7 +357,12 @@ pub vars upper_ram {
     // Per-frame screen-space band view (Step 4a): the config's plane-space band
     // list rotated by Vscroll_BG, tops rebased to screen cells. Fillers consume
     // this (or the config's own arrays when vshift = 0).
-    Parallax_Shadow_Bands:       [u8; (BAND_ENTRY_LEN + BAND_EXT_BYTES) * MAX_PARALLAX_BANDS],
+    // The curve fill's cross-band carry (P3 Task 10): [0] the last curve entry's final
+    // accumulator, [1] its final Bresenham error. An anchored split resumes from these so
+    // the ramp runs THROUGH the boundary instead of restarting at it. Zero words — and zero
+    // bytes — in a game that declares no curves.
+    Parallax_Curve_Carry:        [u16; CURVE_CARRY_WORDS],
+    Parallax_Shadow_Bands:       [u8; (BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES) * MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_A:    [u16; MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
     mark Parallax_State_End,
