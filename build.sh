@@ -28,6 +28,47 @@ set -euo pipefail
 # optimization parcels have moved the anchors since. Current values live in
 # sigil-harness golden/provenance.toml, not here. See golden/PROVENANCE.md and the
 # native_full_rom / native_offcanonical_full gates.
+#
+# ---------------------------------------------------------------------------
+# FAST=1 — the content-authoring loop (added 2026-08-19)
+# ---------------------------------------------------------------------------
+# `FAST=1 ./build.sh [game]` runs ONLY what produces the artifact and skips every
+# verification lane. It exists because the editor's Build & Run loop was ~38 s, and
+# the ROM itself is not what costs: MEASURED on this tree (16 cores, load ~7-9),
+#
+#     emp_expect_fail          22.69 s   verification  (20 real sigil builds)
+#     pytest tools             12.40 s   verification
+#     sigil build (the ROM)     1.15 s   ARTIFACT
+#     emit_sound_blob           0.20 s   ARTIFACT
+#     verify_level_bin          0.13 s   verification
+#     effects_budget_check      0.09 s   verification
+#     s4lint / s4budget /
+#       art_rom_report /
+#       gen_compression_vectors 0.04 s each
+#     ----------------------------------------------------------------
+#     canonical DEBUG=1 total  38.14 s   of which the assemble is 3%
+#
+# So NO, the assemble is not the ceiling — the two build-invoking gate lanes are
+# 92% of the wall clock. FAST keeps emit_sound_blob + gen_compression_vectors (both
+# EMIT ROM-consumed bytes) + the sigil build + its checksum/deb2 appendix, and drops
+# s4lint, effects_budget_check, the pytest sweep, the expect-fail lane,
+# verify_level_bin, art_rom_report, s4budget and the ctags reindex. None of those
+# write a byte the ROM contains, so a FAST ROM is byte-identical to the canonical
+# ROM on the same tree — that identity is the contract, and skipping a lane that
+# changed the artifact would be a bug in the lane.
+#
+# FAST is a DEV shape: it prints a loud banner at both ends saying the lanes were
+# skipped, and it is REFUSED on the STRESS_* fixture shapes, which exist to produce
+# evidence. It is not a merge/ship artifact — re-run without FAST before landing.
+#
+# STALE LEVEL DATA (the trap FAST forced into the open — closed for BOTH paths).
+# games/<game>/prebuild.sh is a documented no-op and the generated level tree is a
+# COMMITTED artifact, so `./build.sh` after an editor save silently shipped the
+# PREVIOUS level data; the only warning lived in tools/regenerate-level.sh's
+# docstring. An Aurora session lost an hour to it on 2026-08-19. Both paths now ask
+# tools/level_staleness.py (see its docstring for the compare and the exclusions):
+#   canonical -> STALE is a HARD FAILURE naming tools/regenerate-level.sh
+#   FAST=1    -> STALE auto-runs the re-bake, timed and reported in the banner
 
 GAME="${1:-sonic4}"
 # sonic4 keeps the historical ROM name s4.bin (game content); other games use their own name.
@@ -124,6 +165,39 @@ if [[ "${CRASH_REPORT:-1}" != "1" ]]; then
     exit 1
 fi
 
+# FAST=1 — artifact-only build for the content-authoring loop (see the header block).
+# It changes NO bytes; it only decides which lanes run. Refused on the STRESS_* fixture
+# shapes: those are built to PRODUCE EVIDENCE (a soak, a stress ROM someone reasons
+# about), which is the one thing an unverified build must not be used for. build.sh has
+# no other landing-flow context — it does not know about merges or freezes — so for
+# every other misuse the banner is the guard, by design rather than by omission.
+FAST="${FAST:-0}"
+if [[ "$FAST" == "1" ]]; then
+    if [[ "${STRESS_EVICT:-0}" == "1" || "${STRESS_ART:-0}" == "1" ]]; then
+        echo "ERROR: FAST=1 is refused on the STRESS_* fixture shapes."
+        echo "  Those shapes exist to produce EVIDENCE (soaks, stress ROMs read as results),"
+        echo "  and FAST skips every verification lane. Build them canonically."
+        exit 1
+    fi
+    if [[ "${CONTRACTS:-1}" == "0" ]]; then
+        echo "ERROR: FAST=1 with CONTRACTS=0 leaves the build checked by nothing at all."
+        echo "  CONTRACTS=0 is the emergency opt-out for a broken contract checker; pair it"
+        echo "  with a canonical build so something is still gating."
+        exit 1
+    fi
+    echo "================================================================================"
+    echo " FAST BUILD — VERIFICATION LANES SKIPPED. NOT a merge/ship artifact."
+    echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
+    echo "            verify_level_bin · art_rom_report · s4budget · ctags"
+    echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
+    echo "            +deb2 symbols) · level re-bake IF STALE"
+    echo "   Re-run without FAST=1 before you land, merge, freeze, or quote a number."
+    echo "================================================================================"
+    # One switch for the whole source-gate block below; the ctags/budget/level lanes
+    # carry their own FAST guards at their sites.
+    NO_LINT=1
+fi
+
 # The sigil build binary — THE assembler now. No asl fallback: a missing/failed sigil
 # is a HARD ERROR (mirrors the seam-1 SIGIL_EMIT dependency).
 SIGIL_BUILD="${SIGIL_BUILD:-}"
@@ -158,6 +232,59 @@ if [[ ! -x "${TOOLS}/bin/salvador" ]]; then
     make -C "${TOOLS}/salvador" -s
     mkdir -p "${TOOLS}/bin"
     cp "${TOOLS}/salvador/salvador" "${TOOLS}/bin/salvador"
+fi
+
+# ---------------------------------------------------------------------------
+# LEVEL-DATA STALENESS GATE  (closes the silent-stale-data trap, 2026-08-19)
+# ---------------------------------------------------------------------------
+# games/<game>/prebuild.sh is a no-op and the generated level tree is a COMMITTED
+# artifact (its generators need out-of-repo donors), so nothing here ever noticed
+# that the editor had saved since the last re-bake. Save -> build -> reload shipped
+# the PREVIOUS level data, silently, and the only warning in the tree was a docstring
+# in tools/regenerate-level.sh. An Aurora editing session lost an hour to it.
+#
+# tools/level_staleness.py owns the compare (whole-tree newest-mtime, whole-second
+# granularity) and the exclusion list — read its docstring before changing either;
+# in particular the exclusions are enumerated there with a reason each, and the
+# reason a per-file pair map is deliberately NOT maintained is there too.
+#
+# exit 0 = fresh/not-applicable, 2 = stale, 1 = the tool itself broke (which fails
+# the build in both modes: a staleness gate that cannot run is not a green light).
+STALE=0
+set +e
+STALE_MSG=$(python3 "${TOOLS}/level_staleness.py" "${GAME}" 2>&1)
+STALE_RC=$?
+set -e
+case "$STALE_RC" in
+    0) ;;
+    2) STALE=1 ;;
+    *) echo "$STALE_MSG"; echo "ERROR: tools/level_staleness.py failed (rc=${STALE_RC})."; exit 1 ;;
+esac
+
+if [[ "$STALE" == "1" ]]; then
+    echo "$STALE_MSG"
+    if [[ "$FAST" == "1" ]]; then
+        # The loop's whole point: re-bake instead of scolding.
+        echo "FAST: re-baking the level tree (tools/regenerate-level.sh)..."
+        REBAKE_T0=$(date +%s)
+        if ! "${TOOLS}/regenerate-level.sh" > /dev/null; then
+            echo "ERROR: the FAST re-bake failed. Run tools/regenerate-level.sh directly to see why"
+            echo "  (it needs the out-of-repo donors: sonic_hack + skdisasm/AEON_SKDISASM_DIR)."
+            exit 1
+        fi
+        REBAKE_SECS=$(( $(date +%s) - REBAKE_T0 ))
+        echo "FAST: re-bake done in ${REBAKE_SECS}s."
+    else
+        echo
+        echo "ERROR: the committed level tree is STALE — the editor has saved since the last re-bake."
+        echo "  The build consumes games/${GAME}/data/generated/ DIRECTLY (prebuild.sh is a no-op),"
+        echo "  so building now would ship the PREVIOUS level data with no other warning."
+        echo
+        echo "  REMEDY:  tools/regenerate-level.sh     (then commit the regenerated tree)"
+        echo "           FAST=1 ./build.sh ${GAME}     (dev loop: re-bakes automatically, skips gates)"
+        echo
+        exit 1
+    fi
 fi
 
 # Per-game content generators (optional)
@@ -261,10 +388,12 @@ fi
 # out-of-repo donors — tools/regenerate-level.sh). Fail LOUDLY on internal
 # drift (hand-edited head, missing blob, stale .zx0) the whole-ROM gate would
 # only catch after the ROM already moved.
+if [[ "$FAST" == "0" ]]; then
 echo "Verifying committed OJZ level tree..."
 if ! python3 "${TOOLS}/verify_level_bin.py"; then
     echo "Level-tree drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
+fi
 fi
 
 # Art-pool ROM budget report + gate (art-streaming Phase 2). Level art is now
@@ -276,9 +405,11 @@ fi
 # fixture that deliberately overwhelms the cache, so report-only (no gate).
 ART_ROM_REPORT_FLAGS=""
 if [[ "${STRESS_ART:-0}" == "1" ]]; then ART_ROM_REPORT_FLAGS="--no-fail"; fi
+if [[ "$FAST" == "0" ]]; then
 if ! python3 "${TOOLS}/art_rom_report.py" . ${ART_ROM_REPORT_FLAGS}; then
     echo "Art-pool ROM budget exceeded — see the per-act report above."
     exit 1
+fi
 fi
 
 # THE BUILD: one sigil invocation — assemble -> declared-order link -> emit_rom
@@ -324,7 +455,7 @@ ROM_PCT=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/4194304*100}")
 echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM_PCT}% of 4MB)"
 
 # Budget summary
-if [[ -f "${ROM_NAME}.lst" ]]; then
+if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
     # NOT `|| true`. It was, and that mattered: s4budget returned 0 on every path
     # anyway (tools lens sweep D7), so the budgets were gated by nothing twice over
     # — no threshold in the tool, and its exit code discarded here. The tool now
@@ -344,6 +475,21 @@ if [[ -f "${ROM_NAME}.lst" ]]; then
 fi
 
 # Update ctags symbol index
-if command -v ctags &>/dev/null; then
+if command -v ctags &>/dev/null && [[ "$FAST" == "0" ]]; then
     ctags -R .
+fi
+
+if [[ "$FAST" == "1" ]]; then
+    echo "================================================================================"
+    echo " FAST BUILD COMPLETE — ${ROM_NAME}.bin"
+    if [[ -n "${REBAKE_SECS:-}" ]]; then
+        echo "   level tree was STALE -> re-baked in ${REBAKE_SECS}s"
+    else
+        echo "   level tree was fresh -> no re-bake"
+    fi
+    echo "   VERIFICATION LANES WERE SKIPPED: s4lint · effects_budget_check · pytest tools"
+    echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget · ctags."
+    echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
+    echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
+    echo "================================================================================"
 fi
