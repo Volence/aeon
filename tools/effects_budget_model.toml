@@ -340,6 +340,45 @@ multi_deform_table_shared_vs_own_cycles = 0  # THE PLAN'S NAMED FIXTURE PAIR: N 
                                  # over shared() WITHIN a capability-raised build. What the
                                  # capability costs is the row above, per band, unconditionally
 # ---------------------------------------------------------------------------------------
+# CAP_FACTOR_CURVE — the ramping BG scroll factor (P3 Task 10, design §2/§4.1).
+#
+# SAME STANDING AS THE ROWS ABOVE: measured on a NON-CANONICAL, capability-raised instrument
+# build (SCANLINE_CAPS $005F, BAND_CURVE_N 1, BAND_CURVE_BYTES 10 — s4.i1 7a05bac5/715452),
+# because no canonical image contains the mechanism. NOT in the fit above and not excitable
+# by any canonical fixture. Recipe: docs/benchmarks/scanline-p3/CURVES.md §3.
+#
+# THE PAIRS ARE CURVE-vs-FLAT ON THE SAME ROM, so the capability's 20-byte record, Step 4a's
+# wider copy and the per-frame hoist loop's per-band `btst` are held FIXED and cancel; what
+# is left is exactly the ramp. tools/curve_probe.py --arm cost, --repeat 3, spread 0 on every
+# row, every window preemption-free.
+#
+#   K1-F1 = +9748  (224 curve lines, 1 curve band)
+#   K2-F2 = +10378 (224 curve lines, 2 curve bands)
+#   H2-F2 = +5184  (112 curve lines, 1 curve band)
+factor_curve_line_cycles = 40.75   # PER CURVE LINE, over what the flat path costs for the
+                                   # same line. Compare line_fg_only 72.75 / line_both 125.21
+                                   # above: a curve line is CHEAPER than a sampled one, which
+                                   # it should be — no table read, no ext.w, no asr.
+factor_curve_band_cycles = 630.00  # PER CURVE BAND PER FRAME: the Step-4a-neighbourhood hoist
+                                   # (far-end factor decode + the bounded divs.w + the floor
+                                   # fixup, ~380) plus the fill's per-band seed and extent
+                                   # setup (~250), NET of the `.lp_flat` per-band setup the
+                                   # curve loop replaces.
+factor_curve_residual_cycles = 10.00  # over the three pairs, and EXPLAINED rather than
+                                   # absorbed: it is smaller than the measured data-dependence
+                                   # band below, and it has the shape of one — K1's band spans
+                                   # 224 lines while K2's and H2's span 112, so their divisors
+                                   # and Bresenham fractions differ.
+factor_curve_data_dependence_cycles = 132  # K1 with ONE thing changed, the far-end factor:
+                                   # -> FACTOR_1_4 +9674, -> FACTOR_1_8 +9748,
+                                   # -> FACTOR_1_32 +9806. Same band, same 224 lines, same
+                                   # everything else. TWO mechanisms, both real: the Bresenham
+                                   # correction fires `rem/span` of the lines and costs a
+                                   # sub+addq and a taken branch when it does, and `divs.w` is
+                                   # operand-timed on the 68000. So the per-line figure is a
+                                   # CENTRE, not a constant: +-0.30 cyc/line across this range.
+factor_curve_status = "MEASURED ON A NON-CANONICAL, CAPABILITY-RAISED INSTRUMENT BUILD. tools/curve_probe.py --arm cost, which REFUSES a ROM whose band record is not the 20-byte curve shape rather than measuring the flat path and calling it a curve"
+# ---------------------------------------------------------------------------------------
 
 # ANCHOR: P2's "TWO REGIMES" ARE REFUTED. They were the frame dilution above (W10/W12 caught
 # two lag frames, the model they were scored against caught one) plus the missing shift term.

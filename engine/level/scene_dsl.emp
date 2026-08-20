@@ -1446,6 +1446,19 @@ pub const SB_WALK_LINE_BG_X100       = 7627     // line_bg_only_cycles     76.27
 pub const SB_WALK_LINE_BOTH_X100     = 12617    // line_both_cycles       126.17
 pub const SB_WALK_VDEFORM_X100       = 142406   // vdeform_cycles        1424.06
 
+// THE CURVE'S TWO TERMS (P3 Task 10), and they are NOT from the fit above. Every other
+// constant in this block came from the 26-fixture canonical sweep; these two were measured on
+// a capability-raised instrument build, because no canonical image contains the mechanism —
+// the same standing as the CAP_MULTI_DEFORM_TABLE row in the toml. `[parallax.cost_model]`
+// `factor_curve_line_cycles` / `factor_curve_band_cycles`, curve-vs-flat pairs on one ROM.
+//
+// A CURVE LINE IS CHEAPER THAN A SAMPLED ONE (40.75 against line_fg_only's 76.21) and that is
+// the right shape: it reads no table, sign-extends nothing and shifts nothing — it adds a
+// step, adds a remainder and takes one conditional correction. The band term is large by
+// comparison because it carries a `divs.w`.
+pub const SB_WALK_LINE_CURVE_X100    = 4075     // factor_curve_line_cycles   40.75
+pub const SB_WALK_BAND_CURVE_X100    = 63000    // factor_curve_band_cycles  630.00
+
 // THE ANCHOR IS CHARGED AT ITS MEASURED WORST REGIME AND IS NOT A FITTED TERM. The toml is
 // explicit: `anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named
 // in WALKER-MODEL.md, deliberately not fitted"`. W10/W12 measured +456.7/+455.7 (the overlay
@@ -1648,6 +1661,31 @@ pub comptime fn scene_sample_term_x100(s: Scene) -> int {
     return term
 }
 
+// How many layers ramp their BG factor (P3 Task 10). The COUNT, not the boolean
+// derived_curve() answers, because the per-band term is charged per curve band — the hoist
+// decodes a factor and runs a divide for each one.
+pub comptime fn scene_curve_bands(s: Scene) -> int {
+    comptime var n = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    let ls = s.sc_layers
+    // CLAMPED TO THE ARRAY, and the clamp is not defensive programming — it is required, and
+    // it was MEASURED. `scene()` ensures count <= 8, but `Scene{ .. }` type-checks and skips
+    // every guard (see that struct's banner), and games/sonic4/test/poison/poison_budget_axis1
+    // uses exactly that door to declare a 116-layer scene so the axis-1 ensure fires. Every
+    // OTHER fold in this file survives that fixture only by accident: `scene_live_amp_a/b`
+    // are reached through `if scene_has_table(s) == 1`, which that scene fails. This one is
+    // called unconditionally from the axis-1 term, so it meets the back-door count head on —
+    // 216 `[index.out-of-bounds]` diagnostics, measured 2026-08-20 when it was not clamped.
+    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    for i in 0..cnt {
+        let l = ls[i]
+        if scene_curve_is_none(l.ly_curve) == 0 {
+            n = n + 1
+        }
+    }
+    return n
+}
+
 // AXIS 1 — the scene's main-loop cost in hundredths of a cycle, uncertainty included.
 pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
     let n        = s.sc_count
@@ -1667,6 +1705,26 @@ pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
         c = c + SB_WALK_MULTIBAND_X100
     }
     c = c + scene_sample_term_x100(s) * SB_SCREEN_LINES
+    // CURVES (P3 Task 10), charged at the SAME worst case the sampling term uses: the whole
+    // screen. A layer's on-screen line span is a RUNTIME quantity — Step 4a rebases the tops
+    // against this frame's Vscroll_BG and clamps them, so a layer authored 64 px tall can
+    // own anything from 0 to 224 screen lines — and the comptime-knowable worst case is one
+    // curve layer covering the screen. This over-charges a small curve layer by design, for
+    // the reason SB_SCREEN_LINES' own banner gives: a budget that assumed a convenient camera
+    // would be gating a coincidence.
+    //
+    // ADDED TO THE SAMPLING TERM, NOT MAXED WITH IT. A layer may not have both (layer()
+    // refuses the pair), but a SCENE may carry a curve layer and a sampled layer, and the
+    // screen is then shared between them. Summing both at 224 lines charges each for the
+    // whole screen — conservative, and the conservative direction.
+    let curve_bands = scene_curve_bands(s)
+    if curve_bands > 0 {
+        // TWO STATEMENTS, NOT ONE EXPRESSION SPLIT OVER TWO LINES: .emp has no line
+        // continuation, and a trailing `+` on the next line is `expected an expression,
+        // found Plus` at a line number that is not the one you edited.
+        c = c + SB_WALK_LINE_CURVE_X100 * SB_SCREEN_LINES
+        c = c + SB_WALK_BAND_CURVE_X100 * curve_bands
+    }
     if scene_vdeform_is_none(s.sc_v_deform) == 0 {
         c = c + SB_WALK_VDEFORM_X100
     }

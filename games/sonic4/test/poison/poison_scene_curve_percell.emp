@@ -1,0 +1,75 @@
+// games/sonic4/test/poison/poison_scene_curve_percell.emp — POISON (see README).
+//
+// TARGETS: `scene_forces_per_line()` ARM 3 — "any curve layer" — the arm P3 Task 6 authored
+// DEAD and P3 Task 10 woke up, plus the CAP_FACTOR_CURVE ($0040) fold that rides the same
+// derived_curve() walk.
+// EXPECTED FRAGMENT: "FIXTURE B folds to 65 against fixture A's declared 0; the UNDECLARED bits are 65"
+//
+// WHY THIS ARM NEEDS ITS OWN POISON AND CANNOT BORROW ONE. Arms 1, 2 and 4 of the forcer set
+// each have another way to reach per-line, so a scene that trips them is not evidence about
+// arm 3. This fixture pair removes every other arm: NO deform table on either plane, NO
+// anchor, `precision: PRECISION_CELL`, and every top on the 8-px grid. Fixture A therefore
+// folds to capability mask ZERO — it is the only shape in the tree that does — and the
+// SINGLE authored difference in fixture B is a `curve:` on one layer.
+//
+//   FIXTURE A — two flat layers, no attachments of any kind. Folds $0000.
+//   FIXTURE B — THE SAME SCENE with layer 0's BG factor made a ramp
+//               (`curve: SceneCurve.To(FACTOR_1_8)`). Folds $0041 = 65:
+//                 $0040 CAP_FACTOR_CURVE, from the fold's own curve arm, and
+//                 $0001 CAP_PER_LINE,     from forcer ARM 3 — WHICH IS THE CLAIM.
+//               If arm 3 were still unwritten this would fold $0040 alone and the fragment's
+//               65 would read 64, so the case cannot pass while the arm is dead.
+//
+// THE TWO BITS ARE CHECKED TOGETHER ON PURPOSE. A fixture that only asserted "the mask
+// changed" could not tell the capability fold from the forcer, and those are two different
+// derivations in two different functions that happen to share a walk. Quoting 65 pins both.
+//
+// A CURVE'S PER-LINE FORCING IS THE STRONGEST OF THE FIVE ARMS, and the message below says
+// why: the other four prevent a boundary being QUANTISED to a cell edge, while this one
+// prevents the mechanism existing at all — a per-cell fill broadcasts one longword per 8-px
+// cell, so a ramp lowered per-cell would emit its top value for the whole layer.
+//
+// THE ELABORATION HOOK is the three ensures. Two MUST PASS (fixture A), so the expected
+// `[Error]` count is 1. A count of 2 means fixture A stopped folding to zero — some other arm
+// started firing on a scene with no attachments, and the differential is no longer one thing.
+module games.sonic4.test.poison.poison_scene_curve_percell
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — no tables, no anchor, cell precision, grid-aligned tops. Folds to nothing.
+const POISON_CURVE_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_4),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15, precision: PRECISION_CELL)
+
+// FIXTURE B — fixture A with ONE authored difference: layer 0's BG factor ramps.
+const POISON_CURVE_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2,
+                    curve: SceneCurve.To(FACTOR_1_8)),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_4),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15, precision: PRECISION_CELL)
+
+// The declared word: fixture A's capabilities, derived by hand from scene_caps()'s rules.
+// No table anywhere, so no $0001 from arm 1 and no $0004. No column table, so no $0002. No
+// anchor, so no $0008. One-element registries, so fold_caps() adds no $0010. No own(), so no
+// $0020. No curve, so no $0040 and — the claim under test — no $0001 from arm 3 either.
+const POISON_CURVE_DECLARED = $0000
+const POISON_CURVE_FOLDED_A = fold_caps([POISON_CURVE_SCENE_A])
+const POISON_CURVE_FOLDED_B = fold_caps([POISON_CURVE_SCENE_B])
+const POISON_CURVE_UNDEC_A  = POISON_CURVE_FOLDED_A & ~POISON_CURVE_DECLARED
+const POISON_CURVE_UNDEC_B  = POISON_CURVE_FOLDED_B & ~POISON_CURVE_DECLARED
+
+// ---- FIXTURE A, THE PASSING HALF (both of these must stay green) ----
+ensure(POISON_CURVE_FOLDED_A == POISON_CURVE_DECLARED,
+       "poison_scene_curve_percell: FIXTURE A folds to {POISON_CURVE_FOLDED_A}, not the hand-derived {POISON_CURVE_DECLARED} — a scene with no deform table, no anchor, no column table, cell precision and grid-aligned tops demands NOTHING of the runtime. If this is nonzero, some arm of scene_forces_per_line() or scene_caps() started firing on a bare scene and the differential below is no longer one thing")
+ensure(POISON_CURVE_UNDEC_A == 0,
+       "poison_scene_curve_percell: FIXTURE A is NOT a subset of its own declared word (undeclared {POISON_CURVE_UNDEC_A}) — the subset test can no longer pass, so it is not discriminating")
+
+// ---- FIXTURE B, THE POISON (this is the diagnostic the lane matches) ----
+ensure(POISON_CURVE_UNDEC_B == 0,
+       "poison_scene_curve_percell: FIXTURE B folds to {POISON_CURVE_FOLDED_B} against fixture A's declared {POISON_CURVE_DECLARED}; the UNDECLARED bits are {POISON_CURVE_UNDEC_B} — one layer's BG factor went flat -> `curve: SceneCurve.To(..)` and raised BOTH $0040 CAP_FACTOR_CURVE and $0001 CAP_PER_LINE. The $0001 is scene_forces_per_line() ARM 3, and it is not optional: the per-cell filler broadcasts one longword per 8-px cell, so a ramp lowered per-cell would emit the layer's top value for the whole layer and the curve would not exist at all. 65 is $0041; a 64 here would mean arm 3 stopped firing")
