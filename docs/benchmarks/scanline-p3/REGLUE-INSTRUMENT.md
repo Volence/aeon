@@ -348,10 +348,70 @@ has to change with it.
    word, from one declared static. Task 6 Step 1's subject, re-observed on this build. (§5.3)
 4. **The transition frame costs nothing in DMA bytes on the shipped registry** — and cannot be
    made to, because finding 1 removes the pair that would. (§5.3)
+5. **`[parallax.cost_model]`'s per-line rows are STALE against master** — measured, not
+   suspected. §8.
 
 ---
 
-## 8. Reproducing
+## 8. The model rows are stale against master — the clean-constant confound, arrived
+
+This parcel touched no `Parallax_*` routine, so the standing rule's re-fit does not apply. The
+default fit mode was re-run anyway, as a **regression check on the edited tool**:
+
+`python3 tools/parallax_cost_probe.py --repeat 1` · 26 fixtures · spread 0 on every fixture ·
+**zero failed derived checks, exit 0** · ~65 s wall on an otherwise-idle machine.
+
+The tool is fine. The **rows it is compared against are not**. `[parallax.cost_model]`'s
+`loop_shape` field says outright that its rows are a property of the PRE-UNROLL per-line filler
+at master `08e87cbc`, and that the fill-unroll parcel re-measures rather than carries them.
+**That parcel has landed** — `afccb141 perf(parallax): pointer-walk + unroll the single-channel
+sampling loops` is in master's history since. The warning came true.
+
+**The model's structure survived the unroll intact.** The un-anchored subset residual is still
+**exactly 0.00** over the same 18 fixtures, and 7 of 11 un-anchored columns did not move at all.
+What moved is exactly what the unroll was predicted to move — work out of the per-line body and
+into the per-band prologue:
+
+| column | pre-unroll `08e87cbc` | post-unroll `aab012a7` | |
+|---|---|---|---|
+| `base` / `band_percell` / `line_mode` / `band_perline` / `multiband` / `shift_lines` / `vdeform` | — | identical | no move |
+| `line_fg_only` | 72.75 | **26.00** | −64% |
+| `line_bg_only` | 72.81 | **26.90** | −63% |
+| `line_both` | 125.21 | 124.53 | ~no move |
+| `band_sampling` | 0.00 | **154.00** | 0 → the predicted class |
+| `anchor` / `anchor_ops` | 982.2 / 59.27 | 985.6 / 61.65 | ~no move |
+
+`band_sampling` going 0 → 154 is the clearest confirmation available: `WALKER-MODEL.md` §5(d)
+predicted "a ~149-cycle class once the sampled loops are unrolled", from a different parcel, and
+this is that number measured. A column that reads zero on one loop shape and 154 on another is a
+real parameter with two regimes, and the regime is the loop shape.
+
+| | pre-unroll | post-unroll |
+|---|---|---|
+| residual, un-anchored (18) | 0.00 | **0.00** |
+| residual, all 26 | 13.3 | 43.2 |
+| residual, overlay term (8) | 27.6 | 58.3 |
+| out of sample | model 19915.3 / measured **20162** / +1.22% | model 13646.4 / measured **13798** / +1.10% |
+
+**Why this matters here and not only to Task 13.** The shipped config now costs 13798, not
+20162 — 31.6% cheaper. Without this recorded, §5's transition rows (13791 / 13184 / 14258 /
+14685) read as if something were broken, because they would be compared against a model
+measured on different code. They are not: this arm's `A stable` row (active
+`ParallaxConfig_OJZ_Underwater`, **13791**) and the fit sweep's *untouched* out-of-sample row
+for the same config (**13798**) agree to **7 cycles, 0.05%**, both spread 0, on the same ROM.
+The 7 cycles are a frame-offset difference between the two runs' 31-frame windows, not a
+disagreement.
+
+**Booked, not promoted.** The post-unroll values are in `tools/effects_budget_model.toml` under
+`postunroll_*`, beside a block naming the staleness. Task 1's rows are left intact — they are
+the pre-unroll record that `loop_shape` exists to name, and overwriting them from an instrument
+parcel would destroy it. **P3 Task 7's standing-rule re-fit and Task 13's re-take own the
+promotion.** Until then, nothing should divide by the pre-unroll per-line columns: they
+over-charge a sampled line by ~2.8x and would refuse a scene that demonstrably runs.
+
+---
+
+## 9. Reproducing
 
 ```bash
 DEBUG=1 ./build.sh                                                   # s4.debug.bin + .lst

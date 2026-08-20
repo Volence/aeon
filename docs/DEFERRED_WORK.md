@@ -7338,6 +7338,23 @@ Task 3. THIS HALF OF BLOCKER 2 IS CLOSED.** See below.
 > `Static_Hscroll_Line` at `dma_length(896)`, but **two** 448-word entries live with the same
 > command word `7C000082`. P3 Task 6 Step 1 owns reconciling it; this is fresh evidence for it,
 > not a ruling.
+>
+> **AND A SECOND FINDING THE AXIS-1 ROW BELOW DIVIDES BY: `[parallax.cost_model]` IS STALE
+> AGAINST MASTER.** The same parcel re-ran the fit sweep as a tool regression (26 fixtures,
+> spread 0, zero failed checks, exit 0) and the rows do not reproduce, because the walker
+> changed: `loop_shape` declares the rows a property of the PRE-UNROLL per-line filler at
+> master `08e87cbc`, and **`afccb141 perf(parallax): pointer-walk + unroll the single-channel
+> sampling loops` has since landed on master**. The model's STRUCTURE survives intact — the
+> un-anchored residual is still exactly **0.00** over the same 18 fixtures and 7 of 11
+> un-anchored columns are unmoved — but `line_fg_only` 72.75 → **26.00**, `line_bg_only`
+> 72.81 → **26.90**, `band_sampling` 0.00 → **154.00** (the ~149 class `WALKER-MODEL.md` §5(d)
+> predicted for the unrolled shape), and the shipped config's out-of-sample cost
+> **20162 → 13798, 31.6% cheaper**. Post-unroll values are booked as `postunroll_*` in
+> `tools/effects_budget_model.toml` beside a block naming the staleness; **Task 1's rows are
+> deliberately left intact** (they are the pre-unroll record `loop_shape` exists to name) and
+> **P3 Task 7's standing-rule re-fit / Task 13's re-take own promoting them**. Until then
+> nothing may divide by the pre-unroll per-line columns — they over-charge a sampled line by
+> ~2.8x and would refuse a scene that demonstrably runs.
 
 **(a) STILL OPEN, AND UNCHANGED BY P3.** The section→scene join is a `Label` end to end
 (`Sec.sec_parallax_config` → `EffectsPreset.ep_parallax` → `preset(parallax: Label = 0)`) and
@@ -7364,7 +7381,7 @@ denominators, never a gate divisor).
 
 | # | Axis | Pool | Reservation (idle, measured) | Verdict |
 |---|---|---|---|---|
-| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`. **The figures in this row were superseded 2026-08-20 by P3 Task 1** (every P2 row was diluted 30/31; `anchor` is now FITTED, not two labelled regimes): residual **0.00** un-anchored / 13.3 all-fixtures, out-of-sample gap **+1.22% (+246.7)**, `anchor = 982.2 + 59.27 x overlay_loop_trips` at ±27.6. **SUSPECT THE RESERVATION FIGURES TOO**: P2's idle `Parallax_Update` row was 19511 and the preemption-free value is 20162 = `19511 x 31/30` to half a cycle, so the idle profile that `idle_main_loop_cycles` 35125 came from was diluted by the same factor. NOT re-measured here (it is a different probe's row) — re-take it before dividing by it. |
+| 1 | main-loop cycles | 128000 cyc/frame | `idle_main_loop_cycles` 35125; real headroom `idle_vsync_wait_cycles` 79595 | **GATEABLE** — cost from `[parallax.cost_model]`. **AND SUPERSEDED A SECOND TIME 2026-08-20 by P3 Task 3's regression run: the P3 Task 1 rows below are PRE-UNROLL and `afccb141` has landed on master — see the post-unroll block in Blocker 2(b) above and `postunroll_*` in the toml.** **The figures in this row were superseded 2026-08-20 by P3 Task 1** (every P2 row was diluted 30/31; `anchor` is now FITTED, not two labelled regimes): residual **0.00** un-anchored / 13.3 all-fixtures, out-of-sample gap **+1.22% (+246.7)**, `anchor = 982.2 + 59.27 x overlay_loop_trips` at ±27.6. **SUSPECT THE RESERVATION FIGURES TOO**: P2's idle `Parallax_Update` row was 19511 and the preemption-free value is 20162 = `19511 x 31/30` to half a cycle, so the idle profile that `idle_main_loop_cycles` 35125 came from was diluted by the same factor. NOT re-measured here (it is a different probe's row) — re-take it before dividing by it. |
 | 2 | VBlank DMA bytes | 7524 B (H40 NTSC) | live queue `dma_queue_words_idle` 1528 w = **3056 B** | **GATEABLE** — see the correction below |
 | 3 | VBlank CPU | ~18200 cyc VBlank window | `idle_vblank_cycles` 8280 (`VInt_Level` bracket) | **GATEABLE** — budget 9920 cyc |
 | 4a | HInt per-fire spacing | — | — | already owned by `check_density`; no new work |

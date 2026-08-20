@@ -255,6 +255,72 @@ out_of_sample_predicted = 19915.3
 out_of_sample_measured  = 20162
 out_of_sample_gap_pct   = 1.22
 
+# ##### THE ROWS ABOVE ARE STALE AGAINST MASTER. MEASURED, NOT SUSPECTED. #####
+# Found 2026-08-20 by P3 Task 3's regression run of this same probe on master `aab012a7`
+# (s4.debug.bin crc=5be03175), 26 fixtures, 1 boot, spread 0 on every fixture, exit 0.
+#
+# `loop_shape` above says these rows are a property of the PRE-UNROLL per-line filler at
+# master `08e87cbc` and that the fill-unroll parcel re-measures rather than carries them.
+# THAT PARCEL HAS LANDED: `afccb141 perf(parallax): pointer-walk + unroll the single-channel
+# sampling loops` is in master's history since. So the warning has come true and the rows
+# above now describe code that is not in the tree.
+#
+# THE MODEL'S STRUCTURE SURVIVED THE UNROLL INTACT — the un-anchored residual is still
+# EXACTLY 0.00 over the same 18 fixtures, and 7 of the 11 un-anchored columns did not move at
+# all. What moved is precisely what the fill-unroll parcel was predicted to move: work left
+# the per-line body and went into the per-band prologue.
+#
+#   column          pre-unroll (08e87cbc)   post-unroll (aab012a7)   moved?
+#   base                      3144.00               3144.00          no
+#   band_percell               772.00                772.00          no
+#   line_mode                 1548.00               1548.00          no
+#   band_perline               874.00                874.00          no
+#   multiband                   24.00                 24.00          no
+#   line_fg_only                72.75                 26.00          YES  -64%
+#   line_bg_only                72.81                 26.90          YES  -63%
+#   line_both                  125.21                124.53          ~no
+#   shift_lines                  2.00                  2.00          no
+#   band_sampling                0.00                154.00          YES  0 -> the ~149 class
+#   vdeform                   1472.00               1472.00          no
+#   anchor                     982.2                 985.6           ~no
+#   anchor_ops                  59.27                 61.65          ~no
+#
+# `band_sampling` going 0 -> 154 is the single clearest confirmation: WALKER-MODEL.md §5(d)
+# predicted "a ~149-cycle class once the sampled loops are unrolled", and this is that number,
+# measured. A column that reads zero on one loop shape and 154 on another is a real parameter
+# with two regimes, and the regime IS the loop shape.
+#
+# WHAT THIS DOES TO ANY ROW THAT DIVIDES BY THE OLD ONES: the shipped config's cost is now
+# 13798, not 20162 — 31.6% cheaper. A budget written against 20162 is not merely stale, it is
+# stale in the SAFE direction, but a per-line cost written against 72.75 over-charges real
+# content by ~2.8x per sampled line and would refuse a scene that runs.
+#
+#   residual, un-anchored subset (18)   0.00      (unchanged)
+#   residual, all 26 fixtures           43.2      (was 13.3)
+#   residual, overlay term (8)          58.3      (was 27.6)
+#   out of sample: model 13646.4, measured 13798, gap +151.6 (+1.10%)  (was 19915.3 / 20162 / +1.22%)
+#
+# NOT PROMOTED HERE, DELIBERATELY. P3 Task 3 is an instrument parcel and did not touch a
+# `Parallax_*` routine; overwriting Task 1's rows from here would destroy the pre-unroll
+# record `loop_shape` exists to name. P3 Task 7's standing-rule re-fit and Task 13's re-take
+# own the promotion. This block exists so that (a) nobody divides by a stale row in the
+# meantime, and (b) the `transition_*` rows below — which WERE taken on the post-unroll walker
+# — are not read as disagreeing with a model measured on different code.
+postunroll_status = "MEASURED on master aab012a7, 26 fixtures, spread 0, exit 0 — NOT promoted; P3 Task 7/13 own that"
+postunroll_loop_shape = "POST-UNROLL per-line filler (afccb141 pointer-walk + unroll of the single-channel sampling loops)"
+postunroll_line_fg_only_cycles = 26.00
+postunroll_line_bg_only_cycles = 26.90
+postunroll_line_both_cycles    = 124.53
+postunroll_band_sampling_cycles = 154.00
+postunroll_anchor_cycles        = 985.6
+postunroll_anchor_ops_cycles    = 61.65
+postunroll_residual_cycles              = 0.00   # un-anchored subset (18) — unchanged
+postunroll_residual_cycles_all_fixtures = 43.2
+postunroll_residual_cycles_overlay_term = 58.3
+postunroll_out_of_sample_predicted = 13646.4
+postunroll_out_of_sample_measured  = 13798
+postunroll_out_of_sample_gap_pct   = 1.10
+
 # Transition-frame rows — SYNTHESIZED (camera frozen, configs installed in RAM), not a real
 # section crossing: Parallax_StartTransition and Parallax_CheckBoundary do not run. This
 # measures design §5's evaluation frame for axes 1/2/3 and closes P2 Task 12's blocker (b).
@@ -277,6 +343,7 @@ out_of_sample_gap_pct   = 1.22
 # in HScroll mode. The axis that does vary is the VScroll bit, so the pair is $3 vs $7. The
 # probe derives both modes from the ROM bytes and REFUSES a same-mode pair.
 transition_status = "measured — SYNTHESIZED transition frame, 5 boots, spread 0 on every row"
+transition_loop_shape = "POST-UNROLL per-line filler (master aab012a7, afccb141). These rows are NOT comparable with the pre-unroll [parallax.cost_model] columns above — see the STALE-AGAINST-MASTER block. Cross-check on the same ROM: this arm's 'A stable' row (active ParallaxConfig_OJZ_Underwater, 13791) and the fit sweep's untouched out-of-sample row for the same config (13798) agree to 7 cycles, 0.05%, both spread 0"
 transition_instrument = "ORACLE per-routine rows (Parallax_Update inclusive, Enqueue_Dirty_Buffers) + engine_baseline_probe's scanline-220 queue scan; camera frozen; every window verified preemption-free (31/31, lag 0); IDEAL-CYCLE"
 transition_config_a = "ParallaxConfig_OJZ_Underwater $01230C — 4 bands, anchored ch 0, reg $0B mode %011"
 transition_config_b = "ParallaxConfig_Perspective_Dramatic $012B2E — 5 bands, no anchor, per-column VSRAM, reg $0B mode %111"
