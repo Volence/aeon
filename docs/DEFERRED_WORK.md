@@ -7236,6 +7236,52 @@ Tasks 11 and 13 were NOT started: Task 11's ledger-const shape is downstream of 
 ruling (how a ledger row gets published decides what the consts are), and Task 13 poisons one
 per axis, which is downstream of which axes Task 11 gates.
 
+## Scanline P3 (walker mechanisms) — PLANNED 2026-08-20, and what it does and does not unblock above
+
+The P3 implementation plan is written and committed:
+**`docs/superpowers/plans/2026-08-20-scanline-p3-walker-mechanisms.md`**
+(branch `plan/scanline-p3-walker`, off master `0cf5a053`). Sixteen tasks in three phases —
+instruments first, then the six mechanisms design §10 assigns to P3 (world-Y re-glue, curves,
+per-layer deform refs + extended record, the single-source per-line forcer derivation,
+vscroll-split lowering, left-column mask), then the model re-fit, gates and poisons.
+
+**Read the plan's "Spec-vs-tree corrections" table before touching any of this.** The design
+spec predates P2's landings and is stale in eight places, including two numbers a task would
+otherwise copy: the per-line forcer is **1792 B, not the spec's 896**, and `.lp_both` has
+**14 registers live, not "all 16"** (`a0` is spilled at proc entry and dormant), which is the
+stated justification for the curve∧deform prohibition.
+
+**What P3 does to the two BLOCKED items above:**
+
+- **Task 12's blocker (b) — no measured transition-frame reservation — is CLOSED BY P3 Task 3.**
+  The cost probe's own fixture trick supplies it without a real crossing: freeze the camera,
+  then install `Parallax_Current_Config = A`, `Parallax_Target_Config = B`,
+  `Parallax_Transition_Frames = N` in RAM. That routes both configs, changes reg `$0B` and runs
+  the per-band scroll lerp — the three things `WALKER-MODEL.md` §8 lists as unmeasured. Stated
+  limit, carried into the row: a frozen camera suppresses `Parallax_StartTransition` and
+  `Parallax_CheckBoundary`, so it is a **synthesized** transition frame, not a real crossing.
+- **Task 12's blocker (a) — the Label-typed section→scene join — is UNTOUCHED by P3 and still
+  blocks.** Nothing in the P3 mechanism set inverts that authorship. Task 12 stays blocked; do
+  not read the P3 landing as unblocking it.
+- **Axis 5 (sprite slots) gets its first subject in P3 — from the LEFT-COLUMN MASK, not from
+  sprite strips.** `CAP_FG_SPRITE_STRIPS` stays RESERVED past P3; §10's P3 list does not
+  include strips. The plan's Task 4 measures the missing object-system SAT reservation and
+  Task 14 gates the axis.
+- **Axis 7 (computed-handler pins) gets NO subject in P3.** §10's P3 list contains no computed
+  handlers and §9 records the computed-range infra as deliberately not rebuilt. The toml row
+  currently reads "NO SUBJECT UNTIL P3", which will be false the moment P3 lands; the plan's
+  Task 13 rewrites it.
+- **`Sprite mask for per-column V-scroll leftmost-partial-column garbage` (the booking above at
+  "Sprite mask for per-column V-scroll…") is P3 Task 12's subject.** Today only `FACTOR_0` (the
+  `factor0_lock` policy) actually ships; `sprite_mask` has zero code. Task 12 either closes that
+  booking or restates precisely which policy landed — a partially-closed booking that reads as
+  closed is worse than an open one.
+- **The P1 gate evidence's deferred runtime differential is now DUE.** `docs/benchmarks/
+  scanline-p1/GATE-EVIDENCE.md` §8 ruled its motion spot-check tautological because all four
+  images were byte-identical, and named the unlock: "if the images ever diverge (a future parcel
+  that moves bytes deliberately) this test becomes a real differential and should be run then."
+  P3 moves bytes deliberately.
+
 ## ~~Warp mailbox: two measured behaviours to explain~~ — CLOSED 2026-08-19 (`fix/warp-semantics-doc`)
 
 Booked from a raw-`Sst.y_pos` probe (oracle-aether headless, no-input boot + 600f, x=1536):
