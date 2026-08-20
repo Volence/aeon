@@ -52,6 +52,33 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### 0. STREAMING ROOT-CAUSE ARC — **OPEN (owner-ruled 2026-08-19, diagnosis DONE)**
+The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 60: a tick costs
+**190,931 cycles of work against a 128,000-cycle frame**, so `frames_per_tick = ceil(1.49) = 2`.
+`Tile_Cache_Fill` is 106,138 of it.
+
+**The diagnosis parcel is complete and changed no engine code** —
+`docs/benchmarks/streaming/CHOKE-DIAGNOSIS.md` (branch `diag/streaming-choke`,
+`tools/streaming_choke_probe.py`). **Read it before planning any fix.** Headlines:
+- **NOT a page-tier famine.** OJZ act 1's pool is 10 pages against `PAGE_FRAMES` = 15, so
+  `PageIn_Fully_Resident` is true and the whole §9.7 residency tier — eviction, demand
+  requests, the ZX0R bookmark — is **inert** (every counter reads 0). The known `STRESS_EVICT`
+  famine is fixture-only and is not this. The choke is **entirely block-tier**.
+- Two mechanisms account for it: the **per-word residency patch** (46,234 cyc/tick, 24% of the
+  whole tick, doing dormant work) and the **block prefetch's 3.06 dead speculations per tick**
+  (staged, then round-robin-evicted before use — proved by removing the prefetch: decompresses
+  4.53 → 1.47/tick with **no** rise in demand).
+- A throwaway build neutralising both runs max-diagonal at **1.107 frames/tick**. Neither lever
+  alone crosses the line.
+- **Raising `BLOCK_STAGE_SLOTS` is a measured null** (16 → 20 moves work/tick by +0.05%; 24 does
+  not fit in RAM). Do not re-derive it. The lever is policy, not capacity.
+- Ranked fixes F1–F6 with measured savings are in §8 of the packet; **F1, F2 and F6 are PARKED
+  for owner/controller rulings** and must not be started before one.
+- **Instrument defect found:** old oracle's per-routine rows lose 20.6% of the frame when a
+  logic tick spans a VBlank (they close to 1–2% when it does not). Packet §7. The instrument
+  asks for oracle-next are packet §9, sorted into (a) satisfied by their in-flight profiler v1,
+  (b) composable today via mclk-stamped watch hits, (c) three genuinely new asks.
+
 ### 1. §9.7 idle-time deferred work / resumable decode — **✅ RESOLVED — EXECUTED as art-streaming Phase 2 (2026-08-09)**
 **Done (`feat/art-streaming-p2`, chains 55→78; merged to master `2f047e3`).** §9.7
 shipped as the pre-chunked-pages + VBlank-supervisor-bookmark idle-time path (the user-mode variant
