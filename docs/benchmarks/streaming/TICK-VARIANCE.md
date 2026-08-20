@@ -111,6 +111,17 @@ per-tick work and a 1-2 % timing difference flips whole frames. This measurement
 settle which machine's timing is right, and does not need to: both say the mean is under the
 line, and both say the residual is variance. **Booked as an open item, not smoothed.**
 
+> **Prior art, added 2026-08-20 after the oracle team registered this as
+> F-TICK-BOUNDARY-DIVERGENCE (oracle `9003a79`):** this clock-honesty class has been settled
+> once before, in their favor. The 2026-07-23 RT-3 A/B (VGM register streams, both emulators,
+> same ROM) root-caused a bounded ~8-tick offset to **oracle-old over-dropping ticks** via
+> `ClampHandshakeTimeDeterministic`'s over-conservative bus-arbitration clamp, corroborated at
+> the time by the sound driver's own N=136→137 retune note; the new core was ruled
+> tick-accurate with steady-state 60.000 Hz byte-exact on both. Different window, same class:
+> oracle-old's clock historically loses ticks at arbitration-heavy boundaries. Still not a
+> ruling for THIS window — the settling experiment (single-tick trace at the first divergent
+> boundary, frames 7-8) remains the test, whoever reaches it first pings the other.
+
 ---
 
 ## 2. THE DISTRIBUTION — two populations, and the ceiling is real
