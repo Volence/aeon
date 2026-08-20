@@ -7033,3 +7033,21 @@ Both riders are answered, one of them was a defect, and it is fixed. Full prose:
    `PSTATE_AIR`. Measured from a no-input boot at x=256: y holds 256 for 60 idle frames, then
    after the press runs 256 → 260 → 332 → 573 with `player_state` `PSTATE_AIR` → `PSTATE_GROUND`
    and `ST_IN_AIR` clearing on touchdown.
+
+## Seraph coupling anchor — the S0-unpark ruling's aeon-side facts (2026-08-19)
+
+Anchor for seraph's Log (their f8b0f0c records the ruling as transcription pending this
+commit). The three caveats attached to "the sound pipeline is stable, unpark S0":
+1. **Open aeon sound work that could touch driver internals:** packages 5 and 6 (of the
+   2026-07-03 six-package banking) remain OPEN, and the 2026-08-13 sound lens sweep's
+   packet is UNMERGED with two live findings (multi-slot SFX cap; a DAC/DMA wedge
+   class). None scheduled. **Standing contract: any MEV format or sound_constants.emp
+   change lands only after explicit pre-landing notice to the seraph session.**
+2. **MEV_EXT registry slots 0/1/2 are load-bearing invariants** — extensions are a
+   cross-repo ask through the demand-doc flow, never a unilateral read/extend.
+3. **The streaming arc couples to the sound driver's DMA-survival design** via the
+   max-contiguous-DMA-stall question (P2 Phase 0 Task 5's row is instrument-blind until
+   oracle-next's stallCycles; a future streaming fix touching DMA cadence coordinates
+   with seraph before landing).
+Last engine/sound commit at ruling time: 8b39969d (2026-08-11, Tails-flight SFX import
+— content, not format), reconciled by seraph's firsthand check.
