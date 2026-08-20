@@ -327,8 +327,12 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
 - **`yflip`/`xyflip` size+link word merge** (`engine/objects/sprites.emp` `size_link`) — the
   constraint that forced the byte-wise form is recorded as dead. Needs only SAT byte-identity
   verification for the two flipped variants. ~8 cycles/piece.
-- **Parallax computed-jump-table unroll** — per-cell HScroll is permanently CLOSED, so this is
-  the *only* remaining lever on the ~7.4%-of-frame parallax fill.
+- ~~**Parallax computed-jump-table unroll**~~ — **✅ CLOSED 2026-08-20 (`perf/parallax-unroll`).**
+  This row was stale twice over and contradicted the file's own closed entry below; both are
+  now settled there. The lever was taken in the SAMPLING loops (not the flat one, which has
+  been unrolled for a year) and it took the streaming arc under its line: max-diagonal
+  work/tick **134,521 → 123,016**, against a 128,000-cycle frame. Full verdict in the closed
+  entry below and in `benchmarks/streaming/CHOKE-DIAGNOSIS.md` §8 F7.
 - **Variable HScroll DMA — variable-length transfer** — its blocker ("await a confirmed
   performance need") is **DISCHARGED by this file's own measurement**: per-line HScroll is
   896 B/frame, ~20% of the frame, and this file names it "the single biggest lever". Caveat: the
@@ -1274,8 +1278,55 @@ Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is
 - **The real cause is band-boundary precision.** A BG parallax band's on-screen boundary = `band_top_plane_row*8 − BG_vertical_scroll`. With smooth per-pixel vertical parallax (`vFactorBg`), those boundaries land at ARBITRARY screen lines (measured the per-line table putting one at **line 22**). Per-cell mode can only change scroll at 8-px cell-rows (lines 0,8,16,24…), so it rounds line 22 → 16/24, misaligning each band by up to 7 px → the FG/BG **tears at every band boundary during scroll** (user-confirmed at Cam `$02D0,$019D`; reproduced in free-fly).
 **What:** Nothing — per-line (`DeformTable_Zero`) is mandatory for smooth banded vertical parallax and stays. The only way to use per-cell would be to give up smooth vertical scroll (chunky 8-px-stepped vscroll), which is not worth ~20%. Do NOT re-attempt the per-cell switch. Lesson: a settled/at-rest frame HIDES scroll-time tearing — verify under continuous motion ([[feedback_verify_during_motion]]), and read the actual VDP register before theorizing about propagation.
 
-### ✅ STALE/CLOSED — Parallax fill — computed-jump-table unroll (§4.6 perf) — 2026-07-14 — **closed 2026-08-09: the unroll already shipped**
-> **2026-08-09 reconciliation:** the premise is stale — `Parallax_Fill_PerLine`'s flat
+### ✅ CLOSED — Parallax fill — the unroll lever (§4.6 perf) — 2026-07-14 — **taken 2026-08-20 in the SAMPLING loops; the 08-09 "already shipped" closure was half right and half wrong**
+
+> **2026-08-20 VERDICT (`perf/parallax-unroll`, the streaming arc's coda parcel).** Both
+> earlier rows are now superseded. What each got right:
+>
+> * **The 08-09 closure was right about the flat path.** `.lp_flat` is 8x unrolled, the
+>   "224-iteration `move.l/dbf`" this entry originally targeted does not exist, and at the
+>   shipped shape the flat path covers only ~80 of 224 lines and is worth ~240 cycles. Do not
+>   re-take it.
+> * **The 08-09 closure was WRONG to dismiss the sampling paths.** It parked them with
+>   "(which OJZ does not currently hit)". **Parcel W's world-anchored overlay made that false**
+>   — the shipped `ParallaxConfig_OJZ_Underwater` samples BG for 144 of 224 lines at the idle
+>   camera and ~176 under sustained max diagonal, because `pcfg_anchor_dsb` switches sampling
+>   on below the split. That is where the walker's time was: `Parallax_Fill_PerLine` measured
+>   **17,310 cyc/frame at max diagonal, 13.6% of the whole frame**, at 90 cycles per sampled
+>   line. The lesson is the general one: a closure that rests on "current content does not hit
+>   this" expires the moment content changes, and nothing re-checks it.
+>
+> **What shipped.** `.band_fg_only` and `.lp_bg` rewritten: pointer-walk the deform curve
+> instead of recomputing `(phase + line) & $FF` and indexing (with the run split at the
+> 256-byte wrap — at most one split per band, since 224 lines run against a 256-byte curve);
+> the sampled channel's base scroll unpacked into its own word register once per band; 8x
+> unroll plus remainder tail. **90 → 43.25 cycles per sampled line.** `.lp_both` was left
+> alone — two sampled channels need two walk pointers and there is no second free address
+> register — which also leaves the walker model's `line_both` term as an unchanged control.
+>
+> **Measured** (`tools/streaming_choke_probe.py`, 3 boots, spread 0.000 on `frames/tick` at
+> every state): max-diagonal **work/tick 134,521 → 123,016 (−11,505)**, against a success
+> criterion of −6,521 — the arc is **4,984 cycles under the 128,000-cycle frame**.
+> `frames/tick` 1.240 → **1.192**; `right` and `down` hold 1.000 and both got cheaper. The
+> tick did NOT reach 1.000 and CHOKE-DIAGNOSIS §8 F7 explains why that is a finding about the
+> arc's criterion (the `ceil` model is a floor on `frames/tick`, not a value) rather than a
+> shortfall.
+>
+> **Value identity** was proved by a gate that did not previously exist —
+> `tools/parallax_hscroll_identity.py`, all 896 bytes of `Hscroll_Buffer` over 24 frames on a
+> 10-fixture matrix, all byte-identical. Nothing in the tree had ever observed that buffer.
+>
+> **Micro-levers still NOT taken, and still not worth it:** the `movem.l` broadcast fill for
+> flat bands (~2 cycles/long, ~160 cyc/frame at the shipped shape) and a computed-jump
+> (Duff) entry in place of the remainder tail (~60 cycles per band). Both were designed and
+> declined during this parcel; the unroll's win came from the pointer walk and the register
+> unpack, not from the jump table the original entry named.
+>
+> **A newly named model parameter** came out of it: a ~149-cycle fixed cost per sampled band
+> (the hoisted setup). See `benchmarks/scanline-p2/WALKER-MODEL.md` §9 — it carries an ASK to
+> add the column to `tools/parallax_cost_probe.py`.
+
+> **2026-08-09 reconciliation (historical):** the premise is stale — `Parallax_Fill_PerLine`'s flat
 > (constant-span) path is ALREADY 8×-unrolled (`.lp_flat`: span is always a multiple of 8
 > because band tops are cell rows ×8, so eight `move.l d0,(a4)+` per `dbf`). Measured
 > (oracle profiler, max fall): the whole per-line fill runs ~3.9k cycles ≈ 3.1% of frame —
