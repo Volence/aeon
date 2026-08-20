@@ -96,6 +96,40 @@ pub vars lower_ram {
     // + collision plane B (128 B). Keys live in upper RAM (Block_Stage_Keys).
     Block_Stage_Buffers:    [u8; BLOCK_RAW_SIZE * BLOCK_STAGE_SLOTS],       // BLOCK_STAGE_SLOTS × BLOCK_RAW_SIZE = 16 × 768 = 12288 bytes
 
+    // --- Staging probe index (streaming fix F4) — the O(1) replacement for the
+    //     16-key linear scan TileCache_FindStagedBlock used to run.
+    //
+    //     THIS IS NOT A DIRECT-MAPPED CACHE. Slot assignment is still strict
+    //     round-robin over Block_Stage_Keys (Block_Stage_Next) — the eviction
+    //     POLICY is fix F2's subject and this parcel does not touch it. What
+    //     follows is a faithful side index over whatever slots that policy picks,
+    //     so a probe returns exactly the slot the linear scan returned, key for
+    //     key, and the staged HIT/MISS sequence is unchanged by construction.
+    //
+    //     Bucket = the block index (0..BLOCK_INDEX_ENTRIES-1), which the probe
+    //     already holds in d2 — the hash costs zero instructions. Two staged
+    //     blocks share a bucket only when they carry the same intra-section block
+    //     index in DIFFERENT sections, i.e. sit exactly BLOCKS_PER_SECTION_AXIS
+    //     blocks (256 tiles) apart on an axis; the tile cache is 80×60 tiles and
+    //     the claim history spans far less than that, so it does not arise on
+    //     shipped geometry. The CHAIN is here so that exactness does not REST on
+    //     that argument: a false miss would decompress a block the scan would have
+    //     found, changing the staging schedule — the one thing a lookup fix must
+    //     never do. Separate chaining is exact for any hash.
+    //
+    //     INVARIANT (maintained in exactly two places, TileCache_InvalidateStaging
+    //     and TileCache_DecompressBlock's claim): for every slot s, if
+    //     Block_Stage_Keys[s] != $FFFFFFFF then s appears exactly once in the chain
+    //     of bucket (key & $FF), and if it is $FFFFFFFF then s appears in no chain.
+    //
+    //     Both tables address a slot by slot*4 — the SAME index the stride-4
+    //     Keys/Ptrs/Maps arrays use — because the probe's clobber license is
+    //     d3-d4/a1 and d3 carries the key, leaving exactly one index register.
+    //     Block_Stage_Chain is therefore stride-4 with only its 0-mod-4 bytes
+    //     live; the 48 dead bytes buy that register. $FF = empty / end of chain.
+    Block_Stage_Bucket:     [u8; BLOCK_STAGE_BUCKETS],                      // 256 bytes — per block_index, head slot*4 or $FF
+    Block_Stage_Chain:      [u8; BLOCK_STAGE_SLOTS * 4],                    // 64 bytes — per slot*4, next slot*4 or $FF
+
     // Art staging — one ZX0-form art page decodes here before its staging->VRAM
     // DMA lands (P2b). DEDICATED buffer (2048 B): steady-state page-in streams
     // during gameplay, so it can no longer overlay live tile-cache RAM the way the
@@ -691,7 +725,11 @@ pub vars upper_ram {
                                         // prefetch H4 gate consumes it (skip this frame if the prev lagged)
 
     // Block staging metadata — keys parallel to Block_Stage_Buffers slots.
-    // Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty)
+    // Key format: sec_x.b | sec_y.b | block_index.w ($FFFFFFFF = empty).
+    // The key's LOW BYTE is the block index and therefore also its bucket in the
+    // F4 staging index (Block_Stage_Bucket, lower_ram) — TileCache_DecompressBlock's
+    // unlink derives the evicted key's bucket straight from the key it is about to
+    // overwrite, so the format is load-bearing for more than the compare now.
     Block_Stage_Keys:       [u32; BLOCK_STAGE_SLOTS],
     Block_Stage_Next:       u16,        // next round-robin slot to evict
 
