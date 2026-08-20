@@ -19,7 +19,7 @@ number or a claim a task would otherwise copy.
 
 | # | Spec says | Tree says | Consequence |
 |---|---|---|---|
-| C1 | §2/§3.3/§5: a per-line forcer prices **896 B** of VBlank DMA | `effects_budget_model.toml` `[scene_budget]`: **1792 B**, from a live-queue scan showing **two** 448-word entries (`dma_hscroll_perline_entries = 2`), 23.8% of the 7524 B pool, plus 4270 cyc of drain | Task 6 prices the forcer at the measured figure. **And Task 6 must first reconcile a real discrepancy:** `engine/system/buffers.emp:156-162` declares exactly ONE `Static_Hscroll_Line` (`dma_length(896)`), yet the queue scan sees two 896-byte entries. Two entries from one declared static is unexplained. Resolve it before pricing; do not assume either number is the error. |
+| C1 | §2/§3.3/§5: a per-line forcer prices **896 B** of VBlank DMA | `effects_budget_model.toml` `[scene_budget]`: **1792 B**, from a live-queue scan showing **two** 448-word entries (`dma_hscroll_perline_entries = 2`), 23.8% of the 7524 B pool, plus 4270 cyc of drain | Task 6 prices the forcer at the measured figure. **And Task 6 must first reconcile a real discrepancy:** `engine/system/buffers.emp:156-162` declares exactly ONE `Static_Hscroll_Line` (`dma_length(896)`), yet the queue scan sees two 896-byte entries. Two entries from one declared static is unexplained. Resolve it before pricing; do not assume either number is the error. **RESOLVED 2026-08-20 by Task 6 Step 1: the SPEC WAS RIGHT — ONE entry, 896 B.** The queue is never zeroed on drain (`Process_DMA_Critical` resets only the slot cursor, `dma_queue.emp:362`), so the whole-region scan reported one live entry plus one stale copy from an earlier frame at a different slot offset. Three tells: the tree has exactly one `Static_Hscroll_Line` enqueue, reached once per VBlank; at the scan line all three slot cursors sat at their BASES (queue EMPTY — every entry reported was residue); zeroing the region and advancing one frame yields ONE 896 B entry, five trials. `[dma]` and `[scene_budget]` are corrected, the reservation absorbing the 896 B so the guarded SUM is unchanged, and `_scan_dma` now reports live / residue / per-frame separately. |
 | C2 | §2: curve∧deform per layer is forbidden because "the fill loop's register file is exhausted (verified: `.lp_both` uses all 16)" | `.lp_both` (`engine/level/parallax.emp:1350-1377`) has **14** registers live: `d0-d7` + `a1-a6`. `a0` is spilled at proc entry (`movem.l a0/d7,-(sp)` at `:1253`) and never touched in the loop; `a7` only brackets the proc | The ensure stays (Task 10 authors it), but its **justification text must be corrected** — "14 live, `a0` spilled by choice" — or the next reader will find the claim false and delete the guard. Relaxing the prohibition is a §9 non-goal needing a measured register-allocation design; PARK-3 below. |
 | C3 | §4.1: "the transition ramp at `parallax.emp:593`" is the bounded-`divs` precedent | The only `divs` in the tree is `engine/level/parallax.emp:651`, inside the plane-B transition lerp; its bound is argued at `:640-645` (divisor `1..PARALLAX_TRANS_DEFAULT`, dividend `ext.l` of a word gap) | Task 10 cites `:651` and reuses that bounding argument shape for the curve hoist. |
 | C4 | §4.1: the Parcel-W hand-unrolled entry copies are at `parallax.emp:862-864` and `:891-893` | They are at **`:927-929`** (`.anchor_shift_band`, word+long+long, pre-decrementing) and **`:956-958`** (the split-entry write, long+long+word) | Task 8 hardens those two sites. |
@@ -1027,6 +1027,28 @@ Task 6 authored curve and off-grid forcer arms before their mechanisms existed. 
 A poison that raises **only** the curve forcer, and one that raises **only** the off-grid
 forcer, prove each arm is reached and correct. Without them Task 6's fold has two arms nothing
 ever evaluated.
+
+**Added by Task 6, 2026-08-20 — the exact state the two arms were left in, so the poisons target
+the right thing:**
+
+- **Arm 5 (off-grid) IS WRITTEN** in `scene_forces_per_line()` and its loop body is proven to
+  ELABORATE (a temporary `ensure(1 == 0)` inside the loop produced 134 diagnostics), but the
+  predicate can never be true while `layer()` still ensures `world_y % 8 == 0`. Task 7 relaxes
+  that guard; the poison here must be an off-grid top that raises the forcer **and nothing
+  else** — i.e. a scene with no deform table, no anchor, and `precision: PRECISION_CELL`, so
+  `CAP_PER_LINE` can only have come from arm 5.
+- **Arm 3 (curve) IS NOT WRITTEN AT ALL.** `SceneLayer` has no curve attachment, so there was
+  no field to test and a placeholder predicate would have been fabricated. Task 10 adds the
+  attachment AND the arm, immediately after arm 2, in the same parcel as this poison. **Check
+  the arm exists before writing the poison** — if Task 10 shipped curves without adding it, the
+  forcer set is silently incomplete and no gate in this plan would have said so.
+- **Also on this list: the always-true outer gate in `parallax_mode_key()`.** Its
+  `if (Game.SCANLINE_CAPS & CAP_PER_LINE)` wrapper exists so the CAP_ANCHORS gate inside it is
+  lexically enclosed (`tools/scene_spans.py` derives expected spans from that nesting), and it
+  is true at both real splices. The `ensure` in `scene_caps()` that CAP_ANCHORS implies
+  CAP_PER_LINE is what makes that safe; it is red-first proven (neutering the three per-line
+  arms fired it, naming caps 12, on both anchored scenes). If a future game ever declares
+  `SCANLINE_CAPS` by hand rather than from `fold_caps`, that ensure stops covering it.
 
 - [ ] **Step 4: Sentinel and count**
 

@@ -471,18 +471,23 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     // THE SELECTORS ARE RANGE-CHECKED AS ARGUMENTS, not just pinned as constants. Both
     // are stored raw and read by a one-bit test, so an out-of-range value does not fail,
     // it MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp:259) and
-    // therefore silently means INSTANT, and `precision: 7` sails through the fence below.
+    // therefore silently means INSTANT, and `precision: 7` would silently select a tier.
     ensure(precision == 0 || precision == 1,
            "scene(): precision {precision} is neither PRECISION_CELL (0) nor PRECISION_LINE (1) — the value is stored and read as a tier selector, so an out-of-range one silently selects a tier rather than failing")
     ensure(transition == 0 || transition == 1,
            "scene(): transition {transition} is neither TRANS_SMOOTH (0) nor TRANS_INSTANT (1) — the runtime tests this byte with tst.b, so anything nonzero silently means instant")
-    // P1 SCOPE FENCE. PRECISION_LINE is not yet a standalone lowering: today the
-    // per-line HScroll pipeline is selected by a NON-NULL BG deform table, which is why
-    // OJZ_Default ships an all-zero table with every band shift at 15 (a flat-pathed
-    // table, byte-identical output, no sample math). Authoring PRECISION_LINE without
-    // one would silently lower to the per-cell pipeline, so it fails loud instead.
-    ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
-           "P1: precision line rides a zero-deform table (DeformTable_Zero pattern); standalone precision lowering lands with the forcer-set derivation (P2/P3)")
+    // THE P1 SCOPE FENCE IS RETIRED HERE (P3 Task 6). It read:
+    //
+    //     ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
+    //            "P1: precision line rides a zero-deform table ...; standalone precision
+    //             lowering lands with the forcer-set derivation (P2/P3)")
+    //
+    // and it existed because `sc_precision` had no consumer: PRECISION_LINE authored
+    // without a BG table would have lowered SILENTLY to the per-cell pipeline. That is no
+    // longer true — `scene_forces_per_line()` below reads the field as its own forcer arm,
+    // so the value now means what it says on its own. The fence is not deleted into
+    // nothing: it is replaced by a derivation that HONOURS the authored value instead of
+    // rejecting it, which is the widening the message named.
     return Scene{
         sc_layers:             layers,
         sc_count:              count,
@@ -503,6 +508,164 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
 }
 
 // =====================================================================
+// scene_forces_per_line — THE per-line forcer derivation (spec §2). ONE source.
+//
+// Design §2 is what makes "twin-key desync is impossible by construction" true: the
+// lowering owns the forcer set and feeds BOTH the fill-side mode key and the
+// engine.buffers DMA-length key from one derivation. Before P3 Task 6 it fed neither —
+// `scene_caps()` re-implemented two of the five arms inline, and the RUNTIME halves were
+// two hand-written copies of the same beq/bne sequence in two files, each carrying a
+// comment warning that the other existed. This fn is the comptime half of the repair;
+// `parallax_mode_key()` below is the runtime half, and the two are adjacent on purpose.
+//
+// THE EXHAUSTIVE SET, from design §2:
+//   1. any H-deform table, either plane, INCLUDING a shared one
+//   2. anchor_ch != NONE
+//   3. any curve layer                      -- NO SUBJECT UNTIL TASK 10
+//   4. precision: line
+//   5. any layer boundary not on the 8-px cell grid  -- NO SUBJECT UNTIL TASK 7
+//
+// ARMS 3 AND 5 ARE DEAD CODE TODAY AND THIS COMMENT IS THE ONLY THING THAT SAYS SO.
+// The ordering is deliberate — the derivation is the single source, so it has to exist
+// before the mechanisms that feed it — but a dead arm reads exactly like coverage, and
+// this tree's most expensive lesson is the guard that tests nothing while looking like it
+// does. Concretely:
+//   * Arm 5 (off-grid) IS WRITTEN below and cannot fire: `layer()` still ensures
+//     `world_y % 8 == 0`, so no authorable scene can reach it. Task 7 relaxes that guard
+//     and the arm wakes up in the same parcel — that coupling is the edge Task 7 Step 1
+//     is told to verify.
+//   * Arm 3 (curve) IS NOT WRITTEN AT ALL, and writing a placeholder would be worse than
+//     the gap: `SceneLayer` has no curve attachment, so there is no field to test and any
+//     spelling would be a fabricated predicate. Task 10 adds the attachment and the arm
+//     lands with it, HERE, immediately after arm 2.
+// Both arms are on Task 15's poison list for exactly this reason: the question "is this
+// arm reached, and is it right?" is booked, not assumed.
+//
+// FLAT ACCUMULATOR OVER STATEMENT `if`s, never a nested if-expression — an `if` in
+// block-tail position yields unit SILENTLY and folded a capability mask to 0 in P1
+// (docs/EMP_PITFALLS.md §1). Same shape as `scene_caps()`'s accumulator below.
+//
+// Returns 1 (per-line) or 0 (per-cell). Not a bitmask: this is one question.
+// =====================================================================
+pub comptime fn scene_forces_per_line(s: Scene) -> int {
+    comptime var forced = 0
+    // ARM 1 — any H-deform table, either plane. PLANE-AGNOSTIC on purpose: the pipeline
+    // is per-frame and per-line for the whole screen, there is no half-per-line.
+    if scene_deform_is_none(s.sc_deform_fg) == 0 {
+        forced = 1
+    }
+    if scene_deform_is_none(s.sc_deform_bg) == 0 {
+        forced = 1
+    }
+    // ARM 2 — a world-anchored overlay. An anchored boundary lands on an arbitrary
+    // SCANLINE, and an 8-px-quantised fill can only place a cell edge, so per-cell would
+    // silently quantise the very thing the anchor exists to make exact. $FF is
+    // PARALLAX_ANCHOR_NONE, inlined per the pin block at the top of this file.
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        forced = 1
+    }
+    // ARM 3 — any curve layer. NOT WRITTEN: no curve attachment exists (Task 10).
+    // ARM 4 — precision: line, standing on its own. 1 is PRECISION_LINE, inlined per the
+    // same pin block. Before this parcel `scene()` FENCED this value behind a non-null BG
+    // table, which made it a second spelling of arm 1 and never a claim of its own; the
+    // fence is retired above and this is what replaces it.
+    if s.sc_precision == 1 {
+        forced = 1
+    }
+    // ARM 5 — any layer top off the 8-px cell grid. Written, and DEAD until Task 7
+    // relaxes `layer()`'s grid ensure (see the banner). The one-dot rule applies to the
+    // array walk exactly as it does in scene_caps(): field, then index, then field.
+    let ls = s.sc_layers
+    let n  = s.sc_count
+    for i in 0..n {
+        let l = ls[i]
+        if l.ly_world_y % 8 != 0 {
+            forced = 1
+        }
+    }
+    return forced
+}
+
+// =====================================================================
+// parallax_mode_key — the RUNTIME half of the same decision, spliced at both twins.
+//
+// This fn emits no bytes from THIS module; it is spliced into `engine.parallax`'s Step-4
+// fill (which mode to build the HScroll buffer in) and `engine.buffers`'s
+// `Enqueue_Dirty_Buffers` (which DMA LENGTH to ship for it). Those two must agree or a
+// mode-differing config ships a 112-byte DMA for an 896-byte buffer. Before this parcel
+// they agreed by being typed out twice; now there is nothing to keep in step.
+//
+// CONTRACT
+//   cfg       address register holding the ACTIVE `parallax_config*`
+//   per_cell  branch target for the per-cell answer
+//   falls through to the caller's next instruction for the per-line answer
+//   clobbers d0
+//
+// THE TWO KINDS OF NAME IN THIS BODY RESOLVE DIFFERENTLY, and the difference was
+// MEASURED here on 2026-08-20 rather than reasoned from docs/EMP_PITFALLS.md §2 — which
+// describes `comptime fn -> int` bodies and does not, on the evidence below, describe an
+// `asm { }` template's instruction operands:
+//
+//   * the COMPTIME CONDITIONS (`CAP_PER_LINE`, `CAP_ANCHORS`, and `Game.SCANLINE_CAPS`
+//     with them) resolve AT THE CALL SITE, and fail LOUDLY when they cannot. Dropping
+//     `CAP_ANCHORS` from `engine/system/buffers.emp`'s `use` gives
+//     `error: unknown name CAP_ANCHORS` at the splice — not a silent fold to 0, which is
+//     the outcome that would have mattered (it would have elided the anchor half of the
+//     key in one twin and not the other). So both callers' `use` lines carry
+//     `CAP_ANCHORS` even though neither file names it any more, and that is load-bearing.
+//   * the INSTRUCTION OPERANDS (`PARALLAX_ANCHOR_NONE`, the `parallax_config.pcfg_*`
+//     field offsets) do NOT need either module's `use`. Removing `PARALLAX_ANCHOR_NONE`
+//     from the caller's imports built green with an IDENTICAL CRC; so did removing it
+//     from this module's imports. It resolves through the assembler's symbol scope, not
+//     the comptime name scope.
+//
+// The safe reading is therefore the narrow one: the axis that could have degraded
+// silently is the axis that shouts. Do not generalise the operand result into "imports
+// do not matter here" — the pin at the top of this file still watches
+// `PARALLAX_ANCHOR_NONE`'s VALUE, which is the drift this file actually has to catch.
+//
+// SPLICE ONLY INSIDE THE CALLER'S OWN `CAP_PER_LINE` GATE. Without the bit this emits
+// NOTHING, because the caller's own `else` arm is what supplies the unconditional
+// `jbra per_cell` — its per-line arm has to elide too, and only the caller can do that.
+// The gate is repeated here (always true at both real splices) so the CAP_ANCHORS gate
+// below is LEXICALLY ENCLOSED by it: tools/scene_spans.py derives "which spans a mask
+// must emit" from enclosing gates within one file, and without this wrapper a mask with
+// CAP_ANCHORS but not CAP_PER_LINE would be told to expect `cap_anchors_mode` from a
+// build where the whole site elided.
+//
+// THE TWO SITE TOKENS MERGED INTO ONE. The brackets used to be `cap_anchors_mode`
+// (parallax) and `cap_anchors_dma` (buffers) — two names for two copies. There is one
+// copy now, so there is one name, expanded twice; the listing carries both expansions
+// under the same span token and the outer `cap_per_line_fill` / `cap_per_line_dma`
+// brackets still distinguish the two ARMS, which is the part that genuinely differs.
+// =====================================================================
+pub comptime fn parallax_mode_key(cfg: Reg, per_cell: Label) -> Code {
+    return asm {
+    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
+    .cap_per_line_mode_begin:
+        move.l  parallax_config.pcfg_deform_table_fg({cfg}), d0
+        or.l    parallax_config.pcfg_deform_table_bg({cfg}), d0
+        bne     .mode_per_line
+        // The anchor half of the SAME key. Anchors imply per-line, so this can only ever
+        // be live inside the per-line gate above.
+    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
+    .cap_anchors_mode_begin:
+        cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch({cfg})
+        beq     {per_cell}
+    .cap_anchors_mode_end:
+    } else {
+        // No anchored config exists, so the second half of the key can only ever answer
+        // per-cell. The unconditional branch REPLACES the test rather than falling
+        // through, because the per-line arm is what follows.
+        jbra    {per_cell}
+    }
+    .mode_per_line:
+    .cap_per_line_mode_end:
+    }
+    }
+}
+
+// =====================================================================
 // Capability fold (spec §3) — what a scene DEMANDS of the runtime.
 //
 // CAP_TRANSITIONS IS DELIBERATELY ABSENT HERE, and its absence is the ruling, not an
@@ -512,23 +675,21 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
 // sc_transition is still authored and still lowered — it is the pcfg byte — it just
 // does not raise a capability on its own.
 //
-// The P1 forcer set is deform tables + anchors. Curves, FG sprite strips, off-grid
-// tops and the dense tier arrive WITH their capability bits; nothing here should be
-// widened to guess at them.
+// THE PER-LINE FORCER SET IS NOT SPELLED HERE ANY MORE (P3 Task 6). It lives in
+// `scene_forces_per_line()` above, exhaustively, and this fold CALLS it. The P1 note that
+// used to sit here — "the forcer set is deform tables + anchors; nothing here should be
+// widened to guess at the rest" — was right about the hazard and wrong about the remedy:
+// the remedy is one derivation that states all five arms and marks the two without a
+// subject, not two arms plus a prohibition. `sc_precision` is consulted THERE, which is
+// what made retiring scene()'s precision fence possible.
 //
-// P3 Task 5 PROMOTED two of those bits (CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE) to
-// `pub const` so their gates can be measured, and that promotion deliberately did NOT
-// touch this fold: the bits are declared, nothing raises them, and this accumulator is
-// unchanged from P1. The widening of the forcer set is Task 6's single derivation, and
-// the curve arm's subject is Task 10. Until then, reading a promoted bit here would be
-// guessing at a mechanism that does not exist yet — which is the thing this note has
-// forbidden since P1.
+// P3 Task 5 PROMOTED two bits (CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE) to `pub const`
+// so their gates can be measured, and nothing raises them yet — Task 7 and Task 10 own
+// those lowerings. This fold still does not read them, for the P1 reason: a bit raised
+// here without a mechanism behind it is a capability claim with no subject.
 //
-// sc_precision IS NOT CONSULTED, and that is correct for P1 rather than an oversight. The
-// fence in scene() ties PRECISION_LINE to a BG deform table, and it is the TABLE that
-// selects the per-line pipeline — so reading sc_precision here would be a second spelling
-// of the CAP_PER_LINE bit `has_table` already sets. It becomes load-bearing when precision
-// gets a standalone lowering (P2/P3), which is the same event that retires the fence.
+// The other three folds below (CAP_DEFORM, CAP_PER_COL_VSRAM, CAP_ANCHORS) stay inline —
+// each is a single-arm question with no twin, so there is nothing to single-source.
 // =====================================================================
 pub comptime fn scene_caps(s: Scene) -> int {
     comptime var caps = 0
@@ -553,10 +714,13 @@ pub comptime fn scene_caps(s: Scene) -> int {
         has_table = 1
     }
     let anchored = if scene_anchor_ch(s.sc_anchor) == $FF { 0 } else { 1 }
-    // Per-line: a non-NULL deform table selects the per-line HScroll pipeline, and an
-    // anchor splits a band at a SCANLINE (an 8-px-quantised boundary cannot agree with
-    // a scanline-exact one — parallax.emp's shadow-view note).
-    if has_table == 1 || anchored == 1 {
+    // Per-line: NOT re-derived here. `scene_forces_per_line()` above is the single
+    // source for the whole forcer set, and this fold consumes it. Before P3 Task 6 these
+    // two lines spelled `has_table == 1 || anchored == 1` — arms 1 and 2 of five, with
+    // the note below explicitly forbidding anyone from widening it to guess at the rest.
+    // The widening happened in the derivation, where it can be stated exhaustively, and
+    // this call is what stops the two from drifting.
+    if scene_forces_per_line(s) == 1 {
         caps = caps | $0001
     }
     // Deform proper needs a table AND a live amplitude somewhere. A table whose every
@@ -604,6 +768,15 @@ pub comptime fn scene_caps(s: Scene) -> int {
     if anchored == 1 {
         caps = caps | $0008
     }
+    // ANCHORS IMPLY PER-LINE, and P3 Task 6 made that load-bearing rather than merely
+    // true. `parallax_mode_key()`'s CAP_ANCHORS gate is lexically enclosed by a
+    // CAP_PER_LINE gate, and tools/scene_spans.py derives a mask's expected spans from
+    // exactly that nesting — so a mask carrying CAP_ANCHORS without CAP_PER_LINE would be
+    // told to expect a span from a build where the whole site elided. The fold cannot
+    // produce such a mask (arm 2 of scene_forces_per_line() sets $0001 from the same
+    // anchor), and this pin is what keeps it that way if either arm is ever edited.
+    ensure((caps & $0008) == 0 || (caps & $0001) != 0,
+           "scene_caps(): a scene raised CAP_ANCHORS ({caps}) without CAP_PER_LINE — an anchored boundary lands on an arbitrary scanline, so the two are one claim; the span-expectation derivation in tools/scene_spans.py reads the nesting of the two gates in parallax_mode_key() and would demand a span from a build whose whole site elided")
     return caps
 }
 
@@ -797,20 +970,32 @@ pub const SB_FRAME_CYCLES            = 128000   // NTSC video frame (ntsc_scanli
 pub const SB_AXIS1_RESERVATION       = 23894    // measured, derived above
 
 // ---- Axis 2: VBlank DMA bytes ----
-// Pool 7524 B is the H40 NTSC VBlank DMA capacity. The reservation is the measured live
-// queue MINUS the per-line HScroll entries, because those belong to the SCENE and are what
-// this axis charges: dma_queue_words_idle 1528 w = 3056 B, less 2 x 896 = 1792 B, = 1264 B
-// of non-scene engine DMA (tiles, sprites, palette).
+// Pool 7524 B is the H40 NTSC VBlank DMA capacity. The reservation is the measured queue
+// MINUS the per-line HScroll entry, because that entry belongs to the SCENE and is what this
+// axis charges: whole-region scan 3056 B, less 896 B, = 2160 B of non-scene engine DMA.
 //
-// THE PER-LINE FORCER IS 1792 B, NOT 896 — a correction to the plan and to design §5, found
-// by reading the live queue instead of copying the figure. tools/engine_baseline_probe.py
-// scans at scanline 220 and sees TWO 448-word entries (cmd 7C000082):
-// `dma_hscroll_perline_entries = 2`, `dma_hscroll_perline_bytes_each = 896`. So a per-line
-// scene spends 23.8% of the VBlank DMA pool, not 12%. Task 11 Step 2 exists precisely so
-// "12%" never reads as the whole tax, and the understatement was in the plan's own number.
+// THE PER-LINE FORCER IS 896 B, ONE ENTRY — and the 1792 B that stood here from P2 until
+// 2026-08-20 was a measurement artifact, not a correction to design §5. P3 Task 6 Step 1
+// ruled it: `Process_DMA_Critical` resets only the slot CURSOR on drain
+// (engine/system/dma_queue.emp:362) and never zeroes the entry bytes, so the whole-region
+// queue scan that reported "two 448-word entries with the same command word" was reporting
+// one live entry and one stale copy from an earlier frame at a different slot offset. Three
+// independent tells, all reproduced: the tree has exactly ONE `Static_Hscroll_Line` enqueue
+// site and it is an either/or reached once per VBlank; at the scan line all three slot cursors
+// sat at their BASES, so the queue was EMPTY and every entry reported was residue; and zeroing
+// the region then advancing exactly one frame yields ONE 896 B entry, five trials, no
+// variation. §5's own 896 B / 12% was right.
+//
+// THE 896 B DID NOT VANISH — IT MOVED COLUMNS. The reservation went 1264 -> 2160 so the SUM
+// this guard is judged on (896 + 2160 = 3056) is byte-for-byte what it was, and no budget was
+// loosened on the strength of a re-attribution. 2160 is a CEILING (it still contains drain
+// residue); the live per-frame queue is 984 B, of which 896 is the scene's, leaving 88 B — but
+// that state has an EMPTY Important queue, so 88 would under-reserve for art streaming, whose
+// 1152 B page transfer this scan only ever sees as residue. Deriving "standing non-scene DMA"
+// properly is P3 Task 13's re-take of every row measured against today's walker.
 pub const SB_DMA_POOL_BYTES          = 7524
-pub const SB_AXIS2_RESERVATION       = 1264     // measured queue 3056 B less the scene's 1792
-pub const SB_PERLINE_DMA_BYTES       = 1792     // 2 entries x 896 B, read from the live queue
+pub const SB_AXIS2_RESERVATION       = 2160     // CEILING: whole-region 3056 B less the scene's 896
+pub const SB_PERLINE_DMA_BYTES       = 896      // ONE 448-word entry (Task 6 Step 1 ruling)
 
 // ---- Axis 3: VBlank CPU, and the COMBINED per-line cost §5 asks for ----
 // Pool: the ~18,200-cycle NTSC VBlank window ([raster.schedule_build]'s own denominator).
@@ -820,8 +1005,9 @@ pub const SB_PERLINE_DMA_BYTES       = 1792     // 2 entries x 896 B, read from 
 // THE SCENE'S AXIS-3 CHARGE IS THE DRAIN OF ITS OWN AXIS-2 BYTES, and this is the half that
 // makes the per-line cost legible as one number. It is DERIVED from documented hardware
 // rates, exactly as the toml derives dma_max_single_transfer_derived_cycles: H40 VBlank VRAM
-// DMA moves 205 B/line and a scanline is 3420/7 = 488.57 cyc, so 1792 B occupies
-// 1792 / 205 * 488.57 = 4270 cycles.
+// DMA moves 205 B/line and a scanline is 3420/7 = 488.57 cyc, so 896 B occupies
+// 896 / 205 * 488.57 = 2135 cycles. (HALVED 2026-08-20 with SB_PERLINE_DMA_BYTES above: this
+// row is derived from that one, so the Task 6 Step 1 ruling carries straight through.)
 //
 // THIS IS NOT DOUBLE-COUNTING THE 8280, and the reason is the instrument. Oracle's 68000
 // core adds only `cyclesExecuted` to `_currentCycle` while bus/VDP/DMA stall accumulates in
@@ -1015,7 +1201,7 @@ pub comptime fn scene_budget_enforce(scenes: array) -> int {
         // AXIS 2 — VBlank DMA bytes.
         let a2 = scene_axis2_dma_bytes(s)
         ensure(a2 + SB_AXIS2_RESERVATION <= SB_DMA_POOL_BYTES,
-               "scene budget AXIS 2 (VBlank DMA bytes): this scene enqueues {a2} B against a {SB_DMA_POOL_BYTES} B H40 NTSC VBlank pool with {SB_AXIS2_RESERVATION} B reserved for non-scene engine DMA (measured live queue 3056 B less the scene's own per-line HScroll 1792 B), leaving {SB_DMA_POOL_BYTES - SB_AXIS2_RESERVATION}. A per-line scene costs 1792 B — TWO 448-word HScroll entries in the live queue, not the 896 B design §5 prices — i.e. 23.8% of the pool. Read it together with AXIS 3 below: the combined per-line tax is 1792 B AND {scene_axis3_vblank_cycles(s)} cyc of drain, which is why 12% was never the whole story")
+               "scene budget AXIS 2 (VBlank DMA bytes): this scene enqueues {a2} B against a {SB_DMA_POOL_BYTES} B H40 NTSC VBlank pool with {SB_AXIS2_RESERVATION} B reserved for non-scene engine DMA (whole-region queue scan 3056 B less the scene's own per-line HScroll 896 B — a CEILING, since that scan includes drain residue; P3 Task 13 re-derives it), leaving {SB_DMA_POOL_BYTES - SB_AXIS2_RESERVATION}. A per-line scene costs 896 B — ONE 448-word HScroll entry, exactly what design §5 prices; the 1792 B this message carried until 2026-08-20 was a queue scan counting drain residue as a second live entry. Read it together with AXIS 3 below: the combined per-line tax is 896 B AND {scene_axis3_vblank_cycles(s)} cyc of drain, and the drain half is still the part §5 does not price at all")
         // AXIS 3 — VBlank CPU (the drain of axis 2).
         let a3 = scene_axis3_vblank_cycles(s)
         ensure(a3 + SB_AXIS3_RESERVATION <= SB_VBLANK_WINDOW_CYCLES,
