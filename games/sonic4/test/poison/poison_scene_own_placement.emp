@@ -1,0 +1,75 @@
+// games/sonic4/test/poison/poison_scene_own_placement.emp — POISON (see README).
+//
+// TARGETS: `scene()`'s POSITION guard on the per-layer deform ref
+// (engine/level/scene_dsl.emp, P3 Task 9): `SceneDeform.Own(..)` is a per-LAYER
+// attachment and a SCENE-level slot must refuse it.
+// EXPECTED FRAGMENT: "deform: Own(..) is a PER-LAYER attachment"
+//
+// WHY THIS GUARD EXISTS AT ALL, i.e. what goes wrong without it. `SceneDeform` is one
+// enum authored in two positions, and the two accept different variants. A scene-level
+// slot lowers to `pcfg_deform_table_fg` / `pcfg_deform_table_bg` — ONE table word per
+// plane for the whole config, with no band to carry a per-layer speed. Without this
+// ensure, `scene(deform_bg: Own(tbl, 15, 2, 0, 4))` would lower SILENTLY and
+// SUCCESSFULLY: `scene_deform_table()` returns the Label from the Own arm just as it does
+// from the Shared arm, so the table would land in the header and the shifts, the phase
+// and the SPEED would be dropped on the floor with no diagnostic. That is the exact
+// failure mode a `Label = 0` sentinel produces elsewhere in this tree, arrived at by a
+// different route, and it is why the discrimination is on the VARIANT.
+//
+// THE TWO-FIXTURE DIFFERENTIAL. A guard that always fires is indistinguishable from one
+// that works, so the module proves the position rule both ways:
+//
+//   FIXTURE A — the SAME table and speed authored the LEGAL way, `Shared(0, 4)`, in the
+//               same scene-level slot. It must build and fold to $0001 (a table is
+//               attached, no live amplitude anywhere, so CAP_PER_LINE alone). Two
+//               ensures assert that and MUST STAY GREEN.
+//   FIXTURE B — the same scene with the same payload spelled `Own(0, 15, 2, 0, 4)` in
+//               that scene-level slot. One diagnostic, from scene()'s position guard.
+//
+// EXPECTED COUNT 1. Fixture B trips scene()'s position ensure and NOTHING ELSE, and that
+// is worth stating because it is not obvious: with the Own in a scene slot there is no
+// per-LAYER own anywhere, so `derived_own()` is 0, the scene-level-table guard does not
+// fire, and `scene_caps()` classifies B exactly as it classifies A (a table is attached —
+// `scene_deform_is_none()` is 0 for both Shared and Own). A count of 2 means a second
+// guard started firing and this case is no longer isolating the position rule; a count of
+// 0 means a scene-level slot now accepts a per-layer attachment.
+//
+// The null Label payload is poison_scene_mask.emp's convention and for its reason: every
+// rule under test discriminates on the variant, never on the payload.
+module games.sonic4.test.poison.poison_scene_own_placement
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — the legal spelling of a scene-wide table.
+const POISON_OWNPLACE_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 3,
+    deform_bg: SceneDeform.Shared(0, 4))
+
+// FIXTURE B — the same payload in the same slot, spelled as the per-layer variant.
+const POISON_OWNPLACE_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 3,
+    deform_bg: SceneDeform.Own(0, 15, 2, 0, 4))
+
+// Fixture A's capabilities, derived by hand: a table is attached, so CAP_PER_LINE; every
+// amplitude shift is 15, so no CAP_DEFORM; no column table, no anchor, no per-layer table.
+const POISON_OWNPLACE_DECLARED = $0001
+const POISON_OWNPLACE_FOLDED_A = fold_caps([POISON_OWNPLACE_SCENE_A])
+const POISON_OWNPLACE_FOLDED_B = fold_caps([POISON_OWNPLACE_SCENE_B])
+
+// ---- FIXTURE A, THE PASSING HALF ----
+ensure(POISON_OWNPLACE_FOLDED_A == POISON_OWNPLACE_DECLARED,
+       "poison_scene_own_placement: FIXTURE A folds to {POISON_OWNPLACE_FOLDED_A}, not the hand-derived {POISON_OWNPLACE_DECLARED} — the LEGAL spelling of a scene-wide table stopped building the scene this poison contrasts against, so the refusal below proves nothing about position")
+
+// ---- FIXTURE B, THE POISON ----
+// The reference is what elaborates scene() for fixture B; the diagnostic comes from
+// INSIDE scene(), not from this ensure, which is why the ensure's own text is a
+// tautology-with-a-purpose rather than the message the lane matches.
+ensure(POISON_OWNPLACE_FOLDED_B >= 0,
+       "poison_scene_own_placement: unreachable — this ensure exists only to reference fixture B and force scene() to elaborate it")

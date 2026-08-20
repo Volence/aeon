@@ -273,6 +273,44 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // contribution and nothing else. `~` is a real comptime operator on ints (sigil
 // eval/expr.rs, `UnOp::BitNot => Value::Int(!n)`); the alternative spelling
 // `folded & declared == folded` is equivalent and unused.
+// ---------------------------------------------------------------------
+// THE OTHER DIRECTION (P3 Task 9) — `folded == the hand-derived word`.
+//
+// THE SUBSET TEST ABOVE CANNOT SEE A SCENE THAT STOPS RAISING A BIT. `folded & ~declared`
+// is 0 both when the registry demands exactly what the game declares and when it demands
+// LESS, so an edit that silently dropped a capability off every scene would leave that
+// test green while the twenty configs quietly changed shape. Task 9's whole byte-identity
+// claim is a statement about this fold in BOTH directions — no scene starts raising
+// CAP_MULTI_DEFORM_TABLE, and none stops raising what it raises today — so it needs a
+// pin the subset test structurally cannot be.
+//
+// THE EXPECTED WORD IS DERIVED, NOT COPIED FROM THE FOLD. It is the per-scene roster
+// stated in the banner above this block, re-added: $0001 CAP_PER_LINE (all twenty),
+// $0002 CAP_PER_COL_VSRAM (the four v-deform scenes), $0004 CAP_DEFORM (every scene with
+// a live amplitude), $0008 CAP_ANCHORS (OJZ_Underwater alone), $0010 CAP_TRANSITIONS
+// (fold_caps() adds it because SCENES.len is 20 > 1). Writing it as `fold_caps(SCENES)`
+// would make the test `x == x`, which is the vacuity poison_scene_mask.emp's header
+// warns about in the same words.
+//
+// THIS PIN IS MEANT TO GO RED WHEN A CAPABILITY LANDS. Task 10's curve layers raise
+// $0040 on the scenes that adopt one; the correct response is to re-derive this word
+// from the roster and edit it, in the same commit as the adoption, never to widen the
+// test. A pin nobody has to touch is a pin nobody is checking.
+pub const SceneRegistry_CapsExpected = $001F
+ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
+       "scene registry: the twenty scenes fold to capability mask {SceneRegistry_CapsFolded}, not the hand-derived {SceneRegistry_CapsExpected}. This pin is two-sided ON PURPOSE — the subset test below cannot see a scene that STOPS raising a bit. If a scene gained a capability, re-derive this word from the per-scene roster in this file's banner and edit it in the same commit; if a scene LOST one, that is a lowering regression and the fold is telling you which way")
+
+// THE RECORD-SHAPE HALF OF THE SAME FACT (P3 Task 9), named separately because the
+// reader who trips it needs a different sentence. The equality above catches this too;
+// what it cannot say is WHAT ELSE has to move. CAP_MULTI_DEFORM_TABLE is the one bit
+// whose folding changes the LOWERED RECORD SHAPE — engine/level/parallax.emp's
+// BAND_EXT_N and engine/ram.emp's BAND_ENTRY_LEN both have to move with it, and the
+// two-directional pin above this block is what refuses the half-edit. Adoption of
+// `deform: Own(..)` by a shipped scene is PARK-1, owner-gated, and is NOT what P3 Task 9
+// landed: Task 9 built the mechanism and left every shipped scene on Shared/None.
+ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
+       "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips the lowered band record to the extended shape, so engine/level/parallax.emp's BAND_EXT_N must become 1 and engine/ram.emp's BAND_ENTRY_LEN must widen by sizeof(band_ext) in the SAME commit, and every ROM image in the tree moves")
+// ---------------------------------------------------------------------
 ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
 
 // =====================================================================
