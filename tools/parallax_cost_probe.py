@@ -594,7 +594,13 @@ async def _one(b: BusClient, sym: dict[str, int], cfg: bytes,
     screen_l = [v - 0x10000 if v > 0x7FFF else v for v in screen_l]
     shadow = await b.call("emulator/read_memory",
                           {"addr": hex(sym["Parallax_Shadow_Bands"]), "len": BE_SIZE * 6})
-    tops = [int(shadow["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 2], 16) for i in range(6)]
+    # FOUR hex chars, not two: `band_top_plane` is a u16 since P3 Task 7. A two-char read
+    # goes on "working" here and returns the always-zero HIGH byte of every shadow top in
+    # 0..224, which makes every fixture's tops read [0,0,0,...] — identical, so the split
+    # witness below reports "no split" for anchored fixtures and the poison slot reads $FF
+    # instead of $FFFF. Measured live on 2026-08-20 while landing Task 7: it is why this
+    # goes through the same 16-bit parse as `be_top` rather than being inlined shorter.
+    tops = [int(shadow["bytes"][i * BE_SIZE * 2:i * BE_SIZE * 2 + 4], 16) for i in range(6)]
     wy_ok = True
     if wy_addr is not None:
         wy1 = await b.call("emulator/read_memory", {"addr": hex(wy_addr), "len": 2})

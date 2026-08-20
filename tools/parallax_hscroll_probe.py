@@ -645,8 +645,12 @@ def stage_a(st):
     raw = st["shadow_raw"]
     for i in range(sh.n):
         got = raw[i * BE_SIZE:(i + 1) * BE_SIZE]
-        for field, off, want in ((("top"), BE_TOP, sh.tops[i]),
-                                 ("dsa", BE_DSHIFT_A, sh.dsa[i]),
+        # THE TOP IS A WORD AND THE OTHER THREE ARE BYTES (P3 Task 7). Comparing the top
+        # byte-wise would read its always-zero high half against `want & 0xFF` and pass for
+        # every top in 0..224 — a check that cannot fail is worse than no check.
+        if be_top(got) != (sh.tops[i] & 0xFFFF):
+            bad.append(f"shadow band {i} top: derived {sh.tops[i]}, machine {be_top(got)}")
+        for field, off, want in (("dsa", BE_DSHIFT_A, sh.dsa[i]),
                                  ("dsb", BE_DSHIFT_B, sh.dsb[i]),
                                  ("phase", BE_PHASE, sh.phase[i])):
             if got[off] != (want & 0xFF):
