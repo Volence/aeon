@@ -66,8 +66,11 @@ TIMESTAMP GRANULARITY. mtimes are compared truncated to WHOLE SECONDS, strictly 
 A fresh `git clone`/`git worktree add` writes every file within the same second or two in
 arbitrary order, so a sub-second compare fires spuriously on a pristine checkout — the
 one case that absolutely must stay quiet. The cost is that an editor save landing in the
-same second as the end of a re-bake is missed; a re-bake takes ~10 s, so that window is
-not reachable by a human.
+same second as the end of a re-bake reads as fresh until the NEXT save. The incremental
+re-bake (2026-08-19) shrank that blind window rather than widening it: the whole hole is
+"saved while the bake was running", and the bake went from ~10 s to ~1 s, so the window
+narrowed by an order of magnitude. Hitting what is left needs a save inside the same
+whole second the bake finishes in — and the next save re-opens the gate.
 
 USAGE
     python3 tools/level_staleness.py [game]        # default sonic4

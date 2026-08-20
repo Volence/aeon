@@ -3119,10 +3119,107 @@ the canonical ROM on the same tree for all four shapes. It is a DEV shape: loud 
 both ends, refused on the `STRESS_*` fixture shapes (those exist to produce evidence) and on
 `CONTRACTS=0`.
 
-**Still open — do not read this entry as making the re-bake free.** The re-bake itself is
-~0.8 s warm but was **9.8 s on its first invocation** in a fresh worktree (cold donor page
-cache), which is the ~8 s the Aurora session measured. Nobody has profiled that cold path;
-if the editor's loop starts feeling slow again, that is where to look, not at the lanes.
+**3. The re-bake's cold path — CLOSED 2026-08-19 by the incremental re-bake below.** This
+entry originally booked "~9.8 s on its first invocation, cold donor page cache, nobody has
+profiled it". Profiling found a different and worse story: the cost was not a cold page
+cache and not a first invocation, it was **every re-bake that follows a real edit**. See
+the entry immediately below.
+
+### ✅ CLOSED 2026-08-19 — the re-bake after a REAL edit (14.7 s -> 1.0 s, incremental)
+
+**The case nobody had profiled.** The `FAST=1` parcel measured a warm NO-CHANGE re-bake
+(0.85-1.5 s) and booked the rest as a cold-cache mystery. The editor's actual loop is a
+re-bake after a genuine chunk edit, and that case was **14.66 s** (measured here on a real
+16x16 chunk stamp into `section_0.tiles.bin`, 16 cores, load ~35; the Aurora session
+reported 7-12 s on a quieter machine). At 80%+ of the edit-look-edit loop it was the loop.
+
+**The culprit, named.** Not compression of the act art pool, and not the dedupe /
+spatial-order / paging pass — both hypotheses were wrong. Per-stage on the real-edit
+re-bake:
+
+| stage | no-change | one-chunk edit |
+|---|---|---|
+| `ojz_block_gen generate` | 0.16 s | **13.00 s** |
+| `ojz_strip_gen generate` | 0.63 s | 0.87 s |
+| 10x `salvador` (ZX0 pool pages) | 0.26 s | 0.35 s |
+| `verify_level_bin` | 0.20 s | 0.19 s |
+| everything else | ~0.2 s | ~0.2 s |
+
+`ojz_block_gen` already had a per-SECTION content-hash cache, which is why the no-change
+case looked cheap and why the real case looked like a cliff: one edited byte invalidates a
+whole section, and rebuilding a section means the **S4LZ K-sweep** — `s4lz.compress` once
+per (non-empty block, dictionary) pair, `K=0..3` dictionaries x ~72 blocks = 282 calls at
+~47 ms each. Isolated: **13.152 s of a 13.19 s section**, against 0.033 s for
+parse + extract + rank. 99.7%.
+
+**The fix — one more caching tier, at the granularity the edit actually has.** A one-chunk
+edit dirties exactly ONE 16x16 block, so `ojz_block_gen` now memoizes `s4lz.compress` per
+`(block bytes, dictionary bytes)`. The edit recompresses 4 streams (one block x the 4
+dictionary shapes) instead of 282. Free side effect: the memo also collapses duplicate
+blocks WITHIN a run, so even a cold-cache full bake drops 12.1 s -> 2.0 s (1538 of 1870
+compressions are repeats).
+
+**Byte identity is the contract and it holds.** The caches are pure memoization of a pure
+function. Full `--no-cache` regenerate vs cached re-bake after an edit: the whole
+`data/generated/` + `data/collision/` tree byte-identical (`diff -r` clean bar
+`DONOR_PROVENANCE.json`, which records the aeon repo's own git status and is not
+ROM-embedded), and `s4.debug.bin` md5 `7003bece05d449a20d1bc0f860948a3c` from both paths.
+Edit -> re-bake -> revert -> re-bake reproduces the original tree with zero differing files.
+
+**Why a hit is trustworthy** (`tools/ojz_block_gen.py` carries the full argument):
+- KEY COMPLETENESS. `s4lz.compress` is pure — `s4lz.py` imports only argparse/struct/sys
+  and the function reads no file, environment, clock or randomness. Its output is a
+  function of exactly `(data, tile_delta, dictionary, the s4lz.py source)`, and the key
+  hashes all four, both byte strings length-prefixed. There is no fifth input to forget.
+- INTEGRITY, two independent guards: a stored sha256 of each cache file's payload (catches
+  truncation and bit rot; writes are `os.replace`, so an interrupted run cannot leave a
+  torn entry), AND **output verification** — every accepted hit is decoded and compared
+  against the source bytes it claims to encode. That is affordable only because
+  decompression is ~780x cheaper than compression here (0.02 ms vs 19.1 ms per 768-byte
+  block, measured): ~2 ms per section against a 13 s sweep. So even an entry forged with a
+  valid file digest cannot put wrong data in the ROM.
+- The division of labour is exact: the KEY gives byte-identity with `--no-cache` (a
+  different-but-valid encoding would pass verification yet occupy different bytes); the
+  digest + decode check give data correctness even if a key were ever wrong.
+
+**Escape hatches.** `tools/regenerate-level.sh --no-cache` (and
+`ojz_block_gen.py generate --no-cache`) read and write no cache at all. `rm -rf
+tools/.cache` is always safe. Every run prints a `Cache:` line with sections served whole,
+sections rebuilt, block compressions hit/recomputed, and any entries rejected by the decode
+check. Cache lives in `tools/.cache/` (already gitignored) and deliberately NOT in
+`data/generated/`, which is a committed artifact with an orphan check in
+`verify_level_bin.py`.
+
+**Timing table** (16 cores; load quoted because the machine was shared):
+
+| case | before | after |
+|---|---|---|
+| no-change re-bake | 1.47 s (load 27) | **0.83 s** (load 6.7) |
+| **one-chunk edit re-bake** | **14.66 s** (load 35) | **0.99 s** (load 6.6) |
+| cold cache, full bake | — | 2.82 s (load 6.4) |
+| `--no-cache` full regenerate | 13.26 s (load 25) | 10.06 s (load 5.6) |
+
+The loop's real case is now under 1 s, so the residual-miss parallelism the parcel
+authorised was measured as unnecessary and not built. `ojz_strip_gen generate` (0.37 s) is
+now the largest single stage and the next lever if one is ever wanted.
+
+**The honest limit.** The dictionary is a whole-section property: if an edit changes which
+blocks `select_dict_blocks` ranks highest, every key in that section moves and the section
+resweeps (only the `K=0` shape, whose dictionary is empty, survives). Editing a dictionary
+block does the same. That is inherent — pinning the ranking to keep the cache warm would
+change ROM bytes, which the byte-identity contract forbids. Asserted rather than hoped for
+in `test_a_dictionary_shift_costs_a_full_section_resweep`.
+
+**Coverage.** 25 tests in `tools/test_ojz_block_gen_cache.py` (key completeness incl. the
+data/dictionary boundary ambiguity and the compressor-source dependency; both integrity
+guards incl. forged-with-valid-digest at both tiers; cached vs `--no-cache` equivalence;
+the edit/revert round trip; the one-block-edit miss count). Suite: **1143 passed, 3
+skipped** via `python3 -m pytest tools -q` (baseline 1118/3 + 25).
+
+**Still open (small):** `ojz_block_gen.py test` — the five original self-tests, including a
+full decode round-trip of section 0 — is run by nothing. `tools/test_ojz_block_gen_cache.py`
+does not wire them in, because `test_generate_roundtrip` on a cold cache would add ~13 s to
+a 17 s suite. Worth wiring behind a marker or against a synthetic section.
 
 ### ⚠ PRE-EXISTING BREAKAGE — `STRESS_ART=1` fails to place (found 2026-08-19)
 Found incidentally while regression-checking the off-canonical shapes against the `FAST=1`

@@ -22,6 +22,13 @@ before you land, merge, freeze, or quote a number.** Both paths now gate on leve
 staleness (`tools/level_staleness.py`): canonical FAILS naming `tools/regenerate-level.sh`,
 FAST auto-re-bakes. See `build.sh`'s header block for the measured per-stage table.
 
+The re-bake itself is incremental (2026-08-19): `tools/regenerate-level.sh` costs ~0.8 s
+with nothing to do and ~1.0 s after a real one-chunk editor edit (it was 14.7 s). The
+caches under `tools/.cache/` are content-addressed pure memoization with output
+verification on every hit, so a cached re-bake is byte-identical to
+`tools/regenerate-level.sh --no-cache` — that flag, and `rm -rf tools/.cache`, are the
+escape hatches.
+
 Assembler: **sigil** — `sigil build` IS the build (Spec-5 Stage 2 flip). The AS Macro Assembler (`asl`) + `p2bin` + `fixheader` have left the pipeline; one sigil invocation assembles every `.emp` module natively (plus the residual `.asm` via sigil-frontend-as), links in declared order (`games/<game>/map.toml`), folds the header checksum, emits the `.lst`, and appends the deb2 symbol table via the surviving `convsym`.
 
 **Required env vars** (build.sh hard-errors without them — no asl fallback):
