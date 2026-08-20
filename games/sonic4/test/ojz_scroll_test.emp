@@ -4,8 +4,11 @@
 // that drives the camera off Player_1 and streams the world.
 //
 // Shape-DEPENDENT region: the two Debug_Scene_Freeze skip blocks, the DEBUG
-// cheat-arm write and Debug_CharacterHotkey (whole proc, rts included) all emit
-// only in the DEBUG shape. As the boot state it is a LIVE oracle-A/B
+// cheat-arm write, the three boot-position-override blocks in the init (§4.12b:
+// the placement hook after Player_Init, the parallax-select override, the ack)
+// and Debug_CharacterHotkey (whole proc, rts included) all emit only in the DEBUG
+// shape. The override's shared clamp/camera templates are comptime and therefore
+// declare no label at all — see their header for why that is load-bearing. As the boot state it is a LIVE oracle-A/B
 // instrument: its two Debug_Scene_Freeze skips (camera + entity-scan) are the
 // deterministic-cache-fill / frame-lock hooks the A/B soak uses, so the port
 // keeps them bit-exact (any byte-gate-blind change names the oracle-A/B rider).
@@ -346,6 +349,7 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    all run exactly once, in exactly their authored order, already aimed at
         //    the override. NONE of Debug_Warp_Consume's reseed steps (4-7) appear
         //    here, and if one ever does, this has been hooked in the wrong place.
+        //    Protocol prose: docs/ENGINE_ARCHITECTURE.md §4.12b.
         //
         //    HERE, AND NOT EARLIER OR LATER: this is the earliest point at which
         //    BOTH the camera seed (Camera_Init) and the leader's spawn position
@@ -468,15 +472,24 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         move.b  Act.start_sec_y(a2), d3 as GridY
 
         // -- BOOT-POSITION OVERRIDE, second and last consumer (DEBUG shapes): the
-        //    only place below Debug_BootAt_Apply where the init still reads the
+        //    only place below the placement block where the init still reads the
         //    AUTHORED start rather than the camera. An override into a different
         //    section must start on THAT section's parallax config — otherwise the
-        //    first displayed frame carries section (start_sec_x, start_sec_y)'s
+        //    first painted frame carries section (start_sec_x, start_sec_y)'s
         //    bands/palette and only the first Parallax_CheckBoundary of the update
-        //    loop corrects it, one frame late and as a lerp rather than a snap.
+        //    loop corrects it — as a lerp rather than a snap, since nothing here
+        //    sets Parallax_Snap_Pending the way Debug_Warp_Consume does.
         //    Derived from the CLAMPED, already-published Boot_At_X/Y (the section
         //    containing the player), which is the same relation start_sec_* has to
-        //    start_local_*. Emits nothing in the plain shape. --
+        //    start_local_*.
+        //
+        //    UNWITNESSED TODAY, deliberately kept: every OJZ act 1 section binds
+        //    `sec_parallax_config: default`, so Section_GetSecPtrXY returns the act
+        //    default whatever index it is handed and poisoning this block changes no
+        //    pixel (measured — tools/boot_override_gate.py stays green). The gate
+        //    asserts that PREMISE instead and fails the day a section binds its own
+        //    config; DEFERRED_WORK books what has to be built then. Emits nothing in
+        //    the plain shape. --
         if DEBUG == 1 {
                 tst.b   Boot_At_Flag            // (Boot_At_Flag).w
                 beq     .init_bootat_no_parallax
