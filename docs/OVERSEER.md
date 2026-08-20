@@ -3,7 +3,7 @@
 **Boot prompt** (paste into a fresh session started in this repo):
 
 > You're the overseer for this repo. Read `docs/OVERSEER.md` first, then
-> `empyrean/docs/OVERSEER-PROTOCOL.md`. Work the queue. Peers may or may not be
+> `../empyrean/docs/OVERSEER-PROTOCOL.md`. Work the queue. Peers may or may not be
 > running — check `ListAgents`; coordinate if present, proceed solo if not.
 
 The role, delegation discipline, review bars, and peer protocol live in the shared
@@ -31,6 +31,11 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 - Zero-byte parcels (tools/docs) are aeon-only; verify CRC identity anyway —
   byte-count-neutral is not byte-identical, and DEBUG-only procs can still move the
   release deb2 appendix.
+- **Sigil sessions/agents are read-only consumers of this tree** (their port gates read
+  it via `AEON_DIR` at test runtime). Mid-brushstroke uncommitted aeon edits can flip
+  sigil port-gate results — a sigil strict-gate run that matters points `AEON_DIR` at a
+  clean checkout of a committed SHA, the same clean-checkout rule freezes use. Mirrored
+  from sigil's `docs/OVERSEER.md` (024c7caa).
 
 ## Instruments (which oracle for what)
 
