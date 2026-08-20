@@ -57,6 +57,15 @@ correction) before planning — several carry caveats that shrink the win.
 **Blocked on: sigil.** Aeon-side work is done and shipped byte-identically; this is the one
 edit that turns a pinned mirror back into a derivation.
 
+> **ACCEPTED + LEDGERED sigil-side 2026-08-20** (their campaign-gap-ledger.md, sigil master
+> `d3a8c91d`; sized small-medium, queued behind their in-flight m68k round-trip parcel).
+> Their kill condition includes an AEON-side confirmation step this entry now owes: when the
+> defines parcel lands, re-run T8's three measured contexts (data-binding layout, struct
+> harvest, RAM harvest) with a capability-derived define and confirm all three see it — the
+> spike harness in EXTENDED-RECORD.md re-pointed, cheap. The larger Game.*-in-layout fix is
+> ledgered separately on their side, demand-gated; retiring our EMP_PITFALLS §9 is written
+> into it.
+
 **The ask, in one line:** expose each game's declared `SCANLINE_CAPS` as an `emp_defines`
 row (`crates/sigil-harness/src/native.rs`, beside `MAX_RING_BUFFER` / `HAS_ACT_ART_POOL`),
 so it is visible where contract members are not.
