@@ -924,7 +924,15 @@ pub vars upper_ram {
                                         // the whole pool is permanently resident after the bulk load, so
                                         // PageCache_Prefetch early-outs — its ahead-strip scan can never find a
                                         // non-resident page (§9.7 degenerate path, all shipped content)
-    pad(1),                             // keep the u16s below even-aligned (consumes half the former pad)
+    PageCache_Direct_Map:   u8,         // nonzero = the DIRECT-MAP patch regime (streaming fix F1): fully
+                                        // resident AND Page_Table is the identity (Page_Table[p]==p for every
+                                        // p < PageIn_Pool_Pages), verified by Level_LoadArt once the pool has
+                                        // landed. Under it `physical == global` for every word, so the copy-site
+                                        // patch runs collapse to read/mask/one map read/attr-merge/store — no
+                                        // page->frame indirection and no refcount pair. Cleared by
+                                        // PageCache_Init, so it is FALSE for the whole of any act load until the
+                                        // pool is proven identity-mapped. (Consumes the former word-align pad
+                                        // byte — RAM layout unchanged.)
 
     // --- Art-streaming P2b Task 7: page prefetch + D3 trailing-lag admission gate ---
     // RELEASE (the streaming path is present in every shape). The D3 gate gates

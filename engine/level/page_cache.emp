@@ -86,6 +86,13 @@ pub proc PageCache_Init () clobbers(d0-d1/a0) {
         jbsr    PageIn_Flush                    // cancel any in-flight/queued page-in work first
         clr.b   PageIn_Bulk_Drain               // defensive: no bulk drain in progress across an act reset
                                                 // (Level_LoadArt re-arms it around its own load below)
+        // F1: the DIRECT-MAP patch regime is FALSE for the whole of an act load —
+        // Level_LoadArt re-latches it only once the pool has landed and Page_Table
+        // is proven to be the identity. Clearing it here (not in Level_LoadArt) is
+        // what stops the PREVIOUS act's latch surviving into this act's first
+        // fills: the general loop is always correct, the direct one only under the
+        // proof, so the safe value is the one that costs cycles.
+        clr.b   PageCache_Direct_Map
 
         lea     Page_Table, a0                  // Page_Table[..] = PAGE_NOT_RESIDENT
         move.w  #PAGE_TABLE_MAX-1, d0
@@ -551,6 +558,93 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
 }
 
 // -----------------------------------------------
+// THE DIRECT-MAP VARIANT (streaming fix F1). Emitted per stride shape beside the
+// general loop above and selected per RUN by PageCache_Direct_Map.
+//
+// WHY IT IS VALID. Level_LoadArt latches PageCache_Direct_Map only when the act
+// is fully resident AND Page_Table is the IDENTITY (Page_Table[p] == p for every
+// p < PageIn_Pool_Pages) — see the latch there for why the identity is what the
+// free list + in-order bulk enqueue produce, and why it cannot change afterwards.
+// Under it the general loop's whole translation is a no-op:
+//
+//     physical = frame<<6 | (global & 63)          [the general loop]
+//              = (global>>6)<<6 | (global & 63)    [frame == page == global>>6]
+//              = global
+//
+// so the map's GLOBAL value IS the physical nametable index and the page->frame
+// indirection disappears. The refcount pair goes with it: refcounts exist to make
+// eviction safe, and under the latch no page can ever be evicted (every page is
+// resident, so PageCache_Request early-outs and AllocFrame is never reached).
+// PageCache_Audit's refcount arm is conditioned on the same latch and replaced
+// there by the checks that ARE live in this regime — see it.
+//
+// The F-3 merge-translation contract is satisfied IDENTICALLY: staged words stay
+// LOCAL, the section map is applied per word, the full-width global lives only in
+// a register, and the 11-bit nametable field carries only the physical index
+// (<= 959 — POOL_TILE_CEILING, well inside NT_TILE_MASK). Value-identity with the
+// general loop is by construction: the same map read feeds the same attr merge.
+//
+// A miss arm is structurally unreachable here (every page resident => every
+// Page_Table entry a real frame), so there is none. The DEBUG bound check the
+// general loop carries survives in a STRICTER and cheaper form: it bounds the
+// GLOBAL directly against pool_pages<<6 (hoisted once per run into d4) rather
+// than deriving the page per word, which catches every out-of-pool map entry the
+// page-level check caught and the sub-page ones it did not.
+//
+// Register file inside the loop: d0 = word scratch, d1 = global/physical,
+// d5 = dbf counter, a0/a1 = src/dest cursors, a2 = Cache_Cur_LocalMap,
+// d4 = DEBUG pool-tile bound. a3/a4 are UNUSED (no Page_Table / Page_Frames).
+// -----------------------------------------------
+comptime fn pc_patch_run_direct(src_step: Int, dest_step: Int) -> Code {
+    return asm {
+        subq.w  #1, d5                          // count >= 1 (callers guarantee)
+        jbra    .pd_word
+
+        // --- cold arm: blank word (local 0, or a local the map sends to global 0) ---
+    .pd_blank:
+        clr.w   (a1)                            // no refcount to unref in this regime
+        jbra    .pd_next
+
+        // --- per-word body ---
+    .pd_word:
+        move.w  (a0), d0                        // new LOCAL word (staged blocks stay local — F-3)
+        move.w  d0, d1
+        andi.w  #NT_TILE_MASK, d1               // local index (0..2047, generator-bounded)
+        beq     .pd_blank                       // C1-2 blank early-out before the map read
+        add.w   d1, d1                          // u16 table stride
+        move.w  (a2, d1.w), d1                  // d1 = GLOBAL slot == PHYSICAL under the latch
+        beq     .pd_blank                       // global 0 = blank -> write 0
+    if DEBUG == 1 {
+        // Pool bound, stricter than the general loop's page-level twin: a corrupt
+        // or stale local map must not reach the nametable. d4 = pool_pages<<6 =
+        // one past the last valid global, hoisted once per run.
+        cmp.w   d4, d1
+        blo     .pd_bound_ok
+        raise_error "PageCache direct patch run: mapped global >= pool tiles (corrupt/stale local map)"
+    .pd_bound_ok:
+    }
+        andi.w  #NT_ATTR_MASK, d0               // keep pal/pri/flip
+        or.w    d1, d0                          // physical nametable word
+        move.w  d0, (a1)
+    .pd_next:
+        lea     {src_step}(a0), a0
+        lea     {dest_step}(a1), a1
+        dbf     d5, .pd_word
+    }
+}
+
+// The DEBUG-only per-run hoist of the direct loop's pool-tile bound (d4).
+// Spelled once so both stride shapes cannot drift apart.
+comptime fn pc_direct_bound_hoist() -> Code {
+    return asm {
+    if DEBUG == 1 {
+        move.w  PageIn_Pool_Pages, d4
+        lsl.w   #PAGE_FRAME_TILE_SHIFT, d4      // d4 = pool_pages * 64 = one past the last valid global
+    }
+    }
+}
+
+// -----------------------------------------------
 // PageCache_PatchRun_Seq — patch a SEQUENTIAL run (FillRow: src and dest both
 // advance one word). PageCache_PatchRun_Col — patch a block-COLUMN run
 // (CopyBlockColumn: src advances one block row = 32 bytes, dest one cache row
@@ -562,13 +656,23 @@ comptime fn pc_patch_run_loop(src_step: Int, dest_step: Int) -> Code {
 //     them). Everything else preserved — the run form drops into the
 //     register-saturated H6 fill loops with no caller-side banking.
 // -----------------------------------------------
+// The variant select is per RUN, not per word: one tst.b + bcc over the ~8-10 runs
+// a saturated tick issues (~200 cyc/tick) against the ~95 cyc/word the direct loop
+// saves over 280 words/tick. The fallback arm is the pre-F1 code byte-for-byte.
 pub proc PageCache_PatchRun_Seq (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a0: *u8, a1: *u8) preserves(d1-d7/a2-a6) {
         movem.l d1-d5/a2-a4, -(sp)
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
+        tst.b   PageCache_Direct_Map
+        bne     .direct
         lea     Page_Table, a3
         lea     Page_Frames, a4
         pc_patch_run_loop(2, 2)
+        movem.l (sp)+, d1-d5/a2-a4
+        rts
+    .direct:
+        pc_direct_bound_hoist()
+        pc_patch_run_direct(2, 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
 }
@@ -577,9 +681,16 @@ pub proc PageCache_PatchRun_Col (a0: *u8, a1: *u8, d0: u16) clobbers(d0) inout(a
         movem.l d1-d5/a2-a4, -(sp)
         move.w  d0, d5                          // run length
         movea.l Cache_Cur_LocalMap, a2          // run hoists (see block comment)
+        tst.b   PageCache_Direct_Map
+        bne     .direct
         lea     Page_Table, a3
         lea     Page_Frames, a4
         pc_patch_run_loop(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
+        movem.l (sp)+, d1-d5/a2-a4
+        rts
+    .direct:
+        pc_direct_bound_hoist()
+        pc_patch_run_direct(BLOCK_TILE_SIZE * 2, TILE_CACHE_STRIDE * 2)
         movem.l (sp)+, d1-d5/a2-a4
         rts
 }
@@ -905,6 +1016,8 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
         lea     Page_Audit_Scratch, a0          // compare recomputed vs stored, per frame
         lea     Page_Frames, a1
         move.w  #PAGE_FRAMES-1, d0
+        tst.b   PageCache_Direct_Map
+        bne     .dm_frame
     .cmp:
         move.w  (a0)+, d1                       // recomputed
         cmp.w   PF_RC(a1), d1
@@ -913,6 +1026,51 @@ pub proc PageCache_Audit () clobbers(d0-d3/a0-a3) {
     .cmp_next:
         lea     sizeof(PageFrame)(a1), a1
         dbf     d0, .cmp
+        jbra    .cmp_done
+
+        // DIRECT-MAP regime (streaming fix F1). The collapsed copy-site runs
+        // maintain NO refcounts — under the latch nothing can evict, so a refcount
+        // is not a live quantity and the comparison above would be a check on a
+        // number nobody writes. It is replaced, NOT dropped, by the invariants that
+        // are live here (this arm must never become the vacuous one):
+        //   (a) every stored refcount is ZERO. A nonzero one means a GENERAL-loop
+        //       run executed while the latch was set — the two variants mixed —
+        //       which is precisely the divergence the comparison used to catch.
+        //   (b) every frame the nametable REFERENCES is assigned (pf_page !=
+        //       $FFFF). This is the no-dangling-physical-index property that the
+        //       refcount pair existed to protect, re-derived here straight from the
+        //       nametable walk above rather than from the bookkeeping.
+        //   (c) Page_Table is STILL the identity over the pool — the premise the
+        //       whole collapsed loop rests on, which Level_LoadArt's latch only
+        //       proved once, at act load.
+    .dm_frame:
+        move.w  (a0)+, d1                       // recomputed count for this frame
+        tst.w   PF_RC(a1)
+        beq     .dm_rc_ok
+        raise_error "PageCache_Audit: nonzero pf_refcount under the direct-map latch (patch loop variants mixed)"
+    .dm_rc_ok:
+        tst.w   d1
+        beq     .dm_next                        // frame unreferenced by the cache -> nothing to check
+        cmpi.w  #$FFFF, PF_PAGE(a1)
+        bne     .dm_next
+        raise_error "PageCache_Audit: nametable references an UNASSIGNED frame (dangling physical index)"
+    .dm_next:
+        lea     sizeof(PageFrame)(a1), a1
+        dbf     d0, .dm_frame
+
+        lea     Page_Table, a1
+        move.w  PageIn_Pool_Pages, d0
+        subq.w  #1, d0
+        bmi     .cmp_done                       // empty pool -> identity holds vacuously
+        moveq   #0, d1                          // d1 = expected frame id (== page id)
+    .dm_ident:
+        cmp.b   (a1)+, d1
+        beq     .dm_ident_ok
+        raise_error "PageCache_Audit: Page_Table is not the identity under the direct-map latch"
+    .dm_ident_ok:
+        addq.w  #1, d1
+        dbf     d0, .dm_ident
+    .cmp_done:
 
         // Candidate-flag invariant (F-1 stamp eviction — replaces the LRU-list
         // walk + cycle bound, which died with the list): PF_EVICTABLE implies

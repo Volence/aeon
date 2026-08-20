@@ -149,6 +149,51 @@ pub proc Level_LoadArt (a0: *Act) clobbers(d0-d2/d5-d7/a0-a4) {
         clr.b   PageIn_Bulk_Drain                  // bulk drain reached quiescence — prefetch may resume
 
     .bg:
+        // -- Streaming fix F1: latch the DIRECT-MAP patch regime --
+        // The copy-site patch runs (PageCache_PatchRun_Seq/_Col) translate every
+        // nametable word global->physical through Page_Table and maintain a
+        // refcount pair, so that a page can later be EVICTED safely. Both are
+        // dead weight on an act that can never evict, and on such an act the
+        // translation is provably the identity — so the runs take a collapsed
+        // variant instead. Two conditions, checked HERE because this is the last
+        // point in the act load where either can still change:
+        //
+        //   (1) PageIn_Fully_Resident — the pool fits PAGE_FRAMES_CLAMP, so the
+        //       bulk drain above left every page resident and nothing can evict:
+        //       PageCache_Request early-outs on a resident page, so AllocFrame is
+        //       never reached and Page_Table is frozen for the act's lifetime.
+        //   (2) Page_Table is the IDENTITY over the pool — Page_Table[p] == p for
+        //       every p < PageIn_Pool_Pages. That is what PageCache_Init's free
+        //       list (threaded 0->1->...->N-1) plus the in-order enqueue above
+        //       plus page-in's single-slot, in-order completion produce; it is
+        //       VERIFIED rather than assumed, so an allocator or scheduling change
+        //       that broke it would cost the fast path, never correctness.
+        //
+        // Under both, frame == page == global>>6, hence
+        // frame<<6 | (global&63) == global: the map's global value IS the physical
+        // index and the patch collapses to read/mask/one map read/attr-merge/store.
+        // An act failing either condition runs the pre-F1 loop unchanged.
+        //
+        // An EMPTY pool satisfies the identity vacuously and is latched: with no
+        // pool pages every translated word is blank, and any non-blank one is
+        // already a loud DEBUG failure on both loop variants.
+        clr.b   PageCache_Direct_Map
+        tst.b   PageIn_Fully_Resident
+        beq     .no_direct
+        lea     Page_Table, a0
+        move.w  PageIn_Pool_Pages, d0
+        subq.w  #1, d0
+        bmi     .direct_ok                          // empty pool -> identity holds vacuously
+        moveq   #0, d1                              // d1 = expected frame id (== page id)
+    .direct_scan:
+        cmp.b   (a0)+, d1
+        bne     .no_direct                          // not the identity -> keep the general loop
+        addq.w  #1, d1
+        dbf     d0, .direct_scan
+    .direct_ok:
+        st.b    PageCache_Direct_Map
+    .no_direct:
+
         // -- §2 A.5: blit zone-wide BG to Plane B nametable (T1) --
         movea.l a4, a0                              // a0 = act ptr
         jbra    BG_Init                             // tail call
