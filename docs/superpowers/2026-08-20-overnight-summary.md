@@ -34,9 +34,22 @@ Oracle's evidence doc (`oracle/docs/2026-08-20-profiler-corpus-ab.md`) validated
 profiler cycle-exact against ours, and found the OLD instrument accounts for only **78.45%**
 of a maxdiag frame. Consequences, all booked (aeon `971ef142`): the migration ledger is
 flipped; the dense −242 anomaly resolved as our old instrument's defect (measured == model);
-the arc's "mean 4,984 under the line" is **downgraded to a hypothesis** (the frames/tick
-figures stand — they're direct tick counts). The honest retake + the tick-variance spike
-hunt are running as one parcel on the new instrument (dispatched, in flight).
+the arc's "mean 4,984 under the line" was briefly downgraded to a hypothesis — and then:
+
+## The tick-variance retake RAN — the arc's last question is answered
+
+`docs/benchmarks/streaming/TICK-VARIANCE.md` + `tools/tick_variance_probe.py` (the first
+probe living on the new, validated profiler; control row reproduced exactly against the A/B's
+pinned reference before any new number). The headline: **the honest mean is 112,897
+work/tick — 15,103 UNDER the line, three times the margin the old instrument claimed.** And
+the spikes have ONE named cause: 3 of 26 ticks carry 25-49k cycles of `S4LZ_DecompressDict`
+on block-COLUMN crossings (one per 128 px of camera travel); row crossings are nearly free
+because their blocks are already staged. Stall: 2,216 cyc/frame, all VBlank DMA drain, flat —
+not part of the variance. Two honestly-unresolved riders booked: why the row side is covered
+(hypothesis + settling experiment), and a cross-emulator tick-count divergence (old oracle
+1.192 f/t vs new 1.069 on byte-identical ROM — relayed to the oracle session, engine not
+implicated). **F6 stays parked exactly as you left it** — the doc gives the arithmetic, no
+recommendation.
 
 ## Waiting on you (unchanged, no action taken)
 
