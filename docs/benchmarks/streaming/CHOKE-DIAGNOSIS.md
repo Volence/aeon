@@ -228,6 +228,39 @@ nametable patch that runs off it.
 
 ### The block prefetch's speculation is 100% dead under sustained diagonal
 
+> **⚑ MEASURED AND PARTLY WRONG — corrected 2026-08-20 by F2's instrument, kept because
+> the correction is the interesting part.** This section's headline and its "every one of
+> them is staged and then evicted" are an INFERENCE from a decompress-count difference. The
+> residency-lifetime timeline this section asks for (§9(b)6) now exists —
+> `tools/staging_lifetime_timeline.py` — and it grades each speculation individually.
+> What it says, on master `0cf5a053`, 3 boots, spread 0.000:
+>
+> | | claims/tick | demand | speculative | of the SPECULATIONS that were evicted in-window |
+> |---|---|---|---|---|
+> | `maxdiag` | 4.13 | **2.20** | 1.93 | 22 evicted: **9 LANDED**, 13 DEAD (0.87 dead/tick) |
+> | `right` | 0.48 | **0.00** | 0.48 | none evicted in-window; zero dead |
+> | `down` | 0.61 | **0.00** | 0.61 | 3 evicted, **all 3 LANDED** |
+>
+> Three corrections follow, and the third is the one that changes what a fix should do.
+> 1. **Speculation is 59% dead at max-diagonal, not 100%.** 41% of it lands.
+> 2. **The residency arithmetic below is RIGHT**, and now measured rather than derived:
+>    mean speculation residency **3.64 ticks** against the 8-tick lead (the `slots ÷ rate`
+>    inference said 3.53). At `down` the measured residency is 25 ticks and the measured
+>    time-to-use 7.5 — the good basin, seen directly.
+> 3. **The bigger cost is not the dead speculation, it is the DEMAND work the churn
+>    creates.** `right` and `down` perform ZERO demand decompresses: the prefetch does all
+>    the work and every claim lands. `maxdiag` performs **2.20 per tick** — because a
+>    demand-staged block only lives **3.25 ticks** there, and the fill needs its strip for
+>    eight. Those are blocks the fill staged and then lost to speculative churn before it
+>    had finished walking them, and they are re-decompressed. That is where the gap between
+>    "1.47/tick with the prefetch removed" and "2.20/tick of demand with it running" went;
+>    the table below reads it as "demand did not rise", which is true of the throwaway and
+>    false of the baseline it is compared against.
+>
+> Consequence for the fix: suppressing speculation removes the dead claims AND lets demand
+> blocks live long enough to be used once instead of twice. Both halves are in F2a's
+> measured saving (§8).
+
 `Block_Stage_Gen` is bumped in exactly two places — `TileCache_InvalidateStaging`
 (act-init only, never inside a sample) and the `TileCache_DecompressBlock` slot claim. Its
 delta is therefore an **EXACT** decompress count, unlike the profiler's rounded `calls`.
@@ -656,7 +689,108 @@ operand-vs-fetch bus finding earned: a nominal figure for this loop would have p
   latch), `PageCache_Init` (+4 B, clearing it). No other proc's span changed except by
   inter-symbol padding.
 
-### F2 — make the block prefetch's speculation land instead of dying
+### F2 — make the block prefetch's speculation land instead of dying — ✅ SHIPPED 2026-08-20 (`perf/prefetch-lands`)
+**F2a (the guard) + the memo re-key shipped. F2b and F2c were NOT taken and were not
+needed** — the ruling made F2c conditional on a+re-key missing the −21,580-class saving or
+regressing the right axis, and they did neither.
+
+* **What shipped — F2a.** `Tile_Cache_Fill` keeps `Cache_Spec_Gen_Ring`, eight words holding
+  `Block_Stage_Gen` as of each of the last `BLOCK_SPEC_LEAD_TICKS` = 8 logic ticks, indexed
+  `Logic_Tick & 7` and updated once per tick just past the frame gate. Current generation
+  minus the entry being overwritten IS the claim count over the prefetch lead — the left
+  side of the residency inequality, with no division and no rate estimator, for ~135
+  cyc/tick. Over the trip threshold, the WHOLE speculation tail is skipped (row scan, col
+  scan and corner), because all three claim from the same 16 round-robin slots.
+* **The threshold is a Schmitt trigger and the measurement is why.** Trip at
+  `BLOCK_STAGE_SLOTS` (16 claims per 8 ticks), re-arm at `BLOCK_SPEC_REARM` = 8. At
+  max-diagonal the DEMAND-ONLY window settles at **11**, which sits between the two. A
+  single-threshold gate would have suppressed, watched the rate fall to 11, re-armed,
+  spiked, and suppressed again — §3's bistability, re-entered once per window, at roughly a
+  50% duty cycle. With the pair the latch goes down and stays down. Measured, from the
+  probe's new `F2a speculation guard` row: **suppressed 25 of 25 ticks** at `maxdiag`,
+  **0 of 31** at `right`, **0 of 31** at `down`, **0 of 29** at `idle`, with windows of
+  11 / 4 / 5 / 0 claims.
+* **What shipped — the memo re-key**, both halves of the self-defeat in §3:
+  * the BOUNDS term compared the RAW `Cache_Left_Col`/`Head_Col` (resp. `Top`/`Bottom`),
+    which move every tick the camera moves — while the scan only ever visits BLOCK-ALIGNED
+    lines, so the SET it describes changes once per block crossing, 8× less often than the
+    key guarding it. Now compared block-aligned (`Pfx_Memo_L16`/`_H16`, `Cs_Memo_T16`/`_B16`).
+  * the GENERATION term is now a DELTA BASE, not an equality. Round-robin means the `delta`
+    claims since the record evicted exactly slots `[Next-delta .. Next)`; the scan
+    accumulates the slots its all-hits result rests on into `Pfx_Memo_Mask`/`Cs_Memo_Mask`
+    (one word each), and only an intersection kills the memo. A surviving memo rolls its
+    delta base forward, so the key means "valid until something COVERED is evicted" rather
+    than "valid until anything anywhere is claimed". `TileCache_FindStagedBlock` publishes
+    the hit slot for the mask at **zero instructions** — the bucket walk already left
+    `slot*4` in `d4` and both metadata reads index off it; `d4` moved from `clobbers` to an
+    unconditional `out` (every path writes it; every miss path leaves the `$FF` not-a-slot
+    sentinel).
+  * The "no memo" sentinel moved from the generation word to the TARGET word: under a delta
+    key `$FFFF` is not far from a small live generation, it is one below it, and a sentinel
+    inside the valid window is not a sentinel. Targets are block-aligned, so `$FFFF` is
+    unrepresentable there.
+* **MEASURED** (`s4.debug.bin`, `--repeat 3`, spread 0.000 on every row, 3 boots,
+  `up 2 days 2:0x`, load average 6–8 with other agents building):
+
+  | state | frames/tick | work/tick | `Tile_Cache_Fill` cyc/tick | decompresses/tick |
+  |---|---|---|---|---|
+  | `maxdiag` | **2.067 → 1.240** | 170,723 → **134,141** | 85,903 → **64,630** | 4.53 → **1.32** |
+  | `right` | 1.000 → **1.000** | 80,979 → 81,108 (+129) | 32,048 → 32,186 | 0.48 → **0.48** (15 of 31, identical) |
+  | `down` | 1.000 → **1.000** | 81,660 → 81,859 (+199) | 32,271 → 32,467 | 0.65 → **0.65** (20 of 31, identical) |
+  | `idle` | 1.069 → 1.069 | see below | 926 → 1,070 | 0 → 0 |
+
+  Inside the max-diagonal fill: `TileCache_DecompressBlock` 24,184 → **5,796**,
+  `S4LZ_DecompressDict` 20,094 → **4,597**, `FindStagedBlock` 4,871 → **4,130**.
+* **Two caveats on the 36,582, in opposite directions, both stated rather than netted.**
+  `PageCache_Audit` FIRED inside the BEFORE window (1,633 cyc/tick) and did not in the
+  AFTER one, so 1,633 of the difference is audit phase, not F2 — the attributable saving is
+  **≥ 34,949**. Pulling the other way, §7's attribution defect loses ~20% of the frame at
+  2.067 frames/tick and almost none at 1.240, so the BEFORE `work/tick` is understated and
+  the true saving is larger than either number. **The instrument-independent figure is
+  `frames/tick` 2.067 → 1.240** — a count of frames and ticks, not an attribution.
+  `idle`'s `work/tick` is not quotable at all here (F1's booked trap): its VSync_Wait row
+  moved 3,734 cyc/frame while `total_cycles` did not move at all. Read the idle cost off the
+  fill's own row: **+135 cyc/frame**, the guard's fixed price.
+* **DIRECTLY MEASURED, not inferred** (`tools/staging_lifetime_timeline.py`, 3 boots,
+  spread 0.000): at `maxdiag` claims fall **4.13 → 1.44 per tick and are now 100% DEMAND**;
+  **dead speculations 0.87/tick → 0.00**; and demand-block residency rises **3.25 → 11.48
+  ticks**, which is the churn ending. At `right` and `down` every figure is IDENTICAL to
+  the baseline's — 15 and 19 claims, all speculative, zero demand, zero dead.
+* **The memo's own worth, isolated** (two throwaway builds that force both memos to miss,
+  measured and reverted): the re-keyed memo saves **709 cyc/tick at `right`, 511 at `down`,
+  and ZERO at `maxdiag`** — where the guard has already turned the scans off. The OLD key
+  was worth 707 and 482 at those two states. **So the re-key is worth +2 and +29 cyc/tick,
+  i.e. nothing measurable, and that is a real finding rather than a disappointment:** at
+  `right` only the col scan runs and its bounds (`Top`/`Bottom`) are static, at `down` only
+  the row scan runs and its bounds are static, so the old key already hit there. The re-key
+  pays in MIXED-axis motion — which is exactly where the guard now suppresses the scans. It
+  ships as a correctness fix (a key that cannot hit, and a sentinel that would have landed
+  inside a delta window) and is not counted as a lever anywhere above.
+* **Value identity HELD**, and the compare had to be built for a schedule-changing fix:
+  the fixed ROM completes more ticks in the same 31 frames, so an equal-FRAME compare is
+  meaningless. `Tile_Cache_Nametable` and `Tile_Cache_Collision` hash equal against the
+  pre-parcel ROM at all four camera states, compared at equal SETTLED camera positions with
+  camera, all four cache bounds, both origins, budget, both resume slots and the stall flag
+  asserted equal first. The four states' nametable hashes are not all equal to each other,
+  so the compare is not vacuous.
+* **The AB scenes did NOT hit F1's wall** — like F4, all four `scene:*` gates pass, because
+  they poke `Debug_Scene_Freeze` and the fill does nothing there.
+* **Lanes:** `effects_gates` 24/24 exit 0, `./test.sh` 19/19 (including the headless replay
+  net on both committed fixtures **and** its negative control — the fixtures still replay
+  desync-free, which is the strongest available statement that game LOGIC did not move),
+  pytest 1143 passed / 3 skipped, `emp_expect_fail` 20/20, `s4lint` clean,
+  `effects_budget_check` 31 rows, `verify_level_bin` OK, sigil warning counts unchanged
+  (9 / 123). `tools/staging_index_poison.py` (F4's net) and
+  `tools/pagecache_audit_poison.py` both LIVE — three arms HALT, control keeps running.
+* **Remaining distance.** 134,141 against the 128,000-cycle frame: **6,141 cycles, 4.6%.**
+  The booked levers are F6 (margins, estimated ~13,000 cyc/tick and now the only ranked
+  streaming item left) and, off the streaming path, the raster arm-rewrite rider
+  (1,152 cyc/frame). Also newly visible: with the fill down to 64,630, `Parallax_Update` is
+  **26,209 cyc/tick — the largest single non-fill row** at max-diagonal, and DEFERRED_WORK
+  §3 already carries two untaken parallax levers.
+
+**The original entry, as written by the diagnosis parcel, follows.**
+
 * **Mechanism.** Three sub-options, in increasing order of ambition:
   * **F2a (guard).** Skip speculation while `BLOCK_STAGE_SLOTS / claim_rate` is below the
     8-tick lead. Both terms are already cheaply available (the claim rate is a per-pass
@@ -916,7 +1050,19 @@ one materially.
    exact decompress instants with mclk, i.e. the rate AND its burst structure. I got the rate
    only because `Block_Stage_Gen` happens to be a monotone counter bumped once per claim; on
    a component without such an accident I would have had nothing.
-6. **Residency-lifetime timeline** — watch `Block_Stage_Keys` slot writes (stage instant) and
+6. **Residency-lifetime timeline** — ✅ **BUILT 2026-08-20 as `tools/staging_lifetime_timeline.py`**
+   (F2's parcel, before its fix, as this entry asks). It watches `Block_Stage_Keys` writes,
+   `Block_Stage_Ptrs` READS (that table has exactly one reader in the ROM —
+   `FindStagedBlock`'s `.hit` arm — so a read hit IS a staged hit, and the slot falls out of
+   the address), `Cache_Pfx_Row_Target`'s `$FFFF` store (which separates a fill pass's demand
+   phase from its speculation tail, so a claim can be classed without touching the engine)
+   and `Logic_Tick`. Two things it found that this entry did not anticipate, both now in the
+   tool's docstring: a long access emits TWO word hits, so events must be taken on the
+   4-aligned one and completed from its sibling; and `watchpoint_hits` is poll-only while
+   `watchpoint_clear` removes the WATCH and not the ring, so a second camera state on one
+   server returns the first state's hits too — one server per state. Its measured output
+   revised §3 (see the correction box there).
+   *Original text:* watch `Block_Stage_Keys` slot writes (stage instant) and
    the `FindStagedBlock` hit path (use instant). The difference IS the
    "staged-but-evicted-before-use" waste. **This is the single instrument that would have
    turned §3's central claim from an inference — residency 3.53 ticks < lead 8 ticks, derived

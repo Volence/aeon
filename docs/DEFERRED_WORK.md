@@ -76,9 +76,16 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   count and ate the saving. F4 removed that term, so the capacity arithmetic is different now —
   if anyone wants to revisit it, RE-DERIVE rather than inherit. The RAM ceiling (24 slots do not
   fit) is unaffected and still binds.
-- Ranked fixes F1–F6 with measured savings are in §8 of the packet. **F1, F4 and F5 are CLOSED
-  (below); F2 and F6 remain PARKED for owner/controller rulings** and must not be started
-  before one.
+- Ranked fixes F1–F6 with measured savings are in §8 of the packet. **F1, F2, F4 and F5 are
+  CLOSED (below); F6 remains PARKED for an owner ruling** and must not be started before one.
+- **The arc's remaining distance, 2026-08-20: 6,141 cycles.** Sustained max-diagonal now runs
+  at **1.240 frames/tick** on `work/tick` 134,141 against the 128,000-cycle frame. The four
+  fixes took it from 190,931 / 2.067. What is left is F6 (margins, estimated ~13,000 cyc/tick,
+  and the only ranked streaming item still open) plus, off the streaming path, the raster
+  arm-rewrite rider (1,152 cyc/frame, §5 of this file). **A NEW row is now the biggest single
+  non-fill cost at max-diagonal: `Parallax_Update` at 26,209 cyc/tick**, against
+  `Tile_Cache_Fill`'s 64,630 — and §3 of this file already carries two untaken parallax
+  levers whose blockers are discharged.
 - **Instrument defect found:** old oracle's per-routine rows lose 20.6% of the frame when a
   logic tick spans a VBlank (they close to 1–2% when it does not). Packet §7. The instrument
   asks for oracle-next are packet §9, sorted into (a) satisfied by their in-flight profiler v1,
@@ -140,6 +147,75 @@ ref/unref pair, servicing an eviction that cannot occur while `PageIn_Fully_Resi
   frame 180, so the ~114,000-cycle one-shot lands at a different phase. At settles where the
   audit does not fire (120/150/210/240) base and F1 are identical to ≤11 cycles. **Read the
   `idle` null off a non-firing settle.**
+
+**Fix F2 — the block prefetch's speculation lands instead of dying — ✅ CLOSED 2026-08-20**
+(`perf/prefetch-lands`). **The arc's line-crossing lever: max-diagonal 2.067 → 1.240
+frames/tick, work/tick 170,723 → 134,141.** F2a (the residency guard) + the memo re-key
+shipped; **F2b and F2c were not needed** — the ruling made F2c conditional on a+re-key
+missing the −21,580-class saving or regressing the right axis, and they did neither.
+- **The guard.** `Cache_Spec_Gen_Ring`, eight words of `Block_Stage_Gen` history indexed
+  `Logic_Tick & 7`, makes "claims over the prefetch lead" a subtraction. Above
+  `BLOCK_STAGE_SLOTS` the whole speculation tail is skipped; it re-arms only below
+  `BLOCK_SPEC_REARM` = 8. **The asymmetry is not taste — it is measured:** the demand-only
+  window at max-diagonal settles at **11**, between the two thresholds, so a single-threshold
+  gate would have oscillated at roughly 50% duty. Guard state is now printed by
+  `streaming_choke_probe`: suppressed **25 of 25** ticks at `maxdiag`, **0 of 31** at `right`,
+  **0 of 31** at `down`, **0 of 29** at `idle`.
+- **Why a guard and not a deletion, settled by measurement rather than by the packet's
+  inference.** The new `tools/staging_lifetime_timeline.py` (built BEFORE the fix, per the
+  arc's standing rule and the packet's own §9(b)6 ask) grades each speculation. At `right`
+  and `down` **100% of staging claims are speculative and ZERO are demand** — on a single
+  axis the prefetch IS the fill and every claim lands, which is exactly why the packet's
+  throwaway B regressed `right` to 1.069. Those states sit at 4-5 claims per 8 ticks against
+  a 16-slot budget, so the guard never trips there and both are byte-for-byte unchanged in
+  claim count and frames/tick.
+- **It also corrected the packet.** §3's "speculation is 100% dead" is really 59% dead
+  (9 of 22 evicted speculations LANDED), and the larger cost was never the dead claims: it is
+  the DEMAND work the churn creates. Demand-block residency at max-diagonal was **3.25 ticks**
+  against a strip the fill needs for eight, so the fill was re-decompressing its own blocks —
+  2.20 demand claims/tick where the single-axis states pay ZERO. After the guard, demand
+  residency is **11.48 ticks** and total claims are 1.44/tick, all demand, zero dead.
+- **The memo re-key** fixed both halves of the self-defeat: block-aligned bounds (the raw
+  bounds moved 8× more often than the SET they named) and an eviction-derived key
+  (round-robin makes the claims-since-record an exact evicted-slot window; the scan records
+  the slots its result rests on in a word mask, and a survivor rolls its delta base forward).
+  `TileCache_FindStagedBlock` publishes the hit slot at zero instructions (`d4` was already
+  holding it; it moved from `clobbers` to an unconditional `out` with a `$FF` miss sentinel).
+  **Isolated by throwaway: worth 709 cyc/tick at `right`, 511 at `down`, ZERO at `maxdiag`,
+  against the OLD key's 707 and 482 — i.e. the re-key itself is worth +2 and +29, nothing
+  measurable.** That is a derivable result, not a disappointment: at `right` only the col
+  scan runs and its bounds are static, at `down` only the row scan runs and its bounds are
+  static, so the old key already hit at both. The re-key pays in MIXED-axis motion, which is
+  where the guard now turns the scans off. It ships as a correctness fix and is counted as a
+  lever nowhere.
+- **Two caveats on the 36,582, in opposite directions, both stated:** `PageCache_Audit` fired
+  in the BEFORE window and not the AFTER one (1,633 cyc/tick of it), so the attributable
+  saving is ≥ 34,949; and §7's attribution defect understates the 2.067-frames/tick baseline,
+  so the true saving is larger than either figure. **Quote `frames/tick` 2.067 → 1.240** — a
+  frame and tick count, not an attribution. `idle`'s work/tick is not quotable (F1's booked
+  trap fired again: VSync_Wait moved 3,734 cyc/frame with `total_cycles` unchanged); the
+  guard's fixed idle cost read off the fill's own row is **+135 cyc/frame**.
+- **Value identity held**, and the compare had to be rebuilt for a schedule-changing fix: the
+  fixed ROM travels further in the same 31 frames, so the states are matched on SETTLED
+  CAMERA POSITION, with camera, all four cache bounds, both origins, budget, both resume slots
+  and the stall flag asserted equal before any content hash is compared. Nametable and
+  collision hash equal at all four states.
+- **Lanes:** `effects_gates` 24/24 exit 0, `./test.sh` 19/19 (the headless replay net's two
+  fixtures still replay desync-free, plus its negative control), pytest 1143 passed /
+  3 skipped, `emp_expect_fail` 20/20, `s4lint` clean, `effects_budget_check` 31 rows,
+  `verify_level_bin` OK, sigil warnings unchanged (9 / 123), F4's
+  `tools/staging_index_poison.py` and `tools/pagecache_audit_poison.py` both LIVE.
+- **RAM +30 B in `lower_ram`**, placed beside F4's Bucket/Chain: four lower_ram symbols move
+  and NOTHING game-side does. Deliberately not at the `upper_ram` tail where the rest of the
+  memo lives — that costs a full game-side repin to buy 4 cycles a tick on once-per-tick state.
+- **Trap for the next parcel:** sigil's `[call.live-clobbered]` (D1c) fires on ANY read of a
+  register declared `out(... if eq)` when that register is may-defined before the call, which
+  a loop always makes true. The fire decision consults `callee_uncond_out`, so a CONDITIONAL
+  out is treated as destroyed. Reading a probe's conditional result in a loop therefore needs
+  either an unconditional `out` (which sigil then refuses to also list in `clobbers`) or an
+  adjudicated baseline row in the sigil repo. This parcel took the first route because `d4`
+  is genuinely total; a parcel barred from the sigil tree and holding a value that is NOT
+  total has no third option worth its cycles.
 
 **Fix F5 — `PageCache_Audit` off the fill path — ✅ CLOSED 2026-08-19**
 (`perf/audit-off-fill-path`). The DEBUG periodic residency audit's interval gate no longer sits
