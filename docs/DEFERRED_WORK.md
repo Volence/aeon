@@ -7181,7 +7181,7 @@ commit). The three caveats attached to "the sound pipeline is stable, unpark S0"
 Last engine/sound commit at ruling time: 8b39969d (2026-08-11, Tails-flight SFX import
 — content, not format), reconciled by seraph's firsthand check.
 
-## Boot-position override (§4.12b) — two things the shipped parcel deliberately left (2026-08-19, `feat/debug-boot-override`)
+## Boot-position override (§4.12b) — what the shipped parcel deliberately left (2026-08-19, `feat/debug-boot-override`)
 
 ### 1. The parallax half of the hook is UNWITNESSED, and it is unwitnessable in OJZ act 1
 
