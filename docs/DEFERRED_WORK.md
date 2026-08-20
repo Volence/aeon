@@ -52,6 +52,34 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### AURORA SPRITE-EXPORT CONSUMER — booked 2026-08-20 (Aurora asks, owner-ratified their side; format ruling made here)
+
+Aurora's sprite export spine (June) ends at our doorstep: a real export sits in
+`games/sonic4/data/sprites/` (`index.json` + `object-bindings.json` at the root;
+per-sprite dirs with `art.bin` + `mappings.bin` + `sprite.json` — see `pitcher_plant/`)
+and **nothing in the build reads it**. Aurora audit `2588171`,
+`aurora docs/reviews/2026-08-20-p3-plan-audit.md`. Two asks, one ruling:
+
+1. **Build an aeon-side consumer** — a bake step mirroring the level pipeline
+   (`data/sprites/` → generated `.emp`/embeds at build time), NOT a hand-maintained
+   twin. First step of the parcel: enumerate exactly which fields the consumer reads,
+   against the real `pitcher_plant/` export, and hand Aurora that list — they freeze
+   exactly those fields with a writer-vs-reader golden on their side. Until that list
+   exists the format is NOT a contract; do not let a consumer grow ad-hoc readers.
+2. **Format-boundary RULING (engine call, 2026-08-20): Aurora emits neutral data, aeon
+   generates the code.** Their question "should our exporter emit `.emp` `offsets`
+   instead of `.asm`?" — answer: NEITHER. Their June `.asm` route is dead (asl left the
+   pipeline; its `align 2` per body contradicts `sonic_anims.emp`'s deliberate no-align
+   packing). But Aurora emitting `.emp` would push sigil-language churn across the tool
+   wall — every `.emp` syntax/idiom change would become an Aurora-coordinated change.
+   The contract stays the NEUTRAL export (json + bin); the `.emp`/binary generation is
+   an aeon bake-step and ours to evolve freely. Same boundary the level pipeline
+   already draws (editor stamps → our flatten/dedup/generate).
+
+Not urgent; unblocks Aurora's P3 remainder (animation authoring UI reaching the ROM).
+NOTE: `object-bindings.json` is currently UNTRACKED in this repo — the consumer parcel
+decides tracked-vs-generated as part of the contract, don't let it linger untracked.
+
 ### 0. STREAMING ROOT-CAUSE ARC — **OPEN (owner-ruled 2026-08-19, diagnosis DONE)**
 The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 60: a tick costs
 **190,931 cycles of work against a 128,000-cycle frame**, so `frames_per_tick = ceil(1.49) = 2`.
