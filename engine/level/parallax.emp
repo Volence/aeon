@@ -43,7 +43,7 @@ use engine.effects.preset.{Effects_InstallPreset}
 // the WRONG fix is the tempting one: declaring a 0x6430 anchor in games/demo/map.toml
 // builds, and bakes a moment's placer fill into the placement contract for a section
 // that packs. A stale provisional is refrozen, never anchored around.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, parallax_mode_key}
+use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, parallax_mode_key}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
