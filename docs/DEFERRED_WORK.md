@@ -97,6 +97,15 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   hypothesis**: the old instrument's five top rows account for only 78.45% of a maxdiag
   frame, so every `work/tick` figure in this block is instrument-relative; the f/t figures
   (direct tick counts) stand. See the PROBE-MIGRATION entry below.
+- **The retake RAN the same day and the hypothesis SURVIVES**
+  (`docs/benchmarks/streaming/TICK-VARIANCE.md`): honest work/tick **112,897 — 15,103 UNDER
+  the 128,000 line**, three times the claimed margin, spread 0 over 3 boots. The
+  attribution hole never entered that figure (the close-out's formula built on the frame
+  TOTAL, not on a sum of rows). **The variance question is answered too:** 3 of 26 whole
+  ticks miss the frame, all three carrying an `S4LZ_DecompressDict` burst (25.7-48.9k cyc)
+  on the block-COLUMN crossing — one per 128 px, every 8 ticks; the row crossings are free
+  because their blocks are already staged. The f/t figures are the one thing that did NOT
+  reproduce: 1.069 here vs 1.192 there, on byte-identical ROM bytes.
 
 **PROBE MIGRATION to the validated oracle profiler — booked 2026-08-20, condition MET.**
 The corpus A/B passed (oracle main `8d10cc5`, evidence doc with CRC per row; reference row
@@ -107,10 +116,39 @@ every profiler-consuming probe hardcodes `oracle-old/linux-port/harness` and the
 shape (`parallax_cost_probe.py`, `engine_baseline_probe.py`, `raster_cost_probe.py`,
 `streaming_choke_probe.py`, + kin) — port them harness+row-shape+caveats (the per-frame
 30/31 division and hint-conflation caveats DISSOLVE on the new instrument; delete, don't
-carry). First workload on the new instrument (one run answers both): **the tick-variance
-spike hunt + the honest work/tick retake** — A/B doc §12 carries lift-ready 31-row perFrame
-tables, and `vintCycles` partitions tick-frames from lag-frames exactly (two interleaved
-series; averaging across them finds nothing). Riders from the A/B, THEIRS+OURS: (a) the 17
+carry).
+
+- **FIRST LEG LANDED 2026-08-20 (`measure/tick-variance`).** `tools/tick_variance_probe.py`
+  is the first probe on the new profiler and took the first workload — **the tick-variance
+  spike hunt + the honest work/tick retake, one run, both answered**
+  (`docs/benchmarks/streaming/TICK-VARIANCE.md`). Its control re-measures the A/B's pinned
+  reference row **on the A/B's own ROM** (crc `d22dda85`, recovered byte-identically from
+  sigil `7b46f075`'s golden — **no rebuild needed, and that recipe is reusable**) and
+  refuses to measure if it misses. **Reusable pieces for the remaining ports:** the
+  `Server` class (fresh `oracle-aether` per boot, `--symbols`, per-PID socket), the
+  `identity()` completeness check derived from the reply's own keys, the `sample()` note
+  that `run_frames(N)` yields `frameCount == N−1`, and the **prefix-differencing ladder**
+  that recovers per-frame per-routine rows (`perFrame[]` carries whole-frame totals only).
+- **Two instrument findings the next port MUST carry.** (1) `vintCycles` does NOT partition
+  tick-frames from lag-frames in general — it did at the corpus state and does NOT at
+  current master's maxdiag; read `Logic_Tick` at every frame boundary instead. (2)
+  Differencing INCLUSIVE `cyclesTotal` is not a per-frame quantity (a straddling
+  invocation's cost arrives in a lump: `GameState_OJZScroll_Update` reads 3,836 in one
+  frame and 149,104 — more than a whole frame — in the next). Per-frame work must be built
+  from `cyclesSelf`.
+- **STILL ON `oracle-old`, in rough order of next use:** `streaming_choke_probe.py`
+  (the fill's callee decomposition — the biggest consumer), `engine_baseline_probe.py`
+  (the §1 baselines every budget denominator cites), `parallax_cost_probe.py` (needs the
+  17-fixture installer, which is a second harness — see rider (a)),
+  `raster_cost_probe.py` (F0-F8 fixture encoder, same shape of problem). Porting the two
+  fixture-installing probes is strictly larger than porting the two reading probes.
+- **An unresolved cross-instrument delta, booked by the first leg:** on byte-identical ROM
+  bytes (crc `5be03175`) the old emulator runs **26** logic ticks per 31 frames at maxdiag
+  where the new one runs **29** (1.192 vs 1.069 f/t; idle 30 vs 31); the two agree exactly
+  at the corpus-era state (15 ticks). The divergence appears only where the tick sits close
+  to the frame boundary. Not resolved, not smoothed — TICK-VARIANCE §1.2.
+
+Riders from the A/B, THEIRS+OURS: (a) the 17
 walker fixtures were NOT re-driven — the two-regime curve is neither confirmed nor refuted
 (measurable leg agrees to 0.17%/invocation; out-of-sample gap +4.7% on a per-invocation
 denominator, vs WALKER-MODEL §6's +1.1% per-frame figure); (b) five ungated short routines

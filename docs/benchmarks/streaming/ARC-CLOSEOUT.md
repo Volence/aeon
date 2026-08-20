@@ -19,6 +19,7 @@ is a floor on a MEAN — a mean under the line is necessary, not sufficient. 5 o
 frames still spike past 128k and double up; the residual 0.192 frames/tick is
 **tick-to-tick VARIANCE, which nothing has yet measured**. That is the arc's named
 successor question, not a footnote (see "What remains").
+**Both halves are now MEASURED — see `TICK-VARIANCE.md` and the addendum below.**
 
 ## The ladder (all measured, several bookings corrected)
 
@@ -38,17 +39,22 @@ tier is inert on shipped content); "~600 cyc trailing fires" (232, one fire);
 
 ## What remains (booked, none blocking)
 
-1. **The variance question** — which ticks spike and why (fill bursts on row/column
-   crossings are the suspect). Needs per-tick distribution measurement; oracle's
-   perFrame[] profiler rows (shipped, awaiting corpus A/B) are the purpose-built
-   instrument. THE successor item.
+1. ~~**The variance question**~~ — **CLOSED 2026-08-20, `TICK-VARIANCE.md`.** The suspect
+   named here was right in half: it is a fill burst on the **column** crossing
+   (`S4LZ_DecompressDict`, 25.7-48.9k cyc, one per 128 px = every 8 ticks), and the ROW
+   crossings cost nothing like it because their blocks are already staged. What remains
+   open from that measurement: *why* the row side is covered (hypothesis only), and the
+   two emulators' tick-count divergence (§1.2).
 2. **F6 margins** — owner-parked; with the mean under the line its urgency dropped
    further. Revisit only if the variance work wants headroom.
 3. The arm-rewrite raster rider (~1,152 cyc/frame, off this path), the declined
    micro-levers, and the deferred capacity re-derivation — all in DEFERRED_WORK.
 4. Instrument migration: this arc ran on old oracle's ideal-cycle rows with three
    documented defects (20.6% preemption loss; 30/31 window lag; per-frame division).
-   The corpus A/B retires it.
+   The corpus A/B retires it. **First leg landed 2026-08-20:
+   `tools/tick_variance_probe.py` is on the new profiler and took this arc's retake;
+   `streaming_choke_probe.py`, `engine_baseline_probe.py`, `parallax_cost_probe.py` and
+   `raster_cost_probe.py` are still on `oracle-old` — see DEFERRED_WORK, PROBE MIGRATION.**
 
 ## Addendum 2026-08-20, hours after close: the corpus A/B landed — and revises the margin
 
@@ -70,6 +76,38 @@ What that means for the verdict above, stated precisely:
   both. One gift from the A/B for that run: `vintCycles` partitions tick-frames from
   lag-frames EXACTLY (15 high frames == 15 logic ticks at maxdiag), so the per-tick
   distribution is two interleaved series — averaging across them finds nothing.
+
+## Addendum 2026-08-20, same day: the retake RAN — hypothesis to measured verdict
+
+`docs/benchmarks/streaming/TICK-VARIANCE.md`, `tools/tick_variance_probe.py` on the new
+oracle's profiler, ROM crc `5be03175` (byte-identical to sigil `af2a4429`'s frozen golden,
+i.e. this close-out's own image), 3 boots, spread 0, control PASSED against the A/B's
+pinned reference row on the A/B's own ROM.
+
+- **THE MEAN IS UNDER THE LINE, and by more than the old instrument said.** Honest
+  work/tick = `(sampleCycles − VSync_Wait incl) / ticks` = **112,897 cyc, 15,103 UNDER
+  128,000 (88.2% of a frame)** — against the hypothesised 123,016 / 4,984. **The verdict
+  row above stands; its number is superseded.** The 21.55-point attribution hole never
+  entered it: the close-out's formula built on the frame TOTAL, not on a sum of rows, so
+  only `VSync_Wait`'s own row was exposed. The two instruments agree on the window's
+  total work to **2.4%**.
+- **`frames/tick` reads 1.069 here, not 1.192** (29 ticks in 31 frames, camera 464 px not
+  416) — on byte-identical ROM bytes, so it is the two emulators disagreeing about how
+  much work fits in a frame near the line, not the engine. Reported, NOT resolved; §1.2 of
+  TICK-VARIANCE.
+- **The variance question is ANSWERED.** 3 of 26 whole ticks fail to fit in a frame; all
+  three carry **25.7-48.9k cycles of `S4LZ_DecompressDict`** that no other tick in the
+  window carries, and `S4LZ_DecompressDict` runs in **exactly those 3 frames of 31**. The
+  cause is the block-column crossing: one per `BLOCK_TILE_SIZE` = 128 px of camera travel
+  = every 8 ticks at the follow ceiling. The four ROW-edge crossings claim the same 6
+  blocks and cost ~864 cyc/call because those blocks are already staged. The three
+  saturated frames run at **99.9 / 100.0 / 100.0%** of the 128,000-cycle frame with the
+  vsync spin collapsed to 70 cycles.
+- **stall at maxdiag: 2,216.3 cyc/frame, all of it the VBlank DMA drain** — flat across
+  the window, including the burst frames, so it is not part of the variance story.
+- The A/B's `vintCycles` partition **does not reproduce at this state** and must not be
+  used as a method: `Logic_Tick` read at every frame boundary is the ground truth
+  (TICK-VARIANCE §5.1).
 
 ## The method note
 
