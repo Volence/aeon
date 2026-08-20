@@ -74,7 +74,7 @@ def test_drift_check_names_a_registry_entry_the_body_dropped():
 # got killed twice on 2026-08-19.
 MAIN_ROM = b"/home/volence/sonic_hacks/aeon/s4.debug.bin"
 TREE_ROM = b"/home/volence/sonic_hacks/aeon/.claude/worktrees/agent-x/s4.debug.bin"
-GUI = b"/home/volence/sonic_hacks/oracle/linux-port/build/oracle_gui"
+GUI = b"/home/volence/sonic_hacks/oracle-old/linux-port/build/oracle_gui"
 
 
 def _argv(rom: bytes) -> list[bytes]:

@@ -44,7 +44,7 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   its profiler ships — cycle attribution (compare `cyclesSelf`, never inclusive).
   Client patterns: `tools/hblank_window_sweep.py`, `tools/sh_probe.py`. Assert
   `source == "raster"` on every scanline capture.
-- **old oracle** (headless harness at `oracle/linux-port/harness`): the profiler until
+- **old oracle** (headless harness at `oracle-old/linux-port/harness`): the profiler until
   oracle-next's lands. Per-routine rows ONLY (`interrupts.hint` sums both handlers);
   match addresses on the low 24 bits; attribution LOSES ~20% when a tick spans VBlank —
   rest conclusions on preemption-free evidence. Patterns: `tools/raster_cost_probe.py`,

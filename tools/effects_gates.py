@@ -90,7 +90,7 @@ from scene_spans import (capability_bits, expected_spans,  # noqa: E402
                          game_caps, lst_spans, lst_unpaired_spans)
 
 AEON = Path(__file__).resolve().parent.parent
-HARNESS = Path("/home/volence/sonic_hacks/oracle/linux-port/harness")
+HARNESS = Path("/home/volence/sonic_hacks/oracle-old/linux-port/harness")
 # The SPARSE-tier scenes: three anchor states of one patched two-channel schedule, all
 # asserted through derive_arms below.
 SCENES = ("mid_band", "suppressed", "above_screen")

@@ -82,7 +82,7 @@ from pathlib import Path
 AEON = Path(__file__).resolve().parent.parent
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
 sys.path.insert(0, str(AEON / "tools"))
-HARNESS = "/home/volence/sonic_hacks/oracle/linux-port/harness"
+HARNESS = "/home/volence/sonic_hacks/oracle-old/linux-port/harness"
 sys.path.insert(0, HARNESS)
 
 from aether import BusClient            # noqa: E402

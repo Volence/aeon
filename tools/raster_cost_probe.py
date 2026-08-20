@@ -52,7 +52,7 @@ import json
 import sys
 from pathlib import Path
 
-HARNESS = "/home/volence/sonic_hacks/oracle/linux-port/harness"
+HARNESS = "/home/volence/sonic_hacks/oracle-old/linux-port/harness"
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
 sys.path.insert(0, HARNESS)
 from aether import BusClient          # noqa: E402

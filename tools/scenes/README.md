@@ -13,7 +13,7 @@ different scenes returning the same `state_hash` is the tell. (`tools/effects_ga
 the path itself, so this bites hand runs only — it cost this parcel twenty minutes.)
 
 ```bash
-python3 /home/volence/sonic_hacks/oracle/linux-port/harness/ab_runner.py \
+python3 /home/volence/sonic_hacks/oracle-old/linux-port/harness/ab_runner.py \
   --old OLD.bin --new NEW.bin \
   --scene /home/volence/sonic_hacks/aeon/tools/scenes/effects_raster_suppressed.json \
   --out /tmp/abgate --selfcheck

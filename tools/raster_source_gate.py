@@ -56,7 +56,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
-sys.path.insert(0, "/home/volence/sonic_hacks/oracle/linux-port/harness")
+sys.path.insert(0, "/home/volence/sonic_hacks/oracle-old/linux-port/harness")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient                                   # noqa: E402
 from launcher import headless_emulator                         # noqa: E402
