@@ -7327,6 +7327,38 @@ otherwise copy: the per-line forcer is **1792 B, not the spec's 896**, and `.lp_
 **14 registers live, not "all 16"** (`a0` is spilled at proc entry and dormant), which is the
 stated justification for the curve∧deform prohibition.
 
+### P3 Task 2 — the HScroll ramp reader — ✅ CLOSED 2026-08-20 (`measure/p3-t2-hscroll-probe`)
+
+`tools/parallax_hscroll_probe.py` + 34 unit tests + `docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md`.
+Zero engine bytes on all four shapes. **§8.3's curve instrument now exists, and it went red
+before any curve did** — the arm hand-installs a quadratic HScroll bow (BG excursion +388 px,
+an order of magnitude outside the +-255 any signed-byte deform table can reach) and runs the
+same checker twice over the same RAM: RED against the shipped-derived expectation naming
+`line 2 FG: expected $FFA0 (-96) got $FF9F (-97)` of 434 mismatching words, then GREEN against
+the ramp's own. T10 inherits a detector with a fired-poison record instead of one written to
+agree with the mechanism it witnesses.
+
+Three facts a later task will otherwise rediscover:
+
+1. **The shadow band COUNT exists only in `d7`.** Step 4b makes the view one entry longer than
+   `pcfg_band_count` says and the entries below it are last frame's, so the fill's band
+   partition is underivable from RAM alone. The probe derives Step 4a + Step 4b in Python and
+   proves the derivation against `Parallax_Shadow_Bands` before it checks a single line. That
+   stage has already fired on its own account.
+2. **`run_frames` is not a sample point for anything the walker writes.** It returns on a video
+   frame boundary the main-loop tick is not aligned to, and a camera write lags the loop through
+   a full tile-cache re-stream. The first draft read the buffer MID-FILL and reported 90
+   mismatching BG words from line 70 — lines 0..69 on the new deform phase, 70..223 on the old.
+   Every sample is now taken stopped at `Parallax_Update`'s entry.
+3. **Two breakpoint traps sit behind that.** A breakpoint at the PC you are already stopped at
+   re-triggers instantly (24 sweep iterations ran against one frozen tick), and
+   `wait_for_break` can return on a stop that is not yours (6 of 24 samples landed mid-tick).
+   Step off the PC before arming, and verify the stop PC.
+
+Baseline the curve task moves off, from the shipped `ParallaxConfig_OJZ_Underwater`: FG interior
+first differences identically 0; BG max |d1| = 1, max |d2| = 2, entirely the shimmer table at
+shift 2 below the anchored split.
+
 **What P3 does to the two BLOCKED items above:**
 
 - **Task 12's blocker (b) — no measured transition-frame reservation — is CLOSED BY P3 Task 3.**

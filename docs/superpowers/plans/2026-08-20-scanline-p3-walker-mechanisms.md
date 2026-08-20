@@ -209,7 +209,7 @@ git commit -m "measure(p3): the anchored overlay's second regime — the 2x2 tha
 
 ---
 
-## Task 2: The HScroll-buffer ramp instrument — built before curves exist
+## Task 2: The HScroll-buffer ramp instrument — built before curves exist — ✅ DONE 2026-08-20
 
 **Why:** design §8.3's named instrument for curves is "after `Parallax_Update` on a pinned
 camera state, read the HScroll buffer RAM and compare every line word in the curve span
@@ -221,21 +221,21 @@ a tool written to agree with it.
 - Create: `tools/parallax_hscroll_probe.py`
 - Create: `docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md`
 
-- [ ] **Step 1: Read and check the buffer against a ramp the tool DERIVES**
+- [x] **Step 1: Read and check the buffer against a ramp the tool DERIVES**
 
 `Hscroll_Buffer` is `[u8; 896]` at `engine/ram.emp:270` — 224 lines × 4 bytes, FG word then BG
 word. The expectation is computed from the fixture's own factors and layer height by the same
 arithmetic the lowering will use, **never read off a neighbouring line or off the ROM**. Two
 gate expectations copied from a nearby pin would have passed incorrect code twice in this tree.
 
-- [ ] **Step 2: Prove it red BEFORE any curve exists, against a hand-installed RAM ramp**
+- [x] **Step 2: Prove it red BEFORE any curve exists, against a hand-installed RAM ramp**
 
 This is the whole point of the ordering. Write a synthetic ramp into `Hscroll_Buffer` through
 the emulator's memory surface with the camera frozen, run the checker against a DIFFERENT
 expected ramp, and confirm it fails naming the first mismatching line. Then run it against the
 matching ramp and confirm it passes. **A checker that has never gone red is not an instrument.**
 
-- [ ] **Step 3: Add the moving-camera arm**
+- [x] **Step 3: Add the moving-camera arm**
 
 §8.3 says "repeat across a camera sweep (moving-camera requirement)" for a reason recorded in
 memory: at-rest captures hide scroll artifacts. But the walker's cost arithmetic requires a
@@ -245,7 +245,7 @@ separate**: a frozen-camera arm for value checking at N pinned camera positions,
 writing `Camera_X`/`Camera_Y` between frames rather than by holding a direction; and a
 free-running arm that only asserts monotonicity/continuity, never a cycle count.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tools/parallax_hscroll_probe.py docs/benchmarks/scanline-p3/CURVE-INSTRUMENT.md
