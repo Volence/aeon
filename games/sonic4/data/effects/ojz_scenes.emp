@@ -154,6 +154,44 @@ pub const Scene_OJZ_Underwater: Scene = scene(
     layer_mask_raw: $1F)
 
 // =====================================================================
+// Scene_VSplitWitness — P3 TASK 11's ACCEPTANCE PROOF, and NOT CONTENT.
+//
+// It is not in the registry, nothing installs it, and it must not acquire a section binding:
+// adopting visible vertical depth on a shipped OJZ scene is owner territory (the Parcel D
+// content pass), and this parcel's surface is the MECHANISM. What this scene exists to do is
+// make the mechanism falsifiable — it is the scene whose lowering, in
+// data/effects/ojz_effects.emp, is compared WORD FOR WORD against the hand-authored
+// `OJZ_VSRAM_HAND` program that has been in the tree since Parcel C1. The two must be
+// identical, because the lowering is supposed to add no encoder of its own: it calls the same
+// `fx_vscroll_split` the hand site calls. A divergence at any word means a second mechanism
+// grew, which is the one thing Task 11 is forbidden to do.
+//
+// WHY IT REPRODUCES THAT PARTICULAR PROGRAM. `OJZ_TestVsram` is the shipped VSRAM fixture:
+// one fire, screen line 112, Plane-B scroll $0043, and the program whose LANDING was measured
+// at N+1 on the emulator (docs/benchmarks/effects-p3/GATE-EVIDENCE.md — first differing pixel
+// row exactly 112). Re-expressing it means the landing evidence carries over by byte identity
+// rather than by analogy, which is why the witness's top is 112 and its offset $0043 and not
+// two numbers chosen for their own sake. If either fixture constant ever moves, the pins in
+// ojz_effects.emp fail loudly and this scene is what gets re-tuned.
+//
+// THE SHAPE IS THE MINIMUM THAT IS ALSO WELL-FORMED. Two layers, because band 0's top must be
+// 0 (Step 4a's search requires ascending tops starting at the plane origin) and the split
+// belongs to the SECOND layer's top — the same regional split SkyHaze authors at 112. Locked
+// plane (v_factor 15) and v_offset 0, because those are the scenes the two-writer ruling
+// leaves legal, and under them scene_vsplit_line() is the identity: authored top 112 IS
+// screen line 112.
+//
+// ZERO BYTES. A Scene is comptime-only; this const emits nothing, in any shape.
+// =====================================================================
+pub const Scene_VSplitWitness: Scene = scene(
+    layers: [ layer(world_y: 0,   fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 15),
+              layer(world_y: 112, fa: FACTOR_1, fb: FACTOR_1_4, dsa: 15, dsb: 15,
+                    vsplit: SceneVSplit.At($0043)),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15, v_center: 0, v_offset: 0)
+
+// =====================================================================
 // OJZ_Windy — configs.emp:150-154. One layer, whole plane B at full sine amplitude.
 // BG factor 1/4 matches SkyHaze so a Sec0<->Sec1 transition lerps only the deform
 // amplitude. layer_mask $01 DERIVES from the single enabled layer — no bridge.

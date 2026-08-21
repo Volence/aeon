@@ -25,6 +25,12 @@ WHAT IT RUNS
      the only gate that observes the handler interpreting them, by breaking inside the region op
      and reading the source pointer it computed. A build that encodes an offset correctly and
      streams from the wrong base passes every other gate here.
+  4c. vscroll-split landing and precedence — `vsplit_landing_gate`, P3 Task 11. The gate on
+     the OTHER two-writer question: Plane B's vertical scroll word is written in VBlank and
+     again mid-frame by a raster fire, and the scene model can now author that collision. Two
+     fixtures differing only in their split line must produce one contiguous band of disagreement
+     between the two lines, starting at the landing row and closing again below the second —
+     which is the N+1 landing model and the precedence ruling in one measurement.
   4b. palette variant derive vs its comptime MIRROR — `palette_variant_gate`, the B2 gate.
      `palette_dsl.emp` models the derive and pins that model with `ensure()` vectors, and
      `palette.emp` used to tell the reader the asm was therefore "build-time checked". It was
@@ -147,6 +153,13 @@ def gate_registry() -> list[tuple[str, bool, int]]:
     reg += [
         ("raster_off", True, GATE_EMU_BUDGET),
         ("raster_source", True, GATE_EMU_BUDGET),
+        # vsplit_landing is raster_source's sibling one layer out: raster_source observes the
+        # handler INTERPRETING an op, this observes the RENDERED CONSEQUENCE of one — which
+        # row the write governs and which row the VBlank writer still owns. It boots
+        # oracle-aether rather than oracle_gui (it needs `emulator/scanlines`, the only pixel
+        # readback with a `source` field), so `oracle_pids_for` cannot reap its processes; it
+        # manages its own through the Server context manager, four short runs.
+        ("vsplit_landing", True, GATE_EMU_BUDGET),
         ("palette_variant", True, GATE_EMU_BUDGET),
         ("snapshot_poison", True, GATE_EMU_BUDGET),
         # warp_mailbox is not an EFFECTS gate; it rides this lane because this is the
@@ -603,6 +616,13 @@ def main() -> int:
         ok, msg = run(["python3", str(AEON / "tools/raster_source_gate.py"),
                        "--rom", rom, "--lst", lst], "raster_source")
         results.append(("raster_source (handler streams from the encoded address)", ok, msg))
+
+    if wanted("vsplit_landing"):
+        ok, msg = run(["python3", str(AEON / "tools/vsplit_landing_gate.py"),
+                       "--rom", rom, "--lst", lst], "vsplit_landing")
+        results.append(("vsplit_landing (the two-writer ruling: the mid-frame split governs "
+                        "from its landing row down, the VBlank writer keeps the rows above)",
+                        ok, msg))
 
     if wanted("palette_variant"):
         ok, msg = run(["python3", str(AEON / "tools/palette_variant_gate.py"),

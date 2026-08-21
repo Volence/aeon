@@ -7816,3 +7816,31 @@ Aurora's analysis assumed the cells could be written at the reset-paused machine
 against the earlier assumption it will silently boot at the authored start** — the failure is
 a no-op, not an error, which is exactly the shape that goes unnoticed. Worth an explicit
 handshake with the aurora session rather than a doc update alone.
+
+## Axis 4b (`check_hint_total`) has no reachable subject in the sparse tier (found 2026-08-20, P3 Task 11)
+
+`raster_program()` sums `fire_cost_cycles` over a program's fires and refuses a total above
+`RASTER_HINT_FRAME_CYC - RASTER_HINT_RESERVATION_CYC` = 84,595 cycles. **No program it accepts
+can reach that number**, so the ensure has never been able to fire and is not the protection a
+reader takes it for. Two guards dominate it, both measured while proving Task 11's lowered fire
+is counted there:
+
+* **`check_density`** requires `cost_i <= gap_i * RASTER_SCANLINE_CYC` (488). The cheapest fire
+  class measures ~320 model cycles at one line of gap and the dearest classes cost more per line
+  they occupy, so the most an all-sparse program can spend across screen lines 3..223 is about
+  `320 x 221 = 70,720` — 84% of the budget, and that is the ceiling, not a typical figure.
+* **`RASTER_BUF_SIZE`** (128 bytes = 64 words) refuses the LENGTH long before the cost. Measured:
+  a 205-fire pad failed with `raster_program: 827 words = 1654 bytes exceeds RASTER_BUF_SIZE
+  (128)` while `check_hint_total` passed on the same program.
+
+What IS true, and was the thing Task 11 owed: a lowered `fx_vscroll_split` fire is summed there
+like any other (with the reservation temporarily shrunk so the ensure fires: 2 fires / 640 cyc
+without it, 3 fires / 1264 with it — delta 624, the same total the tree reports for
+`OJZ_TestVsram` itself). The model is right; only its ceiling is unreachable.
+
+**Not fixed here, deliberately.** The options are a budget-model decision rather than a parcel's
+— price the DENSE tier through the same total (a gradient run is many fires inside one
+interrupt and is where a per-frame HInt budget would actually bind), or re-derive the
+reservation against what the sparse tier can physically spend, or state in the guard that it is
+a model kept for the dense tier and let the two structural guards own the sparse one. Whoever
+takes it should read `docs/benchmarks/scanline-p3/VSPLIT.md` §7 for the measurements.

@@ -69,6 +69,16 @@ use engine.effects.preset.{EffectsPreset, preset}
 // data/parallax/configs.emp.
 use games.sonic4.scene_registry
 use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Underwater}
+// P3 TASK 11 — the scene-lowering equivalence proof below needs TWO things, and they are two
+// different axes of the same rule. The WITNESS SCENE is a const, and an imported const's
+// initializer re-evaluates in THIS module's scope (Task 5's probe finding), so every name
+// `scene(layer(..), no_layer())` spells has to resolve here; the LOWERING is a function, and a
+// comptime fn's free names resolve at the CALL SITE. engine.level.scene_dsl is NOT a sigil
+// COMPTIME_HELPERS member, so neither travels on its own — hence the glob, which is mandatory
+// for scene_dsl and is documented as such at the top of that file. (parallax_dsl IS a helper
+// member, so FACTOR_* is already ambient and needs no line here.)
+use games.sonic4.ojz_scenes.{Scene_VSplitWitness}
+use engine.level.scene_dsl.*
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
 // is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base
@@ -531,6 +541,38 @@ ensure(raster_words(OJZ_VSRAM_VIA_PRESET) == raster_words(OJZ_VSRAM_PROG),
        "preset path emits {raster_words(OJZ_VSRAM_VIA_PRESET)} words, hand-authored is {raster_words(OJZ_VSRAM_PROG)}")
 ensure(first_mismatch(raster_program(OJZ_VSRAM_VIA_PRESET), raster_program(OJZ_VSRAM_PROG)) == -1,
        "preset path diverges from the hand-authored program at word {first_mismatch(raster_program(OJZ_VSRAM_VIA_PRESET), raster_program(OJZ_VSRAM_PROG))}")
+
+// SCENE-LOWERING EQUIVALENCE PROOF (P3 Task 11) — the same standard, one layer up.
+//
+// Parcel C1 proved the PRESET path reproduces the hand-authored words. This proves the SCENE
+// path does: `layer(vsplit: SceneVSplit.At(..))` on a locked scene, lowered by
+// scene_vsplit_fires(), must emit the identical program. That is the acceptance criterion for
+// Task 11's central claim — the lowering adds NO second mechanism — and it is checkable only
+// as byte identity: a lowering that had grown its own encoder, its own line arithmetic or its
+// own spin could still produce a plausible VSRAM program, and only a word-for-word comparison
+// against the twin says it did not.
+//
+// AGAINST THE HAND WORDS, NOT AGAINST THE PRESET. `OJZ_VSRAM_HAND` is derived from the wire
+// format by hand and shares no symbol with the encoder, so comparing against it tests the
+// whole chain (scene attachment -> screen line -> fx_vscroll_split -> fire -> program words).
+// Comparing against `raster_program(OJZ_VSRAM_PROG)` would test one link fewer.
+//
+// THE LENGTH CHECK IS REQUIRED, NOT BELT-AND-BRACES: first_mismatch walks only its FIRST
+// argument's indices and returns -1 whenever that argument is a PREFIX of the second (the same
+// note the preset proof above carries).
+//
+// This is a `const`, so it emits nothing — the proof costs zero ROM bytes, in all four shapes.
+const OJZ_VSRAM_VIA_SCENE = scene_vsplit_fires(Scene_VSplitWitness)
+ensure(raster_words(OJZ_VSRAM_VIA_SCENE) == OJZ_VSRAM_HAND.len,
+       "scene lowering emits {raster_words(OJZ_VSRAM_VIA_SCENE)} words, the hand-authored program is {OJZ_VSRAM_HAND.len} — Scene_VSplitWitness (games/sonic4/data/effects/ojz_scenes.emp) is supposed to re-express OJZ_TestVsram exactly")
+ensure(first_mismatch(raster_program(OJZ_VSRAM_VIA_SCENE), OJZ_VSRAM_HAND) == -1,
+       "scene lowering diverges from the hand-authored words at index {first_mismatch(raster_program(OJZ_VSRAM_VIA_SCENE), OJZ_VSRAM_HAND)} — the per-layer vsplit attachment must lower THROUGH fx_vscroll_split, not beside it. Either Scene_VSplitWitness no longer names OJZ_VSRAM_LINE ({OJZ_VSRAM_LINE}) / OJZ_VSRAM_OFFSET ({OJZ_VSRAM_OFFSET}), or the lowering grew an encoder of its own")
+// AND THE MASK, for the reason the hand fixture's own mask ensure gives: a VSRAM op must
+// dirty no palette line. Asserted on the LOWERED program because op_mask is reached through
+// a different path here (the fold's fires rather than a literal list), and a mask of 1 would
+// re-assert CRAM line 0 — the character's — every frame.
+ensure(raster_program(OJZ_VSRAM_VIA_SCENE)[0] == 0,
+       "scene lowering: pal_dirty_mask is {raster_program(OJZ_VSRAM_VIA_SCENE)[0]}, not 0 — a VSRAM op must dirty no palette line")
 
 // ===========================================================================
 // RAMP GATE FIXTURE — the first COMPUTED per-line raster values in this engine.
