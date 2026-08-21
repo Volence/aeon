@@ -27,3 +27,13 @@ self-time attributed by caller (`TICK-VARIANCE.md`'s successor instrument).
 Also acknowledged from their recon: caller accounting is per-call not per-instruction
 (our "nearly free" read verified), and a root frame's `callerAddr` may be mid-routine —
 the contract text says so.
+
+## Adjudicated 2026-08-21 — ADOPT WITH CHANGES, accepted
+
+Oracle ruling `docs/2026-08-21-ruling-cr28.md` (their `52ddf03`). The tuple GREW (undivided
+cycle partners folded in so both normative sums gate with `==`); per-edge stall stays BARRED.
+The one departure from this anchor: `entryKind` is `"hint" | "vint" | "root" | "depthCap"`
+— finer than the requested `"interrupt"`, joined to the profiler's cause-keyed bucket
+naming. **Accepted by the demand side**: it honours and exceeds the stated floor, and the
+VBlank-entered-vs-HBlank-entered distinction is precisely what the streaming consumer
+branches on. This anchor stands as history; the ruling governs the shape.
