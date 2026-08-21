@@ -19,7 +19,7 @@
 module engine.level.scene_dsl
 
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N, CURVE_FLAG_OP_BIT, CURVE_FLAG_ACTIVE_BIT, PLANE_B_SPAN, BAND_OP_BIT_A, BAND_OP_BIT_B}
 use engine.constants.{MAX_PARALLAX_BANDS, PARALLAX_ANCHOR_NONE}
 use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 
@@ -59,6 +59,11 @@ ensure(RASTER_MAX_PATCH == 4, "scene_dsl's inlined patch-channel width (4) drift
 // coordinate space, not of the walker.
 ensure(PLANE_B_SPAN == 512, "scene_dsl's inlined Plane-B span (512) drifted from engine.parallax.PLANE_B_SPAN — scene_plane_line()'s range guard and Step 4a's rotation modulus must be the same number")
 ensure(BAND_OP_BIT_A == 0 && BAND_OP_BIT_B == 1, "scene_dsl's inlined band factor-op bit positions (0, 1) drifted from engine.parallax.BAND_OP_BIT_A/B — scene_band() packs the two flags into band_factor_ops and Decode_Factor_A/B btst them back out")
+// P3 Task 10 adds two of the same species. scene_band() spells the curve tail's flag bits
+// as 1 and 2 for the reason above — a name imported HERE resolves to nothing inside a body
+// a GAME module elaborates — and these hold those two literals to parallax's own bit
+// numbers, which Decode_Factor_Curve and the fill's band hoist btst back out.
+ensure(CURVE_FLAG_OP_BIT == 0 && CURVE_FLAG_ACTIVE_BIT == 1, "scene_dsl's inlined curve flag bit positions (0, 1) drifted from engine.parallax.CURVE_FLAG_OP_BIT / CURVE_FLAG_ACTIVE_BIT — scene_band() packs both into band_curve.bc_flags and the runtime btsts them back out")
 
 // LAYER_WORLD_Y_MAX — the engine-wide ceiling on an act's vertical extent, and the bound
 // `layer()` replaced its `world_y < 512` with. It is NOT a parallax number and NOT a
@@ -113,8 +118,20 @@ pub const LAYER_WORLD_Y_MAX = $8000
 // bracket's own witness is the capability-raised instrument build recorded in
 // docs/benchmarks/scanline-p3/DEFORM-OWN.md, where both labels appear in the listing.
 //
-// FOR CAP_FACTOR_CURVE THE ORIGINAL READING STANDS: if that bit is still showing the row
-// after Task 10, the lowering did not happen.
+// P3 TASK 10 UPDATE — AND THE ORIGINAL READING FOR CAP_FACTOR_CURVE IS NOW WRONG IN THE
+// SAME WAY. This block used to say "if that bit is still showing the row after Task 10, the
+// lowering did not happen". It landed, and the row still says NOT GATED ANYWHERE, for the
+// reason above: the bit has a lowering (`curve: SceneCurve.To(..)`) and THREE bracketed code
+// sites (`cap_factor_curve_hoist` and `cap_factor_curve_split` in Parallax_Step4_Fill,
+// `cap_factor_curve_band` in Parallax_Fill_PerLine), and neither shipped game raises it —
+// adopting a ramping factor on a shipped scene is owner-gated, and it moves every ROM image.
+// The bracket's own witness is the capability-raised instrument build recorded in
+// docs/benchmarks/scanline-p3/CURVES.md, where all three span pairs appear in the listing.
+//
+// THE GENERAL RULE, now that both P3 bits have hit it: this row is a statement about
+// ADOPTION, never about whether a lowering exists. A bit with no lowering and a bit with a
+// lowering nobody uses produce the SAME row, and the lane cannot tell them apart, because a
+// comptime-elided span is absent from the listing either way.
 //
 // ---- THE BRACKETING-LABEL EMISSION CONVENTION (P2 §3.3 / §8.2) ----
 //
@@ -214,6 +231,38 @@ pub comptime enum SceneAnchor {
     At(int, int, int),          // (patch channel, anchored dsa, anchored dsb)
 }
 
+// SceneCurve — design §2's `curve(from, to)` on a BG scroll factor (P3 Task 10).
+//
+//   None      the BG factor holds for the whole layer. Every shipped layer.
+//   To(fb2)   the effective Plane-B scroll RAMPS across the layer, from the layer's own
+//             `fb` at its top to `fb2` at its bottom. Trips CAP_FACTOR_CURVE.
+//
+// WHY THE VARIANT CARRIES ONLY THE FAR END, when the design names the mechanism
+// `curve(from, to)`. `from` IS the layer's `fb` argument — the packed factor already in
+// the band record's legacy prefix, still the band's camera-tracked base scroll, still
+// decoded by Decode_Factor_B exactly as it is for a flat layer. Design §2 is explicit that
+// the base term is PRESERVED and the curve is an additive delta over it, so authoring
+// `from` a second time inside the payload would be two sources for one record byte — the
+// drift `layer()`'s own() guards were written to refuse (P3 Task 9). The spelling is
+// therefore `layer(fb: <from>, curve: SceneCurve.To(<to>))`, one source per value.
+//
+// BG ONLY, and that is the design's word, not a simplification: "A BG factor may be a
+// curve(from, to)". Plane A is hard-locked to the camera (`-Camera_X`, never lerped —
+// parallax.emp's band loop says why: any FG offset drags the plane-wrap seam on screen),
+// so a ramping FG factor is not a thing this engine can express at all.
+//
+// A LAYER MAY HAVE A CURVE OR A DEFORM REF, NOT BOTH (design §2), and `layer()` refuses the
+// combination — see the guards there for the MEASURED register argument, which is not the
+// one the design doc states.
+//
+// NEVER A `0` SENTINEL. "Is this layer a curve?" is `scene_curve_is_none()`, a VARIANT
+// test, for the reason SceneDeform's banner gives: 0 is a legal packed factor field value
+// and a payload can never be the discriminator.
+pub comptime enum SceneCurve {
+    None,
+    To(int),                    // packed FACTOR_* the BG factor ramps TO at the layer bottom
+}
+
 // ---- lowering-tier and transition selectors ----
 pub const PRECISION_CELL = 0    // band tops land on 8-px plane cells (P1 tier)
 pub const PRECISION_LINE = 1    // per-line band tops (reserved: P2+)
@@ -280,6 +329,11 @@ pub struct SceneLayer {
     // the table and speed lower into band_ext, the shifts and phase into the legacy
     // prefix fields above.
     ly_deform:   SceneDeform,
+    // P3 TASK 10 — the BG scroll factor's optional ramp. `None` = `ly_fb` holds for the
+    // whole layer (every shipped layer); `To(fb2)` ramps from `ly_fb` to `fb2` across the
+    // layer and is the ONLY thing that raises CAP_FACTOR_CURVE. Comptime-only like the
+    // rest of this struct: it lowers into band_curve's two factor bytes and its flags.
+    ly_curve:    SceneCurve,
 }
 
 // -----------------------------------------------
@@ -311,7 +365,8 @@ pub struct SceneLayer {
 // -----------------------------------------------
 pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 15,
                       phase: int = 0, enabled: int = 1,
-                      deform: SceneDeform = SceneDeform.None) -> SceneLayer {
+                      deform: SceneDeform = SceneDeform.None,
+                      curve: SceneCurve = SceneCurve.None) -> SceneLayer {
     // $8000 is inlined per the pin block at the top of this file (LAYER_WORLD_Y_MAX).
     ensure(world_y >= 0 && world_y < $8000,
            "layer(): world_y {world_y} is outside the engine's act-axis span (0 .. $8000). Every act descriptor asserts (GRID_H << SECTION_SIZE_SHIFT) <= $8000 and the camera's world coordinates are signed words, so a top above it names a Y the camera can never reach. NOTE this is the ENGINE-WIDE ceiling: the tight bound is this game's own act span and it is checked at the registry by assert_act_relative_tagged()")
@@ -358,9 +413,56 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     let eff_dsa   = if is_own == 1 { own_sa } else { dsa }
     let eff_dsb   = if is_own == 1 { own_sb } else { dsb }
     let eff_phase = if is_own == 1 { own_ph } else { phase }
+    // ---- P3 TASK 10: the curve, and its four guards ----
+    //
+    // (1) CURVE ∧ DEFORM IS REFUSED PER LAYER (design §2), AND THE DESIGN'S STATED REASON
+    //     IS NOT THE MEASURED ONE. §2 says "the fill loop's register file is exhausted
+    //     (verified: .lp_both uses all 16)". `.lp_both` uses FOURTEEN — d0-d7 and a1-a6.
+    //     a0 is spilled at the proc's entry `movem.l a0/d7,-(sp)` and is dormant in that
+    //     loop (the two single-channel loops DO use it, as their curve walk pointer since
+    //     the unroll parcel); a7 only brackets the proc. So "all 16" is checkably false and
+    //     a guard resting on it would be deleted by the next reader.
+    //
+    //     THE REAL POSITION IS THE CURVE LOOP'S OWN ALLOCATION, measured against
+    //     `.lp_curve` as built (parallax.emp): it spends SEVEN data registers — the
+    //     accumulator, the whole step, the Bresenham remainder and error, the span
+    //     modulus, the constant FG word and the line index — plus a4 (output cursor) and
+    //     a0 (output end), with d7 carrying the band countdown. That is every data
+    //     register. Sampling either channel additionally needs a phase base, an amplitude
+    //     shift and a sample scratch: three more against zero free. The combination is a
+    //     §9 future needing a measured re-allocation, exactly as the design says — for a
+    //     reason a reader can check.
+    let is_curve = 1 - scene_curve_is_none(curve)
+    ensure(is_curve == 0 || (eff_dsa == 15 && eff_dsb == 15),
+           "layer(): this layer authors BOTH a curve and a live deform amplitude (dsa {eff_dsa} / dsb {eff_dsb}; 15 is the no-deform sentinel). Design §2 forbids curve AND deform on one layer: the fill's curve loop already spends all seven usable data registers (accumulator, whole step, Bresenham remainder and error, span modulus, constant FG word, line index) plus two address registers, and a sampled channel needs three more. Give the deform to a different layer, or drop the curve")
+    // (2) A curve layer may not carry a per-layer deform TABLE either. Implied by (1) —
+    //     layer() already refuses an own() whose two shifts are both 15 — but spelled
+    //     separately so the diagnostic names the attachment the author actually wrote
+    //     rather than the amplitude it folded into.
+    ensure(is_curve == 0 || is_own == 0,
+           "layer(): this layer authors both `curve:` and `deform: Own(..)`. Design §2 forbids curve ∧ deform on one layer (see the register argument at the guard above), and an own() table that nothing samples is refused in its own right")
+    // (3) THE FAR-END FACTOR IS A PACKED FACTOR_*, RANGE-CHECKED AS ONE. It lowers to
+    //     band_curve's two shift bytes plus an op bit, and Decode_Factor_Curve reads them
+    //     with the same `cmpi.b #15` sentinels Decode_Factor_A/B use — so a value outside
+    //     the 9-bit encoding does not fail, it silently decodes as some other factor.
+    let curve_to = scene_curve_to(curve)
+    ensure(is_curve == 0 || (curve_to >= 0 && curve_to <= $1FF),
+           "layer(): curve: To({curve_to}) is not a packed FACTOR_* — the encoding is 9 bits (bits 0-3 shift1, 4-7 shift2, bit 8 op) and a wider value silently truncates into a different factor. Use the FACTOR_* names from engine/level/parallax_dsl.emp")
+    // (4) A CURVE THAT RAMPS NOWHERE IS NOT A CURVE, IT IS A MISTAKE — the same shape as
+    //     own()'s both-shifts-15 guard, and for the same reason: it costs a band_curve tail
+    //     in every band of the game, a per-frame divide, and a per-line Bresenham loop, to
+    //     emit the identical words `.lp_flat` would have broadcast.
+    ensure(is_curve == 0 || curve_to != fb,
+           "layer(): curve: To({curve_to}) is the same factor as this layer's fb, so the ramp's two ends are equal and the emitted HScroll is byte-identical to the flat path. A curve costs a band_curve tail in EVERY band of the game plus a per-frame divide and a per-line accumulate; drop the curve, or ramp to a different factor")
+    // (5) A DORMANT LAYER'S BAND INHERITS THE PREVIOUS BAND'S SCROLL WORDS (the walker's
+    //     `.band_disabled` arm), so its base is not its own factor and a ramp from it means
+    //     nothing — while the runtime would still take the curve loop, because the tail's
+    //     active bit is authored, not derived from the mask.
+    ensure(is_curve == 0 || enabled != 0,
+           "layer(): a dormant layer (enabled: 0) may not carry a curve — a disabled band inherits the PREVIOUS band's scroll words instead of decoding its own factor, so there is no base for the ramp to be a delta over, yet the fill would still run the curve loop for it")
     return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: eff_dsa,
                        ly_dsb: eff_dsb, ly_phase: eff_phase, ly_enabled: enabled,
-                       ly_deform: deform }
+                       ly_deform: deform, ly_curve: curve }
 }
 
 // no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 8] (a
@@ -374,7 +476,7 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
 pub comptime fn no_layer() -> SceneLayer {
     return SceneLayer{ ly_world_y: 0, ly_fa: 0, ly_fb: 0, ly_dsa: 15,
                        ly_dsb: 15, ly_phase: 0, ly_enabled: 0,
-                       ly_deform: SceneDeform.None }
+                       ly_deform: SceneDeform.None, ly_curve: SceneCurve.None }
 }
 
 // derived_mask — the layer mask the model implies: bit i per enabled layer below count.
@@ -412,6 +514,27 @@ pub comptime fn derived_own(layers: [SceneLayer; 8], count: int) -> int {
     for i in 0..count {
         let l = layers[i]
         if scene_deform_is_own(l.ly_deform) == 1 {
+            any = 1
+        }
+    }
+    return any
+}
+
+// derived_curve — does ANY real layer ramp its BG factor? (P3 Task 10.)
+//
+// SHARED BY scene(), scene_caps() AND scene_forces_per_line() FOR derived_own()'s REASON:
+// three copies of this walk could drift into a scene the guard approves, the fold
+// classifies one way and the forcer another — a config whose runtime mode key and record
+// shape disagree, which is the twin-key desync the single forcer derivation exists to make
+// impossible. Takes the ARRAY, because scene() has no Scene yet when it needs this.
+//
+// STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_curve is None anyway.
+pub comptime fn derived_curve(layers: [SceneLayer; 8], count: int) -> int {
+    comptime var any = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    for i in 0..count {
+        let l = layers[i]
+        if scene_curve_is_none(l.ly_curve) == 0 {
             any = 1
         }
     }
@@ -502,6 +625,26 @@ pub comptime fn scene_deform_own_phase(d: SceneDeform) -> int {
         None                          => 0,
         Shared(tbl, speed)            => 0,
         Own(tbl, sa, sb, ph, sp)      => ph,
+    }
+}
+
+// THE CURVE QUESTION, asked of the VARIANT (P3 Task 10). 1 when the layer's BG factor
+// holds for the whole layer — i.e. when the band lowers with the curve tail inert.
+pub comptime fn scene_curve_is_none(c: SceneCurve) -> int {
+    return match c {
+        None      => 1,
+        To(fb2)   => 0,
+    }
+}
+// The far-end packed factor. The None arm returns $0FF = FACTOR_LOCKED (s1 15, s2 15,
+// op 0), which is the packed encoding of "no scroll at all" — an inert value for the two
+// ROM bytes of a band whose curve-active bit is clear and which the runtime never reads.
+// Returning 0 instead would put s1 = 0 (= camX, the FASTEST factor) in a field a future
+// reader might trust, which is the worse inert value to pick.
+pub comptime fn scene_curve_to(c: SceneCurve) -> int {
+    return match c {
+        None      => $0FF,
+        To(fb2)   => fb2,
     }
 }
 
@@ -730,6 +873,34 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     }
     ensure(any_own == 0 || any_scene_table == 1,
            "scene(): a layer attaches deform: Own(..) but this scene attaches NO plane-shared table on either plane. own() OVERRIDES the scene's table for one layer; it cannot be the only table, because the runtime mode key (parallax_mode_key) reads the config's two HEADER table words and cannot see the bands — with both header words null it would answer per-cell while the lowering answered per-line, which is the twin-key desync the single forcer derivation exists to make impossible. Attach the plane-shared table the other layers sample (deform_fg:/deform_bg: SceneDeform.Shared(..))")
+    // ---- P3 TASK 10: the one scene-level guard on curves ----
+    //
+    // THE ANCHORED OVERLAY WRITES DEFORM SHIFTS INTO BANDS IT DOES NOT OWN, and that is
+    // what makes this a SCENE-level question rather than a layer-level one. Step 4b
+    // overrides `band_deform_shift_a/b` with pcfg_anchor_dsa/dsb in EVERY band from the
+    // split down — so an anchored scene with live anchor shifts turns deform on for bands
+    // whose layer authored none, and a curve layer down there would become curve ∧ deform
+    // at RUNTIME, past every comptime guard. The fill resolves the collision by testing the
+    // curve first (a curve band never samples), which would silently drop the anchor's
+    // deform on exactly those rows. Refusing the combination is the honest half.
+    //
+    // CURVES AND ANCHORS STILL COMPOSE — with a PURE-BOUNDARY anchor (both shifts 15),
+    // which is design §2's own case: "an anchor split inside a curve layer CONTINUES the
+    // curve". That path is live, and the continuation is a real mechanism rather than a
+    // tautology: without it the split would re-parametrise the ramp at the boundary. See
+    // parallax.emp's CURVE_FLAG_CONT_BIT.
+    let any_curve = derived_curve(layers, count)
+    comptime var anchor_amp = 0
+    if anchor_ch != $FF {
+        if scene_anchor_dsa(anchor) != 15 {
+            anchor_amp = 1
+        }
+        if scene_anchor_dsb(anchor) != 15 {
+            anchor_amp = 1
+        }
+    }
+    ensure(any_curve == 0 || anchor_amp == 0,
+           "scene(): this scene carries a curve layer AND an anchor with live deform shifts (anchor dsa {scene_anchor_dsa(anchor)} / dsb {scene_anchor_dsb(anchor)}; 15 is the no-deform sentinel). The overlay writes those shifts into every band from the split DOWN, including bands whose layer authored no deform — so a curve layer below the split would be curve ∧ deform at runtime, which design §2 forbids and the fill's register allocation cannot serve. A PURE-BOUNDARY anchor (dsa 15, dsb 15) composes with curves and is design §2's own case")
     // THE P1 SCOPE FENCE IS RETIRED HERE (P3 Task 6). It read:
     //
     //     ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
@@ -775,28 +946,20 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
 // THE EXHAUSTIVE SET, from design §2:
 //   1. any H-deform table, either plane, INCLUDING a shared one
 //   2. anchor_ch != NONE
-//   3. any curve layer                      -- NO SUBJECT UNTIL TASK 10
+//   3. any curve layer
 //   4. precision: line
-//   5. any layer boundary not on the 8-px cell grid  -- NO SUBJECT UNTIL TASK 7
+//   5. any layer boundary not on the 8-px cell grid
 //
-// ARM 3 IS DEAD CODE TODAY AND THIS COMMENT IS THE ONLY THING THAT SAYS SO. (ARM 5 WAS,
-// AND IS NOT ANY MORE — P3 Task 7 woke it up; see below.)
-// The ordering is deliberate — the derivation is the single source, so it has to exist
-// before the mechanisms that feed it — but a dead arm reads exactly like coverage, and
-// this tree's most expensive lesson is the guard that tests nothing while looking like it
-// does. Concretely:
-//   * Arm 5 (off-grid) IS LIVE since P3 Task 7. It was written dead by Task 6, because
-//     `layer()` still ensured `world_y % 8 == 0` and no authorable scene could reach it.
-//     Task 7 removed that ensure — an off-grid top is now representable in the record
-//     (`band_top_plane`, a plane LINE) and this arm is what makes it correct: it forces
-//     the per-line pipeline, because the per-cell filler could only re-quantise it.
-//     Red-first witness: games/sonic4/test/poison/poison_scene_grid.emp.
-//   * Arm 3 (curve) IS NOT WRITTEN AT ALL, and writing a placeholder would be worse than
-//     the gap: `SceneLayer` has no curve attachment, so there is no field to test and any
-//     spelling would be a fabricated predicate. Task 10 adds the attachment and the arm
-//     lands with it, HERE, immediately after arm 2.
-// Both arms are on Task 15's poison list for exactly this reason: the question "is this
-// arm reached, and is it right?" is booked, not assumed.
+// ALL FIVE ARMS ARE LIVE SINCE P3 TASK 10, and the history is worth keeping because the
+// hazard it names is the one this tree keeps paying for. Task 6 authored the derivation
+// with arms 3 and 5 DEAD — no authorable scene could reach either — and said so here,
+// because a dead arm reads exactly like coverage. Task 7 woke arm 5 by relaxing `layer()`'s
+// 8-px grid ensure (an off-grid top is now representable as a plane LINE in
+// `band_top_plane`, and this arm is what makes it correct rather than re-quantised;
+// red-first witness games/sonic4/test/poison/poison_scene_grid.emp). Task 10 woke arm 3 by
+// adding the `curve:` attachment there was no field to test before — writing a placeholder
+// predicate for it would have been worse than the stated gap. Red-first witness:
+// games/sonic4/test/poison/poison_scene_curve_percell.emp.
 //
 // FLAT ACCUMULATOR OVER STATEMENT `if`s, never a nested if-expression — an `if` in
 // block-tail position yields unit SILENTLY and folded a capability mask to 0 in P1
@@ -821,7 +984,21 @@ pub comptime fn scene_forces_per_line(s: Scene) -> int {
     if scene_anchor_ch(s.sc_anchor) != $FF {
         forced = 1
     }
-    // ARM 3 — any curve layer. NOT WRITTEN: no curve attachment exists (Task 10).
+    // ARM 3 — any curve layer. LIVE SINCE P3 TASK 10, which added the attachment this arm
+    // was waiting for. A curve is a PER-LINE quantity by definition — the effective scroll
+    // differs on every scanline of the layer — so a per-cell fill, which broadcasts one
+    // longword per 8-px cell, cannot express it at all: it would emit the layer's top value
+    // for the whole layer and the ramp would simply not exist. This is the strongest of the
+    // five arms in that sense; the others prevent a QUANTISATION, this one prevents a total
+    // loss of the mechanism.
+    //
+    // THE WALK IS derived_curve(), the same one scene() guards on and scene_caps() folds
+    // on, so the forcer, the guard and the capability cannot classify a scene differently.
+    let cls = s.sc_layers
+    let cn  = s.sc_count
+    if derived_curve(cls, cn) == 1 {
+        forced = 1
+    }
     // ARM 4 — precision: line, standing on its own. 1 is PRECISION_LINE, inlined per the
     // same pin block. Before this parcel `scene()` FENCED this value behind a non-null BG
     // table, which made it a second spelling of arm 1 and never a claim of its own; the
@@ -1050,6 +1227,18 @@ pub comptime fn scene_caps(s: Scene) -> int {
     if derived_own(ls, n) == 1 {
         caps = caps | $0020
     }
+    // $0040 CAP_FACTOR_CURVE — P3 Task 10. THE ONE THING THAT RAISES IT: a layer carrying
+    // `curve: To(..)`. It is a property of the LAYER, never of the scene: there is no
+    // scene-level curve slot, because a ramp is a statement about one layer's own factor.
+    // All twenty shipped scenes are curve-free, so this arm folds 0 across the registry and
+    // games/sonic4/data/effects/scene_registry.emp pins that — the bit staying clear is what
+    // keeps BAND_CURVE_N at 0 and the four canonical images byte-identical.
+    //
+    // A VARIANT TEST, THROUGH derived_curve() — the same walk scene()'s anchor guard and
+    // scene_forces_per_line()'s arm 3 use.
+    if derived_curve(ls, n) == 1 {
+        caps = caps | $0040
+    }
     // ANCHORS IMPLY PER-LINE, and P3 Task 6 made that load-bearing rather than merely
     // true. `parallax_mode_key()`'s CAP_ANCHORS gate is lexically enclosed by a
     // CAP_PER_LINE gate, and tools/scene_spans.py derives a mask's expected spans from
@@ -1071,6 +1260,16 @@ pub comptime fn scene_caps(s: Scene) -> int {
     // demand a span from a build where the whole enclosing block was gone.
     ensure((caps & $0020) == 0 || ((caps & $0004) != 0 && (caps & $0001) != 0),
            "scene_caps(): a scene raised CAP_MULTI_DEFORM_TABLE ({caps}) without CAP_DEFORM and CAP_PER_LINE. Both are supposed to follow structurally — layer() refuses an own() table whose amplitude shifts are both 15, and scene() requires an own() scene to carry a plane-shared table too — so this firing means one of those two guards was relaxed. The per-band table reload is emitted inside the CAP_DEFORM gate and the mode key inside CAP_PER_LINE; a mask without them elides the sites the bit selects")
+    // CAP_FACTOR_CURVE IMPLIES CAP_PER_LINE — arm 3 of scene_forces_per_line() sets $0001
+    // from the same derived_curve() walk — AND IS INDEPENDENT OF CAP_DEFORM, which is the
+    // half worth pinning. Every OTHER capability in this fold either implies deform or is
+    // orthogonal to the fill's loop selection; a curve is the one attachment that is
+    // EXCLUSIVE with it (layer() refuses curve ∧ live amplitude, scene() refuses curve ∧ a
+    // live anchor shift). So a mask carrying $0040 tells the span model to expect the three
+    // curve blocks, and NOT to expect them nested inside `cap_deform_sample` — where the
+    // per-band curve hoist would be unreachable for a scene that samples nothing.
+    ensure((caps & $0040) == 0 || (caps & $0001) != 0,
+           "scene_caps(): a scene raised CAP_FACTOR_CURVE ({caps}) without CAP_PER_LINE. The two are one claim — a curve's effective scroll differs on every scanline, and the per-cell filler broadcasts one longword per 8-px cell, so a curve scene lowered per-cell would lose the ramp entirely rather than quantise it. Arm 3 of scene_forces_per_line() raises $0001 from the same derived_curve() walk, so this firing means one of them was edited alone")
     ensure((caps & $0008) == 0 || (caps & $0001) != 0,
            "scene_caps(): a scene raised CAP_ANCHORS ({caps}) without CAP_PER_LINE — an anchored boundary lands on an arbitrary scanline, so the two are one claim; the span-expectation derivation in tools/scene_spans.py reads the nesting of the two gates in parallax_mode_key() and would demand a span from a build whose whole site elided")
     return caps
@@ -1258,6 +1457,19 @@ pub const SB_WALK_LINE_FG_X100       = 7621     // line_fg_only_cycles     76.21
 pub const SB_WALK_LINE_BG_X100       = 7627     // line_bg_only_cycles     76.27
 pub const SB_WALK_LINE_BOTH_X100     = 12617    // line_both_cycles       126.17
 pub const SB_WALK_VDEFORM_X100       = 142406   // vdeform_cycles        1424.06
+
+// THE CURVE'S TWO TERMS (P3 Task 10), and they are NOT from the fit above. Every other
+// constant in this block came from the 26-fixture canonical sweep; these two were measured on
+// a capability-raised instrument build, because no canonical image contains the mechanism —
+// the same standing as the CAP_MULTI_DEFORM_TABLE row in the toml. `[parallax.cost_model]`
+// `factor_curve_line_cycles` / `factor_curve_band_cycles`, curve-vs-flat pairs on one ROM.
+//
+// A CURVE LINE IS CHEAPER THAN A SAMPLED ONE (40.75 against line_fg_only's 76.21) and that is
+// the right shape: it reads no table, sign-extends nothing and shifts nothing — it adds a
+// step, adds a remainder and takes one conditional correction. The band term is large by
+// comparison because it carries a `divs.w`.
+pub const SB_WALK_LINE_CURVE_X100    = 4075     // factor_curve_line_cycles   40.75
+pub const SB_WALK_BAND_CURVE_X100    = 63000    // factor_curve_band_cycles  630.00
 
 // THE ANCHOR IS CHARGED AT ITS MEASURED WORST REGIME AND IS NOT A FITTED TERM. The toml is
 // explicit: `anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named
@@ -1461,6 +1673,31 @@ pub comptime fn scene_sample_term_x100(s: Scene) -> int {
     return term
 }
 
+// How many layers ramp their BG factor (P3 Task 10). The COUNT, not the boolean
+// derived_curve() answers, because the per-band term is charged per curve band — the hoist
+// decodes a factor and runs a divide for each one.
+pub comptime fn scene_curve_bands(s: Scene) -> int {
+    comptime var n = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    let ls = s.sc_layers
+    // CLAMPED TO THE ARRAY, and the clamp is not defensive programming — it is required, and
+    // it was MEASURED. `scene()` ensures count <= 8, but `Scene{ .. }` type-checks and skips
+    // every guard (see that struct's banner), and games/sonic4/test/poison/poison_budget_axis1
+    // uses exactly that door to declare a 116-layer scene so the axis-1 ensure fires. Every
+    // OTHER fold in this file survives that fixture only by accident: `scene_live_amp_a/b`
+    // are reached through `if scene_has_table(s) == 1`, which that scene fails. This one is
+    // called unconditionally from the axis-1 term, so it meets the back-door count head on —
+    // 216 `[index.out-of-bounds]` diagnostics, measured 2026-08-20 when it was not clamped.
+    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    for i in 0..cnt {
+        let l = ls[i]
+        if scene_curve_is_none(l.ly_curve) == 0 {
+            n = n + 1
+        }
+    }
+    return n
+}
+
 // AXIS 1 — the scene's main-loop cost in hundredths of a cycle, uncertainty included.
 pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
     let n        = s.sc_count
@@ -1480,6 +1717,26 @@ pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
         c = c + SB_WALK_MULTIBAND_X100
     }
     c = c + scene_sample_term_x100(s) * SB_SCREEN_LINES
+    // CURVES (P3 Task 10), charged at the SAME worst case the sampling term uses: the whole
+    // screen. A layer's on-screen line span is a RUNTIME quantity — Step 4a rebases the tops
+    // against this frame's Vscroll_BG and clamps them, so a layer authored 64 px tall can
+    // own anything from 0 to 224 screen lines — and the comptime-knowable worst case is one
+    // curve layer covering the screen. This over-charges a small curve layer by design, for
+    // the reason SB_SCREEN_LINES' own banner gives: a budget that assumed a convenient camera
+    // would be gating a coincidence.
+    //
+    // ADDED TO THE SAMPLING TERM, NOT MAXED WITH IT. A layer may not have both (layer()
+    // refuses the pair), but a SCENE may carry a curve layer and a sampled layer, and the
+    // screen is then shared between them. Summing both at 224 lines charges each for the
+    // whole screen — conservative, and the conservative direction.
+    let curve_bands = scene_curve_bands(s)
+    if curve_bands > 0 {
+        // TWO STATEMENTS, NOT ONE EXPRESSION SPLIT OVER TWO LINES: .emp has no line
+        // continuation, and a trailing `+` on the next line is `expected an expression,
+        // found Plus` at a line number that is not the one you edited.
+        c = c + SB_WALK_LINE_CURVE_X100 * SB_SCREEN_LINES
+        c = c + SB_WALK_BAND_CURVE_X100 * curve_bands
+    }
     if scene_vdeform_is_none(s.sc_v_deform) == 0 {
         c = c + SB_WALK_VDEFORM_X100
     }
@@ -1722,6 +1979,18 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
     if ((fb >> 8) & 1) != 0 {
         ops = ops | 2
     }
+    // The curve tail's authored half, folded the same way (P3 Task 10). Bits 0 and 1 are
+    // CURVE_FLAG_OP_BIT / CURVE_FLAG_ACTIVE_BIT, inlined per the pin block at the top of
+    // this file; bit 2 (CONT) is written at RUNTIME by Step 4b on a split entry and is
+    // never authored, so it is absent here by construction rather than cleared.
+    let curve_to = scene_curve_to(l.ly_curve)
+    comptime var curve_flags = 0
+    if ((curve_to >> 8) & 1) != 0 {
+        curve_flags = curve_flags | 1
+    }
+    if scene_curve_is_none(l.ly_curve) == 0 {
+        curve_flags = curve_flags | 2
+    }
     return band_record{
         br_base: band_entry{
             band_top_plane:      scene_plane_line(s, wy),
@@ -1738,6 +2007,22 @@ pub comptime fn scene_band(s: Scene, i: int) -> band_record {
                                                  bx_deform_table_b: band_table_b(s, l),
                                                  bx_deform_speed_a: band_speed_a(s, l),
                                                  bx_deform_speed_b: band_speed_b(s, l) } ] } else { [] },
+        // THE CURVE TAIL (P3 Task 10). Four AUTHORED bytes and three ZERO words: bc_step /
+        // bc_rem / bc_span are DERIVED EVERY FRAME by the curve hoist into the SHADOW copy
+        // of this record, and their ROM image is never read. Emitting them as zeros rather
+        // than omitting them is what lets Step 4b's whole-entry copies carry a curve's
+        // parameters to its anchored split for free — see parallax.emp's band_curve banner.
+        //
+        // Same single-level if-expression as br_ext above, and for the same reason: a
+        // NESTED if-expression yields unit silently (docs/EMP_PITFALLS.md §1), which here
+        // would fold the tail away with no diagnostic.
+        br_curve: if BAND_CURVE_N == 1 { [ band_curve{ bc_to_s1: curve_to & 15,
+                                                       bc_to_s2: (curve_to >> 4) & 15,
+                                                       bc_flags: curve_flags,
+                                                       bc_pad:   0,
+                                                       bc_step:  0,
+                                                       bc_rem:   0,
+                                                       bc_span:  0 } ] } else { [] },
     }
 }
 

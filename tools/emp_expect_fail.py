@@ -147,6 +147,19 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_own_caps.emp",       "P3 T9 own caps",  "FIXTURE B folds to 37 against fixture A's declared 5; the UNDECLARED bits are 32", 1),
     (f"{POISON}/poison_scene_own_placement.emp",  "P3 T9 placement", "deform: Own(..) is a PER-LAYER attachment", 1),
     (f"{POISON}/poison_scene_own_flat.emp",       "P3 T9 flat own",  "attaches a table this layer never samples", 2),
+    # ---- P3 T10: curves. Two cases, one per half of the mechanism's guard surface. ----
+    #  - "curve percell": the FORCER. scene_forces_per_line() ARM 3 was authored DEAD by
+    #    Task 6 and woken by Task 10, and this is the only fixture in the tree whose control
+    #    half folds to capability mask ZERO — every other arm removed — so the single
+    #    authored difference is the `curve:`. The fragment quotes 65 = $0041, which is BOTH
+    #    the capability bit AND the per-line bit arm 3 raises; a 64 would mean the arm went
+    #    dead again. Exactly 1 diagnostic: fixture A's two ensures must pass.
+    #  - "curve deform": the PROHIBITION, both halves in one build — layer() refuses a curve
+    #    beside a live amplitude, scene() refuses one beside an anchor with live shifts. TWO
+    #    diagnostics, and the count is half the assertion: a 1 means one of the two guards
+    #    stopped firing, and the two live in different constructors for different reasons.
+    (f"{POISON}/poison_scene_curve_percell.emp",  "P3 T10 curve forcer", "FIXTURE B folds to 65 against fixture A's declared 0; the UNDECLARED bits are 65", 1),
+    (f"{POISON}/poison_scene_curve_deform.emp",   "P3 T10 curve+deform", "this layer authors BOTH a curve and a live deform amplitude", 2),
     # ---- Substrate item 1c: check_landings, both edges of the measured window ----
     # Two cases, not one, because the two edges have different evidentiary standing: the
     # LATE edge is the sampling instant the sweep measured directly, the EARLY edge is

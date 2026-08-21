@@ -52,7 +52,7 @@ module games.sonic4.scene_registry in scene_registry
 // plainly declares (measured 2026-08-20 — 40 diagnostics at a declaration site that was
 // correct).
 use engine.structs.{parallax_config}
-use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N}
+use engine.parallax.{band_entry, band_record, band_ext, BAND_EXT_N, band_curve, BAND_CURVE_N}
 // GLOB IMPORTS, BOTH MANDATORY, AND NOT A STYLE CHOICE. A comptime fn's free names
 // resolve at the CALL SITE, so scene()/scene_caps()/scene_hdr() bodies reach their
 // helpers through whatever is in scope HERE. A selective `use ...{scene, layer}` is
@@ -241,6 +241,15 @@ ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) == 0 || BAND_EXT_N == 1,
 ensure((Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 || BAND_EXT_N == 0,
        "engine/level/parallax.emp's BAND_EXT_N is {BAND_EXT_N} but this game does NOT declare CAP_MULTI_DEFORM_TABLE (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_ext) bytes of ROM and shadow RAM that nothing reads, and the zero-capability lowering would stop being byte-identical to the legacy one")
 
+// THE SAME PIN FOR THE CURVE TAIL (P3 Task 10). A separate PAIR rather than a widened one,
+// because the two tails answer to different capability bits and a game may declare either,
+// both or neither — folding them into one test would let a curve game with no deform silence
+// the deform arm and vice versa.
+ensure((Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) == 0 || BAND_CURVE_N == 1,
+       "this game declares CAP_FACTOR_CURVE in Game.SCANLINE_CAPS ({Game.SCANLINE_CAPS}) but engine/level/parallax.emp's BAND_CURVE_N is {BAND_CURVE_N} — the lowered band record would carry no curve tail while the scenes demand one, so every ramp would lower to a flat band with no diagnostic. Set BAND_CURVE_N to 1 and set BAND_CURVE_BYTES in engine/ram.emp to sizeof(band_curve)")
+ensure((Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 || BAND_CURVE_N == 0,
+       "engine/level/parallax.emp's BAND_CURVE_N is {BAND_CURVE_N} but this game does NOT declare CAP_FACTOR_CURVE (Game.SCANLINE_CAPS = {Game.SCANLINE_CAPS}) — every band would carry sizeof(band_curve) bytes of ROM and shadow RAM that nothing reads, and the zero-capability lowering would stop being byte-identical to the legacy one")
+
 pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 
 // THE VERIFY. `folded ⊆ declared`, never equality.
@@ -310,6 +319,12 @@ ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
 // landed: Task 9 built the mechanism and left every shipped scene on Shared/None.
 ensure((SceneRegistry_CapsFolded & CAP_MULTI_DEFORM_TABLE) == 0,
        "scene registry: a shipped scene now folds CAP_MULTI_DEFORM_TABLE — some layer authored `deform: SceneDeform.Own(..)`. Adopting a per-layer deform table is PARK-1 (owner-gated) and it is not a scene-local edit: it flips the lowered band record to the extended shape, so engine/level/parallax.emp's BAND_EXT_N must become 1 and engine/ram.emp's BAND_EXT_BYTES must become sizeof(band_ext) in the SAME commit, and every ROM image in the tree moves")
+// THE SECOND RECORD-SHAPE BIT (P3 Task 10). Same shape, same reason, different tail:
+// CAP_FACTOR_CURVE moves BAND_CURVE_N and BAND_CURVE_BYTES. Adopting a curve on a shipped
+// scene is the curve half of PARK-1 and is likewise NOT what Task 10 landed — it built the
+// mechanism and left all twenty scenes flat.
+ensure((SceneRegistry_CapsFolded & CAP_FACTOR_CURVE) == 0,
+       "scene registry: a shipped scene now folds CAP_FACTOR_CURVE — some layer authored `curve: SceneCurve.To(..)`. Adopting a ramping BG factor is owner-gated and is not a scene-local edit: it flips the lowered band record to carry the curve tail, so engine/level/parallax.emp's BAND_CURVE_N must become 1 and engine/ram.emp's BAND_CURVE_BYTES must become sizeof(band_curve) in the SAME commit, and every ROM image in the tree moves")
 // ---------------------------------------------------------------------
 ensure((SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS) == 0, "scene registry: the folded capability mask {SceneRegistry_CapsFolded} is NOT a subset of Game.SCANLINE_CAPS {Game.SCANLINE_CAPS}; the UNDECLARED bits are {SceneRegistry_CapsFolded & ~Game.SCANLINE_CAPS} — a scene demands a scanline service the game does not declare, so the P2 lowering would omit machinery the scene still needs. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp to cover the folded mask, or stop authoring the capability in the scene that raises it (engine/level/scene_dsl.emp's CAP_* block names each bit)")
 

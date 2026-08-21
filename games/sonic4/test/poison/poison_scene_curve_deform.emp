@@ -1,0 +1,84 @@
+// games/sonic4/test/poison/poison_scene_curve_deform.emp — POISON (see README).
+//
+// TARGETS: design §2's "a layer may have a curve OR a deform ref, not both" — `layer()`'s
+// curve∧amplitude guard — and its scene-level partner, the anchored-shift guard in `scene()`.
+// EXPECTED FRAGMENT: "this layer authors BOTH a curve and a live deform amplitude"
+//
+// TWO FIXTURES, TWO DIFFERENT GUARDS, ONE BUILD — because the prohibition has two halves and
+// a poison that only exercised the layer-level one would leave the scene-level one looking
+// like coverage it is not:
+//
+//   FIXTURE A — the LEGAL shape, and it must stay green: a curve layer with both amplitude
+//               shifts at the no-deform sentinel, beside a SEPARATE layer that does sample.
+//               Curves and deform compose per SCENE; the rule is per LAYER.
+//   FIXTURE B — fixture A's curve layer given `dsb: 2` as well. Refused by layer().
+//   FIXTURE C — a curve layer in a scene whose ANCHOR carries live shifts. Nothing is wrong
+//               with the layer: the OVERLAY would write those shifts into every band from the
+//               split down, so a curve band below it becomes curve∧deform at RUNTIME, past
+//               every layer-level guard. Refused by scene().
+//
+// WHY THE PROHIBITION IS REAL AND NOT HYGIENE — and the reason is MEASURED, not the one the
+// design doc gives. §2 says "the fill loop's register file is exhausted (verified: .lp_both
+// uses all 16)"; `.lp_both` uses FOURTEEN (d0-d7, a1-a6), with a0 spilled at the proc's entry
+// movem and a7 bracketing the proc. The real position is `.lp_curve`'s own allocation: it
+// spends all seven usable data registers — accumulator, whole step, Bresenham remainder,
+// error, span modulus, constant FG word, line index — plus a4 and a0, with d7 carrying the
+// band countdown. A sampled channel needs a phase base, an amplitude shift and a sample
+// scratch. There are none.
+//
+// THE ELABORATION HOOK is the three ensures below plus the constructors themselves — an
+// `ensure` inside `layer()` fires when the layer is BUILT, so the fixture consts are enough
+// on their own. The expected `[Error]` count is 2: one from layer() for fixture B, one from
+// scene() for fixture C. A count of 1 means one of the two guards stopped firing; a count of
+// 3 or more means fixture A stopped being legal, which would be the prohibition mis-widened
+// from per-layer to per-scene.
+module games.sonic4.test.poison.poison_scene_curve_deform
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — LEGAL. Layer 0 ramps and samples nothing; layer 1 samples and does not ramp.
+const POISON_CD_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2,
+                    curve: SceneCurve.To(FACTOR_1_8)),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_4, dsb: 2),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// FIXTURE B — the SAME layer 0, given a live amplitude as well. layer() refuses it.
+const POISON_CD_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2, dsb: 2,
+                    curve: SceneCurve.To(FACTOR_1_8)),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_4, dsb: 2),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// FIXTURE C — fixture A's layers, but the SCENE anchors with live shifts. scene() refuses it.
+const POISON_CD_SCENE_C: Scene = scene(
+    layers: [ layer(world_y: 0,  fa: FACTOR_1, fb: FACTOR_1_2,
+                    curve: SceneCurve.To(FACTOR_1_8)),
+              layer(world_y: 96, fa: FACTOR_1, fb: FACTOR_1_4),
+              no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 2, v_factor: 15,
+    anchor: SceneAnchor.At(0, 15, 4))
+
+// Referencing the three keeps them elaborated — an unreferenced top-level const is
+// comptime-INERT and proves nothing (docs/EMP_PITFALLS.md §3). Fixture A's fold is the
+// PASSING assertion: a curve layer beside a sampling layer is legal and must stay so.
+//   $0001 CAP_PER_LINE (the scene attaches a table; arm 3 raises it too)
+//   $0004 CAP_DEFORM   (layer 1's dsb is live)
+//   $0040 CAP_FACTOR_CURVE
+const POISON_CD_FOLDED_A = fold_caps([POISON_CD_SCENE_A])
+const POISON_CD_FOLDED_B = fold_caps([POISON_CD_SCENE_B])
+const POISON_CD_FOLDED_C = fold_caps([POISON_CD_SCENE_C])
+ensure(POISON_CD_FOLDED_A == $0045,
+       "poison_scene_curve_deform: FIXTURE A folds to {POISON_CD_FOLDED_A}, not the hand-derived 69 ($0045 = CAP_PER_LINE | CAP_DEFORM | CAP_FACTOR_CURVE) — a curve layer BESIDE a sampling layer is legal, and if this stopped folding all three bits the prohibition has been widened from per-LAYER to per-SCENE")
+ensure(POISON_CD_FOLDED_B == POISON_CD_FOLDED_A,
+       "poison_scene_curve_deform: FIXTURE B folds to {POISON_CD_FOLDED_B} rather than fixture A's {POISON_CD_FOLDED_A} — the two are supposed to differ only in a guard firing, not in the mask, because `ensure` is non-aborting and layer() builds the refused layer anyway")
+ensure(POISON_CD_FOLDED_C != 0,
+       "poison_scene_curve_deform: FIXTURE C folds to zero, so its scene() call never elaborated and the anchored-shift guard was never asked")
