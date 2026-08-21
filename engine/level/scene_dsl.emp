@@ -263,6 +263,73 @@ pub comptime enum SceneCurve {
     To(int),                    // packed FACTOR_* the BG factor ramps TO at the layer bottom
 }
 
+// SceneVSplit — design §2's PER-LAYER VERTICAL DEPTH (P3 Task 11), and the only attachment
+// in this model that lowers to a RASTER PROGRAM rather than to a band record.
+//
+//   None      Plane B's vertical scroll is whatever the VBlank writer put there. Every
+//             shipped layer.
+//   At(v)     from this layer's top DOWN, Plane B's whole-plane vertical scroll is `v`.
+//             Lowers to ONE `fx_vscroll_split(line, v)` fire — the raster op that already
+//             existed and was called by hand from level data (games/sonic4/data/effects/
+//             ojz_effects.emp) with nothing lowering into it.
+//
+// WHAT IT IS NOT: a second runtime mechanism. `scene_vsplit_fires()` below returns FIRES,
+// built by calling `fx_vscroll_split` itself — so the words, the spin solve, the landing
+// check, the density guard and the axis-4b HInt total are the raster DSL's, unchanged and
+// unduplicated. The acceptance proof for that claim is a byte-identity pin: the shipped
+// hand-authored `OJZ_TestVsram` program is re-expressed through this attachment and the
+// lowered words compared against the hand twin (games/sonic4/data/effects/ojz_effects.emp,
+// `OJZ_VSRAM_VIA_SCENE`). A lowering that had grown its own encoder could not pass it.
+//
+// ---- THE TWO-WRITER RULING (P3 Task 11 Step 2). READ THIS BEFORE AUTHORING ONE. ----
+//
+// Plane B's vertical scroll word (VSRAM entry 1) has TWO writers in this engine and always
+// has had: `Parallax_Step5_Vscroll` computes it in VBlank and `Vscroll_Write` ships it at
+// frame top, while a vscroll-split fire writes it MID-FRAME from the HBlank handler. Before
+// this attachment the collision was unauthorable — the split was only reachable by hand from
+// a game's effects module, which knows nothing about the scene. Lowering makes it authorable,
+// so the ruling ships here, and it is BOTH a refusal and a precedence:
+//
+//   REFUSED (scene(), two ensures):
+//     * a scene whose Plane B TRACKS THE CAMERA (`v_factor != 15`). The VBlank writer's value
+//       is a function of Camera_Y; the split's is a baked constant at a baked line. They do
+//       not merely disagree — the split cannot express what the other writer is for.
+//     * a scene attaching a per-column V-deform table. In per-column mode VSRAM entry 1 is
+//       PLANE B OF COLUMN 0, not the plane, so a whole-plane write below the line would move
+//       one 16-px column of forty.
+//
+//   PRECEDENCE, for what remains legal (a LOCKED plane, `v_factor: 15`): the VBlank writer
+//   governs screen lines 0..N and the mid-frame write governs N+1..223, where N is the fire
+//   line and the authored screen line is N+1 (the VSRAM landing model — a fire on line N
+//   lands at N+1). That is renderable truth rather than a convention: the two writes happen
+//   at different times in the same frame and the raster beam has already passed rows 0..N
+//   when the second one lands, so each row is drawn under exactly one of them. And it does
+//   not accumulate: `Vscroll_Write` re-asserts the base EVERY VBlank, so the split is a
+//   per-frame transient delta over a value the other writer owns outright.
+//
+//   Both halves are asserted by an INSTRUMENT, not by this comment:
+//   `tools/vsplit_landing_gate.py` captures rendered scanlines around the boundary and
+//   checks (a) the first row the split governs is the authored line, (b) every row above it
+//   is untouched by the split, and (c) neither drifts frame to frame.
+//
+// NO CAPABILITY BIT, and that is a ruling too. A CAP_* bit exists to ELIDE ENGINE CODE for a
+// game that does not use a mechanism (the bracketing convention above). This lowering elides
+// nothing: it emits a fire into a raster program the handler already interprets op-by-op,
+// and there is no vscroll-split-shaped block in the engine to gate. A bit here would be a
+// span gate with no span — the vacuous shape the promotion note above refuses.
+//
+// IT DOES NOT FORCE PER-LINE EITHER. `scene_forces_per_line()`'s five arms are about the
+// HSCROLL pipeline; a vertical split touches neither the HScroll buffer nor the band tops,
+// so adding an arm for it would be a false claim about the fill.
+//
+// NEVER A `0` SENTINEL — `scene_vsplit_is_none()` is a VARIANT test, for the reason
+// SceneDeform's and SceneCurve's banners give: 0 is a legal vertical scroll value (the top
+// of the plane) and a payload can never be the discriminator.
+pub comptime enum SceneVSplit {
+    None,
+    At(int),                    // whole-plane Plane-B vscroll in force from this top down
+}
+
 // ---- lowering-tier and transition selectors ----
 pub const PRECISION_CELL = 0    // band tops land on 8-px plane cells (P1 tier)
 pub const PRECISION_LINE = 1    // per-line band tops (reserved: P2+)
@@ -334,6 +401,13 @@ pub struct SceneLayer {
     // layer and is the ONLY thing that raises CAP_FACTOR_CURVE. Comptime-only like the
     // rest of this struct: it lowers into band_curve's two factor bytes and its flags.
     ly_curve:    SceneCurve,
+    // P3 TASK 11 — the per-layer VERTICAL depth. `None` = Plane B's vertical scroll is
+    // whatever the VBlank writer put there (every shipped layer); `At(v)` snaps it to `v`
+    // from this layer's top down. It is the ONE field in this struct that lowers to a
+    // RASTER PROGRAM rather than to a band record — `scene_vsplit_fires()` turns it into an
+    // `fx_vscroll_split` fire — so it reaches no `band_entry` field at all and cannot move
+    // a config byte. See the SceneVSplit banner for the two-writer ruling.
+    ly_vsplit:   SceneVSplit,
 }
 
 // -----------------------------------------------
@@ -366,7 +440,8 @@ pub struct SceneLayer {
 pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 15,
                       phase: int = 0, enabled: int = 1,
                       deform: SceneDeform = SceneDeform.None,
-                      curve: SceneCurve = SceneCurve.None) -> SceneLayer {
+                      curve: SceneCurve = SceneCurve.None,
+                      vsplit: SceneVSplit = SceneVSplit.None) -> SceneLayer {
     // $8000 is inlined per the pin block at the top of this file (LAYER_WORLD_Y_MAX).
     ensure(world_y >= 0 && world_y < $8000,
            "layer(): world_y {world_y} is outside the engine's act-axis span (0 .. $8000). Every act descriptor asserts (GRID_H << SECTION_SIZE_SHIFT) <= $8000 and the camera's world coordinates are signed words, so a top above it names a Y the camera can never reach. NOTE this is the ENGINE-WIDE ceiling: the tight bound is this game's own act span and it is checked at the registry by assert_act_relative_tagged()")
@@ -460,9 +535,22 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     //     active bit is authored, not derived from the mask.
     ensure(is_curve == 0 || enabled != 0,
            "layer(): a dormant layer (enabled: 0) may not carry a curve — a disabled band inherits the PREVIOUS band's scroll words instead of decoding its own factor, so there is no base for the ramp to be a delta over, yet the fill would still run the curve loop for it")
+    // ---- P3 TASK 11: the one LAYER-level guard on the vertical split ----
+    //
+    // THE VALUE IS A PLANE-B ROW, AND THE PLANE WRAPS AT 512. VSRAM is read modulo the
+    // plane's height, so `At(576)` is not a bigger scroll than `At(64)` — it IS `At(64)`,
+    // silently, and the author who wrote it was reasoning about a taller plane than the one
+    // that exists. Refusing the wider value is refusing a second spelling of a legal one.
+    // 512 is inlined per the pin block at the top of this file (PLANE_B_SPAN).
+    //
+    // NEGATIVE IS REFUSED FOR THE SAME REASON RATHER THAN A DIFFERENT ONE: `At(-8)` reaches
+    // the VDP as $FFF8 and is read as row 504 of the plane, which is expressible as At(504).
+    let split_off = scene_vsplit_offset(vsplit)
+    ensure(scene_vsplit_is_none(vsplit) == 1 || (split_off >= 0 && split_off < 512),
+           "layer(): vsplit: At({split_off}) is outside the Plane-B span (0 .. 511). The VDP reads a vertical scroll value modulo the plane's height, so a wider or negative value is not a bigger scroll — it is silently one of the 512 rows that already had a spelling. Author the row you mean")
     return SceneLayer{ ly_world_y: world_y, ly_fa: fa, ly_fb: fb, ly_dsa: eff_dsa,
                        ly_dsb: eff_dsb, ly_phase: eff_phase, ly_enabled: enabled,
-                       ly_deform: deform, ly_curve: curve }
+                       ly_deform: deform, ly_curve: curve, ly_vsplit: vsplit }
 }
 
 // no_layer — the padding element. `Scene.sc_layers` is a FIXED [SceneLayer; 8] (a
@@ -476,7 +564,8 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
 pub comptime fn no_layer() -> SceneLayer {
     return SceneLayer{ ly_world_y: 0, ly_fa: 0, ly_fb: 0, ly_dsa: 15,
                        ly_dsb: 15, ly_phase: 0, ly_enabled: 0,
-                       ly_deform: SceneDeform.None, ly_curve: SceneCurve.None }
+                       ly_deform: SceneDeform.None, ly_curve: SceneCurve.None,
+                       ly_vsplit: SceneVSplit.None }
 }
 
 // derived_mask — the layer mask the model implies: bit i per enabled layer below count.
@@ -535,6 +624,27 @@ pub comptime fn derived_curve(layers: [SceneLayer; 8], count: int) -> int {
     for i in 0..count {
         let l = layers[i]
         if scene_curve_is_none(l.ly_curve) == 0 {
+            any = 1
+        }
+    }
+    return any
+}
+
+// derived_vsplit — does ANY real layer carry a vertical split? (P3 Task 11.)
+//
+// SHARED BY scene() AND scene_vsplit_fires() FOR derived_own()'s REASON: scene() refuses the
+// two-writer collisions on the answer and the fold builds the fires on it, and two copies of
+// this walk could drift into a scene the guard approved and the fold lowered differently —
+// here that would mean a fire the two-writer ruling never adjudicated. Takes the ARRAY,
+// because scene() has no Scene yet when it needs this.
+//
+// STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_vsplit is None anyway.
+pub comptime fn derived_vsplit(layers: [SceneLayer; 8], count: int) -> int {
+    comptime var any = 0
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    for i in 0..count {
+        let l = layers[i]
+        if scene_vsplit_is_none(l.ly_vsplit) == 0 {
             any = 1
         }
     }
@@ -645,6 +755,25 @@ pub comptime fn scene_curve_to(c: SceneCurve) -> int {
     return match c {
         None      => $0FF,
         To(fb2)   => fb2,
+    }
+}
+
+// THE VERTICAL-SPLIT QUESTION, asked of the VARIANT (P3 Task 11). 1 when this layer's top is
+// not a vertical boundary — i.e. when the scene lowers no fire for it.
+pub comptime fn scene_vsplit_is_none(v: SceneVSplit) -> int {
+    return match v {
+        None    => 1,
+        At(off) => 0,
+    }
+}
+// The Plane-B vertical scroll in force below the layer top. The None arm returns 0, and
+// UNLIKE scene_curve_to()'s inert $0FF this default is never emitted anywhere: a None layer
+// lowers to no fire at all, so there is no record for it to land in. It exists so `layer()`'s
+// range guard can be written over an int without a second variant test in front of it.
+pub comptime fn scene_vsplit_offset(v: SceneVSplit) -> int {
+    return match v {
+        None    => 0,
+        At(off) => off,
     }
 }
 
@@ -901,6 +1030,26 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     }
     ensure(any_curve == 0 || anchor_amp == 0,
            "scene(): this scene carries a curve layer AND an anchor with live deform shifts (anchor dsa {scene_anchor_dsa(anchor)} / dsb {scene_anchor_dsb(anchor)}; 15 is the no-deform sentinel). The overlay writes those shifts into every band from the split DOWN, including bands whose layer authored no deform — so a curve layer below the split would be curve ∧ deform at runtime, which design §2 forbids and the fill's register allocation cannot serve. A PURE-BOUNDARY anchor (dsa 15, dsb 15) composes with curves and is design §2's own case")
+    // ---- P3 TASK 11: THE TWO-WRITER RULING, and why both halves are SCENE-level ----
+    //
+    // Plane B's vertical scroll word is written by `Parallax_Step5_Vscroll`/`Vscroll_Write`
+    // in VBlank and by a vscroll-split fire mid-frame. Which of those two is a COLLISION and
+    // which is a legal precedence is decided by two SCENE fields — `v_factor` and
+    // `v_deform` — neither of which `layer()` can see, so this is where the ruling lives.
+    // The full statement is in the SceneVSplit banner above; these are its two refusals.
+    //
+    // THEY SIT IN scene(), NOT IN THE FOLD, and that is deliberate: a scene that authors a
+    // vsplit and never calls `scene_vsplit_fires()` would otherwise carry an unadjudicated
+    // collision, and "the guard is in the lowering nobody called" is exactly how the
+    // reachability lessons in this file's banner were learned. Every scene is constructed;
+    // not every scene is lowered.
+    //
+    // 15 is the lock sentinel, inlined per the pin block at the top of this file.
+    let any_vsplit = derived_vsplit(layers, count)
+    ensure(any_vsplit == 0 || v_factor == 15,
+           "scene(): a layer authors vsplit: At(..) while this scene's Plane-B vertical scroll TRACKS THE CAMERA (v_factor {v_factor}; 15 is the lock sentinel). That is the two-writer collision: Parallax_Step5_Vscroll recomputes ((camY - v_center) >> v_factor) + v_offset every VBlank and Vscroll_Write ships it to VSRAM entry 1 at frame top, while the lowered split writes an ABSOLUTE constant to the same word mid-frame. The two do not merely disagree about a value — the split cannot express what the other writer is for: it carries ONE baked scroll value at ONE baked fire line, and that line is derived at comptime from the layer top, which is a screen line only while Vscroll_BG is constant. Lock the plane (v_factor: 15) and author the depth as a split, or express it horizontally (layer(fb:) / curve:), which the walker recomputes every frame")
+    ensure(any_vsplit == 0 || scene_vdeform_is_none(v_deform) == 1,
+           "scene(): a layer authors vsplit: At(..) while this scene attaches a per-column V-deform table (SceneVDeform.Columns). Same word, second collision: in per-column mode (VDP reg $0B bit 2) VSRAM entry 1 is PLANE B OF COLUMN 0, not the plane, and Vscroll_Write ships the whole 80-byte column buffer by DMA each frame — so a whole-plane mid-frame write below the line would shift ONE 16-px column of forty and leave the rest where the column buffer put them. Whole-plane vertical depth and per-column V-deform are two spellings of the same VSRAM; author one of them")
     // THE P1 SCOPE FENCE IS RETIRED HERE (P3 Task 6). It read:
     //
     //     ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
@@ -1937,6 +2086,90 @@ pub comptime fn scene_plane_line(s: Scene, wy: int) -> int {
     ensure(pl >= 0 && pl < 512,
            "scene_plane_line(): world_y {wy} maps to plane line {pl}, outside the 512-px Plane-B span. Step 4a rotates tops modulo that span, so a top outside it aliases onto another band's rows instead of being clipped.")
     return pl
+}
+
+// =====================================================================
+// scene_vsplit_line — a vertical split's SCREEN line (P3 Task 11).
+//
+// THREE SPACES, AND THIS FN IS THE SECOND HOP OF TWO. `scene_plane_line()` above maps the
+// authored ACT Y to a PLANE line; Step 4a maps a plane line to a SCREEN line every frame as
+// `plane_line - (Vscroll_BG mod 512)`. A raster fire needs the third space at COMPTIME, and
+// the only scenes where that is possible are the ones the two-writer ruling already leaves:
+// on a LOCKED plane `Vscroll_BG` is pinned at `v_offset` (parallax.emp's `.v_locked` arm —
+// "locked: BG = vOffset (static, ignores camera + lerp)"), a scene constant. So
+//
+//     screen = scene_plane_line(s, wy) - v_offset          (v_factor == 15)
+//
+// and for the eighteen shipped locked scenes, whose v_offset is 0 and whose plane mapping is
+// the identity, that is simply the authored top — which is why their tops (0/32/80/112/160)
+// have always read as screen lines.
+//
+// THE LOCK TEST IS REPEATED HERE ON PURPOSE and is not a duplicate of scene()'s. scene()
+// guards the AUTHORED path; `Scene{ .. }` type-checks and skips it (see the struct's note),
+// and this fn is where a back-door scene would otherwise get a screen line computed from an
+// expression that is only valid under the lock. A guard that can fire on input the other one
+// never sees is not a second copy.
+//
+// THE SCREEN-LINE RANGE IS DELIBERATELY NOT CHECKED HERE. `fire()` owns 3..223 and says why
+// (lines 0-2 are the priming records'), every fire this lowering builds goes through it, and
+// a second range guard here could never fire on its own — the shape this tree keeps
+// mistaking for coverage. What THIS fn owns is the space conversion, which nothing else in
+// the fire path knows about.
+// =====================================================================
+pub comptime fn scene_vsplit_line(s: Scene, wy: int) -> int {
+    // 15 is the lock sentinel, inlined per the pin block at the top of this file.
+    ensure(s.sc_v_factor == 15,
+           "scene_vsplit_line(): this scene's Plane B tracks the camera (v_factor {s.sc_v_factor}), so a layer top has no comptime SCREEN line — Vscroll_BG changes every frame and the fire line is baked. An authored scene cannot reach this (scene() refuses the combination outright); a Scene{{ .. }} literal can, and this is where it stops")
+    return scene_plane_line(s, wy) - s.sc_v_offset
+}
+
+// =====================================================================
+// scene_vsplit_fires — THE LOWERING (P3 Task 11): per-layer vertical depth to raster fires.
+//
+// Returns a FIRE LIST, built by calling `fx_vscroll_split` — the preset that already
+// existed. That is the whole design: this fn owns the scene half (which layers, at which
+// screen lines, in which order) and owns NOTHING about the raster half. The op, the
+// command longword, the solved blanking spin, the landing check, the density guard and the
+// axis-4b HInt total all belong to the DSL and are reached by calling it, so there is no
+// second encoder to drift from the first. (`fx_vscroll_split` is a raster_dsl name and
+// raster_dsl IS a sigil COMPTIME_HELPERS member, so it is glob-injected at every call site
+// and resolves inside this body — the safe half of docs/EMP_PITFALLS.md §2.)
+//
+// The result composes: `compose([ scene_vsplit_fires(s), ...other presets ])` merges fires
+// that land on the same line, and `patchable(scene_vsplit_fires(s), ch:, lo:, hi:)` is how a
+// split would follow a world anchor rather than a static top. Neither is this fn's business.
+//
+// STRICTLY ASCENDING SCREEN LINES. Two splits on one line would be two whole-plane vertical
+// scroll values for the same row, and `compose` would MERGE them into one fire holding both
+// writes — the second silently winning. Layer tops ascend by construction (Step 4a's search
+// requires it), so this can only fire on two tops with the same screen image; it names them.
+//
+// THE EMPTY RESULT IS REFUSED. A fold that returns [] for a scene with no vsplit is the
+// silent-empty failure this tree has already paid for once (an imported bound collapsed a
+// range and `compose` emitted zero fires with no diagnostic — raster_dsl.emp:449-457). A
+// caller with nothing to lower should not be calling this.
+// =====================================================================
+pub comptime fn scene_vsplit_fires(s: Scene) -> array {
+    // The one-dot rule — field, then index, then field (see scene_caps()).
+    let ls = s.sc_layers
+    let n  = s.sc_count
+    ensure(derived_vsplit(ls, n) == 1,
+           "scene_vsplit_fires(): this scene has no layer carrying vsplit: At(..), so the lowering has nothing to build and would return an EMPTY fire list. An empty program is not a program (raster_program refuses one), and a fold that quietly returns nothing is how a lost attachment stays invisible — call this only for a scene that authors a vertical split")
+    comptime var out = []
+    comptime var prev = -1
+    for i in 0..n {
+        let l  = ls[i]
+        let vs = l.ly_vsplit
+        if scene_vsplit_is_none(vs) == 0 {
+            let wy   = l.ly_world_y
+            let line = scene_vsplit_line(s, wy)
+            ensure(line > prev,
+                   "scene_vsplit_fires(): layer {i}'s vertical split lands on screen line {line}, which is not below the previous split's — two whole-plane vertical scroll values for one row. compose() would merge them into a single fire carrying both writes and the second would silently win. Give the two tops different screen images, or drop one split")
+            prev = line
+            out = out ++ fx_vscroll_split(line, scene_vsplit_offset(vs))
+        }
+    }
+    return out
 }
 
 // scene_band — the band RECORD for layer `i`: the 10-byte legacy entry, plus the per-layer
