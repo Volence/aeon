@@ -175,9 +175,41 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
 
 ## 5. BgAnim authoring (the wave-1 opener)
 
-The neutral contract and consumer already exist (`tools/inject_editor_bg.py`; field list
-= `tools/EFFECTS_CONSUMER_CONTRACT.md` §1). Aurora's work is UI + preview + the first
-authored act:
+The neutral contract and the CONSUMER already exist (`tools/inject_editor_bg.py`; field
+list = `tools/EFFECTS_CONSUMER_CONTRACT.md` §1).
+
+> **CORRECTED 2026-08-22 — the PRODUCER does not. Aurora becomes a NEW writer here, not an
+> extender.** `editor_bg_override.json` has **zero references anywhere in Aurora's `src/`**
+> (aurora-86 grepped it; re-verified firsthand by the aeon overseer at aurora `e731214` —
+> `grep -rn editor_bg_override src` returns 0 hits). The suite's only producer today is
+> aeon's own `tools/png_to_bg_override.py`. Aurora's ROADMAP had listed the file under
+> "editor-owned inputs the build already consumes", which is where the earlier
+> "the contract already exists" framing came from; their overseer corrected that line at
+> aurora `bccd875`. **Consequences to design for, not discover:** wave 1 must build a writer
+> for a document Aurora has never touched, AND answer the ownership question — what happens
+> when Aurora and `png_to_bg_override.py` both want to write the same file (last-writer-wins
+> is not an answer; the tool bakes `layout`/`tiles` from a PNG while Aurora would own
+> `anims`). Name the owning writer per key, or make the tool's output an input Aurora merges.
+
+**Aurora prior art to build ON, not around** (committed, aurora-side): their
+`docs/superpowers/specs/2026-08-13-ux-overhaul-stage4-design.md` §7 (`:302-359`) already rules
+the direction ("Aurora writes the JSON override, not the binaries", `:44`), books Aurora as the
+record's third author (`:358`), names the slot-renumber hazard as the main correctness risk
+(`:344-345`), and carries an invariant list (`:349-357`) plus a round-trip golden (`:428`).
+
+> **BAND DRIVERS DO NOT CHOOSE AN AXIS — every band shifts HORIZONTALLY.** The `driver` field
+> selects the *scalar source* only (`Camera_X` / `Camera_Y` / `Logic_Tick`), never the direction
+> of motion. Verified firsthand in our own engine: `engine/level/bg_anim.emp:5-6` — "Each band is
+> a **horizontally-periodic** pattern held in a contiguous range of BG tile slots, column-major"
+> — and the motion is whole-column rotation (`:163-164`, `:179-186`), with `step_mask` = pattern
+> width in px − 1. So `camera_y` means "driven by vertical camera movement", producing horizontal
+> pattern motion. **A band editor that presents `camera_y` as vertical motion is wrong**, and it
+> is the natural misreading. (Raised by aurora-86 from their
+> `docs/superpowers/plans/2026-08-14-plan6-handoff.md:172-179`.) The same handoff records that
+> §7.5's "import 448 from `vram_map.py`" describes machinery that does not exist on their side —
+> do not spec against that import.
+
+Aurora's remaining work is UI + preview + the first authored act:
 
 - **Authoring:** band editor over the existing BG override document — mark a `cols×rows`
   tile region as a band, author/import its 8 phase banks, pick driver
@@ -188,6 +220,16 @@ authored act:
 - **Preview:** drives fine phase (bank select) and coarse rotation (column reindex)
   straight from the source `phases` array on the shared rAF play-clock — no baked banks
   needed (assessment §(e)). Labeled-approximate per ruling Q6.
+  > **OPEN RISK, do not treat as solved (raised 2026-08-22 by aurora-86, their measurement to
+  > close):** the play-clock/overlay machinery the assessment §(b) credits is
+  > **`ClassicLevelViewport`-only** — their `viewStore.ts:52-56` declares those overlays `s1`-only,
+  > and the OJZ showcase runs on **`MapViewport`, which has zero `requestAnimationFrame` calls**.
+  > So "the machinery to hang effects passes on already exists" is true for classic and **not for
+  > the viewport this arc actually targets**. There is also **no aeon-viewport performance datum at
+  > all** (their ROADMAP's "0.18 ms avg" was a single observation quoted as a held property; the
+  > harness only asserts `avg < 5 ms` — corrected their side at `bccd875`). aurora-86 owes a
+  > foreground CDP measurement rather than an assumption. **If MapViewport needs its own animation
+  > loop, that is a wave-1 prerequisite on the Aurora lane, not a detail.**
 - **Wave 1 discharges `inject_editor_bg.py`'s byte-unproven animated arm.** The arm is
   "FORMAT-FAITHFUL BUT NOT BYTE-PROVEN — the first animated act proves this arm"
   (`inject_editor_bg.py:121-124`). The first Aurora-authored act makes the six-target
