@@ -189,7 +189,14 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   TOTAL, not on a sum of rows). **The variance question is answered too:** 3 of 26 whole
   ticks miss the frame, all three carrying an `S4LZ_DecompressDict` burst (25.7-48.9k cyc)
   on the block-COLUMN crossing — one per 128 px, every 8 ticks; the row crossings are free
-  because their blocks are already staged. The f/t figures are the one thing that did NOT
+  ~~because their blocks are already staged~~ **because their blocks decode as the EMPTY
+  form — the settling experiment (2026-08-21, `STAGING-LIFETIME.md`,
+  `tools/staging_lifetime_timeline.py` rewritten onto the new profiler ritual) REFUTED
+  the staged-carryover hypothesis: no crossing block is ever pre-staged at maxdiag, and
+  the column side pays because its blocks are COMPRESSED while the F2a latch suppresses
+  the one mechanism (`cs` col-scan) that measurably covers column crossings at `right`.
+  The smoothing parcel's design inputs (mechanism, residency and cycle budgets) are in
+  that doc's §5.** The f/t figures are the one thing that did NOT
   reproduce: 1.069 here vs 1.192 there, on byte-identical ROM bytes.
 
 **PROBE MIGRATION to the validated oracle profiler — booked 2026-08-20, condition MET.**

@@ -239,6 +239,17 @@ later re-uses out of the staging slots. What would settle it is
 `tools/staging_lifetime_timeline.py` — which slot served each row-crossing claim, and who
 filled it. **Not taken here.**
 
+> **SETTLED 2026-08-21 — hypothesis REFUTED** (`STAGING-LIFETIME.md`, on the then-current
+> ROM `0dbaa80f`; the bursts reproduce to the cycle). No crossing block, row or column, is
+> ever pre-staged at maxdiag: the row crossings claim their own six blocks fresh — the
+> `Block_Stage_Gen` +6 above IS those claims, so "find their blocks staged" two paragraphs
+> up is corrected too — and they are cheap because every one decodes as the EMPTY form
+> (the zero-page arm; that is what the ~864 cyc/call DecompressBlock figure was, not
+> "already staged"), while the column blocks are COMPRESSED. The staging carryover that
+> does exist is intra-axis, between crossings. The column side finds nothing staged
+> because the F2a latch suppresses the one mechanism that pre-stages columns — measured
+> covering the crossings completely at `right`/`down` when the latch is up.
+
 ---
 
 ## 4. stallCycles at max-diagonal — the first honest stall row for this state
@@ -332,6 +343,7 @@ not shaving means. Which lever — if any — is owner's call.
 - **The tick-count divergence between the two emulators is reported, not resolved** (§1.2).
   Nothing here says which machine's timing is right.
 - **Why the row-side block demand is covered is a hypothesis** (§3), not a measurement.
+  *(Settled 2026-08-21: refuted — see §3's addendum and `STAGING-LIFETIME.md`.)*
 - **The per-tick figures are ranges, not points** — the ladder cuts at frame boundaries and a
   tick does not start at one. Both bounds are exact; the truth is between them.
 - **No pixel evidence.** This is a cycle instrument; nothing here observes the picture.
