@@ -205,6 +205,24 @@ would otherwise have shipped:
   Their own follow-on booking (their ROADMAP item 10): `resolvePlaneWords` returns a short `edit`
   array regardless of its `length` argument — not live, because the new load guard closes it, but
   a future producer could reintroduce a short plane.
+- **AEON LANE ITEM, PREREQUISITE, NOT YET DONE: the `project.json` re-point.** `project.json:20`
+  still reads `"parallax": "games/sonic4/data/parallax/ojz_default.asm"`. Ruling Q4 deletes it and
+  replaces it with an act-level `sceneRef` — **this must land BEFORE Aurora re-points its
+  `Act.parallaxRef` reader**, or their reader points at a key that does not exist. The schema said
+  otherwise until `7709af6` (empyrean branch `docs/aurora-schema-ordering-fix`, handed to
+  empyrean-73); aeon side corrected at `5d0be056`. Caught by Aurora's first parcel, whose agent
+  flagged it instead of implementing against a doc that outran its own repo.
+- **Wave 1's FIRST Aurora parcel LANDED** — aurora code anchor `61d4b80` (merge, `--stat`-verified),
+  suite green on the merged tree: 325 files / 3911 passed / 3 skipped, `tsc` clean, +13 tests.
+  **The contract HELD under an independent reader**: their agent derived `sceneRef` from three
+  citations with no out-of-band answer. `effectsRef` was never an ambiguity — it appears once, in
+  schema §7's reserved wave-2 surface, as a DISTINCT future key that coexists with `sceneRef`.
+  Two findings past the contract, both pre-existing: the sidecar site count is **13, not the 8 we
+  jointly measured** (`save.ts` carries TWO independent hardcoded enumerations — the content write
+  at `:130` as well as the cleared-overwrite literal — plus `Section` itself), and **`cloneSection`
+  was completely unguarded for all four scalar refs** — dropping `sceneRef` OR `bgLayoutRef` from
+  it survived their entire 3909-test suite, so a copy/paste silently losing a section's background
+  or palette assignment would never have been caught. Now guarded both directions.
 - **Wave 1's FIRST Aurora parcel is cut** (section-sidecar effects ref), dispatched against the
   two contract SHAs with an explicit instruction to take the key name and type FROM THE CONTRACT,
   not from the peer conversation, and to report BLOCKED rather than coin-flip if the contract
