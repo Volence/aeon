@@ -996,16 +996,36 @@ pub struct Scene {
     sc_left_col_mask:      SceneLeftColMask,
     sc_precision:          u8,               // PRECISION_CELL / PRECISION_LINE
     sc_transition:         u8,               // TRANS_SMOOTH / TRANS_INSTANT
-    // Pad so the two i16 bridges land on EVEN offsets (94, 96). `Scene` is comptime-only —
+    // Pad so the two i16 bridges below land on EVEN offsets. `Scene` is comptime-only —
     // it never reaches ROM, so an odd 2-byte field could not fault a 68000 today, and
     // sigil's [layout.odd-field] is a false positive here in the strict sense. Padded
     // anyway, for one cheap reason: the day anything emits a Scene, an odd word field is
     // an address error, and a warning that has been explained away in a baseline is not
     // there to catch it. Zero cost — this struct emits nothing either way.
-    sc_pad_5D:             u8 = 0,
+    //
+    // THIS PAD'S WIDTH IS NOT SELF-EVIDENT AND MUST NOT BE TRUSTED BY EYE. It is a
+    // function of every field above it, so any insertion up there silently re-parities
+    // the two bridges — which is exactly what happened between 2026-08-18 and 2026-08-22:
+    // the pad was hand-computed for offsets 94/96, four commits added fields above it, and
+    // the bridges drifted to an odd 119/121 with [layout.odd-field] firing into a warning
+    // baseline nobody re-read. The AUTHORITY on this width is now the pair of `ensure`s
+    // immediately after this struct, not any number written here or in the field's name.
+    // If they fire, widen or narrow this field by one byte until they pass again.
+    sc_pad_5D:             u16 = 0,
     sc_mask_raw:           i16,              // -1 = derive from ly_enabled (bridge, see above)
     sc_v_deform_shift_raw: i16,              // -1 = derive from sc_v_deform (bridge, see above)
 }
+
+// THE PAD'S AUTHORITY. Two guards, one per bridge, asserting the PROPERTY (even) rather
+// than a snapshot (`@offset 94`) — a pinned offset would have to be hand-updated on every
+// legitimate field insertion above, which re-arms the same staling-constant trap that put
+// sc_pad_5D's width wrong in the first place. Parity survives every insertion; a number
+// does not. House pattern and message idiom follow engine/system/replay.emp:96-97: name
+// the INSTRUCTION that would fault, never the offset that moved.
+ensure(offsetof(Scene, sc_mask_raw) % 2 == 0,
+       "Scene.sc_mask_raw landed on an odd offset — widen or narrow sc_pad_5D by one byte. Scene is comptime-only TODAY, so nothing faults yet; this guards the day something emits one, when a move.w to an odd word field is a 68000 address error. Do not silence it by pinning an offset — the number is what rotted.")
+ensure(offsetof(Scene, sc_v_deform_shift_raw) % 2 == 0,
+       "Scene.sc_v_deform_shift_raw landed on an odd offset — widen or narrow sc_pad_5D by one byte. Scene is comptime-only TODAY, so nothing faults yet; this guards the day something emits one, when a move.w to an odd word field is a 68000 address error. Do not silence it by pinning an offset — the number is what rotted.")
 
 // -----------------------------------------------
 // scene — the authored scene constructor.
