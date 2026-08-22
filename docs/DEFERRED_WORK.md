@@ -8025,6 +8025,24 @@ record VALUE would be the one-unit poison (`br_ext` one element long against
 1. **sigil enforces array lengths on typed comptime `const` literals.** The day that
    lands, the one-element-`br_ext` const above IS the one-unit poison — the fixture is
    already written out in this entry.
+   > **SATISFIED IN SIGIL SOURCE 2026-08-22 — sigil master `e08f5bdc`**, reported by
+   > sigil-83: `const_record_wrong_tail_arity_refuses ... ok` under `SIGIL_STRICT_GATE=1`
+   > against aeon `1a794ace` (their run: 3762 passed / 0 failed / 4 ignored, `^skip:` count
+   > zero). Root cause of the old gap was theirs: the length check lived in the
+   > byte-EMISSION path (`sigil-frontend-emp/src/eval/emit.rs:214,236`), which a comptime
+   > `const` binding never reaches.
+   >
+   > **DO NOT CUT THE LANE-ROW PARCEL ON THIS ALONE — one thing is unverified and it is the
+   > thing that decides whether the parcel can work.** aeon builds against the SHARED binary
+   > at `/home/volence/sonic_hacks/sigil/target/release/sigil`, NOT against sigil's source
+   > tree, and that binary was last built 2026-08-20 09:54 — *before* `e08f5bdc`. sigil-83 is
+   > additionally bound this session not to rebuild it. **So the enforcement may well be
+   > absent from the assembler this repo actually runs**, in which case the poison would build
+   > green and the lane row would enshrine a vacuous gate — the precise failure this entry
+   > exists to avoid. **Before cutting: confirm the enforcement is live in the binary aeon
+   > invokes** (write the one-element-`br_ext` const, build, observe a refusal), or wait for a
+   > rebuilt/paired binary. Ask sigil-83 which revision carries it and how the shared binary
+   > gets advanced.
 2. **The `SCANLINE_CAPS` `emp_defines` parcel** (accepted sigil-side 2026-08-20, booked
    above in this file) makes `BAND_EXT_N` capability-DERIVED instead of a pinned mirror.
    The pin pair then stops being the guard surface (a derivation cannot disagree with its
