@@ -247,7 +247,40 @@ would otherwise have shipped:
   dirty-flush path costs 0.300 ms max. **Caveat that survives with it:** the bracket covers dirty
   flush + section blits + the overlay pass but EXCLUDES React commit, compositor and GPU upload —
   so these are an **UPPER bound on available headroom, not a lower one**.
-  - **Their confound tripwire FAILED and they reported it rather than shipping the clean number**
+  - **RE-RUN 2026-08-22, CONFOUND BEATEN — 37/37 rows pass; harness LANDED at aurora `253cb0e`
+    (merge, `--stat` verified), results at `dd9ab33`. The "cross-cell comparison must not be
+    quoted" caveat below is WITHDRAWN — cross-cell numbers are now VALID.** Amortised batching
+    (12 consecutive repaints per bracket) gives **0.0167 ms effective resolution, 6x finer than
+    the 0.1 ms tick**, and two self-checks MEASURE that claim instead of asserting it: c1 reads
+    the quantum off the live clock (0.1000 ms, confirming the original diagnosis) and c2 pushes
+    three workloads in a known 1:2:4 ratio — each below one tick — through the identical
+    machinery and recovers **2.00 and 4.00 with zero residual**. Cross-origin isolation was
+    explicitly REJECTED as the alternative: it is the only supported way to unclamp the clock but
+    requires editing the app's security headers, i.e. changing the subject.
+    **Usable numbers** (amortised per-repaint medians, ±0.005 or better): zoom 4 **0.0250 ms**;
+    zoom 2 and zoom 1 **0.0333 ms**; smaller window **0.0250 ms**; **Tile Grid ON 0.0833 ms**;
+    zoom 0.25 (most sections, 4 blits) **0.7167 ms ±0.0225**. Spread 96.5%, absolute gap 41.5x the
+    instrument's resolution — row 3 passes because cost genuinely VARIES, not because the bar
+    moved.
+    - **THE ARC-RELEVANT FIGURE, and carry its limit with it: one extra full-viewport line pass
+      costs ~+0.050 ms** (Tile Grid ON minus default, 0.0833 vs 0.0333). This is the ONLY
+      per-pass evidence that exists. **Do NOT let +0.050 ms become a planning constant for effects
+      passes** — a 224-line effects pass is a different SHAPE of work and needs its own
+      measurement once a prototype exists. It is a same-order sanity check, not a budget.
+    - **Independent corroboration from a different clock:** CDP `Performance.getMetrics` is not
+      subject to the web-facing clamp and is sampled as a REPORTED-NEVER-ASSERTED cross-check —
+      0.8239 ms script/repaint at zoom 0.25 vs 0.1291 ms at zoom 1, same ordering and roughly the
+      same ratio as the bracket. It is a strict upper bound on a DIFFERENT quantity (counts React
+      commit and every rAF callback), so it sanity-checks the ORDER only — but two unrelated
+      instruments agreeing on the shape is worth more than either alone.
+    - **The fix also repaired a real bug IN THE TRIPWIRE, which makes the first run's message
+      wrong in a specific way:** the spread formula was `(hi-lo)/lo` and fell through its
+      divide-by-zero branch, announcing *"medians agree to within 0.00%"* about a set that
+      actually ran 0.000 → 0.800 ms. **The row fired for the right reason but reported a nonsense
+      justification.** Now `(hi-lo)/hi`, which is always <= the old ratio — the 2% bar is
+      STRICTER, not looser.
+  - **(FIRST RUN, superseded above — kept because the failure is instructive)** Their confound
+    tripwire FAILED and they reported it rather than shipping the clean number
     (row 3: medians agreed to 0.00% across a 16x zoom range, overlays on/off, two window sizes).
     Diagnosis: `performance.now()` coarsening — every value is an exact multiple of 0.1 ms
     (Chromium's 100 µs clamp). **Only cell d (0.5-1.1 ms, 7 distinct values) is genuinely above
