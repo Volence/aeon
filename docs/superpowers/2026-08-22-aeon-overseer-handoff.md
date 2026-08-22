@@ -209,8 +209,8 @@ would otherwise have shipped:
   still reads `"parallax": "games/sonic4/data/parallax/ojz_default.asm"`. Ruling Q4 deletes it and
   replaces it with an act-level `sceneRef` — **this must land BEFORE Aurora re-points its
   `Act.parallaxRef` reader**, or their reader points at a key that does not exist. The schema said
-  otherwise until `7709af6` (empyrean branch `docs/aurora-schema-ordering-fix`, handed to
-  empyrean-73); aeon side corrected at `5d0be056`. Caught by Aurora's first parcel, whose agent
+  otherwise until the schema fix, now LANDED on empyrean master as **`b0d5b00`** (their merge of
+  `7709af6`; branch pruned both sides); aeon side corrected at `5d0be056`. Caught by Aurora's first parcel, whose agent
   flagged it instead of implementing against a doc that outran its own repo.
 - **Wave 1's FIRST Aurora parcel LANDED** — aurora code anchor `61d4b80` (merge, `--stat`-verified),
   suite green on the merged tree: 325 files / 3911 passed / 3 skipped, `tsc` clean, +13 tests.
