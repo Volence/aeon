@@ -225,6 +225,67 @@ if [[ -z "${SIGIL_BUILD}" || ! -x "${SIGIL_BUILD}" ]]; then
     exit 1
 fi
 
+# --- ASSEMBLER PROVENANCE (consumer half of sigil's --version witness, 9c08f2a5) ---
+# WHY THIS EXISTS AND WHY A CRC CANNOT REPLACE IT: a stale assembler and a current one
+# emit byte-identical ROMs whenever the SOURCE has not changed, so every artifact check
+# we have is silent on which binary produced it. The incident: the shared
+# target/release/sigil sat three days behind while aeon builds invoked it, and nothing
+# in the pipeline was capable of noticing. sigil now reports its own identity; asking is
+# aeon's half, and this is where the failure actually bit.
+#
+# POSTURE: warn loudly, do not refuse — with SIGIL_VERSION_STRICT=1 to make it fatal.
+# A hard default error would break every build in the workspace the moment anyone
+# rebuilds sigil, and deliberately assembling with an older binary is a legitimate
+# bisect move. But the warning is a BANNER, not a log line: an easy-to-miss warning
+# about an easy-to-miss failure is not a control.
+SIGIL_VERSION_RAW="$("${SIGIL_BUILD}" --version 2>/dev/null || true)"
+if [[ -z "${SIGIL_VERSION_RAW}" ]]; then
+    echo "NOTE: ${SIGIL_BUILD} does not support --version; assembler provenance unavailable."
+    echo "      (Expected on a binary built before sigil 9c08f2a5. Rebuild to get it.)"
+    SIGIL_REV="unknown"
+else
+    SIGIL_REV="$(sed -n 's/^ *revision: *//p'  <<<"${SIGIL_VERSION_RAW}" | head -1)"
+    SIGIL_SRC="$(sed -n 's/^ *source: *//p'    <<<"${SIGIL_VERSION_RAW}" | head -1)"
+    SIGIL_TREE="$(sed -n 's/^ *tree: *//p'     <<<"${SIGIL_VERSION_RAW}" | head -1)"
+    echo "Assembler: sigil ${SIGIL_REV:0:12} (${SIGIL_TREE:-tree state unreported})"
+
+    _sigil_stale=""
+    # Currency check against the source dir the BINARY names — the right revision to
+    # read here, because the question is "was this binary built from that tree's
+    # current state", which only the tip can answer. (Contrast the recovery direction,
+    # where a pin is correct; see docs/OVERSEER.md.)
+    if [[ -n "${SIGIL_SRC}" && -d "${SIGIL_SRC}/.git" ]]; then
+        _src_head="$(git -C "${SIGIL_SRC}" rev-parse HEAD 2>/dev/null || true)"
+        if [[ -n "${_src_head}" && -n "${SIGIL_REV}" && "${_src_head}" != "${SIGIL_REV}" ]]; then
+            _sigil_stale="revision"
+        fi
+    fi
+    [[ "${SIGIL_TREE}" == dirty* ]] && _sigil_stale="${_sigil_stale:+${_sigil_stale}+}dirty"
+
+    if [[ -n "${_sigil_stale}" ]]; then
+        echo "############################################################################"
+        echo "## WARNING: THE ASSEMBLER MAY NOT MATCH ITS SOURCE (${_sigil_stale})"
+        echo "##"
+        [[ "${_sigil_stale}" == *revision* ]] && {
+        echo "##   binary built from : ${SIGIL_REV}"
+        echo "##   ${SIGIL_SRC} HEAD : ${_src_head}"; }
+        [[ "${_sigil_stale}" == *dirty* ]] && \
+        echo "##   tree at capture   : ${SIGIL_TREE}"
+        echo "##"
+        echo "##   A stale assembler emits a byte-IDENTICAL ROM whenever the source has"
+        echo "##   not changed, so no CRC, pin or golden downstream of here can detect"
+        echo "##   this. That is the whole reason it is checked at invocation."
+        echo "##   Rebuild:  cargo build --release --manifest-path ${SIGIL_SRC}/Cargo.toml"
+        echo "##   Set SIGIL_VERSION_STRICT=1 to make this fatal."
+        echo "############################################################################"
+        if [[ "${SIGIL_VERSION_STRICT:-0}" == "1" ]]; then
+            echo "ERROR: SIGIL_VERSION_STRICT=1 and the assembler is ${_sigil_stale}."
+            exit 1
+        fi
+    fi
+fi
+export SIGIL_REV
+
 # The resident sound blob + banked sound data are sigil-native-linked (seam-1/seam-2);
 # this preflight regenerates engine/sound/generated (the .bin blobs the sound-bank .emp
 # sections embed(), including the three-way-split MT bank) from the .emp sources.
