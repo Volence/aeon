@@ -127,6 +127,27 @@ destroy path, and the arc's first authored act would be the thing that discovers
 therefore a **named precondition** on wave 1's sceneRef work — aurora-86 sends it when reviewed and
 landed; the aeon and empyrean contract docs pin it alongside the other anchors.
 
+### The mirror question, answered on OUR side (aeon `5be97277`, aeon overseer, firsthand)
+
+Aurora's defect prompts the obvious reciprocal audit: do aeon's editor-data consumers collapse
+*unreadable* into *absent* the same way? **They do not — aeon's posture is already the correct one**,
+and the contract should state the asymmetry rather than leave it assumed.
+
+- `tools/inject_editor_bg.py:58-61` — `json.load` with **no try/except**, then `data['layout']`,
+  `data['tiles']` by direct subscript. A malformed or truncated override JSON raises and the build
+  STOPS. Loud, non-destructive, and it never writes anything back over the input.
+- The broad `except Exception` handlers in `tools/ojz_block_gen.py` (`:222`, `:248`, `:288`, `:308`)
+  are confined to the **content-addressed cache/memo layer**, where degrading to a miss means
+  recompute, never data loss — a different defect class from Aurora's, and correct as written.
+- **The atomic-write idiom the generator obligation calls for already exists in-tree**:
+  `tools/ojz_block_gen.py:201-206` (`_atomic_write` — pid-suffixed temp then `os.replace`). New
+  generators reuse it rather than reinventing it; name it in the consumer field list so the
+  obligation points at an implementation instead of a principle.
+
+Net: the load path is safe on the aeon side today and unsafe on the Aurora side today, so the
+contract's error-handling section is **normative for both halves** rather than a courtesy note
+aimed at one.
+
 ---
 
 ## (a) Inventory — the three effects vocabularies and their data paths to the ROM
