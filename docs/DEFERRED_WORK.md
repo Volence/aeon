@@ -208,10 +208,26 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
      `ensure(1 == 0)` inside one builds green. A generated module nothing imports
      would look finished while validating nothing. Wiring waits on the seam below.
 
-   **Q-c IS THE BLOCKING DECISION — PARKED FOR THE OWNER, with a recommendation.**
+   **Q-c IS RULED — OWNER, 2026-08-22: the always-emitted default label, WITH the
+   reachability poison landing in the same parcel.** No longer parked; the
+   recommendation below was accepted as written, including its stated trade-off, and
+   the "land the gate WITH the seam" argument was ratified rather than merely noted.
+   Implementation dispatched the same day (branch `parcel/p5-binding-seam`).
+
+   **Two things the ruling did NOT decide, recorded so nobody reads them into it.**
+   (1) It ruled the *structure* — always-emitted, one always-live descriptor path — not
+   the `.emp` mechanism. Design §3's label-vs-const trap still binds: these are `pub
+   data` **Labels**, because a const import re-evaluates its initializer in the
+   consumer's scope and would duplicate every table and record into the descriptor's
+   section. (2) It **supersedes design §3's own zero-editor-content sentence**, which
+   says the stub exports the act-default label "aliased to nothing" when the sidecars
+   are silent. Under the ruling it aliases to the **hand-authored default**, so the
+   descriptor's single path stays live at zero editor content. Where §3 and this
+   ruling disagree, the ruling wins.
+
    Wave-1 design §9 Q-c: how `act_descriptor.emp` imports the act-default binding when
    there is no editor content, without a dormant scaffold. Two options named there.
-   **Recommendation: the always-emitted default label.** The descriptor's `use` is a
+   **The accepted option: the always-emitted default label.** The descriptor's `use` is a
    name list, so a label that exists only when editor content does makes the descriptor
    build or fail depending on content state — the generator's stub always exports the
    act-default label, aliased to the hand-authored default when there are no editor
