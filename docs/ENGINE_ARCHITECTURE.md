@@ -2241,6 +2241,19 @@ The level system is the engine's most unique feature. A 2D section grid gives le
 
 The engine uses a single continuous world-space camera over a hardware-wrapping VDP plane — the classic Sonic 2 / Sonic 3 & Knuckles / S.C.E. model. There is **no slot system, no teleport, and no per-section coordinate rebase** in normal play. (The 2-slot "leapfrog" that an earlier draft documented was an assistant-authored bet the resident art pool made unnecessary; it has been deleted. The only invisible-rebase mechanism the engine reserves is the coarse floating-origin renumber in §4.11, used only when a level exceeds the 16-bit coordinate ceiling.)
 
+> **CROSS-TOOL CONSUMER (added 2026-08-22): Aurora depends on this paragraph's semantics.** Its
+> driver-faithful BgAnim band preview maps the editor pan onto `Camera_X/Y` to preview
+> `camera_x`/`camera_y` bands (their ruling `bc34aaf`; aeon side
+> `docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md` §5). The load-bearing
+> derivation is the CLAMP, not this prose: `Camera_X_Max = (grid_w << SECTION_SIZE_SHIFT) -
+> SCREEN_WIDTH` (`engine/ram.emp:681`) is consistent only with an EDGE-referenced camera — a
+> centre-referenced one would clamp to `− SCREEN_WIDTH/2`. **If camera origin, bias or clamp
+> semantics ever change, Aurora's preview silently becomes wrong about phase and rate — tell
+> that lane.** Note also that bands read the INTEGER pixel (`bg_anim.emp:144`, a `move.w` taking
+> the 16.16 high word), so truncation precedes `>> rate_shift`; and `Camera_X_Biased`
+> (`ram.emp:661`) is a DIFFERENT cell carrying the VDP SAT offset — it is the plausible near-miss
+> a reconstruction lands on, not the band's input.
+
 **Continuous world camera.** `Camera_X/Y` and player positions are 16.16 **world** coordinates running `0 … level extent`. There is no bounded engine space, no `$200`/`SLOT_ORIGIN` bias, and nothing shifts under the player as it scrolls. Sections live at fixed world ranges:
 
 ```
