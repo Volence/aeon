@@ -147,7 +147,10 @@ surface.
   **Dated evidence, not a standing fact:** the authoritative enumeration is Aurora's first wave-1
   parcel (aurora `61d4b80`), which found **13** by editing against the real type with tests —
   supersede this number by re-deriving, never by copying it forward. Of those, the three the
-  codec frame MISSED, each verified firsthand in aurora source (`e731214`/`a88db05` line):
+  codec frame MISSED — **line numbers verified firsthand at aurora `fb8f8f0` and re-confirmed at
+  `70ed4c2`** (their tip moved twice during this write; if these cites miss, re-derive by the
+  method above rather than trusting them, and note that this doc is the GOVERNING cite — a doc
+  that merely restates these line numbers is the count-in-prose failure in different clothes):
   `src/core/editing/section-ops.ts:30` (`cloneSection` hand-enumerating every ref in a bare
   literal — **it was UNGUARDED; dropping a ref survived a 3,909-test suite**), a SECOND
   independent ref literal in the save path at `save.ts:131` distinct from the cleared-overwrite
