@@ -131,6 +131,32 @@ that does not happen. The probe prints `n/a (display)` there rather than a numbe
 
 ## 3. The rows
 
+> **CAVEAT ADDED 2026-08-22 — `cyc/logic-tick` is a RECONSTRUCTION, not a measurement, and for
+> tick-driven routines it is not the same quantity as a per-invocation figure.** Raised by
+> oracle-next-f3 from their profiler A/B (`oracle docs/2026-08-20-profiler-corpus-ab.md` §11.5);
+> confirmed here by arithmetic against this table's own cells. Every `cyc/logic-tick` value is
+> `cyc/video-frame × frames-per-tick` (1.033 idle, 2.067 max-diagonal), rounded — e.g. BgAnim
+> 181×1.033=187.0 and 74×2.067=153.0; Palette 145×1.033=149.8 and 67×2.067=138.5.
+>
+> **The `calls` column is per-video-frame and INTEGER**, as stated below, so for a routine invoked
+> once per LOGIC TICK it cannot express the true rate at a non-integer frames-per-tick: the true
+> rate is 0.968 invocations/video-frame at idle and 0.484 at max-diagonal, and the column reads
+> `1` at both. `cyc/video-frame` is therefore a per-frame AVERAGE INCLUDING FRAMES THE ROUTINE
+> NEVER RAN IN, whereas a profiler's `cyclesTotal/callsTotal` is a true per-invocation cost.
+> **The column silently means a different thing per row** depending on whether the routine is
+> frame-driven or tick-driven. Do not quote `cyc/logic-tick` as a per-invocation cost.
+>
+> **Worked example, and an OPEN discrepancy this does NOT explain.** `BgAnim_Update` is
+> tick-driven. Against oracle's constant 154 cycles/invocation: at max-diagonal 154/2.067 = 74.5
+> vs our measured 74, and the derivation returns 153 — agreement within a cycle. At idle
+> 154/1.033 = 149.1 vs our measured **181**, 21% HIGH, which no scaling of their constant can
+> produce. So the reconstruction artifact is real and accounts for the max-diagonal agreement,
+> **but our idle per-video-frame figure for BgAnim is itself high before any derivation** and
+> remains UNEXPLAINED. Four of the five §11.5 routines read low and this one reads high — the
+> class likely has more than one cause. Adjudication in flight on the oracle side (a hand
+> derivation from the 68000 manual tables, authored by neither emulator); this caveat stands
+> until it lands, and the outcome may retract numbers here.
+
 31-frame sample, 5 boots, **spread 0 everywhere**. Per-routine rows matched on the low 24 bits
 of the entry address; `interrupts.hint` is never read.
 
