@@ -178,7 +178,18 @@ that does not happen. The probe prints `n/a (display)` there rather than a numbe
 > `cyc/video-frame × frames-per-tick` (1.033 idle, 2.067 max-diagonal), rounded — e.g. BgAnim
 > 181×1.033=187.0 and 74×2.067=153.0; Palette 145×1.033=149.8 and 67×2.067=138.5.
 >
-> **The `calls` column is per-video-frame and INTEGER**, as stated below, so for a routine invoked
+> **The `calls` column is per-video-frame and INTEGER — and worse, it CANNOT REPRESENT THE TRUE
+> STATE.** The normalization is not this doc's formatting: it is integer division in the profiler
+> consumer, `oracle-old/linux-port/gui/ControlSocket.cpp:2042` — `int avgCalls = st.calls /
+> numFrames;` — **followed by a clamp on the very next line, `:2043`: `if (avgCalls < 1) avgCalls
+> = 1;`**. So the value `0`, which is the NORMAL and diagnostic reading for every tick-driven
+> routine at idle (fewer invocations than frames), is the one value the code refuses to emit. A
+> displayed `1` therefore means `st.calls` is anywhere in **[0, 61]** — `[31,61]` by the division,
+> `[0,30]` by the clamp — and carries **no information in either direction**. Do not attempt to
+> derive an invocation count from it; an earlier draft of this caveat tried to infer an excess
+> from a displayed `1` and was refuted by the clamp on the line after the one it cited. If that
+> consumer is ever touched for the pairing fix, removing the clamp (and not pre-dividing at all)
+> belongs in the same pass. As stated below, so for a routine invoked
 > once per LOGIC TICK it cannot express the true rate at a non-integer frames-per-tick: the true
 > rate is 0.968 invocations/video-frame at idle and 0.484 at max-diagonal, and the column reads
 > `1` at both. `cyc/video-frame` is therefore a per-frame AVERAGE INCLUDING FRAMES THE ROUTINE
