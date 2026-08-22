@@ -137,6 +137,33 @@ Not urgent; unblocks Aurora's P3 remainder (animation authoring UI reaching the 
 NOTE: `object-bindings.json` is currently UNTRACKED in this repo — the consumer parcel
 decides tracked-vs-generated as part of the contract, don't let it linger untracked.
 
+### TWO RESERVATION CEILINGS LEFT STANDING BY THE P3 TASK 13 RE-TAKE — booked 2026-08-22
+
+Task 13 re-took every row measured against the pre-P3 walker (fixture model promoted,
+`[engine_reservation]` refreshed on both camera states, axis 1 re-derived 23894 → 24257).
+Two rows were verified and deliberately NOT re-derived; both err in the SAFE
+(over-reserved) direction and each names its unlock condition:
+
+1. **Axis-2 reservation (2160 B) — a ceiling, not a derivation.** The tip re-take
+   reproduced every input (whole-region 3056 B incl. drain residue; live idle queue
+   984 B, of which 896 B is the scene's own forcer, leaving 88 B non-scene live). 88 B
+   would under-reserve for art streaming, whose 1152 B page transfer the scanline-220
+   scan only ever sees as residue — page DMAs are enqueued and drained inside VBlank,
+   invisible to any active-display scan instant. **Unlock: an instrument that takes the
+   per-frame UNION of LIVE enqueues across a streaming-active window** (e.g. a
+   cursor-delta hook at drain time, or a queue-write watchpoint sweep), then
+   reservation = max over states of (live union − the scene's 896 B). Consumers:
+   `SB_AXIS2_RESERVATION` (scene_dsl.emp), `[scene_budget].axis2_reservation_bytes`.
+2. **Axis-4b reservation (43405) — derived from the SUPERSEDED 2026-08-19 idle rows**
+   (35125 + 8280); the 2026-08-22 components give 29472 + 8277 = 37749. Not re-derived
+   in T13 because the constant lives in `raster_dsl.emp` (`RASTER_HINT_RESERVATION_CYC`)
+   with its own guard set and the plan scoped T13's derivation step to axis 1; the stale
+   value over-reserves by 5656 on an axis the 4a density guard already bounds below
+   budget (T11's finding: the hint-total ensure is vacuous against any accepted
+   program). **Unlock: trivial — any parcel touching raster_dsl's budget constants
+   re-derives it from the current `[engine_reservation]` idle rows** and re-checks the
+   4a-bounds argument still holds at the looser budget.
+
 ### 0. STREAMING ROOT-CAUSE ARC — **OPEN (owner-ruled 2026-08-19, diagnosis DONE)**
 The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 60: a tick costs
 **190,931 cycles of work against a 128,000-cycle frame**, so `frames_per_tick = ceil(1.49) = 2`.
