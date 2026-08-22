@@ -68,6 +68,20 @@ The procedure, since this repo's landing lane generates exactly these pairings o
    `[map.undeclared-island] at 0x99F0` from current sigil having moved past that tree's map.
    Both halves were one pinned sigil revision — the same `7b46f075`.
 
+**SCOPE — this procedure is RECOVERY ONLY, and the opposite operation runs at TIP** (protocol
+`aadf63f`, caught by aurora-86 the same day). A **currency check** — "has the contract moved?",
+"is our vendored copy stale?", "did sigil's golden change?" — must read the **tip**, the only
+revision that can answer it. **Re-pointing a drift check at the pinning revision makes it vacuous:
+a pinned blob equals itself by construction, so the gate passes forever and never detects the thing
+it exists for** — a wrong-reason pass wearing protocol-compliance clothes, which is this repo's
+oldest gate failure mode. The two operations look identical at the call site (both are "compare our
+copy against the other repo"); **name which question you are asking before choosing the revision.**
+
+Live interaction in THIS file, so read it deliberately: the landing lane's clean-checkout rule
+pins `AEON_DIR` at a committed SHA. That is correct for **reproducibility** (freeze the artifact
+you actually measured) and would be WRONG for a currency question — a sigil port gate asked "does
+aeon still satisfy this contract *today*" must not be pointed at a pin.
+
 ## Instruments (which oracle for what)
 
 - **oracle-next / oracle-aether** (bus socket, headless): pixels, scanlines (sub-line
