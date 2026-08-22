@@ -136,6 +136,38 @@ and **nothing in the build reads it**. Aurora audit `2588171`,
 Not urgent; unblocks Aurora's P3 remainder (animation authoring UI reaching the ROM).
 NOTE: `object-bindings.json` is currently UNTRACKED in this repo — the consumer parcel
 decides tracked-vs-generated as part of the contract, don't let it linger untracked.
+NOTE 2026-08-22: the ruling's field-list precedent now has a landed sibling —
+`tools/EFFECTS_CONSUMER_CONTRACT.md` (the effects consumer contract) followed this
+ruling's text and placed the list beside the generators in `tools/`; the sprite consumer
+contract should mirror that placement when this parcel is cut.
+
+### AURORA EFFECTS-AUTHORING WAVE 1 — contract docs landed, implementation open (booked 2026-08-22)
+
+The Parcel D Aurora half's contract + design docs are landed (this branch): consumer
+field list `tools/EFFECTS_CONSUMER_CONTRACT.md`, wave-1 design
+`docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md`, writer-side schema in
+empyrean (`docs/AURORA_EFFECTS_SCHEMA.md` + `contract/schema/aurora-effects-scene.schema.json`,
+branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed rulings
+(`08f01b73`, assessment §(f)). What the docs OPEN, all still unbuilt:
+
+1. **`tools/effects_gen.py`** (scanline P5, already booked in that design's phase table)
+   now has its contract inputs: the P5 build implements EXACTLY the §2 read set of
+   `tools/EFFECTS_CONSUMER_CONTRACT.md` — the constructor-call spike + ruled fallback,
+   the per-act binding module + `act_descriptor.emp` name-list label import seam (design
+   §3, incl. the zero-editor-content seam question Q-c), reachability poison + drift
+   gates, and the `project.json` `parallax` → `sceneRef` re-point in the same parcel
+   (ruling Q4 — one change, no interim fossil).
+2. **First authored animated act** — discharges `inject_editor_bg.py`'s FORMAT-FAITHFUL
+   BUT NOT BYTE-PROVEN animated arm (`inject_editor_bg.py:121-124`); that parcel runs
+   `tools/effects_gates.py` and pastes totals into merge evidence even though it touches
+   only generated data (design §8).
+3. **Aurora parcels** are Aurora's lane (their ROADMAP §5.2), cut against BOTH repo SHAs
+   once the doc branches land; not tracked here beyond the contract.
+4. **Wave 2 (raster preset composition)** is sequenced after wave 1's contract golden is
+   green (ruling Q1); its writer surface is reserved-by-name-only in the empyrean doc §7.
+   Wave 2 — not wave 1 — is the recorded revival trigger for the banked EFFECTS-TAIL
+   overlap parcel below (`docs/superpowers/specs/2026-08-17-effects-tail-design-v3.md`
+   r3.1; see its own entry, which this booking references and does not disturb).
 
 ### TWO RESERVATION CEILINGS LEFT STANDING BY THE P3 TASK 13 RE-TAKE — booked 2026-08-22
 
