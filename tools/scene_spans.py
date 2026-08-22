@@ -245,6 +245,27 @@ def lst_proc_sizes(path):
             for i, (a, n) in enumerate(rom)}
 
 
+def source_spans_by_cap():
+    """{CAP_NAME: {span, ...}} — every bracketed span in the ENGINE SOURCES, per bit.
+
+    The source-side complement of `expected_spans` (P3 Task 16). `expected_spans`
+    answers "what must a build with THIS mask emit"; this answers "which bits have a
+    lowering AT ALL". The difference matters exactly when no fixture raises a bit:
+    a bit that is gated in source but raised by neither shipped game (adoption
+    pending, PARK-1) is a different state from a `pub const` bit with no brackets
+    anywhere (a lowering deleted out from under its bit, or a bit promoted ahead of
+    its subject — the vacuous-gate shape). tools/effects_gates.py's scanline_spans
+    lane reports the two differently, and this is the derivation it reads.
+    """
+    bits = capability_bits()
+    out = {}
+    for _path, span, _kind, _off in brackets():
+        cap = span_capability(span, bits)
+        if cap:
+            out.setdefault(cap, set()).add(span)
+    return out
+
+
 def gated_procs():
     """{proc_name: {CAP_NAME, ...}} — every proc that hosts a bracketed span.
 

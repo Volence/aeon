@@ -1219,7 +1219,58 @@ git commit -m "test(p3): one red-first poison per new walker guard"
 
 ---
 
-## Task 16: The demo witness and the span gates, re-derived
+## Task 16: The demo witness and the span gates, re-derived — ✅ DONE 2026-08-22
+
+> **DONE 2026-08-22, `p3/t16-witness-spans`. Result summary:**
+>
+> - **The premise "P3 changed six of the eight pinned procs" did NOT materialise, and the
+>   reason is the finding:** all eight pins re-derived head-to-next-head from the P3-tip
+>   listings (s4.debug crc 0dbaa80f, demo.debug crc dec88cc1) and every row MATCHED. Only
+>   Task 7 moved canonical bytes (Step4_Fill 176→170 / 536→528, re-derived in the witness at
+>   that parcel); Tasks 9/10's mechanisms are elided from BOTH canonical fixtures because
+>   sonic4's mask is still `$001F` — `game_caps("sonic4")` read from `games/sonic4/config/
+>   game.emp:56`, P3 raised no bit on the shipped game (adoption is PARK-1). No pin was
+>   edited; the witness carries the 2026-08-22 verification log.
+> - **Both P3 bits elide MEASURABLY** — measured on the documented instrument builds (the
+>   DEFORM-OWN/CURVES §3 recipes off THIS tip, FAST+DEBUG, non-canonical, never committed),
+>   vs canonical s4.debug: **CAP_MULTI_DEFORM_TABLE** (I1-MDT crc 01f5eff3, len 715046):
+>   Fill_PerLine +8 (the bracketed span, $7B10..$7B18) and Step4_Fill +16 (record-stride
+>   ripple, BAND_EXT_N-driven, deliberately outside the brackets) = +24. **CAP_FACTOR_CURVE**
+>   (I1-FC crc 7a05bac5, len 715452 — byte-identical to CURVES.md §3.7's recorded I1):
+>   Fill_PerLine +102 (band span) and Step4_Fill +160 (hoist 138 + split 6 + 16 stride)
+>   = +262, of which 246 are the three bracketed spans. Neither bit is unreachable or
+>   ungated — no loud finding.
+> - **The scanline_spans lane now says which of two states an unraised bit is in** (the old
+>   single informational row conflated them): `GATED IN SOURCE, RAISED BY NEITHER FIXTURE`
+>   (informational — the two P3 bits today) vs `NOT GATED ANYWHERE` (no source brackets —
+>   now a **FAILURE**: a lowering deleted under a promoted bit, or a bit promoted ahead of
+>   its subject). Derivation: `scene_spans.source_spans_by_cap()`; runner: the
+>   `scanline_spans` listing segment. **Red-first:** commenting the two
+>   `.cap_multi_deform_table_band_*` labels out of parallax.emp turned the row
+>   `FAIL — 1 of 9 gate(s)`; restored, 9/9. All seven declared bits have source brackets.
+> - **The differential design is unchanged and re-verified:** expectations derive from each
+>   game's own `SCANLINE_CAPS` binding + the source gates under the enclosure rule; the
+>   assertion is `want_diff == got_diff` per capability, never an absolute byte count
+>   (placer fill). The witness's per-proc image pin remains the backstop; there is no
+>   `PINNED_DEMO_LEN` and none was added.
+> - **Step 4, the mandatory lane, verbatim** (worktree ROM/lst, 2026-08-22, wall 3:58.11,
+>   `up 4 days, 4:04, load 6.48` at completion):
+>   `[ 1/13] scene:mid_band PASS 38.5s · [ 2/13] scene:suppressed PASS 38.6s ·
+>   [ 3/13] scene:above_screen PASS 38.6s · [ 4/13] scene:dense PASS 39.0s ·
+>   [ 5/13] raster_off PASS 9.7s · [ 6/13] raster_source PASS 13.7s ·
+>   [ 7/13] vsplit_landing PASS 1.8s · [ 8/13] palette_variant PASS 12.9s ·
+>   [ 9/13] snapshot_poison PASS 10.0s · [10/13] warp_mailbox PASS 6.2s ·
+>   [11/13] boot_override PASS 1.5s · [12/13] cost_model PASS 26.1s ·
+>   [13/13] listing PASS 1.4s` — **`effects_gates: OK — 27 gates`, exit 0.**
+> - **Byte accounting:** tools/docs-only parcel; all four shapes rebuilt canonically on the
+>   committed tree — s4 060401e4/699106, s4.debug 0dbaa80f/715010, demo c708b114/96336,
+>   demo.debug dec88cc1/101044 — **identical to the pre-parcel baseline.** No repin, no
+>   refreeze. Lanes: pytest `1192 passed, 3 skipped` (13.95s, up 4d 3:58 load 1.95);
+>   emp_expect_fail `OK — 29/29` with `PASS sentinel`; s4lint no issues;
+>   effects_budget_check OK 39 rows; verify_level_bin OK.
+> - DEFORM-OWN.md §3.2's present-tense description of the old row text is bracket-noted as
+>   historical; no DEFERRED_WORK entries — nothing discovered that is not recorded in the
+>   witness log or this block.
 
 **Why:** P3 changed six of the eight procs the demo witness pins, and every span gate's
 expectation must come from the capability mask rather than a table.
@@ -1227,7 +1278,7 @@ expectation must come from the capability mask rather than a table.
 **Files:** `tools/demo_specialization_witness.py`, `tools/scene_spans.py`,
 `tools/effects_gates.py`
 
-- [ ] **Step 1: RE-DERIVE `DEMO_SPECIALISED_PROCS`, never edit it to match**
+- [x] **Step 1: RE-DERIVE `DEMO_SPECIALISED_PROCS`, never edit it to match**
 
 The current pins are `Enqueue_Dirty_Buffers` 514/570, `Parallax_Active_Config` 6/18,
 `Parallax_Fill_PerLine` 2/372, `Parallax_StartTransition` 90/118, `Parallax_Step4_Fill`
@@ -1237,17 +1288,17 @@ The current pins are `Enqueue_Dirty_Buffers` 514/570, `Parallax_Active_Config` 6
 that a whole-ROM-length pin was rejected because every elision was absorbed by placer fill and
 it "would have caught this poison for the wrong reason".
 
-- [ ] **Step 2: The two new capabilities must ELIDE MEASURABLY from demo**
+- [x] **Step 2: The two new capabilities must ELIDE MEASURABLY from demo**
 
 demo has `SCANLINE_CAPS = 0`. A capability that elides zero bytes from demo is either
 unreachable or not actually gated. Record the delta per capability.
 
-- [ ] **Step 3: Two-fixture differential, and do not measure the placer**
+- [x] **Step 3: Two-fixture differential, and do not measure the placer**
 
 Each span gate compares sonic4 (`$001F` plus whatever P3 raises) against demo (`$0000`) and
 asserts the DIFFERENCE matches the mask. Never an absolute region byte count — fill moves it.
 
-- [ ] **Step 4: Run the mandatory lane**
+- [x] **Step 4: Run the mandatory lane**
 
 Run: `python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`
 Paste totals + exit code into the merge evidence. **Mandatory ritual** — this parcel touches
@@ -1260,7 +1311,7 @@ touches the third.
 not `scene_dsl` `Scene` values**. Two different things named "scene" in one gate list. Do not
 wire a P3 scene gate into that namespace without renaming.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/demo_specialization_witness.py tools/scene_spans.py tools/effects_gates.py

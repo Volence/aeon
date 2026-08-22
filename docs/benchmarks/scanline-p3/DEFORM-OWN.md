@@ -215,6 +215,11 @@ The note in `scene_dsl.emp`'s capability block is corrected accordingly, because
 wording ("if either bit is still showing that row after Task 10, the lowering did not happen")
 would have sent the next reader hunting for a lowering that is there.
 
+*(P3 Task 16 update: the lane now spells this state out itself — the row reads `GATED IN
+SOURCE, RAISED BY NEITHER FIXTURE (… elided from both)`, derived from the source brackets.
+`NOT GATED ANYWHERE` is since reserved for a declared bit with no source brackets at all,
+and FAILS. The paragraph above records what the lane printed at this parcel's landing.)*
+
 ---
 
 ## 4. The measurement
