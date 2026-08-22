@@ -5,6 +5,72 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ✅ TOOL-01 — CLOSED 2026-08-22 — `png_to_bg_override.py` silently destroyed keys in the file it rewrites
+
+**Live data loss, not a latent one.** `tools/png_to_bg_override.py` wrote
+`games/sonic4/data/editor_bg_override.json` as a whole-file overwrite that **never read the
+file**. `OVERRIDE` appeared exactly twice — the path constant and `open(OVERRIDE, "w")` — and
+`out` was constructed as a **fresh dict** (`{"layout": …, "tiles": …}`), with `palette` /
+`palette_line` added **only** when the run was in EXTRACT+stamp mode.
+
+**The shipping instance (the reason this is not theoretical).**
+`tools/inject_editor_bg.py:206-215` *consumes* `palette` / `palette_line`: 16 CRAM words,
+asserted, mapped to a CRAM line, stamped into `ojz_palette.bin`. And `ojz_strip_gen.py`
+re-copies `ojz_palette.bin` from sonic_hack every build, so that stamp is the **only** thing
+keeping the injected BG art's colours. Therefore:
+
+```
+run A:  png_to_bg_override.py … --new-palette   → writes layout, tiles, palette, palette_line
+run B:  png_to_bg_override.py … (lock mode)     → writes layout, tiles          ← palette GONE
+```
+
+Run B is the ordinary "re-import the art" step. It silently reverted the stamped BG palette,
+with no diagnostic, on a path that ships. Reproduced as bytes on disk before the fix:
+
+```
+AssertionError: b'"palette"' not found in b'{"layout": [16384, 16385, …
+```
+
+**The second instance that surfaced it.** `inject_editor_bg.py:70-72` *already* consumes
+`anims` (up to `BGANIM_MAX_BANDS` BgAnim bands — 8 banks of `cols*rows` tiles of expensive
+hand-authored content) and the legacy single-band `anim`. Any run of this tool destroyed
+those the same way. This one was **not** hypothetical either — only unexercised.
+
+**Fixed (`86b62e73`, branch `parcel/bg-override-no-clobber`).** The tool now reads the file
+before writing, and:
+
+1. **Carries its OWN keys across its OWN modes** — `palette` / `palette_line` survive a run
+   that does not stamp them; a stamping run's fresh values still win, which is its job.
+2. **Loudly refuses any key it does not own** — non-zero exit naming the offending key(s) and
+   saying it would destroy them. Owned keys are exactly `layout`, `tiles`, `palette`,
+   `palette_line` (`OWNED_KEYS`), pinned by a test that derives the set from the keys the tool
+   actually emits across both modes rather than restating a literal.
+3. **Writes atomically** — `_atomic_write`, the `tools/ojz_block_gen.py:201-206` idiom required
+   of generators by `tools/EFFECTS_CONSUMER_CONTRACT.md` §3; a crash mid-write can no longer
+   truncate the file.
+
+Gate: `tools/test_bg_override_no_clobber.py`, 8 tests, run by the `pytest tools` lane wired at
+`build.sh:355`. Zero-byte parcel — all four ROM shapes CRC-identical.
+
+> ### ⚠️ The refusal in (2) is PENDING AN OWNER RULING, not a final design.
+>
+> **Per-key ownership of `editor_bg_override.json` is an open design question** — specifically
+> whether Aurora may co-write an `anims` key into a file `png_to_bg_override.py` also writes
+> (see `docs/superpowers/2026-08-22-aeon-overseer-handoff.md:294,372` and
+> `docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md:197-202`, where this is
+> booked as last-writer-wins between two authors of one file).
+>
+> Refusal was chosen **because it takes neither side**: it converts silent destruction into a
+> visible stop and leaves both candidate answers cheap to implement. A read-merge-write that
+> silently preserved unknown keys would have adopted one of the two answers by implementation,
+> which is why it was deliberately **not** built.
+>
+> When the owner rules, the refusal is the thing to revisit. If Aurora becomes a legitimate
+> co-author, the fix is to move the shared keys into `OWNED_KEYS` (or split the file); until
+> then the tool stops rather than guessing.
+
+---
+
 ## ✅ EFX-10 — CLOSED 2026-08-17 (`sigil build --extra-entry`). The expect-fail lane elaborates a poison inside the real profile.
 
 **Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane's
