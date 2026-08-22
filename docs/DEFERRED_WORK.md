@@ -8060,6 +8060,38 @@ record VALUE would be the one-unit poison (`br_ext` one element long against
    > obtained from a worktree binary as the artifact the row cites — that is evidence for the
    > LANGUAGE claim, not for the assembler this repo runs.
    >
+   > **SEQUENCE NOW SATISFIED — THE ROW IS CUTTABLE (2026-08-22).** All three steps done:
+   > 1. Shared binary rebuilt: `/home/volence/sonic_hacks/sigil/target/release/sigil`,
+   >    mtime **2026-08-22 13:58:30** (was 2026-08-20 09:54:11).
+   > 2. Verified against THAT artifact by sigil-83 — poison: `array length mismatch:
+   >    expected 0 element(s), got 1`, exit 1. Control (`r_ext: []`): `built: 0 bytes`,
+   >    exit 0. **The control is the load-bearing arm** — a reject-everything compiler
+   >    satisfies the poison alone.
+   > 3. Committed fixture to cite instead of a scratchpad file:
+   >    `crates/sigil-cli/tests/const_arity_cli.rs` + `vectors/const_arity_{poison,control}.emp`,
+   >    runner `const_arity_cli`, driving the built binary via `CARGO_BIN_EXE_sigil` and
+   >    taking **no `AEON_DIR`** (deliberately — that coupling is what it exists to avoid).
+   >
+   > **⚠ EVERY SIGIL SHA BELOW IS LOCAL-ONLY — VERIFIED, NOT ASSUMED.** sigil
+   > `origin/master` is `40f862e2` (2026-08-21, the T10 refreeze); local master is
+   > `538e5a3c`, **38 commits ahead and unpushed** (the owner's gate, not an oversight).
+   > So the fixture commit `a24a1b4f` / merge `34d887c4`, and `e08f5bdc` / `e8f325b3`,
+   > exist **only on this machine**. Cite them as local-only or wait for a push; a row
+   > citing an unfetchable fixture is an anchor nobody else can reach.
+   >
+   > **AEON RE-VERIFIED UNDER THE NEW ASSEMBLER (this overseer, firsthand).** aeon
+   > `551d1841` in a clean paired worktree, ROMs deleted first so existence proves
+   > freshness: all four shapes green, CRCs **unmoved** — `060401e4` / `0dbaa80f` /
+   > `c708b114` / `dec88cc1`; suite `1211 passed, 4 skipped` (the 4th skip is the known
+   > benign DEBUG-artifact-presence one, present because the ROMs were deleted; it is
+   > `1212/3` once `s4.debug.bin` exists — not a regression). This matters because the
+   > rebuilt binary also carries an **encoder tightening**: `TST` takes DATA ALTERABLE on
+   > the MC68000, not DATA, removing nine encodable words the 68000 traps as illegal.
+   > Independently confirmed here: **zero `tst` with a `pc` or `#` operand** across aeon's
+   > `.emp`/`.asm`/`.inc`. Their sweep covered aeon at `b1f8a230`/`1a794ace` and worried
+   > about the delta to `419194bb` — **that delta is docs-only** (`git diff --name-only`
+   > excluding `docs/` is empty), so their coverage transfers.
+   >
    > Standing hazard this exposed, wider than the parcel: **the shared
    > `sigil/target/release/sigil` had been three days behind master and nobody noticed until
    > this entry forced the question.** Every aeon build in that window used it. A stale shared
