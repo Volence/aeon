@@ -30,71 +30,86 @@
 # docs/benchmarks/scanline-p2/ENGINE-BASELINE.md — a reservation whose camera state is not
 # reproducible is not a reservation, which is how the effects-p3 baseline rows went stale.
 #
-# Scanline P2 Phase 0 Task 2, 2026-08-19. s4.debug.bin crc d22dda85. 31-frame sample, FIVE
-# independent boots per state, SPREAD 0 on every row. tools/engine_baseline_probe.py.
+# Scanline P2 Phase 0 Task 2, 2026-08-19 (crc d22dda85); RE-TAKEN by Scanline P3 Task 13,
+# 2026-08-22, on the P3 tip — s4.debug.bin crc 0dbaa80f len 715010 — because every row here
+# was measured against the pre-unroll walker and both the fill-unroll parcel and the
+# streaming arc landed in between. 31-frame sample, FIVE independent boots per state,
+# SPREAD 0 on every row of both states (idle taken twice this session, rows byte-identical;
+# wall 64 s, uptime 01:54:36 load 3.44 -> 01:55:40 load 4.57).
+# tools/engine_baseline_probe.py --state idle,maxdiag --repeat 5.
+# The superseded 2026-08-19 values are kept in parentheses beside each row that moved.
 status = "measured"
 instrument = "ORACLE per-routine rows (oracle-next has no profiler); interrupts.hint is NEVER a valid source here -- it sums HBlank and VBlank. Cycle figures are IDEAL-CYCLE: the clock excludes bus/VDP/DMA stall (M68000.cpp:1029-1031)"
 
 # THE DENOMINATOR PROBLEM, AND WHY THERE ARE TWO OF EVERY MAX-DIAGONAL ROW. Sustained
 # max-diagonal does not run at 60 Hz. Measured on the engine's own counters (Frame_Counter vs
 # Logic_Tick, the latter documented in engine/ram.emp as "lag-immune"): 31 video frames carry
-# 15 logic ticks, i.e. 2.067 video frames per tick, spread 0 across five boots, with
-# Lag_Frame_Count advancing 16. Idle runs 1.033. It is NOT the art soft-clamp -- Camera_Art_Hold
-# reads 0 and DEBUG's Dbg_Cam_Clamp_Frames stays 0 for the whole run, both checked. The camera
-# still advances CAM_MAX_STEP per TICK on both axes, which is the second, independent witness:
-# camera_dx/16 == the Logic_Tick delta exactly.
+# 26 logic ticks, i.e. 1.192 video frames per tick, spread 0 across five boots, with
+# Lag_Frame_Count advancing 5. Idle runs 1.033. (The 2026-08-19 vintage read 2.067 with lag
+# +16 -- the streaming arc landed in between and moved the whole state; see the arc's
+# closeout.) It is NOT the art soft-clamp -- Camera_Art_Hold reads 0 and DEBUG's
+# Dbg_Cam_Clamp_Frames stays 0 for the whole run, both checked. The camera still advances
+# CAM_MAX_STEP per TICK on both axes, which is the second, independent witness:
+# camera-derived ticks == the Logic_Tick delta exactly (26.00 vs 26).
 #
 # So a max-diagonal routine has two honest figures and both are here. The per-VIDEO-FRAME one
 # is what the 128000-cycle budget divides; the per-LOGIC-TICK one is what one invocation of the
-# work actually costs. Quoting only the first understates every routine by 2.07x.
+# work actually costs. Quoting only the first understates every routine by 1.19x.
 frames_per_logic_tick_idle        = 1.033
-frames_per_logic_tick_max_diagonal = 2.067
+frames_per_logic_tick_max_diagonal = 1.192   # (was 2.067)
 
 # The main-loop bracket: GameState_OJZScroll_Update, one call per logic tick.
-idle_main_loop_cycles              = 35125    # per video frame
-max_diagonal_main_loop_cycles      = 55144    # per video frame
-idle_main_loop_cycles_per_tick     = 36296
-max_diagonal_main_loop_cycles_per_tick = 113964
+idle_main_loop_cycles              = 29472    # per video frame (was 35125)
+max_diagonal_main_loop_cycles      = 80309    # per video frame (was 55144)
+idle_main_loop_cycles_per_tick     = 30454    # (was 36296)
+max_diagonal_main_loop_cycles_per_tick = 95753  # (was 113964)
 
 # The VBlank bracket: VInt_Level. Raster_VBlank runs INSIDE it, before Flush_VDP_Shadow and
 # every DMA drain, so this is the number a VBlank axis is a fraction of -- not Raster_VBlank's
 # own row. VInt_Lag is the spare VBlanks a lagging tick spends, listed beside it.
-idle_vblank_cycles                 = 8280
-max_diagonal_vblank_cycles         = 6117     # LOWER per video frame, because a lagging tick
-                                              # spreads one VInt_Level over two VBlanks
-idle_vblank_cycles_per_tick        = 8556
-max_diagonal_vblank_cycles_per_tick = 12642
+idle_vblank_cycles                 = 8277     # (was 8280)
+max_diagonal_vblank_cycles         = 11338    # (was 6117 -- the 08-19 state lagged 2.07x, so
+                                              # one VInt_Level spread over two VBlanks; at
+                                              # 1.192 most frames carry a full bracket)
+idle_vblank_cycles_per_tick        = 8553     # (was 8556)
+max_diagonal_vblank_cycles_per_tick = 13518   # (was 12642)
 idle_vblank_lag_cycles             = 166
-max_diagonal_vblank_lag_cycles     = 2904
+max_diagonal_vblank_lag_cycles     = 806      # (was 2904)
 
 # The five routines design §5 names, per VIDEO FRAME. Per-tick figures and the full 13-routine
 # table (incl. Camera_Update, EntityWindow_Scan, Tile_Cache_Fill, Section_UpdateColumns and the
-# VSync_Wait headroom) are in ENGINE-BASELINE.md.
-idle_parallax_update_cycles        = 19511
-max_diagonal_parallax_update_cycles = 12189
+# VSync_Wait headroom) are in ENGINE-BASELINE.md (2026-08-19 vintage) and this run's log.
+idle_parallax_update_cycles        = 13492   # (was 19511: the fill-unroll + re-glue walker.
+                                             # NOTE this is the baseline probe's per-video-frame
+                                             # row at the idle tick rate 1.033; the walker
+                                             # probe's preemption-free per-CALL figure on the
+                                             # same ROM is 13834 -- [parallax.cost_model]
+                                             # out_of_sample_measured. Both true; the axis-1
+                                             # subtraction uses this one because it shares its
+                                             # window with idle_main_loop_cycles.)
+max_diagonal_parallax_update_cycles = 13612  # (was 12189)
 idle_raster_vblank_cycles          = 1482
 max_diagonal_raster_vblank_cycles  = 1488
 idle_palette_compose_cycles        = 145
-max_diagonal_palette_compose_cycles = 67
+max_diagonal_palette_compose_cycles = 130    # (was 67)
 idle_enqueue_dirty_buffers_cycles  = 1356
-max_diagonal_enqueue_dirty_buffers_cycles = 1236
-idle_bganim_update_cycles          = 181
-max_diagonal_bganim_update_cycles  = 74
+max_diagonal_enqueue_dirty_buffers_cycles = 1373  # (was 1236)
+idle_bganim_update_cycles          = 160     # (was 181)
+max_diagonal_bganim_update_cycles  = 144     # (was 74)
 
 # THE HEADROOM, and the finding a budget parcel needs most. VSync_Wait is idle, not cost.
-idle_vsync_wait_cycles             = 79595   # 62.2% of the frame is idle
-max_diagonal_vsync_wait_cycles     = 34371   # 26.9% per video frame
-# ...and yet max-diagonal LAGS, at 26.9% apparent idle. Both are true: a logic tick spans two
-# video frames, so the tick's own work saturates the first and the wait lands in the second.
-# Per tick the loop costs 113964 cycles against a 128000-cycle frame -- 89% -- and the VBlank
-# bracket plus the lag handler are on top of that. The single biggest term is Tile_Cache_Fill at
-# 106163 cyc/tick (40.1% of every video frame). ART STREAMING, NOT EFFECTS, IS WHAT SPENDS THE
-# MAX-DIAGONAL FRAME: the five effects routines above total 22675 cyc/video-frame at idle
-# (17.7%) and 15054 at max-diagonal (11.8%), against streaming's 40.1% -- and the effects total
-# FALLS at max-diagonal only because it is being divided by twice as many video frames. Per
-# LOGIC TICK the same five go 23430 -> 31111, which is the honest direction.
+idle_vsync_wait_cycles             = 85444   # 66.8% of the frame is idle (was 79595 / 62.2%)
+max_diagonal_vsync_wait_cycles     = 24464   # 19.1% per video frame (was 34371 / 26.9%)
+# Max-diagonal still lags, now mildly: 26 ticks in 31 frames (~50 Hz effective, was ~30). Per
+# tick the loop costs 95753 cycles against a 128000-cycle frame -- 75% -- and the VBlank
+# bracket plus the lag handler are on top of that. The single biggest term is still
+# Tile_Cache_Fill, at 64695 cyc/tick, 42.4% of every video frame (was 106163 / 40.1%). ART
+# STREAMING, NOT EFFECTS, IS STILL WHAT SPENDS THE MAX-DIAGONAL FRAME: the five effects
+# routines above total 16635 cyc/video-frame at idle (13.0%) and 16747 at max-diagonal
+# (13.1%), against streaming's 42.4%. Per LOGIC TICK the same five go 17189 -> 19968, which
+# is the honest direction.
 max_diagonal_lags = true
-max_diagonal_lag_note = "sustained 16px/frame diagonal ticks at ~30 Hz, not 60. Measured, reproducible, spread 0. It is a streaming cost (Tile_Cache_Fill 40.1%), not an effects cost -- but every Phase-2 budget expressed per VIDEO FRAME must not assume 60 Hz at this state."
+max_diagonal_lag_note = "sustained 16px/tick diagonal (13.4 px/video-frame) ticks at ~50 Hz, not 60 (was ~30 Hz before the streaming arc). Measured, reproducible, spread 0. It is a streaming cost (Tile_Cache_Fill 42.4%), not an effects cost -- but every budget expressed per VIDEO FRAME must not assume 60 Hz at this state."
 
 # ---- AXIS 5's DENOMINATOR: the object system's SAT occupancy -----------------
 # Scanline P3 Phase 0 Task 4, 2026-08-20. s4.debug.bin crc 5be03175 len 715084.
@@ -1050,13 +1065,28 @@ status = "code-derived (enforced in engine/level/scene_dsl.emp; these rows are p
 aggregation = "max over scenes — one scene is live at a time; the pairwise sum is Task 12's transition frame, BLOCKED"
 
 # ---- The four ENFORCED axes, with the derivation of each budget ----
-# Axis 1 reservation: idle_main_loop_cycles 35125 less the walker's OWN idle_parallax_update
-# 19511 (charging a scene the walker while leaving the baseline walker in the reservation
-# would double-count the very thing being budgeted) = 15614, plus idle_vblank_cycles 8280.
+# Axis 1 reservation: idle_main_loop_cycles less the walker's OWN idle_parallax_update
+# (charging a scene the walker while leaving the baseline walker in the reservation
+# would double-count the very thing being budgeted), plus idle_vblank_cycles.
+# RE-DERIVED by P3 Task 13 (2026-08-22) from the [engine_reservation] re-take above,
+# because the walker's idle cost moved and the subtraction moves with it:
+#   was:  (35125 - 19511) + 8280 = 15614 + 8280 = 23894
+#   now:  (29472 - 13492) + 8277 = 15980 + 8277 = 24257
+# The walker got 6019/frame cheaper, yet the RESERVATION ROSE 363: the non-walker main loop
+# went 15614 -> 15980 (+366 -- P3's non-walker mechanisms live outside Parallax_Update), and
+# VInt_Level gave back 3. All three components share one probe window (idle, 1.033
+# frames/tick), so the subtraction is internally consistent -- see the note on
+# idle_parallax_update_cycles for why 13492 and not the walker probe's per-call 13834.
 axis1_pool_cycles        = 128000
-axis1_reservation_cycles = 23894     # 15614 non-walker main loop + 8280 VInt bracket
-axis1_budget_cycles      = 104106
-axis1_worst_scene_cycles = 38052.27  # max over the shipped 20, from the fitted walker model
+axis1_reservation_cycles = 24257     # 15980 non-walker main loop + 8277 VInt bracket
+axis1_budget_cycles      = 103743
+axis1_worst_scene_cycles = 42740.77  # max over the shipped 20, from the fitted walker model
+                                     # (scene_budget_report.py on this build; was 38052.27
+                                     # against the P2-era transcription. HIGHER despite the
+                                     # per-line intercepts getting ~3x cheaper: the promoted
+                                     # model's new worst-case charges — shift amplitude,
+                                     # per-sampling-band prologue, per-trip anchor — net out
+                                     # larger on the worst scene, the conservative direction)
 # Axis 2: the measured queue less the per-line HScroll entry, which is the SCENE's.
 #
 # ##### RE-ATTRIBUTED BY P3 TASK 6 STEP 1, 2026-08-20 — THE SUM IS UNCHANGED. #####
@@ -1066,14 +1096,19 @@ axis1_worst_scene_cycles = 38052.27  # max over the shipped 20, from the fitted 
 # guard is exactly as tight as it was, and no budget was loosened on the strength of a
 # measurement correction that only re-attributed the bytes.
 #
-# THE RESERVATION IS NOW A CEILING AND IS BOOKED FOR RE-DERIVATION. 2160 is the whole-region
-# scan total (3056 B, live + drain residue) less the scene's 896 B. The honest LIVE figure is
-# dma_live_words_idle 492 w = 984 B, less 896 = 88 B — but that state has an EMPTY Important
-# queue, so an 88 B reservation would under-reserve for the engine's largest DMA client (art
-# streaming: the 1152 B page transfer this scan sees only as residue). Neither number is a
-# derivation of "standing non-scene DMA" and it is not this task's to take: Task 13 re-takes
-# every row measured against today's walker, and this is one of them. Over-reserving is the
-# safe direction to sit in until then.
+# THE RESERVATION IS A CEILING, RE-TAKEN AND KEPT BY P3 TASK 13 (2026-08-22). 2160 is the
+# whole-region scan total (3056 B, live + drain residue) less the scene's 896 B. The tip
+# re-take reproduced every input: whole-region 1528 w idle / 1519 w maxdiag, live 492 w idle
+# (984 B, the same four entries) / 483 w maxdiag, max single transfer 576 w, five boots,
+# spread 0 -- so the ceiling's derivation is unchanged and the row stands. The honest LIVE
+# figure is still 984 B less 896 = 88 B of non-scene live DMA at the scan instant — but that
+# state has an EMPTY Important queue, so an 88 B reservation would under-reserve for the
+# engine's largest DMA client (art streaming: the 1152 B page transfer this scan sees only as
+# residue). A TRUE derivation of "standing non-scene DMA" needs an instrument this tree does
+# not have: a per-frame UNION of live enqueues across a streaming-active window (the
+# scanline-220 scan cannot see entries enqueued and drained inside VBlank). Booked in
+# docs/DEFERRED_WORK.md with that unlock condition. Over-reserving is the safe direction to
+# sit in until then.
 axis2_pool_bytes         = 7524      # H40 NTSC VBlank DMA capacity
 axis2_reservation_bytes  = 2160      # CEILING: whole-region 3056 B less the scene's ONE 896 B
 axis2_budget_bytes       = 5364
@@ -1095,8 +1130,14 @@ per_line_combined = "896 B of VBlank DMA (11.9% of the 7524 B pool) AND 2135 cyc
 # raster_program(), because scenes do not fire HInts and the section->preset->program chain is
 # Labels end to end (the same barrier that blocks Task 12). Model cycles on BOTH sides — never
 # compared against the measured rows, which include profiler instrumentation and exception entry.
+# NOTE (P3 Task 13, 2026-08-22): 43405 derives from the SUPERSEDED 2026-08-19 idle rows
+# (35125 + 8280); the re-taken components give 29472 + 8277 = 37749. NOT re-derived here,
+# deliberately: the constant lives in raster_dsl.emp (RASTER_HINT_RESERVATION_CYC, [symbols]
+# row below) with its own guard set, the plan scoped Task 13's derivation step to axis 1, and
+# the stale value errs in the SAFE direction (over-reserved by 5656 on an axis the 4a density
+# guard already bounds below budget). Booked in docs/DEFERRED_WORK.md.
 axis4b_pool_cycles        = 128000
-axis4b_reservation_cycles = 43405    # idle_main_loop 35125 + idle_vblank 8280
+axis4b_reservation_cycles = 43405    # idle_main_loop 35125 + idle_vblank 8280 (08-19 vintage, CEILING)
 axis4b_budget_cycles      = 84595
 
 # ---- FALSIFIABILITY: WHICH GUARDS CAN ACTUALLY GO RED, MEASURED ----
@@ -1105,12 +1146,17 @@ axis4b_budget_cycles      = 84595
 # and tests nothing. Of the four enforced axes, exactly ONE has an input that can cross its
 # budget, and that is a property of the shipped model rather than a defect in the guards:
 #
-#   AXIS 1  FALSIFIABLE, unit = one band. 115 bands costs 103332.74 and passes; 116 costs
-#           104188.01 and fails by 82.01 cyc. BUT `scene()` caps count at MAX_PARALLAX_BANDS
-#           (8), where the worst possible scene costs 11818 cyc — 11% of budget, ~9x headroom.
-#           So the guard's live role is a ledger row plus a BACKSTOP on the documented
+#   AXIS 1  FALSIFIABLE, unit = one band. RE-DERIVED by P3 Task 13 under the promoted model
+#           and reservation: 93 bands costs 103352.26 and passes (391 cyc headroom); 94
+#           costs 104411.37 and fails by 668 cyc — the smallest overrun one band admits,
+#           since a band's marginal is now 1059.1 cyc (band_perline 854.00 + 3 anchor trips
+#           x 60.77, x1.022). BUT `scene()` caps count at MAX_PARALLAX_BANDS (8), where the
+#           worst possible constructor scene (both planes at shift 14, curve layer, V-deform,
+#           anchored, every worst-case charge stacked) costs 67549.93 — 65% of budget. So
+#           the guard's live role is a ledger row plus a BACKSTOP on the documented
 #           `Scene{ .. }` back door, which is what games/sonic4/test/poison/poison_budget_axis1.emp
-#           probes (red-first verified: 1 diagnostic, exactly the axis-1 message).
+#           probes (red-first verified 2026-08-22: 1 diagnostic, exactly the axis-1 message,
+#           quoting 104411 against 103743).
 #   AXIS 2  NOT FALSIFIABLE. The per-scene charge is two-valued — 0 or 896 B — and 896 +
 #           2160 = 3056 fits 7524 always. It becomes falsifiable if a second per-line forcer
 #           class is added, or if the pool shrinks (PAL H40, or a VRAM-heavier frame).

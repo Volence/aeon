@@ -1790,25 +1790,45 @@ pub comptime fn assert_act_relative_tagged(scenes: array, act_span: int) -> int 
 //
 // ---- UNITS: HUNDREDTHS OF A CYCLE ----
 //
-// The walker's fitted constants are fractional to two places (base 3021.94, and the fit's
-// max |residual| is 0.27 cycles over 14 un-anchored fixtures). `.emp` comptime is integer
-// math, so the axis-1 terms are held x100 and named `_X100`. Rounding to whole cycles
-// instead would discard a measured digit for no reason; the raster DSL already sets this
-// precedent ("Computed in TWENTIETHS so the two halvings ... are exact").
+// The walker's fitted constants are fractional to two places (line_bg_only 26.90, and the
+// anchor slope 60.77). `.emp` comptime is integer math, so the axis-1 terms are held x100
+// and named `_X100`. Rounding to whole cycles instead would discard a measured digit for no
+// reason; the raster DSL already sets this precedent ("Computed in TWENTIETHS so the two
+// halvings ... are exact").
 // =====================================================================
 
 // ---- Axis 1: the walker's fitted additive model, [parallax.cost_model] ----
-// 17 fixtures, 3 boots each, spread 0 on every one; residual 0.27 cyc on the un-anchored
-// subset. Response = Parallax_Update's per-routine row, INCLUSIVE of its callees.
-pub const SB_WALK_BASE_X100          = 302194   // base_cycles          3021.94
-pub const SB_WALK_BAND_PERCELL_X100  = 74694    // band_percell_cycles   746.94
-pub const SB_WALK_LINE_MODE_X100     = 151802   // line_mode_cycles     1518.02
-pub const SB_WALK_BAND_PERLINE_X100  = 84597    // band_perline_cycles   845.97
-pub const SB_WALK_MULTIBAND_X100     = 2321     // multiband_cycles        23.21
-pub const SB_WALK_LINE_FG_X100       = 7621     // line_fg_only_cycles     76.21
-pub const SB_WALK_LINE_BG_X100       = 7627     // line_bg_only_cycles     76.27
-pub const SB_WALK_LINE_BOTH_X100     = 12617    // line_both_cycles       126.17
-pub const SB_WALK_VDEFORM_X100       = 142406   // vdeform_cycles        1424.06
+// 26 fixtures, 3 boots each, spread 0 on every one; residual 0.00 cyc on the un-anchored
+// subset (18 fixtures). Response = Parallax_Update's per-routine row, INCLUSIVE of its
+// callees. RE-TAKEN AND PROMOTED by P3 Task 13 (2026-08-22) over the walker P3 leaves
+// behind — the post-unroll, world-Y-re-glue filler at the P3 tip (ROM crc 0dbaa80f);
+// evidence WALKER-MODEL.md §11. The P2-era transcription that stood here until then was
+// measured against the PRE-unroll filler and predated three fitted columns, all charged
+// below now: shift_lines, band_sampling, and the anchor's fitted (base + per-trip) pair.
+pub const SB_WALK_BASE_X100          = 311600   // base_cycles          3116.00
+pub const SB_WALK_BAND_PERCELL_X100  = 75200    // band_percell_cycles   752.00
+pub const SB_WALK_LINE_MODE_X100     = 154800   // line_mode_cycles     1548.00
+pub const SB_WALK_BAND_PERLINE_X100  = 85400    // band_perline_cycles   854.00
+pub const SB_WALK_MULTIBAND_X100     = 2000     // multiband_cycles        20.00
+// THE PER-LINE SAMPLING TERMS ARE SHIFT-0 INTERCEPTS since the shift_lines column exists;
+// the amplitude rides SB_WALK_SHIFT_LINE_X100 below. And they are POST-UNROLL values: the
+// single-channel loops carry a ~154-cycle per-band prologue (SB_WALK_SAMP_BAND_X100) that
+// bought the per-line body down from the pre-unroll 76.21/76.27; `.lp_both` is deliberately
+// un-unrolled (register-file ruling, P3 C2), which is why a both-planes line costs ~4.8x a
+// single-channel one rather than ~2x.
+pub const SB_WALK_LINE_FG_X100       = 2600     // line_fg_only_cycles     26.00 (at shift 0)
+pub const SB_WALK_LINE_BG_X100       = 2690     // line_bg_only_cycles     26.90 (at shift 0)
+pub const SB_WALK_LINE_BOTH_X100     = 12453    // line_both_cycles       124.53 (at shift 0)
+pub const SB_WALK_SHIFT_LINE_X100    = 200      // shift_lines_cycles       2.00 per line,
+                                                // per unit of deform shift, per channel —
+                                                // the `asr.w d3, d1` register-count shift
+                                                // (6 + 2n), confirmed exactly by W22/W7/W23
+pub const SB_WALK_SAMP_BAND_X100     = 15400    // band_sampling_cycles   154.00 per band
+                                                // taking a sampling loop — the unrolled
+                                                // loops' per-band prologue (W14/W15/W25).
+                                                // A LOOP-SHAPE property: it read 0.00 on the
+                                                // pre-unroll filler (WALKER-MODEL.md §5(d))
+pub const SB_WALK_VDEFORM_X100       = 147200   // vdeform_cycles        1472.00
 
 // THE CURVE'S TWO TERMS (P3 Task 10), and they are NOT from the fit above. Every other
 // constant in this block came from the 26-fixture canonical sweep; these two were measured on
@@ -1816,25 +1836,32 @@ pub const SB_WALK_VDEFORM_X100       = 142406   // vdeform_cycles        1424.06
 // the same standing as the CAP_MULTI_DEFORM_TABLE row in the toml. `[parallax.cost_model]`
 // `factor_curve_line_cycles` / `factor_curve_band_cycles`, curve-vs-flat pairs on one ROM.
 //
-// A CURVE LINE IS CHEAPER THAN A SAMPLED ONE (40.75 against line_fg_only's 76.21) and that is
-// the right shape: it reads no table, sign-extends nothing and shifts nothing — it adds a
-// step, adds a remainder and takes one conditional correction. The band term is large by
-// comparison because it carries a `divs.w`.
+// A CURVE LINE IS CHEAPER THAN A SAMPLED PRE-UNROLL LINE and dearer than an unrolled
+// single-channel one (40.75 against line_both's 124.53 and line_fg_only's 26.00) and that
+// is still the right shape: it reads no table, sign-extends nothing and shifts nothing — it
+// adds a step, adds a remainder and takes one conditional correction, but it does so in the
+// un-unrolled fill body. The band term is large by comparison because it carries a `divs.w`.
+// NOT RE-TAKEN by Task 13: no canonical fixture can excite these (the capability is not
+// raised in any shipped image), so the T10 instrument-build pairs remain the measurement.
 pub const SB_WALK_LINE_CURVE_X100    = 4075     // factor_curve_line_cycles   40.75
 pub const SB_WALK_BAND_CURVE_X100    = 63000    // factor_curve_band_cycles  630.00
 
-// THE ANCHOR IS CHARGED AT ITS MEASURED WORST REGIME AND IS NOT A FITTED TERM. The toml is
-// explicit: `anchor_status = "NOT CONSTANT — two regimes measured, missing parameter named
-// in WALKER-MODEL.md, deliberately not fitted"`. W10/W12 measured +456.7/+455.7 (the overlay
-// when sampling is ALREADY on); W16 — the SHIPPED shape, ParallaxConfig_OJZ_Underwater —
-// measured +1204.7, because there the anchor is what TURNS sampling on. A budget takes the
-// worst measured regime and says so; fitting a column excited by one fixture would zero a
-// residual without evidence, which the measurement task refused to do and this must not undo.
-pub const SB_WALK_ANCHOR_WORST_X100  = 120470   // anchor_cycles_shipped_shape 1204.7 (W16)
+// THE ANCHOR IS FITTED SINCE P3 TASK 1 AND CHARGED AT ITS COMPTIME-WORST TRIP COUNT. P2's
+// "two regimes" (456.7 / 1204.7) were refuted — an instrument dilution plus the then-missing
+// shift term (WALKER-MODEL.md §5(c)) — and the overlay now carries one fitted pair:
+// anchor 981.4 + 60.77 x overlay_loop_trips, max |residual| 58.9 over 8 fixtures (the
+// residual is the recorded, deliberately-unfitted loop-type effect). The trip count is a
+// runtime quantity — it depends on the split band index k, which Effects_LatchWorldLines
+// re-derives from Camera_Y every frame — so the budget charges the k that maximises it
+// (k = 0: trips = 3n - 1 for n >= 2; see scene_anchor_worst_trips below). This
+// over-charges a real camera position by design, same reasoning as SB_SCREEN_LINES.
+pub const SB_WALK_ANCHOR_BASE_X100   = 98140    // anchor_cycles          981.40
+pub const SB_WALK_ANCHOR_OP_X100     = 6077     // anchor_ops_cycles       60.77 per trip
 
-// THE SAMPLING TERMS ARE PER SCREEN LINE — forced by measurement, not chosen (fixtures that
-// sample only their lower band give 8536/112 and 6097/80 against 17071/224: 76.21 every
-// time). THE LINE COUNT A BUDGET MUST USE IS 224, THE WHOLE SCREEN, even for an anchored
+// THE SAMPLING TERMS ARE PER SCREEN LINE — forced by measurement, not chosen: fixtures that
+// sample only their lower band (112 and 80 lines) give the same per-line marginal as the
+// whole-screen one, three independent times (WALKER-MODEL.md §5(b), re-confirmed on the
+// post-unroll filler). THE LINE COUNT A BUDGET MUST USE IS 224, THE WHOLE SCREEN, even for an anchored
 // scene that samples fewer. The anchor's SCREEN line is a RUNTIME value — the scene declares
 // a patch CHANNEL, and Effects_LatchWorldLines re-derives the line from Camera_Y every frame
 // — so the comptime-knowable worst case is an anchor at screen line 0. This over-charges the
@@ -1843,20 +1870,25 @@ pub const SB_WALK_ANCHOR_WORST_X100  = 120470   // anchor_cycles_shipped_shape 1
 pub const SB_SCREEN_LINES            = 224
 
 // The out-of-sample gap, carried as an EXPLICIT uncertainty term rather than tuned away.
-// The live config at the idle baseline predicts 19288.7 and measures 19511 — gap +222.3,
-// or +1.1%, which the toml attributes to the shipped config's own band tops and scroll-factor
-// shifts (work the fixtures held constant). Applied as +11/1000 so the multiply stays small.
-pub const SB_WALK_UNCERTAINTY_PERMIL = 11       // out_of_sample_gap_pct 1.1
+// The live config at the idle baseline predicts 13542.7 and measures 13834 — gap +291.3,
+// or +2.11%, which the toml attributes to the shipped config's own band tops and
+// scroll-factor shifts (work the fixtures hold constant; the growth from 1.10% happened at
+// T7, whose re-glue moved the shipped config's band geometry — WALKER-MODEL.md §11).
+// Applied as +22/1000 — rounded UP from 21.1, the conservative direction.
+pub const SB_WALK_UNCERTAINTY_PERMIL = 22       // out_of_sample_gap_pct 2.11, rounded up
 
 // ---- Axis 1 pool and reservation ----
 // Pool: the NTSC video frame. Reservation: the engine cost that is NOT the walker, so the
 // walker's own measured row is subtracted out — charging a scene the walker AND leaving the
 // baseline walker in the reservation would double-count the very thing being budgeted.
-//   idle_main_loop_cycles 35125 - idle_parallax_update_cycles 19511 = 15614  (non-walker loop)
-//   + idle_vblank_cycles 8280                                               (the VInt bracket)
-//   = 23894
+// Re-derived by P3 Task 13 from the 2026-08-22 [engine_reservation] re-take (the walker's
+// idle cost moved, so the subtraction moved with it; the P2 derivation was
+// (35125 - 19511) + 8280 = 23894):
+//   idle_main_loop_cycles 29472 - idle_parallax_update_cycles 13492 = 15980  (non-walker loop)
+//   + idle_vblank_cycles 8277                                               (the VInt bracket)
+//   = 24257
 pub const SB_FRAME_CYCLES            = 128000   // NTSC video frame (ntsc_scanline_cycles 488 x 262)
-pub const SB_AXIS1_RESERVATION       = 23894    // measured, derived above
+pub const SB_AXIS1_RESERVATION       = 24257    // measured, derived above
 
 // ---- Axis 2: VBlank DMA bytes ----
 // Pool 7524 B is the H40 NTSC VBlank DMA capacity. The reservation is the measured queue
@@ -1880,8 +1912,11 @@ pub const SB_AXIS1_RESERVATION       = 23894    // measured, derived above
 // loosened on the strength of a re-attribution. 2160 is a CEILING (it still contains drain
 // residue); the live per-frame queue is 984 B, of which 896 is the scene's, leaving 88 B — but
 // that state has an EMPTY Important queue, so 88 would under-reserve for art streaming, whose
-// 1152 B page transfer this scan only ever sees as residue. Deriving "standing non-scene DMA"
-// properly is P3 Task 13's re-take of every row measured against today's walker.
+// 1152 B page transfer this scan only ever sees as residue. P3 Task 13 (2026-08-22) re-took
+// every input on the tip and reproduced them all (five boots, spread 0), so the ceiling
+// STANDS; a true derivation of "standing non-scene DMA" needs a per-frame UNION of live
+// enqueues across a streaming-active window — an instrument this tree does not have, booked
+// in docs/DEFERRED_WORK.md with that unlock condition.
 pub const SB_DMA_POOL_BYTES          = 7524
 pub const SB_AXIS2_RESERVATION       = 2160     // CEILING: whole-region 3056 B less the scene's 896
 pub const SB_PERLINE_DMA_BYTES       = 896      // ONE 448-word entry (Task 6 Step 1 ruling)
@@ -1957,7 +1992,9 @@ pub comptime fn scene_is_per_line(s: Scene) -> int {
 // This is deliberately a NARROWER question than scene_caps()'s live_amp, which is
 // cross-plane because it only has to answer "does this scene need the deform math at all"
 // (and must fold ParallaxConfig_Haze — an FG-only table with live `dsb` — to CAP_DEFORM).
-// Both readings are correct for their own question; see scene_caps()'s note.
+// Both readings are correct for their own question; see scene_caps()'s note. The budget
+// needs the per-plane split because line_fg_only (26.00) and line_both (124.53) are
+// different constants.
 pub comptime fn scene_live_amp_a(s: Scene) -> int {
     comptime var live = 0
     // The one-dot rule — field, then index, then field (see scene_caps()).
@@ -2012,10 +2049,13 @@ pub comptime fn scene_sample_term_x100(s: Scene) -> int {
         if b == 1 {
             term = SB_WALK_LINE_BG_X100
         }
-        // BOTH planes sampling is CHEAPER THAN THE SUM — 126.17, not 152.48. The per-line
-        // loop shares index and phase work across the planes, so the second channel on a
-        // line costs 50, not 76 (measured, fixture W8). Charging fg+bg would over-book every
-        // two-plane scene by 20%.
+        // BOTH planes sampling gets its OWN measured constant (124.53, fixture W8), not
+        // fg + bg. On the pre-unroll filler that was because both was CHEAPER than the sum
+        // (shared index/phase work); on the post-unroll filler it is because both is
+        // DEARER — `.lp_both` is deliberately un-unrolled (the register-file ruling, P3
+        // spec-correction C2) while the single-channel loops were unrolled to ~26/line.
+        // Either way, summing the single-channel constants would mis-book every two-plane
+        // scene; the measured third column is the honest charge.
         if a == 1 {
             if b == 1 {
                 term = SB_WALK_LINE_BOTH_X100
@@ -2023,6 +2063,75 @@ pub comptime fn scene_sample_term_x100(s: Scene) -> int {
         }
     }
     return term
+}
+
+// The worst-case deform SHIFT a plane's sampled lines can pay, per plane. The shift is the
+// `asr.w d3, d1` register count in the sampled loops — 2 cycles per unit per line per
+// channel (SB_WALK_SHIFT_LINE_X100) — and it is an AUTHORED field (ly_dsa/ly_dsb, plus the
+// anchor's override pair), so the comptime-knowable worst case is the largest LIVE shift
+// the scene declares on that plane, charged over the whole screen. Which lines actually
+// sample at which band's shift is a runtime question (Step 4a rebases tops per frame), so
+// per-band precision here would be gating a coincidence — same reasoning as
+// SB_SCREEN_LINES' banner. 15 is the OFF sentinel, never a shift.
+//
+// THE CLAMP MIRRORS scene_curve_bands()'s, for the same measured reason: these folds are
+// reached from the axis-1 term for EVERY scene, including poison_budget_axis1's back-door
+// fixtures whose sc_count (115/116) exceeds the 8-element layer array.
+pub comptime fn scene_max_shift_a(s: Scene) -> int {
+    comptime var m = 0
+    let ls  = s.sc_layers
+    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    for i in 0..cnt {
+        let l = ls[i]
+        if l.ly_dsa != 15 {
+            if l.ly_dsa > m {
+                m = l.ly_dsa
+            }
+        }
+    }
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        if scene_anchor_dsa(s.sc_anchor) != 15 {
+            if scene_anchor_dsa(s.sc_anchor) > m {
+                m = scene_anchor_dsa(s.sc_anchor)
+            }
+        }
+    }
+    return m
+}
+pub comptime fn scene_max_shift_b(s: Scene) -> int {
+    comptime var m = 0
+    let ls  = s.sc_layers
+    let cnt = if s.sc_count > 8 { 8 } else { s.sc_count }
+    for i in 0..cnt {
+        let l = ls[i]
+        if l.ly_dsb != 15 {
+            if l.ly_dsb > m {
+                m = l.ly_dsb
+            }
+        }
+    }
+    if scene_anchor_ch(s.sc_anchor) != $FF {
+        if scene_anchor_dsb(s.sc_anchor) != 15 {
+            if scene_anchor_dsb(s.sc_anchor) > m {
+                m = scene_anchor_dsb(s.sc_anchor)
+            }
+        }
+    }
+    return m
+}
+
+// The worst-case Step-4b overlay trip count for an n-band anchored scene. The overlay's
+// four loops run min(k+1, n-1) + 2 x (n-1-k) + (n-k) iterations total, where k — the band
+// the split lands in — is a RUNTIME quantity (Effects_LatchWorldLines re-derives the split
+// line from Camera_Y every frame). For k <= n-2 the total is 3n - 1 - 2k, maximised at
+// k = 0; at k = n-1 it is n, always smaller for n >= 2. A single-band anchored scene runs
+// exactly 1 (find_k never iterates, no shifts, one override write).
+pub comptime fn scene_anchor_worst_trips(n: int) -> int {
+    comptime var t = 1
+    if n >= 2 {
+        t = 3 * n - 1
+    }
+    return t
 }
 
 // How many layers ramp their BG factor (P3 Task 10). The COUNT, not the boolean
@@ -2068,7 +2177,33 @@ pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
     if n >= 2 {
         c = c + SB_WALK_MULTIBAND_X100
     }
-    c = c + scene_sample_term_x100(s) * SB_SCREEN_LINES
+    let sample_term = scene_sample_term_x100(s)
+    c = c + sample_term * SB_SCREEN_LINES
+    if sample_term != 0 {
+        // THE THREE COLUMNS THE P2-ERA TRANSCRIPTION PREDATED (P3 Task 13; the fitted model
+        // has carried them since Task 1 and the fill-unroll made two of them large):
+        //
+        // (1) shift_lines — the sampled loops' `asr.w d3, d1` amplitude cost, 2.00 per line
+        //     per shift unit PER CHANNEL, charged at each plane's worst authored shift over
+        //     the whole screen (the per-plane fold documents why worst).
+        comptime var shift_units = 0
+        if scene_live_amp_a(s) == 1 {
+            shift_units = shift_units + scene_max_shift_a(s)
+        }
+        if scene_live_amp_b(s) == 1 {
+            shift_units = shift_units + scene_max_shift_b(s)
+        }
+        c = c + SB_WALK_SHIFT_LINE_X100 * shift_units * SB_SCREEN_LINES
+        // (2) band_sampling — the unrolled loops' ~154-cycle per-band prologue. Which bands
+        //     take a sampling loop is runtime (the anchor's overlay can turn a band's lower
+        //     SEGMENT on, making n+1 walkable segments out of n bands), so the worst case
+        //     is every segment sampling: n, plus one for an anchored split.
+        comptime var samp_bands = n
+        if scene_anchor_ch(s.sc_anchor) != $FF {
+            samp_bands = samp_bands + 1
+        }
+        c = c + SB_WALK_SAMP_BAND_X100 * samp_bands
+    }
     // CURVES (P3 Task 10), charged at the SAME worst case the sampling term uses: the whole
     // screen. A layer's on-screen line span is a RUNTIME quantity — Step 4a rebases the tops
     // against this frame's Vscroll_BG and clamps them, so a layer authored 64 px tall can
@@ -2092,8 +2227,13 @@ pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
     if scene_vdeform_is_none(s.sc_v_deform) == 0 {
         c = c + SB_WALK_VDEFORM_X100
     }
+    // The anchored overlay, FITTED (base + per-trip) since P3 Task 1 and charged at the
+    // comptime-worst trip count — see SB_WALK_ANCHOR_BASE_X100's banner. This replaces the
+    // flat 1204.7 "worst measured regime" charge, which came from a model with no anchor
+    // column at all and belonged to the pre-unroll walker.
     if scene_anchor_ch(s.sc_anchor) != $FF {
-        c = c + SB_WALK_ANCHOR_WORST_X100
+        c = c + SB_WALK_ANCHOR_BASE_X100
+        c = c + SB_WALK_ANCHOR_OP_X100 * scene_anchor_worst_trips(n)
     }
     // The measured out-of-sample gap, added rather than absorbed.
     return c + c * SB_WALK_UNCERTAINTY_PERMIL / 1000
@@ -2131,7 +2271,7 @@ pub comptime fn scene_budget_enforce(scenes: array) -> int {
         // AXIS 1 — main-loop cycles.
         let a1 = scene_axis1_cycles_x100(s)
         ensure(a1 / 100 + SB_AXIS1_RESERVATION <= SB_FRAME_CYCLES,
-               "scene budget AXIS 1 (main-loop cycles): this scene's walker costs {a1 / 100} cyc against a {SB_FRAME_CYCLES}-cycle NTSC frame with {SB_AXIS1_RESERVATION} cyc reserved for the non-walker engine (idle_main_loop 35125 less the walker's own idle_parallax_update 19511, plus the idle_vblank VInt bracket 8280), leaving {SB_FRAME_CYCLES - SB_AXIS1_RESERVATION}. The cost is the FITTED walker model in tools/effects_budget_model.toml [parallax.cost_model] (17 fixtures, residual 0.27 cyc) plus its measured +1.1% out-of-sample gap, with the anchor charged at its worst MEASURED regime (1204.7, W16) because it is NOT a constant. Denominator is the IDLE camera state: sustained max-diagonal does not run at 60 Hz (2.067 video frames per logic tick) and is streaming-bound, so it is context, not a divisor")
+               "scene budget AXIS 1 (main-loop cycles): this scene's walker costs {a1 / 100} cyc against a {SB_FRAME_CYCLES}-cycle NTSC frame with {SB_AXIS1_RESERVATION} cyc reserved for the non-walker engine (idle_main_loop 29472 less the walker's own idle_parallax_update 13492, plus the idle_vblank VInt bracket 8277 — the 2026-08-22 P3 Task 13 re-take), leaving {SB_FRAME_CYCLES - SB_AXIS1_RESERVATION}. The cost is the FITTED walker model in tools/effects_budget_model.toml [parallax.cost_model] (26 fixtures, un-anchored residual 0.00 cyc, post-unroll + re-glue walker) plus its measured +2.11% out-of-sample gap, with the anchor charged as its fitted pair (981.4 + 60.77/trip) at the comptime-worst trip count 3n-1. Denominator is the IDLE camera state: sustained max-diagonal does not run at 60 Hz (1.192 video frames per logic tick post-streaming-arc) and is streaming-bound, so it is context, not a divisor")
         // AXIS 2 — VBlank DMA bytes.
         let a2 = scene_axis2_dma_bytes(s)
         ensure(a2 + SB_AXIS2_RESERVATION <= SB_DMA_POOL_BYTES,

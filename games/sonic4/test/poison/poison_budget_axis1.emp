@@ -5,29 +5,42 @@
 // evaluates at games/sonic4/data/effects/scene_registry.emp's `SceneRegistry_BudgetChecked`.
 // EXPECTED FRAGMENT: "scene budget AXIS 1 (main-loop cycles)"
 //
-// THE TWO-FIXTURE DIFFERENTIAL (spec §8.2), and the unit is ONE BAND:
+// THE TWO-FIXTURE DIFFERENTIAL (spec §8.2), and the unit is ONE BAND.
+// RE-DERIVED BY P3 TASK 13 (2026-08-22): the model's promotion (post-unroll + re-glue rows,
+// fitted anchor pair, uncertainty 11 -> 22 permil) and the re-derived reservation (23894 ->
+// 24257) moved the crossing from 115/116 to 93/94. Integer mirror of the comptime math
+// (x100, floor division exactly as scene_axis1_cycles_x100 computes it):
+//   c(n)   = 311600 + 154800 + 85400(n-1) + 2000 + 98140 + 6077(3n-1)
+//   tot(n) = c + c*22/1000;   guard: tot/100 + 24257 <= 128000
 //
-//   FIXTURE A — 115 bands. Costs 103332.74 cyc against a 104106-cyc budget. PASSES, and it
-//               must: an ensure that only ever fires is indistinguishable from one that is
-//               stuck, so the passing half is half the assertion.
-//   FIXTURE B — THE SAME SCENE with 116 bands. Costs 104188.01. FAILS by 82.01 cycles,
-//               which is 0.08% over — the smallest overrun the model's own granularity
-//               admits, because one band IS the smallest thing an author can add.
+//   FIXTURE A — 93 bands. Costs 103352.26 cyc against a 103743-cyc budget: 391 cyc of
+//               headroom. PASSES, and it must: an ensure that only ever fires is
+//               indistinguishable from one that is stuck, so the passing half is half the
+//               assertion.
+//   FIXTURE B — THE SAME SCENE with 94 bands. Costs 104411.37. FAILS by 668 cycles, which
+//               is the smallest overrun the model's own granularity admits, because one
+//               band IS the smallest thing an author can add and one band's marginal is
+//               1059.1 cyc (854.00 band_perline + 3 x 60.77 anchor trips, x1.022).
 //
-// A and B differ in exactly one field, `sc_count`, and therefore in exactly one term of the
-// fitted model: `band_perline_cycles` 845.97, applied once more. Nothing else moves — same
-// (absent) table, same anchor, same absent V-deform, so the base, line-mode, multiband,
-// sampling and anchor terms are identical across the pair and the whole difference is the
-// one slope the fixture is probing.
+// A and B differ in exactly one field, `sc_count`. Under the promoted model that moves TWO
+// fitted slopes rather than one — `band_perline_cycles` 854.00 applied once more, and the
+// anchored overlay's worst-case trip count 3n-1 growing by three `anchor_ops_cycles` 60.77
+// — because the anchor is a fitted (base + per-trip) pair since P3 Task 1, not a flat
+// worst-regime constant. Nothing else moves — same (absent) table, same anchor CHANNEL,
+// same absent V-deform, so the base, line-mode, multiband and sampling terms are identical
+// across the pair and the whole difference is the per-band slope pair the fixture probes.
 //
 // ---- WHY THIS POISON USES THE `Scene{ .. }` BACK DOOR, AND WHY THAT IS THE HONEST SHAPE ----
 //
 // `scene()` caps `count` at MAX_PARALLAX_BANDS (8), so NO scene built through the
-// constructor can reach 116 — and at 8 bands the worst possible scene costs 11818 cyc
-// against the 104106 budget, i.e. 11%. THAT IS A REAL PROPERTY OF THE SHIPPED MODEL AND IT
-// IS RECORDED RATHER THAN HIDDEN: the axis-1 budget has ~9x headroom over anything the
-// authoring surface can express, so its practical role is a ledger row plus a BACKSTOP, and
-// the thing it backstops is precisely the hand-built `Scene{ .. }` literal.
+// constructor can reach 94 — and at 8 bands the worst possible constructor scene (both
+// planes sampling at shift 14, a curve layer, V-deform, anchored, every worst-case charge
+// stacked) costs 67549.93 cyc against the 103743 budget, i.e. 65%. THAT IS A REAL PROPERTY
+// OF THE SHIPPED MODEL AND IT IS RECORDED RATHER THAN HIDDEN: the constructor surface
+// cannot cross the axis-1 budget (though the promoted model's new worst-case terms — shift,
+// per-sampling-band, per-trip anchor — closed most of the P2-era ~9x gap), so its practical
+// role is a ledger row plus a BACKSTOP, and the thing it backstops is precisely the
+// hand-built `Scene{ .. }` literal.
 //
 // That back door is documented twice in engine/level/scene_dsl.emp (at the `Scene` and
 // `SceneLayer` struct banners) and it is real: a literal type-checks and bypasses the pad
@@ -41,7 +54,7 @@
 // which is what "every poison must perturb the SUBJECT and name the specific mismatch"
 // requires.
 //
-// ---- WHY THE LAYER ARRAY IS EIGHT ELEMENTS WHILE sc_count SAYS 115/116 ----
+// ---- WHY THE LAYER ARRAY IS EIGHT ELEMENTS WHILE sc_count SAYS 93/94 ----
 //
 // `sc_layers` is a fixed `[SceneLayer; 8]`; the count is a separate field, which is exactly
 // how the back door produces an inconsistent value in the first place. Nothing in the axis-1
@@ -53,10 +66,10 @@
 // THE ELABORATION HOOK is the two ensures below reading the two consts, which forces
 // `scene_budget_enforce()` — and through it every axis function — to elaborate. Expected
 // `[Error]` count is 1: fixture B trips AXIS 1 only. Its axis-2 and axis-3 charges are
-// unchanged from fixture A's and both fit with room to spare (a per-line scene costs 1792 B
-// against a 6260 B budget and 4270 cyc against 9920), so neither of those ensures fires.
+// unchanged from fixture A's and both fit with room to spare (a per-line scene costs 896 B
+// against a 5364 B budget and 2135 cyc against 9920), so neither of those ensures fires.
 // A count of 2 means another axis started failing; a count of 0 means the fold stopped
-// distinguishing 115 bands from 116.
+// distinguishing 93 bands from 94.
 //
 // THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
 module games.sonic4.test.poison.poison_budget_axis1
@@ -70,10 +83,10 @@ const POISON_A1_PADS: [SceneLayer; 8] = [
     no_layer(), no_layer(), no_layer(), no_layer(),
 ]
 
-// FIXTURE A — 115 bands, the last count that fits.
+// FIXTURE A — 93 bands, the last count that fits.
 const POISON_A1_SCENE_A: Scene = Scene{
     sc_layers:             POISON_A1_PADS,
-    sc_count:              115,
+    sc_count:              93,
     sc_v_factor:           3,
     sc_v_center:           0,
     sc_v_offset:           0,
@@ -83,8 +96,9 @@ const POISON_A1_SCENE_A: Scene = Scene{
     sc_v_deform:           SceneVDeform.None,
     // Anchored, both shifts at 15: this is what puts the scene on the per-line pipeline
     // WITHOUT attaching a table, so the sampling term stays 0 and the layer array is
-    // never walked. The anchor term itself (1204.7, the worst measured regime) is charged
-    // identically to both fixtures and so cancels out of the differential.
+    // never walked. The anchor's fitted BASE (981.4) is charged identically to both
+    // fixtures and cancels out of the differential; its per-trip slope does NOT (worst
+    // trips = 3n-1 grows with the count) and is half of what the pair probes.
     sc_anchor:             SceneAnchor.At(0, 15, 15),
     // P3 Task 12: the back door spells the policy field like every other attachment's
     // None — Undeclared is legal here because neither fixture attaches a v-deform table.
@@ -99,7 +113,7 @@ const POISON_A1_SCENE_A: Scene = Scene{
 // FIXTURE B — byte-for-byte fixture A except for `sc_count`: one more band.
 const POISON_A1_SCENE_B: Scene = Scene{
     sc_layers:             POISON_A1_PADS,
-    sc_count:              116,
+    sc_count:              94,
     sc_v_factor:           3,
     sc_v_center:           0,
     sc_v_offset:           0,
@@ -129,4 +143,4 @@ ensure(POISON_A1_CHECKED_A == 1,
 // ---- FIXTURE B, THE POISON (this is the diagnostic the lane matches) ----
 const POISON_A1_CHECKED_B = scene_budget_enforce([POISON_A1_SCENE_B])
 ensure(POISON_A1_CHECKED_B == 1,
-       "poison_budget_axis1: FIXTURE B was expected to trip AXIS 1 — one more band than fixture A's 115, i.e. one more band_perline_cycles (845.97) on top of a cost already 773 cyc from the ceiling")
+       "poison_budget_axis1: FIXTURE B was expected to trip AXIS 1 — one more band than fixture A's 93, i.e. one more band_perline_cycles (854.00) plus three more anchor trips (3 x 60.77) on top of a cost already 391 cyc from the ceiling")
