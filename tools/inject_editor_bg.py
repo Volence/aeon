@@ -55,6 +55,40 @@ BGANIM_MAX_BANDS = 4
 OUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'generated', 'ojz', 'act1')
 OVERRIDE = os.path.join(os.path.dirname(__file__), '..', 'games', 'sonic4', 'data', 'editor_bg_override.json')
 
+def validate_band_coherence(anims, tiles):
+    """Assert each band's slots really are the front of the static tile blob.
+
+    Bands pack contiguously from slot 0 and DMA over the FRONT of `tiles`, so a
+    band's phase-0 art IS those slots' rest state:
+
+        phases[0] == tiles[slot_base : slot_base + cols*rows]
+
+    Verified exactly on the two real bands the file carried at b0e5a661. This
+    is the invariant that makes `anims`/`tiles`/`layout` inseparable, and it is
+    asserted here because a violation bakes CLEANLY and ships silently corrupt
+    art: retained bands would DMA stale phase art over whatever a newer dedup
+    put in those slots. Every other assert in this file would still pass.
+
+    Booked as docs/BUGS.md TOOL-01.
+    """
+    cursor = 0
+    for i, a in enumerate(anims):
+        n = a['cols'] * a['rows']
+        base = a.get('slot_base', cursor)
+        assert base == cursor, (
+            f'band {i}: slot_base {base} does not pack contiguously (expected {cursor}); '
+            'bands must tile the front of the blob from slot 0')
+        assert base + n <= len(tiles), (
+            f'band {i}: slots {base}..{base + n} exceed the {len(tiles)}-tile static blob')
+        phase0 = a['phases'][0]
+        assert phase0 == tiles[base:base + n], (
+            f"band {i}: phases[0] != tiles[{base}:{base + n}]. The band's rest state must BE "
+            'the static tiles it covers. This means anims and tiles came from different '
+            'generator runs — regenerating layout/tiles while retaining anims produces a '
+            'clean bake that ships CORRUPT art. Regenerate both together (tools/forest_bg_gen.py).')
+        cursor += n
+
+
 def main():
     with open(OVERRIDE) as f:
         data = json.load(f)
@@ -71,6 +105,7 @@ def main():
     if anims is None and data.get('anim'):
         anims = [data['anim']]                  # legacy single-band shape
     if anims:
+        validate_band_coherence(anims, tiles)
         assert len(anims) <= BGANIM_MAX_BANDS, (
             f'{len(anims)} animated bands authored but the engine sizes BgAnim_LastStep '
             f'for at most BGANIM_MAX_BANDS={BGANIM_MAX_BANDS}. Raising it here is NOT '

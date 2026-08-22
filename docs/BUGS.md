@@ -31,43 +31,87 @@ with no diagnostic, on a path that ships. Reproduced as bytes on disk before the
 AssertionError: b'"palette"' not found in b'{"layout": [16384, 16385, …
 ```
 
-**The second instance that surfaced it.** `inject_editor_bg.py:70-72` *already* consumes
-`anims` (up to `BGANIM_MAX_BANDS` BgAnim bands — 8 banks of `cols*rows` tiles of expensive
-hand-authored content) and the legacy single-band `anim`. Any run of this tool destroyed
-those the same way. This one was **not** hypothetical either — only unexercised.
+**The instance that already fired, and is still costing us.** `inject_editor_bg.py:70-72`
+consumes `anims` (BgAnim bands) and the legacy single-band `anim`. This did not merely *risk*
+destroying them — **it did**:
 
-**Fixed (`86b62e73`, branch `parcel/bg-override-no-clobber`).** The tool now reads the file
-before writing, and:
+| commit | date | `editor_bg_override.json` |
+|---|---|---|
+| `b0e5a661` | 2026-07-09 | `layout`, `tiles` (340), **`anims`: 2 real bands** — 32×4 `camera_x` @ slot 0, 16×4 `timer` @ slot 128, 8 phases each = 192 animated slots |
+| `dd93a840` | 2026-07-21 | `layout`, `tiles` (448). **Bands gone.** This is the commit that introduced `png_to_bg_override.py` and ran it |
 
-1. **Carries its OWN keys across its OWN modes** — `palette` / `palette_line` survive a run
-   that does not stamp them; a stamping run's fresh values still win, which is its job.
-2. **Loudly refuses any key it does not own** — non-zero exit naming the offending key(s) and
-   saying it would destroy them. Owned keys are exactly `layout`, `tiles`, `palette`,
-   `palette_line` (`OWNED_KEYS`), pinned by a test that derives the set from the keys the tool
-   actually emits across both modes rather than restating a literal.
-3. **Writes atomically** — `_atomic_write`, the `tools/ojz_block_gen.py:201-206` idiom required
-   of generators by `tools/EFFECTS_CONSUMER_CONTRACT.md` §3; a crash mid-write can no longer
-   truncate the file.
+`games/sonic4/data/generated/ojz/act1/bg_anim.emp` today reads as the disabled stub. **OJZ
+background animation has been dead in the ROM for a month.** The loss was invisible in review
+because the JSON is minified: deleting two bands rendered as `editor_bg_override.json | 2 +-`.
 
-Gate: `tools/test_bg_override_no_clobber.py`, 8 tests, run by the `pytest tools` lane wired at
-`build.sh:355`. Zero-byte parcel — all four ROM shapes CRC-identical.
+The bands' author is `tools/forest_bg_gen.py`, still on master. Re-running it today reproduces
+the lost data exactly — 340 tiles, 192 animated — so the content is recoverable.
 
-> ### ⚠️ The refusal in (2) is PENDING AN OWNER RULING, not a final design.
+**Fixed on branch `parcel/bg-override-no-clobber`.** Both writers now read the destination
+before writing, via the shared `tools/bg_override_io.py`:
+
+1. **Each tool carries only the keys it authors.** `png_to_bg_override.py` owns `layout`,
+   `tiles`, `palette`, `palette_line`; `forest_bg_gen.py` owns `layout`, `tiles`, `anims`.
+   `palette`/`palette_line` now survive a `png_to_bg_override.py` run that does not stamp them;
+   a stamping run's fresh values still win, which is its job.
+2. **Anything else is a loud refusal** — non-zero exit naming the offending key(s), before any
+   generation work (`forest_bg_gen.py` refuses in ~0.01 s rather than after a full phase build).
+3. **`--out` / `BG_OUT` escape hatch**, so refusal never forces a destructive edit.
+4. **Retained palettes are verified, not assumed.** Lock mode quantises against `GEN_PALETTE`,
+   which `ojz_strip_gen.py:2032` re-copies from sonic_hack every build. Carrying a `palette`
+   that no longer matches that file would restamp colours the art was never fitted to — the
+   same silent-wrongness class, opposite direction — so a mismatch is refused. `palette_line`
+   alone is safe to carry unconditionally.
+5. **Writes are atomic** (`tools/ojz_block_gen.py:201-206` idiom, required of generators by
+   `tools/EFFECTS_CONSUMER_CONTRACT.md` §3), so a crash mid-write cannot truncate the file.
+6. **The coupling is now asserted at bake time.** `inject_editor_bg.validate_band_coherence`
+   enforces contiguous packing, `Σ band tiles ≤ len(tiles)`, and
+   `phases[0] == tiles[slot_base:slot_base+n]` per band — the invariant whose violation
+   previously baked cleanly.
+
+Gates: `tools/test_bg_override_no_clobber.py` (13) + new `TestBgAnimBandCoherence` in
+`tools/test_bg_emit.py` (7), run by the `pytest tools` lane wired at `build.sh:355`. The
+coherence tests use the **real** two-band `b0e5a661` data (`git cat-file blob 33892d82`), and
+every acceptance check is paired with a poison so the gate cannot pass by doing nothing.
+Before this parcel `test_bg_emit.py` had **no** assertion touching `anims`, `slot_base` or
+`phases` at all. Zero-byte parcel — all four ROM shapes CRC-identical.
+
+**Still open:** the destroyed bands are **not restored** here — this parcel stops the
+destruction and gates the invariant. Re-running `tools/forest_bg_gen.py` reproduces them
+exactly (340 tiles, 192 animated, coherence-clean, verified), but re-enabling OJZ BG animation
+is a content decision with a ROM-size and BgAnim-budget cost, so it is left to the owner.
+
+> ### ⚠️ Why REFUSAL and not a merge — this is terminal for these tools, not a placeholder
 >
-> **Per-key ownership of `editor_bg_override.json` is an open design question** — specifically
-> whether Aurora may co-write an `anims` key into a file `png_to_bg_override.py` also writes
-> (see `docs/superpowers/2026-08-22-aeon-overseer-handoff.md:294,372` and
-> `docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md:197-202`, where this is
-> booked as last-writer-wins between two authors of one file).
+> An earlier framing of this defect treated "preserve unknown keys" as a legitimate design
+> merely awaiting an ownership ruling. **It is not.** Measured on the `b0e5a661` data:
 >
-> Refusal was chosen **because it takes neither side**: it converts silent destruction into a
-> visible stop and leaves both candidate answers cheap to implement. A read-merge-write that
-> silently preserved unknown keys would have adopted one of the two answers by implementation,
-> which is why it was deliberately **not** built.
+> ```
+> tiles[0:128]   == band0.phases[0]   ->  True
+> tiles[128:192] == band1.phases[0]   ->  True
+> ```
 >
-> When the owner rules, the refusal is the thing to revisit. If Aurora becomes a legitimate
-> co-author, the fix is to move the shared keys into `OWNED_KEYS` (or split the file); until
-> then the tool stops rather than guessing.
+> Bands pack contiguously from slot 0 (`inject_editor_bg.py:92-93`) and DMA over the **front**
+> of the static tile blob, so a band's phase-0 art **is** those slots' rest state. `anims`,
+> `tiles` and `layout` are therefore **not separable keys**: adding or removing a band
+> renumbers the whole static blob and rewrites the layout.
+>
+> Consequence: a read-modify-write that retained `anims` while regenerating `layout`/`tiles`
+> from a new PNG would **pass every assert in `inject_editor_bg.py`**, bake cleanly, and ship a
+> ROM where the retained bands DMA stale phase art over whatever the new dedup placed in slots
+> 0..191. **Silent visual corruption that clears every gate** — strictly worse than the
+> deletion, because a deletion is recoverable from git while a passing-but-corrupt bake teaches
+> you to distrust the engine.
+>
+> So each tool carries only the keys it authors and stops on anything else. The remaining open
+> question is a *product* one — whether Aurora becomes a legitimate co-author of this file (see
+> `docs/superpowers/2026-08-22-aeon-overseer-handoff.md:294,372`,
+> `docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md:197-202`). If it does, the
+> answer is to have **one** generator emit the coupled keys together, or to split the file —
+> **not** to relax the refusal into a merge.
+>
+> The escape hatch matters: `--out` / `BG_OUT` exists so a refusal never tempts anyone to
+> delete the bands just to get past it, which is precisely how they were lost the first time.
 
 ---
 

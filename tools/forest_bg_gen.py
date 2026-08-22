@@ -7,6 +7,24 @@ whole-tile shift via rotated split DMA — the WHOLE trunk marches, edges
 included, unlike v14's texture-crawl-inside-static-silhouette.
 """
 import json, zlib, struct, math
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bg_override_io import atomic_write_json, read_existing_override
+
+# The keys THIS generator authors. It regenerates layout, tiles and anims
+# together as one coherent set — bands DMA over the front of the tile blob, so
+# they are not separable. Anything else in the file (notably the
+# palette/palette_line that png_to_bg_override.py stamps) belongs to another
+# tool and would be destroyed here: hence a loud refusal, with BG_OUT as the
+# escape hatch. See tools/bg_override_io.py and docs/BUGS.md TOOL-01.
+OWNED_KEYS = frozenset(("layout", "tiles", "anims"))
+
+OUT = os.environ.get('BG_OUT', os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'games', 'sonic4', 'data', 'editor_bg_override.json'))
+# Vet the destination BEFORE generating, so an authoring mistake stops now
+# rather than after the full pattern/phase build.
+read_existing_override(OUT, OWNED_KEYS, "forest_bg_gen")
 
 LINE2 = [(0,0,0),(36,0,0),(0,0,146),(73,36,36),(146,73,36),(182,109,36),(219,146,73),(255,182,109),
          (0,0,0),(0,36,0),(0,73,36),(0,109,73),(0,182,73),(36,146,73),(109,219,36),(182,255,109)]
@@ -417,16 +435,12 @@ def chunk(t,d): return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(
 with open('/tmp/bg_colonnade.png','wb') as f:
     f.write(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',512,H,8,2,0,0,0))+chunk(b'IDAT',raw)+chunk(b'IEND',b''))
 
-import os
-OUT = os.environ.get('BG_OUT', os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'games', 'sonic4', 'data', 'editor_bg_override.json'))
-json.dump({"layout":layout,"tiles":tiles,
-           "anims":[
-             {"cols":COL_COLS,"rows":PAT_ROWS,"pattern_px":PAT_W,
-              "driver":"camera_x","rate_shift":2,"slot_base":0,"phases":phases},
-             {"cols":FF_COLS,"rows":PAT_ROWS,"pattern_px":FF_W,
-              "driver":"timer","rate_shift":3,"slot_base":N_COL,"phases":ff_phases},
-           ]},
-          open(OUT,'w'))
+atomic_write_json(OUT, {
+    "layout": layout, "tiles": tiles,
+    "anims": [
+        {"cols": COL_COLS, "rows": PAT_ROWS, "pattern_px": PAT_W,
+         "driver": "camera_x", "rate_shift": 2, "slot_base": 0, "phases": phases},
+        {"cols": FF_COLS, "rows": PAT_ROWS, "pattern_px": FF_W,
+         "driver": "timer", "rate_shift": 3, "slot_base": N_COL, "phases": ff_phases},
+    ]})
 print('dumped', OUT)
