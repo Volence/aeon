@@ -131,6 +131,46 @@ that does not happen. The probe prints `n/a (display)` there rather than a numbe
 
 ## 3. The rows
 
+> # ⛔ RETRACTED 2026-08-22 — THE `BgAnim_Update` AND `Parallax_Update` IDLE ROWS ARE WRONG
+>
+> **Do not quote the effects rows of this table.** An adjudication authored by NEITHER emulator
+> (hand-derived from the ROM bytes with capstone against Yacht v1.1 timings, oracle
+> `6154b28`, papers `docs/2026-08-22-shortrow-residual-measurement.md` and
+> `docs/2026-08-22-cycle-attribution-audit.md`) gives `BgAnim_Update` = **exactly 154 cycles** and
+> `Palette_Compose` = **exactly 180**. It matches the oracle profiler on both and this table on
+> neither.
+>
+> **Our idle `BgAnim_Update` row is not merely different — it is arithmetically impossible, and I
+> verified that against our own published number before accepting it:** 181 cyc/video-frame × 31
+> frames = **5611 cycles**, but the routine is tick-driven and idle has **30 logic ticks**, so at
+> 154 cycles/invocation the ceiling is 4620. Our figure implies **36.4 invocations of a routine
+> that ran 30 times.** No rounding convention rescues it.
+>
+> **The cycles were MOVED, not invented.** `BgAnim_Update` gains ~991; `Parallax_Update` loses
+> ~1039. The two are called back-to-back with exactly one instruction between them. Setting excess
+> equal to deficit and solving for the invocation count yields **N = 29.998** against our own
+> `Logic_Tick` ground truth of 30 — no free parameter.
+>
+> **Root cause, confirmed firsthand in the consumer (NOT in the emulator core):**
+> `oracle-old/linux-port/gui/ControlSocket.cpp:1984-2000` — the `SubroutineExit`/`InterruptExit`
+> arm pops `stack.back()` and attributes the duration to `top.address` **without ever comparing
+> `ev.address`**. It identifies the closing event by POSITION in the stream rather than by
+> IDENTITY, so a single desync mis-pairs every subsequent Exit in that frame, displacing one
+> bracket boundary between adjacent routines. The flush loop (`:2007-2021`) increments `calls` the
+> same way. **The Exit events already carry an address the consumer discards — this looks fixable
+> in the consumer without touching the emulator core** (caveat: the Exit carries the RETURN
+> address while the stack entry holds the ENTRY address, so the check pairs against the recorded
+> return location; the core already tracks that in `PushCallStack`/`PopCallStack`).
+>
+> **Scope of the retraction.** The two idle effects rows above are withdrawn. Four further rows
+> (their Part C) remain low, sign-consistent with the same defect but with magnitude unpinned. The
+> `HBlank_Vector_Slot` row (1878 vs 1878) is display-driven with no lag denominator and still
+> carries weight. **The §4 "art streaming, not effects, dominates the max-diagonal frame"
+> conclusion is NOT retracted** — its margin is better than 3x and `Tile_Cache_Fill` is not an
+> adjacent-bracket victim of this defect — but re-derive before quoting it in a budget parcel.
+>
+> The derived-column caveat below stands and is a SEPARATE issue from this retraction.
+>
 > **CAVEAT ADDED 2026-08-22 — `cyc/logic-tick` is a RECONSTRUCTION, not a measurement, and for
 > tick-driven routines it is not the same quantity as a per-invocation figure.** Raised by
 > oracle-next-f3 from their profiler A/B (`oracle docs/2026-08-20-profiler-corpus-ab.md` §11.5);
