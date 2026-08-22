@@ -13,6 +13,40 @@ observed facts). Aurora was read-only throughout.
 
 ---
 
+## ERRATUM 1 — the sidecar write condition (verified 2026-08-22, aurora `e731214`)
+
+Raised by the aurora-86 overseer's firsthand-verification pass and **re-verified independently by
+the aeon overseer** before acceptance (peer claims are checked, not trusted). This does NOT
+overturn ruling Q2 — the `section_N.meta.json` sidecar is still the right venue for the per-section
+`sceneRef` — but the assessment's citation of `save.ts:112-115` summarises the mechanism as "scalar
+refs with explicit-null semantics", and a contract needs the actual write condition.
+
+**The two-ref set is hardcoded in FOUR places** (all OBSERVED at aurora `e731214`):
+
+1. `src/core/formats/section-meta.ts:21` — `serializeSectionMeta` returns `null` when BOTH refs are
+   null, so the all-default case writes no sidecar at all.
+2. `section-meta.ts:22` — the emitted body is a two-field literal.
+3. `section-meta.ts:29-30` — `parseSectionMeta` enumerates the two fields explicitly; **unknown keys
+   are silently dropped** ("missing or non-string fields read as null").
+4. `save.ts:118-126` — when the serializer returns null but a sidecar exists, save overwrites it
+   with a hardcoded all-nulls body, an exists-probe-gated path whose purpose is stopping a cleared
+   ref from resurrecting on the next load.
+
+**The consequence, and it is load-bearing:** parse drops unknown keys and serialize re-emits only
+what it enumerates, so a `sceneRef` written by anything that is not a sceneRef-aware Aurora — an
+aeon generator, a hand edit, version skew in either direction — is **silently erased on the next
+Aurora save round-trip**. The cleared-overwrite literal has the same shape and would wipe a third
+ref even once Aurora knows about it.
+
+**What this obligates in the contract docs:** (a) the aeon consumer field list documents the write
+CONDITION and the parse→serialize round-trip requirement, not merely field presence and type;
+(b) the empyrean schema states that the all-refs-null case may legitimately leave NO sidecar on
+disk, so consumers treat a missing sidecar as all-null and never as an error; (c) both halves name
+the unknown-key-drop as the round-trip hazard so Aurora's writer-side golden can pin against it;
+(d) adding `sceneRef` requires coordinated edits at all four sites above.
+
+---
+
 ## (a) Inventory — the three effects vocabularies and their data paths to the ROM
 
 ### A1. Scenes (multi-band parallax: layers, deform, curves, vsplit, anchors)
