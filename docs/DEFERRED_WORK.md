@@ -8036,13 +8036,35 @@ record VALUE would be the one-unit poison (`br_ext` one element long against
    > thing that decides whether the parcel can work.** aeon builds against the SHARED binary
    > at `/home/volence/sonic_hacks/sigil/target/release/sigil`, NOT against sigil's source
    > tree, and that binary was last built 2026-08-20 09:54 — *before* `e08f5bdc`. sigil-83 is
-   > additionally bound this session not to rebuild it. **So the enforcement may well be
-   > absent from the assembler this repo actually runs**, in which case the poison would build
-   > green and the lane row would enshrine a vacuous gate — the precise failure this entry
-   > exists to avoid. **Before cutting: confirm the enforcement is live in the binary aeon
-   > invokes** (write the one-element-`br_ext` const, build, observe a refusal), or wait for a
-   > rebuilt/paired binary. Ask sigil-83 which revision carries it and how the shared binary
-   > gets advanced.
+   > additionally bound this session not to rebuild it.
+   >
+   > **CONFIRMED ABSENT BY MEASUREMENT, not by inference (sigil-83, 2026-08-22).** The
+   > suspicion above was upgraded to a fact: the enforcement lives in `const_arity.rs`, added
+   > by sigil `5700b656` and on master at `e08f5bdc` — but run through **the exact binary aeon
+   > invokes**, the minimal fixture
+   >
+   > ```
+   > const N_EXT = 0
+   > struct ext { ex_a: u16, }
+   > struct rec { r_base: u16, r_ext: [ext; N_EXT], }
+   > const P: rec = rec{ r_base: 1, r_ext: [ ext{ ex_a: 2 } ] }
+   > ```
+   >
+   > builds **GREEN** (`built: 0 bytes`, `exit=0`) — a one-element array against a zero-length
+   > declared type, accepted silently. **Cutting the lane row against this binary would have
+   > enshrined the exact vacuous gate this entry exists to prevent.**
+   >
+   > **SEQUENCE BEFORE CUTTING** (agreed with sigil-83): shared binary rebuilt from master →
+   > aeon re-runs the fixture against it and observes a REFUSAL → *then* the row is cut, citing
+   > the shared artifact rather than a transient worktree build. Do not accept a refusal
+   > obtained from a worktree binary as the artifact the row cites — that is evidence for the
+   > LANGUAGE claim, not for the assembler this repo runs.
+   >
+   > Standing hazard this exposed, wider than the parcel: **the shared
+   > `sigil/target/release/sigil` had been three days behind master and nobody noticed until
+   > this entry forced the question.** Every aeon build in that window used it. A stale shared
+   > assembler is invisible to CRC identity by construction — it reproduces the same bytes it
+   > always did.
 2. **The `SCANLINE_CAPS` `emp_defines` parcel** (accepted sigil-side 2026-08-20, booked
    above in this file) makes `BAND_EXT_N` capability-DERIVED instead of a pinned mirror.
    The pin pair then stops being the guard surface (a derivation cannot disagree with its
