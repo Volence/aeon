@@ -568,4 +568,112 @@ offline least-squares over the tool's own printed measurements. **Ask, for whoev
 the tool: add `samp_band` as a tenth column.** Until then the tool will keep printing a
 ~42-cycle un-anchored residual on any ROM carrying this fill, and that number is explained
 here rather than mysterious. Note also that the residual should now be read at
-`|residual| ≈ 42` as the healthy state, not 0.27.
+`|residual| ≈ 42` as the healthy state, not 0.27. *(Overtaken: the tool has carried
+`band_sampling` — and the two anchor columns — since P3 Task 1, so the un-anchored residual
+reads 0.00 again; the ~42/~44 figure survives only in the all-26 full-model fit, where it is
+the anchored overlay's recorded loop-type effect plus W13. See §11.)*
+
+---
+
+## 11. P3 TASK 13 — the re-fit over the walker P3 leaves behind (2026-08-22)
+
+**This is the promotion run.** Every `[parallax.cost_model]` row was measured against the
+2026-08-19 walker; Tasks 7-10 changed the walker, T7's standing-rule re-take published the
+`reglue_*` rows from its own worktree, and the toml deliberately did not promote them ("P3
+Task 7/13 own that"). This run re-takes the FULL fixture set on the P3 **tip** and promotes.
+
+**Provenance.** ROM `s4.debug.bin` crc **0dbaa80f** len 715010 — the shipped P3 tip (branch
+`p3/t13-model-refit` off master `0afc20b8`, T1-T12 all landed; CRC identical to the handoff's
+canonical debug shape). Same probe, same 26 fixtures, `--repeat 3`, spread **0** on all 26
+fixtures and on the out-of-sample row, every window preemption-free (31/31, lag 0, all 26 x 3
+boots). Wall clock: 2026-08-22 01:45:05 (`up 4 days, 2:08`, load 6.92) to 01:48:39 (`up 4
+days, 2:12`, load 6.81) — **214 s** for 3 boots x 26 fixtures + out-of-sample. Exit 0.
+
+**Result: the walker did not move between T7 and the tip.** Every column of the un-anchored
+subset fit, both anchor columns, and the out-of-sample row reproduce the `reglue_*` rows —
+measured on a different ROM (T7's worktree crc `d7b36f90`), on a different day, to the
+printed precision:
+
+| parameter | reglue (d7b36f90, T7) | THIS RUN (0dbaa80f, tip) | moved? |
+|---|---|---|---|
+| `base` | 3116.00 | 3116.00 | no |
+| `band_percell` | 752.00 | 752.00 | no |
+| `line_mode` | 1548.00 | 1548.00 | no |
+| `band_perline` | 854.00 | 854.00 | no |
+| `multiband` | 20.00 | 20.00 | no |
+| `line_fg_only` | 26.00 | 26.00 | no |
+| `line_bg_only` | 26.90 | 26.90 | no |
+| `line_both` | 124.53 | 124.53 | no |
+| `shift_lines` | 2.00 | 2.00 | no |
+| `band_sampling` | 154.00 | 154.00 | no |
+| `vdeform` | 1472.00 | 1472.00 | no |
+| `anchor` | 981.4 | 981.4 | no |
+| `anchor_ops` | 60.77 | 60.77 | no |
+
+Residuals, identically: un-anchored subset (18) **0.00**; all 26 **43.6** (W13, and the
+anchored fixtures' recorded loop-type spread); overlay term (8 anchored fixtures) **58.9**.
+That T8 (extended-record comptime selection), T9 (own() lowering, elided at `BAND_EXT_N` 0),
+T10 (curves, elided at `BAND_CURVE_N` 0), T11 (vscroll-split lowering) and T12 (mask policy)
+left every fitted coefficient untouched is itself the finding: their canonical-image halves
+were comptime, exactly as their landings claimed.
+
+**Out-of-sample — the yardstick, re-measured, not reused.** The live config at the idle
+baseline is still `ParallaxConfig_OJZ_Underwater`, shadow view
+`[(0,15,15),(46,15,15),(80,15,2),(110,15,2),(224,15,2)]`, split k=1, trips 9, BG sampling 144
+lines at shift 2:
+
+| | this run | reglue (T7) | pre-refit yardstick |
+|---|---|---|---|
+| model (all 13 terms) | 13542.7 | 13542.7 | 19288.7 (P2) / 19915.3 (T1) |
+| measured, 3 boots, spread 0 | **13834** | 13834 | 19511 (P2) / 20162 (T1) |
+| gap | **+291.3 (+2.11%)** | +291.3 (+2.11%) | +222.3 (1.1%) / +246.7 (1.22%) |
+
+**Verdict on the §6 check: the parameterization is UNCHANGED, so the gap is unchanged from
+the baseline it is judged against** — the re-fit is the same 13-column model and reproduces
+the reglue gap exactly. The growth from 1.10% (post-unroll) to 2.11% happened at T7 and was
+explained there: the re-glue moved the shipped config's BAND GEOMETRY (shadow tops
+0/48/80/112/224 → 0/46/80/110/224 — the partial offset that is the parcel's whole point), so
+the composition of the per-line work changed while every coefficient held. No alternative
+parameterization was adopted, so no parameterization widened the gap; the per-channel
+failure mode §6 exists for (fit-perfect, predicted 7100 vs measured 19511) stays excluded by
+the same per-line unit this model has carried since §5(b). The +2.11% is carried into the
+budget as `SB_WALK_UNCERTAINTY_PERMIL = 22` (was 11), rounded UP from 21.1 — the
+conservative direction.
+
+**What was promoted.** `[parallax.cost_model]`'s primary rows now carry these values (the
+T1 pre-unroll rows are superseded in place, per that file's convention); the `reglue_*`
+staging block is retired into the primary rows it predicted. The budget's transcriptions in
+`engine/level/scene_dsl.emp` (`SB_WALK_*`) moved with them, gaining the three columns the
+P2-era transcription predated: `shift_lines`, `band_sampling`, and the fitted
+`anchor + anchor_ops x trips` form (charged comptime at the worst trip count, `3n-1` at
+k=0, replacing the flat 1204.7 worst-regime charge that P2 took from a model with no anchor
+column at all).
+
+**Axis-1 components, same session** (`tools/engine_baseline_probe.py --state idle,maxdiag
+--repeat 5`, same ROM, wall 2026-08-22 01:54:36 `up 4 days, 2:18` load 3.44 → 01:55:40
+`up 4 days, 2:19` load 4.57 = **64 s**, spread 0 on every row of both states; idle re-run
+twice this session, rows byte-identical):
+
+```
+idle_main_loop_cycles       35125 → 29472     (GameState_OJZScroll_Update, per video frame)
+idle_parallax_update_cycles 19511 → 13492     (the walker's own row inside it)
+idle_vblank_cycles           8280 →  8277     (VInt_Level)
+axis1_reservation = (29472 − 13492) + 8277 = 15980 + 8277 = 24257   (was 23894)
+```
+
+The walker got 6019 cheaper but the reservation ROSE 363: the non-walker main loop went
+15614 → 15980 (+366 — P3's non-walker mechanisms: forcer fold consumers,
+`Effects_LatchWorldLines`' re-glue inputs, the vscroll-split fire's feeder), and VInt_Level
+gave back 3. Note the instrument basis, stated because §0(a) made it matter: these are the
+baseline probe's per-VIDEO-FRAME rows at the engine's own idle tick rate (31 frames / 30
+ticks, 1.033), the SAME basis the 35125/19511/8280 originals were taken on — the subtraction
+is internally consistent because both terms share the window. The walker probe's
+preemption-free out-of-sample row (13834) is the undiluted per-CALL figure and is the one
+the fitted model predicts; the baseline row (13492) is the same walker averaged over a
+window that carries one lag frame. Both are true; they answer different questions, and the
+reservation arithmetic deliberately uses the pair that shares a window.
+
+**Also in this maxdiag re-take, recorded for [engine_reservation]:** sustained max-diagonal
+now runs at **1.192** frames/tick (was 2.067) with `Tile_Cache_Fill` at 64695 cyc/tick (was
+106163) — the streaming arc landed between the two vintages. Max-diagonal still lags (26/31
+ticks), but the "ticks at ~30 Hz" sentence is no longer true and the toml rows are updated.

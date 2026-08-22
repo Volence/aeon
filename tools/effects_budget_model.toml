@@ -233,9 +233,17 @@ dma_hscroll_perline_bytes_each = 896
 
 [parallax.cost_model]
 # THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4 (original),
-# RE-MEASURED AND SUPERSEDED by Scanline P3 Phase 0 Task 1, 2026-08-20.
+# RE-MEASURED AND SUPERSEDED by Scanline P3 Phase 0 Task 1 (2026-08-20), RE-TAKEN AND
+# PROMOTED by Scanline P3 Task 13, 2026-08-22, over the walker P3 leaves behind (T1-T12
+# landed; ROM s4.debug.bin crc 0dbaa80f len 715010, the canonical debug tip).
 # tools/parallax_cost_probe.py, 26 fixtures + 1 out-of-sample row, 3 boots each, spread 0 on
-# every one. Evidence + derivation: docs/benchmarks/scanline-p2/WALKER-MODEL.md.
+# every one, every window preemption-free. Evidence + derivation:
+# docs/benchmarks/scanline-p2/WALKER-MODEL.md (§11 is the Task 13 promotion run).
+#
+# THE TASK 13 FINDING, one line: the tip fit reproduces the T7 `reglue_*` staging rows to
+# the printed precision on every column, both anchor terms, and the out-of-sample row —
+# T8/T9/T10/T11/T12's canonical-image halves were comptime, exactly as their landings
+# claimed, so the walker has not moved since T7's world-Y re-glue.
 #
 # ##### EVERY P2 ROW WAS DILUTED BY 30/31 AND IS NOW REPLACED. #####
 # The per-routine row is a per-VIDEO-FRAME average, so it is one Parallax_Update call only while
@@ -280,33 +288,47 @@ dma_hscroll_perline_bytes_each = 896
 # and the SHIPPED config samples at shift 2.
 status = "measured"
 instrument = "ORACLE per-routine row for Parallax_Update, inclusive; camera frozen; window verified PREEMPTION-FREE (frames/tick 31/31, lag 0) and re-taken until it is; interrupts.hint never read. IDEAL-CYCLE (the clock excludes bus/VDP/DMA stall)"
-loop_shape = "PRE-UNROLL per-line filler, master 08e87cbc. Every row is a property of THAT code -- the parallax fill-unroll parcel changes the per-line marginals and band_sampling, and re-measures these rows rather than carrying them"
+loop_shape = "POST-UNROLL per-line filler + P3 world-Y re-glue (Step 4a rotates in plane LINES), at the P3 tip (T1-T12). Every row is a property of THAT code; the next parcel that touches a Parallax_* routine re-measures per the P3 standing rule rather than carrying them"
 fixtures = 26
 residual_cycles = 0.00               # max |residual|, UN-ANCHORED subset (18 fixtures)
-residual_cycles_all_fixtures = 13.3  # all 26, both anchor columns live
-residual_cycles_overlay_term = 27.6  # the 2-parameter anchor fit over the 8 anchored fixtures
+residual_cycles_all_fixtures = 43.6  # all 26, both anchor columns live (W13 −43.6; the
+                                     # anchored fixtures carry the recorded loop-type spread)
+residual_cycles_overlay_term = 58.9  # the 2-parameter anchor fit over the 8 anchored fixtures
 noise_floor_cycles = 0               # 3 boots per fixture, spread 0 on all 26
 
-base_cycles          = 3144.00   # W0 — 1 band, per-cell, nothing on
-band_percell_cycles  = 772.00    # W0->W1->W2->W3
+base_cycles          = 3116.00   # W0 — 1 band, per-cell, nothing on
+band_percell_cycles  = 752.00    # W0->W1->W2->W3
 line_mode_cycles     = 1548.00   # W0->W4: an H-deform table attached at all. Selects
                                  # Parallax_Fill_PerLine over _PerCell AND flips reg $0B.
-band_perline_cycles  = 874.00    # W4->W5->W6->W24
-multiband_cycles     = 24.00     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
+band_perline_cycles  = 854.00    # W4->W5->W6->W24
+multiband_cycles     = 20.00     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
                                  # probe loop: at band_count 1 the loop body never runs.
-                                 # DUE FOR RE-MEASUREMENT: P3 Task 7 rewrites that loop.
-line_fg_only_cycles  = 72.75     # per screen line sampling the FG deform curve, AT SHIFT 0
-line_bg_only_cycles  = 72.81     # per screen line sampling the BG deform curve, AT SHIFT 0
-line_both_cycles     = 125.21    # per screen line sampling BOTH, AT SHIFT 0 — the per-line
-                                 # loop shares index and phase work across the planes, so the
-                                 # second channel on a line is cheaper than the first.
+                                 # RE-MEASURED after T7 rewrote the loop (the plan asked for
+                                 # that verdict): the new Step 4a still SEEKS, so the
+                                 # indicator column still has a subject. See REGLUE.md.
+line_fg_only_cycles  = 26.00     # per screen line sampling the FG deform curve, AT SHIFT 0
+line_bg_only_cycles  = 26.90     # per screen line sampling the BG deform curve, AT SHIFT 0
+line_both_cycles     = 124.53    # per screen line sampling BOTH, AT SHIFT 0 — the per-line
+                                 # loop shares index and phase work across the planes, AND
+                                 # `.lp_both` is deliberately un-unrolled (P2's C2 ruling), so
+                                 # a both-planes line costs ~4.8x a single-channel one on this
+                                 # loop shape, not the pre-unroll ~1.7x.
 shift_lines_cycles   = 2.00      # per line, per unit of deform shift, per channel (W22/W7/W23)
-band_sampling_cycles = 0.00      # per band taking a sampling loop (W25). EXACTLY ZERO on this
-                                 # loop shape -- the sampling hoist and the flat path's own
-                                 # unroll-and-tail setup cancel. NOT a constant of the walker:
-                                 # the fill-unroll parcel measures the same column at a
-                                 # ~149-cycle class. See WALKER-MODEL.md §5(d).
+band_sampling_cycles = 154.00    # per band taking a sampling loop (W14/W15/W25) — the
+                                 # unrolled single-channel loops' per-band prologue (pointer
+                                 # walk, base-scroll unpack, wrap split, group/tail control).
+                                 # WALKER-MODEL.md §5(d)'s predicted ~149-class, measured.
+                                 # Was EXACTLY 0.00 on the pre-unroll filler: the column's
+                                 # value is a property of the LOOP SHAPE, and any budget
+                                 # leaning on it must name the shape it was measured against.
 vdeform_cycles       = 1472.00   # W0->W9: a V-deform table attached (per-column VSRAM)
+
+# The T1 pre-unroll primary rows these superseded, kept for the record (measured on master
+# 08e87cbc, the PRE-UNROLL filler — see WALKER-MODEL.md §3/§4 for the full fixture table):
+# base 3144.00 / band_percell 772.00 / line_mode 1548.00 / band_perline 874.00 /
+# multiband 24.00 / line_fg_only 72.75 / line_bg_only 72.81 / line_both 125.21 /
+# shift_lines 2.00 / band_sampling 0.00 / vdeform 1472.00 / anchor 982.2 / anchor_ops 59.27;
+# residuals 0.00 (un-anchored) / 13.3 (all 26) / 27.6 (overlay); OOS 19915.3 / 20162 / +1.22%.
 
 # ---------------------------------------------------------------------------------------
 # multi_deform_table — P3 TASK 9. MEASURED ON A CAPABILITY-RAISED BUILD THAT IS NOT
@@ -399,45 +421,43 @@ factor_curve_status = "MEASURED ON A NON-CANONICAL, CAPABILITY-RAISED INSTRUMENT
 #     loop-type effect     |   +27   |   +45   |
 # The loop-type change P2 named as the regime costs 27-45 cycles, not 749. Channel is +25,
 # split POSITION is +1 (W20 moves the world anchor, not the camera).
-anchor_cycles        = 982.2     # the overlay's fixed cost
-anchor_ops_cycles    = 59.27     # per Step-4b overlay loop iteration (hand count: 62 for the
+anchor_cycles        = 981.4     # the overlay's fixed cost
+anchor_ops_cycles    = 60.77     # per Step-4b overlay loop iteration (hand count: 62 for the
                                  # .anchor_find_k body). ONE lumped count and not four columns:
                                  # this fixture set has three (n,k) classes, so four columns
                                  # would be exactly identified and residual-zero by construction
-anchor_status = "FITTED — 8 fixtures, 3 overlay-trip counts, max |residual| 27.6 cycles. The residual is the loop-type change (turn-on +27 at 2 bands / +45 at 4, BG ~25 over FG), recorded rather than fitted: one fixture pair per cell is not a column"
+anchor_status = "FITTED — 8 fixtures, 3 overlay-trip counts, max |residual| 58.9 cycles. The residual is the loop-type change (turn-on over flat overlay, BG over FG), recorded rather than fitted: one fixture pair per cell is not a column"
 
 # OUT-OF-SAMPLE. Measured by the probe itself, one pass per boot with NOTHING poked but the
 # camera freeze. The live config at the idle baseline is ParallaxConfig_OJZ_Underwater at
-# $01230C: 4 authored bands, latched L 80, shadow view [(0,15,15),(48,15,15),(80,15,2),
-# (112,15,2),(224,15,2)] -- BG sampling the 144 lines below the split, at shift 2.
+# $01230C: 4 authored bands, latched L 80, shadow view [(0,15,15),(46,15,15),(80,15,2),
+# (110,15,2),(224,15,2)] -- BG sampling the 144 lines below the split, at shift 2. The
+# 46/110 (vs the pre-re-glue 48/112) are T7's partial offset -- the band geometry the
+# re-glue exists to produce.
 # Its terms are read from the SHADOW VIEW, not from its ROM entries: it does not pin
 # v_factor_bg, so Step 4a rotates and clamps its tops, and the ROM-entry derivation put the
 # split at line 48 when the latch and the shadow both say 80.
-#   model (all 13 fitted terms) = 19915.3
-#   measured, 3 boots, spread 0 = 20162
-#   gap                         = +246.7  (1.22%)
-# The residual gap is the shipped config's own band tops and scroll-factor shifts, which
-# change the Decode_Factor_A/B work the fixtures hold constant. Recorded, not tuned away --
-# and it is the same fraction P2 reported (1.1%), because this task fixed the IN-sample
-# residual, not the out-of-sample one.
-out_of_sample_predicted = 19915.3
-out_of_sample_measured  = 20162
-out_of_sample_gap_pct   = 1.22
+#   model (all 13 fitted terms) = 13542.7
+#   measured, 3 boots, spread 0 = 13834
+#   gap                         = +291.3  (+2.11%)
+# THE GAP IS UNCHANGED FROM THE REGLUE BASELINE IT IS JUDGED AGAINST (T7: +291.3, +2.11%)
+# because the parameterization is unchanged -- Task 13 adopted no new columns, so no
+# parameterization widened it (the §6 failure mode, per-channel fit-perfect predicting 7100
+# against 19511, stays excluded by the per-line unit). The growth 1.10% -> 2.11% happened AT
+# T7 and is explained there: the re-glue moved the shipped config's band geometry, changing
+# the per-line work composition while every coefficient held. Carried into the budget as
+# SB_WALK_UNCERTAINTY_PERMIL = 22 (rounded UP from 21.1 -- the conservative direction).
+out_of_sample_predicted = 13542.7
+out_of_sample_measured  = 13834
+out_of_sample_gap_pct   = 2.11
 
-# ##### THE ROWS ABOVE ARE STALE AGAINST MASTER. MEASURED, NOT SUSPECTED. #####
-# Found 2026-08-20 by P3 Task 3's regression run of this same probe on master `aab012a7`
-# (s4.debug.bin crc=5be03175), 26 fixtures, 1 boot, spread 0 on every fixture, exit 0.
-#
-# `loop_shape` above says these rows are a property of the PRE-UNROLL per-line filler at
-# master `08e87cbc` and that the fill-unroll parcel re-measures rather than carries them.
-# THAT PARCEL HAS LANDED: `afccb141 perf(parallax): pointer-walk + unroll the single-channel
-# sampling loops` is in master's history since. So the warning has come true and the rows
-# above now describe code that is not in the tree.
-#
-# THE MODEL'S STRUCTURE SURVIVED THE UNROLL INTACT — the un-anchored residual is still
-# EXACTLY 0.00 over the same 18 fixtures, and 7 of the 11 un-anchored columns did not move at
-# all. What moved is precisely what the fill-unroll parcel was predicted to move: work left
-# the per-line body and went into the per-band prologue.
+# ##### THE UNROLL STEP'S RECORD (P3 Task 3, 2026-08-20) — HISTORY, PROMOTED ABOVE. #####
+# These rows were taken on master `aab012a7` (s4.debug.bin crc=5be03175, 26 fixtures, 1 boot,
+# spread 0, exit 0) when the fill-unroll parcel (`afccb141`) landed and made the T1 pre-unroll
+# primary rows stale. They stood here un-promoted ("P3 Task 7/13 own that") until Task 13's
+# tip re-take promoted the post-unroll+re-glue values into the primary rows above. Kept
+# because they are the measured record of what the UNROLL alone did, separate from what the
+# re-glue then did (the reglue block below):
 #
 #   column          pre-unroll (08e87cbc)   post-unroll (aab012a7)   moved?
 #   base                      3144.00               3144.00          no
@@ -458,24 +478,7 @@ out_of_sample_gap_pct   = 1.22
 # predicted "a ~149-cycle class once the sampled loops are unrolled", and this is that number,
 # measured. A column that reads zero on one loop shape and 154 on another is a real parameter
 # with two regimes, and the regime IS the loop shape.
-#
-# WHAT THIS DOES TO ANY ROW THAT DIVIDES BY THE OLD ONES: the shipped config's cost is now
-# 13798, not 20162 — 31.6% cheaper. A budget written against 20162 is not merely stale, it is
-# stale in the SAFE direction, but a per-line cost written against 72.75 over-charges real
-# content by ~2.8x per sampled line and would refuse a scene that runs.
-#
-#   residual, un-anchored subset (18)   0.00      (unchanged)
-#   residual, all 26 fixtures           43.2      (was 13.3)
-#   residual, overlay term (8)          58.3      (was 27.6)
-#   out of sample: model 13646.4, measured 13798, gap +151.6 (+1.10%)  (was 19915.3 / 20162 / +1.22%)
-#
-# NOT PROMOTED HERE, DELIBERATELY. P3 Task 3 is an instrument parcel and did not touch a
-# `Parallax_*` routine; overwriting Task 1's rows from here would destroy the pre-unroll
-# record `loop_shape` exists to name. P3 Task 7's standing-rule re-fit and Task 13's re-take
-# own the promotion. This block exists so that (a) nobody divides by a stale row in the
-# meantime, and (b) the `transition_*` rows below — which WERE taken on the post-unroll walker
-# — are not read as disagreeing with a model measured on different code.
-postunroll_status = "MEASURED on master aab012a7, 26 fixtures, spread 0, exit 0 — NOT promoted; P3 Task 7/13 own that"
+postunroll_status = "MEASURED on master aab012a7 — the unroll step's record; promoted (with T7's re-glue deltas) into the primary rows by P3 Task 13, 2026-08-22"
 postunroll_loop_shape = "POST-UNROLL per-line filler (afccb141 pointer-walk + unroll of the single-channel sampling loops)"
 postunroll_line_fg_only_cycles = 26.00
 postunroll_line_bg_only_cycles = 26.90
@@ -491,8 +494,11 @@ postunroll_out_of_sample_measured  = 13798
 postunroll_out_of_sample_gap_pct   = 1.10
 
 # =====================================================================================
-# THE RE-GLUE RE-FIT (P3 Task 7, 2026-08-20) — the standing rule's re-take, and the row
-# set Task 13 should re-take FROM. `postunroll_*` above describes the walker as it was
+# THE RE-GLUE RE-FIT (P3 Task 7, 2026-08-20) — the standing rule's re-take. PROMOTED:
+# P3 Task 13 (2026-08-22) re-ran the full set on the P3 tip (crc 0dbaa80f, 3 boots,
+# spread 0, exit 0) and reproduced every row below to the printed precision, so these
+# values ARE the primary rows above; the block is kept for its instruction-level
+# derivations of the T7 deltas. `postunroll_*` above describes the walker as it was
 # BEFORE world-Y re-glue; these rows describe the walker that is in the tree.
 #
 # tools/parallax_cost_probe.py --repeat 1, 26 fixtures, spread 0 on every fixture, exit 0.
@@ -544,7 +550,7 @@ postunroll_out_of_sample_gap_pct   = 1.10
 # are not the same work as before. Same walker, different bands. The gap is also dominated
 # by the anchored overlay term, whose own residual is +-58.9 over 8 fixtures; the shipped
 # config is anchored.
-reglue_status = "MEASURED on p3/t7-worldy-reglue, 26 fixtures, spread 0, exit 0 — the current walker"
+reglue_status = "MEASURED on p3/t7-worldy-reglue, 26 fixtures, spread 0, exit 0 — PROMOTED to the primary rows by P3 Task 13 (2026-08-22), which reproduced every row on the tip ROM 0dbaa80f"
 reglue_loop_shape = "POST-UNROLL per-line filler + P3 world-Y re-glue (Step 4a rotates in plane LINES)"
 reglue_base_cycles              = 3116.00
 reglue_band_percell_cycles      = 752.00
