@@ -242,6 +242,26 @@ Aurora's remaining work is UI + preview + the first authored act:
   > harness only asserts `avg < 5 ms` — corrected their side at `bccd875`). aurora-86 owes a
   > foreground CDP measurement rather than an assumption. **If MapViewport needs its own animation
   > loop, that is a wave-1 prerequisite on the Aurora lane, not a detail.**
+  >
+  > **CORRECTED 2026-08-22 — "wave-1 prerequisite" was OVERDRAWN.** Ruled by aurora-86
+  > (`3328c49`) and accepted here: nothing in the writer half reads a clock — region marking,
+  > bank authoring, constraint UX, the `anims` writer, the sidecar codec, scene JSON, `sceneRef`.
+  > The clock is **its own parcel with exactly one intra-wave ordering edge** (land no later than
+  > the band-preview parcel) and gates nothing else. Aurora's wave-1 writer parcels proceed
+  > without it. **Nothing on the aeon side depended on the prerequisite framing.**
+  >
+  > **AND THE FORK ITSELF WAS POSED ON A FALSE UNIFORMITY** (their ruling, derived from OUR
+  > engine source; re-verified here): BgAnim bands are **not uniformly time-driven**.
+  > `engine/level/bg_anim.emp:135-147` dispatches three drivers — `camera_x` (0), `camera_y` (1),
+  > `timer` (2 = `Logic_Tick+2`) — and **`camera_x` is the schema §5 default**, so two of three
+  > are functions of camera POSITION, not time. Ruled shape: **driver-faithful preview** — camera
+  > bands ride the existing pan repaints clocklessly (`MapViewport.tsx:574` already carries
+  > `vpX, vpY` in its draw-effect deps), and only `timer` bands need a clock, `rate_shift` being
+  > the one parameter judgeable solely in motion. A wall-clock preview of a camera band would
+  > teach the WRONG DRIVER MODEL — the same misreading the driver-axis banner above warns about.
+  > **Labeled-approximate licenses an approximate phase; it does not license a wrong driver
+  > model.** The owner-facing question is therefore narrower than "does MapViewport need a loop":
+  > it is "when do `timer` bands get one", and it no longer gates wave 1.
 - **Wave 1 discharges `inject_editor_bg.py`'s byte-unproven animated arm.** The arm is
   "FORMAT-FAITHFUL BUT NOT BYTE-PROVEN — the first animated act proves this arm"
   (`inject_editor_bg.py:121-124`). The first Aurora-authored act makes the six-target
