@@ -221,9 +221,13 @@ and the data carries a semantic version (`sdver`, `MDSDRV_MIN_VER equ $0003`,
 - Opcode space: `engine/sound/seq_opcode_tab.emp:43-78` (32-entry `$E0..$FF` jump table,
   6 slots reserved) + range dispatch `$00-$7F` SetDur / `$80` Rest / `$81-$DF` Note
   (`sound_constants.emp:253-330`).
-- Single running duration: `sound_constants.emp:622 sc_dur_default`, reloaded at
-  `sound_sequencer.emp:982-983, 996-997, 1358-1359`; set by the bare `$00-$7F` byte at
-  `:1007`.
+- Single running duration: `sc_dur_default` (`sound_constants.emp`), reloaded in
+  `Sequencer_NextOpcode`'s `.note` and `.rest` paths and in `Seq_Op_NoteDur` ($E3, the
+  explicit-duration opcode); set by the bare `$00-$7F` byte in the same proc's `.set_dur`
+  path. Anchored by symbol deliberately: this bullet previously cited
+  `sound_sequencer.emp:982-983, 996-997, 1358-1359`, which had drifted to `:1046-1047`,
+  `:1060-1061` and `:1360` by aeon `1ee8f8e6` — re-pinning the numbers would only restart
+  the same clock.
 - Repeats: `Seq_Op_RepeatStart` / `Seq_Op_RepeatEnd`, `sound_sequencer.emp:1501-1548`.
   ONE `sc_repeat_ptr` + `sc_repeat_count` per channel → **nesting is illegal**
   (`song_packer.py:853-859`; design spec "Format validity rules" §(c)1).

@@ -72,6 +72,20 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   `tools/regenerate-level.sh` clears it (level bytes unchanged — revert the
   `DONOR_PROVENANCE.json` churn, since unchanged level bytes mean the existing stamp still
   describes them).
+  **The gate's input set is WIDER than `project.json`, and for some lanes the stop is
+  CERTAIN rather than incidental** (sharpened 2026-08-22 by aurora-86, correcting this
+  lane's narrower framing — which had made it contingent on a save path *incidentally*
+  touching `project.json`). `tools/level_staleness.py`'s `editor_sources()` returns exactly
+  three paths: the `games/<game>/data/editor` tree, **`games/<game>/data/editor_bg_override.json`**,
+  and `project.json` — compared as `newest mtime(editor sources) > newest mtime(generated
+  tree)`. So a lane whose *deliverable is writing one of those files* (an Aurora BG-override
+  save, an editor-tree bake) is writing a gate input **by construction**, and hard-fails
+  staleness **before a ROM is emitted**. Two consequences, separately: run
+  `tools/regenerate-level.sh` between the write and the build; and **attribute a failure by
+  stage and exit code before reading it as a verdict**, because a pre-emission staleness stop
+  looks exactly like a downstream refusal gate rejecting the bytes you just wrote. Composes
+  with the `rm -f` rule above — a build that never ran, plus leftover artifacts, greets you
+  with four perfect CRCs.
 - **CRC identity is blind to SOURCE-derived gates, and the pairing ritual cannot see
   what it does not trigger on** (found 2026-08-22 by sigil-83's warn-tier corpus, not by
   anything in this lane). sigil's warn-tier lint baseline lives in

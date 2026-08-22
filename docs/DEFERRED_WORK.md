@@ -921,8 +921,8 @@ engine code before then moves the pin target and grows the port surface for no d
    > P2 soundBankHead probe: the head is native; sound_bank.inc DELETED"). The `soundBankHead`
    > macro is gone; the head is now emitted natively.
    > **The live contract to satisfy is instead:**
-   > - the `sound_bank` anchor declared at **`games/sonic4/map.toml:110`**
-   >   (`name = "sound_bank"  # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000)`), and
+   > - the `sound_bank` anchor declared in **`games/sonic4/map.toml`**, the entry whose
+   >   `name = "sound_bank"` (`# SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000)`), and
    > - the worked reference implementation at
    >   **`games/sonic4/data/sound/soundbankhead.emp`**.
    >
