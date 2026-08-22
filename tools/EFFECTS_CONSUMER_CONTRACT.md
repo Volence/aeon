@@ -72,7 +72,9 @@ Derived, not read: `step_mask` (= `pattern_px - 1`), `col_shift`, `tile_count`,
 the drift rule above governs — do not rely on ignored keys staying ignored.
 
 Output contract (aeon-internal, cited for orientation only): 44-byte records LOCKSTEP
-with `engine/level/bg_anim.emp` `struct bganim_band` (`:14-17`); the animated arm is
+with `engine/level/bg_anim.emp` `struct bganim_band` (**`bg_anim.emp:66`**, its width held
+by `ensure(sizeof(bganim_band) == 44, …)` at `bg_anim.emp:75` — that ensure, not this
+sentence, is the authority); the animated arm is
 FORMAT-FAITHFUL BUT NOT BYTE-PROVEN until the first authored act (`:121-124`) — that
 discharge is a wave-1 aeon lane item.
 
