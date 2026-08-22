@@ -235,7 +235,42 @@ would otherwise have shipped:
   with, and it sits on the far side of his own showcase content. Agreed and endorsed: it is
   exactly the design-changing class that PARKs rather than rides the delegation. Last-writer-wins
   is rejected by both lanes.
-- **MapViewport has no rAF loop** — the preview machinery §(b) credited is
+- **ITEM 1 MEASURED 2026-08-22 night (aurora-86, foreground; 21/23 rows passed).** The
+  load-bearing finding is SOLID and controlled: with the page provably still painting,
+  MapViewport repaints **exactly zero times over 5.0 s idle** against **1602 rAF ticks (320/s)**
+  from the harness's own ticker, probe still bound and React root alive — so "zero repaints"
+  cannot be confused with "dead renderer". **The aeon viewport has no clock.** Its single draw
+  effect (`MapViewport.tsx:528-574`) has no time-varying dep; `ViewMenu` doesn't even render
+  "Play animations" for aeon. It repaints only on pan/zoom/overlay/project/edit changes.
+  **Headroom is ample:** worst case zoom 0.25 (4 blits/repaint) is median **0.800 ms**, p95
+  **1.000 ms** = 6.0% of a 16.69 ms NTSC frame, 15.688 ms left; a stamp edit through the
+  dirty-flush path costs 0.300 ms max. **Caveat that survives with it:** the bracket covers dirty
+  flush + section blits + the overlay pass but EXCLUDES React commit, compositor and GPU upload —
+  so these are an **UPPER bound on available headroom, not a lower one**.
+  - **Their confound tripwire FAILED and they reported it rather than shipping the clean number**
+    (row 3: medians agreed to 0.00% across a 16x zoom range, overlays on/off, two window sizes).
+    Diagnosis: `performance.now()` coarsening — every value is an exact multiple of 0.1 ms
+    (Chromium's 100 µs clamp). **Only cell d (0.5-1.1 ms, 7 distinct values) is genuinely above
+    the noise floor**; the other five "0.000 ms medians" are quantization artifacts, not
+    measurements. The other two confound candidates cleared correctly (`ops/repaint` varies
+    18/12/8/89/12; `blits/repaint` 1 vs 4), so the bracket closes and the pans really moved the
+    view — it is the clock alone. **The headroom conclusion survives** (it rests on cell d plus
+    nothing coming near a frame); **all CROSS-CELL comparison does not** — relative cost of zoom
+    vs overlay count is below resolution. Fix dispatched (amortized batching to beat the quantum);
+    they are not landing the harness until the confound row passes FOR THE RIGHT REASON.
+  - **PARKED FOR THE OWNER — the instrument explicitly refuses to decide it**, quoted: *"It CANNOT
+    distinguish 'there is no loop because this viewport needs none' from 'there is no loop and one
+    would have to be ADDED for animated effects': nothing in the aeon viewport currently animates,
+    so the two hypotheses predict the identical observation — zero idle repaints. Deciding between
+    them is a design question, not a measurement this instrument can make."* So **whether wave 1
+    adds an animation loop to MapViewport is an owner design call**, not an inference from a zero.
+    Headroom says it is affordable if wanted; that is all the number licenses.
+  - **BOOKED FOR WAVE 2: palette-cycling cost is UNMEASURED.** The measured stamp dirties a few
+    hundred cells, under `SectionRenderer`'s `RECOMPOSE_DIRTY_THRESHOLD` of 2000, so it takes the
+    per-cell flush path. A palette change invalidates every section canvas and takes the
+    **full-recompose** path this harness never exercises. **Wave 2 is raster/palette work — that
+    is the number that will actually matter, and it is not this one.**
+- **(superseded by the measurement above)** MapViewport has no rAF loop — the preview machinery §(b) credited is
   `ClassicLevelViewport`-only, and the OJZ showcase runs MapViewport. No aeon-viewport perf datum
   exists. aurora-86 owes a foreground CDP measurement; if MapViewport needs its own animation
   loop that is a wave-1 prerequisite on their lane. **Preview posture is PROVISIONAL until then.**
