@@ -139,8 +139,11 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   `SectionMeta` extension (all six sites) lands in the same Aurora parcel as the first
   writer; the golden pins the parse→serialize round-trip; `sceneRef` is ruled a string
   id, never a numeric index (silent-null failure mode); the unreadable-sidecar
-  obligation is SHARED — generators write atomically and fail the bake loudly on an
-  unreadable sidecar (missing = all-null; unreadable ≠ all-null, ever), Aurora routes
+  obligation is SHARED — generators write atomically (reusing the in-tree
+  `_atomic_write` idiom, `tools/ojz_block_gen.py:201-206`) and fail the bake loudly on
+  an unreadable sidecar (missing = all-null; unreadable ≠ all-null, ever — the aeon
+  load path is already loud-by-default, `inject_editor_bg.py:58-61`; the asymmetry is
+  stated normatively in `tools/EFFECTS_CONSUMER_CONTRACT.md` §3), Aurora routes
   the meta catch through `markUnreadable` and gates the meta write (including the
   cleared-overwrite literal) behind `understood('meta.json')`.
 - **NAMED PRECONDITION on wave 1's `sceneRef` work (ERRATUM 2 sequencing ruling):**

@@ -142,8 +142,9 @@ surface.
   the cleared-overwrite at `save.ts:123` turn a malformed sidecar into a well-formed
   empty one — a live data-loss defect); Aurora's half of the fix is `markUnreadable` +
   `understood('meta.json')` gating including the cleared-overwrite literal. The
-  generator's half: (a) WRITE atomically (temp file + rename) — a partial sidecar is
-  never observable; (b) READ with the missing/unreadable split intact — a MISSING
+  generator's half: (a) WRITE atomically (reuse `_atomic_write`,
+  `tools/ojz_block_gen.py:201-206` — §3) so a partial sidecar is never observable;
+  (b) READ with the missing/unreadable split intact — a MISSING
   sidecar is all-refs-null, an UNREADABLE one **fails the bake loudly**; "degrade
   gracefully" must NOT mean "treat as all-null", because all-null is exactly the state
   that triggers Aurora's destructive overwrite. **And stated plainly because the
@@ -164,7 +165,30 @@ surface.
   `..` segments, and must be exactly 256 bytes (signed i8 table), baked via `embed()`
   (the `inject_editor_bg.py` precedent).
 
-## 3. Provenance and companions
+## 3. Error-handling posture — normative for BOTH halves
+
+Written because of the asymmetry, which is the reason the section exists at all (ERRATUM 2
++ its `c88ab125` mirror-audit appendix, both verified firsthand): **the load path is safe
+on the aeon side today and unsafe on the Aurora side today.**
+
+- **aeon consumers fail loud, and must keep doing so.** `inject_editor_bg.py:58-61` is
+  the reference posture: bare `json.load` + direct subscripting — malformed input raises,
+  the build STOPS, and nothing is written back over the input. `effects_gen.py` adopts
+  the same posture for every §2 input (including an unreadable sidecar — §2.2's
+  missing/unreadable split). No consumer grows a tolerate-garbage or repair path.
+- **Deliberate non-example:** the broad `except Exception` handlers in
+  `tools/ojz_block_gen.py` (`:222`, `:248`, `:288`, `:308`) are confined to the
+  content-addressed cache/memo layer, where degrading means a cache MISS and a recompute
+  — not data loss. A different defect class from Aurora's silent catch; correct as
+  written; do not file them as the same hazard.
+- **Generator writes reuse the in-tree atomic idiom by NAME:**
+  `tools/ojz_block_gen.py:201-206` `_atomic_write` (pid-suffixed temp file, then
+  `os.replace`). New generators reuse it rather than re-deriving the principle.
+- **Aurora's half** (their lane, restated from ERRATUM 2): route the meta catch through
+  `markUnreadable`, gate the meta write — including the cleared-overwrite literal —
+  behind `understood('meta.json')`; loud and non-destructive, never quiet-and-lossy.
+
+## 4. Provenance and companions
 
 - Six adjudicated rulings, owner-confirmed: aeon `08f01b73`,
   `docs/research/2026-08-22-aurora-effects-authoring-assessment.md` §(f).
