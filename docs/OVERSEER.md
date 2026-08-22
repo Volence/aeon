@@ -79,6 +79,15 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **Cross-repo claims verify against the described repo AT AUTHORING TIME, citing the SHA
+  verified at** — now the shared protocol's rule too (empyrean `00334b6`, 2026-08-22), with
+  this repo's effects-schema arc as its precedent, so put it in agent briefs that survey a
+  sibling tree. Lived here: an assessment quoted aurora's ROADMAP faithfully and shipped a
+  caveat that had been false since a commit that was an ANCESTOR of the assessment's own
+  survey pin, plus a ruling aimed at a field the sibling's save path never writes. A
+  quoted survey, roadmap, or plan caveat can be stale before its pin; only reading the
+  described tree catches it. Peer verification found both — reciprocate it.
+
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.
