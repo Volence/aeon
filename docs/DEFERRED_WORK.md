@@ -181,6 +181,47 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    committed here (level bytes unchanged ⇒ the existing stamp still describes the bake that
    produced them; the re-run's names a dirty, non-identifying donor). Stamp disposition is
    an open overseer call.
+   **P5 IMPLEMENTATION STATUS (2026-08-22).** `tools/effects_gen.py` exists and is
+   built in slices; three have landed, none is wired to the build:
+   - **Slice 1** (`ce10277e`) — scene discovery + load posture + SHAPE validation.
+     Absent directory = no editor scenes; unreadable file fails loud.
+   - **Slice 2** (`5f18b5a8`) — renders the `scene()`/`layer()` call TEXT (factors in
+     both spellings, eight-slot padding, count, scene scalars).
+   - **Slice 3** (`251a94ec`) — the real attachment spellings, and **two defects
+     slices 1-2 shipped**: the absent spelling is the string `"none"` and not JSON
+     null (so slice 2 would have refused every real Aurora scene), and
+     `precision`/`transition`/`left_column_mask` are lowercase enum strings needing
+     `.emp` constants (slice 2 emitted `precision: line`). Both had one cause: the
+     slices were written from THIS contract, which enumerates field NAMES, with their
+     VALUES inferred. The empyrean schema owns the values. Read the sibling repo.
+   - 41 tests, each derived from the contract or the constructors, each proven
+     non-vacuous by poison. **Nothing runs them automatically** — no `conftest.py`,
+     no `pytest.ini`, `build.sh` invokes no pytest.
+   - **Remaining before wiring:** tableRef realization (the `deform*`/`v_deform`
+     attachments, currently refused rather than dropped), then the binding module and
+     the seam. Table realization carries an undecided sub-question of its own —
+     whether two scenes naming the same generator+params share one emitted table.
+     Dedup is aeon-internal by the format-boundary ruling, but it moves table
+     addresses, so decide it before emitting rather than after.
+   - **Deliberately NOT wired to the build, and this is load-bearing:** design §3
+     records that an unreached `.emp` module gets ZERO body elaboration, so
+     `ensure(1 == 0)` inside one builds green. A generated module nothing imports
+     would look finished while validating nothing. Wiring waits on the seam below.
+
+   **Q-c IS THE BLOCKING DECISION — PARKED FOR THE OWNER, with a recommendation.**
+   Wave-1 design §9 Q-c: how `act_descriptor.emp` imports the act-default binding when
+   there is no editor content, without a dormant scaffold. Two options named there.
+   **Recommendation: the always-emitted default label.** The descriptor's `use` is a
+   name list, so a label that exists only when editor content does makes the descriptor
+   build or fail depending on content state — the generator's stub always exports the
+   act-default label, aliased to the hand-authored default when there are no editor
+   scenes, and the descriptor has ONE path that is always live. The descriptor-side
+   conditional is the option that actually creates the dormant scaffold: two paths, one
+   of them dead whenever editor content exists, which is what clean-not-bolted-on
+   forbids. **Stated trade-off:** always-emitting makes the generated module
+   load-bearing for every act even with zero editor content, so a generator bug can
+   break a working act — which is what the design's required reachability poison exists
+   to catch, and is an argument for landing that gate WITH the seam rather than after.
 2. **First authored animated act** — discharges `inject_editor_bg.py`'s FORMAT-FAITHFUL
    BUT NOT BYTE-PROVEN animated arm (`inject_editor_bg.py:121-124`); that parcel runs
    `tools/effects_gates.py` and pastes totals into merge evidence even though it touches
