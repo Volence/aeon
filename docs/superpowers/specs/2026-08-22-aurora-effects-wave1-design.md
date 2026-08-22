@@ -95,7 +95,9 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
 - **The import seam:** `act_descriptor.emp` imports the per-section Labels **by name
   list** and passes them where it passes hand bindings today
   (`sec_parallax_config` / `act_parallax_config`). **The label-vs-const trap is the
-  load-bearing detail** (`games/sonic4/data/parallax/ojz_scenes.emp:70-74`; `docs/EMP_PITFALLS.md` §2/§8): these
+  load-bearing detail** (the `use games.sonic4.scene_registry.{DeformTable_*}` name-list
+  import in `games/sonic4/data/effects/ojz_scenes.emp`, whose comment block states the
+  const-axis trap; `docs/EMP_PITFALLS.md` §2/§8): these
   MUST be `pub data` **Labels** — label imports travel as symbol references; a **const**
   import re-evaluates its initializer in the consumer's scope (the Task-5 clone-injection
   trap) and would silently duplicate every table and record into the descriptor's
