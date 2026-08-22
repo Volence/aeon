@@ -876,36 +876,76 @@ hits, and no sprite-mask auto-placement code exists anywhere.
 > lines with no earlier-linked sprite — verify the masking actually engages per line. Do not
 > silently ship 7 against a budget written for 1.
 
+> **DONE (comptime half) 2026-08-21, `p3/t12-left-column-mask` — Step 2's ENGINE EMISSION is
+> BLOCKED and the SpriteMask variant is refused until it lands. What this task's own premises
+> got wrong, because later readers will inherit them:**
+>
+> - **The declaration, the enum, the guards and the pricing all landed, zero-byte on all four
+>   shapes.** `SceneLeftColMask { Undeclared, SpriteMask, Factor0Lock, Accept }`; a per-column
+>   scene without a declaration fails the build (red-first: 192 failures across the six
+>   Rocking/Perspective elaborations before their declarations existed — NOTE sigil reports a
+>   comptime-fn ensure at the ENSURE's own span, so "naming the scene" is done by interpolating
+>   the scene's authored signature: count / v-deform speed / shift, unique over the six).
+>   `Factor0Lock` is VERIFIED (fb == FACTOR_0 on every real layer AND no live plane-B deform
+>   with a reachable table); both shipped families spell `Accept` — Rocking because its
+>   zero-table factor0 truth is comptime-invisible, Perspective because its shimmer floor
+>   genuinely ships the artifact (this plan's "FACTOR_0 … is the factor0_lock policy, already
+>   available" undersold the condition: FACTOR_0 alone does not eliminate the sliver under a
+>   live dsb).
+> - **The 7-slot flag: ACCEPTED 7, gated.** The axis binds on the per-line sprite count where
+>   the strip costs 1/line + 8 px regardless of slot count; 7 of 77 table slots is 9.1%.
+>   Priced by `check_axis5_mask_pricing()` in `tools/effects_budget_check.py` (canonical-build
+>   lane), geometry derived from `SPRITE_MASK_HEIGHT`/`SPRITE_MASK_SIZE`/`SB_SCREEN_LINES` at
+>   run time, reservation read from the toml — red-first both arms. `axis5_task12_flag` →
+>   `axis5_task12_resolution`.
+> - **The "one engine-reserved SAT slot … X=0 mask" mechanism in this task's own Step 2 text
+>   is unimplementable as written, and the ruling is recorded:** the VDP's X=0 sprite-MASKING
+>   feature suppresses LATER SPRITES on covered lines — it cannot repaint a PLANE pixel, so it
+>   cannot hide plane-B garble at all (the first-sprite-on-line exemption is a second, lesser
+>   way it fails). The mask must be an OPAQUE strip at screen X 0 (SAT X = 128, priority,
+>   first in the link chain). MD1-vs-MD2 fill value stays unpinned and is irrelevant to an
+>   opaque cover. Full ruling in DEFERRED_WORK's restated booking.
+> - **Why the emission is BLOCKED (the trap ledger called it):** the gated block belongs in
+>   `Render_Sprites`, and `engine/objects/sprites.emp` has ZERO `Game.*`/`CAP_*` references
+>   today — the gate would be the module's FIRST cross-seam reference, a sigil port flip
+>   needing an aeon+sigil pair (overseer-gated), plus the opaque tile is a game-VRAM hook.
+>   Runtime engagement verification is staged in `tools/left_col_mask_probe.py --mask`
+>   (exit 2, no subject, check list documented); `--claims` verifies the declarations' four
+>   ROM-level premises statically today (red-first: subject-poisoned zero table).
+> - **Task 15 note:** the undeclared-scene poison this parcel owes the lane
+>   (`emp_expect_fail` CASES row) stays Task 15's, per the plan; the natural-red evidence is
+>   quoted in commit `ba335e08`.
+
 **Files:**
 - Modify: `engine/level/scene_dsl.emp` (the mandatory declaration + the enum)
 - Modify: `engine/level/parallax.emp` or the object system (the reserved SAT slot)
 - Modify: `games/sonic4/data/effects/ojz_scenes.emp` (declare the policy on the v-deform scenes)
 - Modify: `tools/effects_budget_model.toml`, `docs/DEFERRED_WORK.md:2248-2251`
 
-- [ ] **Step 1: The declaration is mandatory and the ensure says which scene**
+- [x] **Step 1: The declaration is mandatory and the ensure says which scene**
 
 An exhaustive comptime enum; a v-deform scene without one fails the build naming the scene.
 `accept` is a real choice and must be spellable — "shipped it" is what Gynoug did and it is a
 legitimate authoring answer, not a loophole.
 
-- [ ] **Step 2: `sprite_mask` = one engine-reserved SAT slot, emitted at scene install**
+- [ ] **Step 2: `sprite_mask` = one engine-reserved SAT slot, emitted at scene install** — BLOCKED (cross-seam pair + game tile; variant refused until it lands — see the DONE block above and DEFERRED_WORK)
 
 Engine-owned slot, 8-px column strip. **The MD1-vs-MD2 fill-value question is UNPINNED** in the
 research synthesis ("verify before depending on it") — if the mask's correctness depends on
 what the partial column fetches, that is a BLOCKED item to report, not to assume.
 
-- [ ] **Step 3: Price it in axis 5 against Task 4's measured reservation**
+- [x] **Step 3: Price it in axis 5 against Task 4's measured reservation**
 
 Read the reservation from the toml at run time. Do not type it.
 
-- [ ] **Step 4: Close the DEFERRED_WORK booking or restate what is left**
+- [x] **Step 4: Close the DEFERRED_WORK booking or restate what is left** — RESTATED, deliberately not closed
 
 `DEFERRED_WORK.md:2248-2251` says "blocked by: sprite system + zone level data hooks". If this
 task unblocks it, close it in the same change. If only `factor0_lock`/`accept` land and
 `sprite_mask` is deferred, **say which** — a partially-closed booking that reads as closed is
 worse than an open one.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** — split into three (guards ba335e08, pricing d99ac9b0, probe 307febc1) + the docs commit
 
 ```bash
 git add engine/level/scene_dsl.emp engine/level/parallax.emp games/sonic4/data/effects/ojz_scenes.emp tools/effects_budget_model.toml docs/DEFERRED_WORK.md
