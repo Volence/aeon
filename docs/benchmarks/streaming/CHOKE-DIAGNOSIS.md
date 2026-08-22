@@ -1145,6 +1145,12 @@ one materially.
    `watchpoint_clear` removes the WATCH and not the ring, so a second camera state on one
    server returns the first state's hits too — one server per state. Its measured output
    revised §3 (see the correction box there).
+   > **Provenance note 2026-08-21:** the file at `tools/staging_lifetime_timeline.py` was
+   > REWRITTEN for the TICK-VARIANCE §3 settling experiment (per-claim serving/filler/form
+   > on the migrated profiler ritual — `STAGING-LIFETIME.md` §1.3). The watchpoint-based
+   > instrument this entry describes is byte-exact at commit `e6a0dedd`; this document's
+   > tables remain reproducible from that revision, and nothing in `STAGING-LIFETIME.md`
+   > reuses its numbers.
    *Original text:* watch `Block_Stage_Keys` slot writes (stage instant) and
    the `FindStagedBlock` hit path (use instant). The difference IS the
    "staged-but-evicted-before-use" waste. **This is the single instrument that would have
