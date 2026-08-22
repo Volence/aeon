@@ -21,7 +21,7 @@ def _scene(**over):
     scene = {
         "schema": 1,
         "id": "ojz_bg",
-        "layers": [{"world_y": 0, "fa": 8, "fb": 8}],
+        "layers": [{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}],
     }
     scene.update(over)
     return scene
@@ -297,32 +297,103 @@ class TestRendering(SceneShapeBase):
             effects_gen.render_scene(path, scene)
         self.assertIn("op", str(ctx.exception))
 
-    def test_null_attachment_is_treated_as_absent_not_as_an_attachment(self):
+    def test_the_string_none_is_the_canonical_absent_spelling(self):
+        """The writer-side schema (empyrean origin/main,
+        contract/schema/aurora-effects-scene.schema.json) spells every attachment
+        `oneOf [{"const": "none"}, {object}]`, default `"none"`. Slices 1-2 assumed
+        JSON null and would have refused every real Aurora scene."""
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                                   "deform": "none", "curve": "none",
+                                   "vsplit": "none"}],
+                          deform_bg="none", deform_fg="none", v_deform="none",
+                          anchor="none")
+        self.assertIn("count: 1", out)
+        for absent in ("SceneDeform", "SceneCurve", "SceneVSplit", "SceneAnchor"):
+            self.assertNotIn(absent, out)
+
+    def test_json_null_is_accepted_as_a_synonym_for_none(self):
         out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
                                    "deform": None, "curve": None, "vsplit": None}],
                           deform_bg=None, anchor=None)
         self.assertIn("count: 1", out)
 
-    def test_a_real_attachment_is_refused_rather_than_silently_dropped(self):
-        """The load-bearing one: a dropped attachment builds clean and renders
-        wrong, which is precisely the failure nothing downstream can catch."""
-        for key in ("deform", "curve", "vsplit"):
+    def test_curve_emits_scene_curve_to_with_a_packed_factor(self):
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                                   "curve": {"to": "FACTOR_1_4"}}])
+        self.assertIn("curve: SceneCurve.To(FACTOR_1_4)", out)
+
+    def test_curve_accepts_a_composed_factor_payload(self):
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                                   "curve": {"to": {"s1": 2, "s2": 15, "op": 0}}}])
+        self.assertIn("curve: SceneCurve.To(packed(s1: 2, s2: 15, op: 0))", out)
+
+    def test_vsplit_emits_scene_vsplit_at(self):
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                                   "vsplit": {"at": 160}}])
+        self.assertIn("vsplit: SceneVSplit.At(160)", out)
+
+    def test_anchor_emits_its_three_positional_payloads_in_order(self):
+        """SceneAnchor.At(patch channel, anchored dsa, anchored dsb) — payload slots
+        are positional (scene_dsl.emp), so order is meaning, not style."""
+        out = self.render(anchor={"at": {"channel": 0, "dsa": 3, "dsb": 4}},
+                          layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertIn("anchor: SceneAnchor.At(0, 3, 4)", out)
+
+    def test_enum_fields_emit_constants_not_the_schemas_lowercase_strings(self):
+        """`precision: "line"` must emit PRECISION_LINE. Emitting the raw string
+        produced `precision: line` — a sigil unknown-symbol error pointing at
+        generated code, for a scene the author spelled correctly."""
+        out = self.render(precision="line", transition="instant",
+                          left_column_mask="sprite_mask",
+                          layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertIn("precision: PRECISION_LINE", out)
+        self.assertIn("transition: TRANS_INSTANT", out)
+        self.assertIn("left_column_mask: SceneLeftColMask.SpriteMask", out)
+        self.assertNotIn("precision: line", out)
+
+    def test_an_illegal_enum_value_is_refused_and_lists_the_legal_ones(self):
+        path = self.write("ojz_bg", _scene(precision="per_line"))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene)
+        msg = str(ctx.exception)
+        self.assertIn("per_line", msg)
+        self.assertIn("line", msg)
+        self.assertIn("cell", msg)
+
+    def test_table_bearing_attachments_are_refused_until_realization_lands(self):
+        """deform / deform_fg / deform_bg / v_deform name a tableRef, and a table
+        must be REALIZED before an attachment can reference its Label."""
+        path = self.write("ojz_bg", _scene(
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                     "deform": {"own": {"table": {"generator": "zero"},
+                                        "shift_a": 1, "shift_b": 2,
+                                        "phase": 0, "speed": 1}}}]))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene)
+        self.assertIn("tableRef", str(ctx.exception))
+
+    def test_scene_level_table_attachment_is_also_refused(self):
+        for key in ("deform_fg", "deform_bg", "v_deform"):
             path = self.write("ojz_bg", _scene(
-                layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
-                         key: {"kind": "whatever"}}]))
+                **{key: {"shared": {"table": {"generator": "zero"}, "speed": 1}}},
+                layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
             scene = effects_gen.load_scene(path)
             with self.assertRaises(effects_gen.SceneShapeError) as ctx:
                 effects_gen.render_scene(path, scene)
             self.assertIn(key, str(ctx.exception))
 
-    def test_scene_level_attachment_is_also_refused(self):
+    def test_a_malformed_attachment_arm_is_named(self):
         path = self.write("ojz_bg", _scene(
-            deform_bg={"kind": "Shared"},
-            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                     "curve": {"kind": "whatever"}}]))
         scene = effects_gen.load_scene(path)
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
             effects_gen.render_scene(path, scene)
-        self.assertIn("deform_bg", str(ctx.exception))
+        msg = str(ctx.exception)
+        self.assertIn("curve", msg)
+        self.assertIn("to", msg)
 
     def test_nine_layers_is_refused_before_padding_arithmetic(self):
         layers = [{"world_y": i, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(9)]

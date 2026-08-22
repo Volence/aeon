@@ -89,18 +89,45 @@ FACTOR_NAMES = frozenset({
     "FACTOR_7_8", "FACTOR_7_16", "FACTOR_15_16",
 })
 
-# Attachment-bearing keys. Their VOCABULARY (SceneDeform.Own/Shared, SceneCurve,
-# SceneVSplit, tableRef generators) is emitted by a later slice; until then a
-# NON-NULL attachment is refused loudly rather than dropped. A JSON null means
-# "absent, take the constructor default" and is simply omitted from the call.
-SCENE_ATTACHMENT_KEYS = ("deform_fg", "deform_bg", "v_deform", "anchor",
-                         "left_column_mask")
-LAYER_ATTACHMENT_KEYS = ("deform", "curve", "vsplit")
+# --- attachment spellings ------------------------------------------------------
+# THE CANONICAL "ABSENT" SPELLING IS THE STRING "none", not JSON null. Taken from
+# the writer-side schema at empyrean origin/main
+# (`contract/schema/aurora-effects-scene.schema.json`), where every attachment is
+# `oneOf [{"const": "none"}, {object}]` with `"default": "none"`.
+#
+# Slices 1-2 assumed JSON null, having been written from the aeon-side field list
+# without reading the writer's value spellings — so they would have REFUSED every
+# real Aurora scene, since `"none"` is a non-null value and the refusal fired on
+# `is not None`. That is the cross-repo-claim lesson in miniature: our contract
+# enumerates the field NAMES and the schema owns their VALUES, and only reading
+# the other repo catches it.
+#
+# `None` (JSON null) is accepted as a synonym: unambiguous, costs nothing, and
+# refusing it would be strictness with no defect behind it.
+ATTACH_NONE = ("none", None)
+
+# Attachments that carry a tableRef. Their table has to be REALIZED (a generator
+# call or an embed()) before the attachment can name a Label, which is the next
+# slice; until then a real one is refused rather than dropped.
+SCENE_TABLE_ATTACHMENTS = ("deform_fg", "deform_bg", "v_deform")
+LAYER_TABLE_ATTACHMENTS = ("deform",)
 
 # Scene-level scalars, emitted in the constructor's own argument order.
-SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg",
-                 "precision", "transition")
+SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg")
 LAYER_SCALARS = ("dsa", "dsb", "phase", "enabled")
+
+# Enum-valued scene fields: the schema spells these as lowercase strings and the
+# `.emp` wants the constant. Slices 1-2 emitted the raw string, which would have
+# generated `precision: cell` — a sigil unknown-symbol error pointing at generated
+# code, for a scene the author spelled exactly right.
+PRECISION_NAMES = {"cell": "PRECISION_CELL", "line": "PRECISION_LINE"}
+TRANSITION_NAMES = {"smooth": "TRANS_SMOOTH", "instant": "TRANS_INSTANT"}
+LEFT_COL_MASK_NAMES = {
+    "undeclared": "SceneLeftColMask.Undeclared",
+    "sprite_mask": "SceneLeftColMask.SpriteMask",
+    "factor0_lock": "SceneLeftColMask.Factor0Lock",
+    "accept": "SceneLeftColMask.Accept",
+}
 
 MAX_PARALLAX_BANDS = 8
 
@@ -246,32 +273,104 @@ def render_factor(path: str, value, where: str) -> str:
                   f"object, got {type(value).__name__}")
 
 
-def _reject_unemitted_attachments(path: str, obj: dict, keys, where: str):
-    """Refuse a NON-NULL attachment until the slice that emits it lands.
+def is_absent(value) -> bool:
+    """True for the schema's `"none"` and for JSON null. See ATTACH_NONE."""
+    return value in ATTACH_NONE
 
-    A JSON null means 'absent, take the constructor default' and is omitted from the
-    call. A real attachment is REFUSED rather than dropped: dropping one would emit
-    a scene that builds clean and renders the wrong thing, which is the exact class
-    of silent wrongness this pipeline exists to avoid.
+
+def _single_arm(path: str, value, arm: str, where: str):
+    """Unwrap a single-armed attachment object and return the arm's value.
+
+    The arm's value is NOT always an object: `curve` is `{"to": <factor>}` and
+    `vsplit` is `{"at": <int>}`, while `anchor` is `{"at": {...}}`. Callers check
+    the shape they need.
+    """
+    if not isinstance(value, dict):
+        _refuse(path, f"{where}: attachment must be \"none\" or an object, got "
+                      f"{type(value).__name__}")
+    if arm not in value:
+        _refuse(path, f"{where}: attachment object must carry `{arm}`; got "
+                      f"{', '.join(sorted(value)) or '(empty)'}.")
+    extra = sorted(set(value) - {arm})
+    if extra:
+        _refuse(path, f"{where}: attachment carries unknown arm(s) "
+                      f"{', '.join(extra)}; the only arm here is `{arm}`.")
+    return value[arm]
+
+
+def _fields(path: str, body: dict, required, where: str):
+    missing = [k for k in required if k not in body]
+    if missing:
+        _refuse(path, f"{where}: missing {', '.join(missing)}. Required here: "
+                      f"{', '.join(required)}.")
+    extra = sorted(set(body) - set(required))
+    if extra:
+        _refuse(path, f"{where}: unknown key(s) {', '.join(extra)}. "
+                      f"Exactly: {', '.join(required)}.")
+    return [body[k] for k in required]
+
+
+def _reject_table_attachment(path: str, obj: dict, keys, where: str):
+    """Refuse a table-bearing attachment until table realization lands.
+
+    Refused rather than dropped: a dropped attachment emits a scene that builds
+    clean and renders the wrong thing, which is the one failure nothing downstream
+    can catch.
     """
     for key in keys:
-        if obj.get(key) is not None:
-            _refuse(path, f"{where}: `{key}` carries an attachment, which this "
-                          f"generator does not emit yet (P5 emits the scalar surface "
-                          f"first; the SceneDeform / SceneCurve / SceneVSplit and "
-                          f"tableRef vocabulary lands in the following slice). "
-                          f"Refusing rather than dropping it — a dropped attachment "
-                          f"would build clean and render wrong.")
+        if not is_absent(obj.get(key)):
+            _refuse(path, f"{where}: `{key}` carries a tableRef attachment. Its "
+                          f"table must be REALIZED (a generator call or an embed()) "
+                          f"before the attachment can name a Label, which the next "
+                          f"slice does. Refusing rather than dropping it — a dropped "
+                          f"attachment would build clean and render wrong.")
+
+
+def render_curve(path: str, value, where: str) -> str:
+    """`{"to": <factor>}` → `SceneCurve.To(<factor>)`. The payload is a packed factor."""
+    to = _single_arm(path, value, "to", where)
+    return f"SceneCurve.To({render_factor(path, to, where + '.to')})"
+
+
+def render_vsplit(path: str, value, where: str) -> str:
+    """`{"at": <int>}` → `SceneVSplit.At(<int>)`."""
+    at = _single_arm(path, value, "at", where)
+    if not isinstance(at, int) or isinstance(at, bool):
+        _refuse(path, f"{where}.at: must be an integer scanline, got "
+                      f"{type(at).__name__}")
+    return f"SceneVSplit.At({at})"
+
+
+def render_anchor(path: str, value, where: str) -> str:
+    """`{"at": {channel, dsa, dsb}}` → `SceneAnchor.At(channel, dsa, dsb)`."""
+    at = _single_arm(path, value, "at", where)
+    if not isinstance(at, dict):
+        _refuse(path, f"{where}.at: must be an object with channel/dsa/dsb, got "
+                      f"{type(at).__name__}")
+    ch, dsa, dsb = _fields(path, at, ("channel", "dsa", "dsb"), where + ".at")
+    return f"SceneAnchor.At({ch}, {dsa}, {dsb})"
+
+
+def _render_enum(path: str, value, table: dict, where: str) -> str:
+    """A lowercase schema enum string → its `.emp` constant."""
+    if value not in table:
+        _refuse(path, f"{where}: {value!r} is not a legal value. One of: "
+                      f"{', '.join(sorted(table))}.")
+    return table[value]
 
 
 def render_layer(path: str, layer: dict, where: str) -> str:
-    _reject_unemitted_attachments(path, layer, LAYER_ATTACHMENT_KEYS, where)
+    _reject_table_attachment(path, layer, LAYER_TABLE_ATTACHMENTS, where)
     args = [f"world_y: {layer['world_y']}",
             f"fa: {render_factor(path, layer['fa'], where + '.fa')}",
             f"fb: {render_factor(path, layer['fb'], where + '.fb')}"]
     for key in LAYER_SCALARS:
         if layer.get(key) is not None:
             args.append(f"{key}: {layer[key]}")
+    if not is_absent(layer.get("curve")):
+        args.append(f"curve: {render_curve(path, layer['curve'], where + '.curve')}")
+    if not is_absent(layer.get("vsplit")):
+        args.append(f"vsplit: {render_vsplit(path, layer['vsplit'], where + '.vsplit')}")
     return "layer(" + ", ".join(args) + ")"
 
 
@@ -290,7 +389,7 @@ def render_scene(path: str, scene: dict) -> str:
         _refuse(path, f"{len(layers)} layers exceeds MAX_PARALLAX_BANDS "
                       f"({MAX_PARALLAX_BANDS}); scene() refuses this too, but the "
                       f"generator would have to pad past the array to reach it.")
-    _reject_unemitted_attachments(path, scene, SCENE_ATTACHMENT_KEYS, "scene")
+    _reject_table_attachment(path, scene, SCENE_TABLE_ATTACHMENTS, "scene")
 
     rendered = [render_layer(path, l, f"layers[{i}]") for i, l in enumerate(layers)]
     # The array is ALWAYS eight slots, padded with no_layer() — the hand-authored
@@ -302,6 +401,20 @@ def render_scene(path: str, scene: dict) -> str:
     for key in SCENE_SCALARS:
         if scene.get(key) is not None:
             body.append(f"    {key}: {scene[key]}")
+    # Enum-valued fields: lowercase schema strings, `.emp` constants.
+    if scene.get("precision") is not None:
+        body.append("    precision: " + _render_enum(
+            path, scene["precision"], PRECISION_NAMES, "scene.precision"))
+    if scene.get("transition") is not None:
+        body.append("    transition: " + _render_enum(
+            path, scene["transition"], TRANSITION_NAMES, "scene.transition"))
+    if scene.get("left_column_mask") is not None:
+        body.append("    left_column_mask: " + _render_enum(
+            path, scene["left_column_mask"], LEFT_COL_MASK_NAMES,
+            "scene.left_column_mask"))
+    if not is_absent(scene.get("anchor")):
+        body.append("    anchor: " + render_anchor(
+            path, scene["anchor"], "scene.anchor"))
     # layer_mask_raw / v_deform_shift_raw are deliberately NOT emitted: they are the
     # hand-migration byte-identity bridges, their -1 defaults mean "derive", and
     # editor scenes derive. The loader refuses them in the JSON for the same reason.
