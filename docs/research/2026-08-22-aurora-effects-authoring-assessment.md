@@ -45,6 +45,35 @@ disk, so consumers treat a missing sidecar as all-null and never as an error; (c
 the unknown-key-drop as the round-trip hazard so Aurora's writer-side golden can pin against it;
 (d) adding `sceneRef` requires coordinated edits at all four sites above.
 
+### Addendum (same night, aurora-86's second pass — CONFIRMED independently at `e731214`)
+
+**The drop is not only for UNKNOWN keys.** The guard is
+`typeof raw?.bgLayoutRef === 'string' ? raw.bgLayoutRef : null`, so a **known, schema-blessed key
+carrying a non-string value also reads as null**, with no error path and no warning — a malformed
+ref is indistinguishable from an absent one. The realistic form of the mistake is `sceneRef: 3`, a
+numeric scene index, which a generator or a hand edit would very naturally emit; a fully
+sceneRef-aware Aurora reads it as null and erases it on the next save. The symptom presented to a
+user is "the assignment didn't stick".
+
+> **RULING (assistant-authored under the owner's overnight delegation, 2026-08-22 — reasoning
+> recorded so it is cheap to overturn at the design review):** the section-meta ref type is
+> **normatively a string id** — `sceneRef: string | null`, never a numeric index — matching
+> `bgLayoutRef`/`paletteRef` (`section-meta.ts:12-13`, `S4Project.bgLibrary` ids). A numeric index
+> is FORBIDDEN by the schema *because* the parser's failure mode for it is a silent null rather
+> than a loud reject. The aeon consumer field list states that failure mode in those words, so the
+> integer-index shape is not later adopted as an optimisation.
+
+Two further facts from the same file, both contract-relevant:
+
+- **`parseSectionMeta:27` does a bare `JSON.parse`** — a malformed sidecar THROWS rather than
+  degrading to defaults. Ownership of that error is assigned consumer-side: generators write
+  sidecars **atomically** (temp file then rename) so a partially-written sidecar is never
+  observable. (Offered to aurora-86 as a shared obligation instead, if they prefer Aurora also
+  degrade gracefully — their side of that fence, their call.)
+- **The site count is SIX, not four.** Beyond the four executable sites: the header comment's prose
+  enumeration (`:5-9`) and the `SectionMeta` TS interface (`:11-14`), the latter being what makes
+  the compiler agree a third ref exists. All six go stale when `sceneRef` lands.
+
 ---
 
 ## (a) Inventory — the three effects vocabularies and their data paths to the ROM
