@@ -1084,7 +1084,65 @@ git commit -am "feat(p3): axis 5 enforced comptime, with its falsifiability meas
 
 ---
 
-## Task 15: Poisons — red-first, two-fixture differential, one unit over
+## Task 15: Poisons — red-first, two-fixture differential, one unit over — ✅ DONE 2026-08-22
+
+> **DONE 2026-08-22, `p3/t15-poisons`. Result summary:** the lane went 25 → **29/29**,
+> sentinel PASS, all four shapes byte-identical (s4 `060401e4`, s4.debug `0dbaa80f`, demo
+> `c708b114`, demo.debug `dec88cc1` — poisons are extra-entry modules, never in the image).
+> Four new CASES rows, each a two-fixture differential ONE authored unit apart with the
+> control's pass MEASURED against a hand-derived value:
+>
+> - **`poison_scene_actspan`** (T7): top **6144** against the registry's own imported
+>   `SCENE_ACT_SPAN_Y` — one act pixel past the last legal 6143. The control tops at 6143
+>   and is deliberately OFF-GRID (plane image 383 at v_factor 4), so its measured pass
+>   also witnesses that the retired %8 rule stays retired. 1 `[Error]`.
+> - **`poison_scene_lcm_undeclared`** (T12 — the row its DONE block left here): Accept
+>   control vs the omitted declaration; the fragment quotes the WHOLE interpolated scene
+>   signature (1 layer / speed 0 / shift 2), the discrimination mechanism T12 recorded.
+>   1 `[Error]`.
+> - **`poison_scene_twinkey_table`**: the INPUT-reachable twin-key desync — scene()'s
+>   own()-needs-a-header-table refusal PLUS scene_caps()'s $0020 implication backstop
+>   (non-aborting ensure lets the refused scene fold to $0020 alone). Count **2** is the
+>   assertion, own_flat's shape; fixture B is fixture A minus `deform_bg:`.
+> - **`poison_scene_twinkey_anchor`**: the grid-poison INVERSION. **Task 6's
+>   anchors⇒per-line pin is NOT input-falsifiable — measured, both polarities** (a
+>   `Scene{..}` back-door anchored scene asserted `== $0008` fires "folds to 9"; asserted
+>   `== $0009` builds clean): both bits derive from the one `sc_anchor` field through the
+>   same accessor, so no input, back door included, can separate them. The row therefore
+>   witnesses the AGREEMENT (asserted $0008, false by exactly the one bit under test;
+>   clean build = the regression). The pin's own red stays Task 6's arm-neutering;
+>   residual exposure = a game declaring SCANLINE_CAPS by hand, unchanged.
+>
+> **"Capacity under re-glue plus an anchor" is the EXISTING `poison_scene_capacity` row:**
+> Task 7 kept scene()'s anchored-capacity ensure byte-for-byte (its own "capacity stays 8"
+> ruling), so the P1 fixture — eight layers + anchor = nine shadow entries, exactly ONE
+> over — already is the one-unit poison; a second module would be a duplicate row. The
+> poison's stale grid/512 header bullet was corrected and the re-verification recorded in
+> both the module and the CASES table.
+>
+> **Step 3 verdicts — NO dead arm:** arm 3 (curve) EXISTS in `scene_forces_per_line()`
+> (Task 10 added it with the attachment, `derived_curve()` walk) and its only-arm-3 witness
+> is `poison_scene_curve_percell` (control folds to capability mask ZERO); arm 5
+> (off-grid) EXISTS and its only-arm-5 witness is `poison_scene_grid` (no table, no
+> anchor, PRECISION_CELL — the exact isolation this step demanded). Both rows predate this
+> task and were verified against the requirement rather than duplicated.
+>
+> **The extended-record size pin (T8) owes NO honest row — BOOKED, not faked** (the T14
+> precedent): every pin site compares tree constants an `--extra-entry` module cannot
+> perturb, and the one input-shaped route — a one-element `br_ext` against
+> `BAND_EXT_N = 0` — is unenforced on comptime `const` bindings (MEASURED: such a literal
+> elaborates and builds green at the canonical CRC) and forbidden-by-construction on
+> `data` bindings (poisons may not contribute bytes; the defect-removed control could
+> never pass). Two unlock conditions written into `docs/DEFERRED_WORK.md` ("The
+> extended-record size pins cannot be driven red from the poison lane"). Axis 5 owes no
+> poison either, per T14's note below — honored.
+>
+> **One message-accuracy observation for the next T7 reader:** the act-span ensure's
+> closing clause ("came through the SceneLayer{{..}} back door, bypassing layer()'s own
+> guards") is FALSE for tops in `act_span .. $8000` — 6144 reaches the registry fold
+> through `layer()` legally, since the constructor only holds the engine-wide ceiling.
+> The clause belongs to the ensure's pre-T7 wording; left unedited here (out of this
+> task's file list), flagged for whoever next touches that guard.
 
 **Why:** §8.2. Every new ensure gets a poison under `games/sonic4/test/poison/` as an
 `emp_expect_fail` CASES row. EFX-9 is the "built carefully, run by nothing" postmortem, and
@@ -1092,7 +1150,7 @@ the lane's sentinel is the guard against the whole lane going vacuous.
 
 **Files:** `games/sonic4/test/poison/*.emp`, `tools/emp_expect_fail.py`
 
-- [ ] **Step 1: One poison per new guard**
+- [x] **Step 1: One poison per new guard**
 
 At minimum: curve∧deform on one layer (Task 10); capacity under re-glue **plus** an anchor
 (count+1 > 8, Task 7 — the existing `poison_scene_capacity.emp` is the neighbour); an off-grid
@@ -1109,7 +1167,7 @@ pass for the wrong reason.
 > axes-2/3 treatment) instead of handing this task a poison that cannot go red. The
 > undeclared-scene poison (Task 12's guard) above still stands.
 
-- [ ] **Step 2: Red-first, against a CONTROL build with the defect removed**
+- [x] **Step 2: Red-first, against a CONTROL build with the defect removed**
 
 That control is what separates "the intended guard fired" from "something failed". P1's mask
 poison is the two-fixture reference: fixture A PASSES and fixture B fails, differing in exactly
@@ -1117,7 +1175,7 @@ one authored field and one capability bit, **with A's passing measured rather th
 Note P1's own footnote — `fold_caps([A])` would make the subset test `(x & ~x) == 0`, true for
 every input and evidence of nothing, so A's declared word is hand-derived.
 
-- [ ] **Step 3: Kill the dead-arm question from Task 6**
+- [x] **Step 3: Kill the dead-arm question from Task 6**
 
 Task 6 authored curve and off-grid forcer arms before their mechanisms existed. Now they exist.
 A poison that raises **only** the curve forcer, and one that raises **only** the off-grid
@@ -1146,13 +1204,13 @@ the right thing:**
   arms fired it, naming caps 12, on both anchored scenes). If a future game ever declares
   `SCANLINE_CAPS` by hand rather than from `fold_caps`, that ensure stops covering it.
 
-- [ ] **Step 4: Sentinel and count**
+- [x] **Step 4: Sentinel and count**
 
 Run: `DEBUG=1 ./build.sh` — expect `emp_expect_fail: OK — N/N cases` with N raised by exactly
 the number added, sentinel PASS. A diagnostic-count drift means a guard stopped firing or a new
 one started. **Investigate; do not re-baseline.**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add games/sonic4/test/poison/ tools/emp_expect_fail.py

@@ -111,6 +111,11 @@ CASES: list[tuple[str, str, str, int]] = [
     # asserts the false half, so the diagnostic it captures is the proof arm 5 fired.
     # Count stays 1: the on-grid control must stay green.
     (f"{POISON}/poison_scene_grid.emp",           "P3 off-grid forcer", "forced the per-line pipeline", 1),
+    # P3 Task 15: "capacity under re-glue plus an anchor" is THIS EXISTING ROW — Task 7
+    # kept scene()'s anchored-capacity ensure byte-for-byte (capacity stays 8, its own
+    # ruling), so the P1 fixture (eight layers + anchor = nine shadow entries, exactly ONE
+    # over) already is the one-unit poison and a second module would be a duplicate row.
+    # The poison's header records the re-verification.
     (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
     (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4", 1),
     (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),
@@ -215,6 +220,48 @@ CASES: list[tuple[str, str, str, int]] = [
     # fit, so neither of those ensures fires. A count of 2 means another axis started
     # failing; a count of 0 means the fold stopped separating 115 bands from 116.
     (f"{POISON}/poison_budget_axis1.emp",         "P2 axis 1",     "scene budget AXIS 1 (main-loop cycles)", 1),
+    # ---- Scanline P3 Task 15: one red-first row per remaining new walker guard ----
+    # Four rows. Each is a two-fixture differential whose fixtures differ by ONE authored
+    # unit, with the control's pass MEASURED by an in-module ensure on a hand-derived
+    # value (P1's mask-poison footnote: a control whose pass is assumed proves nothing).
+    #  - "act span": Task 7's DERIVED bound — the registry-level fold's `wy < act_span`
+    #    ensure, which replaced layer()'s typed `world_y < 512` when tops became ACT
+    #    coordinates. Fixture A tops at 6143 (the LAST legal act Y, and deliberately
+    #    off-grid — plane image 383 at v_factor 4 — so the pass also witnesses that the
+    #    retired grid rule stays retired); fixture B at 6144, ONE act pixel over. The
+    #    span argument is the registry's own SCENE_ACT_SPAN_Y import, never typed, so the
+    #    fragment's interpolated "(6144) ... (6144)" pins both the offending top and the
+    #    derived bound. Exactly 1: the fold's ensure fires once for B's one top; A's
+    #    return count is ensured at the hand-derived 1 (one top, no anchor).
+    #  - "lcm undeclared": the CASES row P3 Task 12's DONE block explicitly left to this
+    #    task. scene()'s MANDATORY left-column policy: fixture A declares Accept (the
+    #    answer both shipped per-column families actually use), fixture B omits the
+    #    declaration — one authored field. The fragment quotes the WHOLE interpolated
+    #    scene signature (1 layer / speed 0 / shift 2) because sigil reports the ensure
+    #    at its own span, and the signature triple is the only thing that says WHICH
+    #    scene failed. Exactly 1: guard (2) (no-policy-without-a-subject) passes for B,
+    #    a 2 means Accept stopped being legal on the control.
+    #  - "twinkey table": the INPUT-REACHABLE twin-key desync, both halves in one build —
+    #    scene() refuses an own() layer whose table would be the scene's only one (the
+    #    runtime mode key reads HEADER words and cannot see bands), and, because ensure
+    #    is non-aborting, the refused scene folds to $0020 alone and scene_caps()'s
+    #    MULTI_DEFORM_TABLE implication pin fires as the backstop. COUNT 2 and the pair
+    #    is the assertion (the poison_scene_own_flat shape): a 1 that kept only the
+    #    fold's fails the fragment too — the expected fragment names the constructor's.
+    #    One authored field: fixture B is fixture A minus `deform_bg:`.
+    #  - "twinkey anchor": the poison_scene_grid INVERSION — the diagnostic is the PROOF.
+    #    Task 6's CAP_ANCHORS-implies-CAP_PER_LINE pin cannot itself be driven red by any
+    #    input (both bits derive from the one sc_anchor field through the same accessor;
+    #    measured 2026-08-22 with this very fixture asserted both ways), so this row
+    #    witnesses the AGREEMENT instead: the Scene{ .. } back-door anchored scene is
+    #    asserted to fold to $0008 alone — false by exactly the one bit under test — and
+    #    the captured diagnostic quotes the true fold, 9. A CLEAN build is the
+    #    regression (an anchored input really folding to $0008 alone). Exactly 1: no
+    #    constructor runs (back door) and no fold pin fires at $0009.
+    (f"{POISON}/poison_scene_actspan.emp",        "P3 T7 act span",       "a world-Y layer top (6144) is outside this act's vertical span (6144)", 1),
+    (f"{POISON}/poison_scene_lcm_undeclared.emp", "P3 T12 lcm undeclared", "a scene with 1 layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed 0, amplitude shift 2) declares NO left_column_mask policy", 1),
+    (f"{POISON}/poison_scene_twinkey_table.emp",  "P3 twinkey table",     "attaches NO plane-shared table on either plane", 2),
+    (f"{POISON}/poison_scene_twinkey_anchor.emp", "P3 twinkey anchor",    "back-door anchored scene folds to 9", 1),
 ]
 
 

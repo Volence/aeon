@@ -7928,3 +7928,53 @@ listing fixtures — but fixtures freeze, so a fixture-based probe would NOT cat
 regression; it needs the fresh artifact). Until then: run
 `python3 tools/scene_budget_report.py --check` by hand after any sigil listing-format
 change.
+
+## The extended-record size pins cannot be driven red from the poison lane (found 2026-08-22, P3 Task 15)
+
+Plan Task 15's list owes "the extended-record size pin (Task 8)" an `emp_expect_fail`
+CASES row, and no honest one exists today. **Booked with its unlock conditions rather than
+faked** — the Task 14 axis-5 precedent, applied after measuring, not assuming.
+
+**Why no input can reach any of the pins.** Every pin site compares TREE CONSTANTS that a
+`--extra-entry` poison module cannot perturb:
+
+- the two-directional `Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE` <-> `BAND_EXT_N` pair
+  (and its CAP_FACTOR_CURVE <-> `BAND_CURVE_N` twin) in
+  `games/sonic4/data/effects/scene_registry.emp` — both sides are fixed by the shipped
+  game + engine; both directions were red-proven at Task 8 **by edits** (the registry
+  banner records the two arms), which is exactly the evidence class a lane row cannot
+  reproduce;
+- the capability-off identity ensure and the `Parallax_Shadow_Bands` extern-span pin in
+  `engine/level/parallax.emp` — `sizeof(band_record)` and the RAM span are decided by the
+  same constants.
+
+**The one input-shaped route is unenforced where the lane could use it.** A wrong-SHAPE
+record VALUE would be the one-unit poison (`br_ext` one element long against
+`BAND_EXT_N = 0`), and it has nowhere to fire:
+
+- on a **comptime `const` binding** sigil does NOT check the array length — measured
+  2026-08-22 in this worktree: a `const P: band_record = band_record{ .., br_ext:
+  [ band_ext{ .. } ], br_curve: [] }` literal ELABORATED (proven via a field-read hook
+  ensure) and built green with the canonical CRC. This is consistent with the Task-1
+  probe-B record ("a comptime fn's return annotation is documentation; the typed `data`
+  binding is what raises `array length mismatch`") — the registry's typed `data`
+  bindings, not const bindings, are the enforcement;
+- a **`data` binding** is the enforcement site, but a poison module may not contribute
+  bytes (the lane refuses it loudly), and the two-fixture rule makes it structurally
+  unusable anyway: the defect-REMOVED control would still be a byte-contributing module
+  and could never pass.
+
+**Unlock conditions, either suffices:**
+
+1. **sigil enforces array lengths on typed comptime `const` literals.** The day that
+   lands, the one-element-`br_ext` const above IS the one-unit poison — the fixture is
+   already written out in this entry.
+2. **The `SCANLINE_CAPS` `emp_defines` parcel** (accepted sigil-side 2026-08-20, booked
+   above in this file) makes `BAND_EXT_N` capability-DERIVED instead of a pinned mirror.
+   The pin pair then stops being the guard surface (a derivation cannot disagree with its
+   own input) and the falsifiability question must be re-measured over whatever replaces it.
+
+Until one lands, the pins' liveness evidence remains Task 8's recorded edit-red arms, and
+the record-shape family's lane coverage is the arity guards' natural-red probe (Task 5's
+rotation, recorded at the `lowerN` banner) — also not a CASES row, for the same
+constants-not-inputs reason.

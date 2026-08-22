@@ -16,7 +16,18 @@
 //     guard; tripping it too would put two anchor diagnostics in one build).
 //   - the pad-slot loop — `for i in 8..8` is empty, so no slot is checked and none needs
 //     to be a no_layer().
-//   - every `layer()` — all eight tops are on the 8-px grid and inside the 512-px span.
+//   - every `layer()` — all eight tops are inside the engine's $8000 act-axis ceiling
+//     (P3 Task 7 retired the old 8-px-grid ensure and the typed 512-px span: off-grid is
+//     legal now and merely FORCES per-line via scene_forces_per_line() arm 5 — a fold this
+//     module never calls — while the tight span bound moved to the registry-level
+//     assert_act_relative_tagged(), which this module never calls either. See
+//     poison_scene_grid.emp and poison_scene_actspan.emp for those two guards' own rows.)
+//
+// P3 TASK 15 RE-VERIFIED THIS ROW AGAINST THE RE-GLUED TREE: Task 7 kept this guard
+// byte-for-byte (capacity stays 8, the ruling in its own step list), so the P1 fixture —
+// EIGHT layers PLUS an anchor, needing nine shadow entries, exactly ONE over the ceiling
+// — is still the one-unit poison for "capacity under re-glue plus an anchor" and a second
+// module here would be a duplicate row, not new coverage.
 //   - both raw bridges default to -1 (derive) and both selectors default to 0.
 // The ONLY thing wrong with this scene is that it wants nine shadow entries.
 //
