@@ -132,3 +132,69 @@ The P3 plan's 7 PARKs; F6 proper; wiki stable-sections; seraph S0.
 3. sigil adoption check on their ship notice.
 4. P1 §8's deferred runtime differential (booked in DEFERRED_WORK, due at the next
    deliberate image-divergence parcel).
+
+---
+
+## OVERNIGHT ADDENDUM — 2026-08-22 night (Aurora arc)
+
+**LANDED + PUSHED, aeon master `00607dd5`.** The Aurora contract/design docs merged as
+`db11f59d`, verified byte-identical from a CLEAN CHECKOUT across all four shapes: s4
+`060401e4`, s4.debug `0dbaa80f`, demo `c708b114`, demo.debug `dec88cc1` — all matching the
+pinned values. (Trap relived: the MAIN tree builds `c7b9d10d` because it carries ~43
+uncommitted content files. Always verify identity from a clean checkout, never the live tree.)
+
+Artifacts: `tools/EFFECTS_CONSUMER_CONTRACT.md` (consumer field list — the first of its kind;
+the sprite-export contract it was told to mirror turns out never to have landed, only booked),
+`docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md`, DEFERRED_WORK booking
+"AURORA EFFECTS-AUTHORING WAVE 1" (+32 insertions, effects-tail entry untouched).
+
+**The empyrean schema half** (`docs/AURORA_EFFECTS_SCHEMA.md` +
+`contract/schema/aurora-effects-scene.schema.json`) is on empyrean branch
+`docs/aurora-effects-schema` head `2a0b0c8`, handed to empyrean-73 who lands it in their own
+lane. **We owe aurora-86 a three-SHA ping once their empyrean SHA comes back** — that ping is
+aurora-86's start signal for cutting Aurora parcels.
+
+### The peer-verification exchange (the night's real value)
+
+aurora-86 ran an independent verification of the assessment's claims about their repo; every
+finding below was **re-verified firsthand on this side** before folding. Four found defects that
+would otherwise have shipped:
+
+1. **A LIVE DATA-LOSS BUG in Aurora** (ERRATUM 2): the meta sidecar's bare silent catch +
+   cleared-overwrite turned a corrupt sidecar into a well-formed empty one. FIXED their side,
+   `a88db05`, merged-tree-verified. The atomic-write obligation became SHARED as a result.
+2. **Ruling Q4 targeted a DEAD FIELD.** Two `parallaxRef` fields exist; the assessment cited
+   `Section` (`s4-types.ts:121`, never written by save), the live one is `Act.parallaxRef`
+   (`:227`, populated `load.ts:373`). Implementing from the old citation would silently do nothing.
+3. **The "ProjectAdapter is a routing marker / loader deferred" caveat is REFUTED** — a real
+   `loadAeonProject` runs at `index.ts:115`, `useProject.loadFromPath` doesn't exist. Closed in
+   aurora `4782e86`, an ANCESTOR of our own survey pin. Conclusion survives (model names no
+   scenes/budgets) but the cost does not: **model extension, not loader build. Never price this
+   arc as "needs the deferred loader first."**
+4. **Band drivers pick the SCALAR, never the axis** — all band motion is horizontal
+   (`engine/level/bg_anim.emp:5-6`, whole-column rotation). An editor presenting `camera_y` as
+   vertical motion is wrong, and it's the natural misreading.
+
+### Still open on the Aurora lane (their work, tracked here)
+
+- **`.collattr.bin` silent overwrite — a SECOND live data-loss defect, still open** (fix on
+  their `fix/collattr-unreadable-guard`; SHA owed). Parse-level: `parseCollAttr` never throws on
+  truncation, so no `understood()` gate can see it. So the error-handling asymmetry is "safe on
+  aeon; FIXED for the sidecar on Aurora; STILL OPEN for collision planes" — do not freeze a
+  settled-Aurora claim.
+- **MapViewport has no rAF loop** — the preview machinery §(b) credited is
+  `ClassicLevelViewport`-only, and the OJZ showcase runs MapViewport. No aeon-viewport perf datum
+  exists. aurora-86 owes a foreground CDP measurement; if MapViewport needs its own animation
+  loop that is a wave-1 prerequisite on their lane. **Preview posture is PROVISIONAL until then.**
+- **Aurora is a NEW WRITER of `editor_bg_override.json`** (0 refs in their `src/`) — wave 1 must
+  answer per-key ownership vs `png_to_bg_override.py`.
+- RULED (delegated, mine): the agent-handler `BG_TILES_HIGH=32`/`BG_MAX_TILES=512` blocker is
+  **NOT in wave-1 scope** — agent parity on bands is a separate parcel. Re-rule if agent-authored
+  content becomes how the first act gets made.
+
+### Delegated rulings made this night (all provenance-flagged, cheap to overturn)
+
+`sceneRef` is normatively a **string id, never a numeric index** (the parser's failure mode for a
+wrong-typed value is a silent null, not a loud reject); the atomic-write obligation is **shared**;
+wave-1 `sceneRef` was **gated on Aurora's meta fix** (now discharged at `a88db05`); the
+agent-handler parcel is out of wave-1 scope.
