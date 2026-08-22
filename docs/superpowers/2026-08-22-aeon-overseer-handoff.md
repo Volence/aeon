@@ -51,10 +51,18 @@ three prior rulings (effects-suite §8, scanline design §7, the 08-20 format-bo
 ruling). Phasing: BgAnim bands FIRST (contract+bake exist; only UI/preview/first-authored-
 act missing — also discharges inject_editor_bg's byte-unproven animated arm), then scene
 editing + section assignment, then raster preset composition. Preview verdict: BOTH (oracle
-loop ≈ free via P2 playtest plumbing; in-Aurora canvas per-line preview effort M). **NEXT
-STEP: the owner answers the doc's §(f) six questions (v1 scope, assignment venue, descriptor
-bake reach, project.json parallax field, contract venue aeon-vs-empyrean, preview honesty
-bar), then the design/contract docs get written and aurora-86 pinged with SHAs.** **Lane split agreed with aurora-86** (their message,
+loop ≈ free via P2 playtest plumbing; in-Aurora canvas per-line preview effort M). **The §(f) six questions are ADJUDICATED**
+(merge `cc518baa`, provenance-flagged assistant-authored under owner delegation — the owner
+answered the assessment agent's task view directly with "do what's best for best-in-class
+tools + engine", leaning "the section one" on Q2; VERBAL CONFIRMATION FROM THE OWNER IN THE
+MAIN CONVERSATION IS STILL PENDING — get a one-line yes before cutting Aurora parcels):
+two waves (BgAnim+scenes+assignment, then raster presets); per-section `sceneRef` in the
+`section_N.meta.json` sidecars; generated per-act binding module (descriptor stays
+hand-authored; label-vs-const import trap flagged); re-point `project.json` parallax at a
+scene id in the schema parcel; schema→empyrean + consumer field list→aeon, Aurora goldens
+pin both SHAs; labeled-approximate preview v1 with the oracle loop as truth. **NEXT STEP:
+write the schema/contract docs (empyrean + aeon halves) and the wave-1 design doc, then
+ping aurora-86 with the SHAs.** **Lane split agreed with aurora-86** (their message,
 morning 08-22): THEY dispatch and land all Aurora parcels; aeon ships committed
 briefs/contracts with SHAs (empyrean for cross-tool contract material); they transcribe
 what Aurora consumes. Their intel, already folded into the survey brief: yesterday's aurora
