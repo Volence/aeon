@@ -361,28 +361,179 @@ class TestRendering(SceneShapeBase):
         self.assertIn("line", msg)
         self.assertIn("cell", msg)
 
-    def test_table_bearing_attachments_are_refused_until_realization_lands(self):
-        """deform / deform_fg / deform_bg / v_deform name a tableRef, and a table
-        must be REALIZED before an attachment can reference its Label."""
-        path = self.write("ojz_bg", _scene(
+    def render_with_tables(self, **over):
+        path = self.write("ojz_bg", _scene(**over))
+        tables = effects_gen.TableRegistry()
+        out = effects_gen.render_scene(path, effects_gen.load_scene(path), tables)
+        return out, tables
+
+    def test_layer_own_deform_emits_five_positional_payloads(self):
+        """SceneDeform.Own(table, shift_a, shift_b, phase, speed) — positional."""
+        out, tables = self.render_with_tables(
             layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
-                     "deform": {"own": {"table": {"generator": "zero"},
+                     "deform": {"own": {"table": {"generator": "sine",
+                                                  "amplitude": 8, "period": 32},
                                         "shift_a": 1, "shift_b": 2,
-                                        "phase": 0, "speed": 1}}}]))
+                                        "phase": 3, "speed": 4}}}])
+        self.assertIn("deform: SceneDeform.Own(EditorDeform_sine_8_32, 1, 2, 3, 4)",
+                      out)
+        self.assertIn("deform_sine(amplitude: 8, period: 32)", tables.declarations())
+
+    def test_scene_shared_deform_emits_two_positional_payloads(self):
+        out, _ = self.render_with_tables(
+            deform_bg={"shared": {"table": {"generator": "zero"}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertIn("deform_bg: SceneDeform.Shared(EditorDeform_zero, 1)", out)
+
+    def test_v_deform_emits_scene_vdeform_columns(self):
+        out, _ = self.render_with_tables(
+            v_deform={"columns": {"table": {"generator": "v_column_floor",
+                                            "center": 20, "max_offset": 24},
+                                  "speed": 1, "amp_shift": 2}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertIn(
+            "v_deform: SceneVDeform.Columns(EditorDeform_v_column_floor_20_24, 1, 2)",
+            out)
+
+    def test_tables_emit_the_shipped_two_step_const_then_label_idiom(self):
+        """The hand tables are `pub const SceneSrc_X = gen(..)` then
+        `pub data X: [i8; 256] = SceneSrc_X` (ojz_scenes.emp / scene_registry.emp).
+        The `pub data` half must be a LABEL — a const import re-evaluates its
+        initializer in the consumer's scope and would duplicate the table."""
+        _, tables = self.render_with_tables(
+            deform_bg={"shared": {"table": {"generator": "zero"}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        decls = tables.declarations()
+        self.assertIn("pub const SceneSrc_EditorDeform_zero = deform_zero()", decls)
+        self.assertIn("pub data EditorDeform_zero: [i8; 256] = SceneSrc_EditorDeform_zero",
+                      decls)
+
+    def test_identical_tables_are_deduped_to_one_declaration(self):
+        """Two attachments naming the same generator and parameters share one
+        table — the shipped idiom, where six DeformTable_* labels serve twenty
+        scenes. Duplication there was the defect, not the design."""
+        out, tables = self.render_with_tables(
+            deform_bg={"shared": {"table": {"generator": "sine", "amplitude": 8,
+                                            "period": 32}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                     "deform": {"own": {"table": {"generator": "sine",
+                                                  "amplitude": 8, "period": 32},
+                                        "shift_a": 1, "shift_b": 2,
+                                        "phase": 0, "speed": 1}}}])
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables.declarations().count("deform_sine("), 1)
+        self.assertEqual(out.count("EditorDeform_sine_8_32"), 2)
+
+    def test_differing_parameters_are_not_deduped(self):
+        _, tables = self.render_with_tables(
+            deform_bg={"shared": {"table": {"generator": "sine", "amplitude": 8,
+                                            "period": 32}, "speed": 1}},
+            deform_fg={"shared": {"table": {"generator": "sine", "amplitude": 9,
+                                            "period": 32}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertEqual(len(tables), 2)
+
+    def test_unknown_generator_is_refused_and_lists_the_legal_ones(self):
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"generator": "sawtooth"}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
         scene = effects_gen.load_scene(path)
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
-            effects_gen.render_scene(path, scene)
-        self.assertIn("tableRef", str(ctx.exception))
+            effects_gen.render_scene(path, scene, effects_gen.TableRegistry())
+        msg = str(ctx.exception)
+        self.assertIn("sawtooth", msg)
+        self.assertIn("v_column_floor", msg)
 
-    def test_scene_level_table_attachment_is_also_refused(self):
-        for key in ("deform_fg", "deform_bg", "v_deform"):
-            path = self.write("ojz_bg", _scene(
-                **{key: {"shared": {"table": {"generator": "zero"}, "speed": 1}}},
-                layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
-            scene = effects_gen.load_scene(path)
+    def test_generator_missing_a_parameter_is_refused(self):
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"generator": "sine", "amplitude": 8},
+                                  "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene, effects_gen.TableRegistry())
+        self.assertIn("period", str(ctx.exception))
+
+    def test_bin_tableref_with_a_parent_segment_is_refused(self):
+        """Contract §2.3: paths resolve under the effects dir and refuse `..`.
+
+        The assertion targets "escape", which ONLY the traversal refusal says. An
+        earlier version asserted `".." in message` and was vacuous: with the guard
+        removed the file simply is not found, and the not-found message quotes the
+        path — so `..` appears either way and the test passed against the poison.
+        A traversal test must distinguish 'refused for traversing' from 'happened
+        not to exist', because the dangerous case is the path that DOES exist.
+        """
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"bin": "../../../etc/passwd.bin"},
+                                  "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene, effects_gen.TableRegistry())
+        self.assertIn("escape", str(ctx.exception))
+
+    def test_a_traversal_path_that_EXISTS_is_still_refused(self):
+        """The case the vacuous version could never have caught: a `..` path that
+        resolves to a real 256-byte file. Only the traversal guard rejects this."""
+        outside = os.path.join(self.tmp.name, "outside.bin")
+        with open(outside, "wb") as f:
+            f.write(b"\x00" * 256)
+        rel = "../" * len(effects_gen.TABLE_BIN_ROOT) + "outside.bin"
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"bin": rel}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        saved, effects_gen.REPO = effects_gen.REPO, self.tmp.name
+        try:
+            self.assertTrue(os.path.isfile(os.path.join(
+                effects_gen.REPO, *effects_gen.TABLE_BIN_ROOT, rel)),
+                "control: the traversal target must really exist, or this test "
+                "passes for the same wrong reason as the one it replaces")
             with self.assertRaises(effects_gen.SceneShapeError) as ctx:
-                effects_gen.render_scene(path, scene)
-            self.assertIn(key, str(ctx.exception))
+                effects_gen.render_scene(path, scene, effects_gen.TableRegistry())
+        finally:
+            effects_gen.REPO = saved
+        self.assertIn("escape", str(ctx.exception))
+
+    def test_bin_tableref_of_the_wrong_size_is_refused_and_names_both_sizes(self):
+        eff = os.path.join(self.tmp.name, *effects_gen.TABLE_BIN_ROOT)
+        os.makedirs(eff, exist_ok=True)
+        with open(os.path.join(eff, "short.bin"), "wb") as f:
+            f.write(b"\x00" * 128)
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"bin": "short.bin"}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        saved, effects_gen.REPO = effects_gen.REPO, self.tmp.name
+        try:
+            with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                effects_gen.render_scene(path, scene, effects_gen.TableRegistry())
+        finally:
+            effects_gen.REPO = saved
+        msg = str(ctx.exception)
+        self.assertIn("128", msg)
+        self.assertIn("256", msg)
+
+    def test_bin_tableref_of_the_right_size_emits_an_embed(self):
+        eff = os.path.join(self.tmp.name, *effects_gen.TABLE_BIN_ROOT)
+        os.makedirs(eff, exist_ok=True)
+        with open(os.path.join(eff, "curve.bin"), "wb") as f:
+            f.write(b"\x00" * 256)
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"bin": "curve.bin"}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        tables = effects_gen.TableRegistry()
+        saved, effects_gen.REPO = effects_gen.REPO, self.tmp.name
+        try:
+            effects_gen.render_scene(path, scene, tables)
+        finally:
+            effects_gen.REPO = saved
+        decls = tables.declarations()
+        self.assertIn('embed("games/sonic4/data/editor/effects/curve.bin")', decls)
+        self.assertIn("(align: 2)", decls)
+        self.assertNotIn("[i8; 256]", decls)  # embed carries no type annotation
 
     def test_a_malformed_attachment_arm_is_named(self):
         path = self.write("ojz_bg", _scene(

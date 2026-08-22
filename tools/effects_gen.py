@@ -106,11 +106,28 @@ FACTOR_NAMES = frozenset({
 # refusing it would be strictness with no defect behind it.
 ATTACH_NONE = ("none", None)
 
-# Attachments that carry a tableRef. Their table has to be REALIZED (a generator
-# call or an embed()) before the attachment can name a Label, which is the next
-# slice; until then a real one is refused rather than dropped.
-SCENE_TABLE_ATTACHMENTS = ("deform_fg", "deform_bg", "v_deform")
-LAYER_TABLE_ATTACHMENTS = ("deform",)
+# Attachments that carry a tableRef, and the single arm each one legally takes.
+SCENE_TABLE_ATTACHMENTS = {"deform_fg": "shared", "deform_bg": "shared",
+                           "v_deform": "columns"}
+LAYER_TABLE_ATTACHMENTS = {"deform": "own"}
+
+# --- tableRef generators (contract §2.1) --------------------------------------
+# name -> (.emp comptime fn, its parameters IN THE CONSTRUCTOR'S ORDER). The fns
+# live in engine/level/parallax_dsl.emp and each returns [i8; 256]. Parameter
+# ORDER is emitted as keyword arguments, so it is documentation rather than
+# meaning — but the NAMES are meaning, and they are the fn's, not the schema's.
+TABLE_GENERATORS = {
+    "sine": ("deform_sine", ("amplitude", "period")),
+    "triangle": ("deform_triangle", ("amplitude", "period")),
+    "zero": ("deform_zero", ()),
+    "v_column_perspective": ("v_column_perspective", ("focal", "max_offset")),
+    "v_column_floor": ("v_column_floor", ("center", "max_offset")),
+}
+
+# `bin` tableRef paths resolve relative to this, reject `..`, and must be exactly
+# 256 bytes — one signed byte per line of a 256-entry table.
+TABLE_BIN_ROOT = ("games", "sonic4", "data", "editor", "effects")
+TABLE_BIN_BYTES = 256
 
 # Scene-level scalars, emitted in the constructor's own argument order.
 SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg")
@@ -310,20 +327,121 @@ def _fields(path: str, body: dict, required, where: str):
     return [body[k] for k in required]
 
 
-def _reject_table_attachment(path: str, obj: dict, keys, where: str):
-    """Refuse a table-bearing attachment until table realization lands.
+class TableRegistry:
+    """Distinct deform tables realized across a bake, DEDUPED by content.
 
-    Refused rather than dropped: a dropped attachment emits a scene that builds
-    clean and renders the wrong thing, which is the one failure nothing downstream
-    can catch.
+    Two scenes naming the same generator with the same parameters share one
+    emitted table. That matches the shipped hand-authored idiom, where six
+    `DeformTable_*` Labels are declared once in `scene_registry.emp` and
+    referenced by many scenes — duplication there was the defect, not the design
+    (`ojz_scenes.emp`'s comment block on why duplicate records differed).
+
+    Emitted in the two-step form the hand tables use:
+
+        pub const SceneSrc_EditorDeform_x = deform_sine(amplitude: 8, period: 32)
+        pub data  EditorDeform_x: [i8; 256] = SceneSrc_EditorDeform_x
+
+    The `pub data` half is what attachments reference, and it must be a LABEL:
+    label imports travel as symbol references, whereas a const import
+    re-evaluates its initializer in the consumer's scope and would duplicate
+    every table into the importing section (EMP_PITFALLS §2/§8).
     """
-    for key in keys:
-        if not is_absent(obj.get(key)):
-            _refuse(path, f"{where}: `{key}` carries a tableRef attachment. Its "
-                          f"table must be REALIZED (a generator call or an embed()) "
-                          f"before the attachment can name a Label, which the next "
-                          f"slice does. Refusing rather than dropping it — a dropped "
-                          f"attachment would build clean and render wrong.")
+
+    def __init__(self):
+        self._by_key = {}   # canonical key -> label name
+        self._decls = []    # (label, initializer) in first-seen order
+
+    def intern(self, key: str, label: str, initializer: str) -> str:
+        if key not in self._by_key:
+            self._by_key[key] = label
+            self._decls.append((label, initializer))
+        return self._by_key[key]
+
+    def declarations(self) -> str:
+        """The table block, in first-seen order — deterministic for a given input."""
+        out = []
+        for label, init in self._decls:
+            if init.startswith("embed("):
+                out.append(f"pub data {label} (align: 2) = {init}")
+            else:
+                out.append(f"pub const SceneSrc_{label} = {init}")
+                out.append(f"pub data {label}: [i8; 256] = SceneSrc_{label}")
+        return "\n".join(out)
+
+    def __len__(self):
+        return len(self._decls)
+
+
+def render_table_ref(path: str, ref, where: str, tables: TableRegistry) -> str:
+    """Realize one tableRef and return the LABEL name an attachment references."""
+    if not isinstance(ref, dict):
+        _refuse(path, f"{where}: tableRef must be an object, got "
+                      f"{type(ref).__name__}")
+
+    if "bin" in ref:
+        extra = sorted(set(ref) - {"bin"})
+        if extra:
+            _refuse(path, f"{where}: a `bin` tableRef takes no other key; got "
+                          f"{', '.join(extra)}.")
+        rel = ref["bin"]
+        if ".." in rel.split("/"):
+            _refuse(path, f"{where}: tableRef path {rel!r} contains a `..` segment. "
+                          f"Paths resolve under "
+                          f"{'/'.join(TABLE_BIN_ROOT)}/ and may not escape it.")
+        full = os.path.join(REPO, *TABLE_BIN_ROOT, rel)
+        if not os.path.isfile(full):
+            _refuse(path, f"{where}: tableRef file not found: "
+                          f"{'/'.join(TABLE_BIN_ROOT)}/{rel}")
+        size = os.path.getsize(full)
+        if size != TABLE_BIN_BYTES:
+            _refuse(path, f"{where}: tableRef {rel!r} is {size} bytes; a deform "
+                          f"table is exactly {TABLE_BIN_BYTES} (one signed byte "
+                          f"per line).")
+        label = "EditorDeform_bin_" + re.sub(r"[^a-z0-9]+", "_", rel.lower()).strip("_")
+        embed_path = "/".join(TABLE_BIN_ROOT) + "/" + rel
+        return tables.intern(f"bin:{rel}", label, f'embed("{embed_path}")')
+
+    if "generator" not in ref:
+        _refuse(path, f"{where}: tableRef needs `generator` or `bin`; got "
+                      f"{', '.join(sorted(ref)) or '(empty)'}.")
+    gen = ref["generator"]
+    if gen not in TABLE_GENERATORS:
+        _refuse(path, f"{where}: unknown generator {gen!r}. One of: "
+                      f"{', '.join(sorted(TABLE_GENERATORS))}, or a `bin` path.")
+    fn, params = TABLE_GENERATORS[gen]
+    values = _fields(path, {k: v for k, v in ref.items() if k != "generator"},
+                     params, f"{where}.{gen}")
+    args = ", ".join(f"{p}: {v}" for p, v in zip(params, values))
+    key = f"{gen}:" + ",".join(str(v) for v in values)
+    label = "EditorDeform_" + gen + ("_" + "_".join(str(v) for v in values)
+                                     if values else "")
+    return tables.intern(key, label, f"{fn}({args})")
+
+
+def render_table_attachment(path: str, value, key: str, arm: str, where: str,
+                            tables: TableRegistry) -> str:
+    """A table-bearing attachment → its `.emp` variant call.
+
+    Payload slots are POSITIONAL in the enums (scene_dsl.emp), so the order here
+    is meaning, not formatting.
+    """
+    body = _single_arm(path, value, arm, f"{where}.{key}")
+    if not isinstance(body, dict):
+        _refuse(path, f"{where}.{key}.{arm}: must be an object, got "
+                      f"{type(body).__name__}")
+    if arm == "own":       # SceneDeform.Own(table, shift_a, shift_b, phase, speed)
+        fields = ("table", "shift_a", "shift_b", "phase", "speed")
+        variant = "SceneDeform.Own"
+    elif arm == "shared":  # SceneDeform.Shared(table, speed)
+        fields = ("table", "speed")
+        variant = "SceneDeform.Shared"
+    else:                  # SceneVDeform.Columns(table, speed, amp_shift)
+        fields = ("table", "speed", "amp_shift")
+        variant = "SceneVDeform.Columns"
+    vals = _fields(path, body, fields, f"{where}.{key}.{arm}")
+    label = render_table_ref(path, vals[0], f"{where}.{key}.{arm}.table", tables)
+    rest = ", ".join(str(v) for v in vals[1:])
+    return f"{variant}({label}" + (f", {rest}" if rest else "") + ")"
 
 
 def render_curve(path: str, value, where: str) -> str:
@@ -359,8 +477,8 @@ def _render_enum(path: str, value, table: dict, where: str) -> str:
     return table[value]
 
 
-def render_layer(path: str, layer: dict, where: str) -> str:
-    _reject_table_attachment(path, layer, LAYER_TABLE_ATTACHMENTS, where)
+def render_layer(path: str, layer: dict, where: str,
+                 tables: TableRegistry) -> str:
     args = [f"world_y: {layer['world_y']}",
             f"fa: {render_factor(path, layer['fa'], where + '.fa')}",
             f"fb: {render_factor(path, layer['fb'], where + '.fb')}"]
@@ -371,10 +489,14 @@ def render_layer(path: str, layer: dict, where: str) -> str:
         args.append(f"curve: {render_curve(path, layer['curve'], where + '.curve')}")
     if not is_absent(layer.get("vsplit")):
         args.append(f"vsplit: {render_vsplit(path, layer['vsplit'], where + '.vsplit')}")
+    for key, arm in LAYER_TABLE_ATTACHMENTS.items():
+        if not is_absent(layer.get(key)):
+            args.append(f"{key}: " + render_table_attachment(
+                path, layer[key], key, arm, where, tables))
     return "layer(" + ", ".join(args) + ")"
 
 
-def render_scene(path: str, scene: dict) -> str:
+def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
     """The `pub const … : Scene = scene(…)` text for one validated scene.
 
     Deliberately returns TEXT and writes nothing. The generated module is not wired
@@ -384,14 +506,15 @@ def render_scene(path: str, scene: dict) -> str:
     would look finished while validating nothing — the failure this pipeline is
     least able to notice.
     """
+    if tables is None:
+        tables = TableRegistry()
     layers = scene["layers"]
     if len(layers) > MAX_PARALLAX_BANDS:
         _refuse(path, f"{len(layers)} layers exceeds MAX_PARALLAX_BANDS "
                       f"({MAX_PARALLAX_BANDS}); scene() refuses this too, but the "
                       f"generator would have to pad past the array to reach it.")
-    _reject_table_attachment(path, scene, SCENE_TABLE_ATTACHMENTS, "scene")
-
-    rendered = [render_layer(path, l, f"layers[{i}]") for i, l in enumerate(layers)]
+    rendered = [render_layer(path, l, f"layers[{i}]", tables)
+                for i, l in enumerate(layers)]
     # The array is ALWAYS eight slots, padded with no_layer() — the hand-authored
     # idiom (games/sonic4/data/effects/ojz_scenes.emp) and what scene() indexes.
     rendered += ["no_layer()"] * (MAX_PARALLAX_BANDS - len(rendered))
@@ -415,6 +538,10 @@ def render_scene(path: str, scene: dict) -> str:
     if not is_absent(scene.get("anchor")):
         body.append("    anchor: " + render_anchor(
             path, scene["anchor"], "scene.anchor"))
+    for key, arm in SCENE_TABLE_ATTACHMENTS.items():
+        if not is_absent(scene.get(key)):
+            body.append(f"    {key}: " + render_table_attachment(
+                path, scene[key], key, arm, "scene", tables))
     # layer_mask_raw / v_deform_shift_raw are deliberately NOT emitted: they are the
     # hand-migration byte-identity bridges, their -1 defaults mean "derive", and
     # editor scenes derive. The loader refuses them in the JSON for the same reason.
