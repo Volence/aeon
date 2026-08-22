@@ -273,7 +273,7 @@ would otherwise have shipped:
   identically, but explicit is discoverable to Aurora's reader). The rename-vs-re-value question
   the empyrean schema §4 left flagged for design review was CLOSED in favour of the rename this
   session. **Aurora's reader parcel is now UNBLOCKED** — they re-point `Act.parallaxRef`
-  (`s4-types.ts:227`, populated `load.ts:373`), NOT `Section.parallaxRef`. This had to land BEFORE
+  (`s4-types.ts`, populated `load.ts:373`), NOT `Section.parallaxRef`. This had to land BEFORE
   their reader or it would name a key that did not exist; the schema said otherwise until the fix
   LANDED on empyrean master as **`b0d5b00`** (their merge of `7709af6`; branch pruned both sides),
   aeon side corrected at `5d0be056`. Caught by Aurora's first parcel, whose agent flagged it

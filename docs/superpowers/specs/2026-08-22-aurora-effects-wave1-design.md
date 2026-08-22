@@ -139,7 +139,7 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   > **DISCHARGED 2026-08-22 — aeon `7bff8488` (branch `parcel/project-json-scene-ref`).** The
   > act entry now reads `"sceneRef": null` and the `parallax` key is gone; `project.json:20`.
   > **Aurora's reader parcel is UNBLOCKED and may proceed** — re-point `Act.parallaxRef`
-  > (`s4-types.ts:227`, populated at `load.ts:373`), NOT the section field, per the correction
+  > (`s4-types.ts`, populated at `load.ts:373`), NOT the section field, per the correction
   > directly below. The prerequisite half of the sequence is closed; the ordering note is kept
   > for the record of WHY it is sequenced, not as outstanding work.
   >
@@ -173,7 +173,7 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   > neither, and `Section.parallaxRef` is set to null once at construction (`s4-types.ts:136`)
   > and never persisted. The assessment cited `:121`. **Implementing ruling Q4 from that citation
   > would wire the scene id into a dead per-section field and silently do nothing.** Ruling Q4
-  > stands as ruled; its target is `Act.parallaxRef` (`s4-types.ts:227`).
+  > stands as ruled; its target is `Act.parallaxRef` (`s4-types.ts`).
   >
   > **Bonus for ruling Q2, from the same finding:** `Section.parallaxRef` is *already* an unused
   > per-section scalar ref of exactly the shape Q2 proposes, and `paletteRef` is the supporting

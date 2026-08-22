@@ -38,6 +38,24 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 - Zero-byte parcels (tools/docs) are aeon-only; verify CRC identity anyway —
   byte-count-neutral is not byte-identical, and DEBUG-only procs can still move the
   release deb2 appendix.
+- **A citation has TWO SHAs — the one you cite and the one you VERIFIED AT — and the
+  second needs the same `ls-remote`** (lived 2026-08-22, this overseer's error, caught by
+  aurora-86). The shared protocol's push-before-you-cite rule polices the SHA you hand
+  over. It says nothing about the revision your *claim* rests on, and that one gets checked
+  far less because it reads as provenance rather than payload. Lived twice in one message:
+  having just audited all four of MY anchors as reachable from `origin` after empyrean's
+  local-only discovery, this overseer pinned a claim about a sibling repo to aurora
+  `2fe39ea` — **local-only, 30 commits ahead of `origin/master`** — so the receiver could
+  not check the verification at all. **Also: never certify a LINE NUMBER with a SHA.** The
+  same message cited `s4-types.ts:227` for `Act.parallaxRef`; at that very pin `:227` is
+  `export interface Palette` (Act begins at `:235`, the field at `:243`), and `:227` had
+  already been *two different types in one day*. **A correction that carries a line number
+  inherits the defect it was correcting** — aurora's ROADMAP had "fixed" this number once
+  already and gone stale again. **Anchor to the SYMBOL; let the SHA date the CLAIM, never
+  the coordinate.** Practical convention, agreed with aurora-86: state explicitly whether a
+  SHA is at `origin` or local-only — "verified reachable at origin" and "verified in my
+  object store" are indistinguishable in a message and only one is an anchor. Treat every
+  Aurora SHA as local-only unless they say otherwise.
 - **On a byte-neutral parcel, byte identity stops being evidence about the BUILD and is
   only evidence about the SOURCE — freshness needs a separate witness** (lived 2026-08-22,
   caught by one exit code). Advancing a landing worktree to a new SHA, the four CRCs came
