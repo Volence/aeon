@@ -235,12 +235,48 @@ on the aeon side today and unsafe on the Aurora side today.**
 *(Agreed with the Aurora lane 2026-08-22, after they measured 282,867 B vs 407,055 B
 for one semantically identical document.)*
 
-**Every writer of a shared JSON document in this contract emits canonical form:
-`sort_keys=True`, separators `(",", ":")`** — Python
-`json.dumps(obj, sort_keys=True, separators=(",", ":"))`, and the equivalent on the
-Aurora side. aeon's write chokepoint is `bg_override_io.atomic_write_json`, which all
-three aeon writers (`forest_bg_gen.py`, `png_to_bg_override.py`, and the shared path
-itself) already funnel through.
+**The clause has two halves with different scopes, and the split is deliberate**
+*(ruled 2026-08-22 after the Aurora lane found the original text's letter and its
+rationale disagreeing — the letter reached scene files, every line of the reasoning was
+about tile-array documents)*:
+
+- **DETERMINISM binds universally. No exceptions, no document classes.** Keys sorted
+  alphabetically, **recursively** (Python's `sort_keys=True` is recursive; nested band
+  and layer objects sort too). Every writer of every shared JSON document in this
+  contract.
+- **COMPACTNESS is per document class.** Tile-array documents (`editor_bg_override.json`
+  and kin) are minified, separators `(",", ":")`. Scalar documents — the effects scene
+  files, which are a handful of fields — are **pretty-printed**, indent 2.
+
+So aeon's chokepoint is `json.dumps(obj, sort_keys=True, separators=(",", ":"))` for the
+tile-array class (`bg_override_io.atomic_write_json`, which all three aeon writers —
+`forest_bg_gen.py`, `png_to_bg_override.py`, and the shared path itself — already funnel
+through), and `json.dumps(obj, sort_keys=True, indent=2)` for scene files.
+
+**Why compactness splits and determinism does not.** The rejection of pretty-printing
+below is an argument *from scale*: a document dominated by tile arrays yields a diff that
+is attributable and enormous. Remove the scale and that argument inverts — for a scene
+file a pretty diff is genuinely more reviewable. But the property the clause exists for,
+*a diff appears only when something semantic changed*, is scale-independent, so
+determinism cannot split.
+
+**Why ALPHABETICAL rather than contract order**, since the alternative is tempting and
+worse: alphabetical is a total order derivable by both repos from the data alone.
+Contract order needs a key list maintained identically in two repos, and has no answer at
+all for the unknown keys Aurora round-trips untouched (insertion order is not
+reproducible across writers). **The cost is real and accepted:** in a pretty-printed
+scene file, alphabetical puts `schema` and `id` in the middle rather than at the top,
+which reads worse than contract order. A self-describing order that cannot drift is worth
+more than a familiar one that can.
+
+**Vendored provenance fixtures are NOT canonicalized, and this overrides the above**
+*(Aurora's call, adopted — they raised it unprompted while adopting the clause)*. A
+fixture whose value IS byte-identity with the artifact it was captured from
+(`test/fixtures/bg-override/editor_bg_override.b0e5a661.json` is the live example) must
+keep the bytes it was captured with; re-pinning it to canonical form destroys the exact
+provenance that makes it worth having. **Canonicalization governs what a tool WRITES as
+output, never what it VENDORS as evidence.** A parcel that finds it needs to reserialize
+such a fixture should stop and report rather than decide.
 
 **The property is DETERMINED serialization, not compactness.** Matching separators
 alone would fix the churn that happened to get measured and leave key order waiting to
