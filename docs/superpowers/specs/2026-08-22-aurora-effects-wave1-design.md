@@ -88,12 +88,12 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   binding — resolved from the sidecars' `sceneRef` + `project.json`, so "section N uses
   scene X" stops being hand-typed in the descriptor for editor-authored content;
   (e) `scene_budget_enforce` over the editor-scene set, mirroring
-  `scene_registry.emp:405` — editor scenes get the same budget gate as hand scenes, in
+  `games/sonic4/data/effects/scene_registry.emp:405` — editor scenes get the same budget gate as hand scenes, in
   their own module.
 - **The import seam:** `act_descriptor.emp` imports the per-section Labels **by name
   list** and passes them where it passes hand bindings today
   (`sec_parallax_config` / `act_parallax_config`). **The label-vs-const trap is the
-  load-bearing detail** (`ojz_scenes.emp:70-74`; `docs/EMP_PITFALLS.md` §2/§8): these
+  load-bearing detail** (`games/sonic4/data/parallax/ojz_scenes.emp:70-74`; `docs/EMP_PITFALLS.md` §2/§8): these
   MUST be `pub data` **Labels** — label imports travel as symbol references; a **const**
   import re-evaluates its initializer in the consumer's scope (the Task-5 clone-injection
   trap) and would silently duplicate every table and record into the descriptor's
@@ -101,7 +101,7 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   a glob (`docs/DEFERRED_WORK.md:6847`'s glob re-evaluation note).
 - **Reachability is solved by the seam itself, then pinned:** an unreached `.emp` module
   gets ZERO body elaboration — `ensure(1 == 0)` builds green
-  (`scene_registry.emp:28-34`). The descriptor's name-list import IS the whole-path `use`
+  (`games/sonic4/data/effects/scene_registry.emp:28-34`). The descriptor's name-list import IS the whole-path `use`
   edge, and the `map.toml` order entry places the section; a gate still pins both (a
   poisoned-ensure reachability probe, the `poison_sentinel` pattern), because "the
   import exists today" is not "the import cannot be dropped tomorrow".
