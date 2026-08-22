@@ -184,10 +184,42 @@ def make_key(bcol, brow, K):
 
 async def measure_boot(c, sym, K, state, window):
     """Direct sample + prefix ladder (tick_variance_probe's own), each rung extended
-    with a staging-slot snapshot at the frame boundary."""
+    with a staging-slot snapshot at the frame boundary.
+
+    THE BASE-BOUNDARY PASS, load-bearing: sample() arms the profiler and the frame
+    the arm lands in is uncounted (run_frames(N) -> frameCount N-1,
+    tick_variance_probe's own note). So a rung's counted window starts one frame
+    AFTER any state that can be read before its sample() — reading c0 at reach()'s
+    end makes the FIRST ledger interval span two physical frames (the arm frame +
+    the first counted one) while the profiler row spans one. The `right` state
+    caught this live: gen delta 2 vs TileCache_DecompressBlock calls 1 at rung 1 —
+    a claim inside the arm frame, invisible to the profiler by construction.
+
+    The machine is deterministic (the spread gate proves it per boot), so the
+    counted window's true START boundary is readable in a DEDICATED pass: reach()
+    + run 1 frame (the arm-equivalent) + read. That state — c0/s0 — is the ledger's
+    base; every rung k then reads its end boundary after sample(k), and interval k
+    spans exactly the profiler's frame k, first rung included."""
+    # base boundary pass — read the counted window's start state
     await tvp.reach(c, sym, state)
+    await c.call("emulator/run_frames", {"frames": 1})   # the arm-equivalent frame
     c0 = await counters_ext(c, sym)
     s0 = await slot_snapshot(c, sym, K)
+    # same-boot reproducibility witness: the base pass repeated must land on the
+    # same state, or the ledger would difference two different runs
+    await tvp.reach(c, sym, state)
+    await c.call("emulator/run_frames", {"frames": 1})
+    cb = await counters_ext(c, sym)
+    sb = await slot_snapshot(c, sym, K)
+    if sb != s0 or cb != c0:
+        raise Blocked("base boundary pass does not reproduce within one boot — the "
+                      "machine is not deterministic here and no ledger interval is "
+                      "a measurement")
+
+    # direct pass — its own reach, NO pre-run: sample()'s uncounted arm frame is
+    # the same physical frame the base pass ran, so the counted window starts at
+    # exactly the c0/s0 boundary
+    await tvp.reach(c, sym, state)
     direct = await tvp.sample(c, window)
     c1 = await counters_ext(c, sym)
     identity(direct)
@@ -197,13 +229,6 @@ async def measure_boot(c, sym, K, state, window):
     cums, snaps, cnts = [], [], []
     for k in range(1, window + 1):
         await tvp.reach(c, sym, state)
-        if k == 1:
-            cb = await counters_ext(c, sym)
-            sb = await slot_snapshot(c, sym, K)
-            if sb != s0 or cb["Logic_Tick"] != c0["Logic_Tick"]:
-                raise Blocked("ladder start state != direct start state — the machine "
-                              "is not reproducing the reach() state and the ledger "
-                              "would describe two different runs")
         pf = await tvp.sample(c, k)
         ck = await counters_ext(c, sym)
         sk = await slot_snapshot(c, sym, K)
@@ -380,8 +405,16 @@ def serve_analysis(boot, ledger, sym, K, poison=None):
                  attribute_claim(cl, e["counters"], prev_cnt, K)))
         prev_cnt = e["counters"]
     results = []
+    edge_excluded = []
     for x in xs:
         f = x["frame"]
+        # A crossing's claims land in frames f..f+1 (the fill pass can straddle the
+        # boundary, and a budget-out resumes next frame). A crossing at the window's
+        # last frame therefore has claims the ladder cannot observe — EXCLUDED with a
+        # printed note, never adjudicated on a truncated view.
+        if f + 1 > len(boot["snaps"]):
+            edge_excluded.append(x)
+            continue
         before = boot["snaps"][f - 2]["keys"] if f >= 2 else boot["s0"]["keys"]
         rows = []
         for kind, bc, br in needed_blocks(x, K, poison=(poison == "coverage")):
@@ -427,7 +460,7 @@ def serve_analysis(boot, ledger, sym, K, poison=None):
                                   "life_frames": e["frame"] - slot_last[s][0],
                                   "key": slot_last[s][1], "form": slot_last[s][2]})
             slot_last[s] = (e["frame"], cl["key"], cl["form"])
-    return results, lifetimes
+    return results, lifetimes, edge_excluded
 
 
 # ---- report -------------------------------------------------------------------------
@@ -442,7 +475,7 @@ def report(state, boots, sym, K, poison=None, out=sys.stdout):
         led_reprs.append(json.dumps(build_ledger(b, sym, K), sort_keys=True,
                                     default=str))
     spread = len(set(led_reprs)) - 1
-    serve, lifetimes = serve_analysis(b0, ledger, sym, K, poison=poison)
+    serve, lifetimes, edge_excluded = serve_analysis(b0, ledger, sym, K, poison=poison)
 
     n = len(b0["snaps"])
     ticks = [b["ticks"] for b in boots]
@@ -490,6 +523,10 @@ def report(state, boots, sym, K, poison=None, out=sys.stdout):
         prev_cnt = e["counters"]
 
     p("\n   -- (a) each crossing's claims: which slot served, who filled it --")
+    for x in edge_excluded:
+        p(f"   crossing {x['mark']} at frame +{x['frame']}: WINDOW-EDGE EXCLUDED — its "
+          f"claims land in frames +{x['frame']}..+{x['frame'] + 1}, past the ladder; "
+          f"not evidence either way")
     for r in serve:
         x = r["x"]
         pre = sum(1 for row in r["rows"] if row["served"] == "PRE-STAGED")
@@ -505,7 +542,8 @@ def report(state, boots, sym, K, poison=None, out=sys.stdout):
         p(f"\n   -- slot lifetimes (claim -> same-slot eviction), n={len(lf)}: "
           f"min {min(lf)} / mean {sum(lf) / len(lf):.1f} / max {max(lf)} frames --")
     return {"ledger": ledger, "serve": serve, "lifetimes": lifetimes, "forms": forms,
-            "total_claims": total_claims, "ticks": b0["ticks"]}
+            "edge_excluded": edge_excluded, "total_claims": total_claims,
+            "ticks": b0["ticks"]}
 
 
 def main():
