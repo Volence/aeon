@@ -110,14 +110,45 @@ scaling can produce. **Our idle number is high before any derivation touches it 
 UNEXPLAINED**, and it is the one reading high while four read low, so the class likely has more
 than one cause.
 
-**Stage C (the paired trace) EXISTS but is a small parcel, not free** — attempted here rather than
+**CORRECTED — the corpus ROM IS a committed artifact; the "small parcel" framing below was
+WRONG.** oracle-next-f3 found it and I verified it by extracting and hashing the bytes myself
+rather than trusting the claim: `git -C sigil cat-file blob
+7b46f075:crates/sigil-harness/golden/s4.debug.bin` yields **crc `d22dda85`, len 713295** — exactly
+the corpus ROM — and `git merge-base --is-ancestor 7b46f075 master` is TRUE, so it is permanently
+reachable, not gc-able. `7b46f075` is *"refreeze: raster-cram-anchor-366"*, the refreeze that
+paired that golden move.
+
+> **THE TRAP, and it needs its own clause on empyrean's "prefer the committed artifact" rule
+> (`9b604f0`): A GOLDEN PATH IS A MOVING POINTER.** I checked the right path at the wrong
+> revision — `master:<path>` answers "what is the golden NOW", not "does this artifact exist
+> anywhere in history". The vintage artifact is found **at the revision that pinned it**, and that
+> revision is named in the refreeze commit that paired it. Checking the tip and concluding "no
+> committed blob exists" is the failure; this is the rule's second instance in a day.
+
+**Root cause of the build blocker, confirmed firsthand (their §1.3, refined here):** the vintage
+tree hardcodes `HARNESS = "/home/volence/sonic_hacks/oracle/linux-port/harness"`
+(`bc048e2a:tools/raster_cost_probe.py:55`) — the PRE-rename path, which no longer exists, so the
+`launcher` import fails. **Current master is already fine** (its tools point at
+`oracle-old/linux-port/harness`, which exists); only the vintage checkout carries it. Their
+recorded resolution is `--no-lint` (the lint stage touches no emitted byte), NOT a path fix. **A
+second blocker waits behind it:** with `--no-lint`, current sigil refuses with
+`[map.undeclared-island] ROM section at 0x99F0` because sigil has moved past what `bc048e2a`
+declares — the recipe pins sigil to `7b46f075`, the same revision carrying the golden. Both halves
+of the blocker are one revision.
+
+**Their agent is producing the `.lst` under that recipe now — DO NOT run a parallel sigil build.**
+The listing is the only thing the rebuild yields that the blob does not; they will hand it over
+with its binding proof (a rebuild reproducing `d22dda85` byte-identical proves the listing beside
+it is the corpus listing).
+
+**(superseded) Stage C (the paired trace) EXISTS but is a small parcel, not free** — attempted here rather than
 asserted: `bc048e2a` is reachable and `tools/engine_baseline_probe.py` still exists, but a clean
 worktree build REFUSES on 39 failures all in `tools/test_raster_wire_pin.py`, root cause
 `ModuleNotFoundError: No module named 'launcher'` (`tools/raster_cost_probe.py:59` — the oracle-old
 harness module not on `sys.path` in a fresh worktree; a PATH artifact, not tree rot). `FAST=1` does
 not bypass it. **The ROM was NOT demonstrated reproducing** — reachable and CRC-verifiable against
-`d22dda85`/len 713295, but unproven. No committed blob shortcuts it: sigil's golden `s4.debug.bin`
-is current-master's `0dbaa80f`/715010, not the corpus vintage.
+`d22dda85`/len 713295, but unproven. ~~No committed blob shortcuts it~~ — FALSE, see the correction above; `master:`'s golden is
+current-master's `0dbaa80f`/715010, but the corpus blob lives at `7b46f075`.
 
 **Their adjudication in flight** is a hand derivation of the true 68000 cost from the manual tables
 — authored by neither emulator, all three outcomes publishable. **If it says our 181 is wrong, we
