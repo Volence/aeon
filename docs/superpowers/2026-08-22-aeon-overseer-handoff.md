@@ -69,9 +69,11 @@ what Aurora consumes. Their intel, already folded into the survey brief: yesterd
 line `5b58f68..4cffe45` reworked the exact surfaces this view rides (ClassicLevelViewport
 overlay scaffolding, classic-overlays, viewStore/ViewMenu, shared rAF play-clock ~0.2-0.7
 ms/pass, per-pixel priority occlusion); required reading = aurora docs/OVERSEER.md, ROADMAP
-§2.6/§5.1, docs/reviews/2026-08-21-s1-viewport-lenses-audit.md; and the aeon ProjectAdapter
-in aurora is a ROUTING MARKER (real loader deferred, ROADMAP §2.5) — a load-bearing gap the
-assessment must name. Flow: assessment → owner design review → design/contract docs
+§2.6/§5.1, docs/reviews/2026-08-21-s1-viewport-lenses-audit.md. **[SUPERSEDED — this brief
+also carried "the aeon ProjectAdapter is a ROUTING MARKER (real loader deferred, ROADMAP
+§2.5)", which was REFUTED the same night; see the overnight addendum below. The rAF
+play-clock intel is ALSO scoped narrower than written: it is ClassicLevelViewport-only,
+and the OJZ showcase runs MapViewport.]** Flow: assessment → owner design review → design/contract docs
 committed → ping aurora-86 with SHAs.
 
 ## Overnight delegation standing rule (owner, 2026-08-22 bedtime)
