@@ -44,6 +44,30 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   clean checkout of a committed SHA, the same clean-checkout rule freezes use. Mirrored
   from sigil's `docs/OVERSEER.md` (024c7caa).
 
+## Recovering a vintage artifact (before ANY toolchain-archaeology parcel)
+
+**Prefer the committed artifact to the recipe that recreates it — and look for it at the revision
+that PINNED it, not at the tip.** Shared protocol (`9b604f0` + companion clause `e650b96`); this
+lane supplied the miss that earned the clause. **A SHA has a class; a path has a TIME.**
+
+Lived 2026-08-22: recovering the profiler-corpus ROM (`d22dda85`), this overseer checked
+`sigil master:crates/sigil-harness/golden/s4.debug.bin`, truthfully found `0dbaa80f` (correct for
+master), reported "no committed blob shortcuts it", and was one step from a rebuild parcel. **The
+blob was sitting at `7b46f075`** — the `refreeze: raster-cram-anchor-366` commit whose own message
+named the paired golden move. A golden path is a MOVING POINTER: for a vintage artifact, the tip is
+the one revision guaranteed not to have it.
+
+The procedure, since this repo's landing lane generates exactly these pairings on every refreeze:
+1. Find the refreeze/pairing commit that moved the golden (its message names the pairing).
+2. `git -C sigil cat-file blob <rev>:<path> > out.bin`, then **hash the extracted bytes yourself**
+   — never trust the claim, including a peer's.
+3. `git merge-base --is-ancestor <rev> master` before depending on it (reachable, not gc-able).
+4. Only if the artifact genuinely isn't there, consider the rebuild — and price it first: the
+   `bc048e2a` attempt failed on a PRE-rename `HARNESS` path
+   (`oracle/linux-port/harness`, now `oracle-old/...`) and would then have hit
+   `[map.undeclared-island] at 0x99F0` from current sigil having moved past that tree's map.
+   Both halves were one pinned sigil revision — the same `7b46f075`.
+
 ## Instruments (which oracle for what)
 
 - **oracle-next / oracle-aether** (bus socket, headless): pixels, scanlines (sub-line
