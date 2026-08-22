@@ -7,6 +7,14 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ## ✅ TOOL-01 — CLOSED 2026-08-22 — `png_to_bg_override.py` silently destroyed keys in the file it rewrites
 
+> **The rule this closure implements now has a contract home: empyrean `8e55475`**
+> (`docs/AURORA_EFFECTS_SCHEMA.md` §5.2, reachable from empyrean `origin/main` — verified,
+> not assumed; the anchor was local-only when first quoted to this lane). It reclassifies
+> `png_to_bg_override.py` as an **importer/seeder**: it may write when the file is absent or
+> holds only keys it produces, and must otherwise refuse loudly. **The rule outlives the
+> defect** — §5.2 governs the fixed tool exactly as it governed the broken one, so a future
+> reader must not read "TOOL-01 closed" as licence to reintroduce merging.
+
 **Live data loss, not a latent one.** `tools/png_to_bg_override.py` wrote
 `games/sonic4/data/editor_bg_override.json` as a whole-file overwrite that **never read the
 file**. `OVERRIDE` appeared exactly twice — the path constant and `open(OVERRIDE, "w")` — and

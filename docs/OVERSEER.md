@@ -38,6 +38,22 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 - Zero-byte parcels (tools/docs) are aeon-only; verify CRC identity anyway —
   byte-count-neutral is not byte-identical, and DEBUG-only procs can still move the
   release deb2 appendix.
+- **On a byte-neutral parcel, byte identity stops being evidence about the BUILD and is
+  only evidence about the SOURCE — freshness needs a separate witness** (lived 2026-08-22,
+  caught by one exit code). Advancing a landing worktree to a new SHA, the four CRCs came
+  back matching the pins exactly — from a build that **never ran**. `git checkout` gives
+  `project.json` a fresh mtime, `level staleness` hard-fails *before* a ROM is emitted, and
+  the ROMs on disk were **leftovers from the previous build at the previous SHA**. Because
+  the parcel was zero-byte, leftover and correct are byte-identical: **a CRC check cannot
+  distinguish "built at the new SHA" from "never rebuilt at all."** The only tell was the
+  exit code disagreeing with the artifacts. **Remedy: `rm -f` all four ROMs before the
+  rebuild, so existence proves freshness**, and check mtimes. Note the asymmetry with the
+  ordinary failure — a missing ROM is loud, a stale one is silent and ships four perfect
+  CRCs as proof. **Standing hazard as of `98100905`:** that parcel edited `project.json`, so
+  *every* fresh checkout of any tree containing it trips the staleness gate on mtime alone;
+  `tools/regenerate-level.sh` clears it (level bytes unchanged — revert the
+  `DONOR_PROVENANCE.json` churn, since unchanged level bytes mean the existing stamp still
+  describes them).
 - **CRC identity is blind to SOURCE-derived gates, and the pairing ritual cannot see
   what it does not trigger on** (found 2026-08-22 by sigil-83's warn-tier corpus, not by
   anything in this lane). sigil's warn-tier lint baseline lives in
