@@ -70,9 +70,23 @@ Two further facts from the same file, both contract-relevant:
   sidecars **atomically** (temp file then rename) so a partially-written sidecar is never
   observable. (Offered to aurora-86 as a shared obligation instead, if they prefer Aurora also
   degrade gracefully — their side of that fence, their call.)
-- **The site count is SIX, not four.** Beyond the four executable sites: the header comment's prose
+- **The site count is SIX, not four** — *and SIX was itself wrong: the real count is THIRTEEN.
+  See the note at the end of this erratum; the six below are the codec frame only.* Beyond the four executable sites: the header comment's prose
   enumeration (`:5-9`) and the `SectionMeta` TS interface (`:11-14`), the latter being what makes
   the compiler agree a third ref exists. All six go stale when `sceneRef` lands.
+
+> **THE SIX-SITE COUNT WAS WRONG — the real count is 13 (corrected 2026-08-22).** Two overseers
+> independently enumerated this codec, cross-verified each other's lists firsthand, and both got
+> the same 8-ish codec frame; Aurora's first wave-1 parcel found 13. Every site either of us named
+> was real and both verifications passed — **the failure was the shared FRAME, not the rigour.**
+> We both enumerated the *codec*; nobody asked what else copies a `Section`. The misses:
+> `save.ts:130` (a second independent hardcoded enumeration in the content write, distinct from
+> the cleared-overwrite literal), `Section` itself, and above all **`cloneSection`, which
+> hand-enumerates every ref in a bare literal and was completely UNGUARDED** — dropping `sceneRef`
+> OR `bgLayoutRef` from it survived Aurora's whole 3,909-test suite, so a copy/paste silently
+> losing a section's background or palette assignment would never have been caught. Now a shared
+> protocol bar (empyrean `dc629a5`, review bar 8): **enumerate by what TOUCHES the data, not by
+> what defines it — mutual verification cannot catch a shared frame, only a changed frame can.**
 
 ---
 

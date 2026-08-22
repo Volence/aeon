@@ -130,7 +130,14 @@ surface.
   numeric scene index like `sceneRef: 3` is read as null by a fully sceneRef-aware
   Aurora and then erased on the next save, presenting as "the assignment didn't stick" —
   do not later "helpfully" switch this field to an integer index. **Round-trip hazard
-  the golden pins:** aurora's codec today hardcodes the two-ref set at six sites — four
+  the golden pins:** aurora's codec hardcodes the two-ref set at **THIRTEEN sites, not the six
+  this contract originally listed** (corrected 2026-08-22 after Aurora's first wave-1 parcel
+  enumerated it against the real type: `save.ts` carries a SECOND independent hardcoded
+  enumeration at `:130` beside the cleared-overwrite literal, `Section` itself gains the field,
+  and `cloneSection` hand-enumerates every ref in a bare literal — that last one was UNGUARDED,
+  and dropping a ref from it survived Aurora's entire 3,909-test suite). The six below are the
+  CODEC frame only; enumerate by what TOUCHES the record — constructors and copiers included —
+  not by what defines it. Original six — four
   executable (`section-meta.ts:21`, `:22`, `:29-30` — unknown keys silently DROPPED,
   non-string known keys nulled — and the cleared-overwrite body at `save.ts:118-126`)
   plus the header-comment enumeration (`:5-9`) and the `SectionMeta` interface

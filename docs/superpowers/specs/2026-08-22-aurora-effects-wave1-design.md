@@ -163,7 +163,8 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   save. Worse, the meta path is **silently destructive today** (ERRATUM 2): a malformed
   sidecar is swallowed by a bare catch, read as all-null, and overwritten with a
   well-formed empty body at the next save — a live data-loss defect. Hence: the
-  `SectionMeta` extension (all six sites) lands in the same Aurora parcel as the first
+  `SectionMeta` extension (**all THIRTEEN sites — the "six" this doc first cited was the codec
+  frame only; see the assessment's ERRATUM 1 closing note**) lands in the same Aurora parcel as the first
   writer; the golden pins the parse→serialize round-trip; `sceneRef` is ruled a string
   id, never a numeric index (silent-null failure mode); the unreadable-sidecar
   obligation is SHARED — generators write atomically (reusing the in-tree
