@@ -771,6 +771,11 @@ ensure(BLOCK_SPEC_LEAD_TICKS > 0 && (BLOCK_SPEC_LEAD_TICKS & (BLOCK_SPEC_LEAD_TI
 pub const BLOCK_SPEC_REARM      = BLOCK_STAGE_SLOTS / 2
 ensure(BLOCK_SPEC_REARM < BLOCK_STAGE_SLOTS,
        "the speculation guard's re-arm threshold must be STRICTLY below its trip threshold or the latch is not a Schmitt trigger and will oscillate")
+// Since 2026-08-21 (BURST-SMOOTHING.md) the down latch is not absolute: the col
+// scan's k=1 claim passes through it when the camera moved toward the latched
+// side that tick (demand-classified lookahead — the head column is consumed
+// <= BLOCK_SPEC_LEAD_TICKS later, inside worst-case round-robin survival). The
+// thresholds above are unchanged; row scan and corner remain fully gated.
 
 // Sprite-cull margin (px) added to all four sides of the visibility box in
 // Update_Sprite_Visibility. Sprite culling runs inside RunObjects, which the
