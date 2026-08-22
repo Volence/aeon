@@ -93,7 +93,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scene_spans import (capability_bits, expected_spans,  # noqa: E402
-                         game_caps, lst_spans, lst_unpaired_spans)
+                         game_caps, lst_spans, lst_unpaired_spans,
+                         source_spans_by_cap)
 
 AEON = Path(__file__).resolve().parent.parent
 HARNESS = Path("/home/volence/sonic_hacks/oracle-old/linux-port/harness")
@@ -874,21 +875,50 @@ def main() -> int:
             # Depth-scoped: one row per capability, so a failure names the BIT rather
             # than a pile of span names. §8.2's three depths are all carried by spans,
             # so the scoping that matters at this layer is the capability itself.
+            src_by_cap = source_spans_by_cap()
             for cap in sorted(bits):
                 spans = {s for s in (want_s4 | got_s4 | got_demo)
                          if s.startswith(cap[len("CAP_"):].lower())}
                 if not spans:
-                    # A declared capability nobody gates is REPORTED, not skipped in
-                    # silence: "no row" and "row passed" look identical in a totals
-                    # line, and a capability that quietly stopped being gated would
-                    # disappear exactly here. Today CAP_TRANSITIONS is legitimately in
-                    # this state (blocked on a sigil-side refreeze — see the note at
-                    # parallax.emp's capability import), so this is informational
-                    # rather than a failure; what it must never do is hide.
-                    results.append((
-                        f"scanline_spans {cap} — NOT GATED ANYWHERE (no bracketed span "
-                        f"in either fixture; nothing specialises on this bit yet)",
-                        True, "informational"))
+                    # A declared capability with no span in either LISTING is two very
+                    # different states, and the row must say which (P3 Task 16 — the
+                    # single informational row this replaces conflated them, and its
+                    # own comment named the fear: "a capability that quietly stopped
+                    # being gated would disappear exactly here"):
+                    #
+                    #  * SOURCE brackets exist, no fixture raises the bit. The lowering
+                    #    is real and comptime-elided from BOTH shipped games — a
+                    #    statement about ADOPTION (PARK-1), not about the gating; the
+                    #    two-fixture differential has no subject until a game raises
+                    #    the bit. Informational. Today: CAP_MULTI_DEFORM_TABLE and
+                    #    CAP_FACTOR_CURVE, whose measured elision (instrument builds,
+                    #    non-canonical) is recorded in demo_specialization_witness.py's
+                    #    re-derivation log.
+                    #
+                    #  * NO source brackets either — a `pub const` bit with no lowering
+                    #    anywhere. Either the brackets were deleted while the bit stayed
+                    #    promoted, or the bit was promoted ahead of its subject (the
+                    #    vacuous-gate shape Task 5 refuses). Every declared bit had
+                    #    source brackets when this check landed (all seven, verified
+                    #    2026-08-22), so this state FAILS rather than informs.
+                    src = sorted(src_by_cap.get(cap, ()))
+                    if src:
+                        results.append((
+                            f"scanline_spans {cap} — GATED IN SOURCE, RAISED BY "
+                            f"NEITHER FIXTURE ({len(src)} span(s) elided from both: "
+                            f"{src})",
+                            True,
+                            "adoption pending (PARK-1); the differential has no "
+                            "subject until a game raises the bit"))
+                    else:
+                        results.append((
+                            f"scanline_spans {cap} — NOT GATED ANYWHERE (no bracketed "
+                            f"span in the engine sources or either fixture)",
+                            False,
+                            "a declared `pub const` capability with no lowering: "
+                            "either its brackets were deleted while the bit stayed "
+                            "promoted, or the bit was promoted ahead of its subject "
+                            "(the vacuous-gate shape)"))
                     continue
                 raised_s4 = bool(caps_s4 & bits[cap])
                 raised_demo = bool(caps_demo & bits[cap])

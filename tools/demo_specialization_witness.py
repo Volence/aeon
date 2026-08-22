@@ -118,6 +118,37 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # 536 -> 528 (this parcel) and Fill_PerLine 372 -> 686, which went stale at the
 # `perf/parallax-unroll` parcel and is recorded here rather than left to mislead. They are
 # comments, not pins — the demo number is what this witness enforces.
+#
+# RE-DERIVATION LOG — 2026-08-22, P3 Task 16 (the parcel-end re-derivation). All eight
+# rows re-read head-to-next-head from the P3-tip listings (s4.debug crc 0dbaa80f,
+# demo.debug crc dec88cc1) and every one matched the pin — the plan's expectation that
+# "P3 changed six of the eight pinned procs" did NOT materialise, and the reason is a
+# finding, not a shortfall: only Task 7 (world-Y re-glue, logged above) moved canonical
+# bytes. Tasks 9/10's mechanisms are capability-gated behind CAP_MULTI_DEFORM_TABLE
+# ($0020) and CAP_FACTOR_CURVE ($0040), NEITHER of which any shipped game raises
+# (sonic4 SCANLINE_CAPS stays $001F; adoption is PARK-1, owner-gated), so their code is
+# comptime-elided from BOTH fixtures and no pinned row could move.
+#
+# THE TWO P3 BITS DO ELIDE MEASURABLY — measured on the documented instrument builds
+# (recipes in docs/benchmarks/scanline-p3/{DEFORM-OWN,CURVES}.md §3; non-canonical,
+# never committed), each three edits off THIS tip, vs the canonical s4.debug listing:
+#
+#   CAP_MULTI_DEFORM_TABLE  (I1-MDT, crc 01f5eff3, len 715046 — mask $003F, BAND_EXT_N 1)
+#     Parallax_Fill_PerLine   686 -> 694   +8   the bracketed span (two movea.l,
+#                                               $7B10..$7B18, = the T9 doc's figure)
+#     Parallax_Step4_Fill     528 -> 544  +16   record-stride ripple (20 B records widen
+#                                               the Step-4a copies; BAND_EXT_N-driven,
+#                                               deliberately outside the cap brackets)
+#   CAP_FACTOR_CURVE        (I1-FC, crc 7a05bac5, len 715452 — mask $005F, BAND_CURVE_N 1;
+#                            byte-identical to CURVES.md §3.7's recorded I1)
+#     Parallax_Fill_PerLine   686 -> 788  +102  cap_factor_curve_band ($7BA0..$7C06)
+#     Parallax_Step4_Fill     528 -> 688  +160  hoist 138 ($7864..$78EE) + split 6
+#                                               ($7A40..$7A46) + 16 stride ripple
+#
+# Nonzero in every gated site: both bits are really gated, really elided. The
+# scanline_spans lane now reports this state in words ("GATED IN SOURCE, RAISED BY
+# NEITHER FIXTURE") instead of the old "NOT GATED ANYWHERE" row, which since Task 16
+# is reserved for — and FAILS on — a declared bit with no source brackets at all.
 DEMO_SPECIALISED_PROCS = {
     "Enqueue_Dirty_Buffers":    514,   # CAP_PER_LINE, CAP_ANCHORS  (sonic4 570)
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
