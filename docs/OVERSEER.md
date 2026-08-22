@@ -149,6 +149,17 @@ aeon still satisfy this contract *today*" must not be pointed at a pin.
   shape produced a number, and if the instrument cannot reach the release shape, report the reach
   limit rather than quietly measuring the reachable thing. (`FAST=1` builds are the same trap in
   a different coat — see the build header.)
+- **A confidently-offered weak point is a misdirection, even in good faith** — SHARED PROTOCOL
+  bar 11 (empyrean `20a8e81`), from THIS repo's own error. A volunteered caveat reads as a
+  certificate that the rest was checked as carefully, and it steers scrutiny toward the part the
+  author already doubted and away from the part they didn't. Not a rule against caveats — keep
+  flagging weak points — a rule about what the flag does NOT certify. **The cheap check: read the
+  lines AROUND a cited line before accepting what it proves; a citation is a pointer into code
+  that keeps executing past the line you were shown.** Lived: this overseer cited
+  `ControlSocket.cpp:2042`'s integer division as proving an invocation excess, invited the peer to
+  attack the one dependency it named — and `:2043`, the very next line, was a clamp that killed
+  the inference outright. Reproduced arithmetic, a verified call site, and a well-placed caveat
+  all held; the line below the cited one did not.
 - **A gate's VERDICT and its STATED REASON are separately checkable** — SHARED PROTOCOL bar 10
   (same commit). Check the reason against the data before quoting it onward: a tripwire can fire
   correctly while its message fabricates the justification (precedent: a spread formula falling
