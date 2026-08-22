@@ -17,7 +17,7 @@
           "stripPrefix": "sec",
           "bgLayout": "games/sonic4/data/editor/ojz_act1_bg.bin",
           "bgTiles": "games/sonic4/data/editor/ojz_act1_bg_tiles.bin",
-          "parallax": "games/sonic4/data/parallax/ojz_default.asm",
+          "sceneRef": null,
           "startPosition": {
             "secX": 0,
             "secY": 0,

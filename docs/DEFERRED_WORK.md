@@ -155,8 +155,32 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    `tools/EFFECTS_CONSUMER_CONTRACT.md` — the constructor-call spike + ruled fallback,
    the per-act binding module + `act_descriptor.emp` name-list label import seam (design
    §3, incl. the zero-editor-content seam question Q-c), reachability poison + drift
-   gates, and the `project.json` `parallax` → `sceneRef` re-point in the same parcel
-   (ruling Q4 — one change, no interim fossil).
+   gates. ~~and the `project.json` `parallax` → `sceneRef` re-point in the same parcel~~
+   — **the Q4 re-point is DONE and is no longer part of this item: aeon `7bff8488`
+   (branch `parcel/project-json-scene-ref`), 2026-08-22.** It was split out and landed
+   ahead of P5 because the corrected ordering makes it a PREREQUISITE for Aurora's
+   reader parcel (design §4's ordering note), not because P5 was ready. `project.json`'s
+   act entry now carries `"sceneRef": null`; the dangling `parallax` key is gone. P5
+   consumes that key, it no longer creates it.
+
+   The parcel verified — rather than inherited — the contract's "nothing reads through
+   it" claim. aeon has exactly four readers of `project.json`, all read-only Python with
+   named-key access and no generic iteration over the act entry: `ojz_strip_gen.py` and
+   `ojz_entity_gen.py` (`zones[0].tileset`, `acts[0].{gridWidth,gridHeight,dataPath}`),
+   `test_editor_inputs.py` (`zones[0].tileset`), and `level_staleness.py`, which reads the
+   file's **mtime only**. `build.sh` and the sigil tree never reference it; there is no
+   aeon writer and no `*.schema.json`. A full `regenerate-level.sh` after the edit re-baked
+   every generated level byte identical, and all four canonical shapes are byte-unchanged.
+   **No gate was added, deliberately** — the key is unread, so a "no `parallax` key" check
+   would assert the edit rather than any behaviour.
+
+   **Trap this leaves for the next hand:** `project.json` is an mtime input to
+   `tools/level_staleness.py:136`, so *any* edit to it fails the canonical build's staleness
+   gate even with zero editor-content change. Remedy: one `tools/regenerate-level.sh`. That
+   re-bake rewrites only `DONOR_PROVENANCE.json`'s SHA stamp, which was deliberately NOT
+   committed here (level bytes unchanged ⇒ the existing stamp still describes the bake that
+   produced them; the re-run's names a dirty, non-identifying donor). Stamp disposition is
+   an open overseer call.
 2. **First authored animated act** — discharges `inject_editor_bg.py`'s FORMAT-FAITHFUL
    BUT NOT BYTE-PROVEN animated arm (`inject_editor_bg.py:121-124`); that parcel runs
    `tools/effects_gates.py` and pastes totals into merge evidence even though it touches

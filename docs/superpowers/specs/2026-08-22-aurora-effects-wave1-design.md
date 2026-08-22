@@ -135,6 +135,36 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   > left it undone and flagged it rather than implementing against a doc that outran its own
   > repo — the correct call. **The aeon `project.json` edit is therefore a wave-1 aeon lane
   > item and a PREREQUISITE for Aurora's reader parcel.**
+  >
+  > **DISCHARGED 2026-08-22 — aeon `7bff8488` (branch `parcel/project-json-scene-ref`).** The
+  > act entry now reads `"sceneRef": null` and the `parallax` key is gone; `project.json:20`.
+  > **Aurora's reader parcel is UNBLOCKED and may proceed** — re-point `Act.parallaxRef`
+  > (`s4-types.ts:227`, populated at `load.ts:373`), NOT the section field, per the correction
+  > directly below. The prerequisite half of the sequence is closed; the ordering note is kept
+  > for the record of WHY it is sequenced, not as outstanding work.
+  >
+  > The parcel verified the "nothing reads through it" claim rather than inheriting it. Four
+  > readers of `project.json` exist in aeon, all read-only Python, all named-key access with no
+  > generic iteration over the act entry: `tools/ojz_strip_gen.py` (`zones[0].tileset`,
+  > `acts[0].{gridWidth,gridHeight,dataPath}`), `tools/ojz_entity_gen.py` (same act keys),
+  > `tools/test_editor_inputs.py` (`zones[0].tileset`), and `tools/level_staleness.py` — which
+  > uses the file's **mtime only** and never parses it. `build.sh` and the sigil tree reference
+  > `project.json` not at all. No aeon writer exists; no `*.schema.json` exists to reject
+  > `sceneRef`. Confirmed empirically too: a full `tools/regenerate-level.sh` after the edit
+  > re-baked every generated level byte IDENTICAL. All four canonical shapes are byte-unchanged
+  > (`s4.bin` 060401e4, `s4.debug.bin` 0dbaa80f, `demo.bin` c708b114, `demo.debug.bin` dec88cc1).
+  >
+  > **No gate was added, deliberately** — a "`project.json` has no `parallax` key" check would
+  > assert the edit rather than any behaviour, and the key is unread, so the correct coverage is
+  > none.
+  >
+  > **Operational note the next hand will trip over:** `project.json` is an mtime input to
+  > `tools/level_staleness.py:136`, so editing it FAILS the canonical build's staleness gate even
+  > when no editor content changed. Remedy is one `tools/regenerate-level.sh` (incremental, ~1 s).
+  > That re-bake rewrites only `DONOR_PROVENANCE.json`'s donor/generator SHA stamp, which this
+  > parcel did NOT commit: the level bytes are unchanged, so the existing stamp still describes
+  > the bake that produced them, whereas the re-run's stamp names a DIRTY donor the generator
+  > itself flags as non-identifying. Disposition of that stamp is an overseer call.
   > **TARGET THE ACT FIELD, NOT THE SECTION FIELD — corrected 2026-08-22.** Raised by
   > aurora-86's verification pass, **re-verified firsthand by the aeon overseer** at aurora
   > `e731214`: there are **two** `parallaxRef` fields in `src/core/model/s4-types.ts` — `:121`
