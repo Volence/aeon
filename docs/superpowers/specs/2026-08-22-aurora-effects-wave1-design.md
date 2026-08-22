@@ -27,8 +27,9 @@ committed aeon briefs/contracts).*
 **Wave 1 (this design):** the contract-mature pieces —
 
 1. **BgAnim tile bands** — Aurora authors the `anims` key of `editor_bg_override.json`
-   (the neutral contract and consumer ALREADY EXIST); band preview on the shared
-   play-clock; the first authored act.
+   (the neutral contract and the CONSUMER exist; the PRODUCER does not — Aurora becomes a
+   new writer of that file, see §5's correction); band preview on the shared play-clock
+   (§5 flags an open viewport risk); the first authored act.
 2. **Scene parameter editing** — Aurora authors scene definition JSON under
    `games/sonic4/data/editor/effects/` (NEW schema; consumed by the booked-unbuilt
    `tools/effects_gen.py`, scanline P5).
