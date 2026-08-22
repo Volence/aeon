@@ -386,6 +386,10 @@ Bit-exact TS goldens stay deferred per the standing spec until the preview exist
 > therefore **assistant-authored under owner delegation**, not owner-dictated; each carries its
 > reasoning so the design review can overturn any of them cheaply. The questions as originally
 > posed are kept verbatim in the next subsection.
+>
+> **OWNER CONFIRMED 2026-08-22** in the main conversation: all six stand as ruled. The
+> pending-eyeball-confirmation gate from the 08-22 handoff is CLOSED; Aurora-arc doc work
+> (schema/contract halves + wave-1 design) is cleared to cut.
 
 1. **v1 scope → two waves, both inside this arc.** Wave 1 = BgAnim bands + scene parameter
    editing + section assignment (the contract-mature pieces); wave 2 = raster preset composition
