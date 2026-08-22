@@ -179,11 +179,37 @@ would otherwise have shipped:
 
 ### Still open on the Aurora lane (their work, tracked here)
 
-- **`.collattr.bin` silent overwrite — a SECOND live data-loss defect, still open** (fix on
-  their `fix/collattr-unreadable-guard`; SHA owed). Parse-level: `parseCollAttr` never throws on
-  truncation, so no `understood()` gate can see it. So the error-handling asymmetry is "safe on
-  aeon; FIXED for the sidecar on Aurora; STILL OPEN for collision planes" — do not freeze a
-  settled-Aurora claim.
+- **`.collattr.bin` silent overwrite — CLOSED 2026-08-22 night, aurora parcel tip `945f5c6`**
+  (that SHA's own subject is the ROADMAP item-10 booking; the fix commits precede it in the same
+  parcel — verified firsthand in their tree: `save.ts:94`/`:98` now read
+  `understood('collattr.bin') && section.collisionEdit`). It was TWO defects: the unreadable-plane
+  half (identical shape to the meta bug — proof shows all 131072 bytes of an authored plane
+  replaced by the baseline in one round trip) and the parse-level truncation half (a 130943-byte
+  file written back as 130942, `>> 1` eating the trailing byte). So the error-handling asymmetry
+  now reads: **safe on aeon; FIXED for both the sidecar and the collision planes on Aurora.**
+  Two things from that parcel worth carrying into our own gates: their agent REFUSED to dress the
+  even-length truncation case up as a byte delta (short in / same short out is byte-identical by
+  construction) and proved it through loader-accepts + save-recertifies instead, saying so
+  explicitly rather than manufacturing a stronger-looking assertion; and the plane length is
+  DERIVED from the loader's own fallback (`engineColl.length * 2`), never pinned, so check and
+  fallback cannot drift. Their ratified ruling: short, long and odd are ONE fact ("this is not
+  this section's plane"), handled identically by one equality against the derived length, with the
+  check in the LOADER because the section's cell count is not a property of the byte format.
+  Their own follow-on booking (their ROADMAP item 10): `resolvePlaneWords` returns a short `edit`
+  array regardless of its `length` argument — not live, because the new load guard closes it, but
+  a future producer could reintroduce a short plane.
+- **Wave 1's FIRST Aurora parcel is cut** (section-sidecar effects ref), dispatched against the
+  two contract SHAs with an explicit instruction to take the key name and type FROM THE CONTRACT,
+  not from the peer conversation, and to report BLOCKED rather than coin-flip if the contract
+  reads ambiguous between `sceneRef` and `effectsRef`. Round-trip preservation is built as a
+  tested contract property with two mandated mutations. **If they report that ambiguity, the
+  contract needs an aeon-side clarification** — `sceneRef` is the ruled name (Q2).
+- **PARKED FOR THE OWNER, correctly, by aurora-86:** per-key ownership of
+  `editor_bg_override.json` (Aurora's `anims` vs `png_to_bg_override.py`'s `layout`/`tiles`).
+  They declined to settle it unilaterally overnight — it is a data-ownership fork the owner lives
+  with, and it sits on the far side of his own showcase content. Agreed and endorsed: it is
+  exactly the design-changing class that PARKs rather than rides the delegation. Last-writer-wins
+  is rejected by both lanes.
 - **MapViewport has no rAF loop** — the preview machinery §(b) credited is
   `ClassicLevelViewport`-only, and the OJZ showcase runs MapViewport. No aeon-viewport perf datum
   exists. aurora-86 owes a foreground CDP measurement; if MapViewport needs its own animation
