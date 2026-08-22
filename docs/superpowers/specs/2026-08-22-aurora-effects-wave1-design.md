@@ -45,7 +45,8 @@ against the r3.1 design). Nothing in wave 1 authors an overlapping program, so t
 trigger stays untripped.
 
 Out of scope for both waves: anything that makes Aurora emit `.asm`/`.emp` (format
-boundary), anything requiring the deferred real aeon ProjectAdapter loader (§7), the full
+boundary), ROM-derived scene/budget enumeration (an `AeonProjectData`/`S4ActConfig` model
+extension — NOT the "deferred loader", see §7's correction), the full
 TS scanline simulator with goldens (§6).
 
 ## 2. Data flow (the ruled Option B shape, end to end)
@@ -123,6 +124,21 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   into the deleted `data/parallax/`) is deleted and replaced by act-level `sceneRef` in
   the same parcel that implements this schema — one change, no interim fossil (Q4). Null
   = the hand-authored `act_parallax_config` default stands.
+  > **TARGET THE ACT FIELD, NOT THE SECTION FIELD — corrected 2026-08-22.** Raised by
+  > aurora-86's verification pass, **re-verified firsthand by the aeon overseer** at aurora
+  > `e731214`: there are **two** `parallaxRef` fields in `src/core/model/s4-types.ts` — `:121`
+  > on **`Section`** and `:227` on **`Act`**. The loader populates only the Act one
+  > (`load.ts:373`, `parallaxRef: actConfig.parallax`, inside the act literal); `save.ts` writes
+  > neither, and `Section.parallaxRef` is set to null once at construction (`s4-types.ts:136`)
+  > and never persisted. The assessment cited `:121`. **Implementing ruling Q4 from that citation
+  > would wire the scene id into a dead per-section field and silently do nothing.** Ruling Q4
+  > stands as ruled; its target is `Act.parallaxRef` (`s4-types.ts:227`).
+  >
+  > **Bonus for ruling Q2, from the same finding:** `Section.parallaxRef` is *already* an unused
+  > per-section scalar ref of exactly the shape Q2 proposes, and `paletteRef` is the supporting
+  > precedent — it persists through the sidecar today with no renderer, command or agent consumer
+  > at all. "A ref that persists ahead of its UI" already ships in Aurora, so Q2 is better-founded
+  > than either side argued it.
 - **Editor-library ids only** in wave 1: `sceneRef` cannot name a hand-authored `.emp`
   scene (that would put symbol strings in editor JSON, coupling the editor tree to
   `.emp` internals). The twenty shipped hand scenes keep their hand bindings; open
@@ -149,7 +165,10 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
 - **NAMED PRECONDITION on wave 1's `sceneRef` work (ERRATUM 2 sequencing ruling):**
   `sceneRef` does NOT land in sidecars until Aurora's meta-gating fix is on aurora
   master. Pinned alongside this doc's other anchors: **aurora meta-gating fix SHA:
-  `TBD`** — deliberately a placeholder, not an omission; aurora-86 supplies it when the
+  `a88db05`** (aurora master, merged and re-verified on the merged tree: `tsc --noEmit`
+  clean, `vitest` 3856 passed / 3 skipped across 323 files, delta exactly the 7 new tests;
+  red-first proof shows the destruction as bytes on disk, and three planted mutations
+  include one that breaks only the save half) — the placeholder is discharged; the
   fix is reviewed and landed, and the implementing parcel replaces this TBD before
   cutting sceneRef work. Everything else in wave 1 (scene files, BgAnim authoring,
   `project.json` re-point, effects_gen scaffolding) is NOT blocked by it.
@@ -195,17 +214,31 @@ that claim, not before.** No wave-1 lens claims exactness.
 | **Aurora** (its overseer dispatches/lands, against pinned SHAs) | Effects facet (the registry pattern — one module per engine, `facet-registry.ts`); scene editor UI writing `editor/effects/*.json`; BgAnim band editor writing `anims`; Map-mode assignment panel writing `sceneRef` sidecars; `SectionMeta` extension; `project.json` reader re-point (`parallaxRef` → `sceneRef`); labeled-approximate preview lenses on the play-clock/overlay machinery (the `5b58f68..4cffe45` line); advisory budget meter reading `tools/effects_budget_model.toml`; the writer-side golden pinned against both repo SHAs |
 | **aeon** | `tools/effects_gen.py` (P5: constructor-call spike + ruled fallback, fixed `use` preamble + helper-closure gate, `schema:1` refusal, drift gate); the per-act binding module + `act_descriptor.emp` import seam (§3); the `project.json` re-point edit itself (repo-owned file); reachability + drift gates; the animated-arm byte-proof; wave-2's effects-tail revival when tripped |
 
-**The named ProjectAdapter gap (load-bearing, not assumed away):** aurora's
-`AeonProjectAdapter` is a ROUTING MARKER — `open()` returns a capability-marker handle
-and the renderer still runs the legacy `useProject.loadFromPath`; the real core-callable
-aeon loader is deferred (aurora ROADMAP §2.5 "Deferrals", restated in the §5.2 lane
-note). **Wave 1 is deliberately shaped to fit the legacy file-level path** — every
-surface is a JSON document or sidecar under the editor tree, exactly what today's facets
-already read/write. What wave 1 therefore CANNOT do, by design: enumerate hand-authored
-`.emp` scenes, read budget ledgers (the `<game>_scene_budgets.txt` artifact is itself
-unbuilt — scanline P2's symbol-readback spike), or resolve scene→section bindings from
-the built ROM. If the design review wants any of those in wave 1, that is NEW adapter
-work and must be named as such, not absorbed silently.
+**The named ProjectAdapter gap — CORRECTED 2026-08-22, the original caveat was FALSE.**
+
+> The assessment (and this doc's first draft) said `AeonProjectAdapter` is a ROUTING MARKER
+> whose `open()` returns a capability-marker handle while the renderer still runs a legacy
+> `useProject.loadFromPath`, with the real loader deferred per aurora ROADMAP §2.5/§5.2.
+> **That is refuted.** Raised by aurora-86's verification pass, **re-verified firsthand by the
+> aeon overseer** at aurora `e731214`: `src/core/project/aeon/index.ts:115` is
+> `const aeon = await loadAeonProject(fa, fa.rootDir ?? '')` — a real project load returned on
+> `handle.aeon`, with the file header at `:4-7` stating exactly that; and `useProject.loadFromPath`
+> **does not exist in `src/`** — its only three hits are comments describing what replaced it.
+> Both closed in aurora `4782e86` (2026-08-13), which `git merge-base --is-ancestor 4782e86
+> 4cffe45` confirms is an **ancestor of the assessment's own survey pin** — so the caveat was
+> already stale when the survey quoted it. The fault is aurora's ROADMAP, which their overseer is
+> correcting in their repo; the survey quoted it faithfully.
+
+**The CONCLUSION survives; the cause and the cost do not.** Nothing in `AeonProjectData` names a
+scene, preset, band or budget, so wave 1 still cannot enumerate hand-authored `.emp` scenes, read
+budget ledgers (`<game>_scene_budgets.txt` is itself unbuilt — scanline P2's symbol-readback
+spike), or resolve scene→section bindings from the built ROM. But the reason is a **model that
+does not carry those fields, not a loader that does not exist**: closing any of it is
+**extending `AeonProjectData`/`S4ActConfig`, not building a loader**, and is therefore
+substantially cheaper than the deferred-loader framing implied. **No doc may price this arc as
+"needs the deferred aeon loader built first."** Wave 1 remains shaped around JSON documents and
+sidecars under the editor tree regardless — that is a scoping choice, no longer a forced one. If
+the design review wants ROM-derived enumeration in wave 1, name it as model-extension work.
 
 ## 8. Verification
 

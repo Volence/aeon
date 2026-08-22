@@ -144,9 +144,39 @@ and the contract should state the asymmetry rather than leave it assumed.
   generators reuse it rather than reinventing it; name it in the consumer field list so the
   obligation points at an implementation instead of a principle.
 
-Net: the load path is safe on the aeon side today and unsafe on the Aurora side today, so the
-contract's error-handling section is **normative for both halves** rather than a courtesy note
-aimed at one.
+Net: the contract's error-handling section is **normative for both halves** rather than a courtesy
+note aimed at one.
+
+**AMENDED same night** (aurora-86; their meta fix landed as aurora `a88db05`, and their enumeration
+found more). The asymmetry is narrower than first written — state it as: **safe on the aeon side;
+FIXED for the sidecar on Aurora; STILL OPEN for collision planes.** Do not freeze a settled-Aurora
+claim.
+
+- **Their meta fix is landed and merged-tree-verified** (`a88db05`): `markUnreadable` on the load
+  catch with the same argument shape as the rings call, and BOTH meta write branches — content and
+  cleared-overwrite — behind `understood('meta.json')`. `tsc --noEmit` clean; `vitest` 3856 passed
+  / 3 skipped across 323 files, delta exactly the 7 new tests; red-first proof shows the
+  destruction as **bytes on disk**, with three planted mutations including one that breaks only
+  the save half.
+- **The legacy-atlas guard resolved as NEITHER predicted outcome.** It is at `save.ts:270-279` and
+  reaches the right result **through data flow, not through `unreadable`/`understood()`**:
+  `legacyAtlasMerged` is set only inside the success block at `load.ts:494-506`, so a malformed
+  chunks.json leaves the library empty, migration is skipped, and the flag stays false. Therefore
+  the contract's claim must be **outcome-uniform per artifact, NOT mechanism-uniform** — four
+  sites use the explicit guard, one gets there another way. The mechanism claim would be
+  load-bearing in the wrong direction.
+- **A live defect one artifact over, still open:** `.collattr.bin`/`.collattrb.bin`
+  (`load.ts:276-287`) parse inside bare catches that substitute a strip-derived baseline, and
+  `save.ts:89-96` gates the writes only on `if (section.collisionEdit)` — which the fallback makes
+  always truthy. An unreadable authored collision plane is silently overwritten with the baked
+  baseline. **Mechanism correction from their own second pass:** `parseCollAttr`
+  (`s4-collattr.ts:6-11`) is `n = data.length >> 1` plus a loop with no length validation and no
+  throw, so a **truncated** file never enters the catch at all — it parses short, and
+  `serializeCollAttr` writes back `words.length * 2` bytes, persisting the truncation **at the
+  short length** (odd-length files silently drop the trailing byte). It is parse-level loss that
+  **no `understood()` gate can see**, which is why it needs its own answer. Their fix is on
+  `fix/collattr-unreadable-guard`; SHA to follow. Not this arc's blocker — `sceneRef` rides the
+  sidecar, not the collision planes — but the error-handling section must not imply it is closed.
 
 ---
 

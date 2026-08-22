@@ -155,7 +155,8 @@ surface.
   file **preserved rather than repaired** — a generator bug is sticky, not
   self-healing; a human fixes the file by hand. **Sequencing precondition:** `sceneRef`
   does not land in sidecars until Aurora's meta-gating fix is on their master (fix SHA:
-  TBD, pinned in the wave-1 design doc §4 when aurora-86 supplies it).
+  **`a88db05`**, aurora master — merged, re-verified on the merged tree, pushed;
+  see the wave-1 design doc §4).
 - `project.json` (repo root): per act entry, the generator reads **one key**: `sceneRef`
   — string scene id or `null`/absent (= the hand-authored engine default in
   `act_descriptor.emp` stands). The dangling `parallax` key is deleted in the same parcel
