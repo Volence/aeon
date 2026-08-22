@@ -3,7 +3,10 @@
 *Status: **draft for design review**, 2026-08-22. Docs-only parcel — no engine code, no
 builds. Design inputs: the six ADJUDICATED answers in
 `docs/research/2026-08-22-aurora-effects-authoring-assessment.md` §(f), owner-confirmed at
-`08f01b73` — transcribed here, not re-litigated (each ruling is cited where it lands).
+`08f01b73` — transcribed here, not re-litigated (each ruling is cited where it lands) —
+plus the assessment's ERRATA 1+2 (`e7546c3f` / `b64798f6` / `5be97277`: the sidecar write
+condition, the silent-null coercion, and the live meta destroy path, all verified at
+aurora `e731214`).
 Standing rulings inherited: effects-suite design §8 (`docs/superpowers/2026-08-11-effects-suite-design.md`),
 scanline-services §7 (`docs/superpowers/specs/2026-08-17-scanline-services-design.md:355-383`,
 phase table `:506-507`), the 2026-08-20 format-boundary ruling
@@ -35,9 +38,11 @@ committed aeon briefs/contracts).*
 **Wave 2 (sequenced, not deferred):** raster preset composition (tint bands, vscroll
 splits, patchable channels, variants, cycling) — cut immediately after wave 1's contract
 golden is green. Wave 2, not wave 1, is the recorded revival trigger for the banked
-effects-tail overlap parcel (`docs/DEFERRED_WORK.md:5461-5468` — "a real program that
-needs overlapping patchable bands"; that revival is an aeon parcel against the r3.1
-design). Nothing in wave 1 authors an overlapping program, so the trigger stays untripped.
+effects-tail overlap parcel (`docs/DEFERRED_WORK.md:5461-5468` at `08f01b73`; this arc's
+own booking shifts it a few lines down — locate by its banner, "**Revival condition: a
+real program that needs overlapping patchable bands**"; that revival is an aeon parcel
+against the r3.1 design). Nothing in wave 1 authors an overlapping program, so the
+trigger stays untripped.
 
 Out of scope for both waves: anything that makes Aurora emit `.asm`/`.emp` (format
 boundary), anything requiring the deferred real aeon ProjectAdapter loader (§7), the full
@@ -122,17 +127,29 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   scene (that would put symbol strings in editor JSON, coupling the editor tree to
   `.emp` internals). The twenty shipped hand scenes keep their hand bindings; open
   question §9 Q-a covers a future manifest if assignment-to-hand-scenes is wanted.
-- **Aurora-side hazard (ERRATUM 1 of the assessment + addendum, verified at aurora
-  `e731214`; specified in full in `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.2 and the
-  empyrean doc §3/§6):** Aurora's sidecar codec hardcodes the two-ref set at six sites —
-  parse silently drops unknown keys AND nulls non-string values in known keys, serialize
-  and the cleared-overwrite body re-emit only the enumerated fields — so a `sceneRef`
-  from any non-sceneRef-aware writer is silently erased on Aurora's next save. Hence:
-  the `SectionMeta` extension (all six sites) lands in the same Aurora parcel as the
-  first writer; the golden pins the parse→serialize round-trip; `sceneRef` is ruled a
-  string id, never a numeric index (silent-null failure mode); malformed sidecars throw,
-  so non-Aurora writers write atomically; and a MISSING sidecar is all-refs-null for
-  every consumer, never an error.
+- **Aurora-side hazard (ERRATA 1+2 of the assessment, through `5be97277`, verified at
+  aurora `e731214`; specified in full in `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.2 and
+  the empyrean doc §3/§6):** Aurora's sidecar codec hardcodes the two-ref set at six
+  sites — parse silently drops unknown keys AND nulls non-string values in known keys,
+  serialize and the cleared-overwrite body re-emit only the enumerated fields — so a
+  `sceneRef` from any non-sceneRef-aware writer is silently erased on Aurora's next
+  save. Worse, the meta path is **silently destructive today** (ERRATUM 2): a malformed
+  sidecar is swallowed by a bare catch, read as all-null, and overwritten with a
+  well-formed empty body at the next save — a live data-loss defect. Hence: the
+  `SectionMeta` extension (all six sites) lands in the same Aurora parcel as the first
+  writer; the golden pins the parse→serialize round-trip; `sceneRef` is ruled a string
+  id, never a numeric index (silent-null failure mode); the unreadable-sidecar
+  obligation is SHARED — generators write atomically and fail the bake loudly on an
+  unreadable sidecar (missing = all-null; unreadable ≠ all-null, ever), Aurora routes
+  the meta catch through `markUnreadable` and gates the meta write (including the
+  cleared-overwrite literal) behind `understood('meta.json')`.
+- **NAMED PRECONDITION on wave 1's `sceneRef` work (ERRATUM 2 sequencing ruling):**
+  `sceneRef` does NOT land in sidecars until Aurora's meta-gating fix is on aurora
+  master. Pinned alongside this doc's other anchors: **aurora meta-gating fix SHA:
+  `TBD`** — deliberately a placeholder, not an omission; aurora-86 supplies it when the
+  fix is reviewed and landed, and the implementing parcel replaces this TBD before
+  cutting sceneRef work. Everything else in wave 1 (scene files, BgAnim authoring,
+  `project.json` re-point, effects_gen scaffolding) is NOT blocked by it.
 
 ## 5. BgAnim authoring (the wave-1 opener)
 

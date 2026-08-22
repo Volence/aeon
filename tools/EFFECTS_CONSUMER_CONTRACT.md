@@ -136,11 +136,23 @@ surface.
   silently erased on Aurora's next save round-trip. The `SectionMeta` extension edits
   all six in the same Aurora parcel as the first writer, and parse→serialize
   preservation of `sceneRef` is a **named contract requirement** (empyrean schema doc
-  §3/§6/§8), not an implementation detail. **Malformed sidecars THROW** (bare
-  `JSON.parse`, `section-meta.ts:27`): error ownership is the WRITER's — any non-Aurora
-  writer of sidecars (hand tools, future generators) writes atomically (temp file +
-  rename) so a partial sidecar is never observable; consumers do not add a
-  tolerate-garbage path.
+  §3/§6/§8), not an implementation detail. **Unreadable sidecars — the obligation is
+  SHARED** (ERRATUM 2, `5be97277`, superseding an earlier consumer-side-only framing):
+  Aurora's meta path is silently destructive TODAY (bare catch at `load.ts:322-329` +
+  the cleared-overwrite at `save.ts:123` turn a malformed sidecar into a well-formed
+  empty one — a live data-loss defect); Aurora's half of the fix is `markUnreadable` +
+  `understood('meta.json')` gating including the cleared-overwrite literal. The
+  generator's half: (a) WRITE atomically (temp file + rename) — a partial sidecar is
+  never observable; (b) READ with the missing/unreadable split intact — a MISSING
+  sidecar is all-refs-null, an UNREADABLE one **fails the bake loudly**; "degrade
+  gracefully" must NOT mean "treat as all-null", because all-null is exactly the state
+  that triggers Aurora's destructive overwrite. **And stated plainly because the
+  opposite expectation is the natural one:** once Aurora refuses to overwrite an
+  unreadable sidecar, a generator that writes a sidecar Aurora cannot parse finds its
+  file **preserved rather than repaired** — a generator bug is sticky, not
+  self-healing; a human fixes the file by hand. **Sequencing precondition:** `sceneRef`
+  does not land in sidecars until Aurora's meta-gating fix is on their master (fix SHA:
+  TBD, pinned in the wave-1 design doc §4 when aurora-86 supplies it).
 - `project.json` (repo root): per act entry, the generator reads **one key**: `sceneRef`
   — string scene id or `null`/absent (= the hand-authored engine default in
   `act_descriptor.emp` stands). The dangling `parallax` key is deleted in the same parcel
