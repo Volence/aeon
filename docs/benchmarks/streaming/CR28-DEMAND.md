@@ -37,3 +37,28 @@ The one departure from this anchor: `entryKind` is `"hint" | "vint" | "root" | "
 naming. **Accepted by the demand side**: it honours and exceeds the stated floor, and the
 VBlank-entered-vs-HBlank-entered distinction is precisely what the streaming consumer
 branches on. This anchor stands as history; the ruling governs the shape.
+
+## SHIPPED 2026-08-21 — ship notice received (transcription; firsthand verification pending)
+
+Ship notice from the oracle session, evening 2026-08-21. All SHAs on the remotes:
+
+- **oracle main `a621e4c`** — `set_profiler{callers:true}` arming; `get_profiler_frames{topCallers}`
+  (refused above `initialize.limits.maxProfilerCallers`, never clamped; `-32005 callersNotArmed`
+  when unarmed); per-row `callers[]` ordered by cycles descending with flat companions
+  `callersTotal`/`callersReturned`/`callersTruncated`. Edge tuple `{callerAddr?, callerName?,
+  callerDisp?, entryKind?, cycles, cyclesSelf, calls, callsTotal, cyclesTotal, cyclesSelfTotal}`;
+  both normative sums exact `==` when untruncated (wire-tested their side). `entryKind` is
+  `"hint"|"vint"|"root"|"depthCap"`, required exactly when `callerAddr` absent. Unarmed replies
+  byte-identical to pre-CR-28. Their gates: 48 legs / 1770 / 0 / 4.
+- **empyrean main `70c7bb4`** — §11.18 normative text (+ amended §11.16 bound, §2.4 flat-spelling).
+- **oracle-old `d629771`** (local) — MCP tool rows for the same lens; long-lived MCP server
+  processes need a restart to see it.
+
+**Caveat, theirs, honest:** `entryKind:"depthCap"` is structurally unreachable from the current
+accumulator (push refuses only AT the cap; latch clears on pop) — schema-tested, never emitted
+today. Booked as a known caveat, NOT a follow-up ask: our consumer branches on hint/vint/root.
+
+**What we still owe:** firsthand consumption — arm callers on the fill/S4LZ rows from a live
+probe, check `topCallers` refusal, both `==` sums, and the hint-vs-vint split against ground
+truth. First natural consumer: the staging-lifetime settling probe (TICK-VARIANCE §3 successor).
+Until that runs, everything above is transcription, not verification.
