@@ -1,0 +1,79 @@
+// games/sonic4/test/poison/poison_scene_lcm_undeclared.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp's MANDATORY left-column policy — `scene()`'s
+// guard (1) of the P3 Task 12 block: a scene attaching a per-column V-deform table
+// (SceneVDeform.Columns) with `left_column_mask` left Undeclared fails the build.
+// EXPECTED FRAGMENT: "a scene with 1 layer(s) attaching a per-column V-deform table
+// (SceneVDeform.Columns, sample speed 0, amplitude shift 2) declares NO left_column_mask
+// policy" — the WHOLE interpolated signature, deliberately: sigil reports a comptime-fn
+// ensure at the ENSURE's own span, not the call site, so the interpolated
+// count/speed/shift triple is the only thing that names WHICH scene failed (the Task 12
+// DONE block's discovery — it is what separated the six Rocking/Perspective elaborations
+// in the natural-red run quoted in commit ba335e08). Matching the full triple is what
+// keeps this case from passing on some OTHER scene's undeclared-policy diagnostic.
+//
+// THIS IS THE CASES ROW P3 TASK 12 EXPLICITLY LEFT TO TASK 15 (its DONE block, "Task 15
+// note"). The guard went in with natural-red evidence — 192 failures across the six
+// shipped per-column elaborations before their declarations existed — but that red
+// predates the declarations and is not re-run by anything; this row is what keeps the
+// guard's liveness checked on every canonical DEBUG build.
+//
+// TWO FIXTURES, ONE AUTHORED FIELD APART (the two-fixture differential, P1's mask-poison
+// reference):
+//
+//   FIXTURE A — a one-layer locked scene attaching a per-column table, declaring
+//               `left_column_mask: SceneLeftColMask.Accept`. Accept is the REAL authored
+//               answer both shipped per-column families use (Rocking because its
+//               zero-table factor0 truth is comptime-invisible, Perspective because its
+//               shimmer floor genuinely ships the artifact), so the control models the
+//               shipped shape, not a convenient one. It must pass ALL FOUR lcm guards:
+//               (1) declared, (2) declared WITH a subject, (3) not a Factor0Lock claim,
+//               (4) not the refused SpriteMask. Its pass is MEASURED below by the
+//               variant test on the constructed scene's own field.
+//   FIXTURE B — byte-for-byte fixture A with the declaration REMOVED (the parameter
+//               defaults to Undeclared, which is exactly how a real author forgets it).
+//               Guard (1) fires.
+//
+// Expected `[Error]` count is 1: guard (2) passes for B (v-deform IS attached), guards
+// (3)/(4) pass (Undeclared is neither), and every non-lcm guard is identical across the
+// pair. A count of 2 means fixture A stopped being legal (Accept refused, or the
+// no-policy-without-a-subject guard mis-widened); a count of 0 means the mandatory
+// declaration went dead and a per-column scene can ship unadjudicated again.
+//
+// THE TABLE LABEL IS 0, the same spelling every scene poison uses (see
+// poison_scene_own_caps.emp): the guard discriminates on the VARIANT, never the payload,
+// and a real DeformTable_* name would tie this poison to another module's emission.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+module games.sonic4.test.poison.poison_scene_lcm_undeclared
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — per-column table, policy declared. The shipped families' shape.
+const POISON_LCM_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2),
+    left_column_mask: SceneLeftColMask.Accept)
+
+// FIXTURE B — byte-for-byte fixture A, declaration removed (defaults to Undeclared).
+const POISON_LCM_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15,
+    v_deform: SceneVDeform.Columns(0, 0, 2))
+
+// ---- THE PASSING HALF (must stay green, and is MEASURED) ----
+// The constructor is non-aborting either way, so "A passed" cannot be read off the build
+// succeeding; it is read off A's OWN field carrying a declared policy — the exact
+// predicate guard (1) tests — plus the diagnostic count above staying at 1.
+ensure(scene_lcm_is_undeclared(POISON_LCM_SCENE_A.sc_left_col_mask) == 0,
+       "poison_scene_lcm_undeclared: the CONTROL's left_column_mask reads as Undeclared — fixture A no longer declares the Accept policy, so the failing half below no longer isolates the missing declaration")
+
+// ---- THE FAILING HALF — elaborating fixture B is what fires guard (1) ----
+ensure(scene_lcm_is_undeclared(POISON_LCM_SCENE_B.sc_left_col_mask) == 1,
+       "poison_scene_lcm_undeclared: the poisoned fixture's left_column_mask no longer reads as Undeclared — the fixture stopped modelling the forgotten declaration and the expected diagnostic proves nothing")

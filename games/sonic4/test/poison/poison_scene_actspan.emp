@@ -1,0 +1,76 @@
+// games/sonic4/test/poison/poison_scene_actspan.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp's `assert_act_relative_tagged()` world-Y span
+// ensure — the DERIVED act-span bound that replaced `layer()`'s typed `world_y < 512`
+// when P3 Task 7 made `ly_world_y` an ACT coordinate (and retired the 8-px grid ensure
+// entirely — see poison_scene_grid.emp for the forcer that job moved to).
+// EXPECTED FRAGMENT: "a world-Y layer top (6144) is outside this act's vertical span (6144)"
+//
+// THE BOUND IS THE REGISTRY'S OWN, NOT A NUMBER TYPED HERE. `SCENE_ACT_SPAN_Y` is
+// imported from games/sonic4/data/effects/scene_registry.emp — the same mirror the real
+// registry fold passes, held to the act descriptor's `GRID_H << SECTION_SIZE_SHIFT` by
+// the pin in act_descriptor.emp. The selective-import CLONE hazard (EMP_PITFALLS §2 /
+// the registry's own banner) is benign for this one name: its initializer is the literal
+// 6144, so the clone re-evaluates to the same value — and if the import ever resolved to
+// nothing, assert_act_relative_tagged()'s OWN anti-vacuity ensure ("is not a legal act
+// extent ... a 0 here usually means the constant did not resolve") fails this case on
+// the fragment, loudly, instead of letting it drift.
+//
+// TWO FIXTURES, ONE ACT PIXEL APART — the one-unit rule (plan Task 15): a poison that
+// blew the span by a plane's worth could pass with the bound off by anything up to that.
+//
+//   FIXTURE A — top at 6143, the LAST legal act Y (span is 0 .. 6143 inclusive). It is
+//               deliberately OFF-GRID TOO: with v_factor 4 its plane image is
+//               6143 >> 4 = 383, and 383 % 8 = 7 — the exact shape `layer()` used to
+//               refuse and Task 7 made legal. So the passing half is double evidence:
+//               in-span passes the new bound, and off-grid no longer fails the retired
+//               one. Its pass is MEASURED by the return-count ensure below (1 top + 0
+//               anchors = 1), not assumed.
+//   FIXTURE B — byte-for-byte fixture A except the top: 6144, ONE act pixel past the
+//               last legal value. Plane image 384, still well inside the 512-px Plane-B
+//               span — so the ONLY thing wrong with this scene is the act-span bound,
+//               and the diagnostic count means something.
+//
+// Expected `[Error]` count is 1: fixture B's one top fails the span ensure once. A count
+// of 2 means fixture A stopped passing (the bound tightened past the registry's own
+// span, or the import broke — both real regressions); a count of 0 means the derived
+// bound went dead and an out-of-act top would reach the lowering.
+//
+// WHY layer() CANNOT CATCH THIS: it sees one layer and knows nothing about the act, so
+// it applies only the engine-wide $8000 ceiling — 6144 passes it legally. The registry
+// fold is the ONLY place the act's own extent reaches the check, which is exactly why
+// this poison drives the fold and not the constructor.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+module games.sonic4.test.poison.poison_scene_actspan
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+use games.sonic4.scene_registry.{SCENE_ACT_SPAN_Y}
+
+// FIXTURE A — the last legal act Y, off the 8-px grid (plane image 383).
+const POISON_AS_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 6143, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 4)
+
+// FIXTURE B — byte-for-byte fixture A except the top: one act pixel past the span.
+const POISON_AS_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 6144, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 4)
+
+// ---- THE PASSING HALF (must stay green, and is MEASURED) ----
+// assert_act_relative_tagged returns tops + anchors; hand-derived for fixture A that is
+// 1 + 0 = 1. Referencing the result is also the elaboration hook (EMP_PITFALLS §3).
+const POISON_AS_TAGGED_A = assert_act_relative_tagged([POISON_AS_SCENE_A], SCENE_ACT_SPAN_Y)
+ensure(POISON_AS_TAGGED_A == 1,
+       "poison_scene_actspan: the CONTROL classified {POISON_AS_TAGGED_A} declarations, not the hand-derived 1 (one top, no anchor) — fixture A at act Y 6143 is supposed to be the LAST legal top, so the failing half below no longer isolates the span bound")
+
+// ---- THE FAILING HALF — one act pixel over the derived span ----
+// The span ensure is non-aborting, so the fold still classifies the top and returns 1.
+const POISON_AS_TAGGED_B = assert_act_relative_tagged([POISON_AS_SCENE_B], SCENE_ACT_SPAN_Y)
+ensure(POISON_AS_TAGGED_B == 1,
+       "poison_scene_actspan: the poisoned fixture classified {POISON_AS_TAGGED_B} declarations rather than 1 — the fold stopped walking the scene and the expected span diagnostic no longer proves what this case says it proves")
