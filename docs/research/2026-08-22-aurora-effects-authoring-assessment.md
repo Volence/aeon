@@ -76,6 +76,59 @@ Two further facts from the same file, both contract-relevant:
 
 ---
 
+## ERRATUM 2 — the meta sidecar is silently destructive TODAY (verified 2026-08-22, aurora `e731214`)
+
+Raised by aurora-86 when they took the atomic-write question to their loader; **independently
+verified by the aeon overseer** at the same SHA before acceptance. This is a **live data-loss
+defect in Aurora**, not a hardening nicety, and it changes this arc's sequencing.
+
+**The mechanism** (all OBSERVED at aurora `e731214`):
+
+1. `src/core/project/aeon/load.ts:322-329` — the meta sidecar's load path has a **bare, silent
+   catch**: `catch { // no meta sidecar — defaults from createSection stand }`. A malformed sidecar
+   is therefore indistinguishable from an absent one; both yield default (null) refs.
+2. Save then completes the destruction: refs are null → `serializeSectionMeta` returns null → the
+   exists-probe at `save.ts:123` finds the file → it is **overwritten with
+   `{bgLayoutRef: null, paletteRef: null}`**. A corrupt sidecar is silently consumed and replaced
+   with a well-formed empty one. Every assignment in it is gone, with no notice anywhere.
+
+**The repo already has the correct idiom seven lines above.** The rings loader (`load.ts:311-318`)
+routes its catch through `markUnreadable`, which probes `exists` to separate present-but-unreadable
+from simply-absent (`:173-175` — exactly the distinction the meta catch collapses), records the
+suffix on `section.unreadable`, and emits "…exists but could not be read… Aurora is showing empty
+data for it and will NOT overwrite the file — fix it by hand and reopen" (`:178-181`). That promise
+is enforced at save by `understood()` (`save.ts:78`), which gates `tiles.bin` (`:81`),
+`objects.json` (`:99`) and `rings.json` (`:106`). **The meta sidecar is gated by neither.** The
+save-path comment at `save.ts:74-77` states the rule in its own words — "a load-time parse failure
+must not lead to destroying data" — and names the exact scenarios (a truncated hand-edit, a
+merge-conflict marker). Three of four section artifacts honour it; the fourth is the one this arc
+wants to hang `sceneRef` on.
+
+**RULING — the atomic-write obligation becomes SHARED, not consumer-side-only** (assistant-authored
+under owner delegation; aurora-86 concurs and is dispatching their half). Atomic temp-file-then-
+rename stops *partial* writes and is still required of generators. It does nothing about the hand
+edits this contract explicitly blesses as a legitimate writer, a merge-conflict marker, or any
+other unreadable-for-any-reason case — each of which hits the silent-destroy path above. Aurora's
+half: route the meta catch through `markUnreadable` as rings does, and gate the meta write
+(**including the cleared-overwrite literal**) behind `understood('meta.json')`. Recorded emphatically
+because it is the subtle part: **"degrade gracefully" must NOT mean "treat as all-null"** — all-null
+is precisely the state that triggers the destructive overwrite, so quiet-and-lossy would be worse
+than the status quo. Loud and non-destructive.
+
+**Consequence for the aeon consumer field list, stated because the opposite expectation is the
+natural one:** once Aurora refuses to overwrite an unreadable sidecar, a generator that writes a
+sidecar Aurora cannot parse will find its file **preserved rather than repaired**, and the section
+shows empty refs until a human fixes it. That is intended behaviour, but it means a generator bug
+is **sticky rather than self-healing**. Say so plainly in the field list.
+
+**SEQUENCING CONSEQUENCE (mine, delegated):** wave 1 must not land `sceneRef` into the sidecar until
+Aurora's meta-gating fix is on their master. Until then the third ref inherits a known silent-
+destroy path, and the arc's first authored act would be the thing that discovers it. The fix SHA is
+therefore a **named precondition** on wave 1's sceneRef work — aurora-86 sends it when reviewed and
+landed; the aeon and empyrean contract docs pin it alongside the other anchors.
+
+---
+
 ## (a) Inventory — the three effects vocabularies and their data paths to the ROM
 
 ### A1. Scenes (multi-band parallax: layers, deform, curves, vsplit, anchors)
