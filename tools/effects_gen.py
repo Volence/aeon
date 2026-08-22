@@ -74,6 +74,37 @@ LAYER_KEYS = frozenset({
 LAYER_IGNORED_KEYS = frozenset({"name"})
 
 
+# --- factor vocabulary (contract §2.1: "named FACTOR_* or {s1,s2,op}") --------
+# Mirrored from engine/level/parallax_dsl.emp. This list is a SPELLING check, not a
+# value check: it exists so a typo'd factor name becomes a generator refusal naming
+# the near misses, instead of a sigil "unknown symbol" pointing at generated code the
+# author never wrote. The authority remains parallax_dsl; if it grows a factor and
+# this list lags, the failure is a refusal of something legal — loud and obvious —
+# never a silently wrong emission.
+FACTOR_NAMES = frozenset({
+    "FACTOR_LOCKED", "FACTOR_0",
+    "FACTOR_1", "FACTOR_1_2", "FACTOR_1_4", "FACTOR_1_8", "FACTOR_1_16", "FACTOR_1_32",
+    "FACTOR_3_4", "FACTOR_3_8", "FACTOR_3_16",
+    "FACTOR_5_8", "FACTOR_5_16",
+    "FACTOR_7_8", "FACTOR_7_16", "FACTOR_15_16",
+})
+
+# Attachment-bearing keys. Their VOCABULARY (SceneDeform.Own/Shared, SceneCurve,
+# SceneVSplit, tableRef generators) is emitted by a later slice; until then a
+# NON-NULL attachment is refused loudly rather than dropped. A JSON null means
+# "absent, take the constructor default" and is simply omitted from the call.
+SCENE_ATTACHMENT_KEYS = ("deform_fg", "deform_bg", "v_deform", "anchor",
+                         "left_column_mask")
+LAYER_ATTACHMENT_KEYS = ("deform", "curve", "vsplit")
+
+# Scene-level scalars, emitted in the constructor's own argument order.
+SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg",
+                 "precision", "transition")
+LAYER_SCALARS = ("dsa", "dsb", "phase", "enabled")
+
+MAX_PARALLAX_BANDS = 8
+
+
 class SceneShapeError(Exception):
     """A scene file that the generator refuses. Raised, never swallowed."""
 
@@ -184,6 +215,98 @@ def load_all_scenes(game: str = "sonic4", repo: str = REPO) -> dict:
             _refuse(path, f"duplicate scene id {scene['id']!r}")
         scenes[scene["id"]] = scene
     return scenes
+
+
+def render_factor(path: str, value, where: str) -> str:
+    """A factor, in either contract-legal spelling.
+
+    Named (`"FACTOR_1_2"`) emits the bare symbol; composed (`{s1,s2,op}`) emits
+    `packed(s1: .., s2: .., op: ..)`. Both are `engine.level.parallax_dsl` spellings
+    and both are checked for SPELLING only — the packed field values are sigil's.
+    """
+    if isinstance(value, str):
+        if value not in FACTOR_NAMES:
+            near = sorted(n for n in FACTOR_NAMES if n.startswith(value[:9]))
+            _refuse(path, f"{where}: unknown factor name {value!r}. Legal spellings "
+                          f"are the parallax_dsl FACTOR_* constants or a composed "
+                          f"{{s1, s2, op}} object."
+                          + (f" Did you mean: {', '.join(near)}?" if near else ""))
+        return value
+    if isinstance(value, dict):
+        missing = [k for k in ("s1", "s2", "op") if k not in value]
+        if missing:
+            _refuse(path, f"{where}: composed factor is missing {', '.join(missing)}. "
+                          f"The composed spelling is {{s1, s2, op}} — all three.")
+        extra = sorted(set(value) - {"s1", "s2", "op"})
+        if extra:
+            _refuse(path, f"{where}: composed factor carries unknown key(s) "
+                          f"{', '.join(extra)}; it is exactly {{s1, s2, op}}.")
+        return (f"packed(s1: {value['s1']}, s2: {value['s2']}, op: {value['op']})")
+    _refuse(path, f"{where}: factor must be a FACTOR_* name or a {{s1, s2, op}} "
+                  f"object, got {type(value).__name__}")
+
+
+def _reject_unemitted_attachments(path: str, obj: dict, keys, where: str):
+    """Refuse a NON-NULL attachment until the slice that emits it lands.
+
+    A JSON null means 'absent, take the constructor default' and is omitted from the
+    call. A real attachment is REFUSED rather than dropped: dropping one would emit
+    a scene that builds clean and renders the wrong thing, which is the exact class
+    of silent wrongness this pipeline exists to avoid.
+    """
+    for key in keys:
+        if obj.get(key) is not None:
+            _refuse(path, f"{where}: `{key}` carries an attachment, which this "
+                          f"generator does not emit yet (P5 emits the scalar surface "
+                          f"first; the SceneDeform / SceneCurve / SceneVSplit and "
+                          f"tableRef vocabulary lands in the following slice). "
+                          f"Refusing rather than dropping it — a dropped attachment "
+                          f"would build clean and render wrong.")
+
+
+def render_layer(path: str, layer: dict, where: str) -> str:
+    _reject_unemitted_attachments(path, layer, LAYER_ATTACHMENT_KEYS, where)
+    args = [f"world_y: {layer['world_y']}",
+            f"fa: {render_factor(path, layer['fa'], where + '.fa')}",
+            f"fb: {render_factor(path, layer['fb'], where + '.fb')}"]
+    for key in LAYER_SCALARS:
+        if layer.get(key) is not None:
+            args.append(f"{key}: {layer[key]}")
+    return "layer(" + ", ".join(args) + ")"
+
+
+def render_scene(path: str, scene: dict) -> str:
+    """The `pub const … : Scene = scene(…)` text for one validated scene.
+
+    Deliberately returns TEXT and writes nothing. The generated module is not wired
+    into the build until the descriptor import seam exists (wave-1 design §3, open
+    question Q-c): an UNREACHED `.emp` module gets zero body elaboration, so
+    `ensure(1 == 0)` inside one builds green. Emitting a module nothing imports
+    would look finished while validating nothing — the failure this pipeline is
+    least able to notice.
+    """
+    layers = scene["layers"]
+    if len(layers) > MAX_PARALLAX_BANDS:
+        _refuse(path, f"{len(layers)} layers exceeds MAX_PARALLAX_BANDS "
+                      f"({MAX_PARALLAX_BANDS}); scene() refuses this too, but the "
+                      f"generator would have to pad past the array to reach it.")
+    _reject_unemitted_attachments(path, scene, SCENE_ATTACHMENT_KEYS, "scene")
+
+    rendered = [render_layer(path, l, f"layers[{i}]") for i, l in enumerate(layers)]
+    # The array is ALWAYS eight slots, padded with no_layer() — the hand-authored
+    # idiom (games/sonic4/data/effects/ojz_scenes.emp) and what scene() indexes.
+    rendered += ["no_layer()"] * (MAX_PARALLAX_BANDS - len(rendered))
+
+    body = ["    layers: [ " + ",\n              ".join(rendered) + " ]",
+            f"    count: {len(layers)}"]
+    for key in SCENE_SCALARS:
+        if scene.get(key) is not None:
+            body.append(f"    {key}: {scene[key]}")
+    # layer_mask_raw / v_deform_shift_raw are deliberately NOT emitted: they are the
+    # hand-migration byte-identity bridges, their -1 defaults mean "derive", and
+    # editor scenes derive. The loader refuses them in the JSON for the same reason.
+    return (f"pub const Scene_Editor_{scene['id']}: Scene = scene(\n"
+            + ",\n".join(body) + ")")
 
 
 if __name__ == "__main__":

@@ -226,5 +226,112 @@ class TestValuesAreNotValidatedHere(SceneShapeBase):
         self.assertEqual(scene["budget_class"], "anything_at_all")
 
 
+class TestRendering(SceneShapeBase):
+    """Emission expectations are derived from the HAND-AUTHORED idiom in
+    `games/sonic4/data/effects/ojz_scenes.emp` (`Scene_OJZ_Default`), not from the
+    implementation — the generated call must be spelled the way a human writes one."""
+
+    def render(self, **over):
+        path = self.write("ojz_bg", _scene(**over))
+        return effects_gen.render_scene(path, effects_gen.load_scene(path))
+
+    def test_layers_array_is_always_eight_slots_padded_with_no_layer(self):
+        """`scene()` indexes a [SceneLayer; 8]; the hand idiom pads with no_layer()."""
+        out = self.render(layers=[{"world_y": 512, "fa": "FACTOR_1", "fb": "FACTOR_1_2"}])
+        self.assertEqual(out.count("no_layer()"), 7)
+        self.assertEqual(out.count("layer(world_y"), 1)
+
+    def test_count_is_the_authored_layer_count_not_the_padded_width(self):
+        out = self.render(layers=[
+            {"world_y": 512, "fa": "FACTOR_1", "fb": "FACTOR_1_2"},
+            {"world_y": 1024, "fa": "FACTOR_1", "fb": "FACTOR_1_2"},
+        ])
+        self.assertIn("count: 2", out)
+
+    def test_a_scene_mirroring_the_shipped_ojz_default_renders_its_layer_spelling(self):
+        """Scene_OJZ_Default's first layer is, verbatim in the shipped file:
+            layer(world_y: 512,  fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15)
+        """
+        out = self.render(
+            layers=[{"world_y": 512, "fa": "FACTOR_1", "fb": "FACTOR_1_2",
+                     "dsa": 15, "dsb": 15}],
+            v_factor=3, v_center=512, v_offset=0)
+        self.assertIn(
+            "layer(world_y: 512, fa: FACTOR_1, fb: FACTOR_1_2, dsa: 15, dsb: 15)", out)
+        self.assertIn("v_factor: 3", out)
+        self.assertIn("v_center: 512", out)
+
+    def test_absent_optional_scalars_are_omitted_so_constructor_defaults_stand(self):
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        for absent in ("v_center", "v_offset", "v_factor_fg", "precision", "transition"):
+            self.assertNotIn(f"{absent}:", out)
+
+    def test_byte_identity_bridges_are_never_emitted(self):
+        """layer_mask_raw / v_deform_shift_raw default to -1 = 'derive'. Editor
+        scenes derive; emitting either would freeze a value the author never set."""
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertNotIn("layer_mask_raw", out)
+        self.assertNotIn("v_deform_shift_raw", out)
+
+    def test_composed_factor_emits_the_packed_spelling(self):
+        out = self.render(layers=[{"world_y": 0,
+                                   "fa": {"s1": 1, "s2": 15, "op": 0},
+                                   "fb": "FACTOR_1"}])
+        self.assertIn("fa: packed(s1: 1, s2: 15, op: 0)", out)
+
+    def test_unknown_factor_name_is_refused_and_suggests_near_misses(self):
+        path = self.write("ojz_bg", _scene(
+            layers=[{"world_y": 0, "fa": "FACTOR_1_3", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene)
+        msg = str(ctx.exception)
+        self.assertIn("FACTOR_1_3", msg)
+        self.assertIn("FACTOR_1_32", msg)  # a real near miss from the same prefix
+
+    def test_composed_factor_missing_a_term_is_refused(self):
+        path = self.write("ojz_bg", _scene(
+            layers=[{"world_y": 0, "fa": {"s1": 1, "s2": 15}, "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene)
+        self.assertIn("op", str(ctx.exception))
+
+    def test_null_attachment_is_treated_as_absent_not_as_an_attachment(self):
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                                   "deform": None, "curve": None, "vsplit": None}],
+                          deform_bg=None, anchor=None)
+        self.assertIn("count: 1", out)
+
+    def test_a_real_attachment_is_refused_rather_than_silently_dropped(self):
+        """The load-bearing one: a dropped attachment builds clean and renders
+        wrong, which is precisely the failure nothing downstream can catch."""
+        for key in ("deform", "curve", "vsplit"):
+            path = self.write("ojz_bg", _scene(
+                layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                         key: {"kind": "whatever"}}]))
+            scene = effects_gen.load_scene(path)
+            with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                effects_gen.render_scene(path, scene)
+            self.assertIn(key, str(ctx.exception))
+
+    def test_scene_level_attachment_is_also_refused(self):
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"kind": "Shared"},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene)
+        self.assertIn("deform_bg", str(ctx.exception))
+
+    def test_nine_layers_is_refused_before_padding_arithmetic(self):
+        layers = [{"world_y": i, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(9)]
+        path = self.write("ojz_bg", _scene(layers=layers))
+        scene = effects_gen.load_scene(path)
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.render_scene(path, scene)
+        self.assertIn("MAX_PARALLAX_BANDS", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
