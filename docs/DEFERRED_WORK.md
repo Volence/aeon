@@ -8010,3 +8010,79 @@ Until one lands, the pins' liveness evidence remains Task 8's recorded edit-red 
 the record-shape family's lane coverage is the arity guards' natural-red probe (Task 5's
 rotation, recorded at the `lowerN` banner) — also not a CASES row, for the same
 constants-not-inputs reason.
+
+---
+
+## ✅ RESOLVED — `Scene`'s hand-computed pad went stale; the guard is now an invariant assertion (2026-08-22)
+
+**Severity: LATENT, not live.** `Scene` (`engine/level/scene_dsl.emp`) is comptime-only and
+emits no ROM bytes, so no shipped ROM ever performed an odd-address word access. All four
+CRCs are byte-identical across the fix (`060401e4` / `0dbaa80f` / `c708b114` / `dec88cc1`).
+What was broken is the **guard**, in precisely the scenario it was installed to cover.
+
+**What happened.** `120180ac` (2026-08-18) added `sc_pad_5D` specifically to silence sigil's
+`[layout.odd-field]` lint, landing the two `i16` bridges (`sc_mask_raw`,
+`sc_v_deform_shift_raw`) on even offsets 94/96. It worked — that day. At least fifteen commits
+then touched the file, four of them adding fields *above* the pad (`sc_left_col_mask` in
+`ba335e08`, `SceneDeform.Own()` in `022b961f`, capability-shaped band records in `a1d66b51`,
+per-layer vertical depth in `59e29b68`). The bridges drifted to **119/121 — odd**, the lint
+fired twice on every build for four days, and it fired into a `SIGIL_WARNINGS=full` baseline
+nobody re-read. The comment above the pad went on asserting `(94, 96)` the entire time.
+
+**The fix** (`9a718f74`): pad widened `u8` → `u16` — derived from the compiler's own
+measurement (pad at 118, bridges reported at 119/121), *not* from the stale 94/96 — plus two
+`ensure`s immediately after the struct asserting the **property**:
+
+```
+ensure(offsetof(Scene, sc_mask_raw) % 2 == 0, "…")
+ensure(offsetof(Scene, sc_v_deform_shift_raw) % 2 == 0, "…")
+```
+
+`@offset 94` was available and was **deliberately rejected**. It makes the failure loud, but a
+pinned offset must be hand-updated on every legitimate field insertion — it re-arms the exact
+staling-constant trap this entry exists to record. Parity survives every insertion; a number
+does not.
+
+**Red-first evidence.** Reverting the pad to `u8` fails the real sonic4 DEBUG closure with
+exactly 2 errors, both messages verbatim — *not* merely under `sigil build --extra-entry`,
+where a guard in an unreachable module would also appear to fire (EMP_PITFALLS §3). Warning
+tally 134 → 132; `layout.odd-field` 2 → 0. Note the first perturbation tried (inserting a
+temporary `u8` field) is **confounded** — it buries the guard under ~700
+`[struct.missing-field]` errors, because `scene()` and the three poison fixtures spell every
+field. Perturbing the pad *width* is the isolated probe.
+
+### THE CLASS — a hand-computed pad is a silently-staling constant
+
+This generalises past `Scene`. **Any struct with alignment intent wants an assertion, not
+arithmetic.** A pad width is a function of every field above it, so it is invalidated by edits
+that are individually correct, made by people who never read the pad. The failure is silent by
+construction: the field that goes odd still compiles, still type-checks, and (for a
+comptime-only struct) still produces an identical ROM.
+
+Two compounding factors made this survive four days, and both are reusable warnings:
+
+1. **A lint that lands in an accepted baseline stops being a signal.** The original comment
+   predicted this in its own words — *"a warning that has been explained away in a baseline is
+   not there to catch it"* — and was then defeated by exactly that. A tally line moving
+   134 → 132 is not something anyone reads; an `ensure` that fails the build is.
+2. **A comment is not a check.** The comment stated `(94, 96)` as fact for four days while the
+   compiler measured 119/121. Prose asserting a computed value is a claim with no verifier
+   attached.
+
+**Standing guidance:** when adding or adjusting a pad, express the intent as
+`ensure(offsetof(T, f) % 2 == 0, …)` (or `% 4` for long-span bases) rather than writing the
+resulting offset in a comment or an `@offset`. `engine/system/replay.emp:96-102` is the house
+pattern and the message idiom — **name the instruction that would fault** ("move.w would
+address-error"), never the offset that moved, because the offset is the part that rots.
+
+**Not swept.** This parcel fixed the one struct it was scoped to. Whether other structs in the
+tree carry hand-computed pads with the same exposure was **not** audited — `[layout.odd-field]`
+is currently at 0 for both games, which bounds the *odd-field* instance of the class but says
+nothing about pads holding a `% 4` or a declared-size intent. A sweep is cheap (grep for `pad`
+in struct bodies, check each for an accompanying `ensure`) and is offered as follow-up work.
+
+**Residual nit, deliberately not fixed:** the field is still named `sc_pad_5D`, and `$5D` = 93
+is itself a stale offset (it now sits at 118). Renaming it would touch the three
+`games/sonic4/test/poison/` fixtures that spell it, and a poison fixture whose failure mode
+shifts can go vacuously green — not worth the risk inside this parcel. The name is decoration;
+the `ensure`s are the authority.
