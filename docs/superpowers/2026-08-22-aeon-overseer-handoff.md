@@ -34,14 +34,30 @@ X=0 masking feature CANNOT serve) and the plan's **7 PARKs** (owner).
   over the 6 quiet ticks; ZX0R §9.7 precedent). Recommendation given: approve. A covered
   crossing provably does not lag (v4 crossing 221, live).
 
-## Owner-pending (do NOT act without them)
+## OWNER RULING 2026-08-22 morning — the arc order is SET
 
-1. **S4LZ slicing parcel** (above — recommendation: approve; it is the felt-lag fix).
-2. **Parcel D / OJZ BG showcase** (PARK-1): multi-band parallax + effects + BgAnim bands,
-   Aurora-authored. Owner asked about the animated-tile "third parallax" tutorial 08-21 and
-   was told BgAnim already implements it engine-side with OJZ at band_count=0; Aurora has
-   ZERO authoring support today (verified) — that IS Parcel D's first assessment step.
-3. The P3 plan's 7 PARKs; F6 proper; wiki stable-sections; seraph S0.
+> "I wanna do the aurora parallax/raster view/worker next, are we able to do that? Then 1,
+> 2, then 3." — i.e.: **(A) Aurora parallax/raster effects authoring view (Parcel D's
+> Aurora half) FIRST → (B) S4LZ slicing parcel → (C) sigil game-defines adoption check →
+> (D) booked engine work (sprite_mask emission pair, P1 §8 differential).**
+
+Arc A state: assessment agent dispatched (read-only over aurora at their master `4cffe45`,
+deliverable = `docs/research/2026-08-22-aurora-effects-authoring-assessment.md` on branch
+`research/aurora-effects-assessment`). **Lane split agreed with aurora-86** (their message,
+morning 08-22): THEY dispatch and land all Aurora parcels; aeon ships committed
+briefs/contracts with SHAs (empyrean for cross-tool contract material); they transcribe
+what Aurora consumes. Their intel, already folded into the survey brief: yesterday's aurora
+line `5b58f68..4cffe45` reworked the exact surfaces this view rides (ClassicLevelViewport
+overlay scaffolding, classic-overlays, viewStore/ViewMenu, shared rAF play-clock ~0.2-0.7
+ms/pass, per-pixel priority occlusion); required reading = aurora docs/OVERSEER.md, ROADMAP
+§2.6/§5.1, docs/reviews/2026-08-21-s1-viewport-lenses-audit.md; and the aeon ProjectAdapter
+in aurora is a ROUTING MARKER (real loader deferred, ROADMAP §2.5) — a load-bearing gap the
+assessment must name. Flow: assessment → owner design review → design/contract docs
+committed → ping aurora-86 with SHAs.
+
+## Still owner-pending beyond the ruling
+
+The P3 plan's 7 PARKs; F6 proper; wiki stable-sections; seraph S0.
 
 ## Cross-suite state
 
