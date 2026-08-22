@@ -28,7 +28,6 @@ Usage:
                                       [--out other.json]
 """
 import argparse
-import json
 import os
 import struct
 import sys
