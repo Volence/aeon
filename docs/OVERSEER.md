@@ -38,6 +38,25 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
 - Zero-byte parcels (tools/docs) are aeon-only; verify CRC identity anyway —
   byte-count-neutral is not byte-identical, and DEBUG-only procs can still move the
   release deb2 appendix.
+- **CRC identity is blind to SOURCE-derived gates, and the pairing ritual cannot see
+  what it does not trigger on** (found 2026-08-22 by sigil-83's warn-tier corpus, not by
+  anything in this lane). sigil's warn-tier lint baseline lives in
+  `crates/sigil-cli/tests/` and is only ever updated by a **refreeze**; a refreeze only
+  happens when **bytes move**. So a parcel that changes `.emp` source while holding all
+  four CRCs moves a source-derived lint set with **nothing in the ritual able to notice**.
+  Lived: P3 T11-T16 were six consecutive zero-byte parcels (CRCs held at `060401e4` /
+  `0dbaa80f` / `c708b114` / `dec88cc1` throughout — the identity we verified and cited at
+  every landing), and `layout.odd-field` began firing on the sonic4 corpus somewhere in
+  them with no adjudication and no baseline update. The last baseline freeze is sigil
+  `40f862e2` (2026-08-21T14:23, pairing aeon T10 `3c68ee11` at 14:06); aeon T11
+  `b0b85f47` merged at **14:57**, *after* it — so **T11 is outside both the baseline and
+  any diff range that starts at T11's own merge commit**, which is the natural range to
+  reach for and the one place nobody looks. **A zero-byte parcel that touches `.emp` owes
+  a source-drift check, not just a CRC check** — the two ask different questions, and the
+  CRC is the one that cannot answer this. Corollary for reading a lint verdict: the
+  failure named is not "the odd field", it is "the *undecided* odd field" — a deliberate
+  layout discharges it with a recorded adjudication plus a baseline update in the same
+  commit, never with silence.
 - **Sigil sessions/agents are read-only consumers of this tree** (their port gates read
   it via `AEON_DIR` at test runtime). Mid-brushstroke uncommitted aeon edits can flip
   sigil port-gate results — a sigil strict-gate run that matters points `AEON_DIR` at a
