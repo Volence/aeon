@@ -125,6 +125,16 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   into the deleted `data/parallax/`) is deleted and replaced by act-level `sceneRef` in
   the same parcel that implements this schema — one change, no interim fossil (Q4). Null
   = the hand-authored `act_parallax_config` default stands.
+  > **ORDERING IS LOAD-BEARING — the two repos move in sequence (corrected 2026-08-22, defect
+  > found by aurora-86's first wave-1 parcel).** aeon deletes/re-points `parallax` in
+  > `project.json` FIRST; Aurora re-points its `Act.parallaxRef` reader in the parcel
+  > **following** that landing. The empyrean schema §4 originally said Aurora does it "in its
+  > first arc parcel", which outran this repo: at `00607dd5` the key is still
+  > `"parallax": "games/sonic4/data/parallax/ojz_default.asm"` (`project.json:20`, verified),
+  > so a reader re-pointed today would point at a key that does not exist yet. Their agent
+  > left it undone and flagged it rather than implementing against a doc that outran its own
+  > repo — the correct call. **The aeon `project.json` edit is therefore a wave-1 aeon lane
+  > item and a PREREQUISITE for Aurora's reader parcel.**
   > **TARGET THE ACT FIELD, NOT THE SECTION FIELD — corrected 2026-08-22.** Raised by
   > aurora-86's verification pass, **re-verified firsthand by the aeon overseer** at aurora
   > `e731214`: there are **two** `parallaxRef` fields in `src/core/model/s4-types.ts` — `:121`
