@@ -9,6 +9,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from effects_budget_check import (
     emp_constants, eval_int_expr, check, make_resolver, main as budget_main,
+    check_axis5_mask_pricing,
 )
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -177,6 +178,49 @@ class TestCheck(unittest.TestCase):
         with self.assertRaises(KeyError):
             check({"ram": {"n": 1}}, {"ram.n.deeper": "fake.emp:X"},
                   resolver=lambda ref: 1)
+
+
+class TestAxis5MaskPricing(unittest.TestCase):
+    """The P3 Task 12 pricing arm. The live-tree cases run against the real repo (the
+    geometry derivation and the reservation rows are the shipped ones); the failure cases
+    perturb a COPY of the model dict, never the tree."""
+
+    def _model(self):
+        import tomllib
+        with open(os.path.join(AEON, "tools", "effects_budget_model.toml"), "rb") as fh:
+            return tomllib.load(fh)
+
+    def test_the_shipped_tree_prices_clean(self):
+        failures, info = check_axis5_mask_pricing(self._model(), AEON)
+        self.assertEqual(failures, [])
+        # The derivation's load-bearing numbers, restated from the engine constants the
+        # arm itself reads (ceil(224/32) at an 8x32 mask) — not copied from the toml.
+        self.assertIn("7 slots", info)
+        self.assertIn("8 px per line", info)
+
+    def test_geometry_drift_is_named(self):
+        model = self._model()
+        model["engine_reservation"]["sat_mask_slots_full_height"] = 1
+        failures, _ = check_axis5_mask_pricing(model, AEON)
+        self.assertTrue(any("sat_mask_slots_full_height" in f for f in failures), failures)
+
+    def test_a_missing_reservation_row_is_a_failure_not_a_silent_green(self):
+        model = self._model()
+        del model["engine_reservation"]["axis5_budget_table_slots"]
+        failures, _ = check_axis5_mask_pricing(model, AEON)
+        self.assertTrue(any("unmeasurable" in f for f in failures), failures)
+
+    def test_a_missing_reservation_table_is_a_failure(self):
+        failures, _ = check_axis5_mask_pricing({}, AEON)
+        self.assertTrue(any("engine_reservation" in f for f in failures), failures)
+
+    def test_the_census_counts_declaration_sites_not_comments(self):
+        """The shipped tree has exactly two DECLARATION SITES (the Rocking and Perspective
+        family helpers), both Accept, and zero SpriteMask adopters — while the word
+        SpriteMask appears in comments/messages that strip_comments must be discarding."""
+        _, info = check_axis5_mask_pricing(self._model(), AEON)
+        self.assertIn("SpriteMask adopters: 0", info)
+        self.assertIn("Accept:2", info)
 
 
 class TestLiveTree(unittest.TestCase):
