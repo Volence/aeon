@@ -102,6 +102,22 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   When counting where a field lives, grep the TYPE and every constructor/copier of the record,
   never just the field name in its owning module. Aeon's own ERRATUM 1 enumeration is the
   corrected example.
+- **Never change the subject to suit the instrument** — SHARED PROTOCOL bar 9 (empyrean
+  `c2c81e2`). **This one has teeth in THIS repo specifically:** almost every instrument here
+  reaches the engine through a differently-configured build — `DEBUG=1` shapes, the MD Debugger
+  island, the effects-gate lane's `s4.debug.bin`, profiler builds that alter what they profile.
+  A number measured on a debug/instrumented shape and reported as RELEASE behaviour is exactly
+  this failure, and it announces itself no more loudly than the timer-clamp case did. Say which
+  shape produced a number, and if the instrument cannot reach the release shape, report the reach
+  limit rather than quietly measuring the reachable thing. (`FAST=1` builds are the same trap in
+  a different coat — see the build header.)
+- **A gate's VERDICT and its STATED REASON are separately checkable** — SHARED PROTOCOL bar 10
+  (same commit). Check the reason against the data before quoting it onward: a tripwire can fire
+  correctly while its message fabricates the justification (precedent: a spread formula falling
+  through a zero branch announced "medians agree to within 0.00%" about a set spanning
+  0.000→0.800 ms). The reason is what a reader carries forward, so a sound verdict with a
+  fabricated reason is worse than a failing gate. Relevant to every gate in `tools/` that prints
+  its own explanation.
 
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
