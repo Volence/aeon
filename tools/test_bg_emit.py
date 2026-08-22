@@ -1,5 +1,7 @@
 """Tests for BG layout + shared BG tile region emission (§2 A.5 T1)."""
 
+import copy
+import json
 import os
 import struct
 import sys
@@ -7,6 +9,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import inject_editor_bg
 
 from ojz_strip_gen import (
     BLOCK_MAP_PATH,
@@ -184,6 +188,94 @@ class TestBgAnimBandCeiling(unittest.TestCase):
                         "a literal).")
                     return
         self.fail("engine/ram.emp declares no BgAnim_LastStep field")
+
+
+class TestBgAnimBandCoherence(unittest.TestCase):
+    """Bands must BE the front of the static tile blob they cover.
+
+    Bands pack contiguously from slot 0 and DMA over the front of `tiles`, so a
+    band's phase-0 art is those slots' rest state:
+
+        phases[0] == tiles[slot_base : slot_base + cols*rows]
+
+    Nothing asserted this before (this file had no assertion touching `anims`,
+    `slot_base` or `phases` at all), which is what let a regenerate-one-key edit
+    look legitimate. A violation bakes CLEANLY and ships silently corrupt art.
+
+    The fixture is the REAL two-band data the file carried at b0e5a661, not a
+    synthetic one, and every acceptance check is paired with a poison so the
+    gate cannot pass by doing nothing.
+    """
+
+    HISTORICAL = "33892d82c95d61a9214cb449fa7c67f683247ad3"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        import subprocess
+        blob = subprocess.run(["git", "cat-file", "blob", cls.HISTORICAL],
+                              cwd=cls.AEON, capture_output=True)
+        cls.data = json.loads(blob.stdout) if blob.returncode == 0 else None
+
+    def _historical(self):
+        if self.data is None:
+            self.skipTest("historical blob not present in this clone")
+        return copy.deepcopy(self.data)
+
+    def test_fixture_really_carries_two_bands(self):
+        """Guards the gate itself: a fixture that lost its bands proves nothing."""
+        d = self._historical()
+        self.assertEqual(len(d["anims"]), 2)
+        self.assertEqual([a["cols"] * a["rows"] for a in d["anims"]], [128, 64])
+
+    def test_real_bands_are_coherent(self):
+        d = self._historical()
+        inject_editor_bg.validate_band_coherence(d["anims"], d["tiles"])
+
+    def test_band_tiles_fit_inside_the_static_blob(self):
+        d = self._historical()
+        total = sum(a["cols"] * a["rows"] for a in d["anims"])
+        self.assertLessEqual(total, len(d["tiles"]),
+                             "animated slots overflow the static tile blob")
+
+    def test_poison_desynced_phase0_is_rejected(self):
+        """The exact shape of the corruption a merge-preserve would ship."""
+        d = self._historical()
+        d["tiles"][0] = [(v + 1) % 16 for v in d["tiles"][0]]   # regenerate art only
+        with self.assertRaises(AssertionError) as cm:
+            inject_editor_bg.validate_band_coherence(d["anims"], d["tiles"])
+        self.assertIn("phases[0]", str(cm.exception))
+
+    def test_poison_noncontiguous_slot_base_is_rejected(self):
+        d = self._historical()
+        d["anims"][1]["slot_base"] += 1
+        with self.assertRaises(AssertionError):
+            inject_editor_bg.validate_band_coherence(d["anims"], d["tiles"])
+
+    def test_poison_band_overrunning_the_blob_is_rejected(self):
+        d = self._historical()
+        d["tiles"] = d["tiles"][:100]        # blob too small for band 0's 128 slots
+        with self.assertRaises(AssertionError):
+            inject_editor_bg.validate_band_coherence(d["anims"], d["tiles"])
+
+    def test_live_override_file_is_coherent_if_it_has_bands(self):
+        """Applies the invariant to the shipping file.
+
+        NOTE: the live file currently has NO `anims` — the bands were destroyed
+        at dd93a840 and BG animation is disabled in the ROM (docs/BUGS.md
+        TOOL-01). This assertion is therefore latent today ON PURPOSE, and the
+        assert below states that plainly rather than letting a silent zero-band
+        pass read as a coherence check that ran.
+        """
+        with open(os.path.join(self.AEON, "games", "sonic4", "data",
+                               "editor_bg_override.json")) as f:
+            live = json.load(f)
+        anims = live.get("anims") or ([live["anim"]] if live.get("anim") else [])
+        if not anims:
+            self.assertNotIn("anims", live,
+                             "an empty `anims` key is neither absent nor authored")
+            return
+        inject_editor_bg.validate_band_coherence(anims, live["tiles"])
 
 
 if __name__ == "__main__":

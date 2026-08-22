@@ -5,6 +5,116 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ---
 
+## ✅ TOOL-01 — CLOSED 2026-08-22 — `png_to_bg_override.py` silently destroyed keys in the file it rewrites
+
+**Live data loss, not a latent one.** `tools/png_to_bg_override.py` wrote
+`games/sonic4/data/editor_bg_override.json` as a whole-file overwrite that **never read the
+file**. `OVERRIDE` appeared exactly twice — the path constant and `open(OVERRIDE, "w")` — and
+`out` was constructed as a **fresh dict** (`{"layout": …, "tiles": …}`), with `palette` /
+`palette_line` added **only** when the run was in EXTRACT+stamp mode.
+
+**The shipping instance (the reason this is not theoretical).**
+`tools/inject_editor_bg.py:206-215` *consumes* `palette` / `palette_line`: 16 CRAM words,
+asserted, mapped to a CRAM line, stamped into `ojz_palette.bin`. And `ojz_strip_gen.py`
+re-copies `ojz_palette.bin` from sonic_hack every build, so that stamp is the **only** thing
+keeping the injected BG art's colours. Therefore:
+
+```
+run A:  png_to_bg_override.py … --new-palette   → writes layout, tiles, palette, palette_line
+run B:  png_to_bg_override.py … (lock mode)     → writes layout, tiles          ← palette GONE
+```
+
+Run B is the ordinary "re-import the art" step. It silently reverted the stamped BG palette,
+with no diagnostic, on a path that ships. Reproduced as bytes on disk before the fix:
+
+```
+AssertionError: b'"palette"' not found in b'{"layout": [16384, 16385, …
+```
+
+**The instance that already fired, and is still costing us.** `inject_editor_bg.py:70-72`
+consumes `anims` (BgAnim bands) and the legacy single-band `anim`. This did not merely *risk*
+destroying them — **it did**:
+
+| commit | date | `editor_bg_override.json` |
+|---|---|---|
+| `b0e5a661` | 2026-07-09 | `layout`, `tiles` (340), **`anims`: 2 real bands** — 32×4 `camera_x` @ slot 0, 16×4 `timer` @ slot 128, 8 phases each = 192 animated slots |
+| `dd93a840` | 2026-07-21 | `layout`, `tiles` (448). **Bands gone.** This is the commit that introduced `png_to_bg_override.py` and ran it |
+
+`games/sonic4/data/generated/ojz/act1/bg_anim.emp` today reads as the disabled stub. **OJZ
+background animation has been dead in the ROM for a month.** The loss was invisible in review
+because the JSON is minified: deleting two bands rendered as `editor_bg_override.json | 2 +-`.
+
+The bands' author is `tools/forest_bg_gen.py`, still on master. Re-running it today reproduces
+the lost data exactly — 340 tiles, 192 animated — so the content is recoverable.
+
+**Fixed on branch `parcel/bg-override-no-clobber`.** Both writers now read the destination
+before writing, via the shared `tools/bg_override_io.py`:
+
+1. **Each tool carries only the keys it authors.** `png_to_bg_override.py` owns `layout`,
+   `tiles`, `palette`, `palette_line`; `forest_bg_gen.py` owns `layout`, `tiles`, `anims`.
+   `palette`/`palette_line` now survive a `png_to_bg_override.py` run that does not stamp them;
+   a stamping run's fresh values still win, which is its job.
+2. **Anything else is a loud refusal** — non-zero exit naming the offending key(s), before any
+   generation work (`forest_bg_gen.py` refuses in ~0.01 s rather than after a full phase build).
+3. **`--out` / `BG_OUT` escape hatch**, so refusal never forces a destructive edit.
+4. **Retained palettes are verified, not assumed.** Lock mode quantises against `GEN_PALETTE`,
+   which `ojz_strip_gen.py:2032` re-copies from sonic_hack every build. Carrying a `palette`
+   that no longer matches that file would restamp colours the art was never fitted to — the
+   same silent-wrongness class, opposite direction — so a mismatch is refused. `palette_line`
+   alone is safe to carry unconditionally.
+5. **Writes are atomic** (`tools/ojz_block_gen.py:201-206` idiom, required of generators by
+   `tools/EFFECTS_CONSUMER_CONTRACT.md` §3), so a crash mid-write cannot truncate the file.
+6. **The coupling is now asserted at bake time.** `inject_editor_bg.validate_band_coherence`
+   enforces contiguous packing, `Σ band tiles ≤ len(tiles)`, and
+   `phases[0] == tiles[slot_base:slot_base+n]` per band — the invariant whose violation
+   previously baked cleanly.
+
+Gates: `tools/test_bg_override_no_clobber.py` (13) + new `TestBgAnimBandCoherence` in
+`tools/test_bg_emit.py` (7), run by the `pytest tools` lane wired at `build.sh:355`. The
+coherence tests use the **real** two-band `b0e5a661` data (`git cat-file blob 33892d82`), and
+every acceptance check is paired with a poison so the gate cannot pass by doing nothing.
+Before this parcel `test_bg_emit.py` had **no** assertion touching `anims`, `slot_base` or
+`phases` at all. Zero-byte parcel — all four ROM shapes CRC-identical.
+
+**Still open:** the destroyed bands are **not restored** here — this parcel stops the
+destruction and gates the invariant. Re-running `tools/forest_bg_gen.py` reproduces them
+exactly (340 tiles, 192 animated, coherence-clean, verified), but re-enabling OJZ BG animation
+is a content decision with a ROM-size and BgAnim-budget cost, so it is left to the owner.
+
+> ### ⚠️ Why REFUSAL and not a merge — this is terminal for these tools, not a placeholder
+>
+> An earlier framing of this defect treated "preserve unknown keys" as a legitimate design
+> merely awaiting an ownership ruling. **It is not.** Measured on the `b0e5a661` data:
+>
+> ```
+> tiles[0:128]   == band0.phases[0]   ->  True
+> tiles[128:192] == band1.phases[0]   ->  True
+> ```
+>
+> Bands pack contiguously from slot 0 (`inject_editor_bg.py:92-93`) and DMA over the **front**
+> of the static tile blob, so a band's phase-0 art **is** those slots' rest state. `anims`,
+> `tiles` and `layout` are therefore **not separable keys**: adding or removing a band
+> renumbers the whole static blob and rewrites the layout.
+>
+> Consequence: a read-modify-write that retained `anims` while regenerating `layout`/`tiles`
+> from a new PNG would **pass every assert in `inject_editor_bg.py`**, bake cleanly, and ship a
+> ROM where the retained bands DMA stale phase art over whatever the new dedup placed in slots
+> 0..191. **Silent visual corruption that clears every gate** — strictly worse than the
+> deletion, because a deletion is recoverable from git while a passing-but-corrupt bake teaches
+> you to distrust the engine.
+>
+> So each tool carries only the keys it authors and stops on anything else. The remaining open
+> question is a *product* one — whether Aurora becomes a legitimate co-author of this file (see
+> `docs/superpowers/2026-08-22-aeon-overseer-handoff.md:294,372`,
+> `docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md:197-202`). If it does, the
+> answer is to have **one** generator emit the coupled keys together, or to split the file —
+> **not** to relax the refusal into a merge.
+>
+> The escape hatch matters: `--out` / `BG_OUT` exists so a refusal never tempts anyone to
+> delete the bands just to get past it, which is precisely how they were lost the first time.
+
+---
+
 ## ✅ EFX-10 — CLOSED 2026-08-17 (`sigil build --extra-entry`). The expect-fail lane elaborates a poison inside the real profile.
 
 **Booked during Parcel R1 Task 8**, whose five band guards it was built to gate. The lane's

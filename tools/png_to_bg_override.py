@@ -16,11 +16,18 @@ PALETTE MODES:
 Hard gates: image tile-aligned (8x8); width divides the 512px plane;
 <= 448 unique flip-canonical tiles. BG is opaque (index 0 excluded).
 
+FILE OWNERSHIP: this tool rewrites editor_bg_override.json wholesale, so it
+reads the file first. Its own keys (OWNED_KEYS) are carried across a run that
+does not stamp them; any OTHER key -- `anims` above all -- is a loud refusal,
+because the tool would destroy hand-authored content it does not understand.
+`--out <path>` writes elsewhere, so a refusal never forces anyone to delete
+content to get past it. See tools/bg_override_io.py for the full rationale.
+
 Usage:
   python3 tools/png_to_bg_override.py <image.png> [--voffset N] [--lines 2,3]
+                                      [--out other.json]
 """
 import argparse
-import json
 import os
 import struct
 import sys
@@ -43,6 +50,32 @@ DEFAULT_PAL_LINE = 2  # OJZ BG owns CRAM line 2 (decoded from ojz_palette.bin)
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OVERRIDE = os.path.join(REPO, "games/sonic4/data/editor_bg_override.json")
 GEN_PALETTE = os.path.join(REPO, "games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
+
+# The keys in editor_bg_override.json that THIS tool authors: layout/tiles
+# always, palette/palette_line only in EXTRACT+stamp mode.
+# tools/test_bg_override_no_clobber.py pins this set against the keys the tool
+# actually emits across both modes, so it cannot drift into a stale literal.
+#
+# Anything else -- notably `anims`, which tools/forest_bg_gen.py authors and
+# inject_editor_bg.py consumes -- is a LOUD REFUSAL. See tools/bg_override_io.py
+# for why refusal, and not a merge-preserve, is the terminal correct answer here.
+OWNED_KEYS = frozenset(("layout", "tiles", "palette", "palette_line"))
+
+from bg_override_io import atomic_write_json, read_existing_override
+
+
+def gen_palette_line_words(cram_line):
+    """The 16 CRAM words GEN_PALETTE currently holds for `cram_line`.
+
+    Same mapping load_lock_palettes uses: the file's source lines load starting
+    at CRAM line 1, so source line = cram_line - 1.
+    """
+    fl = cram_line - 1
+    if fl < 0:
+        sys.exit(f"ERROR: palette_line {cram_line} maps below CRAM line 1.")
+    with open(GEN_PALETTE, "rb") as f:
+        pal = f.read()
+    return list(struct.unpack(">16H", pal[fl * 32:fl * 32 + 32]))
 
 
 def snap9(v):
@@ -115,7 +148,15 @@ def main():
                     help="CRAM line for --new-palette (extract) mode")
     ap.add_argument("--new-palette", action="store_true",
                     help="EXTRACT+stamp one palette (UNSAFE: recolours shared FG art)")
+    ap.add_argument("--out", default=None,
+                    help="write elsewhere instead of the live override file — the "
+                         "escape hatch when this tool refuses to clobber a key it "
+                         "does not author (merge by hand afterwards)")
     args = ap.parse_args()
+
+    out_path = args.out or OVERRIDE
+    # Read (and vet) the file we are about to rewrite, before any heavy work.
+    existing = read_existing_override(out_path, OWNED_KEYS, "png_to_bg_override")
 
     img = np.array(Image.open(args.image).convert("RGB"))
     h, w, _ = img.shape
@@ -174,15 +215,47 @@ def main():
 
     out = {"layout": layout, "tiles": [t.reshape(-1).astype(int).tolist() for t in blob]}
     if stamp_palette:
+        # This run IS stamping, so the fresh values win -- that is its job.
         out["palette"] = stamp_palette
         out["palette_line"] = args.pal_line & 3
-    with open(OVERRIDE, "w") as f:
-        json.dump(out, f)
+    else:
+        # Lock mode stamps nothing, so a palette an earlier EXTRACT run wrote
+        # must survive: inject_editor_bg.py stamps it into ojz_palette.bin every
+        # build, and dropping it here silently reverts the BG colours.
+        #
+        # But retaining it is only SAFE if it still matches what this run
+        # quantised against. Lock mode quantises to GEN_PALETTE, which
+        # ojz_strip_gen.py re-copies from sonic_hack on every build. Carrying a
+        # palette that disagrees with GEN_PALETTE would restamp colours the new
+        # art was never quantised against -- the same silent-wrongness class as
+        # the loss, just pointing the other way. So verify, and refuse on drift.
+        if "palette_line" in existing:
+            out["palette_line"] = existing["palette_line"]   # safe on its own
+        if "palette" in existing:
+            line = int(existing.get("palette_line", DEFAULT_PAL_LINE)) & 3
+            current = gen_palette_line_words(line)
+            retained = [int(w) & 0xFFFF for w in existing["palette"]]
+            if retained != current:
+                sys.exit(
+                    f"ERROR: the existing `palette` does not match {GEN_PALETTE}\n"
+                    f"  CRAM line {line} (file source line {line - 1}).\n"
+                    "  Lock mode quantised this art against GEN_PALETTE, so carrying the\n"
+                    "  stored palette would stamp colours the art was never fitted to.\n"
+                    f"  stored : {[hex(w) for w in retained]}\n"
+                    f"  current: {[hex(w) for w in current]}\n"
+                    "  Re-run with --new-palette to restamp, or drop the stale `palette`\n"
+                    "  key deliberately (keeping a copy), or use --out to write elsewhere.")
+            out["palette"] = existing["palette"]
+    atomic_write_json(out_path, out)
+    carried = [k for k in ("palette", "palette_line")
+               if k in out and not stamp_palette]
     mode = "EXTRACT+stamp" if stamp_palette else f"lock (lines {args.lines})"
     print(f"[png_to_bg_override] {args.image} {w}x{h} ({tw}x{th}) — {mode}")
     print(f"  unique tiles: {len(blob)}/{BG_TILE_CAPACITY}")
     print(f"  cells per CRAM line: " +
           ", ".join(f"line{k}={v}" for k, v in sorted(line_hist.items())))
+    if carried:
+        print(f"  carried through from the existing file: {', '.join(carried)}")
 
 
 if __name__ == "__main__":
