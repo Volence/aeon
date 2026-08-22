@@ -69,6 +69,18 @@ LEDGER_ROWS = [
     "SceneBudget_Axis3_MaxCycles",
     "SceneBudget_Axis3_Reservation",
     "SceneBudget_Axis3_Pool",
+    # Axis 5 (P3 Task 14) — three sub-ceiling triples: the axis is a SAT occupancy with
+    # three hardware ceilings (per-line sprites is the BINDING one, per axis5_binding_ceiling
+    # in tools/effects_budget_model.toml), not a single pool.
+    "SceneBudget_Axis5_MaxLineSprites",
+    "SceneBudget_Axis5_LineSpriteReservation",
+    "SceneBudget_Axis5_LineSpritePool",
+    "SceneBudget_Axis5_MaxLinePixels",
+    "SceneBudget_Axis5_LinePixelReservation",
+    "SceneBudget_Axis5_LinePixelPool",
+    "SceneBudget_Axis5_MaxTableSlots",
+    "SceneBudget_Axis5_TableSlotReservation",
+    "SceneBudget_Axis5_TableSlotPool",
 ]
 
 
@@ -144,6 +156,29 @@ def render(eq: dict[str, int]) -> str:
     if None not in (a3, r3, p3):
         w(f"{'3  VBlank CPU (DMA drain)':<34}{a3:>12}{r3:>11}{p3:>10}{pct(a3 + r3, p3):>8}")
 
+    # AXIS 5 — three sub-ceilings of one SAT occupancy axis. The per-line sprite row is
+    # the BINDING ceiling; the table row is where the accepted-7 SpriteMask ruling would
+    # surface the day an adopter exists. A worst of 0 is the true fold over the shipped
+    # registry (zero SpriteMask adopters), not a placeholder.
+    a5s, r5s, p5s = (g("SceneBudget_Axis5_MaxLineSprites"),
+                     g("SceneBudget_Axis5_LineSpriteReservation"),
+                     g("SceneBudget_Axis5_LineSpritePool"))
+    if None not in (a5s, r5s, p5s):
+        w(f"{'5a per-line sprites (BINDING)':<34}{a5s:>12}{r5s:>11}{p5s:>10}"
+          f"{pct(a5s + r5s, p5s):>8}")
+    a5p, r5p, p5p = (g("SceneBudget_Axis5_MaxLinePixels"),
+                     g("SceneBudget_Axis5_LinePixelReservation"),
+                     g("SceneBudget_Axis5_LinePixelPool"))
+    if None not in (a5p, r5p, p5p):
+        w(f"{'5b per-line sprite pixels':<34}{a5p:>12}{r5p:>11}{p5p:>10}"
+          f"{pct(a5p + r5p, p5p):>8}")
+    a5t, r5t, p5t = (g("SceneBudget_Axis5_MaxTableSlots"),
+                     g("SceneBudget_Axis5_TableSlotReservation"),
+                     g("SceneBudget_Axis5_TableSlotPool"))
+    if None not in (a5t, r5t, p5t):
+        w(f"{'5c SAT table slots':<34}{a5t:>12}{r5t:>11}{p5t:>10}"
+          f"{pct(a5t + r5t, p5t):>8}")
+
     w("")
     if None not in (a1, r1, p1):
         w(f"axis 1 headroom   {p1 - r1 - a1 // 100} cyc of {p1 - r1} budget")
@@ -158,12 +193,18 @@ def render(eq: dict[str, int]) -> str:
         w("  drain residue). The drain half is the part §5 does not price at all.")
 
     w("")
+    w("AXIS 5 NOTES — comptime-gated HERE since P3 Task 14 (scene_budget_enforce's three")
+    w("  sub-ceiling ensures); check_axis5_mask_pricing() in effects_budget_check.py stays")
+    w("  as the derivation/census drift lane (mask geometry vs shipped engine constants,")
+    w("  adopter census, toml row presence). SpriteMask adoption is ZERO and scene()")
+    w("  refuses the variant until its engine emission lands (DEFERRED_WORK), so every")
+    w("  worst is 0; the accepted price of one adopter is 1 sprite + 8 px per line and")
+    w("  7 table slots (axis5_task12_resolution). Reservations are the Task-4 idle")
+    w("  measurement — an UPPER BOUND on headroom (axis5_caveat).")
+    w("")
     w("AXES NOT GATED HERE")
     w("  4b  per-frame HInt total   enforced in raster_dsl.emp's check_hint_total(), over")
     w("                             the authored program — scenes do not fire HInts.")
-    w("  5   sprite slots           GATED since P3 Task 12 (left-column mask policy) by")
-    w("                             check_axis5_mask_pricing() in effects_budget_check.py;")
-    w("                             adoption zero, emission pending (DEFERRED_WORK).")
     w("  7   computed-handler pins  NO SUBJECT — P3 shipped none and §10 lists none for")
     w("                             P4 either (CAP_COMPUTED reserved, infra deliberately")
     w("                             not rebuilt). See [scene_budget] in the toml.")
@@ -177,7 +218,11 @@ def render(eq: dict[str, int]) -> str:
     w("  axis 3   NO — same shape.")
     w("  axis 4b  NO in practice — axis 4a's density guard already bounds the per-frame")
     w("           total below this budget at the shipped burst ceilings.")
-    w("  Three poisons were booked rather than faked; see [scene_budget] in")
+    w("  axis 5   NO — the charge is two-valued on every sub-ceiling (0, or the SpriteMask")
+    w("           strip's 1/8/7) and both values fit always; scene() additionally refuses")
+    w("           SpriteMask until its emission lands. Booked with unlock conditions, not")
+    w("           given a faked poison (P3 Task 14).")
+    w("  Four poisons were booked rather than faked; see [scene_budget] in")
     w("  tools/effects_budget_model.toml for the unlock condition of each.")
     return "\n".join(out) + "\n"
 
