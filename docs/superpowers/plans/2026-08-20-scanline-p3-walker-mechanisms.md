@@ -956,7 +956,27 @@ git commit -m "feat(scene): left_column_mask is mandatory, and axis 5 gets a sub
 
 # PHASE 2 — LEDGER, GATES, LANDING
 
-## Task 13: Re-fit the model over the walker P3 leaves behind
+## Task 13: Re-fit the model over the walker P3 leaves behind — ✅ DONE 2026-08-22
+
+> **DONE 2026-08-22, `p3/t13-model-refit`. Result summary:** the full 26-fixture set re-run
+> on the P3 tip (crc `0dbaa80f`, 3 boots, spread 0, all windows preemption-free, 214 s wall)
+> **reproduces T7's `reglue_*` rows to the printed precision on every column** — T8-T12's
+> canonical halves were comptime, the walker has not moved since the re-glue — so Task 13's
+> re-fit is a PROMOTION, not a new parameterization. Un-anchored residual 0.00 (18 fixtures);
+> all-26 43.6; overlay term 58.9. Out-of-sample re-MEASURED: 13834 (spread 0), model 13542.7,
+> gap +2.11% — unchanged from the reglue baseline because the parameterization is unchanged
+> (the 1.10 → 2.11 growth happened at T7 and is explained there: band geometry moved, not the
+> model). `scene_dsl.emp`'s transcription gained the three columns P2 predated (`shift_lines`,
+> `band_sampling`, the fitted anchor pair at worst trips `3n-1`), uncertainty 11 → 22 permil.
+> Axis 1 re-derived from re-taken components: `(29472 − 13492) + 8277 = 24257` (was 23894 —
+> the walker got cheaper AND the reservation rose, because the non-walker loop grew +366).
+> `[engine_reservation]` refreshed on both states (maxdiag now 1.192 frames/tick post-arc, was
+> 2.067). Poison crossing re-derived 115/116 → **93/94** (integer mirror in the poison header;
+> fired diagnostic quotes 104411 vs 103743). Axis-7 row rewritten with the supersede
+> convention; axis-2 ceiling verified and kept, finer derivation + the stale axis-4b
+> reservation booked in DEFERRED_WORK. All shapes byte-identical (s4 `060401e4`, s4.debug
+> `0dbaa80f`, demo `c708b114`, demo.debug `dec88cc1`); expect-fail 25/25;
+> `effects_budget_check` 31 rows agree. Evidence: `WALKER-MODEL.md` §11.
 
 **Why:** the clean-constant confound. Every row in `[parallax.cost_model]` was measured against
 the walker as it stood on 2026-08-19. Tasks 7-10 changed it. Those rows are stale by
@@ -965,32 +985,32 @@ construction, and axis 1's comptime budget divides by them.
 **Files:** `tools/effects_budget_model.toml`, `docs/benchmarks/scanline-p2/WALKER-MODEL.md`,
 `engine/level/scene_dsl.emp` (the `SB_*` constants and `scene_axis1_*`)
 
-- [ ] **Step 1: Re-run the full fixture set, including Task 1's additions**
-- [ ] **Step 2: Report the residual, and the out-of-sample check against the live config**
+- [x] **Step 1: Re-run the full fixture set, including Task 1's additions**
+- [x] **Step 2: Report the residual, and the out-of-sample check against the live config**
 
 The existing out-of-sample yardstick is `ParallaxConfig_OJZ_Underwater`: predicted 19288.7,
 measured 19511, gap +222.3 (1.1%). A new parameterization that widens that gap is worse even
 if its in-sample residual is smaller — §6 exists because the per-channel model fit the fixtures
 perfectly and predicted 7100 against a measured 19511.
 
-- [ ] **Step 3: Update axis 1's derivation, not just its numbers**
+- [x] **Step 3: Update axis 1's derivation, not just its numbers**
 
 `axis1_reservation_cycles = 23894` is `idle_main_loop_cycles 35125` **less the walker's own
 `idle_parallax_update` 19511** (charging a scene for the walker while leaving the baseline
 walker in the reservation double-counts the thing being budgeted) **plus** `idle_vblank_cycles
 8280`. If the walker's idle cost moved, that subtraction moves with it.
 
-- [ ] **Step 4: State axis 7's status honestly**
+- [x] **Step 4: State axis 7's status honestly**
 
 `axis7_computed_handler_pins` still says "NO SUBJECT UNTIL P3". P3 gave it none. Rewrite the
 row to say so and name what would (§10's list has no computed handlers in P3 or P4).
 
-- [ ] **Step 5: `effects_budget_check` provenance rows**
+- [x] **Step 5: `effects_budget_check` provenance rows**
 
 `[symbols]` pins provenance, never enforcement. Every changed constant needs its row updated or
 the drift detector reports the wrong authority.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git commit -am "measure(p3): the walker re-fitted over its own rewrite, residual reported"

@@ -1,5 +1,18 @@
 # Engine reservation baselines — idle and max-diagonal
 
+> **VINTAGE NOTICE (P3 Task 13, 2026-08-22).** The §§1-5 rows below are the 2026-08-19
+> vintage (crc `d22dda85`, PRE-unroll walker, pre-streaming-arc). They were RE-TAKEN on the
+> P3 tip (crc `0dbaa80f`, same probe, `--state idle,maxdiag --repeat 5`, spread 0 on every
+> row of both states, 64 s wall at 01:54:36 `up 4 days, 2:18`): the CURRENT numbers live in
+> `tools/effects_budget_model.toml` `[engine_reservation]` (each moved row carries its
+> superseded value in parentheses) and the run's summary in `WALKER-MODEL.md` §11. The two
+> headline moves: idle `Parallax_Update` 19511 → 13492 and `GameState_OJZScroll_Update`
+> 35125 → 29472 (fill-unroll + re-glue), and max-diagonal 2.067 → **1.192** frames/tick with
+> `Tile_Cache_Fill` 106163 → 64695 cyc/tick (the streaming arc). §5's "ticks at ~30 Hz"
+> reading is superseded — max-diagonal now ticks at ~50 Hz and still lags mildly. The
+> per-routine tables below remain the record of the 08-19 state; do not divide a budget by
+> them.
+
 **Parcel:** Scanline Services P2, Phase 0, Tasks 2 and 3 (§§1-5).
 **Later addition:** §6 — axis 5's SAT reservation — is Scanline Services **P3**, Phase 0,
 Task 4, taken 2026-08-20 at the same two states on a later ROM. It carries its own provenance
