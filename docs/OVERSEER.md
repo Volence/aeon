@@ -93,6 +93,15 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   whether they need it: a code guarantee anchors to the merge that carries the code,
   `--stat`-ed before the citation hardens. Paired with the claim rule above — that one
   governs what a doc asserts, this one governs what it cites.
+- **Enumerate by what TOUCHES the data, not what defines it** — SHARED PROTOCOL review bar 8
+  (empyrean `dc629a5`), precedent again from this arc: two overseers cross-verified each
+  other's sidecar-ref enumerations firsthand and both got 8; the real count was 13, the misses
+  being copiers OUTSIDE the codec frame — one of them (`cloneSection`) unguarded under a
+  3,909-test suite. Every named site was real and both verifications passed; the failure was the
+  shared FRAME. **Mutual verification cannot catch a shared frame — only a changed frame can.**
+  When counting where a field lives, grep the TYPE and every constructor/copier of the record,
+  never just the field name in its owning module. Aeon's own ERRATUM 1 enumeration is the
+  corrected example.
 
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
