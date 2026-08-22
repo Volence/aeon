@@ -114,7 +114,33 @@ surface.
 - `games/sonic4/data/editor/ojz/act1/section_N.meta.json` (per act's `dataPath`): the
   generator reads **one key**: `sceneRef` — string scene id or `null`/absent (= act
   default). It does not read `bgLayoutRef`/`paletteRef` (those belong to the BG/palette
-  pipeline).
+  pipeline). **Write condition and round-trip (contract-level; ERRATUM 1 of
+  `docs/research/2026-08-22-aurora-effects-authoring-assessment.md`, verified firsthand
+  in aurora source at master `e731214` and independently re-verified):** the sidecar is
+  written only when at least one ref is non-null — the all-default case legitimately has
+  **no sidecar file on disk**, and the generator MUST treat a missing sidecar as
+  all-refs-null, never as an error; when all refs are cleared but a file exists, Aurora
+  overwrites it with an explicit all-nulls body (aurora
+  `src/core/project/aeon/save.ts:118-126`). **`sceneRef` is a string id or null, NEVER a
+  numeric index** — stated in exactly these words because the parser's failure mode for
+  a non-string value is a **silent null, not a loud reject**
+  (`src/core/formats/section-meta.ts:29-30` guards with `typeof x === 'string'`): a
+  numeric scene index like `sceneRef: 3` is read as null by a fully sceneRef-aware
+  Aurora and then erased on the next save, presenting as "the assignment didn't stick" —
+  do not later "helpfully" switch this field to an integer index. **Round-trip hazard
+  the golden pins:** aurora's codec today hardcodes the two-ref set at six sites — four
+  executable (`section-meta.ts:21`, `:22`, `:29-30` — unknown keys silently DROPPED,
+  non-string known keys nulled — and the cleared-overwrite body at `save.ts:118-126`)
+  plus the header-comment enumeration (`:5-9`) and the `SectionMeta` interface
+  (`:11-14`) — so a `sceneRef` written by anything other than a sceneRef-aware Aurora is
+  silently erased on Aurora's next save round-trip. The `SectionMeta` extension edits
+  all six in the same Aurora parcel as the first writer, and parse→serialize
+  preservation of `sceneRef` is a **named contract requirement** (empyrean schema doc
+  §3/§6/§8), not an implementation detail. **Malformed sidecars THROW** (bare
+  `JSON.parse`, `section-meta.ts:27`): error ownership is the WRITER's — any non-Aurora
+  writer of sidecars (hand tools, future generators) writes atomically (temp file +
+  rename) so a partial sidecar is never observable; consumers do not add a
+  tolerate-garbage path.
 - `project.json` (repo root): per act entry, the generator reads **one key**: `sceneRef`
   — string scene id or `null`/absent (= the hand-authored engine default in
   `act_descriptor.emp` stands). The dangling `parallax` key is deleted in the same parcel

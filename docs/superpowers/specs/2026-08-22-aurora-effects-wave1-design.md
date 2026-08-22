@@ -122,11 +122,17 @@ per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps prec
   scene (that would put symbol strings in editor JSON, coupling the editor tree to
   `.emp` internals). The twenty shipped hand scenes keep their hand bindings; open
   question §9 Q-a covers a future manifest if assignment-to-hand-scenes is wanted.
-- **Aurora-side hazard, named in the empyrean doc §6 and repeated here because it bites
-  first:** Aurora's `parseSectionMeta`/`serializeSectionMeta`
-  (`src/core/formats/section-meta.ts:20-32`) currently DROP unknown keys — an older
-  Aurora would destroy `sceneRef` on save. The `SectionMeta` extension lands in the same
-  Aurora parcel as the first writer.
+- **Aurora-side hazard (ERRATUM 1 of the assessment + addendum, verified at aurora
+  `e731214`; specified in full in `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.2 and the
+  empyrean doc §3/§6):** Aurora's sidecar codec hardcodes the two-ref set at six sites —
+  parse silently drops unknown keys AND nulls non-string values in known keys, serialize
+  and the cleared-overwrite body re-emit only the enumerated fields — so a `sceneRef`
+  from any non-sceneRef-aware writer is silently erased on Aurora's next save. Hence:
+  the `SectionMeta` extension (all six sites) lands in the same Aurora parcel as the
+  first writer; the golden pins the parse→serialize round-trip; `sceneRef` is ruled a
+  string id, never a numeric index (silent-null failure mode); malformed sidecars throw,
+  so non-Aurora writers write atomically; and a MISSING sidecar is all-refs-null for
+  every consumer, never an error.
 
 ## 5. BgAnim authoring (the wave-1 opener)
 
