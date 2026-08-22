@@ -546,6 +546,60 @@ def report(state, boots, sym, K, poison=None, out=sys.stdout):
             "ticks": b0["ticks"]}
 
 
+# ---- CR-28 addendum: the caller lens on the fill/S4LZ rows --------------------------
+
+CALLER_ROWS = ("S4LZ_DecompressDict", "TileCache_DecompressBlock",
+               "TileCache_FindStagedBlock", "Tile_Cache_Fill",
+               "TileCache_FillRow", "TileCache_FillColumn")
+
+
+async def callers_addendum(rom, lst, sym, K, state, window, out=sys.stdout):
+    """One boot, whole-window sample with the CR-28 caller lens armed
+    (set_profiler{callers:true} + get_profiler_frames{topCallers}) — direct
+    call-graph evidence for the ledger's geometry-attributed 'who filled' answer.
+    Consumption verdict for the oracle team rides on this output."""
+    p = lambda *a: print(*a, file=out)                                  # noqa: E731
+    async with Server(rom, lst) as c:
+        r = await c.call("emulator/set_profiler",
+                         {"enabled": True, "perFrame": True, "callers": True})
+        if r.get("callers") is not True:
+            raise Setup(f"server did not arm the caller lens: {r} — rebuild "
+                        "oracle-aether at/after CR-28 (oracle main a621e4c)")
+        await c.call("emulator/set_profiler", {"enabled": False})
+        await tvp.reach(c, sym, state)
+        await c.call("emulator/set_profiler",
+                     {"enabled": True, "perFrame": True, "callers": True})
+        await c.call("emulator/run_frames", {"frames": window + 1})
+        pf = await c.call("emulator/get_profiler_frames",
+                          {"frames": window + 8, "top": 512, "topCallers": 8})
+        await c.call("emulator/set_profiler", {"enabled": False})
+        identity(pf)
+        addr2name = {int(r2["addr"], 16) & 0xFFFFFF: r2.get("name")
+                     for r2 in pf["routines"]["items"]}
+        p(f"\n== CR-28 caller lens, state {state}, {pf['frameCount']} frames "
+          f"(whole-window rows; one boot — the ledger above carries the spread) ==")
+        rows = by_name(pf)
+        for nme in CALLER_ROWS:
+            r2 = rows.get(nme)
+            if r2 is None:
+                p(f"   {nme}: no row in this window")
+                continue
+            p(f"   {nme}  calls {r2['callsTotal']}  self {r2['cyclesSelfTotal']}"
+              f"  callers {r2.get('callersReturned')}/{r2.get('callersTotal')}"
+              f"{'  TRUNCATED' if r2.get('callersTruncated') else ''}")
+            for e in r2.get("callers", []):
+                who = e.get("callerAddr")
+                if who is not None:
+                    a = int(who, 16) & 0xFFFFFF
+                    who = addr2name.get(a) or who
+                else:
+                    who = f"<{e.get('entryKind')}>"
+                extra = {k2: v for k2, v in e.items()
+                         if k2 not in ("callerAddr", "entryKind")}
+                p(f"        <- {who:38} {json.dumps(extra, sort_keys=True)}")
+    return pf
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--rom", default="s4.debug.bin")
@@ -555,6 +609,10 @@ def main():
     ap.add_argument("--boots", type=int, default=3)
     ap.add_argument("--no-control", action="store_true")
     ap.add_argument("--poison", choices=("claims", "form", "coverage"), default=None)
+    ap.add_argument("--callers", action="store_true",
+                    help="CR-28 addendum: whole-window caller lens on the fill/S4LZ "
+                         "rows, one boot per state (requires oracle-aether at/after "
+                         "CR-28)")
     ap.add_argument("--json", default="")
     args = ap.parse_args()
 
@@ -599,6 +657,12 @@ def main():
             log = asyncio.run(tvp.control(corpus, sym))
             print("\n".join(log))
             print(f"   control took {time.time() - t0:.1f}s\n")
+
+        if args.callers:
+            for state in args.states.split(","):
+                asyncio.run(callers_addendum(rom, lst, sym, K, state, args.window))
+            print(f"total wall {time.time() - t0:.1f}s")
+            return 0
 
         results = {}
         for state in args.states.split(","):
