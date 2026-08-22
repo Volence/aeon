@@ -228,3 +228,36 @@ on the aeon side today and unsafe on the Aurora side today.**
   `docs/aurora-effects-schema`; SHA at landing to be pinned by Aurora).
 - Wave 2 (raster preset composition) will add its own consumer rows here when its schema
   is cut; its writer surface is reserved-by-name-only in the empyrean doc §7.
+
+
+## 5. Canonical serialization — normative for every writer of these files
+
+*(Agreed with the Aurora lane 2026-08-22, after they measured 282,867 B vs 407,055 B
+for one semantically identical document.)*
+
+**Every writer of a shared JSON document in this contract emits canonical form:
+`sort_keys=True`, separators `(",", ":")`** — Python
+`json.dumps(obj, sort_keys=True, separators=(",", ":"))`, and the equivalent on the
+Aurora side. aeon's write chokepoint is `bg_override_io.atomic_write_json`, which all
+three aeon writers (`forest_bg_gen.py`, `png_to_bg_override.py`, and the shared path
+itself) already funnel through.
+
+**The property is DETERMINED serialization, not compactness.** Matching separators
+alone would fix the churn that happened to get measured and leave key order waiting to
+produce the identical surprise later. What is being bought is: *a diff appears only
+when something semantic changed.*
+
+**Why not pretty-print.** It was considered and rejected. The instinct is sound — these
+documents are single-line, so `git --stat` reports "1 line changed" regardless of what
+happened inside, which is exactly how a two-band `anims` deletion survived a month
+unnoticed. But pretty-printing a document dominated by tile arrays yields a diff that is
+attributable and enormous, which is the same unreviewability in a different costume.
+Canonical-and-minified delivers the property that actually defends against the silent
+deletion.
+
+**Adopting it churns the file once per side, and that one-time churn has the exact shape
+of the hazard this clause exists to prevent** — a total rewrite showing as one line. So:
+**land a reserialization as its own commit that changes nothing else**, stating in the
+message that the diff is format-only. If it rides along inside a content change, the
+first thing this clause does is hide a real edit. This applies to every tool that adopts
+it later, which is why it is written here rather than in a commit message.

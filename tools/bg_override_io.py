@@ -80,10 +80,23 @@ def read_existing_override(path, owned_keys, tool):
 def atomic_write_json(path, obj):
     """Write via a tmp sibling + rename, so a crash cannot truncate the file.
 
-    Same idiom as tools/ojz_block_gen.py:201-206; required of generators by
+    Same idiom as tools/ojz_block_gen.py's _atomic_write; required of generators by
     tools/EFFECTS_CONSUMER_CONTRACT.md §3.
+
+    CANONICAL SERIALIZATION (contract §5, agreed with the Aurora lane 2026-08-22):
+    sorted keys, no separator padding. This file has multiple writers across two
+    repos — this chokepoint for aeon, Aurora's `serializeBgOverride` for the editor —
+    and until now they disagreed on separators, so an alternation rewrote the whole
+    file with no semantic change. Determined serialization is the point, not
+    compactness: a diff must appear only when something semantic changed.
+
+    Why that matters more here than it looks: this document is minified and single
+    line, so `git --stat` reports "1 line changed" whatever happened inside it. That
+    is how a two-band `anims` deletion went unnoticed for a month. Format churn on a
+    one-line file is indistinguishable from content churn, so eliminating the format
+    churn is what makes the content churn visible.
     """
-    data = json.dumps(obj).encode()
+    data = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
     d = os.path.dirname(path)
     if d:
         os.makedirs(d, exist_ok=True)
