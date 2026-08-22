@@ -16,6 +16,11 @@ PALETTE MODES:
 Hard gates: image tile-aligned (8x8); width divides the 512px plane;
 <= 448 unique flip-canonical tiles. BG is opaque (index 0 excluded).
 
+FILE OWNERSHIP: this tool rewrites editor_bg_override.json wholesale, so it
+reads the file first. Its own keys (OWNED_KEYS) are carried across a run that
+does not stamp them; any OTHER key is a loud refusal, because the tool would
+destroy hand-authored content it does not understand. See OWNED_KEYS.
+
 Usage:
   python3 tools/png_to_bg_override.py <image.png> [--voffset N] [--lines 2,3]
 """
@@ -43,6 +48,75 @@ DEFAULT_PAL_LINE = 2  # OJZ BG owns CRAM line 2 (decoded from ojz_palette.bin)
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OVERRIDE = os.path.join(REPO, "games/sonic4/data/editor_bg_override.json")
 GEN_PALETTE = os.path.join(REPO, "games/sonic4/data/generated/ojz/act1/ojz_palette.bin")
+
+# The keys in editor_bg_override.json that THIS tool authors. Everything it
+# writes lives here: layout/tiles always, palette/palette_line only in
+# EXTRACT+stamp mode. tools/test_bg_override_no_clobber.py pins this set against
+# the keys the tool actually emits, so it cannot drift into a stale literal.
+#
+# The file used to be written as a whole-file overwrite that never read it, so a
+# stamp run followed by an ordinary lock-mode re-import silently destroyed the
+# stamped palette -- which inject_editor_bg.py consumes and stamps into
+# ojz_palette.bin. Owned keys are now carried across a non-stamping run.
+#
+# A key NOT in this set is a loud refusal, never a silent overwrite and never a
+# silent merge. inject_editor_bg.py already consumes `anims` (and legacy
+# `anim`), so unknown keys here are live hand-authored content, not a
+# hypothetical. WHO owns those keys -- whether Aurora may co-write an `anims`
+# key into a file this tool writes -- is PARKED FOR THE REPO OWNER. Refusing
+# takes neither side: it converts silent destruction into a visible stop and
+# leaves either ruling cheap to implement. Do NOT "simplify" this into a
+# merge-preserve; that adopts one of the two candidate answers by implementation.
+OWNED_KEYS = frozenset(("layout", "tiles", "palette", "palette_line"))
+
+
+def _atomic_write(path, data):
+    """Write via a tmp sibling + rename, so a crash cannot truncate the file.
+
+    Same idiom as tools/ojz_block_gen.py:201-206; required of generators by
+    tools/EFFECTS_CONSUMER_CONTRACT.md §3.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def read_existing_override(path):
+    """Return the current override dict ({} if absent), refusing unowned keys.
+
+    Called BEFORE the expensive image work so an authoring mistake stops in
+    milliseconds rather than after a full quantisation pass.
+    """
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return {}                       # first-ever run: nothing to preserve
+    if not raw.strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        sys.exit(f"ERROR: {path} is not valid JSON ({e}). Refusing to overwrite it "
+                 "-- it may be hand-authored content or a truncated write. Repair "
+                 "or delete it deliberately, then re-run.")
+    if not isinstance(data, dict):
+        sys.exit(f"ERROR: {path} is not a JSON object. Refusing to overwrite it.")
+
+    unowned = sorted(set(data) - OWNED_KEYS)
+    if unowned:
+        sys.exit(
+            f"ERROR: {path} contains key(s) this tool does not own: "
+            f"{', '.join(unowned)}.\n"
+            "  This tool rewrites the file and WOULD DESTROY them "
+            "(inject_editor_bg.py consumes `anims`/`anim`, so that content ships).\n"
+            f"  It only owns: {', '.join(sorted(OWNED_KEYS))}.\n"
+            "  Per-key ownership of this file is an OPEN design question for the "
+            "repo owner -- see docs/BUGS.md. Refusing rather than guessing.\n"
+            "  To proceed anyway, remove the key(s) yourself, keeping a copy.")
+    return data
 
 
 def snap9(v):
@@ -117,6 +191,9 @@ def main():
                     help="EXTRACT+stamp one palette (UNSAFE: recolours shared FG art)")
     args = ap.parse_args()
 
+    # Read (and vet) the file we are about to rewrite, before any heavy work.
+    existing = read_existing_override(OVERRIDE)
+
     img = np.array(Image.open(args.image).convert("RGB"))
     h, w, _ = img.shape
     if w % 8 or h % 8:
@@ -174,15 +251,26 @@ def main():
 
     out = {"layout": layout, "tiles": [t.reshape(-1).astype(int).tolist() for t in blob]}
     if stamp_palette:
+        # This run IS stamping, so the fresh values win -- that is its job.
         out["palette"] = stamp_palette
         out["palette_line"] = args.pal_line & 3
-    with open(OVERRIDE, "w") as f:
-        json.dump(out, f)
+    else:
+        # Lock mode stamps nothing, so a palette an earlier EXTRACT run wrote
+        # must survive: inject_editor_bg.py stamps it into ojz_palette.bin every
+        # build, and dropping it here silently reverts the BG colours.
+        for k in ("palette", "palette_line"):
+            if k in existing:
+                out[k] = existing[k]
+    _atomic_write(OVERRIDE, json.dumps(out).encode())
+    carried = [k for k in ("palette", "palette_line")
+               if k in out and not stamp_palette]
     mode = "EXTRACT+stamp" if stamp_palette else f"lock (lines {args.lines})"
     print(f"[png_to_bg_override] {args.image} {w}x{h} ({tw}x{th}) — {mode}")
     print(f"  unique tiles: {len(blob)}/{BG_TILE_CAPACITY}")
     print(f"  cells per CRAM line: " +
           ", ".join(f"line{k}={v}" for k, v in sorted(line_hist.items())))
+    if carried:
+        print(f"  carried through from the existing file: {', '.join(carried)}")
 
 
 if __name__ == "__main__":
