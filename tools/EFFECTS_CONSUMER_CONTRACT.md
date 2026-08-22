@@ -130,20 +130,36 @@ surface.
   numeric scene index like `sceneRef: 3` is read as null by a fully sceneRef-aware
   Aurora and then erased on the next save, presenting as "the assignment didn't stick" —
   do not later "helpfully" switch this field to an integer index. **Round-trip hazard
-  the golden pins:** aurora's codec hardcodes the two-ref set at **THIRTEEN sites, not the six
-  this contract originally listed** (corrected 2026-08-22 after Aurora's first wave-1 parcel
-  enumerated it against the real type: `save.ts` carries a SECOND independent hardcoded
-  enumeration at `:130` beside the cleared-overwrite literal, `Section` itself gains the field,
-  and `cloneSection` hand-enumerates every ref in a bare literal — that last one was UNGUARDED,
-  and dropping a ref from it survived Aurora's entire 3,909-test suite). The six below are the
-  CODEC frame only; enumerate by what TOUCHES the record — constructors and copiers included —
-  not by what defines it. Original six — four
+  the golden pins — READ THE METHOD, NOT THE NUMBER.** Empyrean's schema doc defers to this
+  paragraph as the governing enumeration, so it states how to re-derive the list rather than
+  freezing a count: **counts in prose rot** (empyrean's own doc had drifted to "four" in one
+  section and "six" in another within five days, and this contract said six when the answer was
+  thirteen).
+
+  **Definition of a "site":** a place that hardcodes the ref SET — i.e. that must be edited when a
+  ref is added — not every mention of a ref name. **Re-derivation (protocol review bar 8,
+  empyrean `dc629a5`): enumerate by what TOUCHES the record, not by what defines it** — grep the
+  TYPE and every constructor/copier of `Section`/`SectionMeta`, not the field names in their
+  owning module. `grep -rn "bgLayoutRef\|paletteRef\|sceneRef" src` in aurora is the start, but
+  the codec frame is the trap: two overseers independently enumerated it, cross-verified
+  firsthand, and both got the same wrong answer.
+
+  **Dated evidence, not a standing fact:** the authoritative enumeration is Aurora's first wave-1
+  parcel (aurora `61d4b80`), which found **13** by editing against the real type with tests —
+  supersede this number by re-deriving, never by copying it forward. Of those, the three the
+  codec frame MISSED, each verified firsthand in aurora source (`e731214`/`a88db05` line):
+  `src/core/editing/section-ops.ts:30` (`cloneSection` hand-enumerating every ref in a bare
+  literal — **it was UNGUARDED; dropping a ref survived a 3,909-test suite**), a SECOND
+  independent ref literal in the save path at `save.ts:131` distinct from the cleared-overwrite
+  body (now at `:144`, and note it already carries `sceneRef: null`), and the `Section` type
+  itself. The six below are the CODEC FRAME ONLY — historically what this contract listed, kept
+  because the round-trip hazard is explained there. Codec frame — four
   executable (`section-meta.ts:21`, `:22`, `:29-30` — unknown keys silently DROPPED,
   non-string known keys nulled — and the cleared-overwrite body at `save.ts:118-126`)
   plus the header-comment enumeration (`:5-9`) and the `SectionMeta` interface
   (`:11-14`) — so a `sceneRef` written by anything other than a sceneRef-aware Aurora is
   silently erased on Aurora's next save round-trip. The `SectionMeta` extension edits
-  all six in the same Aurora parcel as the first writer, and parse→serialize
+  every site — re-derived, not the six — in the same Aurora parcel as the first writer, and parse→serialize
   preservation of `sceneRef` is a **named contract requirement** (empyrean schema doc
   §3/§6/§8), not an implementation detail. **Unreadable sidecars — the obligation is
   SHARED** (ERRATUM 2, `5be97277`, superseding an earlier consumer-side-only framing):
