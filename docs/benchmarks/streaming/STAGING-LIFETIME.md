@@ -169,6 +169,15 @@ blocks comfortably outlive their 8-tick lead.
 
 ## 5. Design INPUT for the burst-smoothing parcel (mechanism + budget — not a ship recommendation)
 
+> **OUTCOME 2026-08-22 (`BURST-SMOOTHING.md`):** shape (a) was built and iterated five
+> times, all measured. The two budgets below turned out to be a joint exclusion at
+> whole-call granularity — every whole-call schedule (k=1 spread, drift-ordered,
+> compressed-only, recovery-tick batches of 2 and 3) produced 5-8 spike ticks against
+> the baseline's 3. Coverage itself is PROVEN to un-lag a crossing (a fully covered
+> crossing ran spike-free, live), and the escalation this section names — slicing the
+> decompress — is exactly what resolves both constraints at once. BLOCKED finding +
+> substrate + booked slicing parcel in that doc; no engine bytes shipped.
+
 * **The gap is precisely scoped:** at maxdiag the column crossing needs its **2-4
   compressed** blocks (the empties cost nothing) staged before the crossing tick. The
   cs-scan already computes the right target (`Cache_Pfx_Col_Target` was correct at every

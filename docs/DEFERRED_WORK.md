@@ -198,6 +198,20 @@ The next major engine arc. Sustained max-diagonal runs the logic at 30 Hz, not 6
   The smoothing parcel's design inputs (mechanism, residency and cycle budgets) are in
   that doc's §5.** The f/t figures are the one thing that did NOT
   reproduce: 1.069 here vs 1.192 there, on byte-identical ROM bytes.
+- **The smoothing parcel RAN 2026-08-22 and is BLOCKED at whole-call granularity**
+  (`docs/benchmarks/streaming/BURST-SMOOTHING.md`, branch `feat/burst-smoothing`): five
+  measured whole-call schedules (k=1 spread / drift-ordered walk / compressed-only
+  claims / recovery-tick batches of 3 and 2) all produced 5-8 spike ticks against the
+  baseline's 3 — §5's residency (~0.4 tick margin) and cycle (+15.3k crosses 128,000)
+  budgets are a JOINT exclusion for whole calls. Permanent yields: a covered column
+  crossing is PROVEN not to lag (live, v4 crossing 221); `right`/`down` ledgers stay
+  byte-identical under the classifier family; the correct claim set is "imminent head
+  column's COMPRESSED blocks, arriving-rows first" (substrate committed in that
+  branch's history, `66cc7635` + `096d934d`).
+  **NEXT LEVER — the booked escalation: a resumable (bookmarked) `S4LZ_DecompressDict`
+  for the lookahead path, ZX0R/§9.7 style** — one claim whose 10-15k decode spreads at
+  ~4-6k/tick over the cadence's six quiet ticks, satisfying both budgets at once.
+  engine/compression parcel; the tile-cache side plugs into the committed substrate.
 
 **PROBE MIGRATION to the validated oracle profiler — booked 2026-08-20, condition MET.**
 The corpus A/B passed (oracle main `8d10cc5`, evidence doc with CRC per row; reference row
