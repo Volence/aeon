@@ -93,6 +93,36 @@ delegation covers open calls with defensible answers; it does NOT cover irrevers
 design-changing bets, which still PARK. Also ruled tonight: S4LZ slicing is STOPPED/parked for
 usage reasons (nothing was committed; re-dispatch from the brief when a cheaper session runs).
 
+## OPEN CROSS-TOOL: the profiler A/B discrepancy (oracle lane, 2026-08-22 night)
+
+oracle-next-f3 reopened §11.5 of their `docs/2026-08-20-profiler-corpus-ab.md` — five short
+routines disagree 11-40% between instruments. **They were RIGHT about our table and we confirmed
+it firsthand:** `ENGINE-BASELINE.md` §3's `cyc/logic-tick` column is DERIVED
+(`cyc/video-frame × frames-per-tick`), not measured, and `calls` is per-video-frame and INTEGER —
+so for tick-driven routines it cannot express the true rate and our column is not the same
+quantity as their per-invocation `cyclesTotal/callsTotal`. **Caveat committed at `e4f8c851`; do
+not quote `cyc/logic-tick` as a per-invocation cost.**
+
+**What we told them that cuts AGAINST their hypothesis:** BgAnim is tick-driven; against their
+constant 154/invocation, max-diagonal predicts 74.5 vs our measured 74 (derivation returns 153 —
+agreement within a cycle), but idle predicts 149.1 vs our measured **181**, 21% high, which no
+scaling can produce. **Our idle number is high before any derivation touches it — that row stays
+UNEXPLAINED**, and it is the one reading high while four read low, so the class likely has more
+than one cause.
+
+**Stage C (the paired trace) EXISTS but is a small parcel, not free** — attempted here rather than
+asserted: `bc048e2a` is reachable and `tools/engine_baseline_probe.py` still exists, but a clean
+worktree build REFUSES on 39 failures all in `tools/test_raster_wire_pin.py`, root cause
+`ModuleNotFoundError: No module named 'launcher'` (`tools/raster_cost_probe.py:59` — the oracle-old
+harness module not on `sys.path` in a fresh worktree; a PATH artifact, not tree rot). `FAST=1` does
+not bypass it. **The ROM was NOT demonstrated reproducing** — reachable and CRC-verifiable against
+`d22dda85`/len 713295, but unproven. No committed blob shortcuts it: sigil's golden `s4.debug.bin`
+is current-master's `0dbaa80f`/715010, not the corpus vintage.
+
+**Their adjudication in flight** is a hand derivation of the true 68000 cost from the manual tables
+— authored by neither emulator, all three outcomes publishable. **If it says our 181 is wrong, we
+retract rather than defend**; other parcels have quoted that table.
+
 ## Still owner-pending beyond the ruling
 
 The P3 plan's 7 PARKs; F6 proper; wiki stable-sections; seraph S0.
