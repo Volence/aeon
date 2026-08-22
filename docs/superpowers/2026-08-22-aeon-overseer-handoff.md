@@ -41,9 +41,20 @@ X=0 masking feature CANNOT serve) and the plan's **7 PARKs** (owner).
 > Aurora half) FIRST → (B) S4LZ slicing parcel → (C) sigil game-defines adoption check →
 > (D) booked engine work (sprite_mask emission pair, P1 §8 differential).**
 
-Arc A state: assessment agent dispatched (read-only over aurora at their master `4cffe45`,
-deliverable = `docs/research/2026-08-22-aurora-effects-authoring-assessment.md` on branch
-`research/aurora-effects-assessment`). **Lane split agreed with aurora-86** (their message,
+Arc A state: **assessment LANDED** (merge `f85cbd16`,
+`docs/research/2026-08-22-aurora-effects-authoring-assessment.md` — surveyed aeon `77cbf7c0`
+/ aurora `4cffe456` clean). Recommendation: **Option B** — Aurora authors neutral JSON in
+`games/sonic4/data/editor/effects/` (+ the existing `editor_bg_override.json` `anims`
+contract for BgAnim); the booked-unbuilt `tools/effects_gen.py` (scanline-services P5) emits
+generated `.emp` through the same constructors so every ensure/budget still fires. Matches
+three prior rulings (effects-suite §8, scanline design §7, the 08-20 format-boundary
+ruling). Phasing: BgAnim bands FIRST (contract+bake exist; only UI/preview/first-authored-
+act missing — also discharges inject_editor_bg's byte-unproven animated arm), then scene
+editing + section assignment, then raster preset composition. Preview verdict: BOTH (oracle
+loop ≈ free via P2 playtest plumbing; in-Aurora canvas per-line preview effort M). **NEXT
+STEP: the owner answers the doc's §(f) six questions (v1 scope, assignment venue, descriptor
+bake reach, project.json parallax field, contract venue aeon-vs-empyrean, preview honesty
+bar), then the design/contract docs get written and aurora-86 pinged with SHAs.** **Lane split agreed with aurora-86** (their message,
 morning 08-22): THEY dispatch and land all Aurora parcels; aeon ships committed
 briefs/contracts with SHAs (empyrean for cross-tool contract material); they transcribe
 what Aurora consumes. Their intel, already folded into the survey brief: yesterday's aurora
