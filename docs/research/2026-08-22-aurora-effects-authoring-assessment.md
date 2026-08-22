@@ -1,6 +1,8 @@
 # Aurora Effects-Authoring Assessment — design input for the Parcel D / OJZ BG showcase arc
 
-**Date:** 2026-08-22 · **Status:** ASSESSMENT (pre-design; no implementation, no plan)
+**Date:** 2026-08-22 · **Status:** ASSESSMENT (pre-design; no implementation, no plan) ·
+**Update 2026-08-22:** §(f)'s six questions are now ADJUDICATED under owner delegation — see the
+provenance note there; the rulings are design inputs, overturnable at the design review.
 **Aeon surveyed at:** `77cbf7c0` (master, via worktree branch `research/aurora-effects-assessment`)
 **Aurora surveyed at:** `4cffe45619192285290aa6d8be33512543ef767c` (branch `master`, **tree clean** —
 `git status --short` empty at survey time; the 2026-08-21 landed line `5b58f68..4cffe45` is fully
@@ -376,7 +378,49 @@ Bit-exact TS goldens stay deferred per the standing spec until the preview exist
   where it counts" lab tier (2026-08-11 §7); the scanline design already defers its goldens to
   this arc's later phase. Do not gate the first preview on it.
 
-## (f) Open questions for the owner
+## (f) Open questions — ADJUDICATED under owner delegation, 2026-08-22
+
+> **Provenance (flagged per the decision-audit rule):** after the assessment landed, the owner
+> delegated all six answers — "whatever you think is best … do what's best for our best-in-class
+> tools + engine" — with one stated lean: Q2, "probably the section one". The rulings below are
+> therefore **assistant-authored under owner delegation**, not owner-dictated; each carries its
+> reasoning so the design review can overturn any of them cheaply. The questions as originally
+> posed are kept verbatim in the next subsection.
+
+1. **v1 scope → two waves, both inside this arc.** Wave 1 = BgAnim bands + scene parameter
+   editing + section assignment (the contract-mature pieces); wave 2 = raster preset composition
+   (tint bands / vscroll splits / patchable channels), cut immediately after wave 1's contract
+   golden is green — sequenced, not deferred, because the showcase goal needs it. The banked
+   effects-tail overlap parcel revives exactly when wave 2 authors the first genuinely
+   overlapping program (its recorded revival condition, `docs/DEFERRED_WORK.md:5461-5468`); that
+   revival is an aeon parcel.
+2. **Assignments → the section sidecar** (the owner's lean, and it survives scrutiny): the
+   per-section assignment is one scalar ref (`effectsRef` / `sceneRef`) in `section_N.meta.json`,
+   which already carries exactly this shape — scalar refs with explicit-null semantics (OBSERVED
+   aurora `src/core/project/aeon/save.ts:112-115`). Scene/preset/band **definitions** stay in
+   `games/sonic4/data/editor/effects/*.json` (the act-scoped library): sidecars hold pointers,
+   never bodies, so a scene shared by five sections has one definition.
+3. **Bake reach → a generated binding module, NOT a generated `act_descriptor.emp`.** The
+   descriptor is dense, hand-authored, contract-bearing prose; half-generating it violates
+   clean-not-bolted-on. `effects_gen.py` emits a per-act generated `.emp` binding module (the
+   `bg_anim.emp` / sec-local-maps precedent) whose per-section Labels `act_descriptor.emp`
+   imports by name list. Design-phase check flagged: the label-vs-const import axis — label
+   imports are symbol references and travel safely; const imports re-evaluate in the consumer's
+   scope (`ojz_scenes.emp:70-74`).
+4. **`project.json` `parallax` → re-point, one change, no interim fossil:** the dangling `.asm`
+   path is replaced by a scene-id string into the new contract in the same parcel that lands the
+   schema; nothing keeps or deprecates the dead path.
+5. **Contract venue → both, split by role:** the cross-tool schema (what Aurora writes) goes to
+   **empyrean** per the lane note in aurora's ROADMAP §5.2; the consumer field list (exactly which
+   fields `effects_gen.py` and `inject_editor_bg.py` read — the thing that makes it a contract per
+   the sprite-export ruling, `docs/DEFERRED_WORK.md:120-125`) lands in **aeon** beside the
+   generators. Aurora pins its writer-side golden against both SHAs.
+6. **Preview honesty bar → labeled-approximate is the v1 bar** (the standing spec's position);
+   the oracle loop remains the truth channel from day one, and TS golden fixtures land with the
+   simulator phase — i.e. when the preview first claims exactness anywhere, goldens gate that
+   claim, not before.
+
+### The questions as originally posed (kept for the design review)
 
 1. **v1 scope:** Is the first Aurora parcel wave BgAnim bands + scene editing + section
    assignment, with raster preset composition (tint bands / vscroll splits / patchable channels)
