@@ -64,6 +64,12 @@ ensure(BAND_OP_BIT_A == 0 && BAND_OP_BIT_B == 1, "scene_dsl's inlined band facto
 // a GAME module elaborates — and these hold those two literals to parallax's own bit
 // numbers, which Decode_Factor_Curve and the fill's band hoist btst back out.
 ensure(CURVE_FLAG_OP_BIT == 0 && CURVE_FLAG_ACTIVE_BIT == 1, "scene_dsl's inlined curve flag bit positions (0, 1) drifted from engine.parallax.CURVE_FLAG_OP_BIT / CURVE_FLAG_ACTIVE_BIT — scene_band() packs both into band_curve.bc_flags and the runtime btsts them back out")
+// P3 Task 12 adds one of the same species. scene()'s factor0_lock verification spells the
+// locked plane-B factor as $0FF for the reason above; this holds that literal to
+// parallax_dsl's own encoding (FACTOR_0 = FACTOR_LOCKED = $0FF, s1 15 = "term zero").
+// FACTOR_0 resolves here without a `use`: parallax_dsl is a sigil COMPTIME_HELPERS member
+// and is glob-injected into every module (parallax_dsl.emp:9-10).
+ensure(FACTOR_0 == $0FF, "scene_dsl's inlined locked-factor encoding ($0FF) drifted from engine.level.parallax_dsl.FACTOR_0 — scene()'s factor0_lock verification compares every layer's ly_fb against it, and a drift would let a scrolling plane B claim the artifact cannot exist")
 
 // LAYER_WORLD_Y_MAX — the engine-wide ceiling on an act's vertical extent, and the bound
 // `layer()` replaced its `world_y < 512` with. It is NOT a parallax number and NOT a
@@ -170,6 +176,15 @@ pub const CAP_MULTI_DEFORM_TABLE = $0020
 pub const CAP_FACTOR_CURVE       = $0040
 // Reserved (P4+): CAP_FG_SPRITE_STRIPS=$0080, CAP_BGANIM_BOUND=$0100,
 // CAP_DENSE_TIER=$0200, CAP_COMPUTED=$0400, CAP_DEGRADE=$0800
+//
+// THE LEFT-COLUMN POLICY (P3 Task 12) RAISES NO BIT, AND THAT IS A RULING, NOT AN
+// OVERSIGHT. Factor0Lock and Accept demand nothing of the runtime — one is a verified
+// impossibility claim, the other a decision to ship — so a bit for them would gate no
+// code. SpriteMask WILL need a bit (its strip emitter is engine code a non-per-column
+// game must elide), but its emission has not landed and scene() refuses the variant
+// until it does; per the promotion note above, the bit arrives WITH its gated block in
+// the emission parcel, never ahead of it. CAP_FG_SPRITE_STRIPS ($0080) is NOT that bit —
+// it is design §2's FG parallax strips, a different mechanism, and stays reserved.
 
 // ---- attachment enums (spec §2) ----
 // Comptime enums with payloads, per the RasterOp precedent: variants are the
@@ -328,6 +343,72 @@ pub comptime enum SceneCurve {
 pub comptime enum SceneVSplit {
     None,
     At(int),                    // whole-plane Plane-B vscroll in force from this top down
+}
+
+// SceneLeftColMask — design §2's MANDATORY left-column policy (P3 Task 12), and the one
+// attachment in this model that is a DECLARATION about a hardware artifact rather than a
+// mechanism request.
+//
+// THE ARTIFACT: the VDP's per-column V-scroll grain is 16 px (one VSRAM entry pair per
+// column-pair). When Plane B carries non-zero HScroll AND per-column V-scroll is on, the
+// leftmost PARTIAL column — the screen sliver before HScroll's first 16-px boundary —
+// renders at a V-scroll the program did not write (silicon; no register fixes it, and the
+// MD1-vs-MD2 fill value is UNPINNED in the research synthesis — docs/research/
+// 2026-08-17-parallax-phase-research-synthesis.md:164-167, "verify before depending on
+// it"). Every commercial game either covered the sliver with a sprite strip (Battle
+// Mania 2, Sonic 3's Hydrocity boss arena) or shipped it (Gynoug). See
+// engine/level/parallax.emp's Vscroll_Write banner, which has documented the defect and
+// these same three mitigations since v1.
+//
+// Design §2 makes the answer MANDATORY on any scene that attaches SceneVDeform.Columns:
+// scene() refuses a per-column scene whose policy is Undeclared, and refuses a policy on a
+// scene with no per-column V-deform (a policy for an artifact the scene cannot produce is
+// noise that reads as coverage). The failing ensure elaborates at the scene's own
+// constructor call, so the build error's source line names the scene.
+//
+//   Undeclared    the default, and NEVER legal on a per-column scene. It exists because
+//                 the default must not silently pick a policy — an enum whose default is
+//                 one of the real answers is a declaration nobody made.
+//   SpriteMask    the engine covers the sliver: engine-reserved SAT entries, an 8-px
+//                 opaque column strip at screen X 0, emitted per frame while a per-column
+//                 scene is installed, priced in axis 5 (tools/effects_budget_model.toml
+//                 [engine_reservation], gated by tools/effects_budget_check.py).
+//                 THE EMISSION HAS NOT LANDED — scene() refuses the variant, loudly and by
+//                 name, until it does. The refusal is deliberate honesty, not scaffolding:
+//                 an accepted declaration whose mechanism does not exist is the
+//                 gate-cannot-see-the-unbuilt-half failure. The blockers are enumerated in
+//                 docs/DEFERRED_WORK.md §"Sprite mask for per-column V-scroll" (the
+//                 first-Game.*-reference port flip in engine/objects/sprites.emp, and the
+//                 game-owned opaque tile). TWO RULINGS RECORDED THERE THAT THE EMISSION
+//                 PARCEL MUST HONOUR: (1) the strip must be OPAQUE sprites at screen X 0
+//                 (SAT X = 128, priority set, first in the link chain) — the VDP's X=0
+//                 sprite-MASKING feature suppresses later SPRITES on the covered lines and
+//                 cannot repaint a PLANE pixel, so it cannot serve here (and its
+//                 first-sprite-on-line exemption is one more way it fails closed);
+//                 (2) full height is 7 SAT entries at the shipped 8x32 mask geometry, not
+//                 the 1 the design priced — accepted against the measured reservation, see
+//                 the toml's axis5 rows.
+//   Factor0Lock   the artifact CANNOT OCCUR, and scene() VERIFIES the claim rather than
+//                 filing it: every real layer's plane-B factor must be FACTOR_0 (the
+//                 partial column exists only under non-zero plane-B HScroll), AND no live
+//                 plane-B H-deform amplitude may be reachable — deform adds per-line
+//                 HScroll ON TOP of the locked factor, so a locked base under a live dsb
+//                 brings the sliver back on exactly those rows. A scene that cannot pass
+//                 both (Rocking's zero-table dsb, Perspective's shimmer rows) spells
+//                 Accept; the claim stays checkable or it is not available.
+//   Accept        ship the artifact. A REAL answer, not a loophole — it is what Gynoug
+//                 shipped and what both per-column families in this game ship today — and
+//                 making it spellable is what makes the mandatory declaration honest: the
+//                 build error demands a decision, not a mechanism.
+//
+// NEVER A `0` SENTINEL — the questions are asked by the scene_lcm_* VARIANT tests below,
+// for the reason every enum banner in this file gives (EMP_PITFALLS §3): the policy has no
+// payload at all, so a sentinel would be indistinguishable from a declaration.
+pub comptime enum SceneLeftColMask {
+    Undeclared,
+    SpriteMask,
+    Factor0Lock,
+    Accept,
 }
 
 // ---- lowering-tier and transition selectors ----
@@ -777,6 +858,35 @@ pub comptime fn scene_vsplit_offset(v: SceneVSplit) -> int {
     }
 }
 
+// THE LEFT-COLUMN QUESTIONS, asked of the VARIANT (P3 Task 12). Three tests, not one
+// int-coded answer, because every consumer asks a yes/no question and an integer encoding
+// would be a sentinel by another name. All four arms are spelled in each so a fifth
+// variant fails every match here instead of silently defaulting.
+pub comptime fn scene_lcm_is_undeclared(m: SceneLeftColMask) -> int {
+    return match m {
+        Undeclared  => 1,
+        SpriteMask  => 0,
+        Factor0Lock => 0,
+        Accept      => 0,
+    }
+}
+pub comptime fn scene_lcm_is_sprite_mask(m: SceneLeftColMask) -> int {
+    return match m {
+        Undeclared  => 0,
+        SpriteMask  => 1,
+        Factor0Lock => 0,
+        Accept      => 0,
+    }
+}
+pub comptime fn scene_lcm_is_factor0_lock(m: SceneLeftColMask) -> int {
+    return match m {
+        Undeclared  => 0,
+        SpriteMask  => 0,
+        Factor0Lock => 1,
+        Accept      => 0,
+    }
+}
+
 // V-column table Label; hdr() default 0 (= whole-plane V-scroll).
 pub comptime fn scene_vdeform_table(v: SceneVDeform) -> Label {
     return match v {
@@ -876,6 +986,14 @@ pub struct Scene {
     sc_deform_bg:          SceneDeform,
     sc_v_deform:           SceneVDeform,
     sc_anchor:             SceneAnchor,
+    // P3 TASK 12 — the mandatory left-column policy for a per-column-VSRAM scene.
+    // Comptime-only like every attachment here: Factor0Lock and Accept lower to NOTHING
+    // (the record is unchanged — one is a verified impossibility claim, the other a
+    // decision to ship), and SpriteMask is refused by scene() until its engine emission
+    // lands (see the SceneLeftColMask banner). NO FIELD DEFAULT on purpose: the two
+    // back-door `Scene{ .. }` literals in games/sonic4/test/poison must spell
+    // Undeclared themselves, the same way they spell every other attachment's None.
+    sc_left_col_mask:      SceneLeftColMask,
     sc_precision:          u8,               // PRECISION_CELL / PRECISION_LINE
     sc_transition:         u8,               // TRANS_SMOOTH / TRANS_INSTANT
     // Pad so the two i16 bridges land on EVEN offsets (94, 96). `Scene` is comptime-only —
@@ -906,6 +1024,7 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
                       deform_bg: SceneDeform = SceneDeform.None,
                       v_deform: SceneVDeform = SceneVDeform.None,
                       anchor: SceneAnchor = SceneAnchor.None,
+                      left_column_mask: SceneLeftColMask = SceneLeftColMask.Undeclared,
                       precision: int = 0,
                       transition: int = 0,
                       layer_mask_raw: int = -1,
@@ -1050,6 +1169,89 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
            "scene(): a layer authors vsplit: At(..) while this scene's Plane-B vertical scroll TRACKS THE CAMERA (v_factor {v_factor}; 15 is the lock sentinel). That is the two-writer collision: Parallax_Step5_Vscroll recomputes ((camY - v_center) >> v_factor) + v_offset every VBlank and Vscroll_Write ships it to VSRAM entry 1 at frame top, while the lowered split writes an ABSOLUTE constant to the same word mid-frame. The two do not merely disagree about a value — the split cannot express what the other writer is for: it carries ONE baked scroll value at ONE baked fire line, and that line is derived at comptime from the layer top, which is a screen line only while Vscroll_BG is constant. Lock the plane (v_factor: 15) and author the depth as a split, or express it horizontally (layer(fb:) / curve:), which the walker recomputes every frame")
     ensure(any_vsplit == 0 || scene_vdeform_is_none(v_deform) == 1,
            "scene(): a layer authors vsplit: At(..) while this scene attaches a per-column V-deform table (SceneVDeform.Columns). Same word, second collision: in per-column mode (VDP reg $0B bit 2) VSRAM entry 1 is PLANE B OF COLUMN 0, not the plane, and Vscroll_Write ships the whole 80-byte column buffer by DMA each frame — so a whole-plane mid-frame write below the line would shift ONE 16-px column of forty and leave the rest where the column buffer put them. Whole-plane vertical depth and per-column V-deform are two spellings of the same VSRAM; author one of them")
+    // ---- P3 TASK 12: THE LEFT-COLUMN POLICY, mandatory where the artifact is possible ----
+    //
+    // The artifact, the three answers and the SpriteMask refusal are all documented at the
+    // SceneLeftColMask banner; these four guards are the enforcement. They live in scene()
+    // for the vsplit ruling's reason: every scene is constructed, not every scene is
+    // lowered, and a per-column scene must not exist unadjudicated. The failing ensure
+    // elaborates at the constructor call, so the error's source line IS the scene.
+    let lcm_undeclared = scene_lcm_is_undeclared(left_column_mask)
+    let vdeform_on     = 1 - scene_vdeform_is_none(v_deform)
+    // (1) MANDATORY. A per-column scene without a declared policy fails the build. The
+    //     message carries the scene's authored signature (count / v-deform speed / shift)
+    //     because sigil reports a comptime-fn ensure at the ENSURE's own span, not the
+    //     call site — the interpolated values are what lets the author tell Rocking_Slow
+    //     (1 layer, speed 0, shift 0) from Perspective_Subtle (5 layers, speed 0, shift 2).
+    ensure(vdeform_on == 0 || lcm_undeclared == 0,
+           "scene(): a scene with {count} layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed {scene_vdeform_speed(v_deform)}, amplitude shift {scene_vdeform_shift(v_deform)}) declares NO left_column_mask policy. With per-column V-scroll on, non-zero Plane-B HScroll makes the leftmost partial column render at a V-scroll the program never wrote — silicon, no register fix (see Vscroll_Write's banner in engine/level/parallax.emp). Design §2 makes the answer mandatory: declare left_column_mask: SceneLeftColMask.Factor0Lock (verified: plane B provably never H-scrolls), .Accept (ship the artifact — a real answer, it is what this game's Rocking and Perspective families do), or .SpriteMask (engine covers the sliver; emission not yet landed, see docs/DEFERRED_WORK.md)")
+    // (2) NO POLICY WITHOUT A SUBJECT. On a scene with no per-column V-deform the artifact
+    //     cannot occur, so a declared policy is a claim about nothing — and a reader who
+    //     finds one will believe the scene uses per-column VSRAM. Refused as noise.
+    ensure(vdeform_on == 1 || lcm_undeclared == 1,
+           "scene(): left_column_mask is declared but this scene attaches NO per-column V-deform table — the leftmost-partial-column artifact is a property of per-column VSRAM mode (VDP reg $0B bit 2), which this scene never enters, so the policy adjudicates an artifact that cannot occur. Remove the declaration; it would only mislead the next reader into believing this scene is a per-column one")
+    // (3) FACTOR0LOCK IS A VERIFIED CLAIM, both halves, or it is not available.
+    //     Half one: every real layer's plane-B factor is FACTOR_0 — the partial column
+    //     only exists under non-zero Plane-B HScroll. $0FF is inlined per the pin block
+    //     at the top of this file (FACTOR_0). The scan covers DORMANT layers too: a
+    //     disabled band inherits the PREVIOUS band's scroll words (the walker's
+    //     .band_disabled arm), so any non-locked factor inside the count can reach the
+    //     hardware and the conservative scan is the correct one.
+    let lcm_f0 = scene_lcm_is_factor0_lock(left_column_mask)
+    comptime var lcm_fb_unlocked = 0
+    for i in 0..count {
+        let l = layers[i]
+        if l.ly_fb != $0FF {
+            lcm_fb_unlocked = 1
+        }
+    }
+    ensure(lcm_f0 == 0 || lcm_fb_unlocked == 0,
+           "scene(): left_column_mask: Factor0Lock claims Plane B never H-scrolls, but a real layer's fb is not FACTOR_0 — the leftmost partial column exists on every line where Plane-B HScroll is non-zero, so this claim is false as authored. Lock every layer's fb to FACTOR_0, or declare Accept / SpriteMask")
+    //     Half two: no live plane-B H-deform amplitude with a table to sample. Deform adds
+    //     per-line Plane-B HScroll ON TOP of the locked factor (the fill's sample loop
+    //     writes fg|bg words), so a locked base under a live dsb brings the sliver back on
+    //     exactly those rows — Perspective's shimmer floor is the shipped example. The
+    //     test is CONSERVATIVE BY CONSTRUCTION and that is a documented cost, not an
+    //     oversight: table CONTENTS are Labels, invisible at comptime, so a live dsb
+    //     against the all-zero table (Rocking) is indistinguishable from a live one and
+    //     is refused with the rest. Rocking spells Accept for exactly this reason.
+    comptime var lcm_b_amp = 0
+    for i in 0..count {
+        let l = layers[i]
+        if l.ly_dsb != 15 {
+            lcm_b_amp = 1
+        }
+    }
+    if anchor_ch != $FF {
+        if scene_anchor_dsb(anchor) != 15 {
+            lcm_b_amp = 1
+        }
+    }
+    // A table that can reach plane B: the scene-level BG attachment, or any layer's own()
+    // table (an own table serves BOTH planes — see SceneDeform's banner).
+    comptime var lcm_b_table = 0
+    if scene_deform_is_none(deform_bg) == 0 {
+        lcm_b_table = 1
+    }
+    if any_own == 1 {
+        lcm_b_table = 1
+    }
+    comptime var lcm_b_deform_live = 0
+    if lcm_b_amp == 1 {
+        if lcm_b_table == 1 {
+            lcm_b_deform_live = 1
+        }
+    }
+    ensure(lcm_f0 == 0 || lcm_b_deform_live == 0,
+           "scene(): left_column_mask: Factor0Lock claims the leftmost partial column cannot exist, but this scene can put live H-deform on Plane B — a layer or anchor dsb is not 15 while a table can reach the plane (the scene's deform_bg, or a layer's Own table, which serves both planes). Deform adds per-line Plane-B HScroll on top of the locked factor, so the sliver comes back on exactly those rows. NOTE the check is conservative: table contents are Labels and invisible at comptime, so a live dsb against the all-zero table is refused too (Rocking spells Accept for this reason). Silence the B amplitude, or declare Accept / SpriteMask")
+    // (4) SPRITEMASK IS REFUSED UNTIL ITS ENGINE EMISSION LANDS. The variant is spellable
+    //     — the vocabulary is design §2's, complete — but an accepted declaration whose
+    //     mechanism does not exist would ship the artifact while the build claims it is
+    //     covered, which is the gate-cannot-see-the-unbuilt-half failure by construction.
+    //     The refusal names the blockers so the day they clear, this ensure (and only
+    //     this ensure) is what the emission parcel deletes.
+    ensure(scene_lcm_is_sprite_mask(left_column_mask) == 0,
+           "scene(): left_column_mask: SpriteMask is declared, but the engine's left-column strip emission has NOT landed — the declaration would be accepted while the sliver stays uncovered. It is blocked on an aeon+sigil pair (the strip emitter needs engine/objects/sprites.emp's FIRST Game.*/CAP_* reference, a sigil port-flip) and on the game-owned opaque mask tile; the mechanism ruling (opaque strip at screen X 0, first in the link chain — NOT the VDP's X=0 sprite-masking feature, which suppresses later sprites and cannot repaint a plane pixel) and the 7-slot pricing are already recorded in docs/DEFERRED_WORK.md §'Sprite mask for per-column V-scroll' and tools/effects_budget_model.toml. Declare Factor0Lock or Accept, or land the emission parcel first")
     // THE P1 SCOPE FENCE IS RETIRED HERE (P3 Task 6). It read:
     //
     //     ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
@@ -1073,6 +1275,7 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
         sc_deform_bg:          deform_bg,
         sc_v_deform:           v_deform,
         sc_anchor:             anchor,
+        sc_left_col_mask:      left_column_mask,
         sc_precision:          precision,
         sc_transition:         transition,
         sc_pad_5D:             default,

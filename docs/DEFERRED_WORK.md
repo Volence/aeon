@@ -2531,10 +2531,23 @@ non-zero; intermittently they read zero.
 **What:** `pcfg_v_deform_table_fg` field is reserved but not wired in v1. Currently the FG plane always uses whole-plane V-scroll; `Vscroll_Write`'s per-column branch only writes the BG word per column-pair from `Parallax_Vscroll_Column_Buf`. Implementation is symmetric to the BG path — ~30 cycles + 80 bytes RAM for an FG column buffer + the fill code in `Parallax_Update`.
 **When ready:** when a section needs ground-plane vertical warping (special-stage 3D floors, post-explosion ground sink, banking-platform foreground variants).
 
-### Sprite mask for per-column V-scroll leftmost-partial-column garbage
-**Blocked by:** sprite system + zone level data hooks.
-**What:** Genesis VDP per-column V-scroll grain is 16 px. With non-zero plane B HScroll, the leftmost screen sliver renders at V-scroll = 0 regardless of VSRAM[0] — silicon-level, no register fix. v1 mitigates either by: locking plane B HScroll to 0 (`FACTOR_0`) which eliminates the partial column, or accepting the artifact. Real games drop a 16-px-wide sprite mask over the left edge to hide it (Sonic 3 Hydrocity boss arena, Streets of Rage banking, etc.).
-**When ready:** when a section uses per-column V-scroll *and* wants non-zero plane B HScroll. ~1 sprite/frame overhead from the 80-sprite budget.
+### Sprite mask for per-column V-scroll leftmost-partial-column garbage — RESTATED by P3 Task 12, 2026-08-21 (policy layer LANDED, emission still open)
+**What (unchanged):** Genesis VDP per-column V-scroll grain is 16 px. With non-zero plane B HScroll, the leftmost screen sliver renders at V-scroll = 0 regardless of VSRAM[0] — silicon-level, no register fix. Real games drop a sprite strip over the left edge to hide it (Battle Mania 2, Sonic 3 Hydrocity boss arena) or ship it (Gynoug).
+
+**What P3 Task 12 CLOSED (branch `p3/t12-left-column-mask`):**
+- The policy is now MANDATORY and authored, not implied: any scene attaching `SceneVDeform.Columns` must declare `left_column_mask: SceneLeftColMask.{SpriteMask|Factor0Lock|Accept}` or the build fails carrying the scene's authored signature (`scene()` in `engine/level/scene_dsl.emp`; a declaration on a non-per-column scene is refused as noise).
+- `factor0_lock` is a VERIFIED claim, both halves: every real layer `fb == FACTOR_0` AND no live plane-B deform amplitude with a table that can reach the plane — the second half because deform re-adds per-line HScroll on top of a locked factor (this booking's original "locking plane B HScroll to 0 eliminates the partial column" was only true table-free; Perspective's shimmer floor is the shipped counterexample).
+- `accept` is spellable and is what both shipped per-column families now declare — Rocking because its factor0 truth (all-zero table) is comptime-invisible, Perspective because its artifact is genuinely reachable on the dsb-live rows.
+- The axis-5 price is measured, ruled and gated: **7 SAT table slots** full-height at the shipped 8×32 mask geometry (not the 1 design §2 priced), 1 sprite + 8 px on any line where the axis actually binds (per-line count) — accepted per `axis5_task12_resolution` in `tools/effects_budget_model.toml`, enforced every canonical build by `check_axis5_mask_pricing()` in `tools/effects_budget_check.py` (red-first both arms).
+- The claims are ROM-verified: `tools/left_col_mask_probe.py --claims` (static, .lst + ROM, offsets derived from the struct declarations).
+
+**What is STILL OPEN — the `sprite_mask` ENGINE EMISSION. `scene()` refuses the SpriteMask variant, loudly and by name, until this lands.** Blocked by, precisely:
+1. **The cross-seam pair.** The per-frame strip emission belongs in `Render_Sprites` (`engine/objects/sprites.emp`), must be capability-gated to stay zero-byte in games that don't raise it — and sprites.emp has ZERO `Game.*`/`CAP_*` references today, so the gate is the module's FIRST cross-seam reference: a sigil isolation-port flip requiring an aeon+sigil pair landing (the P3 plan's trap ledger predicted exactly this for Task 12). A build-define gate has the same shape (the port env must learn the define). Overseer-gated.
+2. **The opaque tile is a game hook** (this booking's original "zone level data hooks" half): the strip needs a game-owned fully-opaque tile + palette line; the engine cannot know a game's VRAM layout. Natural shape: the SpriteMask variant grows an `art_tile`-word payload when the emission lands.
+3. **Mechanism ruling (RECORDED — the emission parcel must honour it):** the strip is OPAQUE sprites at screen X 0 (SAT X = 128), priority set, FIRST in the link chain (priority + exemption from per-line-limit drops). The VDP's X=0 sprite-MASKING feature CANNOT serve: it suppresses later sprites on covered lines and never repaints a plane pixel, and its first-sprite-on-line exemption makes it fail closed on top. The MD1-vs-MD2 partial-column fill value stays UNPINNED and is irrelevant to an opaque cover — it covers whatever was fetched. Capability: a NEW bit arriving WITH its gated block (per the promotion rule); `CAP_FG_SPRITE_STRIPS` is a different mechanism and stays reserved.
+4. **Runtime verification is staged:** `tools/left_col_mask_probe.py --mask` exits 2 (no subject) today and carries the full oracle-bus check list for the emission parcel's instrument build, including the per-line engagement check. Foreground/controller only.
+
+**When ready:** when a section uses per-column V-scroll *and* wants non-zero plane B HScroll (today NO installable config enters per-column mode — Rocking/Perspective are registry-only, probe-verified), or when Perspective's shimmer-floor sliver starts to matter visually. Cost when adopted: 7/77 table slots, 1/18 per-line sprites, 8/288 per-line pixels against the measured idle reservation. Side note for the same day: re-authoring Rocking's `dsb: 4` to 15 would unlock the verified `Factor0Lock` spelling at the cost of one shipped record byte per Rocking config (image-identity churn — owner call).
 
 ## From §4.9 — Section-Local Entity Management
 
@@ -7648,10 +7661,14 @@ shift 2 below the anchored split.
   currently reads "NO SUBJECT UNTIL P3", which will be false the moment P3 lands; the plan's
   Task 13 rewrites it.
 - **`Sprite mask for per-column V-scroll leftmost-partial-column garbage` (the booking above at
-  "Sprite mask for per-column V-scroll…") is P3 Task 12's subject.** Today only `FACTOR_0` (the
-  `factor0_lock` policy) actually ships; `sprite_mask` has zero code. Task 12 either closes that
-  booking or restates precisely which policy landed — a partially-closed booking that reads as
-  closed is worse than an open one.
+  "Sprite mask for per-column V-scroll…") is P3 Task 12's subject — RESTATED 2026-08-21, not
+  closed.** Task 12 landed the POLICY LAYER (mandatory `left_column_mask` declaration, verified
+  `factor0_lock`, `Accept` on both shipped per-column families, the 7-slot axis-5 pricing gated
+  in `effects_budget_check.py`, the static claims probe) as a zero-byte parcel; the
+  `sprite_mask` ENGINE EMISSION stays open, `scene()` refuses the variant until it lands, and
+  the booking now enumerates its exact blockers (the sprites.emp first-`Game.*`-reference sigil
+  port flip → aeon+sigil pair; the game-owned opaque tile) plus the recorded mechanism ruling
+  (opaque strip at screen X 0 — the VDP X=0 masking feature cannot repaint plane pixels).
 - **The P1 gate evidence's deferred runtime differential is now DUE.** `docs/benchmarks/
   scanline-p1/GATE-EVIDENCE.md` §8 ruled its motion spot-check tautological because all four
   images were byte-identical, and named the unlock: "if the images ever diverge (a future parcel

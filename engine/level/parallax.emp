@@ -724,10 +724,16 @@ pub proc Parallax_Active_Config () clobbers() out(d0, zero: inert) {
 // HScroll AND per-column V-scroll is on, the leftmost partial column
 // (the screen sliver before HScroll's first 16-px boundary) renders at
 // V-scroll = 0 regardless of VSRAM[0]. There is no register to fix this —
-// it's silicon. Mitigations: (a) sprite mask the leftmost 16 px (planned
-// future task), (b) lock Plane B HScroll to 0 (factor_b = FACTOR_0), or
-// (c) live with it. See DEFERRED_WORK.md "VDP register $0B …" entry and
-// the §4.6 spec note about leftmost-column garble.
+// it's silicon. Mitigations: (a) sprite mask the leftmost strip (SpriteMask
+// — declaration exists, engine emission still pending, see DEFERRED_WORK.md
+// "Sprite mask for per-column V-scroll"), (b) lock Plane B HScroll to 0
+// (factor_b = FACTOR_0 AND no live plane-B deform — deform re-adds per-line
+// HScroll on top of a locked factor), or (c) live with it. SINCE P3 TASK 12
+// THE CHOICE IS AUTHORED, NOT IMPLIED: any scene attaching a per-column
+// V-deform table must declare `left_column_mask:` (SceneLeftColMask in
+// engine/level/scene_dsl.emp — Factor0Lock is VERIFIED against both
+// conditions in (b), Accept is (c) spelled out, SpriteMask is refused until
+// its emission lands) and the build fails an undeclared one.
 // ----------------------------------------------------------------------
 pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
         lea     VDP_CTRL, a5                        // (VDP_CTRL).l

@@ -199,6 +199,115 @@ def check(model: Dict[str, Any], symbols: Dict[str, str],
     return bad
 
 
+# The declaration census regex for the axis-5 pricing arm below. It matches the AUTHORED
+# policy spelling (`left_column_mask: SceneLeftColMask.<Variant>`) after comment stripping,
+# so a commented-out declaration is never an adopter. Anchored on the enum name so a future
+# unrelated `left_column_mask` field in some other model cannot be miscounted.
+LCM_DECL_RE = re.compile(r"left_column_mask\s*:\s*SceneLeftColMask\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def check_axis5_mask_pricing(model: Dict[str, Any], aeon: str) -> Tuple[List[str], str]:
+    """P3 Task 12 (design §5 axis 5): price the left-column SpriteMask strip against the
+    measured Task-4 reservation, everything DERIVED at run time — the reservation and the
+    priced geometry rows from the toml, the geometry itself from the shipped engine
+    constants, the adopter census from the authored scene modules. Nothing typed.
+
+    Returns (failures, info). LOUD ON UNMEASURABLE: a missing toml row, a missing engine
+    constant or an unknown policy spelling is a FAILURE, never a silent 0-adopter green.
+
+    THE PRICE (the 7-slot ruling, resolving `axis5_task12_flag`): one full-height 8-px
+    column strip at the engine's shipped mask geometry costs ceil(screen/SPRITE_MASK_HEIGHT)
+    SAT table entries — 7, not the 1 design §2 priced — but exactly ONE sprite and one
+    strip-width of pixels on any given scanline, and the axis GATES ON THE PER-LINE SPRITE
+    COUNT (`axis5_binding_ceiling`), where the cost is 1/line regardless of slot count. The
+    7 is accepted against the measured 77-slot table headroom (9.1%) rather than bounded or
+    re-primitived; the justification lives in the toml beside the rows.
+
+    ONE SCENE IS LIVE AT A TIME (the P2 `max`-not-`sum` ratification), so the charge is per
+    adopting scene, never a sum over adopters."""
+    failures: List[str] = []
+
+    er = model.get("engine_reservation")
+    if not isinstance(er, dict):
+        return (["[engine_reservation] table missing — axis 5 has no reservation to price against"], "")
+
+    needed = [
+        "axis5_budget_per_line_sprites", "axis5_budget_per_line_pixels",
+        "axis5_budget_table_slots", "sat_mask_slot_cost_per_32_lines",
+        "sat_mask_slots_full_height", "sat_mask_pixels_per_line",
+    ]
+    missing = [row for row in needed if row not in er]
+    if missing:
+        return ([f"[engine_reservation] rows missing (unmeasurable is not green): {', '.join(missing)}"], "")
+
+    # ---- the geometry, derived from the shipped engine constants ----
+    sprites_path = os.path.join(aeon, "engine", "objects", "sprites.emp")
+    scene_path = os.path.join(aeon, "engine", "level", "scene_dsl.emp")
+    for path in (sprites_path, scene_path):
+        if not os.path.exists(path):
+            return ([f"engine source missing: {path}"], "")
+    sprites_c = emp_constants(sprites_path)
+    scene_c = emp_constants(scene_path)
+    try:
+        mask_h = eval_int_expr(sprites_c["SPRITE_MASK_HEIGHT"], sprites_c)
+        mask_size = eval_int_expr(sprites_c["SPRITE_MASK_SIZE"], sprites_c)
+        screen = eval_int_expr(scene_c["SB_SCREEN_LINES"], scene_c)
+    except (KeyError, ValueError) as exc:
+        return ([f"axis5 geometry constant unreadable: {exc!r}"], "")
+
+    # VDP sprite size byte: bits 2-3 = width-1 in 8-px cells, bits 0-1 = height-1.
+    width_px = (((mask_size >> 2) & 3) + 1) * 8
+    slots_full = (screen + mask_h - 1) // mask_h
+    slot_per_32 = (32 + mask_h - 1) // mask_h
+
+    # ---- the toml geometry rows must agree with the derivation (drift gate) ----
+    for row, derived in (("sat_mask_slots_full_height", slots_full),
+                         ("sat_mask_pixels_per_line", width_px),
+                         ("sat_mask_slot_cost_per_32_lines", slot_per_32)):
+        if er[row] != derived:
+            failures.append(
+                f"[engine_reservation].{row}: model says {er[row]}, derived from the shipped "
+                f"engine constants (SPRITE_MASK_HEIGHT {mask_h}, SPRITE_MASK_SIZE ${mask_size:X}, "
+                f"SB_SCREEN_LINES {screen}) it is {derived}")
+
+    # ---- the adopter census, over every authored scene module ----
+    counts: Dict[str, int] = {}
+    scanned = 0
+    for path in sorted(glob.glob(os.path.join(aeon, "games", "*", "data", "effects", "*.emp"))):
+        with open(path, "r", encoding="utf-8") as fh:
+            src = strip_comments(fh.read())
+        scanned += 1
+        for m in LCM_DECL_RE.finditer(src):
+            counts[m.group(1)] = counts.get(m.group(1), 0) + 1
+    if scanned == 0:
+        failures.append("axis5 census scanned ZERO scene modules — the glob found nothing, "
+                        "which is a moved-tree failure, not an empty census")
+    unknown = sorted(set(counts) - {"Undeclared", "SpriteMask", "Factor0Lock", "Accept"})
+    if unknown:
+        failures.append(f"axis5 census found unknown left_column_mask spelling(s): {unknown} — "
+                        "the enum and this census have drifted apart")
+
+    # ---- the pricing, against the measured reservation, per adopting scene ----
+    adopters = counts.get("SpriteMask", 0)
+    if adopters > 0:
+        checks = ((1, er["axis5_budget_per_line_sprites"], "per-line sprites"),
+                  (width_px, er["axis5_budget_per_line_pixels"], "per-line pixels"),
+                  (slots_full, er["axis5_budget_table_slots"], "SAT table slots"))
+        for cost, budget, name in checks:
+            if cost > budget:
+                failures.append(
+                    f"axis5 SpriteMask over budget on {name}: the strip costs {cost} against "
+                    f"the measured reservation's {budget} ({adopters} adopting scene(s); one "
+                    "scene live at a time, so the charge is per scene)")
+
+    census = ", ".join(f"{k}:{v}" for k, v in sorted(counts.items())) or "none"
+    info = (f"axis5 mask pricing: strip = {slots_full} slots / 1 sprite + {width_px} px per line "
+            f"(derived) vs reservation {er['axis5_budget_table_slots']} slots / "
+            f"{er['axis5_budget_per_line_sprites']} sprites + {er['axis5_budget_per_line_pixels']} px "
+            f"per line; SpriteMask adopters: {adopters} (census over {scanned} modules: {census})")
+    return (failures, info)
+
+
 def main(argv: List[str]) -> int:
     aeon = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     toml_path = os.path.join(aeon, "tools", "effects_budget_model.toml")
@@ -214,7 +323,13 @@ def main(argv: List[str]) -> int:
         for row, declared, actual in bad:
             print(f"  {row}: model says {declared}, {symbols[row]} is {actual}")
         return 1
-    print(f"effects_budget_check: OK — {len(symbols)} code-derived rows agree")
+    a5_bad, a5_info = check_axis5_mask_pricing(model, aeon)
+    if a5_bad:
+        print(f"{len(a5_bad)} axis-5 mask pricing failure(s):")
+        for row in a5_bad:
+            print(f"  {row}")
+        return 1
+    print(f"effects_budget_check: OK — {len(symbols)} code-derived rows agree; {a5_info}")
     return 0
 
 
