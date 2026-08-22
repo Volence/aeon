@@ -522,55 +522,6 @@ pub proc TileCache_DecompressBlock (d0: u16, d1: u16, d2: u16) clobbers(d0-d7/a0
 data Blank_Local_Map (align: 2): [u16; 1] = comptime for i in 0..1 { 0 }
 
 // -----------------------------------------------
-// TileCache_BlockIsCompressed — classify a block's decode form WITHOUT claiming
-// In:  d0.w = sec_x, d1.w = sec_y, d2.w = block index within section
-// Out: d3.w = 0 if the block would take TileCache_DecompressBlock's COMPRESSED
-//      arm (S4LZ stream), nonzero for every cheap form (empty/zero-page,
-//      raw-direct zero-copy, out-of-grid, null block table).
-// Read-only: no slot claim, no gen bump, no pointer publish. The derivation is
-// TileCache_DecompressBlock's own early walk (grid guard -> section -> block
-// index entry: 0 = empty, bit 31 = raw, else compressed), duplicated WITHOUT
-// its claim side effects — keep the two in sync if the block table format
-// changes.
-// Consumer: the col scan's burst-smoothing claim class (BURST-SMOOTHING.md).
-// While the F2a latch is down, lookahead may only spend slots on blocks the
-// crossing would pay S4LZ for — STAGING-LIFETIME §5: the empties cost nothing
-// at the crossing (two pointer publishes), and raw-direct is a zero-copy
-// pointer publish, so pre-claiming either burns residency for zero cycle
-// benefit (measured doing exactly that: iterations 1/2 re-created the churn
-// class, mid-span compressed re-claims at +26.8k/36.9k cyc).
-// -----------------------------------------------
-pub proc TileCache_BlockIsCompressed (d0: u16, d1: u16, d2: u16) clobbers(d4/a0/a2) out(d3) preserves(d0-d2) {
-        movea.l Current_Act_Ptr, a0
-        cmp.w   Act.grid_w(a0), d0
-        bhs     .cheap                         // out of grid — decompresses as blank
-        cmp.w   Act.grid_h(a0), d1
-        bhs     .cheap
-        // flat section id = grid_w * sec_y + sec_x (the DecompressBlock shape,
-        // via a d4 copy so sec_y survives for the caller's stage call)
-        move.w  Act.grid_w(a0), d3
-        move.w  d1, d4
-        mul_bounded.w d3, d4, #MAX_ACT_SECTIONS
-        add.w   d0, d3                         // d3 = flat section id
-        movea.l Act.sec_grid_ptr(a0), a2
-        mul_const.w d3, #sizeof(Sec), d4       // d3 = flat x Sec stride (d4 scratch)
-        adda.w  d3, a2                         // a2 = Sec struct pointer
-        movea.l Sec.sec_block_index(a2), a0    // a0 = block index table base (ROM)
-        move.l  a0, d3
-        beq     .cheap                         // no block table — every block empty
-        move.w  d2, d3
-        lsl.w   #2, d3                         // block_index x 4
-        move.l  (a0, d3.w), d3                 // table entry: 0 empty / bit31 raw / else compressed offset
-        beq     .cheap
-        bmi     .cheap                         // raw-direct: zero-copy pointer publish, no S4LZ
-        moveq   #0, d3                         // compressed — worth a lookahead slot
-        rts
-    .cheap:
-        moveq   #1, d3
-        rts
-}
-
-// -----------------------------------------------
 // TileCache_CopyBlockColumn — copy a vertical run of one block column into cache
 // In:  d0.w = intra-block col (0–15)
 //      d1.w = cache col offset (world_col - Cache_Left_Col)
@@ -1386,11 +1337,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // ---- F2a GATE: does a block staged NOW survive to the frame that needs it?
         // Latched at the frame gate above from the measured claim rate. When it is
         // down, EVERY speculative site below is suppressed — row scan, col scan and
-        // corner alike (ONE exception since 2026-08-21: the col scan's k=1 claim is
-        // admitted through the down latch when the camera moved toward the latched
-        // side this tick — the demand-classified lookahead of BURST-SMOOTHING.md,
-        // see the gate at the col scan) — because they all claim from the same 16
-        // round-robin slots
+        // corner alike — because they all claim from the same 16 round-robin slots
         // and each dead claim shortens the residency of every other block in the
         // cache, including the DEMAND fill's. That second effect is the one the
         // packet's slots/rate arithmetic did not price, and it is the larger half:
@@ -1442,21 +1389,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         tst.w   Cache_Pfx_Skip_Armed
         bne     .pfx_gate_ok                   // already skipped once -> run anyway (no cascade)
         move.w  #1, Cache_Pfx_Skip_Armed       // arm: skip this frame's speculation
-        // Burst-smoothing recovery entry (2026-08-22, BURST-SMOOTHING.md §4):
-        // while the F2a latch is DOWN this skip is inverted for ONE claim class.
-        // The tick after a lag is the window's only tick with MEASURED cycle
-        // headroom for whole S4LZ calls (work 22-51k, spin 87-105k — every
-        // ordinary maxdiag tick at 107-117k plus one 11-15k call straddles the
-        // 128,000 line, measured across three parcel iterations). Run the col
-        // scan ONLY: row scan stays H4-skipped (its target parked exactly as
-        // the plain skip leaves it — the page tier sees the same one-tick
-        // staleness as today), corner stays latch-gated, and the col gate below
-        // additionally requires this tick's lag flag, so the admitted class
-        // exists on recovery ticks alone.
-        tst.w   Cache_Spec_Blocked
-        beq     .fill_return                   // latch up — the classic full skip
-        move.w  #$FFFF, Cache_Pfx_Row_Target   // no row target this tick (row scan skipped)
-        jbra    .row_done                      // col scan only
+        jbra    .fill_return
     .pfx_no_recent_lag:
         clr.w   Cache_Pfx_Skip_Armed
     .pfx_gate_ok:
@@ -1657,19 +1590,6 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // direction is latched — INCLUDING purely-vertical frames (no H motion this frame)
         // — so it keeps pre-warming the latched-side column. Probe-only cost when that
         // column is already staged (FindStagedBlock hits, no decompress); intentional.
-        //
-        // Burst-smoothing classifier (2026-08-21, BURST-SMOOTHING.md): fold this
-        // tick's camera delta onto the latched direction — d1 > 0 means the camera
-        // MOVED TOWARD the column this scan pre-stages, i.e. the target is demand in
-        // waiting, not speculation. Consumed by the F2a gate below to admit the k=1
-        // col claim while the latch is down. d0 = delta px (live from the latch
-        // update above on every path into .cs_latched); d1 is free here and nothing
-        // between here and the gate writes it.
-        move.w  d0, d1
-        tst.w   d3
-        bpl     .cs_toward_set                 // latch RIGHT: toward = +delta
-        neg.w   d1                             // latch LEFT: toward = -delta
-    .cs_toward_set:
         tst.w   Cache_Fill_Budget
         beq     .fill_return                   // row scan spent the budget — no col this frame
         tst.w   d3
@@ -1695,28 +1615,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   d0, d5
         bcc     .col_done                      // sec_x >= grid_w — out of world
         move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2) + the PAGE tier
-        // F2a GATE (mirror of .pfx's), amended by the burst-smoothing parcel
-        // (2026-08-21): while the latch is DOWN, the k=1 col claim is still admitted
-        // IF the camera moved toward the latched side this tick (d1 > 0, computed at
-        // .cs_latched). That claim is demand pulled forward — at the camera cap the
-        // head column is consumed <= BLOCK_SPEC_LEAD_TICKS ticks later, inside the
-        // measured worst-case round-robin survival (STAGING-LIFETIME.md §5:
-        // 16 slots / ~1.9 claims/tick ~= 8.4 ticks) — and it is the one mechanism
-        // that pre-stages column blocks, whose suppression made every maxdiag column
-        // crossing a 2-4 call S4LZ burst in a single tick. A stale latch with no
-        // toward-motion (vertical fall after a run) still suppresses: those claims
-        // would be the F2-measured churn class. Row scan and corner stay fully
-        // latch-gated (the corner block enters this scan's walk when Bottom_Row
-        // advances at the preceding row crossing).
-        tst.w   Cache_Spec_Blocked
-        beq     .cs_gate_pass                  // latch up — speculation free to run
-        tst.w   d1                             // latch down: toward-motion this tick?
-        ble     .col_done                      // no — protected churn class, suppress
-        tst.w   Cache_Pfx_Lag_Flag             // recovery tick? (the ONE tick class with
-        beq     .col_done                      // measured whole-call headroom — see the
-                                               // H4 recovery entry above; ordinary ticks
-                                               // + one S4LZ call straddle the 128k line)
-    .cs_gate_pass:
+        tst.w   Cache_Spec_Blocked             // F2a GATE (mirror of .pfx's)
+        bne     .col_done
         // Memo skip — the exact mirror of .pfx above, including both halves of the
         // F2 re-key: BLOCK-ALIGNED row bounds (the scan visits block-aligned rows
         // only, so the raw Top/Bottom moved 8x more often than the set they name)
@@ -1755,39 +1655,6 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .cs_scan_begin:
         // scan block rows [Top..Bottom]; sec_y per step (d6 fixed for the scan)
         moveq   #0, d5                         // d5 = covered-slot mask
-        // Burst-smoothing (2026-08-21): walk the span in the direction it DRIFTS.
-        // At k=1 per tick the walk ORDER decides which blocks are staged first;
-        // top-down on a falling camera stages the block row about to LEAVE the
-        // span (a wasted claim that evicts live blocks) and reaches the arriving
-        // bottom rows — including the corner block, the crossing's last need —
-        // last or never (measured: 2 of 5 crossing blocks still claimed AT the
-        // crossing, and the wasted claims' evictions caused mid-span demand
-        // re-decompresses). Cache_Pfx_Row_Target is the drift witness, published
-        // above even while the latch is down: $FFFF = no vertical motion
-        // (top-down — the `right` lane's walk and ledger are untouched), a target
-        // below Bottom = falling (bottom-up), above Top = rising (top-down IS the
-        // drift direction).
-        move.w  Cache_Pfx_Row_Target, d7
-        cmpi.w  #$FFFF, d7
-        beq     .cs_dispatch_prev              // no row target — V-still tick OR the H4
-                                               // recovery entry (row scan skipped)
-        cmp.w   Cache_Bottom_Row, d7
-        bgt     .cs_scan_bottomup              // falling — stage the arriving rows first
-        jbra    .cs_scan_topdown               // rising — the top rows ARE the arriving ones
-    .cs_dispatch_prev:
-        // Recovery-path drift witness: the row scan did not run this tick, so
-        // Cache_Prev_Cam_Row still holds the LAST row-scan tick's camera row and
-        // current-minus-prev is the real drift sign (possibly a doubled delta —
-        // sign unchanged; the H4 comment above documents the same tolerance).
-        // On any tick whose row scan DID run and published $FFFF, prev == current
-        // and the difference is 0 -> top-down, so the `right` lane's walk and
-        // ledger are untouched. Read-only: Prev_Cam_Row is NOT updated here.
-        move.l  Camera_Y, d7
-        swap    d7
-        lsr.w   #3, d7
-        sub.w   Cache_Prev_Cam_Row, d7
-        bgt     .cs_scan_bottomup              // falling
-    .cs_scan_topdown:
         move.w  Cache_Top_Row, d7
         andi.w  #$FFF0, d7                     // align to the first block row
     .cs_scan:
@@ -1805,86 +1672,17 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   d3, d1
         bcc     .cs_next                       // sec_y >= grid_h — skip this block row
         jbsr    TileCache_FindStagedBlock      // d4 = slot*4 on hit
-        bne     .cs_miss_dn                    // not staged — classify before claiming
+        bne     .cs_stage                      // not staged — this is the one to stage
         move.w  d4, d3
         lsr.w   #2, d3                         // slot*4 -> slot
         bset    d3, d5                         // cover it
     .cs_next:
         addi.w  #BLOCK_TILE_SIZE, d7           // next block row
         jbra    .cs_scan
-    .cs_miss_dn:
-        // Burst-smoothing claim filter: latch up -> classic k=1 (stage whatever
-        // is missing). Latch down -> the admitted class is COMPRESSED blocks
-        // only; an unstaged empty/raw block is left for the crossing (which
-        // pays ~0 for it) and the walk continues to the next candidate. NOTE:
-        // a walk whose only misses were skipped this way still reaches
-        // .cs_record — the memo then means "nothing left worth staging", which
-        // is correct while blocked and self-heals across a re-arm (bounds or a
-        // covered eviction kill it within a cadence).
-        tst.w   Cache_Spec_Blocked
-        beq     .cs_stage
-        jbsr    TileCache_BlockIsCompressed    // d3 = 0 if compressed; d0-d2 preserved
-        tst.w   d3
-        beq     .cs_stage
-        jbra    .cs_next                       // cheap form — spend no slot on it
-
-    .cs_scan_bottomup:
-        // The bottom-up twin of .cs_scan: same probes, same mask, same exits —
-        // only the visit order differs (Bottom's block row first, exit when the
-        // candidate's block row lies wholly above Top). An all-hits walk reaches
-        // .cs_record with the identical covered-slot mask: the memo is
-        // order-independent.
-        move.w  Cache_Bottom_Row, d7
-        andi.w  #$FFF0, d7                     // align to Bottom's block row
-    .cs_scan_up:
-        move.w  d7, d3
-        addi.w  #BLOCK_TILE_SIZE, d3
-        cmp.w   Cache_Top_Row, d3
-        ble     .cs_record                     // d7's block row is wholly above Top — all hits
-        decompose_block(d6, d7)                // -> sec_x=d0, sec_y=d1, block_index=d2
-        movea.l Current_Act_Ptr, a0
-        moveq   #0, d3
-        move.b  Act_grid_h_lo(a0), d3
-        cmp.w   d3, d1
-        bcc     .cs_next_up                    // sec_y >= grid_h — skip this block row
-        jbsr    TileCache_FindStagedBlock      // d4 = slot*4 on hit
-        bne     .cs_miss_up                    // not staged — classify before claiming
-        move.w  d4, d3
-        lsr.w   #2, d3                         // slot*4 -> slot
-        bset    d3, d5                         // cover it
-    .cs_next_up:
-        subi.w  #BLOCK_TILE_SIZE, d7           // next block row up
-        jbra    .cs_scan_up
-    .cs_miss_up:
-        // The bottom-up twin of .cs_miss_dn — same filter, resumes the up walk.
-        tst.w   Cache_Spec_Blocked
-        beq     .cs_stage
-        jbsr    TileCache_BlockIsCompressed    // d3 = 0 if compressed; d0-d2 preserved
-        tst.w   d3
-        beq     .cs_stage
-        jbra    .cs_next_up                    // cheap form — spend no slot on it
-
     .cs_stage:
         subq.w  #1, Cache_Fill_Budget
         jbsr    TileCache_DecompressBlock      // stage this block — k=1, then done
-        // Burst-smoothing recovery batch: on the latch-down recovery tick a
-        // single claim cannot cover a 2-4 compressed-block column before its
-        // crossing, and the tick's measured spin headroom (87-105k) carries
-        // several whole calls. Re-walk and stage again while this is still the
-        // recovery class and lookahead has consumed less than HALF the frame's
-        // decompress budget (the demand fill's resume slots keep the other
-        // half). Bounded: every pass through here decrements the budget.
-        tst.w   Cache_Spec_Blocked
-        beq     .col_done                      // latch up — classic k=1
-        tst.w   Cache_Pfx_Lag_Flag
-        beq     .col_done
-        cmpi.w  #BLOCK_DECOMP_BUDGET-2, Cache_Fill_Budget
-        bls     .col_done                      // recovery cap reached (2 claims: a 3-batch
-                                               // measurably out-claims the 16-slot pool —
-                                               // strip carryover evicted mid-walk, demand
-                                               // re-decompresses at the next R crossing)
-        move.w  Cache_Pfx_Col_Target, d6       // re-derive the walk (the stage clobbered it)
-        jbra    .cs_scan_begin
+        jbra    .col_done
 
     .cs_record:
         // Reached ONLY from the bgt all-hits exit — the whole col was already staged
