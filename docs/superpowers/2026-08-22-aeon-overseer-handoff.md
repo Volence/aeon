@@ -54,8 +54,8 @@ editing + section assignment, then raster preset composition. Preview verdict: B
 loop ≈ free via P2 playtest plumbing; in-Aurora canvas per-line preview effort M). **The §(f) six questions are ADJUDICATED**
 (merge `cc518baa`, provenance-flagged assistant-authored under owner delegation — the owner
 answered the assessment agent's task view directly with "do what's best for best-in-class
-tools + engine", leaning "the section one" on Q2; VERBAL CONFIRMATION FROM THE OWNER IN THE
-MAIN CONVERSATION IS STILL PENDING — get a one-line yes before cutting Aurora parcels):
+tools + engine", leaning "the section one" on Q2; **OWNER CONFIRMED ALL SIX IN THE MAIN
+CONVERSATION 2026-08-22, banked `08f01b73` — that gate is CLOSED, doc work is cleared**):
 two waves (BgAnim+scenes+assignment, then raster presets); per-section `sceneRef` in the
 `section_N.meta.json` sidecars; generated per-act binding module (descriptor stays
 hand-authored; label-vs-const import trap flagged); re-point `project.json` parallax at a
