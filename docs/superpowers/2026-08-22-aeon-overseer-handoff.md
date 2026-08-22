@@ -74,6 +74,18 @@ in aurora is a ROUTING MARKER (real loader deferred, ROADMAP §2.5) — a load-b
 assessment must name. Flow: assessment → owner design review → design/contract docs
 committed → ping aurora-86 with SHAs.
 
+## Overnight delegation standing rule (owner, 2026-08-22 bedtime)
+
+> "if you need any decisions made just whip up a fable agent"
+
+Design calls arising overnight are delegated: dispatch a Fable-model adjudication agent
+(`model: "fable"`) with the competing options and the evidence rather than blocking or waking
+the owner. **Every such call is PROVENANCE-FLAGGED assistant-authored-under-owner-delegation**,
+carries its reasoning, and is listed for morning review — same treatment as the §(f) six. The
+delegation covers open calls with defensible answers; it does NOT cover irreversible or
+design-changing bets, which still PARK. Also ruled tonight: S4LZ slicing is STOPPED/parked for
+usage reasons (nothing was committed; re-dispatch from the brief when a cheaper session runs).
+
 ## Still owner-pending beyond the ruling
 
 The P3 plan's 7 PARKs; F6 proper; wiki stable-sections; seraph S0.
