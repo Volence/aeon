@@ -7909,3 +7909,22 @@ interrupt and is where a per-frame HInt budget would actually bind), or re-deriv
 reservation against what the sparse tier can physically spend, or state in the guard that it is
 a model kept for the dense tier and let the two structural guards own the sparse one. Whoever
 takes it should read `docs/benchmarks/scanline-p3/VSPLIT.md` §7 for the measurements.
+
+## `scene_budget_report.py --check` still has no artifact-lane runner (found 2026-08-22, P3 Task 14)
+
+The ledger's readback gate (`--check`: fail when a published `SceneBudget_*` row is missing
+from the listing's equate table) needs a built DEBUG listing, so it cannot sit in the
+canonical build's source-gate block, and today nothing automated invokes it. Task 14 closed
+the larger half at the SOURCE level: `tools/test_scene_budget_ledger.py` (pytest lane, both
+canonical shapes) gates `LEDGER_ROWS` against the registry's `pub equ` rows in both
+directions, plus the pub-equ-not-pub-const spelling — so a renamed, dropped or mis-spelled
+row now fails the build. What remains uncovered is the one failure the source cannot see:
+**sigil ceasing to route equates into the listing at all** (the `0df77f83` equate-table
+contract regressing). Unlock/fix options: run `--check` inside a lane that already owns a
+DEBUG artifact (`tools/effects_gates.py` boots one per gate; the nightly
+`aeon-effects-gates.timer` is the backstop candidate), or fold an equate-table presence
+probe into a listing-consuming test the sweep already runs (`test_s4budget.py` reads real
+listing fixtures — but fixtures freeze, so a fixture-based probe would NOT catch a live
+regression; it needs the fresh artifact). Until then: run
+`python3 tools/scene_budget_report.py --check` by hand after any sigil listing-format
+change.

@@ -396,6 +396,11 @@ ensure(SceneRegistry_RebaseTagged > 0, "scene registry: the rebase structural ch
 // PROVEN RED: four poison fixtures under games/sonic4/test/poison/, one per shipped axis,
 // each exceeding its budget by exactly ONE unit — poison_budget_axis1/2/3.emp here and
 // poison_budget_axis4b.emp against raster_program(). Registered in tools/emp_expect_fail.py.
+// AXIS 5 (P3 Task 14) carries NO poison, deliberately: its charge is two-valued and both
+// values fit every sub-ceiling always, so no authored input can cross it — booked with its
+// unlock conditions in [scene_budget]'s falsifiability section rather than given a faked
+// poison (the same treatment as axes 2/3). Its enforce-path red-first evidence is the
+// perturbation record in the P3 plan's Task 14 DONE block.
 // =====================================================================
 pub const SceneRegistry_BudgetChecked = scene_budget_enforce(SCENES)
 ensure(SceneRegistry_BudgetChecked == 20, "scene registry: the budget fold checked {SceneRegistry_BudgetChecked} scenes, not the 20 in SCENES — a fold that examines fewer scenes than the registry holds is gating a subset, and the axis ensures inside it would be silently unasked for the remainder")
@@ -417,7 +422,8 @@ ensure(SceneRegistry_BudgetChecked == 20, "scene registry: the budget fold check
 // formatter does not assume signedness either.
 //
 // The AXIS-1 row is in HUNDREDTHS of a cycle (the walker's fitted constants are fractional
-// to two places); the formatter divides. Rows 2 and 3 are whole bytes and whole cycles.
+// to two places); the formatter divides. Rows 2 and 3 are whole bytes and whole cycles;
+// the axis-5 rows are whole sprite/pixel/slot counts.
 pub equ SceneBudget_Axis1_MaxCycles_X100 = scene_budget_max_axis1_x100(SCENES)
 pub equ SceneBudget_Axis1_Reservation    = SB_AXIS1_RESERVATION
 pub equ SceneBudget_Axis1_Pool           = SB_FRAME_CYCLES
@@ -427,6 +433,21 @@ pub equ SceneBudget_Axis2_Pool           = SB_DMA_POOL_BYTES
 pub equ SceneBudget_Axis3_MaxCycles      = scene_budget_max_axis3(SCENES)
 pub equ SceneBudget_Axis3_Reservation    = SB_AXIS3_RESERVATION
 pub equ SceneBudget_Axis3_Pool           = SB_VBLANK_WINDOW_CYCLES
+// AXIS 5 (P3 Task 14) — three sub-ceiling triples, because the axis is a SAT occupancy
+// with three hardware ceilings rather than one pool. The per-line SPRITE triple is the
+// BINDING ceiling (axis5_binding_ceiling in the toml); the table triple is where the
+// accepted-7 ruling would show the day an adopter exists. All maxes are 0 today —
+// SpriteMask has zero adopters and scene() refuses it until its emission lands — and 0 is
+// the true worst charge, not a placeholder.
+pub equ SceneBudget_Axis5_MaxLineSprites        = scene_budget_max_axis5_line_sprites(SCENES)
+pub equ SceneBudget_Axis5_LineSpriteReservation = SB_AXIS5_LINE_SPRITE_RESERVATION
+pub equ SceneBudget_Axis5_LineSpritePool        = SB_AXIS5_LINE_SPRITE_POOL
+pub equ SceneBudget_Axis5_MaxLinePixels         = scene_budget_max_axis5_line_pixels(SCENES)
+pub equ SceneBudget_Axis5_LinePixelReservation  = SB_AXIS5_LINE_PIXEL_RESERVATION
+pub equ SceneBudget_Axis5_LinePixelPool         = SB_AXIS5_LINE_PIXEL_POOL
+pub equ SceneBudget_Axis5_MaxTableSlots         = scene_budget_max_axis5_table_slots(SCENES)
+pub equ SceneBudget_Axis5_TableSlotReservation  = SB_AXIS5_TABLE_RESERVATION
+pub equ SceneBudget_Axis5_TableSlotPool         = SB_AXIS5_TABLE_POOL
 pub equ SceneBudget_PerLineScenes        = scene_budget_per_line_count(SCENES)
 pub equ SceneBudget_SceneCount           = SceneRegistry_BudgetChecked
 pub equ SceneBudget_CapsFolded           = SceneRegistry_CapsFolded

@@ -1952,6 +1952,55 @@ pub const SB_SCANLINE_CYC_X100       = 48857    // 3420/7 = 488.57 cyc
 // enforced where the programs are built, inside `raster_program()`, over the fires it can
 // actually see. Named here so a reader of the ledger is not left wondering where it went.
 
+// ---- Axis 5: sprite occupancy — the left-column mask policy's SAT charge (P3 Task 14) ----
+// The scene-side subject is P3 Task 12's `left_column_mask` policy: a SpriteMask declarer
+// buys one full-height 8-px opaque column strip from the engine, and that strip is the ONLY
+// sprite cost a scene can author today (CAP_FG_SPRITE_STRIPS stays RESERVED past P3, no
+// lowering). Factor0Lock and Accept cost zero sprites by construction.
+//
+// THE AXIS GATES ON THE PER-LINE SPRITE COUNT — the toml's `axis5_binding_ceiling` ruling
+// (`axis5_task12_resolution`): a stacked column strip costs exactly ONE sprite and one
+// strip-width of pixels on any given scanline REGARDLESS of how many table entries build it,
+// and the per-line ceiling is the one a clustered scene reaches first (Render_Sprites spends
+// code on exactly that problem — the SCANLINE_SPRITE_LIMIT soft band — and none on running
+// out of the 80). The pixel and table sub-ceilings are enforced too so the accepted 7-slot
+// table cost stays a RULING and never silently grows.
+//
+// POOLS AND RESERVATIONS, transcribed from tools/effects_budget_model.toml
+// [engine_reservation] (Task 4's measured SAT occupancy, 2026-08-20: ORACLE headless,
+// SAT walked from the VRAM link chain, five boots per state, spread 0; pools are H40
+// datasheet limits / MAX_VDP_SPRITES). Drift is gated twice: the toml [symbols] rows pin
+// each transcription below to its toml row (tools/effects_budget_check.py, canonical
+// build), and check_axis5_mask_pricing() in the same tool re-derives the mask geometry
+// from the shipped engine constants (SPRITE_MASK_HEIGHT / SPRITE_MASK_SIZE in
+// engine/objects/sprites.emp) — those constants are NOT named here on purpose: sprites.emp
+// is not a COMPTIME_HELPERS module, so its names would resolve at the registry call site
+// and break silently (docs/EMP_PITFALLS.md §2). Transcribe + pin, never import.
+//
+// THE RESERVATION IS AN UPPER BOUND ON HEADROOM (`axis5_caveat`): the idle rows come from
+// GameState_OJZScroll, a near-empty scroll test (1 debug marker + 2 rings). A populated
+// level grows every row. The budgets here are ceilings a mask policy must fit UNDER, not
+// promises of free space.
+pub const SB_AXIS5_LINE_SPRITE_POOL         = 20   // h40_sprites_per_line_limit (datasheet)
+pub const SB_AXIS5_LINE_SPRITE_RESERVATION  = 2    // idle_sat_worst_line_sprites (measured, scanline 5)
+pub const SB_AXIS5_LINE_PIXEL_POOL          = 320  // h40_sprite_pixels_per_line_limit (datasheet)
+pub const SB_AXIS5_LINE_PIXEL_RESERVATION   = 32   // idle_sat_worst_line_pixels (measured)
+pub const SB_AXIS5_TABLE_POOL               = 80   // sat_table_entries (= MAX_VDP_SPRITES, code-derived)
+pub const SB_AXIS5_TABLE_RESERVATION        = 3    // idle_sat_slots_used (measured)
+// The strip's price at the shipped mask geometry (InsertSpriteMasks: 8x32 sprites, coverage
+// rounded UP to whole ones):
+//   table slots  = ceil(SB_SCREEN_LINES / SPRITE_MASK_HEIGHT) = ceil(224/32) = 7
+//                  (toml sat_mask_slots_full_height — the accepted-7 ruling, NOT the 1
+//                  design §2 priced)
+//   pixels/line  = one 8-px column (toml sat_mask_pixels_per_line)
+//   sprites/line = 1 — GEOMETRIC, not a toml row: the strip is vertically STACKED
+//                  non-overlapping 32-line sprites, so any scanline intersects exactly one
+//                  of them whatever SPRITE_MASK_HEIGHT is. Derived, not transcribed, which
+//                  is why it has no [symbols] pin.
+pub const SB_AXIS5_MASK_TABLE_SLOTS         = 7    // sat_mask_slots_full_height
+pub const SB_AXIS5_MASK_LINE_PIXELS         = 8    // sat_mask_pixels_per_line
+pub const SB_AXIS5_MASK_LINE_SPRITES        = 1    // stacked strip: exactly one per line
+
 // =====================================================================
 // Per-scene axis costs. Each returns the charge for ONE scene; the registry folds them.
 // =====================================================================
@@ -2255,6 +2304,23 @@ pub comptime fn scene_axis3_vblank_cycles(s: Scene) -> int {
     return bytes * SB_SCANLINE_CYC_X100 / (SB_DMA_BYTES_PER_LINE * 100)
 }
 
+// AXIS 5 — the scene's sprite charge, on each of the three SAT sub-ceilings. The ONLY
+// policy that costs sprites is SpriteMask (see the SB_AXIS5_* banner); Factor0Lock,
+// Accept and Undeclared all price to zero. scene() refuses an authored SpriteMask until
+// its engine emission lands, so today every fold over these is zero — but the pricing is
+// written for the future adopter world on purpose: the day the emission lands and a scene
+// declares SpriteMask, that scene is charged here with no further wiring, and a Scene{ .. }
+// back-door construction carrying SpriteMask is charged already.
+pub comptime fn scene_axis5_line_sprites(s: Scene) -> int {
+    return scene_lcm_is_sprite_mask(s.sc_left_col_mask) * SB_AXIS5_MASK_LINE_SPRITES
+}
+pub comptime fn scene_axis5_line_pixels(s: Scene) -> int {
+    return scene_lcm_is_sprite_mask(s.sc_left_col_mask) * SB_AXIS5_MASK_LINE_PIXELS
+}
+pub comptime fn scene_axis5_table_slots(s: Scene) -> int {
+    return scene_lcm_is_sprite_mask(s.sc_left_col_mask) * SB_AXIS5_MASK_TABLE_SLOTS
+}
+
 // =====================================================================
 // The registry-level fold and the ENFORCEMENT. This is the single authority: design §5's
 // ownership rule puts enforcement in the comptime DSL, and the toml `[symbols]` rows pin
@@ -2280,6 +2346,24 @@ pub comptime fn scene_budget_enforce(scenes: array) -> int {
         let a3 = scene_axis3_vblank_cycles(s)
         ensure(a3 + SB_AXIS3_RESERVATION <= SB_VBLANK_WINDOW_CYCLES,
                "scene budget AXIS 3 (VBlank CPU): this scene's DMA drain occupies {a3} cyc against the ~{SB_VBLANK_WINDOW_CYCLES}-cycle NTSC VBlank window with {SB_AXIS3_RESERVATION} cyc reserved (idle_vblank_cycles, the VInt_Level bracket Raster_VBlank runs inside), leaving {SB_VBLANK_WINDOW_CYCLES - SB_AXIS3_RESERVATION}. The drain is DERIVED from documented hardware rates (bytes / 205 B-per-line x 488.57 cyc-per-line), not measured, and it is NOT double-counted against the reservation: oracle's cycle clock excludes bus/DMA stall by construction (M68000.cpp:1029-1031), so no measured cycle row contains it")
+        // AXIS 5 — sprite occupancy (P3 Task 14), one ensure per SAT sub-ceiling so an
+        // overrun names the ceiling it crossed. The charge is per SCENE, never a sum over
+        // the registry — one scene is live at a time (the P2 max ratification; the pairwise
+        // sum belongs to the transition frame, P2 Task 12, still blocked on the Label join).
+        // Today every scene prices to zero (SpriteMask has zero adopters and scene()
+        // refuses it until the emission lands), and [scene_budget]'s falsifiability section
+        // records this axis as NOT falsifiable with its unlock conditions — these ensures
+        // are the ledger's derivation plus a backstop on the documented Scene{ .. } back
+        // door, the same live role as axis 1's.
+        let a5s = scene_axis5_line_sprites(s)
+        ensure(a5s + SB_AXIS5_LINE_SPRITE_RESERVATION <= SB_AXIS5_LINE_SPRITE_POOL,
+               "scene budget AXIS 5 (per-line sprites, the BINDING ceiling): this scene's left-column mask policy costs {a5s} sprite(s) on a worst-case scanline against the H40 hardware limit of {SB_AXIS5_LINE_SPRITE_POOL}/line with {SB_AXIS5_LINE_SPRITE_RESERVATION} reserved (idle_sat_worst_line_sprites, the Task-4 measured object-system floor — an UPPER BOUND on headroom, taken on a near-empty scroll test), leaving {SB_AXIS5_LINE_SPRITE_POOL - SB_AXIS5_LINE_SPRITE_RESERVATION}. A stacked column strip costs exactly 1 sprite on any line regardless of how many SAT entries build it (axis5_binding_ceiling, tools/effects_budget_model.toml)")
+        let a5p = scene_axis5_line_pixels(s)
+        ensure(a5p + SB_AXIS5_LINE_PIXEL_RESERVATION <= SB_AXIS5_LINE_PIXEL_POOL,
+               "scene budget AXIS 5 (per-line sprite pixels): this scene's left-column mask policy costs {a5p} px on a worst-case scanline against the H40 hardware limit of {SB_AXIS5_LINE_PIXEL_POOL} px/line with {SB_AXIS5_LINE_PIXEL_RESERVATION} px reserved (idle_sat_worst_line_pixels, Task-4 measured), leaving {SB_AXIS5_LINE_PIXEL_POOL - SB_AXIS5_LINE_PIXEL_RESERVATION}. The strip is one 8-px column (sat_mask_pixels_per_line)")
+        let a5t = scene_axis5_table_slots(s)
+        ensure(a5t + SB_AXIS5_TABLE_RESERVATION <= SB_AXIS5_TABLE_POOL,
+               "scene budget AXIS 5 (SAT table slots): this scene's left-column mask policy costs {a5t} of the {SB_AXIS5_TABLE_POOL} sprite-table entries with {SB_AXIS5_TABLE_RESERVATION} reserved (idle_sat_slots_used, Task-4 measured), leaving {SB_AXIS5_TABLE_POOL - SB_AXIS5_TABLE_RESERVATION}. A full-height strip at the shipped mask geometry is ceil(224/32) = 7 entries — the ACCEPTED-7 ruling (axis5_task12_resolution), priced openly rather than as the 1 design §2 assumed; this ensure is what keeps 7 a ruling instead of a drift")
         checked = checked + 1
     }
     return checked
@@ -2312,6 +2396,40 @@ pub comptime fn scene_budget_max_axis3(scenes: array) -> int {
     comptime var m = 0
     for s in scenes {
         let c = scene_axis3_vblank_cycles(s)
+        if c > m {
+            m = c
+        }
+    }
+    return m
+}
+// Axis 5's three sub-ceiling folds (P3 Task 14). `max`, not `sum`, for the same reason as
+// every fold here — and today each is 0 by construction (zero SpriteMask adopters, and
+// scene() refuses the variant until its engine emission lands). A 0 in the ledger is the
+// honest reading: it is the registry's worst sprite charge, not a placeholder.
+pub comptime fn scene_budget_max_axis5_line_sprites(scenes: array) -> int {
+    comptime var m = 0
+    for s in scenes {
+        let c = scene_axis5_line_sprites(s)
+        if c > m {
+            m = c
+        }
+    }
+    return m
+}
+pub comptime fn scene_budget_max_axis5_line_pixels(scenes: array) -> int {
+    comptime var m = 0
+    for s in scenes {
+        let c = scene_axis5_line_pixels(s)
+        if c > m {
+            m = c
+        }
+    }
+    return m
+}
+pub comptime fn scene_budget_max_axis5_table_slots(scenes: array) -> int {
+    comptime var m = 0
+    for s in scenes {
+        let c = scene_axis5_table_slots(s)
         if c > m {
             m = c
         }

@@ -212,6 +212,17 @@ def check_axis5_mask_pricing(model: Dict[str, Any], aeon: str) -> Tuple[List[str
     priced geometry rows from the toml, the geometry itself from the shipped engine
     constants, the adopter census from the authored scene modules. Nothing typed.
 
+    SINCE P3 TASK 14 THIS IS THE DRIFT/CENSUS LANE, NOT THE ENFORCEMENT AUTHORITY: the
+    axis is enforced comptime in scene_budget_enforce() (engine/level/scene_dsl.emp),
+    which is where design §5's ownership rule puts it. What this lane alone still sees:
+    the mask GEOMETRY re-derived from the shipped engine constants (the comptime side
+    transcribes it — sprites.emp is not a COMPTIME_HELPERS module, EMP_PITFALLS §2), the
+    adopter census with its unknown-spelling detection, and the toml rows' presence. The
+    pricing arm below is kept as a cross-check; with the [symbols] pins holding the
+    SB_AXIS5_* transcriptions to the same rows, it can only disagree with the comptime
+    ensure if this file and the code have already drifted — which is exactly the event
+    this tool exists to catch.
+
     Returns (failures, info). LOUD ON UNMEASURABLE: a missing toml row, a missing engine
     constant or an unknown policy spelling is a FAILURE, never a silent 0-adopter green.
 

@@ -1018,7 +1018,37 @@ git commit -am "measure(p3): the walker re-fitted over its own rewrite, residual
 
 ---
 
-## Task 14: The axis-5 budget row, gate and ledger equate
+## Task 14: The axis-5 budget row, gate and ledger equate — ✅ DONE 2026-08-22
+
+> **DONE 2026-08-22, `p3/t14-axis5-enforce`. Result summary:** axis 5 is enforced comptime in
+> `scene_budget_enforce()` — three per-scene ensures, one per SAT sub-ceiling (per-line
+> sprites = the BINDING ceiling, per-line pixels, table slots), each `cost + reservation <=
+> pool` from `SB_AXIS5_*` transcriptions of the toml's Task-4 `[engine_reservation]` rows
+> (pools 20/320/80, reservations 2/32/3), all eight transcriptions `[symbols]`-pinned
+> (39 rows agree; pin red-first: 80→81 failed naming `sat_table_entries`). The only nonzero
+> pricer is a SpriteMask declarer (1 sprite + 8 px per line via the stacked-strip geometric
+> argument, 7 table slots per the accepted-7 ruling), so the shipped zero-adopter registry
+> folds to 0 on every row AND a future declarer — or a `Scene{ .. }` back-door construction
+> today — is charged with no further wiring. `max` not `sum`, per the P2 ratification.
+> **Red-first, both arms, restored:** reservation 2→21 gave 40× the axis-5 line-sprite
+> diagnostic ("leaving -1"; 20 scenes × 2 elaborations); a planted SpriteMask declarer (Accept
+> flipped + the scene() refusal temporarily disabled) against a 74-slot perturbed reservation
+> gave 6× "costs 7 … 74 reserved, leaving 6" — the pricing path prices a declarer. Nine
+> `pub equ SceneBudget_Axis5_*` ledger rows (three max/reservation/pool triples) publish the
+> fold; `scene_budget_report.py` requires + renders them, and the NEW
+> `tools/test_scene_budget_ledger.py` (pytest lane) gates `LEDGER_ROWS` against the registry
+> source both directions — because `--check` itself runs by nothing (artifact-lane gap
+> booked in DEFERRED_WORK). **Falsifiability: NOT falsifiable, booked not faked** — the
+> charge is two-valued on every sub-ceiling and both values fit always (3≤20, 40≤320,
+> 10≤80); unlock conditions written into `[scene_budget]` (second sprite-consumer class /
+> populated-level re-measure crossing 19/312/73 / geometry change, the unreal ones named
+> unreal). **T15 owes NO axis-5 poison.** `check_axis5_mask_pricing()` reconciled, not
+> duplicated: reframed (docstring + toml) as the derivation/census drift lane — it alone
+> re-derives the mask geometry from the shipped engine constants, which `scene_dsl.emp`
+> cannot name (EMP_PITFALLS §2; transcribe + pin, never import). All four shapes
+> byte-identical to the T13 baseline (s4 `060401e4`, s4.debug `0dbaa80f`, demo `c708b114`,
+> demo.debug `dec88cc1`) — the nine equates mint listing symbols only, and the deb2 appendix
+> did not move.
 
 **Why:** design §5 axis 5. It has a subject (Task 12) and a reservation (Task 4) for the first
 time.
@@ -1026,27 +1056,27 @@ time.
 **Files:** `engine/level/scene_dsl.emp`, `games/sonic4/data/effects/scene_registry.emp`,
 `tools/scene_budget_report.py`, `tools/effects_budget_model.toml`
 
-- [ ] **Step 1: Enforce comptime in `scene_budget_enforce()`, aggregate `max`**
+- [x] **Step 1: Enforce comptime in `scene_budget_enforce()`, aggregate `max`**
 
 Not `sum` — the P2 ratification stands: one scene is live at a time, and a sum over the shipped
 20 refuses a registry that demonstrably runs. The pairwise sum belongs to the transition frame
 (P2 Task 12, still blocked on the Label join).
 
-- [ ] **Step 2: Publish the ledger rows as `pub equ`**
+- [x] **Step 2: Publish the ledger rows as `pub equ`**
 
 `pub equ`, never `pub const` — a `const` is name-resolution-only and mints no symbol, so the
 formatter cannot see it. Follow the existing naming (`SceneBudget_Axis5_<Metric>`) and add the
 rows to `REQUIRED_ROWS` in `tools/scene_budget_report.py` so `--check` fails loud when a row
 stops being published (the readback regressing is silent by nature).
 
-- [ ] **Step 3: Is it FALSIFIABLE? Measure, and if not, book it with its unlock condition**
+- [x] **Step 3: Is it FALSIFIABLE? Measure, and if not, book it with its unlock condition** — NOT falsifiable; booked with unlock conditions in the toml
 
 `[scene_budget]`'s falsifiability section is the model to follow: of P2's four enforced axes,
 exactly one has an input that can cross its budget, and the other three were **booked with
 their unlock conditions rather than given faked poisons**. Determine which axis 5 is by
 measurement, and write the answer into the toml either way.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit** — split into three exact-path commits (enforce+ledger, report tool+runner test, toml falsifiability) + the docs commit
 
 ```bash
 git commit -am "feat(p3): axis 5 enforced comptime, with its falsifiability measured"
@@ -1072,6 +1102,12 @@ target the new bound, not the retired one); a v-deform scene with no `left_colum
 
 **Each exceeds by exactly ONE unit.** A poison that blows a bound by an order of magnitude can
 pass for the wrong reason.
+
+> **T14 note (2026-08-22): the axis-5 ensures are NOT on this list, deliberately.** Their
+> charge is two-valued and both values fit every sub-ceiling always, so no authored input can
+> cross them — Task 14 booked the axis with its unlock conditions in `[scene_budget]` (the
+> axes-2/3 treatment) instead of handing this task a poison that cannot go red. The
+> undeclared-scene poison (Task 12's guard) above still stands.
 
 - [ ] **Step 2: Red-first, against a CONTROL build with the defect removed**
 

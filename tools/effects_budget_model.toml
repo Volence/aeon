@@ -170,6 +170,10 @@ axis5_budget_table_slots      = 77   # 80 less the 3 measured at idle
 # tools/effects_budget_check.py's check_axis5_mask_pricing() re-derives all three from the
 # shipped constants (SPRITE_MASK_HEIGHT / SPRITE_MASK_SIZE in engine/objects/sprites.emp,
 # SB_SCREEN_LINES in engine/level/scene_dsl.emp) on every canonical build and fails on drift.
+# SINCE P3 TASK 14 THE AXIS IS ALSO ENFORCED COMPTIME (the enforcement authority per design
+# §5's ownership rule): scene_budget_enforce() charges every registry scene on all three
+# sub-ceilings from the SB_AXIS5_* transcriptions of the rows above, pinned back to this
+# file by the [symbols] rows. See axis5_sprite_slots in [scene_budget].
 sat_mask_slot_cost_per_32_lines = 1
 sat_mask_slots_full_height      = 7   # ceil(224 / 32) -- NOT 1
 sat_mask_pixels_per_line        = 8   # one 8-px column
@@ -1170,11 +1174,31 @@ axis4b_budget_cycles      = 84595
 #           max modelled fire ~688 cyc at gap 2) a saturated program tops out near 77000
 #           against an 84595 budget. It becomes falsifiable if the burst ceilings rise or a
 #           costlier op class lands.
+#   AXIS 5  NOT FALSIFIABLE (measured by derivation, P3 Task 14 — the enforce landed 2026-08-22
+#           in scene_budget_enforce(), three sub-ceiling ensures). The per-scene charge is
+#           two-valued on every sub-ceiling — 0 (Factor0Lock / Accept / Undeclared) or the
+#           SpriteMask strip's fixed price (1 sprite/line, 8 px/line, 7 table slots) — and
+#           BOTH values fit every ceiling always: 1 + 2 = 3 fits 20, 8 + 32 = 40 fits 320,
+#           7 + 3 = 10 fits 80. It is doubly unreachable today: scene() refuses an authored
+#           SpriteMask until its engine emission lands, so the nonzero branch has no authored
+#           path at all, and even the documented Scene{ .. } back door (which the enforce DOES
+#           price — verified red-first with a planted declarer against a 74-slot perturbed
+#           reservation) reaches only the fitting 1/8/7. UNLOCK CONDITIONS, any of: (a) a
+#           second scene-authored sprite consumer lands (a CAP_FG_SPRITE_STRIPS lowering, or a
+#           multi-strip mask primitive) making the charge stackable past a ceiling; (b) a
+#           populated-level re-measure of [engine_reservation] raises a reservation past
+#           pool - price (line sprites > 19, pixels > 312, table slots > 73 — re-measure
+#           events, not authored inputs, the same class as axis 2's 'pool shrinks'); (c) the
+#           mask geometry widens or grows (pixels bind first: a strip wider than 288 px, i.e.
+#           SPRITE_MASK_SIZE beyond the VDP's 4-cell max, is unreachable — table slots would
+#           need SPRITE_MASK_HEIGHT small enough that ceil(224/H) > 73, i.e. H <= 3, equally
+#           unreal; the practical unlock is (a) or (b)).
 #
-# THREE POISONS WERE THEREFORE BOOKED RATHER THAN FAKED. A fixture that cannot go red would be
-# the exact defect the expect-fail lane exists to prevent, and EFX-9 ("built carefully, run by
-# nothing") is the postmortem. tools/emp_expect_fail.py carries the one real case.
-falsifiable_axes = "axis 1 only (via the documented Scene{ .. } back door); axes 2/3 are two-valued and always fit; axis 4b is bounded above by the 4a density guard"
+# FOUR POISONS WERE THEREFORE BOOKED RATHER THAN FAKED (axes 2, 3, 4b — and 5 since P3
+# Task 14). A fixture that cannot go red would be the exact defect the expect-fail lane exists
+# to prevent, and EFX-9 ("built carefully, run by nothing") is the postmortem.
+# tools/emp_expect_fail.py carries the one real case.
+falsifiable_axes = "axis 1 only (via the documented Scene{ .. } back door); axes 2/3 are two-valued and always fit; axis 4b is bounded above by the 4a density guard; axis 5 is two-valued on every sub-ceiling and both values fit always (P3 Task 14)"
 
 # ---- AXES WITH NO SUBJECT IN P2 (the plan's 'seven axes' is not seven gates) ----
 # Both are RESERVED capabilities in engine/level/scene_dsl.emp's CAP_* block with NO lowering,
@@ -1187,9 +1211,10 @@ falsifiable_axes = "axis 1 only (via the documented Scene{ .. } back door); axes
 # about, and CAP_FG_SPRITE_STRIPS stays reserved past P3. So the axis is measured-but-ungated
 # until Task 12 lands, which is a different sentence from "no subject", and the previous
 # wording is kept below per this file's supersede convention.
-axis5_sprite_slots = "SUBJECT LANDED 2026-08-21 (P3 Task 12), GATED, ADOPTION ZERO. The subject is the left-column mask policy: left_column_mask is MANDATORY on every per-column-VSRAM scene (scene() in engine/level/scene_dsl.emp fails an undeclared one at build time), and the SpriteMask price -- 7 SAT table slots full-height, 1 sprite + 8 px on any line, geometry derived from the shipped engine constants -- is enforced against the [engine_reservation] axis5_budget_* rows by check_axis5_mask_pricing() in tools/effects_budget_check.py, which runs in every canonical build. The axis gates on the PER-LINE SPRITE COUNT (axis5_binding_ceiling), where the strip costs 1/line regardless of slot count; the 7-slot table cost is accepted per axis5_task12_resolution. What is NOT here: any adopter (both shipped per-column families declare Accept -- Rocking because the zero-table factor0 truth is comptime-invisible, Perspective because its shimmer floor genuinely ships the artifact), and the SpriteMask ENGINE EMISSION, which scene() refuses pending the aeon+sigil pair booked in DEFERRED_WORK. NOT FG sprite strips (CAP_FG_SPRITE_STRIPS $0080 stays reserved past P3, no lowering). The headroom is an UPPER BOUND (axis5_caveat)."
-axis5_sprite_slots_SUPERSEDED0 = "DENOMINATOR MEASURED 2026-08-20, SUBJECT STILL OWED. See [engine_reservation] axis5_* : idle occupancy 3 of 80 SAT slots, worst 2 of 20 sprites and 32 of 320 pixels on any line; max-diagonal renders nothing. The axis gates on the PER-LINE SPRITE COUNT (axis5_binding_ceiling). Its P3 subject is Task 12's left-column mask, NOT FG sprite strips (CAP_FG_SPRITE_STRIPS $0080 stays reserved past P3, no lowering). Not gated until Task 12 lands; the headroom is an UPPER BOUND (axis5_caveat)."
-axis5_sprite_slots_SUPERSEDED1 = "NO SUBJECT UNTIL P3 — FG sprite strips are CAP_FG_SPRITE_STRIPS ($0080), reserved, no lowering. Phase 0 measured no row and there is no shipped scene that consumes sprite slots. Not gated, deliberately."
+axis5_sprite_slots = "ENFORCED COMPTIME 2026-08-22 (P3 Task 14), superseding the tool-lane-only wording below. The enforcement authority is now scene_budget_enforce() in engine/level/scene_dsl.emp — three per-scene ensures, one per SAT sub-ceiling (per-line sprites = the BINDING ceiling per axis5_binding_ceiling, per-line pixels, table slots), each charging cost + reservation <= pool from the SB_AXIS5_* transcriptions of this file's [engine_reservation] rows ([symbols]-pinned) — which is where design §5's ownership rule puts it (the comptime DSL alone sees every scene through the registry). The charge is per SCENE, max not sum (the P2 ratification: one scene live at a time; the pairwise sum belongs to the blocked transition frame). Nine SceneBudget_Axis5_* pub equ ledger rows publish the fold (scene_budget_report.py renders and --check-requires them; tools/test_scene_budget_ledger.py gates the row list at source level in the pytest lane). check_axis5_mask_pricing() in tools/effects_budget_check.py REMAINS in every canonical build as the derivation/census drift lane: mask geometry re-derived from the shipped engine constants, adopter census, toml-row presence — no longer the sole enforcement. Adoption is still ZERO (both shipped per-column families declare Accept) and scene() still refuses SpriteMask pending the emission pair in DEFERRED_WORK; the enforce prices a declarer the day one exists (verified red-first via a planted back-door declarer). NOT FALSIFIABLE — booked with unlock conditions in the falsifiability section above, not given a faked poison. The headroom is an UPPER BOUND (axis5_caveat)."
+axis5_sprite_slots_SUPERSEDED0 = "SUBJECT LANDED 2026-08-21 (P3 Task 12), GATED, ADOPTION ZERO. The subject is the left-column mask policy: left_column_mask is MANDATORY on every per-column-VSRAM scene (scene() in engine/level/scene_dsl.emp fails an undeclared one at build time), and the SpriteMask price -- 7 SAT table slots full-height, 1 sprite + 8 px on any line, geometry derived from the shipped engine constants -- is enforced against the [engine_reservation] axis5_budget_* rows by check_axis5_mask_pricing() in tools/effects_budget_check.py, which runs in every canonical build. The axis gates on the PER-LINE SPRITE COUNT (axis5_binding_ceiling), where the strip costs 1/line regardless of slot count; the 7-slot table cost is accepted per axis5_task12_resolution. What is NOT here: any adopter (both shipped per-column families declare Accept -- Rocking because the zero-table factor0 truth is comptime-invisible, Perspective because its shimmer floor genuinely ships the artifact), and the SpriteMask ENGINE EMISSION, which scene() refuses pending the aeon+sigil pair booked in DEFERRED_WORK. NOT FG sprite strips (CAP_FG_SPRITE_STRIPS $0080 stays reserved past P3, no lowering). The headroom is an UPPER BOUND (axis5_caveat)."
+axis5_sprite_slots_SUPERSEDED1 = "DENOMINATOR MEASURED 2026-08-20, SUBJECT STILL OWED. See [engine_reservation] axis5_* : idle occupancy 3 of 80 SAT slots, worst 2 of 20 sprites and 32 of 320 pixels on any line; max-diagonal renders nothing. The axis gates on the PER-LINE SPRITE COUNT (axis5_binding_ceiling). Its P3 subject is Task 12's left-column mask, NOT FG sprite strips (CAP_FG_SPRITE_STRIPS $0080 stays reserved past P3, no lowering). Not gated until Task 12 lands; the headroom is an UPPER BOUND (axis5_caveat)."
+axis5_sprite_slots_SUPERSEDED2 = "NO SUBJECT UNTIL P3 — FG sprite strips are CAP_FG_SPRITE_STRIPS ($0080), reserved, no lowering. Phase 0 measured no row and there is no shipped scene that consumes sprite slots. Not gated, deliberately."
 axis7_computed_handler_pins = "NO SUBJECT AFTER P3 EITHER — stated by P3 Task 13 (2026-08-22) so the P2 wording below stops standing as a promise P3 did not keep. P3 shipped no computed handler: design §10's P3 list (re-glue, curves, per-layer deform refs, forcer derivation, vscroll-split, left-column mask) contains none, its P4 list contains none, and §9 records the computed-range infra as deleted and deliberately not rebuilt. CAP_COMPUTED ($0400) stays reserved with no lowering; nothing shipped can excite the axis, so there is nothing to measure and nothing to gate. WHAT WOULD GIVE IT A SUBJECT: a parcel that lowers CAP_COMPUTED — an effect whose HInt program is COMPUTED per frame rather than authored (the class the deleted infra served, e.g. a dynamic wave/heat-shimmer whose per-line table is built at runtime), which would need an owner-approved design reviving computed ranges plus a §8.3 instrument that can see handler pins. Until such a parcel exists this row is a fence, not a debt. Not gated."
 axis7_computed_handler_pins_SUPERSEDED0 = "NO SUBJECT UNTIL P3 — CAP_COMPUTED ($0400), reserved, no lowering; design §472 records the computed-range infra as deleted and deliberately not rebuilt. Not gated."
 
@@ -1250,3 +1275,20 @@ axis7_computed_handler_pins_SUPERSEDED0 = "NO SUBJECT UNTIL P3 — CAP_COMPUTED 
 "scene_budget.axis3_reservation_cycles"     = "engine/level/scene_dsl.emp:SB_AXIS3_RESERVATION"
 "scene_budget.axis4b_pool_cycles"           = "engine/effects/raster_dsl.emp:RASTER_HINT_FRAME_CYC"
 "scene_budget.axis4b_reservation_cycles"    = "engine/effects/raster_dsl.emp:RASTER_HINT_RESERVATION_CYC"
+# Axis 5's pools/reservations and the mask's priced geometry (P3 Task 14). The comptime
+# enforcement transcribes [engine_reservation]'s Task-4 rows into scene_dsl.emp SB_AXIS5_*
+# constants (sprites.emp's SPRITE_MASK_* cannot be named there — not a COMPTIME_HELPERS
+# module, EMP_PITFALLS §2), so these rows are the drift gate on the transcription; the
+# GEOMETRY half is additionally re-derived from the shipped engine constants by
+# check_axis5_mask_pricing(). axis5_budget_* stay unpinned (derived pool - reservation,
+# same convention as the other _budget_ rows). SB_AXIS5_MASK_LINE_SPRITES (1/line) is
+# geometric — a stacked strip intersects any scanline exactly once — with no toml row, so
+# it has no pin either; its banner carries the derivation.
+"engine_reservation.h40_sprites_per_line_limit"       = "engine/level/scene_dsl.emp:SB_AXIS5_LINE_SPRITE_POOL"
+"engine_reservation.idle_sat_worst_line_sprites"      = "engine/level/scene_dsl.emp:SB_AXIS5_LINE_SPRITE_RESERVATION"
+"engine_reservation.h40_sprite_pixels_per_line_limit" = "engine/level/scene_dsl.emp:SB_AXIS5_LINE_PIXEL_POOL"
+"engine_reservation.idle_sat_worst_line_pixels"       = "engine/level/scene_dsl.emp:SB_AXIS5_LINE_PIXEL_RESERVATION"
+"engine_reservation.sat_table_entries"                = "engine/level/scene_dsl.emp:SB_AXIS5_TABLE_POOL"
+"engine_reservation.idle_sat_slots_used"              = "engine/level/scene_dsl.emp:SB_AXIS5_TABLE_RESERVATION"
+"engine_reservation.sat_mask_slots_full_height"       = "engine/level/scene_dsl.emp:SB_AXIS5_MASK_TABLE_SLOTS"
+"engine_reservation.sat_mask_pixels_per_line"         = "engine/level/scene_dsl.emp:SB_AXIS5_MASK_LINE_PIXELS"
