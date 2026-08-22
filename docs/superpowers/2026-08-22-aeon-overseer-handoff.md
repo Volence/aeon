@@ -80,6 +80,11 @@ committed → ping aurora-86 with SHAs.
 
 > "if you need any decisions made just whip up a fable agent"
 
+(Anchor hygiene, checked both ways this night: `a88db05` — the wave-1 precondition citation —
+was verified to BE the merge commit that put the sidecar fix on aurora master, so it holds by the
+same standard. Check the class of every SHA before it hardens into a citation: a docs-only commit
+cited as a code anchor is the failure mode.)
+
 Design calls arising overnight are delegated: dispatch a Fable-model adjudication agent
 (`model: "fable"`) with the competing options and the evidence rather than blocking or waking
 the owner. **Every such call is PROVENANCE-FLAGGED assistant-authored-under-owner-delegation**,
@@ -180,8 +185,10 @@ would otherwise have shipped:
 ### Still open on the Aurora lane (their work, tracked here)
 
 - **`.collattr.bin` silent overwrite — CLOSED 2026-08-22 night, aurora parcel tip `945f5c6`**
-  (that SHA's own subject is the ROADMAP item-10 booking; the fix commits precede it in the same
-  parcel — verified firsthand in their tree: `save.ts:94`/`:98` now read
+  — **cite `6fc7359` as the CODE anchor** (the merge that put the fix on master; `f6bf6b0` is the
+  fix commit, `0255b04` the red test). `945f5c6` is docs-only (`git show --stat`: `docs/ROADMAP.md`,
+  2 insertions) and must never be cited as the source of a code guard — verified firsthand in their
+  tree: `save.ts:94`/`:98` now read
   `understood('collattr.bin') && section.collisionEdit`). It was TWO defects: the unreadable-plane
   half (identical shape to the meta bug — proof shows all 131072 bytes of an authored plane
   replaced by the baseline in one round trip) and the parse-level truncation half (a 130943-byte
