@@ -87,6 +87,15 @@ rulings live in the session memory and the most recent `docs/superpowers/*handof
   survey pin, plus a ruling aimed at a field the sibling's save path never writes. A
   quoted survey, roadmap, or plan caveat can be stale before its pin; only reading the
   described tree catches it. Peer verification found both — reciprocate it.
+- **Check the CLASS of a SHA before citing it** — also now shared protocol (empyrean
+  `43fbfc9`, 2026-08-22, again from this arc). A code guarantee anchors to the merge that
+  put the code on master, `git show --stat`-ed BEFORE the citation is written, never to
+  whatever master happened to be at message time. Lived both ways in one night: a 2-line
+  ROADMAP booking was sent as the anchor for a 472-line code merge (caught only because the
+  receiver `--stat`-ed it), while a second anchor sent the same loose way turned out sound —
+  so checking is the discipline, not suspicion of a particular peer. A docs-only commit cited
+  for a code guarantee is invisible once it hardens into prose; nobody re-derives a citation.
+  The companion rule above governs the CLAIM; this one governs the CITATION.
 
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
