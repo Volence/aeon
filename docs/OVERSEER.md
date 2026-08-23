@@ -151,6 +151,51 @@ aeon still satisfy this contract *today*" must not be pointed at a pin.
 
 ## Instruments (which oracle for what)
 
+**⚠ HOLD — do NOT migrate the three cost probes to oracle-next's profiler (oracle lane,
+2026-08-22).** `tools/raster_cost_probe.py`, `tools/engine_baseline_probe.py`,
+`tools/streaming_choke_probe.py` stay on the legacy harness until oracle says otherwise.
+Their attribution across VBlank preemption is **sound by design** (returns matched by
+`entry_sp` + privilege, never positionally) — the ~20% legacy loss is genuinely not shared.
+**But `perFrame[].vintCycles` may displace a boundary-straddling handler's ENTIRE cost into
+the frame it returns in**, and **no test in either suite puts an interrupt bucket across a
+mid-sample boundary**, so it is latent at every state anyone has measured.
+**Status: LOCATED, NOT CONFIRMED** — reasoned from source, no cargo run, no emulator; their
+overseer read the code and calls it plausible and specifically sited. Tier 1 there, and it
+gets a test before we migrate.
+**Why this one is ours specifically, and it inverts the usual latent-bug story:** our
+workloads are *sustained streaming*, where a tick costs 190,931 cycles against a
+128,000-cycle frame — so **boundary-straddling handlers are our NORMAL case, not an edge
+case.** A defect latent everywhere else would be load-bearing here.
+*Costs us nothing today: verified 2026-08-22 that none of the three references
+`oracle-aether` or `--no-pace` — they are all still on the legacy profiler, so this is a
+hold on a future migration, not a retraction of anything in use.*
+
+**✅ Pixel capture is COMPOSABLE TODAY — and the "capture is impossible here" belief is a
+LEGACY-SERVER result that must not be carried forward.** `play_input` + `scanlines{}` +
+`state_hash{includeFramebuffer}` are all served by the Rust core, and determinism is a
+property it already gates: `a1_determinism_three_boots_byte_identical` compares three
+servers, three sockets, full 224-line frames, byte-identical, with a poison beside it.
+Their determinism sweep was run as an enumeration, not a conclusion (zero
+`Instant::now`/`SystemTime`/`sleep` in core; no `HashMap`/`HashSet` iteration; no `rand` —
+`rng.rs` is a hand-rolled SplitMix64 seeded from a constant; `forbid(unsafe_code)`; floats
+confined to `src/synth/`; wall-clock pacing at exactly one site, disabled by `--no-pace`).
+**So the three failed capture protocols and the non-deterministic screenshots are facts
+about the OLD server.** Poison-test anything before adopting it as a gate — that sequencing
+still stands — but stop repeating that raster work cannot be gated on pixels.
+
+**DMA-enqueue union (axis-2 unlock) is also composable today**: a watchpoint record sweep
+cross-checked with `run_to{symbol}` + `read_memory`. **`run_to` takes a `symbol`** — that is
+the piece nobody had noticed, and it is what makes this composable rather than new work.
+
+**Two capability facts that bite:** breakpoints and `wait_for_break` **do not exist** on the
+Rust server (`capabilities.breakpoints: false`) — for an arm→wait→clear flow use
+`run_to{symbol}` today; the real parcel is breakpoints + `wait_for_break` shipping together
+and has no date. And **we are already driving the Rust server headlessly** — 8 of our tools
+reference `oracle-aether`/`--no-pace` (verified: `boot_override_gate`, `effects_gates`,
+`hblank_window_sweep`, `sh_probe`, `staging_lifetime_timeline`, `tick_variance_probe`,
+`vsplit_landing_gate`, `warp_mailbox_gate`). **The cutover is partial and IN PROGRESS, not
+pending** — do not write as though it has yet to begin.
+
 - **oracle-next / oracle-aether** (bus socket, headless): pixels, scanlines (sub-line
   since 2026-08-19), memory, watchpoints with per-hit mclk, the warp mailbox, and — once
   its profiler ships — cycle attribution (compare `cyclesSelf`, never inclusive).
