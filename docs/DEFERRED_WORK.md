@@ -514,9 +514,20 @@ carry).
     gate** (`sampleCycles - (self + unattributedCycles)` must close at every prefix rung),
     and it measures **`unattributedCycles == 0` at every rung** at the states it samples —
     so the case is detected, not merely absent. Two consequences: the caveat does not bite
-    the one probe we have on the new profiler, and **every remaining port MUST carry that
-    identity check**, because it is the only thing standing between a mid-handler arm and a
-    plausible under-report. Zero at the states measured is not a proof for arbitrary arming.
+    the one probe we have on the new profiler, and **every remaining port MUST carry the
+    `unattributedCycles == 0` ASSERTION — not merely "the identity check".** Zero at the
+    states measured is not a proof for arbitrary arming.
+    **⚠ THE DISTINCTION IS THE WHOLE GUARD, and an earlier draft of this booking got it
+    wrong (corrected 2026-08-23, caught by the oracle lane).** A suppressed bucket
+    **conserves** cycles: `checkpoint` does `pending_unattributed += d_self; return`, so the
+    time lands in `unattributedCycles` and **the identity still closes with that term
+    arbitrarily large.** Closure alone is satisfied by precisely the case being guarded
+    against. A porter who copies "carries the identity check" and keeps only the closure has
+    kept the gate's shape and discarded the half that fires — the vacuous-gate failure this
+    repo has the most scar tissue about, arriving through a correctly-described gate.
+    **The identity is a LOSS detector, not a correctness proof:** it catches loss-shaped
+    defects and would not catch a mis-keying one where cycles are conserved but land on the
+    wrong row, and the suppressed case is conserved-but-diverted.
 - **STILL ON `oracle-old`, in rough order of next use:** `streaming_choke_probe.py`
   (the fill's callee decomposition — the biggest consumer), `engine_baseline_probe.py`
   (the §1 baselines every budget denominator cites), `parallax_cost_probe.py` (needs the
