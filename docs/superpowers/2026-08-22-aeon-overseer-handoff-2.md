@@ -98,8 +98,10 @@ the strip indices. **Enumerated paths only, no globs**: another session was live
 tree during the triage.
 
 **Why it is not done yet:** it moves ROM bytes, so it carries the repin → refreeze ritual,
-and a band-count parcel was in flight also moving bytes. **One byte-mover per branch, and
-serialize refreezes** — do the band-count parcel first, then this.
+and a band-count parcel was in flight when it was queued. **One byte-mover per branch, and
+serialize refreezes.** ✅ **That blocker is now clear** — the band-count parcel landed
+byte-identical (below), so nothing else is contending. **This is the next byte-mover to
+cut, and it is unblocked.**
 
 **Two riders found alongside, neither in the 43:**
 - **`data/sprites/pitcher_plant/art.bin` + `mappings.bin` are invisible to `git status`
@@ -112,6 +114,83 @@ serialize refreezes** — do the band-count parcel first, then this.
   `9c6e5394`); over-match checked at 0 of 1119 tracked files.
 
 **QUEUED — BAND-COUNT CEILING: the first writer-originated scene CANNOT BE LOWERED.**
+**CLOSED 2026-08-22 — BAND-COUNT CEILING** (branch `parcel/band-count-range`). The Aurora
+answer the entry was blocked on arrived and is *stronger* than "8 is where their agent
+stopped": the writer schema pins `layers` at `minItems 1 / maxItems 8`, Aurora's editor
+computes its Add-layer cap **from that schema at load**, and 8 is `MAX_PARALLAX_BANDS` —
+the engine's own declared maximum, already pinned at `engine/level/scene_dsl.emp:54` and
+enforced by `scene()`. So every count in 1..8 is reachable and the range was closed for
+good, per this entry's own "if 1-8 all reachable" branch.
+
+What shipped:
+- `SceneCfg3/6/7/8` + `lower3/6/7/8` in `scene_registry.emp`, `pub` and shaped exactly like
+  1/2/4/5 — **all four**, not just the `lower8` that unblocked the fixture. Adding only 8
+  would have left 3/6/7 as the next arbitrary set with the discovering artifact spent.
+- `tools/test_scene_band_shape_coverage.py` — the durable half. It DERIVES the required set
+  from `MAX_PARALLAX_BANDS` (read out of `engine/system/constants.emp` via
+  `effects_budget_check.emp_constants`), so coverage is a property of the constant: move it
+  to 10 and the gate names 9 and 10 as missing instead of going stale (measured — see the
+  file's PROVEN RED banner). Runs in `build.sh`'s build-fatal `python3 -m pytest tools` lane.
+- It also closed a second, unrelated drift axis found on the way: `tools/effects_gen.py`
+  carried its own `MAX_PARALLAX_BANDS = 8` that **nothing compared to the engine**. Now
+  pinned, and `LOWERABLE_BAND_COUNTS` is `range(1, MAX+1)` rather than a literal list.
+- End-to-end proof: the 966-byte Aurora fixture (`git hash-object` re-verified here) was
+  placed, assigned at `project.json` `zones[0].acts[0].sceneRef`, and `effects_gen.py emit`
+  **succeeded** — it emitted `use games.sonic4.scene_registry.{SceneCfg8, lower8}` and
+  `pub data EditorSceneBinding_OJZ_Act1_Default: SceneCfg8 = lower8(...)` through the real
+  `scene()`/`layer()` constructors. The band-count half is closed.
+  **But the unmodified fixture does NOT build** — and not for a band-count reason. See the
+  WRITER-VALUE MISMATCH entry below; three authored SCENE-level fields are illegal to the
+  engine. With those three minimally corrected (all eight layers and every `fa`/`fb` left
+  exactly as authored) plus a temporary `map.toml` `order` row, all four shapes built green
+  and the record is physically in the ROM at `$12C96` with `pcfg_band_count = 8` and
+  `pcfg_layer_mask = $FF`. `s4.bin` `80AC306A` / `s4.debug.bin` `DDE0C15C`; `demo` unmoved.
+  The fixture, the `project.json` edit and the `map.toml` row were then all torn down — that
+  is content, and Aurora's to author.
+- **NOT fixed, and deliberately so:** an ANCHORED 8-band scene is still refused
+  (`scene_dsl.emp:1062` — an anchor splits a layer at runtime and needs `count+1` shadow
+  entries, and `Parallax_Shadow_Bands` is sized for eight). That is a real engine limit, not
+  a missing `SceneCfg9`, and the gate asserts no shape exceeds the ceiling so nobody
+  "fixes" it that way.
+
+**QUEUED — WRITER-VALUE MISMATCH: `v_factor` is typed as a horizontal FACTOR in the schema
+but is a VERTICAL SHIFT in the engine.** Found 2026-08-22 while proving the band-count fix
+end to end; NOT fixed there, because it is a cross-repo contract question and not a
+band-count one. Building Aurora's unmodified fixture produced 21 diagnostics, in three
+groups, none of them about band count:
+
+1. **`v_factor`.** `contract/schema/aurora-effects-scene.schema.json` declares
+   `"v_factor": {"$ref": "#/$defs/factor"}` — the SAME type as a layer's `fa`/`fb`. The
+   engine's `sc_v_factor` is a `u8` **shift amount**, `0..15`, with `15` as the lock
+   sentinel: `Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset`, and every shipped
+   scene spells it `v_factor: 3` or `v_factor: 15`. The fixture's `"v_factor":
+   "FACTOR_3_4"` folds to `packed(s1: 0, s2: 2, op: 1)` = **288**, so sigil reports
+   `shift amount out of range: 288` (once per layer) and `[emit.out-of-range] 288 does not
+   fit u8`. `effects_gen.py` passes it straight through — it validates SHAPE, and the
+   shape is legal per the schema. **Two repos disagree about a field's TYPE, and both are
+   internally consistent**, which is why nothing caught it until a real writer value
+   arrived. Whoever picks this up decides which side moves; if the schema is wrong, the
+   aeon-side follow-up is a `v_factor` range check in `effects_gen.py` so the refusal names
+   the field instead of sigil naming a shift.
+2. **`v_offset: -8`** → `[emit.out-of-range] -8 does not fit u16`. `pcfg_v_offset` is `u16`;
+   every shipped scene uses `0`. The schema says plain `"integer"`. Either the field wants
+   to be `i16` or the schema wants a `minimum: 0`. Same shape of defect as (1).
+3. **`v_center: 8` with a layer at `world_y: 0`** → the engine's own `scene_plane_line()`
+   `ensure` fires, correctly and with a good message ("a top above v_center has no plane
+   image"). That one is an authored-VALUE mistake in the fixture, caught exactly where the
+   P5 architecture says values get caught. No aeon change indicated.
+
+Note what (1) and (2) mean for the wave-1 contract golden: a scene can be schema-valid,
+pass every `effects_gen` shape check, and still be unbuildable. The **writer-originated
+fixture found this too**, from the same one command — the second thing it caught that
+schema-exhaustive `canopy_dusk.json` could not.
+
+The original band-count entry follows, unedited, because its reasoning about WHY the defect
+existed (a demand-driven set read as a list rather than a ceiling) is the part worth keeping.
+
+---
+
+**~~QUEUED~~ — BAND-COUNT CEILING: the first writer-originated scene CANNOT BE LOWERED.**
 Found 2026-08-22 by running `effects_gen.py emit` against Aurora's writer-originated fixture
 (`test/fixtures/effects/writer_session_ojz.json`, blob `07547231a860555ac79a681898b38713bbe7ef78`
 at aurora `c72a4270` — blob extracted and **hashed here**, ancestry confirmed at their origin).
