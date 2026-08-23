@@ -79,6 +79,38 @@ nothing an author produces can reach a ROM yet. Its normative read set is alread
 `tools/EFFECTS_CONSUMER_CONTRACT.md` §2. Design: `specs/2026-08-22-aurora-effects-wave1-design.md`
 §7 enumerates the whole aeon lane. Both contract halves have landed (aeon + empyrean).
 
+**QUEUED — STAGE THE OWNER'S 38 STRANDED EDITOR FILES. This is a BYTE-MOVER; serialize it.**
+Triage merged at `9c6e5394` with the full analysis and a runnable plan in
+`docs/superpowers/notes/2026-08-22-dirty-tree-triage.md`. Owner ruled: *"maybe slowly add
+them in? Why didn't they get added before, are they just scrap work? If not we should keep"*
+and *"Yes that sounds fine, aeon sort them in."*
+
+They are **not scrap**: two Aurora saves (2026-08-19 21:42, 2026-08-20 13:45) plus the
+re-bake they fired — one coherent edit, stranded by the dead-daemon instruction above.
+Proven sound rather than assumed: a control re-bake from committed inputs comes back clean
+(generators are deterministic) and a subject re-bake from the dirty editor inputs reproduces
+the tree **78/78 byte-identical**, differing only in `DONOR_PROVENANCE.json` (which stamps
+the run, not the content).
+
+**Two commits that MUST land together** — authoring, then bake — mirroring the 2026-08-12
+precedent pair `a447e0fd` + `14ac489a`, because the collision tables are interned against
+the strip indices. **Enumerated paths only, no globs**: another session was live in the main
+tree during the triage.
+
+**Why it is not done yet:** it moves ROM bytes, so it carries the repin → refreeze ritual,
+and a band-count parcel was in flight also moving bytes. **One byte-mover per branch, and
+serialize refreezes** — do the band-count parcel first, then this.
+
+**Two riders found alongside, neither in the 43:**
+- **`data/sprites/pitcher_plant/art.bin` + `mappings.bin` are invisible to `git status`
+  entirely** — swallowed by the blanket `*.bin` at `.gitignore:2` with no negation, on disk
+  since June, while their `sprite.json` sibling IS tracked. Verified here with
+  `check-ignore -v`. Real Aurora export data that no one can see is worse than data no one
+  has committed. The deferred sprite-consumer contract parcel owns this; do not fix it
+  blind.
+- The `export/` dump and the root `*.state*` save-states are now **ignored** (merged in
+  `9c6e5394`); over-match checked at 0 of 1119 tracked files.
+
 **QUEUED — BAND-COUNT CEILING: the first writer-originated scene CANNOT BE LOWERED.**
 Found 2026-08-22 by running `effects_gen.py emit` against Aurora's writer-originated fixture
 (`test/fixtures/effects/writer_session_ojz.json`, blob `07547231a860555ac79a681898b38713bbe7ef78`

@@ -209,6 +209,32 @@ pending** — do not write as though it has yet to begin.
 - Subagents NEVER touch emulator MCP tools (deadlock); headless bus scripts are the
   sanctioned instrument everywhere.
 
+## ⚠ THE AUTO-COMMIT DAEMON IS DEAD — stage the editor tree normally (2026-08-22)
+
+**There is no auto-commit daemon.** Verified: no process, no user systemd unit (the only
+one is `aeon-effects-gates.timer`), and the last commit touching
+`games/sonic4/data/editor/ojz` is `a447e0fd`, **2026-08-12**.
+
+Around **fifteen** handoff docs still tell every session that tree is daemon territory —
+*"never stage, revert or touch it"*, *"Not ours"*. **Ignore that instruction wherever you
+meet it.** `games/sonic4/data/editor/**` is ordinary work and is staged like any other.
+
+**What it cost, so nobody re-derives the caution from the surviving prose:** 38 files of
+the owner's own Aurora work — two saves (2026-08-19, 2026-08-20) plus the re-bake they
+triggered — sat uncommitted for days. The heuristic also over-reached: the re-bake rewrites
+`data/collision/` and `data/generated/`, which were **never** daemon territory, so an
+"editor churn, not ours" reading applied to the whole `data/` blob orphaned the derived
+half as well. `.gitignore` lines 103-115 explicitly **negate** those paths and say why (the
+generators read out-of-repo donors and cannot run in the build), so "generated, therefore
+ignorable" is wrong and the repo already argues against it.
+
+**The failure mode is the durable part: an ownership claim fails SILENTLY AND
+PERMISSIVELY.** Nothing errors, no gate trips — the work simply never lands, and every
+session that reads the note reproduces the omission. Fourth of the day's stale-hazard
+family and the most expensive, because the others cost effort and this one cost data
+sitting unversioned. **An ownership claim needs a liveness check, not a citation:** before
+deferring to "something else owns this", confirm the something else exists.
+
 ## Worktree quirks (agents hit all of these)
 
 - Export `AEON_SKDISASM_DIR=/home/volence/sonic_hacks/skdisasm`; the worktree root's
