@@ -39,16 +39,66 @@ nothing an author produces can reach a ROM yet. Its normative read set is alread
 `tools/EFFECTS_CONSUMER_CONTRACT.md` §2. Design: `specs/2026-08-22-aurora-effects-wave1-design.md`
 §7 enumerates the whole aeon lane. Both contract halves have landed (aeon + empyrean).
 
+**QUEUED, not dispatched — the `(align: N)` migration we owe sigil.** sigil shipped the
+struct-field alignment attribute at **`6fae4d6a`** (on master `560d44da`, both reachable at
+origin — verified here, not taken on their word). Our side of the standing obligation:
+
+```
+sc_mask_raw:           i16 (align: 2),
+sc_v_deform_shift_raw: i16 (align: 2),
+```
+
+in `engine/level/scene_dsl.emp`, and the two trailing `ensure(offsetof(Scene, …) % 2 == 0, …)`
+guards delete. Error tier, so it fails the build the way the `ensure` did.
+
+**Deliberately NOT dispatched yet, and the reason is sequencing, not doubt.** (a) It edits
+`.emp`, and the in-flight P5 seam parcel is the one thing that must not race on `.emp`;
+(b) it needs `SIGIL_BUILD` rebuilt from `6fae4d6a` first, or the new spelling simply does not
+parse — so it is binary-gated, not just code-gated, and the byte-changing ritual wants BOTH
+sigil binaries rebuilt. Cut it after the P5 seam lands.
+
+**Three cautions from sigil, the first being the one that bites:**
+1. **The spelling is `(align: N)`, NOT `@align(N)`.** `@align(N)` already exists on `vars`
+   region fields where it MOVES the allocation cursor; the split is deliberate (D2.29). A
+   struct field written `@align(2)` is refused **by name with a teaching diagnostic**, so the
+   failure is loud rather than silent — but knowing costs nothing.
+2. **`sc_pad_5D`'s width stays hand-computed.** The attribute guards the constant; it does not
+   derive it. **Keep the comment block above that field** — the authority for the pad width is
+   still a guard firing, now a per-field attribute instead of a trailing ensure. The thing that
+   would actually retire the hand-count is `pad_to(N)`, parked on the owner as new language
+   surface.
+3. Scene is comptime-only and nothing emits it, so this *should* be byte-neutral by
+   construction — **sigil explicitly declined to assert that and left it to us. Verify with
+   CRCs; do not inherit it.**
+
+*Provenance worth keeping: sigil shipped this at ERROR tier rather than as another warning
+because of the `sc_pad_5D` comment block from this lane — `[layout.odd-field]` did fire on the
+08-18→08-22 drift and was swallowed by a warning baseline nobody re-read. A lint that fires
+into a baseline is not a guard. They also re-pointed their `OVERSEER.md` cite of our ensures
+from `scene_dsl.emp:1025,1027` to the symbol names, which is the coordinate-rot bar applied
+without being asked.*
+
 **Also cuttable cold: the `br_ext` lane row** (`DEFERRED_WORK.md`, "unlock 1"). Sequence is
 satisfied and banked at `ba189b40` — binary current and enforcing, both arms verified against
 the shared artifact, committed fixture to cite. **Read the local-only warning there first.**
 
 ## ⚠ Two standing hazards that will bite you
 
-1. **Every sigil SHA is LOCAL-ONLY.** sigil `origin/master` is `40f862e2`; local master is 38+
-   commits ahead and unpushed (the owner's gate). **The assembler aeon builds against was built
-   from commits that exist nowhere but this disk.** Verify reachability before citing any sigil
-   SHA; treat every Aurora SHA the same way unless they say "at origin".
+1. ~~**Every sigil SHA is LOCAL-ONLY.** sigil `origin/master` is `40f862e2`; local master is 38+
+   commits ahead and unpushed (the owner's gate).~~ **STALE — CORRECTED 2026-08-22, later the
+   same day.** sigil has pushed: `origin/master` is now **`560d44da`**, verified against the
+   remote with `git ls-remote origin refs/heads/master` (not by reading the sibling working
+   directory), and `merge-base --is-ancestor` confirms both `560d44da` and `6fae4d6a` are
+   reachable there. So sigil SHAs are citable anchors again.
+   **Keep the discipline, drop the blanket assumption:** still verify reachability before citing
+   any sigil SHA, because "sigil is pushed" is itself a snapshot that ages exactly like the claim
+   it replaces. And **treat every Aurora SHA as local-only unless they say "at origin"** — that
+   half is unchanged and Aurora states the class explicitly in their messages.
+   *Why this correction is worth the lines: a standing hazard in a boot doc is the highest-leverage
+   place for a stale fact, because every fresh session reads it as current and nothing prompts a
+   re-check. This one would have made a lane refuse to cite a perfectly good anchor — a false
+   negative, so it fails silently and looks like caution. Same class empyrean and seraph both hit
+   today from the other direction (a doc's self-description hardening into an owner approval).*
 2. **As of `98100905`, every fresh checkout trips `level staleness` on mtime alone** (that
    parcel edited `project.json`). Remedy: `tools/regenerate-level.sh`, then revert the
    `DONOR_PROVENANCE.json` churn — unchanged level bytes mean the existing stamp still
