@@ -830,6 +830,16 @@ genuinely open; none of them can be closed from the tree alone.
   C: cut BgAnim bands during fast scroll). Recommendation on file is (A).
 - **`test_player` as a unit** — whether the test object set should ship in release at all.
 - **Authoring the debug-fly cheat code** — mechanism is shipped and waiting on content.
+- **The OJZ BG `band_reserve` number** (NEW 2026-08-22, `parcel/bg-band-reserve`). The mechanism
+  shipped at **0**, which is bit-for-bit today's behaviour; the number itself is the
+  animation-vs-detail dial and is deliberately not an engineering call. Setting it is a one-line
+  edit to `bg_region` in `games/sonic4/vram.toml` followed by
+  `python3 tools/gen_vram_map.py --game sonic4 --toml games/sonic4/vram.toml --py tools/vram_map.py --emp games/sonic4/config/constants.emp --map-doc docs/generated/vram-map-sonic4.md`
+  (skipping the regenerate now fails `pytest tools`, so it cannot go unnoticed).
+  **Coupled to an art re-import**: the reserve constrains the *next* `png_to_bg_override.py` run,
+  and the shipped 448/448 blob does not shrink on its own. Sizing context, measured rather than
+  inferred: the destroyed configuration was 340 tiles = 192 animated + 148 static + 108 unused,
+  **not** "192 reserved of 448" (full derivation in `docs/BUGS.md` TOOL-01).
 
 ---
 
