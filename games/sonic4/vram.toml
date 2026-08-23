@@ -96,7 +96,7 @@ owner = "engine.bg"
 kind = "arena"
 base = 1024
 tiles = 448
-band_reserve = 0                 # tiles withheld from the STATIC BG importer
+band_reserve = 128               # tiles withheld from the STATIC BG importer
 lifetime = "act"                 # (tools/png_to_bg_override.py) so a BgAnim band
 authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
 # can be inserted later. `tiles` is a hard VRAM boundary ($8000..$B7FF; the SAT
@@ -120,6 +120,32 @@ authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM
 # inject_editor_bg.py validate_band_coherence), so animated slots are a subset
 # of the blob, never an addition to it. Reproducing that shape means
 # band_reserve = 192 with the static import held to 256.
+#
+# WHY 128 AND NOT 192 (overseer call, 2026-08-22, delegated by the owner).
+# The owner set the constraint as a LOOK TEST, not a figure — "as long as it
+# still looks slightly reasonable we can do whatever's best to reserve for
+# animation" — so this number is chosen to be approached from the GENEROUS side
+# and tightened, never overshot. 128 is one full-size animated band (the
+# destroyed art's larger band was exactly 32x4 = 128), leaving 320 of 448 for
+# static art. 192 would reproduce both original bands but asks the next
+# generated art to nearly HALVE its unique-tile count against today's 448, and
+# discovering that as ugly art costs more than moving a number: tightening is an
+# edit, overshooting is the owner losing confidence in the tool.
+#
+# THIS SETTING BINDS THE *NEXT* IMPORT AND FREES NOTHING TODAY. The importer
+# REFUSES above the budget; it cannot re-quantise art downward, and no lossy
+# path exists (perceptual tile merging was ruled out of scope — it exists only
+# to salvage art that is being replaced). The shipped 448-tile blob is unaffected
+# because inject_editor_bg.py:200 gates the FINAL blob on BG_TILE_CAPACITY, not
+# on this budget. So Aurora's band INSERTION stays impossible until an art-side
+# pass; promotion (convert existing static tiles, tiles.length unchanged) remains
+# the working route.
+#
+# THE LOOK TEST HAPPENS FOR FREE, WHICH IS WHY NOBODY WAS ASKED FOR A NUMBER.
+# The owner generates this art himself with a constrained generator, so the
+# budget is simply an input next time and he sees the result on screen with no
+# extra machinery. The evidence arrives at exactly the moment the decision
+# becomes answerable. Re-tune this line then — it is one edit plus a regenerate.
 
 [[region]]
 name = "sprite_table"
