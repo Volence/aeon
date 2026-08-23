@@ -76,27 +76,55 @@ class _Reserve:
         return False
 
 
-class TestShippedDefault(unittest.TestCase):
-    """Reserve 0 must behave exactly as before this field existed."""
+class TestShippedReserve(unittest.TestCase):
+    """The shipped reserve is a TUNABLE. These pin its coherence, not its value.
 
-    def test_shipped_reserve_is_zero(self):
-        self.assertEqual(
-            tool.BG_BAND_RESERVE, 0,
-            "the shipped default must stay 0 — a non-zero reserve is the "
-            "owner's call at their next art pass, not this parcel's")
+    This class used to pin the shipped reserve at 0 ("a non-zero reserve is the
+    owner's call at their next art pass, not this parcel's"). That guard was
+    correct for the parcel that introduced the field — it stopped that parcel
+    setting policy — and it was DISCHARGED on 2026-08-22 when the owner delegated
+    the number and it was set to 128 (one full-size animated band).
+
+    Rewritten rather than deleted, and the distinction matters: two of the three
+    original tests read the SHIPPED value and asserted a property that only holds
+    at reserve 0, so they were configuration pins wearing behavioural clothes.
+    They now either construct the reserve they are testing (via `_Reserve`) or
+    derive their expectation from the data — which makes them correct at ANY
+    reserve, including the next one the owner picks.
+    """
+
+    def test_shipped_reserve_is_coherent(self):
+        """Any value in [0, capacity) is legal; the value itself is policy."""
+        self.assertGreaterEqual(tool.BG_BAND_RESERVE, 0)
+        self.assertLess(
+            tool.BG_BAND_RESERVE, tool.BG_TILE_CAPACITY,
+            "a reserve at or past the whole region leaves no tiles for static "
+            "art — every import would refuse")
 
     def test_budget_is_capacity_minus_reserve(self):
         self.assertEqual(tool.BG_STATIC_TILE_BUDGET,
                          tool.BG_TILE_CAPACITY - tool.BG_BAND_RESERVE)
 
     def test_at_zero_reserve_the_budget_is_the_whole_region(self):
-        self.assertEqual(tool.BG_STATIC_TILE_BUDGET, tool.BG_TILE_CAPACITY)
+        """CONSTRUCTS reserve 0 rather than assuming the shipped value is 0.
 
-    def test_the_live_saturated_blob_still_passes(self):
-        """The shipped override is at the ceiling; reserve 0 must still accept it.
+        Previously this read the shipped constants, so it silently stopped
+        testing "reserve 0 behaves as before the field existed" the moment the
+        shipped reserve moved — the property it names was never actually pinned.
+        """
+        with _Reserve(0):
+            self.assertEqual(tool.BG_STATIC_TILE_BUDGET, tool.BG_TILE_CAPACITY)
+            tool.check_tile_budget(tool.BG_TILE_CAPACITY)   # must not raise
 
-        The tile count is READ from the file, never asserted as a literal: this
-        test's job is "today's data still passes", not "today's data is 448".
+    def test_the_live_blob_fits_the_hard_vram_boundary(self):
+        """The invariant that actually gates the ROM, and it is NOT the budget.
+
+        `inject_editor_bg.py:200` asserts the FINAL blob against
+        BG_TILE_CAPACITY, never against the static budget — a band's tiles live
+        INSIDE `tiles`, not beside it. So this is the assertion that would break
+        a build; the budget only ever gates a fresh import.
+
+        The count is READ from the file, never asserted as a literal.
         """
         if not os.path.exists(LIVE_OVERRIDE):
             self.skipTest(f"no live override at {LIVE_OVERRIDE} — nothing to check "
@@ -106,7 +134,37 @@ class TestShippedDefault(unittest.TestCase):
             n, tool.BG_TILE_CAPACITY,
             f"the live override carries {n} tiles, past the "
             f"{tool.BG_TILE_CAPACITY}-tile VRAM boundary")
-        tool.check_tile_budget(n)   # must not raise at the shipped reserve
+
+    def test_the_live_blob_agrees_with_the_importer_at_the_shipped_reserve(self):
+        """Whether today's art could be RE-IMPORTED today — derived, not assumed.
+
+        The old version asserted `check_tile_budget(n)` must not raise, which was
+        true only while the reserve was 0. Rather than delete it (losing the
+        check) or pin the new state (stale on the next change), the expectation
+        is DERIVED from the data and the constant, so it holds at any reserve.
+
+        At the reserve shipped on 2026-08-22 this is the REFUSING branch and that
+        is intended: the live blob saturates the region at 448 tiles, so it
+        exceeds the 320-tile static budget and could not be re-imported without
+        simplifying the art. Nothing automated re-runs the importer — verified:
+        `png_to_bg_override.py` is invoked by no build path, only by hand — so
+        the shipped ROM is unaffected. If that ever becomes false, this test is
+        where it shows up.
+        """
+        if not os.path.exists(LIVE_OVERRIDE):
+            self.skipTest(f"no live override at {LIVE_OVERRIDE} — nothing to check "
+                          "(reported as a skip, not as a pass)")
+        n = len(json.load(open(LIVE_OVERRIDE))["tiles"])
+        if n > tool.BG_STATIC_TILE_BUDGET:
+            with self.assertRaises(
+                    SystemExit,
+                    msg=f"the live blob carries {n} tiles against a "
+                        f"{tool.BG_STATIC_TILE_BUDGET}-tile static budget, so a "
+                        "re-import MUST refuse — a silent pass would mean the "
+                        "budget gate stopped gating"):
+                tool.check_tile_budget(n)
+        else:
+            tool.check_tile_budget(n)   # fits the budget: must not raise
 
 
 class TestBoundaryIsExact(unittest.TestCase):
