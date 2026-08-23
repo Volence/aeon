@@ -56,6 +56,25 @@ touch running sessions**, so this rotation exists partly to make the flip take.
 Four CRCs held at `2009211676` / `1171096707` / `957967962` / `64447604` (cksum) throughout —
 **every parcel today was byte-neutral.** Suite 1262 → 1329, zero failures.
 
+## ✅ PRE-CUTOVER EFFECTS-GATE BASELINE CAPTURED — all 19 PASS at `74bdebf3`
+
+Run from a **clean checkout** of master (the main tree's 39 dirty files would have confounded
+it), against the **current legacy binding**, in the window the oracle lane opened deliberately:
+their half is done at `12cc17e` and **nothing further changes the instrument until the owner
+flips the config.** So this is a baseline measured against something that will not move
+underneath it — which was the whole hazard, a gate whose verdict feeds merge evidence running
+through a silently changed instrument.
+
+**17 gates green on the first pass; the 2 "failures" were MY setup error, not the gates** — I
+had built only `DEBUG=1 ./build.sh` in that checkout, so `demo.debug.lst` was absent and the
+two-fixture differentials had no second fixture. Both passed after `DEBUG=1 ./build.sh demo`
+(`demo_witness`, plus `scanline_spans`' 9 sub-gates). **Worth noting how it behaved: it
+hard-failed rather than skipping**, with the message *"a witness that quietly does not run is
+the failure mode this suite keeps rediscovering."* That is the gate working exactly as designed.
+
+**After the cutover, re-run this and diff against the above.** Any gate that changes verdict is
+the instrument moving, not the engine.
+
 ## Queue front — in the order I would cut them
 
 **1. STAGE THE OWNER'S 38 STRANDED FILES. Byte-mover. Now UNBLOCKED — nothing else contends.**
@@ -70,14 +89,44 @@ spelling is `(align: N)` and **NOT** `@align(N)`. **Binary-gated**: rebuild `SIG
 `6fae4d6a` first or it will not parse. Byte-neutrality is OURS to verify — sigil explicitly
 declined to assert it.
 
-**3. The `v_factor` contract defect — reported to empyrean, unowned until they rule.** The
-schema types `v_factor` as a packed horizontal scroll factor (`$ref: #/$defs/factor`); the
-engine uses it as a **vertical shift**, `u8`, `0..15`, `15` = lock sentinel
-(`scene_dsl.emp:981`, `parallax.emp:1523`). Aurora's UI offers `FACTOR_*` values for it because
-the schema says to, and they fold to nonsense (288). Same group: `v_offset` is schema-`integer`
-but engine-`u16`, so negative offsets are schema-legal and engine-illegal — **that one may be
-the ENGINE that is wrong**, and changing a shipped record's signedness is not a solo call.
-**Do not harden the aeon side until empyrean rules**, or you may harden the wrong half.
+**3. The `v_factor` contract defect — reported to empyrean (banked their side at `dcfa0e5`),
+unowned until they rule. THE DEFAULT PATH IS BROKEN, not only edited scenes.** The schema types
+`v_factor` as a packed horizontal scroll factor (`$ref: #/$defs/factor`); the engine uses it as
+a **vertical shift**, `u8`, `0..15`, `15` = lock sentinel (`scene_dsl.emp:981`,
+`parallax.emp:1523`). Aurora emits `FACTOR_*` names **verbatim as symbols** — nothing on their
+side folds them — and their **new-scene default is `FACTOR_0`**.
+
+**Verified firsthand here:** `engine/level/parallax_dsl.emp:25-26` — `FACTOR_LOCKED = $0FF`,
+`FACTOR_0 = FACTOR_LOCKED`. **So the default folds to 255**: a legal `u8`, an absurd shift, and
+**not** the `15` lock sentinel. Every new scene is born wrong, not just edited ones.
+
+**The root cause is sharper than "wrong type", and this is the framing to carry: "locked" has
+TWO ENCODINGS and this field crosses between them.** Packed-horizontal locked is `$0FF` (our
+own `s1=15 -> factor 0` comment); vertical-shift locked is `15`. An author picking *lock* in
+Aurora's UI gets **255** where the engine's lock is **15** — same intent, two encodings, and
+the shared `$ref` is precisely what makes them look like one type. That explains the default
+and the `FACTOR_3_4` case with one mechanism.
+
+**Blast radius was near-zero until today and is becoming live right now** — latent for as long
+as the `$ref` has existed, and `e0fe9499` (this session) is what lets an editor-authored scene
+reach a ROM at all.
+
+**Ruling so far: the SCHEMA moves, not the engine.** The rename is unruled. **`v_offset` stays
+separate and unruled** — a negative vertical offset is physically meaningful, so our `u16` may
+be the defect; changing a shipped record's signedness is not a solo call. **Do not harden the
+aeon side until empyrean rules**, or you may harden the wrong half. The edit goes through the
+CR flow because Aurora blob-pins the schema.
+
+**4. FYI, not a task — seraph's F27.** Their preview sums DAC alongside FM6 and never writes
+`$2B`, so an FM6 and a DAC track sound together in their app and **cannot** on hardware. They
+deliberately left it unsized because *the driver's real behaviour should be confirmed against
+aeon rather than assumed*. **Expect a question about what our sound driver actually does**;
+nothing is owed or scheduled. Same shape as our own worst gates: the instrument and the subject
+diverged and every test agreed with the instrument.
+
+**5. Write `docs/lane-status.json`** (contract: empyrean `contract/LANE_STATUS.md`) so the new
+console can show the owner what this lane is doing and whether anything waits on him. Explicitly
+a next-session task.
 
 ## The day's biggest lesson: FIVE stale hazards, and every one failed PERMISSIVELY
 
