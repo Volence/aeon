@@ -17,6 +17,10 @@ Checks (all build-stopping):
                  overlay_with (T0 accepts only statically-safe overlays; T2
                  adds lifetime checking)
   * quantum    — a region with quantum = N must have tiles % N == 0
+  * reserve    — band_reserve (see below) must be an int in 0..tiles, and may
+                 only appear on bg_region: a field that is silently ignored on
+                 13 of 14 regions is the same defect class this registry exists
+                 to prevent, so a misplaced one is a build-stopping error
   * authority  — typed cross-check forms (R1): engine-bytebase:NAME (NAME is a
                  VRAM byte address == base*32), engine-tiles:NAME (== tiles),
                  engine-endtiles:NAME (== base+tiles) each emit a comptime
@@ -35,6 +39,14 @@ import sys
 import tomllib
 
 TOTAL_TILES = 2048
+# The one region whose `band_reserve` is honoured. The reserve is a GENERATOR
+# budget, not a placement fact: it withholds tiles at the top of bg_region from
+# the static BG importer (tools/png_to_bg_override.py) so a BgAnim band can be
+# inserted later without the art having to be redrawn smaller first. Declaring
+# it here rather than passing --max-tiles is deliberate — a flag is forgotten on
+# the next import, which is exactly how the reserve reached zero (docs/BUGS.md
+# TOOL-01). Nothing else consumes it yet, so anywhere else it would be a no-op.
+RESERVE_REGION = "bg_region"
 # strings interpolated into emitted .emp source, ensure messages, and markdown
 # table cells must stay inside this charset (no quotes, no //, no |, no :)
 SAFE_TEXT = re.compile(r"^[A-Za-z0-9_. -]+$")
@@ -115,6 +127,27 @@ def check_ident(region_name, field, value):
              f"a valid identifier ([A-Za-z_][A-Za-z0-9_]*)")
 
 
+def band_reserve(r):
+    """The declared band reserve for a region, 0 when absent (the default:
+    absent must mean 'behaves exactly as before this field existed')."""
+    return int(r.get("band_reserve", 0))
+
+
+def check_reserve(r):
+    """band_reserve is an int in 0..tiles, on RESERVE_REGION only."""
+    if r["name"] != RESERVE_REGION:
+        fail(f"region {r['name']!r}: band_reserve is only honoured on "
+             f"{RESERVE_REGION!r} (it withholds tiles from the static BG "
+             f"importer); on {r['name']!r} it would be silently ignored")
+    v = r["band_reserve"]
+    # bool is an int subclass — `band_reserve = true` must not read as 1
+    if not isinstance(v, int) or isinstance(v, bool):
+        fail(f"region {r['name']!r}: band_reserve {v!r} is not an integer")
+    if not (0 <= v <= r["tiles"]):
+        fail(f"region {r['name']!r}: band_reserve {v} leaves 0..{r['tiles']} "
+             f"(the region is {r['tiles']} tiles; a reserve cannot exceed it)")
+
+
 def verify(regions, frees):
     for r in regions:
         for field in ("name", "owner", "lifetime"):
@@ -130,6 +163,8 @@ def verify(regions, frees):
         q = r.get("quantum")
         if q and r["tiles"] % q != 0:
             fail(f"region {r['name']!r}: tiles={r['tiles']} violates quantum {q}")
+        if "band_reserve" in r:
+            check_reserve(r)
     for fr in frees:
         if not (0 <= fr["base"] and fr["base"] + fr["tiles"] <= TOTAL_TILES):
             fail(f"[[free]] run [{fr['base']}..{fr['base']+fr['tiles']-1}] "
@@ -236,10 +271,18 @@ def splice(emp_path, block):
 def emit_map_doc(regions, frees, game, path):
     rows = []
     for r in regions:
+        notes = []
+        if r.get("overlay_with"):
+            notes.append("overlay: " + ",".join(r["overlay_with"]))
+        # a reserve invisible in the occupancy map is a reserve that gets
+        # forgotten, which is the failure this field exists to prevent
+        res = band_reserve(r)
+        if res:
+            notes.append(f"band_reserve: {res} (static budget {r['tiles'] - res})")
         rows.append((r["base"], r["base"] + r["tiles"] - 1, r["name"],
                      r["kind"], r["lifetime"], r["owner"],
                      r.get("const") or ", ".join(auth_list(r)),
-                     "overlay: " + ",".join(r["overlay_with"]) if r.get("overlay_with") else ""))
+                     "; ".join(notes)))
     for fr in frees:
         rows.append((fr["base"], fr["base"] + fr["tiles"] - 1, "FREE",
                      "", "", "", "", ""))
@@ -279,6 +322,16 @@ def emit_py(regions, frees, game, path):
     out.append(f"POOL_TILE_CEILING = {by['fg_art_pool']['base'] + by['fg_art_pool']['tiles']}")
     out.append(f"BG_TILE_BASE_SLOT = {by['bg_region']['base']}")
     out.append(f"BG_TILE_CAPACITY = {by['bg_region']['tiles']}")
+    # BG_BAND_RESERVE / BG_STATIC_TILE_BUDGET: the reserve, and the subtraction
+    # done ONCE here so no consumer restates it (the four-copies lesson applied
+    # to the arithmetic, not just the literal). CAPACITY stays the hard VRAM
+    # ceiling — tools/inject_editor_bg.py must keep gating the FINAL blob on it,
+    # because a band's tiles live inside `tiles`, not beside it. The BUDGET is
+    # for the static importer alone, which authors no bands and so must leave
+    # room for one.
+    res = band_reserve(by['bg_region'])
+    out.append(f"BG_BAND_RESERVE = {res}")
+    out.append(f"BG_STATIC_TILE_BUDGET = {by['bg_region']['tiles'] - res}")
     for r in regions:
         if r.get("const"):
             out.append(f"{r['const']} = {r['base']}")

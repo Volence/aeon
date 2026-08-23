@@ -96,8 +96,30 @@ owner = "engine.bg"
 kind = "arena"
 base = 1024
 tiles = 448
-lifetime = "act"
+band_reserve = 0                 # tiles withheld from the STATIC BG importer
+lifetime = "act"                 # (tools/png_to_bg_override.py) so a BgAnim band
 authority = ["engine-tiles:BG_TILE_CAPACITY", "engine-bytebase:BG_TILE_BASE_VRAM"]
+# can be inserted later. `tiles` is a hard VRAM boundary ($8000..$B7FF; the SAT
+# sits at $B800) — the reserve is the ANIMATION-vs-DETAIL dial inside it, and it
+# is the owner's number to set at the next art pass.
+#
+# WHY HERE AND NOT A --max-tiles FLAG: a flag is forgotten on the next import,
+# and that is precisely how the reserve reached zero. The 2026-07-21 import
+# packed to 448/448 because nothing pushed back, destroying two bands (32x4 and
+# 16x4 = 192 animated slots) that cannot now be re-authored at any size, 1x1
+# included. See docs/BUGS.md TOOL-01.
+#
+# HOW TO SET IT: raise this number, then regenerate (the command in the header
+# comment above). tools/test_gen_vram_map.py::test_generated_artifacts_are_in_sync
+# fails the build if you edit this file and skip the regenerate.
+#
+# SIZING NOTE (measured, not inferred): the destroyed configuration was NOT
+# "192 reserved of 448". The blob was 340 tiles total — 192 animated slots at
+# the FRONT plus 148 purely-static ones, with 108 slots simply unused. A band's
+# tiles ARE the front of `tiles` (its phase-0 IS the static art there; see
+# inject_editor_bg.py validate_band_coherence), so animated slots are a subset
+# of the blob, never an addition to it. Reproducing that shape means
+# band_reserve = 192 with the static import held to 256.
 
 [[region]]
 name = "sprite_table"
