@@ -469,6 +469,43 @@ carry).
   invocation's cost arrives in a lump: `GameState_OJZScroll_Update` reads 3,836 in one
   frame and 149,104 — more than a whole frame — in the next). Per-frame work must be built
   from `cyclesSelf`.
+  **(2) IS ROOT-CAUSED, GENERALISES TO INTERRUPT BUCKETS, AND ITS REMEDY HAS NO FIELD ON THE
+  RING — 2026-08-23.** Cross-checked with the oracle lane (their `Q-PROF-STRADDLE`, reasoned
+  from source; our 149,104 lump, measured on a streaming workload — different enumeration
+  parameters, so corroboration rather than echo, protocol bar 19). **Verified firsthand at
+  oracle `origin/main` `4f0bedd5`**, by symbol not coordinate:
+  - **One mechanism, and it is kind-agnostic.** `Profiler::checkpoint` in
+    `crates/oracle-core/src/profiler.rs` picks the row (`FrameKind::Routine` → `pending`,
+    `FrameKind::Interrupt` → `pending_buckets`) and then runs the *same* three accumulates
+    for both. A parent's inclusive only acquires a callee's time when the callee pops
+    (`parent.child_cycles += frame.inclusive()`), so any boundary checkpoint taken with a
+    callee in flight gives that frame nothing and lands the whole lifetime in the frame of
+    return. The module doc says so outright: inclusive *"distribution across frames lags
+    where a callee straddles a boundary; `self_cycles` has no such lag"*.
+  - **So `cyclesSelf` really is sound for both kinds** — the fix above is right in principle.
+  - **⚠ BUT THE RING CANNOT EXPRESS IT.** The `perFrame[]` wire row is exactly five keys —
+    `frame`, `cycles`, `stallCycles`, `hintCycles`, `vintCycles` (`oracle-aether`'s
+    `engine.rs`, the `per_frame_armed()` block). There is **no `vintSelfCycles`, no
+    `hintSelfCycles`, and no per-routine breakdown on the ring at all.** Both bucket figures
+    are inclusive-only. A porter who reads "use `cyclesSelf`", goes to `perFrame[]`, and
+    finds no such field will either fall back to the inclusive figure or invent a workaround
+    — **the permissive-stale failure this repo keeps rediscovering, one layer down.**
+  - **Sorted per the protocol's gap rule:** aggregate bucket self is *composable today*
+    (`interrupts[].cyclesSelfTotal`); **per-frame bucket self is genuinely-new and is a NAMED
+    ASK to the oracle lane**, not something a port works around. Do not port an
+    interrupt-bucket per-frame consumer until the field exists or the ask is refused.
+  - **Displacement is CONDITIONAL, which is what a witness test must exercise.** Boundary
+    checkpoints run for every live frame including interrupt frames, so an in-flight handler
+    flushes its own cycles on time; what a frame misses is only time held inside a callee
+    open across the boundary. **A handler whose `jsr`s all return before the boundary shows
+    no displacement at all** — so the obvious test passes for the wrong reason. The witness
+    must be: `iack` opens the bucket → **the handler calls a routine** → the boundary lands
+    with that callee still open → the callee returns and the `RTE` arrives next frame. Step 2
+    is load-bearing and was absent from the first draft of the test (oracle's own correction
+    against themselves).
+  - Oracle's write-up: `docs/2026-08-23-prof-straddle-mechanism.md` in their repo. Their
+    analysis is a **source read — no cargo run, no machine** — and they say so; the only
+    measured half of this is ours.
 - **STILL ON `oracle-old`, in rough order of next use:** `streaming_choke_probe.py`
   (the fill's callee decomposition — the biggest consumer), `engine_baseline_probe.py`
   (the §1 baselines every budget denominator cites), `parallax_cost_probe.py` (needs the

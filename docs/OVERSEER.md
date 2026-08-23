@@ -169,6 +169,26 @@ case.** A defect latent everywhere else would be load-bearing here.
 *Costs us nothing today: verified 2026-08-22 that none of the three references
 `oracle-aether` or `--no-pace` — they are all still on the legacy profiler, so this is a
 hold on a future migration, not a retraction of anything in use.*
+**RE-MEASURED AND UPGRADED 2026-08-23 — read this before acting on the block above.**
+- **Still current**: all three assign `HARNESS = .../oracle-old/linux-port/harness` (the
+  assignment, not a grep hit). Nothing migrated underneath the hold.
+- **"CONFIRMED" now, not "LOCATED"** — but by *our* measurement, not their source read.
+  It is one kind-agnostic mechanism in `Profiler::checkpoint`, and our own booked 149,104
+  lump is its signature. Full derivation, verified firsthand at oracle `origin/main`
+  `4f0bedd5`, in `docs/DEFERRED_WORK.md`'s "Two instrument findings" booking — **including
+  the part that changes the port: `cyclesSelf` is the right remedy and the `perFrame[]` wire
+  row has no self field for either interrupt bucket**, so the remedy is unreachable on the
+  ring until oracle ships one. That is a named ask, not a workaround.
+- **SCOPE — do not repeat the over-read this hold caused.** It held *three named probes*,
+  and was relayed to the hub as "aeon's profiler migration is HELD". It is not: the
+  migration is booked with its condition **discharged**, and `tools/tick_variance_probe.py`
+  already runs `oracle-aether --no-pace`. Its two `oracle-old` mentions are comments, one
+  saying the legacy harness is deliberately not importable — **presence, not invocation**
+  (protocol bar 16). Oracle has reworded their side. **Nothing on this lane's queue waits on
+  it**; never let a peer rank it as unblocking us.
+- **Discharge condition, sharpened**: the witness must open the bucket, then have the handler
+  **call a routine** that is still open when the boundary lands. A handler whose calls all
+  return first shows no displacement, so the obvious test passes for the wrong reason.
 
 **✅ Pixel capture is COMPOSABLE TODAY — and the "capture is impossible here" belief is a
 LEGACY-SERVER result that must not be carried forward.** `play_input` + `scanlines{}` +

@@ -1,0 +1,51 @@
+{
+  "focus": "Booted and holding for your word. Front of the queue is landing your 38 stranded editor files.",
+  "inFlight": [],
+  "blockedOnOwner": [
+    {
+      "what": "Which of the three ready items to cut first \u2014 the stranded-files landing, the (align: N) migration sigil is owed, or nothing until you say go",
+      "since": "2026-08-23"
+    }
+  ],
+  "nextBoundary": "Nothing dispatched yet; the first clean boundary is whichever item you pick, landed and pushed.",
+  "queue": [
+    {
+      "id": "STRAND",
+      "title": "Land your 38 stranded editor files as the authoring+bake commit pair, then repin and refreeze",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "ALIGN",
+      "title": "The (align: N) migration owed to sigil \u2014 two Scene fields, two offsetof ensures deleted; needs SIGIL_BUILD rebuilt from 6fae4d6a first",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "VFACTOR",
+      "title": "v_factor default folds to 255 \u2014 every new Aurora scene is born wrong; the schema moves, not the engine",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "empyrean's ruling (their CR-1, live today) \u2014 hardening our side early hardens the wrong half",
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "CUTOVER",
+      "title": "Re-run the 19 effects gates after the emulator flip \u2014 but first check the diff can move at all; the gate lane spawns its harness by absolute path and may not read the MCP binding",
+      "state": "open",
+      "size": "S",
+      "blockedBy": "the owner flipping the MCP binding to the Rust core"
+    },
+    {
+      "id": "P5",
+      "title": "tools/effects_gen.py \u2014 the remaining half of the authored-effects path",
+      "state": "open",
+      "size": "L",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    }
+  ],
+  "updatedAt": "2026-08-23T08:11:02Z"
+}
