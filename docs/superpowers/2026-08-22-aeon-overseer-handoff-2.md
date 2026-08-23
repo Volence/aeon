@@ -99,18 +99,59 @@ What shipped:
 - It also closed a second, unrelated drift axis found on the way: `tools/effects_gen.py`
   carried its own `MAX_PARALLAX_BANDS = 8` that **nothing compared to the engine**. Now
   pinned, and `LOWERABLE_BAND_COUNTS` is `range(1, MAX+1)` rather than a literal list.
-- End-to-end proof: the 966-byte Aurora fixture was placed, assigned at
-  `project.json` `zones[0].acts[0].sceneRef`, `effects_gen.py emit` succeeded, and the ROM
-  built and linked with a real 8-band scene lowered through the real `scene()`/`layer()`.
-  The fixture was then torn down — it is content and Aurora's to author.
+- End-to-end proof: the 966-byte Aurora fixture (`git hash-object` re-verified here) was
+  placed, assigned at `project.json` `zones[0].acts[0].sceneRef`, and `effects_gen.py emit`
+  **succeeded** — it emitted `use games.sonic4.scene_registry.{SceneCfg8, lower8}` and
+  `pub data EditorSceneBinding_OJZ_Act1_Default: SceneCfg8 = lower8(...)` through the real
+  `scene()`/`layer()` constructors. The band-count half is closed.
+  **But the unmodified fixture does NOT build** — and not for a band-count reason. See the
+  WRITER-VALUE MISMATCH entry below; three authored SCENE-level fields are illegal to the
+  engine. With those three minimally corrected (all eight layers and every `fa`/`fb` left
+  exactly as authored) plus a temporary `map.toml` `order` row, all four shapes built green
+  and the record is physically in the ROM at `$12C96` with `pcfg_band_count = 8` and
+  `pcfg_layer_mask = $FF`. `s4.bin` `80AC306A` / `s4.debug.bin` `DDE0C15C`; `demo` unmoved.
+  The fixture, the `project.json` edit and the `map.toml` row were then all torn down — that
+  is content, and Aurora's to author.
 - **NOT fixed, and deliberately so:** an ANCHORED 8-band scene is still refused
   (`scene_dsl.emp:1062` — an anchor splits a layer at runtime and needs `count+1` shadow
   entries, and `Parallax_Shadow_Bands` is sized for eight). That is a real engine limit, not
   a missing `SceneCfg9`, and the gate asserts no shape exceeds the ceiling so nobody
   "fixes" it that way.
 
-The original entry follows, unedited, because its reasoning about WHY the defect existed
-(a demand-driven set read as a list rather than a ceiling) is the part worth keeping.
+**QUEUED — WRITER-VALUE MISMATCH: `v_factor` is typed as a horizontal FACTOR in the schema
+but is a VERTICAL SHIFT in the engine.** Found 2026-08-22 while proving the band-count fix
+end to end; NOT fixed there, because it is a cross-repo contract question and not a
+band-count one. Building Aurora's unmodified fixture produced 21 diagnostics, in three
+groups, none of them about band count:
+
+1. **`v_factor`.** `contract/schema/aurora-effects-scene.schema.json` declares
+   `"v_factor": {"$ref": "#/$defs/factor"}` — the SAME type as a layer's `fa`/`fb`. The
+   engine's `sc_v_factor` is a `u8` **shift amount**, `0..15`, with `15` as the lock
+   sentinel: `Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset`, and every shipped
+   scene spells it `v_factor: 3` or `v_factor: 15`. The fixture's `"v_factor":
+   "FACTOR_3_4"` folds to `packed(s1: 0, s2: 2, op: 1)` = **288**, so sigil reports
+   `shift amount out of range: 288` (once per layer) and `[emit.out-of-range] 288 does not
+   fit u8`. `effects_gen.py` passes it straight through — it validates SHAPE, and the
+   shape is legal per the schema. **Two repos disagree about a field's TYPE, and both are
+   internally consistent**, which is why nothing caught it until a real writer value
+   arrived. Whoever picks this up decides which side moves; if the schema is wrong, the
+   aeon-side follow-up is a `v_factor` range check in `effects_gen.py` so the refusal names
+   the field instead of sigil naming a shift.
+2. **`v_offset: -8`** → `[emit.out-of-range] -8 does not fit u16`. `pcfg_v_offset` is `u16`;
+   every shipped scene uses `0`. The schema says plain `"integer"`. Either the field wants
+   to be `i16` or the schema wants a `minimum: 0`. Same shape of defect as (1).
+3. **`v_center: 8` with a layer at `world_y: 0`** → the engine's own `scene_plane_line()`
+   `ensure` fires, correctly and with a good message ("a top above v_center has no plane
+   image"). That one is an authored-VALUE mistake in the fixture, caught exactly where the
+   P5 architecture says values get caught. No aeon change indicated.
+
+Note what (1) and (2) mean for the wave-1 contract golden: a scene can be schema-valid,
+pass every `effects_gen` shape check, and still be unbuildable. The **writer-originated
+fixture found this too**, from the same one command — the second thing it caught that
+schema-exhaustive `canopy_dusk.json` could not.
+
+The original band-count entry follows, unedited, because its reasoning about WHY the defect
+existed (a demand-driven set read as a list rather than a ceiling) is the part worth keeping.
 
 ---
 

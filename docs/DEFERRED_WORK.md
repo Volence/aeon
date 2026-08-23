@@ -301,6 +301,30 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    asserts no declared shape exceeds the ceiling so it cannot be "fixed" that way. If a
    scene genuinely needs eight bands *plus* an anchor, the parcel is widening
    `Parallax_Shadow_Bands`, and that is a RAM decision — not a registry one.
+
+   **OPEN, found by the same fixture, NOT fixed there — `v_factor` is typed differently in
+   the two repos.** The empyrean schema declares `"v_factor": {"$ref": "#/$defs/factor"}`,
+   i.e. the same type as a layer's horizontal `fa`/`fb`. The engine's `sc_v_factor` is a
+   `u8` **vertical shift**, `0..15`, `15` = lock
+   (`Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset`); every shipped scene spells
+   it `3` or `15`. Aurora's fixture authored `"FACTOR_3_4"`, which folds to `288`, and sigil
+   reports `shift amount out of range: 288` once per layer plus
+   `[emit.out-of-range] 288 does not fit u8`. `effects_gen.py` passes it through because it
+   validates SHAPE and the shape is schema-legal. Alongside it: `v_offset: -8` fails
+   `[emit.out-of-range] -8 does not fit u16` while the schema says plain `"integer"`.
+   **A scene can therefore be schema-valid, pass every generator check, and be
+   unbuildable** — which is a wave-1 contract-golden gap, not a band-count one. Both repos
+   are internally consistent, so this needs a cross-repo decision about which side moves
+   before an aeon-side `v_factor`/`v_offset` range check is written (writing one first
+   would harden the wrong side if the schema is what is wrong). Detail and the third,
+   genuinely-authored-value diagnostic are in
+   `docs/superpowers/2026-08-22-aeon-overseer-handoff-2.md`, WRITER-VALUE MISMATCH.
+
+   **Also re-confirmed, not changed:** the `map.toml` RESERVED SLOT comment (lines 106-117)
+   is exactly right. The moment a real editor scene emits, sigil fails with
+   `[map.order-undeclared] byte-emitting section EditorSceneBinding_OJZ_Act1_Default is not
+   in the declared order`, naming the head label to write. Measured in the fixture build;
+   the row is still deliberately absent because the section still emits zero bytes.
 2. **First authored animated act** — discharges `inject_editor_bg.py`'s FORMAT-FAITHFUL
    BUT NOT BYTE-PROVEN animated arm (`inject_editor_bg.py:121-124`); that parcel runs
    `tools/effects_gates.py` and pastes totals into merge evidence even though it touches
