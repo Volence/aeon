@@ -169,11 +169,29 @@ the shared artifact, committed fixture to cite. **Read the local-only warning th
    re-check. This one would have made a lane refuse to cite a perfectly good anchor — a false
    negative, so it fails silently and looks like caution. Same class empyrean and seraph both hit
    today from the other direction (a doc's self-description hardening into an owner approval).*
-2. **As of `98100905`, every fresh checkout trips `level staleness` on mtime alone** (that
-   parcel edited `project.json`). Remedy: `tools/regenerate-level.sh`, then revert the
-   `DONOR_PROVENANCE.json` churn — unchanged level bytes mean the existing stamp still
-   describes them. And a worktree named `X` needs a paired `sigil/.worktrees/X` or the
-   emp-helper-closure locator silently falls through to sigil master.
+2. ~~**As of `98100905`, every fresh checkout trips `level staleness` on mtime alone**~~
+   **OVERSTATED — corrected 2026-08-22.** It is **nondeterministic, not universal.** A clean
+   `git worktree add --detach` at `93c436ec` built **all four shapes green, exit 0, with no
+   `regenerate-level.sh`** — verified here, and a parallel agent's fresh checkout did the same.
+   **The mechanism explains the flakiness:** `git checkout` stamps every file at roughly the
+   same instant, and `level_staleness.py` compares `newest mtime(editor sources) > newest
+   mtime(generated tree)` — a **strict** `>`. So a fresh checkout lands on a near-tie, and
+   whether it trips depends on the *ordering within the checkout*. **Do not plan around it
+   either way**: when it fires the remedy is still `tools/regenerate-level.sh` (then revert the
+   `DONOR_PROVENANCE.json` churn — unchanged level bytes mean the existing stamp still describes
+   them), and when it does not fire, nothing is wrong. **Attribute by stage and exit code
+   before reading it as a verdict.**
+   *(The gate's real input set is three paths — the `games/<game>/data/editor` tree,
+   `editor_bg_override.json`, and `project.json` — so a lane whose deliverable is writing one of
+   those trips it BY CONSTRUCTION, which is the deterministic case and is unaffected by this
+   correction.)*
+   ~~And a worktree named `X` needs a paired `sigil/.worktrees/X` or the emp-helper-closure
+   locator silently falls through to sigil master.~~ **ALSO SUSPECT:** the predicted "~9-13
+   pytest path-artifact failures" without a paired worktree **did not occur** — a full parcel ran
+   with no paired worktree and saw a fully green suite before and after (1262→1290 passed, 0
+   failed). Either the locator changed or the hazard was always narrower than stated. **Treat
+   pytest failures in a worktree as REAL until proven otherwise** — the old advice licensed
+   writing off up to 13 real failures as noise, which is the more dangerous error.
 
 ## Rulings banked in `docs/OVERSEER.md` today — read them there, not here
 

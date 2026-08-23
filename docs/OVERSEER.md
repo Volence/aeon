@@ -167,8 +167,20 @@ aeon still satisfy this contract *today*" must not be pointed at a pin.
 ## Worktree quirks (agents hit all of these)
 
 - Export `AEON_SKDISASM_DIR=/home/volence/sonic_hacks/skdisasm`; the worktree root's
-  PARENT needs a `sigil` symlink. Without both, ~9-13 pytest failures are path
-  artifacts, not signal.
+  PARENT needs a `sigil` symlink. ~~Without both, ~9-13 pytest failures are path
+  artifacts, not signal.~~ **THE "~9-13 PATH ARTIFACTS" CLAIM IS STALE — corrected
+  2026-08-22.** A full parcel ran in a worktree with **no** paired `sigil/.worktrees/<name>`
+  and saw a **fully green suite before and after** (1262 → 1290 passed, 0 failed, across all
+  four build shapes). Either the emp-helper-closure locator changed or the hazard was always
+  narrower than written.
+  **Reverse the default: treat pytest failures in a worktree as REAL until proven
+  otherwise.** This correction matters more than the usual stale-fact fix because of its
+  *direction* — the old wording licensed writing off up to thirteen genuine failures as
+  noise, and a hazard that tells you to ignore red is far worse than one that tells you to
+  expect it. Same family as the day's other three stale hazards (sigil-SHAs-are-local-only,
+  every-checkout-trips-staleness, 147-pytest-fns-run-by-nothing), and the fourth in a row to
+  fail in the *permissive* direction. **Prove the artifact, don't assume it:** name the
+  failing test and show the path it could not resolve.
 - `SIGIL_BUILD`/`SIGIL_EMIT` point at the sigil repo's release binaries; missing =
   BLOCKED report, never a workaround.
 - The committed ab_runner scenes hardcode the MAIN tree's `s4.debug.lst` — run against
