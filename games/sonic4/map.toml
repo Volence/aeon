@@ -13,12 +13,35 @@
 # config_b (sound-OFF: adds the Z80 idle Z80_IdleProgram / BootData_End). `when` gates the
 # sound-conditional facts; the ORDER list is the union — each target is a subsequence.
 #
-# FAULT-HANDLER SHAPE SPLIT (review item 29 part 4 — the MDDBG strip): RELEASE targets
-# (s4, config_b) place ReleaseFault (release_fault.emp — loud-failure freeze) and NOT the
-# error_handler island; DEBUG targets (s4_debug, config_a) place BusError.. (error_handler.emp,
-# the vendored MDDBG blob) and NOT ReleaseFault. Both `ReleaseFault` and `BusError` sit in the
-# union order consecutively — no single target carries both, so each target's derived order
-# stays a subsequence. (`NullInterrupt` — the deleted tolerant `rte` — is gone from both.)
+# FAULT-HANDLER SHAPE SPLIT — ⚠ THE review-item-29 SPLIT DESCRIBED BELOW IS SUPERSEDED.
+#
+# WHAT IS TRUE NOW (crash-report ruling, owner, 2026-08-04): BOTH canonical shapes — s4
+# (release) and s4_debug — carry the error_handler island (the vendored MDDBG blob) and its
+# deb2 symbol table. Release is NOT stripped. `build.sh`'s own header says this ruling
+# "SUPERSEDES the review-item-29 release strip"; see also build.sh's CRASH_REPORT guard and
+# CLAUDE.md's shapes paragraph. `ReleaseFault` (release_fault.emp — loud-failure freeze) is
+# now the **`lean` off-canonical profile's** handler: sigil's own port gates state that it
+# "no longer appears in either canonical shape" and "is the lean shape's handler"
+# (crates/sigil-cli/tests/vectors_port.rs, native_full_rom.rs).
+#
+# ⚠ NOT RE-VERIFIED HERE: what config_a / config_b place. They are off-canonical sigil
+# profiles gated by their own goldens, `build.sh` speaks only for the two shapes it ships,
+# and no one has checked them since the ruling. Do not infer them from the stale text below.
+#
+# ~~SUPERSEDED (review item 29 part 4 — the MDDBG strip): RELEASE targets (s4, config_b)
+# place ReleaseFault and NOT the error_handler island; DEBUG targets (s4_debug, config_a)
+# place BusError.. and NOT ReleaseFault.~~ Kept struck-through rather than deleted because
+# the union-order fact below still depends on the two sections being mutually exclusive
+# per target, and a reader needs to know WHICH claim was retired.
+#
+# STILL TRUE: both `ReleaseFault` and `BusError` sit in the union order consecutively, no
+# single target carries both, so each target's derived order stays a subsequence.
+# (`NullInterrupt` — the deleted tolerant `rte` — is gone from both.)
+#
+# Why this comment was wrong for so long: a superseded ruling inside a comment outlives
+# every doc that recorded its revision, because nobody re-reads a comment to check whether
+# the rule it cites still holds. Found 2026-08-22 by an agent working on an unrelated
+# parcel, which is the only reason it surfaced at all.
 #
 # INVARIANT — THE FAULT-HANDLER ISLAND IS LAST: the error_handler island MUST remain the
 # FINAL byte-emitting section in every shape that carries it. The vendored MD Debugger blob
