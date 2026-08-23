@@ -506,6 +506,17 @@ carry).
   - Oracle's write-up: `docs/2026-08-23-prof-straddle-mechanism.md` in their repo. Their
     analysis is a **source read — no cargo run, no machine** — and they say so; the only
     measured half of this is ours.
+  - **The `suppressed` sibling caveat, RAISED BY ORACLE AND ALREADY CHECKED NEGATIVE HERE.**
+    A bucket already open when the sample opened is `suppressed`, and its self cycles go to
+    `unattributedCycles` rather than to the bucket row — so a sample armed mid-handler
+    under-reports its first frames, on a future `vintSelfCycles` exactly as on `vintCycles`.
+    **`tools/tick_variance_probe.py` already carries the discriminator as a hard identity
+    gate** (`sampleCycles - (self + unattributedCycles)` must close at every prefix rung),
+    and it measures **`unattributedCycles == 0` at every rung** at the states it samples —
+    so the case is detected, not merely absent. Two consequences: the caveat does not bite
+    the one probe we have on the new profiler, and **every remaining port MUST carry that
+    identity check**, because it is the only thing standing between a mid-handler arm and a
+    plausible under-report. Zero at the states measured is not a proof for arbitrary arming.
 - **STILL ON `oracle-old`, in rough order of next use:** `streaming_choke_probe.py`
   (the fill's callee decomposition — the biggest consumer), `engine_baseline_probe.py`
   (the §1 baselines every budget denominator cites), `parallax_cost_probe.py` (needs the
