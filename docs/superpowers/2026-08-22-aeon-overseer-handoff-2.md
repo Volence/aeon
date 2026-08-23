@@ -79,6 +79,36 @@ nothing an author produces can reach a ROM yet. Its normative read set is alread
 `tools/EFFECTS_CONSUMER_CONTRACT.md` §2. Design: `specs/2026-08-22-aurora-effects-wave1-design.md`
 §7 enumerates the whole aeon lane. Both contract halves have landed (aeon + empyrean).
 
+**QUEUED — `games/sonic4/map.toml`'s fault-handler header comment is STALE and says the
+opposite of what ships.** Found by the README agent as an out-of-parcel observation it
+correctly declined to touch; confirmed here.
+
+`map.toml` lines 16-19 state: *"RELEASE targets (s4, config_b) place ReleaseFault … and NOT
+the error_handler island"*, citing **review item 29 part 4**. `build.sh:11-12` says, in terms:
+*"APPENDIX SHAPE SPLIT (crash-report axis, owner-ruled 2026-08-04 — **this SUPERSEDES the
+review-item-29 release strip**)"*, and `build.sh:175-176` + `CLAUDE.md:40` both state that the
+two canonical shapes **both** carry the MD Debugger island + deb2 symbols.
+
+**It is stale PROSE, not a stale map** — which is the distinction that decides how urgent this
+is, so it was worth separating. The `order` union at `map.toml:92` lists `"ReleaseFault",
+"BusError", "EndOfRom"` and is agnostic about which target gets which. And the built artifacts
+disagree with the comment: `s4.lst` (**release**) and `s4.debug.lst` carry **49 island symbol
+hits each** — identical counts, i.e. release does carry it. *Freshness caveat, stated rather
+than glossed: those `.lst` files are leftovers in a dirty tree and I did not rebuild to confirm,
+so treat them as corroborating two maintained sources (`build.sh`, `CLAUDE.md`) rather than as
+independent proof.*
+
+**Why it is worth a parcel rather than a shrug:** this is precisely the failure the shared
+protocol singles out — *"the worst place for a perishable claim is a code comment"*, because a
+stale ruling in a comment outlives every doc that recorded its revision; nobody re-reads a
+comment to check whether the rule it cites still holds. It just sits there being wrong and being
+read. This one has a superseding ruling explicitly naming it, in a file most readers of
+`map.toml` will not have open.
+
+**Not fixed now only because `map.toml` is owned by the in-flight P5 seam parcel** (which adds a
+section entry to it). Cut it after that lands — same window as the `(align: N)` migration below,
+and both are `.emp`/placement-adjacent so they serialize naturally together.
+
 **QUEUED, not dispatched — the `(align: N)` migration we owe sigil.** sigil shipped the
 struct-field alignment attribute at **`6fae4d6a`** (on master `560d44da`, both reachable at
 origin — verified here, not taken on their word). Our side of the standing obligation:
