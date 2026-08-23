@@ -113,6 +113,21 @@ engine/debug/generated/
 !games/sonic4/data/editor/ojz/act1/section_*.collattr.bin
 !games/sonic4/data/editor/ojz/act1/section_*.collattrb.bin
 !games/sonic4/data/editor/ojz/chunks_tiles.bin
+# ...but NOT the editor's `export/` dump. Aurora still emits its legacy `.asm`
+# export there (act_descriptor / entity_data / vram_bases). Those exact three
+# files were DELETED by Parcel J (46c2e0f0, 2026-08-01) on an owner pre-ruling,
+# with an unwired-proof: no build file, sigil test or tool reads the path, and
+# all 47 `ojz_*` labels they define are referenced only within the dir. The
+# editor re-emitted them on 2026-08-12 and they have been untracked noise since.
+# `tools/level_staleness.py` already excludes the directory BY NAME (SKIP_DIR_NAMES,
+# covered by test_export_dir_is_excluded), so ignoring it changes no build behaviour.
+games/sonic4/data/editor/ojz/act1/export/
+
+# Emulator save-states written beside the ROM at the repo root (Oracle's "ONSS"
+# format, ~870 KB each). Ephemeral and specific to one ROM build — like the ROMs
+# themselves, never committed. Root-anchored so a deliberately tracked `*.state*`
+# fixture deeper in the tree would still be possible.
+/*.state*
 
 # Build tool caches (content-hash keyed)
 tools/.cache/
