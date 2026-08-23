@@ -194,34 +194,86 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
      `.emp` constants (slice 2 emitted `precision: line`). Both had one cause: the
      slices were written from THIS contract, which enumerates field NAMES, with their
      VALUES inferred. The empyrean schema owns the values. Read the sibling repo.
-   - 41 tests, each derived from the contract or the constructors, each proven
+   - **Slice 4** (`9b3f11f6`) — `tableRef` realization, deduped by content.
+   - **Slice 5** (this parcel, branch `parcel/p5-binding-seam`) — the assignment
+     readers, the generated per-act binding module, the `act_descriptor.emp` seam,
+     the reachability gate, and the build wiring. **P5 IS NOW WIRED TO THE BUILD.**
+   - ~~41 tests, each derived from the contract or the constructors, each proven
      non-vacuous by poison. **Nothing runs them automatically** — no `conftest.py`,
-     no `pytest.ini`, `build.sh` invokes no pytest.
-   - **Remaining before wiring:** tableRef realization (the `deform*`/`v_deform`
-     attachments, currently refused rather than dropped), then the binding module and
-     the seam. Table realization carries an undecided sub-question of its own —
-     whether two scenes naming the same generator+params share one emitted table.
-     Dedup is aeon-internal by the format-boundary ruling, but it moves table
-     addresses, so decide it before emitting rather than after.
-   - **Deliberately NOT wired to the build, and this is load-bearing:** design §3
-     records that an unreached `.emp` module gets ZERO body elaboration, so
-     `ensure(1 == 0)` inside one builds green. A generated module nothing imports
-     would look finished while validating nothing. Wiring waits on the seam below.
+     no `pytest.ini`, `build.sh` invokes no pytest.~~ **THAT CLAIM WAS FALSE WHEN
+     WRITTEN and is corrected here (slice 5, 2026-08-22).** `build.sh:414` has run
+     `python3 -m pytest "${TOOLS}" -q --no-header -p no:cacheprovider` on every
+     canonical (non-FAST) build since 2026-08-16, and `tools/` is exactly the path it
+     collects — so `test_effects_gen.py` was already gated from the commit that
+     created it. No `pytest.ini`/`conftest.py` is needed for that invocation, which
+     is presumably where the belief came from. Verified by inversion: with one
+     expected value perturbed, `./build.sh` reported `1 failed, 1290 passed,
+     3 skipped`, printed "Tool-suite tests failed", and stopped before any ROM.
 
-   **Q-c IS THE BLOCKING DECISION — PARKED FOR THE OWNER, with a recommendation.**
-   Wave-1 design §9 Q-c: how `act_descriptor.emp` imports the act-default binding when
-   there is no editor content, without a dormant scaffold. Two options named there.
-   **Recommendation: the always-emitted default label.** The descriptor's `use` is a
-   name list, so a label that exists only when editor content does makes the descriptor
-   build or fail depending on content state — the generator's stub always exports the
-   act-default label, aliased to the hand-authored default when there are no editor
-   scenes, and the descriptor has ONE path that is always live. The descriptor-side
-   conditional is the option that actually creates the dormant scaffold: two paths, one
-   of them dead whenever editor content exists, which is what clean-not-bolted-on
-   forbids. **Stated trade-off:** always-emitting makes the generated module
-   load-bearing for every act even with zero editor content, so a generator bug can
-   break a working act — which is what the design's required reachability poison exists
-   to catch, and is an argument for landing that gate WITH the seam rather than after.
+   **Q-c IS RULED AND IMPLEMENTED (owner, 2026-08-22): the always-emitted default.**
+   The generator emits the act-default binding for every act, content or not — with no
+   editor scenes it resolves to the hand-authored default, with editor scenes to the
+   editor-authored one — so the descriptor has exactly ONE path, always live. The
+   reachability poison landed WITH the seam, as the same ruling required: always-
+   emitting makes the generated module load-bearing for every act even at zero editor
+   content, so a generator bug can break a working act, and the gate is what makes
+   that safe.
+
+   **THE §3 TEXT IS SUPERSEDED IN TWO PLACES — read the ruling, not the design.**
+   (a) §3's last bullet says the stub "exports the act-default label aliased to
+   nothing only when `project.json`/sidecars are silent". Under the ruling it aliases
+   to the HAND-AUTHORED DEFAULT, which is what keeps the descriptor's single path
+   live; "aliased to nothing" would put the conditional back.
+   (b) §3 mandates `pub data` **Labels** for the bindings. That mandate HOLDS for
+   everything with bytes — the deform tables and the lowered records are `pub data`
+   Labels under stable names — but it cannot express the zero-content arm, where the
+   binding must resolve to a label in ANOTHER module. All three label-carrying
+   spellings were tried against sigil and all three fail:
+   `pub equ X = <label>` is not importable at all (sigil's `item_pub_name()`,
+   `crates/sigil-frontend-emp/src/resolve/imports.rs:128-160`, has no `Item::Equ`
+   arm — which contradicts `empyrean/docs/SIGIL_SPEC2_LANGUAGE.md` §7.5's "`pub equ`
+   adds module visibility like every other `pub` item"; **spec/impl divergence, open
+   on the sigil lane**); `pub const X = <label>` fails `unknown name` reported at the
+   DEFINING file's span, because an imported const's initializer is folded to an i64
+   at the definition site (`resolve/mod.rs:204-224`) and a Label does not fold, so the
+   clone re-evaluates in the consumer — the design's own clone-injection trap, firing
+   on exactly the shape it warned about; and no zero-byte label-alias form exists,
+   since only `data` mints a ROM label and `data` always emits bytes.
+   **The shipped mechanism is a `pub comptime fn` returning a Label**, with the hand
+   fallback carried as a `hand:` PARAMETER. It keeps the property the Label mandate
+   protected (a fn body has no image, so nothing can be cloned into the descriptor's
+   section) while giving the hand-authored `use` line a content-independent name.
+   MEASURED: the fn-body reference to the module's own `pub data` resolves at the
+   descriptor call site and links; and the name-list import of a `pub comptime fn` IS
+   a real lowering edge — `ensure(1 == 0)` in the generated module fails the build
+   with the seam in place and builds GREEN with an unchanged CRC without it.
+
+   **NO `map.toml` ORDER ROW WAS AUTHORED, deliberately.** The `order` check keys on
+   a section's HEAD LABEL (`native.rs:3194-3203`, lowest-offset label) and this
+   block's head is CONTENT-DERIVED — in the slice-5 fixture build it was
+   `EditorDeform_sine_8_32`, a deduped table name that changes with whichever scenes
+   exist. Until Aurora authors the first scene the section emits ZERO bytes, so a row
+   would be inert AND unverifiable (this tree's vacuous-gate defect in a new costume).
+   The day it emits, sigil stops the build and names the label:
+   `[map.order-undeclared] byte-emitting section '<head>' is not in the declared
+   'order'`. `map.toml` carries a reserved-slot COMMENT at the intended position
+   (immediately after `DeformTable_Zero`, so the object-bank budget cursor keeps its
+   meaning) instead of a guess. **The first parcel that lands an editor scene adds the
+   row there** — and that is also the parcel that first verifies the placement.
+
+   **Slice-5 shipped surface:** `tools/effects_gen.py` gains `load_act_scene_ref` /
+   `load_section_scene_refs` (contract §2.2, missing-vs-unreadable split intact,
+   numeric `sceneRef` REFUSED rather than coerced), `render_module`, `emit`, and a
+   `check` drift gate run on every canonical build;
+   `games/sonic4/data/generated/ojz/act1/effects_scenes.emp` is the committed
+   artifact; `tools/effects_seam_gate.py` reads the build's own `.lst` for the
+   module's `pub equ` witnesses (presence ⇒ lowered ⇒ reached) and is wired into
+   `build.sh` beside `s4budget`; `regenerate-level.sh` bakes the module
+   unconditionally. `scene_registry.emp`'s `SceneCfg{1,2,4,5}` + `lower{1,2,4,5}` are
+   now `pub` so the generated module lowers through the ONE authority rather than a
+   second copy — a band count with no shape there is a generator refusal naming that
+   file. **Byte-neutral in the shipping state** (all four canonical shapes unchanged);
+   the content path is proven by a temporary fixture, green at crc `1499f79c`.
 2. **First authored animated act** — discharges `inject_editor_bg.py`'s FORMAT-FAITHFUL
    BUT NOT BYTE-PROVEN animated arm (`inject_editor_bg.py:121-124`); that parcel runs
    `tools/effects_gates.py` and pastes totals into merge evidence even though it touches

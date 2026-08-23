@@ -1015,6 +1015,13 @@ if __name__ == "__main__":
             # without re-baking" are the two failures this catches. Cheap enough for
             # every build: pure Python over in-repo inputs, no donor, no compressor.
             path, text = generate()
+            if not os.path.isfile(path):
+                print(f"effects_gen: MISSING — {os.path.relpath(path, REPO)} does "
+                      f"not exist. It is a COMMITTED artifact that "
+                      f"act_descriptor.emp imports, emitted for every act whether "
+                      f"or not editor content exists (owner ruling 2026-08-22).")
+                print("  Run `python3 tools/effects_gen.py emit` and commit it.")
+                sys.exit(1)
             with open(path, "r") as f:
                 have = f.read()
             if have != text:

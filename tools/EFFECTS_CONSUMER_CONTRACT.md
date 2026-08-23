@@ -21,7 +21,7 @@ Two consumers, two maturity levels:
 | Consumer | Status | Read set |
 |---|---|---|
 | `tools/inject_editor_bg.py` | **EXISTS, shipped** | §1 — OBSERVED, with code citations |
-| `tools/effects_gen.py` | **booked-unbuilt** (scanline-services P5, `docs/superpowers/specs/2026-08-17-scanline-services-design.md` §7) | §2 — NORMATIVE build-to list; P5 implements exactly this and nothing more |
+| `tools/effects_gen.py` | **BUILT AND WIRED** 2026-08-22 (scanline-services P5, slices 1-5; the module it emits is `games/sonic4/data/generated/ojz/act1/effects_scenes.emp` and `act_descriptor.emp` imports its two bindings) | §2 — NORMATIVE; the implementation reads exactly this and nothing more |
 
 **The drift rule (both directions):** the consumer may read exactly the fields listed
 here. Adding a read of a new field, changing a default, or tightening a constraint is a

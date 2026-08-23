@@ -75,6 +75,42 @@ scanline §7, restated not re-decided). One direction, no sync loops.
 
 ## 3. The generated binding module (ruling Q3)
 
+> **IMPLEMENTED 2026-08-22 (scanline P5 slice 5, branch `parcel/p5-binding-seam`) —
+> AND TWO BULLETS BELOW ARE SUPERSEDED. Read this banner before the bullets.**
+>
+> 1. **The zero-editor-content shape.** The last bullet's "the stub always exports the
+>    act-default label aliased to nothing only when `project.json`/sidecars are silent"
+>    is superseded by the owner's **Q-c ruling: the always-emitted default**. The
+>    binding is emitted for EVERY act, content or not; with no editor scenes it
+>    resolves to the HAND-AUTHORED default (not to nothing), which is what keeps the
+>    descriptor's single path live. The reachability poison landed WITH the seam, per
+>    the same ruling.
+> 2. **The label-vs-const mechanism.** The `pub data` **Label** mandate HOLDS for
+>    everything with bytes — the deform tables and the lowered records are `pub data`
+>    Labels under stable names, and the const-axis trap this bullet names is real. It
+>    cannot express the zero-content arm, where the binding must resolve to a label in
+>    ANOTHER module, and all three label-carrying spellings were MEASURED to fail:
+>    `pub equ` is not importable (sigil `item_pub_name()` has no `Item::Equ` arm,
+>    contradicting `empyrean/docs/SIGIL_SPEC2_LANGUAGE.md` §7.5 — a spec/impl
+>    divergence, open on the sigil lane); `pub const X = <label>` fails `unknown name`
+>    at the DEFINING file's span, because an imported const's initializer folds to an
+>    i64 at the definition site and a Label does not fold, so the clone re-evaluates in
+>    the consumer — this bullet's own trap, firing on the shape it warned about; and no
+>    zero-byte label-alias form exists in `.emp` at all. **The shipped mechanism is a
+>    `pub comptime fn` returning a Label, with the hand fallback as a `hand:`
+>    parameter** — no image to clone into the descriptor's section, and a
+>    content-independent name for the hand-authored `use` line. The import is still a
+>    NAME LIST, never a glob, and it is still the module's only reachability edge
+>    (measured: `ensure(1 == 0)` in the generated module fails the build with the seam
+>    and builds GREEN with an unchanged CRC without it).
+>
+> Also NOT done, deliberately: no `map.toml` `order` row. The row must name a
+> CONTENT-DERIVED head label, the section emits zero bytes until the first editor
+> scene, and sigil stops the build by name the day it emits. A reserved-slot comment
+> marks the position. Full rationale + the shipped surface:
+> `docs/DEFERRED_WORK.md`'s wave-1 booking, item 1.
+
+
 **The descriptor stays hand-authored.** `act_descriptor.emp` is dense, contract-bearing
 prose; half-generating it violates clean-not-bolted-on. Instead `effects_gen.py` emits,
 per act, ONE generated `.emp` module — the `bg_anim.emp` / sec-local-maps precedent:
@@ -371,10 +407,17 @@ the design review wants ROM-derived enumeration in wave 1, name it as model-exte
 - **Q-b:** `project.json` re-point spelling — this design renames `parallax` →
   `sceneRef` (empyrean doc §4 carries the naming note); confirm or keep the literal key
   with scene-id value.
-- **Q-c:** The zero-editor-content descriptor seam (§3 last bullet): how the descriptor
-  imports the act-default binding without a dormant scaffold when no editor content
-  exists — resolve inside the P5 spike, options: always-emitted default label vs
-  descriptor-side conditional. (Flagged, not decided here.)
+- **Q-c: RULED AND IMPLEMENTED 2026-08-22 — the always-emitted default.** The
+  generator emits the act-default binding for every act, content or not; with no
+  editor scenes it resolves to the hand-authored default, with editor scenes to the
+  editor-authored one, so the descriptor has exactly ONE path, always live. The
+  descriptor-side conditional was the option that created the dormant scaffold. The
+  ruling also fixed the reachability poison to land WITH the seam, on the stated
+  trade-off that always-emitting makes the generated module load-bearing for every
+  act even at zero editor content. **The ruling settled the STRUCTURE; the `.emp`
+  MECHANISM was settled by measurement in the implementing parcel** — see §3's
+  supersession banner (it is a `pub comptime fn`, not a label alias, because no
+  zero-byte label alias exists).
 - **Q-d:** Scene-id pattern is `^[a-z][a-z0-9_]{0,31}$` (symbol-safe); Aurora's existing
   BG-library ids use hyphens+timestamps — confirm Aurora is fine generating distinct id
   styles per document type.
