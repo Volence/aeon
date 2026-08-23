@@ -7,6 +7,37 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 
 ## ✅ TOOL-01 — CLOSED 2026-08-22 — `png_to_bg_override.py` silently destroyed keys in the file it rewrites
 
+> **MEASURED CONSEQUENCE, 2026-08-22 — the destroyed bands cannot be re-authored in place,
+> and this now blocks Aurora's whole BgAnim road.** Measured against pushed `e087af9c`
+> (`git show`, not the working tree), so it is a claim about a committed artifact:
+> `editor_bg_override.json` ships at **448/448 tiles**, and there is **zero** reclaimable
+> slack by three independent measures — all 448 slots are referenced by the 4096-entry
+> layout (distinct low-11-bit indices = 448, range 0..447, no unreferenced slot), all 448
+> bitmaps are distinct (no duplicate, no blank), and **no tile is an H/V/HV flip of any
+> other**. That last one is not luck: the layout already spends **hflip on 1940 of 4096
+> entries and vflip on 2004**, so the flip-reclaim lever was fully exploited by whatever
+> produced the blob. Dedup, blank-reclaim and flip-reclaim are all exhausted; recovering
+> even 8 tiles means **removing or redrawing art**.
+>
+> **448 is a hard VRAM boundary, not a budget** — `engine/level/bg.emp:53-55`, the BG tile
+> region is `$8000..$B7FF` because the sprite attribute table sits at `$B800`. It cannot be
+> raised by decision.
+>
+> **So the lever is the GENERATOR, not dedup.** `png_to_bg_override.py:212` only refuses
+> *above* the ceiling (`ERROR: {n} tiles > {BG_TILE_CAPACITY} budget`); there is no
+> `--max-tiles`, so it packed to exactly 448 because nothing asked it not to.
+> `tools/forest_bg_gen.py` — the generator that authored the destroyed bands — emits **340
+> tiles (192 animated + 148 static)**, i.e. 108 tiles of headroom *by construction*, because
+> its `OWNED_KEYS` author `layout`/`tiles`/`anims` together as one coherent set with the
+> bands DMA'ing over the front of the blob.
+>
+> **Consequence for the open owner question below:** band *insertion* is unreachable at every
+> size including 1×1, at any time, until the BG is re-generated with reserved band space —
+> so the tile famine and the dead BgAnim are **one content call, not two**. Aurora's route
+> around it is *promotion* (convert existing static tiles into a band, `tiles.length`
+> unchanged), which is why promotion landed before insertion in their lane; that route works
+> under a saturated blob but can only animate art that is already there.
+
 > **The rule this closure implements now has a contract home: empyrean `8e55475`**
 > (`docs/AURORA_EFFECTS_SCHEMA.md` §5.2, reachable from empyrean `origin/main` — verified,
 > not assumed; the anchor was local-only when first quoted to this lane). It reclassifies
