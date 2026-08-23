@@ -16,7 +16,47 @@ Master moved `b1f8a230` → `ba189b40`. Four CRCs held at `060401e4` / `0dbaa80f
 | `1a794ace` | **`layout.odd-field` closed**: the stale hand-computed pad in `Scene` became an `offsetof(...) % 2 == 0` invariant assertion. 2 → 0. |
 | `efd8d666`, `551d1841`, `419194bb`, `a2750c3a`, `ba189b40` | Rulings + bookings (below). |
 
-## The one open question that is the OWNER'S
+## ✅ THE OWNER'S OPEN QUESTION IS ANSWERED — 2026-08-22, in his own words
+
+Relayed via the empyrean lane, transcribed from him rather than summarized:
+
+> "No it wasn't meant to kill the animated background, it was my experiment with chat gpt's
+> monkey art generator and having it make constrained art that could work with a genesis and
+> work with the engine with an import. It made something pretty and was successful but used all
+> the unique tiles as a side effect. It's just an experiment with that. I think I already told
+> an agent we can take out some tiles or something to give more room for our experiments with
+> parallax and animation using it specifically cause it does have trees and such for scrolls or
+> whatever. Yeah, feel free to let us mold it to test, it's pretty but not final."
+
+**Settled:** (1) the July loss was **NOT** intended to kill BgAnim — it was a side effect of a
+*successful* generator experiment; (2) the colonnade bands are **not** to be restored, nobody
+wants those specific bands back; (3) the art is explicitly **moldable** — "pretty but not
+final", take tiles out, and he specifically wants room for parallax and animation experiments
+**using this art**, because it has trees and similar content suited to scroll layers; (4) the
+**reserve number is delegated** — "feel free to let us mold it to test" reads as *pick a reserve
+that makes the experiments possible*, not *await my number*. Put a figure to him only if it
+becomes a content-quality trade rather than experiment enablement. No content-destruction
+caution binds: none of this is final art.
+
+**Correction to this lane's own record, and the distinction matters.** I had booked the
+restore-vs-keep framing as "OVERTAKEN — the answer no longer matters", inferred from his
+saying the art is not permanent. **He has now actually answered it, and the answer is not the
+same shape as my inference:** it was not moot, it was *unintended*. Same disposition, different
+fact — and only the real one explains why the tile exhaustion happened at all (a generator with
+no reason to reserve, which is precisely the importer defect the reserve parcel closes).
+
+**He also believed he had already told an agent this** — the propagation gap, observed from his
+side. Worth holding: an owner can consider a thing communicated while no lane has it.
+
+**What this does NOT do: it does not free a single tile today.** The reserve governs *future*
+imports; it cannot shrink the committed blob, because telling an importer "your budget is 256"
+makes it **refuse**, not re-quantise. Freeing space in *this* art needs an art-side pass —
+simplify or crop the source and re-import — which is exactly the loop he describes himself
+being in, and is why loud-refusal-with-a-budget is the right mechanism and lossy tile-merging
+remains correctly out of scope. Until such a pass, **Aurora stays on promotion-only**, which
+works and which they built first.
+
+## ~~The one open question that is the OWNER'S~~ (ANSWERED ABOVE — kept for provenance)
 
 **Was the colonnade → Deep Forest art replacement (`dd93a840`) meant to take the BG animation
 with it?** OJZ background animation has been dead in the ROM since 2026-07-21 — two authored
