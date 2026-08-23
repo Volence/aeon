@@ -23,6 +23,24 @@ Two consumers, two maturity levels:
 | `tools/inject_editor_bg.py` | **EXISTS, shipped** | §1 — OBSERVED, with code citations |
 | `tools/effects_gen.py` | **booked-unbuilt** (scanline-services P5, `docs/superpowers/specs/2026-08-17-scanline-services-design.md` §7) | §2 — NORMATIVE build-to list; P5 implements exactly this and nothing more |
 
+**⚠ THIS DOCUMENT ENUMERATES FIELD *NAMES*. THE EMPYREAN SCHEMA OWNS THEIR *VALUES*.**
+Adopted as a standing rule in both directions, 2026-08-22, jointly with the Aurora lane —
+and it is here because reading this file as if it settled values has **already shipped two
+defects**. P5 slices 1-2 were written from this document with their values inferred, and
+both inferences were wrong: the absent spelling is the string `"none"`, **not JSON null**
+(so slice 2 would have refused every real Aurora scene), and `precision` / `transition` /
+`left_column_mask` are **lowercase enum strings** needing `.emp` constants (slice 2 emitted
+`precision: line`). One cause, not two.
+
+What makes this trap sharp rather than careless: a name enumeration is *exactly* the shape
+that makes inferring the value feel legitimate — the field is right there, named, in a
+document titled "contract", and nothing about reading a type off it announces itself as a
+guess. **If you are about to write a literal value while holding only this file, stop and
+read the sibling repo**: `empyrean/docs/AURORA_EFFECTS_SCHEMA.md` and
+`empyrean/contract/schema/aurora-effects-scene.schema.json`. Read them at a **committed
+revision** (`git -C ../empyrean show origin/main:<path>`), never through the working-tree
+path — that directory is another session's live tree and may be mid-edit.
+
 **The drift rule (both directions):** the consumer may read exactly the fields listed
 here. Adding a read of a new field, changing a default, or tightening a constraint is a
 CONTRACT change: it amends this file + the empyrean schema pair in the same change series,
