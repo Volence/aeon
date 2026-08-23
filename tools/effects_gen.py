@@ -549,12 +549,490 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
             + ",\n".join(body) + ")")
 
 
+# =============================================================================
+# SLICE 5 — assignments, the generated binding module, and the descriptor seam.
+# =============================================================================
+#
+# THE OWNER RULING THIS IMPLEMENTS (2026-08-22, design §9 Q-c): the ALWAYS-EMITTED
+# default binding. The generator emits the act-default binding for EVERY act,
+# whether or not editor content exists — with no editor scenes it resolves to the
+# hand-authored default, with editor scenes to the editor-authored one — so
+# `act_descriptor.emp` has exactly ONE path, always live, no conditional and no
+# branch that is dead in either state. §3's older text ("the stub always exports the
+# act-default label aliased to nothing only when project.json/sidecars are silent")
+# is SUPERSEDED by that ruling.
+#
+# ---- WHAT THE BINDING IS, AND WHY IT IS NOT A LABEL ----
+#
+# Design §3 mandates `pub data` **Labels** over `const`s, because a const import
+# re-evaluates its initializer in the consumer's scope. That mandate is CORRECT and
+# is kept for everything with bytes: the deform tables and the lowered records below
+# are `pub data` Labels under STABLE names, and the descriptor could import them by
+# name list exactly as `ojz_scenes.emp` imports `DeformTable_*`.
+#
+# It cannot express the ZERO-CONTENT arm, and that was measured, not assumed
+# (2026-08-22, this parcel, each one a real `sigil build`):
+#
+#   1. `pub equ EditorSceneDefault_.. = ParallaxConfig_OJZ_Default` — an equ is the
+#      natural spelling for "a link-level name for an address", and
+#      `empyrean/docs/SIGIL_SPEC2_LANGUAGE.md` §7.5 says "`pub equ` adds module
+#      visibility like every other `pub` item". It does not: sigil's
+#      `item_pub_name()` (crates/sigil-frontend-emp/src/resolve/imports.rs:128-160)
+#      has no `Item::Equ` arm, so the descriptor's `use` fails with
+#      `module ... has no `pub` name `EditorSceneDefault_OJZ_Act1``. Spec/impl
+#      divergence — reported, not worked around.
+#   2. `pub const EditorSceneDefault_.. = ParallaxConfig_OJZ_Default` — fails with
+#      `unknown name `ParallaxConfig_OJZ_Default`` reported at a span inside the
+#      DEFINING file. The mechanism is visible in sigil at
+#      resolve/mod.rs:204-224: an imported const's initializer is FOLDED to an i64
+#      at the definition site, best-effort; a Label does not fold, so the clone
+#      keeps its expression and re-evaluates in the consumer, where the bare name is
+#      not in the rename map. This is the design's clone-injection trap firing on
+#      exactly the shape the design warned about.
+#   3. There is no zero-byte label-alias form in `.emp` at all: `item_pub_name()`
+#      carries data/proc/offsets/dispatch/script/const/comptime-fn/context/struct/
+#      enum/bitfield/newtype/vars, and only `data` mints a ROM label — and `data`
+#      always emits bytes.
+#
+# So the binding is a `pub comptime fn` returning a Label — the third mechanism, and
+# the only one that carries a link symbol across a hand-authored, content-independent
+# `use` name list:
+#
+#     pub comptime fn ojz_act1_act_default(hand: Label) -> Label { return hand }
+#     pub comptime fn ojz_act1_act_default(hand: Label) -> Label { return EditorSceneBinding_OJZ_Act1_Default }
+#
+# It is NOT the const axis: a comptime fn's body carries no image, so nothing can be
+# cloned into the descriptor's section — which is the property the Label mandate
+# existed to protect. The fallback travels as a PARAMETER (`hand:`), so the
+# descriptor keeps naming its own hand default and the generator only chooses.
+# MEASURED: the fn-body reference to the module's own `pub data` resolves at the
+# descriptor call site and links to the generated record (fixture build, crc
+# 7e0d4aaf); and the descriptor's name-list `use` of the fn is a REAL lowering edge —
+# a poisoned `ensure(1 == 0)` in this module fails the build with the seam in place
+# and builds GREEN with an unchanged CRC when the `use` line is removed.
+#
+# ---- WHAT IS NOT DONE HERE, DELIBERATELY ----
+#
+# No `games/sonic4/map.toml` `order` row is authored for this module's section. The
+# row must name the section's HEAD LABEL (sigil keys the order check on the
+# lowest-offset label, native.rs:3194-3203), and the head label of this block is
+# CONTENT-DERIVED — in the fixture build it was `EditorDeform_probe`, a deduped
+# table name that depends on which scenes exist. There is nothing correct to write
+# before the first editor scene exists, the section emits zero bytes until then so a
+# row would be inert AND unverifiable, and the day content lands sigil stops the
+# build loudly and by name (`[map.order-undeclared] byte-emitting section
+# `<head>` is not in the declared `order``). map.toml carries a reserved-slot
+# COMMENT at the intended position instead of a guessed row.
+
+ACT_SCENE_REF_KEY = "sceneRef"
+PROJECT_JSON = "project.json"
+
+
+def _act_entry(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
+    """The project.json act entry. Bare load + direct subscripting (contract §3)."""
+    with open(os.path.join(repo, PROJECT_JSON), "r") as f:
+        project = json.load(f)
+    return project["zones"][zone]["acts"][act], project["zones"][zone]
+
+
+def _scene_ref(path: str, value, where: str):
+    """One `sceneRef` value → a scene id string, or None for absent.
+
+    Contract §2.2, stated in the contract's own words: "`sceneRef` is a string id or
+    null, NEVER a numeric index" — because AURORA's parser nulls a non-string
+    SILENTLY (`section-meta.ts:29-30`), so `sceneRef: 3` presents as "the assignment
+    didn't stick". The generator refuses it instead: the one writer that can still
+    see the mistake is the build.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        _refuse(path, f"{where}: sceneRef must be a scene-id STRING or null, got "
+                      f"{type(value).__name__} ({value!r}). A numeric index is "
+                      f"refused on purpose — Aurora's sidecar parser nulls a "
+                      f"non-string value silently, so this would present as an "
+                      f"assignment that did not stick.")
+    if not SCENE_ID_RE.match(value):
+        _refuse(path, f"{where}: sceneRef {value!r} is not a legal scene id "
+                      f"({SCENE_ID_RE.pattern}) — ids become `.emp` symbol "
+                      f"components.")
+    return value
+
+
+def load_section_scene_refs(repo: str = REPO, zone: int = 0, act: int = 0) -> dict:
+    """`{section_index: scene_id}` from the per-section sidecars.
+
+    THE MISSING/UNREADABLE SPLIT IS THE POINT (contract §2.2/§3). A sidecar that is
+    absent is all-refs-null — Aurora only writes one when a ref is non-null, so the
+    all-default act legitimately has no file on disk. A sidecar that EXISTS but does
+    not parse fails the bake loudly: "degrade gracefully" must not collapse those
+    two, because all-null is exactly the state that triggers Aurora's destructive
+    cleared-overwrite.
+    """
+    entry, _zone = _act_entry(repo, zone, act)
+    data_path = os.path.join(repo, entry["dataPath"])
+    out = {}
+    for i in range(act_section_count(repo, zone, act)):
+        path = os.path.join(data_path, f"section_{i}.meta.json")
+        if not os.path.isfile(path):
+            continue                      # absent = all refs null. NOT an error.
+        with open(path, "r") as f:        # unreadable = raises. Deliberate.
+            meta = json.load(f)
+        if not isinstance(meta, dict):
+            _refuse(path, f"sidecar top level must be a JSON object, got "
+                          f"{type(meta).__name__}")
+        ref = _scene_ref(path, meta.get(ACT_SCENE_REF_KEY), f"section {i}")
+        if ref is not None:
+            out[i] = ref
+    return out
+
+
+def load_act_scene_ref(repo: str = REPO, zone: int = 0, act: int = 0):
+    """The act-level default scene id from project.json, or None.
+
+    None = "the hand-authored `act_parallax_config` default stands" (ruling Q4).
+    Under the Q-c ruling that is still an EMITTED binding — it resolves to the
+    `hand:` argument rather than to nothing.
+    """
+    entry, _zone = _act_entry(repo, zone, act)
+    return _scene_ref(os.path.join(repo, PROJECT_JSON), entry.get(ACT_SCENE_REF_KEY),
+                      f"act {entry['id']}")
+
+
+def act_section_count(repo: str = REPO, zone: int = 0, act: int = 0) -> int:
+    """grid_w * grid_h — the act's flat section count, the binding table's domain."""
+    entry, _zone = _act_entry(repo, zone, act)
+    return entry["gridWidth"] * entry["gridHeight"]
+
+
+class ActNames:
+    """Every generated symbol/​path name for one act, derived from project.json ids.
+
+    Derived and not typed: the zone/act ids are the authority, so a second act
+    cannot silently collide with act 1's module or section name (which is a latent
+    hazard in the `bg_anim.emp` precedent, whose section name carries no act
+    suffix — noted, not fixed here).
+    """
+
+    def __init__(self, zone_id: str, act_id: str):
+        self.zone_id, self.act_id = zone_id, act_id
+        stem = f"{zone_id}_{act_id}"                      # ojz_act1
+        cap = f"{zone_id.upper()}_{act_id.capitalize()}"  # OJZ_Act1
+        self.module = f"games.sonic4.{zone_id}_effects_editor_{act_id}"
+        self.section = f"{zone_id}_effects_editor_{act_id}"
+        self.fn_act_default = f"{stem}_act_default"
+        self.fn_sec_scene = f"{stem}_sec_scene"
+        self.binding_default = f"EditorSceneBinding_{cap}_Default"
+        self.scene_array = f"EditorScenes_{cap}"
+        self.equ_scenes = f"EditorScenes_{cap}_Count"
+        self.equ_bindings = f"EditorScenes_{cap}_Bindings"
+
+    def binding_sec(self, i: int) -> str:
+        return f"EditorSceneBinding_{self.zone_id.upper()}_" \
+               f"{self.act_id.capitalize()}_Sec{i}"
+
+    def out_path(self, repo: str = REPO) -> str:
+        return os.path.join(repo, "games", "sonic4", "data", "generated",
+                            self.zone_id, self.act_id, "effects_scenes.emp")
+
+
+def act_names(repo: str = REPO, zone: int = 0, act: int = 0) -> ActNames:
+    entry, zone_entry = _act_entry(repo, zone, act)
+    return ActNames(zone_entry["id"], entry["id"])
+
+
+# The record shapes + lowerings live in games/sonic4/data/effects/scene_registry.emp
+# and are IMPORTED, never re-declared here: it stays the single authority for what a
+# lowered record looks like, and a band count it has no shape for is a refusal naming
+# that file rather than a second, drifting copy of `lowerN`.
+LOWERABLE_BAND_COUNTS = (1, 2, 4, 5)
+
+
+def _lowering(path: str, scene: dict) -> tuple:
+    n = len(scene["layers"])
+    if n not in LOWERABLE_BAND_COUNTS:
+        _refuse(path, f"scene has {n} layers, and games/sonic4/data/effects/"
+                      f"scene_registry.emp declares record shapes for "
+                      f"{', '.join(str(c) for c in LOWERABLE_BAND_COUNTS)} bands "
+                      f"only. Adding one is a mechanical copy there (a `SceneCfg{n}` "
+                      f"struct and a `lower{n}` with {n} scene_band terms), made "
+                      f"`pub` like the others — never a second lowering in "
+                      f"generated code.")
+    return f"SceneCfg{n}", f"lower{n}"
+
+
+def render_module(scenes: dict, act_ref, sec_refs: dict, sections: int,
+                  names: ActNames) -> str:
+    """The whole generated `.emp` module, for any content state including none.
+
+    Deterministic for a given input: scenes are walked in sorted-id order and the
+    table registry emits in first-seen order, so a re-bake with unchanged inputs is
+    byte-identical (which is what the build's drift gate compares).
+    """
+    # ---- resolve the assignments against the library, loudly ----
+    bound = {}                              # section index -> scene id
+    for i in sorted(sec_refs):
+        if sec_refs[i] not in scenes:
+            raise SceneShapeError(
+                f"section_{i}.meta.json: sceneRef {sec_refs[i]!r} names no scene in "
+                f"{scene_dir()} — wave 1 is editor-library ids only, so a sceneRef "
+                f"cannot name a hand-authored `.emp` scene (design §4). Known ids: "
+                f"{', '.join(sorted(scenes)) or '(none)'}.")
+        bound[i] = sec_refs[i]
+    if act_ref is not None and act_ref not in scenes:
+        raise SceneShapeError(
+            f"{PROJECT_JSON}: act sceneRef {act_ref!r} names no scene in "
+            f"{scene_dir()}. Known ids: {', '.join(sorted(scenes)) or '(none)'}.")
+
+    used = sorted(set(bound.values()) | ({act_ref} if act_ref else set()))
+    unused = sorted(set(scenes) - set(used))
+
+    tables = TableRegistry()
+    scene_decls = [render_scene(os.path.join(scene_dir(), sid + ".json"),
+                                scenes[sid], tables) for sid in used]
+
+    out = [HEADER.format(
+        module=names.module, section=names.section,
+        act=f"{names.zone_id}/{names.act_id}", sections=sections,
+        scenes=len(used), bindings=len(bound) + (1 if act_ref else 0),
+        unused=(", ".join(unused) if unused else "none"))]
+
+    out.append(f"module {names.module} in {names.section}\n")
+    out.append("use engine.constants.{MAX_ACT_SECTIONS}")
+    if used:
+        # The same four imports scene_registry.emp carries, for the same four
+        # reasons — see its banner. `band_entry`/`band_ext`/BAND_EXT_N/`band_curve`/
+        # BAND_CURVE_N are load-bearing even though nothing here spells them: a
+        # struct's declaration is re-elaborated in every module that imports it
+        # (docs/EMP_PITFALLS.md §8), and a partial import fails pointing at
+        # engine/level/parallax.emp.
+        out.append("use engine.structs.{parallax_config}")
+        out.append("use engine.parallax.{band_entry, band_record, band_ext, "
+                   "BAND_EXT_N, band_curve, BAND_CURVE_N}")
+        # GLOBS, MANDATORY. A comptime fn's free names resolve at the CALL SITE, so
+        # scene()/layer()/lowerN reach their helpers through what is in scope HERE;
+        # a selective import is LOUD on the function axis and SILENT on the constant
+        # axis (docs/EMP_PITFALLS.md §2, scene_dsl.emp's pin block).
+        out.append("use engine.level.scene_dsl.*")
+        out.append("use engine.level.parallax_dsl.*")
+        shapes = sorted({s for s, _ in (_lowering("", scenes[sid]) for sid in used)})
+        lowers = sorted({l for _, l in (_lowering("", scenes[sid]) for sid in used)})
+        out.append("use games.sonic4.scene_registry.{"
+                   + ", ".join(shapes + lowers) + "}")
+    out.append("")
+
+    if used:
+        out.append("// ---- deform tables, deduped by content across the act ----")
+        decls = tables.declarations()
+        if decls:
+            out.append(decls)
+            out.append("")
+        out.append("// ---- the authored scenes, through the REAL constructors ----")
+        out.append("// Every `ensure` in layer()/scene() fires on authored content here;")
+        out.append("// this generator validates SHAPE only and never duplicates a")
+        out.append("// constructor guard (contract §2.1).")
+        for decl in scene_decls:
+            out.append(decl)
+            out.append("")
+        out.append(f"pub const {names.scene_array}: [Scene; {len(used)}] = [")
+        for sid in used:
+            out.append(f"    Scene_Editor_{sid},")
+        out.append("]")
+        out.append("")
+        out.append(BUDGET_BLOCK.format(array=names.scene_array, n=len(used)))
+        out.append("")
+        out.append("// ---- the lowered records, under STABLE binding names ----")
+        if act_ref:
+            shape, lower = _lowering("", scenes[act_ref])
+            out.append(f"pub data {names.binding_default}: {shape} = "
+                       f"{lower}({names.scene_array}[{used.index(act_ref)}])")
+        for i in sorted(bound):
+            shape, lower = _lowering("", scenes[bound[i]])
+            out.append(f"pub data {names.binding_sec(i)}: {shape} = "
+                       f"{lower}({names.scene_array}[{used.index(bound[i])}])")
+        out.append("")
+
+    # ---- the witness equates (zero ROM bytes, link-visible) ----
+    out.append(WITNESS_BLOCK.format(
+        equ_scenes=names.equ_scenes, scenes=len(used),
+        equ_bindings=names.equ_bindings,
+        bindings=len(bound) + (1 if act_ref else 0)))
+    out.append("")
+    out.append(SECTION_PIN.format(sections=sections))
+    out.append("")
+
+    # ---- (d) THE BINDINGS — always emitted, both of them, every act ----
+    out.append(BINDING_BANNER)
+    out.append(f"pub comptime fn {names.fn_act_default}(hand: Label) -> Label {{")
+    if act_ref:
+        out.append(f"    return {names.binding_default}")
+    else:
+        out.append("    return hand")
+    out.append("}")
+    out.append("")
+    out.append(f"pub comptime fn {names.fn_sec_scene}(sec: int, hand: Label = 0) -> Label {{")
+    out.append(f'    ensure(sec >= 0 && sec < {sections}, "{names.fn_sec_scene}(sec: '
+               f'{{sec}}): this act has {sections} sections, so there is no binding '
+               f'slot for that index — the descriptor and project.json\'s grid have '
+               f'drifted apart")')
+    out.append("    comptime var out = hand")
+    for i in sorted(bound):
+        out.append(f"    if sec == {i} {{ out = {names.binding_sec(i)} }}")
+    out.append("    return out")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
+HEADER = """\
+// AUTO-GENERATED by tools/effects_gen.py — DO NOT EDIT.
+//
+// Aurora-authored effect scenes for {act}, and the two binding functions
+// `act_descriptor.emp` calls. Scanline-services P5 slice 5; the contract is
+// tools/EFFECTS_CONSUMER_CONTRACT.md §2 and the design is
+// docs/superpowers/specs/2026-08-22-aurora-effects-wave1-design.md §3.
+//
+// STATE OF THIS BAKE: {scenes} editor scene(s) reached by an assignment,
+// {bindings} binding(s), {sections} act sections. Authored but unassigned: {unused}.
+//
+// THE TWO `pub comptime fn`s AT THE BOTTOM ARE EMITTED FOR EVERY ACT, ALWAYS —
+// owner ruling 2026-08-22 (design §9 Q-c, the always-emitted default). With no
+// editor content they return the `hand:` fallback the descriptor passes; with
+// editor content they return the lowered record above. The descriptor therefore
+// has ONE path, always live, and never a conditional. They are functions and not
+// Labels for a measured reason: see the block comment above `render_module()` in
+// tools/effects_gen.py — `pub equ` is not importable and a `pub const` carrying a
+// Label fails the clone-injection re-evaluation, both verified against sigil.
+//
+// Placed at the `{section}` section
+// (module `{module}`). While the block above emits no
+// bytes there is no map.toml `order` row: the row must name the section's
+// content-derived HEAD LABEL, and sigil stops the build by name the moment there is
+// one to write.
+"""
+
+WITNESS_BLOCK = """\
+// ---- REACHABILITY WITNESSES (tools/effects_seam_gate.py) ----
+//
+// `equ` and NOT `const`, and the distinction is the whole gate: an equ mints a
+// link-level symbol that reaches the build's listing, while a `pub const` is a
+// name-resolution-only item invisible to every tool (scene_registry.emp's ledger
+// rows, same mechanism). Both are zero ROM bytes.
+//
+// An equ is only defined if this module is LOWERED, and a module is lowered iff it
+// is in the target's `use` closure — so the presence of these two names in the
+// listing is positive evidence that `act_descriptor.emp`'s import edge is live. That
+// matters because an unreached `.emp` module gets ZERO body elaboration: every guard
+// below, including the budget fold, builds green while asserting nothing. Measured
+// on this very module (2026-08-22): with the descriptor's `use` line removed, an
+// `ensure(1 == 0)` here built GREEN with an unchanged CRC.
+pub equ {equ_scenes} = {scenes}
+pub equ {equ_bindings} = {bindings}\
+"""
+
+SECTION_PIN = """\
+// The binding table's domain, held against the engine's flat-section ceiling. The
+// literal below is repeated inside `sec_scene`'s ensure ON PURPOSE — a comptime fn's
+// free names resolve at the CALL SITE, so a named constant there would resolve in
+// act_descriptor's scope (or silently not at all); docs/EMP_PITFALLS.md §2's rule is
+// to inline the literal and pin it where the authority IS visible, which is here.
+ensure({sections} <= MAX_ACT_SECTIONS,
+       "this act declares {sections} sections in project.json, past the engine's MAX_ACT_SECTIONS ceiling ({{MAX_ACT_SECTIONS}}) — the binding table has slots the section grid cannot address")\
+"""
+
+BUDGET_BLOCK = """\
+// ---- THE BUDGET GATE OVER EDITOR SCENES (design §3(e)) ----
+//
+// The same hard, build-time gate the hand scenes get, mirroring
+// games/sonic4/data/effects/scene_registry.emp's `SceneRegistry_BudgetChecked` —
+// editor scenes are not a softer class. Enforcement is the `ensure`s INSIDE
+// scene_budget_enforce(); the reference below is load-bearing, because an
+// unreferenced top-level `const X = f(..)` is comptime-INERT and the fold would
+// never run (docs/EMP_PITFALLS.md §3).
+pub const {array}_BudgetChecked = scene_budget_enforce({array})
+ensure({array}_BudgetChecked == {n},
+       "editor scenes: the budget fold checked {{{array}_BudgetChecked}} scenes, not the {n} bound by this act's assignments — a fold that examines fewer scenes than it was handed is gating a subset")
+
+// THE CAPABILITY SUBSET TEST, one-sided exactly as the registry's is. An editor
+// scene that demands a scanline service the game does not declare would have its
+// machinery omitted by the P2 lowering — a wrong picture on hardware — and the
+// registry's fold cannot see it, because the registry folds the HAND scenes only.
+// A declared SUPERSET only forgoes a specialisation, so the test stays one-sided.
+pub const {array}_CapsFolded = fold_caps({array})
+ensure(({array}_CapsFolded & ~Game.SCANLINE_CAPS) == 0,
+       "editor scenes: the folded capability mask {{{array}_CapsFolded}} is NOT a subset of Game.SCANLINE_CAPS {{Game.SCANLINE_CAPS}}; the UNDECLARED bits are {{{array}_CapsFolded & ~Game.SCANLINE_CAPS}} — an Aurora-authored scene demands a scanline service this game does not declare. Either widen SCANLINE_CAPS in games/sonic4/config/game.emp, or stop authoring the capability in the scene that raises it")\
+"""
+
+BINDING_BANNER = """\
+// =====================================================================
+// THE BINDINGS — the seam act_descriptor.emp calls. ALWAYS BOTH, ALWAYS LIVE.
+//
+// `hand:` is the descriptor's own fallback, carried as a PARAMETER rather than
+// named here: a comptime fn's free names resolve at the call site, so the hand
+// default has to arrive from the caller — and that is the better contract anyway,
+// since the descriptor keeps owning its hand bindings and this module only chooses.
+// =====================================================================\
+"""
+
+
+def generate(repo: str = REPO, zone: int = 0, act: int = 0) -> tuple:
+    """(output path, module text) for one act. Reads only; writes nothing."""
+    names = act_names(repo, zone, act)
+    return names.out_path(repo), render_module(
+        load_all_scenes("sonic4", repo),
+        load_act_scene_ref(repo, zone, act),
+        load_section_scene_refs(repo, zone, act),
+        act_section_count(repo, zone, act),
+        names)
+
+
+def _atomic_write(path: str, text: str) -> None:
+    """Write via a temp file + rename (contract §3, the ojz_block_gen idiom).
+
+    A partial generated module is never observable, so an interrupted bake cannot
+    leave a file that parses as something else.
+    """
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
 if __name__ == "__main__":
     import sys
 
-    found = load_all_scenes()
-    if not found:
-        print("effects_gen: no editor scenes (absent directory or no .json files)")
-        sys.exit(0)
-    for sid, scene in sorted(found.items()):
-        print(f"effects_gen: {sid} — {len(scene['layers'])} layer(s), shape OK")
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "shapes"
+    try:
+        if cmd == "emit":
+            path, text = generate()
+            _atomic_write(path, text)
+            print(f"effects_gen: wrote {os.path.relpath(path, REPO)}")
+        elif cmd == "check":
+            # THE DRIFT GATE. Regenerate in memory and compare against the committed
+            # artifact — the generated tree is a committed input to the build, so
+            # "someone edited it by hand" and "someone changed an editor scene
+            # without re-baking" are the two failures this catches. Cheap enough for
+            # every build: pure Python over in-repo inputs, no donor, no compressor.
+            path, text = generate()
+            with open(path, "r") as f:
+                have = f.read()
+            if have != text:
+                print(f"effects_gen: DRIFT — {os.path.relpath(path, REPO)} is not "
+                      f"what the current editor inputs generate.")
+                print("  Run tools/regenerate-level.sh (or `python3 "
+                      "tools/effects_gen.py emit`) and commit the result.")
+                sys.exit(1)
+            print("effects_gen: OK — generated effects module matches its inputs")
+        else:
+            found = load_all_scenes()
+            if not found:
+                print("effects_gen: no editor scenes (absent directory or no "
+                      ".json files)")
+                sys.exit(0)
+            for sid, scene in sorted(found.items()):
+                print(f"effects_gen: {sid} — {len(scene['layers'])} layer(s), "
+                      f"shape OK")
+    except SceneShapeError as e:
+        print(f"effects_gen: REFUSED — {e}")
+        sys.exit(1)
