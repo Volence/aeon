@@ -77,10 +77,18 @@ use engine.level.parallax_dsl.*
 // their shape + lowering are not written. Adding one is a mechanical copy of the pair
 // below — a struct line and a lowerN with N `scene_band` terms.
 // =====================================================================
-struct SceneCfg1 { hdr: parallax_config, bands: [band_record; 1] }
-struct SceneCfg2 { hdr: parallax_config, bands: [band_record; 2] }
-struct SceneCfg4 { hdr: parallax_config, bands: [band_record; 4] }
-struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
+// `pub` (P5 slice 5) so the GENERATED editor-scene module
+// (games/sonic4/data/generated/ojz/act1/effects_scenes.emp) emits its records
+// through these shapes and these lowerings instead of declaring a second, drifting
+// copy. This module stays the single AUTHORITY for what a lowered record looks
+// like; what it stopped being is the single emission SITE — editor-authored scenes
+// are emitted by their own generated module, in their own section, with their own
+// budget fold (wave-1 design §3). A band count with no shape here is a generator
+// REFUSAL naming this file, never a locally-invented lowerN.
+pub struct SceneCfg1 { hdr: parallax_config, bands: [band_record; 1] }
+pub struct SceneCfg2 { hdr: parallax_config, bands: [band_record; 2] }
+pub struct SceneCfg4 { hdr: parallax_config, bands: [band_record; 4] }
+pub struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
 
 // ---------------------------------------------------------------------
 // lowerN — the emission fold for a scene with exactly N real layers.
@@ -105,21 +113,21 @@ struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
 // guard. Eight diagnostics from one build, which re-confirms `ensure` is non-aborting:
 // an early guard does not mask a later one.
 // ---------------------------------------------------------------------
-comptime fn lower1(s: Scene) -> SceneCfg1 {
+pub comptime fn lower1(s: Scene) -> SceneCfg1 {
     ensure(s.sc_count == 1, "lower1(): scene has {s.sc_count} real layers, not 1 — the header would declare its own count while the record carries one band, and the runtime indexes bands off the header count")
     return SceneCfg1{ hdr: scene_hdr(s), bands: [ scene_band(s, 0) ] }
 }
-comptime fn lower2(s: Scene) -> SceneCfg2 {
+pub comptime fn lower2(s: Scene) -> SceneCfg2 {
     ensure(s.sc_count == 2, "lower2(): scene has {s.sc_count} real layers, not 2 — the header would declare its own count while the record carries two bands, and the runtime indexes bands off the header count")
     return SceneCfg2{ hdr: scene_hdr(s), bands: [ scene_band(s, 0), scene_band(s, 1) ] }
 }
-comptime fn lower4(s: Scene) -> SceneCfg4 {
+pub comptime fn lower4(s: Scene) -> SceneCfg4 {
     ensure(s.sc_count == 4, "lower4(): scene has {s.sc_count} real layers, not 4 — the header would declare its own count while the record carries four bands, and the runtime indexes bands off the header count")
     return SceneCfg4{ hdr: scene_hdr(s),
                       bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
                                scene_band(s, 3) ] }
 }
-comptime fn lower5(s: Scene) -> SceneCfg5 {
+pub comptime fn lower5(s: Scene) -> SceneCfg5 {
     ensure(s.sc_count == 5, "lower5(): scene has {s.sc_count} real layers, not 5 — the header would declare its own count while the record carries five bands, and the runtime indexes bands off the header count")
     return SceneCfg5{ hdr: scene_hdr(s),
                       bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),

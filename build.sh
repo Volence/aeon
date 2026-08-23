@@ -472,6 +472,17 @@ if ! python3 "${TOOLS}/verify_level_bin.py"; then
     echo "Level-tree drift — re-bake with tools/regenerate-level.sh, then rebuild."
     exit 1
 fi
+
+# The editor-effects drift gate (scanline P5 slice 5). The generated binding
+# module is a COMMITTED artifact act_descriptor.emp imports, so both failures
+# are real: a hand edit inside it, and an editor scene / `sceneRef` changed
+# without a re-bake. Unlike the level tree this reads only in-repo inputs (no
+# donor, no compressor), so regenerating in memory and comparing costs
+# milliseconds and can run on every build rather than only at re-bake time.
+if ! python3 "${TOOLS}/effects_gen.py" check; then
+    echo "Editor-effects drift — re-bake with tools/regenerate-level.sh, then rebuild."
+    exit 1
+fi
 fi
 
 # Art-pool ROM budget report + gate (art-streaming Phase 2). Level art is now
@@ -549,6 +560,20 @@ if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
             --map "games/${GAME}/map.toml" --summary; then
         echo "Budget exceeded — see the s4budget output above."
         exit 1
+    fi
+
+    # The editor-scene binding seam's REACHABILITY gate (scanline P5 slice 5).
+    # Reads the listing because that is the only place the answer exists: an
+    # unreached `.emp` module still parses, still scans, and still builds green
+    # with `ensure(1 == 0)` inside it, so no source-level check can tell whether
+    # act_descriptor.emp's import edge is live. The generated module's `pub equ`
+    # witnesses are defined only when it is lowered, so their presence here is the
+    # evidence. sonic4-only: `demo` has no act descriptor and no editor scenes.
+    if [[ "${GAME}" == "sonic4" ]]; then
+        if ! python3 "${TOOLS}/effects_seam_gate.py" --lst "${ROM_NAME}.lst"; then
+            echo "Editor-scene binding seam is not reached — see above."
+            exit 1
+        fi
     fi
 fi
 

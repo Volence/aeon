@@ -197,6 +197,14 @@ POOL_EMP="${POOL_DIR}/ojz_act_pool.emp"
   echo "]"
 } > "$POOL_EMP"
 
+# Aurora-authored effect scenes → the per-act binding module act_descriptor.emp
+# imports (scanline P5 slice 5). UNCONDITIONAL, exactly like the module it writes:
+# the generator emits the two binding functions for every act whether or not any
+# editor scene exists (owner ruling 2026-08-22, wave-1 design §9 Q-c), so skipping
+# it on "no editor content" would delete a module the descriptor imports.
+echo "Generating editor effect scenes + bindings..."
+python3 "${TOOLS}/effects_gen.py" emit
+
 echo "Generating OJZ block data..."
 python3 "${TOOLS}/ojz_block_gen.py" generate ${NO_CACHE}
 

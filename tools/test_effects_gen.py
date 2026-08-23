@@ -555,5 +555,254 @@ class TestRendering(SceneShapeBase):
         self.assertIn("MAX_PARALLAX_BANDS", str(ctx.exception))
 
 
+# =============================================================================
+# SLICE 5 — assignments, the generated module, and the always-emitted binding.
+#
+# Expectations here come from the CONTRACT (§2.2 for the assignment fields) and from
+# the owner's Q-c ruling (always-emitted, one live path), never from reading back
+# what render_module() happens to produce. Where a test pins a number it derives it
+# from the fixture it just wrote.
+# =============================================================================
+
+
+class AssignmentBase(unittest.TestCase):
+    """A whole fake repo: project.json + the editor tree, nothing else."""
+
+    GRID_W, GRID_H = 3, 3
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = self.tmp.name
+        self.data = os.path.join(self.repo, "games", "sonic4", "data", "editor",
+                                 "ojz", "act1")
+        self.scenes = os.path.join(self.repo, "games", "sonic4", "data", "editor",
+                                   "effects")
+        os.makedirs(self.data)
+        os.makedirs(self.scenes)
+        self.write_project()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_project(self, act_ref=None):
+        act = {"id": "act1", "gridWidth": self.GRID_W, "gridHeight": self.GRID_H,
+               "dataPath": "games/sonic4/data/editor/ojz/act1/",
+               "sceneRef": act_ref}
+        doc = {"zones": [{"id": "ojz", "acts": [act]}]}
+        with open(os.path.join(self.repo, "project.json"), "w") as f:
+            json.dump(doc, f)
+
+    def write_sidecar(self, index, body):
+        path = os.path.join(self.data, f"section_{index}.meta.json")
+        with open(path, "w") as f:
+            if isinstance(body, str):
+                f.write(body)
+            else:
+                json.dump(body, f)
+        return path
+
+    def write_scene(self, stem, **over):
+        scene = _scene(id=stem, **over)
+        with open(os.path.join(self.scenes, f"{stem}.json"), "w") as f:
+            json.dump(scene, f)
+
+
+class TestAssignmentReading(AssignmentBase):
+    def test_no_sidecars_at_all_is_no_assignments(self):
+        """Contract §2.2: Aurora writes a sidecar only when a ref is non-null, so
+        the all-default act legitimately has NO file on disk. That must read as
+        all-null, never as an error — all-null is also the state that triggers
+        Aurora's destructive cleared-overwrite, so the two must not be confused."""
+        self.assertEqual(effects_gen.load_section_scene_refs(self.repo), {})
+        self.assertIsNone(effects_gen.load_act_scene_ref(self.repo))
+
+    def test_an_unreadable_sidecar_fails_the_bake(self):
+        """§2.2/§3, the asymmetry stated normatively: MISSING is all-null,
+        UNREADABLE is loud. 'Degrade gracefully' must not collapse them."""
+        self.write_sidecar(1, "{ this is not json")
+        with self.assertRaises(json.JSONDecodeError):
+            effects_gen.load_section_scene_refs(self.repo)
+
+    def test_a_sidecar_without_a_sceneRef_key_is_null(self):
+        self.write_sidecar(1, {"bgLayoutRef": "x", "paletteRef": None})
+        self.assertEqual(effects_gen.load_section_scene_refs(self.repo), {})
+
+    def test_explicit_null_is_the_act_default(self):
+        self.write_sidecar(1, {"sceneRef": None})
+        self.assertEqual(effects_gen.load_section_scene_refs(self.repo), {})
+
+    def test_a_numeric_sceneRef_is_REFUSED_not_coerced(self):
+        """§2.2 in its own words: 'a string id or null, NEVER a numeric index'.
+        Aurora's parser nulls a non-string SILENTLY, so `sceneRef: 3` presents as
+        'the assignment didn't stick'. The build is the last reader that can still
+        see the mistake, so it refuses rather than coercing."""
+        self.write_sidecar(1, {"sceneRef": 3})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.load_section_scene_refs(self.repo)
+        msg = str(ctx.exception)
+        self.assertIn("STRING", msg)
+        self.assertIn("numeric index", msg)
+
+    def test_a_sceneRef_that_is_not_symbol_safe_is_refused(self):
+        """Ids become `.emp` symbol components; Aurora's BG-library ids use hyphens
+        and timestamps, so this is the live cross-document hazard (design Q-d)."""
+        self.write_sidecar(1, {"sceneRef": "deep-forest-v16-1781232789593"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            effects_gen.load_section_scene_refs(self.repo)
+        self.assertIn("not a legal scene id", str(ctx.exception))
+
+    def test_only_sidecars_inside_the_grid_are_read(self):
+        """The domain is grid_w*grid_h. A sidecar for a section the act does not
+        have would otherwise bind a slot the descriptor can never ask for."""
+        self.write_scene("shimmer")
+        self.write_sidecar(self.GRID_W * self.GRID_H, {"sceneRef": "shimmer"})
+        self.assertEqual(effects_gen.load_section_scene_refs(self.repo), {})
+
+    def test_section_count_is_the_grid_product(self):
+        self.assertEqual(effects_gen.act_section_count(self.repo),
+                         self.GRID_W * self.GRID_H)
+
+
+class TestAlwaysEmittedBindings(AssignmentBase):
+    """The owner ruling (2026-08-22, design §9 Q-c): the generator emits the
+    act-default binding for EVERY act, content or not, so `act_descriptor.emp` has
+    exactly ONE path, always live."""
+
+    def render(self):
+        names = effects_gen.act_names(self.repo)
+        return names, effects_gen.render_module(
+            effects_gen.load_all_scenes("sonic4", self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo), names)
+
+    def test_both_bindings_exist_with_no_editor_content_at_all(self):
+        names, text = self.render()
+        self.assertIn(f"pub comptime fn {names.fn_act_default}(hand: Label)", text)
+        self.assertIn(f"pub comptime fn {names.fn_sec_scene}(sec: int", text)
+
+    def test_with_no_content_the_act_default_returns_the_HAND_fallback(self):
+        """Not 'aliased to nothing' (design §3's superseded text) — it resolves to
+        the hand-authored default the descriptor passes in, which is what keeps the
+        descriptor's single path live."""
+        _names, text = self.render()
+        self.assertIn("    return hand", text)
+
+    def test_with_an_act_sceneRef_the_default_returns_the_EDITOR_record(self):
+        self.write_scene("shimmer")
+        self.write_project(act_ref="shimmer")
+        names, text = self.render()
+        self.assertIn(f"    return {names.binding_default}", text)
+        self.assertIn(f"pub data {names.binding_default}: SceneCfg1 = lower1(", text)
+        self.assertNotIn("    return hand", text)
+
+    def test_a_bound_section_gets_a_branch_and_an_unbound_one_does_not(self):
+        self.write_scene("shimmer")
+        self.write_sidecar(2, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f"if sec == 2 {{ out = {names.binding_sec(2)} }}", text)
+        self.assertNotIn("if sec == 1 ", text)
+
+    def test_the_sec_domain_ensure_carries_an_INLINE_literal(self):
+        """docs/EMP_PITFALLS.md §2: a comptime fn's free names resolve at the CALL
+        SITE, so a named constant in this ensure would resolve in act_descriptor's
+        scope — or silently not at all. The literal is inlined and pinned at module
+        level, where MAX_ACT_SECTIONS really is visible."""
+        _names, text = self.render()
+        n = self.GRID_W * self.GRID_H
+        self.assertIn(f"ensure(sec >= 0 && sec < {n},", text)
+        self.assertIn(f"ensure({n} <= MAX_ACT_SECTIONS,", text)
+
+    def test_the_bindings_are_functions_and_never_a_const_or_an_equ(self):
+        """The mechanism ruling, held as a test because both alternatives were
+        MEASURED to fail: `pub equ` is not importable (sigil item_pub_name has no
+        Item::Equ arm) and a `pub const` carrying a Label fails the clone-injection
+        re-evaluation at the DEFINING file's span. A future 'simplification' to
+        either spelling reintroduces a build that cannot work."""
+        names, text = self.render()
+        self.assertNotIn(f"pub const {names.fn_act_default}", text)
+        self.assertNotIn(f"pub equ {names.fn_act_default}", text)
+        # The witnesses, by contrast, MUST be equs: only an equ reaches the listing.
+        self.assertIn(f"pub equ {names.equ_scenes} = ", text)
+        self.assertIn(f"pub equ {names.equ_bindings} = ", text)
+
+
+class TestGeneratedModuleShape(AssignmentBase):
+    def render(self):
+        names = effects_gen.act_names(self.repo)
+        return names, effects_gen.render_module(
+            effects_gen.load_all_scenes("sonic4", self.repo),
+            effects_gen.load_act_scene_ref(self.repo),
+            effects_gen.load_section_scene_refs(self.repo),
+            effects_gen.act_section_count(self.repo), names)
+
+    def test_the_witness_values_are_the_derived_counts(self):
+        """Derived from the fixture this test writes: two sections bound to two
+        distinct scenes plus an act default on one of them = 3 bindings, 2 scenes."""
+        self.write_scene("shimmer")
+        self.write_scene("haze")
+        self.write_sidecar(0, {"sceneRef": "shimmer"})
+        self.write_sidecar(4, {"sceneRef": "haze"})
+        self.write_project(act_ref="haze")
+        names, text = self.render()
+        self.assertIn(f"pub equ {names.equ_scenes} = 2", text)
+        self.assertIn(f"pub equ {names.equ_bindings} = 3", text)
+
+    def test_an_authored_but_unassigned_scene_emits_NOTHING(self):
+        """A scene nobody points at is ROM nobody reads. It is named in the header
+        so the author can see it was skipped, and it is not lowered."""
+        self.write_scene("orphan")
+        _names, text = self.render()
+        self.assertIn("Authored but unassigned: orphan", text)
+        self.assertNotIn("Scene_Editor_orphan", text)
+
+    def test_a_sceneRef_naming_no_scene_is_refused_by_name(self):
+        self.write_sidecar(1, {"sceneRef": "not_in_the_library"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("not_in_the_library", msg)
+        self.assertIn("editor-library ids only", msg)
+
+    def test_the_budget_and_capability_gates_ride_the_editor_set(self):
+        """Design §3(e) plus the capability half: editor scenes get the SAME hard
+        build-time gates the hand registry applies to hand scenes."""
+        self.write_scene("shimmer")
+        self.write_sidecar(0, {"sceneRef": "shimmer"})
+        names, text = self.render()
+        self.assertIn(f"scene_budget_enforce({names.scene_array})", text)
+        self.assertIn(f"fold_caps({names.scene_array})", text)
+        self.assertIn("Game.SCANLINE_CAPS", text)
+
+    def test_a_band_count_with_no_registry_shape_is_refused_by_name(self):
+        """Three-band scenes have no `SceneCfg3`/`lower3`. The refusal names
+        scene_registry.emp as the place to add one — never a second lowering in
+        generated code, which is how two copies of a lowering start drifting."""
+        self.write_scene("three", layers=[
+            {"world_y": i * 32, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(3)])
+        self.write_sidecar(0, {"sceneRef": "three"})
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render()
+        msg = str(ctx.exception)
+        self.assertIn("scene_registry.emp", msg)
+        self.assertIn("SceneCfg3", msg)
+
+    def test_the_render_is_deterministic(self):
+        """The build's drift gate compares a re-render against the committed file,
+        so an unstable ordering would fail every second build."""
+        self.write_scene("shimmer")
+        self.write_scene("haze")
+        self.write_sidecar(0, {"sceneRef": "haze"})
+        self.write_sidecar(1, {"sceneRef": "shimmer"})
+        self.assertEqual(self.render()[1], self.render()[1])
+
+    def test_the_module_and_section_names_come_from_the_project_ids(self):
+        names = effects_gen.act_names(self.repo)
+        self.assertEqual(names.module, "games.sonic4.ojz_effects_editor_act1")
+        self.assertEqual(names.section, "ojz_effects_editor_act1")
+        self.assertTrue(names.out_path(self.repo).endswith(
+            os.path.join("generated", "ojz", "act1", "effects_scenes.emp")))
+
+
 if __name__ == "__main__":
     unittest.main()

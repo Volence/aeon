@@ -29,6 +29,31 @@ use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2,
 // `lower4(SCENES[0])` off Scene_OJZ_Default, not a hand-written header.
 use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, SCENE_ACT_SPAN_Y}
 
+// ---- THE EDITOR-SCENE BINDING SEAM (scanline P5 slice 5, wave-1 design §3) ----
+//
+// The two binding functions in the generated module
+// games/sonic4/data/generated/ojz/act1/effects_scenes.emp — the ONLY route by which
+// an Aurora-authored scene reaches this ROM. `tools/effects_gen.py` writes them from
+// the sidecars' `sceneRef` + project.json; nothing about them is hand-typed here.
+//
+// THIS IMPORT IS UNCONDITIONAL, AND SO IS EVERY CALL BELOW (owner ruling 2026-08-22,
+// design §9 Q-c — the always-emitted default binding). The generator emits both
+// functions for every act whether or not editor content exists: with none they
+// return the `hand:` fallback this file passes, with content they return the lowered
+// editor record. So there is exactly ONE path here, always live — no conditional, no
+// arm that is dead in either state, and no name that appears or vanishes with
+// content. Deleting the `hand:` arguments would move that decision back into this
+// file, which is the shape the ruling rejected.
+//
+// A NAME LIST, NEVER A GLOB (design §3, docs/DEFERRED_WORK.md's glob re-evaluation
+// note) — and this line is also the module's REACHABILITY edge. Drop it and the
+// generated module leaves the `use` closure, at which point every guard in it,
+// including the editor-scene budget fold, builds GREEN while asserting nothing
+// (measured on this seam, 2026-08-22: an `ensure(1 == 0)` there built clean with an
+// unchanged CRC). tools/effects_seam_gate.py pins that this edge is live by reading
+// the generated module's witness equates out of the build's own listing.
+use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default, ojz_act1_sec_scene}
+
 // SECTION_SIZE_SHIFT + EDGE_CLAMP are engine constants — imported from their sole
 // author now that engine.constants is the definition (the P5 ownership flip).
 // The imported consts are plain comptime ints, so EDGE_CLAMP range-proves into
@@ -127,7 +152,11 @@ pub data OJZ_Act1_Descriptor: Act = Act{
     start_sec_y:         0,
     act_bg_layout:       OJZ_Act1_BG_Layout,             // §2 A.5 T1 zone-wide BG
     act_bg_tiles:        OJZ_Act1_BG_Tiles,
-    act_parallax_config: ParallaxConfig_OJZ_Default,     // fallback for NULL sections
+    // The act default, through the editor binding seam: project.json's act
+    // `sceneRef` decides, and `hand:` is what stands when it is null (which is the
+    // state today, so this resolves to ParallaxConfig_OJZ_Default exactly as it did
+    // before the seam landed — the ROM bytes are unchanged).
+    act_parallax_config: ojz_act1_act_default(hand: ParallaxConfig_OJZ_Default),
     act_art_pool_table:  OJZ_Act_Pool_PageTable,         // manifest v2 table [PageManifest;N] (generated)
     act_art_pool_pages:  OJZ_ACT_POOL_PAGES,             // generated manifest const
     edge_mode:           EDGE_CLAMP,                     // §10; OJZ ships CLAMP
@@ -162,14 +191,18 @@ pub data OJZ_Act1_Descriptor: Act = Act{
 // crossing site take the preset path instead), but deleting them is Task 13's
 // job, once reachability of the preset path is established. Keeping them here
 // keeps this task's diff a pure addition.
-comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0, cycle: Label = 0, effects: Label = 0) -> Sec {
+// `parallax` (P5 slice 5) is the per-section half of the editor binding seam:
+// section_N.meta.json's `sceneRef` decides, 0 = "use the act default" exactly as
+// `default` did before. Every call site passes it — the ruling's single live path —
+// and a section with a HAND binding would pass its own record as `hand:` there.
+comptime fn ojz_sec(sec: int, blocks: Label, objects: Label, rings: Label, type_table: Label, dict: int, dict_len: int, pal: Label, raster: Label = 0, cycle: Label = 0, effects: Label = 0) -> Sec {
     return Sec{
         sec_block_index:      blocks,
         sec_objects:          objects,
         sec_rings:            rings,
         sec_plc:              default,
         sec_pal:              pal,
-        sec_parallax_config:  default,      // act default parallax
+        sec_parallax_config:  ojz_act1_sec_scene(sec: sec),  // editor binding; 0 = act default
         sec_raster_table:     raster,
         sec_bg_layout:        default,      // NULL = zone-wide T1 BG
         sec_type_table:       type_table,
@@ -189,7 +222,7 @@ comptime fn ojz_sec(blocks: Label, objects: Label, rings: Label, type_table: Lab
 }
 
 pub data OJZ_Act1_Sections: [Sec; 9] = [
-    ojz_sec(blocks: OJZ_Sec0_Blocks,
+    ojz_sec(sec: 0, blocks: OJZ_Sec0_Blocks,
             objects: OJZ_Sec0_Objects, rings: OJZ_Sec0_Rings,
             type_table: OJZ_Sec0_TypeTable,
             pal: OJZ_Palette,
@@ -207,7 +240,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             effects: OJZ_Preset_Sec0,
             dict: extern("OJZ_Sec0_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC0_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec1_Blocks,
+    ojz_sec(sec: 1, blocks: OJZ_Sec1_Blocks,
             objects: OJZ_Sec1_Objects, rings: OJZ_Sec1_Rings,
             type_table: OJZ_Sec1_TypeTable,
             pal: OJZ_Palette,
@@ -217,7 +250,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             effects: OJZ_Preset_Sec1,
             dict: extern("OJZ_Sec1_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC1_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec2_Blocks,
+    ojz_sec(sec: 2, blocks: OJZ_Sec2_Blocks,
             objects: OJZ_Sec2_Objects, rings: OJZ_Sec2_Rings,
             type_table: OJZ_Sec2_TypeTable,
             // Effects P1 gate: section 2 proves sec_pal on its own — crossing in must
@@ -231,7 +264,7 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             effects: OJZ_Preset_Sec2,
             dict: extern("OJZ_Sec2_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC2_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec3_Blocks,
+    ojz_sec(sec: 3, blocks: OJZ_Sec3_Blocks,
             objects: OJZ_Sec3_Objects, rings: OJZ_Sec3_Rings,
             type_table: OJZ_Sec3_TypeTable,
             pal: OJZ_Palette,
@@ -241,35 +274,35 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             effects: OJZ_Preset_Sec3,
             dict: extern("OJZ_Sec3_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC3_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec4_Blocks,
+    ojz_sec(sec: 4, blocks: OJZ_Sec4_Blocks,
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
             pal: OJZ_Palette,
             effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec5_Blocks,
+    ojz_sec(sec: 5, blocks: OJZ_Sec5_Blocks,
             objects: OJZ_Sec5_Objects, rings: OJZ_Sec5_Rings,
             type_table: OJZ_Sec5_TypeTable,
             pal: OJZ_Palette,
             effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec5_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC5_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec6_Blocks,
+    ojz_sec(sec: 6, blocks: OJZ_Sec6_Blocks,
             objects: OJZ_Sec6_Objects, rings: OJZ_Sec6_Rings,
             type_table: OJZ_Sec6_TypeTable,
             pal: OJZ_Palette,
             effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec6_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC6_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec7_Blocks,
+    ojz_sec(sec: 7, blocks: OJZ_Sec7_Blocks,
             objects: OJZ_Sec7_Objects, rings: OJZ_Sec7_Rings,
             type_table: OJZ_Sec7_TypeTable,
             pal: OJZ_Palette,
             effects: OJZ_Preset_Plain,
             dict: extern("OJZ_Sec7_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC7_BLOCK_DICT_LEN),
-    ojz_sec(blocks: OJZ_Sec8_Blocks,
+    ojz_sec(sec: 8, blocks: OJZ_Sec8_Blocks,
             objects: OJZ_Sec8_Objects, rings: OJZ_Sec8_Rings,
             type_table: OJZ_Sec8_TypeTable,
             pal: OJZ_Palette,
