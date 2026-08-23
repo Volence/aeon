@@ -274,6 +274,33 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    second copy — a band count with no shape there is a generator refusal naming that
    file. **Byte-neutral in the shipping state** (all four canonical shapes unchanged);
    the content path is proven by a temporary fixture, green at crc `1499f79c`.
+
+   **CLOSED 2026-08-22, `parcel/band-count-range` — the shape set was a CEILING read as
+   a LIST.** `SceneCfg{1,2,4,5}` was not a decision; it is exactly what the twenty
+   hand-authored scenes happened to need. The engine's declared maximum is
+   `MAX_PARALLAX_BANDS = 8` (`engine/system/constants.emp`, pinned at
+   `engine/level/scene_dsl.emp:54`, enforced by `scene()`), the writer schema mirrors it
+   as `layers minItems 1 / maxItems 8`, and Aurora computes its Add-layer cap from that
+   schema at load — so 3, 6, 7 and 8 were *exactly as reachable* as 4 and 5. Aurora's
+   first writer-originated scene has eight layers and was refused. `SceneCfg{3,6,7,8}` +
+   `lower{3,6,7,8}` now ship (all four, so no arbitrary remainder re-arms the defect with
+   the discovering artifact spent), and coverage stopped being a list:
+   `tools/test_scene_band_shape_coverage.py` derives the required set from
+   `MAX_PARALLAX_BANDS` on every run and names any count whose pair is missing — move the
+   constant to 10 and it reports 9 and 10 rather than going stale (measured red-first).
+   It runs in `build.sh`'s build-fatal `pytest tools` lane. Byte-identical across all four
+   canonical shapes (crc32 `060401E4` / `0DBAA80F` / `C708B114` / `DEC88CC1`).
+
+   Two things found on the way, both booked here rather than left implicit: (a)
+   `tools/effects_gen.py` carried an **unpinned** `MAX_PARALLAX_BANDS = 8` mirror that
+   nothing compared to the engine — now pinned by the same gate, and
+   `LOWERABLE_BAND_COUNTS` is `range(1, MAX+1)` not a literal. (b) An **anchored** 8-band
+   scene is still correctly refused (`scene_dsl.emp:1062` — an anchor splits a layer at
+   runtime, needing `count+1` shadow entries, and `Parallax_Shadow_Bands` is sized for
+   eight). That is a real shadow-view capacity limit, NOT a missing `SceneCfg9`; the gate
+   asserts no declared shape exceeds the ceiling so it cannot be "fixed" that way. If a
+   scene genuinely needs eight bands *plus* an anchor, the parcel is widening
+   `Parallax_Shadow_Bands`, and that is a RAM decision — not a registry one.
 2. **First authored animated act** — discharges `inject_editor_bg.py`'s FORMAT-FAITHFUL
    BUT NOT BYTE-PROVEN animated arm (`inject_editor_bg.py:121-124`); that parcel runs
    `tools/effects_gates.py` and pastes totals into merge evidence even though it touches

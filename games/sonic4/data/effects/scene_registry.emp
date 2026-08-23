@@ -31,7 +31,9 @@
 // builds GREEN with an identical CRC. Until Task 6 this file, and every guard in
 // scene_dsl.emp behind it, was in exactly that state. It no longer is: the twenty scenes
 // drive `layer()`, `scene()`, `derived_mask()`, `scene_caps()`, `fold_caps()`,
-// `scene_hdr()`, `scene_band()` and all four `lowerN` on every build.
+// `scene_hdr()`, `scene_band()` and the four `lowerN` their counts select (1/2/4/5) on
+// every build. lower3/6/7/8 exist for the counts an EDITOR author can reach; their
+// instantiating consumer is the generated editor-scene module, not this list.
 //
 // THE EMISSION ORDER AT THE BOTTOM OF THIS FILE IS LOAD-BEARING. It reproduces the shipped
 // ROM block byte for byte — tables interleaved with the records that attach them — and the
@@ -71,11 +73,30 @@ use engine.level.parallax_dsl.*
 // produced the right number of bands (Task-1 probe B: a comptime fn's return annotation
 // is documentation; the typed `data` binding is what raises `array length mismatch`).
 //
-// FOUR SHAPES BECAUSE THE TWENTY SHIPPED CONFIGS USE FOUR BAND COUNTS — 1, 2, 4 and 5
-// (data/parallax/configs.emp: fourteen ParallaxCfg1/2, six ParallaxCfg4/5). scene()
-// admits up to MAX_PARALLAX_BANDS (8); counts 3, 6, 7 and 8 have no shipped author, so
-// their shape + lowering are not written. Adding one is a mechanical copy of the pair
-// below — a struct line and a lowerN with N `scene_band` terms.
+// EIGHT SHAPES BECAUSE THE ENGINE ADMITS EIGHT BAND COUNTS. `scene()` caps `count` at
+// MAX_PARALLAX_BANDS (engine/system/constants.emp = 8, pinned by the `ensure` at
+// engine/level/scene_dsl.emp:54), Empyrean's writer schema mirrors it as
+// `layers minItems 1 / maxItems 8`, and Aurora computes its Add-layer cap from that
+// schema at load — so an author can produce ANY count in 1..8 and every one of them
+// must lower. The shape set is therefore a property of MAX_PARALLAX_BANDS, not of what
+// the hand-authored scenes happened to need.
+//
+// It used to be four (1, 2, 4, 5 — the counts the twenty shipped configs use), which was
+// never a decision: 3, 6, 7 and 8 were exactly as reachable, they were just not on the
+// path the hand authors took. That gap was found the expensive way — Aurora's first
+// writer-originated scene, authored through their real UI, has EIGHT layers, and
+// tools/effects_gen.py refused it naming this file. Closing 3/6/7/8 together (rather than
+// only the 8 that unblocked the fixture) is what keeps the next writer-originated count
+// from re-arming the identical defect with the discovering artifact already spent.
+//
+// tools/test_scene_band_shape_coverage.py DERIVES the required set from
+// MAX_PARALLAX_BANDS and fails naming any count whose pair is missing, so if the constant
+// ever moves the coverage claim moves with it instead of going quietly stale.
+//
+// NOT A DEFECT, AND NOT TO BE "FIXED" WITH A NINTH SHAPE: an ANCHORED scene splits a
+// layer at runtime and so needs count+1 shadow entries (scene_dsl.emp:1062), which means
+// an anchored 8-band scene is still correctly refused. That is a real engine limit — the
+// shadow view is sized for eight entries — not a missing SceneCfg9.
 // =====================================================================
 // `pub` (P5 slice 5) so the GENERATED editor-scene module
 // (games/sonic4/data/generated/ojz/act1/effects_scenes.emp) emits its records
@@ -87,13 +108,17 @@ use engine.level.parallax_dsl.*
 // REFUSAL naming this file, never a locally-invented lowerN.
 pub struct SceneCfg1 { hdr: parallax_config, bands: [band_record; 1] }
 pub struct SceneCfg2 { hdr: parallax_config, bands: [band_record; 2] }
+pub struct SceneCfg3 { hdr: parallax_config, bands: [band_record; 3] }
 pub struct SceneCfg4 { hdr: parallax_config, bands: [band_record; 4] }
 pub struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
+pub struct SceneCfg6 { hdr: parallax_config, bands: [band_record; 6] }
+pub struct SceneCfg7 { hdr: parallax_config, bands: [band_record; 7] }
+pub struct SceneCfg8 { hdr: parallax_config, bands: [band_record; 8] }
 
 // ---------------------------------------------------------------------
 // lowerN — the emission fold for a scene with exactly N real layers.
 //
-// THE COUNT GUARD IS THE POINT OF THESE FOUR FUNCTIONS, not the array literal. The
+// THE COUNT GUARD IS THE POINT OF THESE FUNCTIONS, not the array literal. The
 // typed `data` binding catches a lowerN whose band array is the wrong length, but it
 // canNOT catch `lower4(a_five_layer_scene)`: that emits a 4-band record whose HEADER
 // still says band_count 5, and the runtime — which indexes bands at
@@ -106,12 +131,22 @@ pub struct SceneCfg5 { hdr: parallax_config, bands: [band_record; 5] }
 // lower5 on a four-layer scene — fails there. Both directions are covered; only this
 // direction needed a new guard.
 //
-// PROVEN RED (Task 5): all four rotated one place around SCENES in a single probe build,
-// which reported all four — `[Error] lower1(): scene has 2 real layers, not 1 — …`
-// through `lower5(): scene has 1 real layers, not 5 — …` — plus four
-// `scene_band(): layer index N is outside the scene's 1 real layers` from the mirror
-// guard. Eight diagnostics from one build, which re-confirms `ensure` is non-aborting:
-// an early guard does not mask a later one.
+// PROVEN RED (Task 5): the four then-existing lowerings were rotated one place around
+// SCENES in a single probe build, which reported all four — `[Error] lower1(): scene has
+// 2 real layers, not 1 — …` through `lower5(): scene has 1 real layers, not 5 — …` —
+// plus four `scene_band(): layer index N is outside the scene's 1 real layers` from the
+// mirror guard. Eight diagnostics from one build, which re-confirms `ensure` is
+// non-aborting: an early guard does not mask a later one.
+//
+// lower3/6/7/8 are the same fold at a different arity and carry the same guard. Nothing
+// in THIS game instantiates them — no shipped config uses those counts — so they are
+// comptime-inert here and their guards are unexercised until a scene of that count is
+// lowered. That is not a coverage claim being made and then quietly missed: the
+// instantiating consumer is the GENERATED editor-scene module, which imports these by
+// name (tools/effects_gen.py), and an editor scene of count N drives lowerN on every
+// build from then on. What IS checked unconditionally is that the pair EXISTS for every
+// count the engine admits — tools/test_scene_band_shape_coverage.py, derived from
+// MAX_PARALLAX_BANDS.
 // ---------------------------------------------------------------------
 pub comptime fn lower1(s: Scene) -> SceneCfg1 {
     ensure(s.sc_count == 1, "lower1(): scene has {s.sc_count} real layers, not 1 — the header would declare its own count while the record carries one band, and the runtime indexes bands off the header count")
@@ -120,6 +155,11 @@ pub comptime fn lower1(s: Scene) -> SceneCfg1 {
 pub comptime fn lower2(s: Scene) -> SceneCfg2 {
     ensure(s.sc_count == 2, "lower2(): scene has {s.sc_count} real layers, not 2 — the header would declare its own count while the record carries two bands, and the runtime indexes bands off the header count")
     return SceneCfg2{ hdr: scene_hdr(s), bands: [ scene_band(s, 0), scene_band(s, 1) ] }
+}
+pub comptime fn lower3(s: Scene) -> SceneCfg3 {
+    ensure(s.sc_count == 3, "lower3(): scene has {s.sc_count} real layers, not 3 — the header would declare its own count while the record carries three bands, and the runtime indexes bands off the header count")
+    return SceneCfg3{ hdr: scene_hdr(s),
+                      bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2) ] }
 }
 pub comptime fn lower4(s: Scene) -> SceneCfg4 {
     ensure(s.sc_count == 4, "lower4(): scene has {s.sc_count} real layers, not 4 — the header would declare its own count while the record carries four bands, and the runtime indexes bands off the header count")
@@ -132,6 +172,26 @@ pub comptime fn lower5(s: Scene) -> SceneCfg5 {
     return SceneCfg5{ hdr: scene_hdr(s),
                       bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
                                scene_band(s, 3), scene_band(s, 4) ] }
+}
+pub comptime fn lower6(s: Scene) -> SceneCfg6 {
+    ensure(s.sc_count == 6, "lower6(): scene has {s.sc_count} real layers, not 6 — the header would declare its own count while the record carries six bands, and the runtime indexes bands off the header count")
+    return SceneCfg6{ hdr: scene_hdr(s),
+                      bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
+                               scene_band(s, 3), scene_band(s, 4), scene_band(s, 5) ] }
+}
+pub comptime fn lower7(s: Scene) -> SceneCfg7 {
+    ensure(s.sc_count == 7, "lower7(): scene has {s.sc_count} real layers, not 7 — the header would declare its own count while the record carries seven bands, and the runtime indexes bands off the header count")
+    return SceneCfg7{ hdr: scene_hdr(s),
+                      bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
+                               scene_band(s, 3), scene_band(s, 4), scene_band(s, 5),
+                               scene_band(s, 6) ] }
+}
+pub comptime fn lower8(s: Scene) -> SceneCfg8 {
+    ensure(s.sc_count == 8, "lower8(): scene has {s.sc_count} real layers, not 8 — the header would declare its own count while the record carries eight bands, and the runtime indexes bands off the header count")
+    return SceneCfg8{ hdr: scene_hdr(s),
+                      bands: [ scene_band(s, 0), scene_band(s, 1), scene_band(s, 2),
+                               scene_band(s, 3), scene_band(s, 4), scene_band(s, 5),
+                               scene_band(s, 6), scene_band(s, 7) ] }
 }
 
 // =====================================================================
@@ -504,9 +564,10 @@ pub equ SceneBudget_CapsFolded           = SceneRegistry_CapsFolded
 //     the witness can still compare the array VALUE (a Label's bytes are not comptime
 //     readable). ojz_scenes imports the six Labels back for its attachments.
 //
-// The record shape (lower1/2/4/5) is hand-picked per config and each lowerN asserts its
-// own arity — see their banner. Counts used: seven 1-band, one 2-band, two 4-band, ten
-// 5-band. No shipped config needs a 3/6/7/8-band shape.
+// The record shape is hand-picked per config and each lowerN asserts its own arity — see
+// their banner. Counts used HERE: seven 1-band, one 2-band, two 4-band, ten 5-band. No
+// SHIPPED config needs a 3/6/7/8-band shape — those four pairs exist because an editor
+// author can reach those counts, and are instantiated by the generated editor module.
 // =====================================================================
 pub data DeformTable_Zero:                    [i8; 256] = SceneSrc_DeformTable_Zero
 pub data ParallaxConfig_OJZ_Default:          SceneCfg4 = lower4(SCENES[0])

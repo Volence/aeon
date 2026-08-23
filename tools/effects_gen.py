@@ -146,6 +146,10 @@ LEFT_COL_MASK_NAMES = {
     "accept": "SceneLeftColMask.Accept",
 }
 
+# A MIRROR of engine/system/constants.emp's `MAX_PARALLAX_BANDS`, and it was unpinned
+# until the band-count-range parcel: nothing compared the two, so this could drift from
+# the engine silently in either direction. tools/test_scene_band_shape_coverage.py now
+# reads the engine constant and pins this against it.
 MAX_PARALLAX_BANDS = 8
 
 
@@ -745,7 +749,17 @@ def act_names(repo: str = REPO, zone: int = 0, act: int = 0) -> ActNames:
 # and are IMPORTED, never re-declared here: it stays the single authority for what a
 # lowered record looks like, and a band count it has no shape for is a refusal naming
 # that file rather than a second, drifting copy of `lowerN`.
-LOWERABLE_BAND_COUNTS = (1, 2, 4, 5)
+#
+# DERIVED FROM THE CEILING, NOT LISTED. This used to be the literal `(1, 2, 4, 5)` — the
+# counts the hand-authored scenes happened to use — which meant a writer-originated scene
+# with 3, 6, 7 or 8 layers was refused despite the engine admitting it (that is exactly
+# how Aurora's first writer-originated scene, an 8-layer one, was blocked). The registry
+# now declares a shape for every count in 1..MAX_PARALLAX_BANDS, so the lowerable set IS
+# that range, and tools/test_scene_band_shape_coverage.py holds the three mirrors
+# together: engine/system/constants.emp's constant, the MAX_PARALLAX_BANDS below, and the
+# `SceneCfgN`/`lowerN` pairs the registry actually declares. Move the constant and the
+# gate names the shapes that went missing rather than going quietly stale.
+LOWERABLE_BAND_COUNTS = tuple(range(1, MAX_PARALLAX_BANDS + 1))
 
 
 def _lowering(path: str, scene: dict) -> tuple:

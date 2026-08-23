@@ -79,7 +79,42 @@ nothing an author produces can reach a ROM yet. Its normative read set is alread
 `tools/EFFECTS_CONSUMER_CONTRACT.md` §2. Design: `specs/2026-08-22-aurora-effects-wave1-design.md`
 §7 enumerates the whole aeon lane. Both contract halves have landed (aeon + empyrean).
 
-**QUEUED — BAND-COUNT CEILING: the first writer-originated scene CANNOT BE LOWERED.**
+**CLOSED 2026-08-22 — BAND-COUNT CEILING** (branch `parcel/band-count-range`). The Aurora
+answer the entry was blocked on arrived and is *stronger* than "8 is where their agent
+stopped": the writer schema pins `layers` at `minItems 1 / maxItems 8`, Aurora's editor
+computes its Add-layer cap **from that schema at load**, and 8 is `MAX_PARALLAX_BANDS` —
+the engine's own declared maximum, already pinned at `engine/level/scene_dsl.emp:54` and
+enforced by `scene()`. So every count in 1..8 is reachable and the range was closed for
+good, per this entry's own "if 1-8 all reachable" branch.
+
+What shipped:
+- `SceneCfg3/6/7/8` + `lower3/6/7/8` in `scene_registry.emp`, `pub` and shaped exactly like
+  1/2/4/5 — **all four**, not just the `lower8` that unblocked the fixture. Adding only 8
+  would have left 3/6/7 as the next arbitrary set with the discovering artifact spent.
+- `tools/test_scene_band_shape_coverage.py` — the durable half. It DERIVES the required set
+  from `MAX_PARALLAX_BANDS` (read out of `engine/system/constants.emp` via
+  `effects_budget_check.emp_constants`), so coverage is a property of the constant: move it
+  to 10 and the gate names 9 and 10 as missing instead of going stale (measured — see the
+  file's PROVEN RED banner). Runs in `build.sh`'s build-fatal `python3 -m pytest tools` lane.
+- It also closed a second, unrelated drift axis found on the way: `tools/effects_gen.py`
+  carried its own `MAX_PARALLAX_BANDS = 8` that **nothing compared to the engine**. Now
+  pinned, and `LOWERABLE_BAND_COUNTS` is `range(1, MAX+1)` rather than a literal list.
+- End-to-end proof: the 966-byte Aurora fixture was placed, assigned at
+  `project.json` `zones[0].acts[0].sceneRef`, `effects_gen.py emit` succeeded, and the ROM
+  built and linked with a real 8-band scene lowered through the real `scene()`/`layer()`.
+  The fixture was then torn down — it is content and Aurora's to author.
+- **NOT fixed, and deliberately so:** an ANCHORED 8-band scene is still refused
+  (`scene_dsl.emp:1062` — an anchor splits a layer at runtime and needs `count+1` shadow
+  entries, and `Parallax_Shadow_Bands` is sized for eight). That is a real engine limit, not
+  a missing `SceneCfg9`, and the gate asserts no shape exceeds the ceiling so nobody
+  "fixes" it that way.
+
+The original entry follows, unedited, because its reasoning about WHY the defect existed
+(a demand-driven set read as a list rather than a ceiling) is the part worth keeping.
+
+---
+
+**~~QUEUED~~ — BAND-COUNT CEILING: the first writer-originated scene CANNOT BE LOWERED.**
 Found 2026-08-22 by running `effects_gen.py emit` against Aurora's writer-originated fixture
 (`test/fixtures/effects/writer_session_ojz.json`, blob `07547231a860555ac79a681898b38713bbe7ef78`
 at aurora `c72a4270` — blob extracted and **hashed here**, ancestry confirmed at their origin).

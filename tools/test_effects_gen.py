@@ -774,15 +774,44 @@ class TestGeneratedModuleShape(AssignmentBase):
         self.assertIn(f"fold_caps({names.scene_array})", text)
         self.assertIn("Game.SCANLINE_CAPS", text)
 
+    def test_every_band_count_the_engine_admits_now_lowers(self):
+        """The band-count-range parcel: scene_registry.emp declares a shape for every
+        count in 1..MAX_PARALLAX_BANDS, so 3, 6, 7 and 8 lower like 1, 2, 4 and 5 do.
+
+        This test used to assert the OPPOSITE for three-band scenes — it was the
+        codification of the defect, not a guard against one. The coverage property
+        itself (shape set == 1..MAX_PARALLAX_BANDS, derived from the constant) is
+        tools/test_scene_band_shape_coverage.py's subject; this end is the generator's
+        behaviour on a scene of each count."""
+        for n in (3, 6, 7, 8):
+            with self.subTest(layers=n):
+                sid = "count%d" % n
+                self.write_scene(sid, layers=[
+                    {"world_y": i * 32, "fa": "FACTOR_1", "fb": "FACTOR_1"}
+                    for i in range(n)])
+                self.write_sidecar(0, {"sceneRef": sid})
+                _, text = self.render()
+                self.assertIn("SceneCfg%d = lower%d(" % (n, n), text)
+
     def test_a_band_count_with_no_registry_shape_is_refused_by_name(self):
-        """Three-band scenes have no `SceneCfg3`/`lower3`. The refusal names
-        scene_registry.emp as the place to add one — never a second lowering in
+        """The refusal STAYS — it is what makes a missing shape a named, actionable
+        failure instead of a generated `lowerN(` that dies at link. With the range
+        closed nothing in 1..MAX can reach it, so the shape set is narrowed here to
+        exercise the guard rather than deleting it from the registry (which is the
+        gate's red-first job, not this file's).
+
+        It names scene_registry.emp as the place to add one — never a second lowering in
         generated code, which is how two copies of a lowering start drifting."""
         self.write_scene("three", layers=[
             {"world_y": i * 32, "fa": "FACTOR_1", "fb": "FACTOR_1"} for i in range(3)])
         self.write_sidecar(0, {"sceneRef": "three"})
-        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
-            self.render()
+        real = effects_gen.LOWERABLE_BAND_COUNTS
+        effects_gen.LOWERABLE_BAND_COUNTS = tuple(c for c in real if c != 3)
+        try:
+            with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                self.render()
+        finally:
+            effects_gen.LOWERABLE_BAND_COUNTS = real
         msg = str(ctx.exception)
         self.assertIn("scene_registry.emp", msg)
         self.assertIn("SceneCfg3", msg)
