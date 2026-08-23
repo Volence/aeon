@@ -79,6 +79,39 @@ nothing an author produces can reach a ROM yet. Its normative read set is alread
 `tools/EFFECTS_CONSUMER_CONTRACT.md` §2. Design: `specs/2026-08-22-aurora-effects-wave1-design.md`
 §7 enumerates the whole aeon lane. Both contract halves have landed (aeon + empyrean).
 
+**QUEUED — BAND-COUNT CEILING: the first writer-originated scene CANNOT BE LOWERED.**
+Found 2026-08-22 by running `effects_gen.py emit` against Aurora's writer-originated fixture
+(`test/fixtures/effects/writer_session_ojz.json`, blob `07547231a860555ac79a681898b38713bbe7ef78`
+at aurora `c72a4270` — blob extracted and **hashed here**, ancestry confirmed at their origin).
+
+The scene has **8 layers**. `games/sonic4/data/effects/scene_registry.emp` declares
+`SceneCfg1/2/4/5` and `lower1/2/4/5` and **nothing else**, so 3, 6, 7 and 8 all refuse:
+
+> `effects_gen: REFUSED — : scene has 8 layers, and …scene_registry.emp declares record shapes
+> for 1, 2, 4, 5 bands only. Adding one is a mechanical copy there (a SceneCfg8 struct and a
+> lower8 with 8 scene_band terms), made pub like the others — never a second lowering in
+> generated code.`
+
+**Nothing is broken** — the refusal is correct, loud, names the file and states the fix; there
+is no silent wrong lowering, and the P5 seam is unaffected (this is a band-count table, not the
+binding path). **The set was demand-driven**: 1/2/4/5 is exactly what the shipped hand scenes
+happened to need (`lower4`, `lower5`), and nobody noticed it was a **ceiling rather than a
+list** until content authored outside that habit arrived.
+
+**Do NOT fix by guessing the ceiling, and do NOT ask Aurora to re-author the fixture with fewer
+layers** — it is more valuable failing than passing, and trimming it to fit destroys the
+property that found this. **Blocked on one answer from Aurora, already asked:** is 8 a hard cap
+in the panel or just where their agent stopped pressing, and is every count from 1 to that max
+reachable? If 1-8 all reachable → add 3, 6, 7, 8 and close the range for good. If the panel goes
+past 8 → an owner-facing question, because band count stops being free eventually.
+
+**Why this is the session's best argument for writer-originated fixtures.** `canopy_dusk.json`
+is exhaustive shape coverage over the *schema* and could never have found this: the schema does
+not know band counts are the constraint, so no amount of key/form coverage reaches it. Aurora's
+panel, enumerating over **the app's own vocabulary** (press Add-layer until it stops), walked
+into it immediately. Genuinely different enumeration parameters — corroboration, not echo — and
+it cost one command.
+
 **QUEUED — `games/sonic4/map.toml`'s fault-handler header comment is STALE and says the
 opposite of what ships.** Found by the README agent as an out-of-parcel observation it
 correctly declined to touch; confirmed here.
