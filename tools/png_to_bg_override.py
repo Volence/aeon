@@ -14,7 +14,15 @@ PALETTE MODES:
                   art sharing that CRAM line). Single line.
 
 Hard gates: image tile-aligned (8x8); width divides the 512px plane;
-<= 448 unique flip-canonical tiles. BG is opaque (index 0 excluded).
+unique flip-canonical tiles <= BG_STATIC_TILE_BUDGET. BG is opaque (index 0
+excluded).
+
+TILE BUDGET: the ceiling is NOT the full bg_region. `band_reserve` in
+games/sonic4/vram.toml withholds tiles for BgAnim band art that is inserted at
+the front of the blob afterwards, and this tool refuses above
+capacity - reserve. That reserve lives in the TOML and not in a --max-tiles flag
+on purpose: a flag is forgotten on the next import, which is exactly how the
+reserve reached zero and took two shipped bands with it (docs/BUGS.md TOOL-01).
 
 FILE OWNERSHIP: this tool rewrites editor_bg_override.json wholesale, so it
 reads the file first. Its own keys (OWNED_KEYS) are carried across a run that
@@ -39,8 +47,15 @@ PLANE_W = 64          # cells; 512 px, the horizontal wrap period
 PLANE_H = 64          # cells; VDP Plane B is 64x64 for OJZ
 # BG_TILE_CAPACITY is imported from the generated registry mirror — one
 # authority (tools/vram_map.py <- games/sonic4/vram.toml), not a restated literal.
+#
+# BG_STATIC_TILE_BUDGET is what THIS tool gates on: BG_TILE_CAPACITY minus
+# bg_region's declared `band_reserve`. The capacity is the hard VRAM boundary;
+# the budget is this importer's share of it, with the remainder held back for
+# BgAnim band art that gets inserted at the front of the blob afterwards.
+# The subtraction happens once, in the generator — this tool never restates it.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from vram_map import GAME as _VRAM_MAP_GAME, BG_TILE_CAPACITY
+from vram_map import (GAME as _VRAM_MAP_GAME, BG_TILE_CAPACITY,
+                      BG_BAND_RESERVE, BG_STATIC_TILE_BUDGET)
 assert _VRAM_MAP_GAME == 'sonic4', (
     f"tools/vram_map.py was generated for {_VRAM_MAP_GAME!r}, not sonic4 — "
     "regenerate: python3 tools/gen_vram_map.py --game sonic4 "
@@ -138,6 +153,43 @@ def canonical(t):
     return min(v.tobytes() for v in flip_variants(t).values())
 
 
+def check_tile_budget(n_tiles):
+    """Refuse art that does not fit the STATIC importer's share of bg_region.
+
+    Exits non-zero when n_tiles exceeds BG_STATIC_TILE_BUDGET. Split out of
+    main() so the boundary is testable exactly, at BUDGET and BUDGET+1, without
+    having to synthesise art of a precise unique-tile count — main() calls this,
+    so the tested path is the shipped one.
+
+    The message states BOTH numbers because the reserve only works if the art
+    side is told the real ceiling WHILE iterating; "too many tiles" alone wastes
+    the mechanism. It also branches on the reserve: with none declared there is
+    no headroom being held back, and saying otherwise would be a fabricated
+    reason attached to a correct verdict.
+    """
+    if n_tiles <= BG_STATIC_TILE_BUDGET:
+        return
+    if BG_BAND_RESERVE:
+        sys.exit(
+            f"ERROR: {n_tiles} unique tiles > {BG_STATIC_TILE_BUDGET} static budget.\n"
+            f"  bg_region holds {BG_TILE_CAPACITY} tiles, of which band_reserve = "
+            f"{BG_BAND_RESERVE} are withheld\n"
+            f"  for BgAnim band art, leaving {BG_TILE_CAPACITY} - {BG_BAND_RESERVE} = "
+            f"{BG_STATIC_TILE_BUDGET} for this import.\n"
+            f"  Simplify the art by {n_tiles - BG_STATIC_TILE_BUDGET} unique tiles "
+            "(flatter / more repetitive),\n"
+            "  or lower band_reserve in games/sonic4/vram.toml and regenerate — that is\n"
+            "  the animation-vs-detail trade, and spending it here costs band space.")
+    sys.exit(
+        f"ERROR: {n_tiles} unique tiles > {BG_STATIC_TILE_BUDGET} static budget.\n"
+        f"  That is the whole {BG_TILE_CAPACITY}-tile bg_region: band_reserve is 0, so\n"
+        "  nothing is being held back — the art itself does not fit.\n"
+        f"  Simplify it by {n_tiles - BG_STATIC_TILE_BUDGET} unique tiles "
+        "(flatter / more repetitive).\n"
+        "  NOTE: at band_reserve = 0 no BgAnim band can be inserted afterwards at any\n"
+        "  size; raising it in games/sonic4/vram.toml lowers this budget further.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("image")
@@ -209,9 +261,7 @@ def main():
             line_hist[line] = line_hist.get(line, 0) + 1
             layout.append(int(tile_word(idx, line)))
 
-    if len(blob) > BG_TILE_CAPACITY:
-        sys.exit(f"ERROR: {len(blob)} tiles > {BG_TILE_CAPACITY} budget. Make the art "
-                 "flatter / more repetitive.")
+    check_tile_budget(len(blob))
 
     out = {"layout": layout, "tiles": [t.reshape(-1).astype(int).tolist() for t in blob]}
     if stamp_palette:
@@ -251,7 +301,10 @@ def main():
                if k in out and not stamp_palette]
     mode = "EXTRACT+stamp" if stamp_palette else f"lock (lines {args.lines})"
     print(f"[png_to_bg_override] {args.image} {w}x{h} ({tw}x{th}) — {mode}")
-    print(f"  unique tiles: {len(blob)}/{BG_TILE_CAPACITY}")
+    print(f"  unique tiles: {len(blob)}/{BG_STATIC_TILE_BUDGET}"
+          + (f"  (bg_region {BG_TILE_CAPACITY} - band_reserve {BG_BAND_RESERVE})"
+             if BG_BAND_RESERVE else
+             f"  (all {BG_TILE_CAPACITY} of bg_region; band_reserve = 0)"))
     print(f"  cells per CRAM line: " +
           ", ".join(f"line{k}={v}" for k, v in sorted(line_hist.items())))
     if carried:

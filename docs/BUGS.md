@@ -37,6 +37,62 @@ Open defects with reproduction notes and any captured live-emulator evidence. Ne
 > around it is *promotion* (convert existing static tiles into a band, `tiles.length`
 > unchanged), which is why promotion landed before insertion in their lane; that route works
 > under a saturated blob but can only animate art that is already there.
+>
+> ### ✅ The generator lever landed 2026-08-22 — `band_reserve` (parcel `parcel/bg-band-reserve`)
+>
+> `bg_region` in `games/sonic4/vram.toml` now carries **`band_reserve`**, flowing through
+> `gen_vram_map.py` into `tools/vram_map.py` as `BG_BAND_RESERVE` + the pre-subtracted
+> `BG_STATIC_TILE_BUDGET`. `png_to_bg_override.py` refuses above the **budget**, not the
+> capacity, naming the reserve and both numbers so the art side is told the real ceiling
+> *while* iterating rather than after the fact.
+>
+> **It ships at 0**, so this blob and every current byte are unchanged (all four ROM shapes
+> CRC-identical, rebuilt after `rm`). The number is the owner's, to be set at the next art
+> pass — it is the animation-vs-detail dial, and setting it is a one-line edit plus a
+> regenerate, both now gated (see the staleness note below).
+>
+> **It lives in the TOML and not in a `--max-tiles` flag deliberately.** A flag is forgotten
+> on the next import, which recreates this exact defect. `vram.toml` is already the single
+> authority for the BG region, and band space genuinely *is* a VRAM reservation.
+>
+> `BG_TILE_CAPACITY` keeps its meaning as the hard VRAM boundary: `inject_editor_bg.py` still
+> gates the **final** blob on it, because a band's tiles live *inside* `tiles`, not beside it.
+> The reserve constrains the static importer alone — the tool that authors no bands and so
+> must leave room for one. `forest_bg_gen.py` is deliberately **not** gated by it: it authors
+> `layout`/`tiles`/`anims` as one coherent set, so its bands are not an insertion.
+>
+> **No `.emp` constant was added.** Nothing in the engine reads the reserve — `constants.emp`
+> already says as much of `BG_TILE_CAPACITY` itself ("gates the build tools; engine code
+> doesn't read it") — and there is no engine-side value for an `authority` cross-check to
+> compare against, so the `ensure` would check a value against itself. Pinned by
+> `test_reserve_does_not_change_the_emp_block`.
+>
+> ### ⚠️ CORRECTION to the sizing folklore: the historical shape was **not** "192 of 448"
+>
+> Measured against `b0e5a661`'s actual JSON, not inferred from the band dimensions:
+>
+> ```
+> len(tiles) = 340
+> band 0: slot_base   0, 32x4 = 128 slots, 8 phases, phases[0] == tiles[0:128]     -> True
+> band 1: slot_base 128, 16x4 =  64 slots, 8 phases, phases[0] == tiles[128:192]   -> True
+> total animated 192   purely static 148   unused headroom to the 448 ceiling 108
+> ```
+>
+> The 192 animated slots are a **subset of the 340-tile blob, never an addition to it** — a
+> band's phase-0 *is* the static art at those slots. So "192 reserved leaving 256 static" is
+> wrong on both halves: the static art was 148, and 108 slots were simply never spent.
+> Reproducing that shape means `band_reserve = 192` with the static import held to 256, which
+> is *more* animated art relative to static than the original carried.
+>
+> ### ⚠️ Found while landing the above: `gen_vram_map.py` has NO automated caller
+>
+> Its five outputs (`tools/vram_map.py`, both `config/constants.emp` blocks, both map docs)
+> are committed artifacts regenerated **by hand**, and the `authority` `ensure`s are emitted
+> *into* the block that would have to guard them — so a stale block cross-checks a stale value
+> and passes. Editing `vram.toml` and forgetting to regenerate was completely invisible.
+> `tools/test_gen_vram_map.py::test_generated_artifacts_are_in_sync` now regenerates all five
+> for both games and diffs them, printing the regenerate commands on failure. It rides
+> `build.sh`'s existing `pytest tools` lane, so there is no new build stage.
 
 > **The rule this closure implements now has a contract home: empyrean `8e55475`**
 > (`docs/AURORA_EFFECTS_SCHEMA.md` §5.2, reachable from empyrean `origin/main` — verified,
@@ -119,6 +175,12 @@ Before this parcel `test_bg_emit.py` had **no** assertion touching `anims`, `slo
 destruction and gates the invariant. Re-running `tools/forest_bg_gen.py` reproduces them
 exactly (340 tiles, 192 animated, coherence-clean, verified), but re-enabling OJZ BG animation
 is a content decision with a ROM-size and BgAnim-budget cost, so it is left to the owner.
+
+**Also still open after `band_reserve` (2026-08-22):** the reserve makes future band space
+*reachable*, but it does not create space in **this** blob. At `band_reserve = 0` the shipped
+448/448 art is untouched and insertion stays impossible; raising the reserve only takes effect
+on the **next** import, which must then re-quantise the art to the smaller budget. So the
+owner's two decisions are still coupled — pick the reserve and re-import the art in one pass.
 
 > ### ⚠️ Why REFUSAL and not a merge — this is terminal for these tools, not a placeholder
 >

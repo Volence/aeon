@@ -315,3 +315,194 @@ def test_real_sonic4_map_verifies_and_matches_reality(tmp_path):
                      "pub const VRAM_TEST_MARKER", "$03F8",
                      "pub const VRAM_TAILS_APPENDAGE", "$05D4"):
         assert expected in emp, expected
+
+
+# ---------------------------------------------------------------------------
+# band_reserve — the BG animation tile reserve (docs/BUGS.md TOOL-01).
+#
+# The reserve withholds tiles at the top of bg_region from the STATIC BG
+# importer so a BgAnim band can be inserted afterwards. It lives in vram.toml
+# rather than in a --max-tiles flag because a flag is forgotten on the next
+# import, which is exactly how the reserve reached zero.
+# ---------------------------------------------------------------------------
+
+def _py_ns(tmp_path, toml_text):
+    """Generate the --py mirror from toml_text and return its namespace."""
+    r = run(tmp_path, toml_text, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode == 0, r.stderr
+    ns = {}
+    exec((tmp_path / "vram_map.py").read_text(), ns)
+    return ns
+
+
+def test_reserve_absent_defaults_to_zero_and_full_budget(tmp_path):
+    # PY_GOOD declares no band_reserve: absent must mean "as before the field
+    # existed", so the budget is the whole region.
+    ns = _py_ns(tmp_path, PY_GOOD)
+    assert ns["BG_BAND_RESERVE"] == 0
+    assert ns["BG_STATIC_TILE_BUDGET"] == ns["BG_TILE_CAPACITY"]
+
+
+def test_reserve_subtracts_from_the_static_budget(tmp_path):
+    reserved = PY_GOOD.replace('name = "bg_region"',
+                               'name = "bg_region"\nband_reserve = 192')
+    ns = _py_ns(tmp_path, reserved)
+    assert ns["BG_BAND_RESERVE"] == 192
+    # derived from the emitted capacity, not from a literal 448 or 256
+    assert ns["BG_STATIC_TILE_BUDGET"] == ns["BG_TILE_CAPACITY"] - 192
+    # the capacity itself must NOT move: it is the hard VRAM boundary, and
+    # inject_editor_bg.py still gates the FINAL blob (bands included) on it
+    assert ns["BG_TILE_CAPACITY"] == ns["REGIONS"]["bg_region"]["tiles"]
+
+
+def test_reserve_equal_to_the_region_is_allowed(tmp_path):
+    reserved = PY_GOOD.replace('name = "bg_region"',
+                               'name = "bg_region"\nband_reserve = 448')
+    ns = _py_ns(tmp_path, reserved)
+    assert ns["BG_STATIC_TILE_BUDGET"] == 0
+
+
+def test_reserve_larger_than_the_region_is_an_error(tmp_path):
+    bad = PY_GOOD.replace('name = "bg_region"',
+                          'name = "bg_region"\nband_reserve = 449')
+    r = run(tmp_path, bad, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode != 0
+    assert "band_reserve" in r.stderr and "449" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
+def test_negative_reserve_is_an_error(tmp_path):
+    bad = PY_GOOD.replace('name = "bg_region"',
+                          'name = "bg_region"\nband_reserve = -1')
+    r = run(tmp_path, bad, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode != 0
+    assert "band_reserve" in r.stderr
+
+
+def test_boolean_reserve_is_an_error(tmp_path):
+    # bool is an int subclass in Python: `band_reserve = true` must not read
+    # as a 1-tile reserve
+    bad = PY_GOOD.replace('name = "bg_region"',
+                          'name = "bg_region"\nband_reserve = true')
+    r = run(tmp_path, bad, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode != 0
+    assert "band_reserve" in r.stderr and "integer" in r.stderr
+
+
+def test_reserve_on_another_region_is_a_loud_error(tmp_path):
+    # only bg_region's reserve is honoured; anywhere else it would be silently
+    # ignored, which is the same defect class the registry exists to prevent
+    bad = PY_GOOD.replace('name = "fg_art_pool"',
+                          'name = "fg_art_pool"\nband_reserve = 64')
+    r = run(tmp_path, bad, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode != 0
+    assert "band_reserve" in r.stderr and "fg_art_pool" in r.stderr
+    assert "bg_region" in r.stderr          # names where it DOES belong
+
+
+def test_reserve_appears_in_the_occupancy_map(tmp_path):
+    # a reserve invisible in the map doc is a reserve that gets forgotten
+    reserved = PY_GOOD.replace('name = "bg_region"',
+                               'name = "bg_region"\nband_reserve = 192')
+    r = run(tmp_path, reserved, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode == 0, r.stderr
+    doc = (tmp_path / "map.md").read_text()
+    assert "band_reserve: 192" in doc
+    assert "static budget 256" in doc       # 448 - 192, from the same row
+
+
+def test_zero_reserve_adds_no_map_doc_noise(tmp_path):
+    r = run(tmp_path, PY_GOOD, extra=["--py", str(tmp_path / "vram_map.py")])
+    assert r.returncode == 0, r.stderr
+    assert "band_reserve" not in (tmp_path / "map.md").read_text()
+
+
+def test_reserve_does_not_change_the_emp_block(tmp_path):
+    """The reserve is a build-tool budget; no engine constant mirrors it.
+
+    Nothing in .emp reads it, so an engine constant would be unread AND its
+    authority cross-check would be circular (checking a value against itself).
+    This pins that decision: changing the reserve must not move ROM bytes.
+    """
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir(); b.mkdir()
+    assert run(a, PY_GOOD).returncode == 0
+    reserved = PY_GOOD.replace('name = "bg_region"',
+                               'name = "bg_region"\nband_reserve = 192')
+    assert run(b, reserved).returncode == 0
+    assert (a / "constants.emp").read_text() == (b / "constants.emp").read_text()
+
+
+# ---------------------------------------------------------------------------
+# Staleness: gen_vram_map.py has NO automated caller — its outputs are
+# committed artifacts regenerated by hand. So editing vram.toml and forgetting
+# to regenerate went completely unnoticed: the `ensure`s live INSIDE the
+# generated block, so a stale block cross-checks a stale value and passes.
+# This makes "setting the reserve is a one-line data edit" actually true, by
+# failing the build (pytest runs in build.sh) when the edit is not regenerated.
+# ---------------------------------------------------------------------------
+
+GAMES = ["sonic4", "demo"]
+
+
+def _regen(tmp_path, game, with_py):
+    import shutil
+    emp_rel = f"games/{game}/config/constants.emp"
+    doc_rel = f"docs/generated/vram-map-{game}.md"
+    shutil.copy(os.path.join(REPO, emp_rel), tmp_path / "constants.emp")
+    args = [sys.executable, GEN, "--game", game,
+            "--toml", os.path.join(REPO, f"games/{game}/vram.toml"),
+            "--emp", str(tmp_path / "constants.emp"),
+            "--map-doc", str(tmp_path / "map.md")]
+    if with_py:
+        args += ["--py", str(tmp_path / "vram_map.py")]
+    r = subprocess.run(args, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    out = {emp_rel: (tmp_path / "constants.emp"), doc_rel: (tmp_path / "map.md")}
+    if with_py:
+        out["tools/vram_map.py"] = tmp_path / "vram_map.py"
+    return out
+
+
+def test_generated_artifacts_are_in_sync(tmp_path):
+    """Every committed gen_vram_map.py output must match a fresh regeneration.
+
+    Nothing else checks this: the generator has no caller in build.sh, and the
+    authority `ensure`s are emitted INTO the block they would have to guard.
+    """
+    stale = []
+    for game in GAMES:
+        d = tmp_path / game
+        d.mkdir()
+        # --py is the sonic4 mirror only (the build tools import from it)
+        for rel, fresh in _regen(d, game, with_py=(game == "sonic4")).items():
+            committed = os.path.join(REPO, rel)
+            assert os.path.exists(committed), f"{rel} is missing from the repo"
+            if open(committed).read() != fresh.read_text():
+                stale.append(rel)
+    assert not stale, (
+        "these committed artifacts do not match games/<game>/vram.toml:\n  "
+        + "\n  ".join(stale)
+        + "\nRegenerate them:\n"
+        "  python3 tools/gen_vram_map.py --game sonic4 "
+        "--toml games/sonic4/vram.toml --py tools/vram_map.py "
+        "--emp games/sonic4/config/constants.emp "
+        "--map-doc docs/generated/vram-map-sonic4.md\n"
+        "  python3 tools/gen_vram_map.py --game demo "
+        "--toml games/demo/vram.toml "
+        "--emp games/demo/config/constants.emp "
+        "--map-doc docs/generated/vram-map-demo.md")
+
+
+def test_the_sync_gate_covers_the_mirror_the_tools_import(tmp_path):
+    """Guard the guard above: it must compare the file consumers actually use.
+
+    A sync test pointed at a path nothing imports would be vacuous, and this
+    repo has shipped exactly that (a lint over one no-op file).
+    """
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import vram_map
+    assert os.path.normpath(vram_map.__file__) == \
+        os.path.normpath(os.path.join(REPO, "tools/vram_map.py")), \
+        "the importable vram_map is not the committed one the sync gate checks"
+    assert "tools/vram_map.py" in _regen(tmp_path, "sonic4", with_py=True)
