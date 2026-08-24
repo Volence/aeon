@@ -289,9 +289,67 @@ def render_factor(path: str, value, where: str) -> str:
         if extra:
             _refuse(path, f"{where}: composed factor carries unknown key(s) "
                           f"{', '.join(extra)}; it is exactly {{s1, s2, op}}.")
-        return (f"packed(s1: {value['s1']}, s2: {value['s2']}, op: {value['op']})")
+        s1, s2, op = (_render_int(path, value[k], f"{where}.{k}")
+                      for k in ("s1", "s2", "op"))
+        return f"packed(s1: {s1}, s2: {s2}, op: {op})"
     _refuse(path, f"{where}: factor must be a FACTOR_* name or a {{s1, s2, op}} "
                   f"object, got {type(value).__name__}")
+
+
+def _render_int(path: str, value, where: str) -> str:
+    """A slot that becomes an INTEGER LITERAL in the generated `.emp`.
+
+    THIS IS A SHAPE CHECK AND NOT A VALUE CHECK, and the distinction is the whole
+    reason it is allowed to exist here: it says "this must be a number" and says
+    NOTHING about which numbers are legal. The ranges belong to `scene()` / `layer()`
+    (see the SHAPE-vs-VALUE paragraph in this module's docstring); a bound copied down
+    here would be the second source that drifts.
+
+    THE DEFECT IT EXISTS FOR. Every scalar slot is interpolated verbatim into
+    generated source, so a STRING there does not become a quoted value — it becomes a
+    bare SYMBOL. Aurora's new-scene default for `v_factor` is the string `"FACTOR_0"`,
+    and `FACTOR_0` is `parallax_dsl`'s PACKED HORIZONTAL factor (`FACTOR_LOCKED` =
+    `$0FF` = 255), while `sc_v_factor` is a RAW SHIFT whose lock sentinel is 15. Two
+    namespaces, one field name. Because `parallax_dsl` is a sigil COMPTIME_HELPERS
+    member and is glob-injected into every module, that name RESOLVES wherever the
+    generated scene lands — and 255 fits the `u8`, so nothing downstream objects. The
+    scene assembles green with a number nobody authored.
+
+    `bool` is refused on purpose: `isinstance(True, int)` is true in Python, and
+    `f"{True}"` interpolates as the bare word `True`, which is not an `.emp` integer.
+    `enabled` is the one field the writer schema genuinely spells as a boolean, and it
+    is TRANSLATED by `_render_bool_int` below rather than passed through here.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        _refuse(path, f"{where}: expected an integer, got {type(value).__name__} "
+                      f"{value!r}. This slot is interpolated verbatim into generated "
+                      f"`.emp` as a bare integer literal, so a non-integer lands "
+                      f"there as a SYMBOL rather than a number — and a symbol that "
+                      f"happens to resolve (every parallax_dsl FACTOR_* does; they "
+                      f"are glob-injected into every module) assembles silently with "
+                      f"a value nobody authored. Whether the number is in RANGE is "
+                      f"the constructor's question, not this tool's.")
+    return str(value)
+
+
+def _render_bool_int(path: str, value, where: str) -> str:
+    """`enabled` — the one field the writer spells as a JSON boolean.
+
+    Read from the WRITER's own schema rather than inferred from our field list
+    (empyrean `contract/schema/aurora-effects-scene.schema.json`, `$defs.layer.enabled`
+    = `{"type": "boolean", "default": true}`), while `layer()` takes `enabled: int = 1`
+    (`engine/level/scene_dsl.emp`). Passing the JSON value straight through emits the
+    bare words `True` / `False` into `.emp` — the same class of defect as slices 1-2
+    emitting `precision: cell`, and the same fix: translate the writer's spelling
+    instead of forwarding it. This is the cross-repo lesson the ATTACH_NONE block
+    records, applied to the second field it bites.
+
+    An integer is accepted as a synonym, for ATTACH_NONE's reason: unambiguous, costs
+    nothing, and it is what a hand-written fixture spells.
+    """
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    return _render_int(path, value, where)
 
 
 def is_absent(value) -> bool:
@@ -415,6 +473,8 @@ def render_table_ref(path: str, ref, where: str, tables: TableRegistry) -> str:
     fn, params = TABLE_GENERATORS[gen]
     values = _fields(path, {k: v for k, v in ref.items() if k != "generator"},
                      params, f"{where}.{gen}")
+    values = [_render_int(path, v, f"{where}.{gen}.{p}")
+              for p, v in zip(params, values)]
     args = ", ".join(f"{p}: {v}" for p, v in zip(params, values))
     key = f"{gen}:" + ",".join(str(v) for v in values)
     label = "EditorDeform_" + gen + ("_" + "_".join(str(v) for v in values)
@@ -444,7 +504,9 @@ def render_table_attachment(path: str, value, key: str, arm: str, where: str,
         variant = "SceneVDeform.Columns"
     vals = _fields(path, body, fields, f"{where}.{key}.{arm}")
     label = render_table_ref(path, vals[0], f"{where}.{key}.{arm}.table", tables)
-    rest = ", ".join(str(v) for v in vals[1:])
+    # fields[0] is the tableRef; everything after it is a bare integer payload slot.
+    rest = ", ".join(_render_int(path, v, f"{where}.{key}.{arm}.{f}")
+                     for f, v in zip(fields[1:], vals[1:]))
     return f"{variant}({label}" + (f", {rest}" if rest else "") + ")"
 
 
@@ -455,12 +517,14 @@ def render_curve(path: str, value, where: str) -> str:
 
 
 def render_vsplit(path: str, value, where: str) -> str:
-    """`{"at": <int>}` → `SceneVSplit.At(<int>)`."""
+    """`{"at": <int>}` → `SceneVSplit.At(<int>)`.
+
+    The integer check was this file's FIRST one, written inline before the hole was
+    understood to be general; it now defers to `_render_int` so there is one rule
+    rather than one precedent and seven slots that never got it.
+    """
     at = _single_arm(path, value, "at", where)
-    if not isinstance(at, int) or isinstance(at, bool):
-        _refuse(path, f"{where}.at: must be an integer scanline, got "
-                      f"{type(at).__name__}")
-    return f"SceneVSplit.At({at})"
+    return f"SceneVSplit.At({_render_int(path, at, where + '.at')})"
 
 
 def render_anchor(path: str, value, where: str) -> str:
@@ -469,7 +533,9 @@ def render_anchor(path: str, value, where: str) -> str:
     if not isinstance(at, dict):
         _refuse(path, f"{where}.at: must be an object with channel/dsa/dsb, got "
                       f"{type(at).__name__}")
-    ch, dsa, dsb = _fields(path, at, ("channel", "dsa", "dsb"), where + ".at")
+    vals = _fields(path, at, ("channel", "dsa", "dsb"), where + ".at")
+    ch, dsa, dsb = (_render_int(path, v, f"{where}.at.{f}")
+                    for f, v in zip(("channel", "dsa", "dsb"), vals))
     return f"SceneAnchor.At({ch}, {dsa}, {dsb})"
 
 
@@ -483,12 +549,13 @@ def _render_enum(path: str, value, table: dict, where: str) -> str:
 
 def render_layer(path: str, layer: dict, where: str,
                  tables: TableRegistry) -> str:
-    args = [f"world_y: {layer['world_y']}",
+    args = [f"world_y: {_render_int(path, layer['world_y'], where + '.world_y')}",
             f"fa: {render_factor(path, layer['fa'], where + '.fa')}",
             f"fb: {render_factor(path, layer['fb'], where + '.fb')}"]
     for key in LAYER_SCALARS:
         if layer.get(key) is not None:
-            args.append(f"{key}: {layer[key]}")
+            render = _render_bool_int if key == "enabled" else _render_int
+            args.append(f"{key}: {render(path, layer[key], f'{where}.{key}')}")
     if not is_absent(layer.get("curve")):
         args.append(f"curve: {render_curve(path, layer['curve'], where + '.curve')}")
     if not is_absent(layer.get("vsplit")):
@@ -527,7 +594,8 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
             f"    count: {len(layers)}"]
     for key in SCENE_SCALARS:
         if scene.get(key) is not None:
-            body.append(f"    {key}: {scene[key]}")
+            body.append(f"    {key}: "
+                        + _render_int(path, scene[key], f"scene.{key}"))
     # Enum-valued fields: lowercase schema strings, `.emp` constants.
     if scene.get("precision") is not None:
         body.append("    precision: " + _render_enum(
