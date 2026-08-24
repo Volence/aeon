@@ -1,21 +1,21 @@
 {
-  "focus": "You said keep it in place. Agent building the fix now; aurora reruns the moment it lands.",
-  "inFlight": [
+  "focus": "The ceiling is far tighter than I told you and the limit is in the assembler. Ask sent there; one call from you.",
+  "inFlight": [],
+  "blockedOnOwner": [
     {
-      "what": "Giving the animation slot a real size that fits, and a clear error when a band is too big",
-      "where": "branch parcel/bganim-slot-ceiling",
-      "agent": true
+      "id": "d-11",
+      "what": "what to do while the assembler lane looks at the real ceiling",
+      "since": "2026-08-24"
     }
   ],
-  "blockedOnOwner": [],
-  "nextBoundary": "After this parcel lands and aurora confirms their scene builds. That closes the pair.",
+  "nextBoundary": "Clean - the refusal gate landed and pushed. Next move waits on your call and on the sigil lane.",
   "queue": [
     {
       "id": "BGANIM-PLACE",
       "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing can be hand-moved; the table gets re-derived with a real band present. Measured since: the knock-on stops dead at a hardware-pinned address, so five entries shift and the sound data cannot move at all. Smaller than it first looked.",
-      "state": "doing",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil's measuring-spread step caps a growing section at 0x400; ask sent",
       "project": "EFFECTS-W1"
     },
     {
@@ -49,5 +49,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T18:47:38Z"
+  "updatedAt": "2026-08-24T19:25:49Z"
 }
