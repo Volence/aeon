@@ -14,7 +14,7 @@
     },
     {
       "id": "BGANIM-PLACE",
-      "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing is misplaced and nothing can be hand-moved (six bytes free next door); the table gets re-derived with a real band present, which is a sanctioned re-baseline in the assembler repo and may pull a third lane in.",
+      "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing can be hand-moved; the table gets re-derived with a real band present. Measured since: the knock-on stops dead at a hardware-pinned address, so five entries shift and the sound data cannot move at all. Smaller than it first looked.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -51,5 +51,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T15:54:55Z"
+  "updatedAt": "2026-08-24T16:24:23Z"
 }
