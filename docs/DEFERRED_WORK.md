@@ -8832,7 +8832,13 @@ sigil, and correctly not put to them until this parcel lands.
 > `[[anchor]]`** (`dac_banks`, matched by ADDRESS because the Z80's `SetBank` latches the LMA),
 > as is `0x58000` (`sound_bank`). Those are **hardware-pinned and cannot move.**
 >
-> **So the blast radius is FIVE labels, not fifteen:** `Map_TestObj`, `Ani_Sonic`, `Ani_Tails`,
+> **THE FIFTEEN IS NOT WRONG — it answers a different question, and this line is here because
+> the phrasing below invites the misread.** Fifteen labels DO follow `BgAnim_Table` by address.
+> Only five can SHIFT, because the sixth is anchored. Two true answers to two questions, the
+> same distinction that separated "no local slack" from "abundant total space" an hour earlier
+> in this booking. Do not read what follows as a retraction of the count.
+>
+> **So the blast radius is FIVE labels of the fifteen:** `Map_TestObj`, `Ani_Sonic`, `Ani_Tails`,
 > `Ani_Particle`, `HeightMaps` shift; everything from `Dac_Temp_Blip` onward is anchored. An
 > ~8,248-byte band is **~7% of the slack** sitting before that anchor, so the growth is absorbed
 > inside one region and **this is a bounded shift, NOT a full golden re-baseline.** That
