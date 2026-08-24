@@ -7,10 +7,20 @@ contract; the NORMATIVE read set it is built to is `tools/EFFECTS_CONSUMER_CONTR
 that section does not list: adding one is a CONTRACT change that amends that file and
 the empyrean schema pair in the same series, and Aurora re-pins its writer golden.
 
-SLICE 1 (this commit) — discovery, load posture, and SHAPE validation only. Emission
-of the generated module, the per-section binding labels and the `act_descriptor.emp`
-import seam are later slices; the seam in particular waits on design Q-c (wave-1 design
-§9), which is an open decision and not one to settle silently inside an implementation.
+What this file does, end to end: it discovers the editor scene files, refuses a
+malformed one, renders each into a `scene()` / `layer()` call, reads the per-section
+`sceneRef` sidecars, and emits the generated binding module that `act_descriptor.emp`
+imports. The descriptor seam is ALWAYS EMITTED — the bindings exist with no editor
+content at all, which is the owner's ruling on design §9's Q-c and the reason a scene
+can be added without touching the seam. `build.sh` runs `effects_gen.py check` on every
+canonical build (a re-bake in memory, compared against the committed module), and
+`regenerate-level.sh` bakes it; the CLI verbs are the authority on the rest.
+
+Read the code for the schedule, not this comment. The paragraph that stood here named a
+slice and an "open decision" that had both been closed for days, and because it sits at
+the top of the file that IMPLEMENTS the ruling it out-argued every doc that recorded it
+and propagated a refuted blocker into a cross-lane contract. A comment that dates itself
+rots; the two paragraphs below do not, because they describe what the code IS.
 
 Validation posture (scanline design §7, contract §2.1, restated because it is the whole
 architecture of this tool): the generator validates **SHAPE** — schema version, id,
@@ -18,6 +28,15 @@ unknown keys — and refuses rather than guessing. Authored **VALUES** are valid
 sigil when the generated `.emp` calls the real `scene()` / `layer()` constructors, whose
 `ensure` text is the v1 error surface. This tool must never grow a value check that
 duplicates a constructor guard: two sources for one rule is how they drift.
+
+WHERE THAT LINE FALLS, since it is not self-evident and one defect has already crossed
+it: a TYPE is shape (`_render_int` — "you gave me a string where a bare integer literal
+gets emitted"), a RANGE is value (`scene()`'s `v_factor` bound — "255 is an absurd
+shift"). The type check duplicates nothing, because sigil cannot see the difference: a
+string in a numeric slot lands in generated source as a bare SYMBOL, and if it resolves
+— every `parallax_dsl` FACTOR_* does — it assembles green at the wrong number. A
+SPELLING translation is shape too (PRECISION_NAMES, `_render_bool_int`): the writer's
+vocabulary is not the `.emp` vocabulary, and mapping between them is this tool's job.
 
 Error handling (contract §3, normative): aeon consumers **fail loud**. Bare `json.load`
 plus direct subscripting, exactly the `inject_editor_bg.py:58-61` reference posture — a
@@ -289,9 +308,67 @@ def render_factor(path: str, value, where: str) -> str:
         if extra:
             _refuse(path, f"{where}: composed factor carries unknown key(s) "
                           f"{', '.join(extra)}; it is exactly {{s1, s2, op}}.")
-        return (f"packed(s1: {value['s1']}, s2: {value['s2']}, op: {value['op']})")
+        s1, s2, op = (_render_int(path, value[k], f"{where}.{k}")
+                      for k in ("s1", "s2", "op"))
+        return f"packed(s1: {s1}, s2: {s2}, op: {op})"
     _refuse(path, f"{where}: factor must be a FACTOR_* name or a {{s1, s2, op}} "
                   f"object, got {type(value).__name__}")
+
+
+def _render_int(path: str, value, where: str) -> str:
+    """A slot that becomes an INTEGER LITERAL in the generated `.emp`.
+
+    THIS IS A SHAPE CHECK AND NOT A VALUE CHECK, and the distinction is the whole
+    reason it is allowed to exist here: it says "this must be a number" and says
+    NOTHING about which numbers are legal. The ranges belong to `scene()` / `layer()`
+    (see the SHAPE-vs-VALUE paragraph in this module's docstring); a bound copied down
+    here would be the second source that drifts.
+
+    THE DEFECT IT EXISTS FOR. Every scalar slot is interpolated verbatim into
+    generated source, so a STRING there does not become a quoted value — it becomes a
+    bare SYMBOL. Aurora's new-scene default for `v_factor` is the string `"FACTOR_0"`,
+    and `FACTOR_0` is `parallax_dsl`'s PACKED HORIZONTAL factor (`FACTOR_LOCKED` =
+    `$0FF` = 255), while `sc_v_factor` is a RAW SHIFT whose lock sentinel is 15. Two
+    namespaces, one field name. Because `parallax_dsl` is a sigil COMPTIME_HELPERS
+    member and is glob-injected into every module, that name RESOLVES wherever the
+    generated scene lands — and 255 fits the `u8`, so nothing downstream objects. The
+    scene assembles green with a number nobody authored.
+
+    `bool` is refused on purpose: `isinstance(True, int)` is true in Python, and
+    `f"{True}"` interpolates as the bare word `True`, which is not an `.emp` integer.
+    `enabled` is the one field the writer schema genuinely spells as a boolean, and it
+    is TRANSLATED by `_render_bool_int` below rather than passed through here.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        _refuse(path, f"{where}: expected an integer, got {type(value).__name__} "
+                      f"{value!r}. This slot is interpolated verbatim into generated "
+                      f"`.emp` as a bare integer literal, so a non-integer lands "
+                      f"there as a SYMBOL rather than a number — and a symbol that "
+                      f"happens to resolve (every parallax_dsl FACTOR_* does; they "
+                      f"are glob-injected into every module) assembles silently with "
+                      f"a value nobody authored. Whether the number is in RANGE is "
+                      f"the constructor's question, not this tool's.")
+    return str(value)
+
+
+def _render_bool_int(path: str, value, where: str) -> str:
+    """`enabled` — the one field the writer spells as a JSON boolean.
+
+    Read from the WRITER's own schema rather than inferred from our field list
+    (empyrean `contract/schema/aurora-effects-scene.schema.json`, `$defs.layer.enabled`
+    = `{"type": "boolean", "default": true}`), while `layer()` takes `enabled: int = 1`
+    (`engine/level/scene_dsl.emp`). Passing the JSON value straight through emits the
+    bare words `True` / `False` into `.emp` — the same class of defect as slices 1-2
+    emitting `precision: cell`, and the same fix: translate the writer's spelling
+    instead of forwarding it. This is the cross-repo lesson the ATTACH_NONE block
+    records, applied to the second field it bites.
+
+    An integer is accepted as a synonym, for ATTACH_NONE's reason: unambiguous, costs
+    nothing, and it is what a hand-written fixture spells.
+    """
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    return _render_int(path, value, where)
 
 
 def is_absent(value) -> bool:
@@ -415,6 +492,8 @@ def render_table_ref(path: str, ref, where: str, tables: TableRegistry) -> str:
     fn, params = TABLE_GENERATORS[gen]
     values = _fields(path, {k: v for k, v in ref.items() if k != "generator"},
                      params, f"{where}.{gen}")
+    values = [_render_int(path, v, f"{where}.{gen}.{p}")
+              for p, v in zip(params, values)]
     args = ", ".join(f"{p}: {v}" for p, v in zip(params, values))
     key = f"{gen}:" + ",".join(str(v) for v in values)
     label = "EditorDeform_" + gen + ("_" + "_".join(str(v) for v in values)
@@ -444,7 +523,9 @@ def render_table_attachment(path: str, value, key: str, arm: str, where: str,
         variant = "SceneVDeform.Columns"
     vals = _fields(path, body, fields, f"{where}.{key}.{arm}")
     label = render_table_ref(path, vals[0], f"{where}.{key}.{arm}.table", tables)
-    rest = ", ".join(str(v) for v in vals[1:])
+    # fields[0] is the tableRef; everything after it is a bare integer payload slot.
+    rest = ", ".join(_render_int(path, v, f"{where}.{key}.{arm}.{f}")
+                     for f, v in zip(fields[1:], vals[1:]))
     return f"{variant}({label}" + (f", {rest}" if rest else "") + ")"
 
 
@@ -455,12 +536,14 @@ def render_curve(path: str, value, where: str) -> str:
 
 
 def render_vsplit(path: str, value, where: str) -> str:
-    """`{"at": <int>}` → `SceneVSplit.At(<int>)`."""
+    """`{"at": <int>}` → `SceneVSplit.At(<int>)`.
+
+    The integer check was this file's FIRST one, written inline before the hole was
+    understood to be general; it now defers to `_render_int` so there is one rule
+    rather than one precedent and seven slots that never got it.
+    """
     at = _single_arm(path, value, "at", where)
-    if not isinstance(at, int) or isinstance(at, bool):
-        _refuse(path, f"{where}.at: must be an integer scanline, got "
-                      f"{type(at).__name__}")
-    return f"SceneVSplit.At({at})"
+    return f"SceneVSplit.At({_render_int(path, at, where + '.at')})"
 
 
 def render_anchor(path: str, value, where: str) -> str:
@@ -469,7 +552,9 @@ def render_anchor(path: str, value, where: str) -> str:
     if not isinstance(at, dict):
         _refuse(path, f"{where}.at: must be an object with channel/dsa/dsb, got "
                       f"{type(at).__name__}")
-    ch, dsa, dsb = _fields(path, at, ("channel", "dsa", "dsb"), where + ".at")
+    vals = _fields(path, at, ("channel", "dsa", "dsb"), where + ".at")
+    ch, dsa, dsb = (_render_int(path, v, f"{where}.at.{f}")
+                    for f, v in zip(("channel", "dsa", "dsb"), vals))
     return f"SceneAnchor.At({ch}, {dsa}, {dsb})"
 
 
@@ -483,12 +568,13 @@ def _render_enum(path: str, value, table: dict, where: str) -> str:
 
 def render_layer(path: str, layer: dict, where: str,
                  tables: TableRegistry) -> str:
-    args = [f"world_y: {layer['world_y']}",
+    args = [f"world_y: {_render_int(path, layer['world_y'], where + '.world_y')}",
             f"fa: {render_factor(path, layer['fa'], where + '.fa')}",
             f"fb: {render_factor(path, layer['fb'], where + '.fb')}"]
     for key in LAYER_SCALARS:
         if layer.get(key) is not None:
-            args.append(f"{key}: {layer[key]}")
+            render = _render_bool_int if key == "enabled" else _render_int
+            args.append(f"{key}: {render(path, layer[key], f'{where}.{key}')}")
     if not is_absent(layer.get("curve")):
         args.append(f"curve: {render_curve(path, layer['curve'], where + '.curve')}")
     if not is_absent(layer.get("vsplit")):
@@ -503,12 +589,19 @@ def render_layer(path: str, layer: dict, where: str,
 def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
     """The `pub const … : Scene = scene(…)` text for one validated scene.
 
-    Deliberately returns TEXT and writes nothing. The generated module is not wired
-    into the build until the descriptor import seam exists (wave-1 design §3, open
-    question Q-c): an UNREACHED `.emp` module gets zero body elaboration, so
-    `ensure(1 == 0)` inside one builds green. Emitting a module nothing imports
-    would look finished while validating nothing — the failure this pipeline is
-    least able to notice.
+    Deliberately returns TEXT and writes nothing.
+
+    WHY THE SEAM IS ALWAYS EMITTED, restated here because this is the function whose
+    output depends on it: an UNREACHED `.emp` module gets zero body elaboration, so
+    `ensure(1 == 0)` inside one builds green. A generated module nothing imports would
+    look finished while validating nothing — the failure this pipeline is least able to
+    notice. That is the reason the descriptor binding exists with no editor content at
+    all rather than appearing with the first scene, and it is why the `scene()` /
+    `layer()` guards are a REAL error surface for this text rather than an aspirational
+    one. (This paragraph used to say the module "is not wired into the build until the
+    descriptor import seam exists". It does exist; the sentence was the same rot the
+    module docstring now warns about, and it was the one that would tell a reader their
+    constructor guards do not run.)
     """
     if tables is None:
         tables = TableRegistry()
@@ -527,7 +620,8 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
             f"    count: {len(layers)}"]
     for key in SCENE_SCALARS:
         if scene.get(key) is not None:
-            body.append(f"    {key}: {scene[key]}")
+            body.append(f"    {key}: "
+                        + _render_int(path, scene[key], f"scene.{key}"))
     # Enum-valued fields: lowercase schema strings, `.emp` constants.
     if scene.get("precision") is not None:
         body.append("    precision: " + _render_enum(

@@ -1095,6 +1095,49 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     // exactly the class of error that belongs to the build.
     ensure(v_deform_shift_raw >= -1 && v_deform_shift_raw <= 15,
            "scene(): v_deform_shift_raw {v_deform_shift_raw} outside -1 (derive) .. 15 — the runtime samples the column table with asr.w, so a wider shift saturates to sign instead of failing")
+    // ---- THE WHOLE-PLANE VERTICAL SHIFT'S RANGE, which had no owner ----
+    //
+    // THE BOUND IS DERIVED FROM THE ONE CONSUMER, not from the sentinel. sc_v_factor
+    // lowers to pcfg_v_factor_bg, and `Parallax_Step5_Vscroll` does exactly two things
+    // with that byte: it compares it against 15, and otherwise uses it as the count of
+    // an `asr.w d2, d0`. So 15 is CLAIMED as the lock sentinel and is not a shift; and
+    // `asr.w` takes its register count mod 64, with every count from 15 up filling the
+    // word with its sign bit — which is why 15 was available to be the sentinel in the
+    // first place, and is the same fact scene_plane_line's banner states as
+    // "(wy - v_center) >> 15 is 0 or -1 for every wy". That leaves 0..14 as the shifts
+    // the runtime can distinguish, 15 as the lock, and 16..255 as values that neither
+    // lock nor shift: `.v_locked` is not taken, the dividend collapses to 0/-1, and the
+    // plane is silently wrong. Identical class to v_deform_shift_raw above, identical
+    // reason to refuse it here.
+    //
+    // THE LOWER HALF IS NOT DECORATION. `scene()` takes an `int` and sc_v_factor is a
+    // u8, so `v_factor: -1` would wrap to 255 — the SAME defect through a different
+    // door — and this guard elaborates before the Scene{ .. } construction, so it is
+    // the only thing that can see the negative.
+    //
+    // THE DEFECT THAT PROMPTED IT (VFACTOR): Aurora's editor default for a new scene is
+    // the string `"FACTOR_0"`, which is parallax_dsl's PACKED HORIZONTAL encoding
+    // (FACTOR_LOCKED = $0FF = 255), not a raw shift. tools/effects_gen.py now refuses
+    // the STRING as a shape error; this refuses the NUMBER, and the two halves are
+    // deliberately separate — a generator that grew a range check would be a second
+    // source for this rule.
+    ensure(v_factor >= 0 && v_factor <= 15,
+           "scene(): v_factor {v_factor} outside 0 .. 15 — Parallax_Step5_Vscroll reads this byte as `asr.w d2, d0` unless it equals 15, which is the lock sentinel, and asr.w takes its count mod 64 with everything from 15 up filling the word with its sign. So a value above 15 does NOT lock and does not shift either: the BG plane silently pins to 0/-1 instead of tracking the camera. 0..14 are the shifts, 15 is the lock. (If this fired on 255, suspect a PACKED FACTOR_* value in a raw-shift field — FACTOR_0 is $0FF and the two namespaces share this field's name.)")
+    // v_factor_fg IS BOUNDED SEPARATELY AND THE DERIVATION IS NOT THE SAME ONE, even
+    // though it lands on the same two numbers. It lowers to pcfg_v_factor_fg, which
+    // structs.emp marks RESERVED and which NOTHING READS — Step 5 sets the FG vscroll to
+    // camY unconditionally — so there is no consumer to derive a bound from, and no
+    // authored value here can produce a wrong picture today. What is derivable is the
+    // field's declared identity: it is the FG twin of v_factor, same type, same name,
+    // the argument beside it, and the day the reservation is lifted it becomes the same
+    // asr.w count and inherits the same span. So this is a RESERVATION bound, and it is
+    // worth having for one reason only: it makes the 255 above impossible on this field
+    // BEFORE anything reads it, rather than after. It is deliberately not `== 0` — that
+    // would pin the v1 runtime's silence as if it were the field's meaning, and would
+    // have to be found and widened by whoever lifts the reservation, which is the
+    // staling-constant trap sc_pad_5D already sprang once in this file.
+    ensure(v_factor_fg >= 0 && v_factor_fg <= 15,
+           "scene(): v_factor_fg {v_factor_fg} outside 0 .. 15 — this is v_factor's FG twin and takes v_factor's span. The v1 runtime does not READ it (pcfg_v_factor_fg is RESERVED; Step 5 always sets the FG vscroll to camY), so a wider value cannot bend a picture today — it would sit in the emitted record as a number with no meaning, waiting for the parcel that lifts the reservation to read it as a shift. Author 0 unless you are reproducing a byte")
     // THE SELECTORS ARE RANGE-CHECKED AS ARGUMENTS, not just pinned as constants. Both
     // are stored raw and read by a one-bit test, so an out-of-range value does not fail,
     // it MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp:259) and

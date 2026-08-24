@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Shape-validation tests for `tools/effects_gen.py` (scanline P5, slice 1).
+"""Tests for `tools/effects_gen.py` — the Aurora effect-scene bake (scanline P5).
+
+Covers the whole tool, not one slice of it: discovery and load posture, SHAPE
+validation, the rendered `scene()` / `layer()` text, the `sceneRef` sidecars, and the
+always-emitted binding module. (The header said "slice 1" long after slices 2-5 landed
+— the same staling this file's subject was fixed for.)
 
 Every expectation here is derived from `tools/EFFECTS_CONSUMER_CONTRACT.md` §2/§3 —
 the normative read set — rather than copied from the implementation. Where a test
@@ -224,6 +229,149 @@ class TestValuesAreNotValidatedHere(SceneShapeBase):
         path = self.write("ojz_bg", _scene(budget_class="anything_at_all"))
         scene = effects_gen.load_scene(path)
         self.assertEqual(scene["budget_class"], "anything_at_all")
+
+
+class TestIntegerSlotsAreShapeChecked(SceneShapeBase):
+    """The VFACTOR defect: a STRING in a slot that is emitted as a bare integer.
+
+    Why this is SHAPE and not VALUE, i.e. why it belongs here at all: a numeric slot
+    is interpolated verbatim into generated `.emp`, so a string lands there as a bare
+    SYMBOL. Aurora's new-scene default for `v_factor` is `"FACTOR_0"`, which is
+    `parallax_dsl`'s PACKED HORIZONTAL factor (`FACTOR_LOCKED = $0FF` = 255) while
+    `sc_v_factor` is a RAW SHIFT whose lock sentinel is 15 — and `parallax_dsl` is
+    glob-injected into every module, so the name RESOLVES and the scene assembles
+    green at 255. "Integer, not string" duplicates no constructor guard; the RANGE
+    does, and lives on `scene()`.
+
+    EVERY MATCHER HERE TARGETS "interpolated verbatim", which ONLY this refusal says.
+    The near-miss to avoid is the sibling refusals in the same call path — the unknown
+    factor name, the unknown key, the missing field — several of which also quote the
+    offending value, so asserting on the value alone would pass against a poisoned
+    guard for the wrong reason. That is this file's own recorded lesson (see
+    `test_bin_tableref_with_a_parent_segment_is_refused`).
+    """
+
+    def render(self, **over):
+        path = self.write("ojz_bg", _scene(**over))
+        return effects_gen.render_scene(path, effects_gen.load_scene(path),
+                                        effects_gen.TableRegistry())
+
+    def refuses(self, **over):
+        with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+            self.render(**over)
+        msg = str(ctx.exception)
+        self.assertIn("interpolated verbatim", msg)
+        return msg
+
+    def test_the_aurora_default_v_factor_string_is_refused(self):
+        """The defect verbatim: Aurora's editor default for a new effect scene."""
+        msg = self.refuses(v_factor="FACTOR_0")
+        self.assertIn("scene.v_factor", msg)     # names the field path
+        self.assertIn("FACTOR_0", msg)           # quotes what was given
+
+    def test_EVERY_scene_scalar_is_covered_not_only_v_factor(self):
+        """Derived by iterating `SCENE_SCALARS`, never by listing the four here —
+        a scalar added to that tuple must be covered on the day it is added, not on
+        the day someone remembers to extend this test."""
+        self.assertTrue(effects_gen.SCENE_SCALARS)
+        for key in effects_gen.SCENE_SCALARS:
+            with self.subTest(scalar=key):
+                self.assertIn(f"scene.{key}", self.refuses(**{key: "FACTOR_0"}))
+
+    def test_EVERY_layer_scalar_and_world_y_are_covered(self):
+        """`LAYER_SCALARS` runs through the identical unchecked interpolation in
+        `render_layer`, and so does `world_y` beside it. `enabled` is excluded and
+        tested separately: the writer schema spells it as a BOOLEAN, so it is
+        translated rather than refused."""
+        layer_slots = [k for k in effects_gen.LAYER_SCALARS if k != "enabled"]
+        self.assertTrue(layer_slots)
+        for key in layer_slots + ["world_y"]:
+            with self.subTest(slot=key):
+                layer = {"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}
+                layer[key] = "FACTOR_0"
+                self.assertIn(f"layers[0].{key}", self.refuses(layers=[layer]))
+
+    def test_a_NUMERIC_STRING_is_still_refused(self):
+        """The control that separates 'refused the TYPE' from 'refused a bad VALUE'.
+
+        `"3"` is a perfectly legal shift — as a number. As a string it interpolates
+        to the bare token `3`, which happens to assemble correctly today and would
+        make the guard look unnecessary; the guard is about the SLOT, not the luck
+        of this particular payload. A range check could never distinguish these two.
+        """
+        self.assertIn("scene.v_factor", self.refuses(v_factor="3"))
+
+    def test_a_FLOAT_is_refused_even_when_it_is_whole(self):
+        """`3.0` interpolates as `3.0`, which is not an `.emp` integer literal.
+        JSON has one number type, so a writer bug here is a live spelling."""
+        self.assertIn("float", self.refuses(v_factor=3.0))
+
+    def test_real_integers_pass_INCLUDING_ones_the_constructor_will_reject(self):
+        """The other half of the control, and the charter boundary made executable.
+
+        255 is exactly the value the defect produced, and it must still RENDER here:
+        rejecting it would be a RANGE check, which is `scene()`'s job (this parcel
+        adds it there). If this test ever goes red, a value check has leaked into
+        the generator and there are two sources for one rule again.
+
+        The boundaries are derived, not guessed: 0 and 15 are `sc_v_factor`'s legal
+        span (15 = the lock sentinel, parallax.emp `.v_locked`), 255 is `FACTOR_0`,
+        and -1 is below the `u8`. All four are INTEGERS, so all four pass SHAPE.
+        """
+        for v in (0, 15, 255, -1):
+            with self.subTest(v_factor=v):
+                self.assertIn(f"v_factor: {v}", self.render(v_factor=v))
+
+    def test_enabled_accepts_the_writers_JSON_BOOLEAN_and_emits_1_or_0(self):
+        """Read from the WRITER's schema, not from our field list: empyrean
+        `contract/schema/aurora-effects-scene.schema.json` `$defs.layer.enabled` is
+        `{"type": "boolean", "default": true}`, while `layer()` takes
+        `enabled: int = 1`. Forwarding the JSON value emits the bare word `True`
+        into `.emp`. Same class as slices 1-2 emitting `precision: cell`."""
+        for value, emitted in ((True, "enabled: 1"), (False, "enabled: 0")):
+            with self.subTest(enabled=value):
+                out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1",
+                                           "fb": "FACTOR_1", "enabled": value}])
+                self.assertIn(emitted, out)
+                self.assertNotIn("True", out)
+                self.assertNotIn("False", out)
+
+    def test_enabled_still_accepts_an_integer_and_still_refuses_a_string(self):
+        out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1",
+                                   "fb": "FACTOR_1", "enabled": 0}])
+        self.assertIn("enabled: 0", out)
+        self.assertIn("layers[0].enabled", self.refuses(
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1",
+                     "enabled": "FACTOR_0"}]))
+
+    def test_the_nested_integer_payloads_are_covered_too(self):
+        """The same verbatim interpolation reaches five more slots below the top
+        level. Listed by WHERE-path so a failure names the slot that lost cover."""
+        base = {"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}
+        cases = {
+            # composed factor terms
+            "layers[0].fa.s1": dict(layers=[dict(base, fa={"s1": "FACTOR_0",
+                                                          "s2": 15, "op": 0})]),
+            # anchor payloads
+            "scene.anchor.at.dsa": dict(anchor={"at": {"channel": 0,
+                                                       "dsa": "FACTOR_0",
+                                                       "dsb": 15}}),
+            # attachment payload past the tableRef
+            "scene.deform_bg.shared.speed": dict(deform_bg={"shared": {
+                "table": {"generator": "zero"}, "speed": "FACTOR_0"}}),
+            # tableRef generator parameters
+            "scene.deform_bg.shared.table.sine.amplitude": dict(deform_bg={
+                "shared": {"table": {"generator": "sine",
+                                     "amplitude": "FACTOR_0", "period": 32},
+                           "speed": 1}}),
+            # vsplit's scanline (this file's first inline check, now the shared one)
+            "layers[0].vsplit.at": dict(layers=[dict(base,
+                                                     vsplit={"at": "FACTOR_0"})]),
+        }
+        for where, over in cases.items():
+            with self.subTest(slot=where):
+                over.setdefault("layers", [base])
+                self.assertIn(where, self.refuses(**over))
 
 
 class TestRendering(SceneShapeBase):

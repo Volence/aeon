@@ -1,0 +1,109 @@
+// games/sonic4/test/poison/poison_scene_vfactor_range.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp `scene()`'s two whole-plane vertical-shift range
+// guards — `v_factor` and its reserved FG twin `v_factor_fg`. Before the VFACTOR parcel
+// NEITHER field had a range owner anywhere in the tree: the only two `ensure`s that named
+// `v_factor` were `== 15` CONDITIONS for other rules (the vsplit two-writer ruling and
+// scene_vsplit_line's lock test), and `sc_v_factor` is a `u8`, so 255 fitted the type.
+//
+// EXPECTED FRAGMENTS (two rows against this one module, one per guard):
+//   "v_factor 255 outside 0 .. 15 — Parallax_Step5_Vscroll reads this byte as"
+//   "v_factor_fg 255 outside 0 .. 15 — this is v_factor's FG twin"
+// The two guards are near-twins whose wording alone would not separate them — the second
+// field's name CONTAINS the first's — so each row quotes both the interpolated 255 and a
+// clause only its own guard says. Matching "outside 0 .. 15" alone would pass against
+// either diagnostic and would not notice one guard going dead.
+//
+// WHY 255 AND NOT AN ARBITRARY OUT-OF-RANGE NUMBER. 255 is the DEFECT'S OWN VALUE, not a
+// convenient one. Aurora's editor default for a new effect scene is `v_factor: "FACTOR_0"`,
+// and `FACTOR_0` is parallax_dsl's PACKED HORIZONTAL factor — `FACTOR_LOCKED = $0FF` — so
+// the name folds to 255 in a field that is a RAW SHIFT whose lock sentinel is 15. Two
+// namespaces, one field name. parallax_dsl is a sigil COMPTIME_HELPERS member and is
+// glob-injected into every module, so before this parcel that spelling RESOLVED and
+// assembled green. A fixture at, say, 99 would test the arithmetic of the bound; 255
+// tests the thing that was going to happen.
+//
+// WHERE THE BOUND COMES FROM, because a poison that copies a number proves nothing. It is
+// derived from the ONE consumer: `Parallax_Step5_Vscroll` (engine/level/parallax.emp) does
+// exactly two things with pcfg_v_factor_bg — compares it against 15, and otherwise uses it
+// as the count of `asr.w d2, d0`. So 15 is CLAIMED as the lock sentinel and is not a
+// shift, and `asr.w` takes its register count mod 64 with every count from 15 up filling
+// the word with its sign bit (the same fact scene_plane_line's banner states as
+// "(wy - v_center) >> 15 is 0 or -1 for every wy" — which is precisely why 15 was free to
+// BE the sentinel). That leaves 0..14 as the distinguishable shifts and 15 as the lock,
+// and makes 16..255 the interesting class: `.v_locked` is NOT taken, the dividend
+// collapses to 0/-1, and the BG plane is silently wrong. Same class as the neighbouring
+// `v_deform_shift_raw` guard, which already refuses a wide asr.w count for this reason.
+//
+// FOUR FIXTURES, TWO PAIRS, ONE AUTHORED FIELD APART IN EACH PAIR:
+//
+//   FIXTURE A — v_factor 15, the LOCK: the top of the legal span and the value eighteen
+//               of the twenty shipped scenes actually author. It is the control that
+//               separates "refused an out-of-range shift" from "refused the boundary too".
+//   FIXTURE B — fixture A with v_factor 255. The v_factor guard fires.
+//   FIXTURE C — v_factor_fg 0, the value every scene in the tree carries (no call site
+//               anywhere passes this argument; all take the `= 0` default). Control.
+//   FIXTURE D — fixture C with v_factor_fg 255. The v_factor_fg guard fires.
+//
+// EXPECTED `[Error]` COUNT IS 2, AND THE COUNT IS HALF OF EACH ROW'S ASSERTION: exactly
+// the two poisons fire and both controls stay legal. A 3 or 4 means a control stopped
+// passing — a bound that excludes 15 would refuse most of the shipped registry, and a
+// bound that excludes 0 would refuse every scene in the tree. A 1 means one of the two
+// guards went dead, and the surviving row's fragment is what says WHICH.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+module games.sonic4.test.poison.poison_scene_vfactor_range
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// ---- PAIR 1: v_factor ----
+
+// FIXTURE A — the lock sentinel, the top of the legal span. Must stay legal.
+const POISON_VF_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15)
+
+// FIXTURE B — byte-for-byte fixture A with the packed FACTOR_0 value in the raw-shift
+// field. This is what an Aurora scene carrying the editor default would have become.
+const POISON_VF_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 255)
+
+// ---- PAIR 2: v_factor_fg, the RESERVED FG twin ----
+
+// FIXTURE C — the value every scene in the tree carries. Must stay legal.
+const POISON_VFFG_SCENE_C: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_factor_fg: 0)
+
+// FIXTURE D — byte-for-byte fixture C with the same packed value on the twin field.
+const POISON_VFFG_SCENE_D: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_factor_fg: 255)
+
+// ---- THE PASSING HALVES (must stay green, and are MEASURED) ----
+// `ensure` is non-aborting, so "the controls passed" cannot be read off the build failing
+// for the poisons; it is read off the controls' OWN fields carrying the boundary values
+// the guards are asserted to admit, plus the diagnostic count above staying at 2.
+ensure(POISON_VF_SCENE_A.sc_v_factor == 15,
+       "poison_scene_vfactor_range: the CONTROL's sc_v_factor is not the lock sentinel — fixture A stopped sitting on the top of the legal span, so the failing half no longer separates an out-of-range shift from a rejected boundary")
+ensure(POISON_VFFG_SCENE_C.sc_v_factor_fg == 0,
+       "poison_scene_vfactor_range: the CONTROL's sc_v_factor_fg is not 0 — fixture C stopped modelling the value every scene in the tree actually carries")
+
+// ---- THE FAILING HALVES — elaborating B and D is what fires the two guards ----
+// Each also asserts its fixture really CARRIES 255, so a poison that silently stopped
+// modelling the defect (a truncation, a changed default) fails here rather than passing
+// the lane on a diagnostic about something else.
+ensure(POISON_VF_SCENE_B.sc_v_factor == 255,
+       "poison_scene_vfactor_range: the poisoned fixture's sc_v_factor is not 255 — it stopped modelling FACTOR_0 reaching the raw-shift field, and the expected diagnostic proves nothing")
+ensure(POISON_VFFG_SCENE_D.sc_v_factor_fg == 255,
+       "poison_scene_vfactor_range: the poisoned fixture's sc_v_factor_fg is not 255 — it stopped modelling FACTOR_0 reaching the reserved twin, and the expected diagnostic proves nothing")
