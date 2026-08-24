@@ -302,8 +302,38 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    scene genuinely needs eight bands *plus* an anchor, the parcel is widening
    `Parallax_Shadow_Bands`, and that is a RAM decision — not a registry one.
 
-   **OPEN, found by the same fixture, NOT fixed there — `v_factor` is typed differently in
-   the two repos.** The empyrean schema declares `"v_factor": {"$ref": "#/$defs/factor"}`,
+   **PARTLY CLOSED 2026-08-24 — READ THIS BEFORE THE PARAGRAPH BELOW, WHICH IS PRESERVED AS
+   WRITTEN AND IS NOW STALE IN ITS FIRST SENTENCE.** The `v_factor` half is CLOSED on both
+   sides and the cross-repo decision it asked for was taken: **the schema moved, the engine did
+   not.** empyrean `a32bcb0` (2026-08-23, "apply CR-1") retyped `v_factor` and `v_factor_fg`
+   from `$ref: #/$defs/factor` to `{"type": "integer", "minimum": 0, "maximum": 15}` — verified
+   firsthand at empyrean `origin/main` on 2026-08-24, reading the committed revision, not the
+   sibling path. aeon `da43a036` then added the matching engine guard. Two derivations, two
+   enumeration parameters (their schema declaration; our read of the sole consumer's `asr.w`),
+   same span.
+
+   **FAIRNESS NOTE, recorded because the tempting version of this story is wrong and this lane
+   nearly told it to a peer:** the schema's current prose ("do not spell this field with a
+   `FACTOR_*` name") was added BY `a32bcb0`, i.e. as part of the fix. It did not predate the
+   defect. At `0ea8734`, when Aurora's writer default was authored, `v_factor` was `$ref:
+   factor` and **`"FACTOR_0"` was schema-LEGAL**. Aurora was not ignoring a warning; the
+   contract was wrong and its owner corrected it. Any retelling that makes the writer the
+   careless party is a `git log -S` away from being refuted.
+
+   **STILL OPEN — the SAME defect on the neighbouring fields, and the parcel that closed
+   `v_factor` closed exactly one of the two.** `v_center` and `v_offset` are STILL plain
+   `{"type": "integer"}` in the schema (verified at `origin/main`, same read) while
+   `sc_v_center` / `sc_v_offset` are `u16`, and **there is no `ensure` on either** — grep
+   `scene_dsl.emp` for an `ensure` naming them and you get nothing. So `v_offset: -8` remains
+   schema-valid, passes the new `_render_int` shape check (it IS an integer), and dies at
+   `[emit.out-of-range] -8 does not fit u16`. **A partial closure that reads as a total one is
+   the hazard here:** the booking below says "`v_factor`/`v_offset` range check" as one unit,
+   and only the first word of that pair is done. Same shape as the negative generator parameter
+   booked at the end of this file — negatives pass shape everywhere and are bounded nowhere.
+
+   **ORIGINAL BOOKING, PRESERVED — its first sentence describes empyrean at `0ea8734` and was
+   true when written:** `v_factor` is typed differently in
+   the two repos. The empyrean schema declares `"v_factor": {"$ref": "#/$defs/factor"}`,
    i.e. the same type as a layer's horizontal `fa`/`fb`. The engine's `sc_v_factor` is a
    `u8` **vertical shift**, `0..15`, `15` = lock
    (`Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset`); every shipped scene spells
