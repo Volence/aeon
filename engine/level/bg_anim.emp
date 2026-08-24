@@ -100,9 +100,42 @@ pub proc BgAnim_Init () clobbers(d0) {
 }
 
 // -----------------------------------------------
-// BgAnim_Update — call once per frame from the main loop (after
-// Parallax_Update). Per changed band, queues one or two deferrable
-// DMAs (tile_count*32 bytes total).
+// BgAnim_Update — per changed band, queues one or two deferrable DMAs
+// (tile_count*32 bytes total).
+//
+// CALL CONTRACT, and read the next paragraph as a REQUIREMENT ON CALLERS
+// rather than as a report of who calls it: this wants calling once per
+// frame, after Parallax_Update. That is the design, NOT the wiring.
+//
+// WHO ACTUALLY CALLS IT TODAY, traced end to end 2026-08-24 — and the short
+// answer is A PLAIN BOOT OF s4.bin DOES, every frame:
+//   engine/system/boot.emp:349   move.l #Game.entry, (Game_State).w
+//   games/sonic4/config/game.emp:59-60   ENTRY_ID = GS_OJZ_SCROLL_TEST,
+//                                        entry = GameState_OJZScroll_Init
+//   ojz_scroll_test.emp:549      installs GameState_OJZScroll_Update
+//   engine/system/game_loop.emp:41  movea.l Game_State, a0  → dispatch
+//   ojz_scroll_test.emp:821      jbsr BgAnim_Update — UNCONDITIONAL, right
+//                                after Parallax_Update, then rts
+// So the sole caller lives in a module named `test`, and that module is
+// sonic4's BOOT ENTRY STATE. No special shape, no harness, no arranging:
+// boot the ROM and this ticks.
+//
+// DO NOT RE-DERIVE "no shipping call site" FROM THE MODULE NAME. An earlier
+// version of this very comment said exactly that. It was literally true —
+// no *game-loop* call site exists — and it read as "the driver is dead",
+// which is false and was one step from being handed to another lane as an
+// engine gap explaining their runtime failure. The word `test` in the path
+// is the whole trap; two lanes and one session memory hit it independently
+// on the same day.
+//
+// The earlier wording here ("call once per frame from the main loop") was
+// removed because it reads as proof of a call site to anyone who greps the
+// proc and lands on it. That is the same perishable-claim-in-a-comment
+// shape as effects_gen.py's slice-1 docstring, which propagated a wrong
+// blocker into a cross-lane contract for four days (aeon da43a036). Stating
+// intent and wiring as ONE sentence is what made both of them misread; if
+// the game loop later gains the call, update the WHO paragraph — do not
+// merge it back into the contract sentence.
 // In: none. Clobbers: d0-d7, a1-a4
 // (a3/a4 are movem-saved/restored by the body, but stay in the clobbers
 // license: the preserves() round-trip proof is blocked by the mid-body
