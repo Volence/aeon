@@ -151,8 +151,18 @@ aeon still satisfy this contract *today*" must not be pointed at a pin.
 
 ## Instruments (which oracle for what)
 
-**⚠ HOLD — do NOT migrate the three cost probes to oracle-next's profiler (oracle lane,
-2026-08-22).** `tools/raster_cost_probe.py`, `tools/engine_baseline_probe.py`,
+**✅ HOLD LIFTED 2026-08-24 — read this before the block below, which is kept for its
+mechanism and its scope note only.** Oracle fixed the straddle defect (red-first tests
+`68461a7`, fix `4111c88`, merged `51143a5` — verified reachable at their `origin/main` here,
+and the cited `7bdb75f` in their message is the DOCS commit, not the code). The three probes
+may migrate whenever a parcel wants them to; **nothing on this queue waits on it, and it was
+never "aeon's profiler migration".** The paired outcome: **our `PROF-RING-SELF` ask is
+WITHDRAWN** — a bucket's `self_cycles` is the exception entry alone, so the field we asked for
+would have been exact and useless, and the fix delivers the quantity on the fields we already
+read. Full derivation and our error class in `docs/DEFERRED_WORK.md`.
+
+~~**⚠ HOLD — do NOT migrate the three cost probes to oracle-next's profiler (oracle lane,
+2026-08-22).**~~ `tools/raster_cost_probe.py`, `tools/engine_baseline_probe.py`,
 `tools/streaming_choke_probe.py` stay on the legacy harness until oracle says otherwise.
 Their attribution across VBlank preemption is **sound by design** (returns matched by
 `entry_sp` + privilege, never positionally) — the ~20% legacy loss is genuinely not shared.

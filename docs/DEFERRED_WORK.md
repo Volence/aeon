@@ -482,7 +482,28 @@ carry).
     callee in flight gives that frame nothing and lands the whole lifetime in the frame of
     return. The module doc says so outright: inclusive *"distribution across frames lags
     where a callee straddles a boundary; `self_cycles` has no such lag"*.
-  - **So `cyclesSelf` really is sound for both kinds** — the fix above is right in principle.
+  - ~~**So `cyclesSelf` really is sound for both kinds** — the fix above is right in principle.~~
+    **HALF-REFUTED AND THE ASK IS WITHDRAWN — 2026-08-24. It is sound for ROUTINES and FALSE
+    FOR INTERRUPT BUCKETS.** Found by the oracle lane against our own registered ask, and
+    verified firsthand here at oracle `origin/main` before agreeing. **The acknowledge arms a
+    routine frame for the handler's own entry address, so a bucket's `self_cycles` is the
+    EXCEPTION ENTRY ALONE** and every cycle its handler retires is already child time. It is
+    not "the bucket's cost with callees subtracted" — it is a different quantity, and a
+    `vintSelfCycles` column would have shipped us an exact, cheap, useless number.
+    Pinned by a test that **predates the finding by five days**, so it is not reasoning built
+    to fit a conclusion — `a_nested_hint_inside_a_vint_charges_the_inner_bucket_alone`, first
+    appearing in oracle `d1a2137` (2026-08-19, profiler slice 3), body read here at
+    `origin/main`: `hint.self_cycles == STEP_CYCLES` against `hint.cycles == 3 * STEP_CYCLES`.
+    **Our finding (2) itself STANDS** — the 149,104 lump is a *routine*
+    (`GameState_OJZScroll_Update`), and for a routine `self_cycles` really is cost-minus-callees.
+    Only the generalisation *to buckets* was wrong.
+    **Our error class, and it is the reusable part: we adopted a peer's documented rule across a
+    boundary it never crossed.** Their §3 says "read `cyclesSelf` for a lag-free figure"; that
+    advice is about the AGGREGATE and does not transfer to a bucket. Nothing in the sentence
+    marks its own scope, we carried it into a cross-repo ask, and **the premise arrived from the
+    same lane that later refuted it** — a relayed premise inherits no more scrutiny than the
+    claim it supports. Same family as protocol bar 16: the rule's *name* was right and its
+    *reach* was never checked.
   - **⚠ BUT THE RING CANNOT EXPRESS IT.** The `perFrame[]` wire row is exactly five keys —
     `frame`, `cycles`, `stallCycles`, `hintCycles`, `vintCycles` (`oracle-aether`'s
     `engine.rs`, the `per_frame_armed()` block). There is **no `vintSelfCycles`, no
@@ -490,10 +511,26 @@ carry).
     are inclusive-only. A porter who reads "use `cyclesSelf`", goes to `perFrame[]`, and
     finds no such field will either fall back to the inclusive figure or invent a workaround
     — **the permissive-stale failure this repo keeps rediscovering, one layer down.**
-  - **Sorted per the protocol's gap rule:** aggregate bucket self is *composable today*
+  - ~~**Sorted per the protocol's gap rule:** aggregate bucket self is *composable today*
     (`interrupts[].cyclesSelfTotal`); **per-frame bucket self is genuinely-new and is a NAMED
     ASK to the oracle lane**, not something a port works around. Do not port an
-    interrupt-bucket per-frame consumer until the field exists or the ask is refused.
+    interrupt-bucket per-frame consumer until the field exists or the ask is refused.~~
+    **`PROF-RING-SELF` IS WITHDRAWN BY THIS LANE, 2026-08-24** — as the consumer that filed it,
+    on the refutation above. No field is owed. **What we actually wanted was delivered instead**,
+    by oracle's straddle fix: `perFrame[].hintCycles`/`vintCycles` are now cut from a per-frame
+    accumulator charged as the cycles retire, so a straddling handler's span is charged to the
+    frames it RAN in rather than the frame it returned in. The two properties that make it the
+    quantity we asked for, read firsthand off the fix's own source at oracle `51143a5` (merge)
+    / `4111c88` (code): **`hint_cycles + vint_cycles <= cycles` always**, and **the rows still
+    sum to the undivided bucket totals exactly** — so the ring carries the WHOLE handler cost,
+    distributed, not the entry. It needed no wire change and no new field, which is why the ask
+    was not merely unnecessary but pointed away from the fix.
+    **Note the shape of this outcome for the next gap we sort:** we classified it
+    *genuinely-new* when it was really *satisfied-by-their-in-flight-work* — and genuinely-new is
+    the one bucket of the protocol's sort that generates work across the fence. **A gap sorted
+    from the WIRE SCHEMA (is there a field?) rather than from the QUANTITY (what do we need
+    measured?) lands in that bucket by construction**, because a schema can only ever answer
+    whether a name is present.
   - **Displacement is CONDITIONAL, which is what a witness test must exercise.** Boundary
     checkpoints run for every live frame including interrupt frames, so an in-flight handler
     flushes its own cycles on time; what a frame misses is only time held inside a callee
@@ -503,6 +540,16 @@ carry).
     with that callee still open → the callee returns and the `RTE` arrives next frame. Step 2
     is load-bearing and was absent from the first draft of the test (oracle's own correction
     against themselves).
+    **DISCHARGED 2026-08-24 — the witness exists and the defect is FIXED.** Oracle landed two
+    red-first boundary-straddling tests (`68461a7`) and the fix (`4111c88`), merged at
+    `51143a5`; the red output is the arithmetic proof, a frame reporting `vint_cycles: 40`
+    against its own `cycles: 30` — **an interrupt costing more than the frame containing it.**
+    **So the hold on our three cost probes has its condition met** —
+    `tools/raster_cost_probe.py`, `tools/engine_baseline_probe.py`,
+    `tools/streaming_choke_probe.py` may now migrate off the legacy harness when a parcel wants
+    them to. That is a permission, not a queue item; nothing on this lane waits on it, and the
+    scope note in `OVERSEER.md` (this held THREE NAMED PROBES, never "aeon's profiler
+    migration") still governs how it is relayed.
   - Oracle's write-up: `docs/2026-08-23-prof-straddle-mechanism.md` in their repo. Their
     analysis is a **source read — no cargo run, no machine** — and they say so; the only
     measured half of this is ours.
