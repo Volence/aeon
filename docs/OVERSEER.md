@@ -348,6 +348,27 @@ deferring to "something else owns this", confirm the something else exists.
   fabricated reason is worse than a failing gate. Relevant to every gate in `tools/` that prints
   its own explanation.
 
+- **A gap between BOUNDARY labels is never evidence of free space — and the rule must NAME
+  the instrument that can answer, or everyone reaches the wrong answer politely** (lived
+  2026-08-24; three parties, one shared instrument). The frozen `offcanonical_sizes` tables
+  list a SUBSET of labels, so content between two listed labels is **invisible in them by
+  construction**. This lane, the aurora lane, and this repo's own booking all read the
+  `[HeightMapsRot+0x2000, Dac_Temp_Blip)` gap as ~119,072 B of slack; `s4.debug.lst:2225-2229`
+  shows `AngleTable`/`SolidityTable`/`Map_Sonic`/`DPLC_Sonic`/`Art_Sonic` filling it, and the
+  ROM image is only **43.8% zero** across that span. Real free tail: **11,427 B** at
+  `0x4535D`, by constant-byte run scan — and even that is padding inside `Art_Sonic`'s
+  allotment (offset 97,469, `mod 32 == 29`, so not whole blank tiles), i.e. growing room for
+  the most growth-prone object in the region rather than unowned space.
+  **What makes this a bar and not a repeat of the existing allotment rule:** the booking
+  ALREADY said *"a gap is an ALLOTMENT, never proven free space"* — and then committed the
+  error two paragraphs later on a different label pair, and two more lanes inherited it. A
+  rule that says "do not conclude X" without saying **what does conclude X** leaves the
+  reader holding the only tool they have. **The instrument for occupancy is the `.lst` symbol
+  listing or a scan of the ROM image itself; the frozen table structurally cannot answer it.**
+  Corollary, from the same episode: an arithmetic step built ON TOP of somebody's number
+  looks like corroboration and is propagation — aurora re-derived a margin from this lane's
+  bad figure and the agreement read as two sources.
+
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.

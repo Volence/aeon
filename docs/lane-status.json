@@ -1,10 +1,10 @@
 {
-  "focus": "I got the space question wrong twice. Corrected and re-asked - the room I called free is Sonic's artwork.",
+  "focus": "One sizing answer from you unblocks aurora. Same recommendation as before, now with the true cost attached.",
   "inFlight": [],
   "blockedOnOwner": [
     {
-      "id": "d-8",
-      "what": "whether background animation stays small or moves somewhere with room (my last two answers were wrong)",
+      "id": "d-9",
+      "what": "whether background animation stays small or moves somewhere with room",
       "since": "2026-08-24"
     }
   ],
@@ -57,5 +57,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T17:04:48Z"
+  "updatedAt": "2026-08-24T17:07:23Z"
 }
