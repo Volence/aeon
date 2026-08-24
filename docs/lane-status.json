@@ -1,14 +1,8 @@
 {
-  "focus": "The tight ceiling looks temporary after all - the assembler lane found the fix already exists in their code.",
+  "focus": "Waiting on the assembler lane, as you chose. Picking up the next thing on my queue meanwhile.",
   "inFlight": [],
-  "blockedOnOwner": [
-    {
-      "id": "d-12",
-      "what": "what to do while the assembler lane decides whether to take the fix",
-      "since": "2026-08-24"
-    }
-  ],
-  "nextBoundary": "Clean - the refusal gate landed and pushed. Next move waits on your call and on the sigil lane.",
+  "blockedOnOwner": [],
+  "nextBoundary": "Clean now. Next boundary is whenever the assembler fix lands, or the next queue item does.",
   "queue": [
     {
       "id": "BGANIM-PLACE",
@@ -49,5 +43,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T19:28:51Z"
+  "updatedAt": "2026-08-24T20:46:20Z"
 }
