@@ -369,6 +369,29 @@ deferring to "something else owns this", confirm the something else exists.
   looks like corroboration and is propagation — aurora re-derived a margin from this lane's
   bad figure and the agreement read as two sources.
 
+- **A completeness claim about a TRUNCATED view — `head -N` on a definition — and the
+  truncation leaves no mark** (lived 2026-08-24, this overseer's error, caught by the sigil
+  lane). Establishing whether a section qualified for a sigil mechanism, this lane read
+  `Fragment`'s variants with `sed -n '/pub enum Fragment/,/^}/p' … | head -40` and asserted
+  *"exactly two length-variable variants"*. The enum is **94 lines** and that window holds
+  exactly **5 of 7**: `RelaxLadder` (`:74`) and **`Org` (`:93`)** were below the cut.
+  **`Org` is the one that matters, and the stated reduction could not reach it:** the argument
+  offered was *"both length-variable variants are instructions, and this section contains no
+  instruction"* — and `Org` is **not** an instruction, so a section carrying one fails
+  `is_position_independent` with no opcode anywhere in it.
+  **This is the absence family (shared-protocol bar 16d) with truncation in place of
+  suppression, and truncation is the worse face.** `2>/dev/null` at least hides a message that
+  *would* have existed; `head -N` output is **indistinguishable from a complete listing** — no
+  ellipsis, no exit code, nothing to be suspicious of. The conclusion survived only on the
+  *source* leg (one module, all `data`, no `org`/`align`), which had been offered almost
+  apologetically as mere inspection, while the type-level leg presented as the rigorous half
+  was the wrong one. **Bar 17 with the sign flipped: the completeness claim was the cheap half
+  of the message and the cheap half is what failed.**
+  **Correctives, both cheap:** count the thing before characterising it (`grep -c` the variant
+  pattern over the *whole* definition, never a window), and when a reduction rests on a
+  category (*"all X are instructions"*), enumerate the category from the type and check each
+  member against the predicate rather than against the category's typical member.
+
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.
