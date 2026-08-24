@@ -1,20 +1,36 @@
 {
-  "focus": "All landed. Proved the background animation really runs on boot, which clears the editor lane's last unknown.",
+  "focus": "The editor lane built the first real scene and it does not assemble. Two faults, both mine, both understood. Waiting on your go to fix.",
   "inFlight": [],
   "blockedOnOwner": [],
-  "nextBoundary": "Clean - landed, pushed, nothing running and nothing waiting on you.",
+  "nextBoundary": "Still clean - nothing running. Next boundary is after the two-fix parcel lands and the editor lane reruns.",
   "queue": [
     {
-      "id": "P5-SCOPE",
-      "title": "Tell the hub the effects blocker moved: the engine half is closed, and what is left is an editor scene existing at all - which is aurora's tile ceiling, not our work.",
+      "id": "BGANIM-EXTERN",
+      "title": "The generated background-animation table names its data blob in a form the assembler will not accept. The fix is proven and one line of the generator; this is the code path our own notes said had never once been exercised, and the first real scene exercised it.",
       "state": "next",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
+      "id": "BGANIM-PLACE",
+      "title": "With that fixed the build gets further and stops again: the background-animation block grew from four bytes to eight kilobytes and now runs through the block placed after it. A placement decision against the frozen tables - NOT the deferred order row, which is a different block and has not fired.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
       "id": "VOFFSET",
-      "title": "The same defect as the one just fixed, on the two fields beside it: v_center and v_offset are unbounded in both repos, so a negative offset is legal everywhere and unbuildable at the end. Needs a which-side-moves answer before writing a guard, exactly like the last one did.",
+      "title": "The same defect as the one just fixed, on the two fields beside it: the vertical centre and offset are unbounded on both sides, so a value the editor accepts is unbuildable at the end. The precedent for who moves is now settled, so this can be derived and landed rather than parked.",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "NEG-LABEL",
+      "title": "A negative generator parameter emits a label with a minus sign in it, which is not a legal name - the author spells the scene right and the error points at generated code. Establish whether any generator legitimately takes a negative before deciding if this is live or merely ugly.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
@@ -22,18 +38,18 @@
     },
     {
       "id": "ALIGN",
-      "title": "The (align: N) migration owed to sigil - two Scene fields take the attribute, two ensures delete. Unblocked, verify the built binary carries the feature at dispatch. Displaced by the effects work you named.",
+      "title": "The alignment-attribute migration owed to sigil - two scene fields take the attribute, two hand-written checks delete. Unblocked; verify the built binary carries the feature at dispatch.",
       "state": "open",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "CUTOVER",
-      "title": "Re-run the 19 effects gates. NOTE: they never needed the socket - each gate spawns its own emulator on a private socket, so a re-baseline would pass vacuously. Needs re-scoping before it is worth running.",
+      "title": "Re-run the 19 effects gates. NOTE: they never needed the shared emulator - each spawns its own, so a re-baseline would pass vacuously. Needs re-scoping before it is worth running.",
       "state": "open",
       "size": "S",
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T15:28:57Z"
+  "updatedAt": "2026-08-24T15:47:26Z"
 }
