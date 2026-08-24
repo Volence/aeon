@@ -151,12 +151,29 @@ def main():
         # Parcel K3 run B: BgAnim_Table is a natively-placed `.emp` section
         # (ojz_bg_anim). Per band, a 44-byte record contiguous in the section:
         # 6 u16 header words (baked constants; BG_TILE_BASE_VRAM = $8000) then an
-        # 8-entry pointer array `BgAnim_Banks + off` (link-relative, resolved at
-        # link). Mirrors engine/level/bg_anim.emp `struct bganim_band` field-for-
-        # field (the LOCKSTEP contract). FORMAT-FAITHFUL BUT NOT BYTE-PROVEN: no
-        # act in the tree authors BG animation, so the six-target gate exercises
-        # only the stub below — the first animated act proves this arm
-        # (docs/superpowers/notes/2026-08-01-k3-run-b.md §animated-arm).
+        # 8-entry pointer array `extern("BgAnim_Banks") + off` (link-relative,
+        # resolved at link). Mirrors engine/level/bg_anim.emp `struct bganim_band`
+        # field-for-field (the LOCKSTEP contract).
+        #
+        # THE `extern(...)` IS LOAD-BEARING AND WAS WRONG UNTIL 2026-08-24. This arm
+        # shipped booked as "FORMAT-FAITHFUL BUT NOT BYTE-PROVEN" — no act in the tree
+        # authored BG animation, so the six-target gate only ever exercised the stub
+        # below, and the array went out as a bare `BgAnim_Banks + off`. The first real
+        # band discharged the booking: sigil resolves bare names against the compiler's
+        # name table, which these generated act modules are not in, and answered
+        # `[Error] unknown name \`BgAnim_Banks\`` once per entry (16 on the two-band
+        # b0e5a661 fixture). extern("Name") is the accepted spelling for a link-time
+        # symbol inside an emitted data image; sec_local_maps.emp in the same generated
+        # directory is the precedent. THE ADDEND FORM WORKS — `extern("X") + N` links
+        # (measured here, not inherited); docs/EMP_PITFALLS.md §5's warning about
+        # extern() poisoning comptime-ness applies to images a comptime pin then
+        # COMPARES, and nothing pins this one.
+        #
+        # The arm now has a test that runs it: tools/test_bg_emit.py::TestBgAnimEmission
+        # drives this emitter over the real two-band fixture and rejects any bare
+        # link-time symbol in an emitted array initializer.
+        # (docs/superpowers/notes/2026-08-01-k3-run-b.md §animated-arm;
+        #  docs/DEFERRED_WORK.md "the first real authored band does not assemble".)
         BG_TILE_BASE_VRAM = 0x8000
         for b in bands:
             assert len(b['bank_offsets']) == 8, \
@@ -175,7 +192,11 @@ def main():
                 f.write(f'data _BgAnim_Band{i}_hdr: [u16; 6] = '
                         f'[{b["driver"]}, {b["rate_shift"]}, {b["step_mask"]}, '
                         f'{b["col_shift"]}, {b["tile_count"]}, ${vram_dest:X}]\n')
-                banks_list = ', '.join(f'BgAnim_Banks + {off}' for off in b['bank_offsets'])
+                # extern("BgAnim_Banks"), NOT a bare `BgAnim_Banks` — see the
+                # spelling note at :151. tools/test_bg_emit.py::TestBgAnimEmission
+                # is the gate on this line.
+                banks_list = ', '.join(f'extern("BgAnim_Banks") + {off}'
+                                       for off in b['bank_offsets'])
                 f.write(f'data _BgAnim_Band{i}_banks: [*u8; 8] = [{banks_list}]\n')
             f.write('pub data BgAnim_Banks = '
                     'embed("games/sonic4/data/generated/ojz/act1/bg_anim_banks.bin")\n')

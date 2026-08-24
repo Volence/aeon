@@ -8725,7 +8725,11 @@ is the schema's per-field `type`/`enum`/`const`, not our field names** — our n
 which fields exist and say nothing about how the writer spells their values, and that
 distinction has now bitten this contract three times.
 
-### OPEN — the first real authored band does not assemble: two defects (found 2026-08-24)
+### PARTLY CLOSED — the first real authored band does not assemble: two defects (found 2026-08-24)
+
+> **DEFECT 1 IS FIXED AND REPRODUCED FIRST (2026-08-24, `parcel/bganim-extern-spelling`).
+> DEFECT 2 REMAINS OPEN and its text below is untouched.** See "DEFECT 1 — CLOSED" for what
+> was actually measured in THIS tree.
 
 **Provenance and its limits.** Aurora built the first genuinely editor-authored BG band against
 this repo at `origin/master` `5349bea4`, in an isolated `git worktree` of their own — **this
@@ -8733,10 +8737,58 @@ tree was never touched**. Everything upstream of assembly worked: promotion on t
 document with `tiles.length` unchanged, `regenerate-level.sh` re-baked and self-verified
 (`verify_level_bin: OK`), and `inject_editor_bg.py` wrote `BgAnim_Table: u16 = 1` with an
 8192-byte bank blob (`cols*rows*BANKS*32`, derived). **Both failures are downstream of a correct
-band.** ⚠ **Neither failure has been reproduced HERE** — they are aurora's observations, relayed
-by the hub. Reproduce before fixing (protocol bar 6); the ROM has not been built in this tree.
+band.** ~~⚠ **Neither failure has been reproduced HERE** — they are aurora's observations, relayed
+by the hub. Reproduce before fixing (protocol bar 6); the ROM has not been built in this tree.~~
+**SUPERSEDED 2026-08-24: BOTH failures are now reproduced in this tree** (see DEFECT 1 — CLOSED,
+and the confirmation block under DEFECT 2). The reproduce-before-fixing bar was met and it paid:
+it turned up a stage-attribution trap (`./build.sh` dies in the expect-fail lane, not the sigil
+build) and a per-entry error count that aurora's single band could not have shown.
 
-**DEFECT 1 — `inject_editor_bg.py` emits a symbol form the language does not accept.**
+**DEFECT 1 — CLOSED 2026-08-24 (`parcel/bganim-extern-spelling`). Reproduced here first, then
+fixed, then gated.** Kept in full below because the reasoning is the record; what follows is
+what was measured in THIS tree rather than relayed.
+
+- **Reproduced.** The fixture is `tools/test_bg_emit.py`'s historical blob
+  `33892d82c95d61a9214cb449fa7c67f683247ad3` (the real two-band override at `b0e5a661`: 128 +
+  64 tiles, 8 phases each, 340-tile static blob), installed as
+  `games/sonic4/data/editor_bg_override.json`, re-baked with `tools/regenerate-level.sh`
+  (`REGEN_EXIT=0`), then built. `sigil build --aeon . --native`:
+  `error: native build (sonic4 plain): build_program: 16 error(s);` — **sixteen**
+  `[Error] unknown name \`BgAnim_Banks\``, one per pointer entry (2 bands × 8 phases). Aurora's
+  eight was one band's worth; the defect is per-entry, exactly as stated.
+- **A note on where the build stops.** With a band present the canonical `./build.sh` does NOT
+  reach the sigil build at all — it dies earlier in the **expect-fail lane**, whose `sentinel`
+  case counts diagnostics and reported `got 17 [Error] diagnostic(s), expected 1` (16 + its own
+  sentinel), printing `emp_expect_fail: FAIL — the sentinel did not fire`. That message names
+  `--extra-entry` and reads like a lane defect, not a band defect. **Attribute by stage:** it is
+  the band's errors leaking into a whole-program diagnostic count. Worth knowing before the next
+  lane loses an hour to it.
+- **`extern("BgAnim_Banks") + <off>` WORKS HERE — measured, not inherited.** With the array
+  respelled, the 16 errors vanish and the build advances to layout. `docs/EMP_PITFALLS.md` §5's
+  "extern() poisons comptime-ness" does **not** bite: §5's second failure mode is an emitted
+  image that a **comptime pin then compares**, and nothing pins this one. No `here.provisional`
+  error appeared in any file.
+- **The fix** is one expression, `tools/inject_editor_bg.py`'s `banks_list` join, plus a comment
+  block at the emission site recording why the `extern` is load-bearing.
+- **The gate that was missing.** Every pre-existing test in `tools/test_bg_emit.py` called
+  `validate_band_coherence` and stopped there — **nothing ran the emitter**, so the only covered
+  path was the stub, which emits no pointer array at all. New
+  `tools/test_bg_emit.py::TestBgAnimEmission` (8 tests) drives the real `main()` over the
+  two-band fixture into a temp dir and gates the RULE — *no bare link-time symbol inside an
+  emitted array initializer* — not the substring `extern`. The matcher
+  (`bare_symbol_refs_in_emitted_emp`) is itself unit-tested against the historical bad spelling,
+  the accepted one, `embed(...)`/`Data.empty` initializers, and the all-literal header row, so a
+  green cannot mean the matcher stopped looking. Red-first against the unfixed generator: 2
+  failed / 6 passed, the two failures being exactly the two spelling assertions. It runs under
+  `build.sh`'s `python3 -m pytest tools` lane. A missing fixture blob **fails loudly** there
+  rather than skipping (the sibling coherence class skips; that is defensible for an invariant
+  check and is not defensible for a gate whose entire purpose is that this arm has never run).
+- **Byte-neutral on master, proven not assumed:** with no `anims` the stub branch is taken and
+  the changed line is unreachable; `test_the_stub_arm_emits_no_pointer_array_at_all` asserts
+  that, and all four ROM shapes were rebuilt from `rm -f` with unchanged CRCs.
+- **Still true and still the shape of the thing:**
+
+**DEFECT 1 (original text) — `inject_editor_bg.py` emits a symbol form the language does not accept.**
 `tools/inject_editor_bg.py:178` builds the per-band pointer array as
 `', '.join(f'BgAnim_Banks + {off}' ...)`, and the generated
 `games/sonic4/data/generated/ojz/act1/bg_anim.emp` therefore writes
@@ -8762,6 +8814,22 @@ build reaches layout and stops:
 ```
 sections `test_mappings` [0x3B672, 0x3B6A2) and `ojz_bg_anim` [0x3B270, 0x3D29E) overlap (colliding pins)
 ```
+
+> **CONFIRMED INDEPENDENTLY HERE 2026-08-24** (`parcel/bganim-extern-spelling`; defect 2's text
+> above is unchanged, this is an addition). With defect 1 fixed and the two-band `b0e5a661`
+> fixture installed, `sigil build --aeon . --native` stops at exactly this diagnostic:
+> ```
+> error: native build (sonic4 plain): span pass (spread round, post-growth): span pass:
+>   resolve_layout: 1 diag(s); first Some(Diagnostic { level: Error, message: "sections
+>   `test_mappings\070` [0x38A40, 0x38A70) and `ojz_bg_anim\082` [0x38632, 0x4468C)
+>   overlap in the image (colliding pins)" })
+> ```
+> **The addresses differ from aurora's and that is expected, not a discrepancy** — mine is the
+> PLAIN shape with a TWO-band 49,152-byte blob, theirs the shape they built with one 8,192-byte
+> band. **Do not treat either address set as the number to fit a pin to**; a band's size is
+> `cols*rows*BANKS*32` and two runs of the same defect already disagree by 48 KB, which is the
+> concrete form of "a hand-fitted pin fits exactly one geometry" below. Note also the `\070` /
+> `\082` suffixes sigil now prints on section names; aurora's quote has none.
 
 **This is NOT the deferred `map.toml` order row** — see the retraction banked under
 "EFFECTS-W1 … item 2" above; `ojz_bg_anim`'s head label `BgAnim_Table` has been declared at
