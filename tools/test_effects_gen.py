@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Shape-validation tests for `tools/effects_gen.py` (scanline P5, slice 1).
+"""Tests for `tools/effects_gen.py` — the Aurora effect-scene bake (scanline P5).
+
+Covers the whole tool, not one slice of it: discovery and load posture, SHAPE
+validation, the rendered `scene()` / `layer()` text, the `sceneRef` sidecars, and the
+always-emitted binding module. (The header said "slice 1" long after slices 2-5 landed
+— the same staling this file's subject was fixed for.)
 
 Every expectation here is derived from `tools/EFFECTS_CONSUMER_CONTRACT.md` §2/§3 —
 the normative read set — rather than copied from the implementation. Where a test

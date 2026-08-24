@@ -7,10 +7,20 @@ contract; the NORMATIVE read set it is built to is `tools/EFFECTS_CONSUMER_CONTR
 that section does not list: adding one is a CONTRACT change that amends that file and
 the empyrean schema pair in the same series, and Aurora re-pins its writer golden.
 
-SLICE 1 (this commit) — discovery, load posture, and SHAPE validation only. Emission
-of the generated module, the per-section binding labels and the `act_descriptor.emp`
-import seam are later slices; the seam in particular waits on design Q-c (wave-1 design
-§9), which is an open decision and not one to settle silently inside an implementation.
+What this file does, end to end: it discovers the editor scene files, refuses a
+malformed one, renders each into a `scene()` / `layer()` call, reads the per-section
+`sceneRef` sidecars, and emits the generated binding module that `act_descriptor.emp`
+imports. The descriptor seam is ALWAYS EMITTED — the bindings exist with no editor
+content at all, which is the owner's ruling on design §9's Q-c and the reason a scene
+can be added without touching the seam. `build.sh` runs `effects_gen.py check` on every
+canonical build (a re-bake in memory, compared against the committed module), and
+`regenerate-level.sh` bakes it; the CLI verbs are the authority on the rest.
+
+Read the code for the schedule, not this comment. The paragraph that stood here named a
+slice and an "open decision" that had both been closed for days, and because it sits at
+the top of the file that IMPLEMENTS the ruling it out-argued every doc that recorded it
+and propagated a refuted blocker into a cross-lane contract. A comment that dates itself
+rots; the two paragraphs below do not, because they describe what the code IS.
 
 Validation posture (scanline design §7, contract §2.1, restated because it is the whole
 architecture of this tool): the generator validates **SHAPE** — schema version, id,
@@ -18,6 +28,15 @@ unknown keys — and refuses rather than guessing. Authored **VALUES** are valid
 sigil when the generated `.emp` calls the real `scene()` / `layer()` constructors, whose
 `ensure` text is the v1 error surface. This tool must never grow a value check that
 duplicates a constructor guard: two sources for one rule is how they drift.
+
+WHERE THAT LINE FALLS, since it is not self-evident and one defect has already crossed
+it: a TYPE is shape (`_render_int` — "you gave me a string where a bare integer literal
+gets emitted"), a RANGE is value (`scene()`'s `v_factor` bound — "255 is an absurd
+shift"). The type check duplicates nothing, because sigil cannot see the difference: a
+string in a numeric slot lands in generated source as a bare SYMBOL, and if it resolves
+— every `parallax_dsl` FACTOR_* does — it assembles green at the wrong number. A
+SPELLING translation is shape too (PRECISION_NAMES, `_render_bool_int`): the writer's
+vocabulary is not the `.emp` vocabulary, and mapping between them is this tool's job.
 
 Error handling (contract §3, normative): aeon consumers **fail loud**. Bare `json.load`
 plus direct subscripting, exactly the `inject_editor_bg.py:58-61` reference posture — a
@@ -570,12 +589,19 @@ def render_layer(path: str, layer: dict, where: str,
 def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
     """The `pub const … : Scene = scene(…)` text for one validated scene.
 
-    Deliberately returns TEXT and writes nothing. The generated module is not wired
-    into the build until the descriptor import seam exists (wave-1 design §3, open
-    question Q-c): an UNREACHED `.emp` module gets zero body elaboration, so
-    `ensure(1 == 0)` inside one builds green. Emitting a module nothing imports
-    would look finished while validating nothing — the failure this pipeline is
-    least able to notice.
+    Deliberately returns TEXT and writes nothing.
+
+    WHY THE SEAM IS ALWAYS EMITTED, restated here because this is the function whose
+    output depends on it: an UNREACHED `.emp` module gets zero body elaboration, so
+    `ensure(1 == 0)` inside one builds green. A generated module nothing imports would
+    look finished while validating nothing — the failure this pipeline is least able to
+    notice. That is the reason the descriptor binding exists with no editor content at
+    all rather than appearing with the first scene, and it is why the `scene()` /
+    `layer()` guards are a REAL error surface for this text rather than an aspirational
+    one. (This paragraph used to say the module "is not wired into the build until the
+    descriptor import seam exists". It does exist; the sentence was the same rot the
+    module docstring now warns about, and it was the one that would tell a reader their
+    constructor guards do not run.)
     """
     if tables is None:
         tables = TableRegistry()
