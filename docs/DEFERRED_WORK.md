@@ -8776,6 +8776,57 @@ parcel ritual (repin → refreeze `--ab`, full sigil suite) since a real band mo
 either lane first gave: a guessed pin yields a ROM that boots and is *subtly corrupt*, which is
 worse than no ROM for a visual test.
 
+**THE FIX IS A RE-DERIVATION, NOT A RELOCATION — measured 2026-08-24, and one supporting
+number that arrived with it is REFUTED.** The frozen boundary table allots `ojz_bg_anim`
+**exactly two bytes**: at sigil `origin/master` `805370b1`,
+`crates/sigil-harness/golden/offcanonical_sizes/s4_debug.txt` reads `BgAnim_Table 0x27e70`
+then `Map_TestObj 0x27e72`. Two bytes is exactly the disabled stub (`u16 = 0` is 2,
+`Data.empty` is 0), so **the cache is measuring a layout in which the band system emits
+nothing** — `test_mappings` is not misplaced and `ojz_bg_anim` is not greedy. A real single
+band needs ~8,250. Read out of sigil's committed table, independent of aurora's build, and
+confirmable here without building anything.
+
+**Do not hand-move a section.** A band's size is `cols*rows*BANKS*32` and changes with every
+scene an author makes, so a hand-fitted pin fits exactly one geometry and breaks on the next
+scene (aurora's argument, and it is the load-bearing one). The mechanism is
+`derive_offcanonical_sizes.sh` — **it lives in SIGIL's tree**, takes `AEON_DIR` plus a sigil
+binary, and its header calls the addresses it writes golden provenance re-derived on a
+**RULED** post-flip re-baseline. Two consequences: it cannot run until this tree carries a real
+band, and a golden re-baseline is a ruled act in sigil's repo rather than a script we run at
+them. **That plausibly makes wave 1 a three-lane project** — flagged by the hub, not yet put to
+sigil, and correctly not put to them until this parcel lands.
+
+> **⚠ REFUTED, and it was the number carrying the "not a ROM-space problem" conclusion.** The
+> claim relayed with the above was that `OJZ_Palette` carries **22,664 bytes of headroom**
+> (`0x27e70 - 0x225e8`) so an 8 KB band "fits comfortably in that neighbourhood". **It has 6
+> bytes free.** That gap is the SIZE of a four-blob section, not slack: `act_assets.emp:12-30`
+> makes `OJZ_Palette` the first of four `pub data` blobs in `ojz_act_assets`, and they measure
+> 96 + 32 + 8,192 + 14,338 = **22,658** against a 22,664 gap. **14,338 of it is `bg_tiles.bin`
+> — the 448/448 ceiling aurora is blocked by is sitting inside the space offered as free.**
+>
+> **The general rule, because it applies to every row in that file: the golden table records
+> BASES ONLY, no sizes — a gap is an ALLOTMENT, never proven free space.** These bases are
+> tightly packed, proven twice over: `OJZ_Palette`'s allotment matches its content to 6 bytes,
+> and `BgAnim_Table`'s allotment is exactly 2 for an exactly-2-byte stub. **There is no slack
+> anywhere in this table by construction.** Any "N bytes of headroom" read off it is a
+> section's size (the companion `Map_TestObj 3,082` is the same class).
+>
+> **Knock-on, and it is the more load-bearing half.** Aurora predicted every base after
+> `ojz_bg_anim` would be invalidated, then withdrew it on measuring the two labels adjacent
+> ("damage local to that seam, not cascading"). **With zero slack an ~8,248-byte growth
+> necessarily shifts every base after it.** Adjacency does not establish locality — sigil
+> reports the FIRST overlap, and no further reported collisions is not evidence of none. The
+> withdrawn prediction looks correct; the measurement did not bear on it. **So expect a full
+> re-baseline, not a seam repair**, which raises rather than lowers the three-lane question.
+>
+> **None of this changes the fix — it strengthens it.** Re-derivation recomputes every base, so
+> a cascade is expected and harmless, and with 6 bytes free next door **a hand-fitting was
+> never even available.**
+>
+> **Still open, and do not let the refutation overshoot into a claim of its own:** whether
+> ~8 KB fits the ROM AT ALL is untested. What is shown is that there is no LOCAL slack, which
+> is a different question from total ROM space, and nobody has looked at total.
+
 **Still untested at the end of all this:** whether the band actually ANIMATES on screen.
 Everything before that now has a green light or a named defect. Aurora reruns this exact
 pipeline once both fixes land, so **tell them directly** rather than leaving it to the board.
