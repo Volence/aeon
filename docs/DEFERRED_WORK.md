@@ -8811,7 +8811,45 @@ sigil, and correctly not put to them until this parcel lands.
 > anywhere in this table by construction.** Any "N bytes of headroom" read off it is a
 > section's size (the companion `Map_TestObj 3,082` is the same class).
 >
-> **Knock-on, and it is the more load-bearing half.** Aurora predicted every base after
+> **⚠ MY OWN "NO SLACK ANYWHERE" CLAIM IS REFUTED — by this repo's own `map.toml`, and the
+> cascade below is BOUNDED, not open-ended (measured 2026-08-24, same session).** I proved
+> tight packing at two points and wrote *"no slack anywhere in this table by construction"*.
+> That is the completeness over-claim protocol bar 17 exists for: two points are not a
+> distribution, and **bases-without-sizes cannot establish density anywhere** — which is the
+> exact categorical finding that killed the headroom claim, pointing the other way. The hub and
+> aurora spotted the symmetry; neither of us had noticed the weapon cuts both ways.
+>
+> **What the table actually looks like downstream of the growth site.** `BgAnim_Table` has
+> **15** labels after it by address (verified numerically; a string sort of varying-length hex
+> gives 40-of-93 and is wrong — the trap caught two lanes today, this one included on a first
+> attempt). But those 15 are not a packed run:
+> ```
+> 0x28ee0 HeightMaps
+> 0x48000 Dac_Temp_Blip     ← 127,264 bytes later
+> ```
+> `HeightMaps` + `HeightMapsRot` are 4,096 + 4,096, so **~119 KB of that span is genuine
+> slack** — and `0x48000` is not a packed base at all. **`map.toml:167-176` declares it as an
+> `[[anchor]]`** (`dac_banks`, matched by ADDRESS because the Z80's `SetBank` latches the LMA),
+> as is `0x58000` (`sound_bank`). Those are **hardware-pinned and cannot move.**
+>
+> **So the blast radius is FIVE labels, not fifteen:** `Map_TestObj`, `Ani_Sonic`, `Ani_Tails`,
+> `Ani_Particle`, `HeightMaps` shift; everything from `Dac_Temp_Blip` onward is anchored. An
+> ~8,248-byte band is **~7% of the slack** sitting before that anchor, so the growth is absorbed
+> inside one region and **this is a bounded shift, NOT a full golden re-baseline.** That
+> LOWERS the three-lane likelihood this file raised a few paragraphs above — treat that
+> escalation as superseded.
+>
+> **Scoreboard, stated plainly because both halves matter:** aurora's *conclusion* ("local, not
+> cascading") was closer to right than mine, though the query they reached it with could not
+> support it — they took a span from build output and grepped a table whose addresses do not
+> overlap it. My *cascade* argument was better-supported and still wrong, because it
+> generalised density from two measurements. **A correct conclusion from an unsupported query
+> and a wrong conclusion from a sound-looking one landed in the same hour.** The thing that
+> settled it was neither: it was reading the placement file that declares the anchors.
+>
+> **~~Knock-on, and it is the more load-bearing half.~~ SUPERSEDED by the anchor measurement
+> above — kept because the reasoning is instructive and was the best-supported read available
+> before anyone looked at `map.toml`'s anchors:** Aurora predicted every base after
 > `ojz_bg_anim` would be invalidated, then withdrew it on measuring the two labels adjacent
 > ("damage local to that seam, not cascading"). **With zero slack an ~8,248-byte growth
 > necessarily shifts every base after it.** Adjacency does not establish locality — sigil
