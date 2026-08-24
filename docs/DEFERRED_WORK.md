@@ -504,6 +504,15 @@ carry).
     same lane that later refuted it** — a relayed premise inherits no more scrutiny than the
     claim it supports. Same family as protocol bar 16: the rule's *name* was right and its
     *reach* was never checked.
+    **FIXED AT SOURCE, and the description above is therefore DATED — oracle `566413a`,
+    verified here as reachable at their `origin/main` and read firsthand.** Their module doc now
+    marks the scope at the sentence itself: routine rows keep the advice, buckets are flagged as
+    the entry alone. **So do not go looking for the unscoped sentence — it no longer exists**, and
+    finding the scoped one is not evidence this booking was wrong.
+    *One correction to our own wording while dating it, because this whole exchange was about
+    precision: we wrote that the rule "is about the AGGREGATE". It is not — it is scoped by ROW
+    KIND (routine vs interrupt bucket), and both kinds appear in the aggregate. Our axis was
+    wrong even though our conclusion was right, which is the cheaper half of the same mistake.*
   - **⚠ BUT THE RING CANNOT EXPRESS IT.** The `perFrame[]` wire row is exactly five keys —
     `frame`, `cycles`, `stallCycles`, `hintCycles`, `vintCycles` (`oracle-aether`'s
     `engine.rs`, the `per_frame_armed()` block). There is **no `vintSelfCycles`, no
