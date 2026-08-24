@@ -262,6 +262,29 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_lcm_undeclared.emp", "P3 T12 lcm undeclared", "a scene with 1 layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed 0, amplitude shift 2) declares NO left_column_mask policy", 1),
     (f"{POISON}/poison_scene_twinkey_table.emp",  "P3 twinkey table",     "attaches NO plane-shared table on either plane", 2),
     (f"{POISON}/poison_scene_twinkey_anchor.emp", "P3 twinkey anchor",    "back-door anchored scene folds to 9", 1),
+    # ---- VFACTOR: the two whole-plane vertical-shift range guards ----
+    # TWO ROWS AGAINST ONE MODULE, and the pairing is the point: the module holds two
+    # control/poison pairs (v_factor 15 vs 255, v_factor_fg 0 vs 255), so a single build
+    # yields exactly two diagnostics and each row asserts that ITS guard produced one of
+    # them. The count of 2 is half of each row's assertion — a 3 or 4 means a control
+    # stopped passing (a bound excluding 15 would refuse most of the shipped registry;
+    # one excluding 0 would refuse every scene in the tree), and a 1 means one guard went
+    # dead while the other's row still passed, which is exactly what the two distinct
+    # fragments exist to catch.
+    #
+    # THE FRAGMENTS ARE NOT INTERCHANGEABLE, deliberately. The second field's NAME
+    # CONTAINS the first's, and both messages open "outside 0 .. 15" — matching that
+    # alone would pass against either diagnostic. Each fragment therefore quotes the
+    # interpolated 255 plus a clause only its own guard says: the v_factor guard names
+    # `Parallax_Step5_Vscroll`, the reserved twin names itself as the FG twin.
+    #
+    # 255 is the DEFECT'S OWN VALUE, not a convenient out-of-range one: Aurora's editor
+    # default for a new scene is the string "FACTOR_0", which is parallax_dsl's PACKED
+    # factor (FACTOR_LOCKED = $0FF) landing in a RAW-SHIFT field whose sentinel is 15.
+    # Measured red-first at this parcel: with the two guards stashed out, this module
+    # builds CLEAN (rc 0, zero [Error]) — the silence the parcel exists to end.
+    (f"{POISON}/poison_scene_vfactor_range.emp",  "VFACTOR v_factor",     "v_factor 255 outside 0 .. 15 — Parallax_Step5_Vscroll reads this byte as", 2),
+    (f"{POISON}/poison_scene_vfactor_range.emp",  "VFACTOR v_factor_fg",  "v_factor_fg 255 outside 0 .. 15 — this is v_factor's FG twin", 2),
 ]
 
 
