@@ -1,21 +1,21 @@
 {
-  "focus": "One sizing answer from you unblocks aurora. Same recommendation as before, now with the true cost attached.",
-  "inFlight": [],
-  "blockedOnOwner": [
+  "focus": "You said keep it in place. Agent building the fix now; aurora reruns the moment it lands.",
+  "inFlight": [
     {
-      "id": "d-9",
-      "what": "whether background animation stays small or moves somewhere with room",
-      "since": "2026-08-24"
+      "what": "Giving the animation slot a real size that fits, and a clear error when a band is too big",
+      "where": "branch parcel/bganim-slot-ceiling",
+      "agent": true
     }
   ],
-  "nextBoundary": "Clean now - defect 1 landed and pushed. Defect 2 starts the moment d-7 is answered.",
+  "blockedOnOwner": [],
+  "nextBoundary": "After this parcel lands and aurora confirms their scene builds. That closes the pair.",
   "queue": [
     {
       "id": "BGANIM-PLACE",
       "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing can be hand-moved; the table gets re-derived with a real band present. Measured since: the knock-on stops dead at a hardware-pinned address, so five entries shift and the sound data cannot move at all. Smaller than it first looked.",
-      "state": "next",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "your answer on d-7 (how big to make the slot)",
+      "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
@@ -49,5 +49,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T17:50:23Z"
+  "updatedAt": "2026-08-24T18:47:38Z"
 }
