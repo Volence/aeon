@@ -8610,3 +8610,44 @@ becomes; that remains the open art call behind the 448/448 ceiling. **Do not res
 wider than "for testing"** — a test-scope grant quietly becoming a shipping-scope one is a
 failure this suite has already recorded once, and the hub flagged it with the grant rather than
 after it.
+
+### OPEN — a negative generator parameter emits a label that is not symbol-safe
+
+**Found beside the VFACTOR parcel (aeon `da43a036`), deliberately NOT fixed there** — it is a
+VALUE question in a parcel whose whole point was drawing the SHAPE/VALUE line, and fixing it
+inside the generator would have been the second source for a rule that this parcel had just
+finished arguing belongs to one owner.
+
+`tools/effects_gen.py`'s `render_table_ref` builds both its dedup key and its emitted label
+with `str(v)` over the generator's parameter values:
+
+```python
+key   = f"{gen}:" + ",".join(str(v) for v in values)
+label = "EditorDeform_" + gen + ("_" + "_".join(str(v) for v in values) if values else "")
+```
+
+Verified firsthand at `da43a036`. Since the VFACTOR parcel every `v` is guaranteed to be an
+**integer** — but a NEGATIVE integer still passes shape, and `str(-8)` is `-8`, so a legal
+authored scene yields `EditorDeform_sine_-8_32`. A `-` is not legal in an `.emp` label.
+
+**Why it is worth booking rather than shrugging at:** the failure lands as a sigil parse or
+unknown-symbol error **pointing at generated code**, for a scene the author spelled exactly
+right — which is the identical failure shape `PRECISION_NAMES` already carries a comment about
+(slices 1-2 emitting `precision: cell`). That is the third instance of the same class in this
+one file, so the pattern, not the instance, is the thing to fix.
+
+**Not yet established, and whoever takes this should establish it FIRST rather than assuming
+it, because it decides whether this is reachable or merely latent:** whether any
+`TABLE_GENERATORS` signature legitimately accepts a negative parameter. If none does, the
+constructor refuses it anyway and this is a diagnostic-quality bug (a confusing error instead
+of a clear one); if one does, it is a live emission bug. The two deserve different priorities
+and the enumeration is cheap — read the generator signatures in `scene_dsl.emp`, do not infer
+the answer from the Python side, which is the side that already lost this argument twice.
+
+**Related, same file, already fixed at `da43a036` and recorded here as the pattern's second
+instance:** `enabled` is a JSON **boolean** in the writer's schema while `layer()` takes an
+`int`, so master emitted the bare word `False` into generated `.emp` for a legal Aurora scene.
+Found by reading the WRITER's schema rather than our own field list. **The reusable enumeration
+is the schema's per-field `type`/`enum`/`const`, not our field names** — our names tell us
+which fields exist and say nothing about how the writer spells their values, and that
+distinction has now bitten this contract three times.
