@@ -26,13 +26,12 @@
   },
   "generator": {
     "dirty": true,
-    "head": "129a8ec15527826d394d9ee122e9d541f857dbdb",
-    "modified_tracked": 3,
+    "head": "4fda258481891121f1288f6d16e68426592a61ad",
+    "modified_tracked": 41,
     "repo": "aeon",
     "status": "git",
-    "untracked": 3
+    "untracked": 5
   },
-  "mode": "backfill",
-  "recorded_at": "2026-08-18",
+  "mode": "rebake",
   "schema": 1
 }
