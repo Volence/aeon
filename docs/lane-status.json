@@ -1,51 +1,39 @@
 {
-  "focus": "Booted and holding for your word. Front of the queue is landing your 38 stranded editor files.",
+  "focus": "Booted clean. Your level work is in and pushed; nothing running. Proposing a small assembler-alignment cleanup next.",
   "inFlight": [],
-  "blockedOnOwner": [
-    {
-      "what": "Which of the three ready items to cut first \u2014 the stranded-files landing, the (align: N) migration sigil is owed, or nothing until you say go",
-      "since": "2026-08-23"
-    }
-  ],
-  "nextBoundary": "Nothing dispatched yet; the first clean boundary is whichever item you pick, landed and pushed.",
+  "blockedOnOwner": [],
+  "nextBoundary": "Right here. Nothing dispatched, both repos match the shared copy. Next boundary is whichever item you pick, landed and re-verified.",
   "queue": [
     {
-      "id": "STRAND",
-      "title": "Land your 38 stranded editor files as the authoring+bake commit pair, then repin and refreeze",
-      "state": "next",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
       "id": "ALIGN",
-      "title": "The (align: N) migration owed to sigil \u2014 two Scene fields, two offsetof ensures deleted; needs SIGIL_BUILD rebuilt from 6fae4d6a first",
-      "state": "open",
+      "title": "The (align: N) migration owed to sigil - two Scene fields take (align: 2), two offsetof % 2 ensures delete. Sigil shipped the feature (6fae4d6a is on their master); the local sigil binary is newer than that merge but that is presence, not proof - verify at dispatch.",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "VFACTOR",
-      "title": "v_factor default folds to 255 \u2014 every new Aurora scene is born wrong; the schema moves, not the engine",
+      "title": "v_factor: empyrean ruled the schema moves and the engine does not, so nothing is owed here; what is left is OUR call - should tools/effects_gen.py refuse an out-of-range v_factor at the boundary",
       "state": "open",
       "size": "S",
-      "blockedBy": "empyrean's ruling (their CR-1, live today) \u2014 hardening our side early hardens the wrong half",
+      "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
       "id": "CUTOVER",
-      "title": "Re-run the 19 effects gates after the emulator flip \u2014 but first check the diff can move at all; the gate lane spawns its harness by absolute path and may not read the MCP binding",
+      "title": "Re-run the 19 effects gates. NOTE: they never needed the socket - each gate spawns its own emulator on a private socket, so the cutover does not move them and a re-baseline would pass vacuously. Needs re-scoping before it is worth running.",
       "state": "open",
       "size": "S",
-      "blockedBy": "the owner flipping the MCP binding to the Rust core"
+      "blockedBy": null
     },
     {
       "id": "P5",
-      "title": "tools/effects_gen.py \u2014 the remaining half of the authored-effects path",
+      "title": "tools/effects_gen.py - the remaining half of the authored-effects path, and EFFECTS-W1's declared aeon blocker",
       "state": "open",
       "size": "L",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     }
   ],
-  "updatedAt": "2026-08-23T08:11:02Z"
+  "updatedAt": "2026-08-24T03:49:15Z"
 }

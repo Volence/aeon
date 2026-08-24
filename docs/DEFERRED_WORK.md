@@ -8395,3 +8395,34 @@ is itself a stale offset (it now sits at 118). Renaming it would touch the three
 `games/sonic4/test/poison/` fixtures that spell it, and a poison fixture whose failure mode
 shifts can go vacuously green — not worth the risk inside this parcel. The name is decoration;
 the `ensure`s are the authority.
+
+#### ALIGN — the `(align: N)` migration this booking is owed (queued, not started)
+
+Sigil shipped a field-level alignment attribute, which is the derived replacement for the
+`ensure`-guarded hand pad above. Scope when it is picked up: `sc_mask_raw` and
+`sc_v_deform_shift_raw` take the attribute, and the two `offsetof(…) % 2 == 0` ensures come
+out (the attribute makes the property structural rather than asserted).
+
+**Gate — verify, do not infer.** `6fae4d6a` ("Merge branch 'feat/field-align'") is an ancestor
+of sigil master, verified firsthand 2026-08-24. A rebuilt `SIGIL_BUILD` binary's **mtime is not
+evidence it carries that merge** (protocol bar 16 — presence is not behaviour). Sigil's lane
+states that `sigil --version` reports the revision, branch and tree state it was built from;
+**that is their claim, unverified here** — settle it with that command at dispatch, and if it
+does not report a revision, find another positive check rather than falling back to mtime.
+
+**Two cautions from the sigil lane, relayed 2026-08-24, both unverified here:**
+1. **The spelling is `(align: N)`, NOT `@align(N)`.** `@align(N)` is the `vars`-region
+   cursor-mover; on a struct field it is refused by name with a teaching diagnostic. Cheap to
+   get wrong, loud when you do.
+2. **The migration does NOT derive `sc_pad_5D`'s width — it stays hand-computed.** The
+   attribute guards the stale constant; it does not compute it. So THE CLASS above is only
+   half-discharged by this parcel, and the residual nit stays residual. The deriving construct
+   is `pad_to(N)`, which sigil describes as **drafted-but-unlanded and now needing the owner's
+   agreement before it ships** — so do not plan this migration around `pad_to` existing, and do
+   not let an agent reach for it.
+
+**Provenance note, recorded because it matters for how much the agreement is worth:** the
+handback state (both repos' HEADs equal to their pushed remotes) was checked by this lane and by
+the sigil lane minutes apart using effectively the same two commands on the same trees. Sigil
+said so unprompted. That is a repeated check, **not an independent second derivation**
+(protocol bar 19) — the enumeration parameter did not differ.
