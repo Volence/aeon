@@ -574,6 +574,22 @@ if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
             echo "Editor-scene binding seam is not reached — see above."
             exit 1
         fi
+
+        # The BG-animation section's ROOM, re-derived from THIS build's listing
+        # (BGANIM-PLACE, decision d-9). `ojz_bg_anim` grows into the hole that ends
+        # at the `dac_banks` hardware anchor ($48000), which is also the only room
+        # `Art_Sonic` has to grow into — so the ceiling authors are held to has to be
+        # re-checked against the layout, not pinned once and trusted.
+        #
+        # It runs HERE, after the build, because the answer only exists in the
+        # listing: the frozen boundary table lists a SUBSET of labels, so a gap in it
+        # is an allotment and never proven free space (docs/OVERSEER.md — the bar
+        # three parties broke in one afternoon). sonic4-only: `demo` places no
+        # `ojz_bg_anim` section at all.
+        if ! python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" --gate; then
+            echo "BG-animation section room — see above."
+            exit 1
+        fi
     fi
 fi
 
