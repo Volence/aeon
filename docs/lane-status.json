@@ -11,14 +11,6 @@
   "nextBoundary": "Clean now - defect 1 landed and pushed. Defect 2 starts the moment d-7 is answered.",
   "queue": [
     {
-      "id": "BGANIM-EXTERN",
-      "title": "The generated background-animation table names its data blob in a form the assembler will not accept. The fix is proven and one line of the generator; this is the code path our own notes said had never once been exercised, and the first real scene exercised it.",
-      "state": "done",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
       "id": "BGANIM-PLACE",
       "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing can be hand-moved; the table gets re-derived with a real band present. Measured since: the knock-on stops dead at a hardware-pinned address, so five entries shift and the sound data cannot move at all. Smaller than it first looked.",
       "state": "next",
@@ -57,5 +49,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T17:07:23Z"
+  "updatedAt": "2026-08-24T17:50:23Z"
 }
