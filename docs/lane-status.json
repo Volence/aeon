@@ -1,5 +1,5 @@
 {
-  "focus": "The editor lane built the first real scene and it does not assemble. Two faults, both mine, both understood. Waiting on your go to fix.",
+  "focus": "Two faults stand between the editor lane and a working scene. Both understood, neither started - waiting on your go.",
   "inFlight": [],
   "blockedOnOwner": [],
   "nextBoundary": "Still clean - nothing running. Next boundary is after the two-fix parcel lands and the editor lane reruns.",
@@ -14,7 +14,7 @@
     },
     {
       "id": "BGANIM-PLACE",
-      "title": "With that fixed the build gets further and stops again: the background-animation block grew from four bytes to eight kilobytes and now runs through the block placed after it. A placement decision against the frozen tables - NOT the deferred order row, which is a different block and has not fired.",
+      "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing is misplaced and nothing can be hand-moved (six bytes free next door); the table gets re-derived with a real band present, which is a sanctioned re-baseline in the assembler repo and may pull a third lane in.",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -51,5 +51,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T15:47:26Z"
+  "updatedAt": "2026-08-24T15:54:55Z"
 }
