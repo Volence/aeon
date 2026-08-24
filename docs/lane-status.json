@@ -1,5 +1,5 @@
 {
-  "focus": "Effects defect landed, and the background-art question turned out to need nothing from you after all.",
+  "focus": "All landed. Proved the background animation really runs on boot, which clears the editor lane's last unknown.",
   "inFlight": [],
   "blockedOnOwner": [],
   "nextBoundary": "Clean - landed, pushed, nothing running and nothing waiting on you.",
@@ -35,5 +35,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T15:17:49Z"
+  "updatedAt": "2026-08-24T15:28:57Z"
 }
