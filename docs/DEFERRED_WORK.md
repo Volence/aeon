@@ -8504,13 +8504,28 @@ at the top of the 1,059-line file that implements the ruling. **A perishable cla
 comment outlived every doc that recorded the ruling** — the design doc, this file, and the
 implementing header all say "ruled", and the one artifact nobody re-reads propagated the
 opposite into a cross-lane contract. Same family as the `sc_pad_5D` comment asserting `(94, 96)`
-for four days. Fix rides with the VFACTOR parcel.
+for four days.
+
+> **CLOSED by the VFACTOR parcel (part C).** Both stale claims are gone; the docstring now
+> describes what the code IS, with no new date-stamped "as of" sentence to rot the same way.
+> **A SECOND COPY WAS FOUND IN THE SAME FILE WHILE FIXING THE FIRST, AND IT WAS WORSE.**
+> `render_scene()`'s own docstring claimed *"the generated module is not wired into the build
+> until the descriptor import seam exists (open question Q-c)"* — i.e. the sentence a reader
+> would use to conclude that the `scene()` / `layer()` guards on its output DO NOT RUN, in the
+> docstring of the function that produces the text they guard. It is fixed, and it sharpens the
+> lesson: the stale header was not one bad paragraph, it was a claim that had been COPIED, and
+> the grep that finds the copies (`Q-c`, `slice 1`, `not wired`) is what the next such fix
+> should start with rather than end with. (`tools/test_effects_gen.py` carried the "slice 1"
+> staling too and is fixed with them.)
 
 **What is ACTUALLY left, and it is one thing:** *no real Aurora-authored scene has ever been
 through the path end to end.* P5 is byte-neutral in its shipping state precisely because zero
 editor scenes exist; the content path is proven only by a **temporary fixture** (green at crc
 `1499f79c`), which is a fixture this lane wrote, not an artifact an author produced. Three
-named things stand between here and that:
+named things stood between here and that; **item 1 is CLOSED (VFACTOR, 2026-08-24) and 2-3
+remain** — and note what that re-ranks: the two survivors are both blocked on an ARTIFACT
+existing (a placement row that only a real scene can verify, and an editor that cannot yet
+make one), not on engine or generator work. Neither is ours to unblock alone.
 
 1. **The `v_factor` default defect (VFACTOR) — this would break the FIRST real scene.**
    Aurora's new-scene default is `v_factor: 'FACTOR_0'`. `FACTOR_*` is the **packed**
@@ -8528,6 +8543,53 @@ named things stand between here and that:
    which currently has no owner for "255 is an absurd shift".
    *Empyrean has separately ruled the schema `$ref` half (the schema moves, the engine does
    not) and holds that CR; it is coordinated because aurora vendors the file by blob hash.*
+
+   > **CLOSED 2026-08-24 — both halves, on `parcel/vfactor-shape-range`.** Byte-neutral in
+   > all four shapes (zero editor scenes exist; a passing `ensure` emits nothing).
+   >
+   > - **SHAPE** — `tools/effects_gen.py` grew one `_render_int` helper and every slot that
+   >   is emitted as a bare `.emp` integer now routes through it. **Scoped to the class, not
+   >   the instance:** all four `SCENE_SCALARS` (the other three had the identical exposure),
+   >   the non-bool `LAYER_SCALARS`, `world_y` beside them, the composed-factor `{s1,s2,op}`
+   >   terms, the anchor's `channel/dsa/dsb`, the attachment payloads past a `tableRef`, and
+   >   the `tableRef` generator parameters. `render_vsplit`'s inline check was this rule
+   >   written once for one slot and now defers to the shared one.
+   > - **RANGE** — `scene()` gained `0 .. 15` on `v_factor` and on `v_factor_fg`. **Derived
+   >   from the consumer, not from the sentinel:** `Parallax_Step5_Vscroll` compares the byte
+   >   against 15 and otherwise uses it as an `asr.w d2, d0` count; `asr.w` takes its register
+   >   count mod 64 and every count from 15 up fills the word with its sign, which is why 15
+   >   was free to BE the sentinel. So 0..14 are the shifts, 15 is the lock, and **16..255
+   >   neither lock nor shift** — `.v_locked` is not taken and the plane silently pins to
+   >   0/-1. The lower bound is live too: `scene()` takes an `int` into a `u8`, so `-1` wraps
+   >   to 255. Corroborated independently (a check, not the source) by empyrean's writer
+   >   schema, which declares both fields `{"type":"integer","minimum":0,"maximum":15}`.
+   > - **`v_factor_fg` is the SAME NUMBERS BY A DIFFERENT DERIVATION, and the distinction is
+   >   worth keeping.** `pcfg_v_factor_fg` is RESERVED and **nothing reads it** (Step 5 sets
+   >   the FG vscroll to camY unconditionally), so no bound is derivable from a consumer and
+   >   no authored value can bend a picture today. The bound comes from the field's declared
+   >   identity as `v_factor`'s twin, which it inherits when the reservation lifts. It is a
+   >   RESERVATION bound, and deliberately not `== 0`: that would pin the v1 runtime's
+   >   silence as if it were the field's meaning and re-arm the `sc_pad_5D` staling trap.
+   > - **Shipped corpus enumerated before the guard landed:** every `scene()` call site in
+   >   the tree authors `v_factor` in {3, 4, 15}, and **no call site anywhere passes
+   >   `v_factor_fg`** (all take the `= 0` default). Nothing shipped fails.
+   > - Tests: `tools/test_effects_gen.py` (build.sh's `pytest tools` lane) with coverage
+   >   derived by iterating the scalar tuples rather than listing them, plus
+   >   `games/sonic4/test/poison/poison_scene_vfactor_range.emp` and two `CASES` rows in the
+   >   expect-fail lane. **Red-first measured, including the matcher:** with the message
+   >   reworded into the neighbouring refusals' vocabulary the guard still fired and the
+   >   tests still went red, and with the two `ensure`s stashed out the poison module builds
+   >   **clean, rc 0, zero `[Error]`** — the silence this closes.
+   >
+   > **AN ADJACENT DEFECT FOUND BY READING THE WRITER'S SCHEMA RATHER THAN OUR FIELD LIST,
+   > and it would have bitten the same first scene:** `enabled` is a **JSON boolean**
+   > (`$defs.layer.enabled`), while `layer()` takes `enabled: int = 1`. Master emitted the
+   > bare word `True` / `False` into generated `.emp` for a legal Aurora scene. Translated
+   > now (`_render_bool_int`); an integer stays accepted, as `ATTACH_NONE` accepts JSON null.
+   > This is the third time this contract has been bitten by reading our own field NAMES and
+   > assuming the writer's VALUE spellings (slices 1-2 assumed JSON null for `"none"`, then
+   > `precision: cell`, now this) — **the enumeration to run on the next field is the
+   > schema's `type`/`enum`/`const` per field, not our key list.**
 2. **The `map.toml` order row**, deliberately unauthored. The `order` check keys on a section's
    HEAD LABEL and this block's head is **content-derived**, so a row today would be inert and
    unverifiable — the vacuous-gate defect in a new costume. `map.toml` carries a reserved-slot
