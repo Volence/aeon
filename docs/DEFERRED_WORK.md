@@ -8728,8 +8728,10 @@ distinction has now bitten this contract three times.
 ### PARTLY CLOSED — the first real authored band does not assemble: two defects (found 2026-08-24)
 
 > **DEFECT 1 IS FIXED AND REPRODUCED FIRST (2026-08-24, `parcel/bganim-extern-spelling`).
-> DEFECT 2 REMAINS OPEN and its text below is untouched.** See "DEFECT 1 — CLOSED" for what
-> was actually measured in THIS tree.
+> DEFECT 2's ceiling and refusal ARE BUILT (2026-08-24, `parcel/bganim-slot-ceiling`) but the
+> ruled option is BLOCKED ON SIGIL at any useful size — see "DEFECT 2 — DISPOSITION" at the end
+> of this section, and read it BEFORE trusting any space figure in the older text, several of
+> which are refuted in place.** See "DEFECT 1 — CLOSED" for what was measured in THIS tree.
 
 **Provenance and its limits.** Aurora built the first genuinely editor-authored BG band against
 this repo at `origin/master` `5349bea4`, in an isolated `git worktree` of their own — **this
@@ -8835,17 +8837,25 @@ sections `test_mappings` [0x3B672, 0x3B6A2) and `ojz_bg_anim` [0x3B270, 0x3D29E)
 "EFFECTS-W1 … item 2" above; `ojz_bg_anim`'s head label `BgAnim_Table` has been declared at
 `map.toml:120` all along, and adding a row would be a no-op that looks like a fix. What changed
 is SIZE: the disabled stub is 4 bytes (`BgAnim_Table: u16 = 0` plus `BgAnim_Banks = Data.empty`),
-a real single band is 8192+. **Open and deliberately not pre-judged: whether `ojz_bg_anim` or
-`test_mappings` is the section that should move.** That is the whole content of the fix, it is a
+a real single band is 8192+. ~~**Open and deliberately not pre-judged: whether `ojz_bg_anim` or
+`test_mappings` is the section that should move.**~~ **← RULED. Owner decision `d-9`
+(`docs/decisions.jsonl`): `fitinplace` — keep BG animation where it is and accept a small
+ceiling; relocation stays available and is explicitly not foreclosed.** The stub is **2** bytes,
+not 4 (`u16 = 0` is 2, `Data.empty` is 0). That is a
 FROZEN-TABLES placement decision rather than a `map.toml` one, and it wants the byte-moving
 parcel ritual (repin → refreeze `--ab`, full sigil suite) since a real band moves bytes.
+**⚠ That ritual CANNOT RUN for this growth — see the DISPOSITION block at the end of this
+section; the re-derivation goes through the pass that is failing.**
 
 **Aurora deliberately did not author an order row**, which was right for a better reason than
 either lane first gave: a guessed pin yields a ROM that boots and is *subtly corrupt*, which is
 worse than no ROM for a visual test.
 
-**THE FIX IS A RE-DERIVATION, NOT A RELOCATION — measured 2026-08-24, and one supporting
-number that arrived with it is REFUTED.** The frozen boundary table allots `ojz_bg_anim`
+**~~THE FIX IS A RE-DERIVATION, NOT A RELOCATION~~ — measured 2026-08-24, and one supporting
+number that arrived with it is REFUTED.** *(The headline itself is now REFUTED too: a
+re-derivation is not available. `derive_offcanon` fails on the same tree with the same
+diagnostic — measured, see the DISPOSITION block at the end of this section. The measurement
+of the allotment below is correct and stands.)* The frozen boundary table allots `ojz_bg_anim`
 **exactly two bytes**: at sigil `origin/master` `805370b1`,
 `crates/sigil-harness/golden/offcanonical_sizes/s4_debug.txt` reads `BgAnim_Table 0x27e70`
 then `Map_TestObj 0x27e72`. Two bytes is exactly the disabled stub (`u16 = 0` is 2,
@@ -8895,10 +8905,15 @@ sigil, and correctly not put to them until this parcel lands.
 > 0x28ee0 HeightMaps
 > 0x48000 Dac_Temp_Blip     ← 127,264 bytes later
 > ```
-> `HeightMaps` + `HeightMapsRot` are 4,096 + 4,096, so **~119 KB of that span is genuine
-> slack** — and `0x48000` is not a packed base at all. **`map.toml:167-176` declares it as an
-> `[[anchor]]`** (`dac_banks`, matched by ADDRESS because the Z80's `SetBank` latches the LMA),
-> as is `0x58000` (`sound_bank`). Those are **hardware-pinned and cannot move.**
+> ~~`HeightMaps` + `HeightMapsRot` are 4,096 + 4,096, so **~119 KB of that span is genuine
+> slack**~~ **← REFUTED (d-8); the corrected figure is 11,424 B, derived below.** The span
+> holds `AngleTable`, `SolidityTable`, `Map_Sonic`, `DPLC_Sonic` and `Art_Sonic`
+> (`s4.debug.lst` lines 2225-2229), which is invisible in the frozen table *by construction*
+> — it lists a SUBSET of labels. This paragraph is the repo bar's founding instance: **a gap
+> between two rows of that table is an ALLOTMENT, never proven free space** (`docs/OVERSEER.md`).
+> The rest of the paragraph stands: `0x48000` is not a packed base at all. **`map.toml:167-176`
+> declares it as an `[[anchor]]`** (`dac_banks`, matched by ADDRESS because the Z80's `SetBank`
+> latches the LMA), as is `0x58000` (`sound_bank`). Those are **hardware-pinned and cannot move.**
 >
 > **THE FIFTEEN IS NOT WRONG — it answers a different question, and this line is here because
 > the phrasing below invites the misread.** Fifteen labels DO follow `BgAnim_Table` by address.
@@ -8907,11 +8922,15 @@ sigil, and correctly not put to them until this parcel lands.
 > in this booking. Do not read what follows as a retraction of the count.
 >
 > **So the blast radius is FIVE labels of the fifteen:** `Map_TestObj`, `Ani_Sonic`, `Ani_Tails`,
-> `Ani_Particle`, `HeightMaps` shift; everything from `Dac_Temp_Blip` onward is anchored. An
+> `Ani_Particle`, `HeightMaps` shift; everything from `Dac_Temp_Blip` onward is anchored. ~~An
 > ~8,248-byte band is **~7% of the slack** sitting before that anchor, so the growth is absorbed
 > inside one region and **this is a bounded shift, NOT a full golden re-baseline.** That
 > LOWERS the three-lane likelihood this file raised a few paragraphs above — treat that
-> escalation as superseded.
+> escalation as superseded.~~ **← the percentage is REFUTED with the 119 KB it was computed
+> from; an 8,238 B band is ~72% of the real 11,424 B, not 7%. The "bounded shift" conclusion
+> survives (the five-label list is correct and was read off `map.toml`'s anchors), but the
+> three-lane escalation does NOT: see the 2026-08-24 disposition block at the end of this
+> section — the re-baseline this depends on cannot be produced at all today.**
 >
 > **Scoreboard, stated plainly because both halves matter:** aurora's *conclusion* ("local, not
 > cascading") was closer to right than mine, though the query they reached it with could not
@@ -8946,7 +8965,161 @@ sigil, and correctly not put to them until this parcel lands.
 > *(Caveat, honest rather than material: the two ROMs are whatever the last build left on disk
 > and their freshness was not established — see the landing lane's `rm -f`-before-rebuild rule.
 > An order-of-magnitude answer survives that; do not quote the byte counts as current.)*
+> **Freshness now established (`parcel/bganim-slot-ceiling`, 2026-08-24): both figures are
+> current — all four shapes rebuilt from `rm -f`, `s4.bin` 699,106 / crc `c7b9d10d`,
+> `s4.debug.bin` 715,010 / crc `f0175028`.**
 
-**Still untested at the end of all this:** whether the band actually ANIMATES on screen.
-Everything before that now has a green light or a named defect. Aurora reruns this exact
-pipeline once both fixes land, so **tell them directly** rather than leaving it to the board.
+**DEFECT 2 (BGANIM-PLACE) — DISPOSITION 2026-08-24, `parcel/bganim-slot-ceiling`. The
+ceiling is built and gated; the ruling itself is BLOCKED ON SIGIL at any useful size.**
+
+Owner decision `d-9` ruled `fitinplace` — keep BG animation where it is, accept a small
+ceiling, keep relocation open. That was ruled against the ROM-room number. **The ROM is not
+the binding limit.** Both limits are stated here because conflating them is what produced
+every retracted figure above.
+
+**1. ROM room — 11,424 B. Derived, per shape, from the LISTING and the image; never from a
+boundary-table gap.**
+
+| shape | `Art_Sonic` LMA | + blob on disk | packed end | `dac_banks` anchor | room |
+|---|---|---|---|---|---|
+| `s4` | `0x2CE60` | 97,472 | `0x44B20` | `0x48000` | **13,536** |
+| `s4.debug` | `0x2D6A0` | 97,472 | `0x45360` | `0x48000` | **11,424** |
+| `demo`, `demo.debug` | — | — | — | — | **n/a — no `ojz_bg_anim` section** |
+
+Instruments: label LMAs from `s4.lst` / `s4.debug.lst`; `art/optimized/characters/sonic.bin`
+on disk (the blob `collision_data.emp`'s `const _art_sonic = embed(...)` names); the anchor
+from `map.toml`'s `[[anchor]] dac_banks`. Cross-checked against the ROM image: both spans are
+**pure `$00` fill**, exactly 13,536 and 11,424 bytes — so spending them does not grow the ROM
+file, it spends what `Art_Sonic` may grow into. **Minimum 11,424 B**, + the 2 B the stub holds
+= 11,426 B reachable. *(This supersedes d-9's 11,427: that came from a constant-byte run scan
+starting at `0x4535D`, three bytes inside `Art_Sonic`'s own trailing zeros. The owned-span end
+is `0x45360`. The difference is immaterial; the instrument matters.)*
+
+**`demo` does not carry this section at all** — and note *how* that was established, because
+the frozen table gets it wrong in the safe direction: `demo.txt` / `demo_debug.txt` have no
+`BgAnim_Table` row, but the listing shows `BgAnim_Table` at `0x100FE` in `demo.lst`. It is
+`games/demo/data/demo_data.emp`'s own stub inside the `demo_data` section, not `ojz_bg_anim`;
+`tools/inject_editor_bg.py` is hardcoded to sonic4 and `regenerate-level.sh` only calls it for
+sonic4. The ceiling is a sonic4 fact. **A missing row in the frozen table was not the evidence
+— the listing was.**
+
+**2. PLACER room — 1,026 B, and IT IS THE BINDING LIMIT. This is the finding that changes the
+ruling's cost.** sigil's chainer measures every section's image length at its frozen
+provisional base; when a grown section collides there it retries **once**, with a cumulative
+`0x400`-per-rank spread (`measure_or_spread`, sigil `crates/sigil-harness/src/native.rs`).
+`ojz_bg_anim` and `test_mappings` are ADJACENT in the declared order, so the retry buys
+exactly ONE step:
+
+| shape | frozen allotment | + one spread step | placer room |
+|---|---|---|---|
+| `s4` | 14 | 1,024 | **1,038** |
+| `s4.debug` | 2 | 1,024 | **1,026** |
+
+**Measured, both directions, both shapes** (`sigil build --aeon . --native`, real bands baked
+through `tools/regenerate-level.sh`): a **814 B** section (3 slots) BUILDS in both shapes; a
+**1,070 B** one (4 slots) FAILS in both, and sigil's own diagnostic reports the available spans
+as `0x40E` / `0x402` — exactly `allotment + 0x400`. The derivation reproduces the measurement
+in both shapes.
+
+**3. THE ESCAPE HATCH DOES NOT EXIST — verified, not reasoned.** The obvious answer is "grow
+it, then refreeze". `derive_frozen_table` → `resolve_frozen_sections` → `true_bases_by_index`
+→ **the same `measure_or_spread`**. Run against this tree carrying the 1,070 B band,
+`target/release/derive_offcanon` fails with the identical diagnostic:
+
+```
+ERROR: derive s4: span pass (spread round, post-growth): span pass: resolve_layout: 1 diag(s);
+  first Some(Diagnostic { level: Error, message: "sections `test_mappings\070` [0x38A40, 0x38A70)
+  and `ojz_bg_anim\082` [0x38632, 0x38A60) overlap in the image (colliding pins)" })
+```
+
+`repin` resolves against the aeon listings, which need a successful build. **So a tree whose
+band exceeds ~1 KB can be neither BUILT nor RE-FROZEN.** There is no `SIGIL_*` env knob for
+the table path (`load_frozen_table` uses a compile-time `CARGO_MANIFEST_DIR`) and no flag that
+relaxes the spread on a canonical profile; the machinery that *would* work exists but is bound
+to the `--stress-art` fixture (`image_lens_pinned(.., fixture=true)` measures
+position-independent DATA at disjoint scratch slots — and `ojz_bg_anim` IS pure data).
+
+Note also that sigil's own `GROWTH_DRIFT_TOLERANCE` is `0x1000` while the measuring spread is
+`0x400`: the tolerance that decides whether a drift is acceptable is four times looser than the
+pass that has to measure it first. That asymmetry looks unintentional and is worth putting to
+the sigil lane along with the rest.
+
+**⇒ BLOCKED, and this is a constraint conflict, not a design choice.** The ruled option
+`fitinplace` is available today only at **1,026 B ≈ 3 animated tiles**, against aurora's 8,238 B
+band. Nothing in aeon can raise it. **This is the item to put to sigil**, and it makes wave 1
+the three-lane project this file raised and then withdrew — withdrawn for the right reason at
+the time (the blast radius IS five labels), reinstated for a different one (the re-baseline
+that would absorb those five labels cannot be produced).
+
+**WHAT LANDED ANYWAY, because it is right regardless of which way the block is resolved:**
+
+- **The cryptic collision is replaced by a sentence.** `tools/inject_editor_bg.py` now refuses
+  an over-ceiling act *before it writes any artifact*, naming the band count, the per-band
+  geometry, the section's size with its arithmetic shown, the ceiling, how far over it is,
+  **which of the two limits bound it** (they have completely different remedies), and how many
+  slots would fit. Precedent and quality bar: the `BGANIM_MAX_BANDS` assert in the same file.
+- **The check totals ALL bands, never each band.** `BgAnim_Banks` is one blob for the whole
+  act. Decision `d-6` proposed a per-band cap and this project's own deleted content refuted
+  it — 32x4 + 16x4 each pass a generous per-band limit while their sum is 49,242 B. Kept
+  executable as `test_bands_each_under_the_ceiling_but_over_in_total`.
+- **Both ceilings are re-derived on every sonic4 build** by `tools/bganim_room.py --gate`
+  (wired into `build.sh` beside `effects_seam_gate`), from the listing + the image + the map,
+  and **it fails loudly when it cannot measure** rather than reporting zero. It is the standing
+  guard for the revisit `d-9` named: the day `Art_Sonic` grows into the reservation, the build
+  says so and names the two options.
+- **14 new tests** in `tools/test_bg_emit.py::TestBgAnimSectionCeiling`, run by `build.sh`'s
+  `python3 -m pytest tools` lane (total 1,347 → 1,361). The refusal *matcher* is itself under
+  test against the collision diagnostic being replaced — a matcher that accepted that message
+  would accept exactly the failure this work removes.
+- **Byte-neutral on master, proven not assumed:** all four shapes rebuilt from `rm -f` with
+  unchanged CRCs (`c7b9d10d` / `f0175028` / `c708b114` / `dec88cc1`).
+
+**NOT DONE, deliberately: the reservation itself.** The mechanism that would make the
+allotment content-independent — pad the section to the ceiling in both arms, so any band up to
+the ceiling needs no golden re-derivation — is implementable in one place
+(`inject_editor_bg.py`, a padded `bg_anim_banks.bin`; `map.toml` has no declared-reservation
+form, only `order` / `region` / `anchor` / `hole` / `budget`, so this is the only mechanism
+available without a sigil feature). It was NOT landed because at any useful ceiling it breaks
+the build on the very first commit, for the reason in §3 above, and at a ceiling that builds it
+would permanently spend 1 KB to buy an unusable band size. **Its cost, for the ruling record:
+at a 9,394 B ceiling the stub grows 2 → 9,394 B, i.e. +9,392 B in each sonic4 shape and 0 in
+demo, with the ROM FILE SIZE UNCHANGED** (the growth lands in the `$00` fill measured above) —
+what is spent is `Art_Sonic`'s growing room, leaving 2,032 B (63 tiles) in the debug shape.
+
+**PROPOSED CEILING, FLAGGED FOR THE OWNER — not decided here.** Section size is
+`2 + 44 x bands + slots x 256`; the worst case is all 4 band records plus all 448 slots =
+114,866 B. Against the 11,426 B reachable:
+
+| total slots | ceiling (worst case at 4 bands) | `Art_Sonic` room left, debug | in tiles |
+|---|---|---|---|
+| 32 — aurora's band exactly | 8,370 | 3,056 | 95 |
+| **36 — proposed** | **9,394** | **2,032** | **63** |
+| 40 | 10,418 | 1,008 | 31 |
+| 43 — the most that fits | 11,186 | 240 | 7 |
+| 44 | 11,442 | *does not fit* | — |
+
+Reasoning for 36: a ceiling equal to today's band (32) gives an author **zero** room to grow
+one, which is the workflow tax the ruling exists to avoid — the next column added breaks the
+build. 36 buys one more 4-row column (or a second small band) for 1,024 B, ~1% of `Art_Sonic`,
+while being +12.5% of the band budget. It is a judgement call between two thin margins and the
+owner should pick the row. `BGANIM_SECTION_CEILING` in `tools/inject_editor_bg.py` carries 36
+today with the whole derivation beside it; changing the row is a one-line edit that the room
+gate then re-checks against the live layout.
+
+**Still untested at the end of all this — and the boundary matters.** This parcel can
+establish that a band **assembles and is placed**, and that its bytes are in the image. It
+**cannot** establish that the band ANIMATES: nothing in a build watches a frame, and a band
+that assembles, places correctly and renders as a static or garbled strip would satisfy every
+check here and every check a build lane can add. Do not read a green build as a working effect.
+
+- **The driver IS reached — that half is closed** (verified in
+  `games/sonic4/test/ojz_scroll_test.emp`): `GameState_OJZScroll_Update` is declared at `:556`,
+  the unconditional `jbsr BgAnim_Update` is at `:821`, and there is **zero `rts`** between them,
+  so it ticks every frame on a plain boot.
+- **What remains untested is everything downstream of that call**: whether the bank pointers
+  select the right art, whether phase stepping produces visible motion, whether promoted tiles
+  land where the layout says. That is a **foreground emulator check owned by the aurora lane's
+  rerun**, not something a build lane or a background agent can reach.
+
+Aurora reruns this exact pipeline once the placement block clears, so **tell them directly**
+rather than leaving it to the board — and tell them the block, not just the ceiling.
