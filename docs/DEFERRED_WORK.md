@@ -8426,3 +8426,69 @@ handback state (both repos' HEADs equal to their pushed remotes) was checked by 
 the sigil lane minutes apart using effectively the same two commands on the same trees. Sigil
 said so unprompted. That is a repeated check, **not an independent second derivation**
 (protocol bar 19) — the enumeration parameter did not differ.
+
+### EFFECTS-W1 — the TRUE aeon blocker, restated 2026-08-24 (the old one was refuted)
+
+**The declared blocker was stale and both of its stated reasons are refuted.** It read
+"`tools/effects_gen.py` is SLICE 1 only" and "the `act_descriptor.emp` import seam waits on
+design Q-c, an open decision". Verified firsthand at aeon `ea8a820e` (== `origin/master`),
+and independently re-verified by the empyrean hub against the same remote before they moved
+their board:
+
+- **Q-c was RULED AND IMPLEMENTED by the owner on 2026-08-22** (the always-emitted default).
+  Design §9 records it; `effects_gen.py` implements it under a header naming the ruling.
+- **Slices 1-5 are all on master and P5 IS WIRED** — `build.sh` runs `effects_gen.py check`
+  on every canonical build, `effects_seam_gate.py` runs beside `s4budget`, and
+  `regenerate-level.sh` bakes the module unconditionally.
+
+**Root cause of the stale blocker, and it is the reusable part:** master's `effects_gen.py`
+still opens with a module docstring reading *"SLICE 1 (this commit) … the seam in particular
+waits on design Q-c … which is an open decision."* It has been false since slice 5 and it sits
+at the top of the 1,059-line file that implements the ruling. **A perishable claim in a code
+comment outlived every doc that recorded the ruling** — the design doc, this file, and the
+implementing header all say "ruled", and the one artifact nobody re-reads propagated the
+opposite into a cross-lane contract. Same family as the `sc_pad_5D` comment asserting `(94, 96)`
+for four days. Fix rides with the VFACTOR parcel.
+
+**What is ACTUALLY left, and it is one thing:** *no real Aurora-authored scene has ever been
+through the path end to end.* P5 is byte-neutral in its shipping state precisely because zero
+editor scenes exist; the content path is proven only by a **temporary fixture** (green at crc
+`1499f79c`), which is a fixture this lane wrote, not an artifact an author produced. Three
+named things stand between here and that:
+
+1. **The `v_factor` default defect (VFACTOR) — this would break the FIRST real scene.**
+   Aurora's new-scene default is `v_factor: 'FACTOR_0'`. `FACTOR_*` is the **packed**
+   horizontal encoding (`parallax_dsl.emp`: `FACTOR_LOCKED = $0FF`, `FACTOR_0` an alias), so
+   the name folds to **255**; `sc_v_factor` is a **raw shift** (`(camY - v_center) >> v_factor`)
+   whose lock sentinel is **15**. Two namespaces, one field. `effects_gen.py` treats `v_factor`
+   as a `SCENE_SCALARS` member and interpolates it **verbatim with no type check**, so the
+   string reaches the generated `.emp` and — wherever `parallax_dsl` is imported, i.e. any
+   scene with a named layer factor — **resolves to 255 and compiles silently.** Nothing
+   downstream catches it: the only two `ensure`s naming `v_factor` in `scene_dsl.emp` are both
+   `== 15` *conditions*, and **there is no range guard on `v_factor` anywhere.**
+   **Both halves are ours and they are separable:** refusing a string where an integer belongs
+   is a **SHAPE** error and is squarely inside `effects_gen.py`'s charter (it duplicates no
+   constructor guard); the **range** check is NOT — that belongs on the `scene()` constructor,
+   which currently has no owner for "255 is an absurd shift".
+   *Empyrean has separately ruled the schema `$ref` half (the schema moves, the engine does
+   not) and holds that CR; it is coordinated because aurora vendors the file by blob hash.*
+2. **The `map.toml` order row**, deliberately unauthored. The `order` check keys on a section's
+   HEAD LABEL and this block's head is **content-derived**, so a row today would be inert and
+   unverifiable — the vacuous-gate defect in a new costume. `map.toml` carries a reserved-slot
+   comment at the intended position. **The first parcel that lands a real editor scene adds the
+   row, and is also the first that can verify the placement.**
+3. **Aurora needs to be able to MAKE one.** Their band editor is stranded at 448/448 tiles.
+
+**OWNER GRANT, 2026-08-24, verbatim: _"Yeah I've said a few times we can edit it howevver for
+testing"_.** Relayed by the hub (banked empyrean `ff909fe`, reachability-verified at
+`origin/main`). This authorizes editing the background art to free tiles so aurora's band
+editor can be exercised end to end. **It reaches this lane because
+`games/sonic4/data/editor_bg_override.json` is a blob WE ship**, and freeing tiles means art
+changing on our side.
+
+**SCOPE — TEST ONLY, and this is recorded as a boundary, not a footnote.** He ruled that the
+art may be edited *for testing*. He did **NOT** rule on what the shipped background art
+becomes; that remains the open art call behind the 448/448 ceiling. **Do not restate this grant
+wider than "for testing"** — a test-scope grant quietly becoming a shipping-scope one is a
+failure this suite has already recorded once, and the hub flagged it with the grant rather than
+after it.

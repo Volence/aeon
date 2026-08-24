@@ -1,39 +1,47 @@
 {
-  "focus": "Booted clean. Your level work is in and pushed; nothing running. Proposing a small assembler-alignment cleanup next.",
+  "focus": "On the effects work you asked to continue. Found the default path is broken for authors, and I can fix it.",
   "inFlight": [],
   "blockedOnOwner": [],
-  "nextBoundary": "Right here. Nothing dispatched, both repos match the shared copy. Next boundary is whichever item you pick, landed and re-verified.",
+  "nextBoundary": "Nothing dispatched yet. Next boundary is the v_factor fix landed and re-verified.",
   "queue": [
     {
-      "id": "ALIGN",
-      "title": "The (align: N) migration owed to sigil - two Scene fields take (align: 2), two offsetof % 2 ensures delete. Sigil shipped the feature (6fae4d6a is on their master); the local sigil binary is newer than that merge but that is presence, not proof - verify at dispatch.",
+      "id": "VFACTOR",
+      "title": "The vertical-scroll defect. Aurora's default for new scenes emits a name that means 255 where the engine wants a shift of 0-15, the generator interpolates it with no type check, and no guard anywhere catches it. Two halves, both ours: refuse the wrong SHAPE at the generator boundary, and add the missing range guard on the engine constructor.",
       "state": "next",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
     },
     {
-      "id": "VFACTOR",
-      "title": "v_factor: empyrean ruled the schema moves and the engine does not, so nothing is owed here; what is left is OUR call - should tools/effects_gen.py refuse an out-of-range v_factor at the boundary",
+      "id": "P5-DOCSTRING",
+      "title": "effects_gen.py's own header still says it is slice 1 and that Q-c is open. Both false since slice 5 landed; it is what made the project's blocker wrong. Zero-byte docs fix, rides with VFACTOR.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "P5-SCOPE",
+      "title": "Re-scope what is actually left of P5 now that slices 1-5 are landed and wired, and hand the hub a true blocker line to replace the stale one",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "ALIGN",
+      "title": "The (align: N) migration owed to sigil - two Scene fields take the attribute, two ensures delete. Unblocked, verify the built binary carries the feature at dispatch. Displaced by the effects work you named.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     },
     {
       "id": "CUTOVER",
-      "title": "Re-run the 19 effects gates. NOTE: they never needed the socket - each gate spawns its own emulator on a private socket, so the cutover does not move them and a re-baseline would pass vacuously. Needs re-scoping before it is worth running.",
+      "title": "Re-run the 19 effects gates. NOTE: they never needed the socket - each gate spawns its own emulator on a private socket, so a re-baseline would pass vacuously. Needs re-scoping before it is worth running.",
       "state": "open",
       "size": "S",
       "blockedBy": null
-    },
-    {
-      "id": "P5",
-      "title": "tools/effects_gen.py - the remaining half of the authored-effects path, and EFFECTS-W1's declared aeon blocker",
-      "state": "open",
-      "size": "L",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
     }
   ],
-  "updatedAt": "2026-08-24T03:49:15Z"
+  "updatedAt": "2026-08-24T04:28:32Z"
 }
