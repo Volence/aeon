@@ -1,10 +1,10 @@
 {
-  "focus": "The ceiling is far tighter than I told you and the limit is in the assembler. Ask sent there; one call from you.",
+  "focus": "The tight ceiling looks temporary after all - the assembler lane found the fix already exists in their code.",
   "inFlight": [],
   "blockedOnOwner": [
     {
-      "id": "d-11",
-      "what": "what to do while the assembler lane looks at the real ceiling",
+      "id": "d-12",
+      "what": "what to do while the assembler lane decides whether to take the fix",
       "since": "2026-08-24"
     }
   ],
@@ -15,7 +15,7 @@
       "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing can be hand-moved; the table gets re-derived with a real band present. Measured since: the knock-on stops dead at a hardware-pinned address, so five entries shift and the sound data cannot move at all. Smaller than it first looked.",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "sigil's measuring-spread step caps a growing section at 0x400; ask sent",
+      "blockedBy": "sigil's force_scratch is gated to fixture-only; they are deciding whether to take the parcel",
       "project": "EFFECTS-W1"
     },
     {
@@ -49,5 +49,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T19:25:49Z"
+  "updatedAt": "2026-08-24T19:28:51Z"
 }
