@@ -8823,9 +8823,17 @@ sigil, and correctly not put to them until this parcel lands.
 > a cascade is expected and harmless, and with 6 bytes free next door **a hand-fitting was
 > never even available.**
 >
-> **Still open, and do not let the refutation overshoot into a claim of its own:** whether
-> ~8 KB fits the ROM AT ALL is untested. What is shown is that there is no LOCAL slack, which
-> is a different question from total ROM space, and nobody has looked at total.
+> **~~Still open~~ CLOSED 2026-08-24, same session: ~8 KB fits the ROM with room to spare.**
+> `EndOfRom` is `0xA3290` = 668,304 bytes in the s4_debug frozen table, and the built ROMs on
+> disk are 699,106 (`s4.bin`) / 715,010 (`s4.debug.bin`). Against a 1 MB power-of-two pad that
+> leaves ~350 KB unused; an ~8,248-byte band is about **2%** of it, and this is nowhere near
+> any cartridge limit. **So "not a ROM-space problem" is TRUE — it was only the reason offered
+> for it that was false.** The distinction is the whole point of the refutation above: there is
+> no LOCAL slack (6 bytes), and total space is abundant. Those are different questions and only
+> the second one licenses the conclusion.
+> *(Caveat, honest rather than material: the two ROMs are whatever the last build left on disk
+> and their freshness was not established — see the landing lane's `rm -f`-before-rebuild rule.
+> An order-of-magnitude answer survives that; do not quote the byte counts as current.)*
 
 **Still untested at the end of all this:** whether the band actually ANIMATES on screen.
 Everything before that now has a green light or a named defect. Aurora reruns this exact
