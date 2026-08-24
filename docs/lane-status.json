@@ -1,28 +1,20 @@
 {
-  "focus": "On the effects work you asked to continue. Found the default path is broken for authors, and I can fix it.",
+  "focus": "Effects defect landed, and the background-art question turned out to need nothing from you after all.",
   "inFlight": [],
   "blockedOnOwner": [],
-  "nextBoundary": "Nothing dispatched yet. Next boundary is the v_factor fix landed and re-verified.",
+  "nextBoundary": "Clean - landed, pushed, nothing running and nothing waiting on you.",
   "queue": [
     {
-      "id": "VFACTOR",
-      "title": "The vertical-scroll defect. Aurora's default for new scenes emits a name that means 255 where the engine wants a shift of 0-15, the generator interpolates it with no type check, and no guard anywhere catches it. Two halves, both ours: refuse the wrong SHAPE at the generator boundary, and add the missing range guard on the engine constructor.",
+      "id": "P5-SCOPE",
+      "title": "Tell the hub the effects blocker moved: the engine half is closed, and what is left is an editor scene existing at all - which is aurora's tile ceiling, not our work.",
       "state": "next",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
     {
-      "id": "P5-DOCSTRING",
-      "title": "effects_gen.py's own header still says it is slice 1 and that Q-c is open. Both false since slice 5 landed; it is what made the project's blocker wrong. Zero-byte docs fix, rides with VFACTOR.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "P5-SCOPE",
-      "title": "Re-scope what is actually left of P5 now that slices 1-5 are landed and wired, and hand the hub a true blocker line to replace the stale one",
+      "id": "VOFFSET",
+      "title": "The same defect as the one just fixed, on the two fields beside it: v_center and v_offset are unbounded in both repos, so a negative offset is legal everywhere and unbuildable at the end. Needs a which-side-moves answer before writing a guard, exactly like the last one did.",
       "state": "open",
       "size": "S",
       "blockedBy": null,
@@ -43,5 +35,5 @@
       "blockedBy": null
     }
   ],
-  "updatedAt": "2026-08-24T04:28:32Z"
+  "updatedAt": "2026-08-24T15:17:49Z"
 }
