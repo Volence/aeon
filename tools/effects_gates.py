@@ -449,9 +449,65 @@ def emp_int(rel: str, name: str) -> int:
     return int(v[1:], 16) if v.startswith("$") else int(v)
 
 
+# ---------------------------------------------------------------------------
+# SCENE RESOLUTION — the committed scenes name SYMBOLS, never addresses, and never a listing.
+#
+# ab_runner resolves every `symbol:` poke and capture through the file the scene's top-level
+# `symbols` key names (`emulator/load_symbols`). Until 2026-08-26 that key was the MAIN
+# tree's `/home/volence/sonic_hacks/aeon/s4.debug.lst`, spelled absolutely in all four
+# scenes — so a gate run in a worktree resolved its symbols from whatever listing master
+# happened to have. Measured on parcel/showcase-effects-r2: the parcel moves
+# `Raster_Buf_A/_B/Raster_Active_Buf` by +84 B (`BAND_CURVE_BYTES x MAX_PARALLAX_BANDS +
+# CURVE_CARRY_WORDS x 2` = 80 + 4), the scene captured master's addresses, and every
+# `scene:*` shape gate reported "`Raster_Active_Buf points at 0x438aff`, which is neither
+# captured buffer" — a wrong-instrument failure, not a wrong-ROM one. The determinism half
+# passed throughout, which is exactly the blind spot: two identical runs of a stale capture
+# agree perfectly.
+#
+# The fix keeps the scene files free of any tree-specific path: they carry the placeholder
+# `SCENE_SYMBOLS_PLACEHOLDER` and `resolve_scene()` writes a copy with `symbols` set to the
+# `--lst` under test, next to the run's own output. A committed scene that names a real
+# path is refused here (loud), and so is one with no `symbols` at all — every committed
+# scene pokes by symbol, so a scene without a listing would silently poke nothing.
+SCENE_SYMBOLS_PLACEHOLDER = "$LST"
+
+
+def scene_path(name: str) -> Path:
+    return AEON / "tools" / "scenes" / f"effects_raster_{name}.json"
+
+
+def resolve_scene(name: str, lst: str, out_dir: Path) -> Path:
+    """Materialise the committed scene `name` against the listing `lst` under test.
+
+    Returns the path of the resolved copy (`<out_dir>/scene.json`). Raises ValueError on
+    a committed scene that hardcodes a listing (the defect this exists to remove) or has
+    no `symbols` key; raises FileNotFoundError if `lst` is not a file — an ab_runner fed a
+    missing listing answers every symbol poke against blank RAM and reports ALL EQUAL.
+    """
+    src = scene_path(name)
+    sc = json.loads(src.read_text())
+    sym = sc.get("symbols")
+    if sym != SCENE_SYMBOLS_PLACEHOLDER:
+        raise ValueError(
+            f"{src}: `symbols` is {sym!r}, not the placeholder {SCENE_SYMBOLS_PLACEHOLDER!r}. "
+            f"Committed scenes must not name a listing — that is how a worktree's gates "
+            f"resolved master's RAM addresses (2026-08-26). The listing under test is "
+            f"substituted at run time by resolve_scene().")
+    lst_path = Path(lst)
+    if not lst_path.is_file():
+        raise FileNotFoundError(
+            f"scene {name}: listing under test not found: {lst} — build the shape first; "
+            f"a scene run without symbols pokes nothing and still reports ALL EQUAL")
+    sc["symbols"] = str(lst_path.resolve())
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dst = out_dir / "scene.json"
+    dst.write_text(json.dumps(sc, indent=2) + "\n")
+    return dst
+
+
 def scene_pokes(name: str) -> dict:
     """The scene's own poke values — the inputs every expectation below is derived FROM."""
-    sc = json.loads((AEON / "tools" / "scenes" / f"effects_raster_{name}.json").read_text())
+    sc = json.loads(scene_path(name).read_text())
     out = {}
     for step in sc.get("steps", []):
         if "poke" in step and "symbol" in step["poke"]:
@@ -505,10 +561,27 @@ def main() -> int:
     ap.add_argument("--only", default="", help="comma-separated gate names; runs in-process")
     ap.add_argument("--emit-results", default="",
                     help="internal: where a segment child writes its result rows as JSON")
+    ap.add_argument("--resolve-scene", default="", metavar="NAME",
+                    help="hand-run helper: write the committed scene NAME resolved against "
+                         "--lst into a temp dir, print its path, and exit (no gate runs)")
     args = ap.parse_args()
     rom, lst = str(Path(args.rom).resolve()), str(Path(args.lst).resolve())
     args.rom, args.lst = rom, lst
     args.demo_lst = str(Path(args.demo_lst).resolve())
+
+    if args.resolve_scene:
+        known = SCENES + (DENSE_SCENE,)
+        if args.resolve_scene not in known:
+            print(f"effects_gates: unknown scene {args.resolve_scene!r}; known: {list(known)}",
+                  file=sys.stderr)
+            return 2
+        try:
+            print(resolve_scene(args.resolve_scene, lst,
+                                Path(tempfile.mkdtemp(prefix="effects-scene-"))))
+        except (ValueError, FileNotFoundError) as e:
+            print(f"effects_gates: {e}", file=sys.stderr)
+            return 2
+        return 0
 
     # TEST-ONLY, and FIRST so it models a wedge faithfully — a real one can strike at any point,
     # including before this process has looked at a file. The parent sets this in exactly one
@@ -566,8 +639,13 @@ def main() -> int:
         if not wanted(f"scene:{name}"):
             continue
         out = tmp / name
+        try:
+            resolved = resolve_scene(name, lst, out)
+        except (ValueError, FileNotFoundError) as e:
+            results.append((f"scene:{name} determinism", False, f"scene not resolvable: {e}"))
+            continue
         ok, msg = run(["python3", str(HARNESS / "ab_runner.py"), "--old", rom, "--new", rom,
-                       "--scene", str(AEON / "tools/scenes" / f"effects_raster_{name}.json"),
+                       "--scene", str(resolved),
                        "--out", str(out), "--selfcheck"], name)
         results.append((f"scene:{name} determinism", ok, msg))
         if not ok:
@@ -621,10 +699,13 @@ def main() -> int:
             # vdp_comm). ojz_effects.emp pins this same value with its own ensure.
             cmd = 0xC0000000 | ((gaddr & 0x3FFF) << 16) | ((gaddr & 0xC000) >> 14)
             out = tmp / DENSE_SCENE
-            scene_path = AEON / "tools/scenes" / f"effects_raster_{DENSE_SCENE}.json"
-            ok, msg = run(["python3", str(HARNESS / "ab_runner.py"), "--old", rom,
-                           "--new", rom, "--scene", str(scene_path),
-                           "--out", str(out), "--selfcheck"], DENSE_SCENE)
+            try:
+                resolved = resolve_scene(DENSE_SCENE, lst, out)
+                ok, msg = run(["python3", str(HARNESS / "ab_runner.py"), "--old", rom,
+                               "--new", rom, "--scene", str(resolved),
+                               "--out", str(out), "--selfcheck"], DENSE_SCENE)
+            except (ValueError, FileNotFoundError) as e:
+                ok, msg = False, f"scene not resolvable: {e}"
             results.append((f"scene:{DENSE_SCENE} determinism", ok, msg))
             if ok:
                 end = stream + glines * dense_words * 2

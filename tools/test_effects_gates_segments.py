@@ -188,3 +188,60 @@ def test_segment_child_writes_its_rows_as_json(tmp_path):
     assert jf.is_file(), p.stdout + p.stderr
     rows = json.loads(jf.read_text())
     assert len(rows) == 1 and isinstance(rows[0][1], bool)
+
+
+# --------------------------------------------------------------------------- scene resolution
+# The committed scenes name SYMBOLS and carry a placeholder for the listing; the listing under
+# test is substituted at run time. Until 2026-08-26 every scene hardcoded the MAIN tree's
+# `s4.debug.lst`, so a worktree's gates resolved master's RAM addresses (the showcase parcel
+# moved Raster_Buf_A/_B by +84 B and all four scene:* shape gates failed on a stale capture).
+
+def _all_scene_names():
+    return list(eg.SCENES) + [eg.DENSE_SCENE]
+
+
+def test_every_committed_scene_carries_the_placeholder_not_a_listing():
+    for name in _all_scene_names():
+        sc = json.loads(eg.scene_path(name).read_text())
+        assert sc.get("symbols") == eg.SCENE_SYMBOLS_PLACEHOLDER, (
+            f"{eg.scene_path(name)}: symbols = {sc.get('symbols')!r} — a committed scene must "
+            f"not name a listing; the gate resolves it against --lst")
+        # And every poke / capture is by NAME, so the placeholder is load-bearing.
+        for step in sc["steps"]:
+            if "poke" in step:
+                assert "symbol" in step["poke"] and "addr" not in step["poke"], step
+        for region in sc["capture"].get("memory_read", []) + sc["capture"].get("memory_hash", []):
+            assert "symbol" in region and "addr" not in region, region
+
+
+def test_resolve_scene_substitutes_the_listing_under_test(tmp_path):
+    lst = tmp_path / "some.debug.lst"
+    lst.write_text("(0) 1/FFFF0000 :        Whatever:\n")
+    out = tmp_path / "run"
+    for name in _all_scene_names():
+        resolved = eg.resolve_scene(name, str(lst), out / name)
+        sc = json.loads(resolved.read_text())
+        assert sc["symbols"] == str(lst.resolve())
+        committed = json.loads(eg.scene_path(name).read_text())
+        committed["symbols"] = sc["symbols"]
+        assert sc == committed, "resolution changed something other than `symbols`"
+
+
+def test_resolve_scene_refuses_a_hardcoded_listing_and_a_missing_one(tmp_path, monkeypatch):
+    """RED-FIRST for the defect: a scene spelling the main tree's listing is refused, not
+    silently run against another tree's addresses; a listing that does not exist is refused
+    because ab_runner would then poke nothing and still report ALL EQUAL."""
+    stale = tmp_path / "effects_raster_stale.json"
+    sc = json.loads(eg.scene_path("mid_band").read_text())
+    sc["symbols"] = "/home/volence/sonic_hacks/aeon/s4.debug.lst"
+    stale.write_text(json.dumps(sc))
+    monkeypatch.setattr(eg, "scene_path", lambda name: stale)
+    lst = tmp_path / "x.lst"
+    lst.write_text("")
+    with pytest.raises(ValueError, match="must not name a listing"):
+        eg.resolve_scene("stale", str(lst), tmp_path / "o")
+    sc["symbols"] = eg.SCENE_SYMBOLS_PLACEHOLDER
+    stale.write_text(json.dumps(sc))
+    with pytest.raises(FileNotFoundError, match="listing under test not found"):
+        eg.resolve_scene("stale", str(tmp_path / "absent.lst"), tmp_path / "o")
+    assert eg.resolve_scene("stale", str(lst), tmp_path / "o").is_file()
