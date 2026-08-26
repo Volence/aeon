@@ -8306,28 +8306,49 @@ shift 2 below the anchored split.
 
 **The answer is two of the four: per-layer vertical depth (T11) and curved scrolling (T10) ON;
 per-layer deform `own()` (T9) and the left-column mask (T12) stay OFF.** Authored on the
-`parcel/showcase-effects` branch — and it **does not build**, on a gate that is itself an
-un-answered owner decision. See "The curve does not fit in this ROM" below before reading
+`parcel/showcase-effects` branch, **rebased 2026-08-26 onto master `c9fa1c07` as
+`parcel/showcase-effects-r2`** (after the per-cell HScroll deletion `55ea2557`; one conflict,
+`game.emp`'s `SCANLINE_CAPS`, resolved `$001E | CAP_FACTOR_CURVE = $005E` — bit 0 stays the
+retired hole). It still **does not build canonically**, on a gate that is itself an un-answered
+owner decision (`d-28`, kept open). See "The curve does not fit in this ROM" below before reading
 anything else here as landed.
 
-#### ⛔ THE CURVE DOES NOT FIT IN THIS ROM — `d-9`'s revisit trigger has fired
+#### ⛔ THE CURVE DOES NOT FIT IN THIS ROM — `d-9`'s revisit trigger has fired (re-measured on the r2 rebase)
 
 `tools/bganim_room.py --gate` (run by `tools/test_bg_emit.py` inside every canonical
-`./build.sh`) **FAILS** on the branch. Measured on `s4.debug.lst`, three FAST builds off the
-same tree, one variable changed at a time:
+`./build.sh`) **FAILS the DEBUG shape** on the branch. The room is derived the way the script
+does it: `room = (0x48000 − (LMA(Art_Sonic) + 97472)) + 8238`, where `0x48000` is map.toml's
+`dac_banks` hardware anchor, `97472` is `art/optimized/characters/sonic.bin` on disk (the blob
+`Art_Sonic` embeds) and `8238` is what `ojz_bg_anim` already holds; the ceiling is
+`BGANIM_SECTION_CEILING = 12288`. Re-measured 2026-08-26 on the r2 rebase (master `c9fa1c07`
++ the four showcase commits), FAST-built listings (the canonical run stops at this gate before
+assembling, so canonical listings cannot exist):
 
-| tree | `Art_Sonic` | free before the `0x48000` anchor | + section holds | room | vs the 12288 B ceiling |
-|---|---|---|---|---|---|
-| baseline (`master`) | `0x2F090` | 4784 B | 8238 B | **13022 B** | +734 B margin |
-| T11 only (vsplit, no curve) | `0x2F130` | 4624 B | 8238 B | **12862 B** | +574 B margin — **PASSES** |
-| T11 + T10 (the full ruling) | `0x2F430` | 3856 B | 8238 B | **12094 B** | **−194 B — FAILS** |
+| tree | shape | `Art_Sonic` | free before the `0x48000` anchor | + section holds | room | vs the 12288 B ceiling |
+|---|---|---|---|---|---|---|
+| master `c9fa1c07` (sigil `pins.rs` / `bganim_room` on master) | release | `0x2E840` | 6912 B | 8238 B | **15150 B** | +2862 B |
+| master `c9fa1c07` | DEBUG | `0x2F090` | 4784 B | 8238 B | **13022 B** | +734 B |
+| r2 tip (T11 + T10, the full ruling) | release | `0x2EBE0` | 5984 B | 8238 B | **14222 B** | +1934 B — **PASSES** |
+| r2 tip (T11 + T10, the full ruling) | DEBUG | `0x2F430` | 3856 B | 8238 B | **12094 B** | **−194 B — FAILS** |
 
-So the per-layer vertical split costs **160 B** and the curve costs **768 B**, against a baseline
-margin of **734 B**. Subtracting: **the curve does not fit even on its own** — 13022 − 768 =
-12254 B, still 34 B short. This is not a property of how many layers curve. `band_record`'s tail
-is `[band_curve; BAND_CURVE_N]` on EVERY band record in the tree, so the charge is
-`sizeof(band_curve) × every band in the game` the moment the capability is on, and one curve
-costs exactly what five do.
+**The dry re-derived placement agrees with the listings, byte for byte.** A scratch sigil
+worktree off sigil master (`scratch/dry-showcase-place`, deleted afterwards; no freeze, no
+refreeze, `golden/` and sigil master untouched) ran `repin -- --aeon <r2 worktree>`: it
+re-resolved both shapes in-process and moved `ART_SONIC` `{ plain: 0x2E840, debug: 0x2F090 }
+→ { plain: 0x2EBE0, debug: 0x2F430 }` (Δ +0x3A0 both), with `COLLISION_DATA`, `OJZ_BG_ANIM`,
+`MAP_SONIC`, `DPLC_SONIC`, `ANGLE_TABLE`, `SOLIDITY_TABLE` all +0x3A0 and `PARALLAX` +0x106 of
+code (absorbed upstream at an org anchor; 278 pins changed in total, none committed). So the
+placer puts `Art_Sonic` exactly where the FAST listing says, and the d-28 number is
+**−194 B in DEBUG, +1934 B in release**. The per-cell deletion's 204 B code saving did not reach
+this run either — same reason, an org anchor between the engine bank and the data island.
+
+Against master the parcel costs **928 B** of packed data on both shapes (`0x3A0`): the
+earlier single-variable measurement on the pre-rebase tree put 160 B on the vertical split
+(T11) and 768 B on the curve (T10), and the total is unchanged by the rebase. The curve does not
+fit in DEBUG even on its own — 13022 − 768 = 12254 B, still 34 B short. This is not a property of
+how many layers curve. `band_record`'s tail is `[band_curve; BAND_CURVE_N]` on EVERY band record
+in the tree, so the charge is `sizeof(band_curve) × every band in the game` the moment the
+capability is on, and one curve costs exactly what five do.
 
 **The two exits are both `d-9`'s, and neither is the assistant's to take.** `bganim_room`'s own
 message names them: shrink `BGANIM_SECTION_CEILING` in `tools/inject_editor_bg.py` (BG-animation
@@ -8348,7 +8369,8 @@ two answers first; nothing else about the parcel is waiting on anything.
 wave-1 surface) and assigned to act section 4 by `games/sonic4/data/editor/ojz/act1/
 section_4.meta.json`. The twenty hand scenes in `games/sonic4/data/effects/ojz_scenes.emp` are
 untouched, so `scene_equiv_proof.emp` — the permanent field-for-field witness — and
-`scene_registry.emp`'s two-sided `SceneRegistry_CapsExpected == $001F` pin plus its
+`scene_registry.emp`'s two-sided `SceneRegistry_CapsExpected == $001E` pin (`$001F` before
+the per-cell deletion retired bit 0) plus its
 `CAP_FACTOR_CURVE == 0` assertion all still hold unchanged and unrelaxed. That was the deciding
 constraint on placement: adopting a curve on a *registry* scene would have had to break both pins.
 
@@ -8357,7 +8379,7 @@ constraint on placement: adopting a curve on a *registry* scene would have had t
 
 | file | was | now |
 |---|---|---|
-| `games/sonic4/config/game.emp` `SCANLINE_CAPS` | `$001F` | `$005F` (`\| CAP_FACTOR_CURVE`) |
+| `games/sonic4/config/game.emp` `SCANLINE_CAPS` | `$001E` (`$001F` pre-`55ea2557`) | `$005E` (`\| CAP_FACTOR_CURVE`; was `$005F` before the rebase) |
 | `engine/level/parallax.emp` `BAND_CURVE_N` | `0` | `1` |
 | `engine/ram.emp` `BAND_CURVE_BYTES` | `0` | `10` (`CURVE_CARRY_WORDS` derives to 2) |
 
@@ -8382,22 +8404,26 @@ never enters per-column mode; `scene()` in fact REFUSES the two together. `d-27`
 conflates the two mechanisms. It stays parked, and its trigger remains "a scene adopts
 `SceneVDeform.Columns` with non-zero plane-B HScroll", which no installable config does.
 
-#### The effects gate lane: 6 of 27 fail on the branch, 1 of 27 at the branch point
+#### The effects gate lane on the r2 rebase: 5 of 27 fail, exit 1 (master `c9fa1c07`: 27 OK, exit 0)
 
-`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`, both runs on the same
-tree, same machine, FAST-built ROMs (the canonical build cannot emit — see the `bganim_room`
-block above). **Branch point `ba960449`: `FAIL — 1 of 27`. Branch tip: `FAIL — 6 of 27`.** Five
-new failures, attributed below by single-variable A/B rather than by inspection.
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst` on the FAST-built
+`s4.debug.bin` (CRC32 `BCBDA57E`, 715,742 B — FAST, because the canonical build stops at the
+`bganim_room` gate before assembling), 2026-08-26 14:16-14:19, load ~6.7. Aggregate:
+**`effects_gates: FAIL — 5 of 27 gate(s)`, exit 1.** Master is 27 OK / exit 0, so all five are
+this branch's to explain. The old table's "6 of 27 / boot_override FAIL" predates the per-cell
+deletion and is superseded by this one.
 
-**`demo_witness` (span absence + image pin) — PRE-EXISTING.** Identical message
-(`demo_specialization_witness: FAIL — 1`) at the branch point and at the tip. Not this parcel's,
-though note the image-pin half is now also stale because `demo.bin` moved.
+| segment | result | attribution |
+|---|---|---|
+| `scene:mid_band` / `scene:suppressed` / `scene:above_screen` / `scene:dense` (shape half; the determinism half of each PASSES) | FAIL x1 each | **instrument staleness, unchanged from the pre-rebase diagnosis below** — same message, same branch-point buffer addresses (`raster_buf_a=0xff89a2, raster_buf_b=0xff8a22`, `Raster_Active_Buf` "points at 0x438aff") |
+| `raster_off`, `raster_source`, `vsplit_landing`, `palette_variant`, `snapshot_poison`, `warp_mailbox`, `parallax_crossing`, `cost_model` (both rows), every `scanline_spans` row incl. `CAP_FACTOR_CURVE` (sonic4 raised, demo clear — differential `factor_curve_band/hoist/split`) | PASS | — |
+| **`boot_override`** | **PASS** (`boot_override_gate: PASS`) | **was FAIL on the pre-rebase tree, resolved by the rebase.** The old failure ("8 of 8 rendered scanlines differ") was isolated to the section-(1,1) binding; `55ea2557` changed the gate's reg `$0B` derivation to the constant `%11` and deleted the per-cell path the binding was the first to select — the same one-defect story `SHOWCASE-EFFECTS / d-29` closes. The foreground confirmation (watch section (1,1) render the curve under motion) remains TAGGED for the controller; this gate is the headless witness that the two routes now agree |
+| **`demo_witness`** (span absence + image pin) | **FAIL x1** — `Parallax_Step4_Fill emits 192 bytes in demo, pinned at 188 (+4)` | **REAL, THIS PARCEL'S, RE-DERIVED, PIN NOT TOUCHED.** `BAND_CURVE_N` 0→1 is engine-wide, so `sizeof(band_record)` goes 10 → 20 in demo too, and `copy_band_entry_fwd` (parallax.emp) expands from `2 × move.l + move.w` (6 B) to `5 × move.l` (10 B): +4, the whole delta (the proc's listing text is otherwise identical; the address delta enters before `.not_first`). The span half passes (demo `SCANLINE_CAPS 0x0000 -> 0 spans`). The witness says re-derive before touching the pin — done here; the pin bump (188 → 192 with this log) belongs to whoever lands the parcel, in the same commit as the landing, not to a branch that cannot yet build canonically |
 
-**`scene:mid_band` / `scene:suppressed` / `scene:above_screen` / `scene:dense` — INSTRUMENT
-STALENESS, not a defect, and the gate's own message says so.** All four report *"Raster_Active_Buf
-points at 0x438aff, which is neither captured buffer (raster_buf_a=0xff89a2, raster_buf_b=0xff8a22)
-— the scene captured the wrong regions, **or the buffers moved**"*, and they exit 2 ("could not
-run"), not 1. The buffers moved, by exactly the amount this parcel moves them:
+**The four `scene:*` failures — INSTRUMENT STALENESS, not a defect, and the gate's own message
+says so.** All four report *"Raster_Active_Buf points at 0x438aff, which is neither captured
+buffer (raster_buf_a=0xff89a2, raster_buf_b=0xff8a22) — the scene captured the wrong regions,
+**or the buffers moved**"*. The buffers moved, by exactly the amount this parcel moves them:
 
 | symbol | branch point | branch tip | delta |
 |---|---|---|---|
@@ -8412,46 +8438,19 @@ staler than the ROM it was handed — `effects_gates.py` passes it `--old`/`--ne
 `--lst`. The reported `0x438aff` is the corroboration: the stale `Raster_Active_Buf` address
 `FFFF8AA2` lands 44 B inside the *new* `Raster_Buf_B`, and the longword there is `$0043 $8AFF` —
 `OJZ_VSRAM_OFFSET` followed by the raster terminator, i.e. the tail of a VSRAM program, which is
-program content and not a pointer. **Confirmed by A/B:** on a curve-free (therefore RAM-stable)
-build of the same branch, `scene:mid_band` PASSES both halves. **This will bite every future
-RAM-moving parcel**; the fix is to make `ab_runner` resolve scene symbols from the ROM under test.
-
-**⚠ `boot_override` — REAL, CAUSED BY THIS PARCEL, AND UNRESOLVED.** PASSES at the branch point,
-FAILS at the tip: *"override vs warp reference: 8 of 8 rendered scanlines differ — the two routes
-agree on the nametable but not on what is actually drawn (parallax config / palette)"*. Isolated
-across three variables, one build each:
-
-| tree | `boot_override` |
-|---|---|
-| branch point | **PASS** |
-| tip, but section 4's preset reverted to `OJZ_Preset_Plain` (no raster program) | FAIL |
-| tip, but curve removed entirely (no capability flip, no RAM move; vsplit + binding kept) | FAIL |
-| tip (full ruling) | FAIL |
-
-So it is **not** the raster program, **not** the curve, and **not** the RAM move. What remains is
-the binding itself: `tools/boot_override_gate.py`'s destination is section (1,1), which on this
-3×3 grid is **section 4** — the section this parcel binds a scene to. The gate's own banner
-records why that is the first time this could happen: *"Until 2026-08-26 this half was UNWITNESSED
-… every act 1 section deferred to the act default, so the select was unobservable."* The failing
-check is the FIRST consumer (the warp-vs-override rendered-window reference), whose validity rests
-on the banner's argument that both routes converge on one config after settling — an argument that
-holds when the destination defers to the act default and is now under test for the first time.
-
-**Not diagnosed further and deliberately not worked around.** It is either (a) the boot-override
-init's parallax select picking the wrong config and the settle budget being too short for
-`Parallax_CheckBoundary` to launder it — which is exactly the defect the gate's second consumer
-exists to catch — or (b) the reference comparison no longer being valid once the destination has
-its own config. Those have opposite remedies and the evidence here does not separate them.
-Needs a foreground look at the two routes' `Parallax_Current_Config` readback.
+program content and not a pointer. **Confirmed by A/B on the pre-rebase tree:** on a curve-free
+(therefore RAM-stable) build of the same branch, `scene:mid_band` PASSES both halves. **This
+will bite every future RAM-moving parcel**; the fix is to make `ab_runner` resolve scene symbols
+from the ROM under test.
 
 **PARK-5 (the budget slack policy) was NOT reached**, which is why this option was the recommended
 one — and the axis-1 number is DERIVED from `scene_axis1_cycles_x100()`'s own terms, not read off a
-run. For `Scene_Editor_ojz_act1_depth` (5 layers, per-line via `scene_forces_per_line()` arm 3, no
-deform table, no anchor, no V-deform, 2 curve bands):
+run. For `Scene_Editor_ojz_act1_depth` (5 layers, no deform table, no anchor, no V-deform, 2 curve
+bands; after `55ea2557` the per-line fill is the only fill, and the old `SB_WALK_LINE_MODE_X100`
+154,800 is folded into `SB_WALK_BASE_X100`, so the total below is unchanged by the rebase):
 
 ```
-  SB_WALK_BASE_X100                            311,600
-+ SB_WALK_LINE_MODE_X100                       154,800
+  SB_WALK_BASE_X100                            466,400
 + SB_WALK_BAND_PERLINE_X100 x (5-1)            341,600
 + SB_WALK_MULTIBAND_X100        (n >= 2)         2,000
                                              = 810,000
