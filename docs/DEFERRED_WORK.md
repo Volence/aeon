@@ -8382,6 +8382,68 @@ never enters per-column mode; `scene()` in fact REFUSES the two together. `d-27`
 conflates the two mechanisms. It stays parked, and its trigger remains "a scene adopts
 `SceneVDeform.Columns` with non-zero plane-B HScroll", which no installable config does.
 
+#### The effects gate lane: 6 of 27 fail on the branch, 1 of 27 at the branch point
+
+`python3 tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`, both runs on the same
+tree, same machine, FAST-built ROMs (the canonical build cannot emit — see the `bganim_room`
+block above). **Branch point `ba960449`: `FAIL — 1 of 27`. Branch tip: `FAIL — 6 of 27`.** Five
+new failures, attributed below by single-variable A/B rather than by inspection.
+
+**`demo_witness` (span absence + image pin) — PRE-EXISTING.** Identical message
+(`demo_specialization_witness: FAIL — 1`) at the branch point and at the tip. Not this parcel's,
+though note the image-pin half is now also stale because `demo.bin` moved.
+
+**`scene:mid_band` / `scene:suppressed` / `scene:above_screen` / `scene:dense` — INSTRUMENT
+STALENESS, not a defect, and the gate's own message says so.** All four report *"Raster_Active_Buf
+points at 0x438aff, which is neither captured buffer (raster_buf_a=0xff89a2, raster_buf_b=0xff8a22)
+— the scene captured the wrong regions, **or the buffers moved**"*, and they exit 2 ("could not
+run"), not 1. The buffers moved, by exactly the amount this parcel moves them:
+
+| symbol | branch point | branch tip | delta |
+|---|---|---|---|
+| `Raster_Buf_A` | `FFFF89A2` | `FFFF89F6` | +84 |
+| `Raster_Buf_B` | `FFFF8A22` | `FFFF8A76` | +84 |
+| `Raster_Active_Buf` | `FFFF8AA2` | `FFFF8AF6` | +84 |
+
+84 B is `BAND_CURVE_BYTES × MAX_PARALLAX_BANDS + CURVE_CARRY_WORDS × 2` = 80 + 4, derived, not
+fitted. The failure message quotes the **branch-point** addresses, so `tools/ab_runner.py` (in
+`oracle-old`) resolved the scenes' `"symbol": "Raster_Buf_A"` captures against a symbol source
+staler than the ROM it was handed — `effects_gates.py` passes it `--old`/`--new`/`--scene` and no
+`--lst`. The reported `0x438aff` is the corroboration: the stale `Raster_Active_Buf` address
+`FFFF8AA2` lands 44 B inside the *new* `Raster_Buf_B`, and the longword there is `$0043 $8AFF` —
+`OJZ_VSRAM_OFFSET` followed by the raster terminator, i.e. the tail of a VSRAM program, which is
+program content and not a pointer. **Confirmed by A/B:** on a curve-free (therefore RAM-stable)
+build of the same branch, `scene:mid_band` PASSES both halves. **This will bite every future
+RAM-moving parcel**; the fix is to make `ab_runner` resolve scene symbols from the ROM under test.
+
+**⚠ `boot_override` — REAL, CAUSED BY THIS PARCEL, AND UNRESOLVED.** PASSES at the branch point,
+FAILS at the tip: *"override vs warp reference: 8 of 8 rendered scanlines differ — the two routes
+agree on the nametable but not on what is actually drawn (parallax config / palette)"*. Isolated
+across three variables, one build each:
+
+| tree | `boot_override` |
+|---|---|
+| branch point | **PASS** |
+| tip, but section 4's preset reverted to `OJZ_Preset_Plain` (no raster program) | FAIL |
+| tip, but curve removed entirely (no capability flip, no RAM move; vsplit + binding kept) | FAIL |
+| tip (full ruling) | FAIL |
+
+So it is **not** the raster program, **not** the curve, and **not** the RAM move. What remains is
+the binding itself: `tools/boot_override_gate.py`'s destination is section (1,1), which on this
+3×3 grid is **section 4** — the section this parcel binds a scene to. The gate's own banner
+records why that is the first time this could happen: *"Until 2026-08-26 this half was UNWITNESSED
+… every act 1 section deferred to the act default, so the select was unobservable."* The failing
+check is the FIRST consumer (the warp-vs-override rendered-window reference), whose validity rests
+on the banner's argument that both routes converge on one config after settling — an argument that
+holds when the destination defers to the act default and is now under test for the first time.
+
+**Not diagnosed further and deliberately not worked around.** It is either (a) the boot-override
+init's parallax select picking the wrong config and the settle budget being too short for
+`Parallax_CheckBoundary` to launder it — which is exactly the defect the gate's second consumer
+exists to catch — or (b) the reference comparison no longer being valid once the destination has
+its own config. Those have opposite remedies and the evidence here does not separate them.
+Needs a foreground look at the two routes' `Parallax_Current_Config` readback.
+
 **PARK-5 (the budget slack policy) was NOT reached**, which is why this option was the recommended
 one. Measured headroom is in the branch's merge evidence; the adopting scene's axis-1 charge is
 ~18.3k of the 103,743 cycles the gate leaves, and axes 2/3 are unchanged (the section-0 scene was
