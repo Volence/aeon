@@ -790,11 +790,72 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             inject_editor_bg.bganim_section_bytes(inject_editor_bg.BGANIM_MAX_BANDS,
                                                   inject_editor_bg.BG_TILE_CAPACITY),
             "BGANIM_WORST_CASE_BYTES is not the section size at the provable bound")
-        for name in ("BGANIM_SECTION_CEILING",):
+        for name in ("BGANIM_SECTION_CEILING", "BGANIM_SECTION_CEILING_RELEASE",
+                     "BGANIM_SECTION_CEILING_DEBUG"):
             v = getattr(inject_editor_bg, name)
             self.assertGreaterEqual(v, stub, f"{name} refuses even the disabled stub")
             self.assertLessEqual(v, worst, f"{name} exceeds the largest section any "
                                            f"legal authoring can produce ({worst} B)")
+
+    # ---- the per-shape table (decision d-28-answered) ---------------------------
+
+    def test_per_shape_table_names_exactly_the_two_sonic4_listings(self):
+        """The shape IS its listing. A third shape, or a renamed listing, has no ruled
+        number and must surface as a missing row here, not as a silent default."""
+        self.assertEqual(sorted(inject_editor_bg.BGANIM_SECTION_CEILINGS),
+                         ["s4.debug.lst", "s4.lst"])
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.lst"],
+                         inject_editor_bg.BGANIM_SECTION_CEILING_RELEASE)
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"],
+                         inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG)
+
+    def test_debug_ceiling_is_derived_from_the_d28_measurement(self):
+        """d-28-answered: the DEBUG guarantee is what the DEBUG room held at the
+        ruling — anchor − (Art_Sonic LMA + blob) + what the section held — which is
+        194 B under d-9's 12,288. Hand-computed here with none of the emitter's
+        names so a re-typed term cannot agree with itself."""
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_RELEASE, 12288,
+                         "d-9's release guarantee moved — that is an owner ruling")
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG,
+                         0x48000 - (0x2F430 + 97472) + 8238)
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG, 12288 - 194)
+
+    def test_generator_accepts_the_minimum_across_shapes(self):
+        """A section between the two ceilings must be REFUSED by the generator: it
+        would pass the release build and fail the DEBUG build at the bganim_room gate,
+        which is the author-facing failure the minimum exists to pre-empt. The fixture
+        is derived — two bands, the largest slot count that lands strictly inside the
+        gap — and the test fails loudly if the gap ever closes (no such act exists)."""
+        lo = inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG
+        hi = inject_editor_bg.BGANIM_SECTION_CEILING_RELEASE
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING,
+                         min(inject_editor_bg.BGANIM_SECTION_CEILINGS.values()))
+        self.assertLess(lo, hi, "the two shapes agree again — the re-layout landed? "
+                                "Then collapse the table and retire this test on purpose")
+        n_bands = 2
+        slots = ((hi - inject_editor_bg.BGANIM_COUNT_BYTES
+                  - inject_editor_bg.BGANIM_RECORD_BYTES * n_bands)
+                 // inject_editor_bg.BGANIM_BYTES_PER_SLOT)
+        size = inject_editor_bg.bganim_section_bytes(n_bands, slots)
+        self.assertGreater(size, lo, f"{size} B is not inside ({lo}, {hi}] — the "
+                                     f"fixture no longer isolates the two ceilings")
+        self.assertLessEqual(size, hi)
+        band = [{"cols": slots - 1, "rows": 1, "slot_base": 0},
+                {"cols": 1, "rows": 1, "slot_base": slots - 1}]
+        with self.assertRaises(SystemExit) as cm:
+            inject_editor_bg.check_bganim_section_fits(band)
+        self.assertIn(f"the ceiling is {lo} B", str(cm.exception), str(cm.exception))
+
+    def test_an_unlisted_shape_is_unmeasurable_not_defaulted(self):
+        import bganim_room
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.ceiling_for_listing(os.path.join(self.AEON, "demo.debug.lst"))
+        self.assertIn("demo.debug.lst", str(cm.exception))
+        self.assertIn("BGANIM_SECTION_CEILINGS", str(cm.exception))
+        for lst in ("s4.lst", "s4.debug.lst"):
+            key, ceiling = bganim_room.ceiling_for_listing(os.path.join(self.AEON, lst))
+            self.assertEqual((key, ceiling),
+                             (lst, inject_editor_bg.BGANIM_SECTION_CEILINGS[lst]))
 
     # ---- the ceilings against the live instruments ------------------------------
 
@@ -813,15 +874,21 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
         return found
 
     def test_rom_ceiling_fits_the_room_every_present_shape_derives(self):
+        """Each present shape against ITS OWN ruled ceiling (d-28-answered). Runner:
+        build.sh's pytest lane (`python3 -m pytest tools`), and bganim_room --gate
+        re-checks the shape just built after sigil. Red-first 2026-08-26: forcing the
+        debug row one byte above the measured room fails this with the text below."""
         import bganim_room
         live = inject_editor_bg.live_section_bytes(self.AEON)
         for lst in self._listings():
+            shape, ceiling = bganim_room.ceiling_for_listing(os.path.join(self.AEON, lst))
             r = bganim_room.rom_room(os.path.join(self.AEON, lst), self.AEON)
             self.assertLessEqual(
-                inject_editor_bg.BGANIM_SECTION_CEILING, r["room"] + live,
-                f"{lst}: BGANIM_SECTION_CEILING does not fit — only "
-                f"{r['room'] + live} B are reachable before the 0x{r['anchor']:X} "
-                f"dac_banks anchor. See tools/bganim_room.py and decision d-9.")
+                ceiling, r["room"] + live,
+                f"{lst}: BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B does not fit — "
+                f"only {r['room'] + live} B are reachable before the 0x{r['anchor']:X} "
+                f"dac_banks anchor. See tools/bganim_room.py, decisions d-9 and "
+                f"d-28-answered.")
 
 
 class TestBgAnimPlacerArmRetired(unittest.TestCase):

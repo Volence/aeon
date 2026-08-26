@@ -1,6 +1,6 @@
 {
   "name": "effects_raster_dense",
-  "symbols": "/home/volence/sonic_hacks/aeon/s4.debug.lst",
+  "symbols": "$LST",
   "reset": true,
   "steps": [
     {"run_frames": 180},

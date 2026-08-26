@@ -107,7 +107,58 @@ BGANIM_MAX_BANDS = 4
 # live derivation, which fails the build if the ceiling exceeds the room. Raised
 # 9,394 -> 12,288 on 2026-08-26 under the owner's ruling; the derivation above is what
 # licenses it, and bganim_room.py is what keeps it honest if the room ever shrinks.
-BGANIM_SECTION_CEILING = 12288
+#
+# ── THE CEILING IS PER SHAPE (decision d-28-answered, 2026-08-26) ─────────────
+#
+# The showcase parcel (owner decision d-15: per-layer depth + the curved horizon) widens
+# `band_record` by `sizeof(band_curve)` on EVERY band record in the tree, and that 928 B
+# of packed data (0x3A0, both shapes) pushes `Art_Sonic` downstream into the same hole
+# this ceiling spends. Re-measured on parcel/showcase-effects-r2 (FAST listings, and the
+# sigil placer's dry re-derivation agreed byte for byte):
+#
+#     shape     Art_Sonic    + 97,472 (art blob)   room to $48000   + 8,238 held   reachable
+#     s4        0x2EBE0      = 0x468B0             5,984 B          8,238 B        14,222 B
+#     s4.debug  0x2F430      = 0x470F0             3,856 B          8,238 B        12,094 B
+#
+# 12,288 fits the release shape with 1,934 B to spare and misses the DEBUG shape by
+# exactly 194 B. The owner ruled (d-28-answered): the DEBUG-shape guarantee drops to
+# what the DEBUG room holds; the RELEASE guarantee stays at d-9's 12,288; the ROM
+# re-layout that restores 12,288 in every shape is booked as follow-up work in
+# docs/DEFERRED_WORK.md, not dropped. So:
+#
+#   BGANIM_SECTION_CEILING_RELEASE  d-9's ruled 12,288, unchanged.
+#   BGANIM_SECTION_CEILING_DEBUG    DERIVED from the d-28 measurement, not typed in:
+#                                   the anchor, minus the packed end of the DEBUG image
+#                                   at the ruling, plus what the section already held.
+#   BGANIM_SECTION_CEILINGS         the per-shape table tools/bganim_room.py gates
+#                                   against, keyed by the sigil listing that IS the
+#                                   shape's instrument. A listing not in this table is
+#                                   an UNMEASURABLE shape there, never a pass.
+#   BGANIM_SECTION_CEILING          what the GENERATOR accepts from the editor: the
+#                                   MINIMUM across shapes. It must be the minimum, or a
+#                                   12,200 B section would pass this emitter and then
+#                                   fail the DEBUG build at the bganim_room gate.
+#
+# The DEBUG figure is held to the ROM by the gate: the moment the DEBUG room shrinks
+# below it, `bganim_room --gate` fails that build (there is ZERO margin under it by
+# construction), and the moment the re-layout lands the two shapes collapse back to
+# one number here.
+_D28_DAC_BANKS_ANCHOR = 0x48000          # map.toml [[anchor]] dac_banks — a Z80 SetBank latch
+_D28_ART_SONIC_LMA_DEBUG = 0x2F430       # s4.debug.lst at the d-28 measurement (r2 tip)
+_D28_ART_SONIC_BYTES = 97472             # art/optimized/characters/sonic.bin on disk, then
+_D28_SECTION_HELD_BYTES = 8238           # ojz_bg_anim at the ruling: 1 band, 8x4 slots
+BGANIM_SECTION_CEILING_RELEASE = 12288
+BGANIM_SECTION_CEILING_DEBUG = (_D28_DAC_BANKS_ANCHOR
+                                - (_D28_ART_SONIC_LMA_DEBUG + _D28_ART_SONIC_BYTES)
+                                + _D28_SECTION_HELD_BYTES)             # = 12,094
+assert BGANIM_SECTION_CEILING_DEBUG == BGANIM_SECTION_CEILING_RELEASE - 194, (
+    "the d-28-answered derivation no longer yields the ruled 194 B shortfall; the "
+    "measurement terms above were edited without re-reading the ruling")
+BGANIM_SECTION_CEILINGS = {
+    "s4.lst": BGANIM_SECTION_CEILING_RELEASE,
+    "s4.debug.lst": BGANIM_SECTION_CEILING_DEBUG,
+}
+BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 
 #: Section layout, stated once so every size in this file derives from ONE place:
 #: a u16 band count, then a 44-byte record per band (6 u16 header fields + an

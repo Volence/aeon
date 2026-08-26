@@ -52,7 +52,23 @@ pub implement Game {
     // exists the binding MAY flip to `= SceneRegistry_CapsFolded` (Task 1's spike proved
     // computed consts bind here); that is a readability preference, not a correctness
     // fix — the ensure is what makes either spelling honest.
-    const SCANLINE_CAPS = $001E
+    //   $0040 CAP_FACTOR_CURVE   ADDED 2026-08-26 by the d-15 showcase parcel — the owner's
+    //                            answer to PARK-1. It is NOT raised by any of the twenty
+    //                            shipped hand scenes (scene_registry.emp's two-sided pin
+    //                            still reads $001E and its CAP_FACTOR_CURVE == 0 assertion
+    //                            still holds); it is raised by the AURORA-AUTHORED scene
+    //                            `ojz_act1_depth`, whose two lower layers carry
+    //                            `curve: SceneCurve.To(..)`. Because the editor fold is
+    //                            checked against THIS word, the declaration lives here.
+    //                            Raising it also flips the record shape — see
+    //                            engine/level/parallax.emp's BAND_CURVE_N and
+    //                            engine/ram.emp's BAND_CURVE_BYTES, moved in the same
+    //                            commit, which is what that pin's message demands.
+    //
+    // The editor fold ALSO raises $0010 CAP_TRANSITIONS (two editor scenes) and $0008
+    // from the start scene's anchor — both already declared above. Bit 0 stays the
+    // retired hole (d-29-corrected): $005E, not $005F.
+    const SCANLINE_CAPS = $005E
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST

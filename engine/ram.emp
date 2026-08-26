@@ -60,7 +60,9 @@ const BAND_EXT_BYTES        = 0     // sizeof(band_ext) * BAND_EXT_N; pinned in 
 // (CAP_FACTOR_CURVE, not CAP_MULTI_DEFORM_TABLE), and a game may declare either, both or
 // neither. A shadow band occupies BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES, and
 // parallax.emp's reservation guard names whichever one is short.
-const BAND_CURVE_BYTES      = 0     // sizeof(band_curve) * BAND_CURVE_N; pinned in parallax.emp
+// MOVED TO 10 BY THE d-15 SHOWCASE PARCEL (2026-08-26), in the same commit as
+// parallax.emp's BAND_CURVE_N = 1, because the OJZ showcase now authors a curve.
+const BAND_CURVE_BYTES      = 10    // sizeof(band_curve) * BAND_CURVE_N; pinned in parallax.emp
 // CURVE_CARRY_WORDS — the two words a curve fill parks between an anchored split and the
 // layer it split, DERIVED from the tail mirror above rather than being a fourth constant a
 // capability flip would have to remember. A curve tail (10 B) means a carry (2 words); no

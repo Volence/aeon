@@ -12,12 +12,24 @@ against blank RAM, and the run reports `ALL EQUAL` on a pair of pattern-filled c
 different scenes returning the same `state_hash` is the tell. (`tools/effects_gates.py` resolves
 the path itself, so this bites hand runs only — it cost this parcel twenty minutes.)
 
+**The committed scenes carry NO listing path.** Their top-level `symbols` key is the placeholder
+`$LST`; `tools/effects_gates.py` (`resolve_scene()`) writes a copy with `symbols` set to the
+`--lst` under test beside each run's output and hands THAT to `ab_runner`. Until 2026-08-26 every
+scene hardcoded the MAIN tree's `s4.debug.lst`, so a worktree's gates resolved master's RAM
+addresses: the showcase parcel moved `Raster_Buf_A/_B/Raster_Active_Buf` by +84 B and all four
+`scene:*` shape gates failed with "`Raster_Active_Buf points at 0x438aff`, which is neither captured
+buffer" while their determinism halves passed (two runs of a stale capture agree perfectly).
+Passing a raw committed scene to `ab_runner` by hand will fail loudly at `load_symbols("$LST")` —
+resolve it first:
+
 ```bash
+SCENE=$(python3 tools/effects_gates.py --resolve-scene suppressed --lst /ABS/PATH/s4.debug.lst)
 python3 /home/volence/sonic_hacks/oracle-old/linux-port/harness/ab_runner.py \
-  --old OLD.bin --new NEW.bin \
-  --scene /home/volence/sonic_hacks/aeon/tools/scenes/effects_raster_suppressed.json \
-  --out /tmp/abgate --selfcheck
+  --old OLD.bin --new NEW.bin --scene "$SCENE" --out /tmp/abgate --selfcheck
 ```
+
+(or simply `python3 tools/effects_gates.py --only scene:suppressed --rom /ABS/s4.debug.bin --lst
+/ABS/s4.debug.lst`, which does all of it and asserts the shape too).
 
 `--selfcheck` runs OLD twice and aborts on disagreement (exit 2). **Treat that as a full stop**: a
 nondeterministic scene invalidates everything downstream, and the cause is the scene, not the ROM.

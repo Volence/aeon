@@ -27,9 +27,14 @@ WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
   re-layout booked in docs/DEFERRED_WORK.md (the "ROM-tail character-art exile ...
   relayout pressure" entry), not a bigger ceiling.
 
-  RULED AUTHORING CEILING (`BGANIM_SECTION_CEILING`, tools/inject_editor_bg.py) — the
-  owner's budget inside that room (decision d-9). The gate here fails the moment the
-  ROM room can no longer hold it, which is the revisit d-9 named.
+  RULED AUTHORING CEILING (`BGANIM_SECTION_CEILINGS`, tools/inject_editor_bg.py) — the
+  owner's budget inside that room, PER SHAPE since decision d-28-answered
+  (2026-08-26): release 12,288 (d-9), debug 12,094 (derived there from the d-28
+  measurement). The shape is the listing: `s4.lst` is the release instrument,
+  `s4.debug.lst` the debug one, and a listing the table does not name is
+  UNMEASURABLE here — never silently the release number. The gate fails the moment a
+  shape's ROM room can no longer hold that shape's ceiling, which is the revisit d-9
+  named (and which d-28 fired once already).
 
   PLACER ROOM — RETIRED (2026-08-25). This tool used to report a second number,
   "frozen allotment + one 0x400 spread step" (~1 KB), read by regex out of sigil's
@@ -171,42 +176,67 @@ def rom_room(lst_path, aeon=AEON, map_toml=None):
     }
 
 
+def ceiling_for_listing(lst_path):
+    """(shape key, ruled ceiling) for the shape whose instrument `lst_path` is.
+
+    Per-shape since d-28-answered. The key is the listing's basename — `s4.lst` /
+    `s4.debug.lst` — because the listing IS the shape's instrument; anything else is
+    Unmeasurable, never the release number by default (a debug listing renamed, or a
+    third shape added without a ruling, must fail loudly here rather than be gated
+    against a ceiling nobody ruled for it).
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from inject_editor_bg import BGANIM_SECTION_CEILINGS
+    key = os.path.basename(lst_path)
+    if key not in BGANIM_SECTION_CEILINGS:
+        raise Unmeasurable(
+            f"{lst_path}: no ruled BG-animation ceiling for a shape whose listing is "
+            f"{key!r}. BGANIM_SECTION_CEILINGS (tools/inject_editor_bg.py) names "
+            f"{sorted(BGANIM_SECTION_CEILINGS)}; the ceiling is per shape (d-28-answered) "
+            f"and an unlisted shape has no number to gate against — add a ruled row, do "
+            f"not fall back to another shape's.")
+    return key, BGANIM_SECTION_CEILINGS[key]
+
+
 def report(lst_path, aeon=AEON, gate=False, out=sys.stdout):
-    """Print the ROM-room derivation and the ruled ceiling; with `gate`, fail on a
-    breach. Returns the exit code. The verdict line names which of the two binds."""
+    """Print the ROM-room derivation and this SHAPE's ruled ceiling; with `gate`, fail
+    on a breach. Returns the exit code. The verdict line names which of the two binds."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from inject_editor_bg import BGANIM_SECTION_CEILING, live_section_bytes
 
+    shape, ceiling = ceiling_for_listing(lst_path)
     r = rom_room(lst_path, aeon)
     live = live_section_bytes(aeon)
     headroom = r["room"] + live
-    print(f"bganim_room [{os.path.basename(lst_path)}]:", file=out)
+    print(f"bganim_room [{shape}]:", file=out)
     print(f"  Art_Sonic 0x{r['art_sonic_lma']:X} + {r['art_blob_len']} "
           f"= 0x{r['packed_end']:X}; anchor 0x{r['anchor']:X}", file=out)
     print(f"  ROM room {r['room']} B free + {live} B the section already holds "
           f"= {headroom} B for ojz_bg_anim", file=out)
-    print(f"  ruled authoring ceiling BGANIM_SECTION_CEILING = "
-          f"{BGANIM_SECTION_CEILING} B", file=out)
+    print(f"  ruled authoring ceiling BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B "
+          f"(the generator accepts the minimum across shapes, "
+          f"BGANIM_SECTION_CEILING = {BGANIM_SECTION_CEILING} B)", file=out)
 
     rc = 0
-    if gate and BGANIM_SECTION_CEILING > headroom:
+    if gate and ceiling > headroom:
         print(
             f"bganim_room: FAIL — the ruled BG-animation ceiling no longer fits.\n"
-            f"  BGANIM_SECTION_CEILING = {BGANIM_SECTION_CEILING} B but only {headroom} B "
+            f"  BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B but only {headroom} B "
             f"are reachable in this shape ({r['room']} B free before the 0x{r['anchor']:X} "
             f"`{ANCHOR_NAME}` anchor, plus the {live} B ojz_bg_anim already holds).\n"
             f"  The likely cause is that {os.path.relpath(r['art_blob'], aeon)} grew: it is "
             f"{r['art_blob_len']} B and it is the last packed blob before a HARDWARE anchor "
             f"that cannot move (a Z80 SetBank latch).\n"
-            f"  This is the revisit decision d-9 named. Either shrink the ceiling in "
-            f"tools/inject_editor_bg.py (authors lose band size) or take the relocation "
-            f"option d-9 kept open. Do NOT raise the anchor.",
+            f"  This is the revisit decision d-9 named (d-28-answered took it once, for the "
+            f"debug shape). Either shrink THIS shape's ceiling in tools/inject_editor_bg.py "
+            f"(authors lose band size) or take the relocation option d-9 kept open. "
+            f"Do NOT raise the anchor.",
             file=out)
         rc = 1
 
-    if BGANIM_SECTION_CEILING <= headroom:
-        print(f"  binding limit: the ruled ceiling ({BGANIM_SECTION_CEILING} B) — it sits "
-              f"{headroom - BGANIM_SECTION_CEILING} B inside the ROM room; placement no "
+    if ceiling <= headroom:
+        print(f"  binding limit: the ruled ceiling ({ceiling} B) — it sits "
+              f"{headroom - ceiling} B inside the ROM room; placement no "
               f"longer bounds a data section (sigil b0363140)", file=out)
     else:
         print(f"  binding limit: the ROM room ({headroom} B) — the ruled ceiling no longer "
