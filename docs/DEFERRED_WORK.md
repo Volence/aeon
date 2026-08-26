@@ -10277,3 +10277,17 @@ order fix. OURS: any test that opens a `.lst` it did not just produce must asser
 listing's declared ROM identity/CRC against the ROM in the tree, or only test the shape the current
 invocation built) and be LOUD when it cannot tell — a listing from another profile is the same
 hazard as a stale ROM with a matching CRC. Size XS-S; queue behind the showcase landing.
+
+**Amendment 2026-08-26 from the sigil lane's design input (accepted by this lane):** step 1 cuts the corpus
+along the seam sigil's nightly already draws — ARTIFACT-comparing gates go hermetic against the pinned
+snapshot (where the AEON_DIR pain lives); SOURCE-reading gates (`SOURCE_GATES`, `corpus_builds` first)
+stay pointed at live aeon master, because pinned they become tautological (a snapshot that built when
+pinned builds forever) and they are the brick witness for parcels no byte gate sees. Drift detection
+therefore lives in SIGIL's nightly, not aeon's — so when the assembler changes behaviour, sigil is red
+and sigil explains it (the who-is-expected-to-move tell). Step 2: sigil keeps the SOLVER
+(`resolve_layout_measuring`, BGROOM-3 non-convergence diagnostic); aeon owns the RULES in map.toml;
+ownership of a failure is decided up front — a rule violation reports to aeon, a solver non-convergence
+reports to sigil with its file:line diagnostic. Step 4 archives the CERTIFICATION (asl equivalence,
+root entry only; no gate executes asl today) and NOT the goldens, which remain sigil-vs-sigil regression
+over the pinned corpus. Full hermeticity is NOT the goal; the goal is that adding content to aeon
+touches one repo.
