@@ -8891,7 +8891,43 @@ is the schema's per-field `type`/`enum`/`const`, not our field names** — our n
 which fields exist and say nothing about how the writer spells their values, and that
 distinction has now bitten this contract three times.
 
-### OPEN — `deform_triangle` folds to `()` for every input (found 2026-08-25, `parcel/neg-label`)
+### CLOSED 2026-08-26 (`parcel/triangle-fold`) — `deform_triangle` folds to `()` for every input (found 2026-08-25, `parcel/neg-label`)
+
+> **CLOSED IN PLACE.** Reproduced first, verbatim shape (scratch `--extra-entry` probe):
+> `deform_triangle(amplitude: 16, period: 64)` printed `T[0]=() T[16]=() T[32]=() T[48]=()`
+> while `deform_sine(16, 64)[16]` printed `16` beside it. The "not established which"
+> question below IS now established, by planting the effects_gen two-step emission form
+> (`pub const SceneSrc_… = deform_triangle(…)` / `pub data …: [i8; 256] = SceneSrc_…`) in a
+> REACHABLE module: the build dies **LOUDLY** with 256 x
+> `[emit.type] expected an integer for i8, got unit` pointing at the generated `pub data`
+> span — so a `"generator": "triangle"` Aurora scene was live-LOUD (a confusing 256-error
+> wall at generated code), never silent zeros. `--extra-entry` itself refuses any `data`
+> declaration (byte-neutral contract), which is why the lowering half needed the reachable
+> plant.
+>
+> **Fix (engine/level/parallax_dsl.emp):** the element's block-tail `if` is hoisted into
+> `tri_sample()`, a helper `comptime fn` whose single-level `return if` folds to a value
+> (`iabs` in the same file is the standing precedent; a CALL in block-tail position is fine
+> per §1) — waveform derivation written in the guard comment BEFORE coding. Post-fix, all
+> 256 samples match an independently-spelled oracle (mismatches=0 probe).
+>
+> **Guards:** module-level `TriPin` ensures in parallax_dsl.emp pin T[0]=-16, T[16]=0,
+> T[32]=16, T[48]=0, T[8]=-8 for (16, 64) — red-first against the pre-fix generator (all 5
+> fired with `got ()`, which also proves `() == int` compares FALSE rather than erroring —
+> the catch mechanism), and module reachability itself proven red-first with a deliberate
+> failing ensure (parallax_dsl is in every profile's use closure; runner = every sigil
+> build, both sonic4 shapes and demo). Plus
+> `games/sonic4/test/poison/poison_tail_if_unit_fold.emp` (+ its emp_expect_fail row,
+> 37/37): a verbatim copy of the PRE-FIX body, pinned differentially against the shipped
+> generator — it documents that a value ensure is the engine's ONLY catch surface for §1's
+> unit fold, and it flips to a lane failure (the retirement signal) if sigil ever fixes
+> block-tail-if folding (inversion measured: the fixed-shape variant builds clean).
+>
+> **Sigil half (proposed in the parcel report, not edited here):** sigil silently folds a
+> block-tail `if` to `()` in a value context with NO diagnostic even when non-nested; a
+> warning/error at the fold site would catch the whole class at the source instead of
+> per-value ensures. `TABLE_GENERATORS["triangle"]` confirmed mapped to this function, so
+> the Aurora path is the fixed one. Zero-byte: all four ROM CRCs unchanged.
 
 **Measured, not inferred** (scratch `--extra-entry` witness, sonic4 plain profile): with
 `T = deform_triangle(amplitude: 8, period: 32)`, interpolating `T[0]`, `T[8]`, `T[16]` into an
