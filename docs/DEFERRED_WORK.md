@@ -8589,7 +8589,26 @@ is itself a stale offset (it now sits at 118). Renaming it would touch the three
 shifts can go vacuously green — not worth the risk inside this parcel. The name is decoration;
 the `ensure`s are the authority.
 
-#### ALIGN — the `(align: N)` migration this booking is owed (queued, not started)
+#### ALIGN — the `(align: N)` migration this booking is owed (CLOSED 2026-08-25, branch parcel/field-align)
+
+**Closed in place.** `sc_mask_raw: i16 (align: 2)` and `sc_v_deform_shift_raw: i16 (align: 2)` in
+`engine/level/scene_dsl.emp`; both trailing `offsetof(…) % 2 == 0` ensures deleted. Zero-byte:
+all four ROM CRCs identical before/after (s4 875d591f, s4.debug a02d36db, demo bf2cdb42,
+demo.debug 62a0019e); `SIGIL_WARNINGS=full` sonic4-debug warning set diff 0 (150 lines both
+sides); pytest 1371/1372 passed + emp_expect_fail 35/35 on every shape. Gate settled positively:
+`$SIGIL_BUILD --version` reports revision bbcc0cb0 and `merge-base --is-ancestor 6fae4d6a
+bbcc0cb0` holds. Both relayed cautions verified against sigil itself: the field form is the
+one in `crates/sigil-frontend-emp/tests/eval_layout.rs:376-444` (satisfied-silent control arm +
+violation-is-error poison arm); the `@align(N)`-on-a-struct-field refusal is
+`crates/sigil-frontend-emp/src/parser.rs:1155` and was re-proven red-first here (sigil has no
+test of its own for that refusal — offered to the sigil lane as a proposal). Red-first B:
+widening `sc_transition` to u16 fails the build with the attribute's own diagnostic naming the
+field, the claim and the live offset (121/123), where the deleted ensures used to fire.
+
+**What THE CLASS still leaves open:** `sc_pad_5D`'s width is STILL a hand-computed constant —
+now guarded structurally rather than by an asserted `ensure`, but not derived. `pad_to(N)` is
+not shipped; nothing here reaches for it. The residual `sc_pad_5D` naming nit stays residual.
+Original booking text kept below for the record.
 
 Sigil shipped a field-level alignment attribute, which is the derived replacement for the
 `ensure`-guarded hand pad above. Scope when it is picked up: `sc_mask_raw` and

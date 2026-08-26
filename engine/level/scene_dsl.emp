@@ -1008,24 +1008,26 @@ pub struct Scene {
     // the two bridges — which is exactly what happened between 2026-08-18 and 2026-08-22:
     // the pad was hand-computed for offsets 94/96, four commits added fields above it, and
     // the bridges drifted to an odd 119/121 with [layout.odd-field] firing into a warning
-    // baseline nobody re-read. The AUTHORITY on this width is now the pair of `ensure`s
-    // immediately after this struct, not any number written here or in the field's name.
-    // If they fire, widen or narrow this field by one byte until they pass again.
+    // baseline nobody re-read. The AUTHORITY on this width is the `(align: 2)` on the two
+    // bridges below (error-tier, per-field, not a lint — no `@allow` reaches it; sigil
+    // crates/sigil-frontend-emp/tests/eval_layout.rs:376-444), not any number written here
+    // or in the field's name. If it fires, widen or narrow this field by one byte until it
+    // passes again.
+    //
+    // STILL HAND-COMPUTED. `(align: N)` ASSERTS the property; it does not compute the pad
+    // (sigil spec 2 §4.3: the compiler never inserts alignment or padding, because an
+    // auto-aligning struct would silently break byte-exact ports). A deriving `pad_to(N)`
+    // is drafted-but-unlanded in sigil — until it ships, this width is a guarded constant,
+    // not a derived one (docs/DEFERRED_WORK.md "THE CLASS" / "ALIGN").
     sc_pad_5D:             u16 = 0,
-    sc_mask_raw:           i16,              // -1 = derive from ly_enabled (bridge, see above)
-    sc_v_deform_shift_raw: i16,              // -1 = derive from sc_v_deform (bridge, see above)
+    // The bridges' parity is STRUCTURAL: `(align: 2)` fails the build naming the field,
+    // the claim and the live offset the moment anything above re-parities them (spelling
+    // per sigil 6fae4d6a — `@align(N)` is the `vars` cursor-mover and is refused here by
+    // name). Scene is comptime-only TODAY, so nothing faults yet; this guards the day
+    // something emits one, when a move.w to an odd word field is a 68000 address error.
+    sc_mask_raw:           i16 (align: 2),   // -1 = derive from ly_enabled (bridge, see above)
+    sc_v_deform_shift_raw: i16 (align: 2),   // -1 = derive from sc_v_deform (bridge, see above)
 }
-
-// THE PAD'S AUTHORITY. Two guards, one per bridge, asserting the PROPERTY (even) rather
-// than a snapshot (`@offset 94`) — a pinned offset would have to be hand-updated on every
-// legitimate field insertion above, which re-arms the same staling-constant trap that put
-// sc_pad_5D's width wrong in the first place. Parity survives every insertion; a number
-// does not. House pattern and message idiom follow engine/system/replay.emp:96-97: name
-// the INSTRUCTION that would fault, never the offset that moved.
-ensure(offsetof(Scene, sc_mask_raw) % 2 == 0,
-       "Scene.sc_mask_raw landed on an odd offset — widen or narrow sc_pad_5D by one byte. Scene is comptime-only TODAY, so nothing faults yet; this guards the day something emits one, when a move.w to an odd word field is a 68000 address error. Do not silence it by pinning an offset — the number is what rotted.")
-ensure(offsetof(Scene, sc_v_deform_shift_raw) % 2 == 0,
-       "Scene.sc_v_deform_shift_raw landed on an odd offset — widen or narrow sc_pad_5D by one byte. Scene is comptime-only TODAY, so nothing faults yet; this guards the day something emits one, when a move.w to an odd word field is a 68000 address error. Do not silence it by pinning an offset — the number is what rotted.")
 
 // -----------------------------------------------
 // scene — the authored scene constructor.
