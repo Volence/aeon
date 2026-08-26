@@ -164,14 +164,16 @@ def build_curve_cfg(base: bytes, *, layers, stride: int, head_tab_fg: int,
 
     `layers` is a list of (top, fa, fb, to_or_None).
 
-    THE HEADER TABLE WORD IS STILL LOAD-BEARING and it is the trap this family keeps
-    re-learning: `parallax_mode_key` decides per-line vs per-cell at RUNTIME by ORing the
-    config's two HEADER table words, and it cannot see the bands. A curve fixture with null
-    header tables runs the PER-CELL filler, writes 28 longwords, and measures nothing. In the
-    authored model that cannot happen — `scene_forces_per_line()` arm 3 raises per-line off
-    the curve — but a hand-built RAM fixture bypasses the lowering entirely, so the flat
-    zero-amplitude table goes in the header here for exactly the reason a real curve scene
-    would carry `precision: line`.
+    THE HEADER TABLE WORD IS NO LONGER A MODE KEY. Until 2026-08-26 `parallax_mode_key`
+    decided per-line vs per-cell at RUNTIME by ORing the config's two HEADER table words,
+    and this docstring claimed the desync "cannot happen" in the authored model because
+    `scene_forces_per_line()` arm 3 raised per-line off the curve. That claim was WRONG:
+    arm 3 raised the CAPABILITY BIT (which compiled the per-line code in); it never
+    changed the runtime key's answer for a config with null header words, so a real curve
+    scene with no table and no anchor ran the per-cell filler and drew no curve — the
+    d-29 showcase defect. The key and the per-cell filler are deleted (d-29-corrected);
+    every config runs Parallax_Fill_PerLine. The flat zero-amplitude table is still put in
+    the header here only so the fixture's shape matches the shipped one it copies.
 
     V_FACTOR_BG IS THE LOCK SENTINEL (15) AND V_OFFSET IS 0, which pins Vscroll_BG at 0 and
     makes Step 4a's rotation an identity copy — so the shadow tops ARE the authored tops and
@@ -552,9 +554,6 @@ def run_cost(args, sym, base, stride, zero_tab) -> int:
                 failures.append(f"{k}: {reason}")
         cyc = [int(x["cycles"]) for x in rows]
         pl = pcp.row(runs[0]["prof"], sym["Parallax_Fill_PerLine"])
-        pc = pcp.row(runs[0]["prof"], sym["Parallax_Fill_PerCell"])
-        if pc is not None and pl is None:
-            failures.append(f"{k}: ran the PER-CELL filler — this row is not evidence")
         n = fx["cfg"][pcp.CFG_BAND_COUNT]
         print(f"{k:4} {n:>5} {fx['lines']:>6} {fx['bands']:>6} {cyc[0]:>10} "
               f"{max(cyc) - min(cyc):>7} {(pl['cycles'] if pl else 0):>12}  "

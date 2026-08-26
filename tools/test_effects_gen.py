@@ -412,8 +412,19 @@ class TestRendering(SceneShapeBase):
 
     def test_absent_optional_scalars_are_omitted_so_constructor_defaults_stand(self):
         out = self.render(layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
-        for absent in ("v_center", "v_offset", "v_factor_fg", "precision", "transition"):
+        for absent in ("v_center", "v_offset", "v_factor_fg", "transition"):
             self.assertNotIn(f"{absent}:", out)
+
+    def test_precision_is_accepted_and_never_rendered(self):
+        """`precision` is RETIRED on the engine side (2026-08-26, d-29-corrected): the
+        per-cell HScroll path is gone and `scene()` takes no such argument, so rendering
+        it would be a sigil unknown-argument error on generated code. Aurora's wave-1
+        schema still emits it, so the generator must ACCEPT the key and IGNORE the value
+        — any value, since nothing downstream reads it."""
+        for value in ("cell", "line", "per_line", 7):
+            out = self.render(precision=value,
+                              layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+            self.assertNotIn("precision", out)
 
     def test_byte_identity_bridges_are_never_emitted(self):
         """layer_mask_raw / v_deform_shift_raw default to -1 = 'derive'. Editor
@@ -489,26 +500,26 @@ class TestRendering(SceneShapeBase):
         self.assertIn("anchor: SceneAnchor.At(0, 3, 4)", out)
 
     def test_enum_fields_emit_constants_not_the_schemas_lowercase_strings(self):
-        """`precision: "line"` must emit PRECISION_LINE. Emitting the raw string
-        produced `precision: line` — a sigil unknown-symbol error pointing at
-        generated code, for a scene the author spelled correctly."""
-        out = self.render(precision="line", transition="instant",
+        """`transition: "instant"` must emit TRANS_INSTANT. Emitting the raw string
+        produced (in slices 1-2, on the since-retired `precision` field) a sigil
+        unknown-symbol error pointing at generated code, for a scene the author
+        spelled correctly."""
+        out = self.render(transition="instant",
                           left_column_mask="sprite_mask",
                           layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
-        self.assertIn("precision: PRECISION_LINE", out)
         self.assertIn("transition: TRANS_INSTANT", out)
         self.assertIn("left_column_mask: SceneLeftColMask.SpriteMask", out)
-        self.assertNotIn("precision: line", out)
+        self.assertNotIn("transition: instant", out)
 
     def test_an_illegal_enum_value_is_refused_and_lists_the_legal_ones(self):
-        path = self.write("ojz_bg", _scene(precision="per_line"))
+        path = self.write("ojz_bg", _scene(transition="snap"))
         scene = effects_gen.load_scene(path)
         with self.assertRaises(effects_gen.SceneShapeError) as ctx:
             effects_gen.render_scene(path, scene)
         msg = str(ctx.exception)
-        self.assertIn("per_line", msg)
-        self.assertIn("line", msg)
-        self.assertIn("cell", msg)
+        self.assertIn("snap", msg)
+        self.assertIn("instant", msg)
+        self.assertIn("smooth", msg)
 
     def render_with_tables(self, **over):
         path = self.write("ojz_bg", _scene(**over))

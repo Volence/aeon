@@ -556,7 +556,7 @@ async def _scan_dma(b: BusClient, sym: dict[str, int], line: int = 220,
     [DMA_Queue, DMA_Queue_End) reports residue and live entries indistinguishably. That is
     exactly what produced C1's "two 896-byte HScroll entries with the same command word": the
     tree has ONE `queue_static_dma(Static_Hscroll_Line)` site (`engine/system/buffers.emp:503`,
-    an either/or with `.hs_cell`, reached once per VBlank), and the second copy is last-frame's
+    reached once per VBlank), and the second copy is last-frame's
     at a different slot offset because the palette-dirty count differed. Measured 2026-08-20 at
     idle: all three cursors sat at their BASES at scanline 220 (queue empty, every reported
     entry residue), and the same scan listed slot 8 while slots 6 and 7 were absent — which a

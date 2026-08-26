@@ -283,9 +283,8 @@ dma_hscroll_perline_bytes_each = 896
 # frame carries exactly one complete call -- under motion the loop lags and a per-frame
 # average stops being one call (ENGINE-BASELINE.md §2).
 #
-#   cycles = base
-#          + band_percell x (bands - 1)          [per-cell mode]
-#          + line_mode + band_perline x (bands-1) [per-line mode]
+#   cycles = base                                 [the per-line floor — see base_cycles]
+#          + band_perline x (bands-1)
 #          + multiband  (bands >= 2, once)
 #          + line_fg_only x LINES + line_bg_only x LINES + line_both x LINES   [at shift 0]
 #          + shift_lines x SUM(deform shift over sampled channel-lines)
@@ -315,10 +314,19 @@ residual_cycles_all_fixtures = 43.6  # all 26, both anchor columns live (W13 −
 residual_cycles_overlay_term = 58.9  # the 2-parameter anchor fit over the 8 anchored fixtures
 noise_floor_cycles = 0               # 3 boots per fixture, spread 0 on all 26
 
-base_cycles          = 3116.00   # W0 — 1 band, per-cell, nothing on
-band_percell_cycles  = 752.00    # W0->W1->W2->W3
-line_mode_cycles     = 1548.00   # W0->W4: an H-deform table attached at all. Selects
-                                 # Parallax_Fill_PerLine over _PerCell AND flips reg $0B.
+# THE PER-CELL PATH WAS DELETED 2026-08-26 (owner ruling d-29-corrected; docs/DEFERRED_WORK.md
+# "Per-cell HScroll fill — DELETED"). Three rows stood here for it:
+#     base_cycles          = 3116.00   # W0 — 1 band, per-cell, nothing on
+#     band_percell_cycles  = 752.00    # W0->W1->W2->W3
+#     line_mode_cycles     = 1548.00   # W0->W4: a table attached at all — selected
+#                                      # Parallax_Fill_PerLine over _PerCell AND flipped reg $0B
+# `band_percell` has no subject any more. `base` and `line_mode` only ever appear SUMMED
+# now (every config pays both), so the floor below is their DERIVED sum, not a re-take:
+# 3116.00 + 1548.00 = 4664.00. Every registry scene was already per-line, so no scene's
+# axis-1 charge moved by a single cycle. The next parallax_cost_probe run fits ONE `base`
+# column against W0-W3/W9 (bare configs, now per-line like everything else) and replaces
+# this sum with a measurement.
+base_cycles          = 4664.00   # DERIVED 2026-08-26 = 3116.00 (old per-cell floor) + 1548.00 (line_mode)
 band_perline_cycles  = 854.00    # W4->W5->W6->W24
 multiband_cycles     = 20.00     # ONCE, at bands >= 2, in BOTH modes. Step 4a's `.find_k`
                                  # probe loop: at band_count 1 the loop body never runs.
@@ -571,9 +579,9 @@ postunroll_out_of_sample_gap_pct   = 1.10
 # config is anchored.
 reglue_status = "MEASURED on p3/t7-worldy-reglue, 26 fixtures, spread 0, exit 0 — PROMOTED to the primary rows by P3 Task 13 (2026-08-22), which reproduced every row on the tip ROM 0dbaa80f"
 reglue_loop_shape = "POST-UNROLL per-line filler + P3 world-Y re-glue (Step 4a rotates in plane LINES)"
-reglue_base_cycles              = 3116.00
-reglue_band_percell_cycles      = 752.00
-reglue_line_mode_cycles         = 1548.00
+reglue_base_cycles              = 3116.00   # history: the per-cell floor (path deleted 2026-08-26)
+reglue_band_percell_cycles      = 752.00    # history: no subject since 2026-08-26
+reglue_line_mode_cycles         = 1548.00   # history: folded into base_cycles 2026-08-26
 reglue_band_perline_cycles      = 854.00
 reglue_multiband_cycles         = 20.00
 reglue_line_fg_only_cycles      = 26.00

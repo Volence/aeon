@@ -106,12 +106,12 @@ def build_ext(base: bytes, *, bands: int, tables: list[int], head_tab_fg: int,
               stride: int) -> bytes:
     """The shipped header with one thing changed, plus `bands` EXTENDED band records.
 
-    THE HEADER TABLE WORD IS STILL LOAD-BEARING UNDER THE CAPABILITY, and it is the one
-    thing about this shape a reader will get wrong: the fill loop takes its curves from the
-    BAND now, but `parallax_mode_key` — the runtime per-line/per-cell decision — still ORs
-    the config's two HEADER table words and cannot see the bands. A fixture with null
-    header tables would run the PER-CELL filler and measure nothing. (This is exactly why
-    `scene()` refuses an own() scene that attaches no plane-shared table.)
+    THE HEADER TABLE WORD IS STILL LOAD-BEARING UNDER THE CAPABILITY: the fill loop takes
+    its curves from the BAND, but `cap_deform_tables` loads the HEADER's two words once and
+    only an own() band reloads a5/a6 — a non-own band with a live shift and null header
+    words would sample address 0. (This is exactly why `scene()` refuses an own() scene
+    that attaches no plane-shared table.) Until 2026-08-26 the header word ALSO decided
+    per-line vs per-cell at runtime; that key and the per-cell filler are deleted.
     """
     h = bytearray(base[:pcp.CFG_SIZE])
     h[pcp.CFG_BAND_COUNT] = bands
@@ -278,13 +278,7 @@ def main() -> int:
                 failures.append(f"{k}: {reason}")
         cyc = [int(x["cycles"]) for x in rows]
         pl = pcp.row(runs[0]["prof"], sym["Parallax_Fill_PerLine"])
-        pc = pcp.row(runs[0]["prof"], sym["Parallax_Fill_PerCell"])
-        # THE MODE IS A DERIVED CHECK, NOT A COMMENT. A fixture that fell through to the
-        # per-cell filler would still print a plausible Parallax_Update row while measuring
-        # a path with no band table load in it at all.
-        if pc is not None and pl is None:
-            failures.append(f"{k}: ran the PER-CELL filler — the header table word is null "
-                            f"or the mode key changed; this row is not evidence")
+        # (The per-cell-filler check that stood here is gone with the filler, 2026-08-26.)
         n = fx["cfg"][pcp.CFG_BAND_COUNT]
         print(f"{k:4} {n:>5} {cyc[0]:>10} {max(cyc) - min(cyc):>7} "
               f"{(pl['cycles'] if pl else 0):>12}  {'ok' if not checks else '!! ' + ','.join(checks)}")

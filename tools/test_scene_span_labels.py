@@ -26,42 +26,56 @@ three consumers share.
 
 import unittest
 
-from scene_spans import (SCENE_DSL, brackets, capability_bits, gated_blocks,
+from scene_spans import (retired_capability_bits, SCENE_DSL, brackets, capability_bits, gated_blocks,
                          span_capability)
 
 
 class TestCapabilityAuthority(unittest.TestCase):
 
-    def test_the_declared_bits_are_the_five_p1_bits_plus_the_two_p3_promotions(self):
+    def test_the_declared_bits_are_the_four_p1_survivors_plus_the_two_p3_promotions(self):
         """A sanity floor on the parse itself: if scene_dsl re-spells its consts,
         every derivation below would quietly resolve against an empty set.
 
         P3 Task 5 promoted CAP_MULTI_DEFORM_TABLE and CAP_FACTOR_CURVE out of the
         reserved comment so their gates become measurable AHEAD of the lowerings that
-        raise them (Tasks 7 and 10). This list is the whole promotion contract: it is
-        the file that says which bits a span may name."""
+        raise them (Tasks 7 and 10). CAP_PER_LINE was RETIRED 2026-08-26 (d-29-corrected)
+        when the per-cell HScroll path it selected against was deleted — it is parsed as
+        retired, never as declared. This list is the whole promotion contract: it is the
+        file that says which bits a span may name."""
         bits = capability_bits()
         self.assertEqual(
             sorted(bits),
             ["CAP_ANCHORS", "CAP_DEFORM", "CAP_FACTOR_CURVE",
-             "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM",
-             "CAP_PER_LINE", "CAP_TRANSITIONS"])
+             "CAP_MULTI_DEFORM_TABLE", "CAP_PER_COL_VSRAM", "CAP_TRANSITIONS"])
         self.assertEqual(len(set(bits.values())), len(bits),
                          "two capabilities share a bit: %r" % (bits,))
+        self.assertEqual(retired_capability_bits(), {"CAP_PER_LINE": 0x0001})
+        self.assertNotIn("CAP_PER_LINE", bits,
+                         "a retired bit came back as a declaration without its mechanism")
 
-    def test_the_declared_bits_are_a_gapless_run_from_bit_zero(self):
+    def test_the_declared_and_retired_bits_are_a_gapless_run_from_bit_zero(self):
         """DERIVED, not copied off the declarations: the mask is allocated one bit at a
-        time from bit 0, so N declared capabilities must occupy exactly bits 0..N-1.
+        time from bit 0, so N declared-or-retired capabilities must occupy exactly bits
+        0..N-1. A retired bit keeps its hole (it is never re-used, so every hand-derived
+        mask in the tree keeps meaning what it meant), which is why the run is checked
+        over declared ∪ retired rather than declared alone.
 
         This is what catches the promotion hazard that a name list cannot — promoting a
         reserved bit to `pub const` at the WRONG value (a gap, or a value a still-reserved
-        bit already claims in the comment) leaves the names right and the arithmetic
-        wrong, and every downstream mask would be silently off."""
-        bits = capability_bits()
+        bit already claims in the comment, or a retired bit's hole) leaves the names
+        right and the arithmetic wrong, and every downstream mask would be silently off."""
+        bits = dict(capability_bits())
+        retired = retired_capability_bits()
+        self.assertFalse(set(bits) & set(retired), "a bit is both declared and retired")
+        self.assertFalse(set(bits.values()) & set(retired.values()),
+                         "a declaration re-used a retired bit's hole: %r vs %r"
+                         % (bits, retired))
+        both = {**bits, **retired}
         self.assertEqual(
-            sorted(bits.values()), [1 << i for i in range(len(bits))],
-            "capability bits are not a gapless run from bit 0 — a promotion picked a "
-            "value that leaves a hole or collides with a reserved bit: %r" % (bits,))
+            sorted(both.values()), [1 << i for i in range(len(both))],
+            "capability bits (declared + retired) are not a gapless run from bit 0 — a "
+            "promotion picked a value that leaves a hole or collides with a reserved "
+            "bit: %r" % (both,))
 
     def test_reserved_comment_bits_are_not_parsed_as_declarations(self):
         """The five still-reserved bits live in a comment and have no lowering. A

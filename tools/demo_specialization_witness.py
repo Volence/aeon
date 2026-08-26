@@ -59,8 +59,8 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 
 # ---------------------------------------------------------------------------
 # THE PIN. Measured on demo.debug.lst at P2 Phase 1 + the CAP_TRANSITIONS parcel — all
-# five capabilities now gated (CAP_ANCHORS, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_PER_LINE,
-# CAP_TRANSITIONS).
+# five capabilities then gated (CAP_ANCHORS, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_PER_LINE,
+# CAP_TRANSITIONS); CAP_PER_LINE was retired 2026-08-26 (see the last re-derivation log).
 #
 # The NAMES are as load-bearing as the numbers: this list is the reference the derived
 # scans cannot edit, which is the whole point (see the module docstring's poison
@@ -149,12 +149,43 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # scanline_spans lane now reports this state in words ("GATED IN SOURCE, RAISED BY
 # NEITHER FIXTURE") instead of the old "NOT GATED ANYWHERE" row, which since Task 16
 # is reserved for — and FAILS on — a declared bit with no source brackets at all.
+# RE-DERIVATION LOG — 2026-08-26, the per-cell HScroll deletion (owner ruling
+# d-29-corrected, parcel/delete-percell-hscroll). CAP_PER_LINE is RETIRED: the per-line
+# filler, its 896-byte DMA and reg $0B = %11 are unconditional, so the four `cap_per_line_*`
+# spans are gone and demo now CARRIES the flat filler it used to elide. Every moved row
+# below was traced to its label-span delta in demo.debug.lst (master 32e33ff0's listing
+# vs this parcel's), then to the instructions, before the number was touched:
+#
+#   Enqueue_Dirty_Buffers    514 -> REMOVED  no gated span remains in it (the only one was
+#                                            `cap_per_line_dma`); it is still 8 B smaller
+#                                            (506) but a proc with no capability gate is not
+#                                            this pin's subject — see the "hosts a gated
+#                                            span" test in test_demo_specialization_witness
+#   Parallax_Fill_PerLine      2 -> 100  (+98) the bare-`rts` else stub is gone and the body
+#                                            is unconditional; what demo carries is the
+#                                            FLAT filler — prologue 10, .next_band 12,
+#                                            .have_end 6, .lp_flat 20, .fl_line 20,
+#                                            .fl_tail 6, .fl_rem 6, .band_done 20 — with
+#                                            the deform-tables / sampling / multi-table /
+#                                            curve spans still elided (CAP mask 0)
+#   Parallax_StartTransition  90 -> 78   (-12) `.update_mode` 14 -> 2: the reg $0B HScroll
+#                                            arm (moveq 2 + move.l 4 + or.l 4 + beq 2 +
+#                                            moveq 2) collapsed to one `moveq #%11`
+#   Parallax_Step4_Fill      170 -> 188  (+18) `.bands_ready` 0 -> 24: the two H-deform
+#                                            phase accumulators (moveq 2 + move.b 4 +
+#                                            add.w abs.w 4 = 10 each) moved out of the
+#                                            elided per-line arm and became unconditional,
+#                                            plus the `jbra Parallax_Fill_PerLine` tail
+#                                            call (bra.w 4); minus the old `.fill_per_cell`
+#                                            jbsr (4) and `.fill_done` rts (2)
+#   (Parallax_Update 258 -> 246 and BuildStaticDMA 166 -> 142 moved for the same reasons —
+#    the reg $0B arm and the 24-byte Static_Hscroll_Cell entry build — but neither hosts a
+#    gated span, so neither is pinned here; they are recorded in the parcel's notes.)
 DEMO_SPECIALISED_PROCS = {
-    "Enqueue_Dirty_Buffers":    514,   # CAP_PER_LINE, CAP_ANCHORS  (sonic4 570)
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":      2,   # CAP_PER_LINE, CAP_DEFORM   (sonic4 686) — bare rts
-    "Parallax_StartTransition":  90,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 118)
-    "Parallax_Step4_Fill":      170,   # CAP_ANCHORS, CAP_PER_LINE  (sonic4 528)
+    "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 690) — the flat filler
+    "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
+    "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 502)
     "Parallax_Step5_Vscroll":    62,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 144)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)
