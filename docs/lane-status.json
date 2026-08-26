@@ -1,12 +1,6 @@
 {
-  "focus": "Showcase merged and verified on master locally; pairing the assembler's goldens, then both get pushed and you can play it.",
-  "inFlight": [
-    {
-      "what": "Refreezing the assembler's goldens for the showcase (first run of the new pairing check the assembler lane just shipped)",
-      "where": "sigil branch pair/showcase-effects",
-      "agent": true
-    }
-  ],
+  "focus": "The showcase is on master and pushed. Go play section 4. Next up: the ROM re-layout, first step of taking the harness off the assembler.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "d-16",
@@ -69,12 +63,12 @@
       "since": "2026-08-26"
     }
   ],
-  "nextBoundary": "When both halves are pushed. Then: you play section 4 on master; the ROM re-layout is next on the queue.",
+  "nextBoundary": "Now. Clean boundary: everything pushed, nothing running. Next: the ROM re-layout parcel when you say go.",
   "queue": [
     {
       "id": "SHOWCASE-EFFECTS",
-      "title": "Landing: curve + depth split verified drawing; guarantee lowered 194 B in debug per your answer; then paired with the assembler and pushed.",
-      "state": "doing",
+      "title": "LANDED. Curved horizon + vertical depth split in OJZ section 4, paired with the assembler (chain 167).",
+      "state": "done",
       "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -82,7 +76,7 @@
     {
       "id": "ROM-RELAYOUT",
       "title": "Put the animation-room guarantee back to 12,288 in every build by moving the animation area away from the fixed sound-bank address (your follow-up choice on d-28).",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "EFFECTS-W1"
@@ -102,7 +96,7 @@
       "blockedBy": "the sigil lane"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-08-26T19:20:18Z"
+  "awaiting": "go on the ROM re-layout (first step of SIGIL-DECOUPLE), and the hub's project id",
+  "atBoundary": true,
+  "updatedAt": "2026-08-26T20:22:01Z"
 }
