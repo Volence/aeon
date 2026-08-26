@@ -115,6 +115,13 @@ order = [
   # inert and unverifiable. The day it emits, sigil stops the build and names the
   # label to write: `[map.order-undeclared] byte-emitting section `<head>` is not in
   # the declared `order``. Add it at this position then.
+  # THAT DAY WAS 2026-08-26: Aurora's first saved scene (ojz_act1_start, bound to
+  # section 0) made the block emit, and sigil named `EditorSceneBinding_OJZ_Act1_Sec0`.
+  # The label is CONTENT-DERIVED and will change if the generated block's first emitted
+  # symbol changes (e.g. a deform table lands ahead of the binding table); the durable
+  # row is sigil's `section:ojz_effects_editor_act1` keyed by section name (derived-layout
+  # design §3.5, a follow-on parcel) — swap to it when that syntax exists.
+  "EditorSceneBinding_OJZ_Act1_Sec0",
   "OJZ_TestRaster", "ObjDef_Static",
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj", "Map_DustSpindash",
