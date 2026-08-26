@@ -9372,7 +9372,24 @@ Design note: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`. Branch 
 **Why not now:** cosmetic, rarely visible, and moving `DrawRings` into a band is a `Render_Sprites` change with the sprite-cap shortcut caveat at `sprites.emp:517-521` (the shortcut is only equivalent because DrawRings emits nothing at the cap).
 **When ready:** with the next `Render_Sprites` parcel; decide the ring band against the object bands then.
 
-### Sigil placer: the provisional-round measurement trusts unknown addresses (PROPOSAL, sigil-side)
+### Sigil placer: a measuring round can alias to zero and mis-measure a section — MECHANISM CORRECTED 2026-08-26, ACCEPTED BY SIGIL (BGROOM-3)
+
+> **The mechanism below is REFUTED; the symptom and measurement are sound.** An unresolved
+> operand is a hard error in sigil, not a width guess, so "encodes abs.w because the address is
+> unknown" cannot be the cause. Sigil reproduced our symptom exactly (7 nops in RingCollision;
+> `player_sensors` 0x4DC measured vs 0x4F4 packed; the same twelve `lea` sites) and found the
+> real cause: the collision-fallback SCRATCH SLOT wraps the 24-bit bus — `collision_data` at
+> scratch slot 41 = 0x300_0000 masks to 0x0, where `abs.w` IS legitimate, so the section was
+> measured at an address that aliases zero. Their fix (`fix/measure-at-packed-base`) makes every
+> measuring round exact at its own bases, deletes the scratch/spread fallbacks (which also
+> removes the ~0x400 growth cap: 5000 B of growth now builds with drift warnings), and adds a
+> non-convergence diagnostic naming width-flipping sites with both encodings. CONSEQUENCE FOR
+> US: our explicit `lea (X).l` / `movea.l #ptable` pins in player_sensors are a superseded
+> workaround, not a style rule — see EMP_PITFALLS §11's correction; keep them only if a cycle
+> shape wants them. What survives: when the placer names a pair nothing touched, suspect how one
+> of them was MEASURED, not the map.
+
+*Original proposal text, superseded:*
 **Surfaced during:** ring-sparkle, 2026-08-26. **Measured on bare master:** seven `nop`s added to `RingCollision` fail the build with `packed layout overlaps at its real bases — a run grew into a declared anchor ... sections section [..] and player_sensors [..] overlap` — the named pair is innocent.
 **Mechanism:** `packed_true_bases` (`sigil-harness/src/native.rs`) measures sections in a provisional round; an UNSIZED `lea ROMTable, aN` whose target's provisional address is not yet known encodes abs.w (4 B) there and abs.l (6 B) at the real base. `player_sensors`' `probe_core` has 12 such sites, so it measured 24 B short and the walk placed `section` 24 B into it; the remeasure then reports a "real" overlap and the walk gives up instead of iterating. Any upstream growth past the slack exposes it; +2/+6 B did not, +14 B did.
 **Aeon-side fix shipped:** the three `probe_core` pointers pinned (`lea (X).l`; `movea.l #{ptable}` for the template arg — `({ptable}).l` does not parse) — same 6-byte encodings, same cycles, measurement now base-invariant. Grep candidates for the same shape before the next byte-moving parcel: `grep -rn "lea     [A-Z][A-Za-z_]*, a" games engine --include=*.emp` and check each target lives above $8000.

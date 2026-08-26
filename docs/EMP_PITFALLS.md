@@ -195,7 +195,44 @@ and watch the gate fail; poison the fixture and watch the sentinel fire. A green
 never seen red is not evidence. (See also `docs/DEFERRED_WORK.md`'s vacuous-gate history —
 this tree's most expensive lesson, learned more than once.)
 
-## 11. Unsized `lea ROMTable, aN` can mis-measure a whole section in the placer
+## 11. ~~Unsized `lea ROMTable, aN` can mis-measure a whole section in the placer~~ — SYMPTOM REAL, MECHANISM REFUTED, WORKAROUND SUPERSEDED
+
+**Read the correction first; the original text below is kept only because the SYMPTOM is worth
+recognising.** This entry was written 2026-08-26 from the ring-sparkle parcel and its stated
+mechanism was WRONG. The sigil lane reproduced the symptom exactly — 7 `nop`s in
+`RingCollision` on bare master, `player_sensors` measured 0x4DC vs 0x4F4 packed, the same 24 B
+at the same twelve `lea` sites — and then refuted the explanation:
+
+- **What this entry claimed:** the provisional measuring round encodes `abs.w` because the
+  target's address "is still unknown".
+- **Why that cannot be true:** an unresolved operand is a HARD ERROR in sigil, not a width
+  guess. Those tables are `abs.l` at the provisional pin too.
+- **The actual cause:** the collision-fallback SCRATCH SLOT wraps the 24-bit bus.
+  `collision_data` landed at scratch slot 41 = `0x300_0000`; the width rule masks to 24 bits,
+  giving `0x0`, and at THAT address `abs.w` is a legitimate encoding. The section measured
+  short because it was measured at an address that aliases zero — nothing to do with the pin
+  being provisional, and nothing to do with how the `lea` is spelled.
+
+**Consequence for style:** the explicit `lea (Table).l, a1` / `movea.l #Table, a1` spelling is
+a WORKAROUND that has been superseded, not a standing rule. Sigil's fix (`fix/measure-at-packed-base`)
+makes every measuring round exact at its own bases and deletes the scratch/spread fallbacks, and
+adds a loud non-convergence diagnostic naming any width-flipping site with both encodings. Keep
+an explicit width where you want a particular cycle shape; do not add one "for the placer".
+
+**What survives, and it is the useful half:** when the placer names a pair of sections that
+nothing in your change touched, the fault is in how one of them was MEASURED, not in the map,
+and not in the innocent pair it named. That instinct is right even though this entry's account
+of the measurement was not.
+
+**Lesson about the entry itself:** a mechanism reasoned from a correct measurement and a
+plausible story still needs the other repo's owner to check it. The measurement (24 B, twelve
+sites, reproducible) was sound and is what let sigil find the real cause quickly; the causal
+story attached to it was invented here and would have propagated as a style rule for the whole
+codebase. Report the measurement to the owning lane; let them supply the mechanism.
+
+---
+
+*Original text, superseded 2026-08-26:*
 
 **Trap:** sigil's `packed_true_bases` walk measures each section once at a PROVISIONAL base
 before the real one is known. An unsized `lea Table, aN` to a ROM table whose provisional
