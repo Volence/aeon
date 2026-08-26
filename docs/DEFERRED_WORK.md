@@ -1061,10 +1061,18 @@ no `.asm` code twins remain. Per-item status is annotated on the stocktake itsel
   **What this does NOT cover.** It replays the two committed OJZ fixtures on the sonic4 DEBUG
   shape only — no demo game, no other shapes, no new coverage of code the fixtures never touch.
   `tools/test_replay_fixture.py` still does its own separate structural job and is not replaced.
-  **(b) is still open**: the manual re-stamp loop still costs ~7 full playbacks (each replays
-  from tick 0, and the post-spindash section runs well under realtime under host CPU contention).
-  The oracle-next design scopes (b) as a future `--restamp` flag on the same runner rather than a
-  second tool, so a desync that is a *legitimate* engine change still needs the manual loop today.
+  **(b) SHIPPED — `replay_runner --restamp`, used for real 2026-08-26.** The design's "future
+  `--restamp` flag on the same runner rather than a second tool" is now the shipped shape. It
+  finds EVERY stale checkpoint in **one** pass (it stubs the desync arm to the compare's own
+  match path, so a stale checkpoint stops the machine instead of trapping it and the run
+  continues), then re-runs the re-stamped image clean end-to-end **and** re-runs the negative
+  control on it, emitting nothing unless both come back as they must. Dry run by default;
+  `--out` is what writes, and it refuses to resolve inside the source repo without
+  `--allow-source-write`. The durable artifact is the fixture `.bin`, not the ROM.
+
+  So the "~7 full playbacks" cost recorded here is **superseded**: the 7-stale-checkpoint
+  re-stamp of `ojz_fixture` on 2026-08-26 took **one pass, 3.7 s**. A desync that is a
+  legitimate engine change no longer needs a manual loop.
 
 ### 6. Sound package 4 — ✅ EXECUTED 2026-08-10 (historical text below)
 **D1, D4, D5, D6, D7** and **E5's 7th RegDelta group** are open, verified against the tree, and do
@@ -9527,10 +9535,34 @@ Design note: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`. Branch 
 **Why not now:** cosmetic, rarely visible, and moving `DrawRings` into a band is a `Render_Sprites` change with the sprite-cap shortcut caveat at `sprites.emp:517-521` (the shortcut is only equivalent because DrawRings emits nothing at the cap).
 **When ready:** with the next `Render_Sprites` parcel; decide the ring band against the object bands then.
 
-### REPLAY FIXTURE `Replay_OJZ_Fixture` DESYNCS SINCE THE INSTA-SHIELD — re-stamp is an OWNER call, measured 2026-08-26
+### REPLAY FIXTURE `Replay_OJZ_Fixture` DESYNCS SINCE THE INSTA-SHIELD — ✅ CLOSED 2026-08-26: owner ruled prove-then-restamp (d-14); proven, then re-stamped
+
+> **Outcome.** The core objection below — that a re-stamp silently absorbs any OTHER divergence
+> in the same run — was **discharged by measurement before anything was re-stamped**, per the
+> owner's d-14 ruling. The proof reverted the insta-shield merge on top of *current* master (not
+> the pre-merge tree, so the eighteen commits that landed after the shield were graded too) and
+> measured a 2x2: with the shield IN, `ojz_fixture` desyncs at tick 1282 and `ojz_slide_fixture`
+> passes; with it OUT, **both** fixtures pass and the negative control fires. The insta-shield is
+> therefore the ONLY behavioural change the net sees, and the re-stamp absorbs nothing else.
+> Full method and numbers: `docs/superpowers/notes/2026-08-26-instashield-replay-proof.md`.
+>
+> **The re-stamp then landed** (`parcel/replay-restamp`), via `replay_runner --restamp` in one
+> pass rather than the ~7 manual playbacks this file used to predict. **7 of 27 checkpoints
+> moved — indices 20 through 26, ticks 1282 / 1346 / 1410 / 1474 / 1538 / 1602 / 1666.** The
+> first divergence is idx 20 at tick 1282 (`BBB93779` -> `BC3A6AE9`), i.e. **at the first
+> airborne press**, as this booking required the commit to state. Checkpoints 0 through 19 are
+> untouched, which is the corroboration that nothing before the shield's first effect moved.
+> Only 7 four-byte hash payloads changed; the recorded INPUTS are untouched, the fixture stays
+> 272 bytes and the ROM stays 715582, so `EndOfRom` did not move and no sigil repin was needed.
+> `tools/test_replay_fixture.py` stayed green — including the BUTTON_C spindash assertion that
+> is what distinguishes a re-stamp from a re-record. `test.sh` 19/19, section 8 green on both
+> fixtures plus the negative control.
+
+*Original booking text, retained for the method:*
 
 **Measured, not predicted** (the parcel predicted tick 1248; the truth is 1282). Driven on the
-merged tree's `s4.debug.bin` (crc `2bc51d79`): `run_to GameState_OJZScroll_Init`, poke
+merged tree's `s4.debug.bin` (crc `8279a3fe` — this file long recorded `2bc51d79`, which was
+already stale by the time the re-stamp ran): `run_to GameState_OJZScroll_Init`, poke
 `Input_Source = 1` and `Replay_Ptr = Replay_OJZ_Fixture + REPLAY_HEADER_LEN` (`$0A1FA4` — note
 the 2026-08-10 note's literals `$FF803A`/`$FF8040` are STALE; the symbols moved, re-derive them),
 then run. Playback is genuinely driving (stream pointer advanced `$A1FA4 -> $A2054`,
@@ -9551,6 +9583,12 @@ it remains a live net in the meantime.
 **When ruled:** re-record with `tools/replay_pack.py` from a run on the current DEBUG build, and
 state in the commit which checkpoints moved and that the first divergence is at the first
 airborne press. Do NOT re-stamp as part of an unrelated parcel.
+
+*(Ruled and executed 2026-08-26 — see the outcome block at the top of this entry. In the event
+no re-record was needed: `replay_runner --restamp` repairs the stale hash payloads in place and
+leaves the recorded inputs alone, which is strictly better than `replay_pack.py` here because it
+cannot lose the BUTTON_C spindash the oracle driver is unable to press. The "not as part of an
+unrelated parcel" rule held — it landed as its own parcel, with the proof as a separate leg.)*
 
 ### BGANIM authoring ceiling raised 9,394 -> 12,288 B — OWNER RULED 2026-08-26 (d-9), APPLIED
 
