@@ -104,4 +104,6 @@ streaming had just merged and the raster table did not exist; both premises have
 - Sound (Z80 + `engine/sound/`) is disjoint from level-streaming files — it is
   the safe second code lane once a session's build-gate logistics allow two.
 - Emulator-only verification (no real hardware); anything hardware-only needs an
-  explicit user ruling (see the TimerA-DMA item).
+  explicit user ruling. *(The TimerA-DMA item was the standing example here; it
+  closed 2026-08-09 and the fix is in the shipped Z80 driver, so it is no longer
+  an open instance of the rule.)*
