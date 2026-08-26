@@ -10265,9 +10265,38 @@ Accepted costs (stated to the owner before the yes): assembler regressions surfa
 than at the next aeon landing; one-time medium/large plumbing spend; step-2 sequencing risk above.
 Sequencing: after the showcase lands; step 2 first.
 
-### A gate that reads a listing must prove the listing belongs to the ROM under test (found 2026-08-26)
+### ✅ CLOSED 2026-08-26 — A gate that reads a listing must prove the listing belongs to the ROM under test (found 2026-08-26)
 
-Lived at the showcase freeze: sigil's `capture_goldens.sh` builds the off-canonical profiles, then
+**Closure (branch `parcel/ceiling-gate-post-build`, zero-byte; all four canonical shapes
+byte-identical, CRCs in the parcel report).** Lived TWICE at the freeze: first the pre-build
+pytest lane read config_a's listing (below); then, once sigil's freeze script began clearing
+the listings (sigil 8f01b8a0 — the MITIGATION, sigil-side), the same lane hard-failed "neither
+s4.lst nor s4.debug.lst is present" on any fresh tree's first canonical build. Both are one
+defect: pytest is not the runner that has the artifact. What was done:
+
+- **Enforcement is post-sigil only.** `build.sh` runs `tools/bganim_room.py --gate` once, after
+  the sigil build, on `${ROM_NAME}.lst` — the listing that invocation just emitted — with
+  `--rom ${ROM_NAME}.bin --built-after ${SIGIL_T0}` (both files must post-date the instant
+  build.sh started sigil; the sigil listing carries no ROM name or CRC, so temporal provenance
+  is the check it supports, and it excludes a prior build's or another profile's listing by
+  construction) and `--fixture tools/fixtures/bganim_room_excerpt.lst` (below). A missing
+  listing after the sigil step is now a named hard failure in build.sh (the old `-f` guard
+  silently skipped s4budget + seam gate + this gate together). `FAST=1` skips it like every
+  other verification lane and its banner says so.
+- **The pytest half is a unit test over a committed fixture.** `tools/fixtures/bganim_room_excerpt.lst`
+  is CUT from `s4.debug.lst` at master a52a9ded (`make_listing_excerpt.py ... --set bganim`);
+  `TestBgAnimRoomOverCommittedFixture` builds a hermetic tree and tests the derivation
+  (`0x48000 − (0x2F430 + 97,472) = 3,856; + 8,238 = 12,094 = BGANIM_SECTION_CEILING_DEBUG`),
+  the per-shape key, the unregistered shape, one-byte-over, absent-listing-names-the-runner,
+  temporal provenance, and fixture freshness. The three tree-reading tests are deleted. No skip
+  anywhere: the fresh-tree case is measured by the runner that has the artifact.
+- **The fixture has a trigger** (sigil lane's addendum): the post-sigil gate re-finds every
+  fixture row in the fresh listing under the same parser with the same lexical shape (sequence
+  and LMA substituted), so an emitter format change is a named "fixture is STALE" failure with
+  the regenerate command, not a unit test green against yesterday's format. Red-first: a
+  whitespace-collapsed Art_Sonic row fails the canonical DEBUG build at the gate.
+
+Original booking follows for the record. Lived at the showcase freeze: sigil's `capture_goldens.sh` builds the off-canonical profiles, then
 restores canonical with the PLAIN `./build.sh sonic4` first. aeon's build-fatal pytest lane
 (`tools/test_bg_emit.py::test_rom_ceiling_fits_the_room_every_present_shape_derives`) reads whatever
 `s4.debug.lst` is on disk — config_a's at that moment (Art_Sonic 0x2F440, room 12,078) — against the

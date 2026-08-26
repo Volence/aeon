@@ -52,13 +52,46 @@ WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
   design note named its retirement as aeon's ("a stale-but-green tool is the worse
   failure"). It is deleted, not disabled: no regex over sigil's source remains here.
 
+WHO RUNS THE GATE, AND ON WHICH LISTING (2026-08-26)
+---------------------------------------------------
+  The ONLY enforcement of `BGANIM_SECTION_CEILINGS` against a real listing is
+  build.sh's POST-sigil gate, on the listing the same invocation just emitted:
+
+      bganim_room.py --lst s4.debug.lst --rom s4.debug.bin --built-after <epoch> \\
+                     --fixture tools/fixtures/bganim_room_excerpt.lst --gate
+
+  It used to also run in the PRE-build pytest lane, reading whatever `s4*.lst` a
+  PRIOR build had left on disk — and that listing was twice not the subject: once it
+  was another sigil profile's (config_a, Art_Sonic 0x2F440, room 12,078, refused
+  against a 12,094 ceiling — a true statement about the wrong artifact), and once it
+  was absent on a fresh tree, so the first canonical build could not pass its own
+  pre-build lane. A listing from a prior build is never a valid subject.
+
+  PROVENANCE (`--rom`, `--built-after`): the sigil listing carries no ROM identity
+  or CRC of its own (it is label rows and a symbol table), so the check the listing
+  actually supports is TEMPORAL: both the listing and the ROM must have been written
+  at or after the moment build.sh started the sigil invocation. A stale listing, a
+  listing another profile left behind, or a listing that outlived its ROM all fail
+  this by construction — nothing else wrote either file after that instant.
+
+  FIXTURE FRESHNESS (`--fixture`): the pytest half of this tool tests the derivation
+  over a COMMITTED cut of a real listing (tools/fixtures/bganim_room_excerpt.lst).
+  A committed cut has nothing re-deriving it, so the gate re-checks every label row
+  it carries against the fresh listing: same parser, same lexical shape once the
+  two numeric fields (sequence, LMA) are substituted. If the listing emitter changes
+  shape, this is a named "fixture is stale" failure here, not a unit test that keeps
+  passing against the old format.
+
 USAGE
     python3 tools/bganim_room.py --lst s4.debug.lst            # report
     python3 tools/bganim_room.py --lst s4.debug.lst --gate     # report + fail on breach
+    ... --rom s4.debug.bin --built-after 1756236899             # + provenance
+    ... --fixture tools/fixtures/bganim_room_excerpt.lst        # + fixture freshness
 
 LOUD ON UNMEASURABLE: every input this module cannot read is a hard error naming the
 input. It never renders "could not measure" as 0, and it never returns a room figure
-it did not derive.
+it did not derive. A MISSING listing is a build bug (sigil was asked for
+`--emit-lst`), never a bootstrap condition — it exits non-zero naming the runner.
 """
 import os
 import re
@@ -96,8 +129,10 @@ def lst_labels(lst_path):
             f"no listing at {lst_path}. NOTHING WAS MEASURED: the room derivation reads "
             f"label LMAs out of the sigil `.lst`, and there is no substitute — the frozen "
             f"boundary table lists a SUBSET of labels, so a gap in it is an allotment and "
-            f"not free space (docs/OVERSEER.md). Build the shape first (`./build.sh` / "
-            f"`DEBUG=1 ./build.sh`), then re-run.")
+            f"not free space (docs/OVERSEER.md). The runner is build.sh's POST-sigil gate, "
+            f"on the listing `sigil build --emit-lst` just wrote in the same invocation — "
+            f"a missing listing there is a BUILD BUG (the emit failed or the path moved), "
+            f"not a fresh-tree condition. Do not convert this to a skip.")
     out = {}
     with open(lst_path, encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -198,17 +233,121 @@ def ceiling_for_listing(lst_path):
     return key, BGANIM_SECTION_CEILINGS[key]
 
 
-def report(lst_path, aeon=AEON, gate=False, out=sys.stdout):
+def check_provenance(lst_path, rom_path, built_after):
+    """The listing and the ROM must both post-date the sigil invocation's start.
+
+    This is the provenance check the sigil listing SUPPORTS: it carries no ROM name,
+    no CRC, no build id — only label rows and a symbol table — so identity cannot be
+    read out of it. What CAN be asserted is that nothing but the invocation that
+    started at `built_after` wrote either file after that instant. Returns the two
+    mtimes; raises Unmeasurable naming the stale file.
+    """
+    built_after = float(built_after)
+    out = {}
+    for what, path in (("listing", lst_path), ("ROM", rom_path)):
+        if not os.path.exists(path):
+            raise Unmeasurable(
+                f"provenance: the {what} {path} does not exist, so the listing cannot be "
+                f"tied to a ROM built by this invocation. The runner is build.sh's "
+                f"post-sigil gate; this is a build bug, not a bootstrap condition.")
+        mtime = os.path.getmtime(path)
+        if mtime < built_after:
+            raise Unmeasurable(
+                f"provenance: {path} (mtime {mtime:.3f}) predates this build's sigil "
+                f"invocation (started {built_after:.3f}) — it is a PRIOR build's {what}, "
+                f"possibly another profile's, and is not the subject under test. The "
+                f"gate reads only the listing the current invocation emitted.")
+        out[what] = mtime
+    return out
+
+
+#: The label row, in GROUPS, for the fixture-freshness check: everything that is not
+#: one of the two numeric fields must match the committed cut byte-for-byte.
+_LST_LABEL_SHAPE = re.compile(r"^(\(0\)\s+)(\d+)(/)([0-9A-Fa-f]+)(\s+:\s+)([A-Za-z_$][\w$.]*)(:.*)$")
+
+
+def fixture_freshness(lst_path, fixture_path):
+    """Every label row the committed fixture carries must still be emitted, under the
+    same parser, with the same lexical shape, in the FRESH listing.
+
+    For each fixture row: find the fresh row for that label; substitute the fixture's
+    two numeric fields (sequence number, LMA) into the fresh row; the result must equal
+    the fixture row exactly. Returns the list of labels checked; raises Unmeasurable
+    naming the first stale row and the regeneration command. A fixture with no label
+    rows is itself a failure (nothing would be checked).
+    """
+    if not os.path.exists(fixture_path):
+        raise Unmeasurable(f"fixture: no committed listing cut at {fixture_path}")
+    fresh = {}
+    with open(lst_path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = _LST_LABEL_SHAPE.match(line.rstrip("\n"))
+            if m:
+                fresh.setdefault(m.group(6), (line.rstrip("\n"), m))
+    checked = []
+    with open(fixture_path, encoding="utf-8") as f:
+        for raw in f:
+            row = raw.rstrip("\n")
+            if not row.startswith("(0)"):
+                continue
+            m = _LST_LABEL_SHAPE.match(row)
+            if not m:
+                raise Unmeasurable(
+                    f"fixture: {fixture_path} row {row!r} no longer parses as a label row "
+                    f"under {_LST_LABEL_SHAPE.pattern!r} — the fixture is STALE against "
+                    f"the parser. Regenerate: python3 tools/fixtures/make_listing_excerpt.py "
+                    f"{os.path.basename(lst_path)} {fixture_path} --set bganim")
+            label = m.group(6)
+            if label not in fresh:
+                raise Unmeasurable(
+                    f"fixture: {fixture_path} carries label {label!r} but the fresh "
+                    f"listing {lst_path} emits no such row — the fixture is STALE (label "
+                    f"renamed, section removed, or the row format changed so the parser "
+                    f"no longer sees it). Regenerate: python3 "
+                    f"tools/fixtures/make_listing_excerpt.py {os.path.basename(lst_path)} "
+                    f"{fixture_path} --set bganim")
+            fresh_row, fm = fresh[label]
+            rebuilt = (fm.group(1) + m.group(2) + fm.group(3) + m.group(4)
+                       + fm.group(5) + fm.group(6) + fm.group(7))
+            if rebuilt != row:
+                raise Unmeasurable(
+                    f"fixture: {fixture_path} row for {label!r} is STALE against the fresh "
+                    f"listing's shape:\n    fixture: {row!r}\n    fresh:   {fresh_row!r}\n"
+                    f"  (compared with the sequence and LMA fields substituted). The unit "
+                    f"tests exercise this fixture; regenerate it: python3 "
+                    f"tools/fixtures/make_listing_excerpt.py {os.path.basename(lst_path)} "
+                    f"{fixture_path} --set bganim")
+            checked.append(label)
+    if not checked:
+        raise Unmeasurable(f"fixture: {fixture_path} carries no label rows — nothing checked")
+    return checked
+
+
+def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
+           built_after=None, fixture_path=None):
     """Print the ROM-room derivation and this SHAPE's ruled ceiling; with `gate`, fail
     on a breach. Returns the exit code. The verdict line names which of the two binds."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from inject_editor_bg import BGANIM_SECTION_CEILING, live_section_bytes
 
     shape, ceiling = ceiling_for_listing(lst_path)
+    print(f"bganim_room [{shape}]:", file=out)
+    if built_after is not None:
+        if rom_path is None:
+            raise Unmeasurable("--built-after needs --rom: provenance ties the listing "
+                               "to the ROM the same invocation wrote")
+        times = check_provenance(lst_path, rom_path, built_after)
+        print(f"  provenance: {os.path.basename(lst_path)} and "
+              f"{os.path.basename(rom_path)} both written after this build started "
+              f"(+{times['listing'] - float(built_after):.1f} s / "
+              f"+{times['ROM'] - float(built_after):.1f} s)", file=out)
+    if fixture_path is not None:
+        labels = fixture_freshness(lst_path, fixture_path)
+        print(f"  fixture: {os.path.relpath(fixture_path, aeon)} — {len(labels)} label "
+              f"rows re-found in the fresh listing with the same shape", file=out)
     r = rom_room(lst_path, aeon)
     live = live_section_bytes(aeon)
     headroom = r["room"] + live
-    print(f"bganim_room [{shape}]:", file=out)
     print(f"  Art_Sonic 0x{r['art_sonic_lma']:X} + {r['art_blob_len']} "
           f"= 0x{r['packed_end']:X}; anchor 0x{r['anchor']:X}", file=out)
     print(f"  ROM room {r['room']} B free + {live} B the section already holds "
@@ -246,21 +385,33 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    lst, gate = None, False
-    while argv:
-        a = argv.pop(0)
-        if a == "--lst":
-            lst = argv.pop(0)
-        elif a == "--gate":
-            gate = True
-        else:
-            print(f"usage: {sys.argv[0]} --lst <rom.lst> [--gate]", file=sys.stderr)
-            return 2
-    if not lst:
-        print(f"usage: {sys.argv[0]} --lst <rom.lst> [--gate]", file=sys.stderr)
+    usage = (f"usage: {sys.argv[0]} --lst <rom.lst> [--gate] [--rom <rom.bin> "
+             f"--built-after <epoch>] [--fixture <cut.lst>]")
+    lst, gate, rom, built_after, fixture = None, False, None, None, None
+    try:
+        while argv:
+            a = argv.pop(0)
+            if a == "--lst":
+                lst = argv.pop(0)
+            elif a == "--gate":
+                gate = True
+            elif a == "--rom":
+                rom = argv.pop(0)
+            elif a == "--built-after":
+                built_after = float(argv.pop(0))
+            elif a == "--fixture":
+                fixture = argv.pop(0)
+            else:
+                raise IndexError
+    except (IndexError, ValueError):
+        print(usage, file=sys.stderr)
+        return 2
+    if not lst or (rom is None) != (built_after is None):
+        print(usage, file=sys.stderr)
         return 2
     try:
-        return report(lst, gate=gate)
+        return report(lst, gate=gate, rom_path=rom, built_after=built_after,
+                      fixture_path=fixture)
     except Unmeasurable as e:
         print(f"bganim_room: FAIL (unmeasurable) — {e}", file=sys.stderr)
         return 1

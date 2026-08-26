@@ -21,6 +21,18 @@ Regenerate (the .lst is a build artifact and is not tracked):
 Symbols are selected by NAME so the fixture keeps its meaning across rebuilds:
 the ROM landmarks the budget axis needs (EndOfRom, the object-bank cursor) and a
 spread of RAM buffers across both halves of work RAM.
+
+A second cut serves tools/bganim_room.py's unit tests (tools/test_bg_emit.py):
+
+    DEBUG=1 ./build.sh              # produces s4.debug.lst
+    python3 tools/fixtures/make_listing_excerpt.py s4.debug.lst \
+        tools/fixtures/bganim_room_excerpt.lst --set bganim
+
+That fixture is NOT a stand-in for the tree's listing at gate time: the post-sigil
+`bganim_room.py --gate` reads the listing the current invocation just emitted, and
+re-checks every fixture row against it (`--fixture`), so a listing-format change
+surfaces as a named "fixture is stale" failure instead of a unit test that keeps
+passing against yesterday's shape.
 """
 
 import re
@@ -44,15 +56,33 @@ WANT = {
     "Player_Pos_Ring", "Player_Stat_Ring", "Player_Ring_Index", "Game_RAM_End",
 }
 
+# The rows tools/bganim_room.py's ROM-room derivation reads (Art_Sonic, the last
+# packed blob) plus the neighbours that make the cut legible: the section that
+# grows into the hole (BgAnim_Banks), the first label it pushes (Map_TestObj), the
+# anchor's alignment label, and Vectors so the cut starts where the listing does.
+SETS = {
+    "budget": WANT,
+    "bganim": {"Vectors", "BgAnim_Banks", "Map_TestObj", "Art_Sonic",
+               "__align$games.sonic4.dac_banks$0"},
+}
+
 _SRC = re.compile(r'^\((\d+)\) (\d+)/([0-9A-F]+) :\s+(.+):$')
 _SYM = re.compile(r'^\s*(\*?)([\w.$]+) : ([0-9A-F]+) ([C-]) \|$')
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print(f"usage: {sys.argv[0]} <real.lst> <out.lst>")
+    argv = sys.argv[1:]
+    want = WANT
+    if len(argv) == 4 and argv[2] == "--set":
+        if argv[3] not in SETS:
+            print(f"unknown --set {argv[3]!r}; one of {sorted(SETS)}")
+            return 1
+        want = SETS[argv[3]]
+        argv = argv[:2]
+    if len(argv) != 2:
+        print(f"usage: {sys.argv[0]} <real.lst> <out.lst> [--set {'|'.join(sorted(SETS))}]")
         return 1
-    lines = open(sys.argv[1]).read().splitlines()
+    lines = open(argv[0]).read().splitlines()
     hdr = next(i for i, l in enumerate(lines) if l.strip().startswith("Symbol Table"))
 
     src = [(m.group(4), l) for l in lines[:hdr] if (m := _SRC.match(l))]
@@ -60,8 +90,8 @@ def main() -> int:
     assert [s[0] for s in src] == [s[0] for s in sym], \
         "the two halves of the real listing already disagree"
 
-    keep = [i for i, (n, _) in enumerate(src) if n in WANT]
-    missing = WANT - {src[i][0] for i in keep}
+    keep = [i for i, (n, _) in enumerate(src) if n in want]
+    missing = want - {src[i][0] for i in keep}
     if missing:
         print(f"WARNING: not in this build: {sorted(missing)}")
 
@@ -69,9 +99,9 @@ def main() -> int:
     out += ["  Symbol Table (* = unused):", "  --------------------------", ""]
     out += [sym[i][1] for i in keep]
     out += ["", f"   {len(keep)} symbols", "    0 unused symbols"]
-    with open(sys.argv[2], "w") as f:
+    with open(argv[1], "w") as f:
         f.write("\n".join(out) + "\n")
-    print(f"wrote {sys.argv[2]}: {len(keep)} symbols")
+    print(f"wrote {argv[1]}: {len(keep)} symbols")
     return 0
 
 

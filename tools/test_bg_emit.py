@@ -1,4 +1,16 @@
-"""Tests for BG layout + shared BG tile region emission (§2 A.5 T1)."""
+"""Tests for BG layout + shared BG tile region emission (§2 A.5 T1).
+
+WHAT THIS FILE DOES NOT DO (2026-08-26): read the tree's own `s4*.lst`. It runs in
+build.sh's PRE-build pytest lane, so any listing at the repo root is a PRIOR build's —
+stale, another sigil profile's, or absent on a fresh tree — and never the subject.
+Three tests that did read it were deleted after failing the sigil freeze twice with
+true statements about the wrong artifact. The BG-animation ceiling against a REAL
+listing is enforced exactly once: build.sh's post-sigil `tools/bganim_room.py --gate`
+on the listing that invocation just emitted (`--rom/--built-after` provenance,
+`--fixture` freshness). Here the derivation is tested over a committed cut of a real
+listing (tools/fixtures/bganim_room_excerpt.lst, see TestBgAnimRoomOverCommittedFixture).
+Nothing about the ceiling is a skip: a missing listing at the gate is a hard failure.
+"""
 
 import copy
 import json
@@ -857,38 +869,279 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             self.assertEqual((key, ceiling),
                              (lst, inject_editor_bg.BGANIM_SECTION_CEILINGS[lst]))
 
-    # ---- the ceilings against the live instruments ------------------------------
+    # ---- the ceilings against a real listing: NOT HERE -------------------------
+    #
+    # This class used to end with `test_rom_ceiling_fits_the_room_every_present_shape
+    # _derives`, which read whatever `s4*.lst` a PRIOR build had left at the repo
+    # root. Deleted 2026-08-26: pytest runs in build.sh's PRE-build lane, so that
+    # listing was never the subject — twice at the sigil freeze it was another
+    # profile's (config_a, Art_Sonic 0x2F440, room 12,078, refused against the
+    # 12,094 DEBUG ceiling) or absent on a fresh tree. The enforcement against a real
+    # listing lives ONLY in build.sh's post-sigil `bganim_room.py --gate`, on the
+    # listing the same invocation emitted, with provenance. The derivation is tested
+    # below over a committed cut (TestBgAnimRoomOverCommittedFixture). Nothing about
+    # the ceiling became a skip: the fresh-tree case is measured by the runner that
+    # has the artifact, and a missing listing there is a hard, named failure.
 
-    def _listings(self):
-        """The sonic4 listings present in this tree. LOUD if none are."""
-        found = [p for p in ("s4.lst", "s4.debug.lst")
-                 if os.path.exists(os.path.join(self.AEON, p))]
-        if not found:
-            self.fail(
-                "neither s4.lst nor s4.debug.lst is present, so NOTHING WAS MEASURED: "
-                "both ceilings are derived from label LMAs in the sigil listing and "
-                "there is no substitute (the frozen boundary table lists a subset of "
-                "labels, so a gap in it is an allotment, not free space). Build the "
-                "sonic4 shapes first. Do not convert this to a skip — a ceiling that "
-                "silently stops being checked is how this section outgrew its pin.")
-        return found
 
-    def test_rom_ceiling_fits_the_room_every_present_shape_derives(self):
-        """Each present shape against ITS OWN ruled ceiling (d-28-answered). Runner:
-        build.sh's pytest lane (`python3 -m pytest tools`), and bganim_room --gate
-        re-checks the shape just built after sigil. Red-first 2026-08-26: forcing the
-        debug row one byte above the measured room fails this with the text below."""
+class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
+    """tools/bganim_room.py's derivation, gate verdict, provenance and fixture-freshness
+    checks — over a COMMITTED cut of a real listing, never the tree's own `.lst`.
+
+    THE FIXTURE. tools/fixtures/bganim_room_excerpt.lst was CUT (not written) from
+    `s4.debug.lst` as built at aeon master a52a9ded (2026-08-26; a FAST=1 DEBUG=1
+    build, byte-identical to canonical: crc bcbda57e, len 715742) by
+    `tools/fixtures/make_listing_excerpt.py s4.debug.lst <out> --set bganim`. Its
+    Art_Sonic row is `(0) 2254/2F430 : Art_Sonic:`; at that SHA
+    `git cat-file -s a52a9ded:art/optimized/characters/sonic.bin` = 97,472 and the
+    shipping override held one 8x4 band (bganim_section_bytes(1, 32) = 8,238). So:
+
+        room     = 0x48000 - (0x2F430 + 97472) = 3,856
+        headroom = 3,856 + 8,238               = 12,094 = BGANIM_SECTION_CEILING_DEBUG
+
+    which is d-28-answered's derivation with zero slack — the tests below hold the
+    tool to it. The hermetic tree the tests build carries exactly the inputs the tool
+    reads (map.toml anchor, the embed line, a blob of that length, the override) so
+    no term leaks in from the live tree.
+
+    FRESHNESS. A committed cut has nothing re-deriving it. build.sh's post-sigil gate
+    passes `--fixture` so every row here is re-found in the fresh listing with the
+    same lexical shape; `fixture_freshness` is unit-tested here on itself and on a
+    mangled copy (red-first 2026-08-26: collapsing the whitespace of the Art_Sonic
+    row fails the gate naming the row and the regenerate command).
+    """
+
+    AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    FIXTURE = os.path.join(AEON, "tools", "fixtures", "bganim_room_excerpt.lst")
+    FIXTURE_ART_SONIC_BYTES = 97472        # git cat-file -s a52a9ded:art/optimized/characters/sonic.bin
+    FIXTURE_ANCHOR = 0x48000               # map.toml [[anchor]] dac_banks — a Z80 SetBank latch
+
+    def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst"):
+        """A hermetic aeon-shaped tree holding only what bganim_room reads."""
+        import shutil
+        d = tempfile.mkdtemp(prefix="bganim_room_")
+        self.addCleanup(shutil.rmtree, d)
+        os.makedirs(os.path.join(d, "games", "sonic4", "data", "collision"))
+        os.makedirs(os.path.join(d, "art"))
+        with open(os.path.join(d, "games", "sonic4", "map.toml"), "w") as f:
+            f.write('[[anchor]]\nname = "dac_banks"\nat = 0x%X\nwhen = "sound_on"\n'
+                    % self.FIXTURE_ANCHOR)
+        with open(os.path.join(d, "games", "sonic4", "data", "collision",
+                               "collision_data.emp"), "w") as f:
+            f.write('const _art_sonic      = embed("art/sonic.bin")\n'
+                    'pub data Art_Sonic     = _art_sonic\n')
+        with open(os.path.join(d, "art", "sonic.bin"), "wb") as f:
+            f.write(b"\0" * blob_len)
+        if band:
+            with open(os.path.join(d, "games", "sonic4", "data",
+                                   "editor_bg_override.json"), "w") as f:
+                json.dump({"anims": [{"cols": band[0], "rows": band[1],
+                                      "slot_base": 0}]}, f)
+        shutil.copy(self.FIXTURE, os.path.join(d, lst))
+        return d, os.path.join(d, lst)
+
+    def _report(self, tree, lst, **kw):
+        import io
         import bganim_room
-        live = inject_editor_bg.live_section_bytes(self.AEON)
-        for lst in self._listings():
-            shape, ceiling = bganim_room.ceiling_for_listing(os.path.join(self.AEON, lst))
-            r = bganim_room.rom_room(os.path.join(self.AEON, lst), self.AEON)
-            self.assertLessEqual(
-                ceiling, r["room"] + live,
-                f"{lst}: BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B does not fit — "
-                f"only {r['room'] + live} B are reachable before the 0x{r['anchor']:X} "
-                f"dac_banks anchor. See tools/bganim_room.py, decisions d-9 and "
-                f"d-28-answered.")
+        buf = io.StringIO()
+        rc = bganim_room.report(lst, tree, gate=True, out=buf, **kw)
+        return rc, buf.getvalue()
+
+    def _hand_lma(self, path=None):
+        """The Art_Sonic LMA read with NONE of the tool's parsers."""
+        with open(path or self.FIXTURE, encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("(0)") and line.rstrip().endswith(" Art_Sonic:"):
+                    return int(line.split("/")[1].split()[0], 16)
+        self.fail("the fixture carries no Art_Sonic row")
+
+    # ---- the fixture is a real cut ---------------------------------------------
+
+    def test_fixture_is_a_cut_of_a_real_listing(self):
+        """Every label row parses under the tool's row regex, the symbol-table half
+        agrees with the row half (the cutter's own invariant), and the rows tell the
+        layout story in LMA order: the section that grows, the first label it
+        pushes, the last packed blob, then the anchor's alignment label."""
+        import bganim_room
+        rows, syms = [], []
+        with open(self.FIXTURE, encoding="utf-8") as f:
+            for line in f:
+                m = bganim_room._LST_LABEL.match(line)
+                if m:
+                    rows.append((m.group(2), int(m.group(1), 16)))
+                m = re.match(r"^\s*\*?([\w.$]+) : ([0-9A-F]+) [C-] \|$", line.rstrip())
+                if m:
+                    syms.append((m.group(1), int(m.group(2), 16)))
+        self.assertEqual(rows, syms, "the two halves of the cut disagree")
+        names = [n for n, _ in rows]
+        self.assertEqual(names, ["Vectors", "BgAnim_Banks", "Map_TestObj", "Art_Sonic",
+                                 "__align$games.sonic4.dac_banks$0"])
+        lmas = [a for _, a in rows]
+        self.assertEqual(lmas, sorted(lmas))
+        self.assertEqual(self._hand_lma(), 0x2F430, "the fixture is no longer the "
+                         "a52a9ded cut this class documents — update the docstring's "
+                         "derivation with it, do not just re-cut")
+
+    # ---- the derivation ---------------------------------------------------------
+
+    def test_room_is_the_hand_computation(self):
+        import bganim_room
+        tree, lst = self._tree()
+        lma = self._hand_lma()
+        room = self.FIXTURE_ANCHOR - (lma + self.FIXTURE_ART_SONIC_BYTES)
+        self.assertEqual(room, 3856)
+        r = bganim_room.rom_room(lst, tree)
+        self.assertEqual(
+            (r["art_sonic_lma"], r["art_blob_len"], r["anchor"], r["room"]),
+            (lma, self.FIXTURE_ART_SONIC_BYTES, self.FIXTURE_ANCHOR, room),
+            f"tool says {r}, hand says 0x{self.FIXTURE_ANCHOR:X} - (0x{lma:X} + "
+            f"{self.FIXTURE_ART_SONIC_BYTES}) = {room}")
+
+    def test_debug_ceiling_is_the_fixture_room_plus_the_band_it_held(self):
+        """d-28-answered with zero slack: the DEBUG ceiling IS what the fixture's
+        shape could hold. The report prints that room, names the binding limit, and
+        carries no trace of the retired placer arm."""
+        tree, lst = self._tree()
+        live = inject_editor_bg.bganim_section_bytes(1, 32)
+        self.assertEqual(live, 8238)
+        self.assertEqual(inject_editor_bg.live_section_bytes(tree), live)
+        room = self.FIXTURE_ANCHOR - (self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES)
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"],
+                         room + live)
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertRegex(text, rf"(?m)^\s*ROM room {room} B free\b", text)
+        self.assertRegex(text, r"(?m)^\s*binding limit: the ruled ceiling \(12094 B\) — it "
+                               r"sits 0 B inside the ROM room", text)
+        self.assertNotIn("placer", text.lower(), text)
+        self.assertNotIn("BGANIM-PLACE", text)
+
+    def test_per_shape_table_gates_the_release_row_against_the_release_listing(self):
+        """The same cut renamed `s4.lst` is gated against the RELEASE row — and the
+        release ceiling is 194 B more than that shape's fixture room holds, so it
+        must fail. (The real release listing has Art_Sonic 0x800 lower; this checks
+        the KEY is the listing's basename, not that release fits.)"""
+        tree, lst = self._tree(lst="s4.lst")
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 12288 B but only 12094 B", text)
+
+    def test_one_byte_over_the_room_fails_the_gate_naming_the_shape(self):
+        """Red-first for the post-sigil gate, in miniature: the debug row one byte
+        above what the shape holds."""
+        tree, lst = self._tree()
+        table = inject_editor_bg.BGANIM_SECTION_CEILINGS
+        saved = table["s4.debug.lst"]
+        table["s4.debug.lst"] = saved + 1
+        try:
+            rc, text = self._report(tree, lst)
+        finally:
+            table["s4.debug.lst"] = saved
+        self.assertEqual(rc, 1, text)
+        self.assertIn("the ruled BG-animation ceiling no longer fits", text)
+        self.assertIn(f"BGANIM_SECTION_CEILINGS['s4.debug.lst'] = {saved + 1} B but only "
+                      f"{saved} B are reachable", text)
+        self.assertIn("dac_banks", text)
+        self.assertRegex(text, r"(?m)^\s*binding limit: the ROM room \(12094 B\)", text)
+
+    # ---- loud on every unmeasurable input ---------------------------------------
+
+    def test_absent_listing_is_loud_and_names_the_runner(self):
+        """No listing is a BUILD BUG at the post-sigil gate, never a bootstrap
+        condition, and never a skip; the message says who the runner is."""
+        import bganim_room
+        tree, _ = self._tree()
+        missing = os.path.join(tree, "s4.lst")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(missing, tree)
+        msg = str(cm.exception)
+        for needle in ("NOTHING WAS MEASURED", "build.sh", "POST-sigil", "BUILD BUG",
+                       "Do not convert this to a skip"):
+            self.assertIn(needle, msg, msg)
+        import io
+        import contextlib
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = bganim_room.main(["--lst", missing, "--gate"])
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL (unmeasurable)", err.getvalue())
+
+    def test_provenance_is_temporal_and_rejects_a_prior_builds_listing(self):
+        """The listing carries no ROM identity, so the check the tool makes is that
+        the listing AND the ROM post-date the sigil invocation."""
+        import bganim_room
+        tree, lst = self._tree()
+        rom = os.path.join(tree, "s4.debug.bin")
+        with open(rom, "wb") as f:
+            f.write(b"\0")
+        t = os.path.getmtime(lst)
+        self.assertEqual(sorted(bganim_room.check_provenance(lst, rom, t - 1)),
+                         ["ROM", "listing"])
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.check_provenance(lst, rom, t + 1)
+        self.assertIn("PRIOR build's listing", str(cm.exception))
+        os.utime(rom, (t - 10, t - 10))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.check_provenance(lst, rom, t - 1)
+        self.assertIn("PRIOR build's ROM", str(cm.exception))
+        os.remove(rom)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.check_provenance(lst, rom, t - 1)
+        self.assertIn("does not exist", str(cm.exception))
+        # The report wires it: a prior listing fails BEFORE any room is printed.
+        with open(rom, "wb") as f:
+            f.write(b"\0")
+        with self.assertRaises(bganim_room.Unmeasurable):
+            self._report(tree, lst, rom_path=rom, built_after=t + 1)
+        rc, text = self._report(tree, lst, rom_path=rom, built_after=t - 1)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("provenance: s4.debug.lst and s4.debug.bin both written after", text)
+        # --built-after without --rom is a usage error, not a pass.
+        import io
+        import contextlib
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(bganim_room.main(["--lst", lst, "--built-after", "1"]), 2)
+
+    def test_fixture_freshness_passes_on_itself_and_names_a_stale_row(self):
+        import bganim_room
+        tree, lst = self._tree()
+        labels = bganim_room.fixture_freshness(lst, self.FIXTURE)
+        self.assertIn("Art_Sonic", labels)
+        self.assertEqual(len(labels), 5)
+        rc, text = self._report(tree, lst, fixture_path=self.FIXTURE)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("5 label rows re-found", text)
+        # A mangled row: same parser fields, different lexical shape.
+        rows = open(self.FIXTURE, encoding="utf-8").read().splitlines()
+        i = next(i for i, r in enumerate(rows) if r.endswith(" Art_Sonic:"))
+        mangled = os.path.join(tree, "mangled.lst")
+        with open(mangled, "w") as f:
+            f.write("\n".join(rows[:i] + [re.sub(r"\s+", " ", rows[i])] + rows[i + 1:]) + "\n")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.fixture_freshness(lst, mangled)
+        msg = str(cm.exception)
+        self.assertIn("row for 'Art_Sonic' is STALE", msg)
+        self.assertIn("make_listing_excerpt.py", msg)
+        self.assertIn("--set bganim", msg)
+        # A label the fresh listing no longer emits.
+        renamed = os.path.join(tree, "renamed.lst")
+        with open(renamed, "w") as f:
+            f.write("\n".join(r.replace("Art_Sonic", "Art_Sonic_v2") for r in rows) + "\n")
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.fixture_freshness(lst, renamed)
+        self.assertIn("carries label 'Art_Sonic_v2' but the fresh listing", str(cm.exception))
+        # A fixture with no rows checks nothing, and says so.
+        empty = os.path.join(tree, "empty.lst")
+        open(empty, "w").close()
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.fixture_freshness(lst, empty)
+        self.assertIn("no label rows", str(cm.exception))
+        # And the substitution really is only the two numeric fields: a fresh
+        # listing whose Art_Sonic MOVED still matches the fixture.
+        moved = os.path.join(tree, "moved.lst")
+        with open(moved, "w") as f:
+            f.write("\n".join(r.replace("2254/2F430", "2300/2F440") for r in rows) + "\n")
+        self.assertEqual(len(bganim_room.fixture_freshness(moved, self.FIXTURE)), 5)
 
 
 class TestBgAnimPlacerArmRetired(unittest.TestCase):
@@ -912,35 +1165,10 @@ class TestBgAnimPlacerArmRetired(unittest.TestCase):
     AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     TOOL = os.path.join(AEON, "tools", "bganim_room.py")
 
-    def _listings(self):
-        found = [p for p in ("s4.lst", "s4.debug.lst")
-                 if os.path.exists(os.path.join(self.AEON, p))]
-        if not found:
-            self.fail("neither s4.lst nor s4.debug.lst is present, so NOTHING WAS "
-                      "MEASURED — build a sonic4 shape first; do not skip")
-        return found
-
-    def _report(self, lst):
-        import io
-        import bganim_room
-        buf = io.StringIO()
-        rc = bganim_room.report(os.path.join(self.AEON, lst), self.AEON, gate=True,
-                                out=buf)
-        return rc, buf.getvalue()
-
     # ---- (a) the arm is gone ----------------------------------------------------
-
-    def test_report_prints_no_placer_room_and_names_the_binding_limit(self):
-        for lst in self._listings():
-            rc, text = self._report(lst)
-            self.assertEqual(rc, 0, f"{lst}: the gate failed:\n{text}")
-            self.assertNotIn("placer", text.lower(),
-                             f"{lst}: the retired placer arm is still reported:\n{text}")
-            self.assertNotIn("BGANIM-PLACE", text,
-                             f"{lst}: verdict still points at the closed booking:\n{text}")
-            self.assertRegex(text, r"(?m)^\s*binding limit: .*",
-                             f"{lst}: the verdict line does not say which limit binds:"
-                             f"\n{text}")
+    # (The report's "no placer line / names the binding limit" property and the
+    # hand-computed ROM room both moved to TestBgAnimRoomOverCommittedFixture on
+    # 2026-08-26 — they read the tree's own listing here, which pytest never owns.)
 
     def test_module_carries_no_sigil_source_regex_or_placer_derivation(self):
         """Derived from the module's CODE (its AST, docstrings excluded — the header
@@ -1044,54 +1272,6 @@ class TestBgAnimPlacerArmRetired(unittest.TestCase):
                               if isinstance(n, (ast.FunctionDef, ast.ClassDef))
                               and "placer" in n.name.lower()})
             self.assertEqual((hits, names), ([], []), f"tools/{rel}: {hits} {names}")
-
-    # ---- (b) the ROM room still comes from the listing -------------------------
-
-    def test_rom_room_matches_a_hand_computation_from_the_instruments(self):
-        """HAND COMPUTATION, spelled out with none of bganim_room's parsers:
-
-            lma   = the hex field of the `.lst` row that ends `Art_Sonic:`
-            blob  = os.path.getsize of the file collision_data.emp's `_art_sonic`
-                    line embeds
-            anchor= the `at =` of map.toml's `[[anchor]]` block named dac_banks
-            room  = anchor - (lma + blob)
-
-        and the report must print exactly that `room` on its ROM-room line.
-        """
-        import bganim_room
-        emp = open(os.path.join(self.AEON, "games", "sonic4", "data", "collision",
-                                "collision_data.emp"), encoding="utf-8").read()
-        embed_line = next(l for l in emp.splitlines() if "_art_sonic" in l and "embed" in l)
-        rel = embed_line.split('"')[1]
-        blob = os.path.getsize(os.path.join(self.AEON, rel))
-        toml = open(os.path.join(self.AEON, "games", "sonic4", "map.toml"),
-                    encoding="utf-8").read().splitlines()
-        anchor = None
-        for i, line in enumerate(toml):
-            if line.strip().startswith("name") and '"dac_banks"' in line:
-                nxt = toml[i + 1].split("=")[1].split("#")[0].strip()
-                anchor = int(nxt, 0)
-        self.assertEqual(anchor, 0x48000, "the dac_banks anchor moved — it is a Z80 "
-                                          "SetBank latch and cannot")
-        for lst in self._listings():
-            lma = None
-            with open(os.path.join(self.AEON, lst), encoding="utf-8",
-                      errors="replace") as f:
-                for line in f:
-                    if line.startswith("(0)") and line.rstrip().endswith(" Art_Sonic:"):
-                        lma = int(line.split("/")[1].split()[0], 16)
-                        break
-            self.assertIsNotNone(lma, f"{lst}: no Art_Sonic row")
-            room = anchor - (lma + blob)
-            self.assertGreater(room, 0)
-            r = bganim_room.rom_room(os.path.join(self.AEON, lst), self.AEON)
-            self.assertEqual(r["room"], room,
-                             f"{lst}: tool says {r['room']}, hand says "
-                             f"0x{anchor:X} - (0x{lma:X} + {blob}) = {room}")
-            _, text = self._report(lst)
-            self.assertRegex(text, rf"(?m)^\s*ROM room {room} B free\b",
-                             f"{lst}: the report does not print the derived room:"
-                             f"\n{text}")
 
 
 if __name__ == "__main__":
