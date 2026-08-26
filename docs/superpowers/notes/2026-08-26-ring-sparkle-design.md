@@ -67,9 +67,12 @@ the wrong trade (the buffer exists precisely so 128 rings cost 6 bytes each). In
    site, after the collect bookkeeping and **before** `RingBuffer_Remove` (the entry's X/Y at
    `+0/+2` are still valid there). The hook is declared in
    `engine/system/game_contract.emp` as
-   `hook ring_collected (d0: u16, d1: u16) clobbers(d0-d2/a1) = empty` with d0/d1 = the ring's
-   engine-space centre in pixels. Unbound (= the demo game) it lowers to **zero bytes** — the
-   `boot_hook`/`debug_tick` precedent — so the demo keeps building and gains no code.
+   `hook ring_collected (a3: *u8) clobbers(d0-d2/a1) = empty` with a3 = the ring's buffer
+   entry (X.w/Y.w = its engine-space centre at +0/+2). The POINTER is handed over rather than
+   the coords loaded engine-side, so an unbound hook (= the demo game) lowers to **zero
+   bytes** — the `boot_hook`/`debug_tick` precedent — and the demo ROM stays byte-identical
+   (measured: the first cut loaded d0/d1 on the engine side and moved the demo CRC by 4
+   dead bytes; the pointer form restored `bf2cdb42` / `62a0019e` exactly).
    The clobber bound is chosen so `RingCollision`'s live registers across the collect path
    (`a3` rolling entry pointer, `d6` index, `d7` player counter, `d4/d5` player X/Y, `a2` player
    SST) all survive; it is the same bound `DustPuff_Spawn` needs.
@@ -173,16 +176,16 @@ with it; when the ring art gets a permanent home the two move together.
 
 | file | change |
 |---|---|
-| `engine/system/game_contract.emp` | `hook ring_collected (d0: u16, d1: u16) clobbers(d0-d2/a1) = empty` |
-| `engine/objects/rings.emp` | `RingCollision`: load X/Y from the entry, `invoke Game.ring_collected` before `RingBuffer_Remove` |
+| `engine/system/game_contract.emp` | `hook ring_collected (a3: *u8) clobbers(d0-d2/a1) = empty` |
+| `engine/objects/rings.emp` | `RingCollision`: `invoke Game.ring_collected` (a3 = the entry) before `RingBuffer_Remove` |
 | `games/sonic4/config/game.emp` | `hook ring_collected = RingSparkle_Spawn` |
-| `games/sonic4/objects/ring_sparkle.emp` | NEW module `games.sonic4.ring_sparkle`: `RingSparkle_Spawn`, `RingSparkle_Main` |
-| `games/sonic4/data/ring_sparkle_data.emp` | NEW module: `Map_RingSparkle` (mapping DSL), `Art_RingSparkle` (embed), palette census + size ensures |
-| `games/sonic4/data/animations/ring_sparkle_anims.emp` | NEW module: `Ani_RingSparkle` + the derived display-frame ensure |
+| `games/sonic4/objects/ring_sparkle.emp` | NEW module `games.sonic4.ring_sparkle`, SELF-CONTAINED: `RingSparkle_Spawn`, `RingSparkle_Main`, `Map_RingSparkle` (mapping DSL), `Ani_RingSparkle`, `Art_RingSparkle` (embed), the display-frame / palette-census / size ensures |
+| `games/sonic4/player/player_sensors.emp` | the three `probe_core` table pointers pinned to abs.l / immediate (byte-neutral in size; see "the placer finding" below) |
+| `games/sonic4/test/poison/poison_ring_sparkle_frames.emp`, `tools/emp_expect_fail.py` | the red-first case for the frame gate |
 | `games/sonic4/test/compose_ring.py`, `ring_sparkle_art.bin` | donor extraction (tiles 10-13) |
 | `games/sonic4/vram.toml` + generated block/doc/py | `ring_sparkle` region at 924 |
 | `games/sonic4/config/constants.emp` | `EFFECT_RING_SPARKLE_BAND` + ensures (hand block) |
-| `games/sonic4/map.toml` | three `order` rows (code with the dust objects; data with `Map_Dust*` / `Ani_Dust*`) |
+| `games/sonic4/map.toml` | one `order` row, `RingSparkle_Spawn`, after the dust objects |
 | `games/sonic4/test/ojz_scroll_test.emp` | the one-shot art DMA |
 | `docs/DEFERRED_WORK.md`, `docs/ENGINE_ARCHITECTURE.md` §4.9.4 | booking + sync |
 
@@ -192,9 +195,31 @@ every new module a sigil edit (forbidden here). Probed 2026-08-26 in this worktr
 `.emp` module reachable through a `use` from a registered module is discovered and elaborated
 by the manifest scan; the only thing that stops it is `[map.order-undeclared]`, and a row in
 `games/sonic4/map.toml`'s `order` (aeon-side) places it. Build green, the proc landed in the
-listing at its declared position, warning totals unchanged (10 / 135). So the three new modules
-above need three `order` rows and nothing in sigil. (A `[[table]]` pin row is not needed for a
-section placed by order alone — the probe had none.)
+listing at its declared position, warning totals unchanged (10 / 135). So a new module needs an
+`order` row and nothing in sigil. (A `[[table]]` pin row is not needed for a section placed by
+order alone — the probe had none.)
+
+**Why ONE module and not the dust's three (the placer finding, measured 2026-08-26).** The
+first cut mirrored the dust exactly — `ring_sparkle` (code, object bank), `ring_sparkle_data`
+and `ring_sparkle_anims` (data, beside `Map_Dust*` / `Ani_Dust*`). Every shape that made a NEW
+data section reachable failed the placer with
+`packed layout overlaps at its real bases — a run grew into a declared anchor ... sections
+section [0x6E5C,0x72E6) and player_sensors [0x6980,0x6E74) overlap`, in every row position
+tried (beside the dust data, after `HeightMaps`, art-only, map-only). The same failure came
+from **seven `nop`s added to `RingCollision` on bare master** (E24) — i.e. the tree was one
+byte-growth away from this on its own. The pair the message names is the symptom, not the
+cause: `player_sensors` measured **24 bytes shorter** in the walk's provisional round than at
+its real base, because `probe_core`'s three `lea Table, a1` (x4 instantiations = 12 sites)
+are UNSIZED and the width rule encodes them abs.w (4 B) while the tables' provisional
+addresses are unknown, abs.l (6 B) once they are — and the walk then places `section` 24 B
+into `player_sensors`. Pinning those pointers (`lea (X).l` for the two literal tables; an
+immediate `movea.l #{ptable}` for the template argument, since the template cannot spell
+`({ptable}).l`) makes the measurement base-invariant and the tree builds with the full
+module set — the fix is byte-neutral in SIZE (6 B either way) and identical in cycles. Having
+the fix, the sparkle still ships as one section: 192 B of data is not worth three modules,
+and the self-contained file is the honest unit. Booked in DEFERRED_WORK as a sigil placer
+item (a provisional-round measurement that depends on unknown addresses should not be
+trusted as the fixpoint) and in EMP_PITFALLS §11.
 
 ### 2.5 Gates
 
@@ -202,9 +227,10 @@ section placed by order alone — the probe had none.)
    and computes `frames_shown * (duration+1)`; `ensure(... == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION+1))`
    where the two S3K constants are the cited bytes (`4`, `5`). Not a literal 20 or 24. Proven
    red by a poison module in the `emp_expect_fail` lane (`games/sonic4/test/poison/poison_ring_sparkle_frames.emp`)
-   that feeds a 3-frame script to the same fn.
+   that feeds a 3-frame script to the same fn — case 36/36, fragment quotes the folded 18.
 2. **Palette census, comptime:** every nibble of `Art_RingSparkle` in `{0,5,6,C,D}` — pins the
-   "same line as the ring" claim to the bytes; size ensure `== 4 * TILE_SIZE`.
+   "same line as the ring" claim to the bytes; size ensure `== 4 * TILE_SIZE`. Inverted once
+   (`== 0` -> `!= 0`): red, message printed the folded 0 — the fn evaluates.
 3. **Art provenance, pytest (`tools/test_ring_sparkle_art.py`):** re-runs `compose_ring.py`
    against the donor into tmp and asserts both outputs are byte-identical to the committed
    blobs, plus the index census in Python. Skips loudly (by name) when the donor or `nemdec`

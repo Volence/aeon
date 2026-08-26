@@ -194,3 +194,21 @@ purpose: flip the predicate false and watch the build go red; perturb the pinned
 and watch the gate fail; poison the fixture and watch the sentinel fire. A green you have
 never seen red is not evidence. (See also `docs/DEFERRED_WORK.md`'s vacuous-gate history —
 this tree's most expensive lesson, learned more than once.)
+
+## 11. Unsized `lea ROMTable, aN` can mis-measure a whole section in the placer
+
+**Trap:** sigil's `packed_true_bases` walk measures each section once at a PROVISIONAL base
+before the real one is known. An unsized `lea Table, aN` to a ROM table whose provisional
+address is still unknown encodes **abs.w (4 B)** in that round and **abs.l (6 B)** at the
+real base. Twelve such sites in `player_sensors` (`probe_core` x4) measured the section 24 B
+short; the walk placed the next section 24 B into it, and the build died with
+`packed layout overlaps at its real bases — a run grew into a declared anchor ... sections
+section [..] and player_sensors [..] overlap` — **naming an innocent pair**, and only once
+upstream growth passed the slack (+2/+6 B built; +14 B — seven `nop`s on bare master — did
+not). Measured 2026-08-26 (ring-sparkle).
+
+**Rule:** a `lea`/`move` to a ROM label that lives above `$8000` (every data table) is spelled
+with the explicit width — `lea (Table).l, a1` — or as an immediate `movea.l #Table, a1` when
+the operand is a template argument (`({ptable}).l` does not parse). Same 6 bytes, same
+cycles, base-invariant measurement. When the placer names a pair that has not changed,
+suspect a width choice in the EARLIER section of the pair before suspecting the map.
