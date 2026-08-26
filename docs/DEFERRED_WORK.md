@@ -9686,3 +9686,67 @@ deliberately left:
   attribute it to the instrument. `parcel/boot-override-witness` replaced that premise
   tripwire with a witness of the parallax select; **the lane is 27/27, exit 0** (3 m 12.65 s
   wall). Full closure at §"Boot-position override (§4.12b)" item 1.
+
+- **`boot_override`'s two reach-guards were VACUOUS. FIXED 2026-08-26
+  (`parcel/boot-override-reached`).** `_boot_to_init` and `_init_to_update` both tested
+  `if not r.get("fired", True)` against an `emulator/run_to` reply. **`fired` is a key
+  oracle-aether has never emitted** — the verdict is `reached`
+  (`oracle/crates/oracle-aether/src/engine.rs:1895`, `"reached": run.predicate_fired`), so the
+  `True` default always applied and neither guard could fire under any circumstance. A boot
+  that never reached its target symbol sailed past, and every reading afterwards was taken
+  from wherever the machine happened to stop and reported as a confident answer.
+
+  Measured key set, straight off the bus (`run_to`, DEBUG ROM): `caveat, droppedEvents, frame,
+  maxFrames, mclk, pc, reached, running, symbol, symbolDisp, target`. The server even ships a
+  `caveat` on a miss — *"the target PC was never reached within maxFrames — the run ended on
+  its bound, so NOTHING about the machine state follows from where it stopped"* — which the
+  gate was structurally unable to see.
+
+  **Red-first, by poisoning the subject** (point a `run_to` at `$00FEED`, an odd address the PC
+  can never take, so the run genuinely ends on its 600-frame bound):
+
+  | poison | pre-fix | post-fix |
+  |---|---|---|
+  | `_init_to_update` target | **exit 0, `boot_override_gate: PASS`** — every assertion green off a machine **566 frames** past where it should have stopped (`boot -> first painted frame` printed 636 instead of 70) | exit 2, `SETUP ERROR: run_to GameState_OJZScroll_Update ($00FEED) never reached it within 600 frames; stopped at pc=0x00004296` |
+  | `_boot_to_init` target | exit 1 with **sixteen** confident FAIL lines blaming the *engine* ("the init seeded `Parallax_Current_Config` = …, wanted the DESTINATION section's …", "the override did not move the screen") — a setup failure rendered as a verdict about the ROM | exit 2, `SETUP ERROR: run_to GameState_OJZScroll_Init ($00FEED) never reached it within 600 frames; stopped at pc=0x00004E90 — wrong ROM shape?` |
+
+  The first row is the whole point: the old guard was **vacuous, not merely redundant**.
+
+  The fix routes both sites through `aether_instance.run_to_addr` — the tree's one correct
+  spelling, whose own docstring is about exactly this hazard — via a local `_run_to` wrapper
+  that (a) keeps this file's per-RPC `asyncio.wait_for` deadline, which the helper does not
+  carry, and (b) converts its `RuntimeError` into this file's `SetupError`, so an unreachable
+  target is exit 2 "the measurement could not be made", never a verdict. Confirmed loud in the
+  runner: `effects_gates.py --only boot_override` renders exit 2 as a **`FAIL` row** and exits
+  1 (`run()` is `ok = returncode == 0`). Unpoisoned, `--only boot_override` is `OK — 1 gates`
+  and the gate's stdout is **byte-identical** to the pre-fix baseline. Zero-byte: the four ROM
+  CRCs are unchanged (`s4 654bcd74`, `s4.debug f8d06cae`, `demo bf2cdb42`, `demo.debug
+  62a0019e`).
+
+  **Booked, NOT fixed (scope fence) — three riders:**
+
+  1. Both helpers end `return int(r.get("frames", 0))` and the reply key is **`frame`**, not
+     `frames` — so both always return `0`. Latent only because every call site discards the
+     value (`await _boot_to_init(...)` with no assignment, four times), and because the gate
+     deliberately clocks itself off `status.frameToken` instead (see `frame_token`'s docstring,
+     which reasons about "`run_to`'s own `frames`" — the same wrong key name, twice more in
+     comments at :279 and :966). Same species as the defect above, in the same two functions.
+  2. **A THIRD `run_to` in this file has no reach check at all** —
+     `boot_override_gate.py:642`, inside `run_pre`, discards the reply entirely. Its verdict is
+     "a pre-resume mailbox write is eaten by boot's RAM clear", so a run that stopped early
+     would read zeroed cells and *confirm* the expected answer for the wrong reason. Not fixed
+     here because the parcel named two call sites and a third needs its own red-first poison.
+  3. **Cross-server key trap, NOT a live defect:** `tools/evict_witness.py:97` tests
+     `r.get("timeout_reached")` on `emulator/wait_for_break`. That is **correct** for the
+     legacy C++ server it targets (`oracle-old/.../ControlSocket.cpp:924` emits exactly that
+     snake_case key). But oracle-aether spells the same field **`timeoutReached`**
+     (`bus-protocol.schema.json` §6; the audit's D-06 ruled camelCase the one true spelling and
+     §5's snake_case a stale survival). So the day `evict_witness` is migrated to the Rust core
+     — as `boot_override`, `snapshot_poison` and `raster_source` already have been — that guard
+     goes silently vacuous in precisely the way this entry documents. Convert the check in the
+     same commit as the migration.
+
+  General lesson for the next aether gate: **a reply-key name is an assertion about a server
+  you did not write.** `r.get(K, <default>)` with a truthy default cannot fail if `K` is
+  misspelled, and no amount of grepping your own source will show it. Print the reply's key
+  set once against the live server, or route through the shared helper that already did.
