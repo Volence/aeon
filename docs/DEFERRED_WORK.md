@@ -92,6 +92,37 @@ the cause of only ONE of the five. Two failure classes, one newly unmasked:
 
 **Remaining:** (B) and (C) stay red until the sigil lane lands them; expect 3 red on their
 bar after (A) merges (the two port gates on (C), soundbankhead on (B)).
+### PARALLAX CONFIG PRECEDENCE — section > preset > act, ONE resolver — CLOSED 2026-08-26
+
+**Found 2026-08-26 by aurora's first authored scene** (measured live: `Parallax_Current_Config`
+read `ParallaxConfig_OJZ_Underwater` after the first crossing while section 0 carried the editor
+binding `EditorSceneBinding_OJZ_Act1_Sec0`). Provenance: the two resolution sites each read a
+different PAIR of the three bindings — `engine/effects/preset.emp:299` (the crossing, via
+`Effects_InstallPreset`'s tail) resolved `ep_parallax`-else-act and never read
+`Sec.sec_parallax_config`; `games/sonic4/test/ojz_scroll_test.emp:505` (the boot select) resolved
+`sec_parallax_config`-else-act and never read the preset. So the per-section binding could only
+ever win for the first painted frame, and the preset took it back on the first crossing.
+
+**Closure:** `Effects_ResolveParallax` (`engine/effects/preset.emp`) is the one resolver —
+precedence `Sec.sec_parallax_config` > `EffectsPreset.ep_parallax` > `Act.act_parallax_config`,
+a 0 at either upper rung meaning "defer", never "keep". `Effects_InstallPreset` spills the Sec*
+to the stack at entry and tail-jumps into it (no address register survives its six callees and
+widening to a4 would propagate up `Parallax_CheckBoundary`'s declared contract); the boot select
+calls it directly. Both `map.toml`s declare the new emitter. Shipped content at closure: no
+section binds `sec_parallax_config` (ROM-read, 9/9 zero) and only `OJZ_Preset_Sec0` binds
+`ep_parallax`, so the crossing path resolves exactly as before — the boot select now seeds
+section 0's Underwater config directly instead of the act default, which removes the
+Default→Underwater lerp the sentinel-forced first crossing used to run at boot (the invariant
+`Parallax_Init`'s own comment promises: the first `Parallax_CheckBoundary` is a no-op against
+the seeded config).
+
+**Left open (controller-tagged):** (a) runtime confirmation that `Parallax_Current_Config`
+equals the editor record after a crossing once the aurora binding lands; (b)
+`tools/boot_override_gate.py`'s premise tripwire counts `sec_parallax_config` only — with the
+boot select now reading the preset rung, an override into section 0 seeds a different config
+than one into section 1 TODAY, so the gate's blind spot is observable and the tripwire does not
+fire on it. Extend the tripwire to count `ep_parallax` bindings too (or witness the select as
+the gate's own instruction says) before trusting its green for that consumer.
 
 ### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20
 

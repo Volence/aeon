@@ -484,9 +484,15 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    start_local_*.
         //
         //    UNWITNESSED TODAY, deliberately kept: every OJZ act 1 section binds
-        //    `sec_parallax_config: default`, so Section_GetSecPtrXY returns the act
-        //    default whatever index it is handed and poisoning this block changes no
-        //    pixel (measured — tools/boot_override_gate.py stays green). The gate
+        //    `sec_parallax_config: default`, so poisoning this block changed no
+        //    pixel when it was measured (tools/boot_override_gate.py stays green).
+        //    Since 2026-08-26 the select below is the shared three-way resolve, so
+        //    it ALSO reads the preset rung — and OJZ_Preset_Sec0 binds ep_parallax
+        //    (Parcel W) while the other presets defer to the act default. An
+        //    override into section 0 therefore now seeds a different config than
+        //    one into section 1, which is the observable case the gate's premise
+        //    check does not count (it counts sec_parallax_config only). Booked in
+        //    DEFERRED_WORK. The gate
         //    asserts that PREMISE instead and fails the day a section binds its own
         //    config; DEFERRED_WORK books what has to be built then. Emits nothing in
         //    the plain shape. --
@@ -504,9 +510,12 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 
         jbsr    Section_GetSecPtrXY             // a0 = start Sec ptr (Z set = none)
         beq     .init_use_act_config
-        movea.l Sec.sec_parallax_config(a0), a0 // a0 = parallax_config* (NULL = act default)
-        cmpa.w  #0, a0
-        bne     .init_have_config
+        // The SAME resolution the crossing site uses (section > preset > act), so the
+        // first painted frame and the first Parallax_CheckBoundary cannot disagree. This
+        // used to be a private sec-else-act copy that never read the preset, while the
+        // crossing read preset-else-act and never read the section — 2026-08-26.
+        jbsr    Effects_ResolveParallax         // a0 = parallax_config*
+        bra     .init_have_config
 .init_use_act_config:
         movea.l Current_Act_Ptr, a0             // (Current_Act_Ptr).w
         movea.l Act.act_parallax_config(a0), a0
