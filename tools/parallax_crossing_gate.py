@@ -78,11 +78,12 @@ OBSERVABLES, all three DERIVED from the ROM's own section grid and struct declar
 
   * `Parallax_Current_Config` / `Parallax_Target_Config` / `Parallax_Transition_Frames` —
     the pointer, read both at the crossing and after the transition window has closed.
-  * the VDP reg $0B (Mode Set 3) shadow, re-derived from the entered config's own deform
-    table fields exactly as `Parallax_StartTransition` derives it. A crossing that stored the
-    right pointer where nothing read it passes the first check and fails this one. It
-    discriminates here: the editor record attaches no deform table (%10) and both other
-    candidates attach a BG one (%11).
+  * the VDP reg $0B (Mode Set 3) shadow, re-derived exactly as `Parallax_StartTransition`
+    derives it — which since 2026-08-26 is %11 for every config (plus bit 2 for a V-column
+    table). A crossing that stored the right pointer where nothing read it still fails this
+    one (the register is written only by a consumed config), but it NO LONGER discriminates
+    between the three candidates (until the per-cell deletion the editor record derived %10
+    and the other two %11); the band-scroll tail below is what tells them apart now.
   * the band-scroll tail — at least one live entry non-zero, i.e. the band pipeline ran
     against the selected config. NOT the "entries above the count are zero" form
     `boot_override_gate` uses: that one is only sound straight out of `Parallax_Init`, which
@@ -365,12 +366,19 @@ class RomAct:
 
     def mode3(self, c: int) -> int:
         """`Parallax_StartTransition`'s own reg $0B (Mode Set 3) derivation from the config
-        it installs: bits 1:0 = %11 if either H-deform table is attached else %10, bit 2 set
-        if a V-column table is attached. (That last arm sits behind the CAP_PER_COL_VSRAM
-        span and no shipped config attaches a column table, so it is inert either way —
-        restated rather than dropped so the derivation stays the source's.)"""
-        m = 0b11 if (self.u32(c + self.o["pcfg"]["pcfg_deform_table_fg"])
-                     or self.u32(c + self.o["pcfg"]["pcfg_deform_table_bg"])) else 0b10
+        it installs: bits 1:0 = %11 ALWAYS (one HScroll mode since 2026-08-26,
+        d-29-corrected — the per-cell %10 arm keyed off the H-deform table words is
+        deleted), bit 2 set if a V-column table is attached. (That last arm sits behind the
+        CAP_PER_COL_VSRAM span and no shipped config attaches a column table, so it is inert
+        either way — restated rather than dropped so the derivation stays the source's.)
+
+        CONSEQUENCE FOR THIS GATE: reg $0B no longer discriminates between the three
+        candidate configs (they all derive %011); check 5 is now a consumed-at-all check
+        and the band-scroll tail (check 6) is what tells the candidates apart. RED-FIRST
+        the other way round: the old transcription went red on the deletion branch
+        (`reads 0b011, derives 0b010` for the editor record) — the derivation was fixed,
+        not the engine."""
+        m = 0b11
         if self.u32(c + self.o["pcfg"]["pcfg_v_deform_table_bg"]):
             m |= 0b100
         return m
@@ -569,12 +577,14 @@ def check_crossing(fails: list, who: str, sec: tuple, cross: dict, final: dict,
           f"so the sample above is not this crossing's ({sec})")
 
     # 5. THE CONFIG WAS CONSUMED, not merely stored. Reg $0B is re-derived by
-    #    Parallax_StartTransition from the config it installs; a crossing that parked the
-    #    right pointer where nothing read it passes 1-3 and fails here.
+    #    Parallax_StartTransition from the config it installs (a constant %11 for the H
+    #    bits since 2026-08-26, so this check no longer separates the candidates — 6 does);
+    #    a crossing that parked the right pointer where nothing read it passes 1-3 and
+    #    fails here.
     want_m3 = ra.mode3(want)
     _fail(fails, final["mode3"] == want_m3,
           f"{who}: the VDP reg $0B (Mode Set 3) shadow reads {final['mode3']:#05b}, but "
-          f"{sym_name(want, inv)} derives {want_m3:#05b} from its deform-table fields — "
+          f"{sym_name(want, inv)} derives {want_m3:#05b} (%11 always, plus bit 2 for a V-column table) — "
           "Parallax_StartTransition wrote the register from a different config than the one "
           "the crossing resolved")
 

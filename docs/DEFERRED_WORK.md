@@ -2049,6 +2049,10 @@ revisit condition of the 2026-08-05 owner ruling is now met.
 Safe wins are small AND mostly DON'T help diagonal: an HScroll-DMA dirty-gate is near-useless here (the deform phase animates EVERY frame → buffer always dirty); skipping parallax Step-4a when vscroll is unchanged (~2%) only helps horizontal-only. So a real reduction needs a FEEL/VISUAL tradeoff — the user's call: **(A) accept the dip** (it's gameplay-rare — sustained MAX diagonal across corners; brief diagonals recover instantly; classic Sonic also slows under extreme load); **(B) lower `CAM_MAX` on diagonal** (detect dual-axis motion, cap the combined step — camera follows slightly slower); or **(C) cut non-essential BgAnim bands / parallax deform during fast scroll** (lose some visual flourish). Do NOT raise `CAM_MAX_Y_STEP` 16→24 (diagonal already saturates). Recommendation: (A) accept for now; revisit with (B)/(C) only if aggressive diagonal traversal becomes a design requirement.
 
 ### Per-cell HScroll (~20%/frame) — NOT ACHIEVABLE (per-cell can't do pixel-precise band boundaries) — 2026-06-23
+> **2026-08-26: the per-cell path is DELETED from the engine** (owner ruling `d-29-corrected`,
+> `parcel/delete-percell-hscroll`, commit `35bc74fc`). This entry's verdict stands and is now
+> moot — there is no mode to switch to. The restore recipe, should the ~400 cycles ever be
+> wanted, is in "Per-cell HScroll fill — DELETED" near the end of this file.
 **Surfaced during:** diagonal-budget investigation (the per-line HScroll DMA is the biggest single flat cost).
 **Status: CLOSED — not achievable for OJZ's parallax.** Root-caused on hardware (VDP-register read, 2026-06-23). The chain:
 - **`$0B` is NOT the problem.** With `deformBg` dropped, the VDP register `$0B` reads `$02` (`hscroll_mode: cell`) correctly — per-cell IS active and the shadow→register propagation works fine. The original `DeformTable_Zero` comment's "intermittent `$0B` stuck at `$03`" explanation was a **MISDIAGNOSIS**; a flush-side latch-reset "fix" (`Flush_VDP_Shadow`) was tried and changed nothing (branch `fix/vdp-mode3-propagation`, deleted).
@@ -2987,6 +2991,10 @@ The `OJZScroll_Update` per-frame logic writes a section-id-keyed color into `Pal
 **When to revisit:** when integrating player physics (§3 spec). Restore `SECTION_SHIFT = $1000` at the same time so post-teleport camera lands exactly at the boundary, and the landing flag handles the rest. Until then, the `$0FFF` nudge is a clean equivalent for the camera-driven test setup.
 
 ### ~~VDP register $0B (mode_set_3) propagation bug — workaround in place (§4.6)~~ — **MISDIAGNOSIS, CLOSED (corrected 2026-08-05)**
+> **2026-08-26 postscript:** the symptom this entry records — scanlines 0-27 scroll, the rest stay
+> pinned, when a config selects per-cell — was the stride defect, not a register bug:
+> `Parallax_Fill_PerCell` wrote stride 4 where the VDP reads stride 32, so cell rows 4-27 read
+> VRAM nothing wrote. Found again through the d-29 showcase scene; the path is deleted.
 > **⚠ THERE IS NO `$0B` PROPAGATION BUG. This entry asserts a live hardware defect that the same
 > file already retracts.** The retraction is ~60 lines earlier, in the per-cell HScroll entry
 > (2026-06-23), and is unambiguous:
@@ -9869,3 +9877,105 @@ deliberately left:
   62a0019e`). Timing note for whoever budgets this lane next: the whole seven-boot gate is
   **2.29 s** wall, not minutes — headless `oracle-aether` with `--no-pace` runs ~100 frames in
   negligible time, and the lane's old "3 m 12.65 s" figure is the FULL gate set, not this one.
+
+## From the delete-percell-hscroll parcel (2026-08-26, `parcel/delete-percell-hscroll`)
+
+### Per-cell HScroll fill — DELETED 2026-08-26 (d-29-corrected), how to restore
+
+**What was deleted, and by which commit.** `35bc74fc` (engine) removed `Parallax_Fill_PerCell`,
+its call site in `Parallax_Step4_Fill`, `Static_Hscroll_Cell` (the 112-byte static DMA entry in
+`BuildStaticDMA` + `engine/ram.emp`), the per-cell arm of `Enqueue_Dirty_Buffers`, and the
+reg `$0B` HScroll-mode derivation at both sites in `engine/level/parallax.emp` (now a constant
+`%11`). `309d937a` (DSL) removed `scene_forces_per_line()`, `parallax_mode_key()`, the
+`CAP_PER_LINE` bit (retired, bit 0 is a hole), `precision: cell|line` / `Scene.sc_precision` /
+`PRECISION_*`, the CURVE⇒PER_LINE and ANCHORS⇒PER_LINE pins, `scene_is_per_line()`, the
+`band_percell` / `line_mode` walker columns and three poisons (`poison_scene_curve_percell`,
+`poison_scene_grid`, `poison_scene_twinkey_anchor`). `55ab501f` retired the tool side. The
+owner's reasons: the mode had zero users since it was written (21 of 21 shipped configs
+per-line on master `f8d06cae`, re-scanned at `32e33ff0`: same), it was broken from birth, its
+entire benefit was ~400 cycles/frame on plain scenes, and the engine's standing rule is to
+delete dormant paths rather than carry them.
+
+**Why it never worked — the correction any restore MUST carry.** In cell mode (reg `$0B`
+bits 1:0 = `%10`) the VDP reads the HScroll table entry at byte offset `(line & ~7) * 4` —
+**stride 32** in the same 896-byte table layout per-line mode uses. The deleted fill packed its
+28 entries **consecutively** (`move.l d0,(a4)+`, stride 4) and shipped **112 bytes**, so only
+cell rows 0-3 (lines 0-31) were fed; lines 32-223 read VRAM nothing wrote (measured zero, 196
+of 196 entries, on the d-29 showcase scene — the frozen foreground and "two bands moving up
+top"). A correct per-cell fill writes at longword index `c * 8` (or writes 8 identical
+longwords per cell) and ships the **full 896 bytes** — which is why `Static_Hscroll_Cell` had
+no future under either surviving option. The saving is therefore CPU only (196 fewer stores
+per frame, ~400 cycles booked in the walker model's old `line_mode` column, never measured on
+the corrected fill); the DMA cost is identical to per-line.
+
+**The single-key design the restore should use (the `fix-single-key` option d-29-corrected
+kept open).** The three deciders that used to exist (`scene_forces_per_line()` at comptime,
+`parallax_mode_key()` at runtime for the fill AND the DMA length, and the reg `$0B` derivation
+which saw only the header tables) could disagree and did — `EditorSceneBinding_OJZ_Act1_Sec0`
+(anchor, no table) had the fill per-line and the register per-cell on master. The zero-cost fix
+is ONE byte in the config header: `pcfg_v_factor_fg` in `engine/structs.emp` `parallax_config`
+is RESERVED (nothing reads it; `scene()` bounds it 0..15 purely as a reservation) — the same
+trick `pcfg_anchor_ch` used to claim a pad byte. The lowering sets it from the one comptime
+derivation (table / anchor / curve / off-grid top / `precision:`), and the fill select, the DMA
+entry select and BOTH reg `$0B` sites read that byte and nothing else. `sizeof(parallax_config)`
+stays 28, no record moves. Restore also means: re-declaring `CAP_PER_LINE` at `$0001` (the
+hole is kept for exactly this), re-bracketing the spans (`cap_per_line_fill/body/dma/mode`),
+re-adding `precision` to `scene()` and the generator, re-fitting `base`/`line_mode`/
+`band_percell` in `tools/parallax_cost_probe.py`, and restoring the three poisons.
+
+**It must ship with a during-motion render gate.** Nothing in the tree ever rendered the
+per-cell path: every gate asked the RAM buffer or the DMA length, none asked the VDP. The
+restore is not landable without a headless-emulator gate (`tools/aether_instance.py` family,
+the `showcase_diag_shift` shape on `diag/showcase-invisible`: per-scanline shift against the
+previous frame while the camera moves) proving every cell row from 4 to 27 scrolls under a
+per-cell config. A gate that reads the buffer proves the same thing that was green for four
+months while the picture was broken.
+
+**Cross-lane obligation — Aurora + empyrean.** `precision` is retired on the engine side but
+Aurora's wave-1 scene schema (`empyrean/contract/schema/aurora-effects-scene.schema.json`,
+`scene-ui.ts` offers only `cell`) still emits it. `tools/effects_gen.py` ACCEPTS and IGNORES
+the key (`SCENE_IGNORED_KEYS`) so no file is refused; `tools/EFFECTS_CONSUMER_CONTRACT.md` §2.1
+records it. **Aurora's/empyrean's:** drop the field from the schema and the editor UI, then
+move the key from the generator's ignored set to its refused set in the same commit. No
+authored scene in this tree carries the key today (`ojz_act1_start.json` does not; neither
+does the showcase branch's `ojz_act1_depth.json`), so the visible change for any author is nil.
+
+**Measured cost of the deletion (this parcel, canonical builds — full table in
+`docs/superpowers/notes/2026-08-26-delete-percell-hscroll.md`).** The demo — the game the ruling
+said to measure first — did NOT grow: its listing now carries the flat per-line filler
+(`Parallax_Fill_PerLine` 2 → 100 B, `Parallax_Step4_Fill` 170 → 188 B) but loses
+`Parallax_Fill_PerCell` (60 B), the cell DMA arm, the cell entry build (24 B) and the reg `$0B`
+arms (2 × 12 B); see the notes for the per-shape ROM deltas.
+
+### SHOWCASE-EFFECTS / d-29 — the "showcase effect does not render" investigation — ✅ CLOSED 2026-08-26 by this parcel
+
+The diagnosis booked on `diag/showcase-invisible` (not merged; its `tools/showcase_diag_*.py`
+instruments stay there) transcribed to the facts that still hold:
+
+- **The owner's three complaints against `parcel/showcase-effects` ("2 bands moving up top",
+  "the whole fg doesn't draw correctly", "I don't see the depth / split / curve") were ONE
+  engine defect, not the parcel's**: the showcase scene `EditorSceneBinding_OJZ_Act1_Sec4`
+  authors a curve and therefore no deform table and no anchor, so it was the first config in
+  the tree ever to select per-cell mode, and per-cell mode fed cell rows 0-3 only (stride 4
+  vs the VDP's stride 32). Rows 40-208 matched the previous frame exactly while the camera
+  moved 16 px/frame. One token (`bne .mode_per_line` → `jbra`) in the old mode key made the
+  frozen region scroll AND made the curve appear — the single-variable proof.
+- **VSPLIT (T11) was executing and correct** all along (VSRAM word 1 sampled down one frame:
+  0 → 20 from line 113 → 44 from line 161, the authored tops). `SceneVSplit.At(v)` is the
+  VSCROLL VALUE, not a line — sampling lines 20/44 as fire lines reports a live split as dead.
+- **CURVE (T10) was installed and not executing** because the ramp lives only in
+  `Parallax_Fill_PerLine`. Its magnitudes are right: band 3 ramps 1/4 → 3/8 over 48 lines,
+  band 4 1/2 → 1 over 64, measured 9/12/14 px at lines 168/192/208 on the forced-per-line
+  build against 8 at the layer top.
+- **The 4-frame display churn is `BgAnim`, a feature, present on master too** (7 distinct
+  pictures, `AABBBBCCCCDDDDEEEEFFFFGG`, both images); the parcel's RAM move
+  (`BAND_CURVE_BYTES` 0 → 10, `Raster_Buf_*` +84) is not implicated.
+- **The second defect — three independent mode deciders** — is gone by construction: there is
+  no decider. `tools/curve_probe.py`'s docstring, which said the desync "cannot happen", is
+  corrected in `55ab501f`.
+
+With this parcel merged, `parcel/showcase-effects` renders its curve with no further design
+work — that is what the owner chose `delete` for. **TAGGED for the controller:** the
+foreground confirmation (watch section (1,1) scroll under motion on the merged tree) is not
+this parcel's to take; the throwaway merge in the notes proves it builds and reports the
+`bganim_room` figure that decides d-28.
