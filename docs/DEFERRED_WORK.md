@@ -10264,3 +10264,16 @@ Four steps, in order:
 Accepted costs (stated to the owner before the yes): assembler regressions surface nightly rather
 than at the next aeon landing; one-time medium/large plumbing spend; step-2 sequencing risk above.
 Sequencing: after the showcase lands; step 2 first.
+
+### A gate that reads a listing must prove the listing belongs to the ROM under test (found 2026-08-26)
+
+Lived at the showcase freeze: sigil's `capture_goldens.sh` builds the off-canonical profiles, then
+restores canonical with the PLAIN `./build.sh sonic4` first. aeon's build-fatal pytest lane
+(`tools/test_bg_emit.py::test_rom_ceiling_fits_the_room_every_present_shape_derives`) reads whatever
+`s4.debug.lst` is on disk — config_a's at that moment (Art_Sonic 0x2F440, room 12,078) — against the
+d-28-answered DEBUG ceiling of exactly 12,094, and failed the freeze with a true statement about the
+wrong artifact. Latent while there was slack; a zero-slack ceiling exposed it. Sigil owns the script
+order fix. OURS: any test that opens a `.lst` it did not just produce must assert provenance (the
+listing's declared ROM identity/CRC against the ROM in the tree, or only test the shape the current
+invocation built) and be LOUD when it cannot tell — a listing from another profile is the same
+hazard as a stale ROM with a matching CRC. Size XS-S; queue behind the showcase landing.
