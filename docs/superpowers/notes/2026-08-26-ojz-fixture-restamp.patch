@@ -1,0 +1,20 @@
+# replay-restamp patch
+#
+# rom          s4.debug.bin (715582 bytes)
+# lst          s4.debug.lst
+# fixture      Replay_OJZ_Fixture (ojz_fixture) embedded at $0A1F90
+# stream       1721 ticks, 27 checkpoints, walked and reconciled against the header
+# stale        7 of 27
+#
+# Every row replaces exactly 4 bytes; nothing else changes and the total length is invariant.
+# `fix_off` is the offset in the committed fixture .bin, which is the artifact of record --
+# the ROM is a regenerated build output. `rom_off` is the same payload in this image.
+#
+#  idx   ring   tick   rom_off   fix_off   old       new
+    20   1280   1282   0A2056    0000C6    BBB93779  BC3A6AE9
+    21   1344   1346   0A205E    0000CE    10247BDE  157A30D9
+    22   1408   1410   0A2068    0000D8    1B2B5B80  2DAD7B9A
+    23   1472   1474   0A2074    0000E4    4BAA3F90  E7AA42D7
+    24   1536   1538   0A207E    0000EE    4D51E8A5  855704EA
+    25   1600   1602   0A2086    0000F6    354F5C8E  F490D9DD
+    26   1664   1666   0A2090    000100    F55B2DF0  B55CAD46
