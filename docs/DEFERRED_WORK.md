@@ -1772,6 +1772,16 @@ entry above; the two share the same coupling set.
   collision map in ROM. **This is why S3K gets uncapped falls for free and we do
   not: S3K's layout is fully RAM-resident, so its collision is camera-independent.**
 
+**Owner question 2026-08-26 (d-18): "can collision look-ahead keep up without the draw keeping
+up — camera at 15, Sonic at 16?"** Answered: that decouples Axis B (already a separate RAM ring,
+already fine at 16 = VFILL_ROWS_PER_FRAME×8) and leaves Axis A untouched — the 1 px hole is the
+probe step vs the thinnest floor, camera-independent. Camera 15 / player 16 drifts the player 1
+px/frame into the ring's ~188 px lower slack, so blackout only after a ~3,500 px fall; tolerable
+but buys nothing. Unverified middle option worth costing before any ruling: a THREE-cell probe
+(48 px reach) keeps the 16 px step safe on 16 px floors; effect on steep-slope landing snap
+not checked. Fourth option: an authoring rule of no single-tile-thick floors (OJZ1 has 224
+such columns today).
+
 **Why a taller collision band is NOT the answer** (asked + answered 2026-08-03):
 the band buys a fixed reach, but under gravity the player↔window gap grows
 quadratically, so safe fall distance grows only as ~√(band size):
