@@ -979,8 +979,8 @@ pub struct Scene {
     sc_layers:             [SceneLayer; 8],  // padded to 8; sc_count says how many are real
     sc_count:              u8,
     sc_v_factor:           u8,               // whole-plane Plane-B vshift (pcfg_v_factor_bg)
-    sc_v_center:           u16,
-    sc_v_offset:           u16,
+    sc_v_center:           u16,             // WORLD Y, 0 .. $7FFF (scene() bounds it; the camera never leaves that span)
+    sc_v_offset:           i16,             // SIGNED scroll word, -32768 .. 32767 — scene_hdr() two's-complement encodes it into the u16 pcfg_v_offset
     sc_v_factor_fg:        u8,               // RESERVED in the v1 runtime; authored for identity
     sc_deform_fg:          SceneDeform,
     sc_deform_bg:          SceneDeform,
@@ -1136,6 +1136,33 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     // would pin the v1 runtime's silence as if it were the field's meaning, and would
     // have to be found and widened by whoever lifts the reservation, which is the
     // staling-constant trap sc_pad_5D already sprang once in this file.
+    // ---- THE TWO FIELDS BESIDE v_factor (VOFFSET parcel), and the two bounds are NOT the
+    // same kind of number, which is why the field types differ.
+    //
+    // v_offset IS SIGNED. Its only consumers are `add.w pcfg_v_offset(a0), d0` on the unlocked
+    // arm and `move.w pcfg_v_offset(a0), d2` on `.v_locked`, both landing in
+    // Parallax_Current_Vscroll_BG, which the transition lerp then treats with sub.w/asr.w —
+    // signed-word arithmetic end to end, producing a scroll word the VDP reads modulo the
+    // plane span. A negative offset is therefore a meaningful authoring value that the 16-bit
+    // add wraps exactly as the hardware does (Aurora's `v_offset: -8` is the booking's own
+    // example), and the bound is the signed word. It was a `u16` here and in the config, so
+    // -8 was refused by the EMITTER — `[emit.out-of-range] -8 does not fit u16`, pointing at
+    // generated code — for a value that was never wrong. sc_v_offset is now an i16 and
+    // scene_hdr() encodes it into the u16 config word; this guard is what makes that encode
+    // total.
+    ensure(v_offset >= -32768 && v_offset <= 32767,
+           "scene(): v_offset {v_offset} outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field to the shifted camera term with a 16-bit `add.w` (and the `.v_locked` arm copies it straight into Vscroll_BG), so it is a SIGNED scroll word: a negative offset is legal and wraps exactly as the hardware does, but a value past either end of the word cannot be carried by the field at all. Author the offset as a signed pixel count")
+    // v_center IS A WORLD Y, and world Y is the space layer() already bounds world_y to, by
+    // the same derivation: the camera is clamped to max(0, min(y, extent - screen)) with every
+    // act descriptor asserting extent <= $8000, so no camera position is ever negative or past
+    // $7FFF. Step 5 subtracts this field from the camera Y with a signed-word `sub.w`, and
+    // scene_plane_line() compares layer tops against it in the same space (`wy >= vc`), so a
+    // value in $8000..$FFFF would fit the u16 and READ as a negative Y the camera can never sit
+    // at, and a negative one cannot be stored at all. Deliberately NOT tightened to this game's
+    // act span (SCENE_ACT_SPAN_Y): a v_center beyond the act but under $7FFF is legal-but-odd
+    // and is the registry's question, exactly as it is for world_y.
+    ensure(v_center >= 0 && v_center <= 32767,
+           "scene(): v_center {v_center} outside 0 .. 32767 — this is a WORLD Y (the camera Y the mapping ((camY - v_center) >> v_factor) + v_offset is centred on), and the camera is clamped to [0, act extent] with every act extent asserted <= $8000, so no camera position is ever negative or past $7FFF; Parallax_Step5_Vscroll subtracts it with a signed-word `sub.w`, so a value at or past $8000 would silently read as a NEGATIVE Y. Same span layer() gives world_y; a v_center beyond THIS act's span is legal and is the registry's question")
     ensure(v_factor_fg >= 0 && v_factor_fg <= 15,
            "scene(): v_factor_fg {v_factor_fg} outside 0 .. 15 — this is v_factor's FG twin and takes v_factor's span. The v1 runtime does not READ it (pcfg_v_factor_fg is RESERVED; Step 5 always sets the FG vscroll to camY), so a wider value cannot bend a picture today — it would sit in the emitted record as a number with no meaning, waiting for the parcel that lifts the reservation to read it as a shift. Author 0 unless you are reproducing a byte")
     // THE SELECTORS ARE RANGE-CHECKED AS ARGUMENTS, not just pinned as constants. Both
@@ -2535,13 +2562,21 @@ pub comptime fn scene_hdr(s: Scene) -> parallax_config {
     // else the attachment's own shift, else hdr()'s default 4 via the accessor.
     let vds_raw = s.sc_v_deform_shift_raw
     let vds = if vds_raw >= 0 { vds_raw } else { scene_vdeform_shift(s.sc_v_deform) }
+    // pcfg_v_offset is the u16 IMAGE of a signed word (see Scene.sc_v_offset and scene()'s
+    // v_offset guard): the runtime consumes it with add.w / move.w, so two's complement is
+    // the encoding, and scene() has already bounded the value to the word, which makes this
+    // single add total. A statement `if`, not an if-expression (docs/EMP_PITFALLS.md §1).
+    comptime var vo_word = s.sc_v_offset
+    if vo_word < 0 {
+        vo_word = vo_word + $10000
+    }
     return parallax_config{
         pcfg_band_count:        n,
         pcfg_v_factor_bg:       s.sc_v_factor,
         pcfg_v_factor_fg:       s.sc_v_factor_fg,
         pcfg_layer_mask:        mask,
         pcfg_v_center_y:        s.sc_v_center,
-        pcfg_v_offset:          s.sc_v_offset,
+        pcfg_v_offset:          vo_word,
         pcfg_transition:        s.sc_transition,
         pcfg_deform_speed_fg:   scene_deform_speed(s.sc_deform_fg),
         pcfg_deform_speed_bg:   scene_deform_speed(s.sc_deform_bg),

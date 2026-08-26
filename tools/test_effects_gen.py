@@ -983,3 +983,68 @@ class TestGeneratedModuleShape(AssignmentBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSignedVerticalScalarsAreForwardedVerbatim(SceneShapeBase):
+    """The VOFFSET half of the VFACTOR defect: `v_center` / `v_offset` had no range owner.
+
+    THE GENERATOR DOES NOT RANGE-CHECK THESE, ON PURPOSE, and this class is the executable
+    record of that decision — the same charter line `TestIntegerSlotsAreShapeChecked` draws
+    for `v_factor`. The bounds live on `scene()` (engine/level/scene_dsl.emp): `v_offset` is
+    a SIGNED scroll word (-32768 .. 32767; Parallax_Step5_Vscroll consumes it with a 16-bit
+    `add.w`, and `.v_locked` copies it straight into Vscroll_BG) and `v_center` is a WORLD Y
+    (0 .. $7FFF, the same span `layer()` bounds `world_y` to). A copy of either number here
+    would be the second source that drifts.
+
+    What the generator DOES own is the sign trap: `scene()` takes a signed `int` for both,
+    so the only correct emission of a negative offset is the negative literal itself. The
+    old failure was `v_offset: -8` reaching a `u16` field and dying at
+    `[emit.out-of-range]` in generated code; the fix moved the field to `i16` and the
+    two's-complement encode into `scene_hdr()`, so `-8` must reach the `.emp` as `-8` —
+    not as 65528, not refused, not clamped. These tests pin that.
+    """
+
+    def render(self, **over):
+        path = self.write("ojz_bg", _scene(**over))
+        return effects_gen.render_scene(path, effects_gen.load_scene(path),
+                                        effects_gen.TableRegistry())
+
+    def test_the_bookings_own_value_negative_v_offset_renders_as_a_negative_literal(self):
+        """`v_offset: -8` is the value the DEFERRED_WORK booking quotes dying at emit."""
+        self.assertIn("v_offset: -8", self.render(v_offset=-8))
+
+    def test_v_offset_word_ends_render_verbatim(self):
+        """-32768 and 32767 are the ends of the signed word `add.w` carries — derived from
+        the consumer, and exactly what scene() admits. Both must reach the .emp untouched."""
+        for v in (-32768, 32767):
+            with self.subTest(v_offset=v):
+                self.assertIn(f"v_offset: {v}", self.render(v_offset=v))
+
+    def test_v_offset_PAST_the_word_still_renders_because_the_range_is_the_constructors(self):
+        """The charter control: -32769 and 32768 are INTEGERS, so they pass SHAPE here and
+        are refused by scene()'s ensure (measured in the expect-fail lane by
+        games/sonic4/test/poison/poison_scene_vbounds_range.emp). If this goes red, a
+        range check has leaked into the generator — two sources for one rule."""
+        for v in (-32769, 32768):
+            with self.subTest(v_offset=v):
+                self.assertIn(f"v_offset: {v}", self.render(v_offset=v))
+
+    def test_v_center_world_span_ends_and_the_values_past_them_all_render(self):
+        """0 and $7FFF are the ends of the world-Y span (camera clamp floor 0, act extent
+        asserted <= $8000); -1 and $8000 are one past each. All four are integers, all four
+        render; the last two are refused by scene(), not here."""
+        for v in (0, 0x7FFF, -1, 0x8000):
+            with self.subTest(v_center=v):
+                self.assertIn(f"v_center: {v}", self.render(v_center=v))
+
+    def test_the_shipped_editor_scene_values_render(self):
+        """games/sonic4/data/editor/effects/ojz_act1_start.json authors v_center 0 /
+        v_offset 0 on a locked plane, and ojz_scenes.emp's unlocked pair authors
+        v_center 512 / v_offset 0. Both spellings must keep rendering unchanged — this is
+        the zero-byte contract of the VOFFSET parcel made executable."""
+        out = self.render(v_factor=15, v_center=0, v_offset=0)
+        self.assertIn("v_center: 0", out)
+        self.assertIn("v_offset: 0", out)
+        out = self.render(v_factor=3, v_center=512, v_offset=0)
+        self.assertIn("v_center: 512", out)
+        self.assertIn("v_offset: 0", out)

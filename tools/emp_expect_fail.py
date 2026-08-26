@@ -285,6 +285,19 @@ CASES: list[tuple[str, str, str, int]] = [
     # builds CLEAN (rc 0, zero [Error]) — the silence the parcel exists to end.
     (f"{POISON}/poison_scene_vfactor_range.emp",  "VFACTOR v_factor",     "v_factor 255 outside 0 .. 15 — Parallax_Step5_Vscroll reads this byte as", 2),
     (f"{POISON}/poison_scene_vfactor_range.emp",  "VFACTOR v_factor_fg",  "v_factor_fg 255 outside 0 .. 15 — this is v_factor's FG twin", 2),
+    # VOFFSET — the two fields BESIDE v_factor, which the VFACTOR parcel left open. Four rows
+    # against one module, one per poisoned fixture (one past each end of each span), count 4
+    # = the four poisons fire and the five controls (both ends of each span, plus the
+    # booking's own `v_offset: -8`, which must be LEGAL and lower to $FFF8) stay green. The
+    # bounds are derived in the poison's header: v_offset is the SIGNED word `add.w`
+    # carries, v_center is the world-Y span the camera clamp + act-extent ensure give
+    # layer()'s world_y. Measured red-first at this parcel: with the two guards stashed
+    # out, this module builds with ZERO [Error] (the i16/u16 fields take the values
+    # without complaint) — the silence the parcel exists to end.
+    (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_offset low",  "v_offset -32769 outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field", 4),
+    (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_offset high", "v_offset 32768 outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field", 4),
+    (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_center low",  "v_center -1 outside 0 .. 32767 — this is a WORLD Y", 4),
+    (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_center high", "v_center 32768 outside 0 .. 32767 — this is a WORLD Y", 4),
 ]
 
 

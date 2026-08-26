@@ -148,7 +148,12 @@ TABLE_GENERATORS = {
 TABLE_BIN_ROOT = ("games", "sonic4", "data", "editor", "effects")
 TABLE_BIN_BYTES = 256
 
-# Scene-level scalars, emitted in the constructor's own argument order.
+# Scene-level scalars, emitted in the constructor's own argument order. Forwarded
+# VERBATIM including sign: `scene()` takes a signed int for each, `v_offset` is a
+# SIGNED scroll word (-32768 .. 32767, stored as i16 and two's-complement encoded
+# into the u16 config word by scene_hdr()) and `v_center` is a world Y (0 .. $7FFF).
+# Both ranges are `scene()`'s ensures, not this tool's — see _render_int. The only
+# thing this tool owes them is to emit a negative as a negative literal.
 SCENE_SCALARS = ("v_factor", "v_center", "v_offset", "v_factor_fg")
 LAYER_SCALARS = ("dsa", "dsb", "phase", "enabled")
 
