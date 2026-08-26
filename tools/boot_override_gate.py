@@ -25,6 +25,43 @@ at the same (X,Y), settle the same budget, and the visible plane-A window must b
 IDENTICAL. If the boot override streams somewhere else, or streams the right place
 badly, it cannot match a warp that streamed it well.
 
+...EXCEPT FOR THE SECOND CONSUMER, WHERE THE WARP IS NOT A REFERENCE AT ALL. The override
+feeds two consumers: the placement hook (camera + leader), which the plane/scanline
+comparison above witnesses hard, and the init's PARALLAX CONFIG SELECT, which must read the
+section containing the destination rather than `Act.start_sec_x/y`. The warp cannot arbitrate
+that one, for a reason that is about mechanism and not resolution: the warp sets
+`Parallax_Snap_Pending`, so it SNAPS to the destination section's config, and a boot whose
+select picked the WRONG config is corrected a few frames later by the first
+`Parallax_CheckBoundary` (which re-selects from the camera — already the destination).
+Settle either route long enough and both land on the same config, so "the init picked the
+right config" and "the crossing corrected it" render identically. That is the whole content
+of the author's original instruction to compare "against a walked arrival, not against a warp
+that snaps".
+
+This gate takes the other option that instruction allowed — a DIRECT READBACK of the
+installed config, sampled at the init's EXIT (`GameState_OJZScroll_Update`'s first
+instruction), before a single Update tick can launder the answer. Three observables, all
+derived from the ROM's own section grid, never pinned:
+
+  * `Parallax_Current_Config` must equal `Effects_ResolveParallax`'s answer for the
+    DESTINATION's section (Sec.sec_parallax_config > EffectsPreset.ep_parallax >
+    Act.act_parallax_config), and the control's must equal the AUTHORED section's. The gate
+    refuses to run (setup error) if those two resolve the same, because then the witness
+    could not fail.
+  * `Parallax_Target_Config` = 0 and `Parallax_Transition_Frames` = 0 — the init SEEDED the
+    config, it did not stage a transition toward it.
+  * IN ADDITION, and stronger in kind because a pointer in a cell proves only storage: the
+    VDP reg $0B (Mode Set 3) shadow and the band-scroll tail, both of which `Parallax_Update`
+    writes FROM the active config. Reg $0B is re-derived from the config's own deform-table
+    fields; the tail from its `pcfg_band_count` against the span `Parallax_Init` zeroed. A
+    select that stored the right pointer where nothing read it passes the first check and
+    fails these.
+
+(Until 2026-08-26 this half was UNWITNESSED and the gate said so with a premise tripwire —
+every act 1 section deferred to the act default, so the select was unobservable. Aurora's
+first authored scene made it observable and the tripwire fired as designed; this is its
+replacement.)
+
 THE VISIBLE WINDOW, NOT THE WHOLE PLANE, and for warp_mailbox_gate's reason: the
 nametable is a 512x512 px ring behind a 320x224 view, so three quarters of it holds
 whatever was last written there and is legitimately path-dependent. 41x29 cells covers
@@ -51,7 +88,9 @@ THE RUNS (each a fresh oracle-aether process, each from reset):
 EXPECTATIONS ARE DERIVED, NEVER COPIED. The authored start comes out of the ROM's own
 act descriptor; the clamp edges out of `grid_w/grid_h` and the two constants
 Player_BoundsInit uses; the tile-cache window out of Tile_Cache_Init's arithmetic
-against engine/system/constants.emp. Nothing here is a number lifted from a pin.
+against engine/system/constants.emp; the two parallax configs out of the section grid
+through a restatement of Effects_ResolveParallax. Nothing here is a number lifted from
+a pin.
 
 Exit 0 pass · 1 fail · 2 setup error (the measurement could not be made).
 """
@@ -105,12 +144,25 @@ SST_X_POS, SST_Y_POS = 0x02, 0x06
 # engine/level/section.emp because the generated grid data assumes it).
 SEC_SIZE = 66
 SEC_PARALLAX_CONFIG = 0x14
+SEC_EFFECTS = 0x34
 ACT_SEC_GRID_PTR = 0x00
 
 # Act descriptor field offsets (engine/structs.emp `struct Act`).
 ACT_GRID_W, ACT_GRID_H = 0x04, 0x06
 ACT_START_LX, ACT_START_LY = 0x08, 0x0A
 ACT_START_SX, ACT_START_SY = 0x0C, 0x0D
+ACT_PARALLAX_CONFIG = 0x16
+
+# EffectsPreset (engine/effects/preset.emp) — the middle rung of the resolution below.
+EP_PARALLAX = 0x04
+
+# parallax_config (engine/structs.emp `struct parallax_config`) — only the fields the two
+# derivations below read. PCFG_V_DEFORM_TABLE_BG shares its offset with SEC_PARALLAX_CONFIG
+# by coincidence; they are different structs.
+PCFG_BAND_COUNT = 0x00
+PCFG_DEFORM_TABLE_FG = 0x0C
+PCFG_DEFORM_TABLE_BG = 0x10
+PCFG_V_DEFORM_TABLE_BG = 0x14
 
 
 class SetupError(Exception):
@@ -229,6 +281,40 @@ async def read_state(b, sym) -> dict:
     return st
 
 
+async def read_words(b, addr: int, n: int) -> list[int]:
+    """`n` big-endian words from `addr`, sliced from ONE read.
+
+    `.removeprefix("0x")` before slicing is not decoration: the Rust core prefixes every
+    hex byte string and a positional slice two characters off returns plausible garbage
+    with nothing raised (tools/aether_instance.py `unprefix`)."""
+    r = await _c(b, "emulator/read_memory", {"addr": hex(addr), "len": n * 2})
+    raw = r["bytes"].upper().removeprefix("0X")
+    if len(raw) != n * 4:
+        raise SetupError(f"read_memory returned {len(raw)//2} bytes, wanted {n * 2}")
+    return [int(raw[i:i + 4], 16) for i in range(0, len(raw), 4)]
+
+
+async def read_parallax(b, sym, bands: int, mode3_off: int) -> dict:
+    """The parallax select's observable state, read where it is still the INIT's answer.
+
+    Every field here is captured at `GameState_OJZScroll_Update`'s first instruction, i.e.
+    after the init ran to completion and before a single Update tick. That timing is the
+    whole point: `Parallax_Init` seeds Prev_Sec_X/Y to $FF, so the first
+    `Parallax_CheckBoundary` of the update loop re-selects from the CAMERA — which under an
+    override is already the destination. A poisoned select is therefore corrected a few
+    frames later (as a staged smooth transition, `Parallax_StartTransition`), and any sample
+    taken after the update loop starts cannot tell "the init chose right" from "the crossing
+    fixed it". That is the same reason the warp is not a valid reference here."""
+    return {
+        "config": await read_long(b, sym, "Parallax_Current_Config"),
+        "target": await read_long(b, sym, "Parallax_Target_Config"),
+        "trans_frames": await read_at(b, sym["Parallax_Transition_Frames"], 1),
+        "mode3": await read_at(b, sym["VDP_Shadow_Table"] + mode3_off, 1),
+        "scroll_a": await read_words(b, sym["Parallax_Current_Scroll_A"], bands),
+        "scroll_b": await read_words(b, sym["Parallax_Current_Scroll_B"], bands),
+    }
+
+
 async def snapshot(b, sym, plane_base: int) -> dict:
     st = await read_state(b, sym)
     r = await _c(b, "emulator/scanlines",
@@ -297,6 +383,105 @@ def camera_expect(px: int, py: int, act: dict, k: dict) -> tuple[int, int]:
             min(max(py - k["HALF_H"], 0), act["cam_y_max"]))
 
 
+# ---- the parallax select, derived --------------------------------------------
+#
+# THE OVERRIDE'S SECOND CONSUMER. Everything above witnesses the placement hook. The init
+# ALSO picks the parallax config for the first painted frame, and under an override that
+# select must read the section containing the DESTINATION rather than the authored
+# `Act.start_sec_x/y`. What follows restates the engine's own two derivations against the
+# ROM image, in the gate's house style — nothing here is a pointer copied from a pin.
+
+
+class RomAct:
+    """The act's section grid, read out of the ROM image. One object so the three ROM
+    walks below (grid lookup, resolution, config fields) cannot disagree on the base."""
+
+    def __init__(self, rom_img: bytes, act_base: int, grid_w: int, grid_h: int):
+        self.rom, self.grid_w, self.grid_h = rom_img, grid_w, grid_h
+        self.act_base = act_base
+        self.grid = self.u32(act_base + ACT_SEC_GRID_PTR)
+        self.act_default = self.u32(act_base + ACT_PARALLAX_CONFIG)
+
+    def u32(self, off: int) -> int:
+        if off + 4 > len(self.rom):
+            raise SetupError(f"ROM read at {off:#x} is past the end of the image")
+        return int.from_bytes(self.rom[off:off + 4], "big")
+
+    def u8(self, off: int) -> int:
+        if off >= len(self.rom):
+            raise SetupError(f"ROM read at {off:#x} is past the end of the image")
+        return self.rom[off]
+
+    def sec_ptr(self, gx: int, gy: int) -> int | None:
+        """Section_GetSecPtrXY: flat = sec_y * grid_w + sec_x, stride sizeof(Sec).
+        None is that routine's "Z set = no such section", which both callers answer
+        with the act default."""
+        if not (0 <= gx < self.grid_w and 0 <= gy < self.grid_h):
+            return None
+        return self.grid + (gy * self.grid_w + gx) * SEC_SIZE
+
+    def resolve_parallax(self, gx: int, gy: int) -> tuple[int, str]:
+        """`Effects_ResolveParallax` (engine/effects/preset.emp) restated. THE one
+        three-way resolution both the boot select and the crossing site call, precedence
+        Sec.sec_parallax_config > EffectsPreset.ep_parallax > Act.act_parallax_config,
+        a 0 at either upper rung meaning "defer" and never "keep". Returns the pointer
+        and which rung produced it, so a failure message can say WHY."""
+        sec = self.sec_ptr(gx, gy)
+        if sec is None:
+            return self.act_default, "act default (no section at that grid coord)"
+        p = self.u32(sec + SEC_PARALLAX_CONFIG)
+        if p:
+            return p, "Sec.sec_parallax_config"
+        preset = self.u32(sec + SEC_EFFECTS)
+        if preset:
+            p = self.u32(preset + EP_PARALLAX)
+            if p:
+                return p, "EffectsPreset.ep_parallax"
+        return self.act_default, "Act.act_parallax_config"
+
+    def band_count(self, cfg: int) -> int:
+        return self.u8(cfg + PCFG_BAND_COUNT)
+
+    def mode3(self, cfg: int) -> int:
+        """`Parallax_Update`'s own reg $0B (Mode Set 3) derivation from the ACTIVE config:
+        bits 1:0 = %11 if either H-deform table is attached else %10, bit 2 = per-column
+        VScroll if a V-deform table is attached. Restated here because this byte is the
+        cheapest observable that proves the config was CONSUMED by the per-frame build
+        rather than merely parked in Parallax_Current_Config."""
+        m = 0b11 if (self.u32(cfg + PCFG_DEFORM_TABLE_FG)
+                     or self.u32(cfg + PCFG_DEFORM_TABLE_BG)) else 0b10
+        if self.u32(cfg + PCFG_V_DEFORM_TABLE_BG):
+            m |= 0b100
+        return m
+
+
+def sym_name(addr: int, inv: dict) -> str:
+    """`0x12c38 (ParallaxConfig_OJZ_Default)` — a failure message that names both configs
+    is the difference between a red gate and a red gate someone can act on."""
+    if addr == 0:
+        return "NULL"
+    names = inv.get(addr)
+    return f"{addr:#x} ({'/'.join(sorted(names))})" if names else f"{addr:#x} (unnamed)"
+
+
+def check_bands(p: dict, cfg_bands: int, who: str, axis: str) -> list[str]:
+    """The band-scroll tail, derived from the config's own `pcfg_band_count`.
+
+    `Parallax_Init` zeroes the whole Parallax_State span (PARALLAX_STATE_LONGS) before
+    seeding the config, and `Parallax_Update`'s band loop then writes exactly
+    `pcfg_band_count` entries. So entries at and above that count must still read 0, and
+    at least one below it must not (a config that produced nothing was not consumed)."""
+    words = p[f"scroll_{axis}"]
+    bad = [f"{who}: Parallax_Current_Scroll_{axis.upper()}[{i}] = {words[i]:#06x}, but the "
+           f"selected config drives only {cfg_bands} bands and Parallax_Init zeroed the rest"
+           for i in range(cfg_bands, len(words)) if words[i]]
+    if not any(words[:cfg_bands]):
+        bad.append(f"{who}: all {cfg_bands} live entries of Parallax_Current_Scroll_"
+                   f"{axis.upper()} are 0 — the band pipeline never ran against the "
+                   "selected config")
+    return bad
+
+
 # ---- the runs ---------------------------------------------------------------
 
 async def _boot_to_init(b, sym, lst: str) -> int:
@@ -339,12 +524,15 @@ async def run_control(rom, sym, lst, k, plane_base: int) -> dict:
         b = s.client
         await _boot_to_init(b, sym, lst)
         await _init_to_update(b, sym)
+        # The parallax select AT the init's exit — see read_parallax for why this sample
+        # cannot be taken any later.
+        parallax = await read_parallax(b, sym, k["BANDS"], k["MODE3_OFF"])
         # Past the init to the first FULLY PAINTED frame — see PAINT_LAG.
         await _c(b, "emulator/run_frames", {"frames": PAINT_LAG})
         t_playable = await frame_token(b)
         first = await snapshot(b, sym, plane_base)
         await _c(b, "emulator/run_frames", {"frames": SETTLE})
-        return {"t_playable": t_playable,
+        return {"t_playable": t_playable, "parallax": parallax,
                 "first": first, "final": await snapshot(b, sym, plane_base),
                 "boot_flag": await read_at(b, sym["Boot_At_Flag"], 1)}
 
@@ -359,6 +547,7 @@ async def run_override(rom, sym, lst, k, plane_base: int, x: int, y: int) -> dic
         # The state AT the init's exit — before a single Update tick has run. This is
         # where "the init aimed ITSELF at the override" is either true or not.
         at_exit = await read_state(b, sym)
+        parallax = await read_parallax(b, sym, k["BANDS"], k["MODE3_OFF"])
         await _c(b, "emulator/run_frames", {"frames": PAINT_LAG})
         t_playable = await frame_token(b)
         first = await snapshot(b, sym, plane_base)
@@ -374,8 +563,8 @@ async def run_override(rom, sym, lst, k, plane_base: int, x: int, y: int) -> dic
         t0 = await read_long(b, sym, "Logic_Tick")
         await _c(b, "emulator/run_frames", {"frames": 2})
         t1 = await read_long(b, sym, "Logic_Tick")
-        return {"t_playable": t_playable, "at_exit": at_exit, "first": first,
-                "final": final, "published": published, "flags": flags,
+        return {"t_playable": t_playable, "at_exit": at_exit, "parallax": parallax,
+                "first": first, "final": final, "published": published, "flags": flags,
                 "ticks": (t0, t1)}
 
 
@@ -458,12 +647,20 @@ async def main_async(args) -> int:
         "SCREEN_W": emp_const("engine/system/constants.emp", "SCREEN_WIDTH"),
         "SCREEN_H": emp_const("engine/system/constants.emp", "SCREEN_HEIGHT"),
         "PBOUND": emp_const("games/sonic4/player/player_common.emp", "PBOUND_RIGHT_MARGIN"),
+        "BANDS": emp_const("engine/system/constants.emp", "MAX_PARALLAX_BANDS"),
+        "MODE3_OFF": emp_const("engine/vdp.emp", "VDP_MODE3_OFF"),
     }
     plane_base = emp_const("engine/system/constants.emp", "VRAM_PLANE_A")
     sym = parse_lst(args.lst)
+    inv: dict[int, list[str]] = {}
+    for nm, addr in sym.items():
+        inv.setdefault(addr, []).append(nm)
     for need in ("Boot_At_X", "Boot_At_Y", "Boot_At_Flag", "Warp_Req_X", "Warp_Req_Y",
                  "Warp_Req_Flag", "GameState_OJZScroll_Init", "GameState_OJZScroll_Update",
                  "Camera_X", "Camera_Y", "Logic_Tick", "Player_1",
+                 "Parallax_Current_Config", "Parallax_Target_Config",
+                 "Parallax_Transition_Frames", "Parallax_Current_Scroll_A",
+                 "Parallax_Current_Scroll_B", "VDP_Shadow_Table",
                  "OJZ_Act1_Descriptor", *STATE_WORDS):
         if need not in sym:
             raise SetupError(f"symbol {need} is not in {args.lst} — wrong ROM shape? "
@@ -507,27 +704,51 @@ async def main_async(args) -> int:
         raise SetupError(f"destination {dest} clamps to {dest_clamped} in this act — "
                          "pick one inside the bounds for the main runs")
 
-    # THE GATE'S OWN BLIND SPOT, MADE A TRIPWIRE. The override has a SECOND consumer —
-    # the init's parallax config select, which must read the destination's section rather
-    # than the authored one. In OJZ act 1 that is currently unobservable: every section
-    # binds `sec_parallax_config: default` (NULL = inherit the act default), so the select
-    # returns the same pointer whatever section index it is handed, and poisoning that half
-    # of the hook leaves every measurement below unchanged (verified: poison p2 passes).
-    # Rather than let a green gate imply coverage it does not have, assert the PREMISE: the
-    # day any section binds its own config, this fails and names the work.
-    grid = int.from_bytes(rom_img[d + ACT_SEC_GRID_PTR:d + ACT_SEC_GRID_PTR + 4], "big")
-    bound = 0
-    for i in range(act["grid_w"] * act["grid_h"]):
-        off = grid + i * SEC_SIZE + SEC_PARALLAX_CONFIG
-        if off + 4 <= len(rom_img) and int.from_bytes(rom_img[off:off + 4], "big"):
-            bound += 1
-    if bound:
+    # WAS: a PREMISE TRIPWIRE. Until 2026-08-26 these lines asserted that no OJZ act 1
+    # section bound its own `sec_parallax_config` and raised a setup error the day one did,
+    # because while every section deferred to the act default the init's parallax select —
+    # the override's SECOND consumer — returned the same pointer whatever section index it
+    # was handed, so poisoning it changed nothing this gate measured (poison p2 passed) and
+    # a green run would have implied coverage it did not have. That premise is now false
+    # (aurora's first authored scene binds section 0) and the tripwire is REPLACED, not
+    # relaxed: the block below WITNESSES the select directly instead of asserting the
+    # condition under which it was unwitnessable. Parcel `parcel/boot-override-witness`,
+    # 2026-08-26; the DEFERRED_WORK riders it closes are §"Boot-position override (§4.12b)"
+    # item 1 and the precedence parcel's left-open item (b).
+    #
+    # The reference is a DIRECT READBACK of the installed config, not a rendered comparison,
+    # and the author's own note says why a warp cannot serve: the warp sets
+    # Parallax_Snap_Pending and therefore SNAPS, so it cannot distinguish "the init picked
+    # the right config" from "the first Parallax_CheckBoundary corrected it". Reading
+    # `Parallax_Current_Config` at the init's exit — before the update loop has ticked once —
+    # removes that ambiguity at the source instead of arguing about pixels downstream of it.
+    ra = RomAct(rom_img, d, act["grid_w"], act["grid_h"])
+    dest_gxy = (dest_clamped[0] >> k["SHIFT"], dest_clamped[1] >> k["SHIFT"])
+    auth_gxy = (act["start_sx"], act["start_sy"])
+    dest_cfg, dest_rung = ra.resolve_parallax(*dest_gxy)
+    auth_cfg, auth_rung = ra.resolve_parallax(*auth_gxy)
+    if not dest_cfg:
+        raise SetupError("the destination section resolves to a NULL parallax config — "
+                         "the act binds no default, so there is nothing to witness")
+    if dest_cfg == auth_cfg:
         raise SetupError(
-            f"{bound} of {act['grid_w'] * act['grid_h']} sections now bind their own "
-            "sec_parallax_config. The boot override's parallax select becomes observable "
-            "at that point and this gate does not yet witness it — extend it (compare the "
-            "override's rendered scanlines against a walked arrival, not against a warp "
-            "that snaps) before trusting a green run.")
+            f"the authored start section {auth_gxy} and the destination section {dest_gxy} "
+            f"both resolve to {sym_name(dest_cfg, inv)}, so a select that read the authored "
+            "section instead of the destination would be INDISTINGUISHABLE from a correct "
+            "one and the witness below cannot fail. Pick a destination whose section "
+            "resolves differently (Sec.sec_parallax_config > EffectsPreset.ep_parallax > "
+            "Act.act_parallax_config), or say in DEFERRED_WORK that this act can no longer "
+            "witness the select.")
+    dest_bands, auth_bands = ra.band_count(dest_cfg), ra.band_count(auth_cfg)
+    dest_mode3, auth_mode3 = ra.mode3(dest_cfg), ra.mode3(auth_cfg)
+    # The SECOND observable is not always discriminating — two different configs can drive
+    # the same band count and the same reg $0B. Say so rather than let a reader assume it
+    # is carrying weight it is not.
+    second_discriminates = (dest_bands != auth_bands) or (dest_mode3 != auth_mode3)
+    # Informational, kept from the tripwire it replaced: how much of the grid binds its own
+    # config today. No longer a verdict.
+    sec_bound = sum(1 for i in range(act["grid_w"] * act["grid_h"])
+                    if ra.u32(ra.grid + i * SEC_SIZE + SEC_PARALLAX_CONFIG))
 
     ctl = await run_control(args.rom, sym, args.lst, k, plane_base)
     ovr = await run_override(args.rom, sym, args.lst, k, plane_base, *dest)
@@ -591,6 +812,53 @@ async def main_async(args) -> int:
     _fail(fails, ovr["first"]["colours"] > 1,
           f"override: first frame shows {ovr['first']['colours']} colour(s) — a flat "
           "screen is not level content")
+
+    # 2c. THE PARALLAX SELECT — the override's SECOND consumer, witnessed.
+    #     Sampled at the init's EXIT, where the value is still the init's own answer: the
+    #     first Parallax_CheckBoundary of the update loop re-selects from the camera (which
+    #     under an override is already the destination) and would launder a wrong choice
+    #     into a right one over a staged transition. Expectations come from the ROM's own
+    #     section grid through Effects_ResolveParallax's three rungs — never a pin.
+    op, cp = ovr["parallax"], ctl["parallax"]
+    _fail(fails, cp["config"] == auth_cfg,
+          f"control: the init seeded Parallax_Current_Config = {sym_name(cp['config'], inv)}, "
+          f"wanted the authored start section {auth_gxy}'s {sym_name(auth_cfg, inv)} "
+          f"[{auth_rung}]")
+    _fail(fails, op["config"] == dest_cfg,
+          f"override: the init seeded Parallax_Current_Config = {sym_name(op['config'], inv)}, "
+          f"wanted the DESTINATION section {dest_gxy}'s {sym_name(dest_cfg, inv)} "
+          f"[{dest_rung}]. The authored start section {auth_gxy} resolves to "
+          f"{sym_name(auth_cfg, inv)} [{auth_rung}] — a select that read the authored "
+          f"section instead of the destination lands exactly there. Act default is "
+          f"{sym_name(ra.act_default, inv)}")
+    # The init must have picked it OUTRIGHT. A staged transition at the init's exit means
+    # something downstream is correcting the select rather than the init making it, which
+    # is the precise confusion that made the warp useless as a reference here.
+    for who, p in (("control", cp), ("override", op)):
+        _fail(fails, p["target"] == 0 and p["trans_frames"] == 0,
+              f"{who}: at the init's exit Parallax_Target_Config = "
+              f"{sym_name(p['target'], inv)} with {p['trans_frames']} transition frames "
+              "left — the config was STAGED, not seeded, so the first painted frame is "
+              "lerping toward it rather than starting on it")
+    # 2d. AND THE CONFIG WAS CONSUMED, not merely stored. `Parallax_Current_Config` is a
+    #     cell; reg $0B and the band-scroll tail are what the per-frame build actually did
+    #     with it. A select that wrote the right pointer into a cell nothing read would
+    #     pass 2c and fail here — which is why this is IN ADDITION rather than instead.
+    _fail(fails, op["mode3"] == dest_mode3,
+          f"override: VDP reg $0B (Mode Set 3) shadow reads {op['mode3']:#04b}, but the "
+          f"destination's {sym_name(dest_cfg, inv)} derives {dest_mode3:#04b} "
+          f"(the authored section's {sym_name(auth_cfg, inv)} derives {auth_mode3:#04b}) — "
+          "Parallax_Update built the frame from a different config than the one selected")
+    _fail(fails, cp["mode3"] == auth_mode3,
+          f"control: VDP reg $0B (Mode Set 3) shadow reads {cp['mode3']:#04b}, wanted the "
+          f"authored section's {auth_mode3:#04b} from {sym_name(auth_cfg, inv)}")
+    band_bad = []
+    for who, p, n in (("control", cp, auth_bands), ("override", op, dest_bands)):
+        for axis in ("a", "b"):
+            band_bad += check_bands(p, n, who, axis)
+    _fail(fails, not band_bad,
+          "the band-scroll tail disagrees with the selected config's pcfg_band_count: "
+          + "; ".join(band_bad))
 
     # 3. NO DRAW-THEN-JUMP. The first displayed frame's visible plane must already equal
     #    the settled one: the init's synchronous fill did the whole job, nothing crawls in.
@@ -693,7 +961,22 @@ async def main_async(args) -> int:
             "saving_frames": saving,
             "saving_seconds_ntsc": round(saving / 60.0, 3),
         },
-        "parallax_sections_binding_own_config": bound,
+        "parallax_sections_binding_own_config": sec_bound,
+        "parallax_select": {
+            "authored_section": list(auth_gxy),
+            "authored_config": sym_name(auth_cfg, inv), "authored_rung": auth_rung,
+            "authored_seeded": sym_name(cp["config"], inv),
+            "destination_section": list(dest_gxy),
+            "destination_config": sym_name(dest_cfg, inv), "destination_rung": dest_rung,
+            "destination_seeded": sym_name(op["config"], inv),
+            "act_default": sym_name(ra.act_default, inv),
+            "band_counts": {"authored": auth_bands, "destination": dest_bands},
+            "mode_set_3": {"authored": auth_mode3, "destination": dest_mode3,
+                           "control_read": cp["mode3"], "override_read": op["mode3"]},
+            "second_observable_discriminates": second_discriminates,
+            "control_scroll_b": [f"{w:#06x}" for w in cp["scroll_b"]],
+            "override_scroll_b": [f"{w:#06x}" for w in op["scroll_b"]],
+        },
         "planes": {
             "visible_words": len(visible_words(ovr["final"])),
             "authored_vs_destination_content_delta": content_delta,
@@ -724,6 +1007,19 @@ async def main_async(args) -> int:
               f"control-first vs override-first {d_ctl_ovr}")
         print(f"  rendered scanlines differing from the warp reference: {px_diff} of "
               f"{len(ovr['final']['rows'])}")
+        print(f"  parallax select at the init's exit — authored section {auth_gxy} -> "
+              f"{sym_name(auth_cfg, inv)} [{auth_rung}], seeded "
+              f"{sym_name(cp['config'], inv)}")
+        print(f"                                        destination section {dest_gxy} -> "
+              f"{sym_name(dest_cfg, inv)} [{dest_rung}], seeded "
+              f"{sym_name(op['config'], inv)}")
+        print(f"    reg $0B {cp['mode3']:#04b}/{op['mode3']:#04b} (derived "
+              f"{auth_mode3:#04b}/{dest_mode3:#04b}); bands {auth_bands}/{dest_bands}; "
+              f"{sec_bound} of {act['grid_w'] * act['grid_h']} sections bind their own config")
+        if not second_discriminates:
+            print("    NOTE: the two configs drive the same band count AND the same reg $0B, "
+                  "so the consumption checks are not discriminating here — the config "
+                  "POINTER is carrying the witness alone.")
         print(f"  published — override {ovr['published']}, clamp {clm['published']}, "
               f"poison {psn['published']}")
     if fails:
