@@ -1,0 +1,30 @@
+// games/sonic4/test/poison/poison_ring_sparkle_frames.emp — POISON (see README).
+//
+// TARGETS: the ring sparkle's S3K-derived display-frame gate — script_display_frames()
+// in games/sonic4/objects/ring_sparkle.emp, the fn the shipped ensure folds
+// RING_SPARKLE_SCRIPT through.
+// EXPECTED FRAGMENT: "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames"
+//
+// The shipped guard compares the SCRIPT'S OWN fold to S3K's 4 x (5+1) = 24. This poison
+// feeds the same fn a script with one frame dropped (3 frames at the same hold) and
+// demands the same equality: the fn must report 18, and 18 != 24 must fire. The
+// fragment quotes the interpolated 18 so the case can only pass when the fn actually
+// counted the frame bytes (a fn that returned a constant 24, or counted the terminator
+// as a frame, would print a different number and the case would not match).
+//
+// AF_SET_FIELD and AF_DELETE are imported HERE as well as in ring_sparkle: a comptime
+// helper's free names resolve at the CALL SITE (docs/EMP_PITFALLS.md §2), so the poison
+// must carry the vocabulary the fn body spells.
+//
+// Zero bytes, ensures-only — unreachable from any real entry; evaluated only by
+// tools/emp_expect_fail.py via `sigil build --extra-entry`.
+module games.sonic4.test.poison.poison_ring_sparkle_frames
+
+use engine.constants.{AF_DELETE, AF_SET_FIELD}
+use games.sonic4.ring_sparkle.{script_display_frames, S3K_SPARKLE_FRAMES, S3K_SPARKLE_DURATION}
+
+// One frame short: the hold is S3K's, the frame list is not.
+const POISON_SCRIPT: [u8; 6] = [S3K_SPARKLE_DURATION, 0, 1, 2, AF_DELETE, AF_DELETE]
+
+ensure(script_display_frames(POISON_SCRIPT) == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1),
+       "RING_SPARKLE_POISON: a 3-frame script shows {script_display_frames(POISON_SCRIPT)} display frames, not the reference {S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1)}")

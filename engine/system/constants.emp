@@ -621,8 +621,9 @@ pub const PARALLAX_LERP_SHIFT   = 4
 // Act art-pool VRAM ceiling + per-act section grid cap.
 // -----------------------------------------------
 // 896 = 14 pages of 64, NOT 960 (15): the top page was surrendered to the dust
-// windows (VRAM_DUST_PUFF at 896, VRAM_DUST_SPINDASH at 912, 36 tiles spare at
-// 924-959 — see docs/generated/vram-map-sonic4.md, emitted from
+// windows (VRAM_DUST_PUFF at 896, VRAM_DUST_SPINDASH at 912, the ring sparkle's
+// VRAM_RING_SPARKLE at 924, 32 tiles spare at 928-959 — see
+// docs/generated/vram-map-sonic4.md, emitted from
 // games/sonic4/vram.toml, whose generated block cross-checks THIS value by
 // name). Affordable because the pool is over-provisioned: OJZ act 1 needs 10
 // pages (612 tiles) of the remaining 14, so it stays fully resident. Safe

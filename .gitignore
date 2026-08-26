@@ -27,6 +27,9 @@ engine/sound/generated/
 
 # Allow test art data
 !test/*.bin
+# The ring art blobs (compose_ring.py outputs; ring_art.bin was force-added before this rule)
+!games/sonic4/test/ring_art.bin
+!games/sonic4/test/ring_sparkle_art.bin
 
 # Allow sprite art and DPLC data
 !art/uncompressed/**/*.bin

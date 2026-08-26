@@ -199,19 +199,19 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 beq     .cl_air
                 moveq   #0, d3
                 move.b  d2, d3                 // attr index
-                lea     SolidityTable, a1      // (SolidityTable).l — ROM table, abs.l by the width rule
+                lea     (SolidityTable).l, a1  // ROM table above $8000 — abs.l PINNED (see the placer note above)
                 move.b  (a1, d3.w), d0
                 // gate is "class == SOLID_ALL || (class & mask)"; ALL = TOP|LRB,
                 // so a single AND covers both cases for any nonzero mask
                 and.b   d6, d0
                 beq     .cl_air                // wrong class for this sensor → air
-                lea     AngleTable, a1         // (AngleTable).l — ROM table, abs.l by the width rule
+                lea     (AngleTable).l, a1     // ROM table above $8000 — abs.l PINNED
                 move.b  (a1, d3.w), d1         // raw angle (odd flag passes through)
                 lsl.w   #4, d3                 // attr × 16
                 move.w  {pcolreg}, d0
                 andi.w  #$F, d0                // height-column index
                 add.w   d0, d3
-                lea     {ptable}, a1           // (HeightMaps/HeightMapsRot).l
+                movea.l #{ptable}, a1          // HeightMaps/HeightMapsRot — immediate: 6 B like abs.l, relaxation-invariant
                 move.b  (a1, d3.w), d0
                 ext.w   d0
                 {probe_neg(pnegate)}

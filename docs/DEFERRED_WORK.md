@@ -3075,6 +3075,7 @@ retest needs an act larger than 3×3 — re-run when one exists.
 **Surfaced during:** §4.9 design session 2026-04-29.
 **What:** When the player takes damage, scatter N rings as temporary SST objects (not buffer entries). Each has physics (gravity, bounce), a lifetime timer, and can be re-collected. Uses AllocEffect slots (lightweight). These are separate from level-placed buffer rings — buffer rings are static positions with bitmask state, loss rings are short-lived physics objects.
 **When ready:** After player damage/hurt system exists (§3 player physics) and ring collection works.
+**Re-checked 2026-08-26 (ring-sparkle parcel):** still ABSENT — `grep scatter/lost_ring/LostRing` over `engine`/`games` is empty. Ring collection now works and the collect sparkle shipped (see the 2026-08-26 stratum at the end of this file), so the only remaining blocker is the damage system. The S3K reference is `Obj_LostRings`; the sparkle parcel's effect-pool shape (`RingSparkle_Spawn`) is the template for the scattered ring objects.
 
 ### Ring Attraction (Magnet Shield)
 **Blocked by:** §4.9 ring system + shield system
@@ -9309,3 +9310,24 @@ check here and every check a build lane can add. Do not read a green build as a 
 
 Aurora reruns this exact pipeline once the placement block clears, so **tell them directly**
 rather than leaving it to the board — and tell them the block, not just the ceiling.
+
+
+## From the ring-sparkle parcel (2026-08-26)
+
+Design note: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`. Branch `parcel/ring-sparkle`.
+
+### ~~Ring collect sparkle~~ — SHIPPED 2026-08-26
+**What:** collected rings vanished in the overlap frame (rings are buffer entries, not objects). Now `RingCollision` invokes `Game.ring_collected` (a3 = the entry) before `RingBuffer_Remove`; sonic4 binds `RingSparkle_Spawn`, a fire-and-forget effect on the ring's spot: S3K's `Ani_RingSparkle` transcribed (duration byte 5, four flip-variant frames on ONE 2x2 piece, 4 x (5+1) = 24 display frames), band = player + 1 (S3K's $100 -> $80), resident 4-tile art from the sonic_hack `Ring.bin` donor (tiles 10-13, identity palette, CRAM line 1) at `VRAM_RING_SPARKLE` = 924. Pool exhaustion skips the sparkle, never the collect. Comptime gates: display frames derived from the script bytes, palette census, size; `poison_ring_sparkle_frames` proves the frame gate red. The demo binds nothing and is byte-identical.
+**Still open (emulator, controller-owned):** (1) a frame-by-frame capture of one collect — position, band, the 24-frame life, the 4 orientations; (2) the replay fixtures: `Replay_Hash` folds Effect free-stack OCCUPANCY (`engine/system/replay.emp:274`) and `Replay_OJZ_Slide_Fixture` collects rings, so checkpoints landing within 24 ticks of a collect now differ by design — re-verify or re-stamp both fixtures.
+
+### Ring draw order vs. other objects (report from the S3K comparison)
+**What:** `DrawRings` runs after the band loop (`engine/objects/sprites.emp:449`), so rings are appended LAST to the SAT — behind every object sprite in every band. S3K draws rings at priority $100 (the player's bucket; the player wins by slot order) which is IN FRONT of the $180+ objects (most badniks, monitors). Relative to the player Aeon matches S3K; relative to other objects it does not (a badnik overlapping a ring hides it here, shows it there).
+**Why not now:** cosmetic, rarely visible, and moving `DrawRings` into a band is a `Render_Sprites` change with the sprite-cap shortcut caveat at `sprites.emp:517-521` (the shortcut is only equivalent because DrawRings emits nothing at the cap).
+**When ready:** with the next `Render_Sprites` parcel; decide the ring band against the object bands then.
+
+### Sigil placer: the provisional-round measurement trusts unknown addresses (PROPOSAL, sigil-side)
+**Surfaced during:** ring-sparkle, 2026-08-26. **Measured on bare master:** seven `nop`s added to `RingCollision` fail the build with `packed layout overlaps at its real bases — a run grew into a declared anchor ... sections section [..] and player_sensors [..] overlap` — the named pair is innocent.
+**Mechanism:** `packed_true_bases` (`sigil-harness/src/native.rs`) measures sections in a provisional round; an UNSIZED `lea ROMTable, aN` whose target's provisional address is not yet known encodes abs.w (4 B) there and abs.l (6 B) at the real base. `player_sensors`' `probe_core` has 12 such sites, so it measured 24 B short and the walk placed `section` 24 B into it; the remeasure then reports a "real" overlap and the walk gives up instead of iterating. Any upstream growth past the slack exposes it; +2/+6 B did not, +14 B did.
+**Aeon-side fix shipped:** the three `probe_core` pointers pinned (`lea (X).l`; `movea.l #{ptable}` for the template arg — `({ptable}).l` does not parse) — same 6-byte encodings, same cycles, measurement now base-invariant. Grep candidates for the same shape before the next byte-moving parcel: `grep -rn "lea     [A-Z][A-Za-z_]*, a" games engine --include=*.emp` and check each target lives above $8000.
+**Proposal for sigil:** (a) treat a provisional-round measurement that resolved any absolute-width choice against an UNKNOWN address as distorted (feed the next round, never the fixpoint) — the spread fallback already exists for the length case; (b) name the section whose length changed between rounds in the diagnostic instead of the first overlapping pair. Not a repin matter: no frozen row moved.
+**Also measured, same parcel:** a NEW `.emp` module is discovered without a `native.rs` registry row — it needs only a `map.toml` `order` row (`[map.order-undeclared]` otherwise). Worth a line in ENGINE_ARCHITECTURE's engine/game contract section when it is next touched.

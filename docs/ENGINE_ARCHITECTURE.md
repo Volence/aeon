@@ -2736,7 +2736,7 @@ Ring_Buffer entry (6 bytes):
 - `RingBuffer_Add`: append to end of buffer, increment Ring_Count. Carry set if full.
 - `RingBuffer_Remove`: swap target entry with last entry, decrement Ring_Count. O(1).
 - `DrawRings`: single-pass iteration over Ring_Count entries, 6-byte stride.
-- `RingCollision`: backward iteration (safe with swap-with-last removal). On collect, calls `Collected_MarkRing` then `RingBuffer_Remove`.
+- `RingCollision`: backward iteration (safe with swap-with-last removal). On collect, calls `Collected_MarkRing`, clears the loaded bit, bumps `Ring_Counter`, plays the SFX, then `invoke Game.ring_collected` (a3 = the entry, still valid; `engine/system/game_contract.emp`) and finally `RingBuffer_Remove`. The hook is the game's collect VISUAL: rings are buffer entries, so a collected ring cannot animate itself — sonic4 binds `RingSparkle_Spawn` (`games/sonic4/objects/ring_sparkle.emp`), a fire-and-forget effect-pool object on the ring's spot playing S3K's 4-frame sparkle (4 x (5+1) = 24 display frames, band = player + 1, resident 4-tile art at `VRAM_RING_SPARKLE`); an unbound hook (the demo) emits zero bytes. Pool exhaustion skips the sparkle, never the collect. Design: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`.
 
 **Diagnostics:** `Ring_HighWater` records the max Ring_Count ever observed (capacity headroom check per level); `Ring_Add_Dropped` counts `RingBuffer_Add` failures and is **DEBUG-fatal** — a dropped ring means the 128-entry buffer is undersized for the level's band density, which must be caught in testing, not shipped. Both reset with `RingBuffer_Clear` at level init.
 

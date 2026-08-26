@@ -8,6 +8,16 @@ S3K spin (Ani_Ring frames 0,1,2,3):
   F3 narrower'  = tiles 4-7 H-FLIPPED (2x2)
 Output: 16 tiles = 4 frames x 4 tiles, VDP 2x2 column-major order (TL,BL,TR,BR),
 so aeon's DrawRings can pick a frame with base_tile + frame*4.
+
+Collect SPARKLE (S3K Ani_RingSparkle frames 4,5,6,7 / S2 Rings.bin frames 4-7):
+  ONE 2x2 piece on donor tiles 10-13, shown in four flip orientations
+  (none / both / H / V — the mapping's job, not the art's). Optional third
+  argument: the 4-tile sparkle blob, donor tiles 10..13 verbatim, same
+  column-major order and the same line-1 indices {5,6,C,D}. Consumed by
+  games/sonic4/data/ring_sparkle_data.emp; drawn by objects/ring_sparkle.emp.
+
+Usage: compose_ring.py <donor_decompressed.bin> <ring_art.bin> [<ring_sparkle_art.bin>]
+(donor = `sonic_hack/tools/nemdec -d sonic_hack/art/nemesis/Ring.bin <tmp>`)
 Input: the DONOR ring art (sonic_hack/art/nemesis/Ring.bin), decompressed via
 nemdec/clownnemesis — already coloured for act-palette line-1 indices
 {5=outline, 6=white highlight, C=bright gold, D=dark gold}, matching aeon's
@@ -18,6 +28,8 @@ here — its raw indices {1,5,6,F} would need a lossy remap onto the wrong line.
 import sys
 
 REMAP = {}  # identity — donor art indices already match OJZ_Palette line 1
+
+SPARKLE_DONOR_TILES = range(10, 14)   # the S2/S3K sparkle piece, 2x2 column-major
 
 def load_tiles(path):
     d = open(path, 'rb').read()
@@ -72,6 +84,13 @@ def main():
             out += emit(tile)
     open(sys.argv[2], 'wb').write(out)
     print(f"wrote {len(out)} bytes = {len(out)//32} tiles to {sys.argv[2]}")
+    if len(sys.argv) > 3:
+        sparkle = bytearray()
+        for ti in SPARKLE_DONOR_TILES:
+            sparkle += emit(t[ti])
+        open(sys.argv[3], 'wb').write(sparkle)
+        print(f"wrote {len(sparkle)} bytes = {len(sparkle)//32} tiles to {sys.argv[3]}")
+        frames.append([t[ti] for ti in SPARKLE_DONOR_TILES])   # preview as frame 4
     # ASCII preview: reconstruct each 16x16 frame (col-major TL,BL,TR,BR)
     GLYPH = {0:'.', 5:'o', 6:'*', 0xC:'#', 0xD:'+'}  # outline / white / bright gold / dark gold
     for fi, f in enumerate(frames):
