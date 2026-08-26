@@ -108,7 +108,7 @@ sys.path.insert(0, str(AEON / "tools"))
 
 from aether import BusClient            # noqa: E402
 from aether_instance import (            # noqa: E402
-    AetherInstance, SpawnError, WrongServerError)
+    AetherInstance, SpawnError, WrongServerError, run_to_addr)
 from raster_cost_probe import parse_lst  # noqa: E402
 
 BOOT_MAX_FRAMES = 600        # ceiling for run_to(Init) / run_to(Update); the DEBUG shape
@@ -226,6 +226,35 @@ async def _c(b, method, params=None, timeout=180.0):
     """Every RPC gets a deadline — a run that never breaks otherwise blocks the next
     call, which has no timeout of its own."""
     return await asyncio.wait_for(b.call(method, params or {}), timeout=timeout)
+
+
+async def _run_to(b, addr: int, what: str, hint: str = "", timeout: float = 180.0) -> dict:
+    """`run_to` an address and INSIST the target was REACHED.
+
+    The reply key is `reached` (oracle-aether `engine.rs`: `"reached": run.predicate_fired`).
+    A run that ended on its `maxFrames` bound instead answers `reached: false` and leaves the
+    machine wherever it happened to be, so every reading taken afterwards is a confident wrong
+    answer rather than an error.
+
+    Until 2026-08-26 both call sites below tested `r.get("fired", True)` — `fired` is a key
+    this server has never emitted, so the default always applied and NEITHER GUARD COULD FIRE.
+    Measured, not inferred: pointing `_init_to_update` at an address the PC never takes
+    ($00FEED, odd) left the gate printing `PASS` and exit 0 with every assertion green off a
+    machine 566 frames past where it should have stopped; the same poison at `_boot_to_init`
+    produced sixteen confident FAIL lines blaming the engine's parallax select. Both now stop
+    at this raise instead.
+
+    The check is `aether_instance.run_to_addr` — the tree's one correct spelling, whose own
+    docstring is about exactly this hazard. What it does not carry is this file's per-RPC
+    deadline (see `_c`), which is why the call is wrapped rather than made directly; and its
+    `RuntimeError` becomes this file's `SetupError`, because a run that could not reach its
+    target is a measurement that could not be made (exit 2), never a verdict about the ROM.
+    """
+    try:
+        return await asyncio.wait_for(run_to_addr(b, addr, what, BOOT_MAX_FRAMES),
+                                      timeout=timeout)
+    except RuntimeError as e:
+        raise SetupError(f"{e}{hint}") from e
 
 
 # ---- readback ---------------------------------------------------------------
@@ -486,10 +515,8 @@ async def _boot_to_init(b, sym, lst: str) -> int:
     Work-RAM clear and BEFORE any consumer of the mailbox. THE client window."""
     await _c(b, "emulator/load_symbols", {"path": lst})
     await _c(b, "emulator/reset", {})
-    r = await _c(b, "emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Init"]),
-                                        "maxFrames": BOOT_MAX_FRAMES})
-    if not r.get("fired", True):
-        raise SetupError("never reached GameState_OJZScroll_Init — wrong ROM shape?")
+    r = await _run_to(b, sym["GameState_OJZScroll_Init"], "GameState_OJZScroll_Init",
+                      " — wrong ROM shape?")
     return int(r.get("frames", 0))
 
 
@@ -497,10 +524,7 @@ async def _init_to_update(b, sym) -> int:
     """Run the init out. Stopping at the UPDATE state's first instruction is the first
     frame the display is on with the init's synchronous plane fill complete — 'the first
     visible frame' made operable."""
-    r = await _c(b, "emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Update"]),
-                                        "maxFrames": BOOT_MAX_FRAMES})
-    if not r.get("fired", True):
-        raise SetupError("never reached GameState_OJZScroll_Update")
+    r = await _run_to(b, sym["GameState_OJZScroll_Update"], "GameState_OJZScroll_Update")
     return int(r.get("frames", 0))
 
 
