@@ -1,47 +1,98 @@
 {
-  "focus": "Waiting on the assembler lane, as you chose. Picking up the next thing on my queue meanwhile.",
-  "inFlight": [],
-  "blockedOnOwner": [],
-  "nextBoundary": "Clean now. Next boundary is whenever the assembler fix lands, or the next queue item does.",
-  "queue": [
+  "focus": "Thirteen calls I owe you are now written up as cards. Crossing check still building.",
+  "inFlight": [
     {
-      "id": "BGANIM-PLACE",
-      "title": "The background-animation block is allotted two bytes by the frozen address table - exactly the size of the empty stub it was measured from. A real band needs eight thousand. Nothing can be hand-moved; the table gets re-derived with a real band present. Measured since: the knock-on stops dead at a hardware-pinned address, so five entries shift and the sound data cannot move at all. Smaller than it first looked.",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "sigil's force_scratch is gated to fixture-only; they are deciding whether to take the parcel",
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "VOFFSET",
-      "title": "The same defect as the one just fixed, on the two fields beside it: the vertical centre and offset are unbounded on both sides, so a value the editor accepts is unbuildable at the end. The precedent for who moves is now settled, so this can be derived and landed rather than parked.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "NEG-LABEL",
-      "title": "A negative generator parameter emits a label with a minus sign in it, which is not a legal name - the author spells the scene right and the error points at generated code. Establish whether any generator legitimately takes a negative before deciding if this is live or merely ugly.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "ALIGN",
-      "title": "The alignment-attribute migration owed to sigil - two scene fields take the attribute, two hand-written checks delete. Unblocked; verify the built binary carries the feature at dispatch.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "CUTOVER",
-      "title": "Re-run the 19 effects gates. NOTE: they never needed the shared emulator - each spawns its own, so a re-baseline would pass vacuously. Needs re-scoping before it is worth running.",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
+      "what": "The parallax crossing witness gate",
+      "where": "branch parcel/parallax-crossing",
+      "agent": true
     }
   ],
-  "updatedAt": "2026-08-24T20:46:20Z"
+  "blockedOnOwner": [
+    {
+      "id": "d-15",
+      "what": "which of the new background effects the showcase level actually turns on",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-16",
+      "what": "how tall one background chunk should be in a travelling act",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-17",
+      "what": "whether side by side areas can each bring their own background",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-18",
+      "what": "whether to drop terminal fall speed by one pixel to close a fall through hole",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-19",
+      "what": "whether the nine development test objects ship in the finished cartridge",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-20",
+      "what": "whether to change how the music driver stores pitch, before the soundtrack grows",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-21",
+      "what": "which two typefaces: the small on screen text and the act title card",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-22",
+      "what": "whether the leftover diagonal hitch is visible enough to spend on (needs you to play it)",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-23",
+      "what": "whether to shrink the terrain lookahead buffer for speed",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-24",
+      "what": "whether Knuckles gets glide, land and scrape sounds or ships silent on them",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-25",
+      "what": "whether to keep the reference game's asymmetric behaviour on four slopes",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-26",
+      "what": "whether the no divide coding rule softens or keeps a list of exceptions",
+      "since": "2026-08-26"
+    },
+    {
+      "id": "d-27",
+      "what": "how to handle the hardware sliver at the left screen edge once depth is on",
+      "since": "2026-08-26"
+    }
+  ],
+  "nextBoundary": "When the crossing gate lands. The roadmap and the cards are already committed.",
+  "queue": [
+    {
+      "id": "PARALLAX-CROSSING",
+      "title": "The new safety check watches the game pick its background settings at the moment you land, but stops there by design - it says nothing about what happens when you walk across into the next section. That crossing is still unwatched, and now that a real authored band exists there is something worth watching. Small and self-contained.",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "GOLDEN-DIRTY-BANNER",
+      "title": "The assembler warns you when it might not match its own source. It fires on every paired landing, because refreezing dirties the tree it then builds in. The assembler lane is keeping it loud on purpose: a version that stays quiet during refreezes would also stay quiet if a real source edit rode along with one. Booked there, not here.",
+      "state": "open",
+      "size": "XS",
+      "blockedBy": "the sigil lane"
+    }
+  ],
+  "awaiting": "your answers on the decision cards, three of which actually gate work; the rest are cheap",
+  "atBoundary": false,
+  "updatedAt": "2026-08-26T14:53:09Z"
 }
