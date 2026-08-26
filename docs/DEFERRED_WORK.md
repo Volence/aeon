@@ -10408,3 +10408,34 @@ tree). Two defects in one: the subject can be stale/another profile's (the ceili
 closed), and absence renders as a skip rather than a named failure or a post-build run. Remedy per the
 ceiling-gate parcel: run post-sigil on the artifact this invocation produced, or unit-test over a
 committed fixture with a freshness trigger. XS. Found by the ceiling-gate parcel, not fixed there.
+
+## BG capability gaps vs S1/S2/S3K — nominated by aurora 2026-08-26 (booked, unscheduled)
+
+Source: aurora master `077a589`, `docs/reviews/2026-08-26-bg-capability-survey-s1-s2-s3k.md` (every
+`Deform_*`/`SwScrl_*` routine in the three disassemblies read against `engine/level/scene_dsl.emp`,
+pinned aeon `c3f5cbe0`; §B carries file:line per claim, §C per zone). Verdict: the scene model
+already expresses most of it; Starlight is fully expressible today. Four ENGINE gaps, none
+schema/Aurora — transcribed here as aurora's claims, not re-verified by this lane:
+
+1. **Time-driven horizontal drift (autoscroll)** — GHZ clouds, WFZ/HTZ/DEZ/SCZ, AIZ/MGZ/FBZ/ICZ/
+   LBZ/SSZ. The band factor has no clock term; the BgAnim timer driver fakes it at 2^-n only.
+   Smallest fix: capability-gated `band_drift` tail + shadow accumulator; schema `layer.drift.rate`;
+   Aurora one field. Sizes M (engine) / S (schema) / S (Aurora). HIGHEST VALUE.
+2. **BG plane redrawn per band from separate BG cameras** (art taller than 512 px: GHZ/MZ/SBZ,
+   CPZ, every S3K `Draw_BG` table). `bg.emp` blits Plane B once; `Draw_BG_TileColumn` has zero
+   callers. L; the seam-streaming spec (d-16/d-17) covers it.
+3. **BG art swapped mid-act** (AIZ fire, FBZ, ICZ, HCZ2, MHZ2, LBZ2). Same root as 2; the scroll
+   and palette halves exist via sceneRef + presets. L.
+4. **Camera-tracking vertical split** (S3K HInt6: AIZ2/MHZ2/DDZ). Ours is a baked constant, Plane B
+   only, refused on an unlocked plane. M.
+
+Smaller: non-power-of-two vertical fractions (MZ 3/4, MCZ 1/3, MHZ 5/32 — two-term shift-add for
+`pcfg_v_factor_bg`, S); more than 8 layers per scene (MGZ2 puts 16 on screen; `MAX_PARALLAX_BANDS`
+is a RAM+cycle question, M); deform phase speeds below 1 step/frame (S); frame-sequence tile
+animation with uneven durations (MTZ, EHZ flowers, M). GOTCHA: `deform.own` needs
+`CAP_MULTI_DEFORM_TABLE`, which sonic4 (`SCANLINE_CAPS $005E`) does not declare, so an
+Aurora-authored per-layer deform table fails the build today.
+
+Disposition: item 1 is the candidate for the next effects parcel after the effects-lab hotkey;
+items 2/3 fold into the travelling-act background work once d-16/d-17 are ruled; 4 and the
+smaller rows wait for a scene that needs them. If any becomes a project, the hub declares the id.
