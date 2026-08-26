@@ -235,3 +235,19 @@ math fits the 512 px wrap of our 64×64 planes.
 - **Editor:** the grid emitter (injector change) is daemon-adjacent
   (`ojz_strip_gen.py` is auto-committed by the watcher) — schedule with the same
   ask-first care the P2 plan uses for Task 5/11.
+
+## Addendum 2026-08-26 — S3K background heights, measured (for Q1 / d-16)
+
+Parsed every `skdisasm/Levels/*/Layout/*.bin` header (words: FG width, BG width, FG height,
+BG height, in 128 px chunks; SonLVL-documented order, consistent with the row-pointer
+indexing at `8(a2,d0.w)` in sonic3k.asm but the loader itself was not traced). BG heights in
+px, playable acts: 256 — ALZ, CGZ, DPZ, EMZ, DEZ1, DEZ2, MGZ1; 384 — BPZ, DDZ, LBZ1;
+512 — DEZ3, LRZ2, LRZ3; 640 — CNZ2; 768 — ICZ2, MHZ1/2/3, HPZ; 896 — MGZ2, SOZ1;
+1024 — HCZ1, HCZ2, ICZ1; 1152 — CNZ1; 1280 — AIZ2; 1408 — AIZ1; 1536 — FBZ1, FBZ2, LBZ2;
+2048 — SOZ2; 2560 — LRZ1; 2816 — SSZ1.
+
+S3K's scroll planes are 64x32 cells = 512x256 px (`$9001`), so every BG taller than 256 is
+streamed row-by-row into a 256-tall wrapping plane, like the FG. S3K therefore had no chunk
+height choice: BG height is arbitrary, the resident window is 256. Aeon's 64x64 planes already
+hold twice that. Bearing on Q1: the precedent argues for streaming into a fixed window rather
+than for a chunk size; 256-px chunks buy two looks visibly coexisting, nothing else.
