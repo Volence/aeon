@@ -208,9 +208,10 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # their sampling rules are deliberate opposites — boot_override samples at the level
         # init's exit, BEFORE any Parallax_CheckBoundary, and this one only ever samples
         # AFTER a walked crossing. A change to the resolver should turn both red. One
-        # oracle-aether process, two crossings (out and back), measured 0.66 s standalone on
-        # 2026-08-26 at load average 28 — the budget below is the lane's ordinary emulator
-        # budget, ~360x that, and is a wedge ceiling and not a performance assertion.
+        # oracle-aether process, two crossings (out and back), measured 0.66 s standalone and
+        # 0.4 s as this lane's segment [12/14] on 2026-08-26 — the budget below is the lane's
+        # ordinary emulator budget, ~600x that, and is a wedge ceiling and not a performance
+        # assertion.
         ("parallax_crossing", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
