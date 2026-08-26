@@ -36,7 +36,7 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR}
+use games.sonic4.constants.{VRAM_TEST_OBJ, VRAM_TEST_MARKER, VRAM_DUST_PUFF, VRAM_RING_SPARKLE, CHEAT_DEBUG_FLY, CHAR_COUNT, PSTATE_AIR}
 
 // Sst — the object SST layout. The DEBUG warp consumer places the LEADER through
 // Camera_Target (an SST pointer), not through the Player_1 absolutes above: the
@@ -48,6 +48,7 @@ use engine.objects.sst.{Sst}
 // module (data/dust_data.emp), so a re-export that moved the split is one edit
 // there, not here.
 use games.sonic4.dust_data.{DUST_PUFF_ART_OFF, DUST_PUFF_ART_LEN}
+use games.sonic4.ring_sparkle.{Art_RingSparkle, RING_SPARKLE_ART_LEN}
 
 // PlayerBlock — the player_block splice's stride is sizeof(PlayerBlock) and the
 // splice expands in THIS module's scope, so the type has to resolve here.
@@ -282,6 +283,15 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         jbsr    QueueDMA_Critical @discards(dropped)   // level init: a dropped DMA is
                                                        // acceptable here exactly as for
                                                        // TestArt above
+
+        // -- ring-collect sparkle: 4 tiles RESIDENT at VRAM_RING_SPARKLE for the
+        //    whole act, the dust puff's strategy (concurrent sparkles sit on
+        //    different frames). One 128-byte DMA is its entire art cost; the four
+        //    frames are flip variants of this one piece. --
+        move.l  #Art_RingSparkle, d1
+        move.w  #vram_bytes(VRAM_RING_SPARKLE), d2
+        move.w  #RING_SPARKLE_ART_LEN, d3
+        jbsr    QueueDMA_Critical @discards(dropped)   // same policy as the two above
 
         // -- initialise camera first (Section_FillInitial reads Camera_X) --
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l

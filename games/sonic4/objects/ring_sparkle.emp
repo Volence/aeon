@@ -1,0 +1,209 @@
+// Ring-collect sparkle — the flash a collected ring leaves behind. Fire-and-forget.
+//
+// Rings are buffer entries, not objects (engine/objects/rings.emp), so a collected ring
+// cannot "switch to" a sparkle animation the way S3K's Obj_Ring does: the engine's
+// RingCollision instead invokes Game.ring_collected with the ring's centre, and THIS
+// spawns one effect-pool object there that plays the sparkle and deletes itself. The
+// ring itself is already counted, its SFX played and its buffer entry removed by the
+// time the hook fires — the sparkle is purely cosmetic and its absence changes no
+// gameplay state.
+//
+// The dust puff's shape exactly (games/sonic4/objects/dust_puff.emp): no velocity, no
+// DPLC, no parent link, no timer field; resident art (VRAM_RING_SPARKLE, DMA'd once at
+// scene init), AF_DELETE at the end of the script is the whole retirement path. World
+// coords (RF_COORDMODE clear): the flash stays on the ring's spot and scrolls with the
+// level. Design: docs/superpowers/notes/2026-08-26-ring-sparkle-design.md.
+//
+// SELF-CONTAINED, unlike the dust: the object, its 4-tile art, its four mapping frames
+// and its script all live in this one section. The dust split its data out because it
+// is 88 tiles with a DPLC stream; the sparkle's whole data is 192 bytes, and one file is
+// the honest unit. (It is also what the placer accepts today: a NEW data-only section in
+// the pre-bank data region mis-measures `player_sensors` and fails `packed_true_bases`
+// — measured 2026-08-26 in every row position tried, while a new section in the object
+// bank places cleanly. Booked in docs/DEFERRED_WORK.md as a sigil placer item.)
+module games.sonic4.ring_sparkle in ring_sparkle
+
+use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_art}
+use engine.objects.mapping_dsl.{MapPiece, MapFrame1, centered}
+use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD}
+use engine.coords.{pixels_to_coord}
+use games.sonic4.constants.{VRAM_RING_SPARKLE, EFFECT_RING_SPARKLE_BAND}
+
+// -----------------------------------------------
+// Art — donor tiles 10-13 of sonic_hack's Ring.bin (the S2/S3K ring sheet), the same
+// blob the spin frames come from, composed by games/sonic4/test/compose_ring.py
+// (provenance test: tools/test_ring_sparkle_art.py). RESIDENT at VRAM_RING_SPARKLE for
+// the whole act (one 128-byte DMA at scene init), so concurrent sparkles on different
+// frames cost nothing further — the dust puff's strategy.
+// -----------------------------------------------
+const _art_sparkle = embed("games/sonic4/test/ring_sparkle_art.bin")
+
+pub const RING_SPARKLE_TILES   = 4
+// A pure literal, deliberately: an imported `pub const` is re-elaborated in the
+// importer's scope (docs/EMP_PITFALLS.md §2/§8 — free names resolve at the use site),
+// so spelling this as RING_SPARKLE_TILES * TILE_SIZE fails by name in
+// ojz_scroll_test.emp. The ensure below keeps the literal honest.
+pub const RING_SPARKLE_ART_LEN = 128                                // the DMA length
+ensure(RING_SPARKLE_ART_LEN == RING_SPARKLE_TILES * TILE_SIZE,
+       "RING_SPARKLE_ART_LEN drifted from RING_SPARKLE_TILES * TILE_SIZE")
+ensure(_art_sparkle.len == RING_SPARKLE_ART_LEN,
+       "ring_sparkle_art.bin is {_art_sparkle.len} bytes; the sparkle is one 2x2 piece = 4 tiles = {RING_SPARKLE_ART_LEN}")
+
+// Palette census — the claim "draws on the ring's CRAM line 1 with no remap" pinned to
+// the bytes: every nibble must be 0 (transparent) or one of the ring's four line-1
+// entries {5 outline, 6 white, $C bright gold, $D dark gold}. A blob regenerated from
+// the WRONG donor (skdisasm's Ring.bin uses {1,5,6,$F}) fails here by name. Flat
+// accumulators over statement-ifs, never a nested if-expression (EMP_PITFALLS §1).
+comptime fn ring_index_ok(v: int) -> int {
+    comptime var ok = 0
+    if v == 0   { ok = 1 }
+    if v == 5   { ok = 1 }
+    if v == 6   { ok = 1 }
+    if v == $C  { ok = 1 }
+    if v == $D  { ok = 1 }
+    return ok
+}
+
+comptime fn count_bad_nibbles(blob: [u8; 128]) -> int {
+    comptime var bad = 0
+    for i in 0..128 {
+        if ring_index_ok(blob[i] >> 4) == 0  { bad = bad + 1 }
+        if ring_index_ok(blob[i] & $F) == 0  { bad = bad + 1 }
+    }
+    return bad
+}
+
+ensure(count_bad_nibbles(_art_sparkle) == 0,
+       "ring_sparkle_art.bin has {count_bad_nibbles(_art_sparkle)} pixels outside the ring's line-1 index set (0,5,6,$C,$D) — regenerated from the wrong donor?")
+
+// -----------------------------------------------
+// Script — S3K's Ani_RingSparkle, derived and pinned.
+//
+// S3K (General/Sprites/Ring/Anim - Ring Sparkle.asm): `dc.b 5, 4, 5, 6, 7, $FC` —
+// duration byte 5, four mapping frames, then a routine bump that deletes the ring the
+// next frame. Both S3K's Animate_Sprite (sonic3k.asm:36170, `subq.b / bcc`) and Aeon's
+// AnimateSprite (engine/objects/animate.emp:91, `subq.b / bpl`) show a frame for
+// (duration + 1) display frames, so the same byte 5 reproduces S3K's 4 x 6 = 24-frame
+// sparkle exactly. Our mapping frames are 0..3 (the sparkle has its own mapping set,
+// not the ring's frames 4..7), and AF_DELETE replaces the routine bump: the script
+// OWNS the lifetime, there is no timer field.
+// -----------------------------------------------
+pub const S3K_SPARKLE_DURATION = 5      // the reference script's duration byte
+pub const S3K_SPARKLE_FRAMES   = 4      // mapping frames 4,5,6,7
+
+const RING_SPARKLE_SCRIPT: [u8; 6] = [S3K_SPARKLE_DURATION, 0, 1, 2, 3, AF_DELETE]
+
+// How many display frames a script shows before its terminator: the count of frame
+// bytes (anything below the AF_SET_FIELD control threshold, after byte 0) times the
+// per-frame hold.
+pub comptime fn script_display_frames(script: [u8; 6]) -> int {
+    comptime var frames = 0
+    for i in 1..6 {
+        if script[i] < AF_SET_FIELD { frames = frames + 1 }
+    }
+    return frames * (script[0] + 1)
+}
+
+ensure(script_display_frames(RING_SPARKLE_SCRIPT) == S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1),
+       "the ring sparkle shows {script_display_frames(RING_SPARKLE_SCRIPT)} display frames; S3K's Ani_RingSparkle shows {S3K_SPARKLE_FRAMES * (S3K_SPARKLE_DURATION + 1)} (4 frames x (5+1)) — re-derive the script, do not retune the reference")
+ensure(RING_SPARKLE_SCRIPT[5] == AF_DELETE,
+       "the ring sparkle script must end in AF_DELETE — the script owns the effect's lifetime")
+
+// EFFECT_RING_SPARKLE_BAND = PLAYER_PRIORITY_BAND + 1 -> IN FRONT of the character:
+// S3K's Obj_RingCollect drops the ring's priority from $100 to $80 (sonic3k.asm:35441),
+// and there the LOWER value is the front one. config/constants.emp owns the relationship
+// and the ensure that keeps it. Whole-byte write into a freshly zeroed slot.
+const RING_SPARKLE_RENDER_FLAGS = EFFECT_RING_SPARKLE_BAND << RF_PRIORITY_SHIFT
+
+// Same CRAM line and priority bit as the ring it replaces (rings.emp RING_ART_ATTR is
+// vram_art(VRAM_RING_PLACEHOLDER, 1, 1)): line 1 holds the ring's gold.
+const RING_SPARKLE_ART_ATTR = vram_art(VRAM_RING_SPARKLE, 1, 1)
+
+// SAT tile-attribute flip bits (the VDP's, bits 11/12 of the attr word).
+const ATTR_HFLIP = $0800
+const ATTR_VFLIP = $1000
+
+// -----------------------------------------------
+// RingSparkle_Spawn — drop one sparkle on a just-collected ring.
+// Bound to Game.ring_collected (games/sonic4/config/game.emp); the engine invokes it
+// from RingCollision with the ring's buffer-entry centre, before the entry is removed.
+//
+// In:  a3 = the ring's buffer entry: X.w at +0, Y.w at +2 (engine-space centre
+//           pixels; the layout engine/objects/rings.emp owns)
+// Out: a sparkle allocated, or NOTHING if the effect pool is exhausted — the silent
+//      skip every creator uses (children.emp:604, dust_puff.emp). The ring is still
+//      collected; a burst of more rings than free slots loses its tail sparkles and
+//      nothing waits or retries (design note §2.2 bounds a single player at 12).
+// Clobbers: d0-d2, a1 — the hook's declared bound. The coords are loaded and
+//           promoted to 16.16 in d0/d1; d2 banks the X coord across AllocEffect,
+//           which returns its status in d0.
+// Preserves: a3 (the entry — RingCollision's rolling cursor) and everything else it
+//            holds live across the collect path (a2, d4-d7).
+// -----------------------------------------------
+pub proc RingSparkle_Spawn (a3: *u8) clobbers(d0-d2/a1) {
+        move.w  (a3), d0                // ring centre X (engine px)
+        move.w  2(a3), d1               // ring centre Y
+        pixels_to_coord(d0)
+        pixels_to_coord(d1)
+        move.l  d0, d2                  // bank x — AllocEffect owns d0
+        jbsr    AllocEffect             // a1 = slot on the eq edge; a1 survives the
+        bne     .done                   //   pool-empty edge untouched
+
+        move.w  #RingSparkle_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  d2, Sst.x_pos(a1)       // placed NOW: the Effect sweep may render this
+        move.l  d1, Sst.y_pos(a1)       //   slot before its first Main runs
+        move.l  #Map_RingSparkle, Sst.mappings(a1)
+        move.w  #RING_SPARKLE_ART_ATTR, Sst.art_tile(a1)
+        move.l  #Ani_RingSparkle, Sst.anim_table(a1)
+        move.b  #$FF, Sst.prev_anim(a1)             // force AnimateSprite's
+        move.b  #$FF, Sst.prev_frame(a1)            // .anim_changed path, which
+                                                    // populates the piece count +
+                                                    // frame_off cache before the
+                                                    // first render
+        move.b  #RING_SPARKLE_RENDER_FLAGS, Sst.render_flags(a1)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// RingSparkle_Main — animate, draw, and eventually delete itself.
+//
+// No ObjectMove (static in world space, as S3K's collected ring is) and no
+// Perform_DPLC (resident art). AF_DELETE at the end of the script is the entire
+// retirement path.
+//
+// In:  a0 = own SST
+// Clobbers: d0-d3, a1-a2 — the callee union: AnimateSprite (d0-d2/a1-a2) union
+//           Draw_Sprite (d0-d3/a1). a0/d7.w preserved per the dispatch contract.
+// -----------------------------------------------
+pub proc RingSparkle_Main (a0: *Sst) clobbers(d0-d3/a1-a2) preserves(a0) {
+        jbsr    AnimateSprite
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// Data — the four mapping frames, the script, the art.
+//
+// The mapping frames are the S3K Map_Ring frames 4..7 transcribed: the SAME base tile
+// with flip bits none / both / H / V in the piece's tile word (sonic3k.asm Map_Ring_
+// word_1A9CC..word_1A9E4: flags 0, $18, $08, $10), in the script's order. The render
+// loop ADDS the piece word to the object's art_tile (sprites.emp tile_term), and the
+// sparkle's own render_flags never carry a flip, so the bits land in the SAT unchanged.
+// -----------------------------------------------
+pub offsets Map_RingSparkle {
+    F0: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: 0),
+    F1: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: ATTR_HFLIP | ATTR_VFLIP),
+    F2: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: ATTR_HFLIP),
+    F3: MapFrame1 = centered(half: 8, w: 2, h: 2, tile: ATTR_VFLIP),
+}
+
+// The script is 2 + 6 = 8 bytes, so the art lands word-aligned by construction; the
+// per-item (align: 2) is the stated invariant (a bare `align 2` after relaxable code is
+// [align.provisional] — the DMA source must be even, and this is the form the placer
+// can prove).
+pub offsets Ani_RingSparkle {
+    Sparkle: [u8; 6] = RING_SPARKLE_SCRIPT,
+}
+
+pub data Art_RingSparkle (align: 2) = _art_sparkle

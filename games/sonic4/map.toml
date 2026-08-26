@@ -91,6 +91,10 @@ order = [
   "CharDef_Sonic", "CharDef_Tails", "CharDef_Knuckles", "CharacterDefs",
   "TailsAppendage_Refresh",
   "DustPuff_Spawn", "Dust_Tick",
+  "RingSparkle_Spawn",
+  # The ring-collect sparkle (objects/ring_sparkle.emp): the dust puff's twin, placed
+  # right after the dust objects. Self-contained — its 192 B of mappings/script/art
+  # ride in this section (see the module header for why it is not split like the dust).
   "TestStatic_Main",
   "TestAnimated", "TestPlayer", "TestEnemy_Init", "TestSolid_Init",
   "TestParticle", "TestEmitter", "TestChildPart", "TestStressEmitter",

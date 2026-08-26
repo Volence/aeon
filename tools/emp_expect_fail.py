@@ -298,6 +298,11 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_offset high", "v_offset 32768 outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field", 4),
     (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_center low",  "v_center -1 outside 0 .. 32767 — this is a WORLD Y", 4),
     (f"{POISON}/poison_scene_vbounds_range.emp",  "VOFFSET v_center high", "v_center 32768 outside 0 .. 32767 — this is a WORLD Y", 4),
+    # ---- Ring sparkle (2026-08-26): the S3K-derived display-frame gate ----
+    # One case: script_display_frames() (games/sonic4/objects/ring_sparkle.emp) fed a script
+    # one frame short must report 18 (3 x (5+1)) against the reference 24. The fragment
+    # quotes the interpolated 18, so a fn that stopped counting frame bytes cannot match.
+    (f"{POISON}/poison_ring_sparkle_frames.emp", "ring sparkle frames", "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames", 1),
 ]
 
 
