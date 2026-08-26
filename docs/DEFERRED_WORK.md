@@ -52,6 +52,47 @@ Every item here had a stated blocker that **no longer holds**. This is the pick-
 by leverage, not by section. Each links back to its full entry below; read the entry (and its
 correction) before planning — several carry caveats that shrink the win.
 
+### SIGIL'S 5-RED BAR AGAINST aeon 415e0b6a — class (A) is the HARNESS, not this tree — booked 2026-08-25
+
+**Provenance:** sigil lane log 2026-08-24T23:57Z (sigil `docs/OVERSEER.md` "Full suite bar":
+3844 passed / 5 failed / 4 ignored at sigil `e36debf8`, reproduced on unmodified `bc05f446`).
+The five: `act_descriptor_region_matches_reference`, `act_descriptor_debug_region_matches_reference`,
+`act_wrong_base_map_places_the_section_at_a_different_address`,
+`swapped_sec_fields_produce_different_bytes`, `soundbankhead_pinned_bootstrap_lands_at_lma_not_vma`.
+
+**Ruling from the reproduction (parcel/sigil-red-closure, both repos):** NOTHING in this tree is
+wrong, and the lane's stated cause ("map.toml still carries the block as a RESERVED SLOT") is
+the cause of only ONE of the five. Two failure classes, one newly unmasked:
+
+- **(A) `unknown function ojz_act1_act_default` / `ojz_act1_sec_scene`** — the four act tests.
+  Both act harness paths (`act_descriptor_port::compile_real_file`,
+  `tranche4_negative_probes::parse_act_with_structs`) lower `act_descriptor.emp` single-file
+  with a hand-listed ambient set that predates P5 slice 5's import of the two binding
+  `pub comptime fn`s from the generated `ojz_effects_editor_act1` module. A comptime fn
+  cannot ride as a link equ the way every other cross-seam name there does, so the fix is
+  to ride `games/sonic4/data/generated/ojz/act1/effects_scenes.emp` ambient like the K3
+  const modules. **Sigil-owned; proposed on sigil branch `parcel/sigil-red-closure`
+  (75802f6a), not merged.** The `sigil build` path was never affected — the descriptor's
+  whole-path `use` edge (the banner above it) carries the module into the closure, and the
+  four shipped ROMs are unchanged (CRC32 c7b9d10d / f0175028 / c708b114 / dec88cc1).
+- **(B) `section ojz_effects_editor_act1 has no region in the map`** — the soundbankhead
+  test only, via `native::resolve_pinned_sections` → `build_native_emp` → `place_sections`
+  under the PinnedBaked map minted from sigil's registry (`emp_map_toml(specs)`), which has
+  no row for the zero-byte generated section. Sigil-owned, queued there as FIVE-REG. The
+  map.toml `order` row is NOT the fix and is deliberately absent (map.toml:106 comment).
+- **(C) unmasked by (A):** with the ambient fixed, the two `act_descriptor_port` gates reach
+  the byte compare and fail `section.bytes.len() == pins::ACT_DESCRIPTOR.plain_len`:
+  emitted 0x27A (= 0x28 Act header + 9 × 0x42 Sec, `OJZ_Act1_Sections` sits at +0x28 in
+  `s4.lst`), pinned 0x27C. The pin was 0x27A through sigil `85a5b879`; the `805370b1`
+  refreeze (ojz-section0-paint) moved the base to $159E4, and `OJZ_Sec0_Blocks` now lands
+  on an alignment boundary two bytes past the descriptor's end — `repin` measures
+  start..next-label, so the successor's fill entered the pin. The first 0x27A bytes match
+  the reference in both shapes (probed with the length assert relaxed, probe discarded).
+  Sigil-owned (pin measurement or the exactness assert); nothing in aeon moves for it.
+
+**Remaining:** (B) and (C) stay red until the sigil lane lands them; expect 3 red on their
+bar after (A) merges (the two port gates on (C), soundbankhead on (B)).
+
 ### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20
 
 **Blocked on: sigil.** Aeon-side work is done and shipped byte-identically; this is the one
