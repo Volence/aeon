@@ -98,11 +98,8 @@ Exit 0 pass · 1 fail · 2 setup error (the measurement could not be made).
 import argparse
 import asyncio
 import json
-import os
 import re
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 AEON = Path(__file__).resolve().parent.parent
@@ -110,11 +107,9 @@ sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
 sys.path.insert(0, str(AEON / "tools"))
 
 from aether import BusClient            # noqa: E402
-from aether_instance import assert_rust_server  # noqa: E402
+from aether_instance import (            # noqa: E402
+    AetherInstance, SpawnError, WrongServerError)
 from raster_cost_probe import parse_lst  # noqa: E402
-
-SERVER = "/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether"
-SOCK = f"/tmp/aeon_bootovr_{os.getpid()}.sock"   # short + per-process: AF_UNIX caps at 108
 
 BOOT_MAX_FRAMES = 600        # ceiling for run_to(Init) / run_to(Update); the DEBUG shape
                              # boots straight into the OJZ scroll test, no buttons pressed
@@ -181,32 +176,38 @@ def emp_const(rel: str, name: str) -> int:
 
 
 class Server:
-    """One oracle-aether process. A fresh one per run — every run starts from reset."""
+    """One oracle-aether process. A fresh one per run — every run starts from reset.
 
-    def __init__(self, rom: str, sock: str = SOCK):
-        self.rom, self.sock, self.proc, self.client = rom, sock, None, None
+    Spawning is `tools/aether_instance.AetherInstance` since 2026-08-26 — this gate used to
+    carry its own hand-copied Popen loop (one of three such copies in the tree, booked in
+    DEFERRED_WORK). What that copy lacked and this gains: readiness by socket ACCEPT rather
+    than by the socket FILE existing (a file can exist before the listener binds), a private
+    mkdtemp socket instead of a shared /tmp path, PR_SET_PDEATHSIG so a SIGKILLed gate cannot
+    strand a server, the server's own output captured and quoted in a spawn failure, and an
+    rmtree that removes the socket file the server leaves behind on SIGTERM.
+
+    `AetherInstance.start()` runs its own `asyncio.run` for the handshake, so it CANNOT be
+    called from inside a running loop — hence `asyncio.to_thread`. That is the one wrinkle in
+    an otherwise drop-in fold, and the reason the other two aether gates are worth converting
+    with the same line rather than by hand.
+
+    The identity assertion (`assert_rust_server`) now runs inside `start()`: a gate silently
+    talking to the legacy C++ server reports a verdict measured on the wrong emulator and
+    nothing goes red.
+    """
+
+    def __init__(self, rom: str):
+        self.rom, self.inst, self.client = rom, None, None
 
     async def __aenter__(self) -> "Server":
-        if os.path.exists(self.sock):
-            os.unlink(self.sock)
-        self.proc = subprocess.Popen(
-            [SERVER, self.rom, "--socket", self.sock, "--no-pace"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        for _ in range(200):
-            if os.path.exists(self.sock):
-                break
-            time.sleep(0.05)
-        else:
-            raise SetupError(f"oracle-aether never created {self.sock}")
-        self.client = BusClient(self.sock, client_id="bootovr",
+        self.inst = AetherInstance(self.rom)
+        try:
+            sock = await asyncio.to_thread(self.inst.start)
+        except (SpawnError, WrongServerError) as e:
+            raise SetupError(str(e)) from e
+        self.client = BusClient(sock, client_id="bootovr",
                                 client_name="boot_override_gate")
-        info = await self.client.connect()
-        # The identity assertion, shared with every other gate in this lane
-        # (`tools/aether_instance.py`): this gate has ALWAYS spawned oracle-aether,
-        # but nothing checked that the thing which answered was it. A gate silently
-        # talking to the legacy server reports a verdict measured on the wrong
-        # emulator and nothing goes red.
-        assert_rust_server(info)
+        await self.client.connect()
         for m in ("emulator/scanlines", "emulator/read_vram", "emulator/write_memory",
                   "emulator/run_to"):
             if not self.client.supports(m):
@@ -218,11 +219,7 @@ class Server:
             if self.client:
                 await self.client.close()
         finally:
-            self.proc.terminate()
-            try:
-                self.proc.wait(timeout=5)
-            except Exception:
-                self.proc.kill()
+            self.inst.reap()
 
 
 async def _c(b, method, params=None, timeout=180.0):
