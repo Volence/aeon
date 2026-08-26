@@ -225,16 +225,81 @@ reference `oracle-aether`/`--no-pace` (verified: `boot_override_gate`, `effects_
 `hblank_window_sweep`, `sh_probe`, `staging_lifetime_timeline`, `tick_variance_probe`,
 `vsplit_landing_gate`, `warp_mailbox_gate`). **The cutover is partial and IN PROGRESS, not
 pending** — do not write as though it has yet to begin.
+*(Count superseded 2026-08-26: the effects gate lane went over wholesale — see the block
+below. Four more gates converted and everything routes through one seam,
+`tools/aether_instance.py`, so grep for that name rather than re-counting `--no-pace`.)*
+
+**✅ THE EFFECTS GATES ARE ON THE RUST CORE NOW (2026-08-26) — the line above that said
+they spawn `oracle_gui` is retired.** Owner ruling (empyrean 3c21183): oracle-aether is the
+default, `oracle_gui` is FALLBACK ONLY. There is ONE spawn seam, `tools/aether_instance.py`:
+short mkdtemp socket, readiness by socket ACCEPT (~0.06 s measured), a handshake, an identity
+ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
+
+- **Converted this parcel** (were legacy, verified same verdict AND same asserted values —
+  each gate's full output is byte-identical before/after): `raster_off_gate`,
+  `palette_variant_gate`, `snapshot_poison_gate`, `raster_source_gate`.
+- **Already aether, and now carrying the same assertion**: `vsplit_landing_gate`,
+  `warp_mailbox_gate`, `boot_override_gate`. They keep their own PID-scoped Server class.
+- **STILL LEGACY, and it is not this lane's call**: `scene:*` (4 segments, 8 gates) drive
+  `ab_runner.py`, which lives in `oracle-old` — porting it is oracle's; and `cost_model`
+  drives `raster_cost_probe.py`, held below. At ~38 s each the scene segments are now 80% of
+  the lane's wall clock, so ab_runner is the next real lever and it is a PROPOSAL FOR ORACLE.
+- **Wall clock, both full lanes aggregated, same ROM, same machine, uptime beside each**:
+  legacy 233 s (02:42 up 18:31, load 3.07), aether 191 s (02:38 up 18:27, load 3.33), both
+  26 of 27 gates passing — the one failure is `boot_override`'s pre-existing SETUP ERROR,
+  identical text in both. Per segment: raster_off 9.7 -> 0.5 s, palette_variant 12.6 -> 1.5 s,
+  snapshot_poison 9.8 -> 0.5 s, raster_source 13.3 -> 1.5 s. **The headline is not the 42 s.**
+  It is that `raster_source` WEDGED TWICE at 240 s each on 2026-08-25 and needed a hand
+  `--only` retry: the legacy stop race is arm-breakpoint / resume / wait-for-an-event, and
+  the event can be lost. oracle-aether boots PAUSED and `run_to`/`run_frames` RETURN when the
+  condition is met, so those four gates cannot wedge that way at all.
+
+**Four wire differences that bite, all measured, all handled inside the seam:**
+1. `emulator/reset` takes **NO params** — the legacy `{"wait": true, "run": false}` is
+   refused with -32602 (protocol §2.5 rejects undeclared keys), and is unnecessary anyway
+   because the Rust core resets to a stopped machine.
+2. The bus is **24 bits**: `0xFFFF0000` is -32004. `parse_lst` already yields 24-bit
+   addresses, so nothing here needed masking — but a hand-written probe will.
+3. **No breakpoints, no `wait_for_break`** (`capabilities.breakpoints: false`). Use
+   `emulator/run_to {"addr"|"symbol", "maxFrames"}` and CHECK `reached` — it parks at an
+   instruction boundary with the target instruction not yet executed, which is the same stop
+   rule the breakpoint gates were written against (proved: `snapshot_poison` captures the
+   same mask %0101 at the same PC on both servers).
+4. **THE QUIET ONE.** `read_memory` returns hex WITH a `0x` prefix; the legacy server
+   returned it bare. `int(x, 16)` survives; anything that SLICES positionally
+   (`raw[i*4:i*4+4]`) reads two characters off and reports a confident wrong answer with
+   nothing raised. Route reads through `aether_instance.read_bytes`. In the write direction
+   the core is loud instead: an unprefixed `bytes` param is -32602.
+
+**The identity assertion, and why it has two rungs.** `assert_rust_server()` runs on every
+spawn so a gate can never silently end up on the legacy server. The parcel's recipe said to
+assert `implementation == "oracle-rs"` from the handshake — **that field is not on the wire
+yet.** Oracle committed it (`bc2cddd`, 2026-08-26) but both release binaries here were built
+2026-08-25 21:03, so a single-rung assertion would refuse the CORRECT server and block the
+lane. Measured, both binaries as shipped: Rust `serverName "oracle-next"` / `serverVersion
+"0.0.0"` / 41 methods / `capabilities.breakpoints: false`; legacy `serverName "oracle"` /
+`"2.1-linux"` / 53 methods / no `breakpoints` key. So: `implementation` when present is the
+only thing consulted; when absent, `serverName == "oracle-next"` stands in. **Delete rung 2
+the day oracle's release binaries are rebuilt.** Proof it is not vacuous:
+`tools/test_aether_instance.py` (stubbing the assertion to `return` turns 3 of 7 red) plus
+`python3 tools/aether_instance.py --poison-legacy`, which boots a REAL `oracle_gui` and
+fails if its handshake is accepted — run 2026-08-26, assertion fired.
 
 - **oracle-next / oracle-aether** (bus socket, headless): pixels, scanlines (sub-line
-  since 2026-08-19), memory, watchpoints with per-hit mclk, the warp mailbox, and — once
-  its profiler ships — cycle attribution (compare `cyclesSelf`, never inclusive).
-  Client patterns: `tools/hblank_window_sweep.py`, `tools/sh_probe.py`. Assert
-  `source == "raster"` on every scanline capture.
-- **old oracle** (headless harness at `oracle-old/linux-port/harness`): the profiler until
-  oracle-next's lands. Per-routine rows ONLY (`interrupts.hint` sums both handlers);
-  match addresses on the low 24 bits; attribution LOSES ~20% when a tick spans VBlank —
-  rest conclusions on preemption-free evidence. Patterns: `tools/raster_cost_probe.py`,
+  since 2026-08-19), memory, watchpoints with per-hit mclk, the warp mailbox, and the whole
+  effects gate lane bar the five above. Its profiler EXISTS (`capabilities.profiler: true`,
+  measured 2026-08-26) and serves `interrupts.{hint,vint}.cyclesSelf` and
+  `cyclesSelfTotal` — but `set_profiler` must be armed with `{perFrame: true}` and the
+  `perFrame[]` ROWS still carry only `cycles`/`hintCycles`/`vintCycles`/`stallCycles`, **no
+  self field for either interrupt bucket**, which is exactly the gap the hold above names.
+  So the named ask is HALF discharged, at the aggregate and not per-frame. Spawn through
+  `tools/aether_instance.py`; other client patterns: `tools/hblank_window_sweep.py`,
+  `tools/sh_probe.py`. Assert `source == "raster"` on every scanline capture.
+- **old oracle** (headless harness at `oracle-old/linux-port/harness`): FALLBACK ONLY, and
+  what still uses it is now a short list — `ab_runner.py` (the `scene:*` gates) and the three
+  profiler probes. Per-routine rows ONLY (`interrupts.hint` sums both handlers); match
+  addresses on the low 24 bits; attribution LOSES ~20% when a tick spans VBlank — rest
+  conclusions on preemption-free evidence. Patterns: `tools/raster_cost_probe.py`,
   `tools/engine_baseline_probe.py`, `tools/streaming_choke_probe.py`.
 - Subagents NEVER touch emulator MCP tools (deadlock); headless bus scripts are the
   sanctioned instrument everywhere.

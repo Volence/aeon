@@ -71,6 +71,7 @@ sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
 sys.path.insert(0, str(AEON / "tools"))
 
 from aether import BusClient            # noqa: E402
+from aether_instance import assert_rust_server  # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
 
 SERVER = "/home/volence/sonic_hacks/oracle-next/target/release/oracle-aether"
@@ -147,7 +148,13 @@ class Server:
             raise SetupError(f"oracle-aether never created {self.sock}")
         self.client = BusClient(self.sock, client_id="bootovr",
                                 client_name="boot_override_gate")
-        await self.client.connect()
+        info = await self.client.connect()
+        # The identity assertion, shared with every other gate in this lane
+        # (`tools/aether_instance.py`): this gate has ALWAYS spawned oracle-aether,
+        # but nothing checked that the thing which answered was it. A gate silently
+        # talking to the legacy server reports a verdict measured on the wrong
+        # emulator and nothing goes red.
+        assert_rust_server(info)
         for m in ("emulator/scanlines", "emulator/read_vram", "emulator/write_memory",
                   "emulator/run_to"):
             if not self.client.supports(m):

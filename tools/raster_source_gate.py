@@ -29,15 +29,22 @@ WHERE IT BREAKS, AND WHY THAT EXACT INSTRUCTION.
 is a real label in the listing, so the probe point needs no hand-computed offset that could
 rot when the body changes.
 
-NON-DETERMINISTIC BY REQUIREMENT, NOT BY ACCIDENT. `headless_emulator` defaults to
-deterministic=True, and in that mode oracle answers `breakpoint_add` with "det-mode stop
-granularity: PC may precede the breakpoint" — the serial scheduler's rollback stops at commit
-granularity. A stop one instruction early lands BEFORE `adda.w` and a2 still holds
-`Pal_Variant_Stage` unmodified, which is a plausible-looking value that would make this gate
-pass on code that never applied the offset at all. So the launcher is asked for the threaded
-path (its own docstring: "required for anything that asserts on exact breakpoint-stop PCs"),
-and the stop PC is asserted against the label before a2 is read. A stop anywhere else is
-reported as SETUP FAILURE (exit 2), never as a verdict.
+THE STOP MUST BE EXACT, AND THAT REQUIREMENT OUTLIVED THE SERVER THAT MADE IT AWKWARD. A
+stop one instruction early lands BEFORE `adda.w`, where a2 still holds `Pal_Variant_Stage`
+unmodified — a plausible-looking value that would make this gate pass on code that never
+applied the offset at all. On the legacy C++ server that meant opting out of the
+deterministic serial scheduler (`deterministic=False`), because its rollback stopped at
+COMMIT granularity and it said so in the reply: "det-mode stop granularity: PC may precede
+the breakpoint". The Rust core has no such mode and no such caveat — `emulator/run_to` parks
+on the exact instruction — so the knob is gone and the requirement is simply met. The stop PC
+is still asserted against the label before a2 is read; a stop anywhere else is reported as
+SETUP FAILURE (exit 2), never as a verdict.
+
+INSTRUMENT: the Rust core via `tools/aether_instance.py`, converted 2026-08-26. THIS is the
+gate that paid for the cutover: on the legacy server its segment WEDGED twice at 240 s each
+on 2026-08-25 (the stop race — arm, resume, and wait for an event that never came) and only
+passed on a hand `--only` retry. `run_to` is synchronous and bounded, so there is nothing
+left to race with.
 
 TWO FIXTURES, NOT ONE POISON. The anti-vacuity proof here is differential: two programs whose
 only difference is the encoded offset must produce two separately-predicted a2 values AND a
@@ -56,10 +63,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
-sys.path.insert(0, "/home/volence/sonic_hacks/oracle-old/linux-port/harness")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient                                   # noqa: E402
-from launcher import headless_emulator                         # noqa: E402
+from aether_instance import aether_emulator, read_bytes, write_bytes  # noqa: E402
 from raster_cost_probe import parse_lst, program_words, stream_pal_region, pal_restore  # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
@@ -116,6 +122,12 @@ def parse_lst_locals(path: str) -> dict[str, int]:
     return out
 
 
+# The fixture arms one fire at line 60, so the probe label is reached inside the NEXT frame.
+# 120 frames is ~60x that: a ceiling, not a performance assertion, and it is counted in
+# emulated frames so a loaded machine cannot make it expire.
+PROBE_MAX_FRAMES = 120
+
+
 class SetupError(Exception):
     """Something made the measurement impossible. Not a verdict — exit 2, never exit 1."""
 
@@ -128,8 +140,10 @@ async def measure(b: BusClient, sym: dict, probe_pc: int, fx: dict, settle: int,
     fires = [(60, [op])]
     image = "".join(f"{w:04X}" for w in program_words(fires))
 
-    await b.call("emulator/breakpoint_clear", {"all": True})
-    await b.call("emulator/reset", {"wait": True, "run": False})
+    # No breakpoints to clear (the Rust core serves none) and reset takes NO params: it
+    # refuses undeclared keys with -32602, and resets to a STOPPED machine, which is what the
+    # legacy `{wait, run: False}` pair was asking for.
+    await b.call("emulator/reset", {})
     await b.call("emulator/run_frames", {"frames": settle})
     # Freeze the camera BEFORE installing: a section crossing installs its own program over
     # the poke, and the failure would read as a wrong source rather than a lost fixture.
@@ -138,7 +152,7 @@ async def measure(b: BusClient, sym: dict, probe_pc: int, fx: dict, settle: int,
     await b.call("emulator/run_frames", {"frames": 2})
 
     buf = sym["Raster_Buf_A"]
-    await b.call("emulator/write_memory", {"addr": hex(buf), "bytes": image})
+    await write_bytes(b, buf, image)
     await b.call("emulator/write_memory",
                  {"addr": hex(sym["Raster_Patch_Tab"]), "value": 0, "width": 4})
     await b.call("emulator/write_memory",
@@ -152,25 +166,24 @@ async def measure(b: BusClient, sym: dict, probe_pc: int, fx: dict, settle: int,
 
     # The poke must still be there. Without this a fixture that was rebuilt underneath us
     # would be measured as a source-address failure.
-    back = (await b.call("emulator/read_memory",
-                         {"addr": hex(buf), "len": len(image) // 2}))["bytes"].upper()
+    # read_bytes, not the raw reply: the Rust core prefixes returned hex with `0x`, and this
+    # comparison against the written image would fail on the prefix alone.
+    back = (await read_bytes(b, buf, len(image) // 2)).upper()
     if back != image:
         raise SetupError(f"fixture {fx['name']}: program image did not survive install\n"
                          f"        wrote {image}\n        read  {back}")
 
-    await b.call("emulator/breakpoint_add", {"addr": hex(probe_pc)})
-    await b.call("emulator/resume", {})
-    # 120 s, not 20: this is a WEDGE DETECTOR, not a performance assertion (the
-    # lane doctrine: budgets sit 8-35x above honest runtimes). The 20 s budget
-    # predated that doctrine and produced four load-induced false SETUP failures
-    # on 2026-08-19 alone (parallel agent lanes, load 8+), each passing clean on
-    # an unloaded retry. A real wedge hangs forever; 120 s still catches it.
-    r = await b.call("emulator/wait_for_break", {"timeout_ms": 120000})
-    if r.get("running", False) is not False:
-        raise SetupError(f"fixture {fx['name']}: never reached the probe label within 120 s — "
-                         f"the handler did not run the op at all")
+    # The wall-clock deadline is GONE, and with it the thing it was defending against. It
+    # was a wedge detector sized in SECONDS (120 s, raised from 20 s after four load-induced
+    # false SETUP failures on 2026-08-19), because arm-resume-wait could hang forever on a
+    # loaded machine. `run_to` is bounded in EMULATED FRAMES instead: it returns when the PC
+    # arrives or when the ceiling is spent, and says which. Load cannot change the answer.
+    r = await b.call("emulator/run_to", {"addr": hex(probe_pc), "maxFrames": PROBE_MAX_FRAMES})
+    if not r.get("reached"):
+        raise SetupError(f"fixture {fx['name']}: never reached the probe label within "
+                         f"{PROBE_MAX_FRAMES} frames — the handler did not run the op at all "
+                         f"(stopped at pc={r.get('pc')})")
     regs = await b.call("emulator/registers", {})
-    await b.call("emulator/breakpoint_clear", {"all": True})
 
     pc = int(regs["pc"].lstrip("$"), 16) & 0xFFFFFF
     if pc != probe_pc:
@@ -247,9 +260,10 @@ def main() -> int:
     ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
     ap.add_argument("--settle", type=int, default=180)
     args = ap.parse_args()
-    # Absolute: headless_emulator launches oracle with `env -C <oracle repo>`, so a RELATIVE
-    # ROM path silently fails to load while every poke and read still answers ok against
-    # blank RAM.
+    # Absolute, still: `aether_emulator` resolves the path itself, but the server is handed
+    # the .lst too and REFUSES a mismatched pair, so both spellings must name one build.
+    # (Under the legacy harness a RELATIVE ROM silently failed to load while every poke and
+    # read still answered ok against blank RAM.)
     rom, lst = str(Path(args.rom).resolve()), str(Path(args.lst).resolve())
     if not Path(rom).is_file():
         print(f"raster_source_gate: ROM not found: {rom} — build it first", file=sys.stderr)
@@ -284,8 +298,7 @@ def main() -> int:
         f"{f['name']} addr {restore_offset_of(f)}" for f in RESTORE_FIXTURES) + "\n")
 
     try:
-        # deterministic=False is REQUIRED here — see the module docstring.
-        with headless_emulator(rom, deterministic=False) as sock:
+        with aether_emulator(rom, symbols=lst) as sock:
             fails = asyncio.run(run(sock, sym, probe_pc, restore_pc, lst, args.settle))
     except SetupError as e:
         print(f"\nraster_source_gate: SETUP — {e}", file=sys.stderr)

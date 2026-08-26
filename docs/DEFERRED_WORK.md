@@ -9532,3 +9532,51 @@ and fails if the ceiling ever stops fitting, so a future shrink of that run cann
 **Aeon-side fix shipped:** the three `probe_core` pointers pinned (`lea (X).l`; `movea.l #{ptable}` for the template arg — `({ptable}).l` does not parse) — same 6-byte encodings, same cycles, measurement now base-invariant. Grep candidates for the same shape before the next byte-moving parcel: `grep -rn "lea     [A-Z][A-Za-z_]*, a" games engine --include=*.emp` and check each target lives above $8000.
 **Proposal for sigil:** (a) treat a provisional-round measurement that resolved any absolute-width choice against an UNKNOWN address as distorted (feed the next round, never the fixpoint) — the spread fallback already exists for the length case; (b) name the section whose length changed between rounds in the diagnostic instead of the first overlapping pair. Not a repin matter: no frozen row moved.
 **Also measured, same parcel:** a NEW `.emp` module is discovered without a `native.rs` registry row — it needs only a `map.toml` `order` row (`[map.order-undeclared]` otherwise). Worth a line in ENGINE_ARCHITECTURE's engine/game contract section when it is next touched.
+
+## From the gate-cutover parcel (2026-08-26, `parcel/gate-cutover`)
+
+The effects gate lane moved onto the Rust core through one seam, `tools/aether_instance.py`.
+Verdicts and asserted values are unchanged (each converted gate's full output is
+byte-identical before/after); full lane 233 s -> 191 s, both 26 of 27. Details and the four
+wire differences are in `docs/OVERSEER.md`'s Instruments section. What this parcel
+deliberately left:
+
+- **`ab_runner.py` is the next real lever and it is NOT OURS.** The four `scene:*` segments
+  cost ~38 s each — 80% of the lane's wall clock after the cutover — and every one of them
+  is `ab_runner --selfcheck` booting the legacy `oracle_gui` twice under xvfb. The file lives
+  in `oracle-old/linux-port/harness`, so this is a **proposal for the oracle lane**, not work
+  to schedule here. Note the shape of the ask before making it: ab_runner's job is a
+  same-ROM/twice-run determinism comparison, and the Rust core already gates determinism
+  itself (`a1_determinism_three_boots_byte_identical`), so the port may be smaller than the
+  file — or the gate may be replaceable by `state_hash{includeFramebuffer}` on two spawns.
+
+- **Rung 2 of the identity assertion is a stale-binary crutch with a deletion condition.**
+  `assert_rust_server` consults `implementation == "oracle-rs"` when present and falls back
+  to `serverName == "oracle-next"` when it is not — because oracle's `bc2cddd` (the handshake
+  identity commit, 2026-08-26) is NOT in the release binaries here, both built 2026-08-25
+  21:03. **When oracle's `oracle-aether` and `oracle_gui` are rebuilt, delete rung 2 and
+  `test_explicit_implementation_wins_over_server_name`'s sibling fallback test**, and the
+  assertion becomes the single field the contract intends. A two-rung check that outlives its
+  reason is how a discriminator quietly stops discriminating.
+
+- **The profiler ask is HALF discharged, and the half that matters is still open.** Measured
+  firsthand 2026-08-26 against the shipped `oracle-aether`: `capabilities.profiler: true`,
+  and `get_profiler_frames` serves `interrupts.hint.cyclesSelf` / `cyclesSelfTotal` and the
+  same for `vint`. But `set_profiler` must be armed `{perFrame: true}` (otherwise a `frames`
+  param is refused with -32005, which reads like a profiler problem and is not), and the
+  `perFrame[]` rows still carry only `cycles`/`hintCycles`/`vintCycles`/`stallCycles` — **no
+  self field for either bucket**, which is precisely the gap the Instruments hold names. So
+  the three profiler probes (`raster_cost_probe`, `engine_baseline_probe`,
+  `streaming_choke_probe`) stay on the legacy harness and were not touched. Re-check this
+  before any future migration: it is one wire field away from being ready, and the aggregate
+  half already landed without anyone here noticing.
+
+- **`vsplit_landing`/`warp_mailbox`/`boot_override` kept their own spawn code.** They got the
+  identity assertion (2 lines each) but not `AetherInstance`. What they still lack against it:
+  readiness by socket ACCEPT rather than file existence (a file can exist before the listener
+  binds), and PR_SET_PDEATHSIG. Folding them in is a small, safe follow-up; it was not worth
+  restructuring three working gates inside a parcel whose whole evidence is "same verdict".
+
+- **`boot_override` fails on master and still does.** SETUP ERROR: 1 of 9 sections now binds
+  its own `sec_parallax_config`. Identical text before and after the cutover — recorded here
+  only so the next reader of a 26-of-27 lane total does not attribute it to the instrument.

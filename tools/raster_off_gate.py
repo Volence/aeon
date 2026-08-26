@@ -25,6 +25,10 @@ which is the failure mode two gates in this tree have already had.
 The ROUND TRIP is half the gate: uninstall, re-install a real program, uninstall again. A one-way
 check passes on an engine that can turn the handler off and never bring it back.
 
+INSTRUMENT: the Rust core (`oracle-aether`) via `tools/aether_instance.py`, which asserts it
+really is the Rust core before this gate reads a byte. Converted from the legacy `oracle_gui`
+harness 2026-08-26; same verdict, 9.0 s -> 0.5 s.
+
 Usage:
     python3 tools/raster_off_gate.py [--rom s4.debug.bin] [--lst s4.debug.lst]
 Exit: 0 all assertions hold · 1 an assertion failed · 3 setup/boot error
@@ -36,10 +40,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
-sys.path.insert(0, "/home/volence/sonic_hacks/oracle-old/linux-port/harness")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient            # noqa: E402
-from launcher import headless_emulator  # noqa: E402
+from aether_instance import aether_emulator  # noqa: E402
 from raster_cost_probe import parse_lst  # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
@@ -71,7 +74,9 @@ async def run(sock, sym, rte_word, ie1_bit, lst) -> list[str]:
     b = BusClient(socket_path=sock, client_id="rastoff", client_name="raster_off_gate")
     await b.connect()
     await b.call("emulator/load_symbols", {"path": lst})
-    await b.call("emulator/reset", {"wait": True, "run": False})
+    # `emulator/reset` takes NO params on the Rust core (-32602 otherwise) and resets to a
+    # STOPPED machine, which is what the legacy `{wait, run: False}` pair was asking for.
+    await b.call("emulator/reset", {})
     await b.call("emulator/run_frames", {"frames": 180})
     # Freeze the camera: a section crossing would install its own program over the poke and the
     # failure would read as a teardown bug.
@@ -153,7 +158,7 @@ def main() -> int:
     print(f"  derived: HBLANK_SLOT_RTE=${rte_word:04X}  HBLANK_IE1_BIT=${ie1_bit:02X}  "
           f"Raster_Program_None=${sym['Raster_Program_None']:06X}\n")
     try:
-        with headless_emulator(rom) as sock:
+        with aether_emulator(rom, symbols=lst) as sock:
             fails = asyncio.run(run(sock, sym, rte_word, ie1_bit, lst))
     except Exception as e:                       # boot / bus failure is a setup error, not a verdict
         print(f"raster_off_gate: run error: {e}", file=sys.stderr)

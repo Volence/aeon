@@ -72,6 +72,31 @@ to THIS invocation's ROM are reaped (by argv token — never a bare pkill, see `
 A segment that wedges twice becomes its OWN named failure row, "WEDGED after retry". The lane
 is loud on unmeasurable and the other 21 gates still report.
 
+WHICH EMULATOR, AFTER THE 2026-08-26 CUTOVER. The owner ruled the Rust core the default
+instrument (empyrean 3c21183) and most of this lane is now on it, through the one shared seam
+`tools/aether_instance.py` — which spawns it, waits for the socket to ACCEPT, ASSERTS the
+server really is the Rust core, and reaps it. Seven of the twelve emulator segments spawn
+oracle-aether (raster_off, raster_source, palette_variant, snapshot_poison converted here;
+vsplit_landing, warp_mailbox, boot_override always did). Those seven CANNOT hit the stop race:
+oracle-aether boots PAUSED and `run_frames`/`run_to` are synchronous and bounded, so there is
+no resume-then-wait-for-an-event to lose. They also reap their OWN processes, which is why
+`oracle_pids_for` — an oracle_gui-only search, deliberately — cannot see them and does not
+need to.
+
+Five gates STAY on the legacy oracle_gui, for reasons that are not about this lane:
+  * scene:* (4 segments, 8 gates) drive `ab_runner.py`, which lives in `oracle-old`. Porting
+    it is oracle's call, not ours. At ~38 s each they are now 80% of the lane's wall clock.
+  * cost_model drives `raster_cost_probe.py`, one of the three PROFILER probes held under
+    docs/OVERSEER.md's Instruments section. The Rust core's profiler exists and serves
+    `interrupts.{hint,vint}.cyclesSelf`, but the `perFrame[]` rows still carry no self field
+    for either bucket, which is the specific gap the hold names. Not ours to close.
+
+Measured, same ROM, same machine, 2026-08-26, as whole lane segments: raster_off 9.7 -> 0.5 s,
+palette_variant 12.6 -> 1.5 s, snapshot_poison 9.8 -> 0.5 s, raster_source 13.3 -> 1.5 s;
+whole lane 233 -> 191 s, same 26-of-27 verdict. The budgets below were NOT lowered to match:
+a budget is a wedge detector and wants headroom, and five of the gates it covers still boot
+the legacy server.
+
 `--only` is unchanged: it runs in-process exactly as it always did. It is both the escape hatch
 and the mechanism the segments themselves use, so it cannot be allowed to grow a second shape.
 
@@ -121,9 +146,11 @@ DENSE_SCENE = "dense"
 #
 # `emulator` is what the partition keys on and it is a FACT ABOUT THE TOOL, checked by reading
 # it: scanline_spans is computed inline from listings, demo_specialization_witness.py imports
-# no launcher, and every other entry reaches `launcher.headless_emulator` (directly or through
-# ab_runner / raster_cost_probe). Note palette_variant IS emulator-backed — it drives the
-# palette_dsl vectors through the real 68000 proc, which is the whole of the B2 gate.
+# no launcher, and every other entry boots SOMETHING — since 2026-08-26 that is oracle-aether
+# via `aether_instance` for all but scene:* (ab_runner) and cost_model (raster_cost_probe),
+# which still reach `launcher.headless_emulator`. Note palette_variant IS emulator-backed —
+# it drives the palette_dsl vectors through the real 68000 proc, which is the whole of the
+# B2 gate.
 #
 # `budget` is the wedge timeout in seconds, NOT a performance assertion. A wedge hangs FOREVER,
 # so the only job of these numbers is to sit above any honest run; a false WEDGED on a loaded
@@ -156,21 +183,20 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         ("raster_source", True, GATE_EMU_BUDGET),
         # vsplit_landing is raster_source's sibling one layer out: raster_source observes the
         # handler INTERPRETING an op, this observes the RENDERED CONSEQUENCE of one — which
-        # row the write governs and which row the VBlank writer still owns. It boots
-        # oracle-aether rather than oracle_gui (it needs `emulator/scanlines`, the only pixel
-        # readback with a `source` field), so `oracle_pids_for` cannot reap its processes; it
-        # manages its own through the Server context manager, four short runs.
+        # row the write governs and which row the VBlank writer still owns. It needs
+        # `emulator/scanlines`, the only pixel readback with a `source` field, so it was on
+        # oracle-aether before the rest of the lane joined it; it still manages its own
+        # processes through its Server context manager, four short runs.
         ("vsplit_landing", True, GATE_EMU_BUDGET),
         ("palette_variant", True, GATE_EMU_BUDGET),
         ("snapshot_poison", True, GATE_EMU_BUDGET),
         # warp_mailbox is not an EFFECTS gate; it rides this lane because this is the
         # tree's ONLY emulator-gate runner, and the machinery it needs — per-gate
         # segmentation, a wedge timeout, one retry, ROM-scoped process reaping — is
-        # exactly the machinery an emulator gate needs regardless of subject. It boots
-        # oracle-AETHER rather than oracle_gui (it needs `emulator/scanlines`), so
-        # `oracle_pids_for` cannot see or reap its processes; it manages its own via
-        # the Server context manager, and its own RPC deadlines mean a wedge surfaces
-        # as its exit 2 before this lane's budget expires.
+        # exactly the machinery an emulator gate needs regardless of subject. It needs
+        # `emulator/scanlines`, so like vsplit_landing it was on oracle-aether first; it
+        # manages its own processes via the Server context manager, and its own RPC
+        # deadlines mean a wedge surfaces as its exit 2 before this lane's budget expires.
         ("warp_mailbox", True, GATE_EMU_BUDGET),
         # boot_override rides here for warp_mailbox's reason, and beside it deliberately:
         # the two are the game's two external placement mailboxes and share their clamp and
@@ -211,14 +237,20 @@ def segments() -> list[tuple[str, list[str], int]]:
 
 
 def oracle_pids_for(rom: str) -> list[int]:
-    """PIDs of oracle_gui processes launched against THIS invocation's ROM.
+    """PIDs of legacy oracle_gui processes launched against THIS invocation's ROM.
+
+    SCOPE, since the 2026-08-26 cutover: this searches for `oracle_gui` ONLY, and that is
+    correct rather than an oversight. The seven segments now on oracle-aether reap their own
+    children from a `finally` (and carry PR_SET_PDEATHSIG as a backstop), so there is nothing
+    of theirs left for a retry to clean up. What remains for this function is scene:* and
+    cost_model, which still boot the legacy server under xvfb-run.
 
     NEVER a bare `pkill oracle_gui`. That mistake was made twice on 2026-08-19 and it is not a
     style point: this tree routinely has several worktrees running the lane at once, and a bare
     pkill kills another session's emulator mid-measurement — which looks exactly like the wedge
     it was meant to clean up after.
 
-    `launcher.headless_emulator` spells the emulator as
+    `launcher.headless_emulator` spells the legacy emulator as
 
         <oracle>/linux-port/build/oracle_gui <tmpdir>/settings.xml <rom_path>
 

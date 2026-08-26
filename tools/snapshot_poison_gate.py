@@ -34,6 +34,10 @@ run; the unconditional-copy direction is live in the real pass via the retain-po
 POISON VALUE: $F1F1 — bits set outside the CRAM $0EEE format, and asserted absent from the
 fixture's `Palette_Buffer` before use.
 
+INSTRUMENT: the Rust core (`oracle-aether`) via `tools/aether_instance.py`, converted from
+the legacy `oracle_gui` harness 2026-08-26. The breakpoint triple became one `run_to` — see
+`stop_at` for why the stop RULE is unchanged, which is what lesson 2 rests on.
+
 Usage: python3 tools/snapshot_poison_gate.py [--rom s4.debug.bin] [--lst s4.debug.lst]
 Exit: 0 gate holds · 1 a splice assertion failed · 2 setup/boot/control error
 """
@@ -43,10 +47,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
-sys.path.insert(0, "/home/volence/sonic_hacks/oracle-old/linux-port/harness")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient                     # noqa: E402
-from launcher import headless_emulator           # noqa: E402
+from aether_instance import aether_emulator, read_bytes, write_bytes  # noqa: E402
 from raster_cost_probe import parse_lst          # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
@@ -58,14 +61,22 @@ class SetupError(Exception):
     pass
 
 
+# The Rust core serves NO breakpoints (`capabilities.breakpoints: false`) and no
+# `wait_for_break`. `emulator/run_to` replaces the arm/resume/wait triple with one
+# synchronous call, and it keeps the semantics lesson 2 depends on: the predicate is
+# evaluated at an instruction boundary, so the machine parks WITH pc == addr and that
+# instruction NOT yet executed — which is why a stop at `Enqueue_Dirty_Buffers+4` sees d0
+# already loaded by the move.b at +0. The captured mask is identical to the legacy run's,
+# which is the evidence that the two stop rules agree here.
+STOP_MAX_FRAMES = 120        # the handler runs every frame; 120 is ~2 s of game time
+
+
 async def stop_at(b: BusClient, addr: int, what: str) -> dict:
-    await b.call("emulator/breakpoint_add", {"addr": hex(addr)})
-    await b.call("emulator/resume", {})
-    r = await b.call("emulator/wait_for_break", {"timeout_ms": 20000})
-    if r.get("running", False) is not False:
-        raise SetupError(f"never reached {what} within 20 s")
+    r = await b.call("emulator/run_to", {"addr": hex(addr), "maxFrames": STOP_MAX_FRAMES})
+    if not r.get("reached"):
+        raise SetupError(f"never reached {what} within {STOP_MAX_FRAMES} frames "
+                         f"(stopped at pc={r.get('pc')})")
     regs = await b.call("emulator/registers", {})
-    await b.call("emulator/breakpoint_clear", {"all": True})
     pc = int(regs["pc"].lstrip("$"), 16) & 0xFFFFFF
     if pc != addr:
         raise SetupError(f"stopped at ${pc:06X}, expected ${addr:06X} ({what})")
@@ -84,29 +95,31 @@ async def run(sock: str, sym: dict, locals_: dict, lst: str) -> list[str]:
     buf = sym["Palette_Buffer"]
 
     # Lesson 2: byte-verify the prologue before trusting the +4 offset.
-    head = (await b.call("emulator/read_memory", {"addr": hex(edb), "len": 2}))["bytes"]
+    head = await read_bytes(b, edb, 2)
     if head.upper() != "1038":
         raise SetupError(f"Enqueue_Dirty_Buffers no longer starts with move.b (xxx).w,d0 "
                          f"(read {head}) — the +4 breakpoint offset is stale; re-derive it")
     beq_stop = edb + 4
 
-    await b.call("emulator/reset", {"wait": True, "run": False})
+    # No params: the Rust core refuses undeclared keys (-32602) and resets to a STOPPED
+    # machine, which is what the legacy `{wait, run: False}` pair was asking for.
+    await b.call("emulator/reset", {})
     await b.call("emulator/run_frames", {"frames": 180})
     await b.call("emulator/write_memory",
                  {"addr": hex(sym["Debug_Scene_Freeze"]), "value": 1, "width": 1})
     await b.call("emulator/run_frames", {"frames": 2})
 
     # Poison check: no fixture palette word may equal the poison.
-    buf_now = (await b.call("emulator/read_memory", {"addr": hex(buf), "len": 128}))["bytes"]
+    buf_now = await read_bytes(b, buf, 128)
     words = [buf_now[i:i + 4].upper() for i in range(0, 256, 4)]
     if f"{POISON_WORD:04X}" in words:
         raise SetupError("the fixture palette contains the poison word $F1F1 — pick another")
 
     # ---- CONTROL PASS: poison, stop BEFORE the splices, dirty half MUST fail there.
-    await b.call("emulator/write_memory", {"addr": hex(snap), "bytes": POISON})
+    await write_bytes(b, snap, POISON)
     regs = await stop_at(b, beq_stop, "the pre-enqueue stop (control)")
     mask_c = int(regs["d0"].lstrip("$"), 16) & 0x0F
-    snap_c = (await b.call("emulator/read_memory", {"addr": hex(snap), "len": 128}))["bytes"]
+    snap_c = await read_bytes(b, snap, 128)
     if mask_c == 0:
         raise SetupError("control: pre-enqueue mask is 0 — no dirty line to observe; the "
                          "fixture scene no longer dirties any line per frame")
@@ -119,9 +132,9 @@ async def run(sock: str, sym: dict, locals_: dict, lst: str) -> list[str]:
                          "else writes the snapshot)")
 
     # ---- REAL PASS: buffer read at the SAME stop (lesson 3), then run to .no_pal.
-    buf_at_stop = (await b.call("emulator/read_memory", {"addr": hex(buf), "len": 128}))["bytes"]
+    buf_at_stop = await read_bytes(b, buf, 128)
     await stop_at(b, no_pal, ".no_pal (after all four splices)")
-    snap_after = (await b.call("emulator/read_memory", {"addr": hex(snap), "len": 128}))["bytes"]
+    snap_after = await read_bytes(b, snap, 128)
 
     def check(label: str, cond: bool, detail: str) -> None:
         print(f"  {'PASS' if cond else 'FAIL'}  {label}: {detail}")
@@ -180,8 +193,11 @@ def main() -> int:
         return 2
 
     try:
-        # deterministic=False: exact stop-PC assertions (the raster_source_gate precedent).
-        with headless_emulator(rom, deterministic=False) as sock:
+        # The legacy `deterministic=False` is gone with the legacy server: it bought exact
+        # stop PCs by opting out of the C++ threaded scheduler's coarse rollback. The Rust
+        # core has no such mode and `run_to` parks on the exact instruction, so the knob has
+        # no counterpart and needs none — every stop-PC assertion below still holds.
+        with aether_emulator(rom, symbols=lst) as sock:
             fails = asyncio.run(run(sock, sym, locals_, lst))
     except SetupError as e:
         print(f"\nsnapshot_poison_gate: SETUP — {e}", file=sys.stderr)
