@@ -10279,7 +10279,15 @@ Requirements are ALIGNMENT + ORDER, never addresses: vectors + header at 0x0 (ha
 `ObjCodeBase` = a 64 KB-aligned object-bank window base (0x10000 is a kept design choice);
 `dac_banks` / `sound_bank` / the 0x60000 z80 region = 0x8000 alignment (SetBank latch
 granularity) + derivable co-resident bank id (`relax::bank_diag`) + order "after all data";
-the MD Debugger island = LAST emission. `EndOfRom` and every other row = packing outcome.
+the MD Debugger island = LAST emission (ruled 2026-08-26 to be GATED sigil-side, hard under
+`SIGIL_STRICT_GATE`, red-first against a reordered map — the one requirement the tables cannot
+carry; sigil to spec). Amendment: the object-bank WINDOW SIZE (64 KB,
+`native_object_bank_budget.rs`) is a requirement distinct from the base. `EndOfRom` and every
+other row = packing outcome. Sigil's touch-enumeration (their master `e4918a7d`) found ten
+`crates/*/tests` files pinned to the old bank addresses, three of them NEGATIVE probes
+(`ports.rs`, `sfx_negative_probes.rs`, `mt_negative_probes.rs`) that go vacuous-green after a
+move unless their bank ids are re-derived from the map — a red-first run per probe is a landing
+requirement of ROM-RELAYOUT.
 Also ruled: the asl-parity far-scratch measurement of never-pinned sections is no game
 requirement — DROP it as its own byte-moving parcel after this re-layout and after step 4.
 Sigil's finding, in force for ROM-RELAYOUT: under `SizeSource::Frozen` map.toml anchors are
