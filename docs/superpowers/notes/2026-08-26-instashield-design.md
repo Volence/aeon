@@ -109,24 +109,31 @@ anim 0:  dc.b $1F,  6, $FF                                  ; idle: the EMPTY fr
 anim 1:  dc.b   0,  0,0,1,2,3,4,5,6,6,6,6,6,6,6,7, $FD, 0   ; the attack
 ```
 
-Duration byte `0`. Both S3K's `Animate_Sprite` (`:36160-36178`, `subq.b/bcc`) and
-Aeon's `AnimateSprite` (`engine/objects/animate.emp:91`, `subq.b/bpl`) show a frame for
-**duration + 1** display frames, so `0` means one frame each and the attack script is
-**15 display frames long**.
+The first byte is the DURATION; the frame list is the **14** bytes
+`0,1,2,3,4,5,6,6,6,6,6,6,6,7` (frame 0 appears once — the leading `0,0` is
+duration-then-frame-0, which is easy to misread as a doubled first frame). Both S3K's
+`Animate_Sprite` (`:36160-36178`, `subq.b/bcc`) and Aeon's `AnimateSprite`
+(`engine/objects/animate.emp:91`, `subq.b/bpl`) show a frame for **duration + 1**
+display frames, so `0` means one frame each and the attack script is **14 display
+frames long**.
 
-`Map - Insta-Shield.asm` has 8 offset words for **6 distinct frame bodies**: frames 0-5
-are the visible flash (3, 3, 2, 3, 3, 3 pieces), and offsets **6 and 7 both point at
-`word_1A152: dc.w 0` — a ZERO-PIECE frame.** So the script is 7 entries of visible art
-(frame 0 shown twice) followed by **8 entries of nothing**, and the flag flips to 2 on
-the 15th, which is the first and only entry whose frame index is 7.
+`Map - Insta-Shield.asm` has 8 offset words for **7 distinct frame bodies**: frames 0-5
+are the visible flash (3, 3, 2, 3, 3, 3 pieces — confirmed by the converted blob), and
+offsets **6 and 7 both point at `word_1A152: dc.w 0` — a ZERO-PIECE frame.** So the
+script is **6 entries of visible art followed by 8 entries of nothing**, and the flag
+flips to 2 on the 14th, the first and only entry whose frame index is 7.
 
-**The attack window is therefore 15 frames, and more than half of it is invisible.**
+**The attack window is therefore 14 frames, and more than half of it is invisible.**
 That is deliberate in S3K: the hitbox outlives the flash.
 
 Frame-for-frame, with `TouchResponse` running on Sonic before the Shield object in the
-same pass: the press frame is frame 1 of 15 and reads flag = 1; the 15th frame still
-reads 1 when the touch test runs and the object writes 2 immediately after; frame 16
-reads 2. **15 attacking frames inclusive of the press frame.**
+same pass: the press frame is frame 1 of 14 and reads flag = 1; the 14th frame still
+reads 1 when the touch test runs and the object writes 2 immediately after; frame 15
+reads 2. **14 attacking frames inclusive of the press frame.**
+
+(The converted mapping blob independently corroborates §1.5: every visible frame's
+bounding box comes out `(-24, +24)` on both axes — the same `$18` the object declares
+and the same `$18` the expanded touch box uses.)
 
 ### 1.5 The hitbox — `TouchResponse` (`:20614-20646`)
 
@@ -289,21 +296,38 @@ invariant instead of breaking it, and costs nothing the insta-shield needs:
         move.l  x_pos(a1), x_pos(a0)         ; S3K inherits position outright
         move.l  y_pos(a1), y_pos(a0)
         move.b  status(a1), status(a0)       ; facing -> AnimateSprite's flip bits
-        jbsr    AnimateSprite
         cmpi.b  #INSTASHIELD_LAST_FRAME, mapping_frame(a0)   ; S3K's `cmpi.b #7`
         bne     .not_over
-        movea.w Sst.parent_ptr(a0), a1                       ; AnimateSprite clobbered a1
         cmpi.b  #INSTASHIELD_ATTACKING, PlayerV.instashield(a1)
         bne     .not_over
         move.b  #INSTASHIELD_SPENT, PlayerV.instashield(a1)
     .not_over:
+        jbsr    AnimateSprite                ; may DELETE this slot (AF_DELETE)
         <Perform_DPLC_Deferrable>
         jbra    Draw_Sprite
 ```
 
-The `tst`-before-write is S3K's and is kept for S3K's reason: the player may have landed
+The `cmp`-before-write is S3K's and is kept for S3K's reason: the player may have landed
 (flag back to 0) while the flash was still running, and the flash must not resurrect a
 `2` over that.
+
+**The terminal test runs BEFORE the animator, and that ordering is DERIVED, not
+stylistic.** S3K tests after, because its `TouchResponse` runs on the player BEFORE the
+Shield object in the same pass, so the frame on which the object writes `2` is still an
+attacking frame for the touch test — 14 of them. Aeon's level tick is the other way
+round: `RunObjects` (players AND effects) then `TouchResponse`
+(`games/sonic4/test/ojz_scroll_test.emp:597, 693`), so a write during the object's own
+call is visible to the same frame's touch test and S3K's placement would give **13**.
+Moving the test one call earlier — it then sees the frame the PREVIOUS call set — puts
+the write on the object's 15th and final call, the one where `AF_DELETE` retires it, and
+restores the count to **exactly 14**. Same reference behaviour, opposite instruction
+order, because the surrounding order is opposite.
+
+Running after `AnimateSprite` is what makes the delete safe to sit under: the slot is
+zeroed by then, and `Perform_DPLC` reads `mapping_frame == prev_frame == 0` and returns,
+while `Draw_Sprite` guards null `mappings` (`sprites.emp:72-74`) — the same
+animate-then-draw-a-dead-slot path `dust_puff` and `ring_sparkle` already run. The
+parent pointer is read ONCE, at the top, so nothing dereferences a stale `a1` afterwards.
 
 **Priority band** `PLAYER_PRIORITY_BAND + 1` = the dust's and the sparkle's. S3K's
 `priority $80` against the player's `$100` means IN FRONT; Aeon's bands are inverted
@@ -486,7 +510,7 @@ booked with the exact recipe.
 
 1. **Animation duration, derived, red-first.** A comptime fn walks a script's bytes and
    returns `frames * (duration + 1)`. It is run over BOTH our Aeon script and the
-   embedded donor S3K script, and the `ensure` compares the two — no literal 15 anywhere.
+   embedded donor S3K script, and the `ensure` compares the two — no literal 14 anywhere.
    A second `ensure` pins our terminal frame index to the donor script's last frame byte
    (S3K's `cmpi.b #7`). Proven red by a poison module in the `emp_expect_fail` lane.
 2. **Zero-piece <=> zero-entry correspondence, comptime.** Every mapping frame with 0

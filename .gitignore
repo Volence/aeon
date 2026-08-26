@@ -39,6 +39,11 @@ engine/sound/generated/
 !games/sonic4/data/dplc/optimized/*.bin
 !games/sonic4/data/mappings/*.bin
 !art/palettes/*.bin
+# Donor ANIMATION references — raw reference scripts, embedded by a `const` and
+# NEVER by a `pub data`, so they cost zero ROM bytes and exist only so a comptime
+# gate can COMPUTE its expectation from the reference instead of restating it.
+# (insta_shield_donor_anim.bin is the first; tools/compose_instashield.py emits it.)
+!games/sonic4/data/animations/*.bin
 
 # Sound-migration T2: committed --emit-bin twins of the MT/HCZ2 stream .asm
 # (mirrors the committed generated .asm — sigil's mt_bank.emp embeds these
