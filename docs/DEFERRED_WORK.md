@@ -10570,3 +10570,86 @@ rebuilt from a clean checkout at `c3f5cbe0` with no links and produced all four 
 the landing CRCs exactly (`f81c6811` / `090c6f35` / `8bd3d11b` / `ec71a5a4`). Symlinks belong in an
 agent's development worktree's PARENT, never inside a reference checkout, where seeding them has
 already killed `section_row_fixture` once.
+---
+
+## From the effects-lab hotkey parcel (2026-08-26, `parcel/effects-lab-hotkey`)
+
+`Debug_SceneCycleHotkey` (`games/sonic4/test/ojz_scroll_test.emp`) now steps the live
+background scene through `scene_registry.emp`'s `SCENES[]` from the pad — **START held +
+RIGHT/LEFT pressed**, edge-triggered on the direction, live input only. Zero release bytes,
+`s4.bin` byte-identical (CRC32 `f81c6811` before and after). Three things it deliberately did
+not do, and one correction to the record.
+
+### 1. No on-screen readout of which scene is up — NOT BUILT, and the reason is scope
+
+The hotkey advertises nothing. The owner reviews against the ordered registry list and can read
+`Debug_Scene_Index` (`0xFFFFE50D` in the debug shape) from a debugger.
+
+**The blocker is real:** there is **no debug text or numeric display path in either canonical
+shape**. Nothing in `engine/` or `games/sonic4/` draws a glyph outside the MD Debugger's crash
+screen, which is an exception-context island with its own font and its own VDP posture — it is
+not callable from a running frame. Standing up an in-frame HUD text path means a font in VRAM
+(the art pool is allocated by the build-time pager), a nametable region that survives section
+streaming's plane writes, and a per-frame draw the sprite/DMA budgets have to admit. That is a
+parcel of its own, several times this one's size, and it should be planned as **a general debug
+overlay** rather than as a readout for one hotkey — the anchor nudge, the character cycle and
+the warp mailbox would all use it.
+
+**Cheap interim if it is ever wanted before that lands:** the sky-tint marker
+(`OJZ_SectionMarkerColors`, same module) already proves a per-frame CRAM poke is affordable and
+visible. A scene cursor could tint one palette entry from a twenty-colour table for the same
+cost. Not done here because a colour is not a name and the owner asked for a review tool, not a
+puzzle.
+
+### 2. The override dies at the next section crossing — BY DESIGN, booked so it is not re-found
+
+`Parallax_CheckBoundary` re-installs the section's own scene the frame the camera centre enters
+a new section, so the hotkey's choice survives only until then. Stand still to review the
+twenty. This is deliberate — a debug override that outlived a crossing could leave the act
+permanently mis-configured and every later observation would be against a lie — but it is
+exactly the kind of behaviour a future reader will file as a bug. If a **pinned** mode is ever
+wanted, the shape is a DEBUG-only `Debug_Scene_Pin` byte tested at the top of
+`Parallax_CheckBoundary`, mirroring `Debug_Scene_Freeze`'s treatment of `Camera_Update` in
+`GameState_OJZScroll_Update`. Not built because nothing asked for it and a dormant scaffold is
+worse than none.
+
+### 3. Runtime behaviour is UNWITNESSED — no live-emulator evidence exists for this parcel
+
+Everything claimed here is static: the twenty table pointers were read out of `s4.debug.bin` and
+checked against the `.lst` symbol table, and the proc's opcodes were hand-decoded from the ROM.
+**Nothing has pressed the chord.** Background agents may not drive the emulator MCP (it
+deadlocks), and this hotkey is not reachable from a headless bus script the way a boot-time
+observable is — it needs an input sequence and a look at the result.
+
+**What a foreground session should check, in one sitting:** that START+RIGHT actually advances
+`Debug_Scene_Index` one step per press and not one per frame; that the picture changes and
+changes *correctly* for a scene from each lowering arity (a `lower1`, a `lower4`, a `lower5`);
+that the eighteen `v_factor: 15` locked scenes and the two unlocked OJZ ones both survive a swap
+(the unlocked pair re-map world Y through the camera, so they are the ones a stale band view
+would betray); that installing `OJZ_Underwater` — the only `CAP_ANCHORS` scene, and the only one
+whose live amplitude comes from its anchor shifts — from a non-anchored scene renders without a
+latched remnant; and that walking across a section boundary afterwards restores the section's
+own scene. The instrument for the last one already exists: `tools/parallax_crossing_gate.py`
+samples `Parallax_Current_Config` around a crossing.
+
+### 4. CORRECTION — "the Task-9 swap" is not a runtime mechanism
+
+`scene_registry.emp:215` and `ojz_scenes.emp:8` both say "the swap", and it reads like a runtime
+scene-swap facility. It is not: **Task 9's swap was the DATA-SOURCE swap** — deleting
+`games/sonic4/data/parallax/configs.emp` and moving authorship to `ojz_scenes.emp` +
+`scene_registry.emp`. There is no runtime scene-swap mechanism by that name and there never was.
+The engine's actual live swap is `Parallax_StartTransition` (`engine/level/parallax.emp`), driven
+by `Parallax_CheckBoundary` on section crossings, and that is what this hotkey reuses. Anyone
+reading those two comments looking for a runtime facility will otherwise search for something
+that does not exist.
+
+### 5. Capability safety for the twenty — VERIFIED, and it is structural
+
+All twenty are installable within `Game.SCANLINE_CAPS` **by construction, not by inspection**.
+`scene_registry.emp` folds every scene's demands into `SceneRegistry_CapsFolded` and holds it
+build-fatally in three directions: `== SceneRegistry_CapsExpected` (`$001E`, hand-derived from
+the per-scene roster, two-sided so a scene that STOPS raising a bit is caught too), and
+`(folded & ~Game.SCANLINE_CAPS) == 0` against the declared `$005E`. So the capability spans
+compiled into `parallax.emp` and `preset.emp` are present for every scene in the table, and none
+needs skipping or special-casing. The declared superset (`$0040 CAP_FACTOR_CURVE`, `$0020`
+headroom) is the editor scenes' contribution and costs the hotkey nothing.
