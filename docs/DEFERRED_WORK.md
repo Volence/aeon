@@ -117,12 +117,21 @@ Default→Underwater lerp the sentinel-forced first crossing used to run at boot
 the seeded config).
 
 **Left open (controller-tagged):** (a) runtime confirmation that `Parallax_Current_Config`
-equals the editor record after a crossing once the aurora binding lands; (b)
-`tools/boot_override_gate.py`'s premise tripwire counts `sec_parallax_config` only — with the
-boot select now reading the preset rung, an override into section 0 seeds a different config
-than one into section 1 TODAY, so the gate's blind spot is observable and the tripwire does not
-fire on it. Extend the tripwire to count `ep_parallax` bindings too (or witness the select as
-the gate's own instruction says) before trusting its green for that consumer.
+equals the editor record after a crossing once the aurora binding lands; (b) ~~extend the
+tripwire to count `ep_parallax` bindings too~~ — **CLOSED 2026-08-26,
+`parcel/boot-override-witness`.** The tripwire is gone entirely rather than taught to count a
+second field: `tools/boot_override_gate.py` now WITNESSES the select, reading
+`Parallax_Current_Config` at the init's exit against a Python restatement of
+`Effects_ResolveParallax`'s three rungs — so the preset rung is covered by construction and
+needs no separate count. Measured on master's `s4.debug.bin`: the override into section (1,1)
+seeds `ParallaxConfig_OJZ_Default` via `Act.act_parallax_config`, the control into section
+(0,0) seeds `EditorSceneBinding_OJZ_Act1_Sec0` via `Sec.sec_parallax_config`, and a source
+poison that makes the select read the authored section fails the gate naming both. Full
+closure at §"Boot-position override (§4.12b)" item 1.
+
+Item (a) is NOT closed by that parcel and is narrowed by it: the witness samples at the
+init's exit, deliberately BEFORE any `Parallax_CheckBoundary`, so it says nothing about what
+a crossing installs. That still wants its own measurement.
 
 ### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20
 
@@ -8366,7 +8375,56 @@ Last engine/sound commit at ruling time: 8b39969d (2026-08-11, Tails-flight SFX 
 
 ## Boot-position override (§4.12b) — what the shipped parcel deliberately left (2026-08-19, `feat/debug-boot-override`)
 
-### 1. The parallax half of the hook is UNWITNESSED, and it is unwitnessable in OJZ act 1
+### 1. ~~The parallax half of the hook is UNWITNESSED~~ — CLOSED 2026-08-26, `parcel/boot-override-witness`
+
+> **CLOSED.** The tripwire fired exactly as designed (aurora's first authored scene binds
+> section 0's `sec_parallax_config`), and it is now REPLACED by a witness rather than
+> relaxed. `tools/boot_override_gate.py` reads the installed config directly — the second
+> of the two options this entry named — at the init's EXIT
+> (`GameState_OJZScroll_Update`'s first instruction), which is the sample point that makes
+> the warp's snap irrelevant instead of arguing with it.
+>
+> **What it asserts,** all expectations derived from the ROM's own section grid through a
+> Python restatement of `Effects_ResolveParallax`'s three rungs (`Sec.sec_parallax_config`
+> > `EffectsPreset.ep_parallax` > `Act.act_parallax_config`):
+> `Parallax_Current_Config` must be the DESTINATION section's config under the override and
+> the AUTHORED section's under the control; `Parallax_Target_Config` / `Parallax_Transition_Frames`
+> must be 0 (the init SEEDED it, nothing staged a transition toward it); and — in addition,
+> because a pointer in a cell proves only storage — the VDP reg `$0B` (Mode Set 3) shadow,
+> re-derived from the config's own deform-table fields, plus the `Parallax_Current_Scroll_A/B`
+> tail against its `pcfg_band_count`. Both of the latter are written by `Parallax_Update`
+> FROM the active config, so a select that stored the right pointer where nothing read it
+> passes the first check and fails these.
+>
+> **Anti-vacuity is now about the witness, not a premise.** If the authored and destination
+> sections resolve to the SAME config the gate raises a setup error naming the fact, because
+> then the witness could not fail — the same loudness the tripwire had, aimed at the real
+> blind spot instead of at a proxy for it. The report also prints a NOTE when the two configs
+> agree on both band count and reg `$0B`, i.e. when the consumption checks are not
+> discriminating and the pointer is carrying the witness alone.
+>
+> **Measured, master's `s4.debug.bin` (CRC32 `8279a3fe`), 2026-08-26:** authored section
+> (0,0) → `EditorSceneBinding_OJZ_Act1_Sec0` [`Sec.sec_parallax_config`], 5 bands, reg `$0B`
+> `%10`; destination section (1,1) → `ParallaxConfig_OJZ_Default` [`Act.act_parallax_config`],
+> 4 bands, reg `$0B` `%11`. Both seeded correctly — gate PASS, exit 0.
+>
+> **RED-FIRST, and it re-proves this entry's own claim.** Poison `p3` (temporary source edit,
+> reverted; `if DEBUG == 1` → `if DEBUG == 99` on the boot-select block in
+> `games/sonic4/test/ojz_scroll_test.emp`, so the select keeps the authored
+> `Act.start_sec_x/y`) makes the gate fail with three findings naming both configs:
+> `Parallax_Current_Config = 0x13606 (EditorSceneBinding_OJZ_Act1_Sec0), wanted the
+> DESTINATION section (1, 1)'s 0x12c38 (ParallaxConfig_OJZ_Default)`; reg `$0B` reads `%10`
+> where `%11` was derived; and `Parallax_Current_Scroll_A[4]`/`[4]` non-zero against a 4-band
+> config. **Every pre-existing metric was UNCHANGED under that poison** — 1189/1189 visible
+> plane words identical, 0 of 8 rendered scanlines differing, same 17-frame saving — which is
+> the measured proof of the claim below that the warp cannot arbitrate this consumer.
+>
+> **Lane:** `--only boot_override` went `FAIL` (setup error, exit 2) → `PASS`; the full lane
+> went 26/27 → **27/27, exit 0** (3 m 12.65 s wall, load ~2.4). Zero ROM bytes moved — all
+> four CRCs unchanged (`s4 20b45fae`, `s4.debug 8279a3fe`, `demo bf2cdb42`,
+> `demo.debug 62a0019e`).
+
+The original entry, kept for the reasoning it records:
 
 The override has two consumers in `GameState_OJZScroll_Init`: the placement block after
 `Player_Init` (camera + leader), and the parallax config select further down, which reads
@@ -9571,12 +9629,22 @@ deliberately left:
   before any future migration: it is one wire field away from being ready, and the aggregate
   half already landed without anyone here noticing.
 
-- **`vsplit_landing`/`warp_mailbox`/`boot_override` kept their own spawn code.** They got the
+- **`vsplit_landing`/`warp_mailbox`/~~`boot_override`~~ kept their own spawn code.** They got the
   identity assertion (2 lines each) but not `AetherInstance`. What they still lack against it:
   readiness by socket ACCEPT rather than file existence (a file can exist before the listener
   binds), and PR_SET_PDEATHSIG. Folding them in is a small, safe follow-up; it was not worth
   restructuring three working gates inside a parcel whose whole evidence is "same verdict".
 
-- **`boot_override` fails on master and still does.** SETUP ERROR: 1 of 9 sections now binds
-  its own `sec_parallax_config`. Identical text before and after the cutover — recorded here
-  only so the next reader of a 26-of-27 lane total does not attribute it to the instrument.
+  **`boot_override` is FOLDED, 2026-08-26 (`parcel/boot-override-witness`)** — taken because
+  that parcel was already inside the file. Same verdict before and after (PASS, exit 0, every
+  metric identical), zero `/tmp/aeon-gate-*` left behind. **One wrinkle the other two will
+  hit:** `AetherInstance.start()` runs its own `asyncio.run` for the handshake, so calling it
+  from an async context raises "asyncio.run() cannot be called from a running event loop".
+  `await asyncio.to_thread(inst.start)` is the whole fix — three async gates, one line each.
+
+- **~~`boot_override` fails on master and still does.~~ FIXED 2026-08-26.** It was SETUP
+  ERROR: 1 of 9 sections now binds its own `sec_parallax_config` — identical text before and
+  after the cutover, recorded here only so the next reader of a 26-of-27 lane total did not
+  attribute it to the instrument. `parcel/boot-override-witness` replaced that premise
+  tripwire with a witness of the parallax select; **the lane is 27/27, exit 0** (3 m 12.65 s
+  wall). Full closure at §"Boot-position override (§4.12b)" item 1.
