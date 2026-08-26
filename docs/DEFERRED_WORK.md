@@ -10239,3 +10239,28 @@ own error, `reference_frozen_table_ruling_method`): a re-layout is a refreeze of
 `golden/` boundary tables in every shape, paired aeon+sigil, with the byte-changing parcel ritual
 (`repin` → `refreeze --freeze NAME --ab` with prose). Do NOT raise the anchor. Nothing on screen
 changes; the whole deliverable is placement.
+
+### PROJECT NOMINATION — decouple sigil's test corpus from live aeon (owner YES 2026-08-26T19:19:57Z)
+
+**Owner ruling 2026-08-26:** nominate as a suite project spanning aeon, sigil, empyrean. Hub declares the id;
+this lane tags items with it once declared. Owner's framing: sigil passed its byte-identical
+certification months ago but its harness (goldens = live aeon ROMs, frozen placement tables as
+authority, hand-typed pins re-derived per parcel, paired landings) is still the gate on every aeon
+byte change, which taxes content authoring on a game that will keep growing art, code and data.
+
+Four steps, in order:
+1. **Cut the golden cord** (sigil-heavy): sigil vendors a PINNED aeon source snapshot as its test
+   corpus plus synthetic per-feature fixtures; goldens describe that corpus; bumps on sigil's cadence.
+   Drift detection moves to a nightly job that builds aeon master with sigil master against CRCs
+   aeon commits for itself (aeon-owned expected values; detection without blocking).
+2. **Placement authority comes home** (aeon): fixed anchors (e.g. the 0x48000 sound-bank latch)
+   declared in map.toml; everything else placed fresh every build; an aeon-side gate asserts anchors
+   and room guarantees. This IS the d-28 option-2 re-layout ("ROM-RELAYOUT" queue item) framed as a
+   rule instead of a table. Every constraint the frozen tables encode today must be recaptured as an
+   explicit rule BEFORE the tables stop being authority, or it silently stops being enforced.
+3. **Retire repin/pins.rs from the landing path** (sigil): internal regression tool over its own corpus.
+4. **Archive the byte-identical certification** (empyrean/sigil docs) as a dated historical result.
+
+Accepted costs (stated to the owner before the yes): assembler regressions surface nightly rather
+than at the next aeon landing; one-time medium/large plumbing spend; step-2 sequencing risk above.
+Sequencing: after the showcase lands; step 2 first.
