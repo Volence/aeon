@@ -202,7 +202,32 @@ pub vars game_ram {
         Boot_At_X:          u16,    // boot PLAYER world X (px, flat world space)
         Boot_At_Y:          u16,    // boot PLAYER world Y (px, flat world space)
         Boot_At_Flag:       u8,     // 0 = idle / consumed (the ack); nonzero = pending
-        pad(1),                     // keep Game_RAM_End even
+
+        // -----------------------------------------------
+        // Effects-lab scene cursor (DEBUG shapes only)
+        // -----------------------------------------------
+        // The index into games/sonic4/data/effects/scene_registry.emp's `SCENES[]`
+        // that Debug_SceneCycleHotkey (games/sonic4/test/ojz_scroll_test.emp) last
+        // installed. Range 0..SCENE_CYCLE_COUNT-1; the hotkey asserts that before
+        // every table read.
+        //
+        // THE BOOT VALUE 0 IS MEANINGFUL, not just the RAM clear showing through.
+        // Boot clears all of Work RAM (engine/system/boot.emp `.clear_ram`), so this
+        // reads 0 on the first frame — and SCENES[0] is Scene_OJZ_Default, which is
+        // also `Act.act_parallax_config` for OJZ act 1 (act_descriptor.emp:159). So
+        // on the ordinary boot the cursor already names the scene on screen, and the
+        // first forward press steps to 1 as a reader would expect. A boot into a
+        // section whose preset binds something else (OJZ_Preset_Depth binds
+        // ParallaxConfig_OJZ_Underwater) starts the cursor one entry off the visible
+        // scene for exactly one press; it is a cursor, not a mirror of the engine's
+        // live config, and nothing reads it back.
+        //
+        // IT CONSUMES THE PAD BYTE THAT WAS ALREADY HERE — this DEBUG block grows by
+        // ZERO bytes and Game_RAM_End does not move in either shape. The pad existed
+        // only to keep Game_RAM_End even; a u8 in the same slot does the same job and
+        // carries a value. If a field is ever added after this one, restore a pad(1)
+        // or add another even-sized field.
+        Debug_Scene_Index:  u8,     // effects-lab cursor: index into SCENES[]
     }
 
     mark Game_RAM_End,

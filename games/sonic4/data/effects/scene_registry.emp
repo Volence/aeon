@@ -239,6 +239,30 @@ pub const SCENES: [Scene; 20] = [
     Scene_OJZ_LockedClouds,        // 19  lower5
 ]
 
+// ---------------------------------------------------------------------
+// SCENE_CYCLE_COUNT — the registry's LENGTH, published for a consumer that needs
+// the number without needing the list.
+//
+// The one consumer today is the DEBUG effects-lab hotkey
+// (`Debug_SceneCycleHotkey`, games/sonic4/test/ojz_scroll_test.emp), which wraps a
+// cursor over SCENES[] and indexes a `dc.l` table of the twenty emitted records.
+//
+// A MIRROR WITH A PIN, not a direct `= SCENES.len` export, and the reason is this
+// file's own banner: a `use` edge RE-EVALUATES an imported const's initializer in the
+// CONSUMER's scope (Task 5's probe finding). `SCENES.len` re-evaluated inside
+// ojz_scroll_test would report `unknown name SCENES` at a span inside THIS file —
+// exactly the failure the header describes for `SceneRegistry_CapsFolded`. So the
+// number is written as a literal HERE, where SCENES is in scope, and the `ensure`
+// below is what holds it to the array. Same discipline, same reason, as
+// SCENE_ACT_SPAN_Y further down: "the number is written once and checked where its
+// authority is in scope".
+//
+// PROVEN RED (2026-08-26): changing the literal to 19 fails with the message below
+// reading `19, but SCENES holds 20`.
+pub const SCENE_CYCLE_COUNT = 20
+ensure(SCENE_CYCLE_COUNT == SCENES.len,
+       "scene registry: SCENE_CYCLE_COUNT is {SCENE_CYCLE_COUNT}, but SCENES holds {SCENES.len} scenes. This const is the published LENGTH of the registry — a scene was added or removed without moving it. Update the literal, AND extend the `dc.l` table in Debug_SceneCycleHotkey (games/sonic4/test/ojz_scroll_test.emp) with the new record in the SAME registry order; tools/test_scene_cycle_table_lint.py fails the build if the two disagree")
+
 // =====================================================================
 // The capability fold and its verify.
 //

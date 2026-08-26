@@ -25,6 +25,9 @@ module games.sonic4.ojz_scroll_test in ojz_scroll_test
 use engine.objects.objdef.{vram_bytes}
 use engine.structs.{Act, Sec}
 use engine.constants.{SECTION_SIZE_SHIFT, SCREEN_WIDTH, SCREEN_HEIGHT, CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H, VDP_DATA, VDP_CTRL, BUTTON_A, BUTTON_B, BUTTON_C, BUTTON_UP, BUTTON_DOWN, INPUT_LIVE}
+// BUTTON_START / LEFT / RIGHT — the DEBUG effects-lab hotkey's chord
+// (Debug_SceneCycleHotkey, below).
+use engine.constants.{BUTTON_START, BUTTON_LEFT, BUTTON_RIGHT}
 use engine.constants.{PAGECACHE_AUDIT_INTERVAL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, VDP_MODE2_OFF, VDP_MODE3_OFF}
 use engine.z80_bus.{z80_stopped}
@@ -73,6 +76,33 @@ use games.sonic4.ram.{PlayerBlock}
 // `DEBUG=1 ./build.sh` (Task 7 report): flipping one expected field in the witness fails
 // the build and names the config and the differing field index.
 use games.sonic4.scene_equiv_proof
+
+// ---- THE TWENTY SHIPPED SCENE RECORDS + the registry's length ----
+//
+// Consumed by Debug_SceneCycleHotkey's `dc.l` table (DEBUG shapes only; the table
+// sits inside the proc's `if DEBUG == 1 {}` and emits zero release bytes).
+//
+// EVERY NAME IS SPELLED OUT rather than left to resolve as a link extern, for the
+// reason act_descriptor.emp:26 records: an unknown name in a Label position does not
+// error in .emp, it silently becomes an extern. A misspelling in a twenty-entry
+// pointer table would surface as a runtime wrong picture — or a jump into data — and
+// never as a build failure. With the names imported, a rename in the registry breaks
+// the build HERE.
+//
+// SCENE_CYCLE_COUNT is the registry's length, a mirror-with-a-pin held to `SCENES.len`
+// by an `ensure` in scene_registry.emp (a direct `= SCENES.len` export cannot be
+// imported — the initializer would re-evaluate in this module's scope, where SCENES is
+// not a name). The table's ENTRY COUNT is held to it by
+// tools/test_scene_cycle_table_lint.py, which the build's pytest lane runs.
+use games.sonic4.scene_registry.{SCENE_CYCLE_COUNT}
+use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Default, ParallaxConfig_OJZ_Underwater,
+    ParallaxConfig_OJZ_Windy, ParallaxConfig_Shimmer_Slow, ParallaxConfig_Shimmer,
+    ParallaxConfig_Shimmer_Fast, ParallaxConfig_Haze_Slow, ParallaxConfig_Haze,
+    ParallaxConfig_Haze_Fast, ParallaxConfig_Haze_Uniform, ParallaxConfig_Rocking_Slow,
+    ParallaxConfig_Rocking, ParallaxConfig_Rocking_Fast, ParallaxConfig_Perspective_Subtle,
+    ParallaxConfig_Perspective, ParallaxConfig_Perspective_Dramatic,
+    ParallaxConfig_WindyHaze, ParallaxConfig_SkyHaze, ParallaxConfig_OJZ_Caves,
+    ParallaxConfig_OJZ_LockedClouds}
 
 // player_block — the per-slot PlayerBlock derivation splice; PlayerV — the
 // player's SST overlay (the hotkey reads debug_flag off it). Both are
@@ -592,6 +622,17 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
         //    Emits nothing in the plain shape. --
         if DEBUG == 1 {
                 jbsr    Debug_CharacterHotkey
+        }
+
+        // -- DEBUG effects-lab hotkey (START held + LEFT/RIGHT pressed): step the
+        //    live background scene through the shipped registry. Polled beside the
+        //    character hotkey, before RunObjects, so the swap is whole before the
+        //    camera moves and before Parallax_CheckBoundary runs later in the frame —
+        //    a swap installed AFTER the boundary check would be re-decided by the
+        //    check on the next crossing frame instead of surviving to be looked at.
+        //    Emits nothing in the plain shape. --
+        if DEBUG == 1 {
+                jbsr    Debug_SceneCycleHotkey
         }
 
         // -- initialize sprite system for this frame --
@@ -1188,6 +1229,201 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         clr.b   Warp_Req_Flag                   // (Warp_Req_Flag).w
     .done:
         rts
+    }
+}
+
+// -----------------------------------------------
+// Debug_SceneCycleHotkey — THE EFFECTS LAB. Step the live background scene through
+// the shipped registry with the pad, so all twenty can be reviewed in a minute
+// instead of one headless-emulator gate boot per scene.
+//
+//   START held + RIGHT pressed  -> next scene      (SCENES[i+1], wrapping)
+//   START held + LEFT  pressed  -> previous scene  (SCENES[i-1], wrapping)
+//
+// CYCLE ORDER IS THE REGISTRY ORDER — games/sonic4/data/effects/scene_registry.emp's
+// `SCENES[]`, index 0..19, which is also the ROM emission order. The `dc.l` table
+// below is that list transcribed, and the index comment on each row is the SCENES[]
+// index it mirrors. There is no on-screen readout of WHICH scene is up: no debug text
+// or numeric display path exists in this shape, and building one is a much larger
+// parcel than this. The cursor is readable from a debugger as `Debug_Scene_Index`.
+//
+// ---- WHY THIS CHORD, AND NOT A BARE BUTTON ----
+// Enumerated over the canonical `DEBUG=1 ./build.sh` shape in live gameplay, START is
+// the ONLY free bit on a 3-button pad:
+//   A     jump (press latch + air/fly/glide/climb sustain), and the character-cycle
+//         hotkey above while in debug-fly — which this shape boots into.
+//   B     the CHEAT_DEBUG_FLY free-flight toggle (armed at boot in DEBUG), plus the
+//         B-veto above; masked out of the jump mask precisely because it is taken.
+//   C     in BOTH jump masks, plus the C+UP/DOWN anchor nudge in this very module.
+//   U/D/L/R  steering, spindash, roll, duck, look-up, climb, debug-fly movement, and
+//         the C chord.
+//   START its only reader is engine/system/replay.emp:157, structurally unreachable
+//         with Input_Source == INPUT_LIVE (Input_Tick returns at `.live` first). No
+//         pause handler exists anywhere in engine/ or games/.
+// X/Y/Z/MODE have literally no reader in the tree, and were REJECTED as the binding:
+// they exist only when the pad enumerates as PAD_6BTN (engine/system/controllers.emp),
+// so on a 3-button pad the hotkey would be silently INERT — the owner presses and
+// nothing happens, which is the worst failure mode a review tool can have.
+//
+// So one free bit has to carry two directions, and it does it as a chord — the idiom
+// this module already uses for the anchor nudge (C held + UP/DOWN). This chord is the
+// gentler of the two: START does nothing on its own, where C is a jump button, so the
+// anchor nudge makes the player jump on every step and this one does not. LEFT/RIGHT
+// still steer while the chord is held; for a background review the player is standing
+// still, and that is the whole cost.
+//
+// ---- WHAT THE SWAP REUSES, AND WHY THAT IS THE WHOLE RE-SEED ----
+// `Parallax_StartTransition` (engine/level/parallax.emp) IS the engine's live
+// scene-swap: it is what Parallax_CheckBoundary hands the resolved config to on every
+// section-boundary crossing. This hotkey calls the SAME proc with the SAME contract, so
+// a hotkey swap and a crossing swap are the same operation by construction and there is
+// no second mechanism to keep in step. It picks snap vs. lerp from the new config's
+// `pcfg_transition`, re-writes the VDP $0B (Mode Set 3) shadow from the new config, sets
+// Parallax_Snap_Pending on the instant arm, and no-ops on a re-select of the live config.
+//
+// Everything else a scene needs is re-derived per frame FROM the config, so there is
+// nothing else to re-seed: the band screen-space view (Parallax_Shadow_Bands), the
+// per-line HScroll fill, the VSRAM stride and the deform table reads all read the
+// ACTIVE config (Parallax_Active_Config) every Update. The three deform PHASE
+// accumulators are free-running and masked to $FF, so any value is valid — the crossing
+// path does not reset them either. `Parallax_Init` is deliberately NOT used: besides
+// wiping state a crossing does not wipe, it re-seeds Parallax_Prev_Sec_X/Y to $FF, which
+// would make the very next Parallax_CheckBoundary re-install the section's own config
+// and undo the swap on the following frame.
+//
+// PALETTE AND RASTER ARE NOT TOUCHED, and that is correct rather than a shortcut: a
+// scene IS a parallax_config. Palette, cycle, variants and the raster program are the
+// EffectsPreset's channels (engine/effects/preset.emp), bound per SECTION, not per
+// scene. Cycling scenes must not repaint the act.
+//
+// SCOPE OF THE OVERRIDE: it survives until the camera crosses a section boundary, at
+// which point Parallax_CheckBoundary installs that section's own scene again. Stand
+// still to review the twenty. This is a property worth having rather than a limitation
+// to fix — a debug override can never leave the act permanently mis-configured.
+//
+// ---- CAPABILITY SAFETY ----
+// Installing any of the twenty at runtime is safe by CONSTRUCTION, not by inspection:
+// scene_registry.emp folds every scene's demands into SceneRegistry_CapsFolded and
+// holds it build-fatally to $001E (two-sided pin) and to a subset of
+// Game.SCANLINE_CAPS ($005E). The capability spans compiled into parallax.emp are
+// therefore present for every scene in the table, so none needs skipping.
+//
+// ---- LIVE INPUT ONLY ----
+// The `tst.b Input_Source` gate is REQUIRED, not defensive. START is part of the main
+// controller byte, which engine/system/replay.emp records whole into a fixture (:250)
+// and replays whole (:200) — a fixture that happens to hold START across a LEFT/RIGHT
+// press would flip the scene during playback and desync every downstream check. Same
+// gate, same reason, as Debug_CharacterHotkey's.
+//
+// DEBUG-shape only: the body — the rts AND the pointer table included — sits inside
+// `if DEBUG == 1 {}`, so the whole proc emits ZERO bytes in the plain shape.
+//
+// PLACEMENT IS LOAD-BEARING, and it is the SAME fact Debug_Warp_Consume's header
+// records above: both canonical shapes append the convsym deb2 symbol table, so a
+// zero-byte release LABEL still lands in the appendix and moves the ROM CRC plus the
+// header ROM-end/checksum words. Parked as the THIRD member of this zero-release-byte
+// run, this proc's release label coincides with an address the appendix already carries
+// and dedupes away. Re-measured for this parcel: s4.bin CRC32 f81c6811 before and after,
+// byte-identical. Move it anywhere a real emitting symbol follows and the release ROM
+// changes for a routine that emits nothing.
+//
+// In:  none (reads Ctrl_1_Held / Ctrl_1_Press / Input_Source / Debug_Scene_Index)
+// Out: Debug_Scene_Index advanced and the named config handed to
+//      Parallax_StartTransition, iff the chord fired this frame
+// Clobbers: d0-d2, a0-a1 — a0/d0-d1 via the Parallax_StartTransition tail (it declares
+//           d0-d1), a1 is the table cursor. Narrower than the character hotkey's
+//           because nothing here reaches the player.
+// -----------------------------------------------
+proc Debug_SceneCycleHotkey () clobbers(d0-d2/a0-a1) {
+    if DEBUG == 1 {
+        // Gate 1: live input only — see the header. A `tst.b` is the whole test
+        // because INPUT_LIVE is 0; the same ensure Debug_CharacterHotkey declares
+        // above pins that, and one statement of it covers both readers.
+        tst.b   Input_Source                    // (Input_Source).w
+        bne     .done                           // replaying or recording: stand down
+
+        // Gate 2: the modifier. HELD, not press — START is the chord's shift key, so
+        // it must still count on the frames after the one it went down on.
+        move.b  Ctrl_1_Held, d0                 // tick-stable held latch
+        andi.b  #BUTTON_START, d0
+        beq     .done
+
+        // Gate 3: the step, EDGE-triggered on the direction so a held pad steps once
+        // rather than flipping through twenty scenes in twenty frames.
+        move.b  Ctrl_1_Press, d1                // tick-stable press latch
+        moveq   #0, d2                          // d2 = signed step; 0 until a direction
+        move.b  d1, d0
+        andi.b  #BUTTON_RIGHT, d0
+        beq     .not_forward
+        moveq   #1, d2
+    .not_forward:
+        andi.b  #BUTTON_LEFT, d1
+        beq     .not_back
+        moveq   #-1, d2                         // LEFT wins a same-frame L+R chord; an
+                                                // opposing pair is not a direction, and
+                                                // stepping BACK from an ambiguous press
+                                                // is the recoverable half
+    .not_back:
+        tst.w   d2
+        beq     .done                           // START held with no fresh L/R this frame
+
+        // -- advance the cursor, wrapping both ways over the registry --
+        moveq   #0, d0                          // index-register hygiene (§2.5b)
+        move.b  Debug_Scene_Index, d0           // (Debug_Scene_Index).w
+        add.w   d2, d0
+        bpl     .no_underflow                   // d2 is ±1, so the only underflow is 0-1
+        moveq   #SCENE_CYCLE_COUNT-1, d0
+    .no_underflow:
+        cmpi.w  #SCENE_CYCLE_COUNT, d0          // the cursor only ever steps by one, so
+        bne     .no_overflow                    // equality is the whole wrap condition
+        moveq   #0, d0
+    .no_overflow:
+        assert.w d0, ls, #SCENE_CYCLE_COUNT-1   // in table range — checked BEFORE the
+                                                // store and before the indexed read, so
+                                                // a bad cursor can neither reach RAM nor
+                                                // fetch a pointer from past the table
+        move.b  d0, Debug_Scene_Index           // (Debug_Scene_Index).w
+
+        // -- install it, through the engine's own live scene-swap --
+        lsl.w   #2, d0                          // × sizeof(pointer); no scaled indexing
+                                                // on the 68000
+        lea     .scene_table(pc), a1
+        movea.l (a1,d0.w), a0
+        jbra    Parallax_StartTransition        // snap/lerp + mode shadow; tail call (§2.8)
+    .done:
+        rts
+
+        // THE TABLE, IN SCENES[] ORDER. Every 68000 instruction is an even number of
+        // bytes, so the label after `rts` is word-aligned by construction — no `align`
+        // directive, which would need every preceding instruction size fixed (the
+        // game_debug.emp width-pin hazard) for no gain.
+        //
+        // ITS LENGTH IS GATED: tools/test_scene_cycle_table_lint.py counts these rows
+        // against scene_registry.emp's `pub data ParallaxConfig_*` emissions and against
+        // SCENE_CYCLE_COUNT, and fails the build's pytest lane on any drift. Adding a
+        // twenty-first scene to the registry without adding a row here is exactly the
+        // edit that would otherwise leave the cursor indexing past the table.
+    .scene_table:
+        dc.l    ParallaxConfig_OJZ_Default          //  0
+        dc.l    ParallaxConfig_OJZ_Underwater       //  1
+        dc.l    ParallaxConfig_OJZ_Windy            //  2
+        dc.l    ParallaxConfig_Shimmer_Slow         //  3
+        dc.l    ParallaxConfig_Shimmer              //  4
+        dc.l    ParallaxConfig_Shimmer_Fast         //  5
+        dc.l    ParallaxConfig_Haze_Slow            //  6
+        dc.l    ParallaxConfig_Haze                 //  7
+        dc.l    ParallaxConfig_Haze_Fast            //  8
+        dc.l    ParallaxConfig_Haze_Uniform         //  9
+        dc.l    ParallaxConfig_Rocking_Slow         // 10
+        dc.l    ParallaxConfig_Rocking              // 11
+        dc.l    ParallaxConfig_Rocking_Fast         // 12
+        dc.l    ParallaxConfig_Perspective_Subtle   // 13
+        dc.l    ParallaxConfig_Perspective          // 14
+        dc.l    ParallaxConfig_Perspective_Dramatic // 15
+        dc.l    ParallaxConfig_WindyHaze            // 16
+        dc.l    ParallaxConfig_SkyHaze              // 17
+        dc.l    ParallaxConfig_OJZ_Caves            // 18
+        dc.l    ParallaxConfig_OJZ_LockedClouds     // 19
     }
 }
 
