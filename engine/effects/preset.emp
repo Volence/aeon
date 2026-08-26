@@ -55,7 +55,9 @@ use engine.structs.{Sec, Act}
 // preset instead of an indirection through a table nothing can size.
 pub struct EffectsPreset (size: 38) {
     ep_pal:            *u8      @ $00,   // required; the preset CARRIES the palette
-    ep_parallax:       *u8      @ $04,   // 0 = act default (the one legal 0)
+    ep_parallax:       *u8      @ $04,   // 0 = defer to the act default (the one legal 0); a
+                                         // non-zero Sec.sec_parallax_config outranks it either
+                                         // way — see Effects_ResolveParallax
     ep_raster:         *u8      @ $08,   // static program; 0 illegal, use Raster_Program_None
     ep_patched:        *u8      @ $0C,   // patched template (water / world-anchored gradient); 0 = none
     ep_cycle:          *u8      @ $10,   // 0 illegal, use Pal_Cycle_None
@@ -148,6 +150,51 @@ const EP_VARIANT_0 = offsetof(EffectsPreset, ep_variants)
 const EP_VARIANT_1 = EP_VARIANT_0 + 4
 
 // -----------------------------------------------
+// Effects_ResolveParallax — THE parallax-config resolution for a section.
+//
+// A section's parallax config can be bound in three places, and this is the one
+// proc that orders them. Both consumers — the boot select (games/sonic4/test/
+// ojz_scroll_test.emp, before Parallax_Init) and the crossing site (via
+// Effects_InstallPreset's tail, from Parallax_CheckBoundary) — call it, so the
+// first painted frame and every later crossing agree by construction:
+//
+//   1. Sec.sec_parallax_config   the PER-SECTION binding (the editor's sceneRef,
+//                                lowered by tools/effects_gen.py)
+//   2. EffectsPreset.ep_parallax the PRESET binding, shared by every section that
+//                                names that preset (read through Sec.sec_effects;
+//                                a section with no preset skips this rung)
+//   3. Act.act_parallax_config   the act default
+//
+// A 0 in (1) or (2) means "defer to the next rung", never "keep" — the config is
+// re-resolved from scratch on every call, so nothing a previous section chose
+// survives into a section that did not bind it.
+//
+// Found 2026-08-26 by aurora's first authored scene: the two sites each read a
+// different pair of the three and the preset won on the first crossing.
+//
+//   a0 = Sec*   (non-NULL — a caller with no section resolves the act default itself)
+//   Out: a0 = parallax_config*, never 0 while the act binds a default
+// -----------------------------------------------
+pub proc Effects_ResolveParallax (a0: u32) clobbers(a0) {
+        tst.l   Sec.sec_parallax_config(a0)     // (1) the per-section binding
+        beq     .no_sec_binding
+        movea.l Sec.sec_parallax_config(a0), a0
+        rts
+    .no_sec_binding:
+        movea.l Sec.sec_effects(a0), a0         // (2) the preset's binding, if a preset is bound
+        cmpa.w  #0, a0
+        beq     .act_default
+        movea.l EffectsPreset.ep_parallax(a0), a0
+        cmpa.w  #0, a0
+        bne     .have_config
+    .act_default:
+        movea.l Current_Act_Ptr, a0             // (3) the act default
+        movea.l Act.act_parallax_config(a0), a0
+    .have_config:
+        rts
+}
+
+// -----------------------------------------------
 // Effects_InstallPreset — TOTAL BINDING. Replaces the three legacy per-channel
 // installers (Palette_LoadSection / Palette_InstallCycleSection /
 // Raster_InstallSection), each of which read a NULL descriptor field as "keep
@@ -158,16 +205,23 @@ const EP_VARIANT_1 = EP_VARIANT_0 + 4
 //
 //   a0 = Sec*   (sec_effects is known non-zero — the caller already checked)
 //
-// Returns (a0) = the resolved parallax config pointer: ep_parallax, or the act
-// default when ep_parallax is 0 — mirrors the fallback parallax.emp:194-199 does
-// today. Returning the pointer rather than tail-calling Parallax_StartTransition
+// Returns (a0) = the resolved parallax config pointer, through
+// Effects_ResolveParallax (above) — the ONE three-way resolution, precedence
+// Sec.sec_parallax_config > ep_parallax > Act.act_parallax_config. Until
+// 2026-08-26 this tail resolved ep_parallax-else-act on its own and never read the
+// per-section field, while the boot site resolved sec-else-act and never read the
+// preset: the first authored editor scene lost to its section's preset on the first
+// crossing. Returning the pointer rather than tail-calling Parallax_StartTransition
 // ourselves keeps the dependency one-way (parallax -> preset -> palette/raster);
 // the caller (the crossing site, Task 9) makes that tail call.
 //
 // Register hazard: Palette_LoadPal's own clobber list includes a2 (d1/a1-a2), so
 // the preset pointer is held in a3 instead — the only address register none of
 // the six callees below (Palette_ArmFade/LoadPal/LoadCycle/SetVariant,
-// Raster_Install/InstallPatchedWorldY) clobber.
+// Raster_Install/InstallPatchedWorldY) clobber. The Sec* itself has NO free
+// register left, so it is spilled to the stack at entry and popped for the resolve
+// at the tail — widening this proc to a4 would propagate `transitive a4` up
+// Parallax_CheckBoundary's declared contract (the d5 lesson, buffers.emp).
 //
 // Order is load-bearing:
 //   1. ep_transition -> Palette_ArmFade BEFORE the palette load. Pal_Fade_Request
@@ -194,6 +248,7 @@ const EP_VARIANT_1 = EP_VARIANT_0 + 4
 // the live Pal_Variant_Ptr entry and the call is skipped when unchanged.
 // -----------------------------------------------
 pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
+        move.l  a0, -(sp)                       // Sec* — popped for the parallax resolve at the tail
         movea.l Sec.sec_effects(a0), a3         // a3 = EffectsPreset* — survives every callee below
 
         // ---- ep_patch_world_ys -> Effects_World_Y[], UNCONDITIONALLY (Parcel W0) ----
@@ -296,13 +351,8 @@ pub proc Effects_InstallPreset (a0: u32) clobbers(d0-d4/a0-a3) {
         jbsr    Raster_Install
     .raster_done:
 
-        // ---- resolve the return value: ep_parallax, or the act default ----
-        movea.l EffectsPreset.ep_parallax(a3), a0
-        cmpa.w  #0, a0
-        bne     .have_config
-        movea.l Current_Act_Ptr, a0
-        movea.l Act.act_parallax_config(a0), a0
-    .have_config:
-        rts
+        // ---- resolve the return value: section > preset > act, the shared way ----
+        movea.l (sp)+, a0                       // Sec* back
+        jbra    Effects_ResolveParallax
 }
 
