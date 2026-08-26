@@ -156,9 +156,10 @@ MAX_SHADOW    = 8         # MAX_PARALLAX_BANDS (engine/system/constants.emp)
 VDP_MODE3_OFF = 0x0B      # engine/vdp.emp — the shadow byte Parallax_Update owns
 RASTER_MAX_PATCH = 4      # raster_dsl.emp:1989 — Effects_Screen_L / Effects_World_Y arity
 PATCH_ENTRY_SIZE = 10     # raster.emp:1783-1812 — the record Raster_GetChannelBand walks
-# engine/system/buffers.emp:149-160 — the two declared static HScroll DMA lengths,
-# `Static_Hscroll_Cell` dma_length(112) and `Static_Hscroll_Line` dma_length(896).
-HSCROLL_STATIC_BYTES = (112, 896)
+# engine/system/buffers.emp — the ONE declared static HScroll DMA length,
+# `Static_Hscroll_Line` dma_length(896). (The 112-byte `Static_Hscroll_Cell` twin was
+# deleted 2026-08-26, d-29-corrected; the tuple shape is kept for the scan below.)
+HSCROLL_STATIC_BYTES = (896,)
 
 
 def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
