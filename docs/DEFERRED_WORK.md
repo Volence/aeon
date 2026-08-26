@@ -10293,6 +10293,16 @@ move unless their bank ids are re-derived from the map — a red-first run per p
 requirement of ROM-RELAYOUT.
 Also ruled: the asl-parity far-scratch measurement of never-pinned sections is no game
 requirement — DROP it as its own byte-moving parcel after this re-layout and after step 4.
+Second sigil finding, in force for ROM-RELAYOUT (their master `403831aa`): the chained build
+INFERS each section's alignment quantum as the largest power of two dividing its frozen base
+(`native::packed_align_of`, 16/8/4/2/1); nothing declares alignment, so moving an island row
+can silently change a quantum (precedent sigil `2c49f538`, $5BAE8 -> $5BB10 doubled the SFX
+quantum and broke aeon's mod-8 pads). seam2 bakes absolute pointers into the sound blobs
+against its predicted bases, and the `[sound.fold-vs-placement]` gate covers only two labels, so
+a mismatch is silent/garbled audio with no other symptom. LANDING REQUIREMENT: per shape, a
+table of every moved row (old/new base, old/new quantum) with differences preserved by address
+choice or justified from content; and seam2 predicted bases vs `.lst` for every sound label.
+Rule-ification ruling (joint): declare what the CONTENT needs; never transcribe accidental quanta.
 Sigil's finding, in force for ROM-RELAYOUT: under `SizeSource::Frozen` map.toml anchors are
 COSMETIC (native.rs, four sites) — the table island rows move the bytes; verify from the `.lst`.
 
