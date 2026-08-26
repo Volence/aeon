@@ -44,7 +44,7 @@
 // poison_scene_own_caps.emp): the guard discriminates on the VARIANT, never the payload,
 // and a real DeformTable_* name would tie this poison to another module's emission.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_scene_lcm_undeclared
 
 use engine.level.scene_dsl.*

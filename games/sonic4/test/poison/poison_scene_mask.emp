@@ -3,19 +3,21 @@
 // TARGETS: the capability fold — engine/level/scene_dsl.emp's `scene_caps()` /
 // `fold_caps()` — under the `folded ⊆ declared` subset test that
 // games/sonic4/data/effects/scene_registry.emp applies to `Game.SCANLINE_CAPS`.
-// EXPECTED FRAGMENT: "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4"
+// EXPECTED FRAGMENT: "FIXTURE B folds to 4 against fixture A's declared 0; the UNDECLARED bits are 4"
 //
 // THE TWO-FIXTURE DIFFERENTIAL (spec §8.2). This is not "a scene that fails" — it is a
 // PAIR, and the pair is the point. An `ensure` that always fires is indistinguishable
 // from one that works if only the failing side is ever exercised, so this module proves
 // the same property BOTH WAYS in one build:
 //
-//   FIXTURE A — one layer, a table attached, every deform shift at 15. Folds to $0001
-//               (CAP_PER_LINE) and nothing else: flat-pathed, so it demands the per-line
-//               HScroll pipeline but not the deform math. A PASSES against the declared
-//               word below, twice — once on the value pin, once on the subset test.
-//   FIXTURE B — THE SAME SCENE with `dsb: 2` on its one layer. Folds to $0005
-//               (CAP_PER_LINE | CAP_DEFORM). B is declared against A's word and FAILS.
+//   FIXTURE A — one layer, a table attached, every deform shift at 15. Folds to $0000:
+//               flat-pathed, so it demands no deform math, and (since 2026-08-26,
+//               d-29-corrected) the per-line HScroll pipeline is unconditional, so a
+//               table on its own raises nothing — CAP_PER_LINE ($0001) is retired. A
+//               PASSES against the declared word below, twice — once on the value pin,
+//               once on the subset test.
+//   FIXTURE B — THE SAME SCENE with `dsb: 2` on its one layer. Folds to $0004
+//               (CAP_DEFORM). B is declared against A's word and FAILS.
 //
 // A AND B DIFFER IN EXACTLY ONE AUTHORED FIELD — layer 0's `dsb`, 15 vs 2 — and therefore
 // in exactly one capability bit, CAP_DEFORM ($0004). Same layer count, same factors, same
@@ -24,13 +26,15 @@
 // `fold_caps()` adds only when a registry holds more than one scene). The undeclared-bit
 // number in the failing message is the whole differential, and the lane's expected
 // fragment quotes all three numbers so a case can only pass when the fold really did
-// produce 1 for A, 5 for B, and 4 as the difference.
+// produce 0 for A, 4 for B, and 4 as the difference.
 //
 // WHY THE DECLARED WORD IS A LITERAL, NOT `fold_caps([A])`. Writing the declaration as
 // the fold of A would make A's subset test `(x & ~x) == 0` — true for every x, and
-// therefore evidence of nothing. `$0001` is derived by hand from `scene_caps()`'s rules
-// (a table is attached, so CAP_PER_LINE; no live amplitude anywhere, so no CAP_DEFORM;
-// no column table and no anchor) and the pin below is what checks the derivation.
+// therefore evidence of nothing. `$0000` is derived by hand from `scene_caps()`'s rules
+// (a table is attached but that raises nothing on its own any more; no live amplitude
+// anywhere, so no CAP_DEFORM; no column table and no anchor) and the pin below is what
+// checks the derivation. A zero declared word still discriminates: B's $0004 is
+// undeclared against it.
 //
 // THE TABLE PAYLOAD IS DELIBERATELY THE NULL LABEL. `scene_deform_is_none()` discriminates
 // on the enum VARIANT, never on the payload, so `SceneDeform.Shared(0, 1)` is a scene with
@@ -44,7 +48,7 @@
 // fixture A stopped passing and the ensure is no longer discriminating; a count of 0 means
 // the fold stopped distinguishing the two fixtures at all.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_scene_mask
 
 use engine.level.scene_dsl.*
@@ -66,8 +70,8 @@ const POISON_MASK_SCENE_B: Scene = scene(
     count: 1, v_factor: 3,
     deform_bg: SceneDeform.Shared(0, 1))
 
-// The declared word: fixture A's capabilities, derived by hand (CAP_PER_LINE alone).
-const POISON_MASK_DECLARED  = $0001
+// The declared word: fixture A's capabilities, derived by hand (nothing — see above).
+const POISON_MASK_DECLARED  = $0000
 const POISON_MASK_FOLDED_A  = fold_caps([POISON_MASK_SCENE_A])
 const POISON_MASK_FOLDED_B  = fold_caps([POISON_MASK_SCENE_B])
 const POISON_MASK_UNDEC_A   = POISON_MASK_FOLDED_A & ~POISON_MASK_DECLARED

@@ -252,10 +252,9 @@ pub const SCENES: [Scene; 20] = [
 // listed with the scenes that raise it, so a future edit that drops the last raiser of a
 // bit is visible here rather than only in a changed number:
 //
-//   $0001 CAP_PER_LINE       ALL TWENTY. Every shipped config attaches a BG or FG deform
-//                            table (the flat-pathed DeformTable_Zero counts — a non-NULL
-//                            pointer is what selects the per-line pipeline), and
-//                            OJZ_Underwater would raise it again through its anchor.
+//   $0001                    RETIRED 2026-08-26 (d-29-corrected). It was CAP_PER_LINE,
+//                            raised by ALL TWENTY (every shipped config attaches a table);
+//                            the per-line fill is unconditional now and the bit is a hole.
 //   $0002 CAP_PER_COL_VSRAM  Rocking_Slow/Rocking/Rocking_Fast (SceneVDeform.Columns on
 //                            DeformTable_Rocking) + Perspective_Subtle/Perspective/
 //                            Perspective_Dramatic (on DeformTable_Perspective). SIX.
@@ -275,7 +274,7 @@ pub const SCENES: [Scene; 20] = [
 //                            scene can raise it; the sc_transition byte on OJZ_Caves and
 //                            OJZ_LockedClouds is lowered but does not fold.
 //
-// $0001|$0002|$0004|$0008|$0010 = $001F, which is EXACTLY the declared
+// $0002|$0004|$0008|$0010 = $001E, which is EXACTLY the declared
 // Game.SCANLINE_CAPS — the subset test below passes with zero slack. The slack the
 // one-sided test was built for was consumed as the twenty landed; it stays one-sided
 // because a declared subset would be a wrong picture on hardware and a declared superset
@@ -347,7 +346,8 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // `[Error] scene registry: the folded capability mask 25 is NOT a subset of
 // Game.SCANLINE_CAPS 16; the UNDECLARED bits are 9 — …`. 25 is $0019, matching the
 // derivation above exactly, and 9 is $0009 = CAP_PER_LINE|CAP_ANCHORS, which is PH4's
-// contribution and nothing else. `~` is a real comptime operator on ints (sigil
+// contribution and nothing else. (Historical numbers: bit $0001 was retired 2026-08-26,
+// so the same probe today reads 24 / 16 / 8.) `~` is a real comptime operator on ints (sigil
 // eval/expr.rs, `UnOp::BitNot => Value::Int(!n)`); the alternative spelling
 // `folded & declared == folded` is equivalent and unused.
 // ---------------------------------------------------------------------
@@ -362,7 +362,7 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // pin the subset test structurally cannot be.
 //
 // THE EXPECTED WORD IS DERIVED, NOT COPIED FROM THE FOLD. It is the per-scene roster
-// stated in the banner above this block, re-added: $0001 CAP_PER_LINE (all twenty),
+// stated in the banner above this block, re-added: ($0001 retired 2026-08-26),
 // $0002 CAP_PER_COL_VSRAM (the four v-deform scenes), $0004 CAP_DEFORM (every scene with
 // a live amplitude), $0008 CAP_ANCHORS (OJZ_Underwater alone), $0010 CAP_TRANSITIONS
 // (fold_caps() adds it because SCENES.len is 20 > 1). Writing it as `fold_caps(SCENES)`
@@ -373,7 +373,7 @@ pub const SceneRegistry_CapsFolded = fold_caps(SCENES)
 // $0040 on the scenes that adopt one; the correct response is to re-derive this word
 // from the roster and edit it, in the same commit as the adoption, never to widen the
 // test. A pin nobody has to touch is a pin nobody is checking.
-pub const SceneRegistry_CapsExpected = $001F
+pub const SceneRegistry_CapsExpected = $001E
 ensure(SceneRegistry_CapsFolded == SceneRegistry_CapsExpected,
        "scene registry: the twenty scenes fold to capability mask {SceneRegistry_CapsFolded}, not the hand-derived {SceneRegistry_CapsExpected}. This pin is two-sided ON PURPOSE — the subset test below cannot see a scene that STOPS raising a bit. If a scene gained a capability, re-derive this word from the per-scene roster in this file's banner and edit it in the same commit; if a scene LOST one, that is a lowering regression and the fold is telling you which way")
 
@@ -516,7 +516,6 @@ pub equ SceneBudget_Axis5_LinePixelPool         = SB_AXIS5_LINE_PIXEL_POOL
 pub equ SceneBudget_Axis5_MaxTableSlots         = scene_budget_max_axis5_table_slots(SCENES)
 pub equ SceneBudget_Axis5_TableSlotReservation  = SB_AXIS5_TABLE_RESERVATION
 pub equ SceneBudget_Axis5_TableSlotPool         = SB_AXIS5_TABLE_POOL
-pub equ SceneBudget_PerLineScenes        = scene_budget_per_line_count(SCENES)
 pub equ SceneBudget_SceneCount           = SceneRegistry_BudgetChecked
 pub equ SceneBudget_CapsFolded           = SceneRegistry_CapsFolded
 

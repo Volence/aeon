@@ -79,11 +79,9 @@ CASES: list[tuple[str, str, str, int]] = [
     (f"{POISON}/poison_band_h2_sh.emp",           "9 E-C sh1",  "needs height >= 3", 2),
     # ---- Scanline P1 Task 8: the scene model's guards (spec 2026-08-17 §8.2) ----
     # Every fragment below quotes an INTERPOLATED NUMBER as well as the guard's wording,
-    # because these four guards have near-twins the wording alone would not separate.
-    #  - "scene grid": `layer()`'s ensure is the only one in the tree that speaks of the
-    #    8-px cell grid, and "world_y 4" pins the offending value, so a poison that
-    #    started failing on the span guard one line below (a different message) or on a
-    #    different world_y cannot match.
+    # because these guards have near-twins the wording alone would not separate.
+    #  (The "scene grid" case is gone twice over: P3 Task 7 retired layer()'s 8-px grid
+    #   ensure, and 2026-08-26 retired the per-line forcer arm that replaced it.)
     #  - "scene capacity": games/sonic4/data/parallax/configs.emp's `hdr()` carries the
     #    SAME guard, ported by name, and its message differs only in the nouns — "an
     #    anchored CONFIG splits a BAND ... needs BAND_COUNT+1". Quoting scene()'s own
@@ -91,11 +89,12 @@ CASES: list[tuple[str, str, str, int]] = [
     #    model's copy from the legacy one, and "8+1" pins the arity.
     #  - "scene mask A/B": the TWO-FIXTURE DIFFERENTIAL, and the count of 1 is half the
     #    assertion. The module holds THREE ensures: two for fixture A (its fold equals the
-    #    hand-derived $0001, and it is a subset of the declared word) which MUST PASS, and
+    #    hand-derived $0000 — a bare table raises nothing since CAP_PER_LINE was retired
+    #    2026-08-26 — and it is a subset of the declared word) which MUST PASS, and
     #    one for fixture B which must fail. A count of 2 or 3 means fixture A stopped
     #    passing, i.e. the subset test is no longer proven able to pass and fail on the
     #    same property; a count of 0 means the fold stopped distinguishing the fixtures.
-    #    The fragment quotes all three numbers (5 folded, 1 declared, 4 undeclared) so a
+    #    The fragment quotes all three numbers (4 folded, 0 declared, 4 undeclared) so a
     #    case can only pass when scene_caps()/fold_caps() really produced them.
     #  - "scene proof": `cfg_eq` tests fields in REVERSE order so the LOWEST differing
     #    index survives — which means an extra mismatch at a higher index would be masked
@@ -104,20 +103,16 @@ CASES: list[tuple[str, str, str, int]] = [
     #    error). "band field -1" is the other half: the band oracle is transcribed
     #    correctly, so a comparator that invented a difference would change that number.
     #    Both halves are reported by one ensure, hence one diagnostic.
-    # P3 Task 7 CHANGED THIS CASE'S SUBJECT, not just its wording. `layer()`'s 8-px grid
-    # ensure was REMOVED (world-Y re-glue made an off-grid top representable), and its job
-    # moved into scene_forces_per_line()'s arm 5 — off-grid now FORCES the per-line
-    # pipeline instead of being refused. The poison is now a two-fixture differential and
-    # asserts the false half, so the diagnostic it captures is the proof arm 5 fired.
-    # Count stays 1: the on-grid control must stay green.
-    (f"{POISON}/poison_scene_grid.emp",           "P3 off-grid forcer", "forced the per-line pipeline", 1),
+    # (The "P3 off-grid forcer" row — poison_scene_grid.emp — was DELETED 2026-08-26 with
+    # scene_forces_per_line(): an off-grid top is simply legal now that the per-line fill
+    # is the only fill, d-29-corrected. Nothing is left for a poison to drive red.)
     # P3 Task 15: "capacity under re-glue plus an anchor" is THIS EXISTING ROW — Task 7
     # kept scene()'s anchored-capacity ensure byte-for-byte (capacity stays 8, its own
     # ruling), so the P1 fixture (eight layers + anchor = nine shadow entries, exactly ONE
     # over) already is the one-unit poison and a second module would be a duplicate row.
     # The poison's header records the re-verification.
     (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
-    (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 5 against fixture A's declared 1; the UNDECLARED bits are 4", 1),
+    (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 4 against fixture A's declared 0; the UNDECLARED bits are 4", 1),
     (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),
     # ---- Scanline P3 Task 9: `deform: own(..)`, the per-layer deform ref ----
     # Three cases for three DIFFERENT questions, and none of them is "own() is refused":
@@ -149,21 +144,17 @@ CASES: list[tuple[str, str, str, int]] = [
     #    prediction was wrong for an instructive reason: $0020 is raised by the VARIANT
     #    and $0004 by the AMPLITUDE, so refusing the amplitude is exactly what separates
     #    them.)
-    (f"{POISON}/poison_scene_own_caps.emp",       "P3 T9 own caps",  "FIXTURE B folds to 37 against fixture A's declared 5; the UNDECLARED bits are 32", 1),
+    (f"{POISON}/poison_scene_own_caps.emp",       "P3 T9 own caps",  "FIXTURE B folds to 36 against fixture A's declared 4; the UNDECLARED bits are 32", 1),
     (f"{POISON}/poison_scene_own_placement.emp",  "P3 T9 placement", "deform: Own(..) is a PER-LAYER attachment", 1),
     (f"{POISON}/poison_scene_own_flat.emp",       "P3 T9 flat own",  "attaches a table this layer never samples", 2),
-    # ---- P3 T10: curves. Two cases, one per half of the mechanism's guard surface. ----
-    #  - "curve percell": the FORCER. scene_forces_per_line() ARM 3 was authored DEAD by
-    #    Task 6 and woken by Task 10, and this is the only fixture in the tree whose control
-    #    half folds to capability mask ZERO — every other arm removed — so the single
-    #    authored difference is the `curve:`. The fragment quotes 65 = $0041, which is BOTH
-    #    the capability bit AND the per-line bit arm 3 raises; a 64 would mean the arm went
-    #    dead again. Exactly 1 diagnostic: fixture A's two ensures must pass.
+    # ---- P3 T10: curves. One case: the prohibition. ----
+    #  (The "curve forcer" row — poison_scene_curve_percell.emp, scene_forces_per_line()
+    #   ARM 3 — was DELETED 2026-08-26 with the forcer itself, d-29-corrected: a curve no
+    #   longer has to force anything, the fill is per-line for every scene.)
     #  - "curve deform": the PROHIBITION, both halves in one build — layer() refuses a curve
     #    beside a live amplitude, scene() refuses one beside an anchor with live shifts. TWO
     #    diagnostics, and the count is half the assertion: a 1 means one of the two guards
     #    stopped firing, and the two live in different constructors for different reasons.
-    (f"{POISON}/poison_scene_curve_percell.emp",  "P3 T10 curve forcer", "FIXTURE B folds to 65 against fixture A's declared 0; the UNDECLARED bits are 65", 1),
     (f"{POISON}/poison_scene_curve_deform.emp",   "P3 T10 curve+deform", "this layer authors BOTH a curve and a live deform amplitude", 2),
     # ---- Substrate item 1c: check_landings, both edges of the measured window ----
     # Two cases, not one, because the two edges have different evidentiary standing: the
@@ -241,27 +232,21 @@ CASES: list[tuple[str, str, str, int]] = [
     #    at its own span, and the signature triple is the only thing that says WHICH
     #    scene failed. Exactly 1: guard (2) (no-policy-without-a-subject) passes for B,
     #    a 2 means Accept stopped being legal on the control.
-    #  - "twinkey table": the INPUT-REACHABLE twin-key desync, both halves in one build —
-    #    scene() refuses an own() layer whose table would be the scene's only one (the
-    #    runtime mode key reads HEADER words and cannot see bands), and, because ensure
-    #    is non-aborting, the refused scene folds to $0020 alone and scene_caps()'s
-    #    MULTI_DEFORM_TABLE implication pin fires as the backstop. COUNT 2 and the pair
-    #    is the assertion (the poison_scene_own_flat shape): a 1 that kept only the
-    #    fold's fails the fragment too — the expected fragment names the constructor's.
-    #    One authored field: fixture B is fixture A minus `deform_bg:`.
-    #  - "twinkey anchor": the poison_scene_grid INVERSION — the diagnostic is the PROOF.
-    #    Task 6's CAP_ANCHORS-implies-CAP_PER_LINE pin cannot itself be driven red by any
-    #    input (both bits derive from the one sc_anchor field through the same accessor;
-    #    measured 2026-08-22 with this very fixture asserted both ways), so this row
-    #    witnesses the AGREEMENT instead: the Scene{ .. } back-door anchored scene is
-    #    asserted to fold to $0008 alone — false by exactly the one bit under test — and
-    #    the captured diagnostic quotes the true fold, 9. A CLEAN build is the
-    #    regression (an anchored input really folding to $0008 alone). Exactly 1: no
-    #    constructor runs (back door) and no fold pin fires at $0009.
+    #  - "own-only table": both halves in one build — scene() refuses an own() layer whose
+    #    table would be the scene's only one (the fill loads the HEADER words once and only
+    #    an own() band reloads them, so the other bands would sample address 0), and,
+    #    because ensure is non-aborting, the refused scene folds to $0020 alone and
+    #    scene_caps()'s MULTI_DEFORM_TABLE-implies-DEFORM pin fires as the backstop. COUNT
+    #    2 and the pair is the assertion (the poison_scene_own_flat shape): a 1 that kept
+    #    only the fold's fails the fragment too — the expected fragment names the
+    #    constructor's. One authored field: fixture B is fixture A minus `deform_bg:`.
+    #    (Was "twinkey table" until 2026-08-26; the guard's mode-key rationale went with
+    #    the per-cell path, its sampling rationale stayed.)
+    #  (The "twinkey anchor" row — poison_scene_twinkey_anchor.emp — was DELETED
+    #   2026-08-26 with the CAP_ANCHORS-implies-CAP_PER_LINE pin it witnessed.)
     (f"{POISON}/poison_scene_actspan.emp",        "P3 T7 act span",       "a world-Y layer top (6144) is outside this act's vertical span (6144)", 1),
     (f"{POISON}/poison_scene_lcm_undeclared.emp", "P3 T12 lcm undeclared", "a scene with 1 layer(s) attaching a per-column V-deform table (SceneVDeform.Columns, sample speed 0, amplitude shift 2) declares NO left_column_mask policy", 1),
-    (f"{POISON}/poison_scene_twinkey_table.emp",  "P3 twinkey table",     "attaches NO plane-shared table on either plane", 2),
-    (f"{POISON}/poison_scene_twinkey_anchor.emp", "P3 twinkey anchor",    "back-door anchored scene folds to 9", 1),
+    (f"{POISON}/poison_scene_own_only_table.emp", "P3 own-only table",    "attaches NO plane-shared table on either plane", 2),
     # ---- VFACTOR: the two whole-plane vertical-shift range guards ----
     # TWO ROWS AGAINST ONE MODULE, and the pairing is the point: the module holds two
     # control/poison pairs (v_factor 15 vs 255, v_factor_fg 0 vs 255), so a single build

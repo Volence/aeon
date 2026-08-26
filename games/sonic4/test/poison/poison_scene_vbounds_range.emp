@@ -52,7 +52,7 @@
 // scene_hdr() drifted. A 3 or fewer means a guard went dead, and the row that stops
 // matching says which.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_scene_vbounds_range
 
 use engine.level.scene_dsl.*

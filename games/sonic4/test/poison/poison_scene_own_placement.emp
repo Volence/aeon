@@ -20,8 +20,9 @@
 // that works, so the module proves the position rule both ways:
 //
 //   FIXTURE A — the SAME table and speed authored the LEGAL way, `Shared(0, 4)`, in the
-//               same scene-level slot. It must build and fold to $0001 (a table is
-//               attached, no live amplitude anywhere, so CAP_PER_LINE alone). Two
+//               same scene-level slot. It must build and fold to $0000 (a table is
+//               attached, which raises nothing since CAP_PER_LINE was retired; no live
+//               amplitude anywhere, so no CAP_DEFORM). Two
 //               ensures assert that and MUST STAY GREEN.
 //   FIXTURE B — the same scene with the same payload spelled `Own(0, 15, 2, 0, 4)` in
 //               that scene-level slot. One diagnostic, from scene()'s position guard.
@@ -57,9 +58,10 @@ const POISON_OWNPLACE_SCENE_B: Scene = scene(
     count: 1, v_factor: 3,
     deform_bg: SceneDeform.Own(0, 15, 2, 0, 4))
 
-// Fixture A's capabilities, derived by hand: a table is attached, so CAP_PER_LINE; every
-// amplitude shift is 15, so no CAP_DEFORM; no column table, no anchor, no per-layer table.
-const POISON_OWNPLACE_DECLARED = $0001
+// Fixture A's capabilities, derived by hand: a table is attached (no bit — CAP_PER_LINE
+// retired 2026-08-26); every amplitude shift is 15, so no CAP_DEFORM; no column table, no
+// anchor, no per-layer table.
+const POISON_OWNPLACE_DECLARED = $0000
 const POISON_OWNPLACE_FOLDED_A = fold_caps([POISON_OWNPLACE_SCENE_A])
 const POISON_OWNPLACE_FOLDED_B = fold_caps([POISON_OWNPLACE_SCENE_B])
 

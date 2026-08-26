@@ -423,7 +423,7 @@ if [[ "${NO_LINT:-0}" == "0" ]]; then
 
     # The expect-fail lane (Parcel R1 Task 7): poison .emp modules under
     # games/sonic4/test/poison/ that MUST fail to build, asserted by
-    # tools/emp_expect_fail.py. It gates 11 poisons plus the permanent sentinel
+    # tools/emp_expect_fail.py. It gates the poisons listed there plus the permanent sentinel
     # case, each with its own expected diagnostic-message fragment AND expected
     # [Error] count. Each case is one real build invocation with the poison named
     # as `sigil build --extra-entry <module>`, so the poison elaborates inside

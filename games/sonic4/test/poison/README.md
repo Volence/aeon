@@ -61,3 +61,16 @@ Consequences for anyone writing a module here:
 - **Register the row in `CASES`** in `tools/emp_expect_fail.py` — path, entry id, expected
   message fragment, expected `[Error]` count — and give the module the exact
   `EXPECTED FRAGMENT` header comment the row quotes.
+
+## Why every scene poison globs
+
+Every `poison_scene_*` module spells `use engine.level.scene_dsl.*` and
+`use engine.level.parallax_dsl.*`, and that is the author's own spelling, not a shortcut.
+`engine.level.scene_dsl` is NOT a member of sigil's COMPTIME_HELPERS set
+(`crates/sigil-harness/src/native.rs`), so unlike `raster_dsl` nothing it defines is
+glob-injected into a module by the build. Every scene author writes this exact pair of
+globs (see `games/sonic4/data/effects/ojz_scenes.emp`), and a selective `use ...{layer}`
+is silent on the constant axis (`docs/EMP_PITFALLS.md` §2) — so the glob is what makes a
+poison model an author's module rather than a special case. (This paragraph lived in
+`poison_scene_grid.emp`'s header until that poison was deleted with the per-line forcer
+it targeted, 2026-08-26.)

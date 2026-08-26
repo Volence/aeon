@@ -70,14 +70,14 @@ const POISON_CD_SCENE_C: Scene = scene(
 // Referencing the three keeps them elaborated — an unreferenced top-level const is
 // comptime-INERT and proves nothing (docs/EMP_PITFALLS.md §3). Fixture A's fold is the
 // PASSING assertion: a curve layer beside a sampling layer is legal and must stay so.
-//   $0001 CAP_PER_LINE (the scene attaches a table; arm 3 raises it too)
+//   ($0001 retired 2026-08-26 — a table or a curve raises no per-line bit any more)
 //   $0004 CAP_DEFORM   (layer 1's dsb is live)
 //   $0040 CAP_FACTOR_CURVE
 const POISON_CD_FOLDED_A = fold_caps([POISON_CD_SCENE_A])
 const POISON_CD_FOLDED_B = fold_caps([POISON_CD_SCENE_B])
 const POISON_CD_FOLDED_C = fold_caps([POISON_CD_SCENE_C])
-ensure(POISON_CD_FOLDED_A == $0045,
-       "poison_scene_curve_deform: FIXTURE A folds to {POISON_CD_FOLDED_A}, not the hand-derived 69 ($0045 = CAP_PER_LINE | CAP_DEFORM | CAP_FACTOR_CURVE) — a curve layer BESIDE a sampling layer is legal, and if this stopped folding all three bits the prohibition has been widened from per-LAYER to per-SCENE")
+ensure(POISON_CD_FOLDED_A == $0044,
+       "poison_scene_curve_deform: FIXTURE A folds to {POISON_CD_FOLDED_A}, not the hand-derived 68 ($0044 = CAP_DEFORM | CAP_FACTOR_CURVE) — a curve layer BESIDE a sampling layer is legal, and if this stopped folding both bits the prohibition has been widened from per-LAYER to per-SCENE")
 ensure(POISON_CD_FOLDED_B == POISON_CD_FOLDED_A,
        "poison_scene_curve_deform: FIXTURE B folds to {POISON_CD_FOLDED_B} rather than fixture A's {POISON_CD_FOLDED_A} — the two are supposed to differ only in a guard firing, not in the mask, because `ensure` is non-aborting and layer() builds the refused layer anyway")
 ensure(POISON_CD_FOLDED_C != 0,

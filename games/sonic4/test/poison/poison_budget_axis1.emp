@@ -71,7 +71,7 @@
 // A count of 2 means another axis started failing; a count of 0 means the fold stopped
 // distinguishing 93 bands from 94.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_budget_axis1
 
 use engine.level.scene_dsl.*
@@ -103,7 +103,6 @@ const POISON_A1_SCENE_A: Scene = Scene{
     // P3 Task 12: the back door spells the policy field like every other attachment's
     // None — Undeclared is legal here because neither fixture attaches a v-deform table.
     sc_left_col_mask:      SceneLeftColMask.Undeclared,
-    sc_precision:          0,
     sc_transition:         0,
     sc_pad_5D:             default,
     sc_mask_raw:           -1,
@@ -125,7 +124,6 @@ const POISON_A1_SCENE_B: Scene = Scene{
     // P3 Task 12: the back door spells the policy field like every other attachment's
     // None — Undeclared is legal here because neither fixture attaches a v-deform table.
     sc_left_col_mask:      SceneLeftColMask.Undeclared,
-    sc_precision:          0,
     sc_transition:         0,
     sc_pad_5D:             default,
     sc_mask_raw:           -1,

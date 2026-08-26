@@ -3,7 +3,8 @@
 // TARGETS: engine/level/scene_dsl.emp's `assert_act_relative_tagged()` world-Y span
 // ensure — the DERIVED act-span bound that replaced `layer()`'s typed `world_y < 512`
 // when P3 Task 7 made `ly_world_y` an ACT coordinate (and retired the 8-px grid ensure
-// entirely — see poison_scene_grid.emp for the forcer that job moved to).
+// entirely; the per-line forcer that job moved to was itself deleted 2026-08-26 with the
+// per-cell HScroll path, so an off-grid top is simply legal now).
 // EXPECTED FRAGMENT: "a world-Y layer top (6144) is outside this act's vertical span (6144)"
 //
 // THE BOUND IS THE REGISTRY'S OWN, NOT A NUMBER TYPED HERE. `SCENE_ACT_SPAN_Y` is
@@ -41,7 +42,7 @@
 // fold is the ONLY place the act's own extent reaches the check, which is exactly why
 // this poison drives the fold and not the constructor.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_scene_actspan
 
 use engine.level.scene_dsl.*

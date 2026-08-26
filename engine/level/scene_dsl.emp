@@ -34,7 +34,7 @@ use engine.effects.raster_dsl.{RASTER_MAX_PATCH}
 // and compose() emitted ZERO fires with no diagnostic. Every body below spells the
 // NUMBER; these three pins hold the numbers to their authorities.
 //
-// Names DEFINED here (the CAP_*/PRECISION_*/TRANS_* consts, the enums, and every helper
+// Names DEFINED here (the CAP_*/TRANS_* consts, the enums, and every helper
 // below) ARE safe to name in a body — but only because a scene author reaches them
 // through a GLOB import. THAT IS A REQUIREMENT ON CALLERS: a scene module must
 // `use engine.level.scene_dsl.*`, never a selective `use ...{scene, layer}`.
@@ -85,14 +85,14 @@ ensure(FACTOR_0 == $0FF, "scene_dsl's inlined locked-factor encoding ($0FF) drif
 // decoration: it is what catches a `SceneLayer{ ly_world_y: … }` back-door value that
 // never went through the registry fold.
 pub const LAYER_WORLD_Y_MAX = $8000
-// The other two sit beside their own definitions below and watch a RENUMBERING of the
-// selectors this file both defines and inlines — a smaller risk, but a live one: adding
-// a `PRECISION_DENSE` between CELL and LINE is exactly the edit that would silently
-// re-point scene()'s `precision != 1` fence at the wrong tier.
+// The other sits beside its own definition below and watches a RENUMBERING of the
+// transition selectors this file both defines and inlines — a smaller risk, but a live
+// one: an inserted selector is exactly the edit that would silently re-point scene()'s
+// `transition` test at the wrong value.
 
 // ---- capability bits (spec §3: the per-game cap mask the lowering folds against) ----
 //
-// THESE SEVEN DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
+// THESE SIX DECLARATIONS ARE THE AUTHORITY, and P2 makes that literal rather than
 // aspirational: tools/test_scene_span_labels.py and tools/effects_gates.py both PARSE
 // the `pub const CAP_*` lines below and derive their expectations from what they find.
 // Neither carries a copy of the mask, so adding a bit here (with a lowering and a
@@ -166,7 +166,14 @@ pub const LAYER_WORLD_Y_MAX = $8000
 // The convention is documented HERE, beside the bits, because this file is the one a
 // reader reaches for when asking what a capability means — not in the engine modules
 // that happen to carry today's spans.
-pub const CAP_PER_LINE       = $0001
+// RETIRED: CAP_PER_LINE=$0001 (2026-08-26, d-29-corrected). The per-line HScroll fill,
+// its 896-byte DMA and reg $0B = %11 are UNCONDITIONAL now — the per-cell path the bit
+// used to select against was deleted — so there is no engine code for the bit to elide
+// and no scene demand for it to express. Bit 0 stays a HOLE rather than being re-used:
+// every hand-derived mask in the tree (poison fixtures, the registry pin, the game
+// binding) was re-derived by dropping $0001, and a bit that changed meaning under those
+// numbers would be the copied-expectation defect in its worst form. tools/scene_spans.py
+// parses this RETIRED line so the gapless-run check still holds over declared ∪ retired.
 pub const CAP_PER_COL_VSRAM  = $0002
 pub const CAP_DEFORM         = $0004
 pub const CAP_ANCHORS        = $0008
@@ -333,9 +340,9 @@ pub comptime enum SceneCurve {
 // and there is no vscroll-split-shaped block in the engine to gate. A bit here would be a
 // span gate with no span — the vacuous shape the promotion note above refuses.
 //
-// IT DOES NOT FORCE PER-LINE EITHER. `scene_forces_per_line()`'s five arms are about the
-// HSCROLL pipeline; a vertical split touches neither the HScroll buffer nor the band tops,
-// so adding an arm for it would be a false claim about the fill.
+// IT TOUCHES NEITHER THE HSCROLL BUFFER NOR THE BAND TOPS: a vertical split is a VSRAM
+// write from a raster fire, and nothing about the (always per-line) HScroll fill changes
+// for it.
 //
 // NEVER A `0` SENTINEL — `scene_vsplit_is_none()` is a VARIANT test, for the reason
 // SceneDeform's and SceneCurve's banners give: 0 is a legal vertical scroll value (the top
@@ -412,36 +419,17 @@ pub comptime enum SceneLeftColMask {
 }
 
 // ---- lowering-tier and transition selectors ----
-pub const PRECISION_CELL = 0    // band tops land on 8-px plane cells (P1 tier)
-pub const PRECISION_LINE = 1    // per-line band tops (reserved: P2+)
-
-// WHAT `precision` MEANS IS NOT SETTLED, AND IN P1 IT DOES NOT MATTER — BUT IT WILL.
-// Two readings are documented in this file and they are not the same claim:
-//   (a) the two lines above — the granularity of BAND TOPS (8-px cells vs per-line);
-//   (b) the scene() fence below — whether the scene rides the per-line HSCROLL PIPELINE,
-//       which today is selected by a non-NULL BG deform table, not by this field.
-// They coincide only because a per-line pipeline is what would ALLOW per-line tops.
-//
-// In P1 the field is inert: `sc_precision` is not emitted, not read by scene_caps(), and
-// `layer()` requires every top on the 8-px grid anyway, so NO shipped scene can want (a).
-// The 20 migrated scenes therefore carry values that are NOT a considered tier claim —
-// two are PRECISION_LINE because the migration plan said so, eighteen are PRECISION_CELL
-// by default, and five of those eighteen (OJZ_Caves, OJZ_LockedClouds, Rocking x3) use the
-// identical flat-pathed-zero-table idiom as the two that are marked LINE. Nothing
-// distinguishes them today.
-//
-// SO: whoever gives precision a standalone lowering (P2/P3, the same event that retires
-// the fence) must FIRST settle which reading is meant and then RE-DERIVE all 20 — these
-// values are a default, not evidence. Deriving it outright is the likelier right answer,
-// since (b) is already computable from the BG table and (a) from the tops; a hand-authored
-// field with no consumer and no derivation is how the mask started, and the mask now has
-// both a derivation and a verify ensure.
+// `precision: cell | line` LIVED HERE until 2026-08-26 (PRECISION_CELL / PRECISION_LINE and
+// the Scene.sc_precision field). It was retired with the per-cell HScroll path under owner
+// ruling d-29-corrected: the field's only consumer was arm 4 of the per-line forcer, and
+// with one fill there is nothing to force. Aurora's scene schema still spells the field;
+// tools/effects_gen.py accepts and IGNORES it, and its removal from the schema is booked
+// as Aurora's in docs/DEFERRED_WORK.md.
 pub const TRANS_SMOOTH   = 0    // lerp the section transition
 pub const TRANS_INSTANT  = 1    // snap on the promote frame
-// These four are DEFINED here, but scene()'s defaults and the fence that tests them are
+// These two are DEFINED here, but scene()'s default and the test that reads it are
 // spelled `0` / `1` so a caller's import style cannot change what a defaulted argument
 // means. Same pin discipline as the imported-name block above.
-ensure(PRECISION_CELL == 0 && PRECISION_LINE == 1, "scene_dsl's inlined precision selectors drifted from PRECISION_CELL / PRECISION_LINE")
 ensure(TRANS_SMOOTH == 0 && TRANS_INSTANT == 1, "scene_dsl's inlined transition selectors drifted from TRANS_SMOOTH / TRANS_INSTANT")
 
 // -----------------------------------------------
@@ -504,11 +492,10 @@ pub struct SceneLayer {
 //     existed because P1's `band_top_cell` was a Plane-B CELL ROW, so an off-grid top
 //     silently truncated. The record now carries a PLANE LINE (parallax.emp's
 //     `band_top_plane`, u16) and Step 4a rebases in lines, so an off-cell top is
-//     REPRESENTABLE. What replaces the ensure is `scene_forces_per_line()` ARM 5: a top
-//     whose plane image is off the 8-px cell grid forces the per-line HScroll pipeline,
-//     because a per-cell fill can only place a cell edge and would re-quantise the very
-//     thing the wider field exists to express. The guard became a LOWERING CONSEQUENCE.
-//     Arm 5 was authored dead by Task 6 and this parcel is what wakes it up.
+//     REPRESENTABLE, and the per-line fill places it on the exact line. (Between P3
+//     Task 7 and 2026-08-26 an off-grid top also FORCED the per-line pipeline through
+//     `scene_forces_per_line()` arm 5, because the then-extant per-cell fill could only
+//     place a cell edge; the per-cell fill and the forcer are deleted, d-29-corrected.)
 //
 // (2) `world_y < 512` BECAME A DERIVED CEILING, and the 512 was the wrong space anyway:
 //     it was the BG PLANE's span, and world_y is an ACT coordinate. The bound here is
@@ -546,14 +533,15 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     let own_sb = scene_deform_own_shift_b(deform)
     // (3) AN OWN TABLE NOTHING SAMPLES IS NOT AN ATTACHMENT, IT IS A MISTAKE — and this
     //     guard is also what makes CAP_MULTI_DEFORM_TABLE ⇒ CAP_DEFORM structural rather
-    //     than hopeful. The scene-level flat-pathed idiom (a zero table at shift 15,
-    //     purely to force per-line) has a correct spelling one level up:
-    //     scene(deform_bg: Shared(DeformTable_Zero, 1)) or `precision: PRECISION_LINE`.
+    //     than hopeful. The scene-level flat-pathed idiom (a zero table at shift 15)
+    //     used to exist purely to force the per-line pipeline; since 2026-08-26 the
+    //     pipeline IS per-line for every scene, so a table nothing samples buys nothing
+    //     at either level.
     //     A per-layer table exists to be sampled BY THAT LAYER; with both shifts at 15 it
     //     costs a record extension and an inner-loop reload for a curve nothing reads.
     //     scene_caps() pins the implication that follows from this.
     ensure(is_own == 0 || own_sa != 15 || own_sb != 15,
-           "layer(): deform: Own(..) attaches a table this layer never samples — both amplitude shifts are 15 (the no-deform sentinel). A per-layer table costs a band_ext extension in every band of the game AND a per-band pointer reload in the fill loop, so it must be sampled by the layer that owns it. To force the per-line pipeline without visible deform, attach the scene-level flat-pathed table or author precision: PRECISION_LINE")
+           "layer(): deform: Own(..) attaches a table this layer never samples — both amplitude shifts are 15 (the no-deform sentinel). A per-layer table costs a band_ext extension in every band of the game AND a per-band pointer reload in the fill loop, so it must be sampled by the layer that owns it. (The fill is per-line for every scene since 2026-08-26, so there is nothing a flat table could be forcing)")
     ensure(is_own == 0 || (own_sa >= 0 && own_sa <= 15 && own_sb >= 0 && own_sb <= 15),
            "layer(): deform: Own(..) shift_a {own_sa} / shift_b {own_sb} outside 0..15 — the runtime samples with asr.w, so a wider shift saturates to the sign bit: a wrong picture, not a fault")
     let own_ph = scene_deform_own_phase(deform)
@@ -692,10 +680,9 @@ pub comptime fn derived_own(layers: [SceneLayer; 8], count: int) -> int {
 
 // derived_curve — does ANY real layer ramp its BG factor? (P3 Task 10.)
 //
-// SHARED BY scene(), scene_caps() AND scene_forces_per_line() FOR derived_own()'s REASON:
-// three copies of this walk could drift into a scene the guard approves, the fold
-// classifies one way and the forcer another — a config whose runtime mode key and record
-// shape disagree, which is the twin-key desync the single forcer derivation exists to make
+// SHARED BY scene() AND scene_caps() FOR derived_own()'s REASON: two copies of this walk
+// could drift into a scene the guard approves and the fold classifies another way — a
+// config whose guard and record shape disagree, which is the desync one derivation exists to make
 // impossible. Takes the ARRAY, because scene() has no Scene yet when it needs this.
 //
 // STOPS AT `count`: the pad slots past it are no_layer()s, whose ly_curve is None anyway.
@@ -768,8 +755,8 @@ pub comptime fn scene_deform_speed(d: SceneDeform) -> int {
         Own(tbl, sa, sb, ph, sp)      => sp,
     }
 }
-// 1 when no table is attached. Exists so the P1 precision fence and the capability
-// fold can test "is there a table?" without ever touching the Label.
+// 1 when no table is attached. Exists so the capability fold and the cost model can
+// test "is there a table?" without ever touching the Label.
 pub comptime fn scene_deform_is_none(d: SceneDeform) -> int {
     return match d {
         None                          => 1,
@@ -971,8 +958,8 @@ pub comptime fn scene_anchor_dsb(a: SceneAnchor) -> int {
 // (nine independently byte-verified through this lowering at review).
 //
 // no hand-building: use scene() (every guard lives there). A literal `Scene{ .. }`
-// type-checks and bypasses the pad guard, the mask-superset guard, both ported anchor
-// guards and the precision fence in one go — same convention as SceneLayer above and
+// type-checks and bypasses the pad guard, the mask-superset guard and both ported anchor
+// guards in one go — same convention as SceneLayer above and
 // raster_dsl.emp:90.
 // -----------------------------------------------
 pub struct Scene {
@@ -994,7 +981,6 @@ pub struct Scene {
     // back-door `Scene{ .. }` literals in games/sonic4/test/poison must spell
     // Undeclared themselves, the same way they spell every other attachment's None.
     sc_left_col_mask:      SceneLeftColMask,
-    sc_precision:          u8,               // PRECISION_CELL / PRECISION_LINE
     sc_transition:         u8,               // TRANS_SMOOTH / TRANS_INSTANT
     // Pad so the two i16 bridges below land on EVEN offsets. `Scene` is comptime-only —
     // it never reaches ROM, so an odd 2-byte field could not fault a 68000 today, and
@@ -1019,7 +1005,8 @@ pub struct Scene {
     // auto-aligning struct would silently break byte-exact ports). A deriving `pad_to(N)`
     // is drafted-but-unlanded in sigil — until it ships, this width is a guarded constant,
     // not a derived one (docs/DEFERRED_WORK.md "THE CLASS" / "ALIGN").
-    sc_pad_5D:             u16 = 0,
+    // (u16 -> u8 on 2026-08-26 when sc_precision, one byte above it, was retired.)
+    sc_pad_5D:             u8 = 0,
     // The bridges' parity is STRUCTURAL: `(align: 2)` fails the build naming the field,
     // the claim and the live offset the moment anything above re-parities them (spelling
     // per sigil 6fae4d6a — `@align(N)` is the `vars` cursor-mover and is refused here by
@@ -1033,8 +1020,8 @@ pub struct Scene {
 // scene — the authored scene constructor.
 //
 // Ports hdr()'s two load-bearing guards BY NAME (spec §3.1) plus the layer-count
-// ceiling and the P1 precision fence. All four compare INTS, extracted through the
-// accessors above, for the reason stated in their banner.
+// ceiling. All three compare INTS, extracted through the accessors above, for the
+// reason stated in their banner.
 //
 // The `layers` array is always eight elements; pad with no_layer(). `count` is the
 // authority on how many are real — sc_layers is never scanned past it.
@@ -1047,13 +1034,12 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
                       v_deform: SceneVDeform = SceneVDeform.None,
                       anchor: SceneAnchor = SceneAnchor.None,
                       left_column_mask: SceneLeftColMask = SceneLeftColMask.Undeclared,
-                      precision: int = 0,
                       transition: int = 0,
                       layer_mask_raw: int = -1,
                       v_deform_shift_raw: int = -1) -> Scene {
-    // 8 = MAX_PARALLAX_BANDS, 0 = PRECISION_CELL, 0 = TRANS_SMOOTH: inlined per the pin
-    // block at the top of this file (the first is imported and would not travel; the
-    // other two are defaults, evaluated wherever the call site puts them).
+    // 8 = MAX_PARALLAX_BANDS, 0 = TRANS_SMOOTH: inlined per the pin block at the top of
+    // this file (the first is imported and would not travel; the other is a default,
+    // evaluated wherever the call site puts it).
     ensure(count >= 1 && count <= 8,
            "scene(): {count} layers exceeds MAX_PARALLAX_BANDS (8) — the shadow view is sized for eight entries and a ninth writes past Parallax_Shadow_Bands")
     let anchor_ch = scene_anchor_ch(anchor)
@@ -1167,12 +1153,10 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
            "scene(): v_center {v_center} outside 0 .. 32767 — this is a WORLD Y (the camera Y the mapping ((camY - v_center) >> v_factor) + v_offset is centred on), and the camera is clamped to [0, act extent] with every act extent asserted <= $8000, so no camera position is ever negative or past $7FFF; Parallax_Step5_Vscroll subtracts it with a signed-word `sub.w`, so a value at or past $8000 would silently read as a NEGATIVE Y. Same span layer() gives world_y; a v_center beyond THIS act's span is legal and is the registry's question")
     ensure(v_factor_fg >= 0 && v_factor_fg <= 15,
            "scene(): v_factor_fg {v_factor_fg} outside 0 .. 15 — this is v_factor's FG twin and takes v_factor's span. The v1 runtime does not READ it (pcfg_v_factor_fg is RESERVED; Step 5 always sets the FG vscroll to camY), so a wider value cannot bend a picture today — it would sit in the emitted record as a number with no meaning, waiting for the parcel that lifts the reservation to read it as a shift. Author 0 unless you are reproducing a byte")
-    // THE SELECTORS ARE RANGE-CHECKED AS ARGUMENTS, not just pinned as constants. Both
-    // are stored raw and read by a one-bit test, so an out-of-range value does not fail,
-    // it MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp:259) and
-    // therefore silently means INSTANT, and `precision: 7` would silently select a tier.
-    ensure(precision == 0 || precision == 1,
-           "scene(): precision {precision} is neither PRECISION_CELL (0) nor PRECISION_LINE (1) — the value is stored and read as a tier selector, so an out-of-range one silently selects a tier rather than failing")
+    // THE SELECTOR IS RANGE-CHECKED AS AN ARGUMENT, not just pinned as a constant. It is
+    // stored raw and read by a one-bit test, so an out-of-range value does not fail, it
+    // MEANS something: `transition: 2` is tested with tst.b/bne (parallax.emp:259) and
+    // therefore silently means INSTANT.
     ensure(transition == 0 || transition == 1,
            "scene(): transition {transition} is neither TRANS_SMOOTH (0) nor TRANS_INSTANT (1) — the runtime tests this byte with tst.b, so anything nonzero silently means instant")
     // ---- P3 TASK 9: the two scene-level guards on the per-layer deform ref ----
@@ -1183,25 +1167,20 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     //     for the whole config. Refused by VARIANT, never by payload.
     ensure(scene_deform_is_own(deform_fg) == 0 && scene_deform_is_own(deform_bg) == 0,
            "scene(): deform: Own(..) is a PER-LAYER attachment — pass it to layer(deform:). A scene-level slot lowers to the plane's pcfg_deform_table_* header word, which is ONE table for the whole config and has nowhere to put a per-layer speed. For a scene-wide table use SceneDeform.Shared(table, speed)")
-    // (2) AN OWN() LAYER DOES NOT REPLACE THE SCENE'S TABLE, IT OVERRIDES IT — and the
-    //     reason is the RUNTIME MODE KEY, which is the one thing in this pipeline that
-    //     is not derived from the scene at comptime.
-    //
-    //     `parallax_mode_key()` (below) decides per-line vs per-cell at runtime by ORing
-    //     the installed config's TWO HEADER TABLE WORDS. It cannot see the bands. So a
-    //     scene whose only tables are per-layer would answer PER-CELL at runtime while
-    //     `scene_forces_per_line()` answered per-line at comptime — the twin-key desync
-    //     design §2 says is impossible by construction, reintroduced by a new attachment
-    //     the key cannot reach. Requiring a scene-level table on at least one plane is
-    //     exactly the key's own predicate, and it is also the honest model: `own()`
+    // (2) AN OWN() LAYER DOES NOT REPLACE THE SCENE'S TABLE, IT OVERRIDES IT. own()
     //     overrides the plane-shared table FOR ONE LAYER, and the layers that did not
-    //     override it still need something to sample.
+    //     override it still need something to sample: Parallax_Fill_PerLine loads the
+    //     header's two table words once (`cap_deform_tables`) and only an own() band
+    //     reloads a5/a6 from its extension record, so with both header words null every
+    //     non-own band with a live shift would sample from address 0. Requiring a
+    //     scene-level table on at least one plane is the honest model of the mechanism.
     //
-    //     THE ALTERNATIVE WAS CONSIDERED AND REJECTED: widening the runtime key to scan
-    //     the band array costs a loop in the frame's hot path to re-derive a fact the
-    //     lowering already knows, and widening the 28-byte header to carry a mode flag
-    //     moves every emitted config record — the byte churn the P1 image-identity gate
-    //     pins. Guarding is the cheap half of the same guarantee.
+    //     HISTORY: until 2026-08-26 this guard's stated reason was the RUNTIME MODE KEY —
+    //     `parallax_mode_key()` decided per-line vs per-cell by ORing the two header
+    //     table words and could not see the bands, so an own()-only scene would have
+    //     answered per-cell at runtime while the lowering answered per-line. That key and
+    //     the per-cell path are deleted (d-29-corrected); the sampling reason above is the
+    //     one that survives, and it is sufficient on its own.
     let any_own = derived_own(layers, count)
     // Flat accumulator, never a nested if-expression (docs/EMP_PITFALLS.md §1).
     comptime var any_scene_table = 0
@@ -1212,7 +1191,7 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
         any_scene_table = 1
     }
     ensure(any_own == 0 || any_scene_table == 1,
-           "scene(): a layer attaches deform: Own(..) but this scene attaches NO plane-shared table on either plane. own() OVERRIDES the scene's table for one layer; it cannot be the only table, because the runtime mode key (parallax_mode_key) reads the config's two HEADER table words and cannot see the bands — with both header words null it would answer per-cell while the lowering answered per-line, which is the twin-key desync the single forcer derivation exists to make impossible. Attach the plane-shared table the other layers sample (deform_fg:/deform_bg: SceneDeform.Shared(..))")
+           "scene(): a layer attaches deform: Own(..) but this scene attaches NO plane-shared table on either plane. own() OVERRIDES the scene's table for one layer; it cannot be the only table, because Parallax_Fill_PerLine loads the config's two HEADER table words once and only an own() band reloads them from its extension record — with both header words null every other band with a live shift would sample from address 0. Attach the plane-shared table the other layers sample (deform_fg:/deform_bg: SceneDeform.Shared(..))")
     // ---- P3 TASK 10: the one scene-level guard on curves ----
     //
     // THE ANCHORED OVERLAY WRITES DEFORM SHIFTS INTO BANDS IT DOES NOT OWN, and that is
@@ -1344,18 +1323,6 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
     //     this ensure) is what the emission parcel deletes.
     ensure(scene_lcm_is_sprite_mask(left_column_mask) == 0,
            "scene(): left_column_mask: SpriteMask is declared, but the engine's left-column strip emission has NOT landed — the declaration would be accepted while the sliver stays uncovered. It is blocked on an aeon+sigil pair (the strip emitter needs engine/objects/sprites.emp's FIRST Game.*/CAP_* reference, a sigil port-flip) and on the game-owned opaque mask tile; the mechanism ruling (opaque strip at screen X 0, first in the link chain — NOT the VDP's X=0 sprite-masking feature, which suppresses later sprites and cannot repaint a plane pixel) and the 7-slot pricing are already recorded in docs/DEFERRED_WORK.md §'Sprite mask for per-column V-scroll' and tools/effects_budget_model.toml. Declare Factor0Lock or Accept, or land the emission parcel first")
-    // THE P1 SCOPE FENCE IS RETIRED HERE (P3 Task 6). It read:
-    //
-    //     ensure(precision != 1 || scene_deform_is_none(deform_bg) == 0,
-    //            "P1: precision line rides a zero-deform table ...; standalone precision
-    //             lowering lands with the forcer-set derivation (P2/P3)")
-    //
-    // and it existed because `sc_precision` had no consumer: PRECISION_LINE authored
-    // without a BG table would have lowered SILENTLY to the per-cell pipeline. That is no
-    // longer true — `scene_forces_per_line()` below reads the field as its own forcer arm,
-    // so the value now means what it says on its own. The fence is not deleted into
-    // nothing: it is replaced by a derivation that HONOURS the authored value instead of
-    // rejecting it, which is the widening the message named.
     return Scene{
         sc_layers:             layers,
         sc_count:              count,
@@ -1368,7 +1335,6 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
         sc_v_deform:           v_deform,
         sc_anchor:             anchor,
         sc_left_col_mask:      left_column_mask,
-        sc_precision:          precision,
         sc_transition:         transition,
         sc_pad_5D:             default,
         sc_mask_raw:           layer_mask_raw,
@@ -1377,183 +1343,17 @@ pub comptime fn scene(layers: [SceneLayer; 8], count: int,
 }
 
 // =====================================================================
-// scene_forces_per_line — THE per-line forcer derivation (spec §2). ONE source.
-//
-// Design §2 is what makes "twin-key desync is impossible by construction" true: the
-// lowering owns the forcer set and feeds BOTH the fill-side mode key and the
-// engine.buffers DMA-length key from one derivation. Before P3 Task 6 it fed neither —
-// `scene_caps()` re-implemented two of the five arms inline, and the RUNTIME halves were
-// two hand-written copies of the same beq/bne sequence in two files, each carrying a
-// comment warning that the other existed. This fn is the comptime half of the repair;
-// `parallax_mode_key()` below is the runtime half, and the two are adjacent on purpose.
-//
-// THE EXHAUSTIVE SET, from design §2:
-//   1. any H-deform table, either plane, INCLUDING a shared one
-//   2. anchor_ch != NONE
-//   3. any curve layer
-//   4. precision: line
-//   5. any layer boundary not on the 8-px cell grid
-//
-// ALL FIVE ARMS ARE LIVE SINCE P3 TASK 10, and the history is worth keeping because the
-// hazard it names is the one this tree keeps paying for. Task 6 authored the derivation
-// with arms 3 and 5 DEAD — no authorable scene could reach either — and said so here,
-// because a dead arm reads exactly like coverage. Task 7 woke arm 5 by relaxing `layer()`'s
-// 8-px grid ensure (an off-grid top is now representable as a plane LINE in
-// `band_top_plane`, and this arm is what makes it correct rather than re-quantised;
-// red-first witness games/sonic4/test/poison/poison_scene_grid.emp). Task 10 woke arm 3 by
-// adding the `curve:` attachment there was no field to test before — writing a placeholder
-// predicate for it would have been worse than the stated gap. Red-first witness:
-// games/sonic4/test/poison/poison_scene_curve_percell.emp.
-//
-// FLAT ACCUMULATOR OVER STATEMENT `if`s, never a nested if-expression — an `if` in
-// block-tail position yields unit SILENTLY and folded a capability mask to 0 in P1
-// (docs/EMP_PITFALLS.md §1). Same shape as `scene_caps()`'s accumulator below.
-//
-// Returns 1 (per-line) or 0 (per-cell). Not a bitmask: this is one question.
+// THE PER-LINE FORCER AND THE RUNTIME MODE KEY LIVED HERE — `scene_forces_per_line()`
+// (five comptime arms: any table, an anchor, a curve, `precision: line`, an off-grid top)
+// and `parallax_mode_key()` (the runtime half, spliced into engine.parallax's fill select
+// and engine.buffers' DMA-length select). Both were deleted 2026-08-26 under owner
+// ruling d-29-corrected, together with Parallax_Fill_PerCell, Static_Hscroll_Cell and
+// the CAP_PER_LINE bit: with one HScroll fill there is no mode to decide, at comptime or
+// at runtime, and the three places that used to decide it (these two plus the reg $0B
+// derivation in parallax.emp, which only ever saw the header tables) could disagree —
+// they DID, on master, at the first section of act 1. How to get the per-cell path back,
+// correctly, is booked in docs/DEFERRED_WORK.md "Per-cell HScroll fill — DELETED".
 // =====================================================================
-pub comptime fn scene_forces_per_line(s: Scene) -> int {
-    comptime var forced = 0
-    // ARM 1 — any H-deform table, either plane. PLANE-AGNOSTIC on purpose: the pipeline
-    // is per-frame and per-line for the whole screen, there is no half-per-line.
-    if scene_deform_is_none(s.sc_deform_fg) == 0 {
-        forced = 1
-    }
-    if scene_deform_is_none(s.sc_deform_bg) == 0 {
-        forced = 1
-    }
-    // ARM 2 — a world-anchored overlay. An anchored boundary lands on an arbitrary
-    // SCANLINE, and an 8-px-quantised fill can only place a cell edge, so per-cell would
-    // silently quantise the very thing the anchor exists to make exact. $FF is
-    // PARALLAX_ANCHOR_NONE, inlined per the pin block at the top of this file.
-    if scene_anchor_ch(s.sc_anchor) != $FF {
-        forced = 1
-    }
-    // ARM 3 — any curve layer. LIVE SINCE P3 TASK 10, which added the attachment this arm
-    // was waiting for. A curve is a PER-LINE quantity by definition — the effective scroll
-    // differs on every scanline of the layer — so a per-cell fill, which broadcasts one
-    // longword per 8-px cell, cannot express it at all: it would emit the layer's top value
-    // for the whole layer and the ramp would simply not exist. This is the strongest of the
-    // five arms in that sense; the others prevent a QUANTISATION, this one prevents a total
-    // loss of the mechanism.
-    //
-    // THE WALK IS derived_curve(), the same one scene() guards on and scene_caps() folds
-    // on, so the forcer, the guard and the capability cannot classify a scene differently.
-    let cls = s.sc_layers
-    let cn  = s.sc_count
-    if derived_curve(cls, cn) == 1 {
-        forced = 1
-    }
-    // ARM 4 — precision: line, standing on its own. 1 is PRECISION_LINE, inlined per the
-    // same pin block. Before this parcel `scene()` FENCED this value behind a non-null BG
-    // table, which made it a second spelling of arm 1 and never a claim of its own; the
-    // fence is retired above and this is what replaces it.
-    if s.sc_precision == 1 {
-        forced = 1
-    }
-    // ARM 5 — any layer top off the 8-px cell grid. LIVE SINCE P3 TASK 7, which relaxed
-    // `layer()`'s grid ensure; before that no authorable scene could reach it.
-    //
-    // THE GRID QUESTION IS ASKED OF THE PLANE IMAGE, NOT THE AUTHORED ACT Y, and that is
-    // a correction Task 7 forced rather than a refinement. The forcer's real question is
-    // "can a per-cell fill place this boundary?", and the fill quantises PLANE lines. The
-    // two spaces are not the same grid: with `v_factor 3` a 64-px act step is one plane
-    // cell, so testing the act value would force per-line on tops that land dead on a
-    // cell edge, and — worse in the other direction — would MISS an act value that is a
-    // multiple of 8 but whose plane image is not (v_offset 4, for instance). Asking
-    // scene_plane_line() is asking the number the filler will actually see.
-    //
-    // The one-dot rule applies to the array walk exactly as it does in scene_caps():
-    // field, then index, then field.
-    let ls = s.sc_layers
-    let n  = s.sc_count
-    for i in 0..n {
-        let l  = ls[i]
-        let wy = l.ly_world_y
-        if scene_plane_line(s, wy) % 8 != 0 {
-            forced = 1
-        }
-    }
-    return forced
-}
-
-// =====================================================================
-// parallax_mode_key — the RUNTIME half of the same decision, spliced at both twins.
-//
-// This fn emits no bytes from THIS module; it is spliced into `engine.parallax`'s Step-4
-// fill (which mode to build the HScroll buffer in) and `engine.buffers`'s
-// `Enqueue_Dirty_Buffers` (which DMA LENGTH to ship for it). Those two must agree or a
-// mode-differing config ships a 112-byte DMA for an 896-byte buffer. Before this parcel
-// they agreed by being typed out twice; now there is nothing to keep in step.
-//
-// CONTRACT
-//   cfg       address register holding the ACTIVE `parallax_config*`
-//   per_cell  branch target for the per-cell answer
-//   falls through to the caller's next instruction for the per-line answer
-//   clobbers d0
-//
-// THE TWO KINDS OF NAME IN THIS BODY RESOLVE DIFFERENTLY, and the difference was
-// MEASURED here on 2026-08-20 rather than reasoned from docs/EMP_PITFALLS.md §2 — which
-// describes `comptime fn -> int` bodies and does not, on the evidence below, describe an
-// `asm { }` template's instruction operands:
-//
-//   * the COMPTIME CONDITIONS (`CAP_PER_LINE`, `CAP_ANCHORS`, and `Game.SCANLINE_CAPS`
-//     with them) resolve AT THE CALL SITE, and fail LOUDLY when they cannot. Dropping
-//     `CAP_ANCHORS` from `engine/system/buffers.emp`'s `use` gives
-//     `error: unknown name CAP_ANCHORS` at the splice — not a silent fold to 0, which is
-//     the outcome that would have mattered (it would have elided the anchor half of the
-//     key in one twin and not the other). So both callers' `use` lines carry
-//     `CAP_ANCHORS` even though neither file names it any more, and that is load-bearing.
-//   * the INSTRUCTION OPERANDS (`PARALLAX_ANCHOR_NONE`, the `parallax_config.pcfg_*`
-//     field offsets) do NOT need either module's `use`. Removing `PARALLAX_ANCHOR_NONE`
-//     from the caller's imports built green with an IDENTICAL CRC; so did removing it
-//     from this module's imports. It resolves through the assembler's symbol scope, not
-//     the comptime name scope.
-//
-// The safe reading is therefore the narrow one: the axis that could have degraded
-// silently is the axis that shouts. Do not generalise the operand result into "imports
-// do not matter here" — the pin at the top of this file still watches
-// `PARALLAX_ANCHOR_NONE`'s VALUE, which is the drift this file actually has to catch.
-//
-// SPLICE ONLY INSIDE THE CALLER'S OWN `CAP_PER_LINE` GATE. Without the bit this emits
-// NOTHING, because the caller's own `else` arm is what supplies the unconditional
-// `jbra per_cell` — its per-line arm has to elide too, and only the caller can do that.
-// The gate is repeated here (always true at both real splices) so the CAP_ANCHORS gate
-// below is LEXICALLY ENCLOSED by it: tools/scene_spans.py derives "which spans a mask
-// must emit" from enclosing gates within one file, and without this wrapper a mask with
-// CAP_ANCHORS but not CAP_PER_LINE would be told to expect `cap_anchors_mode` from a
-// build where the whole site elided.
-//
-// THE TWO SITE TOKENS MERGED INTO ONE. The brackets used to be `cap_anchors_mode`
-// (parallax) and `cap_anchors_dma` (buffers) — two names for two copies. There is one
-// copy now, so there is one name, expanded twice; the listing carries both expansions
-// under the same span token and the outer `cap_per_line_fill` / `cap_per_line_dma`
-// brackets still distinguish the two ARMS, which is the part that genuinely differs.
-// =====================================================================
-pub comptime fn parallax_mode_key(cfg: Reg, per_cell: Label) -> Code {
-    return asm {
-    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
-    .cap_per_line_mode_begin:
-        move.l  parallax_config.pcfg_deform_table_fg({cfg}), d0
-        or.l    parallax_config.pcfg_deform_table_bg({cfg}), d0
-        bne     .mode_per_line
-        // The anchor half of the SAME key. Anchors imply per-line, so this can only ever
-        // be live inside the per-line gate above.
-    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
-    .cap_anchors_mode_begin:
-        cmpi.b  #PARALLAX_ANCHOR_NONE, parallax_config.pcfg_anchor_ch({cfg})
-        beq     {per_cell}
-    .cap_anchors_mode_end:
-    } else {
-        // No anchored config exists, so the second half of the key can only ever answer
-        // per-cell. The unconditional branch REPLACES the test rather than falling
-        // through, because the per-line arm is what follows.
-        jbra    {per_cell}
-    }
-    .mode_per_line:
-    .cap_per_line_mode_end:
-    }
-    }
-}
 
 // =====================================================================
 // Capability fold (spec §3) — what a scene DEMANDS of the runtime.
@@ -1565,13 +1365,10 @@ pub comptime fn parallax_mode_key(cfg: Reg, per_cell: Label) -> Code {
 // sc_transition is still authored and still lowered — it is the pcfg byte — it just
 // does not raise a capability on its own.
 //
-// THE PER-LINE FORCER SET IS NOT SPELLED HERE ANY MORE (P3 Task 6). It lives in
-// `scene_forces_per_line()` above, exhaustively, and this fold CALLS it. The P1 note that
-// used to sit here — "the forcer set is deform tables + anchors; nothing here should be
-// widened to guess at the rest" — was right about the hazard and wrong about the remedy:
-// the remedy is one derivation that states all five arms and marks the two without a
-// subject, not two arms plus a prohibition. `sc_precision` is consulted THERE, which is
-// what made retiring scene()'s precision fence possible.
+// THERE IS NO PER-LINE BIT ANY MORE (2026-08-26, d-29-corrected). CAP_PER_LINE ($0001)
+// used to be raised by `scene_forces_per_line()`'s five arms and gated the per-line fill
+// and its 896-byte DMA; both are unconditional now, so the fold has nothing to say about
+// them. Bit 0 is retired, not re-used (see the CAP_* block).
 //
 // P3 Task 5 PROMOTED two bits (CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE) to `pub const`
 // so their gates can be measured, and nothing raises them yet — Task 7 and Task 10 own
@@ -1585,7 +1382,7 @@ pub comptime fn scene_caps(s: Scene) -> int {
     comptime var caps = 0
     // Bit literals, not the CAP_* names: this fn is elaborated at a game call site and
     // only a glob import puts those names there. See the pin block at the top.
-    //   $0001 CAP_PER_LINE  $0002 CAP_PER_COL_VSRAM  $0004 CAP_DEFORM  $0008 CAP_ANCHORS
+    //   $0002 CAP_PER_COL_VSRAM  $0004 CAP_DEFORM  $0008 CAP_ANCHORS  ($0001 retired)
     // NESTED `if`-EXPRESSIONS DO NOT EVALUATE HERE. The first spelling of this was
     // `if a { 1 } else { if b { 1 } else { 0 } }` and it returned 0 whenever only the
     // INNER test was true — measured: a BG-only deform scene folded to caps 0, so
@@ -1604,15 +1401,6 @@ pub comptime fn scene_caps(s: Scene) -> int {
         has_table = 1
     }
     let anchored = if scene_anchor_ch(s.sc_anchor) == $FF { 0 } else { 1 }
-    // Per-line: NOT re-derived here. `scene_forces_per_line()` above is the single
-    // source for the whole forcer set, and this fold consumes it. Before P3 Task 6 these
-    // two lines spelled `has_table == 1 || anchored == 1` — arms 1 and 2 of five, with
-    // the note below explicitly forbidding anyone from widening it to guess at the rest.
-    // The widening happened in the derivation, where it can be stated exhaustively, and
-    // this call is what stops the two from drifting.
-    if scene_forces_per_line(s) == 1 {
-        caps = caps | $0001
-    }
     // Deform proper needs a table AND a live amplitude somewhere. A table whose every
     // consumer sits at shift 15 is flat-pathed: the sample loop is skipped and the
     // emitted HScroll is identical to the no-deform case, so it demands the per-line
@@ -1678,44 +1466,23 @@ pub comptime fn scene_caps(s: Scene) -> int {
     // games/sonic4/data/effects/scene_registry.emp pins that — the bit staying clear is what
     // keeps BAND_CURVE_N at 0 and the four canonical images byte-identical.
     //
-    // A VARIANT TEST, THROUGH derived_curve() — the same walk scene()'s anchor guard and
-    // scene_forces_per_line()'s arm 3 use.
+    // A VARIANT TEST, THROUGH derived_curve() — the same walk scene()'s anchor guard uses.
     if derived_curve(ls, n) == 1 {
         caps = caps | $0040
     }
-    // ANCHORS IMPLY PER-LINE, and P3 Task 6 made that load-bearing rather than merely
-    // true. `parallax_mode_key()`'s CAP_ANCHORS gate is lexically enclosed by a
-    // CAP_PER_LINE gate, and tools/scene_spans.py derives a mask's expected spans from
-    // exactly that nesting — so a mask carrying CAP_ANCHORS without CAP_PER_LINE would be
-    // told to expect a span from a build where the whole site elided. The fold cannot
-    // produce such a mask (arm 2 of scene_forces_per_line() sets $0001 from the same
-    // anchor), and this pin is what keeps it that way if either arm is ever edited.
-    // MULTI_DEFORM_TABLE IMPLIES BOTH CAP_DEFORM AND CAP_PER_LINE, and both halves are
-    // STRUCTURAL, not hopeful — which is what makes it worth pinning rather than
-    // asserting in a comment:
-    //   * CAP_DEFORM: layer() refuses an own() whose two shifts are both 15, so an own()
-    //     layer always contributes live_amp, and it always contributes a table (scene()
-    //     requires a scene-level one as well). has_table && live_amp is $0004's rule.
-    //   * CAP_PER_LINE: that same scene-level table is arm 1 of scene_forces_per_line().
-    // The RUNTIME depends on the first: the per-band table reload in
+    // MULTI_DEFORM_TABLE IMPLIES CAP_DEFORM, and the implication is STRUCTURAL, not
+    // hopeful — which is what makes it worth pinning rather than asserting in a comment:
+    // layer() refuses an own() whose two shifts are both 15, so an own() layer always
+    // contributes live_amp, and it always contributes a table (scene() requires a
+    // scene-level one as well). has_table && live_amp is $0004's rule. (Until 2026-08-26
+    // this pin also asserted CAP_PER_LINE; that bit is retired.)
+    // The RUNTIME depends on it: the per-band table reload in
     // Parallax_Fill_PerLine is emitted INSIDE the CAP_DEFORM gate (a5/a6 are the sampling
     // block's registers and nothing else reads them), so a mask carrying $0020 without
     // $0004 would elide the site the bit exists to select and tools/scene_spans.py would
     // demand a span from a build where the whole enclosing block was gone.
-    ensure((caps & $0020) == 0 || ((caps & $0004) != 0 && (caps & $0001) != 0),
-           "scene_caps(): a scene raised CAP_MULTI_DEFORM_TABLE ({caps}) without CAP_DEFORM and CAP_PER_LINE. Both are supposed to follow structurally — layer() refuses an own() table whose amplitude shifts are both 15, and scene() requires an own() scene to carry a plane-shared table too — so this firing means one of those two guards was relaxed. The per-band table reload is emitted inside the CAP_DEFORM gate and the mode key inside CAP_PER_LINE; a mask without them elides the sites the bit selects")
-    // CAP_FACTOR_CURVE IMPLIES CAP_PER_LINE — arm 3 of scene_forces_per_line() sets $0001
-    // from the same derived_curve() walk — AND IS INDEPENDENT OF CAP_DEFORM, which is the
-    // half worth pinning. Every OTHER capability in this fold either implies deform or is
-    // orthogonal to the fill's loop selection; a curve is the one attachment that is
-    // EXCLUSIVE with it (layer() refuses curve ∧ live amplitude, scene() refuses curve ∧ a
-    // live anchor shift). So a mask carrying $0040 tells the span model to expect the three
-    // curve blocks, and NOT to expect them nested inside `cap_deform_sample` — where the
-    // per-band curve hoist would be unreachable for a scene that samples nothing.
-    ensure((caps & $0040) == 0 || (caps & $0001) != 0,
-           "scene_caps(): a scene raised CAP_FACTOR_CURVE ({caps}) without CAP_PER_LINE. The two are one claim — a curve's effective scroll differs on every scanline, and the per-cell filler broadcasts one longword per 8-px cell, so a curve scene lowered per-cell would lose the ramp entirely rather than quantise it. Arm 3 of scene_forces_per_line() raises $0001 from the same derived_curve() walk, so this firing means one of them was edited alone")
-    ensure((caps & $0008) == 0 || (caps & $0001) != 0,
-           "scene_caps(): a scene raised CAP_ANCHORS ({caps}) without CAP_PER_LINE — an anchored boundary lands on an arbitrary scanline, so the two are one claim; the span-expectation derivation in tools/scene_spans.py reads the nesting of the two gates in parallax_mode_key() and would demand a span from a build whose whole site elided")
+    ensure((caps & $0020) == 0 || (caps & $0004) != 0,
+           "scene_caps(): a scene raised CAP_MULTI_DEFORM_TABLE ({caps}) without CAP_DEFORM. It is supposed to follow structurally — layer() refuses an own() table whose amplitude shifts are both 15 — so this firing means that guard was relaxed. The per-band table reload is emitted inside the CAP_DEFORM gate; a mask without it elides the site the bit selects")
     return caps
 }
 
@@ -1813,7 +1580,7 @@ pub comptime fn assert_act_relative_tagged(scenes: array, act_span: int) -> int 
             let wy = l.ly_world_y
             // P3 TASK 7 CHANGED BOTH HALVES OF THIS ENSURE, AND THE SPACE IT NAMES.
             //   * the 8-px grid clause is GONE: an off-grid top is legal now, and the
-            //     forcer arm 5 in scene_forces_per_line() is what makes it correct.
+            //     per-line fill (the only fill since 2026-08-26) places it exactly.
             //   * `wy < 512` — the BG PLANE's span — became `wy < act_span`, the act's
             //     own, because that is the space `ly_world_y` is now in. The number is
             //     DERIVED at the call site from the act descriptor, never typed here.
@@ -1897,9 +1664,16 @@ pub comptime fn assert_act_relative_tagged(scenes: array, act_span: int) -> int 
 // evidence WALKER-MODEL.md §11. The P2-era transcription that stood here until then was
 // measured against the PRE-unroll filler and predated three fitted columns, all charged
 // below now: shift_lines, band_sampling, and the anchor's fitted (base + per-trip) pair.
-pub const SB_WALK_BASE_X100          = 311600   // base_cycles          3116.00
-pub const SB_WALK_BAND_PERCELL_X100  = 75200    // band_percell_cycles   752.00
-pub const SB_WALK_LINE_MODE_X100     = 154800   // line_mode_cycles     1548.00
+// BASE IS THE PER-LINE FLOOR SINCE 2026-08-26 (d-29-corrected), and it is a DERIVED SUM,
+// not a re-measurement: the fitted model had `base` (W0 — one band on the per-cell
+// filler, 3116.00) plus `line_mode` (W0->W4, +1548.00 for selecting the per-line filler
+// and flipping reg $0B). The per-cell filler is deleted, so every scene pays both and the
+// two only ever appear summed: 3116.00 + 1548.00 = 4664.00. `band_percell` (752.00) had
+// no subject left and is gone. Every scene in the registry was already per-line, so no
+// axis-1 charge moved. The next parallax_cost_probe re-take fits ONE base column
+// (toml `base_cycles`) against the surviving fixtures and replaces this sum with a
+// measurement; until then the toml row carries the same derivation.
+pub const SB_WALK_BASE_X100          = 466400   // base_cycles          4664.00 = 3116.00 + 1548.00
 pub const SB_WALK_BAND_PERLINE_X100  = 85400    // band_perline_cycles   854.00
 pub const SB_WALK_MULTIBAND_X100     = 2000     // multiband_cycles        20.00
 // THE PER-LINE SAMPLING TERMS ARE SHIFT-0 INTERCEPTS since the shift_lines column exists;
@@ -2111,20 +1885,6 @@ pub comptime fn scene_has_table(s: Scene) -> int {
     return t
 }
 
-// Does the scene ride the per-line HScroll pipeline? Same derivation as CAP_PER_LINE in
-// scene_caps(): a non-NULL deform table selects it, and an anchor splits a band at a
-// SCANLINE, which an 8-px-quantised boundary cannot express.
-pub comptime fn scene_is_per_line(s: Scene) -> int {
-    comptime var p = 0
-    if scene_has_table(s) == 1 {
-        p = 1
-    }
-    if scene_anchor_ch(s.sc_anchor) != $FF {
-        p = 1
-    }
-    return p
-}
-
 // Live deform amplitude on plane A / plane B. TWO functions, one per plane, because the
 // RUNTIME's shift sentinel is per band AND per plane — the sampling term charged below
 // depends on how many PLANES sample, and a cross-plane "is anything live" answer cannot
@@ -2303,16 +2063,10 @@ pub comptime fn scene_curve_bands(s: Scene) -> int {
 // AXIS 1 — the scene's main-loop cost in hundredths of a cycle, uncertainty included.
 pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
     let n        = s.sc_count
-    let per_line = scene_is_per_line(s)
+    // One filler, one floor, one per-band slope (2026-08-26): the per-cell mode and its
+    // own slope are gone, and SB_WALK_BASE_X100 already carries the per-line selection.
     comptime var c = SB_WALK_BASE_X100
-    // Per-band slope, whichever mode the scene selects. The two are different constants
-    // (746.94 per-cell vs 845.97 per-line) because the filler is a different loop.
-    if per_line == 1 {
-        c = c + SB_WALK_LINE_MODE_X100 + SB_WALK_BAND_PERLINE_X100 * (n - 1)
-    }
-    if per_line == 0 {
-        c = c + SB_WALK_BAND_PERCELL_X100 * (n - 1)
-    }
+    c = c + SB_WALK_BAND_PERLINE_X100 * (n - 1)
     // ONCE, at bands >= 2, in BOTH modes — Step 4a's `.find_k` probe loop, whose body never
     // runs at band_count 1.
     if n >= 2 {
@@ -2380,13 +2134,11 @@ pub comptime fn scene_axis1_cycles_x100(s: Scene) -> int {
     return c + c * SB_WALK_UNCERTAINTY_PERMIL / 1000
 }
 
-// AXIS 2 — the scene's VBlank DMA bytes.
+// AXIS 2 — the scene's VBlank DMA bytes: the one 896-byte HScroll entry, for every scene
+// (the 112-byte per-cell alternative was deleted 2026-08-26; the `s` parameter stays so
+// the axis has the same shape as the others).
 pub comptime fn scene_axis2_dma_bytes(s: Scene) -> int {
-    comptime var b = 0
-    if scene_is_per_line(s) == 1 {
-        b = SB_PERLINE_DMA_BYTES
-    }
-    return b
+    return SB_PERLINE_DMA_BYTES + 0 * s.sc_count
 }
 
 // AXIS 3 — the scene's VBlank CPU: the drain occupancy of its own axis-2 bytes.
@@ -2527,17 +2279,6 @@ pub comptime fn scene_budget_max_axis5_table_slots(scenes: array) -> int {
         }
     }
     return m
-}
-// How many scenes ride the per-line pipeline — the count that makes the axis-2/3 rows
-// legible (a registry where every scene is per-line has no cheap fallback to schedule into).
-pub comptime fn scene_budget_per_line_count(scenes: array) -> int {
-    comptime var n = 0
-    for s in scenes {
-        if scene_is_per_line(s) == 1 {
-            n = n + 1
-        }
-    }
-    return n
 }
 
 // =====================================================================
