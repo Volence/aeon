@@ -1179,6 +1179,10 @@ genuinely open; none of them can be closed from the tree alone.
   and the shipped 448/448 blob does not shrink on its own. Sizing context, measured rather than
   inferred: the destroyed configuration was 340 tiles = 192 animated + 148 static + 108 unused,
   **not** "192 reserved of 448" (full derivation in `docs/BUGS.md` TOOL-01).
+  **UPDATE 2026-08-26 (`content/ojz-bg-roomy`)**: the re-import happened. The shipped BG was
+  regenerated from the auto-simplified source under owner ruling aurora d-10 (answered at
+  aurora master 259c5cb): static budget now **320/320** with the full **128-tile band_reserve
+  free** for bands. Aurora remains the sole writer of `anims`.
 
 ---
 
@@ -8796,6 +8800,10 @@ make one), not on engine or generator work. Neither is ours to unblock alone.
    comment at the intended position. **The first parcel that lands a real editor scene adds the
    row, and is also the first that can verify the placement.**
 3. **Aurora needs to be able to MAKE one.** Their band editor is stranded at 448/448 tiles.
+   **UNSTRANDED 2026-08-26 (`content/ojz-bg-roomy`)**: the shipped BG was regenerated from the
+   auto-simplified source under owner ruling aurora d-10 — static 320/320, 128 tiles reserved
+   for bands. This supersedes the test-only scope of the 2026-08-24 grant below for the BG
+   art itself: the owner ruled the simplified picture ships.
 
 **OWNER GRANT, 2026-08-24, verbatim: _"Yeah I've said a few times we can edit it howevver for
 testing"_.** Relayed by the hub (banked empyrean `ff909fe`, reachability-verified at
