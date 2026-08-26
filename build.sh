@@ -576,7 +576,7 @@ if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
         fi
 
         # The BG-animation section's ROOM, re-derived from THIS build's listing
-        # (BGANIM-PLACE, decision d-9). `ojz_bg_anim` grows into the hole that ends
+        # (decision d-9). `ojz_bg_anim` grows into the hole that ends
         # at the `dac_banks` hardware anchor ($48000), which is also the only room
         # `Art_Sonic` has to grow into — so the ceiling authors are held to has to be
         # re-checked against the layout, not pinned once and trusted.
@@ -585,7 +585,9 @@ if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
         # listing: the frozen boundary table lists a SUBSET of labels, so a gap in it
         # is an allotment and never proven free space (docs/OVERSEER.md — the bar
         # three parties broke in one afternoon). sonic4-only: `demo` places no
-        # `ojz_bg_anim` section at all.
+        # `ojz_bg_anim` section at all. The ROM room is the ONLY placement limit
+        # since sigil b0363140 (derived layout): the former "placer room" arm is
+        # retired (docs/DEFERRED_WORK.md, "DEFECT 2 (BGANIM-PLACE)" closure note).
         if ! python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" --gate; then
             echo "BG-animation section room — see above."
             exit 1

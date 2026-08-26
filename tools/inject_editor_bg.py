@@ -52,16 +52,13 @@ assert _VRAM_MAP_GAME == 'sonic4', (
 # regex-scraping an assert message.
 BGANIM_MAX_BANDS = 4
 
-# ── THE SECTION-SIZE CEILING (BGANIM-PLACE, decision d-9) ────────────────────────
+# ── THE SECTION-SIZE CEILING (decision d-9) ────────────────────────────────────
 #
 # `ojz_bg_anim` is ONE section holding the band table and the bank blob for EVERY
 # band in the act. It sits between `OJZ_Palette` and `test_mappings` in the declared
 # order (games/sonic4/map.toml), and everything from `Map_TestObj` through
 # `Art_Sonic` shifts downstream when it grows — into the hole that ends at the
 # `dac_banks` HARDWARE anchor ($48000, a Z80 SetBank latch that cannot move).
-#
-# TWO INDEPENDENT LIMITS, and they are two decimal orders apart. Conflating them is
-# exactly what produced the retracted "119 KB of slack" figure; keep them separate.
 #
 #   BGANIM_SECTION_CEILING — the ROM-room limit, i.e. the owner's ruled authoring
 #       budget. Derived (2026-08-24, instrument = the sigil `.lst` + the art blob on
@@ -75,25 +72,17 @@ BGANIM_MAX_BANDS = 4
 #       Both spans were confirmed to be pure $00 fill in the built image, so spending
 #       them does NOT grow the ROM file -- it spends what `Art_Sonic` may grow into.
 #       tools/bganim_room.py re-derives this on every build and fails if it stops
-#       fitting (which is the revisit d-9 named).
+#       fitting (which is the revisit d-9 named). ~11.4 KB is ONE 8 KB band per act;
+#       a second band needs the "banks late, data unbounded" re-layout booked in
+#       docs/DEFERRED_WORK.md, not a bigger number here.
 #
-#   BGANIM_PLACER_CEILING — what sigil's frozen-pin MEASURING pass can resolve, and
-#       THE BINDING LIMIT TODAY. The chainer measures each section at its frozen
-#       provisional base and, on a collision, retries once with a 0x400-per-rank
-#       spread (`measure_or_spread`, sigil crates/sigil-harness/src/native.rs).
-#       `ojz_bg_anim` and `test_mappings` are ADJACENT in the map order, so the retry
-#       buys exactly ONE step. Derived as `frozen allotment + one step`:
-#           s4       14 + 0x400 = 1,038 B      s4.debug  2 + 0x400 = 1,026 B
-#       MINIMUM 1,026 B. Measured twice, both directions, both shapes: an 814-byte
-#       section builds; a 1,070-byte one fails with `... overlap in the image
-#       (colliding pins)` and sigil's own diagnostic reports the available spans as
-#       0x40E / 0x402 -- exactly the derivation.
-#
-#       THIS CANNOT BE RAISED FROM THIS REPO, and the usual escape does not exist:
-#       the golden re-derivation (`derive_offcanon`) goes through the SAME measuring
-#       pass, so it fails on the same tree with the same diagnostic (verified
-#       2026-08-24). A tree whose band exceeds this cannot be built AND cannot be
-#       re-frozen. Booked as BGANIM-PLACE in docs/DEFERRED_WORK.md; it is sigil work.
+#   BGANIM_PLACER_CEILING — RETIRED 2026-08-25. Until sigil b0363140 (merge of
+#       feat/derived-layout) the chainer measured every section at its FROZEN
+#       provisional base and could absorb one 0x400 spread step before `colliding
+#       pins`, which capped this section at ~1 KB regardless of ROM room. sigil now
+#       re-measures a grown pure-data section at a scratch slot and packs its
+#       neighbours downstream (`[layout.provisional-drift]` is a warning, not a
+#       stop), so placement no longer bounds a data section. Deleted, not disabled.
 #
 # THE CHECK TOTALS ALL BANDS, NEVER EACH BAND. `BgAnim_Banks` is one blob for the
 # whole act, so a per-band cap is unsound: this zone's own shipped content (32x4 +
@@ -103,12 +92,9 @@ BGANIM_MAX_BANDS = 4
 # contiguously from slot 0 as a prefix of `tiles` -- `validate_band_coherence` is the
 # authority -- so the provable worst case is BGANIM_WORST_CASE_BYTES below.
 #
-# RAISING EITHER NUMBER IS NOT A ONE-LINE EDIT. BGANIM_SECTION_CEILING is bounded by
-# tools/bganim_room.py's live derivation (which will fail the build if you exceed the
-# room), and BGANIM_PLACER_CEILING is a property of sigil's chainer, not of this file
-# -- editing it here only moves where the author meets the same collision.
+# RAISING THIS NUMBER IS NOT A ONE-LINE EDIT: it is bounded by tools/bganim_room.py's
+# live derivation, which fails the build if the ceiling exceeds the room.
 BGANIM_SECTION_CEILING = 9394
-BGANIM_PLACER_CEILING = 1026
 
 #: Section layout, stated once so every size in this file derives from ONE place:
 #: a u16 band count, then a 44-byte record per band (6 u16 header fields + an
@@ -139,17 +125,6 @@ def bganim_section_bytes(n_bands, total_slots):
             + total_slots * BGANIM_BYTES_PER_SLOT)
 
 
-def bganim_effective_ceiling():
-    """The ceiling an author actually meets: the tighter of the two limits.
-
-    Returns (bytes, which) where `which` names the limit, so the refusal can say what
-    to do about it -- the two have completely different remedies.
-    """
-    if BGANIM_PLACER_CEILING <= BGANIM_SECTION_CEILING:
-        return BGANIM_PLACER_CEILING, 'placer'
-    return BGANIM_SECTION_CEILING, 'rom'
-
-
 def check_bganim_section_fits(anims):
     """Refuse an over-ceiling act BEFORE the build, naming the limit.
 
@@ -163,7 +138,7 @@ def check_bganim_section_fits(anims):
     n_bands = len(anims)
     total_slots = sum(a['cols'] * a['rows'] for a in anims)
     size = bganim_section_bytes(n_bands, total_slots)
-    ceiling, which = bganim_effective_ceiling()
+    ceiling = BGANIM_SECTION_CEILING
     if size <= ceiling:
         return size
     per_band = ', '.join(f"band {i}: {a['cols']}x{a['rows']} = {a['cols'] * a['rows']} slots"
@@ -171,24 +146,12 @@ def check_bganim_section_fits(anims):
     over = size - ceiling
     fits = max(0, (ceiling - BGANIM_COUNT_BYTES - BGANIM_RECORD_BYTES * n_bands)
                // BGANIM_BYTES_PER_SLOT)
-    if which == 'placer':
-        why = (
-            f"  The binding limit is sigil's PLACEMENT, not the cartridge. The chainer\n"
-            f"  measures every section at its frozen base and can absorb only one\n"
-            f"  0x400 spread step for `ojz_bg_anim` before the measuring resolve\n"
-            f"  collides with `test_mappings` -- the `colliding pins` error. The ROM\n"
-            f"  itself has room for {BGANIM_SECTION_CEILING} B (BGANIM_SECTION_CEILING).\n"
-            f"  RAISING THIS IS SIGIL WORK, not an edit here: the golden re-derivation\n"
-            f"  goes through the same measuring pass and fails on the same tree, so a\n"
-            f"  too-large band can neither be built nor be re-frozen. Booked as\n"
-            f"  BGANIM-PLACE in docs/DEFERRED_WORK.md.")
-    else:
-        why = (
-            f"  The limit is ROM room: `ojz_bg_anim` grows into the hole that ends at\n"
-            f"  the `dac_banks` hardware anchor ($48000, a Z80 SetBank latch), and that\n"
-            f"  hole is also the only room `Art_Sonic` has to grow into (decision d-9).\n"
-            f"  Run `python3 tools/bganim_room.py --lst s4.debug.lst` for the live\n"
-            f"  derivation. Relocating the section is the option d-9 kept open.")
+    why = (
+        f"  The limit is ROM room: `ojz_bg_anim` grows into the hole that ends at\n"
+        f"  the `dac_banks` hardware anchor ($48000, a Z80 SetBank latch), and that\n"
+        f"  hole is also the only room `Art_Sonic` has to grow into (decision d-9).\n"
+        f"  Run `python3 tools/bganim_room.py --lst s4.debug.lst` for the live\n"
+        f"  derivation. Relocating the section is the option d-9 kept open.")
     raise SystemExit(
         f"[inject_editor_bg] REFUSED: this act's BG animation does not fit its section.\n"
         f"  {n_bands} band(s), {total_slots} slots total ({per_band})\n"
@@ -376,13 +339,12 @@ def main():
                 f.write(f'data _BgAnim_Band{i}_banks: [*u8; 8] = [{banks_list}]\n')
             f.write('pub data BgAnim_Banks = '
                     'embed("games/sonic4/data/generated/ojz/act1/bg_anim_banks.bin")\n')
-        ceiling, which = bganim_effective_ceiling()
         assert section_bytes == BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + len(banks), (
             f'bganim_section_bytes predicted {section_bytes} B but the emitted artifacts are '
             f'{BGANIM_COUNT_BYTES + BGANIM_RECORD_BYTES * len(bands) + len(banks)} B — the '
             f'size formula and the emitter have diverged, so the ceiling gates nothing')
         print(f'[inject_editor_bg] anim: {len(bands)} band(s), {len(banks)} bytes of banks; '
-              f'ojz_bg_anim {section_bytes}/{ceiling} B ({which} ceiling)')
+              f'ojz_bg_anim {section_bytes}/{BGANIM_SECTION_CEILING} B (ROM-room ceiling)')
     else:
         # no animation: emit the disabled stub as a natively-placed `.emp` section
         # (Parcel K3 run B). band_count = 0 disables the whole system.
