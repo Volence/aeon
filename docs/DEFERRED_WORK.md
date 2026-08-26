@@ -8302,18 +8302,50 @@ shift 2 below the anchored split.
   that moves bytes deliberately) this test becomes a real differential and should be run then."
   P3 moves bytes deliberately.
 
-### PARK-1 — should any OJZ scene ADOPT the new mechanisms? — ANSWERED 2026-08-26 (owner decision `d-15`, option `depth-curve`) · **AUTHORED, AND BLOCKED ON `d-9`**
+### PARK-1 — should any OJZ scene ADOPT the new mechanisms? — ANSWERED 2026-08-26 (owner decision `d-15`, option `depth-curve`) · **LANDED under `d-28-answered` (the `d-9` block below is resolved, not open)**
 
 **The answer is two of the four: per-layer vertical depth (T11) and curved scrolling (T10) ON;
 per-layer deform `own()` (T9) and the left-column mask (T12) stay OFF.** Authored on the
 `parcel/showcase-effects` branch, **rebased 2026-08-26 onto master `c9fa1c07` as
 `parcel/showcase-effects-r2`** (after the per-cell HScroll deletion `55ea2557`; one conflict,
 `game.emp`'s `SCANLINE_CAPS`, resolved `$001E | CAP_FACTOR_CURVE = $005E` — bit 0 stays the
-retired hole). It still **does not build canonically**, on a gate that is itself an un-answered
-owner decision (`d-28`, kept open). See "The curve does not fit in this ROM" below before reading
-anything else here as landed.
+retired hole). It **builds canonically since `d-28-answered`** (2026-08-26): the section below was
+written while the gate was red and is kept as the measurement record; its "two exits" paragraph
+was answered by the owner, and the answer is implemented on this branch.
 
-#### ⛔ THE CURVE DOES NOT FIT IN THIS ROM — `d-9`'s revisit trigger has fired (re-measured on the r2 rebase)
+#### ✅ LANDED UNDER `d-28-answered` — the DEBUG-shape animation guarantee is 12,094 B; release stays 12,288 B
+
+**Owner ruling (`docs/decisions.jsonl` `d-28-answered`, 2026-08-26): lower the DEBUG guarantee by
+the measured 194 B now so the curved horizon lands; keep the release guarantee at `d-9`'s 12,288;
+book the ROM re-layout that restores 12,288 in every shape as follow-up work (its own item, "ROM
+re-layout — restore the 12,288 B animation guarantee in every shape", at the end of this file).**
+
+What changed (`tools/inject_editor_bg.py`, `tools/bganim_room.py`, `tools/test_bg_emit.py`):
+
+- the ceiling is now a **per-shape table**, `BGANIM_SECTION_CEILINGS = {"s4.lst": 12288,
+  "s4.debug.lst": 12094}`, keyed by the sigil listing that IS each shape's instrument. The debug
+  row is DERIVED in the code from the d-28 measurement (`0x48000 − (0x2F430 + 97472) + 8238`),
+  with the derivation beside it and an assertion that it is exactly `12288 − 194`;
+- `bganim_room.py --gate` (build.sh, after sigil, on the shape just built) and
+  `test_bg_emit.py::test_rom_ceiling_fits_the_room_every_present_shape_derives` (build.sh's
+  pytest lane) gate **each present shape against its own row**. A listing the table does not name
+  (`demo.debug.lst`, a renamed listing, a third shape) is `Unmeasurable` — loud, never defaulted
+  to another shape's number;
+- the **authoring-side limit the generator checks an Aurora scene against is the MINIMUM across
+  shapes** (`BGANIM_SECTION_CEILING = min(...)` = 12,094). It has to be: a two-band 47-slot act
+  (12,122 B) passes the release row and fails the debug build, and
+  `test_generator_accepts_the_minimum_across_shapes` keeps that act refused.
+
+Red-first evidence (2026-08-26, this branch): the debug row forced to 12,095 (one byte above the
+measured room) turns `bganim_room --gate` red on `s4.debug.lst` with "`BGANIM_SECTION_CEILINGS['s4.debug.lst']
+= 12095 B but only 12094 B are reachable in this shape`" and fails three tests
+(`test_debug_ceiling_is_derived_from_the_d28_measurement`, `test_rom_ceiling_fits_the_room_every_present_shape_derives`,
+`test_report_prints_no_placer_room_and_names_the_binding_limit`); restored, 46/46 pass. The debug
+row sits **0 B inside the DEBUG room by construction** — any growth of `Art_Sonic` or of the packed
+run ahead of it fails the DEBUG build at the gate, which is the honest shape of a guarantee with no
+margin; the re-layout item is what restores margin.
+
+#### (record) THE CURVE DID NOT FIT IN THIS ROM — `d-9`'s revisit trigger fired (measured on the r2 rebase; answered by `d-28-answered` above)
 
 `tools/bganim_room.py --gate` (run by `tools/test_bg_emit.py` inside every canonical
 `./build.sh`) **FAILS the DEBUG shape** on the branch. The room is derived the way the script
@@ -10160,3 +10192,42 @@ so sigil authors the field; this lane commits to (a) always passing a clean comm
 at freeze time (already the landing rule) and (b) re-verifying the field on the first pairing after it
 ships. Sigil takes the consuming gate (assert `AEON_DIR` HEAD == `aeon_rev`, fail closed on absence).
 Historical entries stay as they are; backfilling from prose would be a guess wearing a record's clothes.
+
+## ROM re-layout — restore the 12,288 B animation guarantee in every shape (booked 2026-08-26 under `d-28-answered`, owner's option 2)
+
+**What it is.** `ojz_bg_anim` sits in the packed run `OJZ_Palette .. Art_Sonic` that ends at the
+`dac_banks` hardware anchor (`games/sonic4/map.toml` `[[anchor]] at = 0x48000`, a Z80 `SetBank`
+latch that cannot move). The BG-animation guarantee is therefore whatever `Art_Sonic` leaves before
+that anchor, and it moves every time anything in that run grows — Sonic's art (d-9's original
+trigger), or, as happened here, `band_record` widening under the curved-horizon capability
+(`sizeof(band_curve) × every band in the game`, 928 B of packed data, +0x3A0 both shapes). The
+owner chose (`d-28-answered`) to lower the DEBUG guarantee to the measured room NOW and to book
+this re-layout as the follow-up that puts the guarantee back to 12,288 B in every shape and stops
+it depending on Sonic's art size at all. It is the same "banks late, data unbounded" re-layout
+named by "The ROM-tail character-art exile has now happened TWICE — relayout pressure" (above); this
+entry gives it its d-28 numbers and its acceptance test.
+
+**Measured numbers (2026-08-26, r2 tip = master `c9fa1c07` + the showcase commits; FAST listings,
+agreed byte-for-byte by the sigil placer's dry re-derivation `repin -- --aeon <r2 worktree>`):**
+
+| shape | `Art_Sonic` | packed end (+97,472) | free before `0x48000` | + section holds | room | ruled ceiling | margin |
+|---|---|---|---|---|---|---|---|
+| release (`s4.lst`) | `0x2EBE0` | `0x468A0` | 5,984 B | 8,238 B | **14,222 B** | 12,288 | +1,934 B |
+| DEBUG (`s4.debug.lst`) | `0x2F430` | `0x470F0` | 3,856 B | 8,238 B | **12,094 B** | 12,094 (d-28) | **0 B** |
+
+The 204 B the per-cell HScroll deletion (`55ea2557`) freed sit behind an org anchor between the
+engine bank and the data island and do NOT reach this run. Two 8 KB bands (16,384 B) do not fit
+in either shape today; that is also this item's to deliver.
+
+**Acceptance.** `BGANIM_SECTION_CEILINGS` in `tools/inject_editor_bg.py` collapses back to one
+number (12,288 B, d-9) in both rows — the table stays, because the gate is per shape and the
+listing is the instrument — and `test_generator_accepts_the_minimum_across_shapes` is retired ON
+PURPOSE when the two rows agree (it says so in its own failure text). `bganim_room --gate` must
+report a margin in BOTH shapes, not 0 B.
+
+**Constraints already ruled.** The FROZEN TABLES are the placement authority, not `map.toml`
+(ROM re-layout ruling, memory `project_rom_relayout_ruling`; measured per shape off the placer's
+own error, `reference_frozen_table_ruling_method`): a re-layout is a refreeze of sigil's
+`golden/` boundary tables in every shape, paired aeon+sigil, with the byte-changing parcel ritual
+(`repin` → `refreeze --freeze NAME --ab` with prose). Do NOT raise the anchor. Nothing on screen
+changes; the whole deliverable is placement.
