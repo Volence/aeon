@@ -1,18 +1,13 @@
 {
-  "focus": "You found the showcase effect does not actually show. Finding out why before asking you anything else.",
+  "focus": "Showcase merged and verified on master locally; pairing the assembler's goldens, then both get pushed and you can play it.",
   "inFlight": [
     {
-      "what": "Finding out why the new background effect does not show on screen, and whether the foreground fault is ours",
-      "where": "branch diag/showcase-invisible",
+      "what": "Refreezing the assembler's goldens for the showcase (first run of the new pairing check the assembler lane just shipped)",
+      "where": "sigil branch pair/showcase-effects",
       "agent": true
     }
   ],
   "blockedOnOwner": [
-    {
-      "id": "d-28",
-      "what": "the curved horizon you asked for misses fitting in the cartridge by 194 bytes",
-      "since": "2026-08-26"
-    },
     {
       "id": "d-16",
       "what": "how tall one background chunk should be in a travelling act",
@@ -74,15 +69,30 @@
       "since": "2026-08-26"
     }
   ],
-  "nextBoundary": "When the investigation reports what is actually wrong.",
+  "nextBoundary": "When both halves are pushed. Then: you play section 4 on master; the ROM re-layout is next on the queue.",
   "queue": [
     {
       "id": "SHOWCASE-EFFECTS",
-      "title": "You played it and the effect does not read: no depth, no split, no curve, and the foreground draws wrong. Under investigation. The 194-byte question is on hold until we know whether the feature works at all.",
-      "state": "blocked",
-      "size": "M",
-      "blockedBy": "the investigation, then your answer on d-28",
+      "title": "Landing: curve + depth split verified drawing; guarantee lowered 194 B in debug per your answer; then paired with the assembler and pushed.",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
       "project": "EFFECTS-W1"
+    },
+    {
+      "id": "ROM-RELAYOUT",
+      "title": "Put the animation-room guarantee back to 12,288 in every build by moving the animation area away from the fixed sound-bank address (your follow-up choice on d-28).",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
+    {
+      "id": "SIGIL-DECOUPLE",
+      "title": "You said yes: take the certification harness off the assembler so adding content stops needing a paired freeze. Nominated to the hub for a project id; planned jointly with the assembler lane after the showcase lands.",
+      "state": "open",
+      "size": "L",
+      "blockedBy": "the hub declaring the id; the showcase landing first"
     },
     {
       "id": "GOLDEN-DIRTY-BANNER",
@@ -92,7 +102,7 @@
       "blockedBy": "the sigil lane"
     }
   ],
-  "awaiting": "nothing from you right now - d-28 is on hold until we know the feature works",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-26T16:15:19Z"
+  "updatedAt": "2026-08-26T19:20:18Z"
 }
