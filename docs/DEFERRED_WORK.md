@@ -10480,12 +10480,15 @@ table and detune path in `sound_sequencer.emp`, the emulator's `model1-va0-va2` 
 the 44.1 kHz resample. Per-song FM patches are the one candidate this observation argues
 *against*, and it was the intuitive first suspect.
 
-*Ambiguity that must be resolved before anything is measured, because the two readings have
-disjoint fixes:* **"flat" = pitch (sounding below true pitch)** or **"flat" = timbre (dull,
-lifeless, no bite)**? Ask the owner which he meant; do not guess. Pitch-flat across every song
-is a **frequency-table or detune** question and would be systematic and measurable to the cent;
-timbre-flat is an **envelope/TL or chip-model** question. The words "voices sound slightly off"
-(Moving Trucks) and "a little flat" (HCZ2) are consistent with either.
+*ANSWERED by the owner 2026-08-26, same session:* **"dull and lifeless, not pitch."** So all
+three reports are ONE artifact — **timbre** — and the pitch reading is dead. Consequences, and
+they are large: (a) the frequency table, the detune path and the `PITCH-FORMAT` connection
+below are **excluded**, so do not open them; (b) what remains is **envelope/TL and operator
+settings** on our side and the **chip model plus resample** on the emulator's; (c) with pitch
+out, the emulator's `model1-va0-va2` output-stage choice moves from "a confound to disclose" to
+**a prime suspect**, because a chip-revision model is precisely a timbre model. The
+native-and-import-agree evidence still points at a shared cause rather than per-song patches,
+and a shared cause on the instrument's side now fits at least as well as one on ours.
 
 *Candidate worth naming because it connects to queued work, NOT because it is diagnosed:* the
 driver currently stores **raw chip frequency numbers** rather than musical pitch — that is the
