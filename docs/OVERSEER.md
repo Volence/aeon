@@ -513,6 +513,30 @@ deferring to "something else owns this", confirm the something else exists.
   would print if it had FAILED, and confirm that is not what you are looking at — a positive
   control (ask the same question a second way, on something you know is present) is cheaper
   than the retraction.
+- **EXACT-PATH STAGING CANNOT WITNESS WHAT WAS DIRTY — the count can, and only the count**
+  (added 2026-08-26; this lane's wrong mechanism, corrected by the sigil lane, who verified the
+  claim and then refuted the reason given for it). Landing the paired re-stamp, the
+  stale-assembler banner fired naming 11 modified files. This lane said they were all artifacts
+  and offered the refreeze commit as proof, reasoning: *"if any source file had been dirty it
+  would be in that commit, because I staged by enumerated path."*
+  **That runs backwards. Staging by enumerated path is precisely the operation that OMITS an
+  unenumerated dirty file** — this repo's own invariant 3, doing exactly its job. `git add -u`
+  would have swept a stray source edit in and made it visible; exact-path staging guarantees it
+  stays out. So under that mechanism the commit looks **identical** whether or not source was
+  dirty, and the check **cannot fail** — a wrong-reason pass, this repo's oldest gate failure
+  mode, arriving in a hand-offered piece of evidence rather than in a gate.
+  **What actually closes it:** the banner said **11**, the commit carries **11** paths, all
+  under `golden/`. There is no room for a twelfth. A source file dirty-and-unstaged would have
+  made the banner say 12 while the commit still said 11, and **that discrepancy is the
+  observable**. The evidence is an agreement between two independent numbers, **one of which
+  the committer does not control**, which is the property the staging story lacked entirely.
+  **The general form, and why it is booked as a bar:** the verdict was right and the reason was
+  wrong, and **the reason is what gets written down and reused** (shared-protocol bar 10,
+  turned on one's own evidence instead of a gate's message). As stated it licensed *"my commit
+  shows no source, therefore no source was dirty"* on every future paired landing. When
+  offering a commit as evidence about a TREE STATE, ask what the commit would look like if the
+  claim were false; if the answer is "the same", the artifact is not the witness. Reach for a
+  count, a timestamp, or any figure produced by something other than the hand making the claim.
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.
