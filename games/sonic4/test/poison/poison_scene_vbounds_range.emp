@@ -1,0 +1,155 @@
+// games/sonic4/test/poison/poison_scene_vbounds_range.emp — POISON (see README).
+//
+// TARGETS: engine/level/scene_dsl.emp `scene()`'s two whole-plane vertical-mapping range
+// guards — `v_offset` and `v_center`, the two fields beside `v_factor` in
+//
+//     Vscroll_BG = ((camY - v_center) >> v_factor) + v_offset      (Parallax_Step5_Vscroll)
+//
+// Before the VOFFSET parcel NEITHER had a range owner anywhere in the tree: `sc_v_center` and
+// `sc_v_offset` were both `u16`, `scene()` took an `int` for each and stored it unchecked, and
+// the only thing that ever objected was sigil's emitter — `[emit.out-of-range] -8 does not fit
+// u16` — pointing at a GENERATED file, for a scene the author (Aurora, whose writer schema
+// types both as plain `integer`) spelled exactly right. And it objected about the wrong thing:
+// -8 is a LEGAL v_offset, and it was the u16 storage that was wrong, not the value.
+//
+// EXPECTED FRAGMENTS (four rows against this one module, one per poisoned fixture):
+//   "v_offset -32769 outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field"
+//   "v_offset 32768 outside -32768 .. 32767 — Parallax_Step5_Vscroll adds this field"
+//   "v_center -1 outside 0 .. 32767 — this is a WORLD Y"
+//   "v_center 32768 outside 0 .. 32767 — this is a WORLD Y"
+// Each row quotes the interpolated value AND a clause only its own guard says, so a row
+// cannot pass against the other guard's diagnostic, and a guard going dead is named by the
+// row that stops matching rather than by a count alone.
+//
+// WHERE THE TWO BOUNDS COME FROM, because a poison that copies a number proves nothing.
+//
+//   v_offset is SIGNED. Its only two consumers are `add.w pcfg_v_offset(a0), d0` (the
+//   unlocked arm) and `move.w pcfg_v_offset(a0), d2` (the `.v_locked` arm), both landing in
+//   `Parallax_Current_Vscroll_BG`, which the transition lerp then treats with `sub.w`/`asr.w`
+//   — signed-word arithmetic end to end, producing a scroll word the VDP reads modulo the
+//   plane span. So a negative offset is a meaningful authoring value that the 16-bit add
+//   wraps exactly as the hardware does, and the bound is the signed word: -32768 .. 32767.
+//   The field is stored as an `i16` on `Scene` and two's-complement encoded into the `u16`
+//   `pcfg_v_offset` by `scene_hdr()`, which is what fixture I below MEASURES.
+//
+//   v_center is a WORLD Y. `Parallax_Step5_Vscroll` subtracts it from the camera Y with a
+//   signed-word `sub.w`, `scene_plane_line()` compares layer tops against it in the same
+//   space (`wy >= vc`), and the camera Y is clamped to `max(0, min(y, extent - screen))`
+//   with every act descriptor asserting `extent <= $8000` — the same derivation `layer()`
+//   already applies to `world_y`. So no camera position is ever negative or past $7FFF, and
+//   a value in $8000..$FFFF would READ, through that `sub.w`, as a negative Y the camera
+//   can never sit at. Bound: 0 .. $7FFF. (Beyond THIS act's 6144-px span but under $7FFF is
+//   legal-but-suspicious and is the registry's question, not the constructor's.)
+//
+// NINE FIXTURES: four boundary CONTROLS (both ends of each span), four POISONS (one past
+// each end), and ONE DEFECT-VALUE CONTROL — `v_offset: -8`, the value the booking quotes,
+// which must be LEGAL and must lower to `$FFF8` in the u16 config word.
+//
+// EXPECTED `[Error]` COUNT IS 4: exactly the four poisons fire and all five controls stay
+// legal. A 5 or more means a control stopped passing (a bound that excluded -32768 or 32767
+// would refuse the ends of the word the add.w can carry; one that excluded 0 would refuse
+// every shipped scene, which all author v_center 0 or 512 and v_offset 0) or the encode in
+// scene_hdr() drifted. A 3 or fewer means a guard went dead, and the row that stops
+// matching says which.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+module games.sonic4.test.poison.poison_scene_vbounds_range
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+use engine.structs.*
+
+// ---- PAIR 1: v_offset, the signed scroll word ----
+
+// FIXTURE A — the bottom of the signed word. Control, must stay legal.
+const POISON_VO_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_offset: -32768)
+
+// FIXTURE B — the top of the signed word. Control, must stay legal.
+const POISON_VO_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_offset: 32767)
+
+// FIXTURE C — one below the word. The v_offset guard fires.
+const POISON_VO_SCENE_C: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_offset: -32769)
+
+// FIXTURE D — one above the word. The v_offset guard fires.
+const POISON_VO_SCENE_D: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_offset: 32768)
+
+// FIXTURE I — THE DEFECT'S OWN VALUE. `v_offset: -8` is what the booking quotes dying at
+// `[emit.out-of-range]`; it is a legal signed offset and must lower to the u16 image $FFF8.
+const POISON_VO_SCENE_I: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_offset: -8)
+
+// ---- PAIR 2: v_center, the world Y ----
+
+// FIXTURE E — the world origin, the value eighteen shipped scenes author. Control.
+const POISON_VC_SCENE_E: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_center: 0)
+
+// FIXTURE F — the top of the engine's act-axis span. Control, must stay legal.
+const POISON_VC_SCENE_F: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_center: $7FFF)
+
+// FIXTURE G — one above the world's top edge. The v_center guard fires.
+const POISON_VC_SCENE_G: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_center: -1)
+
+// FIXTURE H — the first value the sub.w would read as negative. The v_center guard fires.
+const POISON_VC_SCENE_H: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15, v_center: $8000)
+
+// ---- THE PASSING HALVES (must stay green, and are MEASURED) ----
+// `ensure` is non-aborting, so "the controls passed" cannot be read off the build failing
+// for the poisons; it is read off the controls' OWN fields carrying the boundary values the
+// guards are asserted to admit, plus the diagnostic count above staying at 4.
+ensure(POISON_VO_SCENE_A.sc_v_offset == -32768 && POISON_VO_SCENE_B.sc_v_offset == 32767,
+       "poison_scene_vbounds_range: a v_offset CONTROL no longer carries its end of the signed word (A {POISON_VO_SCENE_A.sc_v_offset}, B {POISON_VO_SCENE_B.sc_v_offset}) — sc_v_offset stopped being a signed i16, or the fixtures stopped sitting on the boundary")
+ensure(POISON_VC_SCENE_E.sc_v_center == 0 && POISON_VC_SCENE_F.sc_v_center == $7FFF,
+       "poison_scene_vbounds_range: a v_center CONTROL no longer carries its end of the world-Y span (E {POISON_VC_SCENE_E.sc_v_center}, F {POISON_VC_SCENE_F.sc_v_center})")
+
+// THE ENCODE, MEASURED: the signed field must reach the u16 config word as its
+// two's-complement image, or a legal negative offset dies at emit exactly as before.
+ensure(POISON_VO_SCENE_I.sc_v_offset == -8,
+       "poison_scene_vbounds_range: the defect-value control's sc_v_offset is not -8 (got {POISON_VO_SCENE_I.sc_v_offset}) — it stopped modelling the authored value the booking quotes")
+ensure(scene_hdr(POISON_VO_SCENE_I).pcfg_v_offset == $FFF8,
+       "poison_scene_vbounds_range: v_offset -8 lowered to pcfg_v_offset {scene_hdr(POISON_VO_SCENE_I).pcfg_v_offset}, not $FFF8 — scene_hdr() stopped two's-complement encoding the signed offset into the u16 config word, so a legal negative offset will die at [emit.out-of-range] again")
+ensure(scene_hdr(POISON_VO_SCENE_A).pcfg_v_offset == $8000 && scene_hdr(POISON_VO_SCENE_B).pcfg_v_offset == $7FFF,
+       "poison_scene_vbounds_range: the word ends lowered wrong (A -> {scene_hdr(POISON_VO_SCENE_A).pcfg_v_offset}, B -> {scene_hdr(POISON_VO_SCENE_B).pcfg_v_offset}); expected $8000 and $7FFF")
+
+// ---- THE FAILING HALVES — elaborating C, D, G and H is what fires the four guards ----
+// Each also asserts its fixture really CARRIES the out-of-range value, so a poison that
+// silently stopped modelling the defect (a truncation, a changed default) fails here rather
+// than passing the lane on a diagnostic about something else.
+ensure(POISON_VO_SCENE_C.sc_v_offset == -32769 && POISON_VO_SCENE_D.sc_v_offset == 32768,
+       "poison_scene_vbounds_range: a poisoned v_offset fixture no longer carries its out-of-range value (C {POISON_VO_SCENE_C.sc_v_offset}, D {POISON_VO_SCENE_D.sc_v_offset}) — the expected diagnostic proves nothing")
+ensure(POISON_VC_SCENE_G.sc_v_center == -1 && POISON_VC_SCENE_H.sc_v_center == $8000,
+       "poison_scene_vbounds_range: a poisoned v_center fixture no longer carries its out-of-range value (G {POISON_VC_SCENE_G.sc_v_center}, H {POISON_VC_SCENE_H.sc_v_center}) — the expected diagnostic proves nothing")

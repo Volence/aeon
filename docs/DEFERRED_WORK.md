@@ -403,6 +403,41 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    and only the first word of that pair is done. Same shape as the negative generator parameter
    booked at the end of this file — negatives pass shape everywhere and are bounded nowhere.
 
+   > **CLOSED 2026-08-25 — the VOFFSET half, both fields, both halves, on
+   > `parcel/voffset-bounds`.** Zero-byte in all four shapes (every shipped scene authors
+   > `v_center` 0 or 512 and `v_offset` 0, and a passing `ensure` emits nothing).
+   >
+   > - **THE BOUND IS A PROPERTY OF THE ENGINE MATH, and the two fields are NOT the same
+   >   kind of number.** `v_offset` is **SIGNED**: its only consumers are `add.w
+   >   pcfg_v_offset(a0), d0` (unlocked arm) and `move.w pcfg_v_offset(a0), d2` (`.v_locked`),
+   >   both landing in `Parallax_Current_Vscroll_BG`, which the transition lerp treats with
+   >   `sub.w`/`asr.w` — signed-word arithmetic end to end, so `-8` was a legal value refused
+   >   by the EMITTER for a field that was typed wrong. Bound **-32768 .. 32767**.
+   >   `Scene.sc_v_offset` is now an `i16` (the file's existing signed-bridge type) and
+   >   `scene_hdr()` two's-complement encodes it into the still-`u16` `pcfg_v_offset`
+   >   (`-8` -> `$FFF8`, measured). `v_center` is a **WORLD Y**: `sub.w` from a camera Y that
+   >   `clamp_camera_axis_reg` pins to `max(0, min(y, extent - screen))` with every act
+   >   descriptor asserting `extent <= $8000` — the same derivation `layer()` applies to
+   >   `world_y`. Bound **0 .. $7FFF**; $8000..$FFFF would fit the `u16` and read as a
+   >   negative Y through the `sub.w`. Deliberately NOT tightened to `SCENE_ACT_SPAN_Y`.
+   > - **ENGINE** — two `ensure`s on `scene()` (`engine/level/scene_dsl.emp`), literals
+   >   inlined per the file's pin convention. Red-first: with both stashed out
+   >   `poison_scene_vbounds_range.emp` builds rc 0 / zero `[Error]`; with them in, exactly 4
+   >   (`games/sonic4/test/poison/poison_scene_vbounds_range.emp`, four rows in
+   >   `tools/emp_expect_fail.py`, run build-fatally by `build.sh`'s expect-fail lane).
+   > - **GENERATOR** — `tools/effects_gen.py` forwards the signed literal verbatim (that IS
+   >   the correct encoding now that `scene()` takes the signed int); it grew NO range check,
+   >   per the SHAPE/VALUE line the VFACTOR parcel drew one paragraph up and
+   >   `test_real_integers_pass_INCLUDING_ones_the_constructor_will_reject` codifies.
+   >   `tools/test_effects_gen.py::TestSignedVerticalScalarsAreForwardedVerbatim` pins the
+   >   sign path, both word ends, one-past-each-end and the shipped values (build.sh's pytest
+   >   lane, build-fatal).
+   > - **SCHEMA (empyrean, NOT edited here — the hub moves it, as it did for `v_factor` at
+   >   `a32bcb0`):** at `origin/main` `52d5bc52` (read 2026-08-25) `v_center`/`v_offset` are
+   >   still `{"type": "integer", "default": 0}`. Recommended: `v_offset` -> `"minimum":
+   >   -32768, "maximum": 32767`; `v_center` -> `"minimum": 0, "maximum": 32767`, each with a
+   >   one-line description naming the engine math above.
+
    **ORIGINAL BOOKING, PRESERVED — its first sentence describes empyrean at `0ea8734` and was
    true when written:** `v_factor` is typed differently in
    the two repos. The empyrean schema declares `"v_factor": {"$ref": "#/$defs/factor"}`,
