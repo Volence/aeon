@@ -493,19 +493,23 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    containing the player), which is the same relation start_sec_* has to
         //    start_local_*.
         //
-        //    UNWITNESSED TODAY, deliberately kept: every OJZ act 1 section binds
-        //    `sec_parallax_config: default`, so poisoning this block changed no
-        //    pixel when it was measured (tools/boot_override_gate.py stays green).
-        //    Since 2026-08-26 the select below is the shared three-way resolve, so
-        //    it ALSO reads the preset rung — and OJZ_Preset_Sec0 binds ep_parallax
-        //    (Parcel W) while the other presets defer to the act default. An
-        //    override into section 0 therefore now seeds a different config than
-        //    one into section 1, which is the observable case the gate's premise
-        //    check does not count (it counts sec_parallax_config only). Booked in
-        //    DEFERRED_WORK. The gate
-        //    asserts that PREMISE instead and fails the day a section binds its own
-        //    config; DEFERRED_WORK books what has to be built then. Emits nothing in
-        //    the plain shape. --
+        //    WITNESSED since 2026-08-26 — this paragraph used to say the opposite
+        //    and was made false by the work it predicted, so read the date before
+        //    trusting any claim here about what is covered. What it said: every OJZ
+        //    act 1 section bound `sec_parallax_config: default`, so poisoning this
+        //    block changed no pixel, and tools/boot_override_gate.py asserted that
+        //    PREMISE rather than imply coverage it did not have. Both halves ended:
+        //    Aurora's first authored scene binds section 0, and the select below is
+        //    now the shared three-way resolve (Sec.sec_parallax_config > the
+        //    preset's ep_parallax > Act.act_parallax_config), so it reads the preset
+        //    rung too. The gate now WITNESSES the select instead: it reads
+        //    Parallax_Current_Config at the init's exit — before any
+        //    Parallax_CheckBoundary can launder a wrong choice into a right one —
+        //    against an expectation derived from the ROM's own section grid, and
+        //    cross-checks the VDP reg $0B shadow and the band-scroll tail, which are
+        //    written FROM the active config. Poisoning this block (DEBUG == 99) now
+        //    fails it loudly on all three observables. Emits nothing in the plain
+        //    shape. --
         if DEBUG == 1 {
                 tst.b   Boot_At_Flag            // (Boot_At_Flag).w
                 beq     .init_bootat_no_parallax
