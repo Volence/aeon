@@ -846,5 +846,141 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             f"`colliding pins` instead of a sentence.")
 
 
+class TestBgAnimPlacerArmRetired(unittest.TestCase):
+    """The "placer room" arm of tools/bganim_room.py is GONE, and the ROM room is not.
+
+    WHY. Until sigil b0363140 (merge of feat/derived-layout, 2026-08-25) the chainer
+    measured every section at its FROZEN provisional base and could absorb only one
+    0x400 spread step before `colliding pins`; `ojz_bg_anim` therefore had a ~1 KB
+    "placer room" that bganim_room.py derived from a regex over sigil's source and
+    reported as BINDING. Since that merge a pure-data section that outgrows its pin is
+    re-measured at a scratch slot (`image_lens_pinned(.., scratch_data=true)`) and its
+    neighbours pack downstream with a `[layout.provisional-drift]` WARNING, never a
+    stop — the number no longer bounds anything. sigil's own design note named the
+    retirement as aeon's: "a stale-but-green tool is the worse failure". These tests
+    make the retirement a property, not a deletion: the output has no placer line,
+    the module has no sigil-source regex, the emitter has no placer ceiling — and the
+    ROM-room derivation that DOES still bind is checked against a hand computation
+    done here with none of the tool's own parsers.
+    """
+
+    AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    TOOL = os.path.join(AEON, "tools", "bganim_room.py")
+
+    def _listings(self):
+        found = [p for p in ("s4.lst", "s4.debug.lst")
+                 if os.path.exists(os.path.join(self.AEON, p))]
+        if not found:
+            self.fail("neither s4.lst nor s4.debug.lst is present, so NOTHING WAS "
+                      "MEASURED — build a sonic4 shape first; do not skip")
+        return found
+
+    def _report(self, lst):
+        import io
+        import bganim_room
+        buf = io.StringIO()
+        rc = bganim_room.report(os.path.join(self.AEON, lst), self.AEON, gate=True,
+                                out=buf)
+        return rc, buf.getvalue()
+
+    # ---- (a) the arm is gone ----------------------------------------------------
+
+    def test_report_prints_no_placer_room_and_names_the_binding_limit(self):
+        for lst in self._listings():
+            rc, text = self._report(lst)
+            self.assertEqual(rc, 0, f"{lst}: the gate failed:\n{text}")
+            self.assertNotIn("placer", text.lower(),
+                             f"{lst}: the retired placer arm is still reported:\n{text}")
+            self.assertNotIn("BGANIM-PLACE", text,
+                             f"{lst}: verdict still points at the closed booking:\n{text}")
+            self.assertRegex(text, r"(?m)^\s*binding limit: .*",
+                             f"{lst}: the verdict line does not say which limit binds:"
+                             f"\n{text}")
+
+    def test_module_carries_no_sigil_source_regex_or_placer_derivation(self):
+        """Derived from the module's SOURCE, not from a name list someone remembered:
+        nothing in it may read a path under sigil's `crates/`, and no name in the
+        module may say `placer` or `spread`."""
+        import bganim_room
+        src = open(self.TOOL, encoding="utf-8").read()
+        self.assertNotIn("crates", src,
+                         "bganim_room.py still locates a file inside sigil's source tree")
+        self.assertNotIn("SIGIL_BUILD", src,
+                         "bganim_room.py still reads SIGIL_BUILD — nothing it reports "
+                         "depends on sigil's source any more")
+        stale = sorted(n for n in dir(bganim_room)
+                       if "placer" in n.lower() or "spread" in n.lower())
+        self.assertEqual(stale, [], f"retired names still defined: {stale}")
+        for pat in (r"rank as u32", r"spread"):
+            self.assertIsNone(re.search(pat, src, re.I),
+                              f"bganim_room.py still spells the placer arm ({pat!r})")
+
+    def test_emitter_has_a_single_ceiling_and_it_is_the_rom_one(self):
+        stale = sorted(n for n in dir(inject_editor_bg) if "PLACER" in n.upper())
+        self.assertEqual(stale, [], f"inject_editor_bg still defines {stale}")
+        self.assertFalse(hasattr(inject_editor_bg, "bganim_effective_ceiling"),
+                         "the two-limit chooser outlived its second limit")
+        # The refusal names the ROM room, not the placer, and stays actionable.
+        with self.assertRaises(SystemExit) as cm:
+            inject_editor_bg.check_bganim_section_fits(
+                [{"cols": 32, "rows": 4, "slot_base": 0},
+                 {"cols": 16, "rows": 4, "slot_base": 128}])
+        msg = str(cm.exception)
+        self.assertNotIn("placer", msg.lower())
+        self.assertNotIn("BGANIM-PLACE", msg)
+        self.assertIn("dac_banks", msg)
+        facts = {"bands": 2, "slots": 192,
+                 "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING, "size": 49242}
+        self.assertEqual(refusal_shortfalls(msg, facts), [], msg)
+
+    # ---- (b) the ROM room still comes from the listing -------------------------
+
+    def test_rom_room_matches_a_hand_computation_from_the_instruments(self):
+        """HAND COMPUTATION, spelled out with none of bganim_room's parsers:
+
+            lma   = the hex field of the `.lst` row that ends `Art_Sonic:`
+            blob  = os.path.getsize of the file collision_data.emp's `_art_sonic`
+                    line embeds
+            anchor= the `at =` of map.toml's `[[anchor]]` block named dac_banks
+            room  = anchor - (lma + blob)
+
+        and the report must print exactly that `room` on its ROM-room line.
+        """
+        import bganim_room
+        emp = open(os.path.join(self.AEON, "games", "sonic4", "data", "collision",
+                                "collision_data.emp"), encoding="utf-8").read()
+        embed_line = next(l for l in emp.splitlines() if "_art_sonic" in l and "embed" in l)
+        rel = embed_line.split('"')[1]
+        blob = os.path.getsize(os.path.join(self.AEON, rel))
+        toml = open(os.path.join(self.AEON, "games", "sonic4", "map.toml"),
+                    encoding="utf-8").read().splitlines()
+        anchor = None
+        for i, line in enumerate(toml):
+            if line.strip().startswith("name") and '"dac_banks"' in line:
+                nxt = toml[i + 1].split("=")[1].split("#")[0].strip()
+                anchor = int(nxt, 0)
+        self.assertEqual(anchor, 0x48000, "the dac_banks anchor moved — it is a Z80 "
+                                          "SetBank latch and cannot")
+        for lst in self._listings():
+            lma = None
+            with open(os.path.join(self.AEON, lst), encoding="utf-8",
+                      errors="replace") as f:
+                for line in f:
+                    if line.startswith("(0)") and line.rstrip().endswith(" Art_Sonic:"):
+                        lma = int(line.split("/")[1].split()[0], 16)
+                        break
+            self.assertIsNotNone(lma, f"{lst}: no Art_Sonic row")
+            room = anchor - (lma + blob)
+            self.assertGreater(room, 0)
+            r = bganim_room.rom_room(os.path.join(self.AEON, lst), self.AEON)
+            self.assertEqual(r["room"], room,
+                             f"{lst}: tool says {r['room']}, hand says "
+                             f"0x{anchor:X} - (0x{lma:X} + {blob}) = {room}")
+            _, text = self._report(lst)
+            self.assertRegex(text, rf"(?m)^\s*ROM room {room} B free\b",
+                             f"{lst}: the report does not print the derived room:"
+                             f"\n{text}")
+
+
 if __name__ == "__main__":
     unittest.main()
