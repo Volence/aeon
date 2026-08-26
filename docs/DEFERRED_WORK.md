@@ -10271,6 +10271,20 @@ Four steps, in order:
 3. **Retire repin/pins.rs from the landing path** (sigil): internal regression tool over its own corpus.
 4. **Archive the byte-identical certification** (empyrean/sigil docs) as a dated historical result.
 
+**Ruling sent to the sigil lane 2026-08-26 (step-2 input; their inventory is sigil master
+`ccfbf729`, `docs/superpowers/notes/2026-08-26-placement-constraint-inventory.md`): which frozen
+rows are REQUIREMENTS.** Read off `games/sonic4/map.toml`'s anchor comments and the 2026-08-10
+relayout audit, not by re-tracing every consumer (their touch-enumeration is the check).
+Requirements are ALIGNMENT + ORDER, never addresses: vectors + header at 0x0 (hardware);
+`ObjCodeBase` = a 64 KB-aligned object-bank window base (0x10000 is a kept design choice);
+`dac_banks` / `sound_bank` / the 0x60000 z80 region = 0x8000 alignment (SetBank latch
+granularity) + derivable co-resident bank id (`relax::bank_diag`) + order "after all data";
+the MD Debugger island = LAST emission. `EndOfRom` and every other row = packing outcome.
+Also ruled: the asl-parity far-scratch measurement of never-pinned sections is no game
+requirement — DROP it as its own byte-moving parcel after this re-layout and after step 4.
+Sigil's finding, in force for ROM-RELAYOUT: under `SizeSource::Frozen` map.toml anchors are
+COSMETIC (native.rs, four sites) — the table island rows move the bytes; verify from the `.lst`.
+
 Accepted costs (stated to the owner before the yes): assembler regressions surface nightly rather
 than at the next aeon landing; one-time medium/large plumbing spend; step-2 sequencing risk above.
 Sequencing: after the showcase lands; step 2 first.
