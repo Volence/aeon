@@ -5836,7 +5836,13 @@ overlay. Costs 2 bytes of a 30-byte window today (26 of 30 after climb), so it
 is not urgent — but the comment should be amended to read as a BUDGET principle
 rather than a byte-sharing one until the language grows an offset-anchored view.
 
-### The ROM-tail character-art exile has now happened TWICE — relayout pressure
+### ✅ CLOSED 2026-08-26 — The ROM-tail character-art exile has now happened TWICE — relayout pressure
+**Closed by the ROM re-layout parcel** (see "ROM re-layout — restore the 12,288 B animation
+guarantee in every shape", below): the banks sit after the data region by a stated rule, and
+`Map_Tails` / `Map_Knuckles` are back beside the character data ahead of `HeightMaps`. A fourth
+character's art now packs in place; growth past the 16 KB reserve is a named re-ruling of the
+two anchors (paired refreeze), not an exile. Original text follows.
+
 Knuckles' 0x226C8 of art took the same exile Tails' 132 KB took, for the same
 reason (Art_Sonic ends at $4277E, the `dac_banks` org anchor is at $48000). The
 plain ROM is 676 KB against 414 KB before Tails, and each exile costs a
@@ -10211,7 +10217,35 @@ at freeze time (already the landing rule) and (b) re-verifying the field on the 
 ships. Sigil takes the consuming gate (assert `AEON_DIR` HEAD == `aeon_rev`, fail closed on absence).
 Historical entries stay as they are; backfilling from prose would be a guess wearing a record's clothes.
 
-## ROM re-layout — restore the 12,288 B animation guarantee in every shape (booked 2026-08-26 under `d-28-answered`, owner's option 2)
+## ✅ CLOSED 2026-08-26 — ROM re-layout — restore the 12,288 B animation guarantee in every shape (booked 2026-08-26 under `d-28-answered`, owner's option 2)
+
+**Closure (branch `parcel/rom-relayout`, paired with sigil `parcel/rom-relayout`; report
+`docs/superpowers/2026-08-26-rom-relayout-report.md`).** The banks sit AFTER the data region
+now. `games/sonic4/map.toml` states the BANK PLACEMENT RULE — `dac_banks = align_up(max over
+sound-on shapes of packed_data_end + 0x4000, 0x8000)`, `sound_bank = dac_banks + 0x10000`,
+`packed_data_end = LMA(Art_Sonic) + len(sonic.bin)` — and today's application: `dac_banks`
+0x48000 → **0x90000**, `sound_bank` 0x58000 → **0xA0000** (bank ids $9/$A/$B → $12/$13/$14;
+the resident Z80 blob changes by exactly four bytes, the two bank-id immediates). `Map_Tails` /
+`Map_Knuckles` are un-exiled ahead of `HeightMaps` (collision_data stays LAST so `Art_Sonic` +
+its on-disk embed remains the room instrument). Measured on the parcel's canonical builds:
+
+| shape | `Art_Sonic` | packed end | `dac_banks` | room | + 8,238 held | ceiling | margin |
+|---|---|---|---|---|---|---|---|
+| release (`s4.lst`) | `0x72210` | `0x89ED0` | `0x90000` | **24,880 B** | 33,118 B | 12,288 | +20,830 B |
+| DEBUG (`s4.debug.lst`) | `0x72A60` | `0x8A720` | `0x90000` | **22,752 B** | 30,990 B | 12,288 | +18,702 B |
+
+Two 8 KB bands (16,384 B) fit in both shapes. Acceptance met: `BGANIM_SECTION_CEILINGS` is
+12,288 in both rows (table kept — the gate is per shape), `test_generator_accepts_the_minimum_
+across_shapes` retired as its own text instructed, `bganim_room --gate` reports a positive
+margin in both shapes. The gate now ALSO enforces the placement rule (red-first: an 8 KB
+blob growth fails naming `dac_banks = 0x98000, sound_bank = 0xA8000`; an unaligned anchor
+fails by name; slack above the rule value is reported, never failed). Sonic's art size no
+longer bounds anything: growth past the reserve is a named re-ruling (move both anchors,
+refreeze), not a ceiling cut. What bounds the rule: `SndDrv_SetBank`'s 8-bit bank id
+(LMA < 0x800000) and the 0x3FFFFF cartridge space. The inert `z80_moving_trucks_bank @
+0x60000` region (no sigil consumer; it sat inside `Map_Tails`) is renamed `z80_sound_bank` at
+the `sound_bank` LMA. Original booking follows for the record.
+
 
 **What it is.** `ojz_bg_anim` sits in the packed run `OJZ_Palette .. Art_Sonic` that ends at the
 `dac_banks` hardware anchor (`games/sonic4/map.toml` `[[anchor]] at = 0x48000`, a Z80 `SetBank`

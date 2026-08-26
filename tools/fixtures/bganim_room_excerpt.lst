@@ -1,16 +1,16 @@
 (0) 1/0 :        Vectors:
 (0) 2126/27BFE :        BgAnim_Banks:
 (0) 2127/29BFE :        Map_TestObj:
-(0) 2254/2F430 :        Art_Sonic:
-(0) 2258/50000 :        __align$games.sonic4.dac_banks$0:
+(0) 2265/72A60 :        Art_Sonic:
+(0) 2269/98000 :        __align$games.sonic4.dac_banks$0:
   Symbol Table (* = unused):
   --------------------------
 
  Vectors : 0 C |
  BgAnim_Banks : 27BFE C |
  Map_TestObj : 29BFE C |
- Art_Sonic : 2F430 C |
- __align$games.sonic4.dac_banks$0 : 50000 C |
+ Art_Sonic : 72A60 C |
+ __align$games.sonic4.dac_banks$0 : 98000 C |
 
    5 symbols
     0 unused symbols

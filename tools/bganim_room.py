@@ -19,22 +19,33 @@ plus `games/sonic4/map.toml` for the hardware anchor, and NOTHING else. See
 WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
 --------------------------------------------------
   ROM ROOM (physical, reported here) — bytes between the end of the last packed data
-  blob (`Art_Sonic`) and the `dac_banks` hardware anchor at $48000 (a Z80 `SetBank`
-  latch; `map.toml`'s `[[anchor]]`, it cannot move). Growth in `ojz_bg_anim` shifts
-  the whole run `Map_TestObj .. Art_Sonic` downstream into this hole. `rom_room()`
-  derives it: ~11.4 KB in the debug shape, i.e. ONE 8 KB band per act. A second band
-  does not fit before the anchor; that needs the "banks late, data unbounded"
-  re-layout booked in docs/DEFERRED_WORK.md (the "ROM-tail character-art exile ...
-  relayout pressure" entry), not a bigger ceiling.
+  blob (`Art_Sonic`) and the `dac_banks` anchor (`map.toml`'s `[[anchor]]`). Growth
+  in `ojz_bg_anim` shifts the whole run `Map_TestObj .. Art_Sonic` downstream into
+  this room. `rom_room()` derives it. Until the ROM re-layout (2026-08-26) the anchor
+  was $48000 and read as a hardware latch that could not move, so the room was
+  whatever Sonic's art left (~3.9 KB in the debug shape at d-28); since the re-layout
+  the Z80 banks sit AFTER the data region and the anchor is DERIVED — see the rule.
+
+  BANK PLACEMENT RULE (games/sonic4/map.toml, enforced here since 2026-08-26) —
+      dac_banks = align_up(packed_end + DATA_GROWTH_RESERVE, 0x8000)
+      sound_bank = dac_banks + 0x10000
+  with DATA_GROWTH_RESERVE = 0x4000 (16,384 B: two 8 KB bands per act, the d-28
+  acceptance). One anchor serves every sound-on shape, so the binding shape is the
+  one with the largest packed end; for the others the anchor sits ABOVE their rule
+  value and that slack is reported, never failed. What DOES fail (with `--gate`): a
+  shape whose room drops under the reserve — the report names the anchor pair the
+  rule now demands, and the remedy is to move BOTH anchors and refreeze sigil's
+  frozen tables (a paired aeon+sigil landing), never to shrink the reserve. An anchor
+  off the 0x8000 grid fails by name before any room arithmetic is trusted.
 
   RULED AUTHORING CEILING (`BGANIM_SECTION_CEILINGS`, tools/inject_editor_bg.py) — the
-  owner's budget inside that room, PER SHAPE since decision d-28-answered
-  (2026-08-26): release 12,288 (d-9), debug 12,094 (derived there from the d-28
-  measurement). The shape is the listing: `s4.lst` is the release instrument,
-  `s4.debug.lst` the debug one, and a listing the table does not name is
-  UNMEASURABLE here — never silently the release number. The gate fails the moment a
-  shape's ROM room can no longer hold that shape's ceiling, which is the revisit d-9
-  named (and which d-28 fired once already).
+  owner's budget inside that room, per shape since decision d-28-answered
+  (2026-08-26) and 12,288 (d-9) in both rows again since the re-layout the same day.
+  The shape is the listing: `s4.lst` is the release instrument, `s4.debug.lst` the
+  debug one, and a listing the table does not name is UNMEASURABLE here — never
+  silently the release number. The gate fails the moment a shape's ROM room can no
+  longer hold that shape's ceiling (the rule above should fire first, since the
+  reserve exceeds the ceiling; if the ceiling arm fires alone, the rule was edited).
 
   PLACER ROOM — RETIRED (2026-08-25). This tool used to report a second number,
   "frozen allotment + one 0x400 spread step" (~1 KB), read by regex out of sigil's
@@ -113,9 +124,23 @@ _TOML_AT = re.compile(r"^\s*at\s*=\s*(0x[0-9A-Fa-f]+|\d+)")
 _ART_SONIC_EMBED = re.compile(r'const\s+_art_sonic\s*=\s*embed\(\s*"([^"]*)"')
 COLLISION_DATA_EMP = "games/sonic4/data/collision/collision_data.emp"
 
-#: The label that ends the packed run, and the hardware anchor it runs into.
+#: The label that ends the packed run, and the bank anchor it runs into.
 LAST_PACKED_LABEL = "Art_Sonic"
 ANCHOR_NAME = "dac_banks"
+
+#: The BANK PLACEMENT RULE's terms (games/sonic4/map.toml, "BANK PLACEMENT RULE").
+#: The reserve is a RULED number (two 8 KB BG-animation bands, the d-28 acceptance)
+#: and exceeds the ruled authoring ceiling on purpose; the alignment is a Z80 SetBank
+#: window; the sound bank follows the blip + shared DAC banks (two windows).
+DATA_GROWTH_RESERVE = 0x4000
+BANK_ALIGN = 0x8000
+SOUND_BANK_OFFSET = 2 * BANK_ALIGN
+
+
+def rule_anchor(packed_end):
+    """The rule's `dac_banks` for a shape whose packed data ends at `packed_end`: the
+    first BANK_ALIGN boundary at or above `packed_end + DATA_GROWTH_RESERVE`."""
+    return -(-(packed_end + DATA_GROWTH_RESERVE) // BANK_ALIGN) * BANK_ALIGN
 
 
 class Unmeasurable(Exception):
@@ -357,6 +382,36 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
           f"BGANIM_SECTION_CEILING = {BGANIM_SECTION_CEILING} B)", file=out)
 
     rc = 0
+    # The BANK PLACEMENT RULE, this shape's own numbers. Alignment first: an anchor
+    # off the SetBank grid is not a bank, and no room figure against it is trusted.
+    anchor, packed_end = r["anchor"], r["packed_end"]
+    if anchor % BANK_ALIGN:
+        print(f"bganim_room: FAIL — {ANCHOR_NAME} 0x{anchor:X} is not 0x{BANK_ALIGN:X}-aligned "
+              f"(a Z80 SetBank window); the map's anchor is not a bank.", file=out)
+        rc = 1 if gate else rc
+    else:
+        want = rule_anchor(packed_end)
+        if anchor < want:
+            print(
+                f"bganim_room: FAIL — the bank placement rule is broken in this shape.\n"
+                f"  `{ANCHOR_NAME}` is declared at 0x{anchor:X} but packed data ends at "
+                f"0x{packed_end:X}, leaving {r['room']} B < DATA_GROWTH_RESERVE "
+                f"{DATA_GROWTH_RESERVE} B.\n"
+                f"  The rule (games/sonic4/map.toml, BANK PLACEMENT RULE): "
+                f"dac_banks = align_up(packed_end + reserve, 0x{BANK_ALIGN:X}) = 0x{want:X}, "
+                f"sound_bank = dac_banks + 0x{SOUND_BANK_OFFSET:X} = 0x{want + SOUND_BANK_OFFSET:X}.\n"
+                f"  Move BOTH anchors there and refreeze sigil's frozen tables (a paired "
+                f"aeon+sigil landing). Do NOT shrink the reserve.",
+                file=out)
+            rc = 1 if gate else rc
+        else:
+            slack = ("this shape binds exactly" if anchor == want else
+                     f"0x{anchor - want:X} of slack above this shape's rule value — another "
+                     f"sound-on shape binds, or the rule moved")
+            print(f"  bank placement rule: packed end 0x{packed_end:X} + reserve "
+                  f"{DATA_GROWTH_RESERVE} B -> {ANCHOR_NAME} >= 0x{want:X}; declared "
+                  f"0x{anchor:X} ({slack})", file=out)
+
     if gate and ceiling > headroom:
         print(
             f"bganim_room: FAIL — the ruled BG-animation ceiling no longer fits.\n"
@@ -366,10 +421,10 @@ def report(lst_path, aeon=AEON, gate=False, out=sys.stdout, rom_path=None,
             f"  The likely cause is that {os.path.relpath(r['art_blob'], aeon)} grew: it is "
             f"{r['art_blob_len']} B and it is the last packed blob before a HARDWARE anchor "
             f"that cannot move (a Z80 SetBank latch).\n"
-            f"  This is the revisit decision d-9 named (d-28-answered took it once, for the "
-            f"debug shape). Either shrink THIS shape's ceiling in tools/inject_editor_bg.py "
-            f"(authors lose band size) or take the relocation option d-9 kept open. "
-            f"Do NOT raise the anchor.",
+            f"  Since the ROM re-layout (2026-08-26) the anchor is DERIVED by the bank "
+            f"placement rule and the reserve exceeds this ceiling, so the rule arm above "
+            f"should have fired first: apply the rule (move both anchors, refreeze) rather "
+            f"than shrinking the ceiling, which is an owner ruling (d-9).",
             file=out)
         rc = 1
 

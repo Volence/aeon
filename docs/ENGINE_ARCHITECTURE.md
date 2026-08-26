@@ -148,12 +148,27 @@ has five kinds of entry:
   excluded, since their tie position is byte-neutral.
 - **`[[region]]`** — an address window with a base and size: `rom` (the whole 4 MB image),
   `object_bank` (the 64 KB `org $10000` object-code bank), and, sound-on, the
-  `z80_moving_trucks_bank` phase bank (`vma_base = 0x8000`). Regions are the sole owner of
-  the ROM geometry.
-- **`[[anchor]]`** — a hard LMA for an island whose address is latched by hardware or a
-  frozen boundary: `boot_head` at `0x0`, `object_bank` at `0x10000`, and (sound-on) the
-  `dac_banks` DAC-sample banks at `0x48000` and the `sound_bank` engine-table head at
-  `0x58000` (`vma = 0x8000`). An anchored section never repacks.
+  `z80_sound_bank` phase bank (`vma_base = 0x8000`, at the `sound_bank` anchor's LMA —
+  descriptive: no sigil consumer reads a `z80_bank` region, measured 2026-08-26). Regions
+  are the sole owner of the ROM geometry.
+- **`[[anchor]]`** — a hard LMA for an island: `boot_head` at `0x0`, `object_bank` at
+  `0x10000`, and (sound-on) the `dac_banks` DAC-sample banks and the `sound_bank`
+  engine-table head (`vma = 0x8000`). An anchored section never repacks. **The two bank
+  anchors are DERIVED, not hardware-fixed** (ROM re-layout, owner ruling d-28-answered
+  option 2, 2026-08-26): the Z80 banks sit AFTER the data region by the BANK PLACEMENT
+  RULE stated in `map.toml` — `dac_banks = align_up(max over sound-on shapes of
+  packed_data_end + 0x4000, 0x8000)`, `sound_bank = dac_banks + 0x10000`, where
+  `packed_data_end = LMA(Art_Sonic) + len(sonic.bin)` (collision_data is the last data
+  section by `order`; the 0x4000 reserve is two 8 KB BG-animation bands). Applied at the
+  re-layout: `0x90000` / `0xA0000` (bank ids $12/$13 DAC, $14 sound). The rule is
+  enforced post-sigil by `tools/bganim_room.py --gate` on both canonical listings (it
+  fails naming the new anchor pair when a shape's room drops under the reserve; the
+  remedy is to move both anchors and refreeze sigil's frozen tables, a paired landing).
+  What bounds the move: the driver's `SndDrv_SetBank` carries the bank id in 8 bits
+  (latch bit 8 written 0 → LMA < 0x800000) and the cartridge space ends at 0x3FFFFF.
+  Before the re-layout the anchors were `0x48000` / `0x58000` and capped the data region,
+  which exiled the Tails and Knuckles sprite data to the ROM tail twice and made the
+  BG-animation room depend on Sonic's art size; both are retired.
 - **`[[hole]]`** — a declared gap: the sound-off Z80 idle program occupies `$3d8..$3fe`,
   so the map declares a hole `after = "Z80_IdleProgram"` at `0x3FE` filled by
   `engine.z80_init`, gated `when = "sound_off"`.
@@ -213,7 +228,8 @@ this seam; the `game_ram` region's `limit` (`SYSTEM_STACK`) is the overflow guar
 The engine's per-frame sequencer reads its lookup tables (pitch, SFX window, opcode dispatch,
 DAC sample descriptors) from fixed $8000-window VMAs. A sound-on game places them with a
 `section soundbankhead (cpu: m68000, vma: $8000)` in `games/sonic4/data/sound/soundbankhead.emp`
-(`module games.sonic4.soundbankhead`), which the map anchors at LMA `0x58000`. The section
+(`module games.sonic4.soundbankhead`), which the map anchors at the `sound_bank` LMA (`0xA0000`
+since the 2026-08-26 re-layout; `0x58000` before it). The section
 `embed`s the seam-1-generated `.bin` artifacts (`SoundTablesZ80_Head` @ $8000,
 `SndDefaultPitchTable` @ $8357, `SfxBlobWinTab` @ $845F, `SeqOpcodeTable` @ $856D,
 `DacSampleTable` @ $85AD) at the exact VMAs the resident Z80 driver's banked carriers expect,
