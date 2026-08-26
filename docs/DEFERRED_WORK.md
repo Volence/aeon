@@ -9756,7 +9756,9 @@ deliberately left:
   CRCs are unchanged (`s4 654bcd74`, `s4.debug f8d06cae`, `demo bf2cdb42`, `demo.debug
   62a0019e`).
 
-  **Booked, NOT fixed (scope fence) — three riders:**
+  **Booked, NOT fixed (scope fence) — three riders.** ~~1~~ and ~~2~~ are **CLOSED 2026-08-26
+  by `parcel/boot-override-reach-2`**, written up under this entry; 3 is **reclassified, not
+  closed** — see the ruling below it.
 
   1. Both helpers end `return int(r.get("frames", 0))` and the reply key is **`frame`**, not
      `frames` — so both always return `0`. Latent only because every call site discards the
@@ -9783,3 +9785,87 @@ deliberately left:
   you did not write.** `r.get(K, <default>)` with a truthy default cannot fail if `K` is
   misspelled, and no amount of grepping your own source will show it. Print the reply's key
   set once against the live server, or route through the shared helper that already did.
+
+- **Riders 1 and 2 CLOSED 2026-08-26 (`parcel/boot-override-reach-2`). Rider 3 RECLASSIFIED as
+  a migration hazard by owner ruling, not a defect.** All three `run_to` sites in
+  `tools/boot_override_gate.py` now route through `_run_to`, and the file no longer contains a
+  raw `emulator/run_to` call.
+
+  **Rider 2 — the unchecked third site (`run_pre_resume`) — was the worst of the three**, and
+  the poison says why. Its assertion is that the mailbox cells read `(0, 0, 0)` at the init,
+  because boot's 64KB Work-RAM clear ate a pre-resume write. Point that `run_to` at `$00FEED`
+  and the run sails past the init on its 600-frame bound — *through the RAM clear* — so the
+  cells read zero, the assertion agrees, and:
+
+  > the pre-fix gate printed `boot_override_gate: PASS`, exit 0, with stdout **byte-identical
+  > to a healthy run** (`diff` clean against the unpoisoned baseline). Not one character moved.
+
+  Sites 1 and 2 at least perturbed a printed frame count or produced sixteen loud (wrong)
+  FAIL lines. This one confirmed its own premise from a place it never stood and left no
+  trace whatsoever. Post-fix: exit 2, `SETUP ERROR: run_to GameState_OJZScroll_Init ($00FEED)
+  never reached it within 600 frames; stopped at pc=0x00004E90 — wrong ROM shape?`
+
+  **The poison-design constraint, and why it forces two poisons rather than one.** The ask was
+  a poison that stops the run early *without independently zeroing the cells the assertion
+  reads* — otherwise "guard works" is indistinguishable from "cells were zero anyway". Such a
+  bound exists and was measured: the RAM clear straddles the frame 1→2 boundary.
+
+  | `maxFrames` | reached | halt pc | `Boot_At_X/Y/Flag` |
+  |---|---|---|---|
+  | 1 | false | `0x0000026E` | **(2560, 2400, 1)** — still non-zero |
+  | 2 | false | `0x00000282` | (0, 0, 0) |
+  | 3, 4, 6, 10, 34, 600 | false | various | (0, 0, 0) |
+
+  (Positive control inside that probe: every row re-asserts the write itself landed as
+  `(2560, 2400, 1)` at the reset-paused machine before the run starts, so a zero reading is
+  the clear doing its job and never a write that missed.)
+
+  But **the two conditions are mutually exclusive here, and provably so**: the assertion's
+  expected value *is* the zeroed state, so any stop that leaves the cells non-zero makes the
+  assertion FAIL, and any stop that lets it pass is by definition one where the cells were
+  zeroed. So both were run:
+
+  * **bound 600** (cells zeroed by the machine) — pre-fix **PASS, exit 0, byte-identical
+    output**. This is the silent-wrong-reason pass.
+  * **bound 1** (cells demonstrably NOT zeroed, per the table) — pre-fix exit 1 with exactly
+    one FAIL line: *"pre-resume: the mailbox read (2560, 2400, 1) at the init — boot's
+    Work-RAM clear was expected to zero it, so the client procedure's premise moved"*. A
+    **false engine verdict**: it accuses `engine/system/boot.emp` of a regression that does
+    not exist, and would send the next reader hunting one.
+
+  Only the bound-600 arm was re-run post-fix. The bound-1 arm's post-fix behaviour is not
+  separately measured and is *reasoning*, flagged as such: `_run_to` raises on `reached ==
+  false`, which both bounds produce, and the bound never reaches the guard's condition.
+
+  **Rider 1 — `frames` vs `frame` — fixed by DELETION, not by rename.** Measured: the reply's
+  `frame` is `34` at `GameState_OJZScroll_Init` and `status.frameToken` is `34` at the same
+  instant, so `frame` is the absolute halt stamp and *there is no frames-advanced-inside-the-
+  call quantity on this wire at all*. Renaming `frames`→`frame` would therefore have changed
+  the meaning while looking like a typo fix. Since all **nine** call sites `await` the helpers
+  without assignment, both now return `None`. Checked explicitly, per the ruling that a caller
+  genuinely wanting a count would be a third finding: **none does.**
+
+  The two stale comments (`frame_token`'s docstring, and the saving block) are rewritten
+  against the measurement rather than deleted, because a comment carrying a wrong wire key
+  outlives every doc that ever recorded the right one — that is how this defect survived. Note
+  the old rationale was wrong in *both* halves: there is no `frames` key, and the key that does
+  exist is the same clock `frameToken` gives, so the stated reason to prefer `frameToken`
+  (units) never held. The real reason is placement: the samples are taken after `run_frames`,
+  where no `run_to` reply is in scope to prefer or reject.
+
+  **Rider 3 — `evict_witness.py:97` — LEAVE IT ALONE. Owner ruling 2026-08-26.** `r.get(
+  "timeout_reached")` is **correct** against the legacy C++ `oracle_gui` that tool actually
+  targets (`oracle-old/linux-port/gui/ControlSocket.cpp:924` emits exactly that snake_case
+  key). Changing it to match oracle-aether's `timeoutReached` would break a working tool to
+  satisfy a convention it does not use. It is filed as a **MIGRATION HAZARD attached to that
+  tool's eventual move to the Rust core**, not as a defect: convert the spelling in the same
+  commit as the migration, never before. The distinction is the point — *a key name is only
+  right or wrong relative to the server on the other end*, and a repo running two servers has
+  two correct answers at once.
+
+  **Unpoisoned regression evidence:** gate stdout byte-identical to the pre-parcel baseline;
+  `effects_gates --only boot_override` → `OK — 1 gates`, exit 0. Zero-byte: four ROM CRCs
+  rebuilt and unchanged (`s4 654bcd74`, `s4.debug f8d06cae`, `demo bf2cdb42`, `demo.debug
+  62a0019e`). Timing note for whoever budgets this lane next: the whole seven-boot gate is
+  **2.29 s** wall, not minutes — headless `oracle-aether` with `--no-pace` runs ~100 frames in
+  negligible time, and the lane's old "3 m 12.65 s" figure is the FULL gate set, not this one.

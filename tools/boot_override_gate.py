@@ -236,13 +236,23 @@ async def _run_to(b, addr: int, what: str, hint: str = "", timeout: float = 180.
     machine wherever it happened to be, so every reading taken afterwards is a confident wrong
     answer rather than an error.
 
-    Until 2026-08-26 both call sites below tested `r.get("fired", True)` — `fired` is a key
-    this server has never emitted, so the default always applied and NEITHER GUARD COULD FIRE.
-    Measured, not inferred: pointing `_init_to_update` at an address the PC never takes
-    ($00FEED, odd) left the gate printing `PASS` and exit 0 with every assertion green off a
-    machine 566 frames past where it should have stopped; the same poison at `_boot_to_init`
-    produced sixteen confident FAIL lines blaming the engine's parallax select. Both now stop
-    at this raise instead.
+    ALL THREE `run_to` sites in this file route through here. Until 2026-08-26 two of them
+    tested `r.get("fired", True)` — `fired` is a key this server has never emitted, so the
+    default always applied and NEITHER GUARD COULD FIRE — and the third checked nothing at
+    all. Measured with the same poison each time (target $00FEED, an ODD address the 68000's
+    PC can never take, so the run provably ends on its bound):
+
+      `_init_to_update`   pre-fix PASS, exit 0 — every assertion green off a machine 566
+                          frames past where it should have stopped.
+      `_boot_to_init`     pre-fix exit 1 with SIXTEEN confident FAIL lines blaming the
+                          engine's parallax select — a setup failure dressed as a verdict.
+      `run_pre_resume`    pre-fix PASS, exit 0, output BYTE-IDENTICAL to a healthy run. The
+                          worst of the three: that run asserts the mailbox cells read ZERO
+                          at the init, and a run that sails past the init has gone through
+                          boot's RAM clear too, so it reads zero and AGREES. The gate
+                          confirmed its own premise from a place it never stood.
+
+    All three now stop at the raise below instead.
 
     The check is `aether_instance.run_to_addr` — the tree's one correct spelling, whose own
     docstring is about exactly this hazard. What it does not carry is this file's per-RPC
@@ -276,9 +286,20 @@ async def read_long(b, sym, name: str) -> int:
 
 
 async def frame_token(b) -> int:
-    """The emulated frame index — the only honest clock here. `run_to`'s own `frames`
-    counts frames advanced INSIDE that call, and a boot that completes mid-frame reports
-    0, which is a measurement artefact rather than a boot that took no time."""
+    """The emulated frame index — the only clock available AT the sample points, which are
+    `run_frames` returns and not `run_to` returns.
+
+    The text here used to say `run_to` answers a `frames` count of frames advanced inside
+    the call, and that a boot finishing mid-frame therefore reports a misleading 0. Both
+    halves are wrong and were wrong when written. MEASURED against the live server
+    (2026-08-26, DEBUG ROM): `run_to`'s whole reply key set is `caveat, droppedEvents,
+    frame, maxFrames, mclk, pc, reached, running, symbol, symbolDisp, target` — there is
+    no `frames`, and `r.get("frames", 0)` was reading a key that has never existed. What
+    the reply does carry is `frame`, the ABSOLUTE halt index off the envelope stamp, and
+    at `GameState_OJZScroll_Init` it reads 34 — the same 34 this `frameToken` reports at
+    the same instant. So there was never a units problem to solve here: the reason to
+    sample this way is WHERE the sample is taken, not what it counts.
+    """
     return int((await _c(b, "emulator/status", {}))["frameToken"])
 
 
@@ -510,22 +531,27 @@ def check_bands(p: dict, cfg_bands: int, who: str, axis: str) -> list[str]:
 
 # ---- the runs ---------------------------------------------------------------
 
-async def _boot_to_init(b, sym, lst: str) -> int:
+async def _boot_to_init(b, sym, lst: str) -> None:
     """Reset, then stop at the level init's first instruction — i.e. AFTER boot's 64KB
-    Work-RAM clear and BEFORE any consumer of the mailbox. THE client window."""
+    Work-RAM clear and BEFORE any consumer of the mailbox. THE client window.
+
+    Returns nothing on purpose. This used to end `return int(r.get("frames", 0))` against
+    a reply that has no `frames` key (see `frame_token`), so it returned a constant 0 that
+    all nine call sites discarded. Deleted rather than respelled: the quantity it claimed
+    to return — frames advanced INSIDE the call — does not exist on this wire at all, so
+    there is nothing to rename it to.
+    """
     await _c(b, "emulator/load_symbols", {"path": lst})
     await _c(b, "emulator/reset", {})
-    r = await _run_to(b, sym["GameState_OJZScroll_Init"], "GameState_OJZScroll_Init",
-                      " — wrong ROM shape?")
-    return int(r.get("frames", 0))
+    await _run_to(b, sym["GameState_OJZScroll_Init"], "GameState_OJZScroll_Init",
+                  " — wrong ROM shape?")
 
 
-async def _init_to_update(b, sym) -> int:
+async def _init_to_update(b, sym) -> None:
     """Run the init out. Stopping at the UPDATE state's first instruction is the first
     frame the display is on with the init's synchronous plane fill complete — 'the first
-    visible frame' made operable."""
-    r = await _run_to(b, sym["GameState_OJZScroll_Update"], "GameState_OJZScroll_Update")
-    return int(r.get("frames", 0))
+    visible frame' made operable. Returns nothing, for `_boot_to_init`'s reason."""
+    await _run_to(b, sym["GameState_OJZScroll_Update"], "GameState_OJZScroll_Update")
 
 
 async def _write_mailbox(b, sym, prefix: str, x: int, y: int, flag: int = 1) -> None:
@@ -639,8 +665,14 @@ async def run_pre_resume(rom, sym, lst, k, plane_base: int, x: int, y: int) -> d
         await _c(b, "emulator/load_symbols", {"path": lst})
         await _c(b, "emulator/reset", {})
         await _write_mailbox(b, sym, "Boot_At", x, y)
-        await _c(b, "emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Init"]),
-                                        "maxFrames": BOOT_MAX_FRAMES})
+        # This run CANNOT go unchecked, and this site is the sharpest of the three: the
+        # assertion below is that the cells read ZERO, and a run that overshoots the init
+        # has passed through the RAM clear too — so it reads zero, agrees, and the gate
+        # confirms its premise without ever having stood where it claims to stand.
+        # MEASURED: with this target poisoned to $00FEED the pre-fix gate printed PASS,
+        # exit 0, output BYTE-IDENTICAL to a healthy run. See `_run_to`.
+        await _run_to(b, sym["GameState_OJZScroll_Init"], "GameState_OJZScroll_Init",
+                      " — wrong ROM shape?")
         at_init = (await read_word(b, sym, "Boot_At_X"),
                    await read_word(b, sym, "Boot_At_Y"),
                    await read_at(b, sym["Boot_At_Flag"], 1))
@@ -963,8 +995,10 @@ async def main_async(args) -> int:
 
     # ---- the saving, measured engine-side --------------------------------------
     # Absolute emulated frame indices (`frameToken`), so the two routes are compared on
-    # one clock. `run_to`'s own `frames` counts frames advanced inside that call and a
-    # boot that finishes mid-frame reports 0 — an artefact, not a boot that took no time.
+    # one clock — but NOT for the reason this comment used to give. `run_to` has no
+    # `frames` key at all and its `frame` is this same absolute clock (see `frame_token`);
+    # and these three samples are taken after `run_frames`, where no `run_to` reply is in
+    # scope to prefer or reject in the first place.
     boot_frames = ctl["t_playable"]
     ovr_frames = ovr["t_playable"]
     warp_frames = wrp["t_playable"]
