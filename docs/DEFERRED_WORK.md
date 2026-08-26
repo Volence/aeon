@@ -8997,8 +8997,10 @@ what was measured in THIS tree rather than relayed.
   Byte-neutral on the stub (which emits no pointer array at all), byte-moving on any tree
   carrying a real band.
 
-**DEFECT 2 (BGANIM-PLACE) — a declared section outgrew its pin.** With defect 1 patched the
-build reaches layout and stops:
+**DEFECT 2 (BGANIM-PLACE) — a declared section outgrew its pin.** *(CLOSED 2026-08-26 — the
+placement half by sigil b0363140's derived layout; see the closure note on the DISPOSITION
+block below. The size ceiling that landed under it stays.)* With defect 1 patched the
+build reached layout and stopped:
 
 ```
 sections `test_mappings` [0x3B672, 0x3B6A2) and `ojz_bg_anim` [0x3B270, 0x3D29E) overlap (colliding pins)
@@ -9159,6 +9161,41 @@ sigil, and correctly not put to them until this parcel lands.
 **DEFECT 2 (BGANIM-PLACE) — DISPOSITION 2026-08-24, `parcel/bganim-slot-ceiling`. The
 ceiling is built and gated; the ruling itself is BLOCKED ON SIGIL at any useful size.**
 
+> **CLOSURE 2026-08-25/26 (`parcel/bganim-room-retire`) — the layout blocker is CLOSED by
+> sigil's derived layout; the placer arm is RETIRED here.** sigil master `b0363140` (merge of
+> `feat/derived-layout`; release binary `a4eac185`, source read at `a0fbee24`) changed what
+> §2/§3 below measured: a pure-data section that collides at its frozen pin is now re-measured
+> at a disjoint scratch slot (`crates/sigil-harness/src/native.rs:2315-2348` `measure_or_spread`
+> → `:2353` `image_lens_pinned(.., scratch_data=true)`, `:2372-2394`), its neighbours pack
+> downstream from real sizes (`:2549` `packed_true_bases`), and a base drifting past the stale
+> frozen table is the `[layout.provisional-drift]` WARNING (`:2605-2616` `GROWTH_DRIFT_TOLERANCE
+> = 0x1000`, `:2687-2697`), never a stop. The `0x400` spread survives only as the fallback for
+> relaxable CODE growth (`:2327-2343`) — it bounds no data section. What still fails, loud, is a
+> run overrunning a declared HARDWARE anchor: `:2670-2676` holds the anchor absolute and the
+> final `resolve_layout` overlap check (`crates/sigil-link/src/relax.rs:273-286`, the
+> `colliding pins` diagnostic) refuses it. That is exactly the §1 ROM-room limit and nothing
+> else. The `GROWTH_DRIFT_TOLERANCE` vs spread asymmetry flagged below is therefore moot.
+>
+> **Retired in aeon:** `tools/bganim_room.py`'s "placer room" (its `_SPREAD` regex over
+> `native.rs`, `sigil_spread_step()`, `placer_room()`, the `SIGIL_BUILD` dependency and the
+> `BINDING` verdict), and `BGANIM_PLACER_CEILING` + the two-limit chooser in
+> `tools/inject_editor_bg.py` — deleted, not disabled, as sigil's design note asked
+> (`docs/superpowers/notes/2026-08-26-derived-layout-design.md` §4: "a stale-but-green tool is
+> the worse failure"). The tool now prints the ROM room, `BGANIM_SECTION_CEILING`, and a
+> `binding limit:` line naming which of those binds. Gated by
+> `tools/test_bg_emit.py::TestBgAnimPlacerArmRetired` (red-first: 3 of 4 failed against the
+> old tool). Zero-byte: all four shape CRCs unchanged. §3's "cannot be built AND cannot be
+> re-frozen" is no longer true — a grown band builds with one warning and the refreeze
+> runs the same walk.
+>
+> **What REMAINS open:** (1) the first real band has still not landed — aurora's 8,238 B
+> band is now an ACCEPTANCE at the 9,394 B ceiling (`test_auroras_authored_band_is_refused_
+> with_its_own_numbers` flips to its acceptance arm), but the animate-vs-static question at
+> the end of this block is unchanged and still an emulator check; (2) the PHYSICAL ceiling —
+> ~11.4 KB before the `0x48000` `dac_banks` anchor is ONE 8 KB band per act. A second band
+> needs the "banks late, data unbounded" re-layout ("The ROM-tail character-art exile has now
+> happened TWICE — relayout pressure", above), not a bigger `BGANIM_SECTION_CEILING`.
+
 Owner decision `d-9` ruled `fitinplace` — keep BG animation where it is, accept a small
 ceiling, keep relocation open. That was ruled against the ROM-room number. **The ROM is not
 the binding limit.** Both limits are stated here because conflating them is what produced
@@ -9191,7 +9228,8 @@ sonic4. The ceiling is a sonic4 fact. **A missing row in the frozen table was no
 — the listing was.**
 
 **2. PLACER room — 1,026 B, and IT IS THE BINDING LIMIT. This is the finding that changes the
-ruling's cost.** sigil's chainer measures every section's image length at its frozen
+ruling's cost.** *(HISTORICAL as of sigil b0363140 — see the closure note at the head of this
+disposition; the numbers below describe the pre-derived-layout chainer.)* sigil's chainer measures every section's image length at its frozen
 provisional base; when a grown section collides there it retries **once**, with a cumulative
 `0x400`-per-rank spread (`measure_or_spread`, sigil `crates/sigil-harness/src/native.rs`).
 `ojz_bg_anim` and `test_mappings` are ADJACENT in the declared order, so the retry buys
@@ -9249,7 +9287,8 @@ that would absorb those five labels cannot be produced).
   act. Decision `d-6` proposed a per-band cap and this project's own deleted content refuted
   it — 32x4 + 16x4 each pass a generous per-band limit while their sum is 49,242 B. Kept
   executable as `test_bands_each_under_the_ceiling_but_over_in_total`.
-- **Both ceilings are re-derived on every sonic4 build** by `tools/bganim_room.py --gate`
+- **Both ceilings are re-derived on every sonic4 build** *(now ONE — the placer arm is retired,
+  closure note above)* by `tools/bganim_room.py --gate`
   (wired into `build.sh` beside `effects_seam_gate`), from the listing + the image + the map,
   and **it fails loudly when it cannot measure** rather than reporting zero. It is the standing
   guard for the revisit `d-9` named: the day `Art_Sonic` grows into the reservation, the build

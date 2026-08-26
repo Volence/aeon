@@ -16,29 +16,36 @@ in it by construction. The only instruments that can answer occupancy are the si
 plus `games/sonic4/map.toml` for the hardware anchor, and NOTHING else. See
 `docs/OVERSEER.md` (the repo bar) and decisions d-8 / d-9.
 
-THE TWO INDEPENDENT LIMITS ON THE SECTION'S SIZE
-------------------------------------------------
-They are different questions with different answers, and conflating them is what
-produced the retracted numbers:
+WHAT LIMITS THE SECTION — AND WHAT NO LONGER DOES
+--------------------------------------------------
+  ROM ROOM (physical, reported here) — bytes between the end of the last packed data
+  blob (`Art_Sonic`) and the `dac_banks` hardware anchor at $48000 (a Z80 `SetBank`
+  latch; `map.toml`'s `[[anchor]]`, it cannot move). Growth in `ojz_bg_anim` shifts
+  the whole run `Map_TestObj .. Art_Sonic` downstream into this hole. `rom_room()`
+  derives it: ~11.4 KB in the debug shape, i.e. ONE 8 KB band per act. A second band
+  does not fit before the anchor; that needs the "banks late, data unbounded"
+  re-layout booked in docs/DEFERRED_WORK.md (the "ROM-tail character-art exile ...
+  relayout pressure" entry), not a bigger ceiling.
 
-  1. ROM ROOM — physical bytes between the end of the last packed data blob
-     (`Art_Sonic`) and the `dac_banks` hardware anchor at $48000 (a Z80 `SetBank`
-     latch; `map.toml`'s `[[anchor]]`, it cannot move). Growth in `ojz_bg_anim`
-     shifts the whole run `Map_TestObj .. Art_Sonic` downstream into this hole.
-     `rom_room()` derives it.
+  RULED AUTHORING CEILING (`BGANIM_SECTION_CEILING`, tools/inject_editor_bg.py) — the
+  owner's budget inside that room (decision d-9). The gate here fails the moment the
+  ROM room can no longer hold it, which is the revisit d-9 named.
 
-  2. PLACER ROOM — what sigil's frozen-pin MEASURING pass can even resolve. The
-     chainer measures every section's image length at its frozen provisional base;
-     when a grown section collides there it retries with a cumulative
-     `0x400`-per-rank spread (`sigil crates/sigil-harness/src/native.rs`,
-     `measure_or_spread`). `ojz_bg_anim` and `test_mappings` are ADJACENT in the map
-     order, so the retry buys exactly ONE spread step. A section that outgrows
-     (its frozen allotment + one step) cannot be MEASURED, and the build stops with
-     `... overlap in the image (colliding pins)`. `placer_room()` derives it.
-
-  ROM room is ~11 KB. Placer room is ~1 KB. **The placer is the binding limit
-  today, and it is not raisable from this repo** — see docs/DEFERRED_WORK.md,
-  "BGANIM-PLACE".
+  PLACER ROOM — RETIRED (2026-08-25). This tool used to report a second number,
+  "frozen allotment + one 0x400 spread step" (~1 KB), read by regex out of sigil's
+  `measure_or_spread`, and called it BINDING: sigil's chainer measured every section
+  at its FROZEN provisional base and a data section that outgrew that pin stopped the
+  build at `overlap in the image (colliding pins)`. Since sigil b0363140 (merge of
+  feat/derived-layout) that is no longer how placement works: a pure-data section
+  that collides at its pin is re-measured at a disjoint scratch slot
+  (`image_lens_pinned(.., scratch_data=true)`), its neighbours pack downstream from
+  real sizes, and a base that drifts past the stale frozen table is a
+  `[layout.provisional-drift]` WARNING, never a stop (`packed_true_bases`,
+  `GROWTH_DRIFT_TOLERANCE`). Only a run that overruns a declared HARDWARE anchor
+  still fails, at the final `resolve_layout` overlap check — which is exactly the
+  ROM-room limit above. The placer number therefore bounded nothing, and sigil's own
+  design note named its retirement as aeon's ("a stale-but-green tool is the worse
+  failure"). It is deleted, not disabled: no regex over sigil's source remains here.
 
 USAGE
     python3 tools/bganim_room.py --lst s4.debug.lst            # report
@@ -61,9 +68,6 @@ _LST_LABEL = re.compile(r"^\(0\)\s+\d+/([0-9A-Fa-f]+)\s+:\s+([A-Za-z_$][\w$.]*):
 _TOML_NAME = re.compile(r'^\s*name\s*=\s*"([^"]*)"')
 _TOML_AT = re.compile(r"^\s*at\s*=\s*(0x[0-9A-Fa-f]+|\d+)")
 
-#: The measuring spread step, read out of sigil's own source (see `sigil_spread_step`).
-_SPREAD = re.compile(r"\*p \+= (0x[0-9A-Fa-f]+) \* rank as u32")
-
 #: The blob whose embed IS `Art_Sonic` — the last packed data before the anchor.
 #: Single authority: games/sonic4/data/collision/collision_data.emp's
 #: `const _art_sonic = embed(...)`, parsed rather than restated so a re-export
@@ -74,9 +78,6 @@ COLLISION_DATA_EMP = "games/sonic4/data/collision/collision_data.emp"
 #: The label that ends the packed run, and the hardware anchor it runs into.
 LAST_PACKED_LABEL = "Art_Sonic"
 ANCHOR_NAME = "dac_banks"
-#: The two labels whose spacing IS the section's current frozen allotment.
-SECTION_HEAD = "BgAnim_Table"
-SECTION_NEXT = "Map_TestObj"
 
 
 class Unmeasurable(Exception):
@@ -170,71 +171,11 @@ def rom_room(lst_path, aeon=AEON, map_toml=None):
     }
 
 
-def sigil_spread_step(sigil_build=None):
-    """The measuring spread step, READ OUT OF SIGIL'S SOURCE — not restated here.
-
-    `measure_or_spread` in `crates/sigil-harness/src/native.rs` retries a collided
-    measuring resolve with `*p += 0x400 * rank as u32`. That literal is the whole of
-    the placer's slack, so it is parsed rather than copied: if sigil widens it, the
-    placer ceiling this repo reports widens with it instead of going stale.
-
-    `sigil_build` is the path to the `sigil` binary (`$SIGIL_BUILD`); the repo root is
-    its `target/release/..` grandparent. Returns (step, source_path).
-    """
-    sigil_build = sigil_build or os.environ.get("SIGIL_BUILD", "")
-    if not sigil_build:
-        raise Unmeasurable(
-            "SIGIL_BUILD is unset, so sigil's source tree cannot be located and the "
-            "measuring spread step cannot be read. The placer ceiling is NOT derivable "
-            "in this environment — say so; do not fall back to a number.")
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sigil_build))))
-    src = os.path.join(root, "crates", "sigil-harness", "src", "native.rs")
-    if not os.path.exists(src):
-        raise Unmeasurable(f"no sigil harness source at {src} (derived from SIGIL_BUILD)")
-    with open(src, encoding="utf-8", errors="replace") as f:
-        m = _SPREAD.search(f.read())
-    if not m:
-        raise Unmeasurable(
-            f"{src} no longer spells the measuring spread as {_SPREAD.pattern!r}. The "
-            f"placer ceiling is a function of that step; re-point this parser rather "
-            f"than pinning the old value.")
-    return int(m.group(1), 0), src
-
-
-def placer_room(lst_path, sigil_build=None):
-    """What sigil's frozen-pin measuring pass can resolve for `ojz_bg_anim`.
-
-    DERIVATION:
-        allotment = LMA(Map_TestObj) - LMA(BgAnim_Table)      <- the `.lst`
-        room      = allotment + one spread step               <- sigil's own source
-
-    Validated against two independent measurements on 2026-08-24: a 814-byte section
-    builds in both sonic4 shapes; a 1,070-byte one fails in both, and sigil's own
-    diagnostic reported the available spans as 0x40E (plain) and 0x402 (debug) —
-    exactly `allotment + 0x400` for allotments of 14 and 2.
-    """
-    labels = lst_labels(lst_path)
-    for name in (SECTION_HEAD, SECTION_NEXT):
-        if name not in labels:
-            raise Unmeasurable(
-                f"{lst_path} defines no {name} — this shape does not place the "
-                f"`ojz_bg_anim` seam (the `demo` game does not), so it has no placer "
-                f"room to report. Not a zero.")
-    allot = labels[SECTION_NEXT] - labels[SECTION_HEAD]
-    step, src = sigil_spread_step(sigil_build)
-    return {
-        "allotment": allot,
-        "spread_step": step,
-        "spread_source": src,
-        "room": allot + step,
-    }
-
-
-def report(lst_path, aeon=AEON, sigil_build=None, gate=False, out=sys.stdout):
-    """Print both derivations; with `gate`, fail on a breach. Returns the exit code."""
+def report(lst_path, aeon=AEON, gate=False, out=sys.stdout):
+    """Print the ROM-room derivation and the ruled ceiling; with `gate`, fail on a
+    breach. Returns the exit code. The verdict line names which of the two binds."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from inject_editor_bg import (BGANIM_SECTION_CEILING, BGANIM_PLACER_CEILING,
-                                  live_section_bytes)
+    from inject_editor_bg import BGANIM_SECTION_CEILING, live_section_bytes
 
     r = rom_room(lst_path, aeon)
     live = live_section_bytes(aeon)
@@ -263,48 +204,13 @@ def report(lst_path, aeon=AEON, sigil_build=None, gate=False, out=sys.stdout):
             file=out)
         rc = 1
 
-    # The placer half is reported separately because it answers a different question
-    # and is the BINDING one today. Unmeasurable here is loud, not silent.
-    try:
-        p = placer_room(lst_path, sigil_build)
-    except Unmeasurable as e:
-        # LOUD ON UNMEASURABLE. Printing "UNMEASURED" and returning green would make
-        # the gate stop asking the question without anyone noticing — the placer limit
-        # is the BINDING one, so an unanswerable question here is a failure, not a
-        # pass. (This exact hole was found by poisoning the parser and watching the
-        # gate exit 0.)
-        print(f"  placer room: UNMEASURED — {e}", file=out)
-        if gate:
-            print("bganim_room: FAIL — the placer ceiling could not be derived, so the "
-                  "BINDING limit on ojz_bg_anim went unchecked. That is a failure, not "
-                  "a pass.", file=out)
-            rc = 1
-        return rc
-    print(f"  placer room {p['room']} B "
-          f"(frozen allotment {p['allotment']} + spread step {p['spread_step']}) "
-          f"-- BINDING, see docs/DEFERRED_WORK.md BGANIM-PLACE", file=out)
-    # BGANIM_PLACER_CEILING must be the MINIMUM across the sonic4 shapes, which no
-    # single shape can confirm. What a single shape CAN prove is the safety-relevant
-    # direction: a recorded ceiling ABOVE this shape's room would let the emitter pass
-    # a band that then dies at `colliding pins` — the exact experience this parcel
-    # replaces. (The other direction only costs an author a few bytes, and the
-    # equals-the-minimum half is gated by
-    # tools/test_bg_emit.py::TestBgAnimSectionCeiling.)
-    if BGANIM_PLACER_CEILING > p["room"]:
-        print(
-            f"bganim_room: FAIL — tools/inject_editor_bg.py records "
-            f"BGANIM_PLACER_CEILING = {BGANIM_PLACER_CEILING} B but this shape can only "
-            f"place {p['room']} B ({p['allotment']} B frozen allotment + one "
-            f"{p['spread_step']} B spread step). The emitter would accept a band this "
-            f"shape cannot place, and the author would meet `overlap in the image "
-            f"(colliding pins)` instead of a sentence. Re-derive the recorded value as "
-            f"the MINIMUM over every sonic4 shape's listing.",
-            file=out)
-        rc = 1
-    elif BGANIM_PLACER_CEILING < p["room"]:
-        print(f"  (this shape has {p['room'] - BGANIM_PLACER_CEILING} B more placer room "
-              f"than the recorded minimum — the recorded value is the tighter shape's)",
-              file=out)
+    if BGANIM_SECTION_CEILING <= headroom:
+        print(f"  binding limit: the ruled ceiling ({BGANIM_SECTION_CEILING} B) — it sits "
+              f"{headroom - BGANIM_SECTION_CEILING} B inside the ROM room; placement no "
+              f"longer bounds a data section (sigil b0363140)", file=out)
+    else:
+        print(f"  binding limit: the ROM room ({headroom} B) — the ruled ceiling no longer "
+              f"fits before the 0x{r['anchor']:X} `{ANCHOR_NAME}` anchor", file=out)
     return rc
 
 

@@ -326,8 +326,8 @@ def ceiling_lifted():
 
     NARROW AND DELIBERATE. The SPELLING gate below has to run the emitter over the
     REAL two-band historical act (49,242 B), and the size ceiling added for
-    BGANIM-PLACE refuses that act before a byte is emitted — correctly, because it
-    cannot be PLACED. Two different questions: "does the emitted module spell its
+    decision d-9 refuses that act before a byte is emitted — correctly, because it
+    does not FIT before the `dac_banks` anchor. Two different questions: "does the emitted module spell its
     link-time symbols in a form sigil accepts" and "does the section fit where it
     sits". Shrinking the fixture to dodge the ceiling would cost the spelling gate
     the property its docstring is built on (a real act, not a synthetic one that
@@ -338,16 +338,12 @@ def ceiling_lifted():
     `TestBgAnimSectionCeiling::test_main_refuses_before_writing_any_artifact`, which
     does not lift it.
     """
-    saved = (inject_editor_bg.BGANIM_SECTION_CEILING,
-             inject_editor_bg.BGANIM_PLACER_CEILING)
-    worst = inject_editor_bg.BGANIM_WORST_CASE_BYTES
-    inject_editor_bg.BGANIM_SECTION_CEILING = worst
-    inject_editor_bg.BGANIM_PLACER_CEILING = worst
+    saved = inject_editor_bg.BGANIM_SECTION_CEILING
+    inject_editor_bg.BGANIM_SECTION_CEILING = inject_editor_bg.BGANIM_WORST_CASE_BYTES
     try:
         yield
     finally:
-        (inject_editor_bg.BGANIM_SECTION_CEILING,
-         inject_editor_bg.BGANIM_PLACER_CEILING) = saved
+        inject_editor_bg.BGANIM_SECTION_CEILING = saved
 
 
 class TestBgAnimEmission(unittest.TestCase):
@@ -375,7 +371,8 @@ class TestBgAnimEmission(unittest.TestCase):
 
     NOT GATED HERE, on purpose: whether the emitted module LINKS. A real band grows
     the `ojz_bg_anim` section from 4 bytes to tens of KB and collides with the next
-    pinned section (docs/DEFERRED_WORK.md, BGANIM-PLACE / defect 2). That is a
+    pinned section (docs/DEFERRED_WORK.md, "DEFECT 2 (BGANIM-PLACE)" — the placement
+    half of that booking closed with sigil b0363140; the size ceiling stayed). That is a
     frozen-table placement fix in sigil's tree, it needs a full `sigil build`, and it
     does not belong in a unit-test lane. This gate proves the SPELLING assembles as a
     name; the placement parcel proves the ROM.
@@ -543,7 +540,7 @@ class TestBgAnimEmission(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# The section-size ceiling (BGANIM-PLACE, decision d-9)
+# The section-size ceiling (decision d-9)
 # ---------------------------------------------------------------------------
 
 #: Everything an author needs in order to act on the refusal, as (label, predicate).
@@ -612,7 +609,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             inject_editor_bg.check_bganim_section_fits(anims)
         slots = sum(a["cols"] * a["rows"] for a in anims)
-        ceiling, _ = inject_editor_bg.bganim_effective_ceiling()
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
         return str(cm.exception), {
             "bands": len(anims), "slots": slots, "ceiling": ceiling,
             "size": inject_editor_bg.bganim_section_bytes(len(anims), slots)}
@@ -658,17 +655,17 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
     def test_auroras_authored_band_is_refused_with_its_own_numbers(self):
         """8x4, 8 phases = 8,238 B — the first genuinely editor-authored band.
 
-        It is over TODAY because sigil's placement, not the cartridge, is the binding
-        limit (BGANIM_PLACER_CEILING). This test asserts the REFUSAL IS ACTIONABLE,
-        not that 8,238 must always be refused: when BGANIM-PLACE lifts the placer
-        limit the check flips to the ROM ceiling and this becomes an acceptance —
-        which is why it derives its expectation from the live ceiling rather than
-        hardcoding a verdict.
+        Until sigil b0363140 it was refused, because sigil's placement (~1 KB) and
+        not the cartridge was the binding limit; with the placer arm retired the
+        check is against the ROM-room ceiling and this is an ACCEPTANCE. The test
+        derives its verdict from the live ceiling rather than hardcoding one, so it
+        is the refusal's actionability that is asserted when it does refuse, and the
+        returned size when it does not.
         """
         band = [self._band(8, 4, 0)]
         size = inject_editor_bg.bganim_section_bytes(1, 32)
         self.assertEqual(size, 8238)
-        ceiling, _ = inject_editor_bg.bganim_effective_ceiling()
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
         if size <= ceiling:
             self.assertEqual(inject_editor_bg.check_bganim_section_fits(band), size)
             return
@@ -679,14 +676,22 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
     def test_bands_each_under_the_ceiling_but_over_in_total(self):
         """Decision d-6's error, kept executable.
 
-        Four bands of ONE slot each. Every band is trivially under any per-band limit;
-        their SUM is over, because `BgAnim_Banks` is one blob for the whole act. A
-        per-band check passes this and ships a section that cannot be placed.
+        BGANIM_MAX_BANDS bands, each the LARGEST single band the ceiling admits on
+        its own (derived from the live ceiling, so the fixture keeps isolating the
+        per-band/total distinction whatever the ceiling is ruled to be). Every band
+        passes a per-band check; their SUM is over, because `BgAnim_Banks` is one
+        blob for the whole act. A per-band check passes this and ships a section
+        that does not fit.
         """
-        bands = [self._band(1, 1, i) for i in range(inject_editor_bg.BGANIM_MAX_BANDS)]
-        ceiling, _ = inject_editor_bg.bganim_effective_ceiling()
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
+        per_band = ((ceiling - inject_editor_bg.BGANIM_COUNT_BYTES
+                     - inject_editor_bg.BGANIM_RECORD_BYTES)
+                    // inject_editor_bg.BGANIM_BYTES_PER_SLOT)
+        self.assertGreaterEqual(inject_editor_bg.BGANIM_MAX_BANDS, 2)
+        bands = [self._band(per_band, 1, i * per_band)
+                 for i in range(inject_editor_bg.BGANIM_MAX_BANDS)]
         for i, b in enumerate(bands):
-            self.assertLess(inject_editor_bg.bganim_section_bytes(1, 1), ceiling,
+            self.assertLess(inject_editor_bg.bganim_section_bytes(1, per_band), ceiling,
                             f"band {i} alone is already over the ceiling — this fixture "
                             f"no longer isolates the per-band/total distinction")
         msg, facts = self._refuse(bands)
@@ -695,7 +700,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
 
     def test_the_boundary_is_exactly_the_ceiling(self):
         """One slot below passes, one slot above is refused — derived, not literal."""
-        ceiling, _ = inject_editor_bg.bganim_effective_ceiling()
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
         fits = ((ceiling - inject_editor_bg.BGANIM_COUNT_BYTES
                  - inject_editor_bg.BGANIM_RECORD_BYTES)
                 // inject_editor_bg.BGANIM_BYTES_PER_SLOT)
@@ -727,7 +732,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             finally:
                 inject_editor_bg.OUT_DIR, inject_editor_bg.OVERRIDE = saved
             facts = {"bands": 2, "slots": 192,
-                     "ceiling": inject_editor_bg.bganim_effective_ceiling()[0],
+                     "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING,
                      "size": 49242}
             self.assertEqual(refusal_shortfalls(str(cm.exception), facts), [],
                              f"main()'s refusal is not actionable:\n{cm.exception}")
@@ -775,7 +780,7 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
     # ---- the ceilings themselves ------------------------------------------------
 
     def test_ceilings_sit_inside_the_provable_bounds(self):
-        """Both ceilings must admit the stub and must not exceed the worst case a
+        """The ceiling must admit the stub and must not exceed the worst case a
         legal authoring can produce (bands pack as a prefix of `tiles`, so total
         slots <= BG_TILE_CAPACITY — validate_band_coherence is the authority)."""
         stub = inject_editor_bg.bganim_section_bytes(0, 0)
@@ -785,17 +790,11 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             inject_editor_bg.bganim_section_bytes(inject_editor_bg.BGANIM_MAX_BANDS,
                                                   inject_editor_bg.BG_TILE_CAPACITY),
             "BGANIM_WORST_CASE_BYTES is not the section size at the provable bound")
-        for name in ("BGANIM_SECTION_CEILING", "BGANIM_PLACER_CEILING"):
+        for name in ("BGANIM_SECTION_CEILING",):
             v = getattr(inject_editor_bg, name)
             self.assertGreaterEqual(v, stub, f"{name} refuses even the disabled stub")
             self.assertLessEqual(v, worst, f"{name} exceeds the largest section any "
                                            f"legal authoring can produce ({worst} B)")
-
-    def test_effective_ceiling_is_the_tighter_of_the_two(self):
-        ceiling, which = inject_editor_bg.bganim_effective_ceiling()
-        self.assertEqual(ceiling, min(inject_editor_bg.BGANIM_SECTION_CEILING,
-                                      inject_editor_bg.BGANIM_PLACER_CEILING))
-        self.assertIn(which, ("rom", "placer"))
 
     # ---- the ceilings against the live instruments ------------------------------
 
@@ -824,26 +823,208 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
                 f"{r['room'] + live} B are reachable before the 0x{r['anchor']:X} "
                 f"dac_banks anchor. See tools/bganim_room.py and decision d-9.")
 
-    def test_placer_ceiling_is_the_minimum_across_the_present_shapes(self):
-        """The recorded value must be the TIGHTEST shape's, not any one shape's.
 
-        A per-shape gate cannot see this (tools/bganim_room.py checks only the
-        safety-relevant direction), which is why it is asserted here across all of
-        them at once.
+class TestBgAnimPlacerArmRetired(unittest.TestCase):
+    """The "placer room" arm of tools/bganim_room.py is GONE, and the ROM room is not.
+
+    WHY. Until sigil b0363140 (merge of feat/derived-layout, 2026-08-25) the chainer
+    measured every section at its FROZEN provisional base and could absorb only one
+    0x400 spread step before `colliding pins`; `ojz_bg_anim` therefore had a ~1 KB
+    "placer room" that bganim_room.py derived from a regex over sigil's source and
+    reported as BINDING. Since that merge a pure-data section that outgrows its pin is
+    re-measured at a scratch slot (`image_lens_pinned(.., scratch_data=true)`) and its
+    neighbours pack downstream with a `[layout.provisional-drift]` WARNING, never a
+    stop — the number no longer bounds anything. sigil's own design note named the
+    retirement as aeon's: "a stale-but-green tool is the worse failure". These tests
+    make the retirement a property, not a deletion: the output has no placer line,
+    the module has no sigil-source regex, the emitter has no placer ceiling — and the
+    ROM-room derivation that DOES still bind is checked against a hand computation
+    done here with none of the tool's own parsers.
+    """
+
+    AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    TOOL = os.path.join(AEON, "tools", "bganim_room.py")
+
+    def _listings(self):
+        found = [p for p in ("s4.lst", "s4.debug.lst")
+                 if os.path.exists(os.path.join(self.AEON, p))]
+        if not found:
+            self.fail("neither s4.lst nor s4.debug.lst is present, so NOTHING WAS "
+                      "MEASURED — build a sonic4 shape first; do not skip")
+        return found
+
+    def _report(self, lst):
+        import io
+        import bganim_room
+        buf = io.StringIO()
+        rc = bganim_room.report(os.path.join(self.AEON, lst), self.AEON, gate=True,
+                                out=buf)
+        return rc, buf.getvalue()
+
+    # ---- (a) the arm is gone ----------------------------------------------------
+
+    def test_report_prints_no_placer_room_and_names_the_binding_limit(self):
+        for lst in self._listings():
+            rc, text = self._report(lst)
+            self.assertEqual(rc, 0, f"{lst}: the gate failed:\n{text}")
+            self.assertNotIn("placer", text.lower(),
+                             f"{lst}: the retired placer arm is still reported:\n{text}")
+            self.assertNotIn("BGANIM-PLACE", text,
+                             f"{lst}: verdict still points at the closed booking:\n{text}")
+            self.assertRegex(text, r"(?m)^\s*binding limit: .*",
+                             f"{lst}: the verdict line does not say which limit binds:"
+                             f"\n{text}")
+
+    def test_module_carries_no_sigil_source_regex_or_placer_derivation(self):
+        """Derived from the module's CODE (its AST, docstrings excluded — the header
+        is allowed to say what was retired), not from a name list someone remembered:
+        no string constant may name a path under sigil's `crates/` or the SIGIL_BUILD
+        env var, no regex may match the spread literal, and no name the module
+        defines may say `placer` or `spread`."""
+        import ast
+        import bganim_room
+        src = open(self.TOOL, encoding="utf-8").read()
+        tree = ast.parse(src)
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)):
+                body = getattr(node, "body", [])
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    docstrings.add(id(body[0].value))
+        code_strings = [n.value for n in ast.walk(tree)
+                        if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                        and id(n) not in docstrings]
+        for needle in ("crates", "SIGIL_BUILD", "rank as u32", "spread", "placer"):
+            hits = [c for c in code_strings if needle.lower() in c.lower()]
+            self.assertEqual(hits, [], f"bganim_room.py code still spells {needle!r}: "
+                                       f"{hits}")
+        stale = sorted(n for n in dir(bganim_room)
+                       if "placer" in n.lower() or "spread" in n.lower())
+        self.assertEqual(stale, [], f"retired names still defined: {stale}")
+        defined = {n.id for n in ast.walk(tree)
+                   if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+        defined |= {n.name for n in ast.walk(tree)
+                    if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+        self.assertEqual(sorted(n for n in defined
+                                if "placer" in n.lower() or "spread" in n.lower()), [])
+        self.assertIsNone(re.search(r"^\s*_SPREAD\b", src, re.M),
+                          "the `_SPREAD` regex over sigil's native.rs is still defined")
+
+    def test_emitter_has_a_single_ceiling_and_it_is_the_rom_one(self):
+        stale = sorted(n for n in dir(inject_editor_bg) if "PLACER" in n.upper())
+        self.assertEqual(stale, [], f"inject_editor_bg still defines {stale}")
+        self.assertFalse(hasattr(inject_editor_bg, "bganim_effective_ceiling"),
+                         "the two-limit chooser outlived its second limit")
+        # The refusal names the ROM room, not the placer, and stays actionable.
+        with self.assertRaises(SystemExit) as cm:
+            inject_editor_bg.check_bganim_section_fits(
+                [{"cols": 32, "rows": 4, "slot_base": 0},
+                 {"cols": 16, "rows": 4, "slot_base": 128}])
+        msg = str(cm.exception)
+        self.assertNotIn("placer", msg.lower())
+        self.assertNotIn("BGANIM-PLACE", msg)
+        self.assertIn("dac_banks", msg)
+        facts = {"bands": 2, "slots": 192,
+                 "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING, "size": 49242}
+        self.assertEqual(refusal_shortfalls(msg, facts), [], msg)
+
+    def test_an_8kb_class_band_is_accepted_under_the_section_ceiling(self):
+        """aurora's 8x4 band: 2 + 44 + 32x256 = 8,238 B. It was REFUSED by the
+        placer ceiling (1,026 B); under the only remaining ceiling it is accepted."""
+        size = inject_editor_bg.bganim_section_bytes(1, 32)
+        self.assertEqual(size, 8238)
+        self.assertLessEqual(size, inject_editor_bg.BGANIM_SECTION_CEILING,
+                             "the ruled ceiling no longer admits an 8 KB band — that is "
+                             "an owner ruling change, not something this test hides")
+        band = [{"cols": 8, "rows": 4, "slot_base": 0}]
+        self.assertEqual(inject_editor_bg.check_bganim_section_fits(band), size)
+
+    def test_over_the_section_ceiling_is_refused_naming_that_ceiling(self):
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
+        fits = ((ceiling - inject_editor_bg.BGANIM_COUNT_BYTES
+                 - inject_editor_bg.BGANIM_RECORD_BYTES)
+                // inject_editor_bg.BGANIM_BYTES_PER_SLOT)
+        band = [{"cols": fits + 1, "rows": 1, "slot_base": 0}]
+        with self.assertRaises(SystemExit) as cm:
+            inject_editor_bg.check_bganim_section_fits(band)
+        msg = str(cm.exception)
+        self.assertIn("BGANIM_SECTION_CEILING", msg, msg)
+        self.assertIn(f"the ceiling is {ceiling} B", msg, msg)
+        self.assertNotIn("placer", msg.lower(), msg)
+
+    def test_no_placer_string_survives_in_either_tools_code(self):
+        """Both tools, AST-level (docstrings excluded, comments are not in the AST):
+        no string constant and no defined name says `placer`."""
+        import ast
+        for rel in ("bganim_room.py", "inject_editor_bg.py"):
+            src = open(os.path.join(self.AEON, "tools", rel), encoding="utf-8").read()
+            tree = ast.parse(src)
+            doc_ids = set()
+            for node in ast.walk(tree):
+                body = getattr(node, "body", None)
+                if (isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    doc_ids.add(id(body[0].value))
+            hits = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and id(n) not in doc_ids and "placer" in n.value.lower()]
+            names = sorted({n.id for n in ast.walk(tree) if isinstance(n, ast.Name)
+                            and "placer" in n.id.lower()}
+                           | {n.name for n in ast.walk(tree)
+                              if isinstance(n, (ast.FunctionDef, ast.ClassDef))
+                              and "placer" in n.name.lower()})
+            self.assertEqual((hits, names), ([], []), f"tools/{rel}: {hits} {names}")
+
+    # ---- (b) the ROM room still comes from the listing -------------------------
+
+    def test_rom_room_matches_a_hand_computation_from_the_instruments(self):
+        """HAND COMPUTATION, spelled out with none of bganim_room's parsers:
+
+            lma   = the hex field of the `.lst` row that ends `Art_Sonic:`
+            blob  = os.path.getsize of the file collision_data.emp's `_art_sonic`
+                    line embeds
+            anchor= the `at =` of map.toml's `[[anchor]]` block named dac_banks
+            room  = anchor - (lma + blob)
+
+        and the report must print exactly that `room` on its ROM-room line.
         """
         import bganim_room
-        rooms = {}
+        emp = open(os.path.join(self.AEON, "games", "sonic4", "data", "collision",
+                                "collision_data.emp"), encoding="utf-8").read()
+        embed_line = next(l for l in emp.splitlines() if "_art_sonic" in l and "embed" in l)
+        rel = embed_line.split('"')[1]
+        blob = os.path.getsize(os.path.join(self.AEON, rel))
+        toml = open(os.path.join(self.AEON, "games", "sonic4", "map.toml"),
+                    encoding="utf-8").read().splitlines()
+        anchor = None
+        for i, line in enumerate(toml):
+            if line.strip().startswith("name") and '"dac_banks"' in line:
+                nxt = toml[i + 1].split("=")[1].split("#")[0].strip()
+                anchor = int(nxt, 0)
+        self.assertEqual(anchor, 0x48000, "the dac_banks anchor moved — it is a Z80 "
+                                          "SetBank latch and cannot")
         for lst in self._listings():
-            try:
-                rooms[lst] = bganim_room.placer_room(os.path.join(self.AEON, lst))["room"]
-            except bganim_room.Unmeasurable as e:
-                self.fail(f"{lst}: placer room UNMEASURABLE — {e}")
-        self.assertEqual(
-            inject_editor_bg.BGANIM_PLACER_CEILING, min(rooms.values()),
-            f"BGANIM_PLACER_CEILING = {inject_editor_bg.BGANIM_PLACER_CEILING} but the "
-            f"shapes derive {rooms}. It must be the MINIMUM: above it, the emitter "
-            f"accepts a band the tightest shape cannot place and the author meets "
-            f"`colliding pins` instead of a sentence.")
+            lma = None
+            with open(os.path.join(self.AEON, lst), encoding="utf-8",
+                      errors="replace") as f:
+                for line in f:
+                    if line.startswith("(0)") and line.rstrip().endswith(" Art_Sonic:"):
+                        lma = int(line.split("/")[1].split()[0], 16)
+                        break
+            self.assertIsNotNone(lma, f"{lst}: no Art_Sonic row")
+            room = anchor - (lma + blob)
+            self.assertGreater(room, 0)
+            r = bganim_room.rom_room(os.path.join(self.AEON, lst), self.AEON)
+            self.assertEqual(r["room"], room,
+                             f"{lst}: tool says {r['room']}, hand says "
+                             f"0x{anchor:X} - (0x{lma:X} + {blob}) = {room}")
+            _, text = self._report(lst)
+            self.assertRegex(text, rf"(?m)^\s*ROM room {room} B free\b",
+                             f"{lst}: the report does not print the derived room:"
+                             f"\n{text}")
 
 
 if __name__ == "__main__":
