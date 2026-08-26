@@ -52,10 +52,25 @@ set -euo pipefail
 # 92% of the wall clock. FAST keeps emit_sound_blob + gen_compression_vectors (both
 # EMIT ROM-consumed bytes) + the sigil build + its checksum/deb2 appendix, and drops
 # s4lint, effects_budget_check, the pytest sweep, the expect-fail lane,
-# verify_level_bin, art_rom_report, s4budget and the ctags reindex. None of those
-# write a byte the ROM contains, so a FAST ROM is byte-identical to the canonical
-# ROM on the same tree — that identity is the contract, and skipping a lane that
-# changed the artifact would be a bug in the lane.
+# verify_level_bin, art_rom_report, s4budget, the post-sigil listing gates
+# (effects_seam_gate, bganim_room) and the ctags reindex. None of those write a
+# byte the ROM contains, so a FAST ROM is byte-identical to the canonical ROM on
+# the same tree — that identity is the contract, and skipping a lane that changed
+# the artifact would be a bug in the lane.
+#
+# LISTING-READING GATES RUN POST-SIGIL ONLY (2026-08-26). A gate that reads a
+# `.lst` must read the one THIS invocation emitted: the pre-build pytest lane used
+# to re-derive the BG-animation ceiling from whatever `s4*.lst` a prior build had
+# left on disk, and that listing was twice not the subject (another sigil profile's;
+# then absent on a fresh tree, so a first canonical build failed its own pre-build
+# lane). The pytest lane now tests the DERIVATION over a committed listing cut
+# (tools/fixtures/bganim_room_excerpt.lst); the ceiling against a REAL listing is
+# enforced once, below the sigil build, with a provenance check (`--built-after`:
+# listing and ROM both post-date the sigil invocation — the only identity the
+# listing supports, it carries no ROM name or CRC) and a fixture-freshness check
+# (`--fixture`: every fixture row re-found in the fresh listing with the same
+# shape). A missing listing there is a HARD failure naming the gate: sigil was asked
+# for `--emit-lst`, so its absence is a build bug, not a bootstrap condition.
 #
 # FAST is a DEV shape: it prints a loud banner at both ends saying the lanes were
 # skipped, and it is REFUSED on the STRESS_* fixture shapes, which exist to produce
@@ -205,7 +220,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "================================================================================"
     echo " FAST BUILD — VERIFICATION LANES SKIPPED. NOT a merge/ship artifact."
     echo "   skipped: s4lint · effects_budget_check · pytest tools · emp_expect_fail"
-    echo "            verify_level_bin · art_rom_report · s4budget · ctags"
+    echo "            verify_level_bin · art_rom_report · s4budget · effects_seam_gate"
+    echo "            bganim_room (the BG-anim ceiling is NOT checked) · ctags"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE"
     echo "   Re-run without FAST=1 before you land, merge, freeze, or quote a number."
@@ -535,6 +551,10 @@ if [[ "${CONTRACTS:-1}" == "0" ]]; then
 fi
 
 echo "Building ${MAIN_ASM} (sigil)..."
+# The instant the subject is born: the post-sigil listing gates below assert that
+# the listing AND the ROM post-date this (bganim_room --built-after). Whole seconds
+# from `date +%s` truncate DOWN, so a file written in the same second still passes.
+SIGIL_T0=$(date +%s)
 "${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} \
     -o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"
 
@@ -543,8 +563,18 @@ ROM_KB=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/1024}")
 ROM_PCT=$(awk "BEGIN {printf \"%.1f\", ${ROM_SIZE}/4194304*100}")
 echo "Build complete: ${ROM_NAME}.bin — ${ROM_SIZE} bytes (${ROM_KB} KB, ${ROM_PCT}% of 4MB)"
 
-# Budget summary
-if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
+# The listing-reading gates. The `-f` guard that used to wrap this block made a
+# MISSING listing a silent skip of s4budget, the seam gate and the BG-anim ceiling
+# together; sigil was asked for `--emit-lst` two screens up, so its absence here is
+# a build bug and is named as one (2026-08-26, listing-provenance fix).
+if [[ "$FAST" == "0" && ! -f "${ROM_NAME}.lst" ]]; then
+    echo "ERROR: ${ROM_NAME}.lst is missing after the sigil build — nothing produced the"
+    echo "  listing this invocation's gates read (s4budget, effects_seam_gate, bganim_room)."
+    echo "  sigil was invoked with --emit-lst ${ROM_NAME}.lst; a missing listing is a build"
+    echo "  bug, not a bootstrap condition. Do not convert this to a skip."
+    exit 1
+fi
+if [[ "$FAST" == "0" ]]; then
     # NOT `|| true`. It was, and that mattered: s4budget returned 0 on every path
     # anyway (tools lens sweep D7), so the budgets were gated by nothing twice over
     # — no threshold in the tool, and its exit code discarded here. The tool now
@@ -588,8 +618,20 @@ if [[ -f "${ROM_NAME}.lst" && "$FAST" == "0" ]]; then
         # `ojz_bg_anim` section at all. The ROM room is the ONLY placement limit
         # since sigil b0363140 (derived layout): the former "placer room" arm is
         # retired (docs/DEFERRED_WORK.md, "DEFECT 2 (BGANIM-PLACE)" closure note).
-        if ! python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" --gate; then
-            echo "BG-animation section room — see above."
+        #
+        # THIS IS THE ONLY ENFORCEMENT of BGANIM_SECTION_CEILINGS against a real
+        # listing (2026-08-26). --rom/--built-after: the listing and the ROM must both
+        # post-date SIGIL_T0, the instant this invocation started sigil — the sigil
+        # listing carries no ROM identity of its own, so temporal provenance is the
+        # check it supports, and it excludes a prior build's or another profile's
+        # listing by construction. --fixture: the unit tests run over a committed cut
+        # of a real listing, which nothing re-derives; every row of that cut must be
+        # re-found here with the same lexical shape, so an emitter format change is a
+        # named "fixture is stale" failure and not a unit test green against the past.
+        if ! python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" \
+                --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
+                --fixture "${TOOLS}/fixtures/bganim_room_excerpt.lst" --gate; then
+            echo "BG-animation section room — see above (tools/bganim_room.py, the post-sigil gate)."
             exit 1
         fi
     fi
@@ -609,7 +651,8 @@ if [[ "$FAST" == "1" ]]; then
         echo "   level tree was fresh -> no re-bake"
     fi
     echo "   VERIFICATION LANES WERE SKIPPED: s4lint · effects_budget_check · pytest tools"
-    echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget · ctags."
+    echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
+    echo "   · effects_seam_gate · bganim_room (BG-anim ceiling NOT checked) · ctags."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"
