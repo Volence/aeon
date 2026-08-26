@@ -246,8 +246,16 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   the lane's wall clock, so ab_runner is the next real lever and it is a PROPOSAL FOR ORACLE.
 - **Wall clock, both full lanes aggregated, same ROM, same machine, uptime beside each**:
   legacy 233 s (02:42 up 18:31, load 3.07), aether 191 s (02:38 up 18:27, load 3.33), both
-  26 of 27 gates passing — the one failure is `boot_override`'s pre-existing SETUP ERROR,
-  identical text in both. Per segment: raster_off 9.7 -> 0.5 s, palette_variant 12.6 -> 1.5 s,
+  26 of 27 gates passing — the one failure was `boot_override`'s SETUP ERROR, identical text
+  in both. **⚠ THAT FAILURE IS GONE — do not carry it forward (measured 2026-08-26).** The
+  `parcel/boot-override-witness` parcel rewrote that gate hours after this row was written,
+  and this line was never re-derived. On merged master at `s4.debug.bin` crc `f8d06cae`,
+  `--only boot_override` is **PASS, exit 0**, and a full lane is **28 gates OK, exit 0**.
+  **This lane's overseer put the stale claim into two agent briefs before measuring it**, and
+  it fails in the PERMISSIVE direction: it licences an agent to see a real `boot_override`
+  failure and write it off as somebody else's. A "known pre-existing failure" note is the most
+  dangerous kind of stale fact a brief can carry, because its whole function is to tell the
+  reader to ignore red. Re-measure one before repeating it; it costs a single `--only` run. Per segment: raster_off 9.7 -> 0.5 s, palette_variant 12.6 -> 1.5 s,
   snapshot_poison 9.8 -> 0.5 s, raster_source 13.3 -> 1.5 s. **The headline is not the 42 s.**
   It is that `raster_source` WEDGED TWICE at 240 s each on 2026-08-25 and needed a hand
   `--only` retry: the legacy stop race is arm-breakpoint / resume / wait-for-an-event, and
