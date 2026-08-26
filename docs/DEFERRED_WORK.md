@@ -10439,3 +10439,88 @@ Aurora-authored per-layer deform table fails the build today.
 Disposition: item 1 is the candidate for the next effects parcel after the effects-lab hotkey;
 items 2/3 fold into the travelling-act background work once d-16/d-17 are ruled; 4 and the
 smaller rows wait for a scene that needs them. If any becomes a project, the hub declares the id.
+
+## Two audio artifacts heard by the owner in the hotkeys shape (booked 2026-08-26, NOT diagnosed)
+
+**How they were found.** The re-layout landing (`c3f5cbe0`, `dac_banks` 0x48000→0x90000,
+`sound_bank` 0x58000→0xA0000) left one thing no instrument here can witness: whether the moved
+banks still sound. The Rust core serves **no audio methods** (`vgm: false`, no
+`audio_spectrum` among its 46 methods), so the owner's ear was the instrument. Session
+2026-08-26T23:1x–23:3x.
+
+**The finding that came first, and it is the reusable one:** the owner reported SFX working
+and **no music**, on the canonical `s4.debug.bin`. That is **correct behaviour, not a
+regression** — see the standing fact booked below. Re-tested on the hotkeys shape, **music and
+DAC drums both play**. The re-layout's audio question is CLOSED: the moved banks are intact.
+
+**Subject:** `config_a` ROM built this session — `sigil build --aeon . --native --config-a`,
+**crc `b4be7c52`, len 735,020**, from tree `74fe798b`. NOT a canonical shape and not committed
+(scratchpad only). Played through `oracle-frontend` (`oracle` release binary of 2026-08-26
+19:00), whose audio stage announced itself as **`model1-va0-va2`, 44100 Hz, 2ch f32,
+streaming, 33 ms pre-roll, 133 ms ring**.
+
+**Artifact 1 — "voices sound slightly off."** Owner's words, on Moving Trucks. Undiagnosed.
+**Do not assume it is ours:** `model1-va0-va2` is a *chosen YM2612 revision/output-stage model*
+in the emulator, and timbre is exactly the quantity such a choice moves. Candidate causes, none
+ruled out: (a) our FM patch data or its per-operator TL/envelope derivation; (b) the emulator's
+chip model — a subject-versus-instrument question, protocol bar 9; (c) the frontend's resampling
+to 44.1 kHz. **First step is a discriminator, not a fix:** the same song rendered through a
+second, independently-modelled path (a VGM capture played elsewhere, or the legacy harness)
+tells you which side of the fence the timbre lives on. A patch edit made before that step is
+tuning our data to one emulator's colour.
+
+**Artifact 1b — "HCZ2 sounds a little flat too."** Owner's words, added minutes after the
+above, on the S3K Hydrocity Act 2 import (`SONG_HCZ2`, id 3, the `UP` hotkey). **This is the
+most informative of the three reports and it changes where to look first.**
+
+*Why:* Moving Trucks is **native** (authored here) and HCZ2 is an **import** (S3K data). Two
+songs with different provenance sounding wrong **in the same direction** is evidence against
+per-song patch data — the shared suspects are the ones both songs pass through: the frequency
+table and detune path in `sound_sequencer.emp`, the emulator's `model1-va0-va2` chip model, and
+the 44.1 kHz resample. Per-song FM patches are the one candidate this observation argues
+*against*, and it was the intuitive first suspect.
+
+*Ambiguity that must be resolved before anything is measured, because the two readings have
+disjoint fixes:* **"flat" = pitch (sounding below true pitch)** or **"flat" = timbre (dull,
+lifeless, no bite)**? Ask the owner which he meant; do not guess. Pitch-flat across every song
+is a **frequency-table or detune** question and would be systematic and measurable to the cent;
+timbre-flat is an **envelope/TL or chip-model** question. The words "voices sound slightly off"
+(Moving Trucks) and "a little flat" (HCZ2) are consistent with either.
+
+*Candidate worth naming because it connects to queued work, NOT because it is diagnosed:* the
+driver currently stores **raw chip frequency numbers** rather than musical pitch — that is the
+whole premise of the queued `PITCH-FORMAT` item. A transposition or rounding error baked into
+that representation would be globally, consistently flat, which is the shape being described.
+Unverified. Do not treat this as the cause; it is a hypothesis that happens to fit.
+
+*The discriminator this song hands you for free, and it is better than anything available for
+Moving Trucks:* **HCZ2 has a real reference.** The genuine S3K rendition can be played from
+`skdisasm/`, so ours and the original can be A/B'd note against note — the direct
+measure-against-the-real-reference case. If ours reads flat against real S3K on the same
+emulator, the chip model is excluded and it is ours; if BOTH read the same, the emulator's model
+is implicated and our data is exonerated. One playback each.
+
+**Artifact 2 — "occasionally like a few ms of pause between parts of Moving Trucks."** Owner's
+words. Undiagnosed, and it has a **host-side candidate that must be excluded first**: the
+frontend streams into a **133 ms ring with 33 ms pre-roll**, so an underrun on a loaded machine
+(this one carried three orphaned `oracle-aether` processes and a load average above 3 at the
+time) produces exactly "a few ms of pause" and is a fact about the listener's box, not the ROM.
+The engine-side candidate is a real stall at a **pattern boundary** in `sound_sequencer.emp` —
+which would be reproducible, position-locked, and audible identically on every playback.
+**The discriminator is cheap and decides it outright: does the gap land at the SAME musical
+position every time?** A wandering gap is the ring; a fixed one is ours. Capture the same 30 s
+twice and compare where it falls.
+
+**Standing fact this session established, and it will bite every future listening test:**
+**no canonical shape can play music at all.** The only call site of `Sound_PlayMusic` in the
+tree is the debug harness (`games/sonic4/debug/game_debug.emp`), bound at
+`games/sonic4/config/game.emp:83` **only** under `SOUND_DEBUG_HOTKEYS == 1`; every canonical
+shape leaves `boot_hook`/`debug_tick` `= empty`. So "the ROM plays no music" is the designed
+state of `s4.bin` and `s4.debug.bin`, and **any music or DAC-drum witness requires
+`sigil build --native --config-a`**. Hotkeys in that shape: `A` Moving Trucks from pattern 0,
+`UP` HCZ2, `C` the DAC drum-test song, `B` cycles eight SFX, `START` play/stop toggle.
+`Dbg_Music_On` (`0xFFFFE10E`) reads `0x01` once a song has been requested — a cheap RAM
+witness that the 68k asked, though never that the Z80 rendered.
+
+**Disposition:** owner deferred both explicitly ("we'll debug that another time"). Unscheduled.
+Size S to diagnose (both discriminators above are one playback each), unknown to fix.
