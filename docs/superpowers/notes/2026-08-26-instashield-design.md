@@ -381,9 +381,9 @@ system**:
 
 So the expansion is **not built**. What ships instead is the state it needs, complete
 and correct: `PlayerV.instashield` with S3K's three values and S3K's exact 15-frame
-window, plus **one named predicate**, `InstaShield_IsAttacking` — the sole reader of
-"attacking" today (the visual's attack-over write) and the single call the damage system
-will make. The derivation of `$18` is recorded in §1.5 and booked; no dead constant is
+window, plus the attacking predicate itself, which is one comparison against
+`INSTASHIELD_ATTACKING` (see §2.6b) and whose sole reader today is the visual's
+attack-over write. The derivation of `$18` is recorded in §1.5 and booked; no dead constant is
 emitted for it, because a constant nothing reads is comptime-inert and proves nothing.
 
 ### 2.5 Art, DPLC, mappings — provenance and pipeline
@@ -481,6 +481,49 @@ that debt out as a ratchet — so a second Important-queue producer on the playe
 is not available. Deferrable is documented for exactly this ("non-player objects,
 budget-gated, can slip one frame"), and a dropped enqueue leaves `prev_frame` stale so
 the next frame retries: the worst case is one frame of stale art on a 15-frame cosmetic.
+
+### 2.6a Module structure — ONE section, and the reachability rule that forced it
+
+The parcel started as two modules (`player/player_instashield.emp` for the ability,
+`objects/insta_shield.emp` for the flash). It ships as ONE, at
+`games/sonic4/player/player_instashield.emp`, section `player_instashield`, head label
+`Ability_InstaShield`, one `order` row after `Climb_WallDist`.
+
+**Why.** `player_fly` and `player_glide` are listed explicitly in sigil's module
+registry (`crates/sigil-harness/src/native.rs`), which this parcel may not edit. An
+unregistered module reaches the build ONLY through a `use` edge from an already
+reachable one (the ring-sparkle route: `ojz_scroll_test` imports its art). Measured
+here: with an `order` row but no `use` edge, both modules were absent from the manifest
+entirely — `SIGIL_WARNINGS=full` did not even list them as unreachable — and the link
+failed with `unresolved symbol Ability_InstaShield`.
+
+The edge has to be REAL, not a token import, and it has to avoid a cycle:
+`player_common` cannot import from the ability module because the ability module
+imports `PlayerV` from it. The honest edge is **`sonic.emp`** — the record that binds
+the hook — importing `INSTASHIELD_ABILITY_WH`, the ability's own statement that it
+needs no ability collision box, exactly as `CharDef_Knuckles` reads
+`KNUX_ABILITY_RADIUS`. That also puts the §2.4 ruling next to the field someone would
+otherwise be tempted to fill in.
+
+One edge admits one module, and the ability and the flash are one feature sharing one
+state machine anyway (the hook opens the window, the flash closes it), so splitting
+them would have bought a `use` line between twelve instructions and their visual. The
+ring sparkle's header already records the principle: the self-contained file is the
+honest unit.
+
+### 2.6b The attacking predicate is a comparison, not a routine
+
+The brief asked for the suppression check to be a single named predicate; it is
+(`instashield_suppressed`, a module-private splice — module-private because a comptime
+fn's free names resolve at the call site, EMP_PITFALLS §2, and both `PlayerV` and the
+mask are `use`-imported).
+
+"Is the player attacking?" deliberately did NOT become a second routine. It is one
+comparison — `cmpi.b #INSTASHIELD_ATTACKING, PlayerV.instashield(<player>)` — and
+wrapping a compare in a `jsr` to give it a name would cost more than it explains. What
+it got instead is the name in prose, stated at `INSTASHIELD_READY` in
+`config/constants.emp` as the single question the damage system will ask. Its one
+reader today is the flash's own end-of-attack write, which is S3K's reader.
 
 ### 2.7 SFX — **BLOCKED**
 

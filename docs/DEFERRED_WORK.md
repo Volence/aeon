@@ -1801,6 +1801,13 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   What is missing is **the writer**: nothing sets `getup_timer` non-zero, because no hurt/landing
   state exists to set it. So this is not "build the get-up trigger" any more, it is "when damage
   ships, poke one byte". Fold it into the shields/damage work rather than planning it separately.
+  **⚠ 2026-08-26 — that damage/shields parcel now carries a second passenger.** The
+  insta-shield shipped with its hitbox expansion BLOCKED on exactly the same missing piece
+  (see the instashield entry below for the arithmetic and the two reasons), and the
+  suppression predicate it ships — `PlayerV.status_secondary & INSTASHIELD_SUPPRESS_MASK`,
+  the `$73` set S3K's own `TouchResponse` spells — is a live instruction with **no writer**:
+  the shield work adds writers to `status_secondary` and changes no reader. Both are named
+  here so the damage parcel is planned with all three in view, not one.
 - **Duck / look-up camera pan** — duck and look-up are display conditions computed
   each frame (no new PSTATE); the camera-pan half is NOT implemented. The field
   ~~`_pl_look_offset`~~ is reserved as a zero-valued seam in the `PlayerV` SST overlay
@@ -1811,7 +1818,61 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   survived the port. The substance is unchanged: the seam exists, still zero, still unwired.
 - **Balance threshold tuning** — `LEDGE_NO_GROUND` in `player_sensors.asm` is
   flagged as tunable; the current value is a first estimate.
-- **Dropdash, instashield** — Sonic move-kit extensions.
+- ~~**Dropdash, instashield** — Sonic move-kit extensions.~~ **INSTASHIELD DONE
+  (parcel/instashield, 2026-08-26); DROPDASH still open.**
+  `games/sonic4/player/player_instashield.emp` — `Ability_InstaShield` bound through
+  `CharDef_Sonic.cd_ability`, the three-value `PlayerV.instashield` one-shot (S3K's
+  `double_jump_flag`, reset on landing in `PHook_GroundEnter`/`PHook_RollEnter`), S3K's
+  14-frame attack window, the roll-jump air-control cancel, and the flash object with
+  the sonic_hack donor's 52-tile art streamed through a 29-tile DPLC window
+  (`VRAM_INSTA_SHIELD`). Design + every derivation:
+  `docs/superpowers/notes/2026-08-26-instashield-design.md`. Four riders below.
+  - **THE HITBOX EXPANSION IS NOT BUILT — blocked on the damage system.** S3K's
+    attacking box is a 48x48 REPLACEMENT of the player's touch box (`x - $18`, width
+    `$30`; `y - $18`, height `$30`; `sonic3k.asm:20626-20646`), against a jumping
+    Sonic's 16x22 (`x - 8`, width `$10`; `y - (y_radius-3)`, height `2*(y_radius-3)`,
+    with the ball's `y_radius = $E`). The half-extent `$18` is not a magic number: it
+    is `Obj_InstaShield`'s own declared `width_pixels`/`height_pixels` (`:34576`), and
+    our converted mapping blob independently agrees — every visible frame's bbox is
+    `(-24,+24)` on both axes. S3K also `bset`s `Status_Invincible` for the duration of
+    that one sweep and restores it after, so contact resolves as a kill rather than as
+    damage. **Two reasons it is not built:** (a) every handler it exists to reach is an
+    `rts` stub (`Touch_Enemy`/`Boss`/`Hurt`/`Projectile`/`SolidBreak`/`SolidHurt`,
+    `engine/objects/collision.emp:200-227`), so it would be unobservable — the emulator
+    check "see the expanded hitbox connect" cannot be run today; (b) a blanket
+    expansion would be WRONG here, because Aeon's `TouchResponse` dispatches solids,
+    springs and monitors through the same AABB that S3K reserves for the damage family
+    (S3K resolves solids in `SolidObject`, outside `TouchResponse`), so a 48x48 player
+    box would let solid objects push Sonic from 24 px away. Doing it right means a
+    PER-TYPE box, i.e. hoisting the type dispatch above the AABB in the engine's
+    hottest per-object loop. **NOT via `cd_ability_wh`**: that writes
+    `size_wh_off()` = `Sst.width_pixels`/`height_pixels`, which `player_sensors`
+    halves into the TERRAIN sensor radii (`:343-346`, `:547`) — Knuckles' 10x10 is a
+    physics box, and a 48x48 there would give Sonic a 48x48 terrain footprint. The
+    state the expansion needs already ships: `PlayerV.instashield` with S3K's exact
+    14-frame window, and the attacking predicate is the single comparison
+    `cmpi.b #INSTASHIELD_ATTACKING, PlayerV.instashield(<player>)`.
+  - **The SFX is not wired — blocked on a sound-lane import.** S3K plays
+    `sfx_InstaAttack` = SFX `$42` (`sonic3k.constants.asm:1193`). Aeon's transcoded
+    bank (`games/sonic4/data/sound/sfx/sfx_bank.emp`) holds 11 effects
+    (`$33 $34 $35 $36 $3C $62 $AB $B6 $B9`, plus `$BA $BB` in DEBUG) and `$42` is not
+    one. Adding it: run `tools/sfx_transcode.py` over the S3K source, add the
+    `SfxTable` row, a `SFXID_INSTA_ATTACK` in `config/sound_ids.emp` and a
+    priority-ladder tier, then re-pin the sound blob's frozen goldens. A wrong id was
+    deliberately NOT substituted.
+  - **The roll-jump cancel lands one frame late.** S3K's `bclr #Status_RollJump` takes
+    effect the same frame (`Sonic_ChgJumpDir` re-tests the bit after
+    `Sonic_JumpHeight` returns). Here the lockout is `AIRF_INPUT_LOCK`, already latched
+    in the CALLER's `d6` when the hook runs, and the `AbilityHook` contract
+    (`clobbers(d0-d2/a1-a2)`) forbids touching it — so `Ability_InstaShield` changes
+    `PSTATE_ROLLJUMP` -> `PSTATE_JUMP` and air control returns on the NEXT frame.
+    Closing it means widening the hook contract to let an ability write `d6`, which is
+    a seam change under the replay gate. Not worth one frame of a lockout today.
+  - **`AF_CALLBACK` is still unexercised.** `engine/objects/animate.emp`'s `$FA`
+    opcode has an empty installable-target set, and the flash's end-of-attack write is
+    exactly the shape it was built for. It is done in the object body instead (S3K's
+    own structure, and simpler); converting it would retire the forward machinery.
+- **Dropdash** — the other half of the move-kit line above, untouched.
 - **Super Sonic** — transformation, palette cycle, physics row.
 - **Tails** — CPU AI (4-state machine) + position-history-buffer following (the
   `Player_Pos_Ring`/`Player_Stat_Ring` are already recorded for this) + the

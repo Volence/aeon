@@ -303,6 +303,11 @@ CASES: list[tuple[str, str, str, int]] = [
     # one frame short must report 18 (3 x (5+1)) against the reference 24. The fragment
     # quotes the interpolated 18, so a fn that stopped counting frame bytes cannot match.
     (f"{POISON}/poison_ring_sparkle_frames.emp", "ring sparkle frames", "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames", 1),
+    # One case: script_display_frames() (games/sonic4/player/player_instashield.emp) fed a
+    # 3-frame script that ends in S3K's own two-byte `$FD, 0` terminator — the shape whose
+    # ARGUMENT is a legal frame index. The fragment quotes the folded 3, so a walker that
+    # counted that argument (printing 4) fails the case rather than passing it.
+    (f"{POISON}/poison_instashield_frames.emp", "insta-shield frames", "INSTASHIELD_POISON: a 3-frame script shows 3 display frames", 1),
 ]
 
 

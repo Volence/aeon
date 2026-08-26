@@ -1,0 +1,39 @@
+// games/sonic4/test/poison/poison_instashield_frames.emp — POISON (see README).
+//
+// TARGETS: the insta-shield's S3K-derived animation gate — script_display_frames()
+// in games/sonic4/player/player_instashield.emp, the fn both shipped ensures fold
+// their scripts through.
+// EXPECTED FRAGMENT: "INSTASHIELD_POISON: a 3-frame script shows 3 display frames"
+//
+// The shipped guard compares OUR script's fold to the DONOR script's fold, so the
+// only way it can be wrong is for the walker itself to be wrong — and there is one
+// specific way it can be. S3K terminates with `$FD, 0`: a control code followed by an
+// ARGUMENT byte that is itself a legal frame index. A walker that filters `byte <
+// AF_SET_FIELD` instead of STOPPING at the first control byte counts that argument as
+// an extra frame and reports 15 where the reference shows 14 — which is exactly the
+// error this parcel made once, in the Python half, before it was caught.
+//
+// So this poison feeds a 3-frame script with S3K's two-byte terminator and demands a
+// number the walker cannot produce. The fragment quotes the interpolated 3: a walker
+// that counted the terminator's argument would print 4 and the case would NOT match,
+// and one that returned a constant would print neither.
+//
+// AF_SET_FIELD is imported HERE as well as in player_instashield: a comptime helper's
+// free names resolve at the CALL SITE (docs/EMP_PITFALLS.md §2), so the poison must
+// carry the vocabulary the fn body spells.
+//
+// Zero bytes, ensures-only — unreachable from any real entry; evaluated only by
+// tools/emp_expect_fail.py via `sigil build --extra-entry`.
+module games.sonic4.test.poison.poison_instashield_frames
+
+use engine.constants.{AF_CHANGE, AF_SET_FIELD}
+use games.sonic4.player_instashield.{script_display_frames}
+
+// Three frames at S3K's hold of 0, then S3K's own `$FD, 0` terminator.
+const POISON_SCRIPT: [u8; 6] = [0, 0, 1, 2, AF_CHANGE, 0]
+
+// 14 is the reference's count; a 3-frame script cannot reach it.
+const POISON_REFERENCE_FRAMES = 14
+
+ensure(script_display_frames(POISON_SCRIPT, 6) == POISON_REFERENCE_FRAMES,
+       "INSTASHIELD_POISON: a 3-frame script shows {script_display_frames(POISON_SCRIPT, 6)} display frames, not the reference {POISON_REFERENCE_FRAMES}")

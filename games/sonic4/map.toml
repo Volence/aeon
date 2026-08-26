@@ -88,6 +88,11 @@ order = [
   "PageIn_Process", "PageCache_Init", "BG_Init", "BgAnim_Init", "CompressionSelfTest", "Sound_PostByte",
   "Sound_DebugMirror", "ObjCodeBase", "Player_Init", "PState_Ground",
   "PState_Air", "PState_Spindash", "PState_Fly", "PState_Glide", "Climb_WallDist",
+  # Sonic's insta-shield (player/player_instashield.emp) — beside the other
+  # characters' ability states and ahead of the CharDef records that point at it.
+  # ONE section for the whole feature: the hook, the flash object that closes its
+  # attack window, and the flash's 52 tiles of art / mappings / DPLC / script.
+  "Ability_InstaShield",
   "CharDef_Sonic", "CharDef_Tails", "CharDef_Knuckles", "CharacterDefs",
   "TailsAppendage_Refresh",
   "DustPuff_Spawn", "Dust_Tick",
