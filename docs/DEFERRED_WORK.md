@@ -10320,3 +10320,12 @@ reports to sigil with its file:line diagnostic. Step 4 archives the CERTIFICATIO
 root entry only; no gate executes asl today) and NOT the goldens, which remain sigil-vs-sigil regression
 over the pinned corpus. Full hermeticity is NOT the goal; the goal is that adding content to aeon
 touches one repo.
+
+### Pre-build pytest SKIPS when a prior build's ROM is absent — same family as the listing hazard (booked 2026-08-26)
+
+`tools/test_effects_gates_segments.py:183` `pytest.skip("needs a DEBUG build (s4.debug.bin)")` reads a PRIOR
+build's `s4.debug.bin`/`.lst` from the pre-build lane and skips when absent (the 9th skip on a fresh
+tree). Two defects in one: the subject can be stale/another profile's (the ceiling-gate hazard just
+closed), and absence renders as a skip rather than a named failure or a post-build run. Remedy per the
+ceiling-gate parcel: run post-sigil on the artifact this invocation produced, or unit-test over a
+committed fixture with a freshness trigger. XS. Found by the ceiling-gate parcel, not fixed there.
