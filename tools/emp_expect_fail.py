@@ -303,6 +303,16 @@ CASES: list[tuple[str, str, str, int]] = [
     # one frame short must report 18 (3 x (5+1)) against the reference 24. The fragment
     # quotes the interpolated 18, so a fn that stopped counting frame bytes cannot match.
     (f"{POISON}/poison_ring_sparkle_frames.emp", "ring sparkle frames", "RING_SPARKLE_POISON: a 3-frame script shows 18 display frames", 1),
+    # ---- Triangle-fold parcel (2026-08-26): EMP_PITFALLS §1's unit fold IS catchable ----
+    # A verbatim copy of the pre-fix deform_triangle body (block-tail if in the comptime
+    # for element) folds every sample to `()` with no sigil diagnostic; the case proves
+    # the ONE engine-side catch surface — a value ensure over the folded samples — fires
+    # loudly on it (`() == int` compares false rather than erroring). The fragment quotes
+    # BOTH interpolated values, so the case passes only while the broken shape folds `()`
+    # AND the shipped generator folds a real -16 beside it. If sigil ever fixes block-tail
+    # if folding, this module builds CLEAN and the case fails — the retirement signal, see
+    # the poison's header. Exactly 1: the module holds one ensure.
+    (f"{POISON}/poison_tail_if_unit_fold.emp",   "tri unit fold", "TAIL_IF_UNIT_FOLD: the block-tail-if element folded P[0] to () while the shipped generator folds -16", 1),
 ]
 
 
