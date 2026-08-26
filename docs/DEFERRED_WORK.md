@@ -8445,9 +8445,28 @@ its own config. Those have opposite remedies and the evidence here does not sepa
 Needs a foreground look at the two routes' `Parallax_Current_Config` readback.
 
 **PARK-5 (the budget slack policy) was NOT reached**, which is why this option was the recommended
-one. Measured headroom is in the branch's merge evidence; the adopting scene's axis-1 charge is
-~18.3k of the 103,743 cycles the gate leaves, and axes 2/3 are unchanged (the section-0 scene was
-already per-line). **PARK-3 (curve ∧ deform on one layer) was not touched and no guard was
+one — and the axis-1 number is DERIVED from `scene_axis1_cycles_x100()`'s own terms, not read off a
+run. For `Scene_Editor_ojz_act1_depth` (5 layers, per-line via `scene_forces_per_line()` arm 3, no
+deform table, no anchor, no V-deform, 2 curve bands):
+
+```
+  SB_WALK_BASE_X100                            311,600
++ SB_WALK_LINE_MODE_X100                       154,800
++ SB_WALK_BAND_PERLINE_X100 x (5-1)            341,600
++ SB_WALK_MULTIBAND_X100        (n >= 2)         2,000
+                                             = 810,000
+  sample_term = 0 (no table attached) -> no shift_lines, no band_sampling term
++ SB_WALK_LINE_CURVE_X100 x SB_SCREEN_LINES    912,800   (4075 x 224)
++ SB_WALK_BAND_CURVE_X100 x 2 curve bands      126,000
+                                           = 1,848,800
++ x SB_WALK_UNCERTAINTY_PERMIL / 1000           40,673
+                                           = 1,889,473  x100  ->  18,894 cyc
+```
+
+Against `SB_FRAME_CYCLES` 128,000 less `SB_AXIS1_RESERVATION` 24,257 = **103,743 available: 18,894
+spent, 84,849 (82%) left.** Axes 2/3 are unchanged (896 B / its drain — the section-0 scene was
+already per-line, so no new per-line entry appears) and axis 5 prices to zero (no `SpriteMask`).
+Nothing came close to a ceiling; the parcel never had to consider raising one. **PARK-3 (curve ∧ deform on one layer) was not touched and no guard was
 relaxed:** the adopting scene's curve layers carry `dsa: 15, dsb: 15` and it attaches no anchor,
 which is what `layer()`'s and `scene()`'s curve guards require.
 
