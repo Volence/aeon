@@ -69,11 +69,22 @@ BGANIM_MAX_BANDS = 4
 #           demo / demo.debug -- no `ojz_bg_anim` section at all (their BgAnim_Table
 #                                is games/demo/data/demo_data.emp's own stub)
 #       MINIMUM 11,424 B free, + the 2 B the stub already holds = 11,426 B reachable.
+#       *** RE-DERIVED 2026-08-26 after the roomy-BG regeneration (aeon 94b384a2). The
+#       static background dropped 448 -> 320 unique tiles, freeing 128 x 32 = 4,096 B in
+#       exactly this run, so the room GREW: s4 17,264 B free, s4.debug 15,152 B free
+#       (the debug shape is the binding one, as always). The 9,394 figure below was
+#       derived against the OLD 11,424 and was left stale-low by ~5.7 KB. Owner ruled
+#       (2026-08-26, via the hub): raise it, but not to the physical edge -- keep a
+#       margin so other content in this run can grow without forcing the re-layout.
+#       12,288 B (12 KiB) is that number: 2,864 B of margin under the debug room, and
+#       still short of two 8 KB bands (16,384 > 15,152), which remains the re-layout's
+#       job. ***
 #       Both spans were confirmed to be pure $00 fill in the built image, so spending
 #       them does NOT grow the ROM file -- it spends what `Art_Sonic` may grow into.
 #       tools/bganim_room.py re-derives this on every build and fails if it stops
-#       fitting (which is the revisit d-9 named). ~11.4 KB is ONE 8 KB band per act;
-#       a second band needs the "banks late, data unbounded" re-layout booked in
+#       fitting (which is the revisit d-9 named, and which is what re-derived it).
+#       ~15.1 KB of room is ONE band of up to 12 KB per act under the ruled ceiling;
+#       a second 8 KB band needs the "banks late, data unbounded" re-layout booked in
 #       docs/DEFERRED_WORK.md, not a bigger number here.
 #
 #   BGANIM_PLACER_CEILING — RETIRED 2026-08-25. Until sigil b0363140 (merge of
@@ -93,8 +104,10 @@ BGANIM_MAX_BANDS = 4
 # authority -- so the provable worst case is BGANIM_WORST_CASE_BYTES below.
 #
 # RAISING THIS NUMBER IS NOT A ONE-LINE EDIT: it is bounded by tools/bganim_room.py's
-# live derivation, which fails the build if the ceiling exceeds the room.
-BGANIM_SECTION_CEILING = 9394
+# live derivation, which fails the build if the ceiling exceeds the room. Raised
+# 9,394 -> 12,288 on 2026-08-26 under the owner's ruling; the derivation above is what
+# licenses it, and bganim_room.py is what keeps it honest if the room ever shrinks.
+BGANIM_SECTION_CEILING = 12288
 
 #: Section layout, stated once so every size in this file derives from ONE place:
 #: a u16 band count, then a 44-byte record per band (6 u16 header fields + an

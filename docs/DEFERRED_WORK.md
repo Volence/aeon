@@ -9408,6 +9408,21 @@ Design note: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`. Branch 
 **Why not now:** cosmetic, rarely visible, and moving `DrawRings` into a band is a `Render_Sprites` change with the sprite-cap shortcut caveat at `sprites.emp:517-521` (the shortcut is only equivalent because DrawRings emits nothing at the cap).
 **When ready:** with the next `Render_Sprites` parcel; decide the ring band against the object bands then.
 
+### BGANIM authoring ceiling raised 9,394 -> 12,288 B — OWNER RULED 2026-08-26 (d-9), APPLIED
+
+The ceiling was derived on 2026-08-24 against a room of 11,424 B (debug shape). The roomy-BG
+regeneration (aeon 94b384a2) dropped the static background from 448 to 320 unique tiles, freeing
+128 x 32 = 4,096 B in exactly the run that ends at `Art_Sonic`, so the room grew to **15,152 B
+debug / 17,264 B plain** — re-measured from the build's own `bganim_room` block, not assumed.
+That left the ruled ceiling stale-low by ~5.7 KB, and the BINDING limit stopped being the
+hardware and became a number we chose. Put to the owner; he ruled raise-with-margin rather than
+to the physical edge. 12,288 B (12 KiB) leaves **2,866 B** under the debug room for other content
+in that run to grow into without forcing a re-layout, and is still short of two 8 KB bands
+(16,384 > 15,152) — that remains the "banks late, data unbounded" re-layout's job, booked in §7.
+Byte-neutral to apply (no shipped act carries a band yet): all four shapes identical at
+b96319e3 / 7be32302 / bf2cdb42 / 62a0019e. `tools/bganim_room.py` re-derives the room every build
+and fails if the ceiling ever stops fitting, so a future shrink of that run cannot pass silently.
+
 ### Sigil placer: a measuring round can alias to zero and mis-measure a section — MECHANISM CORRECTED 2026-08-26, ACCEPTED BY SIGIL (BGROOM-3)
 
 > **The mechanism below is REFUTED; the symptom and measurement are sound.** An unresolved
