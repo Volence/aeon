@@ -57,8 +57,11 @@ BGANIM_MAX_BANDS = 4
 # `ojz_bg_anim` is ONE section holding the band table and the bank blob for EVERY
 # band in the act. It sits between `OJZ_Palette` and `test_mappings` in the declared
 # order (games/sonic4/map.toml), and everything from `Map_TestObj` through
-# `Art_Sonic` shifts downstream when it grows — into the hole that ends at the
-# `dac_banks` HARDWARE anchor ($48000, a Z80 SetBank latch that cannot move).
+# `Art_Sonic` shifts downstream when it grows — into the room before the `dac_banks`
+# anchor. Until the ROM re-layout (2026-08-26) that anchor was $48000 and read as a
+# hardware-fixed latch that could not move, which made the room whatever Sonic's art
+# left; since the re-layout the anchor is DERIVED from the packed-data end by the
+# BANK PLACEMENT RULE in map.toml and re-ruled at every freeze (see the block below).
 #
 #   BGANIM_SECTION_CEILING — the ROM-room limit, i.e. the owner's ruled authoring
 #       budget. Derived (2026-08-24, instrument = the sigil `.lst` + the art blob on
@@ -108,55 +111,46 @@ BGANIM_MAX_BANDS = 4
 # 9,394 -> 12,288 on 2026-08-26 under the owner's ruling; the derivation above is what
 # licenses it, and bganim_room.py is what keeps it honest if the room ever shrinks.
 #
-# ── THE CEILING IS PER SHAPE (decision d-28-answered, 2026-08-26) ─────────────
+# ── ONE RULED NUMBER AGAIN, PER-SHAPE TABLE KEPT (ROM re-layout, 2026-08-26) ──
 #
-# The showcase parcel (owner decision d-15: per-layer depth + the curved horizon) widens
-# `band_record` by `sizeof(band_curve)` on EVERY band record in the tree, and that 928 B
-# of packed data (0x3A0, both shapes) pushes `Art_Sonic` downstream into the same hole
-# this ceiling spends. Re-measured on parcel/showcase-effects-r2 (FAST listings, and the
-# sigil placer's dry re-derivation agreed byte for byte):
+# Decision d-28-answered (2026-08-26) split the ceiling per shape for one day: the
+# showcase parcel widened `band_record` on every band in the tree, `Art_Sonic` landed
+# at 0x2F430 in the DEBUG shape, 3,856 B were left before the $48000 anchor, and the
+# DEBUG row dropped to the 12,094 B that room held (194 B under d-9's 12,288). The
+# owner booked the ROM re-layout (option 2) as the follow-up and it landed the same
+# day: the Z80 banks now sit AFTER the data region at LMAs the BANK PLACEMENT RULE in
+# games/sonic4/map.toml derives from the packed-data end —
 #
-#     shape     Art_Sonic    + 97,472 (art blob)   room to $48000   + 8,238 held   reachable
-#     s4        0x2EBE0      = 0x468B0             5,984 B          8,238 B        14,222 B
-#     s4.debug  0x2F430      = 0x470F0             3,856 B          8,238 B        12,094 B
+#     dac_banks = align_up(max over sound-on shapes of packed_data_end + 0x4000, 0x8000)
 #
-# 12,288 fits the release shape with 1,934 B to spare and misses the DEBUG shape by
-# exactly 194 B. The owner ruled (d-28-answered): the DEBUG-shape guarantee drops to
-# what the DEBUG room holds; the RELEASE guarantee stays at d-9's 12,288; the ROM
-# re-layout that restores 12,288 in every shape is booked as follow-up work in
-# docs/DEFERRED_WORK.md, not dropped. So:
+# — so every sound-on shape has at least DATA_GROWTH_RESERVE (0x4000 = 16,384 B, two
+# 8 KB bands) of room at every freeze, and the ceiling no longer depends on Sonic's art
+# size. Measured at the re-layout (both canonical listings; the parcel report
+# docs/superpowers/2026-08-26-rom-relayout-report.md carries the full table):
 #
-#   BGANIM_SECTION_CEILING_RELEASE  d-9's ruled 12,288, unchanged.
-#   BGANIM_SECTION_CEILING_DEBUG    DERIVED from the d-28 measurement, not typed in:
-#                                   the anchor, minus the packed end of the DEBUG image
-#                                   at the ruling, plus what the section already held.
-#   BGANIM_SECTION_CEILINGS         the per-shape table tools/bganim_room.py gates
-#                                   against, keyed by the sigil listing that IS the
-#                                   shape's instrument. A listing not in this table is
-#                                   an UNMEASURABLE shape there, never a pass.
-#   BGANIM_SECTION_CEILING          what the GENERATOR accepts from the editor: the
-#                                   MINIMUM across shapes. It must be the minimum, or a
-#                                   12,200 B section would pass this emitter and then
-#                                   fail the DEBUG build at the bganim_room gate.
+#     shape     Art_Sonic    + 97,472 (art blob)   anchor    room       + 8,238 held
+#     s4        0x72210      = 0x89ED0             0x90000   24,880 B   33,118 B
+#     s4.debug  0x72A60      = 0x8A720             0x90000   22,752 B   30,990 B
 #
-# The DEBUG figure is held to the ROM by the gate: the moment the DEBUG room shrinks
-# below it, `bganim_room --gate` fails that build (there is ZERO margin under it by
-# construction), and the moment the re-layout lands the two shapes collapse back to
-# one number here.
-_D28_DAC_BANKS_ANCHOR = 0x48000          # map.toml [[anchor]] dac_banks — a Z80 SetBank latch
-_D28_ART_SONIC_LMA_DEBUG = 0x2F430       # s4.debug.lst at the d-28 measurement (r2 tip)
-_D28_ART_SONIC_BYTES = 97472             # art/optimized/characters/sonic.bin on disk, then
-_D28_SECTION_HELD_BYTES = 8238           # ojz_bg_anim at the ruling: 1 band, 8x4 slots
-BGANIM_SECTION_CEILING_RELEASE = 12288
-BGANIM_SECTION_CEILING_DEBUG = (_D28_DAC_BANKS_ANCHOR
-                                - (_D28_ART_SONIC_LMA_DEBUG + _D28_ART_SONIC_BYTES)
-                                + _D28_SECTION_HELD_BYTES)             # = 12,094
-assert BGANIM_SECTION_CEILING_DEBUG == BGANIM_SECTION_CEILING_RELEASE - 194, (
-    "the d-28-answered derivation no longer yields the ruled 194 B shortfall; the "
-    "measurement terms above were edited without re-reading the ruling")
+# Both rows are d-9's 12,288 again. The TABLE stays on purpose: the gate is per shape
+# and the listing IS the instrument — a third shape, or a renamed listing, must be
+# UNMEASURABLE in tools/bganim_room.py, never defaulted to another shape's number.
+# That gate also enforces the placement rule itself (`--gate` fails naming the new
+# anchor pair the moment a shape's room drops under the reserve), which is the
+# re-ruling trigger: move BOTH anchors per the rule and refreeze sigil's tables.
+#
+#   BGANIM_SECTION_CEILING_RULED   d-9's ruled 12,288 — the owner's authoring budget.
+#   BGANIM_SECTION_CEILINGS        the per-shape table tools/bganim_room.py gates
+#                                  against, keyed by the sigil listing that IS the
+#                                  shape's instrument.
+#   BGANIM_SECTION_CEILING         what the GENERATOR accepts from the editor: the
+#                                  MINIMUM across shapes (== the ruled number while the
+#                                  rows agree; it must stay the minimum so a section can
+#                                  never pass this emitter and fail one shape's gate).
+BGANIM_SECTION_CEILING_RULED = 12288
 BGANIM_SECTION_CEILINGS = {
-    "s4.lst": BGANIM_SECTION_CEILING_RELEASE,
-    "s4.debug.lst": BGANIM_SECTION_CEILING_DEBUG,
+    "s4.lst": BGANIM_SECTION_CEILING_RULED,
+    "s4.debug.lst": BGANIM_SECTION_CEILING_RULED,
 }
 BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 
@@ -211,11 +205,12 @@ def check_bganim_section_fits(anims):
     fits = max(0, (ceiling - BGANIM_COUNT_BYTES - BGANIM_RECORD_BYTES * n_bands)
                // BGANIM_BYTES_PER_SLOT)
     why = (
-        f"  The limit is ROM room: `ojz_bg_anim` grows into the hole that ends at\n"
-        f"  the `dac_banks` hardware anchor ($48000, a Z80 SetBank latch), and that\n"
-        f"  hole is also the only room `Art_Sonic` has to grow into (decision d-9).\n"
-        f"  Run `python3 tools/bganim_room.py --lst s4.debug.lst` for the live\n"
-        f"  derivation. Relocating the section is the option d-9 kept open.")
+        f"  The limit is the owner's ruled authoring budget (decision d-9, 12 KiB).\n"
+        f"  `ojz_bg_anim` grows into the room before the `dac_banks` anchor, which the\n"
+        f"  BANK PLACEMENT RULE in games/sonic4/map.toml keeps at >= 16 KiB in every\n"
+        f"  shape; the ceiling is the budget INSIDE that room, and raising it is an\n"
+        f"  owner ruling, not an edit. Run `python3 tools/bganim_room.py --lst\n"
+        f"  s4.debug.lst` for the live room derivation.")
     raise SystemExit(
         f"[inject_editor_bg] REFUSED: this act's BG animation does not fit its section.\n"
         f"  {n_bands} band(s), {total_slots} slots total ({per_band})\n"

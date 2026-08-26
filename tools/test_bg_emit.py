@@ -802,61 +802,45 @@ class TestBgAnimSectionCeiling(unittest.TestCase):
             inject_editor_bg.bganim_section_bytes(inject_editor_bg.BGANIM_MAX_BANDS,
                                                   inject_editor_bg.BG_TILE_CAPACITY),
             "BGANIM_WORST_CASE_BYTES is not the section size at the provable bound")
-        for name in ("BGANIM_SECTION_CEILING", "BGANIM_SECTION_CEILING_RELEASE",
-                     "BGANIM_SECTION_CEILING_DEBUG"):
+        for name in ("BGANIM_SECTION_CEILING", "BGANIM_SECTION_CEILING_RULED"):
             v = getattr(inject_editor_bg, name)
             self.assertGreaterEqual(v, stub, f"{name} refuses even the disabled stub")
             self.assertLessEqual(v, worst, f"{name} exceeds the largest section any "
                                            f"legal authoring can produce ({worst} B)")
 
-    # ---- the per-shape table (decision d-28-answered) ---------------------------
+    # ---- the per-shape table (d-28-answered, then the ROM re-layout) ------------
 
     def test_per_shape_table_names_exactly_the_two_sonic4_listings(self):
         """The shape IS its listing. A third shape, or a renamed listing, has no ruled
         number and must surface as a missing row here, not as a silent default."""
         self.assertEqual(sorted(inject_editor_bg.BGANIM_SECTION_CEILINGS),
                          ["s4.debug.lst", "s4.lst"])
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.lst"],
-                         inject_editor_bg.BGANIM_SECTION_CEILING_RELEASE)
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"],
-                         inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG)
+        for lst in ("s4.lst", "s4.debug.lst"):
+            self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS[lst],
+                             inject_editor_bg.BGANIM_SECTION_CEILING_RULED)
 
-    def test_debug_ceiling_is_derived_from_the_d28_measurement(self):
-        """d-28-answered: the DEBUG guarantee is what the DEBUG room held at the
-        ruling — anchor − (Art_Sonic LMA + blob) + what the section held — which is
-        194 B under d-9's 12,288. Hand-computed here with none of the emitter's
-        names so a re-typed term cannot agree with itself."""
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_RELEASE, 12288,
-                         "d-9's release guarantee moved — that is an owner ruling")
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG,
-                         0x48000 - (0x2F430 + 97472) + 8238)
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG, 12288 - 194)
-
-    def test_generator_accepts_the_minimum_across_shapes(self):
-        """A section between the two ceilings must be REFUSED by the generator: it
-        would pass the release build and fail the DEBUG build at the bganim_room gate,
-        which is the author-facing failure the minimum exists to pre-empt. The fixture
-        is derived — two bands, the largest slot count that lands strictly inside the
-        gap — and the test fails loudly if the gap ever closes (no such act exists)."""
-        lo = inject_editor_bg.BGANIM_SECTION_CEILING_DEBUG
-        hi = inject_editor_bg.BGANIM_SECTION_CEILING_RELEASE
+    def test_both_shapes_carry_the_ruled_ceiling_after_the_relayout(self):
+        """d-9's 12,288 in EVERY shape (the re-layout's acceptance, 2026-08-26): the
+        DEBUG row is no longer derived from what a shape's room happened to hold —
+        that derivation (anchor − packed end + held) was d-28-answered's one-day
+        stopgap and is retired with its `_D28_*` terms. The number is typed here on
+        purpose: it is the owner's ruling, the one thing this file may not derive."""
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING_RULED, 12288,
+                         "d-9's guarantee moved — that is an owner ruling")
+        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING, 12288)
         self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILING,
                          min(inject_editor_bg.BGANIM_SECTION_CEILINGS.values()))
-        self.assertLess(lo, hi, "the two shapes agree again — the re-layout landed? "
-                                "Then collapse the table and retire this test on purpose")
-        n_bands = 2
-        slots = ((hi - inject_editor_bg.BGANIM_COUNT_BYTES
-                  - inject_editor_bg.BGANIM_RECORD_BYTES * n_bands)
-                 // inject_editor_bg.BGANIM_BYTES_PER_SLOT)
-        size = inject_editor_bg.bganim_section_bytes(n_bands, slots)
-        self.assertGreater(size, lo, f"{size} B is not inside ({lo}, {hi}] — the "
-                                     f"fixture no longer isolates the two ceilings")
-        self.assertLessEqual(size, hi)
-        band = [{"cols": slots - 1, "rows": 1, "slot_base": 0},
-                {"cols": 1, "rows": 1, "slot_base": slots - 1}]
-        with self.assertRaises(SystemExit) as cm:
-            inject_editor_bg.check_bganim_section_fits(band)
-        self.assertIn(f"the ceiling is {lo} B", str(cm.exception), str(cm.exception))
+        for stale in ("_D28_DAC_BANKS_ANCHOR", "_D28_ART_SONIC_LMA_DEBUG",
+                      "BGANIM_SECTION_CEILING_DEBUG", "BGANIM_SECTION_CEILING_RELEASE"):
+            self.assertFalse(hasattr(inject_editor_bg, stale),
+                             f"{stale} outlived the re-layout that retired it")
+
+    # `test_generator_accepts_the_minimum_across_shapes` was RETIRED ON PURPOSE on
+    # 2026-08-26, exactly as its own failure text instructed ("the two shapes agree
+    # again — the re-layout landed? Then collapse the table and retire this test on
+    # purpose"): it needed a section strictly between two DIFFERENT ceilings, and
+    # there is no such section once both rows are 12,288. The property it guarded —
+    # the generator accepts the MINIMUM across shapes — is asserted above.
 
     def test_an_unlisted_shape_is_unmeasurable_not_defaulted(self):
         import bganim_room
@@ -889,20 +873,21 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     checks — over a COMMITTED cut of a real listing, never the tree's own `.lst`.
 
     THE FIXTURE. tools/fixtures/bganim_room_excerpt.lst was CUT (not written) from
-    `s4.debug.lst` as built at aeon master a52a9ded (2026-08-26; a FAST=1 DEBUG=1
-    build, byte-identical to canonical: crc bcbda57e, len 715742) by
-    `tools/fixtures/make_listing_excerpt.py s4.debug.lst <out> --set bganim`. Its
-    Art_Sonic row is `(0) 2254/2F430 : Art_Sonic:`; at that SHA
-    `git cat-file -s a52a9ded:art/optimized/characters/sonic.bin` = 97,472 and the
+    `s4.debug.lst` as built on parcel/rom-relayout at aeon 0cddcaa9 (2026-08-26, the
+    ROM re-layout: `dac_banks` 0x48000 -> 0x90000; a DEBUG=1 build, crc 090c6f35,
+    len 734640) by `tools/fixtures/make_listing_excerpt.py s4.debug.lst <out> --set
+    bganim`. Its Art_Sonic row is `(0) 2265/72A60 : Art_Sonic:`; at that SHA
+    `git cat-file -s 0cddcaa9:art/optimized/characters/sonic.bin` = 97,472 and the
     shipping override held one 8x4 band (bganim_section_bytes(1, 32) = 8,238). So:
 
-        room     = 0x48000 - (0x2F430 + 97472) = 3,856
-        headroom = 3,856 + 8,238               = 12,094 = BGANIM_SECTION_CEILING_DEBUG
+        packed end = 0x72A60 + 97472           = 0x8A720
+        room       = 0x90000 - 0x8A720         = 22,752
+        headroom   = 22,752 + 8,238            = 30,990   (ceiling 12,288 sits 18,702 inside)
+        rule       = align_up(0x8A720 + 0x4000, 0x8000) = 0x90000 == the declared anchor
 
-    which is d-28-answered's derivation with zero slack — the tests below hold the
-    tool to it. The hermetic tree the tests build carries exactly the inputs the tool
-    reads (map.toml anchor, the embed line, a blob of that length, the override) so
-    no term leaks in from the live tree.
+    — the tests below hold the tool to those four lines. The hermetic tree the tests
+    build carries exactly the inputs the tool reads (map.toml anchor, the embed line,
+    a blob of that length, the override) so no term leaks in from the live tree.
 
     FRESHNESS. A committed cut has nothing re-deriving it. build.sh's post-sigil gate
     passes `--fixture` so every row here is re-found in the fresh listing with the
@@ -913,10 +898,12 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
 
     AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     FIXTURE = os.path.join(AEON, "tools", "fixtures", "bganim_room_excerpt.lst")
-    FIXTURE_ART_SONIC_BYTES = 97472        # git cat-file -s a52a9ded:art/optimized/characters/sonic.bin
-    FIXTURE_ANCHOR = 0x48000               # map.toml [[anchor]] dac_banks — a Z80 SetBank latch
+    FIXTURE_ART_SONIC_BYTES = 97472        # git cat-file -s 0cddcaa9:art/optimized/characters/sonic.bin
+    FIXTURE_ANCHOR = 0x90000               # map.toml [[anchor]] dac_banks at the re-layout
+    FIXTURE_ART_SONIC_LMA = 0x72A60        # the fixture's Art_Sonic row, hand-read below too
 
-    def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst"):
+    def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst",
+              anchor=FIXTURE_ANCHOR):
         """A hermetic aeon-shaped tree holding only what bganim_room reads."""
         import shutil
         d = tempfile.mkdtemp(prefix="bganim_room_")
@@ -925,7 +912,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         os.makedirs(os.path.join(d, "art"))
         with open(os.path.join(d, "games", "sonic4", "map.toml"), "w") as f:
             f.write('[[anchor]]\nname = "dac_banks"\nat = 0x%X\nwhen = "sound_on"\n'
-                    % self.FIXTURE_ANCHOR)
+                    % anchor)
         with open(os.path.join(d, "games", "sonic4", "data", "collision",
                                "collision_data.emp"), "w") as f:
             f.write('const _art_sonic      = embed("art/sonic.bin")\n'
@@ -978,9 +965,10 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                                  "__align$games.sonic4.dac_banks$0"])
         lmas = [a for _, a in rows]
         self.assertEqual(lmas, sorted(lmas))
-        self.assertEqual(self._hand_lma(), 0x2F430, "the fixture is no longer the "
-                         "a52a9ded cut this class documents — update the docstring's "
-                         "derivation with it, do not just re-cut")
+        self.assertEqual(self._hand_lma(), self.FIXTURE_ART_SONIC_LMA,
+                         "the fixture is no longer the 0cddcaa9 (re-layout) cut this "
+                         "class documents — update the docstring's derivation with it, "
+                         "do not just re-cut")
 
     # ---- the derivation ---------------------------------------------------------
 
@@ -989,7 +977,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         tree, lst = self._tree()
         lma = self._hand_lma()
         room = self.FIXTURE_ANCHOR - (lma + self.FIXTURE_ART_SONIC_BYTES)
-        self.assertEqual(room, 3856)
+        self.assertEqual(room, 22752, "0x90000 - (0x72A60 + 97472), by hand")
         r = bganim_room.rom_room(lst, tree)
         self.assertEqual(
             (r["art_sonic_lma"], r["art_blob_len"], r["anchor"], r["room"]),
@@ -997,52 +985,130 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
             f"tool says {r}, hand says 0x{self.FIXTURE_ANCHOR:X} - (0x{lma:X} + "
             f"{self.FIXTURE_ART_SONIC_BYTES}) = {room}")
 
-    def test_debug_ceiling_is_the_fixture_room_plus_the_band_it_held(self):
-        """d-28-answered with zero slack: the DEBUG ceiling IS what the fixture's
-        shape could hold. The report prints that room, names the binding limit, and
-        carries no trace of the retired placer arm."""
+    def test_ruled_ceiling_sits_inside_the_fixture_room_and_the_rule_holds(self):
+        """The re-layout's acceptance in miniature: the DEBUG shape's room holds the
+        ruled 12,288 with a POSITIVE margin, the report names the ruled ceiling as the
+        binding limit, prints the bank placement rule with this shape's own numbers,
+        and carries no trace of the retired placer arm."""
+        import bganim_room
         tree, lst = self._tree()
         live = inject_editor_bg.bganim_section_bytes(1, 32)
         self.assertEqual(live, 8238)
         self.assertEqual(inject_editor_bg.live_section_bytes(tree), live)
-        room = self.FIXTURE_ANCHOR - (self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES)
-        self.assertEqual(inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"],
-                         room + live)
+        packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
+        room = self.FIXTURE_ANCHOR - packed_end
+        headroom = room + live
+        self.assertEqual(headroom, 30990)
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILINGS["s4.debug.lst"]
+        self.assertGreater(headroom - ceiling, 0, "the re-layout must leave a POSITIVE margin")
+        # the rule, by hand: the first 0x8000 boundary at or above end + reserve
+        reserve = bganim_room.DATA_GROWTH_RESERVE
+        self.assertEqual(reserve, 0x4000, "two 8 KB bands — the d-28 acceptance")
+        rule = -(-(packed_end + reserve) // 0x8000) * 0x8000
+        self.assertEqual(rule, 0x90000)
+        self.assertEqual(bganim_room.rule_anchor(packed_end), rule)
         rc, text = self._report(tree, lst)
         self.assertEqual(rc, 0, text)
         self.assertRegex(text, rf"(?m)^\s*ROM room {room} B free\b", text)
-        self.assertRegex(text, r"(?m)^\s*binding limit: the ruled ceiling \(12094 B\) — it "
-                               r"sits 0 B inside the ROM room", text)
+        self.assertRegex(text, rf"(?m)^\s*binding limit: the ruled ceiling \({ceiling} B\) — it "
+                               rf"sits {headroom - ceiling} B inside the ROM room", text)
+        self.assertRegex(text, rf"(?m)^\s*bank placement rule: packed end 0x{packed_end:X} \+ "
+                               rf"reserve {reserve} B -> dac_banks >= 0x{rule:X}; declared "
+                               rf"0x{self.FIXTURE_ANCHOR:X} \(this shape binds exactly\)", text)
         self.assertNotIn("placer", text.lower(), text)
         self.assertNotIn("BGANIM-PLACE", text)
 
-    def test_per_shape_table_gates_the_release_row_against_the_release_listing(self):
-        """The same cut renamed `s4.lst` is gated against the RELEASE row — and the
-        release ceiling is 194 B more than that shape's fixture room holds, so it
-        must fail. (The real release listing has Art_Sonic 0x800 lower; this checks
-        the KEY is the listing's basename, not that release fits.)"""
-        tree, lst = self._tree(lst="s4.lst")
+    def test_rule_fails_naming_the_new_anchor_pair_when_room_drops_under_the_reserve(self):
+        """RED-FIRST for the rule arm: the art blob grown 8 KB. The room (14,560 B) still
+        holds the 12,288 ceiling — so the CEILING arm passes and only the RULE arm can
+        fail — and the failure names the anchor pair the rule now demands."""
+        import bganim_room
+        grown = self.FIXTURE_ART_SONIC_BYTES + 0x2000
+        tree, lst = self._tree(blob_len=grown)
+        packed_end = self._hand_lma() + grown
+        room = self.FIXTURE_ANCHOR - packed_end
+        self.assertEqual(room, 14560)
+        self.assertGreater(room + 8238, inject_editor_bg.BGANIM_SECTION_CEILING)
+        self.assertLess(room, bganim_room.DATA_GROWTH_RESERVE)
+        want = -(-(packed_end + bganim_room.DATA_GROWTH_RESERVE) // 0x8000) * 0x8000
+        self.assertEqual(want, 0x98000)
         rc, text = self._report(tree, lst)
         self.assertEqual(rc, 1, text)
-        self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 12288 B but only 12094 B", text)
+        self.assertNotIn("the ruled BG-animation ceiling no longer fits", text)
+        self.assertIn("FAIL — the bank placement rule is broken", text)
+        self.assertIn(f"leaving {room} B < DATA_GROWTH_RESERVE {bganim_room.DATA_GROWTH_RESERVE} B", text)
+        self.assertIn(f"dac_banks = align_up(packed_end + reserve, 0x8000) = 0x{want:X}", text)
+        self.assertIn(f"sound_bank = dac_banks + 0x10000 = 0x{want + 0x10000:X}", text)
+        self.assertIn("refreeze", text)
+        self.assertIn("Do NOT shrink the reserve", text)
+        # without --gate the same breach is reported, not enforced
+        import io
+        buf = io.StringIO()
+        self.assertEqual(bganim_room.report(lst, tree, gate=False, out=buf), 0)
+        self.assertIn("the bank placement rule is broken", buf.getvalue())
+
+    def test_rule_reports_slack_when_another_shape_binds(self):
+        """One anchor serves every sound-on shape, so an anchor ABOVE this shape's
+        rule value is slack, not a breach: reported, never failed."""
+        tree, lst = self._tree(anchor=self.FIXTURE_ANCHOR + 0x8000)
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertRegex(text, r"(?m)^\s*bank placement rule: .* declared 0x98000 \(0x8000 of "
+                               r"slack above this shape's rule value — another sound-on "
+                               r"shape binds, or the rule moved\)", text)
+
+    def test_rule_rejects_an_anchor_that_is_not_bank_aligned(self):
+        """A Z80 SetBank window is 0x8000; an anchor off that grid is unmeasurable as
+        a bank and fails by name before any room arithmetic is trusted."""
+        tree, lst = self._tree(anchor=0x8C000)
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 1, text)
+        self.assertIn("dac_banks 0x8C000 is not 0x8000-aligned", text)
+
+    def test_per_shape_table_gates_the_release_row_against_the_release_listing(self):
+        """The KEY is the listing's basename: the same cut renamed `s4.lst` is gated
+        against the RELEASE row (it passes — both rows are 12,288 now), and poking
+        ONLY the release row over the room fails it naming `s4.lst`, while the debug
+        row is untouched."""
+        tree, lst = self._tree(lst="s4.lst")
+        rc, text = self._report(tree, lst)
+        self.assertEqual(rc, 0, text)
+        self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 12288 B", text)
+        headroom = (self.FIXTURE_ANCHOR - (self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES)
+                    + inject_editor_bg.bganim_section_bytes(1, 32))
+        table = inject_editor_bg.BGANIM_SECTION_CEILINGS
+        saved = table["s4.lst"]
+        table["s4.lst"] = headroom + 1
+        try:
+            rc, text = self._report(tree, lst)
+        finally:
+            table["s4.lst"] = saved
+        self.assertEqual(rc, 1, text)
+        self.assertIn(f"BGANIM_SECTION_CEILINGS['s4.lst'] = {headroom + 1} B but only "
+                      f"{headroom} B", text)
 
     def test_one_byte_over_the_room_fails_the_gate_naming_the_shape(self):
         """Red-first for the post-sigil gate, in miniature: the debug row one byte
-        above what the shape holds."""
+        above what the shape holds — the headroom is read off the TOOL's own
+        derivation so the test tracks the fixture, never a typed number."""
+        import bganim_room
         tree, lst = self._tree()
+        headroom = (bganim_room.rom_room(lst, tree)["room"]
+                    + inject_editor_bg.live_section_bytes(tree))
+        self.assertEqual(headroom, 30990)
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
         saved = table["s4.debug.lst"]
-        table["s4.debug.lst"] = saved + 1
+        table["s4.debug.lst"] = headroom + 1
         try:
             rc, text = self._report(tree, lst)
         finally:
             table["s4.debug.lst"] = saved
         self.assertEqual(rc, 1, text)
         self.assertIn("the ruled BG-animation ceiling no longer fits", text)
-        self.assertIn(f"BGANIM_SECTION_CEILINGS['s4.debug.lst'] = {saved + 1} B but only "
-                      f"{saved} B are reachable", text)
+        self.assertIn(f"BGANIM_SECTION_CEILINGS['s4.debug.lst'] = {headroom + 1} B but only "
+                      f"{headroom} B are reachable", text)
         self.assertIn("dac_banks", text)
-        self.assertRegex(text, r"(?m)^\s*binding limit: the ROM room \(12094 B\)", text)
+        self.assertRegex(text, rf"(?m)^\s*binding limit: the ROM room \({headroom} B\)", text)
 
     # ---- loud on every unmeasurable input ---------------------------------------
 
@@ -1140,7 +1206,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         # listing whose Art_Sonic MOVED still matches the fixture.
         moved = os.path.join(tree, "moved.lst")
         with open(moved, "w") as f:
-            f.write("\n".join(r.replace("2254/2F430", "2300/2F440") for r in rows) + "\n")
+            f.write("\n".join(r.replace("2265/72A60", "2300/72A70") for r in rows) + "\n")
         self.assertEqual(len(bganim_room.fixture_freshness(moved, self.FIXTURE)), 5)
 
 
