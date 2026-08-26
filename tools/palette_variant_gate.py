@@ -46,6 +46,13 @@ after the frame and a fill that did not survive is reported as SETUP (exit 2), n
 verdict, so "something else recomposed the palette" can never be mistaken for "the derive is
 wrong".
 
+INSTRUMENT: the Rust core (`oracle-aether`) via `tools/aether_instance.py`, which asserts it
+really is the Rust core before this gate reads a byte. Converted from the legacy `oracle_gui`
+harness 2026-08-26. Two wire differences bit this gate and are why `read_bytes`/`write_bytes`
+exist: a `bytes` param must carry a `0x`/`$` prefix (refused with -32602 otherwise, loudly),
+and a read REPLY carries one too — which the 64-entry positional slice below would have
+swallowed silently.
+
 Usage:
     python3 tools/palette_variant_gate.py [--rom s4.debug.bin] [--lst s4.debug.lst]
 Exit: 0 the asm agrees with the mirror · 1 it does not · 2 setup/boot error
@@ -57,10 +64,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, "/home/volence/sonic_hacks/empyrean/clients/python")
-sys.path.insert(0, "/home/volence/sonic_hacks/oracle-old/linux-port/harness")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from aether import BusClient                                   # noqa: E402
-from launcher import headless_emulator                         # noqa: E402
+from aether_instance import aether_emulator, read_bytes, write_bytes  # noqa: E402
 from raster_cost_probe import parse_lst                        # noqa: E402
 
 AEON = Path(__file__).resolve().parent.parent
@@ -225,7 +231,9 @@ async def derive(b: BusClient, sym: dict, v: dict, colours: list[int],
     src = sym["Palette_Buffer"] + 32          # CRAM line 1; line 0 is engine-owned, see below
     buf_img = buffer_image(colours)
 
-    await b.call("emulator/reset", {"wait": True, "run": False})
+    # No params: the Rust core refuses undeclared keys (-32602) and resets to a STOPPED
+    # machine, which is what the legacy `{wait, run: False}` pair was asking for.
+    await b.call("emulator/reset", {})
     await b.call("emulator/run_frames", {"frames": settle})
     # Freeze the camera FIRST: a section crossing reloads the base palette and rebinds the
     # scene's own variant, and that would read as a derive failure rather than a lost fixture.
@@ -237,16 +245,15 @@ async def derive(b: BusClient, sym: dict, v: dict, colours: list[int],
     # source palette between the poke and the derive.
     for name in ("Pal_Base_Dirty", "Pal_Fade_Frames", "Pal_Op"):
         await b.call("emulator/write_memory", {"addr": hex(sym[name]), "value": 0, "width": 1})
-    await b.call("emulator/write_memory", {"addr": hex(scratch), "bytes": descriptor_bytes(v)})
+    await write_bytes(b, scratch, descriptor_bytes(v))
     await b.call("emulator/write_memory",
                  {"addr": hex(sym["Pal_Variant_Ptr"]), "value": scratch, "width": 4})
     await b.call("emulator/write_memory",
                  {"addr": hex(sym["Pal_Variant_Ptr"] + 4), "value": 0, "width": 4})
-    await b.call("emulator/write_memory", {"addr": hex(src), "bytes": buf_img})
+    await write_bytes(b, src, buf_img)
     # Sentinel the whole staging slot: an entry the derive never writes must be visibly
     # unwritten, which is what the v_lines coverage assertion reads.
-    await b.call("emulator/write_memory",
-                 {"addr": hex(stage), "bytes": f"{SENTINEL:04X}" * 64})
+    await write_bytes(b, stage, f"{SENTINEL:04X}" * 64)
     # PAL_ACT_VARIANT | PAL_ACT_VARIANT_STALE and nothing else.
     act = emp_const("engine/effects/palette.emp", "PAL_ACT_VARIANT") | \
         emp_const("engine/effects/palette.emp", "PAL_ACT_VARIANT_STALE")
@@ -255,14 +262,15 @@ async def derive(b: BusClient, sym: dict, v: dict, colours: list[int],
 
     await b.call("emulator/run_frames", {"frames": 2})
 
-    back = (await b.call("emulator/read_memory",
-                         {"addr": hex(src), "len": 96}))["bytes"].upper()
+    # read_bytes, never the raw reply: the Rust core prefixes its hex with `0x` and both
+    # this comparison and the positional slice below would be quietly wrong on the raw string.
+    back = (await read_bytes(b, src, 96)).upper()
     if back != buf_img:
         raise SetupError(
             f"{label}: the source palette did not survive the frame — something else wrote "
             f"Palette_Buffer lines 1-3, so the staging image is not a function of the poked "
             f"input.\n        wrote {buf_img}\n        read  {back}")
-    raw = (await b.call("emulator/read_memory", {"addr": hex(stage), "len": 128}))["bytes"]
+    raw = await read_bytes(b, stage, 128)
     return [int(raw[i * 4:i * 4 + 4], 16) for i in range(64)]
 
 
@@ -331,9 +339,10 @@ def main() -> int:
     ap.add_argument("--lst", default=str(AEON / "s4.debug.lst"))
     ap.add_argument("--settle", type=int, default=180)
     args = ap.parse_args()
-    # Absolute: headless_emulator launches oracle with `env -C <oracle repo>`, so a RELATIVE
-    # ROM path silently fails to load while every poke and read still answers ok against
-    # blank RAM.
+    # Absolute, still: `aether_emulator` resolves the path itself, but the server is handed
+    # the .lst too and REFUSES a mismatched pair, so both spellings must name one build.
+    # (Under the legacy harness a RELATIVE ROM silently failed to load while every poke and
+    # read still answered ok against blank RAM.)
     rom, lst = str(Path(args.rom).resolve()), str(Path(args.lst).resolve())
     if not Path(rom).is_file():
         print(f"palette_variant_gate: ROM not found: {rom} — build it first", file=sys.stderr)
@@ -373,7 +382,7 @@ def main() -> int:
     print()
 
     try:
-        with headless_emulator(rom) as sock:
+        with aether_emulator(rom, symbols=lst) as sock:
             fails = asyncio.run(run(sock, sym, lst, args.settle, vectors))
     except SetupError as e:
         print(f"\npalette_variant_gate: SETUP — {e}", file=sys.stderr)
