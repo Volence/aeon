@@ -58,17 +58,17 @@
 
 fill = 0x00
 
-# WHY `Map_Tails` IS NOT NEXT TO `HeightMaps` (character-dispatch C1 task 5): it
-# belongs there — the Tails mappings/DPLC/art are the exact peer of the Sonic trio
-# that ends the `collision_data` section — and it does not FIT there. The data
-# region runs out at the `dac_banks` org anchor ($48000, a Z80 SetBank latch), and
-# `Art_Sonic` already ends at $4277E: 22,658 bytes of headroom against the 132 KB
-# the Tails body + appendage need. So the bulk sprite data is exiled to the ROM
-# tail, after the sound banks, where growth is unbounded; the 234-byte
-# `Ani_Tails` script table DOES fit and stays with `Ani_Sonic` where it belongs.
-# This exile is a ROM-ADDRESS workaround, not a design one — module ownership and
-# file layout are unchanged — and it is exactly what the parked "banks late, data
-# unbounded" ROM re-layout parcel exists to retire. Undo it when that lands.
+# `Map_Tails` / `Map_Knuckles` sit WITH the character data again (ROM re-layout,
+# 2026-08-26, owner ruling d-28-answered option 2). From C1 task 5 (Tails) and C4 task
+# 9 (Knuckles) until this parcel both were EXILED to the ROM tail, past the sound
+# banks, because the data region ran out at the `dac_banks` org anchor ($48000) and
+# 132 KB + 140 KB of sprite data did not fit before it. The banks now sit AFTER the
+# data region (see the BANK PLACEMENT RULE below), so the exile is retired: the two
+# character-data sections precede `HeightMaps` (collision_data, which ends with the
+# Sonic trio `Map_Sonic`/`DPLC_Sonic`/`Art_Sonic`). They go BEFORE collision_data,
+# not after it, on purpose: `Art_Sonic` is the last packed blob before the banks and
+# its on-disk embed length is what tools/bganim_room.py adds to its listing LMA to
+# derive the packed-data end — a section with several embeds has no such instrument.
 #
 # ── Order (byte-emitting section head-labels / module-ids, canonical union order).
 #    Root array — MUST precede the `[[table]]` sections below (TOML scoping). Each
@@ -128,10 +128,16 @@ order = [
   "OJZ_TestRaster", "ObjDef_Static",
   "OJZ_Sec0_TypeTable", "OJZ_Act_Pool_Page0", "OJZ_Act1_Descriptor", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap", "OJZ_Palette",
   "BgAnim_Table", "Map_TestObj", "Map_DustSpindash",
-  "Ani_Sonic", "Ani_Tails", "Ani_Knuckles", "Ani_Particle", "Ani_DustSpindash", "HeightMaps", "Dac_Temp_Blip", "SoundTablesZ80_Head",
-  "Song_MovingTrucks", "Sfx_33",
+  "Ani_Sonic", "Ani_Tails", "Ani_Knuckles", "Ani_Particle", "Ani_DustSpindash",
+  # Character data (un-exiled 2026-08-26, see above), then collision_data — the LAST
+  # data section: its tail `Art_Sonic` is the packed-data end the bank rule measures.
   "Map_Tails",
   "Map_Knuckles",
+  "HeightMaps",
+  # ── The Z80 banks: AFTER the data region, at the rule-derived bank-aligned LMAs ──
+  "Dac_Temp_Blip", "SoundTablesZ80_Head",
+  "Song_MovingTrucks", "Sfx_33",
+  # ── The tail: the two test game states, the replay fixture, the fault island ──
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init",
   "__align$games.sonic4.replay_fixture$0", "Replay_OJZ_Fixture",
   "ReleaseFault", "BusError", "EndOfRom",
@@ -150,9 +156,18 @@ lma_base = 0x10000
 size = 0x10000
 kind = "object_bank"
 
+# The $8000-window phase bank the engine tables + Moving Trucks + the SFX block
+# share (LMA = the `sound_bank` anchor below, VMA $8000). DESCRIPTIVE ONLY, measured
+# 2026-08-26: no sigil consumer reads a `z80_bank` region (`RegionKind::Z80Bank` is
+# constructed by the map loader and matched by nothing; `region_for` considers `rom`
+# regions only) — the phase bank's placement authority is the `sound_bank` anchor.
+# Was `z80_moving_trucks_bank @ 0x60000`, a leftover from when the MT bank had its own
+# $8000 window at $60000 (retired with the $58000 fold, see sigil golden/PROVENANCE.md);
+# by 2026-08-26 that LMA sat in the middle of `Map_Tails`, which nothing noticed —
+# the proof it is inert. Renamed + moved with the anchor so the map stops lying.
 [[region]]
-name = "z80_moving_trucks_bank"
-lma_base = 0x60000
+name = "z80_sound_bank"
+lma_base = 0xA0000
 size = 0x8000
 kind = "z80_bank"
 vma_base = 0x8000
@@ -167,20 +182,60 @@ at = 0x0
 name = "object_bank"     # ObjCodeBase — the 64KB object code bank
 at = 0x10000
 
-# The DAC sample banks — fixed LMAs (Z80 SetBank latches). Native since K4 inc-5
-# Stage 2: games/sonic4/data/sound/dac_banks.emp embeds dac_blip_bank.bin @ $48000
-# + dac_shared_bank.bin @ $50000 as ONE section (head Dac_Temp_Blip @ $48000, the
-# shared bank reached via an intra-section `align $8000`), so only the section head
-# is an island — this single anchor covers it (the shared bank is mid-section, not a
-# separate island). Matched by ADDRESS ($48000), so the section rename is transparent.
+# ── BANK PLACEMENT RULE (ROM re-layout, owner ruling d-28-answered option 2,
+#    2026-08-26 — restores the 12,288 B BG-animation guarantee in every shape and makes
+#    it independent of Sonic's art size) ──
+#
+# The Z80 banks sit AFTER the data region instead of capping it. Their LMAs are
+# DERIVED from the packed-data end, not hardware-fixed; what IS fixed is their
+# alignment (0x8000: one Z80 `SetBank` window) and their order (blip bank, shared
+# drum bank, then the $8000-window head bank), and the bank ids must stay derivable
+# (`bankid()` = (lma & $7F8000) >> 15, folded at link — nothing hand-typed).
+#
+#   packed_data_end(shape) = LMA(Art_Sonic) + len(art/optimized/characters/sonic.bin)
+#                            read from that shape's sigil listing (`Art_Sonic` is the
+#                            LAST packed blob before the banks by `order`, above)
+#   DATA_GROWTH_RESERVE    = 0x4000  (16,384 B: two 8 KB BG-animation bands per act —
+#                            the d-28 acceptance; > the 12,288 B ruled ceiling)
+#   dac_banks  = align_up(max over the sound-on shapes of packed_data_end
+#                         + DATA_GROWTH_RESERVE, 0x8000)
+#   sound_bank = dac_banks + 2 × 0x8000   (blip bank @ dac_banks, shared bank @
+#                                          dac_banks + 0x8000 via the intra-section
+#                                          `align $8000`, head bank next)
+#
+# Applied 2026-08-26 (this parcel, listings of the two canonical shapes at landing —
+# the report in docs/superpowers/2026-08-26-rom-relayout-report.md carries the
+# measured values): packed_data_end s4 / s4.debug both below 0x8C000, so
+# dac_banks = 0x90000 (bank $12; shared bank 0x98000 = $13), sound_bank = 0xA0000
+# (bank $14). tools/bganim_room.py --gate (build.sh, post-sigil, both canonical
+# shapes) enforces the rule: it FAILS naming the new anchor when the room under
+# `dac_banks` drops below DATA_GROWTH_RESERVE — the remedy is to move BOTH anchors
+# per the rule and refreeze sigil's frozen tables (a paired aeon+sigil landing; the
+# frozen tables are the placement authority, these anchors validate them).
+#
+# WHAT BOUNDS HOW FAR THE BANKS CAN MOVE (from source, 2026-08-26):
+#   * engine/sound/z80_sound_driver.emp `SndDrv_SetBank`: the bank id rides in the
+#     8-bit `a` register and the 9th latch bit is written as a literal 0 ("all our
+#     banks are < $100") -> bank id <= $FF -> bank LMA < 0x800000.
+#   * `bankid()` masks $7F8000 (sigil-frontend-emp eval/builtins.rs) -> the same $FF.
+#   * The cartridge address space ends at 0x3FFFFF -> bank id <= $7F, LMA <= 0x3F8000.
+#   So the rule can move the banks anywhere up to 0x3F8000 - 0x10000; today's ROM
+#   ends well under 0x100000.
+#
+# The DAC sample banks. Native since K4 inc-5 Stage 2: games/sonic4/data/sound/
+# dac_banks.emp embeds dac_blip_bank.bin @ dac_banks + dac_shared_bank.bin @
+# dac_banks + 0x8000 as ONE section (head Dac_Temp_Blip, the shared bank reached
+# via an intra-section `align $8000`), so only the section head is an island — this
+# single anchor covers it (the shared bank is mid-section, not a separate island).
+# Matched by ADDRESS, so the section rename is transparent.
 [[anchor]]
-name = "dac_banks"       # dac_banks.emp section head (Dac_Temp_Blip) — bank $48000
-at = 0x48000
+name = "dac_banks"       # dac_banks.emp section head (Dac_Temp_Blip) — bank $12
+at = 0x90000
 when = "sound_on"
 
 [[anchor]]
-name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000)
-at = 0x58000
+name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000), bank $14
+at = 0xA0000
 vma = 0x8000
 when = "sound_on"
 
