@@ -41,9 +41,22 @@ const = "VRAM_DUST_SPINDASH"
 # the charge dust's DPLC target — deliberately NOT shared with the puff block
 # (S3K shares one window and has a visible lingering-puff artifact; dust spec §4.1)
 
-[[free]]
+[[region]]
+name = "ring_sparkle"
+owner = "games.sonic4.ring_sparkle"
+kind = "window"
 base = 924
-tiles = 36
+tiles = 4
+lifetime = "act"
+const = "VRAM_RING_SPARKLE"
+# the ring-collect sparkle: ONE 2x2 piece (donor tiles 10-13) drawn in four flip
+# orientations by its mappings, so four tiles serve all four frames. RESIDENT
+# for the act, like dust_puff: concurrent sparkles sit on different frames, so
+# the block is never streamed (docs/superpowers/notes/2026-08-26-ring-sparkle-design.md)
+
+[[free]]
+base = 928
+tiles = 32
 # the page-quantised carve's remainder — future sprite art
 
 [[region]]

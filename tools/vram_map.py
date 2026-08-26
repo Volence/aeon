@@ -9,6 +9,7 @@ REGIONS = {
     'fg_art_pool': {'base': 0, 'tiles': 896, 'lifetime': 'act'},
     'dust_puff': {'base': 896, 'tiles': 16, 'lifetime': 'act'},
     'dust_spindash': {'base': 912, 'tiles': 12, 'lifetime': 'act'},
+    'ring_sparkle': {'base': 924, 'tiles': 4, 'lifetime': 'act'},
     'character_window': {'base': 960, 'tiles': 32, 'lifetime': 'act'},
     'test_obj': {'base': 992, 'tiles': 8, 'lifetime': 'mode'},
     'ring_placeholder': {'base': 1000, 'tiles': 16, 'lifetime': 'act'},
@@ -28,6 +29,7 @@ BG_BAND_RESERVE = 128
 BG_STATIC_TILE_BUDGET = 320
 VRAM_DUST_PUFF = 896
 VRAM_DUST_SPINDASH = 912
+VRAM_RING_SPARKLE = 924
 VRAM_TEST_SONIC = 960
 VRAM_TEST_OBJ = 992
 VRAM_TEST_MARKER = 1016
