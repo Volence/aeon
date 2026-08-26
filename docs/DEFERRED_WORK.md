@@ -10527,3 +10527,46 @@ witness that the 68k asked, though never that the Z80 rendered.
 
 **Disposition:** owner deferred both explicitly ("we'll debug that another time"). Unscheduled.
 Size S to diagnose (both discriminators above are one playback each), unknown to fix.
+
+## The deb2 appendix moves `full_size`, the header and the checksum, and NO layout-side gate can see it (found 2026-08-26 by the sigil lane; booked here because the gates are ours)
+
+**Provenance.** Fell out of the sigil lane's investigation into a 2-byte growth in `config_b`
+after the ROM re-layout (their master `c0fda952`, verified by them firsthand in the golden rather
+than taken from an agent report). Their conclusion on the bytes themselves is **not** the durable
+part and is recorded only so nobody re-opens it: the growth is **one 64 KB chunk-block header in
+the deb2 symbol appendix**, at ROM offset `0x93d66`, value `00 0a` — the re-layout moved
+`DPLC_Sonic` (`0x71870`) and `Art_Sonic` (`0x721b0`) into a `$70000-$7FFFF` window that previously
+carried no symbol at all, so non-empty chunks went 7 → 8 at two bytes of header each. The
+assembled image did not move: `anchor_end` is `0x8b6f0` in both chain 167 and 168.
+
+**The finding that is ours.** `convsym` appends the deb2 symbol table **past `EndOfRom`**, and that
+appendix contributes to `full_size`, to the `$1A4` ROM-end header field, and therefore to the
+folded checksum. **Every gate this repo runs after the sigil build reads the `.lst` or the image** —
+`s4budget`, `effects_seam_gate`, `bganim_room` — and the appendix is **past the end of what they
+look at**. So a change in ROM size, header field and checksum can be produced by something no
+layout gate is capable of observing, and the only guard on it anywhere is a coarse
+`min_appendix..=0x10000` band on the sigil side. The `lean` profile carries no appendix at all.
+
+**Why it is worth a row rather than a shrug: it is this repo's oldest failure shape with the
+subject moved.** We have booked, repeatedly, that a matching CRC cannot witness that a build ran.
+This is the converse — a *changed* CRC with every explaining instrument pointed at the wrong region
+of the file. That is exactly why two bytes read as alarming for a full evening across two lanes:
+the natural reading was a placement pad, all the placement instruments said no pad had moved, and
+both statements were true.
+
+**Not a claimed defect.** Whether the coarse band is the right bar is a question for whoever owns
+the appendix contract; the sigil lane explicitly declined to claim it is wrong, and this row
+inherits that. What is established is that it is the **sole** guard.
+
+**Open item, small:** decide whether any aeon-side gate should assert on appendix size or on the
+`$1A4` field directly, so an appendix-driven size change is *explained* at the moment it appears
+rather than investigated later. Derive any expectation from the symbol count and the chunk model —
+the sigil lane's size model predicts all twelve shipped appendices byte-exactly — never from a
+measured pin, or the gate becomes a second thing that has to be re-frozen for the same reason.
+
+**Settled in passing, recorded because two lanes disagreed with themselves about it:** a fresh aeon
+**reference** worktree needs **no** `sigil`/`skdisasm` symlinks. Measured — `.aeon-landing` was
+rebuilt from a clean checkout at `c3f5cbe0` with no links and produced all four shapes reproducing
+the landing CRCs exactly (`f81c6811` / `090c6f35` / `8bd3d11b` / `ec71a5a4`). Symlinks belong in an
+agent's development worktree's PARENT, never inside a reference checkout, where seeding them has
+already killed `section_row_fixture` once.
