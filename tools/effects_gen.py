@@ -35,8 +35,9 @@ gets emitted"), a RANGE is value (`scene()`'s `v_factor` bound — "255 is an ab
 shift"). The type check duplicates nothing, because sigil cannot see the difference: a
 string in a numeric slot lands in generated source as a bare SYMBOL, and if it resolves
 — every `parallax_dsl` FACTOR_* does — it assembles green at the wrong number. A
-SPELLING translation is shape too (PRECISION_NAMES, `_render_bool_int`): the writer's
-vocabulary is not the `.emp` vocabulary, and mapping between them is this tool's job.
+SPELLING translation is shape too (PRECISION_NAMES, `_render_bool_int`, `symbol_token`):
+the writer's vocabulary is not the `.emp` vocabulary, and mapping between them is this
+tool's job — and a value that is legal as a VALUE can still be illegal as a SYMBOL.
 
 Error handling (contract §3, normative): aeon consumers **fail loud**. Bare `json.load`
 plus direct subscripting, exactly the `inject_editor_bg.py:58-61` reference posture — a
@@ -376,6 +377,33 @@ def _render_bool_int(path: str, value, where: str) -> str:
     return _render_int(path, value, where)
 
 
+def symbol_token(value: int) -> str:
+    """An INTEGER that becomes a component of an `.emp` SYMBOL, not of a value.
+
+    THE THIRD INSTANCE OF THE CLASS `_render_bool_int` and `PRECISION_NAMES` are the
+    first two of: a legal JSON value rendered into an illegal `.emp` token. A table
+    generator's parameters name its dedup key AND its emitted label
+    (`EditorDeform_sine_8_32`), and `str(-8)` is `-8` — a `-` is not legal in a symbol,
+    so a scene the author spelled exactly right died as a sigil parse error pointing at
+    generated code. The engine accepts negatives here (measured 2026-08-25: no
+    TABLE_GENERATOR carries a sign `ensure`; an inverted sine or an opposite tilt is a
+    meaningful table), so this is a LIVE emission path and the token must EXIST, not
+    be refused.
+
+    Spelling: a negative renders as `m<abs>` (`-8` -> `m8`); a non-negative renders as
+    its digits, byte-for-byte what it was before this helper, so every existing label is
+    unchanged. `m` cannot collide with a non-negative rendering because those are digits
+    only, and it is injective over sign because `-0` IS `0`. The joiner is `_`, which is
+    why `_` is not the marker. The VALUE handed to the constructor is never this token —
+    the call site still spells the true signed literal, so an engine guard fires with the
+    engine's message.
+
+    Labels are the GENERATOR's own domain. This is not a value rule, so it does not
+    add a second owner to any constructor bound (the da43a036 ruling).
+    """
+    return f"m{-value}" if value < 0 else str(value)
+
+
 def is_absent(value) -> bool:
     """True for the schema's `"none"` and for JSON null. See ATTACH_NONE."""
     return value in ATTACH_NONE
@@ -434,12 +462,25 @@ class TableRegistry:
     """
 
     def __init__(self):
-        self._by_key = {}   # canonical key -> label name
-        self._decls = []    # (label, initializer) in first-seen order
+        self._by_key = {}    # canonical key -> label name
+        self._by_label = {}  # label name -> canonical key (the injectivity check)
+        self._decls = []     # (label, initializer) in first-seen order
 
-    def intern(self, key: str, label: str, initializer: str) -> str:
+    def intern(self, key: str, label: str, initializer: str, path: str = "?") -> str:
+        """Key and label must agree on identity. Two DIFFERENT keys folding to ONE
+        label would emit two declarations under one symbol — a duplicate-symbol error
+        in generated code, for two tables the author named apart (the `bin` fold
+        `[^a-z0-9]+ -> _` is lossy: `a-b.bin` and `a_b.bin`). Refused here, at the
+        one seam every table passes, naming both."""
         if key not in self._by_key:
+            other = self._by_label.get(label)
+            if other is not None and other != key:
+                _refuse(path, f"tables {other!r} and {key!r} would both emit under "
+                              f"one label `{label}` — the label fold is not "
+                              f"injective over these two spellings. Rename one so "
+                              f"they fold apart.")
             self._by_key[key] = label
+            self._by_label[label] = key
             self._decls.append((label, initializer))
         return self._by_key[key]
 
@@ -485,7 +526,7 @@ def render_table_ref(path: str, ref, where: str, tables: TableRegistry) -> str:
                           f"per line).")
         label = "EditorDeform_bin_" + re.sub(r"[^a-z0-9]+", "_", rel.lower()).strip("_")
         embed_path = "/".join(TABLE_BIN_ROOT) + "/" + rel
-        return tables.intern(f"bin:{rel}", label, f'embed("{embed_path}")')
+        return tables.intern(f"bin:{rel}", label, f'embed("{embed_path}")', path)
 
     if "generator" not in ref:
         _refuse(path, f"{where}: tableRef needs `generator` or `bin`; got "
@@ -497,13 +538,15 @@ def render_table_ref(path: str, ref, where: str, tables: TableRegistry) -> str:
     fn, params = TABLE_GENERATORS[gen]
     values = _fields(path, {k: v for k, v in ref.items() if k != "generator"},
                      params, f"{where}.{gen}")
-    values = [_render_int(path, v, f"{where}.{gen}.{p}")
-              for p, v in zip(params, values)]
-    args = ", ".join(f"{p}: {v}" for p, v in zip(params, values))
-    key = f"{gen}:" + ",".join(str(v) for v in values)
-    label = "EditorDeform_" + gen + ("_" + "_".join(str(v) for v in values)
-                                     if values else "")
-    return tables.intern(key, label, f"{fn}({args})")
+    # The CALL carries the true signed literal (shape-checked, value left to the
+    # engine); the key and the label carry the symbol-safe token of the same int.
+    rendered = [_render_int(path, v, f"{where}.{gen}.{p}")
+                for p, v in zip(params, values)]
+    tokens = [symbol_token(v) for v in values]
+    args = ", ".join(f"{p}: {v}" for p, v in zip(params, rendered))
+    key = f"{gen}:" + ",".join(tokens)
+    label = "EditorDeform_" + gen + ("_" + "_".join(tokens) if tokens else "")
+    return tables.intern(key, label, f"{fn}({args})", path)
 
 
 def render_table_attachment(path: str, value, key: str, arm: str, where: str,
@@ -818,6 +861,15 @@ class ActNames:
     """
 
     def __init__(self, zone_id: str, act_id: str):
+        # The same JSON->symbol seam as scene ids, for the one writer-owned pair of
+        # ids the scene regex did not already cover (`ojz-1` would land in a label and
+        # a module name; `1ojz` in a leading digit; a capital in a case-folded twin).
+        for what, value in (("zone", zone_id), ("act", act_id)):
+            if not isinstance(value, str) or not SCENE_ID_RE.match(value):
+                _refuse(PROJECT_JSON, f"{what} id {value!r} is not symbol-safe "
+                                      f"({SCENE_ID_RE.pattern}) — project ids become "
+                                      f"`.emp` symbol components (EditorScenes_*, the "
+                                      f"generated module name).")
         self.zone_id, self.act_id = zone_id, act_id
         stem = f"{zone_id}_{act_id}"                      # ojz_act1
         cap = f"{zone_id.upper()}_{act_id.capitalize()}"  # OJZ_Act1
