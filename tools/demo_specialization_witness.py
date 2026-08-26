@@ -181,11 +181,40 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #   (Parallax_Update 258 -> 246 and BuildStaticDMA 166 -> 142 moved for the same reasons —
 #    the reg $0B arm and the 24-byte Static_Hscroll_Cell entry build — but neither hosts a
 #    gated span, so neither is pinned here; they are recorded in the parcel's notes.)
+#
+# RE-DERIVATION LOG — 2026-08-26, the showcase parcel (owner ruling d-15 `depth-curve`,
+# parcel/showcase-effects-r2). The pin FAILED and was right to. ONE row moved:
+#
+#   Parallax_Step4_Fill      188 -> 192  (+4)  `.copy_band` 38 -> 42 (demo.debug.lst:
+#                                            $58F0..$5916 on master vs $58F0..$591A here;
+#                                            every later local label in the proc is +4
+#                                            and nothing else in it moved). The cause is
+#                                            the RECORD STRIDE, not a capability span:
+#                                            `BAND_CURVE_N` is a pinned ENGINE literal
+#                                            (parallax.emp, 0 -> 1 when sonic4 raised
+#                                            CAP_FACTOR_CURVE), so `sizeof(band_record)`
+#                                            went 10 -> 20 in EVERY game, demo included —
+#                                            its own banner says so. `copy_band_entry_fwd`
+#                                            is generated from that size:
+#                                              10 B: 2 x `move.l (a1)+,(a4)+` + 1 x
+#                                                    `move.w (a1)+,(a4)+`   = 3 x 2 = 6 B
+#                                              20 B: 5 x `move.l (a1)+,(a4)+` = 5 x 2 = 10 B
+#                                            = +4. The neighbouring `mul_const.w d3,
+#                                            #sizeof(band_record)` (x10 = <<3 + <<1; x20 =
+#                                            <<4 + <<2) and the `-sizeof(band_record)(a4)`
+#                                            displacement keep their encodings, so the
+#                                            copy is the whole delta. demo's CAP mask is
+#                                            still 0 and it still carries NO curve span —
+#                                            the span half of this witness stays green;
+#                                            this is the "stride ripple" the P3 Task 16
+#                                            log predicted (+16 there, on 20 B records
+#                                            through the anchored overlay; +4 here, the
+#                                            flat copy only).
 DEMO_SPECIALISED_PROCS = {
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 690) — the flat filler
+    "Parallax_Fill_PerLine":    100,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE (sonic4 792 with the curve raised) — the flat filler
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
-    "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 502)
+    "Parallax_Step4_Fill":      192,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 662; 20 B record stride)
     "Parallax_Step5_Vscroll":    62,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 144)
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Vscroll_Write":             26,   # CAP_PER_COL_VSRAM          (sonic4 118)
