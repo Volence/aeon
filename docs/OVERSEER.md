@@ -488,6 +488,31 @@ deferring to "something else owns this", confirm the something else exists.
   require the sigil lane to say "rebuilt" explicitly rather than inferring it from their suite.
   Re-derive the staleness at the moment of freezing, never from an earlier check: this instance
   went from harmless to load-bearing inside one merge.
+- **An instrument that reports an ABSENCE can manufacture that absence, and the check is
+  whether the instrument could have produced the empty result** (added 2026-08-26; contributed
+  by the sigil lane against their own near miss, and **framed at their insistence as the
+  absence class rather than as a fact about one tool** — that framing correction is the
+  valuable half, see below). Verifying that their rebuilt release binary carried a string
+  literal existing only in the just-merged parcel, that lane ran `strings` and got **absent**.
+  The literal is there. Its format string opens with an em dash; `strings` emits only runs of
+  printable ASCII, so it split the literal at the first non-ASCII byte and reported nothing.
+  `grep -a` on the binary answers the question; `strings` cannot.
+  **Why it is booked here and not as a tooling footnote: the false alarm was one command from
+  being SENT.** This lane had just told them not to refreeze against a stale binary, so an
+  "it is still stale" message would have been received as confirmation of a hazard both lanes
+  were already primed for, and would have stalled a landing on a fact that was not true. The
+  absence surface (shared-protocol bar 16d) usually costs the lane that runs the command; here
+  it was about to cost the lane that did not.
+  **The framing the finder insisted on, and it is the durable part:** the transferable lesson
+  is NOT "`strings` is unreliable". It is that **an absence was read as a finding without
+  asking whether the instrument could have produced it**. Booked as a tool fact, the next
+  reader reaches for `grep -a` and repeats the class with a different tool on a different day.
+  Same family as `ls` aliased to `eza` failing and being read as an empty directory, and as
+  `2>/dev/null` deleting the only correcting signal.
+  **Operational form:** before treating an empty result as evidence, name what the instrument
+  would print if it had FAILED, and confirm that is not what you are looking at — a positive
+  control (ask the same question a second way, on something you know is present) is cheaper
+  than the retraction.
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.
