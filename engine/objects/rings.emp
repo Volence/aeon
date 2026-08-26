@@ -328,6 +328,13 @@ pub proc RingCollision () clobbers(d0-d7/a0-a3) {
         jbsr    Sound_PlayRing          // L/R-alternating ring SFX ($33/$34)
         }
 
+        // The game's collect visual (Game.ring_collected — sonic4 spawns the
+        // sparkle effect on the ring's spot). a3 = the entry, still valid here:
+        // RingBuffer_Remove below overwrites it. Zero bytes when unbound (the
+        // demo); its clobber bound (d0-d2/a1) leaves a3/d6/d7 and the cached
+        // player coords untouched.
+        invoke  Game.ring_collected
+
         // Remove from buffer (swap-with-last)
         move.w  d6, d0
         jbsr    RingBuffer_Remove

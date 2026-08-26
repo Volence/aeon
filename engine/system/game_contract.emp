@@ -62,4 +62,18 @@ pub interface Game {
     // drain. ⊤ (d0-d7/a0-a6) — it runs beside the GameState dispatch's own ⊤
     // bound; sonic4's Debug_MusicToggle (clobbers d0-d4/a0-a1) sits inside it.
     hook debug_tick () clobbers(d0-d7/a0-a6) = empty
+
+    // ring_collected: RingCollision (engine/objects/rings.emp) invokes this once per
+    // collected ring, AFTER the collect bookkeeping (collected bit, loaded bit,
+    // Ring_Counter, SFX) and BEFORE RingBuffer_Remove, with a3 = the ring's buffer
+    // entry (X.w at +0, Y.w at +2 — the engine-space centre — then section_id.b,
+    // list_index.b; RING_BUFFER_ENTRY_SIZE bytes). The entry is still valid at the
+    // call. A game binds its collect visual here (sonic4: RingSparkle_Spawn); the demo
+    // leaves it `= empty`. Handing the POINTER rather than loading X/Y into d0/d1 on
+    // the engine side keeps the unbound case at exactly zero bytes (the demo ROM is
+    // byte-identical with or without the hook). The bound is the spawner's exact need
+    // (AllocEffect's d0/a1 + two coords) and deliberately excludes every register
+    // RingCollision holds live across the collect path (a2/a3 cursors, d4-d7 player
+    // coords and loop counters) — a3 in particular is an INPUT the hook must preserve.
+    hook ring_collected (a3: *u8) clobbers(d0-d2/a1) = empty
 }
