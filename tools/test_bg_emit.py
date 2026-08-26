@@ -930,6 +930,54 @@ class TestBgAnimPlacerArmRetired(unittest.TestCase):
                  "ceiling": inject_editor_bg.BGANIM_SECTION_CEILING, "size": 49242}
         self.assertEqual(refusal_shortfalls(msg, facts), [], msg)
 
+    def test_an_8kb_class_band_is_accepted_under_the_section_ceiling(self):
+        """aurora's 8x4 band: 2 + 44 + 32x256 = 8,238 B. It was REFUSED by the
+        placer ceiling (1,026 B); under the only remaining ceiling it is accepted."""
+        size = inject_editor_bg.bganim_section_bytes(1, 32)
+        self.assertEqual(size, 8238)
+        self.assertLessEqual(size, inject_editor_bg.BGANIM_SECTION_CEILING,
+                             "the ruled ceiling no longer admits an 8 KB band — that is "
+                             "an owner ruling change, not something this test hides")
+        band = [{"cols": 8, "rows": 4, "slot_base": 0}]
+        self.assertEqual(inject_editor_bg.check_bganim_section_fits(band), size)
+
+    def test_over_the_section_ceiling_is_refused_naming_that_ceiling(self):
+        ceiling = inject_editor_bg.BGANIM_SECTION_CEILING
+        fits = ((ceiling - inject_editor_bg.BGANIM_COUNT_BYTES
+                 - inject_editor_bg.BGANIM_RECORD_BYTES)
+                // inject_editor_bg.BGANIM_BYTES_PER_SLOT)
+        band = [{"cols": fits + 1, "rows": 1, "slot_base": 0}]
+        with self.assertRaises(SystemExit) as cm:
+            inject_editor_bg.check_bganim_section_fits(band)
+        msg = str(cm.exception)
+        self.assertIn("BGANIM_SECTION_CEILING", msg, msg)
+        self.assertIn(f"the ceiling is {ceiling} B", msg, msg)
+        self.assertNotIn("placer", msg.lower(), msg)
+
+    def test_no_placer_string_survives_in_either_tools_code(self):
+        """Both tools, AST-level (docstrings excluded, comments are not in the AST):
+        no string constant and no defined name says `placer`."""
+        import ast
+        for rel in ("bganim_room.py", "inject_editor_bg.py"):
+            src = open(os.path.join(self.AEON, "tools", rel), encoding="utf-8").read()
+            tree = ast.parse(src)
+            doc_ids = set()
+            for node in ast.walk(tree):
+                body = getattr(node, "body", None)
+                if (isinstance(body, list) and body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    doc_ids.add(id(body[0].value))
+            hits = [n.value for n in ast.walk(tree)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                    and id(n) not in doc_ids and "placer" in n.value.lower()]
+            names = sorted({n.id for n in ast.walk(tree) if isinstance(n, ast.Name)
+                            and "placer" in n.id.lower()}
+                           | {n.name for n in ast.walk(tree)
+                              if isinstance(n, (ast.FunctionDef, ast.ClassDef))
+                              and "placer" in n.name.lower()})
+            self.assertEqual((hits, names), ([], []), f"tools/{rel}: {hits} {names}")
+
     # ---- (b) the ROM room still comes from the listing -------------------------
 
     def test_rom_room_matches_a_hand_computation_from_the_instruments(self):
