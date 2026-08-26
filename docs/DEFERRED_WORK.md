@@ -9469,6 +9469,31 @@ Design note: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`. Branch 
 **Why not now:** cosmetic, rarely visible, and moving `DrawRings` into a band is a `Render_Sprites` change with the sprite-cap shortcut caveat at `sprites.emp:517-521` (the shortcut is only equivalent because DrawRings emits nothing at the cap).
 **When ready:** with the next `Render_Sprites` parcel; decide the ring band against the object bands then.
 
+### REPLAY FIXTURE `Replay_OJZ_Fixture` DESYNCS SINCE THE INSTA-SHIELD — re-stamp is an OWNER call, measured 2026-08-26
+
+**Measured, not predicted** (the parcel predicted tick 1248; the truth is 1282). Driven on the
+merged tree's `s4.debug.bin` (crc `2bc51d79`): `run_to GameState_OJZScroll_Init`, poke
+`Input_Source = 1` and `Replay_Ptr = Replay_OJZ_Fixture + REPLAY_HEADER_LEN` (`$0A1FA4` — note
+the 2026-08-10 note's literals `$FF803A`/`$FF8040` are STALE; the symbols moved, re-derive them),
+then run. Playback is genuinely driving (stream pointer advanced `$A1FA4 -> $A2054`,
+`Input_Source` still 1). `ErrorHandlerBlob` is reached at **`Logic_Tick = $502 = 1282`** with
+`d1 = $00000502` (tick), `d0 = $BC3A6AE9` (actual hash), `d2 = $BBB93779` (expected) — the
+`.desync` arm's own register contract. Screenshot at that halt shows Sonic airborne inside the
+insta-shield flash, so the divergence is the feature, not a fault.
+
+**Why this is a decision and not maintenance:** the fixture is the standing regression net for
+1,721 ticks of recorded play, and its value comes from nobody re-recording it casually. The
+insta-shield is a DELIBERATE behaviour change at an airborne jump press (`ojz_fixture` presses at
+1137/1237/1248/1459; 1237 and 1248 are 11 ticks apart, so 1248 is airborne), so a re-stamp is
+legitimate — but a re-stamp also silently absorbs any OTHER divergence in the same run, which is
+exactly what the net exists to catch. Re-recording the owner's regression net is therefore his
+call, filed rather than done. `ojz_slide_fixture` has ZERO A/C press edges and is unaffected —
+it remains a live net in the meantime.
+
+**When ruled:** re-record with `tools/replay_pack.py` from a run on the current DEBUG build, and
+state in the commit which checkpoints moved and that the first divergence is at the first
+airborne press. Do NOT re-stamp as part of an unrelated parcel.
+
 ### BGANIM authoring ceiling raised 9,394 -> 12,288 B — OWNER RULED 2026-08-26 (d-9), APPLIED
 
 The ceiling was derived on 2026-08-24 against a room of 11,424 B (debug shape). The roomy-BG
