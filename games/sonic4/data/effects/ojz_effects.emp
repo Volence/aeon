@@ -78,6 +78,17 @@ use games.sonic4.scene_registry.{ParallaxConfig_OJZ_Underwater}
 // for scene_dsl and is documented as such at the top of that file. (parallax_dsl IS a helper
 // member, so FACTOR_* is already ambient and needs no line here.)
 use games.sonic4.ojz_scenes.{Scene_VSplitWitness}
+// THE AURORA-AUTHORED SHOWCASE SCENE (owner decision d-15). Imported for its `vsplit`
+// attachments only — the scene's parallax half reaches the ROM through the generated
+// module's own `lower5()` binding and never through this file. A CONST import, so its
+// `scene(..)` initializer re-evaluates HERE: legal and cheap because a Scene is a pure
+// comptime value and this one attaches no deform-table Label (EMP_PITFALLS §2/§8's
+// clone-injection trap is about tables, and this scene has none).
+//
+// THE NAME IS GENERATED. `Scene_Editor_<id>` where <id> is the editor JSON's filename stem
+// (tools/effects_gen.py's render_scene), so renaming games/sonic4/data/editor/effects/
+// ojz_act1_depth.json breaks this line at link with a name, which is the failure you want.
+use games.sonic4.ojz_effects_editor_act1.{Scene_Editor_ojz_act1_depth}
 use engine.level.scene_dsl.*
 // STRICTLY REDUNDANT, KEPT AS DOCUMENTATION — and the redundancy is measured, not
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
@@ -630,6 +641,48 @@ pub data Variant_CaveDark:    pal_variant = variant(shift_r: 1, shift_g: 1, shif
 pub data Variant_Dusk:        pal_variant = variant(shift_b: 1, bias_r: 1)                  // halve B, small R bias
 
 // ===========================================================================
+// THE SHOWCASE VERTICAL SPLIT (owner decision d-15, 2026-08-26) — P3 Task 11's
+// per-layer vertical depth, ADOPTED, on the section-4 Aurora scene.
+//
+// EVERYTHING ELSE IN THIS FILE ABOVE IS A GATE FIXTURE. This is not: it is content, and it
+// is the first place in the tree where `layer(vsplit: SceneVSplit.At(..))` reaches a screen
+// rather than a comparison. The scene is `Scene_Editor_ojz_act1_depth`, authored in
+// games/sonic4/data/editor/effects/ojz_act1_depth.json and lowered by tools/effects_gen.py.
+//
+// WHY THE INSTALL IS HAND-SIDE AND NOT GENERATED, which is the one thing to know before
+// moving it. A vsplit lowers to a RASTER PROGRAM, not to a band record (see SceneVSplit's
+// banner in engine/level/scene_dsl.emp) — so unlike the scene's curves, which ride the
+// lowered `SceneCfg5` the generator already emits, the split needs a program installed on
+// the section's preset. Raster preset composition from the editor is WAVE 2 and has not
+// landed (tools/EFFECTS_CONSUMER_CONTRACT.md's own note: "Wave 2 (raster preset
+// composition) will add its own consumer rows here when its schema lands"). Until it does,
+// the generated module emits the attachment and this file fires it. When wave 2 lands, this
+// block and OJZ_Preset_Depth are what it replaces.
+//
+// THE SCENE CONST IS IMPORTED, NOT RE-AUTHORED, and that is the point: authoring the two
+// split lines a second time here would be two sources for one screen, and they would drift
+// the first time the editor moved a band. `scene_vsplit_fires()` derives both fire lines
+// from the scene's OWN layer tops (112 and 160), so the JSON stays the single authority.
+//
+// NO SECOND ENCODER. The fold calls `fx_vscroll_split`, the same preset OJZ_TestVsram's
+// equivalence proof above pins word-for-word against hand-derived wire format — so the
+// words, the blanking spin, the landing model and the axis-4b HInt total are all the raster
+// DSL's, unchanged. Nothing new is asserted here that that proof does not already cover.
+const OJZ_DEPTH_VSPLIT_PROG = scene_vsplit_fires(Scene_Editor_ojz_act1_depth)
+// The mask must be 0 for the reason every VSRAM fixture above states: a CRAM-style mask
+// derived from a VSRAM address would re-assert palette line 0 — the CHARACTER's — every
+// frame. Asserted on the LOWERED program because op_mask is reached through the fold's
+// fires here rather than through a literal op list.
+ensure(raster_program(OJZ_DEPTH_VSPLIT_PROG)[0] == 0,
+       "OJZ_DepthVSplit: pal_dirty_mask is {raster_program(OJZ_DEPTH_VSPLIT_PROG)[0]}, not 0 — a VSRAM op must dirty no palette line, and this program is two vscroll splits and nothing else")
+// TWO FIRES, DERIVED. The scene authors a split on its two lower layers, so the fold must
+// return two — one is a lost attachment, three is a mechanism that grew. This is a count
+// over the SCENE's own layers, not a transcription of the program's word length.
+ensure(OJZ_DEPTH_VSPLIT_PROG.len == 2,
+       "OJZ_DepthVSplit: scene_vsplit_fires() built {OJZ_DEPTH_VSPLIT_PROG.len} fire(s) from Scene_Editor_ojz_act1_depth, not the 2 its two lower layers author — either a `vsplit` was dropped from the editor JSON or a third layer gained one")
+pub data OJZ_DepthVSplit: [u16; raster_words(OJZ_DEPTH_VSPLIT_PROG)] = raster_program(OJZ_DEPTH_VSPLIT_PROG)
+
+// ===========================================================================
 // PARCEL C2 TASK 12 — OJZ act 1 total-binding presets.
 //
 // The nine act_descriptor.emp sections today bind sec_pal/sec_raster_table/
@@ -697,6 +750,19 @@ pub data OJZ_Preset_Sec1:  EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_
 pub data OJZ_Preset_Sec2:  EffectsPreset = preset(pal: OJZ_TestPal, raster: OJZ_TestGradient,   cycle: Pal_Cycle_None,     variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Sec3:  EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: OJZ_ShimmerCycle,  variants: [Variant_Water_Deep, 0])
 pub data OJZ_Preset_Plain: EffectsPreset = preset(pal: OJZ_Palette, raster: Raster_Program_None, cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
+// SECTION 4 IS THE SHOWCASE DEPTH SECTION (owner decision d-15, 2026-08-26). It is
+// OJZ_Preset_Plain in every other respect — same palette, same variant, no cycle — and
+// differs only by carrying the vertical-split program above. Sections 5-8 keep Plain, so
+// the split is a property of ONE section and crossing out of it removes it, which is what
+// makes the effect legible as a section-scoped scene rather than an act-wide setting.
+//
+// WHY SECTION 4 AND NOT AN EARLIER ONE: sections 0-3 each bind a gate FIXTURE on the raster
+// / patched channel (OJZ_TwoChannel, OJZ_TestRaster, OJZ_TestGradient, OJZ_ShimmerCycle),
+// and preset() makes ep_raster and ep_patched mutually exclusive — so adopting the split on
+// any of them would evict an instrument the effects gate lane measures. Section 4 is the
+// first section whose raster channel was Raster_Program_None, i.e. the first one where the
+// showcase can take the channel without taking it from something.
+pub data OJZ_Preset_Depth: EffectsPreset = preset(pal: OJZ_Palette, raster: OJZ_DepthVSplit,     cycle: Pal_Cycle_None,    variants: [Variant_Water_Deep, 0])
 
 // ===========================================================================
 // OJZ_TwoChannel — the Parcel P-a gate. TWO independently patchable boundaries in ONE

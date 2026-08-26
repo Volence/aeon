@@ -231,7 +231,19 @@ pub struct band_curve (size: 10) {
 // members, so `Game.SCANLINE_CAPS` here is `unknown name`, once per emitted config record.
 // The capability is still the authority — games/sonic4/data/effects/scene_registry.emp
 // carries the two-directional pin, where both names are visible.
-pub const BAND_CURVE_N = 0
+//
+// FLIPPED TO 1 BY THE d-15 SHOWCASE PARCEL (2026-08-26). The owner's answer to PARK-1 turns
+// per-layer vertical depth and CURVED SCROLLING on in the OJZ showcase, and the curve half
+// is a RECORD-SHAPE capability: the Aurora-authored scene `ojz_act1_depth`
+// (games/sonic4/data/editor/effects/ojz_act1_depth.json) attaches `curve: SceneCurve.To(..)`
+// to two layers, so every band record in the tree now carries the curve tail and
+// engine/ram.emp's BAND_CURVE_BYTES mirror moved to 10 in the same commit — which is exactly
+// what scene_registry.emp's CAP_FACTOR_CURVE pin says adopting one costs.
+//
+// IT IS ENGINE-WIDE, NOT PER-GAME, and that is this constant's design (see the banner
+// above): a pinned literal cannot read Game.SCANLINE_CAPS, so `demo` pays the widened
+// record too. Both images move; both are rebuilt and gated by this parcel.
+pub const BAND_CURVE_N = 1
 
 // band_record — WHAT A BAND OCCUPIES, in ROM and in the shadow view. This is the type the
 // registry emits arrays of, the type `scene_band()` builds, and the STRIDE every walker

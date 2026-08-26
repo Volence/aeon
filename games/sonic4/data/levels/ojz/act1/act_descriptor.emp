@@ -20,7 +20,7 @@ use engine.structs.{Act, Sec}
 use games.sonic4.ojz_effects.{OJZ_TestRaster, OJZ_TestPal, OJZ_TestGradient, OJZ_TestVsram, OJZ_TestRamp}
 // Parcel C2 Task 12 — total-binding presets. One per distinct section (0-3),
 // one shared instance for the five identical plain sections (4-8).
-use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain}
+use games.sonic4.ojz_effects.{OJZ_Preset_Sec0, OJZ_Preset_Sec1, OJZ_Preset_Sec2, OJZ_Preset_Sec3, OJZ_Preset_Plain, OJZ_Preset_Depth}
 // The act-default parallax record (`act_parallax_config` below — the fallback for sections
 // that declare none). NAMED rather than left to resolve as a link extern (scanline-P1
 // Task 9): an unknown name in a Label position does not error in .emp, it silently becomes
@@ -278,7 +278,11 @@ pub data OJZ_Act1_Sections: [Sec; 9] = [
             objects: OJZ_Sec4_Objects, rings: OJZ_Sec4_Rings,
             type_table: OJZ_Sec4_TypeTable,
             pal: OJZ_Palette,
-            effects: OJZ_Preset_Plain,
+            // THE SHOWCASE DEPTH SECTION (owner decision d-15, 2026-08-26): Plain plus the
+            // vertical-split program lowered from this section's own Aurora scene. The
+            // parallax half — the curved BG factors — arrives separately through
+            // ojz_act1_sec_scene(sec: 4) below, from the same editor JSON.
+            effects: OJZ_Preset_Depth,
             dict: extern("OJZ_Sec4_Blocks") + extern("BLOCK_INDEX_SIZE"),
             dict_len: OJZ_SEC4_BLOCK_DICT_LEN),
     ojz_sec(sec: 5, blocks: OJZ_Sec5_Blocks,

@@ -1,0 +1,58 @@
+{
+  "id": "ojz_act1_depth",
+  "layers": [
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_16",
+      "world_y": 0
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_16",
+      "world_y": 32
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_8",
+      "world_y": 80
+    },
+    {
+      "curve": {
+        "to": "FACTOR_3_8"
+      },
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_4",
+      "vsplit": {
+        "at": 20
+      },
+      "world_y": 112
+    },
+    {
+      "curve": {
+        "to": "FACTOR_1"
+      },
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_2",
+      "vsplit": {
+        "at": 44
+      },
+      "world_y": 160
+    }
+  ],
+  "name": "OJZ act 1 depth — curved horizon over a split canopy",
+  "schema": 1,
+  "transition": "instant",
+  "v_center": 0,
+  "v_factor": 15,
+  "v_offset": 0
+}
