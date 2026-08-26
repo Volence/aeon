@@ -116,8 +116,9 @@ Default→Underwater lerp the sentinel-forced first crossing used to run at boot
 `Parallax_Init`'s own comment promises: the first `Parallax_CheckBoundary` is a no-op against
 the seeded config).
 
-**Left open (controller-tagged):** (a) runtime confirmation that `Parallax_Current_Config`
-equals the editor record after a crossing once the aurora binding lands; (b) ~~extend the
+**Left open (controller-tagged):** (a) ~~runtime confirmation that `Parallax_Current_Config`
+equals the editor record after a crossing once the aurora binding lands~~ — **CLOSED
+2026-08-26, `parcel/parallax-crossing`** (see below); (b) ~~extend the
 tripwire to count `ep_parallax` bindings too~~ — **CLOSED 2026-08-26,
 `parcel/boot-override-witness`.** The tripwire is gone entirely rather than taught to count a
 second field: `tools/boot_override_gate.py` now WITNESSES the select, reading
@@ -129,9 +130,41 @@ seeds `ParallaxConfig_OJZ_Default` via `Act.act_parallax_config`, the control in
 poison that makes the select read the authored section fails the gate naming both. Full
 closure at §"Boot-position override (§4.12b)" item 1.
 
-Item (a) is NOT closed by that parcel and is narrowed by it: the witness samples at the
+Item (a) was NOT closed by that parcel, and was narrowed by it: that witness samples at the
 init's exit, deliberately BEFORE any `Parallax_CheckBoundary`, so it says nothing about what
-a crossing installs. That still wants its own measurement.
+a crossing installs. **CLOSED 2026-08-26, `parcel/parallax-crossing`**, by its own gate
+rather than by an extension of that one: `tools/parallax_crossing_gate.py`, registered in
+`tools/effects_gates.py` as its own emulator segment beside `boot_override`.
+
+MEASURED, on master's `s4.debug.bin` (crc f8d06cae): the gate boots the DEBUG boot-position
+mailbox an eighth of a section short of the (0,0)|(1,0) edge and WALKS the pad across the
+boundary and back, so both crossings are edge-triggered by `Camera_Update` the way the
+shipped mechanism is — not by `Debug_Warp_Consume`, which reaches the same code with
+`Parallax_Snap_Pending` set and the camera teleported. Crossing OUT into (1,0) STAGES
+`ParallaxConfig_OJZ_Default` (rung 3, `pcfg_transition` 0 = smooth); crossing BACK into
+(0,0) SNAPS `EditorSceneBinding_OJZ_Act1_Sec0` (rung 1, `pcfg_transition` 1 = instant) —
+which is item (a) in its own words: after a crossing, `Parallax_Current_Config` IS the editor
+record, not the preset's `ParallaxConfig_OJZ_Underwater` and not the act default. The reg $0B
+(Mode Set 3) shadow agrees (%10 for the editor record against %11 for both other candidates),
+so the config was consumed and not merely parked.
+
+Section (0,0) is the only section in the act where all three rungs hold DIFFERENT pointers,
+and that is what makes the measurement possible at all; the gate raises a setup error rather
+than passing if content ever makes any two of them coincide.
+
+Proven red-first with two source poisons, each rebuilt and each restored:
+  * rung 1 skipped in `Effects_ResolveParallax` — crossing B installs
+    `ParallaxConfig_OJZ_Underwater`; the crossing gate fails naming rung 2 as the rung that
+    produced it, AND `boot_override_gate` fails too (both callers share the resolver).
+  * the CROSSING TAIL of `Effects_InstallPreset` resolving the act default only, with the
+    boot select left intact — the crossing gate fails naming rung 3, and `boot_override_gate`
+    **passes**. That second poison is the empirical case for a sibling gate rather than a
+    block inside the existing one: it is exactly the pre-2026-08-26 defect shape, and only
+    the new gate can see it.
+
+The two gates are each other's other half and their sampling rules are deliberate opposites
+(before the first crossing there, only after one here). A change to `Effects_ResolveParallax`
+should turn both red; a change to either caller alone should turn exactly one.
 
 ### CONTRACT MEMBERS ARE INVISIBLE TO STRUCT LAYOUT — the half of Scanline P3 Task 8 that could not land — booked 2026-08-20
 

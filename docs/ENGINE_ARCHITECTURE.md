@@ -2972,7 +2972,7 @@ It does three things and no more: clamp + publish; write the leader's position *
 
 The §4.12a feet-planted-lift hazard cannot arise on this path either: there is no `Player_SetState` after the position write (`Player_Init` has already run the entry sequence), so nothing re-normalises the box on top of the placement.
 
-**The second consumer** is the init's parallax config select, which reads `Act.start_sec_x/y`; under an override it reads the section containing the (clamped) destination instead. In OJZ act 1 this was **unobservable** when measured — every section binds `sec_parallax_config: default`, so the select returned the act default whatever index it was handed, and poisoning that half of the hook changed no measurement (verified). The gate asserts that *premise* and fails with an instruction the day any section binds its own config. Since 2026-08-26 the select is the shared `Effects_ResolveParallax` and also reads the preset rung, and `OJZ_Preset_Sec0` binds `ep_parallax` — so the consumer IS observable for section 0 today while the tripwire (which counts `sec_parallax_config` only) stays silent. Booked in `DEFERRED_WORK.md`.
+**The second consumer** is the init's parallax config select, which reads `Act.start_sec_x/y`; under an override it reads the section containing the (clamped) destination instead. This was **unobservable** when the hook was written — every OJZ act 1 section bound `sec_parallax_config: default`, so the select returned the act default whatever index it was handed and poisoning that half of the hook changed no measurement (verified) — and the gate asserted that *premise* with a tripwire rather than implying coverage it did not have. Both halves ended on 2026-08-26: the select became the shared `Effects_ResolveParallax` (so it reads the preset rung too), aurora's first authored scene bound section (0,0)'s own `sec_parallax_config`, and the tripwire was **replaced by a direct witness** — `boot_override_gate` now reads `Parallax_Current_Config` at the init's exit against a restatement of the resolver's three rungs, and fails on a source poison. What a crossing installs is a different question with a different sampling rule, and has its own gate: see §7.12's "Both callers are gated".
 
 **Shape rules.** Everything is inside `if DEBUG == 1`, and — unlike the warp consumer — **nothing new is a `proc`**. The clamp and the camera centring are `comptime fn … -> Code` templates (`clamp_and_publish`, `center_camera_on`) shared with `Debug_Warp_Consume`. That is a constraint, not a preference: a proc whose body is wholly `if DEBUG == 1` emits zero release *bytes* but still declares a release *label*, and although only one symbol per address survives into the deb2 address table, the dropped duplicates still feed the appendix's **name trie**, so the appendix changes size and every release CRC moves. Measured on this parcel: three zero-byte procs parked against `Debug_Warp_Consume` took `s4.bin` from `d00dd11d`/698411 to `84df688f`/698409 — identical through `EndOfRom` (`$A11C0`), appendix-only, and still a changed ROM. Templates declare no symbol at all. With them, `s4.bin` (`d00dd11d`), `demo.bin` (`7db47b7b`) and `demo.debug.bin` (`30696400`) are byte-identical to master.
 
@@ -4063,6 +4063,23 @@ painted frame and every crossing agree (closed 2026-08-26; the two sites used to
 different pairs of the three) — and does NOT call
 `Parallax_StartTransition` itself — that would make `engine/effects` depend on
 `engine/level`, cycling against the dependency the crossing site already creates.
+
+**Both callers are gated, and by different gates on purpose.** `tools/boot_override_gate.py`
+witnesses the BOOT select, sampling `Parallax_Current_Config` at the level init's exit —
+deliberately before any `Parallax_CheckBoundary`, which would launder a wrong choice into a
+right one. `tools/parallax_crossing_gate.py` witnesses the CROSSING, and only ever samples
+after one: it boots an eighth of a section short of the OJZ (0,0)|(1,0) edge and WALKS the pad
+across it and back, so both crossings are edge-triggered by `Camera_Update` rather than by the
+warp (which sets `Parallax_Snap_Pending` and teleports the camera). Section (0,0) is the only
+section in the act where all three rungs hold different pointers — the aurora editor record,
+`OJZ_Preset_Sec0`'s `ep_parallax`, and the act default — so it is the one place the precedence
+is observable, and the crossing gate raises a setup error rather than passing if content ever
+makes any two of them coincide. Each crossing is checked against the entered config's own
+`pcfg_transition` byte, because `Parallax_StartTransition` SNAPS an instant config into
+`Parallax_Current_Config` but STAGES a smooth one in `Parallax_Target_Config` for
+`PARALLAX_TRANS_DEFAULT` frames — reading `Current_Config` alone at the crossing would be red
+on correct code. Proven by a poison that resolves the act default in the crossing tail while
+leaving the boot select intact: the crossing gate fails, `boot_override_gate` passes.
 
 **Variant rebinds are guarded.** `Palette_SetVariant` sets `PAL_ACT_VARIANT_STALE` on
 every call, even re-binding an identical pointer, and a stale variant forces a

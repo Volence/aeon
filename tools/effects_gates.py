@@ -203,6 +203,16 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # camera-centring templates, so a change to either is a change to both. Its seven
         # runs each boot their own oracle-aether, hence the larger budget.
         ("boot_override", True, 480),
+        # parallax_crossing is boot_override's other half and sits beside it for that reason:
+        # the two witness the SAME resolver (Effects_ResolveParallax) at its two callers, and
+        # their sampling rules are deliberate opposites — boot_override samples at the level
+        # init's exit, BEFORE any Parallax_CheckBoundary, and this one only ever samples
+        # AFTER a walked crossing. A change to the resolver should turn both red. One
+        # oracle-aether process, two crossings (out and back), measured 0.66 s standalone and
+        # 0.4 s as this lane's segment [12/14] on 2026-08-26 — the budget below is the lane's
+        # ordinary emulator budget, ~600x that, and is a wedge ceiling and not a performance
+        # assertion.
+        ("parallax_crossing", True, GATE_EMU_BUDGET),
         ("cost_model", True, 900),
         ("scanline_spans", False, 120),
         ("demo_witness", False, 120),
@@ -680,6 +690,13 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "boot_override")
         results.append(("boot_override (the DEBUG boot mailbox puts the FIRST painted frame "
                         "at the cursor, matching a warp to the same place)", ok, msg))
+
+    if wanted("parallax_crossing"):
+        ok, msg = run(["python3", str(AEON / "tools/parallax_crossing_gate.py"),
+                       "--rom", rom, "--lst", lst], "parallax_crossing")
+        results.append(("parallax_crossing (a WALKED section crossing installs the config "
+                        "Effects_ResolveParallax names for the section entered — section "
+                        "beats preset beats act)", ok, msg))
 
     if wanted("cost_model"):
         base = emp_int("engine/effects/raster_dsl.emp", "RASTER_FIRE_BASE_CYC")
