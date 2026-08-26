@@ -320,6 +320,7 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 pub const VRAM_DUST_PUFF          : VramTile = $0380   // dust_puff: tiles 896..911 (16), act, owner games.sonic4.dust_puff
 pub const VRAM_DUST_SPINDASH      : VramTile = $0390   // dust_spindash: tiles 912..923 (12), act, owner games.sonic4.dust_spindash
 pub const VRAM_RING_SPARKLE       : VramTile = $039C   // ring_sparkle: tiles 924..927 (4), act, owner games.sonic4.ring_sparkle
+pub const VRAM_INSTA_SHIELD       : VramTile = $03A0   // insta_shield: tiles 928..956 (29), act, owner games.sonic4.insta_shield
 pub const VRAM_TEST_SONIC         : VramTile = $03C0   // character_window: tiles 960..991 (32), act, owner games.sonic4.player
 pub const VRAM_TEST_OBJ           : VramTile = $03E0   // test_obj: tiles 992..999 (8), mode, owner games.sonic4.test_objects
 pub const VRAM_TEST_MARKER        : VramTile = $03F8   // test_marker: tiles 1016..1019 (4), mode, owner games.sonic4.player_common
@@ -336,7 +337,8 @@ ensure(VRAM_WINDOW == $F000, "vram.toml window_plane drifted from engine VRAM_WI
 // Walls — regeneration re-checks every adjacency:
 ensure(VRAM_DUST_PUFF + 16 <= $0390, "dust_puff runs into dust_spindash")
 ensure(VRAM_DUST_SPINDASH + 12 <= $039C, "dust_spindash runs into ring_sparkle")
-ensure(VRAM_RING_SPARKLE + 4 <= $03C0, "ring_sparkle runs into character_window")
+ensure(VRAM_RING_SPARKLE + 4 <= $03A0, "ring_sparkle runs into insta_shield")
+ensure(VRAM_INSTA_SHIELD + 29 <= $03C0, "insta_shield runs into character_window")
 ensure(VRAM_TEST_SONIC + 32 <= $03E0, "character_window runs into test_obj")
 ensure(VRAM_TEST_OBJ + 8 <= $03E8, "test_obj runs into ring_placeholder")
 ensure(VRAM_TEST_MARKER + 4 <= $0400, "test_marker runs into bg_region")
