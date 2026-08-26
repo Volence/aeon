@@ -50,7 +50,8 @@ pub const Scene_Editor_ojz_act1_start: Scene = scene(
     v_factor: 15,
     v_center: 0,
     v_offset: 0,
-    transition: TRANS_INSTANT)
+    transition: TRANS_INSTANT,
+    anchor: SceneAnchor.At(0, 15, 2))
 
 pub const EditorScenes_OJZ_Act1: [Scene; 1] = [
     Scene_Editor_ojz_act1_start,
