@@ -9696,7 +9696,15 @@ deliberately left:
   assertion becomes the single field the contract intends. A two-rung check that outlives its
   reason is how a discriminator quietly stops discriminating.
 
-- **The profiler ask is HALF discharged, and the half that matters is still open.** Measured
+- **CORRECTION 2026-08-26: the 'half that matters' was a field that cannot carry information — STRUCK.**
+  Oracle measured on our s4.debug.bin (119 frames, `unattributedCycles 0`): `cyclesSelfTotal/callsTotal`
+  is exactly 44.00 for BOTH interrupt buckets despite a 19x cost difference, because a bucket's self time
+  is only the exception entry (the handler retires as a nested routine row). A `perFrame[].vintSelfCycles`
+  would be the constant 44. Meanwhile `sum(perFrame[].vintCycles) == interrupts.vint.cyclesTotal` to the
+  cycle, so the per-frame series we wanted is the column already served. A per-ROUTINE per-frame series
+  would be a different, larger ask and is NOT filed. Anchors: oracle docs `4915ed9`, code `4111c88` under
+  merge `51143a5`. The paragraph below is kept as the record of the error.
+- ~~**The profiler ask is HALF discharged, and the half that matters is still open.**~~ Measured
   firsthand 2026-08-26 against the shipped `oracle-aether`: `capabilities.profiler: true`,
   and `get_profiler_frames` serves `interrupts.hint.cyclesSelf` / `cyclesSelfTotal` and the
   same for `vint`. But `set_profiler` must be armed `{perFrame: true}` (otherwise a `frames`

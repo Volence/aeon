@@ -300,7 +300,14 @@ fails if its handshake is accepted — run 2026-08-26, assertion fired.
   `cyclesSelfTotal` — but `set_profiler` must be armed with `{perFrame: true}` and the
   `perFrame[]` ROWS still carry only `cycles`/`hintCycles`/`vintCycles`/`stallCycles`, **no
   self field for either interrupt bucket**, which is exactly the gap the hold above names.
-  So the named ask is HALF discharged, at the aggregate and not per-frame. Spawn through
+  ~~So the named ask is HALF discharged, at the aggregate and not per-frame.~~ **STRUCK 2026-08-26, on oracle's live
+  measurement against our own ROM (oracle `4915ed9` docs, code `4111c88` under `51143a5`): a bucket's
+  `cyclesSelf` is the exception entry alone — `cyclesSelfTotal / callsTotal` is EXACTLY 44.00 for both
+  `vint` (9,830 cyc/call) and `hint` (514 cyc/call) — so a per-frame self field would print 44 every
+  frame and discriminate nothing. `sum(perFrame[].vintCycles) == interrupts.vint.cyclesTotal` to the cycle
+  (119/119 frames), so the column we already read IS the per-frame quantity. The 'half that matters' was
+  a field that could not carry information; nothing remains of the ask. Migration of the three probes is
+  unblocked on this count.** Spawn through
   `tools/aether_instance.py`; other client patterns: `tools/hblank_window_sweep.py`,
   `tools/sh_probe.py`. Assert `source == "raster"` on every scanline capture.
 - **old oracle** (headless harness at `oracle-old/linux-port/harness`): FALLBACK ONLY, and
