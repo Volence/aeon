@@ -10146,3 +10146,17 @@ work — that is what the owner chose `delete` for. **TAGGED for the controller:
 foreground confirmation (watch section (1,1) scroll under motion on the merged tree) is not
 this parcel's to take; the throwaway merge in the notes proves it builds and reports the
 `bganim_room` figure that decides d-28.
+
+### Provenance entries carry no aeon revision — ask to sigil, ACCEPTED by this lane 2026-08-26T18:14:37Z
+
+Found by the sigil lane verifying the delete-percell-hscroll pairing (sigil `243d2d24`): across all
+166 `golden/provenance.toml` entries the schema is `name`/`ab`/`note` + target CRC rows, and the
+aeon SHA a freeze pairs with exists only inside free-text `note` — present on 150 of 166. Every
+"which aeon tree is this golden paired with?" check both lanes run has been a human reading prose,
+and a gate over the file fails OPEN on the 16 note-less entries. This lane WANTS the fix: a
+structured `aeon_rev` field on each new entry, derived by the refreeze path from `AEON_DIR`'s
+HEAD so it cannot be omitted. The emitting code is sigil's (`crates/sigil-harness/src/provenance.rs`),
+so sigil authors the field; this lane commits to (a) always passing a clean committed `AEON_DIR`
+at freeze time (already the landing rule) and (b) re-verifying the field on the first pairing after it
+ships. Sigil takes the consuming gate (assert `AEON_DIR` HEAD == `aeon_rev`, fail closed on absence).
+Historical entries stay as they are; backfilling from prose would be a guess wearing a record's clothes.
