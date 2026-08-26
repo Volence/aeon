@@ -268,7 +268,15 @@ deferring to "something else owns this", confirm the something else exists.
 ## Worktree quirks (agents hit all of these)
 
 - Export `AEON_SKDISASM_DIR=/home/volence/sonic_hacks/skdisasm`; the worktree root's
-  PARENT needs a `sigil` symlink. ~~Without both, ~9-13 pytest failures are path
+  PARENT DIRECTORY may carry a `sigil` symlink — **never the checkout itself, and this
+  matters** (lived 2026-08-26 by the sigil lane, against this very line). They read "the
+  worktree root's PARENT" as licence to add `sigil`/`skdisasm` links INSIDE their reference
+  checkout; `section_row_fixture`'s tree mirror then died on them with *"the source path is
+  neither a regular file nor a symlink to a regular file"* and three gates went red for a
+  reason unrelated to anything under test. A reference checkout that only has to BUILD needs
+  no links at all — `./build.sh` produced all four shapes there without them. So: links in
+  the parent for an agent worktree, no links in a clean reference checkout, and if a gate
+  dies on a path that is not a regular file, look for a link somebody seeded. ~~Without both, ~9-13 pytest failures are path
   artifacts, not signal.~~ **THE "~9-13 PATH ARTIFACTS" CLAIM IS STALE — corrected
   2026-08-22.** A full parcel ran in a worktree with **no** paired `sigil/.worktrees/<name>`
   and saw a **fully green suite before and after** (1262 → 1290 passed, 0 failed, across all
