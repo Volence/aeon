@@ -2307,7 +2307,7 @@ Each section in the 2D grid is fully self-describing — almost its own level:
     dc.l    sec_rings            ; +$08: ring layout (flat X-sorted dc.w pairs, section-local coords, see 4.9)
     dc.l    sec_plc              ; +$0C: art PLC list (S4LZ format)
     dc.l    sec_pal              ; +$10: palette pointer — full 128-byte copy (0 = no change)
-    dc.l    sec_parallax_config  ; +$14: parallax_config pointer (0 = inherit act default; §4.6)
+    dc.l    sec_parallax_config  ; +$14: parallax_config pointer — outranks the preset's ep_parallax; 0 = defer (Effects_ResolveParallax, §4.6)
     dc.l    sec_raster_table     ; +$18: raster command table pointer (0 = keep current, see §7.2)
     dc.l    sec_bg_layout        ; +$1C: per-section Plane B layout pointer (NULL = use Act default; §2 A.5)
     dc.l    sec_type_table       ; +$20: type table (ROM): dc.b count,pad; dc.l ObjDef×N (§4.9)
@@ -2972,7 +2972,7 @@ It does three things and no more: clamp + publish; write the leader's position *
 
 The §4.12a feet-planted-lift hazard cannot arise on this path either: there is no `Player_SetState` after the position write (`Player_Init` has already run the entry sequence), so nothing re-normalises the box on top of the placement.
 
-**The second consumer** is the init's parallax config select, which reads `Act.start_sec_x/y`; under an override it reads the section containing the (clamped) destination instead. In OJZ act 1 this is currently **unobservable** — every section binds `sec_parallax_config: default`, so the select returns the act default whatever index it is handed, and poisoning that half of the hook changes no measurement (verified). The gate does not pretend otherwise: it asserts the *premise* and fails with an instruction the day any section binds its own config. Booked in `DEFERRED_WORK.md`.
+**The second consumer** is the init's parallax config select, which reads `Act.start_sec_x/y`; under an override it reads the section containing the (clamped) destination instead. In OJZ act 1 this was **unobservable** when measured — every section binds `sec_parallax_config: default`, so the select returned the act default whatever index it was handed, and poisoning that half of the hook changed no measurement (verified). The gate asserts that *premise* and fails with an instruction the day any section binds its own config. Since 2026-08-26 the select is the shared `Effects_ResolveParallax` and also reads the preset rung, and `OJZ_Preset_Sec0` binds `ep_parallax` — so the consumer IS observable for section 0 today while the tripwire (which counts `sec_parallax_config` only) stays silent. Booked in `DEFERRED_WORK.md`.
 
 **Shape rules.** Everything is inside `if DEBUG == 1`, and — unlike the warp consumer — **nothing new is a `proc`**. The clamp and the camera centring are `comptime fn … -> Code` templates (`clamp_and_publish`, `center_camera_on`) shared with `Debug_Warp_Consume`. That is a constraint, not a preference: a proc whose body is wholly `if DEBUG == 1` emits zero release *bytes* but still declares a release *label*, and although only one symbol per address survives into the deb2 address table, the dropped duplicates still feed the appendix's **name trie**, so the appendix changes size and every release CRC moves. Measured on this parcel: three zero-byte procs parked against `Debug_Warp_Consume` took `s4.bin` from `d00dd11d`/698411 to `84df688f`/698409 — identical through `EndOfRom` (`$A11C0`), appendix-only, and still a changed ROM. Templates declare no symbol at all. With them, `s4.bin` (`d00dd11d`), `demo.bin` (`7db47b7b`) and `demo.debug.bin` (`30696400`) are byte-identical to master.
 
@@ -4014,7 +4014,8 @@ and `Effects_InstallPreset` writes **every channel** on the crossing.
 
 ```
 EffectsPreset      $00 ep_pal            required — the preset CARRIES the palette
-                   $04 ep_parallax        0 = act default (the one legal 0)
+                   $04 ep_parallax        0 = defer to the act default (the one legal 0); a non-zero
+                                          Sec.sec_parallax_config outranks it (Effects_ResolveParallax)
                    $08 ep_raster          static program; 0 illegal, use Raster_Program_None
                    $0C ep_patched         patched template (water / world-anchored gradient)
                    $10 ep_cycle           0 illegal, use Pal_Cycle_None
@@ -4051,7 +4052,11 @@ structurally unrepresentable rather than merely checked.
 
 **Install ordering** has exactly one hard constraint: `ep_transition` must arm before
 the palette load, because `Pal_Fade_Request` is a one-shot the load consumes.
-`Effects_InstallPreset` returns the resolved parallax config in `a0` and does NOT call
+`Effects_InstallPreset` returns the resolved parallax config in `a0` — through
+`Effects_ResolveParallax`, the ONE resolver (precedence `Sec.sec_parallax_config` >
+`ep_parallax` > `Act.act_parallax_config`) that the boot select also calls, so the first
+painted frame and every crossing agree (closed 2026-08-26; the two sites used to read
+different pairs of the three) — and does NOT call
 `Parallax_StartTransition` itself — that would make `engine/effects` depend on
 `engine/level`, cycling against the dependency the crossing site already creates.
 

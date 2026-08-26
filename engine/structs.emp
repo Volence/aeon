@@ -113,7 +113,8 @@ pub struct Sec {
     sec_rings:           *u8,           // $08 — X-sorted ring entries
     sec_plc:             *u8 = 0,       // $0C — S4LZ art PLC list
     sec_pal:             *u8,           // $10 — 128-byte palette
-    sec_parallax_config: *u8 = 0,       // $14 — 0 = inherit the act default
+    sec_parallax_config: *u8 = 0,       // $14 — per-section parallax config; outranks the preset's
+                                        //       ep_parallax; 0 = defer (Effects_ResolveParallax)
     sec_raster_table:    *u8 = 0,       // $18 — raster command table
     sec_bg_layout:       *u8 = 0,       // $1C — NULL = use Act_act_bg_layout
     sec_type_table:      *u8,           // $20 — dc.b count,pad; dc.l ObjDef×N
