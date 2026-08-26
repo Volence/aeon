@@ -8791,7 +8791,46 @@ wider than "for testing"** — a test-scope grant quietly becoming a shipping-sc
 failure this suite has already recorded once, and the hub flagged it with the grant rather than
 after it.
 
-### OPEN — a negative generator parameter emits a label that is not symbol-safe
+### CLOSED 2026-08-25 (`parcel/neg-label`) — a negative generator parameter emits a label that is not symbol-safe
+
+> **CLOSED IN PLACE.** The enumeration the booking asked for was done FIRST, on the engine
+> side, by measurement rather than by reading: a scratch `--extra-entry` module handed every
+> `TABLE_GENERATORS` parameter a negative in turn. **None of the five generators carries a
+> sign `ensure`** — `deform_sine` and `deform_triangle` guard only `256 % period == 0`,
+> `v_column_perspective` / `v_column_floor` / `deform_zero` guard nothing — and every
+> negative elaborated green (`deform_sine(amplitude: -8, period: 32)` samples `-8` at line 8:
+> a legitimately inverted wave; `v_column_perspective(.., max_offset: -24)` an opposite tilt).
+> So this was a **LIVE emission bug**, not a diagnostic-quality one, and the generator's job
+> was to EMIT the negative, not refuse it. The old label was measured as a sigil parse error
+> (`expected \`=\`, found Minus`) at the generated line.
+>
+> **Fix — the pattern:** `tools/effects_gen.py` `symbol_token()` renders any integer that
+> becomes a SYMBOL component (`-8` -> `m8`; non-negatives byte-identical to before, so no
+> committed label moves; injective over sign because `-0` is `0` and a digit-only token can
+> never start with `m`; `_` is the joiner, hence not the marker). Used by BOTH the dedup key
+> and the label; the CALL still spells the true signed literal so the engine's guard is the
+> error surface. Labels are the generator's own domain — not a value rule, the da43a036
+> one-owner ruling is untouched.
+>
+> **Same-class audit of the file (every JSON value that becomes an `.emp` token):** scene ids
+> (`SCENE_ID_RE`) safe; generator names (table lookup) safe; `precision`/`transition`/
+> `left_column_mask` (`_render_enum`) safe; `enabled` (`_render_bool_int`) safe; factor names
+> (`FACTOR_NAMES`) safe; every integer VALUE slot safe (a negative literal is legal inside a
+> call — the VOFFSET parcel relies on it); `budget_class` never emitted. Two more sites were
+> NOT safe and were closed with siblings: the `bin` label fold `[^a-z0-9]+ -> _` is lossy, so
+> `a-b.bin` and `a_b.bin` interned as two declarations under ONE label (now refused at
+> `TableRegistry.intern`, naming both); and project.json zone/act ids reached `EditorScenes_*`
+> labels and the module name unchecked (now refused in `ActNames`).
+>
+> **No poison added, by the rule the parcel set:** the engine refuses no negative, so there is
+> no constructor message to prove. Tests are `TestJsonValuesBecomeSymbolSafeTokens` in
+> `tools/test_effects_gen.py` (16 red against the pre-fix code; runner = build.sh's pytest
+> lane, build-fatal). Zero-byte: all four ROM CRCs unchanged, `--no-cache` re-bake
+> byte-identical.
+>
+> **Found beside it, booked below, NOT fixed here:** `deform_triangle` folds to `()` for
+> EVERY input, positive included.
+
 
 **Found beside the VFACTOR parcel (aeon `da43a036`), deliberately NOT fixed there** — it is a
 VALUE question in a parcel whose whole point was drawing the SHAPE/VALUE line, and fixing it
@@ -8831,6 +8870,27 @@ Found by reading the WRITER's schema rather than our own field list. **The reusa
 is the schema's per-field `type`/`enum`/`const`, not our field names** — our names tell us
 which fields exist and say nothing about how the writer spells their values, and that
 distinction has now bitten this contract three times.
+
+### OPEN — `deform_triangle` folds to `()` for every input (found 2026-08-25, `parcel/neg-label`)
+
+**Measured, not inferred** (scratch `--extra-entry` witness, sonic4 plain profile): with
+`T = deform_triangle(amplitude: 8, period: 32)`, interpolating `T[0]`, `T[8]`, `T[16]` into an
+`ensure` message prints `()` for all three — and identically for `amplitude: -8` — while
+`deform_sine(amplitude: 8, period: 32)[8]` beside it prints `8`. The generator's body is a
+`comptime for` whose element expression is an `if { .. } else { .. }` in block-tail position,
+which is EMP_PITFALLS §1's shape (a block-tail `if` silently yielding unit) even though it is
+not nested. Nothing shipped attaches a triangle table (the shipped scenes use `DeformTable_*`
+sine tables and `deform_zero`; `grep deform_triangle` finds only the generator, the
+`TABLE_GENERATORS` row, and docs), so this is LATENT today and reachable by the first
+authored scene that picks `"generator": "triangle"` — which would presumably die at
+`[i8; 256]` typing of a unit element, or worse, emit zeros. Not established which.
+
+**Not fixed here** because it is an engine-side comptime defect (parallax_dsl.emp) in a
+zero-byte tools parcel, and the fix wants its own red-first: a poison-style witness that
+pins `deform_triangle(8, 32)[8] == 0` and `[0] == -8` (a linear ramp -A -> +A over half a
+period: `((i % 32) * 8 * 4) / 32 - 8`), then the flat-accumulator rewrite EMP_PITFALLS §1
+prescribes (or a sigil-side fix if the single-level tail `if` is itself the bug — that half
+belongs to sigil and should be reported there with this witness).
 
 ### PARTLY CLOSED — the first real authored band does not assemble: two defects (found 2026-08-24)
 

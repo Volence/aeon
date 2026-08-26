@@ -15,6 +15,7 @@ what a reader carries forward (protocol review bar 10).
 
 import json
 import os
+import re
 import tempfile
 import unittest
 
@@ -983,6 +984,153 @@ class TestGeneratedModuleShape(AssignmentBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestJsonValuesBecomeSymbolSafeTokens(SceneShapeBase):
+    """The third instance of one class in effects_gen: a LEGAL JSON value rendered into an
+    ILLEGAL `.emp` token (DEFERRED_WORK "a negative generator parameter emits a label that
+    is not symbol-safe"). Instances one and two were `precision: cell` (slices 1-2) and the
+    bare word `False` for `enabled` (fixed at da43a036). This class pins the PATTERN: every
+    place a JSON value becomes a `.emp` SYMBOL goes through a symbol-safe rendering, and
+    the VALUE handed to the constructor is still the true signed one.
+
+    Whether a negative parameter is LEGAL is the engine's question and was MEASURED before
+    this class was written (2026-08-25, scratch `--extra-entry` witness): none of the five
+    TABLE_GENERATORS carries an `ensure` on sign — `deform_sine(amplitude: -8, ..)` is an
+    inverted wave and `v_column_perspective(.., max_offset: -24)` an opposite tilt, both
+    elaborating green — so this was a LIVE emission bug, not a diagnostic-quality one, and
+    the generator must EMIT a negative, not refuse it.
+
+    Runner: build.sh's pytest lane (`python3 -m pytest tools -q`, build-fatal), on every
+    canonical shape.
+    """
+
+    SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+    def render_with_tables(self, **over):
+        path = self.write("ojz_bg", _scene(**over))
+        tables = effects_gen.TableRegistry()
+        out = effects_gen.render_scene(path, effects_gen.load_scene(path), tables)
+        return out, tables
+
+    def labels(self, tables):
+        return [label for label, _init in tables._decls]
+
+    def test_a_negative_parameter_renders_a_symbol_safe_label_and_the_true_value(self):
+        """The booking's own example: `sine` with `amplitude: -8`. The label must be a
+        legal `.emp` symbol and the CALL must still pass `-8`, so the engine's guard (if
+        one ever grows) fires with the engine's message and a legal negative links."""
+        out, tables = self.render_with_tables(
+            deform_bg={"shared": {"table": {"generator": "sine", "amplitude": -8,
+                                            "period": 32}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        (label,) = self.labels(tables)
+        self.assertRegex(label, self.SYMBOL)
+        self.assertEqual(label, "EditorDeform_sine_m8_32")
+        self.assertIn("deform_sine(amplitude: -8, period: 32)", tables.declarations())
+        self.assertIn(f"SceneDeform.Shared({label}, 1)", out)
+
+    def test_EVERY_generator_parameter_slot_renders_symbol_safe_when_negative(self):
+        """Derived from TABLE_GENERATORS, never listed: a generator added tomorrow is
+        covered the day it is added. Each parameter is driven negative in turn while its
+        siblings stay at a legal positive."""
+        for gen, (fn, params) in effects_gen.TABLE_GENERATORS.items():
+            for target in params:
+                with self.subTest(generator=gen, param=target):
+                    body = {"generator": gen}
+                    body.update({p: (-7 if p == target else 32) for p in params})
+                    _, tables = self.render_with_tables(
+                        deform_bg={"shared": {"table": body, "speed": 1}},
+                        layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+                    (label,) = self.labels(tables)
+                    self.assertRegex(label, self.SYMBOL)
+                    self.assertIn(f"{target}: -7", tables.declarations())
+
+    def test_minus_eight_and_eight_do_NOT_dedupe_onto_one_table(self):
+        """The dedup key and the label are formed from the same token, so the token
+        must be injective over sign or two different tables share one declaration."""
+        _, tables = self.render_with_tables(
+            deform_bg={"shared": {"table": {"generator": "sine", "amplitude": -8,
+                                            "period": 32}, "speed": 1}},
+            deform_fg={"shared": {"table": {"generator": "sine", "amplitude": 8,
+                                            "period": 32}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}])
+        self.assertEqual(len(tables), 2)
+        self.assertEqual(len(set(self.labels(tables))), 2)
+
+    def test_the_symbol_token_is_injective_and_stable_for_non_negatives(self):
+        """`m` is the sign marker because a non-negative renders as DIGITS ONLY, so a
+        token that starts with a letter can never equal one — and the non-negative
+        spelling is byte-for-byte what it was before this parcel, so every committed
+        label is unchanged."""
+        tok = effects_gen.symbol_token
+        for v in (0, 1, 8, 32, 255, 32767):
+            with self.subTest(v=v):
+                self.assertEqual(tok(v), str(v))
+        seen = {}
+        for v in range(-300, 301):
+            t = tok(v)
+            self.assertRegex("X_" + t, self.SYMBOL)
+            self.assertNotIn(t, seen, f"{v} and {seen.get(t)} render alike")
+            seen[t] = v
+        self.assertEqual(tok(-8), "m8")
+        self.assertEqual(tok(-0), "0")   # -0 IS 0; there is no negative zero token
+
+    def test_the_committed_generated_module_is_reproduced_label_for_label(self):
+        """The shipped label set is UNCHANGED: a re-render of the real repo's committed
+        scenes matches the committed `effects_scenes.emp` exactly (which the build's
+        `effects_gen.py check` drift gate also enforces, build-fatally). Loud if the
+        committed set is empty of tables, because then this measures only the
+        no-table arm of the renderer."""
+        out_path, text = effects_gen.generate(effects_gen.REPO)
+        with open(out_path) as f:
+            committed = f.read()
+        self.assertEqual(text, committed)
+        n = committed.count("pub data EditorDeform_")
+        if n == 0:
+            self.skipTest("committed effects_scenes.emp carries no EditorDeform_ table "
+                          "today (the one shipped scene attaches none) — the label-set "
+                          "half of this check is vacuous until an authored scene "
+                          "attaches a generator table; the text-identity half ran")
+
+    def test_two_bin_paths_that_fold_to_one_label_are_refused_not_emitted_twice(self):
+        """The `bin` sibling of the same class: the label is a lossy fold of the path
+        (`[^a-z0-9]+` -> `_`), while the dedup key is the exact path — so `a-b.bin` and
+        `a_b.bin` used to intern as TWO declarations under ONE label, a duplicate-symbol
+        error in generated code. The registry now refuses at the seam and names both."""
+        root = os.path.join(self.tmp.name, *effects_gen.TABLE_BIN_ROOT)
+        for name in ("a-b.bin", "a_b.bin"):
+            with open(os.path.join(root, name), "wb") as f:
+                f.write(b"\x01" * 256)
+        path = self.write("ojz_bg", _scene(
+            deform_bg={"shared": {"table": {"bin": "a-b.bin"}, "speed": 1}},
+            deform_fg={"shared": {"table": {"bin": "a_b.bin"}, "speed": 1}},
+            layers=[{"world_y": 0, "fa": "FACTOR_1", "fb": "FACTOR_1"}]))
+        scene = effects_gen.load_scene(path)
+        saved, effects_gen.REPO = effects_gen.REPO, self.tmp.name
+        try:
+            with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                effects_gen.render_scene(path, scene, effects_gen.TableRegistry())
+        finally:
+            effects_gen.REPO = saved
+        msg = str(ctx.exception)
+        self.assertIn("a-b.bin", msg)
+        self.assertIn("a_b.bin", msg)
+        self.assertIn("one label", msg)
+
+    def test_project_ids_that_are_not_symbol_safe_are_refused_where_they_become_names(self):
+        """project.json's zone/act ids become `EditorScenes_<ZONE>_<Act>` labels and the
+        generated module's name. They are the one JSON->symbol site the scene-id regex
+        did not already own."""
+        for bad in ("ojz-1", "1ojz", "Ojz", "ojz act"):
+            with self.subTest(zone_id=bad):
+                with self.assertRaises(effects_gen.SceneShapeError) as ctx:
+                    effects_gen.ActNames(bad, "act1")
+                self.assertIn(bad, str(ctx.exception))
+                self.assertIn("symbol", str(ctx.exception))
+        with self.assertRaises(effects_gen.SceneShapeError):
+            effects_gen.ActNames("ojz", "act-1")
+        effects_gen.ActNames("ojz", "act1")   # the shipped ids stay legal
 
 
 class TestSignedVerticalScalarsAreForwardedVerbatim(SceneShapeBase):
