@@ -10279,9 +10279,12 @@ Requirements are ALIGNMENT + ORDER, never addresses: vectors + header at 0x0 (ha
 `ObjCodeBase` = a 64 KB-aligned object-bank window base (0x10000 is a kept design choice);
 `dac_banks` / `sound_bank` / the 0x60000 z80 region = 0x8000 alignment (SetBank latch
 granularity) + derivable co-resident bank id (`relax::bank_diag`) + order "after all data";
-the MD Debugger island = LAST emission (ruled 2026-08-26 to be GATED sigil-side, hard under
-`SIGIL_STRICT_GATE`, red-first against a reordered map — the one requirement the tables cannot
-carry; sigil to spec). Amendment: the object-bank WINDOW SIZE (64 KB,
+the MD Debugger island = LAST emission — ALREADY ENFORCED, sigil `native::check_error_handler_is_last`
+(hard on every `sigil build`, before convsym; sigil master `e6712f83` banks the read). Corrected
+2026-08-26: not "to spec" — the gap is that nothing has ever proved it fires (no poison; the two
+existing negative controls take its vacuous arm; it fails OPEN on a missing `ErrorHandlerBlob`
+label). Sigil lands a red-first probe now and the per-shape non-vacuous-arm assertion after
+ROM-RELAYOUT lands (it touches native.rs). Amendment: the object-bank WINDOW SIZE (64 KB,
 `native_object_bank_budget.rs`) is a requirement distinct from the base. `EndOfRom` and every
 other row = packing outcome. Sigil's touch-enumeration (their master `e4918a7d`) found ten
 `crates/*/tests` files pinned to the old bank addresses, three of them NEGATIVE probes
