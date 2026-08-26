@@ -465,6 +465,29 @@ deferring to "something else owns this", confirm the something else exists.
   category (*"all X are instructions"*), enumerate the category from the type and check each
   member against the predicate rather than against the category's typical member.
 
+- **A COMPILED-IN library and the INVOKED binary are two artifacts, and a suite green only
+  witnesses the one it links** (added 2026-08-26; drawn by the sigil lane against this lane's
+  own assertion, mid-parcel). Landing the replay re-stamp, this overseer checked sigil's stale
+  `target/release/sigil` against its source, correctly found that only tests, pins and goldens
+  had moved since the binary was built, and told the sigil lane the staleness was harmless.
+  **Their next merge falsified it**: that parcel moved emitter source (`sigil-frontend-emp`'s
+  `eval/emit.rs`, `eval/mod.rs`), so the on-disk CLI went stale against changed emitting code —
+  the exact case where it bites.
+  **The durable half is their distinction, not the near miss.** Sigil's byte gates build ROMs
+  through the library **compiled into the test binaries**, never through `target/release/sigil`.
+  So a fully green sigil suite is real evidence that an emitter change is byte-neutral, and is
+  **no evidence at all** that the CLI binary `build.sh` invokes is current. Two artifacts, one
+  checked, and the unchecked one is the one that produces every CRC we freeze.
+  **Why no gate here can catch it:** a stale assembler emits byte-identical output for as long
+  as its source has not changed, so every downstream CRC agrees right up until the moment it
+  matters, and then agrees with the wrong thing. This is our own byte-neutral CRC trap (a
+  matching CRC cannot witness that the build RAN) arriving in the compiled-in-versus-invoked
+  direction.
+  **Operational form: `cargo build --release` in sigil is a precondition of any refreeze, and
+  it is a SEPARATE ACT that nobody's green can stand in for.** When the pairing is live,
+  require the sigil lane to say "rebuilt" explicitly rather than inferring it from their suite.
+  Re-derive the staleness at the moment of freezing, never from an earlier check: this instance
+  went from harmless to load-bearing inside one merge.
 - Cycle claims near VDP ports: the bus absorbs adjacent OPERAND accesses but not
   instruction-stream fetches — nominal tables mispriced three consecutive parcels.
   Measure with the cost lane; the F-series/dense rows re-derive from shipped constants.
