@@ -21,13 +21,10 @@ use engine.effects.preset.{Effects_InstallPreset}
 // module's own instruction stream, where this module's own `use` is what resolves
 // them. Spelling the numbers here instead would give up the drift check for nothing.
 //
-// ONE EXCEPTION SINCE P3 TASK 6: `parallax_mode_key` is a comptime fn living in
-// scene_dsl.emp, and the comptime CONDITIONS in its body — `CAP_PER_LINE` and
-// `CAP_ANCHORS` — resolve HERE, at the splice in Parallax_Step4_Fill, through this
-// module's `use` line. So those two imports are load-bearing for a body in another file,
-// and dropping one is a LOUD `unknown name` at the splice rather than a silent fold to 0
-// (measured on the buffers.emp twin, 2026-08-20). The template's instruction OPERANDS are
-// a different story — see that fn's banner for what was actually measured.
+// (Until 2026-08-26 one exception stood here: `parallax_mode_key`, a comptime fn in
+// scene_dsl.emp whose comptime CONDITIONS resolved through this module's `use` line. It
+// was deleted with the per-cell HScroll path it selected — d-29-corrected — and the
+// import block below no longer carries anything for another file's body.)
 //
 // A NOTE ON WHY THIS BIT LANDED A PARCEL LATE, because the shape of the obstacle is
 // worth carrying: gating CAP_TRANSITIONS elides 48 more bytes from demo's Parallax_*
@@ -47,8 +44,8 @@ use engine.effects.preset.{Effects_InstallPreset}
 // dropped it (41d14f36) because the extended record is a DATA shape and needed no gated
 // code, and Task 9 adds the first CODE site for the bit — the per-band table reload in
 // Parallax_Fill_PerLine. A comptime CONDITION resolves at the call site and fails LOUDLY
-// when it cannot (measured at parallax_mode_key's banner), so this import is load-bearing.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, parallax_mode_key}
+// when it cannot (measured 2026-08-20 on the buffers.emp twin, since deleted), so this import is load-bearing.
+use engine.level.scene_dsl.{CAP_PER_COL_VSRAM, CAP_DEFORM, CAP_ANCHORS, CAP_TRANSITIONS, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE}
 
 // The a5-relative data-port derive (a5 = VDP_CTRL, so VDP_DATA_OFF(a5) hits
 // VDP_DATA). Port bases + their drift locks live in engine.vdp.
@@ -613,14 +610,12 @@ pub proc Parallax_StartTransition () clobbers(d0-d1) {
 
     .update_mode:
         // --- VDP reg $0B Mode Set 3 update from the NEW config ---
-        //   bits 1:0 = HScroll mode: %10 per-cell, %11 per-line
-        //   bit 2    = VScroll mode: 0 whole-plane, 1 per-column
-        moveq   #%10, d0                            // default per-cell HScroll
-        move.l  parallax_config.pcfg_deform_table_fg(a0), d1
-        or.l    parallax_config.pcfg_deform_table_bg(a0), d1
-        beq     .h_done
-        moveq   #%11, d0                            // per-line if any H-deform
-    .h_done:
+        //   bits 1:0 = HScroll mode: %11 per-line, ALWAYS. One table layout, one
+        //              hardware mode (d-29-corrected, 2026-08-26): the per-cell (%10)
+        //              arm this used to derive from the two header table words is gone
+        //              with the per-cell fill and its 112-byte DMA.
+        //   bit 2    = VScroll mode: 0 whole-plane, 1 per-column (still per config)
+        moveq   #%11, d0                            // per-line HScroll
         // CAP_PER_COL_VSRAM span (P2 §3.3) — the register half. No config attaches a
         // column table, so VDP reg $0B bit 2 is never set and the test is dead. Falls
         // through to `.v_done`, which is where the `beq` went anyway.
@@ -789,7 +784,7 @@ pub proc Vscroll_Write () clobbers(d0/a0/a5) requires(vblank) {
 //
 // Reads:  Camera_X, Parallax_Current_Config, Parallax_Current_Scroll_A/B
 // Writes: Parallax_Current_Scroll_A/B (lerp toward target),
-//         Hscroll_Buffer (28 longwords for per-cell mode)
+//         Hscroll_Buffer (224 longwords, one per scanline)
 //
 // Per-frame cost scales with band count; the per-line deform fill
 // (Parallax_Fill_PerLine) is the hot path (§4.6 perf charter).
@@ -842,14 +837,12 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // shares one mode (the derived value is unchanging); load-bearing when they
         // do not. The null-config case takes the .no_config early-out above and
         // asserts nothing (parallax is off, so the mode is don't-care).
-        //   bits 1:0 = HScroll mode: %10 per-cell, %11 per-line
+        //   bits 1:0 = HScroll mode: %11 per-line, ALWAYS (d-29-corrected, 2026-08-26 —
+        //              the per-cell arm keyed off the header table words is deleted).
+        //              The per-frame re-assert still earns its place for BIT 2, which is
+        //              per config.
         //   bit 2    = VScroll mode: 0 whole-plane, 1 per-column
-        moveq   #%10, d0                            // per-cell H baseline
-        move.l  parallax_config.pcfg_deform_table_fg(a0), d1
-        or.l    parallax_config.pcfg_deform_table_bg(a0), d1
-        beq     .mode3_h_done
-        moveq   #%11, d0                            // per-line if any H-deform
-    .mode3_h_done:
+        moveq   #%11, d0                            // per-line HScroll
         move.l  parallax_config.pcfg_v_deform_table_bg(a0), d1
         beq     .mode3_shadow
         ori.b   #%100, d0                           // bit 2 = per-column V-scroll
@@ -1082,9 +1075,9 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // CLAMP AND STORE BOTH IN LINES. The clamp is what stops the per-line filler
         // emitting more than 224 lines and spraying past Hscroll_Buffer (:618-622).
         // Before re-glue this was a 28-CELL clamp followed by a `lsl.w #3`; the unit
-        // conversion is gone because there is no longer a unit to convert — the only
-        // remaining ×8 in this pipeline is Parallax_Fill_PerCell's inverse `lsr.w #3`,
-        // which the per-cell filler needs because IT counts cells.
+        // conversion is gone because there is no longer a unit to convert — nothing in
+        // this pipeline counts cells any more (the per-cell filler, the last thing that
+        // did, was deleted 2026-08-26).
         move.w  d3, -sizeof(band_record)(a4)
         // reorder the matching scroll words
         move.w  d2, d3
@@ -1473,30 +1466,23 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     }
     .bands_ready:
 
-        // --- Step 4: fill HScroll buffer (mode auto-selected from config) ---
-        //   mode_per_line if either H-deform table is non-NULL, OR the config carries a
-        //   world-anchored overlay: an anchored boundary lands on an arbitrary SCANLINE,
-        //   and per-cell fill can only place it on a cell edge, so per-cell would silently
-        //   quantise the very thing Parcel W exists to make exact.
+        // --- Step 4: fill HScroll buffer — per-line, the one filler ---
         //   a1/a2/a3 = band array + scroll arrays (config's own or shadow).
         //
-        // THE KEY ITSELF IS NOT SPELLED HERE. `parallax_mode_key` (engine.level.scene_dsl)
-        // is the ONE derivation, spliced identically here and in engine.buffers'
-        // `Enqueue_Dirty_Buffers`, which picks the HScroll DMA LENGTH from the same
-        // fields. The two must agree or a mode-differing config ships a 112-byte DMA for
-        // an 896-byte buffer — before P3 Task 6 they agreed by being typed out twice,
-        // each copy carrying a comment warning the other existed. Now there is nothing to
-        // keep in step: the splice clobbers d0, falls through for per-line and branches to
-        // the label it is handed for per-cell.
+        // THERE IS NO MODE HERE ANY MORE. Until 2026-08-26 this site spliced
+        // `parallax_mode_key` (engine.level.scene_dsl) to choose Parallax_Fill_PerCell
+        // (28 longwords, 112-byte DMA) or Parallax_Fill_PerLine (224 longwords, 896-byte
+        // DMA) off the header's two deform-table words and the anchor byte, twinned with
+        // the DMA-length choice in engine.buffers. Owner ruling d-29-corrected deleted the
+        // per-cell path: no shipped config had ever selected it (21 of 21 per-line on
+        // master f8d06cae), the fill wrote its entries at stride 4 where the VDP reads
+        // cell-mode tables at stride 32 (so only cell rows 0-3 were ever fed), and its
+        // whole benefit was ~400 cycles/frame on plain scenes. The per-line fill, the
+        // 896-byte DMA and reg $0B = %11 are now unconditional — including in a game
+        // whose SCANLINE_CAPS is 0, whose filler simply takes `.lp_flat` for every band.
+        // The old CAP_PER_LINE span brackets went with the gate; the deform / curve /
+        // multi-table sub-spans inside Parallax_Fill_PerLine are still their own gates.
         //
-        // CAP_PER_LINE span (P2 §3.3) — the whole per-line ARM. The mode decision's own
-        // spans (`cap_per_line_mode`, `cap_anchors_mode`) come from the splice. Without
-        // the bit no config can carry an H-deform table or an anchor, so per-cell is the
-        // only reachable mode and `.fill_per_cell` is the structural fallthrough.
-    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
-    .cap_per_line_fill_begin:
-        parallax_mode_key(a0, .fill_per_cell)
-    .fill_per_line:
         // advance H-deform phase accumulators so animated tables (sine, etc.)
         // actually scroll their wave over time. Without this the wave is
         // static and effects like windy clouds / heat shimmer don't animate.
@@ -1506,14 +1492,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d0
         move.b  parallax_config.pcfg_deform_speed_bg(a0), d0
         add.w   d0, Parallax_Deform_Phase_BG        // (Parallax_Deform_Phase_BG).w
-        jbsr    Parallax_Fill_PerLine
-        jbra    .fill_done
-    .cap_per_line_fill_end:
-    }
-    .fill_per_cell:
-        jbsr    Parallax_Fill_PerCell
-    .fill_done:
-        rts
+        jbra    Parallax_Fill_PerLine               // tail call; it preserves a0/d7 itself
 }
 
 // ----------------------------------------------------------------------
@@ -1734,14 +1713,13 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 //                 the only loop here that does — so an anchored split continues the ramp.
 // ----------------------------------------------------------------------
 proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
-        // CAP_PER_LINE span (P2 §3.3), MODULE depth — the whole filler. Its only call
-        // site is the `cap_per_line_fill` span in Step 4; the two elide together, and
-        // eliding this one alone would leave a proc nobody calls. A proc header cannot
-        // sit under a comptime `if` in .emp (measured: `expected a declaration, found
-        // Ident("if")`), so the gate wraps the BODY and the else arm is a bare `rts` —
-        // an unreachable stub the placer keeps, not a second implementation.
-    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
-    .cap_per_line_body_begin:
+        // UNCONDITIONAL since 2026-08-26 (d-29-corrected). This body used to sit under a
+        // CAP_PER_LINE gate (`cap_per_line_body`, P2 §3.3) with a bare-`rts` else stub, and
+        // its only caller under the twin `cap_per_line_fill` span; a zero-capability game
+        // elided both and ran the per-cell filler instead. The per-cell filler is deleted,
+        // so this is THE filler for every game, and a game raising no capability bit runs
+        // it with every band on `.lp_flat`. The sub-spans below (deform tables, deform
+        // sampling, per-band tables, curve) keep their own gates.
         movem.l a0/d7, -(sp)                        // preserve caller's config ptr + band count
 
         // a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
@@ -1878,8 +1856,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // and all three sampled line loops. Without the bit no band carries a live
         // (non-15) amplitude, so every band would take `.lp_flat` at runtime anyway;
         // eliding removes the dead decisions AND the three loops, and `.lp_flat` is
-        // the structural fallthrough. NESTED inside `cap_per_line_body`, because
-        // sampling is only reachable through the per-line filler.
+        // the structural fallthrough.
     if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
     .cap_deform_sample_begin:
         // CAP_MULTI_DEFORM_TABLE span (§3.3), the FIRST code site for the bit (P3 Task 9;
@@ -2293,67 +2270,5 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
 
         movem.l (sp)+, a0/d7
         rts
-    .cap_per_line_body_end:
-    } else {
-        // Unreachable: the only call site is `cap_per_line_fill`, elided with this.
-        // The stub exists because the proc header cannot be gated, and `rts` rather
-        // than nothing because a body that emits zero bytes would fall through into
-        // whatever the placer put next.
-        rts
-    }
 }
 
-// ----------------------------------------------------------------------
-// Parallax_Fill_PerCell — emit 28 longwords from current_scroll arrays
-// In:  a0 = parallax_config*, d7 = band count
-// Out: Hscroll_Buffer filled (28 longwords)
-// Clobbers: d0-d4, a1-a4
-// ----------------------------------------------------------------------
-proc Parallax_Fill_PerCell () clobbers(d0-d4/a1-a4) {
-        // a1/a2/a3 = band array + scroll arrays, set by the caller (Step 4a:
-        // either the config's own data or the vscroll-rotated shadow view)
-        lea     Hscroll_Buffer, a4                  // (Hscroll_Buffer).w
-        moveq   #0, d3                              // d3 = current cell index
-        moveq   #0, d2                              // d2 = band index
-
-    .next_band:
-        // -- determine end_cell for this band --
-        addq.w  #1, d2
-        cmp.w   d7, d2
-        bhs     .last_band_end             // d2 >= d7 → this is last band
-        // not last: peek the next band's top. The shadow view measures in SCREEN LINES
-        // (Parcel W), and this filler counts CELLS, so it converts here — the exact
-        // inverse of the ×8 Step 4a's rebase applies, over the range the cell clamp
-        // permits (0..28 cells -> 0..224 lines -> 0..28 cells, lossless).
-        move.w  band_top_line_next(a1), d4  // band_top+band_entry_len(a1), SCREEN LINES
-        lsr.w   #3, d4                      // -> cells
-        jbra    .have_end
-    .last_band_end:
-        // ALREADY in cells and STAYS — 224 >> 3 == 28, so this constant is unchanged by
-        // the unit switch. (An earlier draft of this parcel listed it as a change; it is
-        // not one, and touching it would double-convert the last band's end.)
-        moveq   #28, d4
-
-    .have_end:
-        // -- pack scroll word: (current_a << 16) | (current_b & $FFFF) --
-        move.w  (a2), d0                            // current_a (already negated)
-        move.w  (a3), d1                            // current_b
-        swap    d0
-        move.w  d1, d0                              // d0 = packed longword
-
-        // -- fill cells [d3 .. d4) --
-    .fill:
-        cmp.w   d4, d3
-        bge     .band_done
-        move.l  d0, (a4)+
-        addq.w  #1, d3
-        jbra    .fill
-
-    .band_done:
-        adda.l  #sizeof(band_record), a1
-        addq.l  #2, a2
-        addq.l  #2, a3
-        cmp.w   d7, d2
-        blo     .next_band
-        rts
-}
