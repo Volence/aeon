@@ -1,18 +1,18 @@
 {
-  "focus": "Thirteen calls I owe you are now written up as cards. Crossing check still building.",
+  "focus": "Building your showcase-effects answer and the crossing check. Twelve calls still with you.",
   "inFlight": [
     {
       "what": "The parallax crossing witness gate",
       "where": "branch parcel/parallax-crossing",
       "agent": true
+    },
+    {
+      "what": "Turning on depth and curved scrolling in the showcase, your d-15 answer",
+      "where": "branch parcel/showcase-effects",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
-    {
-      "id": "d-15",
-      "what": "which of the new background effects the showcase level actually turns on",
-      "since": "2026-08-26"
-    },
     {
       "id": "d-16",
       "what": "how tall one background chunk should be in a travelling act",
@@ -74,8 +74,16 @@
       "since": "2026-08-26"
     }
   ],
-  "nextBoundary": "When the crossing gate lands. The roadmap and the cards are already committed.",
+  "nextBoundary": "When both agents land. The showcase parcel then needs a paired freeze with the assembler lane.",
   "queue": [
+    {
+      "id": "SHOWCASE-EFFECTS",
+      "title": "Your answer on which background effects the showcase turns on, being built now. It moves ROM bytes, so it lands paired with the assembler.",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "EFFECTS-W1"
+    },
     {
       "id": "PARALLAX-CROSSING",
       "title": "The new safety check watches the game pick its background settings at the moment you land, but stops there by design - it says nothing about what happens when you walk across into the next section. That crossing is still unwatched, and now that a real authored band exists there is something worth watching. Small and self-contained.",
@@ -92,7 +100,7 @@
       "blockedBy": "the sigil lane"
     }
   ],
-  "awaiting": "your answers on the decision cards, three of which actually gate work; the rest are cheap",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-26T14:53:09Z"
+  "updatedAt": "2026-08-26T14:59:07Z"
 }
