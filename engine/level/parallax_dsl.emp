@@ -65,18 +65,57 @@ comptime fn iabs(x: int) -> int {
     return if x < 0 { 0 - x } else { x }
 }
 
+// tri_sample — one triangle sample at phase j (= i % period). Split out of
+// deform_triangle because an `if` in block-tail position inside the
+// `comptime for` element folds to `()` SILENTLY (EMP_PITFALLS §1) — the
+// original inline form made EVERY sample unit, red-first witness 2026-08-26.
+// A single-level `return if` folds to a value (measured; `iabs` above is the
+// standing precedent), and a CALL in block-tail position is fine (§1).
+comptime fn tri_sample(j: int, amplitude: int, period: int) -> int {
+    return if j < period / 2 {
+        ((j * amplitude * 4) / period) - amplitude
+    } else {
+        amplitude - (((j - period / 2) * amplitude * 4) / period)
+    }
+}
+
 // deform_triangle — signed triangle wave, pure integer (no sin). Linear ramp
-// -A -> +A -> -A per period. period must divide 256.
+// -A -> +A -> -A per period. period must divide 256. Same contract as
+// deform_sine: 256 signed i8 samples, peak = amplitude (a negative amplitude
+// is a legitimately inverted wave — the neg-label parcel's ruling).
 pub comptime fn deform_triangle(amplitude: int, period: int) -> [i8; 256] {
     ensure(256 % period == 0, "deform_triangle: period {period} must divide 256")
     return comptime for i in 0..256 {
-        if (i % period) < (period / 2) {
-            (((i % period) * amplitude * 4) / period) - amplitude
-        } else {
-            amplitude - ((((i % period) - period / 2) * amplitude * 4) / period)
-        }
+        tri_sample(j: i % period, amplitude: amplitude, period: period)
     }
 }
+
+// GUARD — deform_triangle sample pins (same contract as deform_sine: 256 i8
+// samples, `256 % period == 0`, peak = amplitude). Intended waveform, derived
+// BEFORE the fix, with j = i % period:
+//   j in [0, P/2):  v = (j*4A)/P - A        (linear ramp -A -> +A)
+//   j in [P/2, P):  v = A - ((j - P/2)*4A)/P (linear ramp +A -> -A)
+// For (amplitude: 16, period: 64):
+//   T[0]  = (0*64)/64  - 16 = -16   (trough)
+//   T[16] = (16*64)/64 - 16 =   0   (quarter period, rising zero-crossing)
+//   T[32] = 16 - (0*64)/64  = +16   (peak)
+//   T[48] = 16 - (16*64)/64 =   0   (three-quarter period, falling zero-crossing)
+// and mid-ramp T[8] = (8*64)/64 - 16 = -8. These module-level ensures execute
+// on EVERY build (parallax_dsl is inside every profile's use closure —
+// reachability proven red-first with a deliberate failing ensure, 2026-08-26),
+// so the fold can never silently regress to `()` again: a unit sample makes
+// every pin below fail loudly.
+const TriPin = deform_triangle(amplitude: 16, period: 64)
+ensure(TriPin[0] == -16,
+       "deform_triangle guard: T[0] must be -amplitude (trough), got {TriPin[0]} — a `()` here means the block-tail-if unit fold is back (EMP_PITFALLS §1)")
+ensure(TriPin[16] == 0,
+       "deform_triangle guard: T[period/4] must be 0 (rising zero-crossing), got {TriPin[16]}")
+ensure(TriPin[32] == 16,
+       "deform_triangle guard: T[period/2] must be +amplitude (peak), got {TriPin[32]}")
+ensure(TriPin[48] == 0,
+       "deform_triangle guard: T[3*period/4] must be 0 (falling zero-crossing), got {TriPin[48]}")
+ensure(TriPin[8] == -8,
+       "deform_triangle guard: T[period/8] must be -amplitude/2 (mid-ramp linearity), got {TriPin[8]}")
 
 // v_column_perspective — linear V-tilt ramp for per-column V-scroll. focal is
 // the horizon column (offset 0); max_offset the peak at the far edge. The
