@@ -1,0 +1,532 @@
+// Sonic's insta-shield — the ability hook AND the flash it draws.
+//
+// ONE MODULE for both halves, deliberately. They are one feature sharing one
+// three-value state machine: the hook opens the attack window and spawns the flash,
+// the flash closes the window on its last animation frame, and neither is meaningful
+// without the other. Splitting them would put a two-line `use` edge between twelve
+// instructions and their visual — and the tree's own precedent is the ring sparkle,
+// whose header records that "the self-contained file is the honest unit".
+//
+// ---------------------------------------------------------------------------
+// THE ABILITY (S3K `Sonic_ShieldMoves`, sonic3k.asm:23401-23486, from the press
+// test down). The seam in player_air.emp already owns WHEN an ability fires (a
+// FRESH jump press while already airborne, with the jump buffer unspent so the
+// launch press cannot trigger it); CharDef_Sonic.cd_ability owns WHAT fires.
+//
+// WHAT THE REFERENCE DOES THAT IS NOT HERE, and why: S3K reaches `Sonic_InstaShield`
+// only after a branch tree — Super/Hyper transform, hyper dash, and the
+// fire/lightning/bubble double jumps — each of which takes the press instead and sets
+// `double_jump_flag = 1` itself. None of that exists in this engine (no shields, no
+// Super), so the whole tree collapses to ONE thing: the suppression predicate below,
+// which asks "does the player carry a barrier?" and today always answers no. When
+// shields land they become the branches; the gate does not move.
+//
+// ---------------------------------------------------------------------------
+// THE FLASH (S3K `Obj_InstaShield`, sonic3k.asm:34570-34630). There it is a
+// PERSISTENT object living in a dedicated Shield slot, parked on an invisible idle
+// animation and told to play its attack by a write to `(Shield+anim)`. This engine
+// has no reserved shield slot and no idle-forever objects, so the flash is spawned
+// per use out of the Effect pool and retires itself through `AF_DELETE` — the
+// dust/sparkle lifetime. Everything else about it is S3K's: it inherits the player's
+// position and facing every frame, streams its own DPLC into its own VRAM window, and
+// ends the attack window by writing the player's flag at its last script entry.
+//
+// A FOLLOWER, NOT A FIRE-AND-FORGET DROP. Sonic moves up to ~16 px per frame and the
+// flash is drawn centred on him for 6 visible frames, so a position written once at
+// spawn (the ring sparkle's shape) would visibly trail him. It re-reads the player,
+// exactly as the charge dust does.
+//
+// The player pointer lives in the flash's OWN sst_custom overlay rather than in
+// `parent_ptr`, following dust_spindash.emp for its three reasons: a non-zero
+// parent_ptr makes Draw_Sprite dereference the parent every frame to test
+// RF_MULTISPRITE (children.emp:630-635); parent_ptr carries a documented invariant
+// that its writer also links the object into the parent's sibling chain, and the
+// Tails appendage uses `sibling_ptr != 0` as its sole presence test — a second child
+// kind on a player slot would make a live flash look like a live pair of tails; and
+// holding it here needs no Player_1 label, so it is 2P-ready.
+//
+// The state machine's three values, its landing reset and the attacking predicate are
+// documented at INSTASHIELD_READY in games/sonic4/config/constants.emp.
+// Design note: docs/superpowers/notes/2026-08-26-instashield-design.md.
+module games.sonic4.player_instashield in player_instashield
+
+use engine.objects.sst.{Sst}
+use engine.objects.objdef.{vram_art, vram_bytes}
+use engine.objects.dplc.{dplc_peak_tiles, dplc_peak_entries, DPLC_ENTRY_RESERVE}
+use engine.constants.{RF_PRIORITY_SHIFT, TILE_SIZE, AF_DELETE, AF_SET_FIELD,
+                      ST_XFLIP, DMA_DEFERRABLE_SLOTS}
+use games.sonic4.player_common.{PlayerV}
+use games.sonic4.constants.{PSTATE_JUMP, PSTATE_ROLLJUMP,
+                            VRAM_INSTA_SHIELD, VRAM_TEST_SONIC,
+                            EFFECT_INSTA_SHIELD_BAND,
+                            INSTASHIELD_ATTACKING, INSTASHIELD_SPENT,
+                            INSTASHIELD_SUPPRESS_MASK}
+
+// -----------------------------------------------
+// INSTASHIELD_ABILITY_WH — the ABILITY-STATE COLLISION BOX this ability needs: NONE.
+//
+// Read by CharDef_Sonic (games/sonic4/player/sonic.emp), the way CharDef_Knuckles
+// reads KNUX_ABILITY_RADIUS: the record's box is a fact about the ability, so it is
+// named where the ability is, not left as a bare 0 in a table.
+//
+// And it is a RULING, not an absence. cd_ability_wh feeds set_ability_size, which
+// writes size_wh_off() = Sst.width_pixels/height_pixels — and player_sensors halves
+// those into the TERRAIN sensor radii (:343-346, :547). Knuckles' 10x10 is a physics
+// box. S3K's insta-shield expansion is a 48x48 box that exists ONLY inside
+// TouchResponse and never touches y_radius/x_radius, so routing it through here would
+// give Sonic a 48x48 terrain footprint for 14 frames of every insta-shield — he would
+// stand 24 px above the floor and jam in every corridor. The expansion is booked
+// against the damage system with its arithmetic (docs/DEFERRED_WORK.md; design note
+// §1.5/§2.4), not built here and NOT smuggled through this field.
+// -----------------------------------------------
+pub const INSTASHIELD_ABILITY_WH = 0
+
+// ===========================================================================
+// THE ABILITY
+// ===========================================================================
+
+// -----------------------------------------------
+// instashield_suppressed — THE BARRIER PREDICATE, and the one seam the shield
+// work has to fill in.
+//
+// Leaves the Z flag SET when the player carries nothing that would take the press
+// instead (i.e. the insta-shield is allowed), CLEAR when a barrier or invincibility
+// suppresses it. `dest` is scratch.
+//
+// It cannot fire today and that is stated rather than hidden: nothing writes
+// PlayerV.status_secondary — Player_Init clears it and it has no other writer
+// tree-wide — so the mask always reads 0. The instruction is here anyway because it
+// is the reference's own gate and because "where does the shield check go?" should
+// have exactly one answer with a name on it. A shield system adds WRITERS to
+// status_secondary and changes nothing here.
+//
+// MODULE-PRIVATE ON PURPOSE (not `pub`): a comptime fn's free names resolve at the
+// CALL SITE (docs/EMP_PITFALLS.md §2), and both `PlayerV` and
+// INSTASHIELD_SUPPRESS_MASK are `use`-imported here, so they would NOT travel to a
+// caller in another module — silently, with no diagnostic. One caller, one module.
+comptime fn instashield_suppressed(sst: Reg, dest: Reg) -> Code {
+        return asm {
+                move.b  PlayerV.status_secondary({sst}), {dest}
+                andi.b  #INSTASHIELD_SUPPRESS_MASK, {dest}
+        }
+}
+
+// -----------------------------------------------
+// Ability_InstaShield — CharDef_Sonic.cd_ability.
+//
+// S3K's order is preserved exactly, including the fact that the roll-jump cancel
+// happens BEFORE the suppression test and so still happens when the insta-shield
+// itself is suppressed.
+//
+// THE ROLL-JUMP CANCEL IS A STATE CHANGE, NOT A BIT CLEAR. S3K writes
+// `bclr #Status_RollJump,status(a0)`; this engine has no such bit — the air-control
+// lockout is AIRF_INPUT_LOCK, which PState_RollJump's preamble puts in d6
+// (player_air.emp:70-71, 92), i.e. it is a property of the STATE. PSTATE_ROLLJUMP
+// and PSTATE_JUMP are identical in every other respect (same AIRF_RELEASE_CAP, same
+// PHook_AirBallEnter), so the transition is precisely "lift the lock".
+//
+// It is GATED on actually being in ROLLJUMP, which S3K does not need to be: a
+// `bclr` on a clear bit is a no-op, but an unconditional Player_SetState(PSTATE_JUMP)
+// would run PHook_AirBallEnter and CURL an uncurled faller. Same effect, different
+// precondition, because the mechanisms differ.
+//
+// ONE FRAME OF DEVIATION, STATED. S3K's bclr takes effect the same frame, because
+// Sonic_ChgJumpDir re-tests Status_RollJump after Sonic_JumpHeight returns. Here the
+// current frame's lockout is already latched in the CALLER's d6, and the AbilityHook
+// contract (clobbers d0-d2/a1-a2) forbids touching it — d6 must survive this call.
+// So air control returns on the NEXT frame. Widening the hook contract to let an
+// ability write d6 would be a seam change under the replay gate; booked, not built.
+//
+// In:  a0 = player SST, a4 = the slot's player block (unused here, preserved)
+// Out: none
+// Clobbers: d0-d2, a1-a2 — the AbilityHook contract verbatim (Player_SetState's
+//           d1-d2/a1-a2, plus d0 which carries the target state into it and d1
+//           which the suppression predicate uses).
+// -----------------------------------------------
+pub proc Ability_InstaShield (a0: *Sst) clobbers(d0-d2/a1-a2) preserves(a0) {
+        // (1) THE ONE-SHOT. Any non-READY value refuses: ATTACKING means a flash is
+        // already running, SPENT means this airborne stretch already had its one.
+        // Only a landing re-arms it (PHook_GroundEnter / PHook_RollEnter).
+        tst.b   PlayerV.instashield(a0)
+        bne     .done
+
+        // (2) S3K's `bclr #Status_RollJump` — unconditional in the reference, so it
+        // sits ahead of the suppression test here too.
+        cmpi.b  #PSTATE_ROLLJUMP, PlayerV.player_state(a0)
+        bne     .not_rolljump
+        moveq   #PSTATE_JUMP, d0
+        jbsr    Player_SetState                 // enter hook is PHook_AirBallEnter for
+                                                // both states — idempotent, no curl
+    .not_rolljump:
+
+        // (3) the barrier predicate — always false today (see the fn's comment)
+        instashield_suppressed(a0, d1)
+        bne     .done
+
+        // (4) ATTACKING, then (5) the flash. S3K also plays sfx_InstaAttack ($42)
+        // here; that id is absent from this game's transcoded SFX bank
+        // (data/sound/sfx/sfx_bank.emp carries 11 effects and $42 is not one), so the
+        // sound is BLOCKED on a sound-lane import rather than faked with a wrong id.
+        // Booked in docs/DEFERRED_WORK.md.
+        move.b  #INSTASHIELD_ATTACKING, PlayerV.instashield(a0)
+        jbra    InstaShield_Spawn               // tail — clobbers d0-d2/a1, preserves a0
+    .done:
+        rts
+}
+
+// ===========================================================================
+// THE FLASH — the effect object the ability spawns, and its data
+// ===========================================================================
+
+// -----------------------------------------------
+// The blobs. Art, mappings and DPLC are EMITTED; the donor animation script is a
+// comptime reference ONLY — it is bound to a `const` and never to a `pub data`, so
+// it costs zero ROM bytes and exists so the gates below can COMPUTE their
+// expectations from S3K instead of restating them as literals.
+//
+// Provenance: sonic_hack (the approved data donor). The art was already in-tree and
+// is byte-identical to sonic_hack/art/uncompressed/instashield.bin; the other three
+// are produced by tools/compose_instashield.py from the donor's own .asm listings.
+// Reproduced and byte-compared by tools/test_instashield_art.py.
+// -----------------------------------------------
+const _art_insta    = embed("art/uncompressed/shields/insta_shield.bin")
+const _map_insta    = embed("games/sonic4/data/mappings/insta_shield.bin")
+const _dplc_insta   = embed("games/sonic4/data/dplc/insta_shield.bin")
+const _donor_anim   = embed("games/sonic4/data/animations/insta_shield_donor_anim.bin")
+
+const INSTA_ART_TILES   = 52
+const INSTA_FRAMES      = 8             // S3K's Map_InstaShield offset-table length
+const DONOR_ANIM_LEN    = 17            // the donor attack script, terminator included
+
+ensure(_art_insta.len == INSTA_ART_TILES * TILE_SIZE,
+       "insta_shield.bin is {_art_insta.len} bytes; the S3K sheet is {INSTA_ART_TILES} tiles")
+ensure(_donor_anim.len == DONOR_ANIM_LEN,
+       "insta_shield_donor_anim.bin is {_donor_anim.len} bytes, expected {DONOR_ANIM_LEN} — re-run tools/compose_instashield.py")
+ensure(_map_insta.len <= $7FFF, "Map_InstaShield exceeds signed word-offset range")
+ensure(_dplc_insta.len <= $7FFF, "DPLC_InstaShield exceeds signed word-offset range")
+ensure((_map_insta.len & 1) == 0 && (_dplc_insta.len & 1) == 0 && (_art_insta.len & 1) == 0,
+       "an insta-shield blob is odd-length — the label after it would land on an odd address")
+
+// -----------------------------------------------
+// PALETTE CENSUS — the claim "draws on Sonic's own CRAM line 0 with no remap" pinned
+// to the bytes.
+//
+// The sonic_hack donor uses exactly {0, 6, 7, 8}: transparent, plus $0EEE / $0CAA /
+// $0866 in art/palettes/SonicAndTails.bin — a white-to-blue-grey ramp, which is what
+// the flash is. skdisasm's own Insta-Shield.bin is a DIFFERENT blob (855 bytes
+// differ) using {0, 1, $C, $D}; on our palette those are black and the two REDS, so
+// a rebuild from the wrong donor would silently render the flash in Sonic's shoe
+// colours. This is the check that catches it by name.
+// Flat accumulators over statement ifs, never a nested if-expression (EMP_PITFALLS §1).
+// -----------------------------------------------
+comptime fn insta_index_ok(v: int) -> int {
+    comptime var ok = 0
+    if v == 0 { ok = 1 }
+    if v == 6 { ok = 1 }
+    if v == 7 { ok = 1 }
+    if v == 8 { ok = 1 }
+    return ok
+}
+
+comptime fn count_bad_nibbles(blob: Data, len: int) -> int {
+    comptime var bad = 0
+    for i in 0..len {
+        if insta_index_ok(blob[i] >> 4) == 0  { bad = bad + 1 }
+        if insta_index_ok(blob[i] & $F) == 0  { bad = bad + 1 }
+    }
+    return bad
+}
+
+ensure(count_bad_nibbles(_art_insta, INSTA_ART_TILES * TILE_SIZE) == 0,
+       "insta_shield.bin has {count_bad_nibbles(_art_insta, INSTA_ART_TILES * TILE_SIZE)} pixels outside the donor's index set (0,6,7,8) — regenerated from skdisasm's blob ({{0,1,$C,$D}}) instead of sonic_hack's?")
+
+// -----------------------------------------------
+// THE SCRIPT — S3K's Ani_InstaShield animation 1, and every number in the gates
+// below is COMPUTED from the donor bytes rather than restated.
+//
+// Donor: `dc.b 0, 0,1,2,3,4,5,6,6,6,6,6,6,6,7, $FD, 0` — a duration byte of 0 and
+// FOURTEEN frame bytes. (The leading `0,0` is duration-then-frame-0, not a doubled
+// first frame; misreading it is how "15 frames" gets written down.) Both S3K's
+// Animate_Sprite (`subq.b/bcc`) and Aeon's AnimateSprite (animate.emp:91,
+// `subq.b/bpl`) hold a frame for duration+1 display frames, so the same byte
+// reproduces S3K's cadence exactly.
+//
+// Frames 0-5 are the visible flash; mapping frames 6 and 7 are BOTH the zero-piece
+// frame, so the last 8 entries draw nothing at all. That is deliberate in S3K — the
+// attack window outlives the flash by more than half its length — and it is why the
+// terminal entry has frame index 7 while frame 6 is what precedes it: 7 is reachable
+// exactly once, which is what makes it a usable end-of-attack marker.
+//
+// The only substitution is the terminator: S3K's `$FD, 0` returns the persistent
+// object to its invisible idle; ours is AF_DELETE, because this object is spawned per
+// use and the script owns its lifetime.
+// -----------------------------------------------
+const INSTA_SCRIPT: [u8; 16] = [0,                                  // duration
+                                0, 1, 2, 3, 4, 5,                   // the visible flash
+                                6, 6, 6, 6, 6, 6, 6, 7,             // the invisible tail
+                                AF_DELETE]
+
+// Display frames a script shows before its terminator, in either dialect: the frame
+// bytes are everything up to the first control byte, each held (duration + 1) times.
+// The AF_SET_FIELD floor ($F7) is BELOW S3K's control floor ($FC), so one walker
+// serves both — and stopping at the control byte is what keeps S3K's `$FD` ARGUMENT
+// (a 0, which is a legal frame index) from counting as a fifteenth frame.
+pub comptime fn script_display_frames(script: Data, len: int) -> int {
+    comptime var frames = 0
+    comptime var stop = 0
+    for i in 1..len {
+        if script[i] >= AF_SET_FIELD { stop = 1 }
+        if stop == 0 { frames = frames + 1 }
+    }
+    return frames * (script[0] + 1)
+}
+
+// The last frame index a script reaches — S3K's `cmpi.b #7,mapping_frame`, read out
+// of the reference instead of copied off it.
+pub comptime fn script_last_frame(script: Data, len: int) -> int {
+    comptime var last = 0
+    comptime var stop = 0
+    for i in 1..len {
+        if script[i] >= AF_SET_FIELD { stop = 1 }
+        if stop == 0 { last = script[i] }
+    }
+    return last
+}
+
+// INSTASHIELD_LAST_FRAME is a PURE LITERAL, deliberately, and the ensure below is
+// what keeps it honest. It appears in an INSTRUCTION operand (InstaShield_Main's
+// end-of-attack test), and an embed-derived comptime value in that position does not
+// survive the contract-closure elaboration — the instruction drops out of the
+// analysis silently, which is exactly the under-approximation that gate exists to
+// catch (measured here, 2026-08-26: `InstaShield_Main: 1` dropped). Same call
+// ring_sparkle.emp makes for RING_SPARKLE_ART_LEN, for the same class of reason.
+// The EXPECTATION is still derived: the ensure computes S3K's own last frame out of
+// the embedded donor script and fails by name if this number ever stops matching it.
+pub const INSTASHIELD_LAST_FRAME  = 7
+
+ensure(INSTASHIELD_LAST_FRAME == script_last_frame(_donor_anim, DONOR_ANIM_LEN),
+       "INSTASHIELD_LAST_FRAME is {INSTASHIELD_LAST_FRAME} but S3K's Ani_InstaShield ends on mapping frame {script_last_frame(_donor_anim, DONOR_ANIM_LEN)} — InstaShield_Main's end-of-attack test would never fire, and the attack window would never close")
+ensure(script_display_frames(INSTA_SCRIPT, 16) == script_display_frames(_donor_anim, DONOR_ANIM_LEN),
+       "the insta-shield flash shows {script_display_frames(INSTA_SCRIPT, 16)} display frames; S3K's Ani_InstaShield shows {script_display_frames(_donor_anim, DONOR_ANIM_LEN)} — re-derive the script, do not retune the reference")
+ensure(script_last_frame(INSTA_SCRIPT, 16) == script_last_frame(_donor_anim, DONOR_ANIM_LEN),
+       "the insta-shield script ends on mapping frame {script_last_frame(INSTA_SCRIPT, 16)}; S3K ends on {script_last_frame(_donor_anim, DONOR_ANIM_LEN)} — the end-of-attack marker would never fire")
+ensure(INSTA_SCRIPT[15] == AF_DELETE,
+       "the insta-shield script must end in AF_DELETE — the script owns the effect's lifetime, there is no timer field")
+
+// -----------------------------------------------
+// ZERO PIECES <=> ZERO ENTRIES — the one deviation from the donor DPLC, checked in
+// BOTH directions so it can never become a claim.
+//
+// tools/compose_instashield.py emits a 0-entry DPLC frame for every mapping frame
+// that draws 0 pieces. S3K gets there differently (its object loads a DPLC only on
+// mapping_frame 0 and 3, so its trailing entries are simply never read), while
+// Aeon's generic Perform_DPLC loads on every frame CHANGE — leaving the donor's
+// entries there would DMA 928 dead bytes twice per insta-shield, for frames 6 and 7,
+// which draw nothing.
+//
+// The reverse direction matters just as much: a DRAWN frame with no DPLC entries
+// would render whatever the window last held.
+// -----------------------------------------------
+comptime fn nz(v: int) -> int {
+    comptime var r = 0
+    if v != 0 { r = 1 }
+    return r
+}
+
+comptime fn map_frame_pieces(m: Data, f: int) -> int {
+    comptime var off = (m[f << 1] << 8) | m[(f << 1) + 1]
+    return (m[off + 4] << 8) | m[off + 5]        // FRAME_PIECE_COUNT is at +4
+}
+
+comptime fn dplc_frame_entries(d: Data, f: int) -> int {
+    comptime var off = (d[f << 1] << 8) | d[(f << 1) + 1]
+    return (d[off] << 8) | d[off + 1]
+}
+
+comptime fn zero_frame_mismatches(m: Data, d: Data, frames: int) -> int {
+    comptime var bad = 0
+    for f in 0..frames {
+        if nz(map_frame_pieces(m, f)) != nz(dplc_frame_entries(d, f)) { bad = bad + 1 }
+    }
+    return bad
+}
+
+ensure((((_map_insta[0] << 8) | _map_insta[1]) >> 1) == INSTA_FRAMES,
+       "Map_InstaShield has {(((_map_insta[0] << 8) | _map_insta[1]) >> 1)} frames, expected {INSTA_FRAMES}")
+ensure((((_dplc_insta[0] << 8) | _dplc_insta[1]) >> 1) == INSTA_FRAMES,
+       "DPLC_InstaShield has {(((_dplc_insta[0] << 8) | _dplc_insta[1]) >> 1)} frames, expected {INSTA_FRAMES} — the 3-frame blob this replaced was wrong")
+ensure(zero_frame_mismatches(_map_insta, _dplc_insta, INSTA_FRAMES) == 0,
+       "{zero_frame_mismatches(_map_insta, _dplc_insta, INSTA_FRAMES)} insta-shield frame(s) disagree about being empty — either art is loaded for a frame that draws nothing, or a drawn frame loads none and renders whatever the window last held")
+ensure(map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME) == 0,
+       "the insta-shield's terminal frame draws {map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME)} pieces; S3K's is empty — the flash would freeze on a visible frame for its last tick")
+
+// -----------------------------------------------
+// THE VRAM WALL — the peak comes from the DATA, and the wall from its owner.
+// 928 + 29 = 957, three tiles below the character window.
+// -----------------------------------------------
+ensure(VRAM_INSTA_SHIELD + dplc_peak_tiles(_dplc_insta) <= VRAM_TEST_SONIC,
+       "the insta-shield's peak DPLC frame overruns its VRAM window into the character window — widen games/sonic4/vram.toml's insta_shield region or re-page the art")
+
+// Entries are DMA queue SLOTS, a quantity dplc_peak_tiles does not measure. This
+// object streams on the DEFERRABLE queue (see InstaShield_Main), not the Important
+// one Sonic's own DPLC saturates, so the budget is DMA_DEFERRABLE_SLOTS; the same
+// DPLC_ENTRY_RESERVE headroom is kept, because the deferrable queue also carries the
+// charge dust and whatever else slips there on a busy frame.
+ensure(dplc_peak_entries(_dplc_insta) + DPLC_ENTRY_RESERVE <= DMA_DEFERRABLE_SLOTS,
+       "the insta-shield DPLC's peak frame costs more Deferrable queue slots than the budget leaves — re-page the art")
+
+// -----------------------------------------------
+// The follower's own sst_custom overlay — just the player it tracks. NOT parent_ptr;
+// see the module header and dust_spindash.emp's DustV for the three reasons.
+// -----------------------------------------------
+vars InstaV: Sst.sst_custom {
+        player: u16,            // the player SST this flash is attached to
+}
+
+// Band = player + 1 -> IN FRONT of the character, matching S3K's priority $80 against
+// the player's $100 (the conventions are inverted; the RELATIONSHIP transfers, never
+// the number). config/constants.emp owns the relationship and its ensures.
+// Whole-byte write into a freshly zeroed slot — nothing is inherited, so the
+// clear-then-set set_priority_band idiom is not needed. RF_COORDMODE stays clear:
+// world coordinates, like the player's.
+const INSTA_SHIELD_RENDER_FLAGS = EFFECT_INSTA_SHIELD_BAND << RF_PRIORITY_SHIFT
+
+// Palette 0, low priority — vram_art(tile,0,0) == tile. S3K writes
+// make_art_tile(ArtTile_Shield,0,0) and then copies the player's high-priority bit;
+// our player's art_tile is vram_art(cd_vrambase,0,0) with that bit CLEAR, so the copy
+// would be a no-op and is not reproduced. The palette line is Sonic's own (line 0),
+// which the census above proves the art belongs on.
+const INSTA_SHIELD_ART_ATTR = vram_art(VRAM_INSTA_SHIELD, 0, 0)
+
+// -----------------------------------------------
+// InstaShield_Spawn — drop the flash on the player.
+//
+// Called (tail) from Ability_InstaShield, which has already refused the one-shot and
+// the barrier predicate and written INSTASHIELD_ATTACKING.
+//
+// prev_anim/prev_frame = $FF is the animator-owned init documented on
+// RefreshSpritePieceCount: the first AnimateSprite takes its .anim_changed path and
+// populates the piece count + frame_off cache before the first render, so there is no
+// PopulateSpawnedPieceCount call here.
+//
+// `anim` is left at the slot's zeroed 0 rather than written: S3K writes 1 because its
+// table's attack script is index 1 (index 0 is the invisible idle a persistent object
+// needs); ours has one row and it is the attack.
+//
+// In:  a0 = player SST
+// Out: the flash allocated, or NOTHING if the effect pool is exhausted — the silent
+//      skip every creator uses (children.emp:604). THE ATTACK STILL HAPPENS: the flag
+//      was written before this call, so a flash lost to a full pool costs the visual
+//      and nothing else. Dropping the new cosmetic is the unanimous policy here; do
+//      not add eviction.
+// Clobbers: d0 (AllocEffect's status), a1
+// Preserves: a0
+// -----------------------------------------------
+pub proc InstaShield_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
+        jbsr    AllocEffect             // a1 = slot on the eq edge; a1 survives the
+        bne     .done                   //   pool-empty edge untouched
+
+        move.w  #InstaShield_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  Sst.x_pos(a0), Sst.x_pos(a1)    // placed NOW, not left at 0: the Effect
+        move.l  Sst.y_pos(a0), Sst.y_pos(a1)    //   sweep may render this slot before
+                                                //   its first Main runs
+        move.l  #Map_InstaShield, Sst.mappings(a1)
+        move.w  #INSTA_SHIELD_ART_ATTR, Sst.art_tile(a1)
+        move.l  #Ani_InstaShield, Sst.anim_table(a1)
+        move.b  #$FF, Sst.prev_anim(a1)
+        move.b  #$FF, Sst.prev_frame(a1)
+        move.b  #INSTA_SHIELD_RENDER_FLAGS, Sst.render_flags(a1)
+        move.w  a0, InstaV.player(a1)
+    .done:
+        rts
+}
+
+// -----------------------------------------------
+// InstaShield_Main — follow the player, end the attack window, animate, stream, draw.
+//
+// Runs from the Effect sweep, which RunObjects walks AFTER the Player sweep, so the
+// position and status read here are the player's FINAL values for this frame.
+//
+// THE END-OF-ATTACK TEST SITS BEFORE THE ANIMATOR, AND THE ORDER IS DERIVED.
+// S3K tests after (`cmpi.b #7,mapping_frame` then write 2, sonic3k.asm:34613-34617)
+// because its TouchResponse runs on the player BEFORE the Shield object in the same
+// pass — so the frame on which the object writes 2 is still an attacking frame for
+// that frame's touch test, and the window comes to 14. Aeon's level tick is the other
+// way round: RunObjects (players AND effects) and then TouchResponse
+// (games/sonic4/test/ojz_scroll_test.emp:597, 693), so a write made during this call
+// IS visible to the same frame's touch test, and S3K's placement would give 13.
+// Moving the test one call earlier — it then sees the frame the PREVIOUS call set —
+// puts the write on this object's fifteenth and last call, the one where AF_DELETE
+// retires it, and restores the count to exactly 14. Same reference behaviour, opposite
+// instruction order, because the surrounding order is opposite.
+//
+// The compare-before-write is S3K's, for S3K's reason: the player may have LANDED
+// under a running flash, which re-arms his flag to READY, and a landed player must not
+// have SPENT written back over that fresh 0.
+//
+// Running AnimateSprite last is also what makes the AF_DELETE underneath it safe. The
+// slot is zeroed by then, so Perform_DPLC_Deferrable reads mapping_frame == prev_frame
+// == 0 and returns at its first branch, and Draw_Sprite guards null mappings
+// (sprites.emp:72-74) — the same animate-then-draw-a-dead-slot path dust_puff and
+// ring_sparkle already run. The player pointer is read ONCE, at the top, so nothing
+// dereferences a stale a1 afterwards.
+//
+// NO RETIREMENT POLL, unlike the charge dust: this object's life is a fixed 15 calls
+// and the script ends it, so there is no state to fall out of sync with.
+//
+// In:  a0 = own SST
+// Clobbers: d0-d4, a1-a3 — the callee union: AnimateSprite (d0-d2/a1-a2) union
+//           Perform_DPLC_Deferrable (d0-d4/a1-a2, a3 an input written here) union
+//           Draw_Sprite (d0-d3/a1). a0/d7 preserved per the dispatch contract.
+// -----------------------------------------------
+pub proc InstaShield_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
+        movea.w InstaV.player(a0), a1
+
+        // Position is the player's EXACTLY — the flash is centred on him, and the
+        // offsets live in its mappings (S3K: `move.w x_pos(a2),x_pos(a0)`).
+        move.l  Sst.x_pos(a1), Sst.x_pos(a0)
+        move.l  Sst.y_pos(a1), Sst.y_pos(a0)
+
+        // Mirror the facing only. AnimateSprite propagates status bits 1-2 into
+        // render_flags itself, so copying the whole status byte would drag across bits
+        // this object has no business carrying — S3K masks its own inherit to the
+        // orientation bit for the same reason (`andi.b #1,status(a0)`).
+        bclr    #ST_XFLIP, Sst.status(a0)
+        btst    #ST_XFLIP, Sst.status(a1)
+        beq     .no_flip
+        bset    #ST_XFLIP, Sst.status(a0)
+    .no_flip:
+
+        // End of the attack window — see the ordering note above.
+        cmpi.b  #INSTASHIELD_LAST_FRAME, Sst.mapping_frame(a0)
+        bne     .not_over
+        cmpi.b  #INSTASHIELD_ATTACKING, PlayerV.instashield(a1)
+        bne     .not_over                       // landed under us: leave his fresh READY
+        move.b  #INSTASHIELD_SPENT, PlayerV.instashield(a1)
+    .not_over:
+
+        jbsr    AnimateSprite                   // may DELETE this slot (AF_DELETE)
+
+        movea.l #DPLC_InstaShield, a2
+        movea.l #Art_InstaShield, a3
+        move.w  #vram_bytes(VRAM_INSTA_SHIELD), d1
+        jbsr    Perform_DPLC_Deferrable         // Deferrable, not Important: Sonic's own
+                                                // DPLC already saturates the Important
+                                                // queue (collision_data.emp's ratchet),
+                                                // and this is cosmetic non-player art
+                                                // that may slip a frame. A dropped
+                                                // enqueue leaves prev_frame stale, so
+                                                // the next frame RETRIES.
+        jbra    Draw_Sprite
+}
+
+// -----------------------------------------------
+// Data — the sprite trio and the script, in this section with the code.
+// -----------------------------------------------
+pub offsets Ani_InstaShield {
+    Attack: [u8; 16] = INSTA_SCRIPT,
+}
+
+pub data Map_InstaShield  (align: 2) = _map_insta
+pub data DPLC_InstaShield (align: 2) = _dplc_insta
+pub data Art_InstaShield  (align: 2) = _art_insta

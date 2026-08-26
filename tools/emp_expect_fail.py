@@ -313,6 +313,11 @@ CASES: list[tuple[str, str, str, int]] = [
     # if folding, this module builds CLEAN and the case fails — the retirement signal, see
     # the poison's header. Exactly 1: the module holds one ensure.
     (f"{POISON}/poison_tail_if_unit_fold.emp",   "tri unit fold", "TAIL_IF_UNIT_FOLD: the block-tail-if element folded P[0] to () while the shipped generator folds -16", 1),
+    # One case: script_display_frames() (games/sonic4/player/player_instashield.emp) fed a
+    # 3-frame script that ends in S3K's own two-byte `$FD, 0` terminator — the shape whose
+    # ARGUMENT is a legal frame index. The fragment quotes the folded 3, so a walker that
+    # counted that argument (printing 4) fails the case rather than passing it.
+    (f"{POISON}/poison_instashield_frames.emp", "insta-shield frames", "INSTASHIELD_POISON: a 3-frame script shows 3 display frames", 1),
 ]
 
 

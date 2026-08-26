@@ -163,6 +163,27 @@ pub vars PlayerV: Sst.sst_custom {
                                         // shift-list, or every rebase during a climb trips the
                                         // drift guard and drops Knuckles off the wall (same class
                                         // as the Player_Pos_Ring note in Task 8).
+
+        // Sonic's insta-shield one-shot (games/sonic4/player/player_instashield.emp):
+        // INSTASHIELD_READY / _ATTACKING / _SPENT — S3K's double_jump_flag values,
+        // and the same three-value machine (config/constants.emp owns the names).
+        //
+        // THE ONE BYTE IN THIS BLOCK THAT IS SONIC-REACHABLE, so the replay-hash
+        // paragraph above does NOT cover it. The other five are address-free AND
+        // Sonic-unreachable, which is exactly what lets Player_Init skip clearing
+        // them; this one is written on Sonic's own path, so it is cleared like the
+        // rest of his state — at init and on every landing (PHook_GroundEnter /
+        // PHook_RollEnter). Both clears write 0 over 0 on any tick where no
+        // insta-shield fired, and the replay hash folds VALUES, so a recorded
+        // fixture moves only where an insta-shield actually happens.
+        //
+        // A NEW field rather than a rename of fly_thrust (Tails' flap ramp — and
+        // S3K's double_jump_flag for HIM): the union principle above says a later
+        // ability re-uses these bytes, but the language cannot express the sharing
+        // and all five existing ones are declared in place, so this follows the
+        // precedent instead of making one name wrong for two characters. Appended
+        // at the TAIL, so no existing overlay offset moves. 26 -> 27 of 30.
+        instashield:      u8,           // 0 ready / 1 attacking / 2 spent (per airborne stretch)
 }
 // _pl_state — the player-state byte's SST-custom offset, link-exported for
 // engine.camera's GAME_CAMERA_JUMP_LOCK probe (`extern("Player_1") +
@@ -441,6 +462,10 @@ pub proc Player_Init (a0: *Sst) clobbers(d0-d2/a1-a2) {
         clr.b   PlayerV.stick_convex(a0)
         clr.b   PlayerV.skid_latch(a0)
         clr.b   PlayerV.getup_timer(a0)
+        clr.b   PlayerV.instashield(a0)         // Sonic-reachable ability state: cleared
+                                                // here like the rest of his per-slot
+                                                // state, so an act entered while a flash
+                                                // was running does not start SPENT
         clr.b   PlayerV.look_offset(a0)
         clr.b   PlayerV.player_state(a0)        // defined start for SetState's exit lookup
         moveq   #PSTATE_AIR, d0                 // drop to ground on frame 1
@@ -1078,7 +1103,24 @@ pub proc PHook_Null () clobbers() {
         rts
 }
 
+// THE INSTA-SHIELD ONE-SHOT RESETS ON LANDING, in this hook and PHook_RollEnter.
+//
+// S3K clears double_jump_flag in Player_TouchFloor (sonic3k.asm:24379-24390), one
+// routine every landing passes through. Aeon has no such routine — Knuckles' four
+// landing paths deliberately bypass the airborne helpers (see the ST_PUSHING note
+// below) — but every landing enters a STATE, and for Sonic that state is GROUND or
+// ROLL (a down-held landing goes straight to ROLL via Air_LandState). So the two
+// enter hooks are the complete set for him, and the clear lives in them.
+//
+// PHook_SlideEnter and PHook_ClimbEnter are the other two grounded/attached enter
+// hooks and deliberately do NOT clear it: both are Knuckles-only, and he has no
+// insta-shield. Named here rather than left implicit, so a future Sonic ability that
+// can reach them is a conscious change and not a silent one-shot that never resets.
+//
+// Writing 0 over 0 on every ordinary landing is free of consequence for the replay
+// fixtures — the hash folds values, not writes.
 pub proc PHook_GroundEnter (a0: *Sst) clobbers(d1-d2/a1) { // d2: EnsureStanding's y-shift calc
+        clr.b   PlayerV.instashield(a0)         // landing re-arms the insta-shield
         jbsr    PHook_EnsureStanding            // uncurl (jump/ball landings;
                                                 // down-held landings go straight
                                                 // to ROLL via Air_LandState)
@@ -1111,6 +1153,11 @@ pub proc PHook_AirBallEnter (a0: *Sst) clobbers(d1-d2/a1) { // JUMP / ROLLJUMP /
 }
 
 pub proc PHook_RollEnter (a0: *Sst) clobbers(d1-d2/a1) { // grounded ball — entered from (d2: EnsureBall shift)
+        clr.b   PlayerV.instashield(a0)         // the OTHER landing state — see
+                                                // PHook_GroundEnter's note. Also runs
+                                                // on a ground roll START, which is
+                                                // already grounded, so the clear is a
+                                                // no-op there.
         jbsr    PHook_EnsureBall                // GROUND (roll start), SPINDASH
         bclr    #ST_IN_AIR, status(a0)          // (release), or a curled/down-
         rts                                     // held landing (air → cleared)

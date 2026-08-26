@@ -54,9 +54,24 @@ const = "VRAM_RING_SPARKLE"
 # for the act, like dust_puff: concurrent sparkles sit on different frames, so
 # the block is never streamed (docs/superpowers/notes/2026-08-26-ring-sparkle-design.md)
 
-[[free]]
+[[region]]
+name = "insta_shield"
+owner = "games.sonic4.insta_shield"
+kind = "window"
 base = 928
-tiles = 32
+tiles = 29
+lifetime = "act"
+const = "VRAM_INSTA_SHIELD"
+# Sonic's insta-shield flash: STREAMED, not resident. The sheet is 52 tiles (two
+# 23/29-tile blocks the donor DPLC pages between), which no free run can hold —
+# the only one big enough would have to come out of fg_art_pool, and its ceiling
+# is POOL_TILE_CEILING, which moves RAM. 29 = the peak DPLC frame, and the .emp
+# re-derives it from the blob rather than trusting this number
+# (docs/superpowers/notes/2026-08-26-instashield-design.md §2.6).
+
+[[free]]
+base = 957
+tiles = 3
 # the page-quantised carve's remainder — future sprite art
 
 [[region]]
