@@ -8302,6 +8302,93 @@ shift 2 below the anchored split.
   that moves bytes deliberately) this test becomes a real differential and should be run then."
   P3 moves bytes deliberately.
 
+### PARK-1 — should any OJZ scene ADOPT the new mechanisms? — ANSWERED 2026-08-26 (owner decision `d-15`, option `depth-curve`) · **AUTHORED, AND BLOCKED ON `d-9`**
+
+**The answer is two of the four: per-layer vertical depth (T11) and curved scrolling (T10) ON;
+per-layer deform `own()` (T9) and the left-column mask (T12) stay OFF.** Authored on the
+`parcel/showcase-effects` branch — and it **does not build**, on a gate that is itself an
+un-answered owner decision. See "The curve does not fit in this ROM" below before reading
+anything else here as landed.
+
+#### ⛔ THE CURVE DOES NOT FIT IN THIS ROM — `d-9`'s revisit trigger has fired
+
+`tools/bganim_room.py --gate` (run by `tools/test_bg_emit.py` inside every canonical
+`./build.sh`) **FAILS** on the branch. Measured on `s4.debug.lst`, three FAST builds off the
+same tree, one variable changed at a time:
+
+| tree | `Art_Sonic` | free before the `0x48000` anchor | + section holds | room | vs the 12288 B ceiling |
+|---|---|---|---|---|---|
+| baseline (`master`) | `0x2F090` | 4784 B | 8238 B | **13022 B** | +734 B margin |
+| T11 only (vsplit, no curve) | `0x2F130` | 4624 B | 8238 B | **12862 B** | +574 B margin — **PASSES** |
+| T11 + T10 (the full ruling) | `0x2F430` | 3856 B | 8238 B | **12094 B** | **−194 B — FAILS** |
+
+So the per-layer vertical split costs **160 B** and the curve costs **768 B**, against a baseline
+margin of **734 B**. Subtracting: **the curve does not fit even on its own** — 13022 − 768 =
+12254 B, still 34 B short. This is not a property of how many layers curve. `band_record`'s tail
+is `[band_curve; BAND_CURVE_N]` on EVERY band record in the tree, so the charge is
+`sizeof(band_curve) × every band in the game` the moment the capability is on, and one curve
+costs exactly what five do.
+
+**The two exits are both `d-9`'s, and neither is the assistant's to take.** `bganim_room`'s own
+message names them: shrink `BGANIM_SECTION_CEILING` in `tools/inject_editor_bg.py` (BG-animation
+authors lose band size — paying for a parallax feature out of the owner's animation budget), or
+take the relocation option `d-9` kept open (a ROM re-layout). It also says **do not raise the
+anchor**, which is correct: `0x48000` is a Z80 `SetBank` latch. `d-9` chose `fitinplace` on
+2026-08-24 and was told in terms that "if Sonic's art ever grows, this has to be revisited" — the
+revisit is now due, triggered from the other side: not Sonic's art growing but the band record
+widening underneath it.
+
+**The branch was NOT trimmed to `one` (T11 only) to reach green.** That option was on `d-15`'s
+own menu and the owner did not pick it; taking it here would answer a question he was asked and
+declined. The branch carries the full ruling and fails honestly. Landing it needs one of `d-9`'s
+two answers first; nothing else about the parcel is waiting on anything.
+
+**Where it landed, and it is NOT one of the twenty shipped hand scenes.** The adopting scene is
+`ojz_act1_depth`, authored in `games/sonic4/data/editor/effects/ojz_act1_depth.json` (the Aurora
+wave-1 surface) and assigned to act section 4 by `games/sonic4/data/editor/ojz/act1/
+section_4.meta.json`. The twenty hand scenes in `games/sonic4/data/effects/ojz_scenes.emp` are
+untouched, so `scene_equiv_proof.emp` — the permanent field-for-field witness — and
+`scene_registry.emp`'s two-sided `SceneRegistry_CapsExpected == $001F` pin plus its
+`CAP_FACTOR_CURVE == 0` assertion all still hold unchanged and unrelaxed. That was the deciding
+constraint on placement: adopting a curve on a *registry* scene would have had to break both pins.
+
+**What the curve half cost outside the scene**, exactly as `scene_registry.emp`'s
+`CAP_FACTOR_CURVE` pin says it must, all in one commit:
+
+| file | was | now |
+|---|---|---|
+| `games/sonic4/config/game.emp` `SCANLINE_CAPS` | `$001F` | `$005F` (`\| CAP_FACTOR_CURVE`) |
+| `engine/level/parallax.emp` `BAND_CURVE_N` | `0` | `1` |
+| `engine/ram.emp` `BAND_CURVE_BYTES` | `0` | `10` (`CURVE_CARRY_WORDS` derives to 2) |
+
+`BAND_CURVE_N` is a pinned engine literal, not a per-game fold, so **`demo` pays the widened band
+record too** — both images move and both are rebuilt by this parcel. That is the constant's
+documented design (its own banner), not a leak.
+
+**What the vertical-depth half cost.** A vsplit lowers to a RASTER PROGRAM, not to a band record,
+and `tools/effects_gen.py` renders the attachment but emits no program — raster preset composition
+from the editor is **wave 2 and has not landed** (`tools/EFFECTS_CONSUMER_CONTRACT.md`'s own note).
+So the install is hand-side: `OJZ_DepthVSplit` + `OJZ_Preset_Depth` in
+`games/sonic4/data/effects/ojz_effects.emp`, bound to section 4 by the act descriptor. The scene
+const is IMPORTED there rather than re-authored, so the two fire lines stay derived from the
+editor JSON's own layer tops. **STILL OPEN:** when wave 2 lands, that block and `OJZ_Preset_Depth`
+are what it replaces — the generated module should emit the program and the binding itself.
+
+**PARK-2 (`d-27`, the left-column artifact) IS NOT MADE LIVE BY THIS PARCEL, contrary to its own
+"only live if d-15 turns on per-layer depth" note.** The artifact is a property of per-column
+V-scroll mode (VDP reg `$0B` bit 2), which is `SceneVDeform.Columns` — T9/T11's *horizontal-grain*
+cousin. Per-layer vertical depth (T11) is a **whole-plane** VSRAM write from a raster fire and
+never enters per-column mode; `scene()` in fact REFUSES the two together. `d-27`'s premise
+conflates the two mechanisms. It stays parked, and its trigger remains "a scene adopts
+`SceneVDeform.Columns` with non-zero plane-B HScroll", which no installable config does.
+
+**PARK-5 (the budget slack policy) was NOT reached**, which is why this option was the recommended
+one. Measured headroom is in the branch's merge evidence; the adopting scene's axis-1 charge is
+~18.3k of the 103,743 cycles the gate leaves, and axes 2/3 are unchanged (the section-0 scene was
+already per-line). **PARK-3 (curve ∧ deform on one layer) was not touched and no guard was
+relaxed:** the adopting scene's curve layers carry `dsa: 15, dsb: 15` and it attaches no anchor,
+which is what `layer()`'s and `scene()`'s curve guards require.
+
 ### ~~P3 Phase 0 Task 1 — the anchored overlay's two regimes~~ — CLOSED 2026-08-20 (`measure/p3-t1-anchor-regimes`)
 
 **The parameter is `anchor_ops` = 59.27 cycles per Step-4b overlay loop iteration, on top of a
