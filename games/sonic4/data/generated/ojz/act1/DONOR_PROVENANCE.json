@@ -16,7 +16,7 @@
       "branch": "master",
       "dirty": true,
       "env_var": "AEON_SONIC_HACK_DIR",
-      "head": "b7a62a978673329073bc07e1a9e20837351484af",
+      "head": "858af72c50083fa9e721ac1ecd69095022d3659e",
       "modified_tracked": 11,
       "path": "/home/volence/sonic_hacks/sonic_hack",
       "role": "level layouts, Kosinski art, chunk+block maps, palette",
@@ -26,11 +26,11 @@
   },
   "generator": {
     "dirty": true,
-    "head": "4fda258481891121f1288f6d16e68426592a61ad",
-    "modified_tracked": 41,
+    "head": "415e0b6ad62ca355102e4010811bce6aa1afd8f1",
+    "modified_tracked": 4,
     "repo": "aeon",
     "status": "git",
-    "untracked": 5
+    "untracked": 2
   },
   "mode": "rebake",
   "schema": 1

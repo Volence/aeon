@@ -1,0 +1,53 @@
+{
+  "anchor": {
+    "at": {
+      "channel": 0,
+      "dsa": 15,
+      "dsb": 2
+    }
+  },
+  "id": "ojz_act1_start",
+  "layers": [
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_16",
+      "world_y": 0
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_16",
+      "world_y": 32
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_8",
+      "world_y": 80
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_4",
+      "world_y": 112
+    },
+    {
+      "dsa": 15,
+      "dsb": 15,
+      "fa": "FACTOR_1",
+      "fb": "FACTOR_1_2",
+      "world_y": 160
+    }
+  ],
+  "name": "OJZ act 1 start — banded canopy (round-trip test)",
+  "schema": 1,
+  "transition": "instant",
+  "v_center": 0,
+  "v_factor": 15,
+  "v_offset": 0
+}
