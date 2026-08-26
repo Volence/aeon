@@ -1,14 +1,9 @@
 {
-  "focus": "Your showcase answer is 194 bytes too big and needs your call. Two agents on gate correctness.",
+  "focus": "You found the showcase effect does not actually show. Finding out why before asking you anything else.",
   "inFlight": [
     {
-      "what": "Diagnosing whether a debug warp fails to pick up a section's background settings",
-      "where": "branch diag/warp-parallax-reresolve",
-      "agent": true
-    },
-    {
-      "what": "Closing two more checks in the same boot test that read the wrong word",
-      "where": "branch parcel/boot-override-reach-2",
+      "what": "Finding out why the new background effect does not show on screen, and whether the foreground fault is ours",
+      "where": "branch diag/showcase-invisible",
       "agent": true
     }
   ],
@@ -79,14 +74,14 @@
       "since": "2026-08-26"
     }
   ],
-  "nextBoundary": "Both running agents landing. The showcase parcel cannot land until d-28 is answered.",
+  "nextBoundary": "When the investigation reports what is actually wrong.",
   "queue": [
     {
       "id": "SHOWCASE-EFFECTS",
-      "title": "Your showcase answer is authored in full and builds, but the curved horizon misses fitting by 194 bytes. Not trimmed to fit; waiting on you.",
+      "title": "You played it and the effect does not read: no depth, no split, no curve, and the foreground draws wrong. Under investigation. The 194-byte question is on hold until we know whether the feature works at all.",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "your answer on d-28",
+      "blockedBy": "the investigation, then your answer on d-28",
       "project": "EFFECTS-W1"
     },
     {
@@ -97,7 +92,7 @@
       "blockedBy": "the sigil lane"
     }
   ],
-  "awaiting": "your answer on d-28 - the curve does not fit, and the fix collides with a limit you set days ago",
+  "awaiting": "nothing from you right now - d-28 is on hold until we know the feature works",
   "atBoundary": false,
-  "updatedAt": "2026-08-26T15:44:50Z"
+  "updatedAt": "2026-08-26T16:15:19Z"
 }
