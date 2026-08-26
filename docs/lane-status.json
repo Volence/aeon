@@ -1,14 +1,14 @@
 {
-  "focus": "Building your showcase-effects answer and the crossing check. Twelve calls still with you.",
+  "focus": "Crossing check landed and verified. Building your showcase answer; fixing a check that never fired.",
   "inFlight": [
-    {
-      "what": "The parallax crossing witness gate",
-      "where": "branch parcel/parallax-crossing",
-      "agent": true
-    },
     {
       "what": "Turning on depth and curved scrolling in the showcase, your d-15 answer",
       "where": "branch parcel/showcase-effects",
+      "agent": true
+    },
+    {
+      "what": "Fixing a safety check that could never actually fail",
+      "where": "branch parcel/boot-override-reached",
       "agent": true
     }
   ],
@@ -74,21 +74,13 @@
       "since": "2026-08-26"
     }
   ],
-  "nextBoundary": "When both agents land. The showcase parcel then needs a paired freeze with the assembler lane.",
+  "nextBoundary": "When the showcase parcel lands. That one moves bytes and needs a paired freeze with the assembler.",
   "queue": [
     {
       "id": "SHOWCASE-EFFECTS",
       "title": "Your answer on which background effects the showcase turns on, being built now. It moves ROM bytes, so it lands paired with the assembler.",
       "state": "doing",
       "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
-    },
-    {
-      "id": "PARALLAX-CROSSING",
-      "title": "The new safety check watches the game pick its background settings at the moment you land, but stops there by design - it says nothing about what happens when you walk across into the next section. That crossing is still unwatched, and now that a real authored band exists there is something worth watching. Small and self-contained.",
-      "state": "doing",
-      "size": "S",
       "blockedBy": null,
       "project": "EFFECTS-W1"
     },
@@ -102,5 +94,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-08-26T14:59:07Z"
+  "updatedAt": "2026-08-26T15:26:56Z"
 }
