@@ -199,19 +199,23 @@ comptime fn probe_core(ptable: Label, pcolreg: Reg, paxreg: Reg, pstep: int, pne
                 beq     .cl_air
                 moveq   #0, d3
                 move.b  d2, d3                 // attr index
-                lea     (SolidityTable).l, a1  // ROM table above $8000 — abs.l PINNED (see the placer note above)
+                lea     SolidityTable, a1      // unsized: sigil measures at the packed base now (ac84536f)
                 move.b  (a1, d3.w), d0
                 // gate is "class == SOLID_ALL || (class & mask)"; ALL = TOP|LRB,
                 // so a single AND covers both cases for any nonzero mask
                 and.b   d6, d0
                 beq     .cl_air                // wrong class for this sensor → air
-                lea     (AngleTable).l, a1     // ROM table above $8000 — abs.l PINNED
+                lea     AngleTable, a1         // unsized: see SolidityTable above
                 move.b  (a1, d3.w), d1         // raw angle (odd flag passes through)
                 lsl.w   #4, d3                 // attr × 16
                 move.w  {pcolreg}, d0
                 andi.w  #$F, d0                // height-column index
                 add.w   d0, d3
-                movea.l #{ptable}, a1          // HeightMaps/HeightMapsRot — immediate: 6 B like abs.l, relaxation-invariant
+                movea.l #{ptable}, a1          // HeightMaps/HeightMapsRot. NOT a placer workaround: `({ptable}).l`
+                                               // does not parse in a template arg, so this site was always an
+                                               // immediate. Measured 2026-08-26: swapping it to `lea {ptable}` is
+                                               // the SAME 6 bytes but a different opcode, so the ROM CRC moves for
+                                               // no behavioural gain. Leave it.
                 move.b  (a1, d3.w), d0
                 ext.w   d0
                 {probe_neg(pnegate)}
