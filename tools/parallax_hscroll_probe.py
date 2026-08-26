@@ -106,7 +106,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 HSCROLL_LINES = 224
 HSCROLL_ENTRY = 4                    # bytes: FG word, then BG word
 HSCROLL_BYTES = HSCROLL_LINES * HSCROLL_ENTRY      # 896 — matches ram.emp:270
-PERCELL_CELLS = 28
+# (PERCELL_CELLS = 28 lived here until 2026-08-26; the per-cell filler is deleted.)
 
 # `pub struct band_entry` — engine/level/parallax.emp. 10 bytes, RESHAPED (not resized) by
 # P3 Task 7: the top is a u16 and the two 1-bit factor-op flags share one packed byte.
@@ -333,14 +333,10 @@ def derive_shadow(cfg: bytes, vscroll_bg: int, cur_a, cur_b, anchor_L):
     return Shadow(tops, dsa, dsb, phase, sa, sb, anchor_L)
 
 
-def per_line_mode(cfg: bytes) -> bool:
-    """The mode key — engine/level/parallax.emp:1012-1024, and its twin in engine.buffers.
-
-    per-line iff either H-deform table is non-NULL, OR the config carries an anchor.
-    """
-    tf = int.from_bytes(cfg[CFG_DEFORM_TAB_FG:CFG_DEFORM_TAB_FG + 4], "big")
-    tb = int.from_bytes(cfg[CFG_DEFORM_TAB_BG:CFG_DEFORM_TAB_BG + 4], "big")
-    return bool(tf or tb) or cfg[CFG_ANCHOR_CH] != ANCHOR_NONE
+# `per_line_mode(cfg)` lived here until 2026-08-26 — the transcription of the runtime mode
+# key (per-line iff a header table is non-NULL or the config is anchored). The key, the
+# per-cell filler and the 112-byte DMA were deleted under owner ruling d-29-corrected; the
+# fill is per-line for every config, so every buffer this probe reads is 224 entries.
 
 
 def derive_hscroll(cfg, shadow, tab_fg, tab_bg, phase_fg, phase_bg, cam_y_hi, vscroll_bg):
@@ -358,25 +354,16 @@ def derive_hscroll(cfg, shadow, tab_fg, tab_bg, phase_fg, phase_bg, cam_y_hi, vs
     and :1317-1320): the FG index folds Camera_Y's pixel high word, the BG index folds
     Parallax_Current_Vscroll_BG, so the wave rides the ART rather than the screen.
 
-    Per-cell (Parallax_Fill_PerCell, parallax.emp:1495-1541) writes one longword per CELL,
-    28 of them, taken straight from the band scroll words: no sampling, no phase.
+    There is no per-cell arm any more (2026-08-26, d-29-corrected): every config runs the
+    per-line filler, so the expectation is always 224 entries, one per screen line.
     """
-    per_line = per_line_mode(cfg)
-    total = HSCROLL_LINES if per_line else PERCELL_CELLS
+    total = HSCROLL_LINES
     out = [None] * total
-    # THE PER-CELL FILLER COUNTS CELLS, and it converts the shadow view's LINE-unit tops on the
-    # way in: `move.b band_top_line_next(a1), d4 / lsr.w #3, d4` (parallax.emp:1516-1518), with
-    # the last band's end already in cells (28) because 224 >> 3 == 28. Walking the line-unit
-    # tops here instead put a 2-band per-cell config's whole 28 cells in band 0 — caught by
-    # test_per_cell_mode_writes_only_28_entries, not by any emulator run, because the shipped
-    # OJZ configs are all per-line.
-    unit = 1 if per_line else 8
     for i, (lo, hi) in enumerate(shadow.spans(HSCROLL_LINES)):
-        lo, hi = lo // unit, hi // unit
         lo, hi = max(0, min(lo, total)), max(0, min(hi, total))
         base_fg, base_bg = shadow.scroll_a[i], shadow.scroll_b[i]
-        f_on = bool(tab_fg) and shadow.dsa[i] != NO_DEFORM and per_line
-        b_on = bool(tab_bg) and shadow.dsb[i] != NO_DEFORM and per_line
+        f_on = bool(tab_fg) and shadow.dsa[i] != NO_DEFORM
+        b_on = bool(tab_bg) and shadow.dsb[i] != NO_DEFORM
         pf = u16(phase_fg + shadow.phase[i] + cam_y_hi)
         pb = u16(phase_bg + shadow.phase[i] + vscroll_bg)
         for line in range(lo, hi):
@@ -666,19 +653,14 @@ def stage_a(st):
 
 
 def edge_tops(cfg, sh):
-    """Band tops in the unit the BUFFER is indexed in — lines per-line, cells per-cell.
-
-    The shadow view always measures in screen lines; the per-cell buffer is indexed in cells.
-    Handing line-unit tops to `smoothness` against a 28-entry buffer would mark no edges at all
-    and quietly fold every band boundary into the interior statistic.
-    """
-    return sh.tops if per_line_mode(cfg) else [t // 8 for t in sh.tops]
+    """Band tops in the unit the BUFFER is indexed in — screen lines, always (the per-cell
+    buffer, indexed in cells, is gone since 2026-08-26)."""
+    return sh.tops
 
 
 def stage_b(st, sh):
     """Derive the buffer and check it. Returns (expected, actual, ok, bad, n_lines)."""
-    per_line = per_line_mode(st["cfg"])
-    total = HSCROLL_LINES if per_line else PERCELL_CELLS
+    total = HSCROLL_LINES
     exp = derive_hscroll(st["cfg"], sh, st["tab_fg"], st["tab_bg"],
                          st["phase_fg"], st["phase_bg"], st["cam_y_hi"], st["vscroll_bg"])
     act = buffer_pairs(st["hscroll"], total)
@@ -719,8 +701,7 @@ async def arm_frozen(b, sym, rom, positions, out, settle_frames=30):
             continue
         sh, a_ok, a_msgs = stage_a(st)
         exp, act, b_ok, bad, total = stage_b(st, sh)
-        mode = "per-line" if per_line_mode(st["cfg"]) else "per-cell"
-        print(f"\n{tag}  config ${st['cfg_ptr']:06X}  {mode}  {total} entries checked")
+        print(f"\n{tag}  config ${st['cfg_ptr']:06X}  per-line  {total} entries checked")
         for m in a_msgs:
             print(f"  {m}")
         if not a_ok:
@@ -761,8 +742,7 @@ async def arm_redfirst(b, sym, rom, out):
     sh, a_ok, a_msgs = stage_a(st)
     exp, act, b_ok, bad, total = stage_b(st, sh)
     fails = 0
-    print(f"config ${st['cfg_ptr']:06X}  {'per-line' if per_line_mode(st['cfg']) else 'per-cell'}"
-          f"  {total} entries")
+    print(f"config ${st['cfg_ptr']:06X}  per-line  {total} entries")
     for m in a_msgs:
         print(f"  {m}")
 
@@ -870,7 +850,7 @@ async def arm_sweep(b, sym, rom, frames, out):
         if st is None:
             continue
         sh, a_ok, _ = stage_a(st)
-        total = HSCROLL_LINES if per_line_mode(st["cfg"]) else PERCELL_CELLS
+        total = HSCROLL_LINES
         act = buffer_pairs(st["hscroll"], total)
         sm = smoothness(act, edge_tops(st["cfg"], sh))
         # Continuity: the interior step bound is the widest excursion a deform sample can

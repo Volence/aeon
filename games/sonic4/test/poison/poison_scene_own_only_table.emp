@@ -1,0 +1,83 @@
+// games/sonic4/test/poison/poison_scene_own_only_table.emp — POISON (see README).
+//
+// TARGETS: two guards that must fire as a PAIR when an own() layer's table would be the
+// scene's ONLY table:
+//   * `scene()`'s no-scene-table-under-own ensure (P3 Task 9 guard (2)): an own() layer
+//     may not be a scene's ONLY table, because Parallax_Fill_PerLine loads the config's
+//     two HEADER table words once and only an own() band reloads a5/a6 from its extension
+//     record — with both header words null, every other band with a live shift samples
+//     from address 0.
+//   * `scene_caps()`'s CAP_MULTI_DEFORM_TABLE implication pin: because `ensure` is
+//     non-aborting, the refused scene still folds — to $0020 alone — and the pin that
+//     $0020 implies CAP_DEFORM fires in its own words. The pair is the R1-Task-9 band()
+//     shape exactly (see poison_scene_own_flat.emp): constructor refuses, fold backstops,
+//     and WHICH of the two went quiet matters.
+// EXPECTED FRAGMENT: "attaches NO plane-shared table on either plane" — the
+// constructor's, so a count of 2 that kept only the fold's would fail on the fragment.
+//
+// HISTORY: this file was `poison_scene_twinkey_table.emp` until 2026-08-26 and targeted
+// the same two guards under their old rationale — the runtime mode key
+// (`parallax_mode_key()`) read the header words and could not see the bands, so an
+// own()-only scene answered per-cell at runtime while the lowering answered per-line.
+// The mode key and the per-cell path were deleted (d-29-corrected); the sampling reason
+// above is the one the guard keeps, and it is the same two diagnostics.
+//
+// TWO FIXTURES, ONE AUTHORED FIELD APART:
+//
+//   FIXTURE A — one layer carrying `deform: Own(0, 3, 15, 0, 1)` in a scene that ALSO
+//               attaches a plane-shared BG table. The legal own() shape: the layer
+//               overrides the scene's table, the header words stay non-null. Folds to
+//               the hand-derived $0024 (CAP_DEFORM $0004 | CAP_MULTI_DEFORM_TABLE $0020;
+//               bit $0001 is retired) and that fold is the MEASURED passing half.
+//   FIXTURE B — byte-for-byte fixture A with `deform_bg:` REMOVED. The own() table is
+//               now the scene's only one: scene() refuses it (diagnostic 1), and the
+//               fold — $0020 without $0004 — trips the implication pin (diagnostic 2).
+//
+// Expected `[Error]` count is 2, and the pair IS the assertion: a 1 that kept the
+// constructor's means the fold's backstop went dead (the implication is once again
+// asserted only in a comment); a 1 that kept the fold's fails the fragment too, and it
+// would mean the refusal that actually keeps the header words non-null stopped firing.
+// A 3 means fixture A stopped being legal.
+//
+// THE TABLE LABELS ARE 0 — variant-discriminated guards, payload-free poisons (see
+// poison_scene_own_caps.emp). Own(0, 3, 15, 0, 1): shift_a 3 live, shift_b 15, phase 0,
+// speed 1 — one live shift, so layer()'s own-flat guard stays quiet and the ONLY thing
+// wrong with fixture B is the missing scene-level table.
+//
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
+module games.sonic4.test.poison.poison_scene_own_only_table
+
+use engine.level.scene_dsl.*
+use engine.level.parallax_dsl.*
+
+// FIXTURE A — own() OVERRIDING a scene-shared table: the legal shape.
+const POISON_TK_SCENE_A: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    deform: SceneDeform.Own(0, 3, 15, 0, 1)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15,
+    deform_bg: SceneDeform.Shared(0, 1))
+
+// FIXTURE B — byte-for-byte fixture A, the scene-shared table removed.
+const POISON_TK_SCENE_B: Scene = scene(
+    layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
+                    deform: SceneDeform.Own(0, 3, 15, 0, 1)),
+              no_layer(), no_layer(), no_layer(),
+              no_layer(), no_layer(), no_layer(), no_layer() ],
+    count: 1, v_factor: 15)
+
+// ---- THE PASSING HALF (must stay green, and is MEASURED) ----
+//   ($0001 retired 2026-08-26 — a table raises no per-line bit)
+//   $0004 CAP_DEFORM            a table exists and the own layer's shift_a (3) is live
+//   $0020 CAP_MULTI_DEFORM_TABLE the own() ref itself
+const POISON_TK_FOLDED_A = fold_caps([POISON_TK_SCENE_A])
+ensure(POISON_TK_FOLDED_A == $0024,
+       "poison_scene_own_only_table: FIXTURE A folds to {POISON_TK_FOLDED_A}, not the hand-derived 36 ($0024 = CAP_DEFORM | CAP_MULTI_DEFORM_TABLE) — an own() layer OVER a scene-shared table is the legal shape, and if it stopped folding both bits the failing half below no longer isolates the missing header table")
+
+// ---- THE FAILING HALF — the fold is what reaches the implication pin ----
+// $0020 alone: the own() ref raises MULTI_DEFORM_TABLE, and with no scene-level table
+// there is no has_table for CAP_DEFORM.
+const POISON_TK_FOLDED_B = fold_caps([POISON_TK_SCENE_B])
+ensure(POISON_TK_FOLDED_B == $0020,
+       "poison_scene_own_only_table: FIXTURE B folds to {POISON_TK_FOLDED_B}, not $0020 — the desync fixture stopped folding to the bare MULTI_DEFORM_TABLE bit, so the two expected diagnostics no longer prove the constructor guard and the implication pin both saw it")

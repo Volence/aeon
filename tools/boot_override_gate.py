@@ -52,8 +52,9 @@ derived from the ROM's own section grid, never pinned:
     config, it did not stage a transition toward it.
   * IN ADDITION, and stronger in kind because a pointer in a cell proves only storage: the
     VDP reg $0B (Mode Set 3) shadow and the band-scroll tail, both of which `Parallax_Update`
-    writes FROM the active config. Reg $0B is re-derived from the config's own deform-table
-    fields; the tail from its `pcfg_band_count` against the span `Parallax_Init` zeroed. A
+    writes FROM the active config. Reg $0B is %11 for every config since 2026-08-26 (plus
+    bit 2 for a V-deform table); the tail from its `pcfg_band_count` against the span
+    `Parallax_Init` zeroed. A
     select that stored the right pointer where nothing read it passes the first check and
     fails these.
 
@@ -491,12 +492,20 @@ class RomAct:
 
     def mode3(self, cfg: int) -> int:
         """`Parallax_Update`'s own reg $0B (Mode Set 3) derivation from the ACTIVE config:
-        bits 1:0 = %11 if either H-deform table is attached else %10, bit 2 = per-column
-        VScroll if a V-deform table is attached. Restated here because this byte is the
-        cheapest observable that proves the config was CONSUMED by the per-frame build
-        rather than merely parked in Parallax_Current_Config."""
-        m = 0b11 if (self.u32(cfg + PCFG_DEFORM_TABLE_FG)
-                     or self.u32(cfg + PCFG_DEFORM_TABLE_BG)) else 0b10
+        bits 1:0 = %11 ALWAYS (one HScroll mode since 2026-08-26, d-29-corrected — the
+        per-cell %10 arm that used to key off the two H-deform table words is deleted),
+        bit 2 = per-column VScroll if a V-deform table is attached. Restated here because
+        this byte is the cheapest observable that proves the config was CONSUMED by the
+        per-frame build rather than merely parked in Parallax_Current_Config — though with
+        the H bits constant it discriminates between configs only through bit 2 now; the
+        band-scroll tail is the check that still tells two configs apart.
+
+        RED-FIRST, the other way round: this transcription carried the deleted arm until
+        the deletion parcel, and the gate went red on the branch with `shadow reads 0b11,
+        wanted 0b10` for EditorSceneBinding_OJZ_Act1_Sec0 (anchored, no table) — the config
+        whose fill and register had disagreed on master. The fix is the derivation, not the
+        engine."""
+        m = 0b11
         if self.u32(cfg + PCFG_V_DEFORM_TABLE_BG):
             m |= 0b100
         return m

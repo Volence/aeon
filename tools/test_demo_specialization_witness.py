@@ -89,15 +89,17 @@ class TestDerivations(unittest.TestCase):
         self.assertNotEqual(game_caps("sonic4"), 0)
 
     def test_expected_spans_respects_enclosing_gates(self):
-        """A span survives only if EVERY gate around it is raised. cap_deform_sample
-        sits inside the CAP_PER_LINE body gate, so a mask with CAP_DEFORM but not
-        CAP_PER_LINE must not expect it — getting this wrong makes the differential a
-        hand list with extra steps."""
+        """A span survives only if EVERY gate around it is raised.
+        cap_multi_deform_table_band sits inside the CAP_DEFORM sampling gate, so a mask
+        with CAP_MULTI_DEFORM_TABLE but not CAP_DEFORM must not expect it — getting this
+        wrong makes the differential a hand list with extra steps. (Until 2026-08-26 the
+        worked example was cap_deform_sample inside the CAP_PER_LINE body gate; that
+        outer gate is gone with the per-cell path, and so is the bit.)"""
         bits = capability_bits()
-        deform_only = bits["CAP_DEFORM"]
-        both = bits["CAP_DEFORM"] | bits["CAP_PER_LINE"]
-        self.assertNotIn("deform_sample", expected_spans(deform_only))
-        self.assertIn("deform_sample", expected_spans(both))
+        mdt_only = bits["CAP_MULTI_DEFORM_TABLE"]
+        both = bits["CAP_MULTI_DEFORM_TABLE"] | bits["CAP_DEFORM"]
+        self.assertNotIn("multi_deform_table_band", expected_spans(mdt_only))
+        self.assertIn("multi_deform_table_band", expected_spans(both))
 
     def test_the_zero_mask_expects_no_span_at_all(self):
         self.assertEqual(expected_spans(0), set())
@@ -111,7 +113,9 @@ class TestDerivations(unittest.TestCase):
     def test_span_capability_resolves_the_longest_prefix(self):
         bits = capability_bits()
         self.assertEqual(span_capability("per_col_vsram_emit", bits), "CAP_PER_COL_VSRAM")
-        self.assertEqual(span_capability("per_line_body", bits), "CAP_PER_LINE")
+        self.assertEqual(span_capability("deform_sample", bits), "CAP_DEFORM")
+        self.assertIsNone(span_capability("per_line_body", bits),
+                          "CAP_PER_LINE is retired; a span must not resolve to it")
         self.assertIsNone(span_capability("not_a_capability", bits))
 
 

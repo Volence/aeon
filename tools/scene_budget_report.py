@@ -59,7 +59,6 @@ EQU_RE = re.compile(r"^EQU (\S+) = \$([0-9A-F]{8})$", re.M)
 LEDGER_ROWS = [
     "SceneBudget_SceneCount",
     "SceneBudget_CapsFolded",
-    "SceneBudget_PerLineScenes",
     "SceneBudget_Axis1_MaxCycles_X100",
     "SceneBudget_Axis1_Reservation",
     "SceneBudget_Axis1_Pool",
@@ -127,12 +126,9 @@ def render(eq: dict[str, int]) -> str:
     w("")
 
     scenes = g("SceneBudget_SceneCount")
-    per_line = g("SceneBudget_PerLineScenes")
     caps = g("SceneBudget_CapsFolded")
     if scenes is not None:
         w(f"registry          {scenes} scenes")
-    if per_line is not None and scenes:
-        w(f"per-line scenes   {per_line} of {scenes}")
     if caps is not None:
         w(f"folded caps       ${caps:04X}")
     w("")

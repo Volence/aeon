@@ -92,13 +92,14 @@ CAM_Y_RAGGED = 147
 def matrix(base: bytes, fg: int, bg: int) -> dict:
     """One fixture per fill PATH, plus the coverage fixtures.
 
-    The paths are what the filler branches to per band: `.lp_flat`, `.band_fg_only`, `.lp_bg`,
-    `.lp_both`, and `Parallax_Fill_PerCell`. Every one is covered, including the two this
-    parcel did NOT touch -- an unchanged path that silently changed is exactly what an
-    identity gate is for.
+    The paths are what the filler branches to per band: `.lp_flat`, `.band_fg_only`, `.lp_bg`
+    and `.lp_both`. Every one is covered, including the ones this parcel did NOT touch -- an
+    unchanged path that silently changed is exactly what an identity gate is for. (ID0 used
+    to exercise `Parallax_Fill_PerCell`; that filler was deleted 2026-08-26 and a bare config
+    now runs the per-line filler on `.lp_flat`, which ID0 still witnesses.)
     """
     return {
-        "ID0": {"what": "per-cell, no deform — the other filler entirely",
+        "ID0": {"what": "no table, no deform — the bare config, per-line `.lp_flat` throughout",
                 "cfg": build(base, bands=1)},
         "ID1": {"what": "per-line, all 224 lines flat (`.lp_flat`) — the vacuity reference",
                 "cfg": build(base, bands=1, tab_fg=fg)},

@@ -35,7 +35,7 @@ gets emitted"), a RANGE is value (`scene()`'s `v_factor` bound — "255 is an ab
 shift"). The type check duplicates nothing, because sigil cannot see the difference: a
 string in a numeric slot lands in generated source as a bare SYMBOL, and if it resolves
 — every `parallax_dsl` FACTOR_* does — it assembles green at the wrong number. A
-SPELLING translation is shape too (PRECISION_NAMES, `_render_bool_int`, `symbol_token`):
+SPELLING translation is shape too (TRANSITION_NAMES, `_render_bool_int`, `symbol_token`):
 the writer's vocabulary is not the `.emp` vocabulary, and mapping between them is this
 tool's job — and a value that is legal as a VALUE can still be illegal as a SYMBOL.
 
@@ -66,13 +66,22 @@ SCENE_KEYS = frozenset({
     "schema", "id", "layers",
     "v_factor", "v_center", "v_offset", "v_factor_fg",
     "deform_fg", "deform_bg", "v_deform",
-    "anchor", "left_column_mask", "precision", "transition", "budget_class",
+    "anchor", "left_column_mask", "transition", "budget_class",
 })
 
 # Accepted and deliberately IGNORED. `name` is the one writer-only field in the
 # format: a display label Aurora owns. The contract says the generator "ignores it
 # and MUST keep ignoring it", so it is neither read nor refused.
-SCENE_IGNORED_KEYS = frozenset({"name"})
+#
+# `precision` is RETIRED ON THE ENGINE SIDE (2026-08-26, owner ruling d-29-corrected):
+# the per-cell HScroll path it selected between was deleted, the fill is per-line for
+# every scene, and `scene()` no longer takes the argument. Aurora's schema (wave 1)
+# still spells the field, and Aurora is not this repo's to edit — so the generator
+# ACCEPTS the key and IGNORES its value, whatever it is, rather than refusing files
+# that carry it. Its removal from the schema is Aurora's (booked in
+# docs/DEFERRED_WORK.md, "Per-cell HScroll fill — DELETED"); when that lands this
+# entry moves to SCENE_REFUSED_KEYS so a stale writer is caught loudly.
+SCENE_IGNORED_KEYS = frozenset({"name", "precision"})
 
 # Excluded from the JSON surface (contract §2.1, empyrean schema §2.1). These are
 # the byte-identity bridges for hand-migrated scenes; editor scenes DERIVE them.
@@ -161,8 +170,9 @@ LAYER_SCALARS = ("dsa", "dsb", "phase", "enabled")
 # Enum-valued scene fields: the schema spells these as lowercase strings and the
 # `.emp` wants the constant. Slices 1-2 emitted the raw string, which would have
 # generated `precision: cell` — a sigil unknown-symbol error pointing at generated
-# code, for a scene the author spelled exactly right.
-PRECISION_NAMES = {"cell": "PRECISION_CELL", "line": "PRECISION_LINE"}
+# code, for a scene the author spelled exactly right. (`precision` itself is retired
+# and ignored since 2026-08-26 — see SCENE_IGNORED_KEYS — so the lesson now lives on
+# `transition` and `left_column_mask`.)
 TRANSITION_NAMES = {"smooth": "TRANS_SMOOTH", "instant": "TRANS_INSTANT"}
 LEFT_COL_MASK_NAMES = {
     "undeclared": "SceneLeftColMask.Undeclared",
@@ -380,7 +390,7 @@ def _render_bool_int(path: str, value, where: str) -> str:
 def symbol_token(value: int) -> str:
     """An INTEGER that becomes a component of an `.emp` SYMBOL, not of a value.
 
-    THE THIRD INSTANCE OF THE CLASS `_render_bool_int` and `PRECISION_NAMES` are the
+    THE THIRD INSTANCE OF THE CLASS `_render_bool_int` and the enum-name tables are the
     first two of: a legal JSON value rendered into an illegal `.emp` token. A table
     generator's parameters name its dedup key AND its emitted label
     (`EditorDeform_sine_8_32`), and `str(-8)` is `-8` — a `-` is not legal in a symbol,
@@ -670,10 +680,8 @@ def render_scene(path: str, scene: dict, tables: TableRegistry = None) -> str:
         if scene.get(key) is not None:
             body.append(f"    {key}: "
                         + _render_int(path, scene[key], f"scene.{key}"))
-    # Enum-valued fields: lowercase schema strings, `.emp` constants.
-    if scene.get("precision") is not None:
-        body.append("    precision: " + _render_enum(
-            path, scene["precision"], PRECISION_NAMES, "scene.precision"))
+    # Enum-valued fields: lowercase schema strings, `.emp` constants. (`precision` is
+    # accepted and ignored — SCENE_IGNORED_KEYS — and is never rendered.)
     if scene.get("transition") is not None:
         body.append("    transition: " + _render_enum(
             path, scene["transition"], TRANSITION_NAMES, "scene.transition"))

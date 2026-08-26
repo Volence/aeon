@@ -101,7 +101,7 @@ from engine_baseline_probe import _scan_dma   # noqa: E402
 # the walker, and the first one to go stale would still print "ok". THERE IS ONE DERIVATION
 # IN THIS TREE and both instruments call it.
 from parallax_hscroll_probe import (          # noqa: E402
-    derive_shadow, resolve_anchor_line, per_line_mode)
+    derive_shadow, resolve_anchor_line)
 
 
 # ---- the config's wire layout (engine/structs.emp, parallax_config; 28 bytes) ----
@@ -156,9 +156,10 @@ MAX_SHADOW    = 8         # MAX_PARALLAX_BANDS (engine/system/constants.emp)
 VDP_MODE3_OFF = 0x0B      # engine/vdp.emp — the shadow byte Parallax_Update owns
 RASTER_MAX_PATCH = 4      # raster_dsl.emp:1989 — Effects_Screen_L / Effects_World_Y arity
 PATCH_ENTRY_SIZE = 10     # raster.emp:1783-1812 — the record Raster_GetChannelBand walks
-# engine/system/buffers.emp:149-160 — the two declared static HScroll DMA lengths,
-# `Static_Hscroll_Cell` dma_length(112) and `Static_Hscroll_Line` dma_length(896).
-HSCROLL_STATIC_BYTES = (112, 896)
+# engine/system/buffers.emp — the ONE declared static HScroll DMA length,
+# `Static_Hscroll_Line` dma_length(896). (The 112-byte `Static_Hscroll_Cell` twin was
+# deleted 2026-08-26, d-29-corrected; the tuple shape is kept for the scan below.)
+HSCROLL_STATIC_BYTES = (896,)
 
 
 def band(top: int, dsa: int = NO_DEFORM, dsb: int = NO_DEFORM) -> bytes:
@@ -225,9 +226,13 @@ def build(base: bytes, *, bands: int = 1, tab_fg: int = 0, tab_bg: int = 0,
 # MAPPING TO THE PLAN'S PARAMETER NAMES. The plan asks for per-layer, per-line-mode, per-curve,
 # per-deform-ref and re-glue. Those are the DESIGN doc's scene vocabulary; the walker that
 # exists today has these cost axes, and they correspond:
-#   per-layer      -> band count            (W1/W2/W3 per-cell, W5/W6 per-line)
-#   per-line-mode  -> an H-deform table is attached at all (this is what selects
-#                     Parallax_Fill_PerLine over Parallax_Fill_PerCell AND flips reg $0B)
+#   per-layer      -> band count            (W1/W2/W3 bare, W5/W6 with a table)
+#   per-line-mode  -> RETIRED 2026-08-26 (d-29-corrected): the per-cell filler is deleted
+#                     and every config runs Parallax_Fill_PerLine with reg $0B = %11. The
+#                     `line_mode` column collapsed into `base` (which is now the per-line
+#                     floor) and `band_percell` has no subject; W0-W3/W9 still run — as
+#                     per-line fixtures without a table — and are what identify `base`
+#                     and `multiband` now.
 #   per-curve      -> the deform SAMPLING actually running, i.e. band_deform_shift != 15
 #                     with a table attached (W7 FG, W8 FG+BG)
 #   per-deform-ref -> the V-deform table reference: per-column VSRAM instead of whole-plane (W9)
@@ -238,16 +243,18 @@ def build(base: bytes, *, bands: int = 1, tab_fg: int = 0, tab_bg: int = 0,
 
 def fixtures(base: bytes, zero_tab: int) -> dict:
     return {
-        "W0": {"what": "1 band, per-cell, no deform, no anchor — the floor",
+        "W0": {"what": "1 band, no table, no deform, no anchor — the floor (per-line, like everything)",
                "vary": "-", "cfg": build(base, bands=1)},
-        "W1": {"what": "2 bands, per-cell", "vary": "band count vs W0",
+        "W1": {"what": "2 bands, no table", "vary": "band count vs W0",
                "cfg": build(base, bands=2)},
-        "W2": {"what": "3 bands, per-cell", "vary": "band count vs W1",
+        "W2": {"what": "3 bands, no table", "vary": "band count vs W1",
                "cfg": build(base, bands=3)},
-        "W3": {"what": "4 bands, per-cell", "vary": "band count vs W2",
+        "W3": {"what": "4 bands, no table", "vary": "band count vs W2",
                "cfg": build(base, bands=4)},
-        "W4": {"what": "1 band, PER-LINE (FG table attached, shifts still 15 = no sampling)",
-               "vary": "line mode vs W0", "cfg": build(base, bands=1, tab_fg=zero_tab)},
+        "W4": {"what": "1 band, FG table attached, shifts still 15 = no sampling",
+               "vary": "table attached vs W0 (a NULL column since 2026-08-26: the table alone "
+                       "changes nothing the walker does)",
+               "cfg": build(base, bands=1, tab_fg=zero_tab)},
         "W5": {"what": "2 bands, per-line, no sampling", "vary": "band count vs W4",
                "cfg": build(base, bands=2, tab_fg=zero_tab)},
         "W6": {"what": "3 bands, per-line, no sampling", "vary": "band count vs W5",
@@ -258,7 +265,7 @@ def fixtures(base: bytes, zero_tab: int) -> dict:
         "W8": {"what": "1 band, per-line, FG+BG sampling live",
                "vary": "BG curve sampling vs W7",
                "cfg": build(base, bands=1, tab_fg=zero_tab, tab_bg=zero_tab, dsa=3, dsb=3)},
-        "W9": {"what": "1 band, per-cell, V-DEFORM table attached (per-column VSRAM)",
+        "W9": {"what": "1 band, no H table, V-DEFORM table attached (per-column VSRAM)",
                "vary": "deform-ref vs W0", "cfg": build(base, bands=1, v_tab_bg=zero_tab)},
         "W10": {"what": "2 bands, per-line, ANCHORED overlay (Step 4b split + re-glue)",
                 "vary": "re-glue vs W5",
@@ -413,7 +420,7 @@ def fixtures(base: bytes, zero_tab: int) -> dict:
     }
 
 
-SYMS = ("Parallax_Update", "Parallax_Fill_PerLine", "Parallax_Fill_PerCell",
+SYMS = ("Parallax_Update", "Parallax_Fill_PerLine",
         "Parallax_Current_Config", "Parallax_Target_Config", "Parallax_Transition_Frames",
         "Debug_Scene_Freeze", "Replay_Record_Buf", "Replay_Record_Idx",
         "DeformTable_Zero", "ParallaxConfig_OJZ_Default", "Effects_Screen_L",
@@ -938,7 +945,7 @@ async def _transition_case(b: BusClient, sym: dict[str, int], settle: int, sampl
     await b.call("emulator/run_frames", {"frames": 4})
     w = await _profile_window(b, sym, sample,
                               ("Parallax_Update", "Enqueue_Dirty_Buffers",
-                               "Parallax_Fill_PerLine", "Parallax_Fill_PerCell"))
+                               "Parallax_Fill_PerLine"))
     dma = await _scan_dma(b, sym, dma_line)
     tf = await b.call("emulator/read_memory",
                       {"addr": hex(sym["Parallax_Transition_Frames"]), "len": 1})
@@ -1063,7 +1070,10 @@ def row(prof: dict, addr: int) -> dict | None:
 # measures the SAME column at a ~149-cycle class once the sampled loops are unrolled. A column
 # that reads zero on one loop shape and 149 on another is a real parameter with two regimes, and
 # leaving it out of the model is what made it look like it did not exist.
-PARAMS = ["base", "band_percell", "line_mode", "band_perline", "multiband",
+# `band_percell` and `line_mode` LEFT THIS LIST 2026-08-26 (d-29-corrected): with the
+# per-cell filler deleted, `line_mode` is 1 on every fixture (collinear with `base`, which
+# now IS the per-line floor) and `band_percell` has no fixture that can excite it.
+PARAMS = ["base", "band_perline", "multiband",
           "line_fg_only", "line_bg_only", "line_both", "shift_lines", "band_sampling",
           "vdeform", "anchor", "anchor_ops"]
 
@@ -1210,16 +1220,13 @@ def anchor_ops(c: bytes, split: int | None = None) -> int:
 def design_row(name: str, fx: dict, split: int | None = None) -> list[float]:
     c = fx["cfg"]
     n = c[CFG_BAND_COUNT]
-    per_line = (int.from_bytes(c[CFG_DEFORM_TAB_FG:CFG_DEFORM_TAB_FG + 4], "big") != 0
-                or int.from_bytes(c[CFG_DEFORM_TAB_BG:CFG_DEFORM_TAB_BG + 4], "big") != 0
-                or c[CFG_ANCHOR_CH] != ANCHOR_NONE)
     lf, lb, lboth = sampled_lines(c, split)
     vd = int.from_bytes(c[CFG_V_DEFORM_TAB_BG:CFG_V_DEFORM_TAB_BG + 4], "big") != 0
     an = c[CFG_ANCHOR_CH] != ANCHOR_NONE
+    # One filler since 2026-08-26: `base` is the per-line floor and the band slope is
+    # `band_perline` for every fixture (the per-cell columns are gone, see PARAMS).
     return [1.0,
-            0.0 if per_line else float(n - 1),
-            1.0 if per_line else 0.0,
-            float(n - 1) if per_line else 0.0,
+            float(n - 1),
             1.0 if n >= 2 else 0.0,
             float(lf),
             float(lb),
@@ -1373,7 +1380,6 @@ def run_sweep_mode(args, sym: dict[str, int]) -> int:
                   f" {str(p['split']):>5}  {'ok — ' if ok else '!! '}{msg}")
             rows.append({"boot": ri, "camera_y": p["camera_y_want"],
                          "cfg_addr": f"{p['cfg_addr']:06X}", "bands": p["bands"],
-                         "per_line": per_line_mode(cfg),
                          "authored_plane_lines": p["authored_plane_lines"],
                          "vscroll_bg": p["vscroll_bg"], "vs": vs, "vshift": vshift, "k": k,
                          "anchor_ch": p["anchor_ch"], "split": p["split"],
@@ -1647,8 +1653,8 @@ def main() -> int:
     print(f"ROM {args.rom}   sample {args.sample} frames   repeats {args.repeat}")
     print("response = Parallax_Update's per-routine row, INCLUSIVE of its callees.")
     print("interrupts.hint is HBlank + VBlank in this ROM and is never read.\n")
-    hdr = (f"{'FIX':4} {'bands':>5} {'mode':>8} {'FG/BG/both':>11} {'Px_Update':>10} {'spread':>7}"
-           f" {'PerLine':>8} {'PerCell':>8}  varies")
+    hdr = (f"{'FIX':4} {'bands':>5} {'FG/BG/both':>11} {'Px_Update':>10} {'spread':>7}"
+           f" {'PerLine':>8}  varies")
     print(hdr)
     print("-" * len(hdr))
     y, A, names, table = [], [], [], {}
@@ -1677,7 +1683,6 @@ def main() -> int:
                     failures.append(f"{k}: {reason}")
         cyc = [int(x["cycles"]) for x in rows]
         pl = row(runs[0]["prof"], sym["Parallax_Fill_PerLine"])
-        pc = row(runs[0]["prof"], sym["Parallax_Fill_PerCell"])
         n = fx["cfg"][CFG_BAND_COUNT]
         anchored = fx["cfg"][CFG_ANCHOR_CH] != ANCHOR_NONE
         latched = runs[0]["screen_l"][fx["cfg"][CFG_ANCHOR_CH]] if anchored else None
@@ -1687,18 +1692,16 @@ def main() -> int:
         # anchored config off its ROM band entries. `split_latched` is kept beside it so a clamp
         # is visible rather than silently absorbed.
         split = realized_split(fx["cfg"], runs[0]["shadow_tops"]) if anchored else None
-        mode = "per-line" if design_row(k, fx, split)[2] else "per-cell"
         lf, lb, lboth = sampled_lines(fx["cfg"], split)
         clamp = ""
         if anchored and split is not None and split != latched:
             clamp = f"  [L latched {latched} -> split {split}]"
-        print(f"{k:4} {n:>5} {mode:>8} {lf:>3}/{lb:<3}/{lboth:<3} {cyc[0]:>10} {max(cyc)-min(cyc):>7}"
-              f" {(pl['cycles'] if pl else 0):>8} {(pc['cycles'] if pc else 0):>8}"
+        print(f"{k:4} {n:>5} {lf:>3}/{lb:<3}/{lboth:<3} {cyc[0]:>10} {max(cyc)-min(cyc):>7}"
+              f" {(pl['cycles'] if pl else 0):>8}"
               f"  {fx['vary']}{clamp}{flag}")
-        table[k] = {"cycles": cyc, "bands": n, "mode": mode, "what": fx["what"],
+        table[k] = {"cycles": cyc, "bands": n, "what": fx["what"],
                     "vary": fx["vary"],
                     "fill_per_line": pl["cycles"] if pl else 0,
-                    "fill_per_cell": pc["cycles"] if pc else 0,
                     "sampled_lines_fg_bg_both": [lf, lb, lboth],
                     "shift_lines": shift_lines(fx["cfg"], split),
                     "sampling_bands": sampling_bands(fx["cfg"], split),
@@ -1865,13 +1868,8 @@ def main() -> int:
         lrow = row(lv["prof"], sym["Parallax_Update"])
         lmeas = [int(row(x["prof"], sym["Parallax_Update"])["cycles"]) for x in live]
         vd = int.from_bytes(lcfg[CFG_V_DEFORM_TAB_BG:CFG_V_DEFORM_TAB_BG + 4], "big") != 0
-        per_line = (int.from_bytes(lcfg[CFG_DEFORM_TAB_FG:CFG_DEFORM_TAB_FG + 4], "big") != 0
-                    or int.from_bytes(lcfg[CFG_DEFORM_TAB_BG:CFG_DEFORM_TAB_BG + 4], "big") != 0
-                    or lch != ANCHOR_NONE)
         a = [1.0,
-             0.0 if per_line else float(ln - 1),
-             1.0 if per_line else 0.0,
-             float(ln - 1) if per_line else 0.0,
+             float(ln - 1),
              1.0 if ln >= 2 else 0.0,
              float(lt["fg"]), float(lt["bg"]), float(lt["both"]),
              float(lt["shift_lines"]), float(lt["sampling_bands"]),

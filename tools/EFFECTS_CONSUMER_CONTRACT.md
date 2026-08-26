@@ -112,8 +112,16 @@ DSL constructor arguments 1:1 (`engine/level/scene_dsl.emp` `scene()`/`layer()`)
 
 - Top level: `schema` (refuse ≠ 1), `id` (refuse ≠ filename stem or bad pattern),
   `layers`, `v_factor`, `v_center`, `v_offset`, `v_factor_fg`, `deform_fg`, `deform_bg`,
-  `v_deform`, `anchor`, `left_column_mask`, `precision`, `transition`, `budget_class`
+  `v_deform`, `anchor`, `left_column_mask`, `transition`, `budget_class`
   (passthrough, unvalidated — sigil is the validator).
+- **`precision` — ACCEPTED AND IGNORED (engine-side RETIRED 2026-08-26, owner ruling
+  `d-29-corrected`).** The per-cell HScroll path the field chose between was deleted; the
+  fill is per-line for every scene and `scene()` no longer takes the argument. The
+  empyrean schema (wave 1, `cell` only) still spells it, so the generator does not refuse
+  a file that carries it — it drops the key, whatever the value. Removing the field from
+  the schema and from Aurora's `scene-ui` is **Aurora's + empyrean's**, booked in
+  `docs/DEFERRED_WORK.md` ("Per-cell HScroll fill — DELETED"); when it lands, the key
+  moves from the generator's ignored set to its refused set.
 - Per layer: `world_y`, `fa`, `fb`, `dsa`, `dsb`, `phase`, `enabled`, `deform`, `curve`,
   `vsplit`.
 - Inside attachments: the factor spelling (named `FACTOR_*` or `{s1,s2,op}`) and the

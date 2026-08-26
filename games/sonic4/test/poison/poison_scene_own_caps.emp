@@ -3,7 +3,7 @@
 // TARGETS: the capability fold — engine/level/scene_dsl.emp's `scene_caps()` /
 // `fold_caps()` — on the ONE bit P3 Task 9 taught it to raise, CAP_MULTI_DEFORM_TABLE
 // ($0020), under the `folded ⊆ declared` subset test.
-// EXPECTED FRAGMENT: "FIXTURE B folds to 37 against fixture A's declared 5; the UNDECLARED bits are 32"
+// EXPECTED FRAGMENT: "FIXTURE B folds to 36 against fixture A's declared 4; the UNDECLARED bits are 32"
 //
 // THE TWO-FIXTURE DIFFERENTIAL (spec §8.2), and here it carries the whole of design §2's
 // ruling rather than half of it. The design says three deform spellings exist and that
@@ -16,12 +16,12 @@
 //               and layer 0 carries a live `dsb: 2`. This is design §2's `shared(phase)`
 //               exactly: the per-layer phase is layer()'s own `phase` argument and the
 //               per-layer amplitude is its `dsb`, with no per-layer table anywhere.
-//               Folds to $0005 = CAP_PER_LINE | CAP_DEFORM and NOTHING ELSE — in
+//               Folds to $0004 = CAP_DEFORM and NOTHING ELSE (bit $0001 is retired) — in
 //               particular NOT $0020. A passes, twice.
 //   FIXTURE B — THE SAME SCENE with layer 0's shared attachment replaced by
 //               `deform: SceneDeform.Own(0, 15, 2, 0, 1)`: same table-less-ness at the
 //               layer before, same live amplitude (own()'s shift_b IS the 2 that was
-//               `dsb: 2`), same scene-level table, same everything. Folds to $0025 and
+//               `dsb: 2`), same scene-level table, same everything. Folds to $0024 and
 //               FAILS the subset test against A's declared word.
 //
 // A AND B DIFFER IN EXACTLY ONE AUTHORED THING and therefore in exactly one capability
@@ -29,11 +29,11 @@
 // scene's table (variant None); fixture B's layer samples its own (variant Own). The
 // undeclared-bit number in the failing message — 32, i.e. $0020 — is that whole
 // differential, and the lane's fragment quotes all three numbers so the case can only
-// pass when the fold really produced 5 for A, 37 for B, and 32 as the difference.
+// pass when the fold really produced 4 for A, 36 for B, and 32 as the difference.
 //
 // WHY BOTH FIXTURES KEEP A SCENE-LEVEL TABLE. `scene()` refuses an own() scene with no
-// plane-shared table on either plane (the runtime mode key reads the config's HEADER
-// words and cannot see the bands). So "own() with no scene table" is not the contrast to
+// plane-shared table on either plane (the fill loads the HEADER words once and only an
+// own() band reloads them). So "own() with no scene table" is not the contrast to
 // draw here — it is a different guard with its own poison. Holding the scene-level
 // attachment fixed in BOTH fixtures is also what makes the differential one thing.
 //
@@ -75,10 +75,11 @@ const POISON_OWN_SCENE_B: Scene = scene(
     deform_bg: SceneDeform.Shared(0, 1))
 
 // The declared word: fixture A's capabilities, derived by hand from scene_caps()'s rules.
-// A table is attached (scene-level), so CAP_PER_LINE $0001. Layer 0's dsb is live, so
-// CAP_DEFORM $0004. No column table, no anchor, and — the claim under test — no per-layer
-// table, so no $0020. One-element registries, so fold_caps() adds no $0010.
-const POISON_OWN_DECLARED = $0005
+// A table is attached (scene-level) — which raises nothing on its own since CAP_PER_LINE
+// was retired (2026-08-26). Layer 0's dsb is live, so CAP_DEFORM $0004. No column table,
+// no anchor, and — the claim under test — no per-layer table, so no $0020. One-element
+// registries, so fold_caps() adds no $0010.
+const POISON_OWN_DECLARED = $0004
 const POISON_OWN_FOLDED_A = fold_caps([POISON_OWN_SCENE_A])
 const POISON_OWN_FOLDED_B = fold_caps([POISON_OWN_SCENE_B])
 const POISON_OWN_UNDEC_A  = POISON_OWN_FOLDED_A & ~POISON_OWN_DECLARED
@@ -86,7 +87,7 @@ const POISON_OWN_UNDEC_B  = POISON_OWN_FOLDED_B & ~POISON_OWN_DECLARED
 
 // ---- FIXTURE A, THE PASSING HALF (both of these must stay green) ----
 ensure(POISON_OWN_FOLDED_A == POISON_OWN_DECLARED,
-       "poison_scene_own_caps: FIXTURE A folds to {POISON_OWN_FOLDED_A}, not the hand-derived {POISON_OWN_DECLARED} — a scene-level Shared table with a per-layer phase and amplitude is design §2's shared(phase) and must NOT raise CAP_MULTI_DEFORM_TABLE. If this is now 37, the fold stopped discriminating and the failing half below proves nothing")
+       "poison_scene_own_caps: FIXTURE A folds to {POISON_OWN_FOLDED_A}, not the hand-derived {POISON_OWN_DECLARED} — a scene-level Shared table with a per-layer phase and amplitude is design §2's shared(phase) and must NOT raise CAP_MULTI_DEFORM_TABLE. If this is now 36, the fold stopped discriminating and the failing half below proves nothing")
 ensure(POISON_OWN_UNDEC_A == 0,
        "poison_scene_own_caps: FIXTURE A is NOT a subset of its own declared word (undeclared {POISON_OWN_UNDEC_A}) — the subset test can no longer pass, so it is not discriminating")
 

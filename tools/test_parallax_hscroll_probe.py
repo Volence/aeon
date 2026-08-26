@@ -19,9 +19,9 @@ from parallax_hscroll_probe import (            # noqa: E402
     BE_DSHIFT_A, BE_DSHIFT_B, BE_PHASE, BE_SIZE, BE_TOP,
     CFG_ANCHOR_CH, CFG_ANCHOR_DSA, CFG_ANCHOR_DSB, CFG_BAND_COUNT,
     CFG_DEFORM_TAB_BG, CFG_DEFORM_TAB_FG, CFG_SIZE,
-    ANCHOR_NONE, HSCROLL_BYTES, HSCROLL_LINES, NO_DEFORM, PERCELL_CELLS,
+    ANCHOR_NONE, HSCROLL_BYTES, HSCROLL_LINES, NO_DEFORM,
     _patch_band, buffer_pairs, check, curve_ramp, derive_hscroll, derive_shadow,
-    pack_pairs, per_line_mode, resolve_anchor_line, s16, s8, smoothness, u16,
+    pack_pairs, resolve_anchor_line, s16, s8, smoothness, u16,
 )
 
 
@@ -61,20 +61,8 @@ class TestLayout(unittest.TestCase):
         self.assertEqual(u16(-48), 0xFFD0)
 
 
-class TestModeKey(unittest.TestCase):
-    """engine/level/parallax.emp:1012-1024 — per-line iff a table is attached OR anchored."""
-
-    def test_no_table_no_anchor_is_per_cell(self):
-        self.assertFalse(per_line_mode(mkcfg([0])))
-
-    def test_either_table_selects_per_line(self):
-        self.assertTrue(per_line_mode(mkcfg([0], tab_fg=0x1000)))
-        self.assertTrue(per_line_mode(mkcfg([0], tab_bg=0x1000)))
-
-    def test_anchor_alone_selects_per_line(self):
-        # An anchored boundary lands on an arbitrary SCANLINE; per-cell could only place it on
-        # a cell edge, which is the quantisation Parcel W exists to remove.
-        self.assertTrue(per_line_mode(mkcfg([0], anchor=0)))
+# (TestModeKey — the per-line-iff-table-or-anchor transcription — was deleted 2026-08-26
+# with the runtime mode key itself, d-29-corrected. There is one fill and no key.)
 
 
 class TestShadowRotation(unittest.TestCase):
@@ -214,13 +202,16 @@ class TestDeriveHscroll(unittest.TestCase):
         self.assertTrue(all(p == (u16(-96), u16(-24)) for p in exp[:112]))
         self.assertTrue(all(p == (u16(-48), u16(-12)) for p in exp[112:]))
 
-    def test_per_cell_mode_writes_only_28_entries(self):
-        cfg = mkcfg([0, 112])                         # no table, no anchor -> per-cell
+    def test_no_table_no_anchor_still_writes_all_224_lines(self):
+        """A bare config (no table, no anchor) used to select the per-cell filler and a
+        28-entry expectation; since 2026-08-26 (d-29-corrected) there is one filler, and
+        the expectation is 224 flat lines split at the shadow tops."""
+        cfg = mkcfg([0, 112])
         sh = derive_shadow(cfg, 0, [1, 2], [3, 4], None)
         exp = derive_hscroll(cfg, sh, None, None, 0, 0, 0, 0)
-        self.assertEqual(len(exp), PERCELL_CELLS)
-        self.assertEqual(exp[0], (1, 3))
-        self.assertEqual(exp[27], (2, 4))
+        self.assertEqual(len(exp), HSCROLL_LINES)
+        self.assertTrue(all(p == (1, 3) for p in exp[:112]))
+        self.assertTrue(all(p == (2, 4) for p in exp[112:]))
 
     def test_bg_sampling_uses_phase_plus_vscroll_plus_line_mod_256(self):
         # BG index = (Parallax_Deform_Phase_BG + band_phase + Vscroll_BG + line) & $FF, sample

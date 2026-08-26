@@ -51,7 +51,7 @@
 // bound that excludes 0 would refuse every scene in the tree. A 1 means one of the two
 // guards went dead, and the surviving row's fragment is what says WHICH.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_scene_vfactor_range
 
 use engine.level.scene_dsl.*

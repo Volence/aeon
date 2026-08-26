@@ -18,10 +18,10 @@
 //     to be a no_layer().
 //   - every `layer()` — all eight tops are inside the engine's $8000 act-axis ceiling
 //     (P3 Task 7 retired the old 8-px-grid ensure and the typed 512-px span: off-grid is
-//     legal now and merely FORCES per-line via scene_forces_per_line() arm 5 — a fold this
-//     module never calls — while the tight span bound moved to the registry-level
-//     assert_act_relative_tagged(), which this module never calls either. See
-//     poison_scene_grid.emp and poison_scene_actspan.emp for those two guards' own rows.)
+//     legal now and the per-line fill places it exactly — the forcer arm that used to
+//     accompany that went with the per-cell path, 2026-08-26 — while the tight span bound
+//     moved to the registry-level assert_act_relative_tagged(), which this module never
+//     calls. See poison_scene_actspan.emp for that guard's own row.)
 //
 // P3 TASK 15 RE-VERIFIED THIS ROW AGAINST THE RE-GLUED TREE: Task 7 kept this guard
 // byte-for-byte (capacity stays 8, the ruling in its own step list), so the P1 fixture —
@@ -38,7 +38,7 @@
 // still hands back the Scene it built); this ensure's own message is what you would see
 // if the poison ever stopped reaching its target.
 //
-// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see poison_scene_grid.emp's header.
+// THE GLOB IMPORTS ARE THE AUTHOR'S OWN SPELLING — see README.md ("Why every scene poison globs").
 module games.sonic4.test.poison.poison_scene_capacity
 
 use engine.level.scene_dsl.*

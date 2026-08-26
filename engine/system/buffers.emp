@@ -1,19 +1,15 @@
 // Buffer initialization, static DMA entries, and plane utilities
 module engine.buffers in buffers
 
-use engine.structs.{DMAEntry, parallax_config}
-use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL, PARALLAX_ANCHOR_NONE}
+use engine.structs.{DMAEntry}
+use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, PLANE_H_CELLS, VDP_DATA, VDP_CTRL}
 use engine.vdp.{VdpTarget, VdpOp, vdp_comm, vdp_comm_delta, plane_loc, dma_length}
 use engine.irq.{vblank}
-// P2 §3.3 capability gates plus (P3 Task 6) the shared mode key itself. `CAP_ANCHORS` is
-// still imported even though nothing in THIS file names it any more: it is the comptime
-// CONDITION of a gate inside `parallax_mode_key`'s body, and those resolve at the CALL
-// SITE. Dropping it here is `error: unknown name CAP_ANCHORS` at the splice — measured
-// 2026-08-20, and the loudness is the point: a silent fold to 0 would have elided the
-// anchor half of the key in this twin and not in the other. The template's instruction
-// OPERANDS behave differently (see parallax_mode_key's banner); this line is about the
-// conditions. CAP_* authority: engine/level/scene_dsl.emp.
-use engine.level.scene_dsl.{CAP_PER_LINE, CAP_ANCHORS, parallax_mode_key}
+// This module imports NOTHING from engine.level.scene_dsl any more (d-29-corrected,
+// 2026-08-26): the HScroll DMA length is no longer a decision. There is one HScroll table
+// layout (896 bytes, one longword per scanline) and one static entry that ships it. The
+// runtime mode key that used to be spliced here — and the CAP_PER_LINE / CAP_ANCHORS
+// imports its comptime conditions needed — went with the per-cell path it selected.
 
 // DMA source word addresses for the static entries — the link-time arm of
 // engine.vdp's dma_source derivation ((addr >> 1) & $7FFFFF): the sources are
@@ -101,7 +97,7 @@ pub proc Init_SpriteTable () clobbers(d0-d2/a0) {
 }
 
 // -----------------------------------------------
-// BuildStaticDMA — pre-compute the 7 static DMA entries
+// BuildStaticDMA — pre-compute the 6 static DMA entries
 // (4 palette lines + 1 sprite table + 2 HScroll entries)
 // Called once at boot after Init_DMA_Queue.
 // In:  none
@@ -150,15 +146,12 @@ pub proc BuildStaticDMA () clobbers(d0-d4/a0) {
         move.l  #vdp_comm(VRAM_SPRITE_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
         jbsr    Build_DMA_Entry
 
-        // §4.6 HScroll cell mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 112 bytes
-        lea     Static_Hscroll_Cell, a0
-        move.l  #SRC_HSCROLL, d1
-        move.w  #dma_length(112), d3
-        move.l  #vdp_comm(VRAM_HSCROLL_TABLE, VdpTarget.Vram, VdpOp.Dma), d2
-        jbsr    Build_DMA_Entry
-
-        // §4.6 HScroll line mode: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes
-        // (tail-calls the shared builder — the seventh entry's build IS the tail)
+        // §4.6 HScroll: Hscroll_Buffer -> VRAM_HSCROLL_TABLE, 896 bytes — the ONE table
+        // layout the VDP reads per line (reg $0B bits 1:0 = %11). The 112-byte per-cell
+        // twin that stood here was deleted 2026-08-26 (d-29-corrected): it fed cell rows
+        // 0-3 only, because the VDP indexes the cell-mode table at stride 32 and the fill
+        // wrote stride 4 — see docs/DEFERRED_WORK.md "Per-cell HScroll fill — DELETED".
+        // (tail-calls the shared builder — the sixth entry's build IS the tail)
         lea     Static_Hscroll_Line, a0
         move.l  #SRC_HSCROLL, d1
         move.w  #dma_length(896), d3
@@ -177,7 +170,7 @@ pub proc BuildStaticDMA () clobbers(d0-d4/a0) {
 //   d3 = length in WORDS        d0 = $94 sign-extended       d4 = $93979695 markers
 //
 // d0/d4 are inputs rather than locals because BuildStaticDMA sets them once and builds
-// seven entries; a caller building ONE must set them itself.
+// six entries; a caller building ONE must set them itself.
 //
 // THE MARKER REGISTER IS d4, NOT d5, and that is a contract-closure fact rather than taste:
 // the off-screen ship builds its entry under Raster_InstallPatched, whose caller chain
@@ -469,27 +462,23 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         bcs     .no_spr                         // dropped -> leave flag set for retry
         clr.b   Sprite_Table_Dirty              // enqueued -> clear
     .no_spr:
-        // §4.6: enqueue HScroll DMA when a parallax_config is active.
-        // Mode auto-selected: any H-deform table -> per-line (896B), else per-cell (112B).
-        // Since Parcel W a world-anchored overlay ALSO forces per-line, because an anchored
-        // boundary lands on an arbitrary scanline and per-cell can only place a cell edge.
-        // Length keys off the ACTIVE config (Target during a transition) so the DMA
-        // byte count matches the mode the buffer was built + the VDP was told to
-        // render in — otherwise a mode-differing transition ships a cell-length DMA
-        // for a line-mode buffer (or vice versa) = the ≤16-frame tear.
+        // §4.6: enqueue the HScroll DMA when a parallax_config is active.
         //
-        // THE KEY ITSELF IS NOT SPELLED HERE. It used to be — this block and
-        // parallax.emp's Step-4 mode select were byte-for-byte the same beq/bne sequence
-        // in two files. P3 Task 6 made `parallax_mode_key` (engine.level.scene_dsl) the
-        // ONE derivation and both sites splice it, so the length and the buffer cannot
-        // disagree by construction rather than by discipline.
-        jbsr    Parallax_Active_Config          // d0 = active config; Z reflects d0
-        beq     .hs_cell                        // NULL -> per-cell default
-        // CAP_PER_LINE span (P2 §3.3) — the whole 896-byte ARM of the length key. The
-        // mode decision's own spans (`cap_per_line_mode`, `cap_anchors_mode`) come from
-        // the splice. Without the bit no config can carry an H-deform table or an anchor,
-        // so the 112-byte per-cell length is the only reachable answer and `.hs_cell` is
-        // the structural fallthrough. The TWIN arm in parallax.emp elides on the same bit.
+        // ONE LENGTH, 896 BYTES, ALWAYS. Until 2026-08-26 this site chose between a
+        // 112-byte per-cell entry and this one through a runtime mode key spliced from
+        // engine.level.scene_dsl (P3 Task 6's `parallax_mode_key`, twinned with the fill
+        // select in engine.parallax's Step 4). The per-cell path was deleted under owner
+        // ruling d-29-corrected: it had never been selected by any shipped config, and the
+        // fill it paired with was broken from birth (stride 4 against the VDP's stride 32).
+        // With one table layout there is nothing to keep in step, and the length is a fact
+        // of the buffer rather than of the config: 224 lines x 4 bytes.
+        //
+        // The ACTIVE config (Target during a transition) is still the gate: a NULL config
+        // means no parallax is running and nothing wrote Hscroll_Buffer this frame, so
+        // there is nothing to ship (the VDP keeps whatever the table last held; boot-time
+        // VRAM clear makes that zero). The 112-byte entry used to ship here on NULL
+        // "as the per-cell default"; shipping 896 B of a buffer nobody writes would be pure
+        // VBlank DMA cost, so the NULL arm is now the skip.
         //
         // ONE 896-BYTE ENTRY PER FRAME, NOT TWO — the P3 Task 6 Step 1 ruling, recorded at
         // the enqueue site because it is the site that was doubted. `effects_budget_model`
@@ -499,21 +488,13 @@ pub proc Enqueue_Dirty_Buffers () clobbers(d0/a1-a2) requires(vblank) {
         // (dma_queue.emp:362) and never zeroes the entry bytes, so a scan of the whole
         // DMA_Queue region reports earlier frames' entries alongside the live ones. Ruled
         // 2026-08-20 three ways: this is the ONLY `Static_Hscroll_Line` enqueue in the
-        // tree and it is an either/or reached once per VBlank; at scanline 220 all three
+        // tree and it is reached once per VBlank; at scanline 220 all three
         // slot cursors sat at their BASES, so every entry that scan reported was residue;
         // and zeroing the region then advancing exactly one frame yielded ONE 896 B entry,
         // five trials, no variation. The charge is 896 B.
-    if (Game.SCANLINE_CAPS & CAP_PER_LINE) != 0 {
-    .cap_per_line_dma_begin:
-        movea.l d0, a1                          // the splice reads the config through a1
-        parallax_mode_key(a1, .hs_cell)
-    .hs_line:
+        jbsr    Parallax_Active_Config          // d0 = active config; Z reflects d0
+        beq     .hs_done                        // NULL -> no parallax, nothing to ship
         queue_static_dma(Static_Hscroll_Line)
-        jbra    .hs_done
-    .cap_per_line_dma_end:
-    }
-    .hs_cell:
-        queue_static_dma(Static_Hscroll_Cell)
     .hs_done:
         rts
 }

@@ -20,11 +20,18 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENGINE = os.path.join(AEON, "engine")
 SCENE_DSL = os.path.join(ENGINE, "level", "scene_dsl.emp")
 
-# `pub const CAP_PER_LINE       = $0001` — declaration lines only. The reserved-bit
-# COMMENT block beneath them (`CAP_MULTI_DEFORM_TABLE=$0020, ...`) deliberately does
+# `pub const CAP_PER_COL_VSRAM  = $0002` — declaration lines only. The reserved-bit
+# COMMENT block beneath them (`CAP_FG_SPRITE_STRIPS=$0080, ...`) deliberately does
 # not match: a reserved bit has no lowering, so a span named for one would bracket a
 # block that cannot exist.
 CAP_DECL_RE = re.compile(r"^pub const (CAP_[A-Z0-9_]+)\s*=\s*\$([0-9A-Fa-f]+)\s*$", re.M)
+
+# `// RETIRED: CAP_PER_LINE=$0001 (2026-08-26, ...)` — a bit that HAD a lowering and lost
+# it when its mechanism was deleted. It is not a declaration (no span may name it, no
+# game may raise it) but it still occupies its bit: the allocation is one bit at a time
+# from bit 0 and a retired bit is a HOLE, never re-used, so the gapless-run check in
+# tools/test_scene_span_labels.py is over declared ∪ retired.
+CAP_RETIRED_RE = re.compile(r"^// RETIRED: (CAP_[A-Z0-9_]+)=\$([0-9A-Fa-f]+)", re.M)
 
 # The one spelling the engine uses for a capability gate.
 GATE_RE = re.compile(r"if\s*\(\s*Game\.SCANLINE_CAPS\s*&\s*(CAP_[A-Z0-9_]+)\s*\)\s*!=\s*0\s*\{")
@@ -53,6 +60,13 @@ def capability_bits():
             "authority moved or was re-spelled, and every derivation in this module "
             "reads it from here. Fix the parse; do not hard-code the bits." % SCENE_DSL)
     return bits
+
+
+def retired_capability_bits():
+    """{CAP_NAME: bit} for bits retired in scene_dsl.emp (see CAP_RETIRED_RE)."""
+    with open(SCENE_DSL, encoding="utf-8") as f:
+        src = f.read()
+    return {m.group(1): int(m.group(2), 16) for m in CAP_RETIRED_RE.finditer(src)}
 
 
 def game_caps(game):
@@ -175,9 +189,10 @@ def expected_spans(caps):
     """The span names a build with mask `caps` MUST emit — derived, never listed.
 
     A span survives iff its own capability bit is raised AND every gate ENCLOSING it
-    is raised too: `cap_deform_sample` sits inside the CAP_PER_LINE body gate, so a
-    game raising CAP_DEFORM but not CAP_PER_LINE emits neither. Getting that wrong in
-    either direction turns the differential gate into a hand list with extra steps.
+    is raised too: `cap_multi_deform_table_band` sits inside the CAP_DEFORM sampling
+    gate, so a game raising CAP_MULTI_DEFORM_TABLE but not CAP_DEFORM emits neither.
+    Getting that wrong in either direction turns the differential gate into a hand list
+    with extra steps.
     """
     bits = capability_bits()
     blocks = gated_blocks()

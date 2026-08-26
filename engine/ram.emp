@@ -537,8 +537,7 @@ pub vars upper_ram {
     Static_Pal_Ship:        [u8; sizeof(DMAEntry)],
     Static_Pal_Line3:       [u8; sizeof(DMAEntry)],
     Static_Sprite_DMA:      [u8; sizeof(DMAEntry)],
-    Static_Hscroll_Cell:    [u8; sizeof(DMAEntry)],   // §4.6 — 112-byte HScroll per-cell mode
-    Static_Hscroll_Line:    [u8; sizeof(DMAEntry)],   // §4.6 — 896-byte HScroll per-line mode
+    Static_Hscroll_Line:    [u8; sizeof(DMAEntry)],   // §4.6 — 896-byte HScroll table (the one layout; per-cell twin deleted 2026-08-26, d-29-corrected)
 
     // --- Debug profiling (§1.7) — zero in release builds ---
     if DEBUG == 1 @shape_divergent {

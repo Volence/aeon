@@ -27,10 +27,9 @@ pub implement Game {
     // games/sonic4/data/parallax/configs.emp against scene_caps()/fold_caps()
     // (engine/level/scene_dsl.emp):
     //
-    //   $0001 CAP_PER_LINE       a deform table is attached throughout; the weakest case
-    //                            is OJZ_Default's DeformTable_Zero (configs.emp:109) —
-    //                            flat-pathed, but a non-NULL table still selects the
-    //                            per-line HScroll pipeline. Anchors also raise this bit.
+    //   $0001                    RETIRED 2026-08-26 (d-29-corrected): was CAP_PER_LINE,
+    //                            raised by every scene. The per-line HScroll fill is the
+    //                            only fill now, so there is nothing for a bit to elide.
     //   $0002 CAP_PER_COL_VSRAM  v_deform_bg on Rocking (configs.emp:216, three variants)
     //                            and Perspective (:236, three variants). SkyHaze's
     //                            `v_deform_shift_bg: 0` (:272) attaches NO table — it is
@@ -53,7 +52,7 @@ pub implement Game {
     // exists the binding MAY flip to `= SceneRegistry_CapsFolded` (Task 1's spike proved
     // computed consts bind here); that is a readability preference, not a correctness
     // fix — the ensure is what makes either spelling honest.
-    const SCANLINE_CAPS = $001F
+    const SCANLINE_CAPS = $001E
 
     // Boot enters ojz_scroll_test's GameState_OJZScroll_Init.
     const ENTRY_ID = GS_OJZ_SCROLL_TEST

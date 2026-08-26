@@ -15,17 +15,16 @@
 //      Parallax_Fill_PerLine, because a5/a6 are the sampling machinery's registers and
 //      nothing else reads them. A mask with $0020 and not $0004 would elide the enclosing
 //      block and leave the bit selecting a site that is not there.
-//   2. THE FLAT-PATHED IDIOM ALREADY HAS A CORRECT SPELLING ONE LEVEL UP. Attaching a
-//      zero table at shift 15 purely to force the per-line pipeline is what OJZ's shipped
-//      configs do — at SCENE level, where it costs one header word. At LAYER level the
-//      same trick costs a band_ext extension in EVERY band of the game plus a per-band
-//      pointer reload in the fill loop, and buys nothing `precision: PRECISION_LINE` does
-//      not buy for free.
+//   2. A TABLE NOTHING SAMPLES BUYS NOTHING. The scene-level flat-pathed idiom (a zero
+//      table at shift 15) used to exist to force the per-line pipeline; since 2026-08-26
+//      the pipeline is per-line for every scene, so even at SCENE level the idiom is a
+//      byte-identity relic. At LAYER level it costs a band_ext extension in EVERY band of
+//      the game plus a per-band pointer reload in the fill loop, for nothing at all.
 //
 // THE TWO-FIXTURE DIFFERENTIAL. The contrast is ONE PAYLOAD SLOT — own()'s shift_b:
 //
-//   FIXTURE A — `Own(0, 15, 2, 0, 1)`: shift_b live. Legal; folds to $0025 =
-//               CAP_PER_LINE | CAP_DEFORM | CAP_MULTI_DEFORM_TABLE. Its ensure MUST STAY
+//   FIXTURE A — `Own(0, 15, 2, 0, 1)`: shift_b live. Legal; folds to $0024 =
+//               CAP_DEFORM | CAP_MULTI_DEFORM_TABLE. Its ensure MUST STAY
 //               GREEN, and it is also the only place in the poison set that asserts the
 //               positive form of the implication scene_caps() pins.
 //   FIXTURE B — `Own(0, 15, 15, 0, 1)`: both shifts at the no-deform sentinel. One
@@ -75,16 +74,16 @@ const POISON_OWNFLAT_SCENE_B: Scene = scene(
     deform_bg: SceneDeform.Shared(0, 1))
 
 // Fixture A's capabilities, derived by hand: a table is attached (both scene-level and
-// per-layer), so CAP_PER_LINE $0001; own()'s shift_b is live, so CAP_DEFORM $0004; the
-// layer carries its own table, so CAP_MULTI_DEFORM_TABLE $0020. No column table, no
-// anchor, one-element registry.
-const POISON_OWNFLAT_DECLARED = $0025
+// per-layer) — no bit for that since CAP_PER_LINE was retired (2026-08-26); own()'s
+// shift_b is live, so CAP_DEFORM $0004; the layer carries its own table, so
+// CAP_MULTI_DEFORM_TABLE $0020. No column table, no anchor, one-element registry.
+const POISON_OWNFLAT_DECLARED = $0024
 const POISON_OWNFLAT_FOLDED_A = fold_caps([POISON_OWNFLAT_SCENE_A])
 const POISON_OWNFLAT_FOLDED_B = fold_caps([POISON_OWNFLAT_SCENE_B])
 
 // ---- FIXTURE A, THE PASSING HALF ----
 ensure(POISON_OWNFLAT_FOLDED_A == POISON_OWNFLAT_DECLARED,
-       "poison_scene_own_flat: FIXTURE A folds to {POISON_OWNFLAT_FOLDED_A}, not the hand-derived {POISON_OWNFLAT_DECLARED} — a SAMPLED per-layer table must fold CAP_PER_LINE|CAP_DEFORM|CAP_MULTI_DEFORM_TABLE together, which is the positive form of the implication scene_caps() pins. If this moved, the refusal below is contrasting against the wrong thing")
+       "poison_scene_own_flat: FIXTURE A folds to {POISON_OWNFLAT_FOLDED_A}, not the hand-derived {POISON_OWNFLAT_DECLARED} — a SAMPLED per-layer table must fold CAP_DEFORM|CAP_MULTI_DEFORM_TABLE together, which is the positive form of the implication scene_caps() pins. If this moved, the refusal below is contrasting against the wrong thing")
 
 // ---- FIXTURE B, THE POISON ----
 ensure(POISON_OWNFLAT_FOLDED_B >= 0,

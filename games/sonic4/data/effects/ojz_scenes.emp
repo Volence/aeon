@@ -108,10 +108,11 @@ pub const SceneSrc_DeformTable_Perspective = v_column_floor(center: 20, max_offs
 // OJZ_Default — configs.emp:107-114.
 //
 // Four bands, uniform BG 1/2 depth, whole-plane V-scroll (v_factor_bg 3, v_center 512),
-// every band shift 15. The all-zero BG table is what selects the per-line HScroll
-// pipeline while the 15-sentinels skip the (0 >> shift) sample loop — flat-pathed, so
-// `precision: PRECISION_LINE` is the honest authoring and scene()'s P1 fence accepts it
-// only BECAUSE the table is attached. PRECISION_LINE does not synthesize the table.
+// every band shift 15. The all-zero BG table is kept for byte-identity with the shipped
+// header (it USED to be what selected the per-line HScroll pipeline; since 2026-08-26 the
+// pipeline is per-line for every scene) while the 15-sentinels skip the (0 >> shift)
+// sample loop — flat-pathed. (`precision: PRECISION_LINE` was authored here until the
+// field was retired, d-29-corrected.)
 //
 // THE MASK BRIDGE, USE 1 OF 2. The shipped header declares band_count 4 with
 // layer_mask $1F — five bits for four bands. `derived_mask` can only ever produce $0F
@@ -127,7 +128,6 @@ pub const Scene_OJZ_Default: Scene = scene(
               no_layer(), no_layer(), no_layer(), no_layer() ],
     count: 4, v_factor: 3, v_center: 512, v_offset: 0,
     deform_bg: SceneDeform.Shared(DeformTable_Zero, 1),
-    precision: PRECISION_LINE,
     layer_mask_raw: $1F)
 
 // =====================================================================
@@ -150,7 +150,6 @@ pub const Scene_OJZ_Underwater: Scene = scene(
     count: 4, v_factor: 3, v_center: 512, v_offset: 0,
     deform_bg: SceneDeform.Shared(DeformTable_Shimmer, 3),
     anchor: SceneAnchor.At(0, 15, 2),
-    precision: PRECISION_LINE,
     layer_mask_raw: $1F)
 
 // =====================================================================
