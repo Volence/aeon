@@ -2006,15 +2006,30 @@ than a bad derivation**: silent, and in the direction where the author blames th
 the stack. Aurora wrapped into range rather than clamping, which is the correct local fix and is
 theirs; the collision is OURS.
 
-**Why it is booked rather than fixed here:** the robust fix is to move the sentinel off the top
-of the range so saturation cannot reach it, and that moves bytes (encoding change, every
-committed scene's triples, the decode path). The cheap fix is a contract note telling every
-producer never to clamp — which is the "ask every tool to remember this" shape that this file
-distrusts on principle, since it fails silently for whoever does not read it.
+**MOVING THE SENTINEL IS THE FIX; the contract note is the INFERIOR option, not the cheap one**
+— and the deciding argument is the aurora lane's, recorded in their name because this lane was
+about to get it wrong. The two options were being weighed on **cost** (bytes and a re-encode
+versus a paragraph). That is the wrong axis. **A producer that forgets the rule ships a silently
+wrong ROM; a producer that trips over a moved sentinel fails LOUDLY at build time.** Those are
+not two prices for one fix, they are two directions for errors to point, and only one is
+recoverable by the person who made the mistake. Moving the sentinel is therefore the fix even
+though it is the expensive one: it converts a silent authoring defect into a build failure.
+*Aurora's closing point is the one that kills the note-to-producers option outright: their
+editor's protection today is a wrap they wrote **after being bitten**, not a rule anyone would
+rediscover. A remedy living only in the memory of the lane that got hurt is not a remedy for the
+next tool.*
+**Not funded tonight** — it moves bytes, every committed scene's triples, and the decode path.
+Enumerating the clamp's consumers is part of the fix, not a precondition for booking it; aurora
+expects more of them than either lane has counted.
 
-**Note the general form, which is worth more than the instance:** a sentinel sharing its value
-with the extreme of the range it lives in is safe exactly until some producer saturates, and
-saturation is the *default* behaviour of a clamp. The raised ceiling did not create the defect;
+**Note the general form, which is worth more than the instance — and it is BROADER than
+"a derivation that saturates", which is how this lane first wrote it (aurora's correction).** It
+is **any producer reaching the end of the range at all**: a slider dragged to its stop, a value
+pasted from another scene, a `Math.min(x, max)` written by someone being careful. **The
+careful-programmer case is the one that stings**, because the defensive idiom is precisely what
+walks you onto the sentinel. A sentinel sharing its value with the extreme of its own range is
+safe exactly until some producer reaches that extreme, and reaching it is what clamping does by
+construction. The raised ceiling did not create the defect;
 it made a previously-unreachable value reachable. **Any constant raise should ask which sentinels
 just became reachable.**
 
