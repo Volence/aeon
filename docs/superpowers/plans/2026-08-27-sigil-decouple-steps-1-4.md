@@ -42,8 +42,23 @@ sequence"*, *"nothing but the declared anchors can ever be held absolute"* — a
 asserting every build that the declared sequence holds, the declared anchors hold, and **every
 byte-emitting section is declared** (completeness — the one neither lane knew existed).
 
-**So step 2's remainder is `bganim_room` — the ROOM gate — and nothing else that either lane can
-measure today.** Not *order + anchors + gate*, not *anchors + gate*. **Gate only.** The residual
+**⚠⚠ AND THE "GATE ONLY" REMAINDER WAS ALSO WRONG — MY ERROR, corrected 2026-08-27 within the
+hour, after I had told BOTH the sigil lane and the hub.** `bganim_room --gate` **DOES run**, at
+`build.sh:664`, unconditionally on the canonical build, with `--rom`/`--built-after` for temporal
+provenance and `--fixture` for emitter-format staleness, exiting 1 on failure. Its own comment
+reads *"THIS IS THE ONLY ENFORCEMENT of `BGANIM_SECTION_CEILINGS` against a real listing"*.
+**I grepped `bganim_room`, read the hit at `build.sh:224`, and concluded the gate does not run.
+Line 224 is inside the `FAST=1` SKIP BANNER** — it is an accurate statement about what fast mode
+omits, and I read it as a statement about the build. **Shared-protocol bar 11 exactly: read the
+lines AROUND a cited line before accepting what it proves.** I did this while the day's running
+theme was that precise failure, and propagated it to two lanes before checking.
+**So step 2 may be COMPLETE.** Anchors and order: asserted by `validate_placement` every build.
+The BG-anim ceiling: asserted by `bganim_room --gate` every canonical build. **What remains is
+whether "room guarantees" plural covers more than the BG-anim ceiling — that is an open question,
+not a known gap, and it must be established by enumeration rather than by either lane's memory.**
+
+~~So step 2's remainder is `bganim_room` — the ROOM gate — and nothing else that either lane can
+measure today. Not *order + anchors + gate*, not *anchors + gate*. **Gate only.**~~ The residual
 coupling step 1 would pin is narrow: `SizeSource::Frozen` supplies *provisional bases*, used to
 identify islands and as measurement input, not to place bytes.
 
