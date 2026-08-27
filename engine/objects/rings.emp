@@ -161,6 +161,8 @@ pub proc RingBuffer_Clear () clobbers() {
 //        cursors straight back unchanged. Where d5 IS written the increment is
 //        word-wide, matching the inout(d5: u16) claim.
 // Clobbers: d0-d4, d6-d7, a0
+// DEBUG-only extra input: a6 = &Sprite_Owner (SPRITE-OWNER). Read, never written;
+//   set once by Render_Sprites, which is this proc's only caller.
 // -----------------------------------------------
 pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) inout(d5: u16, a4: *u8) {
         // --- Animation timer ---
@@ -228,6 +230,33 @@ pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) inout(d5: u16, a4
 
         // --- Write SAT entry (8 bytes) --- d2/d3 already hold the final SAT
         // X/Y (camera pre-biased), so no per-ring subi/addi.
+        // SPRITE-OWNER (DEBUG only): stamp $0001 = "ring" at THIS entry's index.
+        // Rings write the SAT directly on their own (a4)+ run and never reach
+        // sprites.emp's size_link, which is exactly why the ownership map is
+        // written AT THE INDEX rather than through a cursor advanced in size_link:
+        // such a cursor would fall one entry behind at the first ring and stay
+        // behind, misattributing every later sprite — and the SAT itself would
+        // still be correct, so a VRAM-vs-buffer proof would certify the wrong name.
+        //
+        // d5 is read PRE-increment, matching the two size_link writers: all three
+        // bump d5 and THEN stamp it as the link byte, so pre-increment d5 is this
+        // entry's own index on every path.
+        //
+        // d0 is dead here: its last use is the Y cull compare a few lines up
+        // (`cmpi.w #SCREEN_HEIGHT+RING_HEIGHT, d0` / `bhi .skip_ring`) and its next
+        // is a fresh `move.w d2, d0` on the following iteration. d2/d3/d4/d6/d7 are
+        // all LIVE (SAT X/Y, tile attrs, pre-biased camera) — d0 is the only free
+        // data register at this point, so this is placement-bound like the piece
+        // loop's owner_term. a6 = &Sprite_Owner, set up by Render_Sprites; this
+        // proc's clobbers() does not name a6 and nothing here touches it.
+        // Flags: the `bhi` above already consumed the cull compare; the next reader
+        // is the `bne .x_ok` below, set by its own `tst.w d2`.
+        if DEBUG == 1 {
+        move.w  d5, d0
+        add.w   d0, d0                  // × 2 — u16 entries
+        move.w  #1, (a6,d0.w)           // $0001 = ring sentinel
+        }
+
         move.w  d3, (a4)+               // +0: Y position
         move.b  #$05, (a4)+             // +2: size 2×2 (16×16 px)
         addq.w  #1, d5

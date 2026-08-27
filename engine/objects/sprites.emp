@@ -13,6 +13,15 @@ use engine.constants.{PRIORITY_BANDS, SPRITES_PER_BAND, SCANLINE_BANDS,
                       MAX_VDP_SPRITES, VDP_SPRITE_X_OFFSET, VDP_SPRITE_Y_OFFSET,
                       SPRITE_CULL_MARGIN}
 
+// SPRITE-OWNER: Render_Sprites clears Sprite_Owner ([u16; MAX_VDP_SPRITES], DEBUG
+// only) a LONG at a time — MAX_VDP_SPRITES/2 iterations — so an odd slot count
+// would clear one entry short AND run the loop off the end of the array by two
+// bytes. Derived from the same constant that sizes the array, so the pair cannot
+// drift; a bound change to an odd number fails the build here instead of silently
+// under-clearing.
+ensure((MAX_VDP_SPRITES & 1) == 0,
+       "Sprite_Owner's long-wise clear needs an even MAX_VDP_SPRITES")
+
 // Sprite X=0 masking — VDP size code for mask sprites (1×4 cells = 8×32 pixels)
 const SPRITE_MASK_SIZE   = %00000011     // width=1, height=4 (32 scanlines per mask)
 const SPRITE_MASK_HEIGHT = 32
@@ -205,6 +214,33 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // dirty set, so no window opens between them.
         st      Sprite_Emit_Active
 
+        // --- SPRITE-OWNER (DEBUG only): per-SAT-slot ownership map ---
+        // a6 = &Sprite_Owner for the whole of this render; the three SAT writers
+        // (owner_term via Emit_ObjectPieces, InsertSpriteMasks, DrawRings) stamp
+        // their own entry INDEX. a6 is touched by nothing else in this proc and by
+        // none of the three callees (Emit_ObjectPieces clobbers d0-d1/d4/a0/a3,
+        // InsertSpriteMasks d0-d1, DrawRings d0-d4/d6-d7/a0).
+        //
+        // The array is cleared WHOLE, not [0..Sprites_Rendered): that bound is LAST
+        // frame's number, so the clear's correctness must not lean on it — and the
+        // stronger reason is that a future emit path which forgets to stamp would
+        // otherwise leave a stale VALID SST address inside the live range, i.e. a
+        // confident wrong object name. A cleared array turns that same mistake into
+        // a visible $0000 and an honest "unknown".
+        //
+        // Cost: MAX_VDP_SPRITES/2 = 40 iterations x (move.l 12 + dbf 10) = ~880
+        // cycles, DEBUG only. (The booking's "~200" was an underestimate.)
+        // d0/d1/a0 are dead here — the camera fold below loads d0 fresh.
+        if DEBUG == 1 {
+        lea     Sprite_Owner, a6
+        movea.l a6, a0
+        moveq   #0, d0
+        move.w  #MAX_VDP_SPRITES/2-1, d1   // 2 u16 entries per long
+    .owner_clear:
+        move.l  d0, (a0)+
+        dbf     d1, .owner_clear
+        }
+
         // Camera-bias fold: read Camera_X/Y ONCE here (final for this
         // frame's render — the single value every per-object world path
         // consumes) and store Camera - VDP_SPRITE_*_OFFSET. The
@@ -358,6 +394,13 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         bne   .multi_sprite
 
         // Single-sprite: emit pieces and continue to next band entry
+        // SPRITE-OWNER: a1 carries the emitting SST into the piece loop's
+        // owner_term splice. Set at EVERY call site (a1 is scratch in this proc —
+        // the band-count and scanline-budget leas above both land in it), and
+        // Emit_ObjectPieces preserves it.
+        if DEBUG == 1 {
+        movea.l a0, a1
+        }
         jbsr   Emit_ObjectPieces
         jbra   .next_object
 
@@ -365,6 +408,9 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // Save band-pointer a2; repurpose a2 = parent SST throughout sibling walk
         move.l  a2, -(sp)
         movea.l a0, a2
+        if DEBUG == 1 {
+        movea.l a0, a1                  // SPRITE-OWNER: parent's own pieces
+        }
         jbsr   Emit_ObjectPieces       // emit parent's pieces
 
         move.w  Sst.sibling_ptr(a2), d0
@@ -417,6 +463,11 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
 
         // Save child SST across Emit (a0 clobbered by subroutine)
         move.l  a0, -(sp)
+        // SPRITE-OWNER: the CHILD owns the pieces it emits, not the parent — a
+        // child is a real SST and is what a click should name.
+        if DEBUG == 1 {
+        movea.l a0, a1
+        }
         jbsr   Emit_ObjectPieces
         movea.l (sp)+, a0
 
@@ -658,6 +709,48 @@ comptime fn x_term(xflip: int) -> Code {
     }
 }
 
+// SPRITE-OWNER (DEBUG only) — stamp the emitting object's SST address word into
+// Sprite_Owner at THIS piece's SAT index. Spliced into emit_piece_loop BETWEEN
+// y_term and size_link. Zero bytes in release (empty Code, the vdp.emp
+// vcr_addq pattern).
+//
+// ⚠⚠ THE REGISTER CHOICE AND THE d5 READ ARE BOUND TO THIS PLACEMENT, NOT TO THE
+// PROCEDURE. Do not move this splice without redoing the whole derivation:
+//
+//   * d0 is NOT "free in the piece loop" — it is the loop's MAIN scratch. It is
+//     dead exactly HERE: y_term (both forms) ENDS by consuming d0 into (a4)+, and
+//     tile_term (all four forms) BEGINS with `move.w (a3)+, d0`, which kills any
+//     prior value. Relocate this splice into or after tile_term or x_term and d0
+//     becomes a live-range collision that ASSEMBLES CLEANLY and corrupts the
+//     tile-attrs or X word — silently drawing the wrong thing.
+//   * d1 happens to be free at THIS point too (y_term's yflip form leaves a dead
+//     height there; the unflipped form never touches it) — but it stops being free
+//     ONE INSTRUCTION later: size_link's unflipped form loads size<<8|pad into d1
+//     and holds it across its whole body. d0 is chosen because its dead window is
+//     the wider of the two, not because d1 is wrong at this exact line.
+//   * d5 must be read BEFORE size_link's `addq.w #1, d5`. All three SAT writers
+//     (size_link's two forms and DrawRings) increment d5 and THEN stamp it as the
+//     link byte, so PRE-INCREMENT d5 is this entry's own index on every path —
+//     that agreement is what makes an INDEXED write correct no matter which writer
+//     emitted the entry. Splicing this after size_link would stamp the NEXT slot.
+//   * `(a6,d5.w*2)` is not a 68000 addressing mode (scale factors are 68020+),
+//     hence the explicit doubling through d0.
+//
+// Flags: move/add set the CCR, but nothing between here and x_term's own
+// `add.w d2, d0` (which feeds its `bne .x_ok`) reads them, and the loop's `dbeq`
+// consumes the `cmpi.b #MAX_VDP_SPRITES, d5` that sits after x_term.
+//
+// In: a1 = emitting object's SST (set by Render_Sprites at each Emit_ObjectPieces
+//     call site; Emit_ObjectPieces preserves a1), a6 = &Sprite_Owner.
+comptime fn owner_term() -> Code {
+    if DEBUG != 1 { return asm { } }
+    return asm {
+        move.w  d5, d0                  // d0 = this entry's SAT index (PRE-increment)
+        add.w   d0, d0                  // × 2 — u16 entries
+        move.w  a1, (a6,d0.w)           // stamp the owning SST address word
+    }
+}
+
 // -----------------------------------------------
 // emit_piece_loop — the per-piece SAT-emit loop skeleton, parametrized by
 // flip. The loop-back label (.piece_loop) and its dbeq live in THIS ONE block;
@@ -675,6 +768,7 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
         subq.w  #1, d4
     .piece_loop:
         {y_term(yflip)}
+        {owner_term()}
         {size_link(yflip)}
         {tile_term(xflip, yflip)}
         {x_term(xflip)}
@@ -705,6 +799,9 @@ comptime fn emit_piece_loop(xflip: int, yflip: int) -> Code {
 // Clobbers: d0, d1, d4, a0 (repurposed for flip-table), a3 (walked past
 //   the consumed pieces)
 // Preserves: d2, d3, d6, d7, a1, a6 (freed by the H2 stream-order restructure)
+// DEBUG-only extra inputs (SPRITE-OWNER, read-only, still preserved):
+//      a1 = the emitting object's SST — stamped into Sprite_Owner by owner_term
+//      a6 = &Sprite_Owner
 // -----------------------------------------------
 proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5: u16, d6: u16) clobbers(d0-d1/d4/a0/a3) out(d5: u16, a4) {
         lea     CellOffsets_XFlip(pc), a0  // a0 = flip-table base for variants
@@ -749,6 +846,9 @@ proc Emit_ObjectPieces (a3: *u8, a4: *u8, d0: u8, d2: i16, d3: i16, d4: u16, d5:
 //      IS written the increment is word-wide, matching inout(d5: u16). Same shape
 //      as DrawRings.
 // Clobbers: d0-d1
+// DEBUG-only extra input: a6 = &Sprite_Owner (SPRITE-OWNER). Read, never written.
+//   d0 is saved/restored around the stamp because BOTH d0 and d1 stay live across
+//   this loop — see the note at the write site.
 // -----------------------------------------------
 proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) inout(d5: u16, a4: *u8) {
         move.w  SpriteMask_Y, d0        // d0 = VDP Y start position
@@ -758,6 +858,27 @@ proc InsertSpriteMasks (a4: *u8, d5: u16) clobbers(d0-d1) inout(d5: u16, a4: *u8
     .mask_loop:
         cmpi.w  #MAX_VDP_SPRITES, d5
         bge   .masks_done
+
+        // SPRITE-OWNER (DEBUG only): stamp $0002 = "X=0 mask sprite" at THIS
+        // entry's index (pre-increment d5, same convention as owner_term).
+        //
+        // ⚠ NEITHER d0 NOR d1 IS FREE HERE — unlike the piece loop. This proc
+        // carries d0 = running mask Y and d1 = remaining scanlines LIVE across the
+        // whole loop body (`addi.w`/`subi.w` at the bottom feed the next pass), so
+        // the index scratch is borrowed from the stack rather than taken from a
+        // register. Widening the proc's clobbers() to free a third register would
+        // change a RELEASE contract for a DEBUG-only write; the stack does not.
+        // (The booking named $0002 but did not derive a register for it.)
+        // Flags: `move.w (sp)+, d0` sets the CCR, and the `bge` above has already
+        // consumed the cmpi's; the next flag reader is the `bgt` at the loop
+        // bottom, set by the `subi.w` there.
+        if DEBUG == 1 {
+        move.w  d0, -(sp)
+        move.w  d5, d0
+        add.w   d0, d0                    // × 2 — u16 entries
+        move.w  #2, (a6,d0.w)             // $0002 = mask sentinel
+        move.w  (sp)+, d0
+        }
 
         move.w  d0, (a4)+                 // SAT +0: Y position
         move.b  #SPRITE_MASK_SIZE, (a4)+  // SAT +2: size (1×4 = 8×32px)
