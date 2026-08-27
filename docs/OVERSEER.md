@@ -374,7 +374,9 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   `parcel/boot-override-witness` parcel rewrote that gate hours after this row was written,
   and this line was never re-derived. On merged master at `s4.debug.bin` crc `f8d06cae`,
   `--only boot_override` is **PASS, exit 0**, and a full lane was **28 gates OK, exit 0**.
-  **⚠ THAT COUNT NO LONGER REPRODUCES — measured 27 on 2026-08-27, and it is UNRECONCILED.**
+  **⚠ THAT COUNT NO LONGER REPRODUCES — measured 27 on 2026-08-27. RECONCILED EXACTLY: the
+  missing row is `scanline_spans`' `CAP_PER_LINE` row, retired by `309d937a`. Nothing stopped
+  running. See the SHIPPED note below; the count itself no longer exists.**
   On merged master `e4eee42c` at `s4.debug.bin` crc `9732c56a`, a full lane is **`effects_gates: OK
   — 27 gates`, exit 0**, all 27 PASS. Enumerated so the next run can diff rather than re-count:
   `scene`×8, `scanline_spans`×8, and eleven singletons — `boot_override`, `cost_model`,
@@ -431,18 +433,56 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   as it not existing, which is bar 16's name-versus-presence one layer down)*. **The fix is to
   assert the emitted ROW SET against a registry-derived expected set, and never to report a
   count**: a set can be diffed, which is an assertion; a count can only be read. Booked as
-  `GATES-EXPECTED-ROWSET`. Until it exists, **do not read `OK — N gates` as evidence of
-  anything but exit status** — and note the sibling instance in sigil's `refreeze --attest`,
+  `GATES-EXPECTED-ROWSET` — and note the sibling instance in sigil's `refreeze --attest`,
   which refuses on `strict_bodies == 0`, a **floor rather than an expectation**, so a deleted
   strict gate takes the witness 29 → 28 and still attests (their `ATTEST-EXPECTED-BODIES`).
 
-  **This is bar 25 on the lane that proposed it**: a green log and an absent run are the same
-  artifact, and a lane whose own count drops by one while every printed row says PASS is the
-  friendliest possible presentation of a gate that stopped running. **Do not read `OK — 27
-  gates` as clean until the 28th is named.** Next step is one `--emit-results` run per segment
-  against `0da00a33` and against `6fbcd186`, diffing the row sets; the lane has no registry
-  enumeration (`--help` confirms), which is itself worth fixing so a count can never drift
-  silently again.
+  **⚠ (b) IS RIGHT ABOUT THE REMEDY AND WRONG ABOUT THIS INSTANCE — and the count DID reconcile,
+  exactly, on 2026-08-27** (`parcel/gates-expected-rowset`). Two corrections, both measured:
+  * **Outcome variability cannot produce an all-PASS shrink, so it cannot be what was seen.**
+    Every row-suppressing path in the body — all three scene `continue`s, the dense-scene
+    stream miss, the cost probe failure, the missing demo listing — **appends a FAILING row
+    before it skips**. Outcome variability therefore only ever yields a smaller count *with red
+    in it*. A 27-rows-all-PASS run was never reachable that way, and (b) asserted a mechanism
+    without checking it could produce the observed shape. *(Bar 10 again, one level up: the
+    right general conclusion resting on the wrong particular.)*
+  * **The real variable was POPULATION, and it is `scanline_spans`, which emits one row PER
+    DECLARED `CAP_*` BIT.** `309d937a` ("scene DSL: retire CAP_PER_LINE", 2026-08-26 13:22)
+    took the declaration count 7 → 6. Measured, not inferred: `git show <rev>:engine/level/
+    scene_dsl.emp | grep -c '^pub const CAP_…'` is **7 at `6fbcd186`** (the 28 run) and **6 at
+    `e4eee42c`** (the 27 run), and `309d937a` is an ancestor of the second and not of the
+    first. The stanza's own enumeration already carried the answer — it lists `scanline_spans`
+    ×8 in the 27 run — nobody diffed it against the 28 run's ×9. **28 − 27 = one retired
+    capability bit.** The missing gate was never missing.
+  So `OK — N gates` was not lying; it was **answering a different question**, and one whose
+  answer changes when the *source* changes as well as when an outcome does. That is the sharper
+  form of the lesson: a witness that moves for two independent reasons cannot be read for
+  either.
+
+  **SHIPPED — the count is gone.** Rows now carry the gate that produced them and the lane
+  asserts a SET (`row()` / `check_row_coverage()` in `tools/effects_gates.py`): **R1** every
+  scheduled gate produced ≥1 row, **R2** no row from a gate the run did not schedule, **R3** a
+  gate whose rows are ALL PASS must have reached its `final=True` terminal emit. R3 is what
+  separates the two states the count conflated — a scene that fails determinism emits 1 row
+  instead of 2 and is complete *by its failing row*, while a gate that goes dark mid-body emits
+  fewer rows with nothing failing and is caught. The expectation is derived from `wanted()`, so
+  it shrinks correctly under `--only`; a segment WEDGED twice now emits **one attributed
+  failing row per gate it left unmeasured**, so a wedge reads as a named failure and never as a
+  missing gate. There is **no expected row count anywhere in the file** — none is derivable
+  honestly, and the residual blind spot is stated in the source: R3 cannot see a gate that
+  drops a *middle* row while still reaching its final one. The closing line names the gate set;
+  the row count is still printed, labelled as the non-witness it is. Runner:
+  `tools/test_effects_gates_segments.py` (10 new tests, in build.sh's build-fatal pytest lane).
+  Red-first, on the real tool via its two listing-only gates (no emulator): deleting
+  `demo_witness`'s emit while leaving its `if wanted(...)` running gives **`FAIL — ROW-SET
+  COVERAGE — demo_witness … PRODUCED NO ROW`, exit 1**, where the old code printed `OK — 9
+  gates`, exit 0 — and `check_registry_drift` stays silent throughout, which is precisely the
+  gap it structurally cannot cover (it compares names *asked about*, not rows *emitted*).
+  **Also fixed, found on the way**: `scanline_spans`' anti-vacuity floor was itself vacuous —
+  `if not any(r[0].startswith("scanline_spans ") …)` sat *after* two rows whose labels begin
+  with exactly that string, so it was False on every reachable path. It is now a real
+  capability-coverage row (`6 of 6 declared CAP_* bits produced a row`), which is also the
+  gate's terminal assertion and puts the population *on the page* instead of inside a total.
   **This lane's overseer put the stale claim into two agent briefs before measuring it**, and
   it fails in the PERMISSIVE direction: it licences an agent to see a real `boot_override`
   failure and write it off as somebody else's. A "known pre-existing failure" note is the most
