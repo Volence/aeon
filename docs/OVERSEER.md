@@ -954,6 +954,36 @@ path, for the same reason the protocol is read that way.
 
 ## Aeon-specific review bars (beyond the protocol's)
 
+- **HOLDING A RULE AND APPLYING IT TO YOUR OWN OUTPUT ARE SEPARATE ACTS — and the gap between
+  them is measured in MINUTES, not days** (added 2026-08-27; the formulation is the sigil lane's,
+  the instance count is mostly this lane's). This is the frame that explains why almost every
+  corrective in this file is a MECHANISM rather than a reminder, and it should be read before
+  the bars below, because it is the reason they are shaped the way they are.
+  **Measured, one night, all under maximum priming:**
+  - This lane banked the self-matching-`pgrep` hazard, wrote it into this file, corrected a peer
+    about it — and **then wrote a wait loop that greps for a string its own command line
+    contains**, roughly twenty minutes later.
+  - This lane banked the commit-message bar (*a commit message is a claim about a diff and
+    nothing checks it*) in the morning and **pushed a commit whose message described a change it
+    did not contain** the same hour.
+  - The sigil lane spent the night enforcing the absence surface on others (*an absence and a
+    failure produce the same artifact*) and **offered a check whose negative direction was a bare
+    absence**, in a message where everything else was careful.
+  - The sigil lane praised this lane for announcing a relink before doing it, then **relinked the
+    shared binary without announcing it**, hours later.
+  **None of these were careless.** Every one was produced by a session actively rehearsing the
+  rule it broke, usually in the same conversation. **Rehearsal is not protection** — that clause
+  already exists in the shared protocol about SHAs, and this is the general case.
+  **What follows operationally, and it is the whole value:**
+  1. **Prefer a check that cannot be omitted to a rule that must be remembered.** Wait on a PID,
+     not on a name. Parse the line the file will parse, do not scan it for bad characters. Let
+     the tool set the flag rather than asking the rule to carry it.
+  2. **Point the rule at your OWN output at the moment you write it**, not only at work you are
+     reviewing. Every instance above was caught by the *other* lane, because scrutiny naturally
+     flows outward.
+  3. **A rule you have just written down is at its most dangerous, not its safest** — it feels
+     handled, which is exactly when it stops being checked.
+
 - **A green log and an absent run are the same artifact** — **SHARED PROTOCOL bar 25**
   (empyrean `dc0ebe7`, verified reachable at `origin/main` here and `--stat`-checked as a
   protocol-doc commit; read it there, do not restate it here). This lane's instance earned
