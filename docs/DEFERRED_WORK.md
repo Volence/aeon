@@ -11410,6 +11410,41 @@ an honest "unknown". ~200 DEBUG cycles.
 reached the right answer from a wrong reason once on this very question, which is the shape that
 survives review. Byte-mover in the DEBUG shape, so it pairs with a sigil freeze.
 
+### RUNTIME WITNESS (2026-08-27, `tools/sprite_owner_probe.py`) — positive, and THIN, and the thinness is the finding
+
+The source pins (`tools/test_sprite_owner.py`) would all still pass if the emitted code
+stamped the WRONG INDEX at runtime, because none of them runs the ROM. `tools/sprite_owner_probe.py`
+is the other half: it boots `s4.debug.bin` on oracle-aether and reads what the engine wrote.
+
+**What held, at every one of four samples (frames 180/300/600/900):** no slot below
+`Sprites_Rendered` read `$0000` (defect 1's signature — a SAT writer nobody stamps); the
+whole-array clear held, with every slot from `Sprites_Rendered` to `MAX_VDP_SPRITES` at
+`$0000`; every non-sentinel owner was an even address inside the `Object_RAM` span; and the
+**ring sentinel `$0001` was exercised** (8 stamps summed over samples).
+
+**What the run CANNOT support, and the probe says so itself rather than printing OK.** The
+busiest reachable frame carries **three sprites** — one object and two rings. So claim C ever
+examined a **single** non-sentinel owner, and the **mask sentinel `$0002` was never exercised
+at all.** The probe reports `THIN` and exits 1 below `MIN_WITNESS_SPRITES`, deliberately: a
+green run over three slots has checked almost nothing, and reporting it as OK is exactly the
+vacuous-gate shape this repo has spent the week naming.
+
+**Why it is thin — a fact about the CONTENT, measured, not a failure of the feature.**
+`s4.debug.bin` does not boot into player-controlled gameplay. Holding `right` pans the CAMERA
+(96 → 2912 → 5680 → 5824 over three 180-frame holds) while the player SST does not move at
+all: it is a **scroll test**. There is nothing busier to reach from a cold boot today.
+*Note the near-miss: sprite count dropping to 1 and then 0 while running right looks exactly
+like a rendering regression, and the parcel is a sprite parcel. It is the camera leaving the
+populated start of the level behind. Attributing it to the parcel would have been the
+obvious wrong answer, and the discriminator was one cheap read of the camera against the
+player position.*
+
+**Still unwitnessed, and none of it is closed by the bytes:** that entry *i* names the object
+DRAWING at slot *i*'s screen position (needs a per-object position cross-check against each
+SAT entry's own X/Y — a larger instrument than this probe); and the mask path end to end.
+**Re-run the probe unchanged the moment the game boots something busier** — it is written so
+the same claims become worth something without editing it.
+
 ### AS BUILT (2026-08-27, `parcel/sprite-owner`) — what the booking got right, and the four places it did not
 
 **Everything above about the FAILURE MODES held up.** The indexed write, the pre-increment `d5`
