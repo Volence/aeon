@@ -88,14 +88,24 @@ use games.sonic4.scene_registry.{DeformTable_Zero, DeformTable_OJZ_Calm, DeformT
 
 // =====================================================================
 // CFG FIELD INDEX — what a header failure message's number means. The order is
-// engine/structs.emp's `parallax_config` declaration order (which is also its byte order).
+// engine/structs.emp's `parallax_config` declaration order (which is also its byte order),
+// and keeping those two the same thing is the point: a reader who has the struct open can
+// count to the index without a second table to trust.
 //
-//   0 pcfg_band_count          6 pcfg_transition         12 pcfg_v_deform_table_bg
-//   1 pcfg_v_factor_bg         7 pcfg_deform_speed_fg    13 pcfg_v_deform_speed_bg
-//   2 pcfg_v_factor_fg         8 pcfg_deform_speed_bg    14 pcfg_v_deform_shift_bg
-//   3 pcfg_layer_mask          9 pcfg_anchor_ch          15 pcfg_anchor_dsa
-//   4 pcfg_v_center_y         10 pcfg_deform_table_fg    16 pcfg_anchor_dsb
-//   5 pcfg_v_offset           11 pcfg_deform_table_bg
+// RENUMBERED 2026-08-27 by the MAX_PARALLAX_BANDS 8 -> 16 raise. `pcfg_layer_mask` became
+// a u16 and moved to byte $02 (it needs an EVEN offset for `move.w`/`btst`), and
+// `pcfg_v_factor_fg` — the one field with no runtime reader — moved to the tail to make
+// room. So every index from 2 up shifted: v_center_y is 3 where it was 4, the three Label
+// fields are 9/10/11 where they were 10/11/12, and v_factor_fg is 16 where it was 2.
+// Anything quoting one of these numbers moved with it (games/sonic4/test/poison/
+// poison_scene_proof.emp and its row in tools/emp_expect_fail.py).
+//
+//   0 pcfg_band_count          6 pcfg_deform_speed_fg    12 pcfg_v_deform_speed_bg
+//   1 pcfg_v_factor_bg         7 pcfg_deform_speed_bg    13 pcfg_v_deform_shift_bg
+//   2 pcfg_layer_mask          8 pcfg_anchor_ch          14 pcfg_anchor_dsa
+//   3 pcfg_v_center_y          9 pcfg_deform_table_fg    15 pcfg_anchor_dsb
+//   4 pcfg_v_offset           10 pcfg_deform_table_bg    16 pcfg_v_factor_fg
+//   5 pcfg_transition         11 pcfg_v_deform_table_bg  17 pcfg_pad_29
 //
 // BAND FIELD INDEX — the same for `band_entry` (engine/level/parallax.emp). RENUMBERED
 // BY P3 TASK 7, which made the top a u16 plane line and packed the two 1-bit factor op
@@ -177,7 +187,8 @@ pub comptime fn cfg_band(cell: int, fa: int, fb: int, dsa: int, dsb: int, phase:
     }
 }
 
-// hdr — the 28-byte section header. The four required fields (band_count,
+// hdr — the 30-byte section header (28 until the 2026-08-27 mask widening). The four
+// required fields (band_count,
 // layer_mask, v_factor_bg, v_center/v_offset) plus the optional deform + tuning
 // fields, defaulted exactly as the AS `parallax_section` macro did. Table
 // pointers are `Label` (0 = no table).
@@ -200,7 +211,6 @@ pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center
     return parallax_config{
         pcfg_band_count:        band_count,
         pcfg_v_factor_bg:       v_factor_bg,
-        pcfg_v_factor_fg:       v_factor_fg,
         pcfg_layer_mask:        layer_mask,
         pcfg_v_center_y:        v_center,
         pcfg_v_offset:          v_offset,
@@ -215,6 +225,11 @@ pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center
         pcfg_v_deform_shift_bg: v_deform_shift_bg,
         pcfg_anchor_dsa:        anchor_dsa,
         pcfg_anchor_dsb:        anchor_dsb,
+        pcfg_v_factor_fg:       v_factor_fg,
+        // Spelt, not defaulted — engine/structs.emp deliberately gives pcfg_pad_29 no
+        // `= 0`, so both constructors have to name it and neither can drift into emitting
+        // a 29-byte record the band array then starts on an odd byte after.
+        pcfg_pad_29:            0,
     }
 }
 
@@ -231,34 +246,41 @@ pub comptime fn hdr(band_count: int, layer_mask: int, v_factor_bg: int, v_center
 // differing field: later assignments win, so testing field 16 first and field 0 last
 // leaves the lowest differing index standing.
 //
-// THE THREE Label FIELDS (10, 11, 12) ARE COMPARED, AND THE COMPARISON IS LIVE — measured,
-// not assumed: swapping the oracle's BG table to a different table reports field
-// 11. Two properties of that axis are worth knowing. (a) Label equality is SYMBOL
+// THE THREE Label FIELDS (9, 10, 11 — they were 10, 11, 12 before the 2026-08-27
+// renumber) ARE COMPARED, AND THE COMPARISON IS LIVE — measured, not assumed: swapping the
+// oracle's BG table to a different table reports the BG-table field. Two properties of that axis are worth knowing. (a) Label equality is SYMBOL
 // IDENTITY, not content: while Tasks 6-8 emitted BOTH record sets, `DeformTable_Zero` and
 // its `SceneOut_DeformTable_Zero` twin held the same 256 bytes and compared UNEQUAL
 // (measured). Both sides now name the one surviving symbol, and table CONTENT remains a
 // separate, array-wise proof at the bottom of this file. (b) An UNKNOWN name in a Label position
 // does not error — it silently becomes a link extern and compares unequal (measured) — so
-// a typo'd table name shows up as a field-10/11/12 mismatch, not as "unknown name". Read
+// a typo'd table name shows up as a field-9/10/11 mismatch, not as "unknown name". Read
 // those three indices as "wrong table OR misspelled table".
 // ---------------------------------------------------------------------
 pub comptime fn cfg_eq(a: parallax_config, b: parallax_config) -> int {
     comptime var idx = -1
-    if a.pcfg_anchor_dsb != b.pcfg_anchor_dsb { idx = 16 }
-    if a.pcfg_anchor_dsa != b.pcfg_anchor_dsa { idx = 15 }
-    if a.pcfg_v_deform_shift_bg != b.pcfg_v_deform_shift_bg { idx = 14 }
-    if a.pcfg_v_deform_speed_bg != b.pcfg_v_deform_speed_bg { idx = 13 }
-    if a.pcfg_v_deform_table_bg != b.pcfg_v_deform_table_bg { idx = 12 }
-    if a.pcfg_deform_table_bg != b.pcfg_deform_table_bg { idx = 11 }
-    if a.pcfg_deform_table_fg != b.pcfg_deform_table_fg { idx = 10 }
-    if a.pcfg_anchor_ch != b.pcfg_anchor_ch { idx = 9 }
-    if a.pcfg_deform_speed_bg != b.pcfg_deform_speed_bg { idx = 8 }
-    if a.pcfg_deform_speed_fg != b.pcfg_deform_speed_fg { idx = 7 }
-    if a.pcfg_transition != b.pcfg_transition { idx = 6 }
-    if a.pcfg_v_offset != b.pcfg_v_offset { idx = 5 }
-    if a.pcfg_v_center_y != b.pcfg_v_center_y { idx = 4 }
-    if a.pcfg_layer_mask != b.pcfg_layer_mask { idx = 3 }
-    if a.pcfg_v_factor_fg != b.pcfg_v_factor_fg { idx = 2 }
+    // THE PAD IS COMPARED TOO, AT THE TOP OF THE INDEX RANGE. It is a hole in the record,
+    // not a hole in the proof: both constructors spell it 0 today, so this row can only
+    // ever fire if a third constructor appears or one of the two starts writing junk into
+    // a byte that ships. Comparing it costs one comptime `if` and makes the differ TOTAL
+    // over the declaration, which is what lets the index table above be read as "count the
+    // fields in structs.emp" rather than "count the fields the differ happens to know".
+    if a.pcfg_pad_29 != b.pcfg_pad_29 { idx = 17 }
+    if a.pcfg_v_factor_fg != b.pcfg_v_factor_fg { idx = 16 }
+    if a.pcfg_anchor_dsb != b.pcfg_anchor_dsb { idx = 15 }
+    if a.pcfg_anchor_dsa != b.pcfg_anchor_dsa { idx = 14 }
+    if a.pcfg_v_deform_shift_bg != b.pcfg_v_deform_shift_bg { idx = 13 }
+    if a.pcfg_v_deform_speed_bg != b.pcfg_v_deform_speed_bg { idx = 12 }
+    if a.pcfg_v_deform_table_bg != b.pcfg_v_deform_table_bg { idx = 11 }
+    if a.pcfg_deform_table_bg != b.pcfg_deform_table_bg { idx = 10 }
+    if a.pcfg_deform_table_fg != b.pcfg_deform_table_fg { idx = 9 }
+    if a.pcfg_anchor_ch != b.pcfg_anchor_ch { idx = 8 }
+    if a.pcfg_deform_speed_bg != b.pcfg_deform_speed_bg { idx = 7 }
+    if a.pcfg_deform_speed_fg != b.pcfg_deform_speed_fg { idx = 6 }
+    if a.pcfg_transition != b.pcfg_transition { idx = 5 }
+    if a.pcfg_v_offset != b.pcfg_v_offset { idx = 4 }
+    if a.pcfg_v_center_y != b.pcfg_v_center_y { idx = 3 }
+    if a.pcfg_layer_mask != b.pcfg_layer_mask { idx = 2 }
     if a.pcfg_v_factor_bg != b.pcfg_v_factor_bg { idx = 1 }
     if a.pcfg_band_count != b.pcfg_band_count { idx = 0 }
     return idx

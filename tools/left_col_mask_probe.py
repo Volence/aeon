@@ -86,6 +86,18 @@ FACTOR_LOCKED_S1 = 15   # parallax_dsl.emp: FACTOR_0 = $0FF -> s1 = 15 ("term ze
 NO_DEFORM_SHIFT = 15    # the per-band no-deform sentinel
 
 
+def emp_const(rel: str, name: str) -> int:
+    """A `const NAME = <int>` out of an .emp source. Loud when absent, never defaulted."""
+    txt = (AEON / rel).read_text(encoding="utf-8")
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*(\$[0-9A-Fa-f]+|\d+)",
+                  txt, re.M)
+    if not m:
+        raise SystemExit(f"FAIL: cannot find `const {name}` in {rel} — the band stride is "
+                         "derived from it and a guess would mis-read every band")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
 def struct_offsets(path: pathlib.Path, name: str) -> dict:
     """Field -> (offset, size) for a `pub struct NAME { field: type, ... }` declaration.
 
@@ -129,6 +141,27 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
 
     cfg = struct_offsets(AEON / "engine" / "structs.emp", "parallax_config")
     band = struct_offsets(AEON / "engine" / "level" / "parallax.emp", "band_entry")
+    # THE STRIDE IS band_record, NOT band_entry, AND THE TWO ARE NOT THE SAME NUMBER.
+    # `band_entry` is the 10-byte LEGACY prefix; what the emitter actually lays out is
+    # `band_record` = band_entry + the capability tails, and this game declares
+    # CAP_FACTOR_CURVE, so the shipped stride is 20. Striding by 10 read every band from
+    # index 1 on out of the middle of the previous record and reported the garbage as
+    # claim failures (15 of them, all at band >= 1, measured 2026-08-27 -- band 0 is the
+    # one index a wrong stride cannot corrupt, which is exactly why it looked plausible).
+    #
+    # DERIVED FROM ram.emp's THREE MIRRORS, which are the same numbers that size
+    # Parallax_Shadow_Bands, rather than from `band_record` itself: band_record is
+    # declared `(size: <expression>)` over capability constants this file's deliberately
+    # minimal parser cannot evaluate, and a parser that guessed would be worse than one
+    # that reads the mirrors parallax.emp already pins against the real struct.
+    stride = (emp_const("engine/ram.emp", "BAND_ENTRY_LEN")
+              + emp_const("engine/ram.emp", "BAND_EXT_BYTES")
+              + emp_const("engine/ram.emp", "BAND_CURVE_BYTES"))
+    if stride < band["__sizeof__"]:
+        raise SystemExit(
+            f"FAIL: derived band stride {stride} is smaller than sizeof(band_entry) "
+            f"{band['__sizeof__']} — ram.emp's mirrors and parallax.emp's struct disagree, "
+            "and every band read below would be wrong")
 
     need = ["DeformTable_Zero", "DeformTable_Shimmer", "DeformTable_Rocking",
             "DeformTable_Perspective", "ParallaxConfig_Rocking_Slow",
@@ -172,7 +205,7 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
                 failures.append(f"{n}: band_count {count} != {len(want_dsb)}")
                 continue
             for i, dsb_want in enumerate(want_dsb):
-                b = base + cfg["__sizeof__"] + i * band["__sizeof__"]
+                b = base + cfg["__sizeof__"] + i * stride
                 fb_s1 = field(rom, b, band, "band_factor_b_s1")
                 if fb_s1 != FACTOR_LOCKED_S1:
                     failures.append(f"{n} band {i}: factor_b_s1 {fb_s1} != 15 — plane B is "
@@ -214,7 +247,7 @@ def claims(rom_path: pathlib.Path, lst_path: pathlib.Path) -> int:
         return 1
     print(f"left_col_mask_probe --claims: OK against {rom_path.name} "
           f"(offsets derived: parallax_config {cfg['__sizeof__']} B, "
-          f"band_entry {band['__sizeof__']} B)")
+          f"band_entry {band['__sizeof__']} B, band_record stride {stride} B)")
     return 0
 
 

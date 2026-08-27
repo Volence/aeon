@@ -55,7 +55,15 @@ const POISON_TK_SCENE_A: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
                     deform: SceneDeform.Own(0, 3, 15, 0, 1)),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15,
     deform_bg: SceneDeform.Shared(0, 1))
 
@@ -64,7 +72,15 @@ const POISON_TK_SCENE_B: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
                     deform: SceneDeform.Own(0, 3, 15, 0, 1)),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 15)
 
 // ---- THE PASSING HALF (must stay green, and is MEASURED) ----

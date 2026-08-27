@@ -173,11 +173,20 @@ evidence that the dependency is real — poisoning `Vscroll_BG` reddens all 18 p
 it could not do if Step 4a had stopped consuming it. **No ordering change was made, so none
 had to be argued.**
 
-### 3.5 Capacity — UNCHANGED
+### 3.5 Capacity — UNCHANGED *by this parcel* (superseded 2026-08-27)
 
 `MAX_PARALLAX_BANDS` stays **8** (≤7 authored when anchored). Step 4a stays **copy-all**.
 World-Y bought anchoring and vertical gluing, not layer count. Windowed re-glue over >8
 declared layers remains a §9 future with its own re-derivation.
+
+> **AMENDMENT 2026-08-27.** The ceiling is **16** now, raised by
+> `parcel/band-ceiling-16-impl` — `pcfg_layer_mask` widened to a `u16` and
+> `parallax_config` to 30 bytes. This section's "stays 8" was a statement about what THIS
+> parcel changed, and it remains true of this parcel; it is no longer true of the tree.
+> The live numbers and the full derivation are in `docs/DEFERRED_WORK.md`'s
+> "`MAX_PARALLAX_BANDS` 8 -> 16 — LANDED" row and `docs/ENGINE_ARCHITECTURE.md`'s "Band
+> ceiling" paragraph. Step 4a is still copy-all, and "copy-all" still means all LIVE
+> bands — which is why the raise cost an unchanged scene zero per-frame cycles.
 
 ---
 

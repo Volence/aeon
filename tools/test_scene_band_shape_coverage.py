@@ -4,25 +4,34 @@ WHAT THIS GATE IS FOR, stated as the defect it was written after:
 
   games/sonic4/data/effects/scene_registry.emp declared `SceneCfg1/2/4/5` and
   `lower1/2/4/5` — not a decision, just the counts the twenty hand-authored scenes
-  happened to use. The engine's own declared maximum is 8
-  (engine/system/constants.emp `MAX_PARALLAX_BANDS`, pinned at
-  engine/level/scene_dsl.emp:54, enforced by `scene()`), Empyrean's writer schema
-  mirrors it as `layers minItems 1 / maxItems 8`, and Aurora computes its Add-layer cap
-  from that schema at load. So 3, 6, 7 and 8 were exactly as reachable as 4 and 5 —
-  they were just off the hand-authoring path. Aurora's first writer-originated scene has
-  EIGHT layers and tools/effects_gen.py refused it.
+  happened to use. The engine's own declared maximum lives in
+  engine/system/constants.emp (`MAX_PARALLAX_BANDS`, pinned at
+  engine/level/scene_dsl.emp:54, enforced by `scene()`), and every count from 1 up to it
+  is exactly as reachable as 4 and 5 — the others were just off the hand-authoring path.
+  Aurora's first writer-originated scene had EIGHT layers and tools/effects_gen.py
+  refused it.
 
-  Adding the four missing pairs closes it ONCE. Listing `[1,2,3,4,5,6,7,8]` in a test
+  Adding the missing pairs closes it ONCE. Listing the counts as a literal in a test
   would keep it closed only until the constant moves, and would then go quietly stale —
   which is the same failure one level up. So the required set is DERIVED from the
   constant on every run, and a count with no pair is named in the failure.
+
+  THIS GATE HAS NOW WORKED TWICE, WHICH IS THE POINT OF DERIVING IT. On the 2026-08-27
+  ceiling raise (8 -> 16) it named the whole missing set — "declares no record shape for
+  band count(s) [9, 10, 11, 12, 13, 14, 15, 16]" — without a line of it being edited.
+
+  DOWNSTREAM, NOT YET MOVED: empyrean's writer schema still mirrors the OLD ceiling as
+  `layers minItems 1 / maxItems 8` and Aurora computes its Add-layer cap from that schema
+  at load. This gate deliberately does not read the schema — it is another repo's file and
+  a cross-repo read here would make an aeon test red for an empyrean edit — so the schema
+  lagging is invisible to it. That gap is tracked in docs/DEFERRED_WORK.md.
 
 WHY PYTHON AND NOT AN `.emp` `ensure` IN THE REGISTRY (the alternative considered):
 
   `scene_registry.emp` can see `MAX_PARALLAX_BANDS` directly, so an `ensure` there looks
   like the closer fit. It cannot express this property. `.emp` has no reflection over
   declared type or function NAMES — an `ensure` cannot ask "does a struct called
-  SceneCfg3 exist?". The most it could write is `ensure(MAX_PARALLAX_BANDS == 8, ...)`,
+  SceneCfg3 exist?". The most it could write is `ensure(MAX_PARALLAX_BANDS == N, ...)`,
   which is a re-pin of a constant scene_dsl.emp already pins and says nothing whatever
   about coverage. That is a gate that cannot see its subject, i.e. exactly the vacuous
   shape docs/DEFERRED_WORK.md's gate history is a record of paying for. A source-level
@@ -152,14 +161,14 @@ class TestBandCountCoverage(unittest.TestCase):
 
     def test_shapes_and_lowerings_are_declared_in_matching_pairs(self):
         """The two halves are only useful together, in both directions — an orphan
-        `SceneCfg9` or `lower9` is dead weight that reads as coverage."""
+        `SceneCfgN` or `lowerN` is dead weight that reads as coverage."""
         self.assertEqual(sorted(declared_shapes()), sorted(declared_lowerings()),
                          "SceneCfgN set and lowerN set differ in %s"
                          % os.path.relpath(REGISTRY_EMP, REPO))
 
     def test_no_shape_exceeds_the_engine_ceiling(self):
         """The other direction, and the reason an anchored 8-band scene is NOT a case
-        for a ninth shape: an anchored scene SPLITS a layer at runtime and so needs
+        for one shape PAST the ceiling: an anchored scene SPLITS a layer at runtime and so needs
         count+1 shadow entries (scene_dsl.emp:1062). `Parallax_Shadow_Bands` is sized
         for MAX_PARALLAX_BANDS entries, so that refusal is a real engine limit. A
         `SceneCfg9` added to route around it would emit a record the shadow view cannot
@@ -208,8 +217,8 @@ class TestTheGeneratorMirrorsTheEngine(unittest.TestCase):
 class TestTheDslPinAgrees(unittest.TestCase):
 
     def test_scene_dsls_inlined_ceiling_pin_names_the_same_number(self):
-        """scene_dsl.emp spells its ceiling as the literal `8` in comptime bodies (it has
-        to — EMP_PITFALLS §2) and holds it with a module-level `ensure`. If that pin ever
+        """scene_dsl.emp spells its ceiling as an INLINED LITERAL in comptime bodies (it
+        has to — EMP_PITFALLS §2) and holds it with a module-level `ensure`. If that pin ever
         disagreed with the constant the DSL would cap at one number while everything
         derived here used another."""
         m = DSL_PIN_RE.search(_read(SCENE_DSL_EMP))

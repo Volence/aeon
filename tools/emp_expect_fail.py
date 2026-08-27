@@ -27,7 +27,7 @@ whose single self-contained guard always fires. If it builds clean, --extra-entr
 evaluating the module it names and every case after it would pass vacuously, so the lane
 fails right there instead of reporting green.
 """
-import os, subprocess, sys, pathlib, tempfile, time
+import os, re, subprocess, sys, pathlib, tempfile, time
 
 AEON = pathlib.Path(__file__).resolve().parent.parent
 SIGIL = os.environ.get("SIGIL_BUILD")
@@ -35,6 +35,35 @@ if not SIGIL:
     sys.exit("SIGIL_BUILD not set (same contract as build.sh)")
 
 POISON = "games/sonic4/test/poison"
+
+
+def emp_const(rel: str, name: str) -> int:
+    """A `const NAME = <int>` read out of an .emp source.
+
+    WHY A FRAGMENT MAY NOT SPELL AN ENGINE BOUND AS A LITERAL. A poison fixture sized
+    against a ceiling, matched by a fragment quoting that ceiling, is only loud when the
+    ceiling moves UP: the fixture stops being over-long, the guard stops firing, and the
+    lane says so. Move the same ceiling DOWN and the fixture is still over it, the guard
+    still fires, the literal still matches, and the case reports GREEN about a bound that
+    no longer exists. Measured on the 2026-08-27 MAX_PARALLAX_BANDS 8 -> 16 raise, where
+    poison_scene_capacity's "8+1" was hardcoded on both sides with nothing pinning it.
+    So the fragment is COMPUTED from the source of truth and tracks it in both directions.
+
+    A constant this cannot read is a LOUD exit, never a default: a fragment silently
+    computed from a fallback would pass or fail for a reason unrelated to the guard.
+    """
+    txt = (AEON / rel).read_text()
+    m = re.search(rf"^\s*(?:pub\s+)?const\s+{re.escape(name)}\s*=\s*(\$[0-9A-Fa-f]+|\d+)",
+                  txt, re.M)
+    if not m:
+        sys.exit(f"emp_expect_fail: cannot find `const {name}` in {rel} — a case fragment "
+                 "is computed from it and a guessed value would make that case vacuous")
+    v = m.group(1)
+    return int(v[1:], 16) if v.startswith("$") else int(v)
+
+
+# The engine's band ceiling, for the two scene-capacity fragments below.
+MAX_PARALLAX_BANDS = emp_const("engine/system/constants.emp", "MAX_PARALLAX_BANDS")
 
 # The anti-vacuity sentinel: (module path relative to AEON, expected fragment, expected
 # [Error] count). Its guard names nothing outside its own file, so a failure isolates the
@@ -86,7 +115,10 @@ CASES: list[tuple[str, str, str, int]] = [
     #    SAME guard, ported by name, and its message differs only in the nouns — "an
     #    anchored CONFIG splits a BAND ... needs BAND_COUNT+1". Quoting scene()'s own
     #    "anchored scene SPLITS a layer" plus "count+1" is what distinguishes the scene
-    #    model's copy from the legacy one, and "8+1" pins the arity.
+    #    model's copy from the legacy one, and the trailing "<MAX>+1" pins the arity.
+    #    THAT ARITY IS COMPUTED, not typed (2026-08-27): see emp_const()'s note. The
+    #    fixture reads the same constant for its layer count, so the pair moves together
+    #    and the case cannot go green about a ceiling that has moved underneath it.
     #  - "scene mask A/B": the TWO-FIXTURE DIFFERENTIAL, and the count of 1 is half the
     #    assertion. The module holds THREE ensures: two for fixture A (its fold equals the
     #    hand-derived $0000 — a bare table raises nothing since CAP_PER_LINE was retired
@@ -106,14 +138,16 @@ CASES: list[tuple[str, str, str, int]] = [
     # (The "P3 off-grid forcer" row — poison_scene_grid.emp — was DELETED 2026-08-26 with
     # scene_forces_per_line(): an off-grid top is simply legal now that the per-line fill
     # is the only fill, d-29-corrected. Nothing is left for a poison to drive red.)
-    # P3 Task 15: "capacity under re-glue plus an anchor" is THIS EXISTING ROW — Task 7
-    # kept scene()'s anchored-capacity ensure byte-for-byte (capacity stays 8, its own
-    # ruling), so the P1 fixture (eight layers + anchor = nine shadow entries, exactly ONE
-    # over) already is the one-unit poison and a second module would be a duplicate row.
-    # The poison's header records the re-verification.
-    (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", "an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — 8+1", 1),
+    # P3 Task 15: "capacity under re-glue plus an anchor" is THIS EXISTING ROW — the
+    # fixture is MAX_PARALLAX_BANDS layers + an anchor = MAX+1 shadow entries, exactly ONE
+    # over, so it is the one-unit poison at whatever the ceiling is and a second module
+    # would be a duplicate row. The poison's header records the derivation.
+    (f"{POISON}/poison_scene_capacity.emp",       "P1 capacity", f"an anchored scene SPLITS a layer at runtime, so the shadow view needs count+1 entries — {MAX_PARALLAX_BANDS}+1", 1),
     (f"{POISON}/poison_scene_mask.emp",           "P1 mask A/B", "FIXTURE B folds to 4 against fixture A's declared 0; the UNDECLARED bits are 4", 1),
-    (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 4 (band field -1)", 1),
+    # The index is pcfg_v_center_y's position in scene_equiv_proof.emp's CFG FIELD INDEX
+    # table, which is engine/structs.emp's declaration order. It moved 4 -> 3 on
+    # 2026-08-27 when pcfg_layer_mask widened to a u16 and took byte $02.
+    (f"{POISON}/poison_scene_proof.emp",          "P1 proof",   "differs at cfg field 3 (band field -1)", 1),
     # ---- Scanline P3 Task 9: `deform: own(..)`, the per-layer deform ref ----
     # Three cases for three DIFFERENT questions, and none of them is "own() is refused":
     #  - "own caps": the two-fixture differential on the capability fold. Design §2 rules

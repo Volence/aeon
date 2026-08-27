@@ -32,7 +32,7 @@
 //
 // ---- WHY THIS POISON USES THE `Scene{ .. }` BACK DOOR, AND WHY THAT IS THE HONEST SHAPE ----
 //
-// `scene()` caps `count` at MAX_PARALLAX_BANDS (8), so NO scene built through the
+// `scene()` caps `count` at MAX_PARALLAX_BANDS, so NO scene built through the
 // constructor can reach 94 — and at 8 bands the worst possible constructor scene (both
 // planes sampling at shift 14, a curve layer, V-deform, anchored, every worst-case charge
 // stacked) costs 67549.93 cyc against the 103743 budget, i.e. 65%. THAT IS A REAL PROPERTY
@@ -54,9 +54,9 @@
 // which is what "every poison must perturb the SUBJECT and name the specific mismatch"
 // requires.
 //
-// ---- WHY THE LAYER ARRAY IS EIGHT ELEMENTS WHILE sc_count SAYS 93/94 ----
+// ---- WHY THE LAYER ARRAY IS MAX_PARALLAX_BANDS ELEMENTS WHILE sc_count SAYS 93/94 ----
 //
-// `sc_layers` is a fixed `[SceneLayer; 8]`; the count is a separate field, which is exactly
+// `sc_layers` is a fixed `[SceneLayer; 16]`; the count is a separate field, which is exactly
 // how the back door produces an inconsistent value in the first place. Nothing in the axis-1
 // path INDEXES the array for this fixture: with no deform table attached,
 // `scene_sample_term_x100()` short-circuits at `scene_has_table()` and never reaches
@@ -78,10 +78,17 @@ use engine.level.scene_dsl.*
 use engine.level.parallax_dsl.*
 
 // The eight-element pad. Every entry is a dormant no_layer(); none is read on this path.
-const POISON_A1_PADS: [SceneLayer; 8] = [
+const POISON_A1_PADS: [SceneLayer; 16] = [
     no_layer(), no_layer(), no_layer(), no_layer(),
     no_layer(), no_layer(), no_layer(), no_layer(),
-]
+                                          no_layer(),
+                                          no_layer(),
+                                          no_layer(),
+                                          no_layer(),
+                                          no_layer(),
+                                          no_layer(),
+                                          no_layer(),
+                                          no_layer()]
 
 // FIXTURE A — 93 bands, the last count that fits.
 const POISON_A1_SCENE_A: Scene = Scene{

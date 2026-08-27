@@ -416,8 +416,10 @@ branch `docs/aurora-effects-schema`). Design inputs = the six owner-confirmed ru
    scene genuinely needs eight bands *plus* an anchor, the parcel is widening
    `Parallax_Shadow_Bands`, and that is a RAM decision — not a registry one.
 
-   **THAT RAM DECISION WAS PRICED 2026-08-27** — see "`MAX_PARALLAX_BANDS` 8 -> 16 — PRICED
-   2026-08-27, NOT LANDED" in the S3K parallax-gap section. Short version: widening
+   **THAT RAM DECISION WAS PRICED AND THEN LANDED, both on 2026-08-27** — see
+   "`MAX_PARALLAX_BANDS` 8 -> 16 — LANDED" in the S3K parallax-gap section. The ceiling is
+   16 now, so "an anchored 8-band scene is refused" above reads as "an anchored
+   MAX_PARALLAX_BANDS-band scene is refused"; the shape is the same and the number moved. Short version: widening
    `Parallax_Shadow_Bands` to 16 bands costs **+224 B of RAM** and **zero per-frame cycles**
    (every per-frame walk is already `pcfg_band_count`-driven), the `% 4 == 0` alignment
    `ensure` survives, and the mechanism this entry built — the derived shape set — reports
@@ -10579,8 +10581,8 @@ schema/Aurora — transcribed here as aurora's claims, not re-verified by this l
    only, refused on an unlocked plane. M.
 
 Smaller: non-power-of-two vertical fractions (MZ 3/4, MCZ 1/3, MHZ 5/32 — two-term shift-add for
-`pcfg_v_factor_bg`, S); **more than 8 layers per scene — the RAM+cycle question is ANSWERED, see the
-row below**; deform phase speeds below 1 step/frame (S); frame-sequence tile
+`pcfg_v_factor_bg`, S); **more than 8 layers per scene — DONE, `MAX_PARALLAX_BANDS` is 16 since
+2026-08-27, see the row below**; deform phase speeds below 1 step/frame (S); frame-sequence tile
 animation with uneven durations (MTZ, EHZ flowers, M). GOTCHA: `deform.own` needs
 `CAP_MULTI_DEFORM_TABLE`, which sonic4 (`SCANLINE_CAPS $005E`) does not declare, so an
 Aurora-authored per-layer deform table fails the build today.
@@ -10589,7 +10591,11 @@ Disposition: item 1 is the candidate for the next effects parcel after the effec
 items 2/3 fold into the travelling-act background work once d-16/d-17 are ruled; 4 and the
 smaller rows wait for a scene that needs them. If any becomes a project, the hub declares the id.
 
-### `MAX_PARALLAX_BANDS` 8 -> 16 — PRICED 2026-08-27, NOT LANDED (blocked on one ROM-header decision)
+### `MAX_PARALLAX_BANDS` 8 -> 16 — **LANDED 2026-08-27** (`parcel/band-ceiling-16-impl`)
+
+**A scene can carry sixteen parallax layers.** Priced and landed the same day; this row is the
+closure of the booking that used to sit here, and it keeps the derivation because the numbers
+are what a future ceiling move will want.
 
 **PROVENANCE — the owner's ask, transcribed verbatim (banked 2026-08-27 at the hub's request).**
 The empyrean lane raised its writer schema's `layers` cap 8 -> 16 for this
@@ -10616,143 +10622,144 @@ the wrong problem, this paragraph is the first thing to re-check.
 
 **The cost question the booking asked is answered, and the answer is the good one.**
 
-**Every per-frame parallax walk is O(live band count), not O(MAX).** Enumerated by reading
-`engine/level/parallax.emp` and confirmed by grepping `MAX_PARALLAX_BANDS` in that file, which
-returns **five hits and not one of them is in a code body** — line 11 (the `use`), 276 and 318
-(two `ensure`s), 322 (`PARALLAX_STATE_LONGS`) and 1376 (a comment). Per site:
+**The cost answer, and it was the good one.** Every per-frame parallax walk is O(live band
+count), not O(MAX) — `MAX_PARALLAX_BANDS` appears in `engine/level/parallax.emp` five times and
+**not once in a code body** (the `use`, two `ensure`s, `PARALLAX_STATE_LONGS`, one comment).
+`Parallax_Update`'s `.band_loop`, `Parallax_Step4_Fill`'s `.find_k` / `.copy_band` /
+`.curve_band` and `Parallax_Fill_PerLine`'s `.next_band` are all seeded from
+`pcfg_band_count`; the one O(MAX) loop, `Parallax_Init`'s `.zero`, runs once at level init. So
+**a scene that does not use the extra bands pays ZERO added cycles per frame** and the emitted
+per-frame instruction stream is unchanged. A scene that uses sixteen pays
+`4664 + 15 x 854 = 17,474` cyc = **13.7%** of the 128,000-cycle NTSC frame, 16.8% of the walker
+allowance after `SB_AXIS1_RESERVATION`; the 854 cyc/band marginal is
+`SB_WALK_BAND_PERLINE_X100` (`engine/level/scene_dsl.emp`, fitted over 26 fixtures).
 
-| Site (symbol) | Bound | Evidence |
+**RAM: +224 B, measured.** `Parallax_State` = `104 + 28 x MAX` at the shipped capability set
+(`BAND_EXT_N 0`, `BAND_CURVE_N 1`) — 328 B at MAX 8, **552 B at MAX 16**;
+`PARALLAX_STATE_LONGS` 82 -> 138. Free before stack AFTER the raise: release **16.5 KB**, debug
+**6.2 KB**. The `% 4 == 0` band-tail alignment `ensure` survives (`10 x 16 = 160`);
+`BAND_ENTRY_LEN` did not need widening and the hard stop that would have forced it never fired.
+
+**THE BLOCKER WAS THE MASK, AND IT COST A HEADER BYTE PAIR.** `pcfg_layer_mask` was a `u8`;
+`Parallax_Update` loaded it with `move.b` and selected with `btst d5, d6`, so every band from
+index 8 up tested a structurally-zero bit, took `.band_disabled` and inherited the band above
+it — a green build and a silently wrong picture. No guard-only workaround exists: an
+all-enabled 12-band scene needs `$FFF`. Resolved by **growing `parallax_config` 28 -> 30** with
+a `u16` mask, NOT by absorbing `pcfg_v_factor_fg` (which is RESERVED but live: a poison guards
+its range, `scene_equiv_proof.emp`'s differ compares it, `tools/effects_gen.py` lists it in
+`SCENE_SCALARS`, and empyrean retyped it deliberately in `a32bcb0`). The constraint that
+actually binds is **EVEN, not 28** — the header size is the band array's base offset, so an odd
+size starts the whole-entry copy's `move.l` run on an odd address; the old comment claiming
+"stays 28, which is required" overstated the gate and has been corrected.
+
+**Header layout, before -> after** (offsets in hex; `tools/parallax_crossing_gate.py`'s
+`struct_offsets()` cross-checks every `// $HH` comment against the type accumulation, proven
+red-first by making one comment lie by a byte):
+
+| field | before | after |
 |---|---|---|
-| `Parallax_Update` `.band_loop` | **O(live)** | `move.b pcfg_band_count(a0), d7` ... `cmp.w d7, d5 / blo .band_loop` |
-| `Parallax_Step4_Fill` `.find_k` | **O(live)** | `cmp.w d7, d2 / bhs .found_k`; at most `live-1` word compares |
-| `Parallax_Step4_Fill` `.copy_band` (the "copy-all" of ARCH 4.6) | **O(live)** | `move.w d7, d6 / subq.w #1, d6 / dbf d6` |
-| `Parallax_Step4_Fill` `.curve_band` (curve hoist) | **O(live)** | same `d7`-seeded `dbf` |
-| `Parallax_Fill_PerLine` `.next_band` | **O(live)** | `subq.w #1, d7 / ... / tst.w d7 / bne .next_band` |
-| `Parallax_Step5_Vscroll` `.col` | O(1) | fixed `moveq #20-1, d6`, band-count-independent |
-| `Parallax_Init` `.zero` | **O(MAX)** | `dbf` over `PARALLAX_STATE_LONGS` — but this runs **once at level init**, not per frame |
+| `pcfg_band_count` | $00 | $00 |
+| `pcfg_v_factor_bg` | $01 | $01 |
+| `pcfg_v_factor_fg` | $02 | **$1C** |
+| `pcfg_layer_mask` | $03 (u8) | **$02 (u16)** |
+| `pcfg_v_center_y` .. `pcfg_anchor_dsb` | $04 .. $1B | unchanged |
+| `pcfg_pad_29` | — | **$1D** |
+| `sizeof` | 28 | **30** |
 
-So **the added per-frame cost paid by a scene that does not use the extra bands is ZERO cycles** —
-the emitted instruction stream is byte-for-byte the same, because nothing per-frame is sized by the
-ceiling. `Parallax_Fill_PerLine` emits 224 longwords whatever the band count (the band spans *sum*
-to 224); more bands add band-TRANSITION hoists, they do not multiply 224. There is no count-driven
-rewrite to evaluate, because the walks are already count-driven. ARCH 4.6's "Step 4a stays
-copy-all" means *all live bands*, not *all MAX*, and that line has been amended to say so.
+The mask's LOW byte lands at $03 exactly where the `u8` sat and its high byte on $02, which
+every shipped config left at 0 (`v_factor_fg` is authored in none of the twenty), so **bytes
+$00..$1B of every shipped header are byte-identical**; the record grows two tail bytes and the
+band array after it shifts by two.
 
-**What the extra bands cost when a scene actually uses them.** The marginal per-live-band figure is
-the fitted walker model's `SB_WALK_BAND_PERLINE_X100 = 85400` -> **854 cyc/band**
-(`engine/level/scene_dsl.emp:1677`, fitted in `tools/effects_budget_model.toml [parallax.cost_model]`,
-26 fixtures). Derived independently from the instruction sequences as a cross-check, Step 4a's
-`.copy_band` alone is ~314 cyc/band (5 x `move.l (a1)+,(a4)+` = 100, two `move.w (a1,d3.w),(aN)+`
-= 36, the `mul_const.w` by 20 ~= 32, plus the rebase/clamp/loop tail), and the `Parallax_Update`,
-`.find_k`, curve-hoist and `Fill_PerLine` hoist terms carry the rest — the sum lands on the fitted
-854, so the fitted row is trusted here rather than substituted for. Against
-`SB_FRAME_CYCLES = 128000` (`engine/level/scene_dsl.emp:1756`; NTSC 488 x 262) with
-`SB_AXIS1_RESERVATION = 24257` leaving **103,743** for the walker:
+**THE SENTINEL COLLISION, which is the half a bound-widening would have missed.** The DSL
+bridge `sc_mask_raw` is an `i16` with `-1` = "derive", and `scene_dsl.emp` said in its own words
+that this was *"only safe BECAUSE the mask is 8 bits: a raw `$FFFF` would round-trip through
+i16 to -1 and read back as derive, silently."* At a 16-bit mask `$FFFF` is exactly the
+all-enabled value an author writes. Widening the range guard alone would have re-armed the
+documented failure. **Fixed by widening the FIELD to `i32`**, not by moving the sentinel: -1
+must stay outside the value space rather than merely outside the values seen so far, and a
+companion "is authored" flag would have added a second field two constructors must keep
+consistent. The "may only ADD bits, never CLEAR one that `enabled:` set" `ensure` is unchanged.
 
-- 1-band flat scene: 4664 cyc = **3.6%** of frame (unchanged by the ceiling).
-- 8-band scene today: 4664 + 7 x 854 = 10,642 = **8.3%** of frame.
-- 16-band scene at the raised ceiling: 4664 + 15 x 854 = **17,474 = 13.7%** of frame, **16.8%** of the
-  walker allowance. The axis-1 `ensure` passes with room; 16 bands is affordable.
+**`Parallax_Init`'s clear counter is a `move.w` now.** The count is `7 x MAX + 25` = 137 at MAX
+16 and a `moveq` immediate is a signed byte; sigil refuses the overflow by name ("moveq data
+137 does not fit in a signed byte"), so it was a loud build error and never a 65,418-iteration
+clear. +2 ROM bytes, +4 cycles, once, at level init. The `moveq` form survives only to MAX = 14.
 
-**RAM delta: +224 bytes, and it fits.** `Parallax_State` = `100 + 20 * MAX + 4` at the shipped
-capability set (`BAND_EXT_N 0`, `BAND_CURVE_N 1`): **328 B at MAX 8 -> 552 B at MAX 16**. Measured
-headroom on the baseline build (this branch's parent, all four shapes green): release
-`s4.bin` **16.7 KB free before stack**, debug `s4.debug.bin` **6.5 KB free**. 224 B is 3.4% of the
-tighter one. `PARALLAX_STATE_LONGS` goes 82 -> 138.
+**THE ANCHORED-AT-CEILING POISON WAS HARDCODED ON BOTH SIDES AND IS NOW DERIVED.**
+`poison_scene_capacity.emp` was authored at exactly eight layers and `tools/emp_expect_fail.py`
+matched the literal `"count+1 entries — 8+1"`. That shape is only loud in ONE direction: raising
+the ceiling made the fixture legal and the lane said "poison failed to fire" (correct, loud),
+but LOWERING it would have left the fixture still over the new bound, the guard still firing,
+the literal still matching, and the case **green about a bound that no longer existed**. Both
+sides now read `MAX_PARALLAX_BANDS` — the fixture's `count`, and the lane's fragment via a new
+`emp_const()` that exits loudly rather than defaulting. Measured tracking both ways: MAX 4 ->
+`"— 4+1"`, 8 -> `"— 8+1"`, 16 -> `"— 16+1"`, 24 -> `"— 24+1"`. Red-first at the new ceiling:
+the fixture moved to MAX-1 makes the lane report `FAIL P1 capacity ... failed WITHOUT the
+expected fragment`, and the poison's own derived pin names the drift.
 
-**The `% 4 == 0` long-alignment `ensure` (`parallax.emp:318`) SURVIVES at 16** — the band tails are
-`10 x 16 = 160`, and `160 % 4 == 0`. `BAND_ENTRY_LEN` does **not** need widening; that hard-stop
-does not fire.
+**Two more fixed-where-derived counts, found by auditing for the same shape:**
+`tools/test_effects_gen.py`'s pad-count assertion (literal `7` -> `MAX - 1`) and its over-long
+refusal (literal `9` -> `MAX + 1`), plus the missing other half of that pair — **exactly MAX
+must be ACCEPTED**, without which the refusal test passes for a generator that refuses
+everything.
 
-**What actually blocks the raise** — three found, one fixed on this branch, one documented, one is a
-decision:
+**A ceiling move in EITHER direction is loud tree-wide** because `scene()`'s layer array is a
+fixed-size type: `ensure(MAX_PARALLAX_BANDS == 16, ...)` at `engine/level/scene_dsl.emp:54`
+refuses the build by name (measured at a down-move to 15), and every `scene()` call site's
+literal would be an arity error. That is the property that makes the derived fixtures safe.
 
-1. **`PARALLAX_STATE_LONGS`'s `61` was a MAX-dependent literal in disguise** (it was `244/4`, and
-   `244 = 100 + 18 x 8`). Measured at MAX 16 the drift guard fired: *"Parallax_State clear span
-   drifted from ram.asm: expected 102 longs"* against a true span of 138. **FIXED (2026-08-27)** —
-   the term is now `(100 + 18 * MAX_PARALLAX_BANDS) / 4`, byte-identical at MAX 8, and both halves
-   of it are proven red-first against the drift `ensure` (poisoning `100`->`104` reports "expected 83
-   longs"; poisoning `18`->`20` reports "expected 86 longs").
-2. **`Parallax_Init`'s clear counter is a `moveq`**, whose immediate is a signed byte. The count is
-   `7 * MAX + 25` at the shipped capability set, so it fits up to **MAX = 14** and overflows at 15.
-   sigil refuses it by name — *"moveq data 137 does not fit in a signed byte"*, measured at MAX 16 —
-   so this is a loud build error, never a silent 65,418-iteration clear. The one-line fix is
-   `move.w` (+4 cycles, once, at level init). **Not applied** because at MAX 8 it is a gratuitous
-   +2 ROM bytes; the threshold is documented in the comment block at the constant.
-3. **`pcfg_layer_mask` is a `u8` — THIS IS THE REAL BLOCKER.** `engine/structs.emp:165`. One bit per
-   band; `Parallax_Update` loads it with `move.b ... , d6` and selects with `btst d5, d6`, so for
-   `d5 = 8..15` the test reads bits that are structurally zero and **every band at index >= 8 takes
-   `.band_disabled` and inherits the band above it**. The scene builds, the shadow view is large
-   enough, and the picture is silently wrong. There is no guard-only workaround: even an
-   all-enabled 12-band scene needs `$FFF`, which a `u8` cannot hold. A second half of the same
-   blocker: the DSL bridge `sc_mask_raw` is an **i16** with `-1` = "derive", and
-   `scene_dsl.emp:1075-1080` documents in its own words that this is *"only safe BECAUSE the mask
-   is 8 bits — a raw `$FFFF` would round-trip through i16 to -1 and read back as derive, silently"*.
-   So the mask widening is `structs.emp` + `parallax.emp`'s load + `scene_dsl`'s bridge type and
-   range guard + `scene_hdr` + `scene_equiv_proof.emp` + `effects_gen.py` + the probes.
+**Also landed:** `SceneCfg9..16` + `lower9..16` (the exact set
+`tools/test_scene_band_shape_coverage.py` named on its own, red-first re-proven by deleting the
+16 pair); `tools/effects_gen.py`'s pinned mirror; the `parallax_config` field-index renumber in
+`scene_equiv_proof.emp` (`v_center_y` 4 -> 3, the three `Label` fields 10/11/12 -> 9/10/11,
+`v_factor_fg` 2 -> 16, `pcfg_pad_29` at 17) and `poison_scene_proof.emp`'s expected index with
+it; 44 layer-array literals padded to sixteen across 13 files plus the regenerated editor
+module.
 
-**Two priced options for blocker 3.** Both cost **zero per-frame cycles** (`move.w d16(An),Dn` and
-`move.b d16(An),Dn` are both 12 cycles; `btst Dn,Dm` already reaches bits 0..15):
+**STILL OPEN — downstream, NOT aeon's to change.** empyrean's
+`contract/schema/aurora-effects-scene.schema.json` pinned `layers maxItems 8` — **it reads 16 since
+empyrean `277bc15` (2026-08-27), verified firsthand at their `origin/main` at merge time, with aurora's
+re-vendor at `d54d386`** — and Aurora derives
+its editor Add-layer cap from that schema at load, so **a 9..16-layer scene is lowerable today
+and unauthorable in the editor**. The engine side moved first deliberately: a schema that
+admits a count the engine cannot lower is a generator refusal nobody can act on, whereas this
+direction is only a capability the editor has not yet exposed.
+`tools/test_scene_band_shape_coverage.py` deliberately does not read the schema (a cross-repo
+read would make an aeon test red for an empyrean edit), so **this gap is invisible to every
+gate in this repo** and lives here instead.
 
-- **(E) `pcfg_layer_mask: u16` at offset 2, absorbing `pcfg_v_factor_fg`.** `sizeof(parallax_config)`
-  stays **28** and every other field offset is unchanged, so no emitted record moves. The mask's low
-  byte stays at offset 3 exactly where the `u8` was, so **the ROM is byte-identical for every scene
-  that leaves `v_factor_fg` at its default** — and grepping `v_factor_fg:` across
-  `games/sonic4/data/effects/` returns **nothing**: not one of the twenty shipped scenes authors it.
-  Zero cycles, zero ROM bytes. **The cost is that the `v_factor_fg` authoring field must go.** It is
-  RESERVED and provably never read at runtime (its only readers are the lowering and the equivalence
-  proof), but it is a *public* DSL field with a poison test
-  (`games/sonic4/test/poison/poison_scene_vfactor_range.emp`) and a writer-schema entry that
-  empyrean `a32bcb0` deliberately retyped in 2026-08-23. Deleting it is a cross-repo call.
-- **(A-prime) grow `parallax_config` 28 -> 30** and put the wider mask in the new tail, keeping
-  `v_factor_fg`. Offsets 0..27 unchanged so every `parallax.emp` field access is untouched;
-  `sizeof` stays even, which `copy_run_longs()` requires. Costs **+2 B per config x 20 configs = 40 B
-  ROM** and moves every band array — a byte-mover with a refreeze, but entirely inside aeon.
+### The PLAIN over-long scene guard has no poison, and the reason is mechanical (booked 2026-08-27)
 
-**Recommendation: (E)**, with (A-prime) as the fallback if `v_factor_fg` must be preserved. (E) is
-free in both cycles and bytes and removes a field the runtime has never read; (A-prime) buys the
-field back for 40 ROM bytes and a refreeze.
+`scene()` has two ceiling guards. The ANCHORED one (`count + 1 <= MAX`) has
+`poison_scene_capacity.emp`. The plain one (`count >= 1 && count <= MAX`) has none, and adding
+one is not a five-line job: `ensure` is non-aborting, so `scene()` walks on past the refusal and
+calls `derived_mask(layers, count)`, which indexes the fixed-size array past its end and sprays
+`[index.out-of-bounds]` diagnostics. The lane's expected-count would then be a property of how
+far the walk gets rather than of the guard, which is the vacuous shape the poison lane exists to
+avoid. Two candidate fixes, neither attempted: make the folds clamp to the array (they already
+do in the budget path, for the `Scene{ .. }` back door) so the over-long case yields exactly one
+diagnostic; or give the lane a per-case "at least these fragments" mode. XS-M. Found by the
+band-ceiling parcel, not fixed there.
 
-**Also required once blocker 3 is decided** (all mechanical, all gate-driven):
-`scene_registry.emp` needs `SceneCfg9..16` + `lower9..16` — `tools/test_scene_band_shape_coverage.py`
-already names the exact missing set, measured red-first at MAX 16: *"declares no record shape for
-band count(s) [9, 10, 11, 12, 13, 14, 15, 16]"* (5 failed, 1437 passed, 8 skipped).
-`tools/effects_gen.py:188`'s pinned mirror and `LOWERABLE_BAND_COUNTS`.
-`engine/level/scene_dsl.emp` has **thirteen** inlined literal `8`s governed by the pin at `:54`, not
-three — `:625` (comment), `:648`, `:669`, `:689`, `:710` (`derived_mask` / `derived_own` /
-`derived_curve` / `derived_vsplit` parameter arity), `:966` (`sc_layers`), `:1029` (`scene()`
-arity), `:1043`, `:1044`, `:1049`, `:1050`, `:1063`, and the three budget clamps at `:1984`, `:2005`,
-`:2053` (`if s.sc_count > 8 { 8 }`). Because the arity is a **fixed-size array type**, widening it
-forces every `scene()` call site to pad to sixteen `no_layer()`s: `ojz_scenes.emp` (17 pads),
-thirteen poison fixtures, and the generated `effects_scenes.emp` (the generator auto-pads to
-`MAX_PARALLAX_BANDS`, so that one is free).
+### `left_col_mask_probe` and `parallax_hscroll_probe` strode the band array by `band_entry`, not `band_record` — FIXED 2026-08-27
 
-**The anchored-at-ceiling refusal — three spellings, and only one of them is derived.** Checked
-directly, because "the refusal must survive at 16" is the kind of claim a hardcoded 8 passes by
-accident:
-
-- `games/sonic4/test/scene_equiv_proof.emp:196` (the `hdr()` twin) is **fully derived** —
-  `band_count + 1 <= MAX_PARALLAX_BANDS`, with `{MAX_PARALLAX_BANDS}` interpolated into the
-  message. No edit needed at any ceiling.
-- `engine/level/scene_dsl.emp:1049-1050` (the DSL guard `scene()` actually runs) spells the
-  ceiling as the **inlined literal 8**, in both the predicate and the message text, and is held
-  to the constant by the pin at `:54`. That is deliberate and correct — EMP_PITFALLS: an imported
-  constant named inside a comptime body a GAME module elaborates resolves to nothing, *silently*.
-  The `{count}` half IS interpolated, so the refusal fires correctly at whatever ceiling the
-  literal carries. It moves with the other twelve inlined `8`s.
-- **The POISON that proves the refusal is hardcoded on BOTH sides and has no pin.**
-  `games/sonic4/test/poison/poison_scene_capacity.emp` is authored with exactly eight layers plus
-  an anchor, and `tools/emp_expect_fail.py:114` matches the literal fragment
-  `"the shadow view needs count+1 entries — 8+1"`. At MAX 16 an eight-layer anchored scene becomes
-  *legal*, so `scene()` would not refuse it, the fragment would not appear, and the lane reports
-  the case as a poison that failed to fire. That is the **correct failure direction** — loud, not
-  silently green — but it means the raise must re-author the fixture to sixteen layers and move
-  the matcher fragment to `16+1`. Anchored-15 must then be admitted and anchored-16 refused.
-
-**Downstream (NOT aeon's to change):** empyrean's
-`contract/schema/aurora-effects-scene.schema.json` pins `layers maxItems 8` and Aurora derives its
-Add-layer cap from that schema at load, so both must move in the same landing or a 16-layer scene is
-unauthorable. Option (E) additionally removes `v_factor_fg` from that schema.
+Found while re-pointing the probes at the widened header, and it is a **pre-existing** defect
+this parcel did not cause: both instruments stepped the shipped band array (and
+`Parallax_Shadow_Bands`) by `sizeof(band_entry)` = 10, while the emitter lays out `band_record`
+= `band_entry + tails` = **20** in this game, which declares `CAP_FACTOR_CURVE`.
+`left_col_mask_probe.py --claims` was reporting **15 claim failures against a correct ROM** —
+every one at band index >= 1, because band 0 is the one index a wrong stride cannot corrupt,
+which is exactly what made it look plausible. Confirmed by decoding
+`ParallaxConfig_Perspective_Subtle` straight out of `s4.bin`: its symbol span is **130 bytes =
+30 + 5 x 20**, the header reads `band_count 5 / layer_mask $001F / v_factor_fg 0 / pad 0`, and
+at stride 20 every band reads the `fb_s1 = 15` lock and the `dsb 15/15/15/4/2` the claims
+expect. Both probes now derive the stride from `engine/ram.emp`'s three mirrors
+(`BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES`), which are the same numbers that size
+`Parallax_Shadow_Bands`, and refuse loudly if it comes out below `sizeof(band_entry)`.
+`left_col_mask_probe --claims` is now **OK** against `s4.bin`. **`parallax_hscroll_probe`'s half
+is UNVERIFIED here** — it drives a live emulator, which this lane must not do; it needs a
+foreground run.
 
 ## Two audio artifacts heard by the owner in the hotkeys shape (booked 2026-08-26, NOT diagnosed)
 

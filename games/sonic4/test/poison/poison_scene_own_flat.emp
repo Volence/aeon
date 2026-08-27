@@ -60,7 +60,15 @@ const POISON_OWNFLAT_SCENE_A: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
                     deform: SceneDeform.Own(0, 15, 2, 0, 1)),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 3,
     deform_bg: SceneDeform.Shared(0, 1))
 
@@ -69,7 +77,15 @@ const POISON_OWNFLAT_SCENE_B: Scene = scene(
     layers: [ layer(world_y: 0, fa: FACTOR_1, fb: FACTOR_1_2,
                     deform: SceneDeform.Own(0, 15, 15, 0, 1)),
               no_layer(), no_layer(), no_layer(),
-              no_layer(), no_layer(), no_layer(), no_layer() ],
+              no_layer(), no_layer(), no_layer(), no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer(),
+              no_layer() ],
     count: 1, v_factor: 3,
     deform_bg: SceneDeform.Shared(0, 1))
 

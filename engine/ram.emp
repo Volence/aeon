@@ -334,10 +334,14 @@ pub vars upper_ram {
 
     Vscroll_Factor:         u32,        // FG word + BG word
 
-    // --- Parallax state (§4.6) — 244 bytes at MAX_PARALLAX_BANDS=8 ---
-    // (3 phase words + 2×8 scroll words + vscroll word + 2 config longs +
-    //  4 transition/section bytes + 80 B column buf + 80 B shadow bands +
-    //  2×16 B shadow scrolls. Marked by Parallax_State/_End.)
+    // --- Parallax state (§4.6) — `104 + 28 * MAX_PARALLAX_BANDS` bytes at the shipped
+    // capability set (BAND_EXT_N 0, BAND_CURVE_N 1): 552 B at MAX 16, up from 328 B at
+    // MAX 8 (+224 on 2026-08-27). ---
+    // (104 ceiling-independent = 3 phase words + vscroll word + 2 config longs +
+    //  4 transition/section bytes + 80 B column buf + 4 B curve carry. 28 per band =
+    //  2 current-scroll words + a 20 B shadow band + 2 shadow-scroll words.
+    //  Marked by Parallax_State/_End; PARALLAX_STATE_LONGS in parallax.emp is the
+    //  clear-count mirror and its drift `ensure` checks it against this span.)
     mark Parallax_State,
     Parallax_Deform_Phase_FG:    u16,   // (frame_counter * speed_fg) & $FF
     Parallax_Deform_Phase_BG:    u16,
