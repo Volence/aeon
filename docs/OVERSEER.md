@@ -390,9 +390,14 @@ ASSERTION, and a reap in a `finally` with PR_SET_PDEATHSIG behind it.
   PRE-EXISTING and is not the parcel's. The count is `len(results)`, i.e. derived from gates that
   actually produced a row — which is exactly why one going missing shows up as a smaller green
   rather than as a failure.
-  **⚠ RECONCILED 2026-08-27 — AND THE ANSWER IS THAT THE COUNT CANNOT BE RECONCILED, BY
-  CONSTRUCTION.** Two findings, the second of which retires the question rather than answering
-  it.
+  **⚠ RECONCILED 2026-08-27 — THE COUNT RECONCILES EXACTLY: 28 − 27 IS ONE RETIRED CAPABILITY
+  BIT, AND NO GATE EVER WENT DARK.** Two findings.
+  **⚠⚠ THIS HEADLINE PREVIOUSLY READ *"the answer is that the count cannot be reconciled, by
+  construction"*, WHICH WAS FALSE.** It stood about ninety minutes, was relayed to the sigil
+  lane, and they built a doctrine note on it before the retraction reached them. **The full
+  retraction is the ⚠ block after (b) — read it before quoting anything in this stanza**, and
+  note that (b) below is left standing as written on purpose, so the wrong reasoning stays
+  legible next to what refuted it rather than being quietly edited into looking correct.
   **(a) The "diffed, empty" evidence above was MANUFACTURABLE and has been re-derived.** This
   stanza cited an empty diff between `6fbcd186` and `0da00a33` as proof no gate registration was
   removed. Running that same diff today returned empty **at exit 0 while the two blobs differed
