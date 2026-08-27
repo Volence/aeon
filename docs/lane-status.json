@@ -1,6 +1,12 @@
 {
-  "focus": "The showcase is on master and pushed. Go play section 4. Next up: the ROM re-layout, first step of taking the harness off the assembler.",
-  "inFlight": [],
+  "focus": "Knuckles' and the insta-shield sounds are in and freezing. Two of them sound wrong for one known reason.",
+  "inFlight": [
+    {
+      "what": "final gate on the sound-effects landing, then pushing both repos",
+      "where": "master b56a683b + the assembler repo",
+      "agent": false
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "d-16",
@@ -13,73 +19,45 @@
       "since": "2026-08-26"
     },
     {
-      "id": "d-18",
-      "what": "whether to drop terminal fall speed by one pixel to close a fall through hole",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-19",
-      "what": "whether the nine development test objects ship in the finished cartridge",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-20",
-      "what": "whether to change how the music driver stores pitch, before the soundtrack grows",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-21",
-      "what": "which two typefaces: the small on screen text and the act title card",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-22",
-      "what": "whether the leftover diagonal hitch is visible enough to spend on (needs you to play it)",
-      "since": "2026-08-26"
-    },
-    {
       "id": "d-23",
       "what": "whether to shrink the terrain lookahead buffer for speed",
       "since": "2026-08-26"
     },
     {
-      "id": "d-24",
-      "what": "whether Knuckles gets glide, land and scrape sounds or ships silent on them",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-25",
-      "what": "whether to keep the reference game's asymmetric behaviour on four slopes",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-26",
-      "what": "whether the no divide coding rule softens or keeps a list of exceptions",
-      "since": "2026-08-26"
-    },
-    {
-      "id": "d-27",
-      "what": "how to handle the hardware sliver at the left screen edge once depth is on",
+      "id": "d-31",
+      "what": "how to buy room for the background: slow its scroll, redraw the art to join top-to-bottom, or let backgrounds exceed the hardware plane",
       "since": "2026-08-26"
     }
   ],
-  "nextBoundary": "Now. Clean boundary: everything pushed, nothing running. Next: the ROM re-layout parcel when you say go.",
+  "nextBoundary": "When the hotkey agent reports and the reference tree finishes rebuilding.",
   "queue": [
     {
-      "id": "SHOWCASE-EFFECTS",
-      "title": "LANDED. Curved horizon + vertical depth split in OJZ section 4, paired with the assembler (chain 167).",
-      "state": "done",
+      "id": "FG-LEFT-EDGE",
+      "title": "The left edge of the terrain never gets drawn - a two-column strip pinned to the side of the screen, which is why that sliver looks detached. Measured tonight off your save state; it is a boundary constant, not a deep bug.",
+      "state": "next",
       "size": "S",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "blockedBy": null
     },
     {
-      "id": "ROM-RELAYOUT",
-      "title": "Put the animation-room guarantee back to 12,288 in every build by moving the animation area away from the fixed sound-bank address (your follow-up choice on d-28).",
-      "state": "next",
+      "id": "SFX-NOISE",
+      "title": "The insta-shield and the ground slide sound wrong for one shared reason: both get pushed onto the noise channel at a fixed rate instead of following pitch. Fixing it also improves the dash sound that already ships.",
+      "state": "open",
       "size": "M",
-      "blockedBy": null,
-      "project": "EFFECTS-W1"
+      "blockedBy": null
+    },
+    {
+      "id": "SOUND-ARTIFACTS",
+      "title": "The dull sound was the emulator's own hardware filter, not our music - you confirmed unfiltered sounds better. The panning is faithful to the original Batman & Robin track (measured against a capture of it). Still open: the occasional 1-2 ms stall, and whether a melody voice is too quiet.",
+      "state": "next",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "SOUND-ARTIFACTS",
+      "title": "Three things you heard, now known to be ONE thing: the sound is dull and lifeless, not out of tune. Booked with a cheap test each; the emulator's own chip model is a prime suspect.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     },
     {
       "id": "SIGIL-DECOUPLE",
@@ -94,9 +72,51 @@
       "state": "open",
       "size": "XS",
       "blockedBy": "the sigil lane"
+    },
+    {
+      "id": "TEST-OBJECTS-DELETE",
+      "title": "You chose: delete the nine development test objects outright. Untangle the placeholder player from the real sensor code and the two test scenes first; bytes move, so it lands paired with the assembler.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "PITCH-FORMAT",
+      "title": "You chose: the music driver stores musical pitch, not raw chip numbers, before the soundtrack grows. Needs a joint plan with the music tool lane; the one test track converts.",
+      "state": "open",
+      "size": "L",
+      "blockedBy": "a joint plan with the seraph lane; a project id from the hub"
+    },
+    {
+      "id": "FONT-PIPELINE",
+      "title": "You chose two faces. Build the font pipeline and the HUD numbers on the small face; the title card waits on you naming its display face.",
+      "state": "open",
+      "size": "M",
+      "blockedBy": "the title face is unnamed (HUD half is not blocked)"
+    },
+    {
+      "id": "SLOPE-SYMMETRY",
+      "title": "You chose: mirrored slopes behave the same. A three character physics change on four angles, recorded as a deliberate divergence; regression recordings re-stamped.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "NO-DIV-RULE",
+      "title": "You chose: soften the no divide rule to 'not casually, prove it at the site'. Rewrite the rule in the coding law, cite the two shipped divides as the worked examples. Docs only.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "FALL-CAP-15",
+      "title": "You chose: terminal fall speed 15, closing the thin-floor hole. One constant, three sites, recordings re-stamped.",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     }
   ],
-  "awaiting": "go on the ROM re-layout (first step of SIGIL-DECOUPLE), and the hub's project id",
-  "atBoundary": true,
-  "updatedAt": "2026-08-26T20:22:01Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-08-27T01:31:11Z"
 }
