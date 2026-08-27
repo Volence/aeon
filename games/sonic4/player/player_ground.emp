@@ -81,6 +81,161 @@ ensure(PHYS_SLOPE_WALK == $20, "slope-factor shift form (sin asr 3) assumes PHYS
 ensure(PHYS_SLOPE_ROLL_DOWN == $50, "roll slope-factor shift form (5·sin asr 4) assumes PHYS_SLOPE_ROLL_DOWN = $50")
 ensure(PHYS_SLOPE_ROLL_UP == $14, "roll uphill factor (downhill asr 2) assumes PHYS_SLOPE_ROLL_UP = $14")
 
+// =====================================================================
+// SLOPE STANDSTILL MIRROR-SYMMETRY GATE — owner ruling 2026-08-27
+// ("mirrored slopes must behave the same"). Zero ROM bytes, build-fatal.
+//
+// WHAT IT PROVES. PState_Ground's standing gate decides "does a player at
+// rest on a surface of angle A start sliding?" from the MAGNITUDE of the
+// walking slope factor. Mirroring a slope left-to-right negates the angle,
+// so a symmetric engine must return the SAME decision for A and (−A)&$FF.
+// The walk below covers all 256 angles and fails naming the first angle
+// whose mirror disagrees. Every input is re-derived here — the table bytes,
+// PHYS_SLOPE_STAND_MIN, and the block's own two skips — so a change to any
+// of them is caught rather than a copied number going stale.
+//
+// WHAT IT DOES NOT PROVE, and where the other half lives. Comptime cannot
+// read the instructions it guards, so this cannot by itself catch someone
+// reverting the abs/shift ORDER in the code below. That half is
+// `tools/test_slope_symmetry.py`, which reads this file's instruction text
+// and re-derives the same predicate independently. Neither gate is a
+// superset of the other; both run build-fatally (`pytest tools` in build.sh).
+//
+// SLOPE_ASYM_S3K IS THE DIVERGENCE RECEIPT. The same walk under S3K's own
+// |sin asr 3| magnitude must still FIND an asymmetry. If that ever stops
+// being true, the divergence has become moot and the code should return to
+// the reference form rather than carry an unexplained departure.
+//
+// TWO AUTHENTIC S3K ASYMMETRIES ARE OUT OF SCOPE AND PINNED BY COUNT rather
+// than fixed. The ruling was about the ROUNDING artifact; these are not it,
+// and neither can flip a standstill decision on its own:
+//
+//   * THE CEILING BAND IS HALF-OPEN. `addi.b #$60 / cmpi.b #$C0 / bhs`
+//     skips [$60,$A0), and the mirror of a half-open interval is the other
+//     half-open interval ($60,$A0], so exactly its two ENDPOINTS land on
+//     opposite sides of the skip from their mirrors. $60 and $A0 are 135°
+//     and 225° — past-vertical overhangs. Fixing this would be a SECOND,
+//     unbooked divergence, so it is excluded from the walk and its size is
+//     pinned at 2 (SLOPE_BAND_EDGE_N) so it cannot quietly widen.
+//   * THE SHIPPED SINE TABLE IS NOT EXACTLY ANTISYMMETRIC. Four rows have
+//     |sin| = 115 in the first half and 117 at the mirror index. This is
+//     authentic: engine/data/sine.bin is byte-identical to skdisasm's
+//     Levels/Misc/sine.bin (verified 2026-08-27), and GetSineCosine serves
+//     every projection in the engine, so re-deriving it is far out of
+//     scope. All four land on the same side of PHYS_SLOPE_STAND_MIN
+//     ($73/$75 both >= $D), so the decision walk stays clean — but the
+//     count is pinned (SLOPE_TABLE_ASYM_N) so a re-derived table that
+//     moved one across the threshold shows up as a changed count as well
+//     as a red walk.
+// =====================================================================
+const _sine_bin = embed("engine/data/sine.bin")
+ensure(_sine_bin.len == $280,
+       "slope symmetry gate: sine.bin is {_sine_bin.len} bytes, not $280 — engine/system/math.emp's Sine_Table shape moved")
+
+// sin(a)·$100 as a signed big-endian word, straight out of the blob
+// GetSineCosine indexes.
+comptime fn SLOPE_SIN(tbl: array, a: int) -> int {
+    let raw = (tbl[a * 2] & $FF) * 256 + (tbl[a * 2 + 1] & $FF)
+    if raw >= $8000 { return raw - $10000 }
+    return raw
+}
+
+// How many table rows fail sin(−a) == −sin(a). Counted, not asserted away:
+// see the header's second bullet.
+comptime fn SLOPE_TABLE_ASYM_COUNT(tbl: array) -> int {
+    comptime var n = 0
+    for a in 0..256 {
+        if SLOPE_SIN(tbl, a) != 0 - SLOPE_SIN(tbl, (256 - a) & $FF) { n = n + 1 }
+    }
+    return n
+}
+
+// Does the walking slope block below even reach its standing gate at this
+// angle? Its two skips, in its own order: the flat fast path, then the
+// ceiling band.
+//
+// THE BAND BOUNDS ARE SPELT AS LITERALS HERE and there is no constant to pin
+// them against — the block spells them inline in its own `addi.b`/`cmpi.b`,
+// so a comptime pin has nothing to compare to (EMP_PITFALLS §2's rule leads
+// to the same place). That means moving the band in the code would leave this
+// fn behind, silently. `tools/test_slope_symmetry.py` closes exactly that
+// hole: it PARSES the two operands out of the block and re-derives from them,
+// and it was proven red against a one-nibble widening of the real `cmpi.b`.
+comptime fn SLOPE_REACHES_GATE(a: int) -> int {
+    if a == 0 { return 0 }                          // `beq .no_slope`
+    if ((a + $60) & $FF) >= $C0 { return 0 }        // ceiling band $60-$9F
+    return 1
+}
+
+// An angle the ceiling-band skip treats differently from its mirror — i.e.
+// one of the half-open interval's endpoints. DERIVED from SLOPE_REACHES_GATE,
+// never a written-down pair, so moving the band moves this with it.
+comptime fn SLOPE_IS_BAND_EDGE(a: int) -> int {
+    if SLOPE_REACHES_GATE(a) != SLOPE_REACHES_GATE((256 - a) & $FF) { return 1 }
+    return 0
+}
+
+comptime fn SLOPE_BAND_EDGE_COUNT() -> int {
+    comptime var n = 0
+    for a in 0..256 {
+        if SLOPE_IS_BAND_EDGE(a) == 1 { n = n + 1 }
+    }
+    return n
+}
+
+// The SHIPPED gate magnitude: (|sin|)>>3 — abs before the shift.
+comptime fn SLOPE_MAG_SHIPPED(tbl: array, a: int) -> int {
+    let s = SLOPE_SIN(tbl, a)
+    if s < 0 { return (0 - s) >> 3 }
+    return s >> 3
+}
+
+// S3K's gate magnitude: |sin asr 3| — shift before the abs. `asr` floors
+// toward −∞, so for a negative sine the magnitude is ceil(|s|/8), which is
+// (|s| + 7) >> 3. Derived from the rounding rule, not fitted to a case.
+comptime fn SLOPE_MAG_S3K(tbl: array, a: int) -> int {
+    let s = SLOPE_SIN(tbl, a)
+    if s < 0 { return ((0 - s) + 7) >> 3 }
+    return s >> 3
+}
+
+// 1 = a player standing on this angle starts sliding, 0 = holds still.
+// `s3k` selects which magnitude rule to ask under.
+comptime fn SLOPE_SLIDES(tbl: array, a: int, min: int, s3k: int) -> int {
+    if SLOPE_REACHES_GATE(a) == 0 { return 0 }
+    if s3k == 1 {
+        if SLOPE_MAG_S3K(tbl, a) >= min { return 1 }
+        return 0
+    }
+    if SLOPE_MAG_SHIPPED(tbl, a) >= min { return 1 }
+    return 0
+}
+
+// First angle (excluding the band endpoints) whose standstill decision
+// disagrees with its mirror's, or -1 when the whole circle agrees.
+comptime fn SLOPE_FIRST_ASYM(tbl: array, min: int, s3k: int) -> int {
+    for a in 0..256 {
+        if SLOPE_IS_BAND_EDGE(a) == 0 {
+            if SLOPE_SLIDES(tbl, a, min, s3k) != SLOPE_SLIDES(tbl, (256 - a) & $FF, min, s3k) { return a }
+        }
+    }
+    return -1
+}
+
+const SLOPE_TABLE_ASYM_N = SLOPE_TABLE_ASYM_COUNT(_sine_bin)
+const SLOPE_BAND_EDGE_N  = SLOPE_BAND_EDGE_COUNT()
+const SLOPE_ASYM_SHIPPED = SLOPE_FIRST_ASYM(_sine_bin, PHYS_SLOPE_STAND_MIN, 0)
+const SLOPE_ASYM_S3K     = SLOPE_FIRST_ASYM(_sine_bin, PHYS_SLOPE_STAND_MIN, 1)
+
+ensure(SLOPE_BAND_EDGE_N == 2,
+       "slope symmetry gate: the ceiling-band skip now treats {SLOPE_BAND_EDGE_N} angles differently from their mirrors, not the 2 endpoints a half-open interval must have. The band moved or changed shape — re-read the header's first bullet before excluding anything new from the walk")
+ensure(SLOPE_TABLE_ASYM_N == 4,
+       "slope symmetry gate: engine/data/sine.bin now has {SLOPE_TABLE_ASYM_N} rows where sin(-a) != -sin(a), not the 4 S3K ships. The table was re-derived or replaced — re-verify it against skdisasm's Levels/Misc/sine.bin and re-check that no row crossed PHYS_SLOPE_STAND_MIN")
+ensure(SLOPE_ASYM_SHIPPED == -1,
+       "slope symmetry gate: a player standing on angle {SLOPE_ASYM_SHIPPED} behaves differently from one on its mirror — magnitudes {SLOPE_MAG_SHIPPED(_sine_bin, SLOPE_ASYM_SHIPPED)} vs {SLOPE_MAG_SHIPPED(_sine_bin, (256 - SLOPE_ASYM_SHIPPED) & $FF)} against PHYS_SLOPE_STAND_MIN. The owner ruled mirrored slopes behave alike (2026-08-27); something moved the table, the threshold, or the ceiling band")
+ensure(SLOPE_ASYM_S3K != -1,
+       "slope symmetry gate: S3K's own |sin asr 3| magnitude is now symmetric too, so PState_Ground's abs-before-shift is an S3K DIVERGENCE THAT BUYS NOTHING. Drop it, restore the reference form, and retire the register entry in docs/ENGINE_ARCHITECTURE.md")
+
 // -----------------------------------------------
 // PState_Ground — standing/running. Classic frame order (research
 // physics-classics §1): spindash check → jump check → slope factor →
@@ -152,20 +307,40 @@ pub proc PState_Ground (a0: *Sst) clobbers(d0-d7/a1-a2) falls_into Ground_PostMo
         cmpi.b  #$C0, d1
         bhs     .no_slope                       // ceiling band $60-$9F
         jbsr    GetSineCosine                   // d0.w = sin(angle)·$100
+        tst.w   PlayerV.ground_speed(a0)
+        bne     .slope_factor
+        // S3K standing gate: from rest, only slopes steep enough to beat
+        // the minimum start a slide (magnitude ≥ $D ≈ asin(13/32) ≈ 24°);
+        // shallower slopes hold the player still — no micro-creep.
+        //
+        // DELIBERATE S3K DIVERGENCE — owner ruling 2026-08-27 ("mirrored
+        // slopes must behave the same"); registered in ENGINE_ARCHITECTURE
+        // §"Deliberate departures from S3K feel". The gate magnitude here is
+        // (|sin|)>>3, NOT S3K's |sin asr 3|. `asr` floors toward −∞, so for a
+        // negative sine it returns one MORE magnitude than its mirror: at
+        // angle $EF sin = −103 → asr 3 = −13 (gate passes, the player creeps)
+        // while its mirror $11 has sin = +103 → asr 3 = +12 (gate fails, the
+        // player holds) — the same slope, opposite orientations, different
+        // behaviour. Same story for $F0/$10 (sin ∓97). Taking the magnitude
+        // BEFORE the shift makes the pair agree, and both hold.
+        //
+        // It moves EXACTLY those two reachable angles. Two more table rows
+        // round the same way ($90/$91) but the ceiling-band skip above
+        // already discards them AND their mirrors ($70/$6F), so they were
+        // never asymmetric in this code. Every other angle is bit-identical,
+        // and the APPLIED factor below is still S3K's signed `sin asr 3` —
+        // only the standstill decision moves, never the value.
+        // Pinned by the comptime symmetry gate at the top of this file.
+        move.w  d0, d1
+        abs_w(d1)                               // magnitude FIRST...
+        asr.w   #3, d1                          // ...THEN the shift
+        cmpi.w  #PHYS_SLOPE_STAND_MIN, d1
+        blt     .no_slope
+.slope_factor:
         asr.w   #3, d0                          // factor = ($20·sin)>>8 ≡
                                                 // sin asr 3 — exact, no muls
                                                 // (PHYS_SLOPE_WALK = 2^5,
                                                 // asserted at file top)
-        tst.w   PlayerV.ground_speed(a0)
-        bne     .slope_apply
-        // S3K standing gate: from rest, only slopes steep enough to beat
-        // the minimum start a slide (|factor| ≥ $D ≈ asin(13/32) ≈ 24°);
-        // shallower slopes hold the player still — no micro-creep
-        move.w  d0, d1
-        abs_w(d1)
-        cmpi.w  #PHYS_SLOPE_STAND_MIN, d1
-        blt     .no_slope
-.slope_apply:
         add.w   d0, PlayerV.ground_speed(a0)
 .no_slope:
         jbsr    Ground_Move

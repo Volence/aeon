@@ -1681,41 +1681,76 @@ flight or a glide there is no voluntary exit but the terminal one. The parcel:
 by default (not a curled/invulnerable ball) — the cancel buys agency, not safety.
 **When to revisit:** next player-feel parcel. All three are gated on nothing.
 
-### Slope standstill: mirror-symmetry option (abs-before-shift) — 2026-08-12
+### Slope standstill: mirror symmetry (abs-before-shift) — 2026-08-12 — **CLOSED 2026-08-27**
 **Surfaced during:** the "Knuckles drifts off a ledge at rest" investigation, which
-closed as AUTHENTIC — our `Player_SlopeResist` matches S3K clause for clause
-(standing gate `|factor| >= $D`, `PHYS_SLOPE_WALK $20`, byte-identical sine table).
-**Status:** OPTION, needs the user's call. `asr` floors toward −∞, so at 22.5° the
-factor is −13 one way and +12 the other: the same slope drifts in one orientation
-and holds in its mirror. Exactly **four angles** in the table are decided by this
-rounding asymmetry — `$90`, `$91`, `$EF`, `$F0`. The minimal fix is to take the
-absolute value BEFORE the shift (`(|sin|)>>3` instead of `|sin>>3|`), which leaves
-every symmetric case bit-identical and only affects those four.
-**Cost:** it is an S3K divergence and touches shared ground physics, so it may move the
-replay net's checkpoints (the Sonic fixtures hash the player window).
-**⚠ "RE-RECORD" IS THE WRONG WORD AND WOULD SEND SOMEONE DOWN AN IMPOSSIBLE PATH (corrected
-2026-08-27).** Re-RECORDING these fixtures is **not possible**: `ojz_fixture` needs `BUTTON_C`
-spindash ticks that the oracle driver cannot press, which is the whole reason
-`replay_runner --restamp` exists. The move is a **re-STAMP**, which rewrites hash payloads only,
-leaves fixture length and `EndOfRom` alone, and therefore **needs no sigil repin**.
-**And whether it is needed at all is an empirical question, not an assumption** — the fall-cap
-parcel (2026-08-27) predicted a fixture would move and it did not, because the window it
-reasoned about ran in a different gravity regime. **Measure with `--restamp` (a dry run without
-`--out`), and fire `--negative-control` on each fixture FIRST** so a zero is a measurement rather
-than an instrument that manufactured an absence. Re-stamping runs a headless emulator, so it is
-the controller's foreground job, never a background agent's.
-**When to revisit:** ~~only on a user ruling that mirrored slopes must behave alike.~~
-**⚠ THAT RULING EXISTS — the owner made it, and this line did not know (corrected 2026-08-27).**
-The trigger has FIRED: mirrored slopes are to behave alike, and the item is queued as
-`SLOPE-SYMMETRY` (three characters on four angles, recorded as a deliberate S3K divergence,
-replay fixtures re-stamped). **The defect worth keeping is the shape, not the slope:** a
-booking whose revisit condition is an owner ruling goes stale SILENTLY the moment the ruling
-lands, because nothing walks back to the booking to tell it. A fresh session reads this and
-concludes the item is still waiting on a decision that was already made — so the work looks
-blocked when it is merely unstarted, which is the permissive direction again.
-**Standing corrective: when the owner rules, grep DEFERRED_WORK for the condition text that
-ruling discharges, in the same sitting.** The ledger in `docs/decisions.jsonl` records that a
-ruling happened; nothing has ever propagated it into the bookings that were waiting on it.
+closed as AUTHENTIC — our standing gate matched S3K clause for clause
+(`|factor| >= $D`, `PHYS_SLOPE_WALK $20`, byte-identical sine table).
+**CLOSED by `parcel/slope-symmetry`** on the owner's ruling that mirrored slopes must
+behave the same. The gate now takes the magnitude BEFORE the shift — `(|sin|)>>3`
+instead of S3K's `|sin asr 3|`. The applied factor is untouched: it is still S3K's
+signed `sin asr 3`, so only the standstill DECISION moves, never the value. **+2 bytes**
+of code (one extra `asr.w` on the standing path). Registered as a deliberate divergence
+in `docs/ENGINE_ARCHITECTURE.md` §5.3 ("Slope standstill is mirror-symmetric") and
+commented at the site.
+
+**THREE THINGS THIS BOOKING GOT WRONG, all measured against the tree on 2026-08-27.**
+Keep them: each is the same failure, a table property mistaken for a behaviour.
+1. **There is no `Player_SlopeResist` in this codebase.** The routine is INLINE in
+   `PState_Ground` (`games/sonic4/player/player_ground.emp`) — the S3K name survived in
+   the prose long after the code stopped having it. A grep for the name finds only
+   comments and research docs, so anyone taking the booking literally starts by
+   concluding the code is missing.
+2. **The four angles were the wrong four.** `$90`/`$91` are indeed table rows where the
+   two shift forms disagree, but they sit INSIDE the ceiling band `$60-$9F` that the
+   block already skips — and so do their mirrors `$70`/`$6F`, so they were never
+   asymmetric in this code. The angles whose BEHAVIOUR was asymmetric are `$10`, `$11`,
+   `$EF`, `$F0` (two mirror pairs), and the ones that actually MOVE are the two that
+   were creeping: **`$EF` and `$F0`**. Four table rows, two moved angles, and the
+   booking conflated them.
+3. **"Three characters" is a consequence, not a work item.** All three share the one
+   `Player_States` table (`player_common.emp`), so this is a single site, changed once.
+
+**GUARDED, both build-fatal and both proven red before being trusted.** A zero-byte
+comptime gate at the top of `player_ground.emp` (walks all 256 angles, re-derives from
+the embedded `sine.bin` + `PHYS_SLOPE_STAND_MIN` + the ceiling band) and
+`tools/test_slope_symmetry.py` (parses the block's own instruction order, so reverting
+the abs/shift order goes red naming `$10`/`$11`/`$EF`/`$F0`). Neither is a superset of
+the other: comptime cannot read the instructions it guards, and the pytest cannot see
+the elaborated constants.
+
+**TWO AUTHENTIC S3K ASYMMETRIES ARE KNOWINGLY LEFT IN, pinned by count, and are the
+open riders on this item:**
+- **The ceiling band is half-open.** `addi.b #$60 / cmpi.b #$C0 / bhs` skips `[$60,$A0)`,
+  and a half-open interval's mirror is the other half-open interval, so its two endpoints
+  — `$60` and `$A0`, i.e. 135° and 225° overhangs — behave differently from their mirrors.
+  **Narrowing the compare to `cmpi.b #$C1` makes the band `[$61,$9F]`, which IS symmetric**
+  — a one-nibble change, measured. Not done: it is a second, unbooked S3K divergence at two
+  angles the ruling did not name. **Needs the owner's call.**
+- **The shipped sine table is not exactly antisymmetric.** Four rows (`$13`/`$6D`/`$93`/`$ED`)
+  hold |115| in one half and |117| at the mirror. Authentic: `engine/data/sine.bin` is
+  byte-identical to skdisasm's `Levels/Misc/sine.bin` (re-verified 2026-08-27, and the
+  pytest checks it every run). All four land on the same side of `PHYS_SLOPE_STAND_MIN`,
+  so no standstill decision turns on them, but the APPLIED factor still differs by one
+  there. Re-deriving the table is far out of scope — `GetSineCosine` serves every
+  projection in the engine.
+
+**REPLAY NET — PREDICTED NOT TO MOVE, unmeasured.** See the parcel's report. Re-stamping
+runs a headless emulator, so it is the controller's foreground job, never a background
+agent's. **"Re-RECORD" is the wrong word and would send someone down an impossible path:**
+`ojz_fixture` needs `BUTTON_C` spindash ticks the oracle driver cannot press, which is why
+`replay_runner --restamp` exists. A re-stamp rewrites hash payloads only, leaves fixture
+length and `EndOfRom` alone, and **needs no sigil repin**. Measure with `--restamp` as a dry
+run (no `--out`) and fire `--negative-control` on each fixture FIRST, so a zero is a
+measurement rather than an instrument that manufactured an absence.
+
+**THE DEFECT WORTH KEEPING IS THE SHAPE, NOT THE SLOPE.** This booking's revisit condition
+was "only on a user ruling that mirrored slopes must behave alike". That ruling landed and
+nothing walked back to tell the booking, so for a fortnight a fresh session reading this
+concluded the item was still waiting on a decision that had already been made — work that
+was merely unstarted looked blocked, which is the permissive direction. **Standing
+corrective: when the owner rules, grep DEFERRED_WORK for the condition text that ruling
+discharges, in the same sitting.** `docs/decisions.jsonl` records that a ruling happened;
+nothing has ever propagated it into the bookings that were waiting on it.
 
 ### Glide / slide / climb SFX are unwired placeholders — 2026-08-12 — **CLOSED 2026-08-26**
 **Surfaced during:** Knuckles C4.
