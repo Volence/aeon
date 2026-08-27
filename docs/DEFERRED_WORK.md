@@ -11348,7 +11348,7 @@ out** — the thing he independently reported as a bug. A ruling taken on a mate
 description does not carry over. `SceneLeftColMask.Factor0Lock` reasons about plane B and cannot
 save plane A; the `SpriteMask` arm is refused by the build (d-27-corrected).
 
-## SPRITE-OWNER — click a hardware sprite, get the object that drew it (ACCEPTED 2026-08-27, not yet built)
+## SPRITE-OWNER — click a hardware sprite, get the object that drew it (BUILT 2026-08-27, branch `parcel/sprite-owner`)
 
 Oracle's ask, ruled ACCEPTED by this lane (engine call, `DEBUG`-only, zero release cost). Their
 full reasoning and the rejected per-object `first_sprite_index` alternative: oracle
@@ -11409,3 +11409,83 @@ an honest "unknown". ~200 DEBUG cycles.
 **Build note:** re-verify the `d0` live range from source rather than from this booking — oracle
 reached the right answer from a wrong reason once on this very question, which is the shape that
 survives review. Byte-mover in the DEBUG shape, so it pairs with a sigil freeze.
+
+### AS BUILT (2026-08-27, `parcel/sprite-owner`) — what the booking got right, and the four places it did not
+
+**Everything above about the FAILURE MODES held up.** The indexed write, the pre-increment `d5`
+agreement across all three writers, `d0`-not-`d1`, the illegal scale factor, and the whole-array
+clear are all in the shipped code, and the `d0` live range was re-derived from source and AGREES
+with the booking. The corrections below are all in the details a design cannot reach.
+
+**1. The `d0` derivation, re-done from source — CONFIRMED, and worth restating exactly.** In the
+piece loop the dead window for `d0` is `[y_term's final store, tile_term's opening load)`. Every
+`y_term` form ENDS `move.w d0, (a4)+`; every `tile_term` form BEGINS `move.w (a3)+, d0`. The
+splice sits inside that window. The emitted unflipped loop (verified in `s4.debug.bin`, not
+inferred):
+
+```
+301B D043 38C0   y_term:     move.w (a3)+,d0 / add.w d3,d0 / move.w d0,(a4)+
+3005 D040 3D89   owner_term: move.w d5,d0    / add.w d0,d0 / move.w a1,(a6,d0.w)
+321B 5245 1205   size_link:  move.w (a3)+,d1 / addq.w #1,d5 / move.b d5,d1 ...
+```
+
+The stamp lands before `5245` (`addq.w #1,d5`) on all three writers — pre-increment, as designed.
+
+**2. The booking's stated REASON for rejecting `d1` is placement-dependent in exactly the way the
+booking itself warns about.** It says `size_link`'s unflipped branch "holds `size<<8|pad` in `d1`
+across the insertion point". That is true only if the insertion point is INSIDE `size_link`'s body
+below its load. At the chosen splice point — between `y_term` and `size_link` — `d1` is ALSO free
+(`y_term`'s yflip form leaves a dead height there; the unflipped form never touches it). `d0` is
+still the right choice, but for a different reason than the booking gives: its dead window is the
+wider of the two, so a small later edit inside `size_link` cannot silently make it live. The
+booking's own thesis — the register choice is bound to the placement — applies to the booking's
+own sentence about `d1`.
+
+**3. `InsertSpriteMasks` has NO free data register; the booking named the `$0002` sentinel but
+never derived a register for it.** Unlike the piece loop, this proc carries `d0` (running mask Y)
+and `d1` (remaining scanlines) LIVE across its whole loop body — the `addi.w`/`subi.w` at the
+bottom feed the next pass. Neither can be borrowed. Shipped: `d0` is saved to and restored from
+the stack around the stamp. Widening the proc's `clobbers()` to free a third register was rejected
+because it changes a RELEASE contract for a DEBUG-only write. ~40 DEBUG cycles per mask sprite.
+
+**4. The clear costs ~880 cycles, not ~200.** `MAX_VDP_SPRITES/2` = 40 iterations of
+`move.l d0,(a0)+` (12) + `dbf` (10). That is ~0.7% of a 60 Hz frame, DEBUG only — still cheap, but
+the booking's figure was off by 4×. Per-piece cost is 3 instructions (~24 cycles); at the measured
+`Sprites_Rendered=49` that is ~1,200 cycles, so the booking's ~2,000 total is about right once the
+real clear is folded in.
+
+**5. RAM sits at the TAIL, not "beside `Sprites_Rendered`".** Deliberate deviation. Beside
+`Sprites_Rendered` it would have slid every engine-RAM field below the sprite block in the DEBUG
+shape. At the tail, after the replay block and inside its own `if DEBUG == 1 @shape_divergent`,
+ZERO existing engine-RAM addresses ripple — only `Engine_RAM_End` and the game RAM chained after
+it, and only in DEBUG. Genesis RAM has no locality cost and the array is reached through one
+`lea` held in `a6`. `Sprite_Owner` = `$FFFFE1EE` in `s4.debug.bin`; 160 B.
+
+**Register contract (the part a future edit will trip over).** `a6` = `&Sprite_Owner` for the whole
+of `Render_Sprites`, and `a1` = the emitting object's SST, set at all THREE `Emit_ObjectPieces`
+call sites (single, multi-sprite parent, sibling child — a child owns its own pieces). Both are
+DEBUG-only reads; `Emit_ObjectPieces` already preserved both. `a6` is touched by nothing in
+`sprites.emp` or `rings.emp`; `a1` IS scratch in `Render_Sprites` (the band-count and
+scanline-budget `lea`s land in it), which is why it is re-set at every call site rather than once.
+
+**Gates (`tools/test_sprite_owner.py`, run by build.sh's pytest lane).** Six pins: the array length
+spelled as `MAX_VDP_SPRITES` rather than a literal; the `if DEBUG == 1 @shape_divergent` block; the
+clear covering exactly the whole array (expression evaluated against the parsed constant); the
+`{owner_term()}` splice present and IMMEDIATELY before `{size_link(...)}`; every `d5` slot claim in
+the two SAT-owning modules carrying a stamp above it; and no stamp sitting below its `addq`. Plus a
+zero-byte `ensure` in `sprites.emp` that fails the BUILD on an odd `MAX_VDP_SPRITES`. All eight
+proven red-first by poisoning; one of those poisons found a REAL BUG in the gate itself (Python's
+`/` is float, `.emp`'s truncates, so an odd bound computed "79.0 of 79 covered" and passed).
+
+**What the gates cannot see, stated rather than papered over:** a SAT writer added in a THIRD module
+is outside the census. That is precisely why the clear is whole-array — an unstamped entry then
+reads `$0000` ("unknown") instead of the previous frame's still-valid SST address.
+
+**NOT VERIFIED AT RUNTIME — for the overseer's foreground follow-up.** No emulator was used (lane
+rule). Nothing here has watched `Sprite_Owner` fill in on a live frame, so the following are
+DERIVED-AND-BUILT, not observed: that entry *i* names the object whose sprite occupies SAT slot
+*i* on screen; that the ring/mask sentinels land where rings and masks actually are; and that
+`$0000` never appears inside `[0, Sprites_Rendered)` in normal play (it should not — that would
+mean an unstamped writer exists). A foreground session with oracle can settle all three in one
+scene: read `Sprite_Owner`, read `Sprite_Table_Buffer`, and check that every slot below
+`Sprites_Rendered` has a nonzero owner whose SST is a live object at the sprite's position.
