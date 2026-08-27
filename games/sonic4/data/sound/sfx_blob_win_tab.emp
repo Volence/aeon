@@ -1,9 +1,9 @@
 // ===========================================================================
 // data/sound/sfx_blob_win_tab.emp — id -> blob $8000-window pointer table
-// (dense, indexed by id - SFX_ID_BASE over [$33..$B9]).
+// (dense, indexed by id - SFX_ID_BASE over [$33..$BB]).
 // ===========================================================================
-// The .emp port of sfx_blob_win_tab.asm (this directory). 135 little-endian
-// words: one $8000-window pointer per SFX id in the dense [$33..$B9] range, 0
+// The .emp port of sfx_blob_win_tab.asm (this directory). 137 little-endian
+// words: one $8000-window pointer per SFX id in the dense [$33..$BB] range, 0
 // for an unused id. sound_sfx.emp's readers (SfxDispatch, Sfx_BeginSound) index
 // it as SfxBlobWinTab[id - SFX_ID_BASE] under SetBank(SFX_BLOB_BANK).
 //
@@ -31,7 +31,7 @@
 
 module data.sfx_blob_win_tab (cpu: z80)
 
-// The `ensure` below checks that the DECLARED span (135 cells, the hand literal
+// The `ensure` below checks that the DECLARED span (137 cells, the hand literal
 // this table's explicit body emits) still equals SFX_TABLE_LEN — the derived SFX
 // id-range length owned by its authority sfx_bank.emp (= SfxTable.len), read here
 // as a cross-seam extern (the co-link carrier folds it). It does NOT read the
@@ -53,17 +53,23 @@ section sfx_blob_win_tab (cpu: z80, vma: $8000) {
         dc.w    SFX_WIN_36          // $36 SKID
         dc.w    0, 0, 0, 0, 0   // $37..$3B unused (5)
         dc.w    SFX_WIN_3C          // $3C ROLL
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $3D..$61 unused (37)
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        dc.w    0
+        dc.w    0, 0, 0, 0, 0   // $3D..$41 unused (5)
+        dc.w    SFX_WIN_42          // $42 INSTASHIELD
+        dc.w    0, 0, 0, 0, 0, 0, 0   // $43..$49 unused (7)
+        dc.w    SFX_WIN_4A          // $4A GRAB
+        dc.w    0   // $4B unused (1)
+        dc.w    SFX_WIN_4C          // $4C GLIDE_LAND
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $4D..$61 unused (21)
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0
         dc.w    SFX_WIN_62          // $62 JUMP
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $63..$AA unused (72)
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $63..$7D unused (27)
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0
+        dc.w    SFX_WIN_7E          // $7E GROUND_SLIDE
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $7F..$AA unused (44)
         dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        dc.w    0, 0, 0, 0, 0, 0, 0, 0
         dc.w    SFX_WIN_AB          // $AB SPINDASH
         dc.w    0, 0, 0, 0, 0, 0, 0, 0, 0, 0   // $AC..$B5 unused (10)
         dc.w    SFX_WIN_B6          // $B6 DASH
