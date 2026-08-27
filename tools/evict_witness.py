@@ -93,8 +93,29 @@ async def main():
         print(f"FAIL: loaded ROM crc {got:#010x} != file {want:#010x} (stale build?)")
         return 1
 
+    # SEND-SIDE SPELLING IS PINNED TO THE SERVER WE ACTUALLY TALK TO. The legacy server
+    # takes `timeout_ms`; oracle's Rust core takes `timeoutMs` and REFUSES an unknown key
+    # with -32602 rather than aliasing it (accepting both spellings is how a vocabulary
+    # rots). A key you SEND cannot be dual-spelled, so this stays `timeout_ms` until this
+    # probe migrates, and the migration moves both halves together.
     r = await b.call("emulator/wait_for_break", {"timeout_ms": 60000})
-    if r.get("timeout_reached"):
+    # READ SIDE, AND THIS IS THE HALF THAT USED TO FAIL SILENTLY. It was
+    # `r.get("timeout_reached")`: after a migration that key is spelled `timeoutReached`,
+    # `.get` returns None, None is falsy, and A SURRENDER READS AS A SUCCESS — the probe
+    # would announce the breakpoint was reached when the server had just told it the
+    # opposite. The parameter error above announces itself; this one never would.
+    # Dual-accept is legitimate on the RECEIVE side, and the absence of BOTH spellings is
+    # now a loud error rather than a default.
+    for key in ("timeout_reached", "timeoutReached"):
+        if key in r:
+            timed_out = bool(r[key])
+            break
+    else:
+        raise RuntimeError(
+            "wait_for_break replied with neither `timeout_reached` nor `timeoutReached` "
+            f"(keys: {sorted(r)}). Refusing to guess: reading a missing key as False would "
+            "report a timeout as a reached breakpoint.")
+    if timed_out:
         print("FAIL: never reached GameState_OJZScroll_Init")
         return 1
     await b.call("emulator/breakpoint_clear", {"all": True})
